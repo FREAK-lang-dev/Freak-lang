@@ -1,0 +1,21 @@
+-- Test: maybe and result types
+
+-- Create a maybe value with some
+pilot val = some(42)
+
+-- Use or else to provide a default
+pilot safe_val = val or else 0
+say "safe_val = {safe_val}"
+
+-- Check pattern matching on maybe
+check val {
+    got x -> say "Got value: {x}"
+    nobody -> say "No value!"
+}
+
+-- Create a nobody value
+pilot empty = nobody
+check empty {
+    got x -> say "Got: {x}"
+    nobody -> say "Nobody home!"
+}

@@ -1,0 +1,191 @@
+-- ================================================
+-- MUVLUV — The flagship FREAK Hangar package
+-- ================================================
+-- Muv-Luv Alternative themed types and helpers.
+-- BETA Early Warning System showcase program.
+-- ================================================
+
+-- ── Eishi (Pilot) ─────────────────────────────────────
+
+shape Eishi {
+    name: word,
+    power: int,
+    callsign: word,
+    status: word
+}
+
+impl Eishi {
+    task introduce(self) -> void {
+        say "{self.callsign} ({self.name}) — Power: {self.power}, Status: {self.status}"
+    }
+
+    task power_up(self, amount: int) -> void {
+        self.power = self.power + amount
+    }
+}
+
+-- ── TSF (Tactical Surface Fighter) ────────────────────
+
+shape TSF {
+    model: word,
+    variant: word,
+    weapon: word,
+    os_ver: word
+}
+
+impl TSF {
+    task display(self) -> void {
+        say "TSF: {self.model} [{self.variant}] | Weapon: {self.weapon} | OS: {self.os_ver}"
+    }
+}
+
+-- ── BETA Tiers ────────────────────────────────────────
+-- Soldier=1  Grappler=2  Destroyer=3  Tank=4
+-- Laser=5    Fort=6      BRAIN=7
+
+task tier_name(tier: int) -> word {
+    when tier {
+        1 -> give back "Soldier"
+        2 -> give back "Grappler"
+        3 -> give back "Destroyer"
+        4 -> give back "Tank"
+        5 -> give back "Laser"
+        6 -> give back "Fort"
+        7 -> give back "BRAIN"
+    }
+    give back "Unknown"
+}
+
+task required_power(tier: int) -> int {
+    when tier {
+        1 -> give back 10
+        2 -> give back 25
+        3 -> give back 50
+        4 -> give back 100
+        5 -> give back 200
+        6 -> give back 500
+        7 -> give back 9999
+    }
+    give back 0
+}
+
+task tier_threat(tier: int) -> word {
+    if tier >= 7 {
+        give back "EXTINCTION"
+    }
+    if tier >= 5 {
+        give back "CRITICAL"
+    }
+    if tier >= 3 {
+        give back "HIGH"
+    }
+    give back "MODERATE"
+}
+
+-- ── COSMO Module ──────────────────────────────────────
+
+task cosmo_strike(target: word, power: int) -> void {
+    say "=== COSMO ORBITAL STRIKE ==="
+    say "Target: {target}"
+    say "Yield: {power} terajoules"
+    say "Status: CONFIRMED — Firing in 3... 2... 1..."
+    say ">>> IMPACT <<<"
+    say ""
+}
+
+-- ── YuukoLab Helpers ──────────────────────────────────
+
+task yuuko_analyze(subject: word) -> void {
+    say "[YuukoLab] Analyzing: {subject}..."
+    say "[YuukoLab] Analysis complete. Results classified."
+}
+
+task yuuko_log(msg: word) -> void {
+    say "[YuukoLab] {msg}"
+}
+
+-- ================================================
+-- BETA EARLY WARNING SYSTEM
+-- ================================================
+
+say "============================================"
+say " BETA EARLY WARNING SYSTEM v1.0"
+say " Powered by FREAK + muvluv"
+say "============================================"
+say ""
+
+-- Create pilots
+@protagonist
+pilot takeru = Eishi { name: "Takeru Shirogane", power: 9001, callsign: "Valkyrie-1", status: "active" }
+
+pilot meiya = Eishi { name: "Meiya Mitsurugi", power: 8500, callsign: "Valkyrie-2", status: "active" }
+
+@side_character
+pilot hayase = Eishi { name: "Mitsuki Hayase", power: 7200, callsign: "Storm-1", status: "active" }
+
+-- Create TSFs
+pilot shiranui = TSF { model: "Type-94 Shiranui", variant: "2nd Phase", weapon: "Type-87 Assault Cannon", os_ver: "XM3" }
+
+pilot takemikazuchi = TSF { model: "Type-00 Takemikazuchi", variant: "Type-F", weapon: "Type-74 PB Blade", os_ver: "XM3" }
+
+-- Display roster
+say "-- PILOT ROSTER --"
+takeru.introduce()
+meiya.introduce()
+hayase.introduce()
+say ""
+
+say "-- TSF HANGAR --"
+shiranui.display()
+takemikazuchi.display()
+say ""
+
+-- Simulate BETA wave detection
+say "-- INCOMING BETA WAVE --"
+
+pilot tier = 1
+repeat 7 times {
+    pilot name = tier_name(tier)
+    pilot threat = tier_threat(tier)
+    pilot req = required_power(tier)
+
+    if tier >= 7 {
+        say "!! ALERT: {name} class detected! Threat: {threat} !!"
+        say "!! Required power: {req} — ALL UNITS ENGAGE !!"
+    } else {
+        say "Detected: {name} class | Threat: {threat} | Power needed: {req}"
+    }
+
+    tier = tier + 1
+    if tier > 7 {
+        tier = 1
+    }
+}
+
+say ""
+
+-- YuukoLab analysis
+yuuko_analyze("BETA wave composition")
+yuuko_log("Recommending orbital strike on BRAIN-class target")
+
+say ""
+
+-- COSMO strike
+knowing this will hurt, cosmo_strike("Sector 7-G", 500)
+
+-- Final status
+say "-- MISSION STATUS --"
+
+-- Power up the protagonist
+@protagonist
+trust me "for humanity" on my honor as .commander {
+    takeru.power_up(1000)
+}
+say "Takeru final power: {takeru.power}"
+
+sadly say "Operation Ouka complete. Casualties... classified."
+
+say ""
+say "============================================"
+say " BETA EARLY WARNING SYSTEM — OFFLINE"
+say "============================================"

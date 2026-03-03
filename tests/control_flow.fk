@@ -1,0 +1,33 @@
+-- Test: control flow constructs
+
+pilot x = 15
+
+-- if / else if / else
+if x > 20 {
+    say "x is huge"
+} else if x > 10 {
+    say "x is big"
+} else {
+    say "x is small"
+}
+
+-- repeat N times
+repeat 3 times {
+    say "FREAK!"
+}
+
+-- training arc
+pilot power = 0
+training arc until power >= 5 max 10 sessions {
+    power += 1
+}
+say "Power after training: {power}"
+
+-- when pattern matching
+pilot day = 3
+when day {
+    1 -> say "Monday"
+    2 -> say "Tuesday"
+    3 -> say "Wednesday"
+    _ -> say "Other day"
+}

@@ -1,0 +1,45 @@
+-- Test: string methods and pipe operator
+
+pilot greeting = "  Hello, FREAK World!  "
+
+-- trim whitespace
+pilot trimmed = greeting.trim()
+say "Trimmed: [{trimmed}]"
+
+-- case conversion
+pilot upper = trimmed.to_upper()
+pilot lower = trimmed.to_lower()
+say "Upper: {upper}"
+say "Lower: {lower}"
+
+-- length
+pilot len = trimmed.length()
+say "Length: {len}"
+
+-- contains / starts_with / ends_with
+pilot has_freak = trimmed.contains("FREAK")
+say "Contains FREAK: {has_freak}"
+
+pilot starts = trimmed.starts_with("Hello")
+say "Starts with Hello: {starts}"
+
+pilot ends = trimmed.ends_with("!")
+say "Ends with !: {ends}"
+
+-- replace
+pilot replaced = trimmed.replace("FREAK", "Lite")
+say "Replaced: {replaced}"
+
+-- char_at
+pilot first_char = trimmed.char_at(0)
+say "First char: {first_char}"
+
+-- to_int
+pilot num_str = "42"
+pilot parsed = num_str.to_int()
+say "Parsed int: {parsed}"
+
+-- pipe operator: data |> transform
+pilot name = "takeru"
+pilot shouted = name |> freak_word_to_upper()
+say "Piped: {shouted}"

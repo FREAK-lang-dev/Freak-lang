@@ -1,0 +1,18 @@
+-- Test: functions with parameters and return values
+task add(a: num, b: num) -> num {
+    give back a + b
+}
+
+task square(x: num) => x * x
+
+task greet(name: word) -> void {
+    say "Hello, {name}!"
+}
+
+pilot sum = add(10, 20)
+say "10 + 20 = {sum}"
+
+pilot sq = square(7)
+say "7 squared = {sq}"
+
+greet("Takeru")

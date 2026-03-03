@@ -1,0 +1,14 @@
+-- Test: closures and lambdas
+
+-- Simple lambda with no captures
+pilot double = |x: int| => x * 2
+
+-- Lambda that captures an outer variable
+pilot threshold = 10
+pilot is_above = |x: int| => x > threshold
+
+-- Verify basic variable access still works
+pilot answer = 42
+say "double lambda created"
+say "threshold is {threshold}"
+say "answer is {answer}"

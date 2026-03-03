@@ -1,0 +1,16 @@
+-- Test: shapes and impl blocks
+
+shape Point {
+    x: num
+    y: num
+}
+
+impl Point {
+    task distance(self) -> num {
+        give back self.x * self.x + self.y * self.y
+    }
+}
+
+pilot p = Point { x: 3.0, y: 4.0 }
+say "Point x: {p.x}"
+say "Point y: {p.y}"

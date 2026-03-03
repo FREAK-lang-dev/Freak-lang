@@ -1,0 +1,19 @@
+-- Test: anime operators
+
+pilot power = 50
+
+-- PLUS ULTRA: prefix, doubles the value
+pilot ultra_power = PLUS ULTRA power
+say "PLUS ULTRA 50 = {ultra_power}"
+
+-- FINAL FORM: prefix, squares the value
+pilot final = FINAL FORM 5
+say "FINAL FORM 5 = {final}"
+
+-- NAKAMA: binary, synergy bonus a + b + a*b*0.1
+pilot team = 10 NAKAMA 20
+say "10 NAKAMA 20 = {team}"
+
+-- TSUNDERE: postfix, negation
+pilot mood = 42 TSUNDERE
+say "42 TSUNDERE = {mood}"

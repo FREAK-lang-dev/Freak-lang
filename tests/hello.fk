@@ -1,0 +1,4 @@
+pilot name = "Takeru"
+pilot power = 9001
+say "Hello from FREAK! {name} has power {power}."
+

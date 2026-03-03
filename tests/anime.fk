@@ -1,0 +1,26 @@
+-- Test: anime features
+
+-- Annotation on a variable
+@protagonist
+pilot takeru = 9001
+
+-- Foreshadow a value
+foreshadow pilot sacrifice_count = 0
+
+-- Trust me block
+trust me "direct memory access" on my honor as .pilot {
+    pilot raw_val = 42
+    say "Inside trust me: {raw_val}"
+}
+
+-- Payoff the foreshadowed variable
+payoff sacrifice_count
+
+-- Knowing this will hurt (call wrapper)
+say "The hero's power is {takeru}"
+
+-- Sadly (call wrapper)
+sadly say "Goodbye."
+
+-- For science (call wrapper)
+for science, say "Experiment complete."
