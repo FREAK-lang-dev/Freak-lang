@@ -108,7 +108,7 @@ If you need to step outside the rules, `trust-me` blocks give you raw pointers a
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourname/freak.git
+git clone https://github.com/FREAK-lang-dev/Freak-lang.git
 cd freak
 
 # Build the compiler (requires Python 3.10+ for FREAK Lite transpiler)
