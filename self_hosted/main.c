@@ -7,8 +7,12 @@ freak_word src = { 0 };
 int64_t pos = 0;
 int64_t cur_line = 0;
 int64_t indent_level = 0;
+bool in_task = false;
 freak_word var_registry = { 0 };
 freak_word fwd_decls = { 0 };
+freak_word global_decls = { 0 };
+freak_word global_inits = { 0 };
+int64_t cli_argc = 0;
 freak_word input_file = { 0 };
 freak_word source = { 0 };
 int64_t src_len = 0;
@@ -37,6 +41,7 @@ static freak_word freak_ind(void);
 static void freak_var_set(freak_word name, freak_word vtype);
 static freak_word freak_var_get_type(freak_word name);
 static freak_word freak_build_interpolation(freak_word s);
+static bool freak_is_expr_word(freak_word expr);
 static freak_word freak_compile_primary(void);
 static freak_word freak_compile_args(void);
 static freak_word freak_compile_postfix(void);
@@ -431,6 +436,8 @@ static freak_word freak_scan_string(void) {
                 freak_word esc = freak_advance();
                 if (freak_word_eq(esc, freak_word_lit("n"))) {
                     res = freak_word_concat(res, freak_word_lit("\n"));
+                } else if (freak_word_eq(esc, freak_word_lit("r"))) {
+                    res = freak_word_concat(res, freak_word_lit("\r"));
                 } else if (freak_word_eq(esc, freak_word_lit("t"))) {
                     res = freak_word_concat(res, freak_word_lit("\t"));
                 } else if (freak_word_eq(esc, freak_word_lit("\""))) {
@@ -460,6 +467,8 @@ static freak_word freak_c_escape(freak_word s) {
             res = freak_word_concat(res, freak_word_lit("\\\\"));
         } else if (freak_word_eq(c, freak_word_lit("\n"))) {
             res = freak_word_concat(res, freak_word_lit("\\n"));
+        } else if (freak_word_eq(c, freak_word_lit("\r"))) {
+            res = freak_word_concat(res, freak_word_lit("\\r"));
         } else if (freak_word_eq(c, freak_word_lit("\t"))) {
             res = freak_word_concat(res, freak_word_lit("\\t"));
         } else {
@@ -527,6 +536,7 @@ static freak_word freak_build_interpolation(freak_word s) {
         } else {
             freak_word c = freak_word_char_at(s, i);
             if (freak_word_eq(c, freak_word_lit("{"))) {
+                int64_t saved_i = i;
                 i += ((int64_t)1);
                 freak_word vname = freak_word_lit("");
                 bool inner_fin = false;
@@ -544,22 +554,42 @@ static freak_word freak_build_interpolation(freak_word s) {
                         }
                     }
                 }
-                freak_word vtype = freak_var_get_type(vname);
-                if ((!freak_word_eq(args, freak_word_lit("")))) {
-                    args = freak_word_concat(args, freak_word_lit(", "));
+                bool is_valid_var = true;
+                int64_t vn_len = freak_word_length(vname);
+                if ((vn_len == ((int64_t)0))) {
+                    is_valid_var = false;
                 }
-                if (freak_word_eq(vtype, freak_word_lit("w"))) {
-                    fmt = freak_word_concat(fmt, freak_word_lit("%s"));
-                    args = freak_word_concat(freak_word_concat(freak_word_concat(args, freak_word_lit("freak_word_to_cstr(freak_")), vname), freak_word_lit(")"));
-                } else if (freak_word_eq(vtype, freak_word_lit("d"))) {
-                    fmt = freak_word_concat(fmt, freak_word_lit("%g"));
-                    args = freak_word_concat(freak_word_concat(args, freak_word_lit("freak_")), vname);
-                } else if (freak_word_eq(vtype, freak_word_lit("b"))) {
-                    fmt = freak_word_concat(fmt, freak_word_lit("%s"));
-                    args = freak_word_concat(freak_word_concat(freak_word_concat(args, freak_word_lit("(freak_")), vname), freak_word_lit(" ? \"true\" : \"false\")"));
+                int64_t vi = ((int64_t)0);
+                for (int64_t __rep_6 = 0; __rep_6 < vn_len; __rep_6++) {
+                    freak_word vcc = freak_word_char_at(vname, vi);
+                    if ((!freak_is_alnum(vcc))) {
+                        if ((!freak_word_eq(vcc, freak_word_lit("_")))) {
+                            is_valid_var = false;
+                        }
+                    }
+                    vi += ((int64_t)1);
+                }
+                if (is_valid_var) {
+                    freak_word vtype = freak_var_get_type(vname);
+                    if ((!freak_word_eq(args, freak_word_lit("")))) {
+                        args = freak_word_concat(args, freak_word_lit(", "));
+                    }
+                    if (freak_word_eq(vtype, freak_word_lit("w"))) {
+                        fmt = freak_word_concat(fmt, freak_word_lit("%s"));
+                        args = freak_word_concat(freak_word_concat(freak_word_concat(args, freak_word_lit("freak_word_to_cstr(freak_")), vname), freak_word_lit(")"));
+                    } else if (freak_word_eq(vtype, freak_word_lit("d"))) {
+                        fmt = freak_word_concat(fmt, freak_word_lit("%g"));
+                        args = freak_word_concat(freak_word_concat(args, freak_word_lit("freak_")), vname);
+                    } else if (freak_word_eq(vtype, freak_word_lit("b"))) {
+                        fmt = freak_word_concat(fmt, freak_word_lit("%s"));
+                        args = freak_word_concat(freak_word_concat(freak_word_concat(args, freak_word_lit("(freak_")), vname), freak_word_lit(" ? \"true\" : \"false\")"));
+                    } else {
+                        fmt = freak_word_concat(fmt, freak_word_lit("%lld"));
+                        args = freak_word_concat(freak_word_concat(args, freak_word_lit("(long long)freak_")), vname);
+                    }
                 } else {
-                    fmt = freak_word_concat(fmt, freak_word_lit("%lld"));
-                    args = freak_word_concat(freak_word_concat(args, freak_word_lit("(long long)freak_")), vname);
+                    fmt = freak_word_concat(fmt, freak_word_lit("{"));
+                    i = (saved_i + ((int64_t)1));
                 }
             } else {
                 if (freak_word_eq(c, freak_word_lit("\""))) {
@@ -583,6 +613,71 @@ static freak_word freak_build_interpolation(freak_word s) {
         return freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("freak_interpolate(\""), fmt), freak_word_lit("\", ")), args), freak_word_lit(")"));
     }
     return freak_word_concat(freak_word_concat(freak_word_lit("freak_word_lit(\""), fmt), freak_word_lit("\")"));
+}
+
+static bool freak_is_expr_word(freak_word expr) {
+    if (freak_word_starts_with(expr, freak_word_lit("freak_word_lit("))) {
+        return true;
+    }
+    if (freak_word_starts_with(expr, freak_word_lit("freak_interpolate("))) {
+        return true;
+    }
+    if (freak_word_starts_with(expr, freak_word_lit("freak_fs_read("))) {
+        return true;
+    }
+    if (freak_word_starts_with(expr, freak_word_lit("freak_ask("))) {
+        return true;
+    }
+    if (freak_word_starts_with(expr, freak_word_lit("freak_word_"))) {
+        if (freak_word_starts_with(expr, freak_word_lit("freak_word_length("))) {
+            return false;
+        }
+        if (freak_word_starts_with(expr, freak_word_lit("freak_word_to_int("))) {
+            return false;
+        }
+        if (freak_word_starts_with(expr, freak_word_lit("freak_word_contains("))) {
+            return false;
+        }
+        if (freak_word_starts_with(expr, freak_word_lit("freak_word_starts_with("))) {
+            return false;
+        }
+        if (freak_word_starts_with(expr, freak_word_lit("freak_word_ends_with("))) {
+            return false;
+        }
+        if (freak_word_starts_with(expr, freak_word_lit("freak_word_eq("))) {
+            return false;
+        }
+        return true;
+    }
+    if (freak_word_starts_with(expr, freak_word_lit("freak_"))) {
+        int64_t slen = freak_word_length(expr);
+        int64_t i = ((int64_t)6);
+        freak_word vname = freak_word_lit("");
+        bool fin = false;
+        while (!(fin)) {
+            if ((i >= slen)) {
+                fin = true;
+            } else {
+                freak_word c = freak_word_char_at(expr, i);
+                if (freak_is_alnum(c)) {
+                    vname = freak_word_concat(vname, c);
+                    i += ((int64_t)1);
+                } else if (freak_word_eq(c, freak_word_lit("_"))) {
+                    vname = freak_word_concat(vname, c);
+                    i += ((int64_t)1);
+                } else {
+                    fin = true;
+                }
+            }
+        }
+        if ((!freak_word_eq(vname, freak_word_lit("")))) {
+            freak_word vt = freak_var_get_type(vname);
+            if (freak_word_eq(vt, freak_word_lit("w"))) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 static freak_word freak_compile_primary(void) {
@@ -643,6 +738,12 @@ static freak_word freak_compile_primary(void) {
                     }
                     if (freak_word_eq(fq, freak_word_lit("process::args"))) {
                         return freak_word_concat(freak_word_concat(freak_word_lit("freak_process_args("), cargs), freak_word_lit(")"));
+                    }
+                    if (freak_word_eq(fq, freak_word_lit("process::args_count"))) {
+                        return freak_word_lit("((int64_t)freak_argc)");
+                    }
+                    if (freak_word_eq(fq, freak_word_lit("process::arg"))) {
+                        return freak_word_concat(freak_word_concat(freak_word_lit("freak_word_lit(freak_argv["), cargs), freak_word_lit("])"));
                     }
                     if (freak_word_eq(fq, freak_word_lit("process::exit"))) {
                         return freak_word_concat(freak_word_concat(freak_word_lit("freak_process_exit("), cargs), freak_word_lit(")"));
@@ -813,7 +914,11 @@ static freak_word freak_compile_add(void) {
                 pos += ((int64_t)1);
                 freak_skip_inline();
                 freak_word r = freak_compile_mul();
-                left = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("("), left), freak_word_lit(" + ")), r), freak_word_lit(")"));
+                if ((freak_is_expr_word(left) || freak_is_expr_word(r))) {
+                    left = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("freak_word_concat("), left), freak_word_lit(", ")), r), freak_word_lit(")"));
+                } else {
+                    left = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("("), left), freak_word_lit(" + ")), r), freak_word_lit(")"));
+                }
                 freak_skip_inline();
             }
         } else if (freak_word_eq(freak_cur_ch(), freak_word_lit("-"))) {
@@ -841,11 +946,18 @@ static freak_word freak_compile_cmp(void) {
     if (freak_at_end()) {
         return left;
     }
+    bool is_w = false;
+    if (freak_is_expr_word(left)) {
+        is_w = true;
+    }
     if (freak_word_eq(freak_cur_ch(), freak_word_lit("="))) {
         if (freak_word_eq(freak_ch_at(((int64_t)1)), freak_word_lit("="))) {
             pos += ((int64_t)2);
             freak_skip_inline();
             freak_word r = freak_compile_add();
+            if (is_w) {
+                return freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("freak_word_eq("), left), freak_word_lit(", ")), r), freak_word_lit(")"));
+            }
             return freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("("), left), freak_word_lit(" == ")), r), freak_word_lit(")"));
         }
     }
@@ -854,6 +966,9 @@ static freak_word freak_compile_cmp(void) {
             pos += ((int64_t)2);
             freak_skip_inline();
             freak_word r = freak_compile_add();
+            if (is_w) {
+                return freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("(!freak_word_eq("), left), freak_word_lit(", ")), r), freak_word_lit("))"));
+            }
             return freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("("), left), freak_word_lit(" != ")), r), freak_word_lit(")"));
         }
     }
@@ -975,19 +1090,7 @@ static void freak_compile_stmt(void) {
                 ctype = type_ann;
                 vtype = freak_word_lit("i");
             } else {
-                if (freak_word_starts_with(val, freak_word_lit("freak_word_lit("))) {
-                    ctype = freak_word_lit("freak_word");
-                    vtype = freak_word_lit("w");
-                } else if (freak_word_starts_with(val, freak_word_lit("freak_interpolate("))) {
-                    ctype = freak_word_lit("freak_word");
-                    vtype = freak_word_lit("w");
-                } else if (freak_word_starts_with(val, freak_word_lit("freak_fs_read("))) {
-                    ctype = freak_word_lit("freak_word");
-                    vtype = freak_word_lit("w");
-                } else if (freak_word_starts_with(val, freak_word_lit("freak_ask("))) {
-                    ctype = freak_word_lit("freak_word");
-                    vtype = freak_word_lit("w");
-                } else if (freak_word_starts_with(val, freak_word_lit("freak_word_"))) {
+                if (freak_is_expr_word(val)) {
                     ctype = freak_word_lit("freak_word");
                     vtype = freak_word_lit("w");
                 } else if (freak_word_eq(val, freak_word_lit("true"))) {
@@ -999,7 +1102,20 @@ static void freak_compile_stmt(void) {
                 }
             }
             freak_var_set(name, vtype);
-            freak_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_ind(), ctype), freak_word_lit(" freak_")), name), freak_word_lit(" = ")), val), freak_word_lit(";")));
+            if ((!in_task)) {
+                freak_word zero = freak_word_lit("0");
+                if (freak_word_eq(ctype, freak_word_lit("freak_word"))) {
+                    zero = freak_word_lit("FREAK_WORD_EMPTY");
+                } else if (freak_word_eq(ctype, freak_word_lit("double"))) {
+                    zero = freak_word_lit("0.0");
+                } else if (freak_word_eq(ctype, freak_word_lit("bool"))) {
+                    zero = freak_word_lit("false");
+                }
+                global_decls = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(global_decls, ctype), freak_word_lit(" freak_")), name), freak_word_lit(" = ")), zero), freak_word_lit(";\n"));
+                global_inits = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(global_inits, freak_word_lit("    freak_")), name), freak_word_lit(" = ")), val), freak_word_lit(";\n"));
+            } else {
+                freak_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_ind(), ctype), freak_word_lit(" freak_")), name), freak_word_lit(" = ")), val), freak_word_lit(";")));
+            }
         }
         return;
     }
@@ -1028,7 +1144,7 @@ static void freak_compile_stmt(void) {
         if (freak_match_kw(freak_word_lit("back"))) {
             freak_eat_kw(freak_word_lit("back"));
             freak_skip_inline();
-            if (freak_word_eq(freak_cur_ch(), freak_word_lit("}"))) {
+            if ((((freak_word_eq(freak_cur_ch(), freak_word_lit("}")) || freak_word_eq(freak_cur_ch(), freak_word_lit("\n"))) || freak_word_eq(freak_cur_ch(), freak_word_lit("\r"))) || freak_at_end())) {
                 freak_emit_line(freak_word_concat(freak_ind(), freak_word_lit("return;")));
             } else {
                 freak_word val = freak_compile_expr();
@@ -1109,24 +1225,30 @@ static void freak_compile_stmt(void) {
                     freak_word pname = freak_scan_ident();
                     freak_skip_inline();
                     freak_word pctype = freak_word_lit("int64_t");
+                    freak_word pvt = freak_word_lit("i");
                     if (freak_word_eq(freak_cur_ch(), freak_word_lit(":"))) {
                         pos += ((int64_t)1);
                         freak_skip_inline();
                         freak_word ptype = freak_scan_ident();
                         if (freak_word_eq(ptype, freak_word_lit("word"))) {
                             pctype = freak_word_lit("freak_word");
+                            pvt = freak_word_lit("w");
                         } else if (freak_word_eq(ptype, freak_word_lit("num"))) {
                             pctype = freak_word_lit("double");
+                            pvt = freak_word_lit("d");
                         } else if (freak_word_eq(ptype, freak_word_lit("bool"))) {
                             pctype = freak_word_lit("bool");
+                            pvt = freak_word_lit("b");
                         } else if (freak_word_eq(ptype, freak_word_lit("int"))) {
                             pctype = freak_word_lit("int64_t");
+                            pvt = freak_word_lit("i");
                         } else if (freak_word_eq(ptype, freak_word_lit("void"))) {
                             pctype = freak_word_lit("void");
                         } else {
                             pctype = ptype;
                         }
                     }
+                    freak_var_set(pname, pvt);
                     freak_skip_inline();
                     if ((pcount > ((int64_t)0))) {
                         params = freak_word_concat(params, freak_word_lit(", "));
@@ -1147,6 +1269,7 @@ static void freak_compile_stmt(void) {
         }
         freak_skip_inline();
         freak_word rtype = freak_word_lit("void");
+        freak_word rvt = freak_word_lit("i");
         if (freak_word_eq(freak_cur_ch(), freak_word_lit("-"))) {
             if (freak_word_eq(freak_ch_at(((int64_t)1)), freak_word_lit(">"))) {
                 pos += ((int64_t)2);
@@ -1154,12 +1277,16 @@ static void freak_compile_stmt(void) {
                 freak_word rt = freak_scan_ident();
                 if (freak_word_eq(rt, freak_word_lit("word"))) {
                     rtype = freak_word_lit("freak_word");
+                    rvt = freak_word_lit("w");
                 } else if (freak_word_eq(rt, freak_word_lit("num"))) {
                     rtype = freak_word_lit("double");
+                    rvt = freak_word_lit("d");
                 } else if (freak_word_eq(rt, freak_word_lit("bool"))) {
                     rtype = freak_word_lit("bool");
+                    rvt = freak_word_lit("b");
                 } else if (freak_word_eq(rt, freak_word_lit("int"))) {
                     rtype = freak_word_lit("int64_t");
+                    rvt = freak_word_lit("i");
                 } else if (freak_word_eq(rt, freak_word_lit("void"))) {
                     rtype = freak_word_lit("void");
                 } else {
@@ -1167,6 +1294,7 @@ static void freak_compile_stmt(void) {
                 }
             }
         }
+        freak_var_set(fname, rvt);
         if (freak_word_eq(params, freak_word_lit(""))) {
             params = freak_word_lit("void");
         }
@@ -1278,6 +1406,9 @@ static freak_word freak_compile_program(freak_word source) {
     output = freak_word_lit("");
     fwd_decls = freak_word_lit("");
     var_registry = freak_word_lit("");
+    global_decls = freak_word_lit("");
+    global_inits = freak_word_lit("");
+    in_task = false;
     freak_word funcs = freak_word_lit("");
     freak_word main_body = freak_word_lit("");
     indent_level = ((int64_t)1);
@@ -1290,7 +1421,9 @@ static freak_word freak_compile_program(freak_word source) {
             freak_word saved_out = output;
             output = freak_word_lit("");
             indent_level = ((int64_t)0);
+            in_task = true;
             freak_compile_stmt();
+            in_task = false;
             funcs = freak_word_concat(funcs, output);
             output = saved_out;
             indent_level = ((int64_t)1);
@@ -1315,11 +1448,19 @@ static freak_word freak_compile_program(freak_word source) {
         res = freak_word_concat(res, fwd_decls);
         res = freak_word_concat(res, freak_word_lit("\n"));
     }
+    if ((!freak_word_eq(global_decls, freak_word_lit("")))) {
+        res = freak_word_concat(res, freak_word_lit("/* Global variables */\n"));
+        res = freak_word_concat(res, global_decls);
+        res = freak_word_concat(res, freak_word_lit("\n"));
+    }
     if ((!freak_word_eq(funcs, freak_word_lit("")))) {
         res = freak_word_concat(res, funcs);
         res = freak_word_concat(res, freak_word_lit("\n"));
     }
     res = freak_word_concat(res, freak_word_lit("void freak_main(void) {\n"));
+    if ((!freak_word_eq(global_inits, freak_word_lit("")))) {
+        res = freak_word_concat(res, global_inits);
+    }
     res = freak_word_concat(res, main_body);
     res = freak_word_concat(res, freak_word_lit("}\n"));
     res = freak_word_concat(res, freak_word_lit("\n"));
@@ -1339,15 +1480,23 @@ int freak_main(int argc, char** argv) {
     pos = ((int64_t)0);
     cur_line = ((int64_t)1);
     indent_level = ((int64_t)0);
+    in_task = false;
     var_registry = freak_word_lit("");
     fwd_decls = freak_word_lit("");
-    input_file = freak_word_lit("tests/hello.fk");
+    global_decls = freak_word_lit("");
+    global_inits = freak_word_lit("");
+    cli_argc = ((int64_t)freak_argc);
+    input_file = freak_word_lit(freak_argv[((int64_t)1)]);
     source = freak_fs_read(input_file);
     src_len = freak_word_length(source);
     c_result = freak_compile_program(source);
-    output_c = freak_word_lit("tests/hello_self.c");
+    output_c = freak_word_concat(input_file, freak_word_lit(".c"));
     freak_say(freak_word_lit("FREAK Self-Hosted Compiler v0.1.0"));
     freak_say(freak_word_lit("======================================"));
+    if ((cli_argc < ((int64_t)2))) {
+        freak_say(freak_word_lit("Usage: freakc_self.exe <file.fk>"));
+        freak_process_exit(((int64_t)1));
+    }
     freak_say(freak_interpolate("Compiling: %s", freak_word_to_cstr(input_file)));
     freak_say(freak_interpolate("Source loaded (%lld bytes)", (long long)src_len));
     freak_fs_write(output_c, c_result);

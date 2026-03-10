@@ -6,10 +6,33 @@
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+#include <math.h>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <io.h>
+#include <direct.h>
+#else
+#include <sys/time.h>
+#include <unistd.h>
+#include <dirent.h>
+#endif
 
 /* runtime bootstrap globals (set by generated main) */
 int freak_argc = 0;
 char** freak_argv = NULL;
+
+int64_t freak_args_count(void) {
+    return (int64_t)freak_argc;
+}
+
+freak_word freak_arg(int64_t index) {
+    if (index < 0 || index >= freak_argc) {
+        freak_panic(freak_word_lit("Argument index out of bounds"));
+    }
+    return freak_word_lit(freak_argv[index]);
+}
 
 /* ------------------------------------------------------------------ */
 /*  word helpers                                                      */
@@ -190,6 +213,62 @@ void freak_fs_write(freak_word path, freak_word content) {
     fclose(f);
 }
 
+bool freak_fs_exists(freak_word path) {
+    const char* p = freak_word_to_cstr(path);
+#ifdef _WIN32
+    return _access(p, 0) == 0;
+#else
+    return access(p, F_OK) == 0;
+#endif
+}
+
+void freak_fs_delete(freak_word path) {
+    const char* p = freak_word_to_cstr(path);
+    remove(p); /* ignore errors for now */
+}
+
+void freak_fs_make_dir(freak_word path) {
+    const char* p = freak_word_to_cstr(path);
+#ifdef _WIN32
+    _mkdir(p);
+#else
+    mkdir(p, 0777);
+#endif
+}
+
+freak_word freak_fs_list_dir(freak_word path) {
+    const char* p = freak_word_to_cstr(path);
+    freak_word result = freak_word_lit("");
+#ifdef _WIN32
+    WIN32_FIND_DATAA fd;
+    char search_path[1024];
+    snprintf(search_path, sizeof(search_path), "%s\\*", p);
+    HANDLE hFind = FindFirstFileA(search_path, &fd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            if (strcmp(fd.cFileName, ".") != 0 && strcmp(fd.cFileName, "..") != 0) {
+                if (result.length > 0) result = freak_word_concat(result, freak_word_lit("|"));
+                result = freak_word_concat(result, freak_word_lit(fd.cFileName));
+            }
+        } while (FindNextFileA(hFind, &fd));
+        FindClose(hFind);
+    }
+#else
+    DIR* dir = opendir(p);
+    if (dir) {
+        struct dirent* ent;
+        while ((ent = readdir(dir)) != NULL) {
+            if (strcmp(ent->d_name, ".") != 0 && strcmp(ent->d_name, "..") != 0) {
+                if (result.length > 0) result = freak_word_concat(result, freak_word_lit("|"));
+                result = freak_word_concat(result, freak_word_lit(ent->d_name));
+            }
+        }
+        closedir(dir);
+    }
+#endif
+    return result;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Numeric helpers                                                   */
 /* ------------------------------------------------------------------ */
@@ -223,6 +302,59 @@ int64_t freak_pow_int(int64_t base, int64_t exp) {
         exp >>= 1;
     }
     return result;
+}
+
+/* ------------------------------------------------------------------ */
+/*  std::time                                                         */
+/* ------------------------------------------------------------------ */
+
+int64_t freak_time_now_ms(void) {
+#ifdef _WIN32
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    uint64_t time_100ns = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+    /* Convert from 100ns intervals since Jan 1, 1601 to ms since Jan 1, 1970 */
+    return (int64_t)((time_100ns - 116444736000000000ULL) / 10000);
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (int64_t)(tv.tv_sec) * 1000 + (int64_t)(tv.tv_usec) / 1000;
+#endif
+}
+
+void freak_time_sleep(int64_t ms) {
+    if (ms <= 0) return;
+#ifdef _WIN32
+    Sleep((DWORD)ms);
+#else
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (ms % 1000) * 1000000;
+    nanosleep(&ts, NULL);
+#endif
+}
+
+/* ------------------------------------------------------------------ */
+/*  std::math                                                         */
+/* ------------------------------------------------------------------ */
+
+double freak_math_sin(double x) { return sin(x); }
+double freak_math_cos(double x) { return cos(x); }
+double freak_math_tan(double x) { return tan(x); }
+double freak_math_sqrt(double x) { return sqrt(x); }
+double freak_math_pow(double base, double exp) { return pow(base, exp); }
+double freak_math_floor(double x) { return floor(x); }
+double freak_math_ceil(double x) { return ceil(x); }
+
+int64_t freak_math_random_int(int64_t min_val, int64_t max_val) {
+    if (min_val >= max_val) return min_val;
+    /* Basic rand() is not great, but sufficient for standard lib default */
+    int64_t r = rand();
+    return min_val + (r % (max_val - min_val));
+}
+
+double freak_math_random_float(void) {
+    return (double)rand() / (double)RAND_MAX;
 }
 
 /* ------------------------------------------------------------------ */

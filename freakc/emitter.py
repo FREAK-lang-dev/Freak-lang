@@ -859,6 +859,18 @@ class CEmitter:
         if isinstance(expr, FieldAccess):
             return self._emit_field_access(expr)
         if isinstance(expr, Index):
+            # Check if type implements Index doctrine
+            obj_type = self._infer_c_type_of_expr(expr.obj)
+            if (
+                obj_type in self.shapes
+                and obj_type in self.impl_doctrines
+                and "Index" in self.impl_doctrines[obj_type]
+            ):
+                obj_c = self._expr_to_c(expr.obj)
+                idx_c = self._expr_to_c(expr.index)
+                return f"{obj_type}_index(&{obj_c}, {idx_c})"
+
+            # Default array access fallback
             obj_c = self._expr_to_c(expr.obj)
             idx_c = self._expr_to_c(expr.index)
             return f"{obj_c}.data[{idx_c}]"
@@ -1038,6 +1050,11 @@ class CEmitter:
                 "process::set_env": "freak_process_set_env",
                 "process::args": "freak_process_args",
             }
+
+            if fq_name == "process::args_count":
+                return "((int64_t)freak_argc)"
+            if fq_name == "process::arg":
+                return f"freak_word_lit(freak_argv[{args_c}])"
 
             # std::thread mapping
             thread_map = {
@@ -1473,6 +1490,8 @@ class CEmitter:
                     "process::exit": "void",
                     "process::env_var": "freak_maybe_word",
                     "process::args": "void*",
+                    "process::args_count": "int64_t",
+                    "process::arg": "freak_word",
                     "process::run": "freak_process_output",
                     "process::spawn": "freak_process_handle",
                     "process::set_env": "void",
@@ -1509,6 +1528,18 @@ class CEmitter:
                     if f.name == expr.field and f.type_ann:
                         return self._type_to_c(f.type_ann)
             return "int64_t"  # conservative fallback
+        if isinstance(expr, Index):
+            # If the object type has an Index doctrine, return the method's return type
+            obj_type = self._infer_c_type_of_expr(expr.obj)
+            base_type = obj_type.rstrip("*").strip()
+            if (
+                base_type in self.impl_doctrines
+                and "Index" in self.impl_doctrines[base_type]
+            ):
+                for m in self.impl_methods.get(base_type, []):
+                    if m.name == "index" and m.return_type:
+                        return self._type_to_c(m.return_type)
+            return "int64_t"  # default element type (until generics exist)
         if isinstance(expr, ShapeInstantiation):
             return expr.shape_name
         if isinstance(expr, Lambda):

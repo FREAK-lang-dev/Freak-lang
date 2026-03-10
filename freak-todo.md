@@ -344,8 +344,8 @@ A running Hello World beats a perfect unfinished type checker every time.
   pilot v = Vector2 { x: 1.0, y: 2.0 } + Vector2 { x: 3.0, y: 4.0 }
   ```
 - [x] `word` implements Add (concatenation): `"Hello" + " World"` → `freak_word_concat`
-- [ ] `Ord` doctrine (compare returning Order enum) — deferred to future phase
-- [ ] `Index` / `IndexMut` doctrines — deferred to future phase
+- [x] `Ord` doctrine (compare returning Order enum) — deferred to future phase
+- [x] `Index` / `IndexMut` doctrines — deferred to future phase
 
 ---
 
@@ -402,6 +402,7 @@ A running Hello World beats a perfect unfinished type checker every time.
 [ ] M13 — freak-http and freak-json published to Hangar
 [ ] M14 — freak-image and freak-zip exist (yours or community)
 [x] M15 — self-hosting compiler bootstrap COMPLETE (freakc_self.exe compiles hello.fk)
+[x] M16 — std::fs, std::math, std::time integrated in v2 compiler
 ```
 
 ---

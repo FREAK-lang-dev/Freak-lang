@@ -587,6 +587,8 @@ class TypeChecker:
                 "process::env_var": (1, T_UNKNOWN),
                 "process::set_env": (2, T_VOID),
                 "process::args": (0, T_UNKNOWN),
+                "process::args_count": (0, T_INT),
+                "process::arg": (1, T_WORD),
             }
 
             # std::thread built-ins

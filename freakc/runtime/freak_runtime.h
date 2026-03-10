@@ -31,6 +31,12 @@ typedef struct {
     bool   heap;         /* true if data was malloc'd and must be freed */
 } freak_word;
 
+/* Command line arguments */
+int64_t freak_args_count(void);
+freak_word freak_arg(int64_t index);
+
+#define FREAK_WORD_EMPTY { 0 }
+
 /* Construct from a C string literal (no copy, points into rodata). */
 freak_word freak_word_lit(const char* s);
 
@@ -85,6 +91,11 @@ freak_word freak_fs_read(freak_word path);
 /* Write word contents to a file. Panics on failure. */
 void freak_fs_write(freak_word path, freak_word content);
 
+bool freak_fs_exists(freak_word path);
+void freak_fs_delete(freak_word path);
+void freak_fs_make_dir(freak_word path);
+freak_word freak_fs_list_dir(freak_word path);
+
 /* ------------------------------------------------------------------ */
 /*  Numeric helpers                                                   */
 /* ------------------------------------------------------------------ */
@@ -94,6 +105,27 @@ double  freak_abs_double(double x);
 int64_t freak_clamp_int(int64_t x, int64_t lo, int64_t hi);
 double  freak_clamp_double(double x, double lo, double hi);
 int64_t freak_pow_int(int64_t base, int64_t exp);
+
+/* ------------------------------------------------------------------ */
+/*  std::time                                                         */
+/* ------------------------------------------------------------------ */
+
+int64_t freak_time_now_ms(void);
+void    freak_time_sleep(int64_t ms);
+
+/* ------------------------------------------------------------------ */
+/*  std::math                                                         */
+/* ------------------------------------------------------------------ */
+
+double  freak_math_sin(double x);
+double  freak_math_cos(double x);
+double  freak_math_tan(double x);
+double  freak_math_sqrt(double x);
+double  freak_math_pow(double base, double exp);
+double  freak_math_floor(double x);
+double  freak_math_ceil(double x);
+int64_t freak_math_random_int(int64_t min_val, int64_t max_val);
+double  freak_math_random_float(void);
 
 /* ------------------------------------------------------------------ */
 /*  Closures                                                          */
