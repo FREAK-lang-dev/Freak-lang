@@ -393,7 +393,7 @@ task build_interpolation(s: word) -> word {
                         }
                     }
                 }
-                
+
                 pilot is_valid_var = true
                 pilot vn_len = vname.length()
                 if vn_len == 0 { is_valid_var = false }
@@ -438,7 +438,7 @@ task build_interpolation(s: word) -> word {
                 } else if c == "\t" {
                     fmt = fmt + "\\t"
                 } else if c == "%" {
-                    fmt = fmt + "%%"
+                    fmt = fmt + "%"
                 } else {
                     fmt = fmt + c
                 }
@@ -458,7 +458,7 @@ task is_expr_word(expr: word) -> bool {
     if expr.starts_with("freak_interpolate(") { give back true }
     if expr.starts_with("freak_fs_read(") { give back true }
     if expr.starts_with("freak_ask(") { give back true }
-    
+
     if expr.starts_with("freak_word_") {
         if expr.starts_with("freak_word_length(") { give back false }
         if expr.starts_with("freak_word_to_int(") { give back false }
@@ -468,7 +468,7 @@ task is_expr_word(expr: word) -> bool {
         if expr.starts_with("freak_word_eq(") { give back false }
         give back true
     }
-    
+
     if expr.starts_with("freak_") {
         pilot slen = expr.length()
         pilot i = 6
@@ -493,7 +493,7 @@ task is_expr_word(expr: word) -> bool {
             if vt == "w" { give back true }
         }
     }
-    
+
     give back false
 }
 
@@ -748,7 +748,7 @@ task compile_cmp() -> word {
     pilot left = compile_add()
     skip_inline()
     if at_end() { give back left }
-    
+
     pilot is_w = false
     if is_expr_word(left) { is_w = true }
 

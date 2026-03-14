@@ -22,7 +22,8 @@ task freakc_v2_main() -> void {
         }
     }
 
-    say "FREAK v2 Compiling: " + input_file + " (Target: " + emit_target + ")"
+    pilot msg = "FREAK v2 Compiling: " + input_file + " (Target: " + emit_target + ")"
+    say msg
 
     pilot src = fs::read(input_file)
     if src == "" {
@@ -45,12 +46,14 @@ task freakc_v2_main() -> void {
         emit_llvm_program()
         pilot out_file = input_file + ".ll"
         fs::write(out_file, llvm_out_buf)
-        say "Generated LLVM IR at " + out_file
+        pilot msg2 = "Generated LLVM IR at " + out_file
+        say msg2
     } else {
         emit_program()
         pilot out_file = input_file + ".c"
         fs::write(out_file, out_buf)
-        say "Generated C code at " + out_file
+        pilot msg3 = "Generated C code at " + out_file
+        say msg3
     }
 }
 

@@ -23,6 +23,17 @@ task is_ast_word(id: word) -> bool {
         if val == "fs::read" { give back true }
         if val == "fs::list_dir" { give back true }
         if val == "process::arg" { give back true }
+        if val == "llvm_emit_expr" { give back true }
+        if val == "next_reg" { give back true }
+        if val == "llvm_emit_args" { give back true }
+        if val == "register_string_literal" { give back true }
+        if val == "llvm_c_safe_ident" { give back true }
+        if val == "llvm_translate_params" { give back true }
+        if val == "c_safe_ident" { give back true }
+        if val == "translate_params" { give back true }
+        if val == "get_nth" { give back true }
+        if val == "push_item" { give back true }
+        if val == "word_from_int" { give back true }
     }
     if kind == EXPR_BINOP {
         pilot val = get_nth(ast_expr_vals, i)
@@ -209,12 +220,46 @@ task emit_expr(id: word) -> void {
             emit(" || ")
             emit_expr(right)
             emit(")")
+        } else if val == "NAKAMA" {
+            emit("(")
+            emit_expr(left)
+            emit(" + ")
+            emit_expr(right)
+            emit(" + (")
+            emit_expr(left)
+            emit(" * ")
+            emit_expr(right)
+            emit(" / 10))")
         } else {
             emit("(")
             emit_expr(left)
             pilot tmp = " " + val + " "
             emit(tmp)
             emit_expr(right)
+            emit(")")
+        }
+    } else if kind == EXPR_UNARYOP {
+        if val == "not" {
+            emit("(!")
+            emit_expr(left)
+            emit(")")
+        } else if val == "-" {
+            emit("(-")
+            emit_expr(left)
+            emit(")")
+        } else if val == "PLUS ULTRA" {
+            emit("(")
+            emit_expr(left)
+            emit(" * 2)")
+        } else if val == "FINAL FORM" {
+            emit("(")
+            emit_expr(left)
+            emit(" * ")
+            emit_expr(left)
+            emit(")")
+        } else if val == "TSUNDERE" {
+            emit("(-")
+            emit_expr(left)
             emit(")")
         }
     } else {
@@ -230,7 +275,7 @@ task emit_block(block: word) -> void {
     repeat slen times {
         if not fin {
             pilot c = block.char_at(i)
-            if c == "|" {
+            if c == "," {
                 if cur_id != "" {
                     emit_stmt(cur_id)
                 }
@@ -308,8 +353,78 @@ task emit_stmt(eid: word) -> void {
             emit_block(get_nth(ast_stmt_bodies, i))
             emit_line("}")
         }
-    } else if kind == STMT_ASSIGN {
-        pilot op_w = name_w
+    } else if kind == STMT_TRAINING_ARC {
+        pilot max_id_w = get_nth(ast_stmt_extras, i)
+        emit("for (int64_t __arc = 0; __arc < ")
+        emit_expr(max_id_w)
+        emit_line("; __arc++) {")
+        emit("    if (")
+        emit_expr(expr_id_w)
+        emit_line(") { break; }")
+        emit_block(get_nth(ast_stmt_bodies, i))
+        emit_line("}")
+    } else if kind == STMT_WHEN {
+        pilot target_id_w = expr_id_w
+        pilot cases_str = get_nth(ast_stmt_bodies, i)
+
+        emit("{ int64_t __target = ")
+        emit_expr(target_id_w)
+        emit_line(";")
+
+        pilot cases_len = cases_str.length()
+        pilot ci = 0
+        pilot case_fin = false
+        pilot cur_case = ""
+        pilot is_first = true
+
+        repeat until case_fin {
+            pilot cc = cases_str.char_at(ci)
+            if cc == "," or ci >= cases_len {
+                if cur_case != "" {
+                    pilot c_expr = ""
+                    pilot c_stmt = ""
+                    pilot colon_idx = 0
+                    pilot in_expr = true
+                    pilot c_len = cur_case.length()
+                    repeat c_len times {
+                        pilot p = cur_case.char_at(colon_idx)
+                        if p == ":" {
+                            in_expr = false
+                        } else {
+                            if in_expr { c_expr = c_expr + p }
+                            else { c_stmt = c_stmt + p }
+                        }
+                        colon_idx += 1
+                    }
+
+                    if c_expr.length() == 2 and c_expr.char_at(0) == "-" and c_expr.char_at(1) == "1" {
+                        if not is_first { emit("else ") }
+                        emit_line("{")
+                        emit_stmt(c_stmt)
+                        emit_line("}")
+                    } else {
+                        if not is_first { emit("else ") }
+                        emit("if (__target == ")
+                        emit_expr(c_expr)
+                        emit_line(") {")
+                        emit_stmt(c_stmt)
+                        emit_line("}")
+                    }
+                    is_first = false
+                }
+                cur_case = ""
+                if ci >= cases_len { case_fin = true }
+            } else {
+                cur_case = cur_case + cc
+            }
+            ci += 1
+        }
+        emit_line("}")
+    } else if kind == STMT_BLOCK {
+        emit_line("{")
+        emit_block(get_nth(ast_stmt_bodies, i))
+        emit_line("}")
+    } else if kind == STMT_ASSIGN {        pilot op_w = name_w
         pilot rhs_w = get_nth(ast_stmt_bodies, i)
         emit_expr(expr_id_w)
         emit(" ")

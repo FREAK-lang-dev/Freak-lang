@@ -768,3 +768,200 @@ freak_result_word_word freak_bytes_to_word(const freak_byte_buffer* b) {
     r.data.ok_val = freak_word_own(s, b->length);
     return r;
 }
+
+void freak_llvm_setup_args(int64_t argc, int64_t argv) {
+    freak_argc = (int)argc;
+    freak_argv = (char**)argv;
+}
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int64_t freak_llvm_word_from_int(int64_t n) {
+    char* buf = (char*)malloc(32);
+    snprintf(buf, 32, "%lld", (long long)n);
+    return (int64_t)buf;
+}
+
+int64_t freak_llvm_word_from_bool(int64_t b) {
+    return (int64_t)(b ? "true" : "false");
+}
+
+int64_t freak_llvm_word_concat(int64_t a, int64_t b) {
+    const char* sa = (const char*)a;
+    const char* sb = (const char*)b;
+    if (!sa) sa = "";
+    if (!sb) sb = "";
+    size_t len = strlen(sa) + strlen(sb) + 1;
+    char* buf = (char*)malloc(len);
+    strcpy(buf, sa);
+    strcat(buf, sb);
+    return (int64_t)buf;
+}
+
+int64_t freak_llvm_word_eq(int64_t a, int64_t b) {
+    const char* sa = (const char*)a;
+    const char* sb = (const char*)b;
+    if (!sa) sa = "";
+    if (!sb) sb = "";
+    return strcmp(sa, sb) == 0 ? 1 : 0;
+}
+
+int64_t freak_llvm_word_neq(int64_t a, int64_t b) {
+    return 1 - freak_llvm_word_eq(a, b);
+}
+
+int64_t freak_llvm_word_length(int64_t a) {
+    const char* sa = (const char*)a;
+    if (!sa) return 0;
+    return strlen(sa);
+}
+
+int64_t freak_llvm_word_char_at(int64_t a, int64_t idx) {
+    const char* sa = (const char*)a;
+    if (!sa) return (int64_t)"";
+    size_t len = strlen(sa);
+    if (idx < 0 || idx >= (int64_t)len) return (int64_t)"";
+    char* buf = (char*)malloc(2);
+    buf[0] = sa[idx];
+    buf[1] = '\0';
+    return (int64_t)buf;
+}
+
+int64_t freak_llvm_word_contains(int64_t a, int64_t b) {
+    const char* sa = (const char*)a;
+    const char* sb = (const char*)b;
+    if (!sa || !sb) return 0;
+    return strstr(sa, sb) != NULL ? 1 : 0;
+}
+
+int64_t freak_llvm_word_starts_with(int64_t a, int64_t b) {
+    const char* sa = (const char*)a;
+    const char* sb = (const char*)b;
+    if (!sa || !sb) return 0;
+    return strncmp(sa, sb, strlen(sb)) == 0 ? 1 : 0;
+}
+
+int64_t freak_llvm_word_ends_with(int64_t a, int64_t b) {
+    const char* sa = (const char*)a;
+    const char* sb = (const char*)b;
+    if (!sa || !sb) return 0;
+    size_t la = strlen(sa);
+    size_t lb = strlen(sb);
+    if (lb > la) return 0;
+    return strcmp(sa + la - lb, sb) == 0 ? 1 : 0;
+}
+
+int64_t freak_llvm_word_to_upper(int64_t a) {
+    const char* sa = (const char*)a;
+    if (!sa) return (int64_t)"";
+    char* buf = _strdup(sa);
+    for (char* p = buf; *p; p++) {
+        if (*p >= 'a' && *p <= 'z') *p -= 32;
+    }
+    return (int64_t)buf;
+}
+
+int64_t freak_llvm_word_to_lower(int64_t a) {
+    const char* sa = (const char*)a;
+    if (!sa) return (int64_t)"";
+    char* buf = _strdup(sa);
+    for (char* p = buf; *p; p++) {
+        if (*p >= 'A' && *p <= 'Z') *p += 32;
+    }
+    return (int64_t)buf;
+}
+
+int64_t freak_llvm_word_trim(int64_t a) {
+    const char* sa = (const char*)a;
+    if (!sa) return (int64_t)"";
+    return (int64_t)sa; // Stub implementation
+}
+
+int64_t freak_llvm_word_replace(int64_t a, int64_t b, int64_t c) {
+    const char* sa = (const char*)a;
+    if (!sa) return (int64_t)"";
+    return (int64_t)sa; // Stub implementation
+}
+
+int64_t freak_llvm_word_to_int(int64_t a) {
+    const char* sa = (const char*)a;
+    if (!sa) return 0;
+    return (int64_t)atoll(sa);
+}
+
+void freak_llvm_say(int64_t msg) {
+    const char* s = (const char*)msg;
+    if (s) puts(s);
+}
+
+void freak_llvm_print_str(int64_t msg) {
+    const char* s = (const char*)msg;
+    if (s) fputs(s, stdout);
+}
+
+void freak_llvm_print_int(int64_t n) {
+    printf("%lld", (long long)n);
+}
+
+void freak_llvm_print_newline(void) {
+    puts("");
+}
+
+int64_t freak_llvm_ask(int64_t prompt) {
+    const char* p = (const char*)prompt;
+    if (p) {
+        fputs(p, stdout);
+        fflush(stdout);
+    }
+    char buf[1024];
+    if (fgets(buf, sizeof(buf), stdin)) {
+        size_t len = strlen(buf);
+        if (len > 0 && buf[len - 1] == '\n') {
+            buf[len - 1] = '\0';
+        }
+        return (int64_t)_strdup(buf);
+    }
+    return (int64_t)_strdup("");
+}
+
+int64_t freak_llvm_fs_read(int64_t path) {
+    const char* p = (const char*)path;
+    if (!p) return (int64_t)_strdup("");
+    FILE* f = fopen(p, "rb");
+    if (!f) return (int64_t)_strdup("");
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char* string = (char*)malloc(fsize + 1);
+    fread(string, 1, fsize, f);
+    fclose(f);
+    string[fsize] = 0;
+    return (int64_t)string;
+}
+
+void freak_llvm_fs_write(int64_t path, int64_t content) {
+    const char* p = (const char*)path;
+    const char* c = (const char*)content;
+    if (!p || !c) return;
+    FILE* f = fopen(p, "wb");
+    if (!f) return;
+    fwrite(c, 1, strlen(c), f);
+    fclose(f);
+}
+
+int64_t freak_llvm_process_args_count(void) {
+    return (int64_t)freak_argc;
+}
+
+int64_t freak_llvm_process_arg(int64_t index) {
+    if (index < 0 || index >= freak_argc) {
+        return (int64_t)_strdup("");
+    }
+    return (int64_t)_strdup(freak_argv[index]);
+}
+
+void freak_llvm_process_exit(int64_t code) {
+    exit((int)code);
+}

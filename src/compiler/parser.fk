@@ -143,7 +143,7 @@ task parse_primary() -> int {
     msg = msg + ")"
     say msg
     advance_tok()
-    give back -1
+    give back 0 - 1
 }
 
 task parse_postfix() -> int {
@@ -184,8 +184,28 @@ task parse_postfix() -> int {
     give back left
 }
 
+task parse_unary() -> int {
+    if match_tok(TOK_KW, "not") {
+        pilot op = parse_unary()
+        give back alloc_expr(EXPR_UNARYOP, "not", word_from_int(op), "")
+    } else if match_tok(TOK_PUNCT, "-") {
+        pilot op = parse_unary()
+        give back alloc_expr(EXPR_UNARYOP, "-", word_from_int(op), "")
+    } else if match_tok(TOK_KW, "PLUS ULTRA") {
+        pilot op = parse_unary()
+        give back alloc_expr(EXPR_UNARYOP, "PLUS ULTRA", word_from_int(op), "")
+    } else if match_tok(TOK_KW, "FINAL FORM") {
+        pilot op = parse_unary()
+        give back alloc_expr(EXPR_UNARYOP, "FINAL FORM", word_from_int(op), "")
+    } else if match_tok(TOK_KW, "TSUNDERE") {
+        pilot op = parse_unary()
+        give back alloc_expr(EXPR_UNARYOP, "TSUNDERE", word_from_int(op), "")
+    }
+    give back parse_postfix()
+}
+
 task parse_expr() -> int {
-    pilot left = parse_postfix()
+    pilot left = parse_unary()
 
     pilot fin = false
     repeat until fin {
@@ -193,9 +213,9 @@ task parse_expr() -> int {
         pilot tval = cur_tok_val()
 
         if ttype == TOK_PUNCT or ttype == TOK_KW {
-            if tval == "+" or tval == "-" or tval == "*" or tval == "/" or tval == "==" or tval == "!=" or tval == "<=" or tval == ">=" or tval == "<" or tval == ">" or tval == "%" or tval == "and" or tval == "or" {
+            if tval == "+" or tval == "-" or tval == "*" or tval == "/" or tval == "==" or tval == "!=" or tval == "<=" or tval == ">=" or tval == "<" or tval == ">" or tval == "%" or tval == "and" or tval == "or" or tval == "NAKAMA" {
                 advance_tok()
-                pilot right = parse_postfix()
+                pilot right = parse_unary()
                 left = alloc_expr(EXPR_BINOP, tval, word_from_int(left), word_from_int(right))
             } else {
                 fin = true
@@ -207,7 +227,6 @@ task parse_expr() -> int {
 
     give back left
 }
-
 task parse_block() -> word {
     expect_tok(TOK_PUNCT, "{")
     pilot block = ""
@@ -222,7 +241,7 @@ task parse_block() -> word {
             block = word_from_int(stmt_id)
             is_first = false
         } else {
-            pilot tmp = block + "|"
+            pilot tmp = block + ","
             block = tmp + word_from_int(stmt_id)
         }
         if match_tok(TOK_PUNCT, "}") {
@@ -250,7 +269,7 @@ task parse_stmt() -> int {
     }
 
     if match_tok(TOK_KW, "give back") {
-        pilot expr_id = -1
+        pilot expr_id = 0 - 1
         if cur_tok_type() != TOK_PUNCT or cur_tok_val() != "}" {
             expr_id = parse_expr()
         }
@@ -283,6 +302,51 @@ task parse_stmt() -> int {
             pilot body_id = parse_block()
             give back alloc_stmt(STMT_REPEAT, "times", word_from_int(expr_id), body_id, "", "", "", "")
         }
+    }
+
+    if match_tok(TOK_KW, "training arc") {
+        expect_tok(TOK_KW, "until")
+        pilot cond_id = parse_expr()
+        expect_tok(TOK_KW, "max")
+        pilot max_id = parse_expr()
+        expect_tok(TOK_KW, "sessions")
+        pilot body_id = parse_block()
+        give back alloc_stmt(STMT_TRAINING_ARC, "", word_from_int(cond_id), body_id, "", word_from_int(max_id), "", "")
+    }
+
+    if match_tok(TOK_KW, "when") {
+        pilot target_id = parse_expr()
+        expect_tok(TOK_PUNCT, "{")
+
+        pilot cases_str = ""
+        pilot fin = false
+        pilot is_first = true
+
+        repeat until fin {
+            if match_tok(TOK_PUNCT, "}") {
+                fin = true
+            } else {
+                pilot case_expr = 0 - 1
+                if match_tok(TOK_IDENT, "_") {
+                    case_expr = 0 - 1
+                } else {
+                    case_expr = parse_expr()
+                }
+                expect_tok(TOK_PUNCT, "->")
+                pilot stmt_id = parse_stmt()
+
+                pilot case_str = word_from_int(case_expr) + ":" + word_from_int(stmt_id)
+                if is_first {
+                    cases_str = case_str
+                    is_first = false
+                } else {
+                    pilot tmp = cases_str + ","
+                    cases_str = tmp + case_str
+                }
+            }
+        }
+
+        give back alloc_stmt(STMT_WHEN, "", word_from_int(target_id), cases_str, "", "", "", "")
     }
 
     if match_tok(TOK_KW, "task") {
@@ -322,6 +386,11 @@ task parse_stmt() -> int {
 
         pilot body_id = parse_block()
         give back alloc_stmt(STMT_TASK, name, "", body_id, "", "", params, ret_type)
+    }
+
+    if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "{" {
+        pilot block_id = parse_block()
+        give back alloc_stmt(STMT_BLOCK, "", "", block_id, "", "", "", "")
     }
 
     pilot expr_id = parse_expr()

@@ -127,10 +127,10 @@
 ## PHASE 5 — Full C Emitter
 
 - [ ] `if / else if / else` → C if/else
-- [ ] `when` → switch (int) or strcmp chain (word)
+- [x] `when` → switch (int) or strcmp chain (word)
 - [ ] `for each x in list` → C for loop
 - [ ] `repeat N times` → C for loop
-- [ ] `training arc` → C while with session counter
+- [x] `training arc` → C while with session counter
 - [ ] `shape` → C typedef struct (topologically sorted)
 - [ ] `impl` methods → C functions with shape pointer first arg
 - [ ] Closures → capture struct + function pointer (Bible Section 2.6)
@@ -148,7 +148,7 @@
 - [ ] Annotations → C comments
 - [ ] `knowing this will hurt` / `sadly` / `for science` → strip prefix, call normally
 - [ ] `route` return type → generated enum + tagged union
-- [ ] Anime operators → C expressions (Bible Section 2.12)
+- [x] Anime operators → C expressions (Bible Section 2.12)
 - [ ] Generics → monomorphise per concrete type used
 
 ---

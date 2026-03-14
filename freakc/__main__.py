@@ -299,6 +299,44 @@ def cmd_audit(sub: str, argv: list[str]) -> int:
     return 1
 
 
+def cmd_jit(path: Path) -> int:
+    """Compile to LLVM IR and run directly in memory using llvmlite."""
+    from .jit import run_jit
+
+    # 1. First, transpile to get LLVM IR code
+    # We want to skip C emitter and use the newly built self-hosted compiler LLVM output,
+    # or we can modify Python CEmitter to emit LLVM? No, the Python transpiler emits C.
+    # The self-hosted `freakc_v2.exe` emits LLVM.
+    # So we should call the self-hosted compiler to get the .ll file!
+    cmd = ["build/freakc_v2.exe", str(path), "--llvm"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        print(_red("✗ LLVM Compilation failed:"), file=sys.stderr)
+        print(res.stderr.strip() or res.stdout.strip(), file=sys.stderr)
+        return 1
+
+    ll_path = Path(str(path) + ".ll")
+    if not ll_path.exists():
+        print(_red(f"✗ Failed to find generated IR at {ll_path}"), file=sys.stderr)
+        return 1
+
+    print(_dim("→ Executing via LLVM JIT..."))
+    print("─" * 40)
+    ir_code = ll_path.read_text(encoding="utf-8")
+    runtime_dir = Path(__file__).parent / "runtime"
+
+    try:
+        ret = run_jit(ir_code, runtime_dir)
+        print("─" * 40)
+        if ret != 0:
+            print(_red(f"✗ JIT process exited with code {ret}"))
+        return ret
+    except Exception as e:
+        print("─" * 40)
+        print(_red(f"✗ JIT execution crashed: {e}"), file=sys.stderr)
+        return 1
+
+
 # ── Main ────────────────────────────────────────────────────────────
 
 
@@ -363,6 +401,9 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print("Usage:")
         print("  python -m freakc run <file.fk>       Transpile + compile + run")
+        print(
+            "  python -m freakc jit <file.fk>       Compile to LLVM IR and JIT execute"
+        )
         print("  python -m freakc build <file.fk>     Transpile + compile")
         print("  python -m freakc check <file.fk>     Type check only")
         print("  python -m freakc test                Run all tests/*.fk")
@@ -401,7 +442,7 @@ def main(argv: list[str] | None = None) -> int:
     if cmd in ("audit-science", "audit-trust", "audit-miracles", "foreshadow-audit"):
         return cmd_audit(cmd, argv[1:])
 
-    if cmd in ("run", "build", "check"):
+    if cmd in ("run", "build", "check", "jit"):
         if len(argv) < 2:
             print(_red(f"✗ Missing file argument for '{cmd}'"), file=sys.stderr)
             return 1
@@ -412,6 +453,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if cmd == "run":
             return cmd_run(path, keep_c, output)
+        elif cmd == "jit":
+            return cmd_jit(path)
         elif cmd == "build":
             return cmd_build(path, keep_c, output)
         elif cmd == "check":

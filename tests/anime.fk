@@ -8,7 +8,7 @@ pilot takeru = 9001
 foreshadow pilot sacrifice_count = 0
 
 -- Trust me block
-trust me "direct memory access" on my honor as .pilot {
+trust me "dirct memory access" on my honor as .pilot {
     pilot raw_val = 42
     say "Inside trust me: {raw_val}"
 }

@@ -601,7 +601,7 @@ static freak_word freak_build_interpolation(freak_word s) {
                 } else if (freak_word_eq(c, freak_word_lit("\t"))) {
                     fmt = freak_word_concat(fmt, freak_word_lit("\\t"));
                 } else if (freak_word_eq(c, freak_word_lit("%"))) {
-                    fmt = freak_word_concat(fmt, freak_word_lit("%%"));
+                    fmt = freak_word_concat(fmt, freak_word_lit("%"));
                 } else {
                     fmt = freak_word_concat(fmt, c);
                 }
