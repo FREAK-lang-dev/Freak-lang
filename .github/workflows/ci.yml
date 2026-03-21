@@ -56,14 +56,46 @@ jobs:
           ./self_hosted/freakc_self.exe build/freakc_v2.fk
           clang -o build/freakc_v2.exe build/freakc_v2.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
-      - name: Test — hello.fk (LLVM backend, default)
+      - name: Build full CLI (Stage 2 — compiler + CLI + Hangar)
+        shell: bash
+        run: |
+          mkdir -p build
+          rm -f build/freakc_cli.fk
+          cat std/version.fk >> build/freakc_cli.fk
+          cat src/compiler/ast.fk >> build/freakc_cli.fk
+          cat src/compiler/lexer.fk >> build/freakc_cli.fk
+          cat src/compiler/parser.fk >> build/freakc_cli.fk
+          cat src/compiler/checker.fk >> build/freakc_cli.fk
+          cat src/compiler/emitter.fk >> build/freakc_cli.fk
+          cat src/compiler/backend/llvm.fk >> build/freakc_cli.fk
+          cat src/cli/version.fk >> build/freakc_cli.fk
+          cat src/cli/toml.fk >> build/freakc_cli.fk
+          cat src/cli/build.fk >> build/freakc_cli.fk
+          cat src/cli/run.fk >> build/freakc_cli.fk
+          cat src/cli/hangar.fk >> build/freakc_cli.fk
+          cat src/cli/doctor.fk >> build/freakc_cli.fk
+          cat src/cli/main.fk >> build/freakc_cli.fk
+          ./build/freakc_v2.exe build/freakc_cli.fk --c
+          clang -o build/freakc.exe build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+
+      - name: CLI smoke test — version
+        shell: bash
+        run: ./build/freakc.exe version
+
+      - name: CLI smoke test — build + run hello.fk
+        shell: bash
+        run: |
+          ./build/freakc.exe build tests/hello.fk
+          ./tests/hello.exe
+
+      - name: Test — hello.fk (LLVM backend, v2 compiler)
         shell: bash
         run: |
           ./build/freakc_v2.exe tests/hello.fk
           clang -o tests/hello_llvm_ci.exe tests/hello.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           ./tests/hello_llvm_ci.exe
 
-      - name: Test — hello.fk (C backend, explicit)
+      - name: Test — hello.fk (C backend, v2 compiler)
         shell: bash
         run: |
           ./build/freakc_v2.exe tests/hello.fk --c

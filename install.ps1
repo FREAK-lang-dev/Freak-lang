@@ -11,7 +11,7 @@ function Ok($msg)    { Write-Host "> $msg" -ForegroundColor Green }
 function Err($msg)   { Write-Host "> $msg" -ForegroundColor Red; throw $msg }
 
 # Only x64 Windows binaries for now — ARM64 will come later
-$Target = "freakc-windows-x64.exe"
+$Target = "freakc-windows-x64"
 Info "Detected platform: windows-x64"
 
 # Get latest release
@@ -25,43 +25,77 @@ try {
 
 Info "Latest version: $Latest"
 
-# Download compiler
-$DownloadUrl = "https://github.com/$Repo/releases/download/$Latest/$Target"
-Info "Downloading $Target..."
+# Try downloading the full distribution zip first (includes runtime .o + std)
+$ZipUrl = "https://github.com/$Repo/releases/download/$Latest/$Target.zip"
+$ZipOk = $false
 
-New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
-$OutPath = "$BinDir\freakc.exe"
+$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "freak-install-$(Get-Random)"
+New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
 
 try {
-    Invoke-WebRequest -Uri $DownloadUrl -OutFile $OutPath -UseBasicParsing
-} catch {
-    Err "Download failed: $_"
-}
-
-# Download runtime files
-$RuntimeDir = "$InstallDir\runtime"
-New-Item -ItemType Directory -Path $RuntimeDir -Force | Out-Null
-$RuntimeUrl = "https://raw.githubusercontent.com/$Repo/$Latest/freakc/runtime"
-
-foreach ($file in @("freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c", "freak_runtime.o", "freak_llvm_runtime.o")) {
+    Info "Downloading $Target.zip..."
+    $ZipPath = "$TmpDir\freak.zip"
     try {
-        Invoke-WebRequest -Uri "$RuntimeUrl/$file" -OutFile "$RuntimeDir\$file" -UseBasicParsing 2>$null
+        Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -UseBasicParsing
+        $ZipOk = $true
     } catch {
-        # Non-fatal — runtime files are optional for --llvm-only workflows
+        # Zip not available, fall back to standalone binary
     }
-}
 
-# Download standard library
-$StdDir = "$InstallDir\std"
-New-Item -ItemType Directory -Path $StdDir -Force | Out-Null
-$StdUrl = "https://raw.githubusercontent.com/$Repo/$Latest/std"
+    if ($ZipOk) {
+        Info "Extracting distribution..."
+        Expand-Archive -Path $ZipPath -DestinationPath $TmpDir -Force
 
-foreach ($file in @("math.fk", "string.fk", "convert.fk", "algorithm.fk", "json.fk", "http.fk", "version.fk")) {
-    try {
-        Invoke-WebRequest -Uri "$StdUrl/$file" -OutFile "$StdDir\$file" -UseBasicParsing 2>$null
-    } catch {
-        # Non-fatal — std library enhances but isn't required
+        # Install from extracted zip
+        New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+        New-Item -ItemType Directory -Path "$InstallDir\runtime" -Force | Out-Null
+        New-Item -ItemType Directory -Path "$InstallDir\std" -Force | Out-Null
+
+        Copy-Item "$TmpDir\freak\bin\freakc.exe" "$BinDir\freakc.exe" -Force
+        Copy-Item "$TmpDir\freak\runtime\*" "$InstallDir\runtime\" -Force -ErrorAction SilentlyContinue
+        Copy-Item "$TmpDir\freak\std\*" "$InstallDir\std\" -Force -ErrorAction SilentlyContinue
+    } else {
+        # Fallback: download standalone binary + individual files from source
+        Info "Zip not available, falling back to standalone binary..."
+        $DownloadUrl = "https://github.com/$Repo/releases/download/$Latest/$Target.exe"
+
+        New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+        $OutPath = "$BinDir\freakc.exe"
+
+        try {
+            Invoke-WebRequest -Uri $DownloadUrl -OutFile $OutPath -UseBasicParsing
+        } catch {
+            Err "Download failed: $_"
+        }
+
+        # Download runtime files from source tree
+        $RuntimeDir = "$InstallDir\runtime"
+        New-Item -ItemType Directory -Path $RuntimeDir -Force | Out-Null
+        $RuntimeUrl = "https://raw.githubusercontent.com/$Repo/$Latest/freakc/runtime"
+
+        foreach ($file in @("freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c")) {
+            try {
+                Invoke-WebRequest -Uri "$RuntimeUrl/$file" -OutFile "$RuntimeDir\$file" -UseBasicParsing 2>$null
+            } catch {
+                # Non-fatal
+            }
+        }
+
+        # Download standard library
+        $StdDir = "$InstallDir\std"
+        New-Item -ItemType Directory -Path $StdDir -Force | Out-Null
+        $StdUrl = "https://raw.githubusercontent.com/$Repo/$Latest/std"
+
+        foreach ($file in @("math.fk", "string.fk", "convert.fk", "algorithm.fk", "json.fk", "http.fk", "version.fk")) {
+            try {
+                Invoke-WebRequest -Uri "$StdUrl/$file" -OutFile "$StdDir\$file" -UseBasicParsing 2>$null
+            } catch {
+                # Non-fatal
+            }
+        }
     }
+} finally {
+    Remove-Item -Path $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # Add to PATH
@@ -79,9 +113,9 @@ if ($env:PATH -notlike "*$BinDir*") {
 Ok ""
 Ok "FREAK $Latest installed successfully!"
 Ok ""
-Ok "  Compiler: $OutPath"
-Ok "  Runtime:  $RuntimeDir\"
-Ok "  Std lib:  $StdDir\"
+Ok "  Compiler: $BinDir\freakc.exe"
+Ok "  Runtime:  $InstallDir\runtime\"
+Ok "  Std lib:  $InstallDir\std\"
 Ok ""
 Ok "Open a new terminal, then try:"
 Ok "  freakc version"

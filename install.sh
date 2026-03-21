@@ -46,41 +46,71 @@ fi
 
 info "Latest version: $LATEST"
 
-# Download
-DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST/$TARGET"
-info "Downloading $TARGET..."
+# Try downloading the full distribution tarball first (includes runtime .o + std)
+TARBALL_URL="https://github.com/$REPO/releases/download/$LATEST/${TARGET}.tar.gz"
+TARBALL_OK=false
 
-mkdir -p "$BIN_DIR"
+TMPDIR_INSTALL=$(mktemp -d)
+trap "rm -rf '$TMPDIR_INSTALL'" EXIT
 
+info "Downloading ${TARGET}.tar.gz..."
 if command -v curl &>/dev/null; then
-    curl -fsSL "$DOWNLOAD_URL" -o "$BIN_DIR/freakc"
+    if curl -fsSL "$TARBALL_URL" -o "$TMPDIR_INSTALL/freak.tar.gz" 2>/dev/null; then
+        TARBALL_OK=true
+    fi
 else
-    wget -q "$DOWNLOAD_URL" -O "$BIN_DIR/freakc"
+    if wget -q "$TARBALL_URL" -O "$TMPDIR_INSTALL/freak.tar.gz" 2>/dev/null; then
+        TARBALL_OK=true
+    fi
 fi
 
-chmod +x "$BIN_DIR/freakc"
+if [ "$TARBALL_OK" = true ]; then
+    info "Extracting distribution..."
+    tar xzf "$TMPDIR_INSTALL/freak.tar.gz" -C "$TMPDIR_INSTALL"
 
-# Download runtime files
-RUNTIME_URL="https://raw.githubusercontent.com/$REPO/$LATEST/freakc/runtime"
-mkdir -p "$INSTALL_DIR/runtime"
-for file in freak_runtime.c freak_runtime.h freak_llvm_runtime.c freak_runtime.o freak_llvm_runtime.o; do
-    if command -v curl &>/dev/null; then
-        curl -fsSL "$RUNTIME_URL/$file" -o "$INSTALL_DIR/runtime/$file" 2>/dev/null || true
-    else
-        wget -q "$RUNTIME_URL/$file" -O "$INSTALL_DIR/runtime/$file" 2>/dev/null || true
-    fi
-done
+    # Install from extracted tarball
+    mkdir -p "$BIN_DIR" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"
+    cp "$TMPDIR_INSTALL/freak/bin/freakc" "$BIN_DIR/freakc"
+    chmod +x "$BIN_DIR/freakc"
+    cp "$TMPDIR_INSTALL/freak/runtime/"* "$INSTALL_DIR/runtime/" 2>/dev/null || true
+    cp "$TMPDIR_INSTALL/freak/std/"* "$INSTALL_DIR/std/" 2>/dev/null || true
+else
+    # Fallback: download standalone binary + individual files from source
+    info "Tarball not available, falling back to standalone binary..."
+    DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST/$TARGET"
 
-# Download standard library
-STD_URL="https://raw.githubusercontent.com/$REPO/$LATEST/std"
-mkdir -p "$INSTALL_DIR/std"
-for file in math.fk string.fk convert.fk algorithm.fk json.fk http.fk version.fk; do
+    mkdir -p "$BIN_DIR"
+
     if command -v curl &>/dev/null; then
-        curl -fsSL "$STD_URL/$file" -o "$INSTALL_DIR/std/$file" 2>/dev/null || true
+        curl -fsSL "$DOWNLOAD_URL" -o "$BIN_DIR/freakc"
     else
-        wget -q "$STD_URL/$file" -O "$INSTALL_DIR/std/$file" 2>/dev/null || true
+        wget -q "$DOWNLOAD_URL" -O "$BIN_DIR/freakc"
     fi
-done
+
+    chmod +x "$BIN_DIR/freakc"
+
+    # Download runtime files from source tree
+    RUNTIME_URL="https://raw.githubusercontent.com/$REPO/$LATEST/freakc/runtime"
+    mkdir -p "$INSTALL_DIR/runtime"
+    for file in freak_runtime.c freak_runtime.h freak_llvm_runtime.c; do
+        if command -v curl &>/dev/null; then
+            curl -fsSL "$RUNTIME_URL/$file" -o "$INSTALL_DIR/runtime/$file" 2>/dev/null || true
+        else
+            wget -q "$RUNTIME_URL/$file" -O "$INSTALL_DIR/runtime/$file" 2>/dev/null || true
+        fi
+    done
+
+    # Download standard library
+    STD_URL="https://raw.githubusercontent.com/$REPO/$LATEST/std"
+    mkdir -p "$INSTALL_DIR/std"
+    for file in math.fk string.fk convert.fk algorithm.fk json.fk http.fk version.fk; do
+        if command -v curl &>/dev/null; then
+            curl -fsSL "$STD_URL/$file" -o "$INSTALL_DIR/std/$file" 2>/dev/null || true
+        else
+            wget -q "$STD_URL/$file" -O "$INSTALL_DIR/std/$file" 2>/dev/null || true
+        fi
+    done
+fi
 
 # Add to PATH
 add_to_path() {
