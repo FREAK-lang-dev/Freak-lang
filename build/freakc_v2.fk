@@ -2640,8 +2640,18 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_llvm_ui_clear(i64, i64, i64, i64, i64)")
     llvm_emit_line("declare void @freak_llvm_ui_fill_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
 
+    -- String comparison
+    llvm_emit_line("declare i64 @freak_word_compare(i64, i64)")
+
+    -- Dynamic arrays
+    llvm_emit_line("declare i64 @freak_array_new()")
+    llvm_emit_line("declare void @freak_array_push(i64, i64)")
+    llvm_emit_line("declare i64 @freak_array_get(i64, i64)")
+    llvm_emit_line("declare i64 @freak_array_len(i64)")
+    llvm_emit_line("declare void @freak_array_set(i64, i64, i64)")
+
     -- Track all runtime function names so extern decls don't duplicate them
-    llvm_declared_funcs = "|puts|printf|strlen|freak_word_from_int|freak_word_from_bool|freak_word_concat|freak_word_eq|freak_word_neq|freak_llvm_word_eq|freak_llvm_word_neq|freak_word_length|freak_word_char_at|freak_word_contains|freak_word_starts_with|freak_word_ends_with|freak_word_to_upper|freak_word_to_lower|freak_word_trim|freak_word_replace|freak_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_fs_read|freak_llvm_fs_write|freak_llvm_fs_append|freak_llvm_fs_exists|freak_llvm_fs_delete|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_native|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|"
+    llvm_declared_funcs = "|puts|printf|strlen|freak_word_from_int|freak_word_from_bool|freak_word_concat|freak_word_eq|freak_word_neq|freak_llvm_word_eq|freak_llvm_word_neq|freak_word_length|freak_word_char_at|freak_word_contains|freak_word_starts_with|freak_word_ends_with|freak_word_to_upper|freak_word_to_lower|freak_word_trim|freak_word_replace|freak_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_fs_read|freak_llvm_fs_write|freak_llvm_fs_append|freak_llvm_fs_exists|freak_llvm_fs_delete|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_native|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_array_new|freak_array_push|freak_array_get|freak_array_len|freak_array_set|freak_word_compare|"
 }
 
 task llvm_is_runtime_func(fname: word) -> bool {
@@ -3011,6 +3021,18 @@ task llvm_emit_expr(id: word) -> word {
         } else if val == "ui::fill_rect" {
              func_name = "@freak_llvm_ui_fill_rect"
              is_void_call = true
+        } else if val == "array_push" {
+             func_name = "@freak_array_push"
+             is_void_call = true
+        } else if val == "array_set" {
+             func_name = "@freak_array_set"
+             is_void_call = true
+        } else if val == "array_new" {
+             func_name = "@freak_array_new"
+        } else if val == "array_get" {
+             func_name = "@freak_array_get"
+        } else if val == "array_len" {
+             func_name = "@freak_array_len"
         }
         -- Check task registry for user-defined void functions
         if not is_void_call {

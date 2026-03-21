@@ -208,6 +208,7 @@ freak_word freak_word_char_at(freak_word w, int64_t index);
 
 /* Conversions from word to number. */
 int64_t freak_word_to_int(freak_word w);
+int64_t freak_word_compare(freak_word a, freak_word b);
 double  freak_word_to_num(freak_word w);
 
 /* ------------------------------------------------------------------ */

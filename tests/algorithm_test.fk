@@ -1,0 +1,99 @@
+-- Test: std::algorithm
+
+-- === Sort ===
+pilot arr1 = array_new()
+array_push(arr1, "5")
+array_push(arr1, "2")
+array_push(arr1, "8")
+array_push(arr1, "1")
+array_push(arr1, "9")
+array_push(arr1, "3")
+array_sort_int(arr1)
+say "sort_int: " + array_join(arr1, ",")
+
+pilot arr2 = array_new()
+array_push(arr2, "banana")
+array_push(arr2, "apple")
+array_push(arr2, "cherry")
+array_push(arr2, "date")
+array_sort_word(arr2)
+say "sort_word: " + array_join(arr2, ",")
+
+-- === Search ===
+pilot idx1 = array_binary_search_int(arr1, 8)
+say "binary_search(8) = " + word_from_int(idx1)
+
+pilot idx2 = array_binary_search_int(arr1, 7)
+say "binary_search(7) = " + word_from_int(idx2)
+
+pilot idx3 = array_find(arr2, "cherry")
+say "find('cherry') = " + word_from_int(idx3)
+
+pilot has = array_contains(arr2, "apple")
+say "contains('apple') = " + bool_to_word(has)
+
+pilot not_has = array_contains(arr2, "fig")
+say "contains('fig') = " + bool_to_word(not_has)
+
+-- === Reverse ===
+pilot arr3 = array_new()
+array_push(arr3, "a")
+array_push(arr3, "b")
+array_push(arr3, "c")
+array_push(arr3, "d")
+array_reverse(arr3)
+say "reverse: " + array_join(arr3, ",")
+
+-- === Copy ===
+pilot arr4 = array_copy(arr3)
+say "copy: " + array_join(arr4, ",")
+
+-- === Count ===
+pilot arr5 = array_new()
+array_push(arr5, "x")
+array_push(arr5, "y")
+array_push(arr5, "x")
+array_push(arr5, "z")
+array_push(arr5, "x")
+pilot xcount = array_count(arr5, "x")
+say "count('x') = " + word_from_int(xcount)
+
+-- === Unique ===
+pilot arr6 = array_new()
+array_push(arr6, "1")
+array_push(arr6, "1")
+array_push(arr6, "2")
+array_push(arr6, "3")
+array_push(arr6, "3")
+array_push(arr6, "3")
+array_push(arr6, "4")
+pilot ulen = array_unique(arr6)
+say "unique length = " + word_from_int(ulen)
+
+-- === Aggregate ===
+pilot arr7 = array_new()
+array_push(arr7, "10")
+array_push(arr7, "20")
+array_push(arr7, "30")
+array_push(arr7, "5")
+pilot total = array_sum_int(arr7)
+say "sum = " + word_from_int(total)
+
+pilot mx = array_max_int(arr7)
+say "max = " + word_from_int(mx)
+
+pilot mn = array_min_int(arr7)
+say "min = " + word_from_int(mn)
+
+-- === freak_word_compare ===
+pilot cmp1 = freak_word_compare("apple", "banana")
+say "compare('apple','banana') = " + word_from_int(cmp1)
+
+pilot cmp2 = freak_word_compare("hello", "hello")
+say "compare('hello','hello') = " + word_from_int(cmp2)
+
+pilot cmp3 = freak_word_compare("zebra", "ant")
+say "compare('zebra','ant') = " + word_from_int(cmp3)
+
+say ""
+say "All algorithm tests passed!"

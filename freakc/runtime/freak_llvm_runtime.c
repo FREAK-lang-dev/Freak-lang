@@ -355,6 +355,71 @@ int64_t freak_llvm_num_to_int(int64_t bits) {
     return (int64_t)d;
 }
 
+/* ── String comparison ─────────────────────────────── */
+
+int64_t freak_word_compare(int64_t ap, int64_t bp) {
+    char* a = (char*)ap;
+    char* b = (char*)bp;
+    int r = strcmp(a, b);
+    if (r < 0) return -1;
+    if (r > 0) return 1;
+    return 0;
+}
+
+/* ── Dynamic Arrays ────────────────────────────────── */
+/* Same pool system as freak_runtime.c but with i64 interface */
+
+typedef struct {
+    int64_t* data;     /* stored as i64 (cast from char*) */
+    int64_t length;
+    int64_t capacity;
+} freak_llvm_dyn_array;
+
+#define FREAK_LLVM_MAX_ARRAYS 256
+static freak_llvm_dyn_array freak_llvm_arrays[FREAK_LLVM_MAX_ARRAYS];
+static int64_t freak_llvm_array_count = 0;
+
+int64_t freak_array_new(void) {
+    if (freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS) {
+        fprintf(stderr, "FREAK: too many arrays (max %d)\n", FREAK_LLVM_MAX_ARRAYS);
+        exit(1);
+    }
+    int64_t h = freak_llvm_array_count++;
+    freak_llvm_arrays[h].length = 0;
+    freak_llvm_arrays[h].capacity = 64;
+    freak_llvm_arrays[h].data = (int64_t*)malloc(64 * sizeof(int64_t));
+    return h;
+}
+
+void freak_array_push(int64_t handle, int64_t item) {
+    if (handle < 0 || handle >= freak_llvm_array_count) return;
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[handle];
+    if (a->length >= a->capacity) {
+        a->capacity *= 2;
+        a->data = (int64_t*)realloc(a->data, (size_t)a->capacity * sizeof(int64_t));
+    }
+    a->data[a->length++] = item;
+}
+
+int64_t freak_array_get(int64_t handle, int64_t index) {
+    if (handle < 0 || handle >= freak_llvm_array_count) return (int64_t)"";
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[handle];
+    if (index < 0 || index >= a->length) return (int64_t)"";
+    return a->data[index];
+}
+
+int64_t freak_array_len(int64_t handle) {
+    if (handle < 0 || handle >= freak_llvm_array_count) return 0;
+    return freak_llvm_arrays[handle].length;
+}
+
+void freak_array_set(int64_t handle, int64_t index, int64_t item) {
+    if (handle < 0 || handle >= freak_llvm_array_count) return;
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[handle];
+    if (index < 0 || index >= a->length) return;
+    a->data[index] = item;
+}
+
 /* ── Entry point setup ──────────────────────────────── */
 /* The LLVM IR main calls freak_llvm_setup_args then freak_main */
 

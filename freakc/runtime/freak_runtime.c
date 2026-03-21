@@ -501,6 +501,13 @@ int64_t freak_word_to_int(freak_word w) {
     return strtoll(w.data, NULL, 10);
 }
 
+int64_t freak_word_compare(freak_word a, freak_word b) {
+    int r = strcmp(a.data, b.data);
+    if (r < 0) return -1;
+    if (r > 0) return 1;
+    return 0;
+}
+
 double freak_word_to_num(freak_word w) {
     return strtod(w.data, NULL);
 }

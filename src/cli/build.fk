@@ -205,6 +205,10 @@ task cli_load_std() -> word {
     if fs::exists(convert_path) {
         std_src = std_src + fs::read(convert_path) + "\n"
     }
+    pilot algo_path = std_dir + "/algorithm.fk"
+    if fs::exists(algo_path) {
+        std_src = std_src + fs::read(algo_path) + "\n"
+    }
     give back std_src
 }
 

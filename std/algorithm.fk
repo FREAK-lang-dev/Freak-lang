@@ -1,0 +1,215 @@
+-- ===================================================================
+-- FREAK Standard Library — std::algorithm
+-- ===================================================================
+-- Sorting, searching, and array utility algorithms in pure FREAK.
+-- Uses the C runtime array_* primitives as the underlying storage.
+-- ===================================================================
+
+-- Sort an integer array in-place using insertion sort.
+-- handle: array handle from array_new()
+task array_sort_int(handle: int) -> void {
+    pilot alen = array_len(handle)
+    if alen <= 1 { give back }
+    pilot si = 1
+    repeat until si >= alen {
+        pilot key_w: word = array_get(handle, si)
+        pilot key = word_to_int(key_w)
+        pilot sj = si - 1
+        pilot sorted = false
+        repeat until sj < 0 or sorted {
+            pilot cw: word = array_get(handle, sj)
+            pilot cv = word_to_int(cw)
+            if cv > key {
+                array_set(handle, sj + 1, cw)
+                sj -= 1
+            } else {
+                sorted = true
+            }
+        }
+        array_set(handle, sj + 1, word_from_int(key))
+        si += 1
+    }
+}
+
+-- Sort a word array in-place (lexicographic, using string comparison).
+task array_sort_word(handle: int) -> void {
+    pilot alen = array_len(handle)
+    if alen <= 1 { give back }
+    pilot si = 1
+    repeat until si >= alen {
+        pilot key_w: word = array_get(handle, si)
+        pilot sj = si - 1
+        pilot sorted = false
+        repeat until sj < 0 or sorted {
+            pilot cw: word = array_get(handle, sj)
+            if freak_word_compare(cw, key_w) > 0 {
+                array_set(handle, sj + 1, cw)
+                sj -= 1
+            } else {
+                sorted = true
+            }
+        }
+        array_set(handle, sj + 1, key_w)
+        si += 1
+    }
+}
+
+-- Lexicographic comparison: returns -1, 0, or 1.
+-- Uses the C runtime's strcmp-based comparison for correct ordering.
+extern task freak_word_compare(a: word, b: word) -> int
+
+-- Binary search on a sorted integer array. Returns index or -1.
+task array_binary_search_int(handle: int, target: int) -> int {
+    pilot lo = 0
+    pilot hi = array_len(handle) - 1
+    repeat until lo > hi {
+        pilot range = hi - lo
+        pilot half = range / 2
+        pilot mid = lo + half
+        pilot mw: word = array_get(handle, mid)
+        pilot mv = word_to_int(mw)
+        if mv == target { give back mid }
+        if mv < target {
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    give back 0 - 1
+}
+
+-- Linear search in an array. Returns index or -1.
+task array_find(handle: int, target: word) -> int {
+    pilot alen = array_len(handle)
+    pilot fi = 0
+    repeat alen times {
+        pilot fw: word = array_get(handle, fi)
+        if fw == target { give back fi }
+        fi += 1
+    }
+    give back 0 - 1
+}
+
+-- Check if an array contains a value.
+task array_contains(handle: int, target: word) -> bool {
+    give back array_find(handle, target) >= 0
+}
+
+-- Reverse an array in-place.
+task array_reverse(handle: int) -> void {
+    pilot alen = array_len(handle)
+    if alen <= 1 { give back }
+    pilot lo = 0
+    pilot hi = alen - 1
+    repeat until lo >= hi {
+        pilot tmp: word = array_get(handle, lo)
+        pilot hw: word = array_get(handle, hi)
+        array_set(handle, lo, hw)
+        array_set(handle, hi, tmp)
+        lo += 1
+        hi -= 1
+    }
+}
+
+-- Copy elements from one array to a new array.
+task array_copy(handle: int) -> int {
+    pilot new_arr = array_new()
+    pilot alen = array_len(handle)
+    pilot ci = 0
+    repeat alen times {
+        pilot cw: word = array_get(handle, ci)
+        array_push(new_arr, cw)
+        ci += 1
+    }
+    give back new_arr
+}
+
+-- Join array elements into a single word with separator.
+task array_join(handle: int, sep: word) -> word {
+    pilot alen = array_len(handle)
+    if alen == 0 { give back "" }
+    pilot aj_out: word = array_get(handle, 0)
+    pilot ji = 1
+    repeat until ji >= alen {
+        pilot jw: word = array_get(handle, ji)
+        aj_out = aj_out + sep + jw
+        ji += 1
+    }
+    give back aj_out
+}
+
+-- Count occurrences of a value in an array.
+task array_count(handle: int, target: word) -> int {
+    pilot alen = array_len(handle)
+    pilot cnt = 0
+    pilot ci = 0
+    repeat alen times {
+        pilot cw: word = array_get(handle, ci)
+        if cw == target { cnt += 1 }
+        ci += 1
+    }
+    give back cnt
+}
+
+-- Remove duplicates from a sorted array (in-place). Returns new length.
+task array_unique(handle: int) -> int {
+    pilot alen = array_len(handle)
+    if alen <= 1 { give back alen }
+    pilot write_idx = 1
+    pilot ri = 1
+    repeat until ri >= alen {
+        pilot cur: word = array_get(handle, ri)
+        pilot prev: word = array_get(handle, ri - 1)
+        if cur != prev {
+            array_set(handle, write_idx, cur)
+            write_idx += 1
+        }
+        ri += 1
+    }
+    give back write_idx
+}
+
+-- Sum all integer values in an array.
+task array_sum_int(handle: int) -> int {
+    pilot alen = array_len(handle)
+    pilot total = 0
+    pilot si = 0
+    repeat alen times {
+        pilot sw: word = array_get(handle, si)
+        total += word_to_int(sw)
+        si += 1
+    }
+    give back total
+}
+
+-- Find the maximum integer value in an array. Returns 0 for empty.
+task array_max_int(handle: int) -> int {
+    pilot alen = array_len(handle)
+    if alen == 0 { give back 0 }
+    pilot mw: word = array_get(handle, 0)
+    pilot mx = word_to_int(mw)
+    pilot mi = 1
+    repeat until mi >= alen {
+        pilot cw: word = array_get(handle, mi)
+        pilot cv = word_to_int(cw)
+        if cv > mx { mx = cv }
+        mi += 1
+    }
+    give back mx
+}
+
+-- Find the minimum integer value in an array. Returns 0 for empty.
+task array_min_int(handle: int) -> int {
+    pilot alen = array_len(handle)
+    if alen == 0 { give back 0 }
+    pilot mw: word = array_get(handle, 0)
+    pilot mn = word_to_int(mw)
+    pilot mi = 1
+    repeat until mi >= alen {
+        pilot cw: word = array_get(handle, mi)
+        pilot cv = word_to_int(cw)
+        if cv < mn { mn = cv }
+        mi += 1
+    }
+    give back mn
+}
