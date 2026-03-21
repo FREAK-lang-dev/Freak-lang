@@ -22,6 +22,7 @@ type src\cli\toml.fk >> build\freakc_cli.fk
 type src\cli\build.fk >> build\freakc_cli.fk
 type src\cli\run.fk >> build\freakc_cli.fk
 type src\cli\hangar.fk >> build\freakc_cli.fk
+type src\cli\doctor.fk >> build\freakc_cli.fk
 type src\cli\main.fk >> build\freakc_cli.fk
 
 echo [Stage 2] Compiling build\freakc_cli.fk with build\freakc_v2.exe...

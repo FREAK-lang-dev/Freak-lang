@@ -93,7 +93,15 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     pilot runtime_dir: word = cli_find_runtime_dir()
     if runtime_dir == "" {
         say "Error: Could not find FREAK runtime directory."
-        say "Expected: freakc/runtime/freak_runtime.c"
+        say ""
+        say "The runtime is needed to compile FREAK programs."
+        say "Searched in:"
+        say "  freakc/runtime/           (dev/repo layout)"
+        say "  ~/.freak/runtime/         (install.sh layout)"
+        say "  %APPDATA%\\freak\\runtime\\  (install.ps1 layout)"
+        say "  $FREAK_HOME/runtime/      (custom location)"
+        say ""
+        say "Fix: Re-run the install script, or run 'freakc doctor' for diagnostics."
         give back ""
     }
 
@@ -143,9 +151,13 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         cmd = cmd + " -O" + opt
     }
 
-    -- Linux/macOS requires -lm for math functions
+    -- Platform-specific linker flags
     if windir == "" {
+        -- Linux/macOS requires -lm for math functions
         cmd = cmd + " -lm"
+    } else {
+        -- Windows requires ws2_32 for TCP sockets (std::http)
+        cmd = cmd + " -lws2_32"
     }
 
     if cross != "" {
@@ -157,7 +169,14 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
 
     pilot exit_code = process::exec(cmd)
     if exit_code != 0 {
-        say "Error: clang compilation failed."
+        say "Error: Compilation failed."
+        say ""
+        say "Make sure clang is installed and in your PATH."
+        say "  Windows: choco install llvm  OR  winget install LLVM.LLVM"
+        say "  macOS:   xcode-select --install  OR  brew install llvm"
+        say "  Linux:   sudo apt install clang  OR  sudo dnf install clang"
+        say ""
+        say "Run 'freakc doctor' to diagnose your setup."
         give back ""
     }
 

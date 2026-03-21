@@ -1,0 +1,123 @@
+-- ===================================================================
+-- FREAK CLI — Doctor (Setup Diagnostics)
+-- ===================================================================
+-- Checks that the FREAK toolchain is properly installed and ready.
+-- ===================================================================
+
+task cli_doctor() -> void {
+    say "FREAK Doctor — Checking your setup..."
+    say ""
+
+    pilot all_ok = true
+
+    -- 1. Check clang
+    say "[1/4] Checking for clang..."
+    pilot clang_exit = process::exec("clang --version")
+    if clang_exit == 0 {
+        say "  OK: clang is installed."
+    } else {
+        say "  MISSING: clang is not installed or not in PATH."
+        say "  Fix: Install LLVM/Clang from https://releases.llvm.org/"
+        say "    Windows: choco install llvm  OR  winget install LLVM.LLVM"
+        say "    macOS:   xcode-select --install  OR  brew install llvm"
+        say "    Linux:   sudo apt install clang  OR  sudo dnf install clang"
+        all_ok = false
+    }
+    say ""
+
+    -- 2. Check runtime
+    say "[2/4] Checking runtime files..."
+    pilot rt_dir: word = cli_find_runtime_dir()
+    if rt_dir != "" {
+        pilot rt_msg = "  OK: Runtime found at " + rt_dir
+        say rt_msg
+        -- Check which files are available
+        pilot has_c = fs::exists(rt_dir + "/freak_runtime.c")
+        pilot has_h = fs::exists(rt_dir + "/freak_runtime.h")
+        pilot has_llvm_c = fs::exists(rt_dir + "/freak_llvm_runtime.c")
+        pilot has_o = fs::exists(rt_dir + "/freak_runtime.o")
+        pilot has_llvm_o = fs::exists(rt_dir + "/freak_llvm_runtime.o")
+        if has_o or has_llvm_o {
+            say "  OK: Pre-compiled .o files found (fast builds)."
+        } else if has_c and has_h {
+            say "  OK: Runtime source files found (will compile from source)."
+        }
+        if has_llvm_c or has_llvm_o {
+            say "  OK: LLVM runtime available."
+        }
+    } else {
+        say "  MISSING: Cannot find FREAK runtime directory."
+        say "  Fix: Re-run the install script, or set FREAK_HOME env var."
+        say "  Expected locations:"
+        say "    ~/.freak/runtime/           (Linux/macOS)"
+        say "    %APPDATA%\\freak\\runtime\\    (Windows)"
+        say "    freakc/runtime/             (dev/repo layout)"
+        all_ok = false
+    }
+    say ""
+
+    -- 3. Check std library
+    say "[3/4] Checking standard library..."
+    pilot std_dir: word = cli_find_std_dir()
+    if std_dir != "" {
+        pilot std_msg = "  OK: Standard library found at " + std_dir
+        say std_msg
+        -- Count available modules
+        pilot mod_count = 0
+        if fs::exists(std_dir + "/math.fk") { mod_count += 1 }
+        if fs::exists(std_dir + "/string.fk") { mod_count += 1 }
+        if fs::exists(std_dir + "/convert.fk") { mod_count += 1 }
+        if fs::exists(std_dir + "/algorithm.fk") { mod_count += 1 }
+        if fs::exists(std_dir + "/json.fk") { mod_count += 1 }
+        if fs::exists(std_dir + "/http.fk") { mod_count += 1 }
+        if fs::exists(std_dir + "/version.fk") { mod_count += 1 }
+        pilot mod_msg = "  OK: " + word_from_int(mod_count) + " modules available."
+        say mod_msg
+    } else {
+        say "  MISSING: Cannot find standard library."
+        say "  Fix: Re-run the install script."
+        all_ok = false
+    }
+    say ""
+
+    -- 4. Quick compile test
+    say "[4/4] Quick compile test..."
+    if clang_exit == 0 and rt_dir != "" {
+        -- Write a tiny test file
+        fs::write("_freak_doctor_test.fk", "say \"FREAK works!\"")
+        pilot test_src = fs::read("_freak_doctor_test.fk")
+        if test_src != "" {
+            pilot transpiled: word = cli_transpile("_freak_doctor_test.fk", test_src, "llvm")
+            if transpiled != "" {
+                pilot bin: word = cli_build_binary(transpiled, "_freak_doctor_test.fk", "llvm", "2", "")
+                if bin != "" {
+                    say "  OK: Full compile pipeline works!"
+                    -- Clean up
+                    fs::delete(bin)
+                } else {
+                    say "  FAIL: clang compilation failed."
+                    all_ok = false
+                }
+                fs::delete(transpiled)
+            } else {
+                say "  FAIL: Transpilation failed."
+                all_ok = false
+            }
+        }
+        fs::delete("_freak_doctor_test.fk")
+    } else {
+        say "  SKIP: Cannot test (missing clang or runtime)."
+    }
+    say ""
+
+    -- Summary
+    if all_ok {
+        say "All checks passed! FREAK is ready."
+        say ""
+        say "Try:"
+        say "  freakc build hello.fk"
+        say "  freakc run hello.fk"
+    } else {
+        say "Some issues found. Fix them and run 'freakc doctor' again."
+    }
+}

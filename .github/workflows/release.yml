@@ -48,6 +48,8 @@ jobs:
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             echo "LINK_FLAGS=-lm" >> "$GITHUB_ENV"
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "LINK_FLAGS=-lws2_32" >> "$GITHUB_ENV"
           else
             echo "LINK_FLAGS=" >> "$GITHUB_ENV"
           fi
@@ -78,6 +80,7 @@ jobs:
           cat src/cli/build.fk >> build/freakc_cli.fk
           cat src/cli/run.fk >> build/freakc_cli.fk
           cat src/cli/hangar.fk >> build/freakc_cli.fk
+          cat src/cli/doctor.fk >> build/freakc_cli.fk
           cat src/cli/main.fk >> build/freakc_cli.fk
           ./build/freakc_v2${{ matrix.ext }} build/freakc_cli.fk --c
           clang -o build/freakc${{ matrix.ext }} build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
@@ -142,6 +145,22 @@ jobs:
           find . -type f \( -name "freakc-*" \) -exec sha256sum {} \; | sort > SHA256SUMS
           cat SHA256SUMS
 
+      - name: Package distributions as tarballs/zips
+        run: |
+          for dir in artifacts/freakc-*/; do
+            target=$(basename "$dir")
+            if [ -d "$dir/freak" ]; then
+              if echo "$target" | grep -q windows; then
+                # ZIP for Windows
+                cd "$dir" && zip -r "../../$target.zip" freak/ && cd ../..
+              else
+                # tar.gz for Linux/macOS
+                cd "$dir" && tar czf "../../$target.tar.gz" freak/ && cd ../..
+              fi
+            fi
+          done
+          ls -la artifacts/*.tar.gz artifacts/*.zip 2>/dev/null || true
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -151,4 +170,8 @@ jobs:
             artifacts/freakc-linux-arm64/freakc-linux-arm64
             artifacts/freakc-macos-arm64/freakc-macos-arm64
             artifacts/freakc-windows-x64/freakc-windows-x64.exe
+            artifacts/freakc-linux-x64.tar.gz
+            artifacts/freakc-linux-arm64.tar.gz
+            artifacts/freakc-macos-arm64.tar.gz
+            artifacts/freakc-windows-x64.zip
             artifacts/SHA256SUMS

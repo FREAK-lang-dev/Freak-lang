@@ -22,6 +22,7 @@ task cli_show_help() -> void {
     say "  freakc check <file.fk>               Type-check only"
     say "  freakc transpile <file.fk> [options]  Transpile only (no compile)"
     say "  freakc hangar <cmd>                  Package manager"
+    say "  freakc doctor                        Check setup (clang, runtime, std)"
     say "  freakc version                       Show version"
     say "  freakc help                          Show this help"
     say ""

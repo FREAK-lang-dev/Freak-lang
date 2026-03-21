@@ -38,6 +38,8 @@ jobs:
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             echo "LINK_FLAGS=-lm" >> "$GITHUB_ENV"
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "LINK_FLAGS=-lws2_32" >> "$GITHUB_ENV"
           else
             echo "LINK_FLAGS=" >> "$GITHUB_ENV"
           fi

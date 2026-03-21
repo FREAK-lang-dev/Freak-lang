@@ -141,6 +141,12 @@ task freakc_cli_main() -> void {
         give back
     }
 
+    -- Doctor (setup diagnostics)
+    if subcmd == "doctor" {
+        cli_doctor()
+        give back
+    }
+
     -- Hangar package manager
     if subcmd == "hangar" {
         hangar_dispatch(args_cnt)
