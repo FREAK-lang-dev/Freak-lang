@@ -347,7 +347,147 @@ def resolve_module(module_name: str, search_dirs: list[Path]) -> Optional[Path]:
     return None
 
 
+# ── Toolchain bootstrapping ────────────────────────────────────────
+
+REPO = "FREAK-lang-dev/Freak-lang"
+
+def _detect_platform() -> str:
+    """Detect platform target string for binary downloads."""
+    import platform
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    if system == "linux":
+        os_tag = "linux"
+    elif system == "darwin":
+        os_tag = "macos"
+    elif system == "windows":
+        os_tag = "windows"
+    else:
+        raise RuntimeError(f"Unsupported OS: {system}")
+
+    if machine in ("x86_64", "amd64"):
+        arch_tag = "x64"
+    elif machine in ("aarch64", "arm64"):
+        arch_tag = "arm64"
+    else:
+        raise RuntimeError(f"Unsupported architecture: {machine}")
+
+    return f"{os_tag}-{arch_tag}"
+
+
+def _get_freak_home() -> Path:
+    """Get FREAK installation directory."""
+    env = os.environ.get("FREAK_HOME")
+    if env:
+        return Path(env)
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA", "~")) / "freak"
+    return Path.home() / ".freak"
+
+
+def _get_latest_release() -> str:
+    """Fetch the latest release tag from GitHub."""
+    url = f"https://api.github.com/repos/{REPO}/releases/latest"
+    req = request.Request(url, headers={"User-Agent": "FREAK-Hangar/0.1"})
+    with request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read())
+    return data["tag_name"]
+
+
+def hangar_install_toolchain(upgrade: bool = False) -> int:
+    """Download and install the FREAK compiler binary."""
+    try:
+        target = _detect_platform()
+    except RuntimeError as e:
+        print(f"  {e}", file=sys.stderr)
+        return 1
+
+    freak_home = _get_freak_home()
+    bin_dir = freak_home / "bin"
+    ext = ".exe" if sys.platform == "win32" else ""
+    binary_path = bin_dir / f"freakc{ext}"
+
+    if binary_path.exists() and not upgrade:
+        print(f"  FREAK is already installed at {binary_path}")
+        print(f"  Use 'hangar upgrade freak' to update.")
+        return 0
+
+    print(f"  Detected platform: {target}")
+
+    try:
+        version = _get_latest_release()
+    except Exception as e:
+        print(f"  Could not fetch latest release: {e}", file=sys.stderr)
+        return 1
+
+    print(f"  Latest version: {version}")
+
+    artifact = f"freakc-{target}{ext}"
+    download_url = f"https://github.com/{REPO}/releases/download/{version}/{artifact}"
+    print(f"  Downloading {artifact}...")
+
+    try:
+        req = request.Request(download_url, headers={"User-Agent": "FREAK-Hangar/0.1"})
+        with request.urlopen(req, timeout=60) as resp:
+            binary_data = resp.read()
+    except Exception as e:
+        print(f"  Download failed: {e}", file=sys.stderr)
+        print(f"  Check https://github.com/{REPO}/releases", file=sys.stderr)
+        return 1
+
+    # Install binary
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    binary_path.write_bytes(binary_data)
+
+    # Make executable on Unix
+    if sys.platform != "win32":
+        binary_path.chmod(0o755)
+
+    # Download runtime files
+    runtime_dir = freak_home / "runtime"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    runtime_url = f"https://raw.githubusercontent.com/{REPO}/{version}/freakc/runtime"
+    for fname in ("freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c"):
+        try:
+            req = request.Request(
+                f"{runtime_url}/{fname}",
+                headers={"User-Agent": "FREAK-Hangar/0.1"},
+            )
+            with request.urlopen(req, timeout=15) as resp:
+                (runtime_dir / fname).write_bytes(resp.read())
+        except Exception:
+            pass  # Non-fatal
+
+    # PATH guidance
+    action = "Updated" if upgrade else "Installed"
+    print(f"  {action} FREAK {version} successfully!")
+    print(f"")
+    print(f"  Compiler: {binary_path}")
+    print(f"  Runtime:  {runtime_dir}/")
+    print(f"")
+
+    # Check if already in PATH
+    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+    if str(bin_dir) not in path_dirs:
+        if sys.platform == "win32":
+            print(f"  Add to PATH by running:")
+            print(f"    setx PATH \"%PATH%;{bin_dir}\"")
+        else:
+            print(f"  Add to PATH by running:")
+            print(f"    export PATH=\"{bin_dir}:$PATH\"")
+            print(f"")
+            print(f"  Or add to your shell config:")
+            print(f"    echo 'export PATH=\"{bin_dir}:$PATH\"' >> ~/.bashrc")
+    else:
+        print(f"  {bin_dir} is already in PATH")
+
+    print(f"")
+    print(f"  Try: freakc build hello.fk -o hello")
+    return 0
+
+
 __all__ = [
     "hangar_init", "hangar_install", "hangar_add", "hangar_remove",
-    "resolve_module",
+    "hangar_install_toolchain", "resolve_module",
 ]

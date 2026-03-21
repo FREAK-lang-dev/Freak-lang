@@ -346,10 +346,13 @@ def cmd_jit(path: Path) -> int:
 
 def cmd_hangar(argv: list[str]) -> int:
     """Handle 'freak hangar <subcommand>' commands."""
-    from .hangar import hangar_add, hangar_init, hangar_install, hangar_remove
+    from .hangar import (
+        hangar_add, hangar_init, hangar_install, hangar_remove,
+        hangar_install_toolchain,
+    )
 
     if not argv:
-        print(_red("✗ Missing hangar subcommand. Use: init, install, add, remove"))
+        print(_red("✗ Missing hangar subcommand. Use: init, install, add, remove, upgrade"))
         return 1
 
     sub = argv[0]
@@ -359,7 +362,16 @@ def cmd_hangar(argv: list[str]) -> int:
         return hangar_init(project_dir)
 
     if sub == "install":
+        # Special case: hangar install freak → toolchain bootstrap
+        if len(argv) > 1 and argv[1] == "freak":
+            return hangar_install_toolchain(upgrade=False)
         return hangar_install(project_dir)
+
+    if sub == "upgrade":
+        if len(argv) > 1 and argv[1] == "freak":
+            return hangar_install_toolchain(upgrade=True)
+        print(_red("✗ Usage: freak hangar upgrade freak"))
+        return 1
 
     if sub == "add":
         if len(argv) < 3:
