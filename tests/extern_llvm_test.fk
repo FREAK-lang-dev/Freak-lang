@@ -1,0 +1,22 @@
+-- Test: extern task declarations with LLVM backend
+-- Calls functions already in the LLVM runtime via extern declarations.
+
+extern task freak_word_to_upper(w: word) -> word
+extern task freak_word_to_lower(w: word) -> word
+extern task freak_word_trim(w: word) -> word
+extern task freak_word_length(w: word) -> int
+
+pilot upper = freak_word_to_upper("hello freak")
+say "to_upper = " + upper
+
+pilot lower = freak_word_to_lower("HELLO FREAK")
+say "to_lower = " + lower
+
+pilot trimmed = freak_word_trim("  spaces  ")
+say "trim = [" + trimmed + "]"
+
+pilot wlen = freak_word_length("FREAK")
+say "length('FREAK') = " + word_from_int(wlen)
+
+say ""
+say "LLVM extern test passed!"

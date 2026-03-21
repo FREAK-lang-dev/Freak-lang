@@ -55,6 +55,7 @@ pilot STMT_SHAPE = "12"
 pilot STMT_BREAK = "13"
 pilot STMT_CONTINUE = "14"
 pilot STMT_EVENTUALLY = "15"
+pilot STMT_EXTERN = "16"
 
 pilot ast_stmt_kinds = 0
 pilot ast_stmt_names = 0
@@ -169,6 +170,13 @@ task init_arrays() -> void {
     emt_var_names = array_new()
     emt_var_types = array_new()
     emt_var_count = 0
+
+    emt_word_tasks = array_new()
+    emt_word_task_count = 0
+
+    emt_extern_names = array_new()
+    emt_extern_rets = array_new()
+    emt_extern_count = 0
 }
 
 -- ===================== LEGACY COMPAT =================================
@@ -435,7 +443,7 @@ task lex_ident() -> void {
     }
 
     -- Single-word keywords
-    if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "impl" or lower == "doctrine" or lower == "launch" or lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "break" or lower == "continue" or lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" or lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "sadly" or lower == "deus_ex_machina" or lower == "isekai" or lower == "eventually" or lower == "and" or lower == "or" or lower == "not" or lower == "nakama" or lower == "tsundere" {
+    if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "impl" or lower == "doctrine" or lower == "launch" or lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "break" or lower == "continue" or lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" or lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "sadly" or lower == "deus_ex_machina" or lower == "isekai" or lower == "eventually" or lower == "and" or lower == "or" or lower == "not" or lower == "nakama" or lower == "tsundere" or lower == "extern" {
         push_token(TOK_KW, res)
     } else if lower == "true" or lower == "false" or lower == "yes" or lower == "no" or lower == "hai" or lower == "iie" {
         push_token(TOK_BOOL, res)
@@ -1178,6 +1186,46 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_WHEN, "", word_from_int(target_id), cases_str, "", "", "", "")
     }
 
+    -- extern task: foreign function declaration (no body)
+    if match_tok(TOK_KW, "extern") {
+        expect_tok(TOK_KW, "task")
+        pilot ename = cur_tok_val()
+        advance_tok()
+        expect_tok(TOK_PUNCT, "(")
+        pilot eparams = ""
+        pilot efin = false
+        pilot eis_first = true
+        if match_tok(TOK_PUNCT, ")") {
+            efin = true
+        }
+        repeat until efin {
+            pilot epname = cur_tok_val()
+            advance_tok()
+            expect_tok(TOK_PUNCT, ":")
+            pilot eptype = cur_tok_val()
+            advance_tok()
+
+            pilot epstr = epname + ":"
+            epstr = epstr + eptype
+
+            if eis_first {
+                eparams = epstr
+                eis_first = false
+            } else {
+                pilot etmp = eparams + ","
+                eparams = etmp + epstr
+            }
+            if match_tok(TOK_PUNCT, ")") { efin = true }
+            else { expect_tok(TOK_PUNCT, ",") }
+        }
+
+        expect_tok(TOK_PUNCT, "->")
+        pilot eret_type = cur_tok_val()
+        advance_tok()
+
+        give back alloc_stmt(STMT_EXTERN, ename, "", "", "", "", eparams, eret_type)
+    }
+
     if match_tok(TOK_KW, "task") {
         pilot name = cur_tok_val()
         advance_tok()
@@ -1306,6 +1354,63 @@ task emt_get_var_type(name: word) -> word {
     give back ""
 }
 
+-- Task return type registry (tracks which tasks return word)
+pilot emt_word_tasks = 0
+pilot emt_word_task_count = 0
+
+task emt_register_word_task(fname: word) -> void {
+    array_push(emt_word_tasks, fname)
+    emt_word_task_count += 1
+}
+
+task emt_task_returns_word(fname: word) -> bool {
+    pilot ti = 0
+    pilot ftarget = "" + fname
+    repeat emt_word_task_count times {
+        pilot ftentry: word = array_get(emt_word_tasks, ti)
+        if ftentry == ftarget { give back true }
+        ti += 1
+    }
+    give back false
+}
+
+-- Extern function registry (functions declared with 'extern task')
+pilot emt_extern_names = 0
+pilot emt_extern_rets = 0
+pilot emt_extern_count = 0
+
+task emt_register_extern(name: word, ret_type: word) -> void {
+    array_push(emt_extern_names, name)
+    array_push(emt_extern_rets, ret_type)
+    emt_extern_count += 1
+}
+
+task emt_is_extern(xname: word) -> bool {
+    pilot xi = 0
+    pilot xtarget = "" + xname
+    repeat emt_extern_count times {
+        pilot xentry: word = array_get(emt_extern_names, xi)
+        if xentry == xtarget { give back true }
+        xi += 1
+    }
+    give back false
+}
+
+task emt_extern_returns_word(xname: word) -> bool {
+    pilot xi = 0
+    pilot xtarget = "" + xname
+    repeat emt_extern_count times {
+        pilot xentry: word = array_get(emt_extern_names, xi)
+        if xentry == xtarget {
+            pilot xret: word = array_get(emt_extern_rets, xi)
+            if xret == "word" { give back true }
+            give back false
+        }
+        xi += 1
+    }
+    give back false
+}
+
 task emit(s: word) -> void {
     out_buf = out_buf + s
 }
@@ -1372,6 +1477,10 @@ task is_ast_word(id: word) -> bool {
         if val == "llvm_double_to_i64" { give back true }
         if val == "next_reg" { give back true }
         if val == "register_string_literal" { give back true }
+        -- Check extern functions that return word
+        if emt_extern_returns_word(val) { give back true }
+        -- Check user-defined tasks that return word
+        if emt_task_returns_word(val) { give back true }
     }
     if kind == EXPR_BINOP {
         pilot val: word = array_get(ast_expr_vals, i)
@@ -1516,6 +1625,13 @@ task emit_expr(id: word) -> void {
             emit(")")
         } else if val == "process::env" {
             emit("freak_process_env(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if emt_is_extern(val) {
+            -- Extern function: call without freak_ prefix
+            pilot etmp = c_safe_ident(val)
+            etmp = etmp + "("
+            emit(etmp)
             if left != "" { emit_args(left) }
             emit(")")
         } else {
@@ -2021,6 +2137,8 @@ task emit_fwd_decl(eid: word) -> void {
     pilot name_w: word = array_get(ast_stmt_names, i)
     pilot params_w: word = array_get(ast_task_params, i)
     pilot returns_w: word = array_get(ast_task_returns, i)
+    -- Register tasks that return word for type inference
+    if returns_w == "word" { emt_register_word_task(name_w) }
     pilot c_ret = "void"
     if returns_w == "int" { c_ret = "int64_t" }
     else if returns_w == "word" { c_ret = "freak_word" }
@@ -2035,17 +2153,41 @@ task emit_fwd_decl(eid: word) -> void {
     emit_line(");")
 }
 
+task emit_extern_decl(eid: word) -> void {
+    -- Emit a forward declaration for an extern C function (no freak_ prefix).
+    pilot i = word_to_int(eid)
+    pilot name_w: word = array_get(ast_stmt_names, i)
+    pilot params_w: word = array_get(ast_task_params, i)
+    pilot returns_w: word = array_get(ast_task_returns, i)
+    emt_register_extern(name_w, returns_w)
+    pilot c_ret = "void"
+    if returns_w == "int" { c_ret = "int64_t" }
+    else if returns_w == "word" { c_ret = "freak_word" }
+    else if returns_w == "bool" { c_ret = "bool" }
+    else if returns_w == "num" { c_ret = "double" }
+    pilot c_params = "void"
+    if params_w != "" { c_params = translate_params(params_w) }
+    emit("extern ")
+    emit(c_ret)
+    emit(" ")
+    emit(name_w)
+    emit("(")
+    emit(c_params)
+    emit_line(");")
+}
+
 task emit_program() -> void {
     emit_line("#include \"freak_runtime.h\"")
 
     pilot top_count = array_len(ast_top_stmts)
     pilot i = 0
 
-    -- Pass 0: Forward declarations for all tasks
+    -- Pass 0: Forward declarations for all tasks + extern declarations
     repeat top_count times {
         pilot cur_id: word = array_get(ast_top_stmts, i)
         pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
         if kind == STMT_TASK { emit_fwd_decl(cur_id) }
+        if kind == STMT_EXTERN { emit_extern_decl(cur_id) }
         i += 1
     }
 
@@ -2082,7 +2224,7 @@ task emit_program() -> void {
     repeat top_count times {
         pilot cur_id: word = array_get(ast_top_stmts, i)
         pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
-        if kind != STMT_TASK and kind != STMT_SHAPE and kind != STMT_PILOT { emit_stmt(cur_id) }
+        if kind != STMT_TASK and kind != STMT_SHAPE and kind != STMT_PILOT and kind != STMT_EXTERN { emit_stmt(cur_id) }
         i += 1
     }
     emit_line("}")
@@ -2118,6 +2260,7 @@ pilot llvm_task_reg_count = 0
 
 -- Track current function context for correct ret emission
 pilot llvm_cur_func_is_void = false
+pilot llvm_declared_funcs = ""
 
 -- Track current loop labels for break/continue
 pilot llvm_loop_end_label = ""
@@ -2496,6 +2639,14 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_llvm_ui_end_frame(i64)")
     llvm_emit_line("declare void @freak_llvm_ui_clear(i64, i64, i64, i64, i64)")
     llvm_emit_line("declare void @freak_llvm_ui_fill_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
+
+    -- Track all runtime function names so extern decls don't duplicate them
+    llvm_declared_funcs = "|puts|printf|strlen|freak_word_from_int|freak_word_from_bool|freak_word_concat|freak_word_eq|freak_word_neq|freak_llvm_word_eq|freak_llvm_word_neq|freak_word_length|freak_word_char_at|freak_word_contains|freak_word_starts_with|freak_word_ends_with|freak_word_to_upper|freak_word_to_lower|freak_word_trim|freak_word_replace|freak_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_fs_read|freak_llvm_fs_write|freak_llvm_fs_append|freak_llvm_fs_exists|freak_llvm_fs_delete|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_native|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|"
+}
+
+task llvm_is_runtime_func(fname: word) -> bool {
+    pilot needle = "|" + fname + "|"
+    give back llvm_declared_funcs.contains(needle)
 }
 
 -- Check if a string value contains interpolation placeholders
@@ -2751,6 +2902,10 @@ task llvm_emit_expr(id: word) -> word {
         if left.length() > 0 { arg_str = llvm_emit_args(left) }
 
         pilot func_name = "@freak_" + llvm_c_safe_ident(val)
+        -- Extern functions: use name directly without freak_ prefix
+        if emt_is_extern(val) {
+            func_name = "@" + llvm_c_safe_ident(val)
+        }
         pilot is_void_call = false
 
         -- Shape constructor: shape::ctor::Name with field value expr IDs in left
@@ -3667,7 +3822,7 @@ task emit_llvm_program() -> void {
     llvm_emit_runtime_decls()
     llvm_emit_line("")
 
-    -- Pre-scan: Register return types for all user-defined tasks
+    -- Pre-scan: Register return types for all user-defined tasks and externs
     pilot top_count = array_len(ast_top_stmts)
     pilot prescan_i = 0
     repeat top_count times {
@@ -3678,8 +3833,51 @@ task emit_llvm_program() -> void {
             pilot prescan_ret: word = array_get(ast_task_returns, word_to_int(prescan_id))
             llvm_register_task(prescan_name, prescan_ret)
         }
+        if prescan_kind == STMT_EXTERN {
+            pilot ext_name: word = array_get(ast_stmt_names, word_to_int(prescan_id))
+            pilot ext_ret: word = array_get(ast_task_returns, word_to_int(prescan_id))
+            llvm_register_task(ext_name, ext_ret)
+            emt_register_extern(ext_name, ext_ret)
+        }
         prescan_i += 1
     }
+
+    -- Emit extern function declarations
+    pilot ext_i = 0
+    repeat top_count times {
+        pilot ext_id: word = array_get(ast_top_stmts, ext_i)
+        pilot ext_kind: word = array_get(ast_stmt_kinds, word_to_int(ext_id))
+        if ext_kind == STMT_EXTERN {
+            pilot ext_nm: word = array_get(ast_stmt_names, word_to_int(ext_id))
+            pilot ext_rt: word = array_get(ast_task_returns, word_to_int(ext_id))
+            pilot ext_pm: word = array_get(ast_task_params, word_to_int(ext_id))
+            pilot llvm_ret = "i64"
+            if ext_rt == "void" { llvm_ret = "void" }
+            pilot llvm_params = ""
+            if ext_pm != "" {
+                -- Count params by counting commas + 1
+                pilot plen = ext_pm.length()
+                pilot pi = 0
+                pilot pcount = 1
+                repeat plen times {
+                    if ext_pm.char_at(pi) == "," { pcount += 1 }
+                    pi += 1
+                }
+                pilot pj = 0
+                repeat pcount times {
+                    if pj > 0 { llvm_params = llvm_params + ", " }
+                    llvm_params = llvm_params + "i64"
+                    pj += 1
+                }
+            }
+            -- Skip if already declared as a runtime function
+            if not llvm_is_runtime_func(ext_nm) {
+                llvm_emit_line("declare " + llvm_ret + " @" + ext_nm + "(" + llvm_params + ")")
+            }
+        }
+        ext_i += 1
+    }
+    llvm_emit_line("")
 
     -- First pass: Tasks (emitted before @main and @freak_main so they're visible)
     pilot i = 0
@@ -3687,6 +3885,7 @@ task emit_llvm_program() -> void {
         pilot cur_id: word = array_get(ast_top_stmts, i)
         pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
         if kind == STMT_TASK { llvm_emit_task(cur_id) }
+        -- STMT_EXTERN already handled above as declare
         i += 1
     }
 
@@ -3725,7 +3924,7 @@ task emit_llvm_program() -> void {
         repeat top_count times {
             pilot cur_id: word = array_get(ast_top_stmts, i)
             pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
-            if kind != STMT_TASK { llvm_emit_stmt(cur_id) }
+            if kind != STMT_TASK and kind != STMT_EXTERN { llvm_emit_stmt(cur_id) }
             i += 1
         }
 
