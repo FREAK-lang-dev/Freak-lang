@@ -98,6 +98,14 @@ jobs:
           clang -o tests/std_ci_c.exe tests/std_ci_c.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           ./tests/std_ci_c.exe
 
+      - name: Test — JSON parser (LLVM backend)
+        shell: bash
+        run: |
+          cat std/math.fk std/string.fk std/convert.fk std/algorithm.fk std/json.fk tests/json_test.fk > tests/json_ci.fk
+          ./build/freakc_v2.exe tests/json_ci.fk
+          clang -o tests/json_ci.exe tests/json_ci.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          ./tests/json_ci.exe
+
       - name: Self-hosting bootstrap test
         shell: bash
         run: |

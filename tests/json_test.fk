@@ -1,0 +1,84 @@
+-- Test: std::json parser and serializer
+
+-- === Parse primitives ===
+pilot h1 = json_parse("\"hello world\"")
+say "string: " + json_get_str(h1)
+say "type: " + json_get_type(h1)
+
+pilot h2 = json_parse("42")
+say "number: " + word_from_int(json_get_int(h2))
+say "type: " + json_get_type(h2)
+
+pilot h3 = json_parse("true")
+say "bool: " + bool_to_word(json_get_bool(h3))
+
+pilot h4 = json_parse("false")
+say "bool: " + bool_to_word(json_get_bool(h4))
+
+pilot h5 = json_parse("null")
+say "null: " + bool_to_word(json_is_null(h5))
+
+-- === Parse array ===
+pilot h6 = json_parse("[1, 2, 3]")
+say "array type: " + json_get_type(h6)
+say "array len: " + word_from_int(json_arr_len(h6))
+pilot e0 = json_arr_get(h6, 0)
+pilot e1 = json_arr_get(h6, 1)
+pilot e2 = json_arr_get(h6, 2)
+say "arr[0] = " + json_get_str(e0)
+say "arr[1] = " + json_get_str(e1)
+say "arr[2] = " + json_get_str(e2)
+
+-- === Parse object ===
+pilot h7 = json_parse("{\"name\": \"Takeru\", \"power\": 9001, \"alive\": true}")
+say "obj type: " + json_get_type(h7)
+say "obj len: " + word_from_int(json_obj_len(h7))
+
+pilot name_h = json_obj_get(h7, "name")
+say "name = " + json_get_str(name_h)
+
+pilot pow_h = json_obj_get(h7, "power")
+say "power = " + word_from_int(json_get_int(pow_h))
+
+pilot alive_h = json_obj_get(h7, "alive")
+say "alive = " + bool_to_word(json_get_bool(alive_h))
+
+say "has 'name': " + bool_to_word(json_obj_has(h7, "name"))
+say "has 'missing': " + bool_to_word(json_obj_has(h7, "missing"))
+
+-- === Nested ===
+pilot h8 = json_parse("{\"pilots\": [\"Takeru\", \"Meiya\"], \"count\": 2}")
+pilot pilots_h = json_obj_get(h8, "pilots")
+say "pilots type: " + json_get_type(pilots_h)
+say "pilots len: " + word_from_int(json_arr_len(pilots_h))
+pilot p0 = json_arr_get(pilots_h, 0)
+pilot p1 = json_arr_get(pilots_h, 1)
+say "pilot[0] = " + json_get_str(p0)
+say "pilot[1] = " + json_get_str(p1)
+
+-- === Stringify ===
+pilot s1 = json_stringify(h1)
+say "stringify string: " + s1
+
+pilot s2 = json_stringify(h2)
+say "stringify number: " + s2
+
+pilot s6 = json_stringify(h6)
+say "stringify array: " + s6
+
+pilot s7 = json_stringify(h7)
+say "stringify object: " + s7
+
+-- === Negative number ===
+pilot h9 = json_parse("-42")
+say "negative: " + word_from_int(json_get_int(h9))
+
+-- === Empty containers ===
+pilot h10 = json_parse("[]")
+say "empty array len: " + word_from_int(json_arr_len(h10))
+
+pilot h11 = json_parse("{}")
+say "empty object len: " + word_from_int(json_obj_len(h11))
+
+say ""
+say "All JSON tests passed!"

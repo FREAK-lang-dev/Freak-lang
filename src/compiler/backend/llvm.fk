@@ -28,6 +28,9 @@ pilot llvm_declared_funcs = ""
 pilot llvm_loop_end_label = ""
 pilot llvm_loop_cond_label = ""
 
+-- Track global variables (top-level pilots)
+pilot llvm_global_names = ""
+
 -- Flush the LLVM output buffer to file (streaming mode)
 task llvm_flush() -> void {
     if llvm_out_file != "" {
@@ -70,6 +73,31 @@ task llvm_flush_strs() -> void {
     }
 }
 
+task llvm_escape_str(s: word) -> word {
+    -- Escape special characters for LLVM IR c"..." string literals
+    pilot esc_out = ""
+    pilot esc_len = s.length()
+    pilot esc_i = 0
+    repeat esc_len times {
+        pilot ch = s.char_at(esc_i)
+        if ch == "\"" {
+            esc_out = esc_out + "\\22"
+        } else if ch == "\\" {
+            esc_out = esc_out + "\\5C"
+        } else if ch == "\n" {
+            esc_out = esc_out + "\\0A"
+        } else if ch == "\r" {
+            esc_out = esc_out + "\\0D"
+        } else if ch == "\t" {
+            esc_out = esc_out + "\\09"
+        } else {
+            esc_out = esc_out + ch
+        }
+        esc_i += 1
+    }
+    give back esc_out
+}
+
 task register_string_literal(val: word) -> word {
     pilot id = "@.str." + word_from_int(string_literals_count)
     string_literals_count += 1
@@ -79,8 +107,11 @@ task register_string_literal(val: word) -> word {
     pilot len = real_val.length()
     pilot null_term_len = len + 1
 
+    -- Escape for LLVM IR c"..." syntax
+    pilot escaped = llvm_escape_str(real_val)
+
     -- Format: @.str.0 = private unnamed_addr constant [13 x i8] c"Hello World!\00", align 1
-    pilot decl = id + " = private unnamed_addr constant [" + word_from_int(null_term_len) + " x i8] c\"" + real_val + "\\00\", align 1\n"
+    pilot decl = id + " = private unnamed_addr constant [" + word_from_int(null_term_len) + " x i8] c\"" + escaped + "\\00\", align 1\n"
     string_literals = string_literals + decl
 
     -- In streaming mode, flush string literals periodically
@@ -421,6 +452,18 @@ task llvm_is_runtime_func(fname: word) -> bool {
     give back llvm_declared_funcs.contains(needle)
 }
 
+task llvm_is_global(vname: word) -> bool {
+    pilot needle = "|" + vname + "|"
+    give back llvm_global_names.contains(needle)
+}
+
+task llvm_var_ptr(vname: word) -> word {
+    if llvm_is_global(vname) {
+        give back "@g_" + vname
+    }
+    give back "%" + vname
+}
+
 -- Check if a string value contains interpolation placeholders
 task llvm_str_has_interp(val: word) -> bool {
     pilot slen = val.length()
@@ -471,7 +514,7 @@ task llvm_emit_say_interp(val: word) -> void {
                     }
                     -- Load the object pointer
                     pilot obj_reg = next_reg()
-                    llvm_emit_line("    " + obj_reg + " = load i64, i64* %" + obj_name)
+                    llvm_emit_line("    " + obj_reg + " = load i64, i64* " + llvm_var_ptr(obj_name))
                     -- Get field index
                     pilot fidx = 0 - 1
                     pilot sri = 0
@@ -524,7 +567,7 @@ task llvm_emit_say_interp(val: word) -> void {
                 } else {
                     -- Regular variable interpolation
                     pilot var_reg = next_reg()
-                    llvm_emit_line("    " + var_reg + " = load i64, i64* %" + vname)
+                    llvm_emit_line("    " + var_reg + " = load i64, i64* " + llvm_var_ptr(vname))
                     pilot var_type = llvm_get_var_type(vname)
                     if var_type.starts_with("w") {
                         llvm_emit_line("    call void @freak_llvm_print_str(i64 " + var_reg + ")")
@@ -665,7 +708,7 @@ task llvm_emit_expr(id: word) -> word {
 
     if kind == EXPR_IDENT {
         pilot res_reg = next_reg()
-        llvm_emit_line("    " + res_reg + " = load i64, i64* %" + val)
+        llvm_emit_line("    " + res_reg + " = load i64, i64* " + llvm_var_ptr(val))
         give back res_reg
     }
 
@@ -1156,10 +1199,13 @@ task llvm_emit_stmt(eid: word) -> void {
         llvm_set_var_type(name_w, vtype)
         -- Emit the expression (BINOP "+" on words already produces concat via llvm_emit_expr)
         pilot reg = llvm_emit_expr(expr_id_w)
-        -- Allocate space on the stack for the variable
-        llvm_emit_line("    %" + name_w + " = alloca i64")
-        -- Store the result in the allocated space
-        llvm_emit_line("    store i64 " + reg + ", i64* %" + name_w)
+        -- Globals already have @g_ declarations, just store
+        if llvm_is_global(name_w) {
+            llvm_emit_line("    store i64 " + reg + ", i64* @g_" + name_w)
+        } else {
+            llvm_emit_line("    %" + name_w + " = alloca i64")
+            llvm_emit_line("    store i64 " + reg + ", i64* %" + name_w)
+        }
     } else if kind == STMT_SAY {
         -- Check if the expression is an interpolated string
         pilot say_expr_kind: word = array_get(ast_expr_kinds, word_to_int(expr_id_w))
@@ -1427,12 +1473,13 @@ task llvm_emit_stmt(eid: word) -> void {
         pilot rhs_w: word = array_get(ast_stmt_bodies, i)
         pilot var_name_expr: word = array_get(ast_expr_vals, word_to_int(expr_id_w))
         pilot reg = llvm_emit_expr(rhs_w)
+        pilot var_ptr = llvm_var_ptr(var_name_expr)
         if name_w == "=" {
-            llvm_emit_line("    store i64 " + reg + ", i64* %" + var_name_expr)
+            llvm_emit_line("    store i64 " + reg + ", i64* " + var_ptr)
         } else {
             -- +=, -=, etc. Need to load first, modify, then store
             pilot load_reg = next_reg()
-            llvm_emit_line("    " + load_reg + " = load i64, i64* %" + var_name_expr)
+            llvm_emit_line("    " + load_reg + " = load i64, i64* " + var_ptr)
             pilot op_reg = next_reg()
             if name_w == "+=" {
                 llvm_emit_line("    " + op_reg + " = add i64 " + load_reg + ", " + reg)
@@ -1441,7 +1488,7 @@ task llvm_emit_stmt(eid: word) -> void {
             } else if name_w == "*=" {
                 llvm_emit_line("    " + op_reg + " = mul i64 " + load_reg + ", " + reg)
             }
-            llvm_emit_line("    store i64 " + op_reg + ", i64* %" + var_name_expr)
+            llvm_emit_line("    store i64 " + op_reg + ", i64* " + var_ptr)
         }
     } else if kind == STMT_BREAK {
         llvm_emit_line("    br label %" + llvm_loop_end_label)
@@ -1625,6 +1672,21 @@ task emit_llvm_program() -> void {
         }
         prescan_i += 1
     }
+
+    -- Pre-scan: Register and emit top-level pilot variables as LLVM globals
+    llvm_global_names = ""
+    pilot glob_i = 0
+    repeat top_count times {
+        pilot glob_id: word = array_get(ast_top_stmts, glob_i)
+        pilot glob_kind: word = array_get(ast_stmt_kinds, word_to_int(glob_id))
+        if glob_kind == STMT_PILOT {
+            pilot glob_name: word = array_get(ast_stmt_names, word_to_int(glob_id))
+            llvm_global_names = llvm_global_names + "|" + glob_name + "|"
+            llvm_emit_line("@g_" + glob_name + " = global i64 0")
+        }
+        glob_i += 1
+    }
+    llvm_emit_line("")
 
     -- Emit extern function declarations
     pilot ext_i = 0

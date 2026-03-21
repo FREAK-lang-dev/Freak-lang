@@ -1,0 +1,376 @@
+-- ===================================================================
+-- FREAK Standard Library — std::json
+-- ===================================================================
+-- A JSON parser and serializer written in pure FREAK.
+-- Uses dynamic arrays as the backing store for JSON values.
+--
+-- JSON values are stored as tagged entries in parallel arrays:
+--   json_types[i]  = "s" | "n" | "b" | "null" | "a" | "o"
+--   json_vals[i]   = string value (for s/n/b/null) or ""
+--   json_children[i] = array handle of child indices (for a/o)
+--   json_keys[i]   = array handle of key strings (for o only)
+--
+-- Parse with: json_parse(source) -> handle (int)
+-- Access with: json_get_type, json_get_str, json_get_int, json_get_bool
+-- Object access: json_obj_get(handle, key) -> child handle
+-- Array access: json_arr_get(handle, index) -> child handle
+-- Serialize with: json_stringify(handle) -> word
+-- ===================================================================
+
+-- Value pool
+pilot json_types = 0
+pilot json_vals = 0
+pilot json_children = 0
+pilot json_keys = 0
+pilot json_count = 0
+pilot json_inited = 0
+
+-- Parser state
+pilot json_src = ""
+pilot json_pos = 0
+pilot json_len = 0
+
+task json_init() -> void {
+    if json_inited == 0 {
+        json_types = array_new()
+        json_vals = array_new()
+        json_children = array_new()
+        json_keys = array_new()
+        json_count = 0
+        json_inited = 1
+    }
+}
+
+-- Allocate a new JSON value slot, returns its index.
+task json_alloc(jtype: word, jval: word) -> int {
+    pilot idx = json_count
+    array_push(json_types, jtype)
+    array_push(json_vals, jval)
+    array_push(json_children, word_from_int(0))
+    array_push(json_keys, word_from_int(0))
+    json_count += 1
+    give back idx
+}
+
+-- === Accessors ===
+
+task json_get_type(handle: int) -> word {
+    give back array_get(json_types, handle)
+}
+
+task json_get_str(handle: int) -> word {
+    give back array_get(json_vals, handle)
+}
+
+task json_get_int(handle: int) -> int {
+    pilot v: word = array_get(json_vals, handle)
+    give back word_to_int(v)
+}
+
+task json_get_bool(handle: int) -> bool {
+    pilot v: word = array_get(json_vals, handle)
+    give back v == "true"
+}
+
+task json_is_null(handle: int) -> bool {
+    pilot t: word = array_get(json_types, handle)
+    give back t == "null"
+}
+
+task json_arr_len(handle: int) -> int {
+    pilot ch: word = array_get(json_children, handle)
+    pilot ch_handle = word_to_int(ch)
+    give back array_len(ch_handle)
+}
+
+task json_arr_get(handle: int, index: int) -> int {
+    pilot ch: word = array_get(json_children, handle)
+    pilot ch_handle = word_to_int(ch)
+    pilot val_w: word = array_get(ch_handle, index)
+    give back word_to_int(val_w)
+}
+
+task json_obj_len(handle: int) -> int {
+    pilot ks: word = array_get(json_keys, handle)
+    pilot ks_handle = word_to_int(ks)
+    give back array_len(ks_handle)
+}
+
+task json_obj_get(handle: int, key: word) -> int {
+    pilot ks: word = array_get(json_keys, handle)
+    pilot ks_handle = word_to_int(ks)
+    pilot ch: word = array_get(json_children, handle)
+    pilot ch_handle = word_to_int(ch)
+    pilot klen = array_len(ks_handle)
+    pilot ki = 0
+    repeat klen times {
+        pilot k: word = array_get(ks_handle, ki)
+        if k == key {
+            pilot v: word = array_get(ch_handle, ki)
+            give back word_to_int(v)
+        }
+        ki += 1
+    }
+    give back 0 - 1
+}
+
+task json_obj_has(handle: int, key: word) -> bool {
+    give back json_obj_get(handle, key) >= 0
+}
+
+task json_obj_key_at(handle: int, index: int) -> word {
+    pilot ks: word = array_get(json_keys, handle)
+    pilot ks_handle = word_to_int(ks)
+    give back array_get(ks_handle, index)
+}
+
+-- === Parser internals ===
+
+task json_cur() -> word {
+    if json_pos >= json_len { give back "" }
+    give back json_src.char_at(json_pos)
+}
+
+task json_advance() -> word {
+    pilot c = json_cur()
+    json_pos += 1
+    give back c
+}
+
+task json_skip_ws() -> void {
+    repeat until json_pos >= json_len {
+        pilot c = json_cur()
+        if c != " " and c != "\n" and c != "\r" and c != "\t" {
+            give back
+        }
+        json_pos += 1
+    }
+}
+
+task json_expect(ch: word) -> void {
+    pilot c = json_advance()
+    if c != ch {
+        say "JSON parse error: expected '" + ch + "' got '" + c + "'"
+    }
+}
+
+task json_parse_string() -> word {
+    json_expect("\"")
+    pilot ps_out = ""
+    repeat until json_pos >= json_len {
+        pilot c = json_advance()
+        if c == "\"" { give back ps_out }
+        if c == "\\" {
+            pilot esc = json_advance()
+            if esc == "n" {
+                ps_out = ps_out + "\n"
+            } else if esc == "t" {
+                ps_out = ps_out + "\t"
+            } else if esc == "r" {
+                ps_out = ps_out + "\r"
+            } else if esc == "\\" {
+                ps_out = ps_out + "\\"
+            } else if esc == "\"" {
+                ps_out = ps_out + "\""
+            } else if esc == "/" {
+                ps_out = ps_out + "/"
+            } else {
+                ps_out = ps_out + esc
+            }
+        } else {
+            ps_out = ps_out + c
+        }
+    }
+    give back ps_out
+}
+
+task json_parse_number() -> word {
+    pilot pn_out = ""
+    pilot c = json_cur()
+    if c == "-" {
+        pn_out = "-"
+        json_pos += 1
+    }
+    repeat until json_pos >= json_len {
+        c = json_cur()
+        if c == "0" or c == "1" or c == "2" or c == "3" or c == "4" or c == "5" or c == "6" or c == "7" or c == "8" or c == "9" or c == "." {
+            pn_out = pn_out + c
+            json_pos += 1
+        } else {
+            give back pn_out
+        }
+    }
+    give back pn_out
+}
+
+task json_try_keyword(kw: word) -> bool {
+    pilot kwlen = kw.length()
+    if json_pos + kwlen > json_len { give back false }
+    pilot ki = 0
+    repeat kwlen times {
+        if json_src.char_at(json_pos + ki) != kw.char_at(ki) { give back false }
+        ki += 1
+    }
+    json_pos += kwlen
+    give back true
+}
+
+-- Main recursive parser. Returns handle to parsed value.
+task json_parse_value() -> int {
+    json_skip_ws()
+    pilot c = json_cur()
+
+    -- String
+    if c == "\"" {
+        pilot sv = json_parse_string()
+        give back json_alloc("s", sv)
+    }
+
+    -- Number
+    if c == "-" or c == "0" or c == "1" or c == "2" or c == "3" or c == "4" or c == "5" or c == "6" or c == "7" or c == "8" or c == "9" {
+        pilot nv = json_parse_number()
+        give back json_alloc("n", nv)
+    }
+
+    -- Boolean true
+    if c == "t" {
+        if json_try_keyword("true") {
+            give back json_alloc("b", "true")
+        }
+    }
+
+    -- Boolean false
+    if c == "f" {
+        if json_try_keyword("false") {
+            give back json_alloc("b", "false")
+        }
+    }
+
+    -- Null
+    if c == "n" {
+        if json_try_keyword("null") {
+            give back json_alloc("null", "")
+        }
+    }
+
+    -- Array
+    if c == "[" {
+        json_pos += 1
+        pilot arr_children = array_new()
+        pilot arr_handle = json_alloc("a", "")
+        array_set(json_children, arr_handle, word_from_int(arr_children))
+        json_skip_ws()
+        if json_cur() != "]" {
+            pilot first_val = json_parse_value()
+            array_push(arr_children, word_from_int(first_val))
+            json_skip_ws()
+            repeat until json_cur() != "," {
+                json_pos += 1
+                pilot next_val = json_parse_value()
+                array_push(arr_children, word_from_int(next_val))
+                json_skip_ws()
+            }
+        }
+        json_expect("]")
+        give back arr_handle
+    }
+
+    -- Object
+    if c == "{" {
+        json_pos += 1
+        pilot obj_children = array_new()
+        pilot obj_keys = array_new()
+        pilot obj_handle = json_alloc("o", "")
+        array_set(json_children, obj_handle, word_from_int(obj_children))
+        array_set(json_keys, obj_handle, word_from_int(obj_keys))
+        json_skip_ws()
+        if json_cur() != "}" {
+            pilot k1 = json_parse_string()
+            json_skip_ws()
+            json_expect(":")
+            pilot v1 = json_parse_value()
+            array_push(obj_keys, k1)
+            array_push(obj_children, word_from_int(v1))
+            json_skip_ws()
+            repeat until json_cur() != "," {
+                json_pos += 1
+                json_skip_ws()
+                pilot kn = json_parse_string()
+                json_skip_ws()
+                json_expect(":")
+                pilot vn = json_parse_value()
+                array_push(obj_keys, kn)
+                array_push(obj_children, word_from_int(vn))
+                json_skip_ws()
+            }
+        }
+        json_expect("}")
+        give back obj_handle
+    }
+
+    say "JSON parse error: unexpected '" + c + "'"
+    give back 0 - 1
+}
+
+-- === Public API ===
+
+task json_parse(source: word) -> int {
+    json_init()
+    json_src = source
+    json_pos = 0
+    json_len = source.length()
+    give back json_parse_value()
+}
+
+-- === Serializer ===
+
+task json_stringify(handle: int) -> word {
+    if handle < 0 { give back "null" }
+    pilot t: word = array_get(json_types, handle)
+
+    if t == "s" {
+        pilot sv: word = array_get(json_vals, handle)
+        give back "\"" + sv + "\""
+    }
+
+    if t == "n" {
+        give back array_get(json_vals, handle)
+    }
+
+    if t == "b" {
+        give back array_get(json_vals, handle)
+    }
+
+    if t == "null" {
+        give back "null"
+    }
+
+    if t == "a" {
+        pilot alen = json_arr_len(handle)
+        pilot a_out = "["
+        pilot ai = 0
+        repeat alen times {
+            if ai > 0 { a_out = a_out + "," }
+            pilot child = json_arr_get(handle, ai)
+            a_out = a_out + json_stringify(child)
+            ai += 1
+        }
+        give back a_out + "]"
+    }
+
+    if t == "o" {
+        pilot olen = json_obj_len(handle)
+        pilot o_out = "{"
+        pilot oi = 0
+        repeat olen times {
+            if oi > 0 { o_out = o_out + "," }
+            pilot okey: word = json_obj_key_at(handle, oi)
+            pilot ov = json_arr_get(handle, oi)
+            o_out = o_out + "\"" + okey + "\":" + json_stringify(ov)
+            oi += 1
+        }
+        give back o_out + "}"
+    }
+
+    give back "null"
+}
