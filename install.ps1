@@ -10,14 +10,8 @@ function Info($msg)  { Write-Host "> $msg" -ForegroundColor Cyan }
 function Ok($msg)    { Write-Host "> $msg" -ForegroundColor Green }
 function Err($msg)   { Write-Host "> $msg" -ForegroundColor Red; throw $msg }
 
-# Detect architecture
-$Arch = $env:PROCESSOR_ARCHITECTURE
-if ($Arch -eq "AMD64" -or $Arch -eq "x86_64" -or $Arch -eq "X64") {
-    $Target = "freakc-windows-x64.exe"
-} else {
-    Err "Unsupported architecture: $Arch (only x64 supported for now)"
-}
-
+# Only x64 Windows binaries for now — ARM64 will come later
+$Target = "freakc-windows-x64.exe"
 Info "Detected platform: windows-x64"
 
 # Get latest release
