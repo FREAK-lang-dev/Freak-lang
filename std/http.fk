@@ -1,0 +1,222 @@
+-- ===================================================================
+-- FREAK Standard Library — std::http
+-- ===================================================================
+-- A minimal HTTP/1.1 client built on top of TCP sockets.
+--
+-- Usage:
+--   pilot resp = http_get("example.com", "/api/data", 80)
+--   say http_resp_status(resp)
+--   say http_resp_body(resp)
+--
+-- For HTTPS, use port 443 with an external TLS wrapper (future).
+-- ===================================================================
+
+-- Response storage
+pilot http_resp_statuses = 0
+pilot http_resp_bodies = 0
+pilot http_resp_headers_raw = 0
+pilot http_resp_count = 0
+pilot http_inited = 0
+
+task http_init() -> void {
+    if http_inited == 0 {
+        http_resp_statuses = array_new()
+        http_resp_bodies = array_new()
+        http_resp_headers_raw = array_new()
+        http_resp_count = 0
+        http_inited = 1
+    }
+}
+
+task http_alloc_resp(status: int, body: word, headers: word) -> int {
+    pilot idx = http_resp_count
+    array_push(http_resp_statuses, word_from_int(status))
+    array_push(http_resp_bodies, body)
+    array_push(http_resp_headers_raw, headers)
+    http_resp_count += 1
+    give back idx
+}
+
+-- === Response accessors ===
+
+task http_resp_status(handle: int) -> int {
+    pilot v: word = array_get(http_resp_statuses, handle)
+    give back word_to_int(v)
+}
+
+task http_resp_body(handle: int) -> word {
+    give back array_get(http_resp_bodies, handle)
+}
+
+task http_resp_headers(handle: int) -> word {
+    give back array_get(http_resp_headers_raw, handle)
+}
+
+-- === Parse HTTP response ===
+
+task http_parse_status(line: word) -> int {
+    -- Parse "HTTP/1.1 200 OK" -> 200
+    -- Find first space, then parse 3-digit status
+    pilot slen = line.length()
+    pilot si = 0
+    -- Skip to first space
+    repeat slen times {
+        if line.char_at(si) == " " {
+            -- Parse next 3 chars as status code
+            pilot code_str = ""
+            pilot ci = si + 1
+            repeat 3 times {
+                if ci < slen {
+                    code_str = code_str + line.char_at(ci)
+                    ci += 1
+                }
+            }
+            give back word_to_int(code_str)
+        }
+        si += 1
+    }
+    give back 0
+}
+
+task http_split_response(raw: word) -> int {
+    -- Split raw HTTP response into status, headers, body
+    -- Look for \r\n\r\n boundary between headers and body
+    pilot rlen = raw.length()
+    pilot ri = 0
+    pilot header_end = 0 - 1
+    pilot prev3 = ""
+    pilot prev2 = ""
+    pilot prev1 = ""
+
+    repeat rlen times {
+        pilot ch = raw.char_at(ri)
+        if prev2 == "\r" and prev1 == "\n" and ch == "\n" {
+            -- Found \r\n...\n — likely \r\n\r\n
+            header_end = ri + 1
+        }
+        if prev3 == "\r" and prev2 == "\n" and prev1 == "\r" and ch == "\n" {
+            header_end = ri + 1
+        }
+        prev3 = prev2
+        prev2 = prev1
+        prev1 = ch
+        ri += 1
+    }
+
+    -- Extract status line (first line)
+    pilot status_line = ""
+    pilot li = 0
+    repeat rlen times {
+        pilot lc = raw.char_at(li)
+        if lc == "\r" or lc == "\n" {
+            -- end of status line found
+            li = rlen
+        } else {
+            status_line = status_line + lc
+        }
+        li += 1
+    }
+
+    pilot status = http_parse_status(status_line)
+
+    -- Extract headers and body
+    pilot headers = ""
+    pilot body = ""
+    if header_end > 0 {
+        -- Headers: from start to header_end
+        pilot hi = 0
+        repeat header_end times {
+            if hi < rlen {
+                headers = headers + raw.char_at(hi)
+            }
+            hi += 1
+        }
+        -- Body: from header_end to end
+        pilot bi = header_end
+        repeat rlen times {
+            if bi < rlen {
+                body = body + raw.char_at(bi)
+            }
+            bi += 1
+        }
+    } else {
+        -- No header/body separator found
+        headers = raw
+    }
+
+    give back http_alloc_resp(status, body, headers)
+}
+
+-- === HTTP methods ===
+
+task http_get(host: word, path: word, port: int) -> int {
+    http_init()
+
+    pilot fd = tcp_connect(host, port)
+    if fd < 0 {
+        give back http_alloc_resp(0, "Connection failed", "")
+    }
+
+    -- Build HTTP/1.1 GET request
+    pilot req = "GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: FREAK/0.8\r\n\r\n"
+    tcp_send(fd, req)
+
+    -- Read full response
+    pilot raw = tcp_recv_all(fd, 65536)
+    tcp_close(fd)
+
+    give back http_split_response(raw)
+}
+
+task http_post(host: word, path: word, port: int, content_type: word, body: word) -> int {
+    http_init()
+
+    pilot fd = tcp_connect(host, port)
+    if fd < 0 {
+        give back http_alloc_resp(0, "Connection failed", "")
+    }
+
+    pilot body_len = word_from_int(body.length())
+    pilot req = "POST " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: FREAK/0.8\r\nContent-Type: " + content_type + "\r\nContent-Length: " + body_len + "\r\n\r\n" + body
+    tcp_send(fd, req)
+
+    pilot raw = tcp_recv_all(fd, 65536)
+    tcp_close(fd)
+
+    give back http_split_response(raw)
+}
+
+task http_put(host: word, path: word, port: int, content_type: word, body: word) -> int {
+    http_init()
+
+    pilot fd = tcp_connect(host, port)
+    if fd < 0 {
+        give back http_alloc_resp(0, "Connection failed", "")
+    }
+
+    pilot body_len = word_from_int(body.length())
+    pilot req = "PUT " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: FREAK/0.8\r\nContent-Type: " + content_type + "\r\nContent-Length: " + body_len + "\r\n\r\n" + body
+    tcp_send(fd, req)
+
+    pilot raw = tcp_recv_all(fd, 65536)
+    tcp_close(fd)
+
+    give back http_split_response(raw)
+}
+
+task http_delete(host: word, path: word, port: int) -> int {
+    http_init()
+
+    pilot fd = tcp_connect(host, port)
+    if fd < 0 {
+        give back http_alloc_resp(0, "Connection failed", "")
+    }
+
+    pilot req = "DELETE " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: FREAK/0.8\r\n\r\n"
+    tcp_send(fd, req)
+
+    pilot raw = tcp_recv_all(fd, 65536)
+    tcp_close(fd)
+
+    give back http_split_response(raw)
+}

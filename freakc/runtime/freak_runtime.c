@@ -14,6 +14,9 @@
 #include <sys/stat.h>
 
 #ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
 #include <windows.h>
 #include <io.h>
 #include <direct.h>
@@ -1134,4 +1137,118 @@ void freak_array_set(int64_t handle, int64_t index, freak_word item) {
         exit(1);
     }
     a->data[index] = item;
+}
+
+/* ── TCP Socket primitives ─────────────────────────── */
+
+#ifdef _WIN32
+static int freak_wsa_inited = 0;
+static void freak_wsa_init(void) {
+    if (!freak_wsa_inited) {
+        WSADATA wsa;
+        WSAStartup(MAKEWORD(2,2), &wsa);
+        freak_wsa_inited = 1;
+    }
+}
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#endif
+
+int64_t freak_tcp_connect(freak_word host, int64_t port) {
+#ifdef _WIN32
+    freak_wsa_init();
+    SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == INVALID_SOCKET) return -1;
+#else
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) return -1;
+#endif
+
+    struct addrinfo hints, *res;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    char port_str[16];
+    snprintf(port_str, 16, "%lld", (long long)port);
+    if (getaddrinfo(host.data, port_str, &hints, &res) != 0) {
+#ifdef _WIN32
+        closesocket(sock);
+#else
+        close(sock);
+#endif
+        return -1;
+    }
+    int rc = connect((int)sock, res->ai_addr, (int)res->ai_addrlen);
+    freeaddrinfo(res);
+    if (rc != 0) {
+#ifdef _WIN32
+        closesocket(sock);
+#else
+        close(sock);
+#endif
+        return -1;
+    }
+    return (int64_t)sock;
+}
+
+int64_t freak_tcp_send(int64_t fd, freak_word data) {
+    int len = (int)data.length;
+#ifdef _WIN32
+    return (int64_t)send((SOCKET)fd, data.data, len, 0);
+#else
+    return (int64_t)send((int)fd, data.data, len, 0);
+#endif
+}
+
+freak_word freak_tcp_recv(int64_t fd, int64_t max_bytes) {
+    int bufsz = (int)max_bytes;
+    if (bufsz <= 0) bufsz = 4096;
+    char* buf = malloc(bufsz + 1);
+    if (!buf) return freak_word_lit("");
+#ifdef _WIN32
+    int n = recv((SOCKET)fd, buf, bufsz, 0);
+#else
+    int n = recv((int)fd, buf, bufsz, 0);
+#endif
+    if (n <= 0) { free(buf); return freak_word_lit(""); }
+    buf[n] = '\0';
+    freak_word w;
+    w.data = buf;
+    w.length = n;
+    w.char_count = n;
+    return w;
+}
+
+freak_word freak_tcp_recv_all(int64_t fd, int64_t max_bytes) {
+    int bufsz = (int)max_bytes;
+    if (bufsz <= 0) bufsz = 65536;
+    char* buf = malloc(bufsz + 1);
+    if (!buf) return freak_word_lit("");
+    int total = 0;
+    while (total < bufsz) {
+#ifdef _WIN32
+        int n = recv((SOCKET)fd, buf + total, bufsz - total, 0);
+#else
+        int n = recv((int)fd, buf + total, bufsz - total, 0);
+#endif
+        if (n <= 0) break;
+        total += n;
+    }
+    buf[total] = '\0';
+    freak_word w;
+    w.data = buf;
+    w.length = total;
+    w.char_count = total;
+    return w;
+}
+
+void freak_tcp_close(int64_t fd) {
+#ifdef _WIN32
+    closesocket((SOCKET)fd);
+#else
+    close((int)fd);
+#endif
 }

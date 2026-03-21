@@ -213,6 +213,10 @@ task cli_load_std() -> word {
     if fs::exists(json_path) {
         std_src = std_src + fs::read(json_path) + "\n"
     }
+    pilot http_path = std_dir + "/http.fk"
+    if fs::exists(http_path) {
+        std_src = std_src + fs::read(http_path) + "\n"
+    }
     give back std_src
 }
 

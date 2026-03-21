@@ -74,7 +74,7 @@ done
 # Download standard library
 STD_URL="https://raw.githubusercontent.com/$REPO/$LATEST/std"
 mkdir -p "$INSTALL_DIR/std"
-for file in math.fk string.fk convert.fk algorithm.fk json.fk version.fk; do
+for file in math.fk string.fk convert.fk algorithm.fk json.fk http.fk version.fk; do
     if command -v curl &>/dev/null; then
         curl -fsSL "$STD_URL/$file" -o "$INSTALL_DIR/std/$file" 2>/dev/null || true
     else

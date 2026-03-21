@@ -330,6 +330,16 @@ int64_t freak_array_len(int64_t handle);
 void freak_array_set(int64_t handle, int64_t index, freak_word item);
 
 /* ------------------------------------------------------------------ */
+/*  TCP Socket primitives                                             */
+/* ------------------------------------------------------------------ */
+
+int64_t freak_tcp_connect(freak_word host, int64_t port);
+int64_t freak_tcp_send(int64_t fd, freak_word data);
+freak_word freak_tcp_recv(int64_t fd, int64_t max_bytes);
+freak_word freak_tcp_recv_all(int64_t fd, int64_t max_bytes);
+void freak_tcp_close(int64_t fd);
+
+/* ------------------------------------------------------------------ */
 /*  UI Runtime Subsystem                                              */
 /* ------------------------------------------------------------------ */
 

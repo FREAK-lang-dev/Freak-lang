@@ -1,0 +1,24 @@
+-- Test: std::http client
+
+-- Test 1: HTTP GET
+say "=== HTTP GET test ==="
+pilot resp = http_get("httpbin.org", "/get", 80)
+pilot status = http_resp_status(resp)
+say "status: " + word_from_int(status)
+pilot body = http_resp_body(resp)
+say "body length: " + word_from_int(body.length())
+say "has url field: " + bool_to_word(body.contains("url"))
+
+-- Test 2: HTTP POST with JSON
+say ""
+say "=== HTTP POST test ==="
+pilot post_body = "{\"name\":\"Takeru\",\"power\":9001}"
+pilot resp2 = http_post("httpbin.org", "/post", 80, "application/json", post_body)
+pilot status2 = http_resp_status(resp2)
+say "status: " + word_from_int(status2)
+pilot body2 = http_resp_body(resp2)
+say "body length: " + word_from_int(body2.length())
+say "has data field: " + bool_to_word(body2.contains("data"))
+
+say ""
+say "HTTP tests complete!"
