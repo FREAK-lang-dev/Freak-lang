@@ -102,7 +102,7 @@ jobs:
       - name: Package release artifact
         shell: bash
         run: |
-          mkdir -p dist/freak/bin dist/freak/runtime
+          mkdir -p dist/freak/bin dist/freak/runtime dist/freak/std
           cp build/freakc${{ matrix.ext }} dist/freak/bin/freakc${{ matrix.ext }}
           # Ship pre-compiled .o files (preferred) + .c/.h source (fallback)
           cp freakc/runtime/freak_runtime.o dist/freak/runtime/
@@ -110,6 +110,11 @@ jobs:
           cp freakc/runtime/freak_runtime.c dist/freak/runtime/
           cp freakc/runtime/freak_runtime.h dist/freak/runtime/
           cp freakc/runtime/freak_llvm_runtime.c dist/freak/runtime/
+          # Ship standard library
+          cp std/math.fk dist/freak/std/
+          cp std/string.fk dist/freak/std/
+          cp std/convert.fk dist/freak/std/
+          cp std/version.fk dist/freak/std/
           # Also keep standalone binary for backwards compat with install scripts
           cp build/freakc${{ matrix.ext }} dist/freakc-${{ matrix.target }}${{ matrix.ext }}
 

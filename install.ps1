@@ -51,6 +51,19 @@ foreach ($file in @("freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c"
     }
 }
 
+# Download standard library
+$StdDir = "$InstallDir\std"
+New-Item -ItemType Directory -Path $StdDir -Force | Out-Null
+$StdUrl = "https://raw.githubusercontent.com/$Repo/$Latest/std"
+
+foreach ($file in @("math.fk", "string.fk", "convert.fk", "version.fk")) {
+    try {
+        Invoke-WebRequest -Uri "$StdUrl/$file" -OutFile "$StdDir\$file" -UseBasicParsing 2>$null
+    } catch {
+        # Non-fatal — std library enhances but isn't required
+    }
+}
+
 # Add to PATH
 $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 if ($UserPath -notlike "*$BinDir*") {
@@ -68,6 +81,7 @@ Ok "FREAK $Latest installed successfully!"
 Ok ""
 Ok "  Compiler: $OutPath"
 Ok "  Runtime:  $RuntimeDir\"
+Ok "  Std lib:  $StdDir\"
 Ok ""
 Ok "Open a new terminal, then try:"
 Ok "  freakc version"

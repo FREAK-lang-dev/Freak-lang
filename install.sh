@@ -71,6 +71,17 @@ for file in freak_runtime.c freak_runtime.h freak_llvm_runtime.c freak_runtime.o
     fi
 done
 
+# Download standard library
+STD_URL="https://raw.githubusercontent.com/$REPO/$LATEST/std"
+mkdir -p "$INSTALL_DIR/std"
+for file in math.fk string.fk convert.fk version.fk; do
+    if command -v curl &>/dev/null; then
+        curl -fsSL "$STD_URL/$file" -o "$INSTALL_DIR/std/$file" 2>/dev/null || true
+    else
+        wget -q "$STD_URL/$file" -O "$INSTALL_DIR/std/$file" 2>/dev/null || true
+    fi
+done
+
 # Add to PATH
 add_to_path() {
     local rc_file="$1"
@@ -99,6 +110,7 @@ ok "FREAK $LATEST installed successfully!"
 ok ""
 ok "  Compiler: $BIN_DIR/freakc"
 ok "  Runtime:  $INSTALL_DIR/runtime/"
+ok "  Std lib:  $INSTALL_DIR/std/"
 ok ""
 ok "Restart your shell or run:"
 ok "  export PATH=\"$BIN_DIR:\$PATH\""
