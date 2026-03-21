@@ -43,7 +43,7 @@ $RuntimeDir = "$InstallDir\runtime"
 New-Item -ItemType Directory -Path $RuntimeDir -Force | Out-Null
 $RuntimeUrl = "https://raw.githubusercontent.com/$Repo/$Latest/freakc/runtime"
 
-foreach ($file in @("freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c")) {
+foreach ($file in @("freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c", "freak_runtime.o", "freak_llvm_runtime.o")) {
     try {
         Invoke-WebRequest -Uri "$RuntimeUrl/$file" -OutFile "$RuntimeDir\$file" -UseBasicParsing 2>$null
     } catch {

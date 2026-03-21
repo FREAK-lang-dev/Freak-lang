@@ -37,38 +37,50 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
     }
 }
 
+task cli_has_runtime(dir: word) -> bool {
+    -- Check if a directory contains runtime files (.o or .c)
+    pilot c_path = dir + "/freak_runtime.c"
+    pilot o_path = dir + "/freak_runtime.o"
+    if fs::exists(c_path) { give back true }
+    if fs::exists(o_path) { give back true }
+    give back false
+}
+
 task cli_find_runtime_dir() -> word {
     -- Try to find the runtime directory.
     -- 1. Check relative to CWD (dev / repo layout)
-    if fs::exists("freakc/runtime/freak_runtime.c") {
+    if cli_has_runtime("freakc/runtime") {
         give back "freakc/runtime"
     }
     -- 2. Check ~/.freak/runtime/ (install.sh layout)
     pilot home_dir: word = process::env("HOME")
     if home_dir != "" {
-        pilot home_rt = home_dir + "/.freak/runtime/freak_runtime.c"
-        if fs::exists(home_rt) {
-            give back home_dir + "/.freak/runtime"
+        pilot home_rt = home_dir + "/.freak/runtime"
+        if cli_has_runtime(home_rt) {
+            give back home_rt
         }
     }
     -- 3. Check %APPDATA%\freak\runtime\ (install.ps1 layout on Windows)
     pilot appdata_dir: word = process::env("APPDATA")
     if appdata_dir != "" {
-        pilot appdata_rt = appdata_dir + "/freak/runtime/freak_runtime.c"
-        if fs::exists(appdata_rt) {
-            give back appdata_dir + "/freak/runtime"
+        pilot appdata_rt = appdata_dir + "/freak/runtime"
+        if cli_has_runtime(appdata_rt) {
+            give back appdata_rt
         }
     }
     -- 4. Check $FREAK_HOME/runtime/ (custom install location)
     pilot freak_home: word = process::env("FREAK_HOME")
     if freak_home != "" {
-        pilot fh_rt = freak_home + "/runtime/freak_runtime.c"
-        if fs::exists(fh_rt) {
-            give back freak_home + "/runtime"
+        pilot fh_rt = freak_home + "/runtime"
+        if cli_has_runtime(fh_rt) {
+            give back fh_rt
         }
     }
     -- 5. Fallback: check if runtime is in current dir
     if fs::exists("freak_runtime.c") {
+        give back "."
+    }
+    if fs::exists("freak_runtime.o") {
         give back "."
     }
     give back ""
@@ -105,16 +117,33 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     }
 
     -- Build clang command
-    pilot runtime_c = ""
+    -- Prefer pre-compiled runtime .o if available (no C compiler needed for runtime)
+    pilot runtime_file = ""
     if target == "llvm" {
-        runtime_c = runtime_dir + "/freak_llvm_runtime.c"
+        pilot rt_obj = runtime_dir + "/freak_llvm_runtime.o"
+        if fs::exists(rt_obj) {
+            runtime_file = rt_obj
+        } else {
+            runtime_file = runtime_dir + "/freak_llvm_runtime.c"
+        }
     } else {
-        runtime_c = runtime_dir + "/freak_runtime.c"
+        pilot rt_obj2 = runtime_dir + "/freak_runtime.o"
+        if fs::exists(rt_obj2) {
+            runtime_file = rt_obj2
+        } else {
+            runtime_file = runtime_dir + "/freak_runtime.c"
+        }
     }
 
-    pilot cmd = "clang -o " + out_bin + " " + transpiled_file + " " + runtime_c + " -I" + runtime_dir + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
+    pilot cmd = "clang -o " + out_bin + " " + transpiled_file + " " + runtime_file
+    -- Only add -I and C flags if linking against .c source (not .o)
+    if runtime_file.ends_with(".c") {
+        cmd = cmd + " -I" + runtime_dir + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
+    } else {
+        cmd = cmd + " -O" + opt
+    }
 
-    -- Linux requires -lm for math functions
+    -- Linux/macOS requires -lm for math functions
     if windir == "" {
         cmd = cmd + " -lm"
     }

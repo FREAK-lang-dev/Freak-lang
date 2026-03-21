@@ -93,13 +93,25 @@ jobs:
         run: |
           ./build/freakc${{ matrix.ext }} version
 
+      - name: Pre-compile runtime to .o
+        shell: bash
+        run: |
+          clang -c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS -o freakc/runtime/freak_runtime.o
+          clang -c freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS -o freakc/runtime/freak_llvm_runtime.o
+
       - name: Package release artifact
         shell: bash
         run: |
-          mkdir -p dist
+          mkdir -p dist/freak/bin dist/freak/runtime
+          cp build/freakc${{ matrix.ext }} dist/freak/bin/freakc${{ matrix.ext }}
+          # Ship pre-compiled .o files (preferred) + .c/.h source (fallback)
+          cp freakc/runtime/freak_runtime.o dist/freak/runtime/
+          cp freakc/runtime/freak_llvm_runtime.o dist/freak/runtime/
+          cp freakc/runtime/freak_runtime.c dist/freak/runtime/
+          cp freakc/runtime/freak_runtime.h dist/freak/runtime/
+          cp freakc/runtime/freak_llvm_runtime.c dist/freak/runtime/
+          # Also keep standalone binary for backwards compat with install scripts
           cp build/freakc${{ matrix.ext }} dist/freakc-${{ matrix.target }}${{ matrix.ext }}
-          cp -r freakc/runtime dist/runtime
-          cp -r std dist/std 2>/dev/null || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

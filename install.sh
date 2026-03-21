@@ -63,7 +63,7 @@ chmod +x "$BIN_DIR/freakc"
 # Download runtime files
 RUNTIME_URL="https://raw.githubusercontent.com/$REPO/$LATEST/freakc/runtime"
 mkdir -p "$INSTALL_DIR/runtime"
-for file in freak_runtime.c freak_runtime.h freak_llvm_runtime.c; do
+for file in freak_runtime.c freak_runtime.h freak_llvm_runtime.c freak_runtime.o freak_llvm_runtime.o; do
     if command -v curl &>/dev/null; then
         curl -fsSL "$RUNTIME_URL/$file" -o "$INSTALL_DIR/runtime/$file" 2>/dev/null || true
     else
