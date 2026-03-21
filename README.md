@@ -2,12 +2,13 @@
 
 ![Banner](Banner.png)
 
-**A programming language written by someone who has watched too much anime**  
+**A programming language written by someone who has watched too much anime**
 and not enough sleep, but somehow it compiles.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-pink?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-Alternative--4-red?style=flat-square)](freak-full-bible.md)
-[![Status](https://img.shields.io/badge/status-definitely%20compiling-brightgreen?style=flat-square)](#)
+[![Version](https://img.shields.io/badge/v0.9.0-Alternative--4-red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/FREAK-lang-dev/Freak-lang/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/FREAK-lang-dev/Freak-lang/actions)
+[![Status](https://img.shields.io/badge/status-self--hosting-brightgreen?style=flat-square)](#)
 [![Vibes](https://img.shields.io/badge/vibes-MONO__NO__AWARE-blueviolet?style=flat-square)](#)
 
 </div>
@@ -104,19 +105,21 @@ If you need to step outside the rules, `trust-me` blocks give you raw pointers a
 
 ## Getting Started
 
-### Install
+### Install (one command)
 
+**Linux / macOS:**
 ```bash
-# Clone the repo
-git clone https://github.com/FREAK-lang-dev/Freak-lang.git
-cd freak
-
-# Build the compiler (requires Python 3.10+ for FREAK Lite transpiler)
-python -m freakc --version
-
-# Or build the full self-hosting compiler
-make freak
+curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.sh | bash
 ```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
+```
+
+This downloads the latest `freakc` binary and runtime to `~/.freak` (or `%APPDATA%\freak` on Windows) and adds it to your PATH. Open a new terminal and you're ready.
+
+> **Requires:** [Clang](https://releases.llvm.org/) for native compilation. Most systems have it already — run `clang --version` to check.
 
 ### Your First Program
 
@@ -131,7 +134,13 @@ say "Your mission has begun."
 Compile and run:
 
 ```bash
-freakc hello.fk -o hello
+freakc run hello.fk
+```
+
+Or build separately:
+
+```bash
+freakc build hello.fk
 ./hello
 ```
 
@@ -149,17 +158,17 @@ Hangar is FREAK's package manager. Projects have a `hangar.toml`. Dependencies c
 
 ```bash
 # Initialize a new project
-hangar init my-project
+freakc hangar init my-project
 cd my-project
 
 # Add a dependency
-hangar add freak-ui https://github.com/yourname/freak-ui
+freakc hangar add freak-ui https://github.com/yourname/freak-ui
 
 # Install all dependencies
-hangar install
+freakc hangar install
 
 # Remove a package
-hangar remove freak-ui
+freakc hangar remove freak-ui
 ```
 
 `hangar.toml` looks like this:
@@ -357,6 +366,8 @@ vibes: MONO_NO_AWARE  (almost there. so close.)
 
 ## Compiler Pipeline
 
+FREAK is **self-hosting** — the compiler is written in FREAK itself.
+
 ```
 .fk source
     │
@@ -369,29 +380,33 @@ vibes: MONO_NO_AWARE  (almost there. so close.)
     ▼
   Type Checker   → typed AST
     │
-    ▼
-  Borrow Checker → ownership validated
+    ├──── LLVM backend (default) ──→ .ll (LLVM IR) ──→ native binary
     │
-    ▼
-  Anime Layer    → mood/power/prob types resolved
-    │
-    ▼
-  IR             → intermediate representation
-    │
-    ▼
-  Optimizer      → dead code, inlining, strength reduction
-    │
-    ▼
-  Native Binary  → your program
+    └──── C backend (--c flag) ────→ .fk.c ──────────→ native binary
 ```
+
+Both backends produce native binaries via Clang. The LLVM IR path supports cross-compilation (`--target=`) and optimization levels (`--opt=0/1/2/3`).
 
 ---
 
 ## Project Status
 
-FREAK is under active development. The language specification is complete (see `freak-full-bible.md`). The transpiler (Python → C) implements the FREAK Lite subset. The full self-hosting compiler and freak-ui framework are in progress.
+FREAK is under active development. The compiler is **self-hosting** — FREAK compiles itself.
 
-See [`freak-todo.md`](freak-todo.md) for the exact development checklist.
+| Milestone | Status |
+|---|---|
+| Self-hosting compiler | ✅ Complete |
+| LLVM IR backend | ✅ Complete |
+| C backend | ✅ Complete |
+| Native CLI (`freakc build/run/check`) | ✅ Complete |
+| Hangar package manager | ✅ Complete |
+| Cross-compilation | ✅ Complete |
+| One-command install (Linux/macOS/Windows) | ✅ Complete |
+| CI/CD with 4-platform releases | ✅ Complete |
+| freak-ui framework | 🚧 In progress |
+| HFML (markup language) | 📐 Planned |
+
+The language specification is complete — see `freak-full-bible.md`. Development checklist is in [`freak-todo.md`](freak-todo.md).
 
 ---
 

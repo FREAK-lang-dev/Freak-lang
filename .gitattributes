@@ -1,0 +1,14 @@
+# Tell GitHub linguist that .fk files are FREAK (show as primary language)
+*.fk linguist-language=FREAK
+*.fk linguist-detectable=true
+
+# Python is only the bootstrap compiler — don't count it as primary
+freakc/*.py linguist-vendored=true
+
+# Generated C files from the compiler
+*.fk.c linguist-generated=true
+*.fk.ll linguist-generated=true
+
+# Build artifacts
+build/freakc_v2.fk linguist-generated=true
+build/freakc_cli.fk linguist-generated=true
