@@ -1415,6 +1415,13 @@ task llvm_emit_stmt(eid: word) -> void {
         -- Shape definitions are handled at parse time via register_shape()
         -- No IR needs to be emitted
         llvm_emit_line("    ; shape " + name_w + " defined")
+    } else if kind == STMT_EVENTUALLY {
+        -- Emit eventually body inline (deferred execution)
+        llvm_emit_line("    ; eventually block")
+        pilot ev_body_w: word = array_get(ast_stmt_bodies, i)
+        if ev_body_w.length() > 0 {
+            llvm_emit_block(ev_body_w)
+        }
     }
 }
 

@@ -54,6 +54,7 @@ pilot STMT_BLOCK = "11"
 pilot STMT_SHAPE = "12"
 pilot STMT_BREAK = "13"
 pilot STMT_CONTINUE = "14"
+pilot STMT_EVENTUALLY = "15"
 
 pilot ast_stmt_kinds = 0
 pilot ast_stmt_names = 0

@@ -556,6 +556,13 @@ task emit_stmt(eid: word) -> void {
         emit_line("break;")
     } else if kind == STMT_CONTINUE {
         emit_line("continue;")
+    } else if kind == STMT_EVENTUALLY {
+        -- Emit eventually body inline (deferred execution stub)
+        emit_line("/* eventually */")
+        pilot ev_body_w: word = array_get(ast_stmt_bodies, i)
+        if ev_body_w.length() > 0 {
+            emit_block(ev_body_w)
+        }
     } else {
         -- emit_line("/* Unknown Stmt */")
     }

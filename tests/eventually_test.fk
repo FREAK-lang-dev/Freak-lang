@@ -1,0 +1,8 @@
+-- Test: eventually (defer) blocks
+
+say "Start"
+eventually {
+    say "Cleanup done"
+}
+say "Middle"
+say "End"

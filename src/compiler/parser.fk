@@ -505,6 +505,12 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_BLOCK, "", "", "", "", "", "", "")
     }
 
+    -- Eventually (defer) block: eventually { body }
+    if match_tok(TOK_KW, "eventually") {
+        pilot ev_body = parse_block()
+        give back alloc_stmt(STMT_EVENTUALLY, "", "", ev_body, "", "", "", "")
+    }
+
     if match_tok(TOK_KW, "pilot") {
         pilot name = cur_tok_val()
         advance_tok()
