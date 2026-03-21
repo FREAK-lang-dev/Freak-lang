@@ -1,0 +1,351 @@
+-- ===================================================================
+-- std::version — Semantic Versioning for FREAK
+-- ===================================================================
+-- Provides semver parsing, comparison, bumping, and constraint checking.
+-- Format: MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]
+-- Follows Semantic Versioning 2.0.0 (semver.org)
+-- ===================================================================
+
+-- ===================== PARSING =====================================
+
+task ver_parse_num(s: word, start: int) -> word {
+    pilot res = ""
+    pilot i = start
+    pilot slen = s.length()
+    repeat until i >= slen {
+        pilot c = s.char_at(i)
+        if c == "." or c == "-" or c == "+" {
+            pilot pos_str = word_from_int(i + 1)
+            give back res + ":" + pos_str
+        }
+        res = res + c
+        i += 1
+    }
+    pilot pos_str2 = word_from_int(i)
+    give back res + ":" + pos_str2
+}
+
+task ver_parse_pre(s: word, start: int) -> word {
+    pilot res = ""
+    pilot i = start
+    pilot slen = s.length()
+    repeat until i >= slen {
+        pilot c = s.char_at(i)
+        if c == "+" {
+            give back res
+        }
+        res = res + c
+        i += 1
+    }
+    give back res
+}
+
+task ver_parse_build(s: word, start: int) -> word {
+    pilot res = ""
+    pilot i = start
+    pilot slen = s.length()
+    repeat until i >= slen {
+        res = res + s.char_at(i)
+        i += 1
+    }
+    give back res
+}
+
+task ver_get_val(encoded: word) -> word {
+    pilot res = ""
+    pilot i = 0
+    pilot elen = encoded.length()
+    repeat until i >= elen {
+        pilot c = encoded.char_at(i)
+        if c == ":" {
+            give back res
+        }
+        res = res + c
+        i += 1
+    }
+    give back res
+}
+
+task ver_get_pos(encoded: word) -> int {
+    pilot i = 0
+    pilot elen = encoded.length()
+    repeat until i >= elen {
+        pilot c = encoded.char_at(i)
+        if c == ":" {
+            pilot pos_str = ""
+            pilot j = i + 1
+            repeat until j >= elen {
+                pos_str = pos_str + encoded.char_at(j)
+                j += 1
+            }
+            give back word_to_int(pos_str)
+        }
+        i += 1
+    }
+    give back 0
+}
+
+-- ===================== SEMVER FIELDS ===============================
+
+task ver_parse(version: word) -> word {
+    pilot s = version
+    if s.length() > 0 {
+        pilot fc = s.char_at(0)
+        if fc == "v" or fc == "V" {
+            pilot ns = ""
+            pilot vi = 1
+            repeat until vi >= s.length() {
+                ns = ns + s.char_at(vi)
+                vi += 1
+            }
+            s = ns
+        }
+    }
+
+    pilot r1: word = ver_parse_num(s, 0)
+    pilot major: word = ver_get_val(r1)
+    pilot pos1 = ver_get_pos(r1)
+
+    pilot r2: word = ver_parse_num(s, pos1)
+    pilot minor: word = ver_get_val(r2)
+    pilot pos2 = ver_get_pos(r2)
+
+    pilot r3: word = ver_parse_num(s, pos2)
+    pilot patch: word = ver_get_val(r3)
+    pilot pos3 = ver_get_pos(r3)
+
+    pilot pre = ""
+    pilot bld = ""
+    if pos3 <= s.length() {
+        if pos3 > 0 {
+            pilot delim: word = s.char_at(pos3 - 1)
+            if delim == "-" {
+                pre = ver_parse_pre(s, pos3)
+            } else if delim == "+" {
+                bld = ver_parse_build(s, pos3)
+            }
+        }
+    }
+
+    if pre != "" {
+        pilot pi = 0
+        pilot plen = s.length()
+        repeat until pi >= plen {
+            if s.char_at(pi) == "+" {
+                bld = ver_parse_build(s, pi + 1)
+            }
+            pi += 1
+        }
+    }
+
+    give back major + ":" + minor + ":" + patch + ":" + pre + ":" + bld
+}
+
+-- ===================== FIELD EXTRACTORS ============================
+
+task ver_field(parsed: word, field_idx: int) -> word {
+    pilot res = ""
+    pilot current_field = 0
+    pilot i = 0
+    pilot plen = parsed.length()
+    repeat until i >= plen {
+        pilot c = parsed.char_at(i)
+        if c == ":" {
+            if current_field == field_idx {
+                give back res
+            }
+            current_field += 1
+            res = ""
+        } else {
+            res = res + c
+        }
+        i += 1
+    }
+    if current_field == field_idx {
+        give back res
+    }
+    give back ""
+}
+
+task ver_major(parsed: word) -> int {
+    give back word_to_int(ver_field(parsed, 0))
+}
+
+task ver_minor(parsed: word) -> int {
+    give back word_to_int(ver_field(parsed, 1))
+}
+
+task ver_patch(parsed: word) -> int {
+    give back word_to_int(ver_field(parsed, 2))
+}
+
+task ver_pre(parsed: word) -> word {
+    give back ver_field(parsed, 3)
+}
+
+task ver_build(parsed: word) -> word {
+    give back ver_field(parsed, 4)
+}
+
+-- ===================== FORMATTING ==================================
+
+task ver_to_string(parsed: word) -> word {
+    pilot maj: word = ver_field(parsed, 0)
+    pilot min: word = ver_field(parsed, 1)
+    pilot pat: word = ver_field(parsed, 2)
+    pilot pre: word = ver_field(parsed, 3)
+    pilot bld: word = ver_field(parsed, 4)
+
+    pilot out = maj + "." + min + "." + pat
+    if pre != "" {
+        out = out + "-" + pre
+    }
+    if bld != "" {
+        out = out + "+" + bld
+    }
+    give back out
+}
+
+-- ===================== COMPARISON ==================================
+
+task ver_compare(a: word, b: word) -> int {
+    pilot a_major = ver_major(a)
+    pilot b_major = ver_major(b)
+    if a_major < b_major { give back 0 - 1 }
+    if a_major > b_major { give back 1 }
+
+    pilot a_minor = ver_minor(a)
+    pilot b_minor = ver_minor(b)
+    if a_minor < b_minor { give back 0 - 1 }
+    if a_minor > b_minor { give back 1 }
+
+    pilot a_patch = ver_patch(a)
+    pilot b_patch = ver_patch(b)
+    if a_patch < b_patch { give back 0 - 1 }
+    if a_patch > b_patch { give back 1 }
+
+    pilot a_pre: word = ver_pre(a)
+    pilot b_pre: word = ver_pre(b)
+    if a_pre == "" and b_pre != "" { give back 1 }
+    if a_pre != "" and b_pre == "" { give back 0 - 1 }
+
+    -- Lexicographic pre-release comparison (character by character)
+    pilot cmp_len = a_pre.length()
+    if b_pre.length() < cmp_len { cmp_len = b_pre.length() }
+    pilot ci = 0
+    repeat until ci >= cmp_len {
+        pilot ac: word = a_pre.char_at(ci)
+        pilot bc: word = b_pre.char_at(ci)
+        if ac != bc {
+            -- Compare by character code approximation using word_to_int on single digits
+            -- For general pre-release strings like "alpha" vs "beta", this is approximate
+            if ac == "a" and bc == "b" { give back 0 - 1 }
+            if ac == "b" and bc == "a" { give back 1 }
+            -- Numeric comparison for version pre-release numbers
+            pilot ai = word_to_int(ac)
+            pilot bi = word_to_int(bc)
+            if ai < bi { give back 0 - 1 }
+            if ai > bi { give back 1 }
+        }
+        ci += 1
+    }
+    if a_pre.length() < b_pre.length() { give back 0 - 1 }
+    if a_pre.length() > b_pre.length() { give back 1 }
+
+    give back 0
+}
+
+task ver_eq(a: word, b: word) -> bool {
+    give back ver_compare(a, b) == 0
+}
+
+task ver_lt(a: word, b: word) -> bool {
+    give back ver_compare(a, b) < 0
+}
+
+task ver_gt(a: word, b: word) -> bool {
+    give back ver_compare(a, b) > 0
+}
+
+task ver_lte(a: word, b: word) -> bool {
+    give back ver_compare(a, b) <= 0
+}
+
+task ver_gte(a: word, b: word) -> bool {
+    give back ver_compare(a, b) >= 0
+}
+
+-- ===================== BUMPING =====================================
+
+task ver_bump_major(parsed: word) -> word {
+    pilot maj = ver_major(parsed) + 1
+    give back word_from_int(maj) + ":0:0::"
+}
+
+task ver_bump_minor(parsed: word) -> word {
+    pilot maj = ver_major(parsed)
+    pilot min = ver_minor(parsed) + 1
+    give back word_from_int(maj) + ":" + word_from_int(min) + ":0::"
+}
+
+task ver_bump_patch(parsed: word) -> word {
+    pilot maj = ver_major(parsed)
+    pilot min = ver_minor(parsed)
+    pilot pat = ver_patch(parsed) + 1
+    give back word_from_int(maj) + ":" + word_from_int(min) + ":" + word_from_int(pat) + "::"
+}
+
+-- ===================== CONSTRAINT CHECKING =========================
+
+task ver_strip_prefix(constraint: word, prefix_len: int) -> word {
+    pilot stripped = ""
+    pilot si = prefix_len
+    repeat until si >= constraint.length() {
+        stripped = stripped + constraint.char_at(si)
+        si += 1
+    }
+    give back stripped
+}
+
+task ver_satisfies(version: word, constraint: word) -> bool {
+    pilot v: word = ver_parse(version)
+
+    if constraint == "*" or constraint == "latest" {
+        give back true
+    }
+
+    if constraint.starts_with("^") {
+        pilot c: word = ver_parse(ver_strip_prefix(constraint, 1))
+        if ver_major(v) != ver_major(c) { give back false }
+        give back ver_gte(v, c)
+    }
+
+    if constraint.starts_with("~") {
+        pilot t: word = ver_parse(ver_strip_prefix(constraint, 1))
+        if ver_major(v) != ver_major(t) { give back false }
+        if ver_minor(v) != ver_minor(t) { give back false }
+        give back ver_gte(v, t)
+    }
+
+    if constraint.starts_with(">=") {
+        give back ver_gte(v, ver_parse(ver_strip_prefix(constraint, 2)))
+    }
+
+    if constraint.starts_with("<=") {
+        give back ver_lte(v, ver_parse(ver_strip_prefix(constraint, 2)))
+    }
+
+    if constraint.starts_with(">") {
+        give back ver_gt(v, ver_parse(ver_strip_prefix(constraint, 1)))
+    }
+
+    if constraint.starts_with("<") {
+        give back ver_lt(v, ver_parse(ver_strip_prefix(constraint, 1)))
+    }
+
+    if constraint.starts_with("=") {
+        give back ver_eq(v, ver_parse(ver_strip_prefix(constraint, 1)))
+    }
+
+    give back ver_eq(v, ver_parse(constraint))
+}

@@ -512,12 +512,61 @@ double freak_word_to_num(freak_word w) {
 freak_process_output freak_process_run(freak_word cmd, void* args) {
     (void)args;
     freak_process_output out;
-    out.out = freak_word_lit("");
-    out.err = freak_word_lit("process::run not implemented yet");
-    out.exit_code = -1;
-    out.success = false;
-    (void)cmd;
+    const char* cmd_str = freak_word_to_cstr(cmd);
+
+    /* Capture stdout via popen */
+    FILE* fp = _popen ? _popen(cmd_str, "r") : NULL;
+    #ifdef _WIN32
+    fp = _popen(cmd_str, "r");
+    #else
+    fp = popen(cmd_str, "r");
+    #endif
+
+    if (!fp) {
+        out.out = freak_word_lit("");
+        out.err = freak_word_lit("Failed to execute command");
+        out.exit_code = -1;
+        out.success = false;
+        return out;
+    }
+
+    /* Read all output */
+    size_t cap = 4096;
+    size_t len = 0;
+    char* buf = (char*)malloc(cap);
+    size_t n;
+    while ((n = fread(buf + len, 1, cap - len - 1, fp)) > 0) {
+        len += n;
+        if (len + 1 >= cap) {
+            cap *= 2;
+            buf = (char*)realloc(buf, cap);
+        }
+    }
+    buf[len] = '\0';
+
+    #ifdef _WIN32
+    int status = _pclose(fp);
+    #else
+    int status = pclose(fp);
+    #endif
+
+    out.out = freak_word_own(buf, len);
+    out.err = freak_word_lit("");
+    out.exit_code = (int64_t)status;
+    out.success = (status == 0);
     return out;
+}
+
+/* Simple exec: run command, return exit code */
+int64_t freak_process_exec(freak_word cmd) {
+    const char* cmd_str = freak_word_to_cstr(cmd);
+    return (int64_t)system(cmd_str);
+}
+
+/* Exec and capture stdout */
+freak_word freak_process_exec_capture(freak_word cmd) {
+    freak_process_output r = freak_process_run(cmd, NULL);
+    return r.out;
 }
 
 freak_process_handle freak_process_spawn(freak_word cmd, void* args) {
@@ -558,6 +607,13 @@ void freak_process_set_env(freak_word name, freak_word val) {
     (void)name;
     (void)val;
     /* Minimal cross-platform stub: no-op for now. */
+}
+
+freak_word freak_process_env(freak_word name) {
+    const char* key = freak_word_to_cstr(name);
+    const char* val = key ? getenv(key) : NULL;
+    if (val) return freak_word_lit(val);
+    return freak_word_lit("");
 }
 
 void* freak_process_args(void) {

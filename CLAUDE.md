@@ -5,6 +5,20 @@
 
 ---
 
+## Git Commit Policy
+
+**Commit after every significant change.** Do not let work accumulate uncommitted. Specifically:
+
+- **Always commit after**: completing a milestone, fixing a compiler bug, adding a new runtime function, adding a new CLI subcommand, updating CI/release workflows, changing the build system, or any change that took more than ~15 minutes of work.
+- **Commit message style**: short imperative summary line, then blank line, then bullet points if needed. Example: `Add process::exec and process::exec_capture to runtime`
+- **Stage specific files** — avoid `git add -A`. Never commit `.env`, credentials, or multi-GB build artifacts.
+- **Before starting risky work** (refactors, parser changes, emitter rewrites): make sure the current state is committed so you can revert if needed.
+- **After a successful build/test cycle**: if you just verified something works end-to-end, that's a natural commit point. Don't wait.
+
+The cost of committing too often is zero. The cost of losing work because you forgot to commit is real — it has happened before on this project.
+
+---
+
 ## What Is FREAK?
 
 **FREAK** is a compiled, statically-typed, memory-safe systems programming language with syntax and aesthetics inspired by anime and visual novels. It is intentionally weird and the weirdness is load-bearing — the naming, the keywords, the error system, the themes — all of it is part of the design, not decoration.
@@ -22,7 +36,7 @@ Key facts:
 | Component | Description | Status |
 |---|---|---|
 | **FREAK** | Core language, `.fk` files | ✅ Self-hosting |
-| **Hangar** | Package manager (`hangar.toml`) | ✅ v1 working |
+| **Hangar** | Package manager (`hangar.toml`) | ✅ v2 native FREAK |
 | **freak-ui** | Immediate-mode UI framework | 🚧 In progress (MA–MG track) |
 | **HFML** | Hyper-Freak Markup Language (like Blazor/Razor, compiles to freak-ui) | 📐 Planned (MH0–MH9) |
 | **CFS** | Cascading Freak Sheets (CSS-inspired, compiles to freak-ui Theme structs) | 📐 Roadmapped |
@@ -54,15 +68,22 @@ Freak-lang/
 │       ├── freak_runtime.h    # Runtime type definitions
 │       └── freak_runtime.c    # Runtime implementations
 ├── src/
-│   └── compiler/              # Self-hosting compiler source (.fk files)
-│       ├── main.fk
-│       ├── lexer.fk
-│       ├── parser.fk
-│       ├── ast.fk
-│       ├── checker.fk
-│       ├── emitter.fk
-│       └── backend/
-│           └── llvm.fk        # LLVM IR backend (in progress)
+│   ├── compiler/              # Self-hosting compiler source (.fk files)
+│   │   ├── main.fk
+│   │   ├── lexer.fk
+│   │   ├── parser.fk
+│   │   ├── ast.fk
+│   │   ├── checker.fk
+│   │   ├── emitter.fk
+│   │   └── backend/
+│   │       └── llvm.fk        # LLVM IR backend
+│   └── cli/                   # Native CLI (replaces Python CLI)
+│       ├── main.fk            # CLI entry point, subcommand dispatch
+│       ├── build.fk           # Compile pipeline (transpile + clang)
+│       ├── run.fk             # Build + execute
+│       ├── version.fk         # Version display and help
+│       ├── toml.fk            # TOML parser/writer for hangar.toml
+│       └── hangar.fk          # Package manager (init/add/remove/install/version)
 ├── self_hosted/               # Self-hosting bootstrap output
 │   ├── main.fk                # Self-hosting compiler entry point
 │   ├── freakc_self.exe        # Stage 1: Python-compiled self-hosting binary
@@ -148,10 +169,10 @@ Pending — depends on freak-ui Phase C for codegen; lexer/parser can start earl
 [x] LB3  — All control flow emits correct IR (if/when/loops/break/continue)
 [x] LB4  — Shapes (structs) and impl methods work
 [ ] LB5  — freak_runtime.h functions replaced by IR intrinsics
-[ ] LB6  — freak build uses LLVM backend by default
+[x] LB6  — freak build uses LLVM backend by default
 [ ] LB7  — JIT mode: freak run executes via OrcJIT (no binary written)
-[ ] LB8  — Optimization levels: --opt=0/1/2/3
-[ ] LB9  — Cross-compilation: freak build --target x86_64-linux
+[x] LB8  — Optimization levels: --opt=0/1/2/3
+[x] LB9  — Cross-compilation: freak build --target x86_64-linux
 [ ] LB10 — Debug info: source line numbers in DWARF via DIBuilder
 ```
 
@@ -358,26 +379,35 @@ Squadron model (structured concurrency) is preferred over raw `std::thread`. Use
 ## CLI Commands
 
 ```bash
-# Run via Python transpiler
-python -m freakc build file.fk -o output.exe
+# Native CLI (build/freakc.exe — replaces Python CLI)
+freakc build file.fk              # compile to native binary (default: LLVM backend)
+freakc build file.fk --c          # compile using C backend
+freakc build file.fk --opt=3      # set optimization level
+freakc build file.fk --target=x86_64-linux-gnu  # cross-compile
+freakc run file.fk                # build and execute
+freakc check file.fk              # type check only
+freakc transpile file.fk          # transpile only (emit .c or .ll)
+freakc --version                  # show version
+freakc help                       # show help
+
+# Hangar package manager (built into freakc)
+freakc hangar init                # create project skeleton + hangar.toml
+freakc hangar add pkg repo        # add dependency
+freakc hangar remove pkg          # remove dependency
+freakc hangar install             # install all dependencies
+freakc hangar install freak       # download freakc binary
+freakc hangar version             # show project version
+freakc hangar version patch       # bump patch version
+
+# Legacy Python CLI (still available as bootstrap)
+python -m freakc build file.fk
 python -m freakc run file.fk
-python -m freakc check file.fk      # type check only
-python -m freakc test               # run all test blocks
-python -m freakc build file.fk --keep-c   # keep emitted C
 
-# Audit commands (pure static analysis, no AI needed)
-freak audit-science      # list every `for science,` call site
-freak audit-trust        # list every `trust me` block with honor level
-freak audit-miracles     # list every `deus_ex_machina` block (warns >3, errors >10)
-freak foreshadow-audit   # show all foreshadow/payoff pairs and unpaid ones
-
-# Hangar package manager
-hangar init my-project
-hangar add pkg-name https://github.com/...
-hangar install
-hangar install freak             # download freakc binary
-hangar upgrade freak             # update to latest release
-hangar remove pkg-name
+# Audit commands (Python CLI only, not yet in native CLI)
+freak audit-science
+freak audit-trust
+freak audit-miracles
+freak foreshadow-audit
 ```
 
 ### Bootstrap
@@ -561,14 +591,16 @@ The LLVM IR backend (`src/compiler/backend/llvm.fk`, ~1450 lines) is fully worki
 
 In rough priority order:
 
-1. ~~**LLVM IR backend (LB1–LB4)**~~ — ✅ Done. Hello world, primitives, control flow, shapes, impl methods, pipe, break/continue, eventually all working.
-2. ~~**GitHub Actions CI/CD**~~ — ✅ Done. Tests on 3 platforms, release workflow on 4 platforms.
-3. ~~**Hangar bootstrapper**~~ — ✅ Done. `hangar install freak` + install.sh/install.ps1.
-4. **LLVM IR backend (LB5–LB10)** — runtime intrinsics, default backend switch, JIT, optimization levels, cross-compilation, debug info.
-5. **freak-ui Phase MA–MG** — window system, layout engine, calculator demo app.
-6. **HFML lexer/parser (MH0–MH3)** — can start before freak-ui Phase C is done.
-7. **M13: freak-http + freak-json** — publish as official Hangar packages.
-8. **Sortie IDE Phase 1** — VS Code extension.
+1. ~~**LLVM IR backend (LB1–LB4)**~~ — ✅ Done.
+2. ~~**GitHub Actions CI/CD**~~ — ✅ Done.
+3. ~~**Hangar bootstrapper**~~ — ✅ Done.
+4. ~~**Native CLI rewrite**~~ — ✅ Done. `build/freakc.exe` replaces `python -m freakc`. Includes compiler + CLI + Hangar + semver library in a single ~450KB binary.
+5. **LLVM IR backend (LB5, LB7, LB10)** — runtime intrinsics, JIT, debug info. ~~LB6 (default backend)~~, ~~LB8 (opt levels)~~, ~~LB9 (cross-compilation)~~ done.
+6. **freak-ui Phase MA–MG** — window system, layout engine, calculator demo app.
+7. **HFML lexer/parser (MH0–MH3)** — can start before freak-ui Phase C is done.
+8. **M13: freak-http + freak-json** — publish as official Hangar packages.
+9. **Sortie IDE Phase 1** — VS Code extension.
+10. **Update CI/release workflows** — build `freakc.exe` (native CLI) instead of `freakc_v2.exe` in release artifacts.
 
 ---
 
@@ -594,8 +626,17 @@ In rough priority order:
 | `install.ps1` | Windows binary installer |
 | `.github/workflows/ci.yml` | CI workflow (3 platforms) |
 | `.github/workflows/release.yml` | Release workflow (4 platform binaries) |
-| `freakc/hangar.py` | Hangar package manager + toolchain bootstrap |
+| `freakc/hangar.py` | Hangar package manager (Python, legacy) |
 | `freakc/runtime/freak_llvm_runtime.c` | LLVM backend runtime |
+| `src/cli/main.fk` | Native CLI entry point (replaces Python CLI) |
+| `src/cli/build.fk` | CLI build pipeline (transpile + clang) |
+| `src/cli/run.fk` | CLI run pipeline (build + execute) |
+| `src/cli/toml.fk` | TOML parser/writer for hangar.toml |
+| `src/cli/hangar.fk` | Hangar package manager (native FREAK) |
+| `src/cli/version.fk` | Version display and help |
+| `std/version.fk` | Semver library (parse, compare, bump, constraints) |
+| `build_cli.bat` | Build script for native CLI binary |
+| `build/freakc.exe` | Native CLI binary (compiler + CLI + Hangar) |
 
 ---
 

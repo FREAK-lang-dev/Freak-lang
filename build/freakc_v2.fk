@@ -1,11 +1,10 @@
 -- ===================================================================
--- FREAK AST DATA STRUCTURES (v2) - PARALLEL WORD ARRAYS
+-- FREAK AST DATA STRUCTURES (v2) - DYNAMIC ARRAY BACKED
 -- ===================================================================
 
--- Since our stage-1 compiler `freakc_self.exe` does not yet support `shape`
--- or `List<T>`, we must simulate our AST nodes and Tokens using flat, delimited
--- strings (words). We will use a special delimiter sequence "`|`" to separate
--- items, allowing us to build dynamic lists.
+-- Uses C runtime dynamic arrays instead of pipe-delimited strings.
+-- array_new() returns a handle (int), array_push/get/len operate on handles.
+-- This gives O(1) access instead of O(n) scanning.
 
 -- ===================== TOKENS ======================================
 pilot TOK_EOF = "0"
@@ -16,33 +15,14 @@ pilot TOK_BOOL = "4"
 pilot TOK_PUNCT = "5"
 pilot TOK_KW = "6"
 
--- Tokens are stored as a single massive string, using `\x1E` (Record Separator)
--- and `\x1F` (Unit Separator). Since we can't reliably type those in the
--- bootstrapper, we'll use `#` as a field separator, and `|` as a record separator.
--- Format: "type#val#line#col|type#val#line#col|..."
-
-pilot tokens_db = ""
+-- Token storage: parallel arrays, each holding one field per token.
+pilot tok_types = 0
+pilot tok_vals  = 0
+pilot tok_lines = 0
+pilot tok_cols  = 0
 pilot tokens_count = 0
 
--- Helper to split strings by index. Since we don't have arrays, we simulate it
--- by traversing the string.
-task tok_get_field(idx: int, field_no: int) -> word {
-    give back ""
-}
-
--- Better approach: Parallel words where each token is exactly padded to a certain length? No.
--- Best approach: Separate words for each field, using `|` to separate values.
-pilot tok_types = ""
-pilot tok_vals  = ""
-pilot tok_lines = ""
-pilot tok_cols  = ""
-
--- We just concat like: tok_types = tok_types + ttype + "|"
-
 -- ===================== AST NODES ===================================
--- Similar to tokens, we store AST nodes in parallel strings.
--- Each node ID is its index (0, 1, 2...).
-
 pilot EXPR_INT = "1"
 pilot EXPR_FLOAT = "2"
 pilot EXPR_STR = "3"
@@ -55,10 +35,10 @@ pilot EXPR_METHOD = "9"
 pilot EXPR_FIELD = "10"
 pilot EXPR_INDEX = "11"
 
-pilot ast_expr_kinds = ""
-pilot ast_expr_vals = ""
-pilot ast_expr_lefts = ""
-pilot ast_expr_rights = ""
+pilot ast_expr_kinds = 0
+pilot ast_expr_vals = 0
+pilot ast_expr_lefts = 0
+pilot ast_expr_rights = 0
 
 pilot STMT_PILOT = "1"
 pilot STMT_SAY = "2"
@@ -71,20 +51,130 @@ pilot STMT_REPEAT = "8"
 pilot STMT_TRAINING_ARC = "9"
 pilot STMT_WHEN = "10"
 pilot STMT_BLOCK = "11"
+pilot STMT_SHAPE = "12"
+pilot STMT_BREAK = "13"
+pilot STMT_CONTINUE = "14"
+pilot STMT_EVENTUALLY = "15"
 
-pilot ast_stmt_kinds = ""
-pilot ast_stmt_names = ""
-pilot ast_stmt_exprs = ""
-pilot ast_stmt_bodies = ""
-pilot ast_stmt_else_bodies = ""
-pilot ast_stmt_extras = ""
-pilot ast_task_params = ""
-pilot ast_task_returns = ""
+pilot ast_stmt_kinds = 0
+pilot ast_stmt_names = 0
+pilot ast_stmt_exprs = 0
+pilot ast_stmt_bodies = 0
+pilot ast_stmt_else_bodies = 0
+pilot ast_stmt_extras = 0
+pilot ast_task_params = 0
+pilot ast_task_returns = 0
 
-pilot ast_top_stmts = ""
+pilot ast_top_stmts = 0
 
--- ===================== STRING UTILS ================================
--- We'll need a way to extract the Nth item from a `|` separated list.
+-- ===================== SHAPE REGISTRY ==============================
+pilot shape_registry_names = 0
+pilot shape_registry_fields = 0
+pilot shape_registry_count = 0
+
+task register_shape(name: word, fields: word) -> void {
+    array_push(shape_registry_names, name)
+    array_push(shape_registry_fields, fields)
+    shape_registry_count += 1
+}
+
+task is_shape_name(name: word) -> bool {
+    pilot i = 0
+    repeat shape_registry_count times {
+        pilot sname = "" + array_get(shape_registry_names, i)
+        if sname == name { give back true }
+        i += 1
+    }
+    give back false
+}
+
+task get_shape_fields(name: word) -> word {
+    pilot i = 0
+    repeat shape_registry_count times {
+        pilot sname = "" + array_get(shape_registry_names, i)
+        if sname == name { give back array_get(shape_registry_fields, i) }
+        i += 1
+    }
+    give back ""
+}
+
+-- Get the index of a field within a shape (comma-separated "name:type" list)
+task get_shape_field_index(shape_name: word, field_name: word) -> int {
+    pilot fields = "" + get_shape_fields(shape_name)
+    if fields.length() == 0 { give back 0 - 1 }
+    pilot idx = 0
+    pilot cur_name = ""
+    pilot in_type = false
+    pilot slen = fields.length()
+    pilot i = 0
+    repeat slen times {
+        pilot c = "" + fields.char_at(i)
+        if c == "," {
+            if cur_name == field_name { give back idx }
+            idx += 1
+            cur_name = ""
+            in_type = false
+        } else if c == ":" {
+            in_type = true
+        } else {
+            if not in_type { cur_name = cur_name + c }
+        }
+        i += 1
+    }
+    if cur_name == field_name { give back idx }
+    give back 0 - 1
+}
+
+task get_shape_field_count(shape_name: word) -> int {
+    pilot fields = "" + get_shape_fields(shape_name)
+    if fields.length() == 0 { give back 0 }
+    pilot count = 1
+    pilot slen = fields.length()
+    pilot i = 0
+    repeat slen times {
+        pilot c = "" + fields.char_at(i)
+        if c == "," { count += 1 }
+        i += 1
+    }
+    give back count
+}
+
+-- ===================== INIT ==========================================
+-- Must be called before any compiler pass to initialize all arrays.
+task init_arrays() -> void {
+    tok_types = array_new()
+    tok_vals = array_new()
+    tok_lines = array_new()
+    tok_cols = array_new()
+
+    ast_expr_kinds = array_new()
+    ast_expr_vals = array_new()
+    ast_expr_lefts = array_new()
+    ast_expr_rights = array_new()
+
+    ast_stmt_kinds = array_new()
+    ast_stmt_names = array_new()
+    ast_stmt_exprs = array_new()
+    ast_stmt_bodies = array_new()
+    ast_stmt_else_bodies = array_new()
+    ast_stmt_extras = array_new()
+    ast_task_params = array_new()
+    ast_task_returns = array_new()
+
+    ast_top_stmts = array_new()
+
+    shape_registry_names = array_new()
+    shape_registry_fields = array_new()
+
+    emt_var_names = array_new()
+    emt_var_types = array_new()
+    emt_var_count = 0
+}
+
+-- ===================== LEGACY COMPAT =================================
+-- get_nth and push_item kept for any remaining callers during migration.
+-- These now delegate to array functions where possible, but the old
+-- pipe-delimited versions are kept for non-array strings.
 
 task get_nth(s: word, n: int) -> word {
     pilot res = ""
@@ -112,7 +202,6 @@ task get_nth(s: word, n: int) -> word {
     give back res
 }
 
--- Simple `append_item`
 task push_item(list: word, item: word, count: int) -> word {
     if count == 0 {
         give back item
@@ -158,10 +247,10 @@ task lex_advance() -> word {
 }
 
 task push_token(kind: word, val: word) -> void {
-    tok_types = push_item(tok_types, kind, tokens_count)
-    tok_vals = push_item(tok_vals, val, tokens_count)
-    tok_lines = push_item(tok_lines, word_from_int(cur_tok_line), tokens_count)
-    tok_cols = push_item(tok_cols, word_from_int(cur_tok_col), tokens_count)
+    array_push(tok_types, kind)
+    array_push(tok_vals, val)
+    array_push(tok_lines, word_from_int(cur_tok_line))
+    array_push(tok_cols, word_from_int(cur_tok_col))
     tokens_count += 1
 }
 
@@ -369,13 +458,17 @@ task lex_string() -> void {
             pilot esc = lex_advance()
             if esc == "n" {
                 res = res + "\n"
+            } else if esc == "r" {
+                res = res + "\r"
+            } else if esc == "t" {
+                res = res + "\t"
             } else {
-                if esc == "t" {
-                    res = res + "\t"
-                } else {
-                    res = res + esc
-                }
+                res = res + esc
             }
+        } else if c == "|" {
+            -- Escape pipe chars in string literals to avoid corrupting
+            -- pipe-delimited token storage. Emitters must reverse this.
+            res = res + "<<PIPE>>"
         } else {
             res = res + c
         }
@@ -393,10 +486,7 @@ task tokenize(source: word) -> void {
     lex_line = 1
     lex_col = 1
 
-    tok_types = ""
-    tok_vals = ""
-    tok_lines = ""
-    tok_cols = ""
+    tokens_count = 0
 
     pilot fin = false
     repeat until fin {
@@ -420,40 +510,40 @@ task tokenize(source: word) -> void {
                 lex_advance()
                 pilot next_c = lex_cur_ch()
 
-                pilot double = false
+                pilot is_double = false
                 if op == "=" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "!" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "<" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == ">" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "+" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "-" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "*" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "/" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "%" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "-" and next_c == ">" {
-                    double = true
+                    is_double = true
                 } else if op == "=" and next_c == ">" {
-                    double = true
+                    is_double = true
                 } else if op == "*" and next_c == "*" {
-                    double = true
+                    is_double = true
                 } else if op == "|" and next_c == ">" {
-                    double = true
+                    is_double = true
                 } else if op == "|" and next_c == "|" {
-                    double = true
+                    is_double = true
                 } else if op == ":" and next_c == ":" {
-                    double = true
+                    is_double = true
                 }
 
-                if double {
+                if is_double {
                     op = op + next_c
                     lex_advance()
                 }
@@ -477,14 +567,15 @@ task tokenize(source: word) -> void {
 
 pilot parse_idx = 1
 pilot tok_total = 0
+pilot parse_error_count = 0
 
 -- Current token accessors
 task cur_tok_type() -> word {
-    give back get_nth(tok_types, parse_idx)
+    give back array_get(tok_types, parse_idx)
 }
 
 task cur_tok_val() -> word {
-    give back get_nth(tok_vals, parse_idx)
+    give back array_get(tok_vals, parse_idx)
 }
 
 task advance_tok() -> void {
@@ -503,17 +594,23 @@ task match_tok(type: word, val: word) -> bool {
 
 task expect_tok(type: word, val: word) -> void {
     if not match_tok(type, val) {
-        pilot msg = "Syntax Error: Expected token type "
-        msg = msg + type
-        msg = msg + " with value '"
-        msg = msg + val
-        msg = msg + "' but got "
-        msg = msg + cur_tok_type()
-        msg = msg + " '"
-        msg = msg + cur_tok_val()
-        msg = msg + "'"
-        say msg
-        -- TODO: process::exit(1)
+        parse_error_count += 1
+        if parse_error_count < 50 {
+            pilot msg = "Syntax Error: Expected token type "
+            msg = msg + type
+            msg = msg + " with value '"
+            msg = msg + val
+            msg = msg + "' but got "
+            msg = msg + cur_tok_type()
+            msg = msg + " '"
+            msg = msg + cur_tok_val()
+            msg = msg + "'"
+            say msg
+        }
+        -- Advance past the bad token to prevent infinite loops
+        if cur_tok_type() != TOK_EOF and cur_tok_type() != "" {
+            advance_tok()
+        }
     }
 }
 
@@ -526,10 +623,10 @@ task alloc_expr(kind: word, val: word, left: word, right: word) -> int {
     pilot id = next_expr_id
     next_expr_id += 1
 
-    ast_expr_kinds = push_item(ast_expr_kinds, kind, id)
-    ast_expr_vals = push_item(ast_expr_vals, val, id)
-    ast_expr_lefts = push_item(ast_expr_lefts, left, id)
-    ast_expr_rights = push_item(ast_expr_rights, right, id)
+    array_push(ast_expr_kinds, kind)
+    array_push(ast_expr_vals, val)
+    array_push(ast_expr_lefts, left)
+    array_push(ast_expr_rights, right)
 
     give back id
 }
@@ -538,14 +635,14 @@ task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body:
     pilot id = next_stmt_id
     next_stmt_id += 1
 
-    ast_stmt_kinds = push_item(ast_stmt_kinds, kind, id)
-    ast_stmt_names = push_item(ast_stmt_names, name, id)
-    ast_stmt_exprs = push_item(ast_stmt_exprs, expr_id, id)
-    ast_stmt_bodies = push_item(ast_stmt_bodies, body_id, id)
-    ast_stmt_else_bodies = push_item(ast_stmt_else_bodies, else_body, id)
-    ast_stmt_extras = push_item(ast_stmt_extras, extra, id)
-    ast_task_params = push_item(ast_task_params, params, id)
-    ast_task_returns = push_item(ast_task_returns, returns, id)
+    array_push(ast_stmt_kinds, kind)
+    array_push(ast_stmt_names, name)
+    array_push(ast_stmt_exprs, expr_id)
+    array_push(ast_stmt_bodies, body_id)
+    array_push(ast_stmt_else_bodies, else_body)
+    array_push(ast_stmt_extras, extra)
+    array_push(ast_task_params, params)
+    array_push(ast_task_returns, returns)
 
     give back id
 }
@@ -556,8 +653,24 @@ task parse_primary() -> int {
     pilot ttype = cur_tok_type()
     pilot tval = cur_tok_val()
 
+    -- Safety: stop at EOF to prevent infinite loops
+    if ttype == TOK_EOF or ttype == "" {
+        give back 0 - 1
+    }
+
     if ttype == TOK_NUM {
         advance_tok()
+        -- Check if it's a float (contains a dot)
+        pilot is_float = false
+        pilot nci = 0
+        pilot nclen = tval.length()
+        repeat nclen times {
+            if tval.char_at(nci) == "." { is_float = true }
+            nci += 1
+        }
+        if is_float {
+            give back alloc_expr(EXPR_FLOAT, tval, "", "")
+        }
         give back alloc_expr(EXPR_INT, tval, "", "")
     }
     if ttype == TOK_STR {
@@ -580,6 +693,34 @@ task parse_primary() -> int {
                 advance_tok()
             } else {
                 say "Expected identifier after ::"
+            }
+        }
+        -- Check for shape constructor: Name { field: val, ... }
+        if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "{" {
+            if is_shape_name(tval) {
+                advance_tok()
+                -- Parse field: value pairs, collecting value expr IDs in field order
+                pilot field_count = get_shape_field_count(tval)
+                pilot val_ids = ""
+                pilot cfin = false
+                pilot cis_first = true
+                if match_tok(TOK_PUNCT, "}") { cfin = true }
+                repeat until cfin {
+                    pilot fname = cur_tok_val()
+                    advance_tok()
+                    expect_tok(TOK_PUNCT, ":")
+                    pilot fval_id = parse_expr()
+                    if cis_first {
+                        val_ids = word_from_int(fval_id)
+                        cis_first = false
+                    } else {
+                        val_ids = val_ids + "," + word_from_int(fval_id)
+                    }
+                    if match_tok(TOK_PUNCT, "}") { cfin = true }
+                    else { expect_tok(TOK_PUNCT, ",") }
+                }
+                -- EXPR_CALL with val="shape::ctor::ShapeName", left=comma-sep value expr IDs
+                give back alloc_expr(EXPR_CALL, "shape::ctor::" + tval, val_ids, "")
             }
         }
 
@@ -615,7 +756,10 @@ task parse_primary() -> int {
     msg = msg + ttype
     msg = msg + ")"
     say msg
-    advance_tok()
+    -- Only advance if not at EOF to prevent infinite loops
+    if ttype != TOK_EOF and ttype != "" {
+        advance_tok()
+    }
     give back 0 - 1
 }
 
@@ -626,30 +770,54 @@ task parse_postfix() -> int {
         if match_tok(TOK_PUNCT, ".") {
             pilot mname = cur_tok_val()
             expect_tok(TOK_IDENT, "")
-            expect_tok(TOK_PUNCT, "(")
-            pilot args = ""
-            pilot argfin = false
-            pilot is_first = true
-            if match_tok(TOK_PUNCT, ")") {
-                argfin = true
-            }
-            repeat until argfin {
-                pilot arg_id = parse_expr()
-                if is_first {
-                    args = word_from_int(arg_id)
-                    is_first = false
-                } else {
-                    pilot tmp = args + ","
-                    args = tmp + word_from_int(arg_id)
+            -- Check if this is a method call (has '(') or field access (no '(')
+            if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "(" {
+                -- Method call: .name(args)
+                advance_tok()
+                pilot args = ""
+                pilot argfin = false
+                pilot is_first = true
+                if match_tok(TOK_PUNCT, ")") {
+                    argfin = true
                 }
-                if match_tok(TOK_PUNCT, ")") { argfin = true }
-                else { expect_tok(TOK_PUNCT, ",") }
+                repeat until argfin {
+                    pilot arg_id = parse_expr()
+                    if is_first {
+                        args = word_from_int(arg_id)
+                        is_first = false
+                    } else {
+                        pilot tmp = args + ","
+                        args = tmp + word_from_int(arg_id)
+                    }
+                    if match_tok(TOK_PUNCT, ")") { argfin = true }
+                    else { expect_tok(TOK_PUNCT, ",") }
+                }
+                left = alloc_expr(EXPR_METHOD, mname, word_from_int(left), args)
+            } else {
+                -- Field access: .name (no parentheses)
+                left = alloc_expr(EXPR_FIELD, mname, word_from_int(left), "")
             }
-            left = alloc_expr(EXPR_METHOD, mname, word_from_int(left), args)
         } else if match_tok(TOK_PUNCT, "[") {
             pilot idx_expr = parse_expr()
             expect_tok(TOK_PUNCT, "]")
             left = alloc_expr(EXPR_INDEX, "", word_from_int(left), word_from_int(idx_expr))
+        } else if match_tok(TOK_PUNCT, "|>") {
+            -- Pipe operator: a |> f(args) desugars to f(a, args)
+            pilot fname = cur_tok_val()
+            advance_tok()
+            pilot pipe_args = word_from_int(left)
+            if match_tok(TOK_PUNCT, "(") {
+                if not match_tok(TOK_PUNCT, ")") {
+                    pilot pfin = false
+                    repeat until pfin {
+                        pilot parg_id = parse_expr()
+                        pipe_args = pipe_args + "," + word_from_int(parg_id)
+                        if match_tok(TOK_PUNCT, ")") { pfin = true }
+                        else { expect_tok(TOK_PUNCT, ",") }
+                    }
+                }
+            }
+            left = alloc_expr(EXPR_CALL, fname, pipe_args, "")
         } else {
             fin = true
         }
@@ -677,27 +845,95 @@ task parse_unary() -> int {
     give back parse_postfix()
 }
 
-task parse_expr() -> int {
-    pilot left = parse_unary()
+-- Precedence levels (lowest to highest):
+-- 1. or
+-- 2. and
+-- 3. == != < > <= >=
+-- 4. + - NAKAMA
+-- 5. * / %
+-- 6. unary (not, -, PLUS ULTRA, etc.)
+-- 7. postfix (., [], ())
 
+task parse_mul() -> int {
+    pilot left = parse_unary()
     pilot fin = false
     repeat until fin {
         pilot ttype = cur_tok_type()
         pilot tval = cur_tok_val()
-
-        if ttype == TOK_PUNCT or ttype == TOK_KW {
-            if tval == "+" or tval == "-" or tval == "*" or tval == "/" or tval == "==" or tval == "!=" or tval == "<=" or tval == ">=" or tval == "<" or tval == ">" or tval == "%" or tval == "and" or tval == "or" or tval == "NAKAMA" {
-                advance_tok()
-                pilot right = parse_unary()
-                left = alloc_expr(EXPR_BINOP, tval, word_from_int(left), word_from_int(right))
-            } else {
-                fin = true
-            }
+        if tval == "*" or tval == "/" or tval == "%" {
+            advance_tok()
+            pilot right = parse_unary()
+            left = alloc_expr(EXPR_BINOP, tval, word_from_int(left), word_from_int(right))
         } else {
             fin = true
         }
     }
+    give back left
+}
 
+task parse_add() -> int {
+    pilot left = parse_mul()
+    pilot fin = false
+    repeat until fin {
+        pilot ttype = cur_tok_type()
+        pilot tval = cur_tok_val()
+        if tval == "+" or tval == "-" or tval == "NAKAMA" {
+            advance_tok()
+            pilot right = parse_mul()
+            left = alloc_expr(EXPR_BINOP, tval, word_from_int(left), word_from_int(right))
+        } else {
+            fin = true
+        }
+    }
+    give back left
+}
+
+task parse_comparison() -> int {
+    pilot left = parse_add()
+    pilot fin = false
+    repeat until fin {
+        pilot ttype = cur_tok_type()
+        pilot tval = cur_tok_val()
+        if tval == "==" or tval == "!=" or tval == "<" or tval == ">" or tval == "<=" or tval == ">=" {
+            advance_tok()
+            pilot right = parse_add()
+            left = alloc_expr(EXPR_BINOP, tval, word_from_int(left), word_from_int(right))
+        } else {
+            fin = true
+        }
+    }
+    give back left
+}
+
+task parse_and() -> int {
+    pilot left = parse_comparison()
+    pilot fin = false
+    repeat until fin {
+        pilot tval = cur_tok_val()
+        if tval == "and" {
+            advance_tok()
+            pilot right = parse_comparison()
+            left = alloc_expr(EXPR_BINOP, "and", word_from_int(left), word_from_int(right))
+        } else {
+            fin = true
+        }
+    }
+    give back left
+}
+
+task parse_expr() -> int {
+    pilot left = parse_and()
+    pilot fin = false
+    repeat until fin {
+        pilot tval = cur_tok_val()
+        if tval == "or" {
+            advance_tok()
+            pilot right = parse_and()
+            left = alloc_expr(EXPR_BINOP, "or", word_from_int(left), word_from_int(right))
+        } else {
+            fin = true
+        }
+    }
     give back left
 }
 task parse_block() -> word {
@@ -733,12 +969,124 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_SAY, "", word_from_int(expr_id), "", "", "", "", "")
     }
 
+    -- Shape definition: shape Name { field: type, ... }
+    if match_tok(TOK_KW, "shape") {
+        pilot shape_name = cur_tok_val()
+        advance_tok()
+        expect_tok(TOK_PUNCT, "{")
+        pilot fields = ""
+        pilot sfin = false
+        pilot sis_first = true
+        repeat until sfin {
+            if match_tok(TOK_PUNCT, "}") {
+                sfin = true
+            } else {
+                pilot fname = cur_tok_val()
+                advance_tok()
+                expect_tok(TOK_PUNCT, ":")
+                pilot ftype = cur_tok_val()
+                advance_tok()
+                if sis_first {
+                    fields = fname + ":" + ftype
+                    sis_first = false
+                } else {
+                    fields = fields + "," + fname + ":" + ftype
+                }
+            }
+        }
+        register_shape(shape_name, fields)
+        give back alloc_stmt(STMT_SHAPE, shape_name, "", "", "", fields, "", "")
+    }
+
+    -- Impl block: impl Name { task ... }
+    if match_tok(TOK_KW, "impl") {
+        pilot impl_name = cur_tok_val()
+        advance_tok()
+        expect_tok(TOK_PUNCT, "{")
+
+        -- Parse tasks inside impl block and emit as ImplName_method
+        pilot impl_stmts = array_new()
+        pilot impl_count = 0
+        repeat until cur_tok_type() == TOK_PUNCT and cur_tok_val() == "}" {
+            if match_tok(TOK_KW, "task") {
+                pilot mname = cur_tok_val()
+                advance_tok()
+                expect_tok(TOK_PUNCT, "(")
+
+                pilot params = ""
+                pilot fin = false
+                pilot is_first = true
+                if match_tok(TOK_PUNCT, ")") {
+                    fin = true
+                }
+                repeat until fin {
+                    pilot pname = cur_tok_val()
+                    advance_tok()
+                    if pname == "self" {
+                        -- self param: skip the comma/close, treat as word type
+                        if match_tok(TOK_PUNCT, ")") { fin = true }
+                        else { expect_tok(TOK_PUNCT, ",") }
+                        if is_first {
+                            params = "self:word"
+                            is_first = false
+                        } else {
+                            params = params + ",self:word"
+                        }
+                    } else {
+                        expect_tok(TOK_PUNCT, ":")
+                        pilot ptype = cur_tok_val()
+                        advance_tok()
+                        pilot pstr = pname + ":" + ptype
+                        if is_first {
+                            params = pstr
+                            is_first = false
+                        } else {
+                            params = params + "," + pstr
+                        }
+                        if match_tok(TOK_PUNCT, ")") { fin = true }
+                        else { expect_tok(TOK_PUNCT, ",") }
+                    }
+                }
+
+                expect_tok(TOK_PUNCT, "->")
+                pilot ret_type = cur_tok_val()
+                advance_tok()
+
+                pilot body_id = parse_block()
+                pilot full_name = impl_name + "_" + mname
+                pilot sid = alloc_stmt(STMT_TASK, full_name, "", body_id, "", "", params, ret_type)
+                array_push(impl_stmts, word_from_int(sid))
+                array_push(ast_top_stmts, word_from_int(sid))
+                impl_count += 1
+            } else {
+                advance_tok()
+            }
+        }
+        expect_tok(TOK_PUNCT, "}")
+
+        -- Return a no-op block statement (impl tasks already added to top-level)
+        give back alloc_stmt(STMT_BLOCK, "", "", "", "", "", "", "")
+    }
+
+    -- Eventually (defer) block: eventually { body }
+    if match_tok(TOK_KW, "eventually") {
+        pilot ev_body = parse_block()
+        give back alloc_stmt(STMT_EVENTUALLY, "", "", ev_body, "", "", "", "")
+    }
+
     if match_tok(TOK_KW, "pilot") {
         pilot name = cur_tok_val()
         advance_tok()
+        -- Optional type annotation: pilot name: type = expr
+        pilot type_ann = ""
+        if cur_tok_type() == TOK_PUNCT and cur_tok_val() == ":" {
+            advance_tok()
+            type_ann = cur_tok_val()
+            advance_tok()
+        }
         expect_tok(TOK_PUNCT, "=")
         pilot expr_id = parse_expr()
-        give back alloc_stmt(STMT_PILOT, name, word_from_int(expr_id), "", "", "", "", "")
+        give back alloc_stmt(STMT_PILOT, name, word_from_int(expr_id), "", "", type_ann, "", "")
     }
 
     if match_tok(TOK_KW, "give back") {
@@ -747,6 +1095,14 @@ task parse_stmt() -> int {
             expr_id = parse_expr()
         }
         give back alloc_stmt(STMT_GIVE_BACK, "", word_from_int(expr_id), "", "", "", "", "")
+    }
+
+    if match_tok(TOK_KW, "break") {
+        give back alloc_stmt(STMT_BREAK, "", "", "", "", "", "", "")
+    }
+
+    if match_tok(TOK_KW, "continue") {
+        give back alloc_stmt(STMT_CONTINUE, "", "", "", "", "", "", "")
     }
 
     if match_tok(TOK_KW, "if") {
@@ -884,33 +1240,19 @@ task parse_stmt() -> int {
 
 task parse_program() -> void {
     parse_idx = 0
+    tok_total = tokens_count
 
-    pilot tcount = 0
-    pilot fin = false
-    pilot dummy = ""
-    repeat until fin {
-        dummy = get_nth(tok_types, tcount)
-        if dummy == TOK_EOF or dummy == "" {
-            fin = true
-        } else {
-            tcount += 1
-        }
-    }
-    tok_total = tcount
-
+    parse_error_count = 0
     pilot pfin = false
-    pilot is_first = true
     repeat until pfin {
         if cur_tok_type() == TOK_EOF or cur_tok_type() == "" {
             pfin = true
+        } else if parse_error_count > 100 {
+            say "Too many parse errors, aborting."
+            pfin = true
         } else {
             pilot stmt_id = parse_stmt()
-            if is_first {
-                ast_top_stmts = word_from_int(stmt_id)
-                is_first = false
-            } else {
-                ast_top_stmts = ast_top_stmts + "|" + word_from_int(stmt_id)
-            }
+            array_push(ast_top_stmts, word_from_int(stmt_id))
         }
     }
 }
@@ -930,6 +1272,40 @@ task check_program() -> void {
 
 pilot out_buf = ""
 
+-- Variable type tracking for proper word/int inference
+pilot emt_var_names = 0
+pilot emt_var_types = 0
+pilot emt_var_count = 0
+
+task emt_set_var_type(name: word, vtype: word) -> void {
+    -- Check if already exists, update
+    pilot i = 0
+    repeat emt_var_count times {
+        pilot vn: word = array_get(emt_var_names, i)
+        if vn == name {
+            array_set(emt_var_types, i, vtype)
+            give back
+        }
+        i += 1
+    }
+    -- New variable
+    array_push(emt_var_names, name)
+    array_push(emt_var_types, vtype)
+    emt_var_count += 1
+}
+
+task emt_get_var_type(name: word) -> word {
+    pilot i = 0
+    repeat emt_var_count times {
+        pilot vn: word = array_get(emt_var_names, i)
+        if vn == name {
+            give back array_get(emt_var_types, i)
+        }
+        i += 1
+    }
+    give back ""
+}
+
 task emit(s: word) -> void {
     out_buf = out_buf + s
 }
@@ -941,29 +1317,69 @@ task emit_line(s: word) -> void {
 
 task is_ast_word(id: word) -> bool {
     pilot i = word_to_int(id)
-    pilot kind = get_nth(ast_expr_kinds, i)
+    pilot kind: word = array_get(ast_expr_kinds, i)
     if kind == EXPR_STR { give back true }
-    if kind == EXPR_METHOD { give back true }
+    if kind == EXPR_METHOD {
+        -- Methods like .length(), .to_int() return non-word
+        pilot mname: word = array_get(ast_expr_vals, i)
+        if mname == "length" { give back false }
+        if mname == "to_int" { give back false }
+        if mname == "starts_with" { give back false }
+        if mname == "ends_with" { give back false }
+        if mname == "contains" { give back false }
+        give back true
+    }
+    if kind == EXPR_IDENT {
+        pilot vname: word = array_get(ast_expr_vals, i)
+        pilot vtype: word = emt_get_var_type(vname)
+        if vtype == "w" { give back true }
+        give back false
+    }
     if kind == EXPR_CALL {
-        pilot val = get_nth(ast_expr_vals, i)
+        pilot val: word = array_get(ast_expr_vals, i)
+        -- Runtime / stdlib functions returning word
         if val == "fs::read" { give back true }
         if val == "fs::list_dir" { give back true }
         if val == "process::arg" { give back true }
-        if val == "llvm_emit_expr" { give back true }
-        if val == "next_reg" { give back true }
-        if val == "llvm_emit_args" { give back true }
-        if val == "register_string_literal" { give back true }
-        if val == "llvm_c_safe_ident" { give back true }
-        if val == "llvm_translate_params" { give back true }
-        if val == "c_safe_ident" { give back true }
-        if val == "translate_params" { give back true }
+        if val == "process::exec_capture" { give back true }
+        if val == "process::env" { give back true }
+        if val == "ask" { give back true }
+        if val == "array_get" { give back true }
+        if val == "word_from_int" { give back true }
+        if val == "word_from_bool" { give back true }
+        -- Compiler utility functions returning word
         if val == "get_nth" { give back true }
         if val == "push_item" { give back true }
-        if val == "word_from_int" { give back true }
+        if val == "get_shape_fields" { give back true }
+        if val == "emt_get_var_type" { give back true }
+        if val == "c_safe_ident" { give back true }
+        if val == "translate_params" { give back true }
+        if val == "cur_tok_type" { give back true }
+        if val == "cur_tok_val" { give back true }
+        if val == "parse_block" { give back true }
+        if val == "lex_cur_ch" { give back true }
+        if val == "lex_ch_at" { give back true }
+        if val == "lex_advance" { give back true }
+        -- LLVM backend functions returning word
+        if val == "llvm_emit_expr" { give back true }
+        if val == "llvm_emit_args" { give back true }
+        if val == "llvm_c_safe_ident" { give back true }
+        if val == "llvm_translate_params" { give back true }
+        if val == "llvm_get_var_type" { give back true }
+        if val == "llvm_get_task_ret_type" { give back true }
+        if val == "llvm_infer_expr_type" { give back true }
+        if val == "llvm_i64_to_double" { give back true }
+        if val == "llvm_double_to_i64" { give back true }
+        if val == "next_reg" { give back true }
+        if val == "register_string_literal" { give back true }
     }
     if kind == EXPR_BINOP {
-        pilot val = get_nth(ast_expr_vals, i)
-        if val == "+" { give back true }
+        pilot val: word = array_get(ast_expr_vals, i)
+        if val == "+" {
+            pilot l: word = array_get(ast_expr_lefts, i)
+            pilot r: word = array_get(ast_expr_rights, i)
+            if is_ast_word(l) or is_ast_word(r) { give back true }
+        }
     }
     give back false
 }
@@ -1022,16 +1438,37 @@ task emit_args(args: word) -> void {
 
 task emit_expr(id: word) -> void {
     pilot i = word_to_int(id)
-    pilot kind = get_nth(ast_expr_kinds, i)
-    pilot val = get_nth(ast_expr_vals, i)
-    pilot left = get_nth(ast_expr_lefts, i)
-    pilot right = get_nth(ast_expr_rights, i)
+    pilot kind: word = array_get(ast_expr_kinds, i)
+    pilot val: word = array_get(ast_expr_vals, i)
+    pilot left: word = array_get(ast_expr_lefts, i)
+    pilot right: word = array_get(ast_expr_rights, i)
 
     if kind == EXPR_INT {
         emit(val)
     } else if kind == EXPR_STR {
         pilot tmp = "freak_word_lit(\""
-        tmp = tmp + val
+        -- Restore escaped pipe characters from lexer
+        pilot str_val = val.replace("<<PIPE>>", "|")
+        -- Re-escape special characters for C string literal
+        pilot si = 0
+        pilot sslen = str_val.length()
+        repeat sslen times {
+            pilot sc = str_val.char_at(si)
+            if sc == "\n" {
+                tmp = tmp + "\\n"
+            } else if sc == "\r" {
+                tmp = tmp + "\\r"
+            } else if sc == "\t" {
+                tmp = tmp + "\\t"
+            } else if sc == "\\" {
+                tmp = tmp + "\\\\"
+            } else if sc == "\"" {
+                tmp = tmp + "\\\""
+            } else {
+                tmp = tmp + sc
+            }
+            si += 1
+        }
         tmp = tmp + "\")"
         emit(tmp)
     } else if kind == EXPR_BOOL {
@@ -1055,6 +1492,30 @@ task emit_expr(id: word) -> void {
             emit(")")
         } else if val == "fs::write" {
             emit("freak_fs_write(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "fs::append" {
+            emit("freak_fs_append(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "fs::exists" {
+            emit("freak_fs_exists(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "fs::delete" {
+            emit("freak_fs_delete(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "process::exec" {
+            emit("freak_process_exec(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "process::exec_capture" {
+            emit("freak_process_exec_capture(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "process::env" {
+            emit("freak_process_env(")
             if left != "" { emit_args(left) }
             emit(")")
         } else {
@@ -1087,6 +1548,23 @@ task emit_expr(id: word) -> void {
             }
             emit(")")
         }
+    } else if kind == EXPR_FIELD {
+        -- Field access: obj.field -> shape_get(obj, field_index)
+        pilot obj_left = left
+        -- Look up field index across all shapes
+        pilot fidx = 0 - 1
+        pilot si = 0
+        repeat shape_registry_count times {
+            pilot tmpidx = get_shape_field_index(array_get(shape_registry_names, si), val)
+            if tmpidx >= 0 { fidx = tmpidx }
+            si += 1
+        }
+        if fidx < 0 { fidx = 0 }
+        emit("freak_llvm_shape_get(")
+        emit_expr(obj_left)
+        emit(", ")
+        emit(word_from_int(fidx))
+        emit(")")
     } else if kind == EXPR_INDEX {
         -- TODO: Proper type inference to check if doctrine Index exists
         -- For now in the v2 compiler we assume it's just raw element access or word char access
@@ -1221,18 +1699,35 @@ task emit_stmt(eid: word) -> void {
     if eid.length() == 0 { give back }
 
     pilot i = word_to_int(eid)
-    pilot kind = get_nth(ast_stmt_kinds, i)
-    pilot name_w = get_nth(ast_stmt_names, i)
-    pilot expr_id_w = get_nth(ast_stmt_exprs, i)
+    pilot kind: word = array_get(ast_stmt_kinds, i)
+    pilot name_w: word = array_get(ast_stmt_names, i)
+    pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
     if kind == STMT_PILOT {
         pilot e_idx = word_to_int(expr_id_w)
-        pilot e_kind = get_nth(ast_expr_kinds, e_idx)
+        pilot e_kind: word = array_get(ast_expr_kinds, e_idx)
+        pilot type_ann_w: word = array_get(ast_stmt_extras, i)
         pilot ctype = "int64_t "
-        if is_ast_word(expr_id_w) {
+        pilot vtype = "i"
+        if type_ann_w == "word" {
             ctype = "freak_word "
+            vtype = "w"
+        } else if type_ann_w == "bool" {
+            ctype = "bool "
+            vtype = "b"
+        } else if type_ann_w == "num" {
+            ctype = "double "
+            vtype = "d"
+        } else if type_ann_w == "int" {
+            ctype = "int64_t "
+            vtype = "i"
+        } else if is_ast_word(expr_id_w) {
+            ctype = "freak_word "
+            vtype = "w"
         } else if e_kind == EXPR_BOOL {
             ctype = "bool "
+            vtype = "b"
         }
+        emt_set_var_type(name_w, vtype)
 
         pilot tmp = ctype
         tmp = tmp + name_w
@@ -1257,9 +1752,9 @@ task emit_stmt(eid: word) -> void {
         emit("if (")
         emit_expr(expr_id_w)
         emit_line(") {")
-        emit_block(get_nth(ast_stmt_bodies, i))
+        emit_block(array_get(ast_stmt_bodies, i))
         emit_line("}")
-        pilot else_body_w = get_nth(ast_stmt_else_bodies, i)
+        pilot else_body_w: word = array_get(ast_stmt_else_bodies, i)
         if else_body_w != "" {
             emit_line("else {")
             emit_block(else_body_w)
@@ -1270,28 +1765,28 @@ task emit_stmt(eid: word) -> void {
             emit("while (!(")
             emit_expr(expr_id_w)
             emit_line(")) {")
-            emit_block(get_nth(ast_stmt_bodies, i))
+            emit_block(array_get(ast_stmt_bodies, i))
             emit_line("}")
         } else {
             emit("for (int64_t __rep = 0; __rep < ")
             emit_expr(expr_id_w)
             emit_line("; __rep++) {")
-            emit_block(get_nth(ast_stmt_bodies, i))
+            emit_block(array_get(ast_stmt_bodies, i))
             emit_line("}")
         }
     } else if kind == STMT_TRAINING_ARC {
-        pilot max_id_w = get_nth(ast_stmt_extras, i)
+        pilot max_id_w: word = array_get(ast_stmt_extras, i)
         emit("for (int64_t __arc = 0; __arc < ")
         emit_expr(max_id_w)
         emit_line("; __arc++) {")
         emit("    if (")
         emit_expr(expr_id_w)
         emit_line(") { break; }")
-        emit_block(get_nth(ast_stmt_bodies, i))
+        emit_block(array_get(ast_stmt_bodies, i))
         emit_line("}")
     } else if kind == STMT_WHEN {
         pilot target_id_w = expr_id_w
-        pilot cases_str = get_nth(ast_stmt_bodies, i)
+        pilot cases_str: word = array_get(ast_stmt_bodies, i)
 
         emit("{ int64_t __target = ")
         emit_expr(target_id_w)
@@ -1348,16 +1843,30 @@ task emit_stmt(eid: word) -> void {
         emit_line("}")
     } else if kind == STMT_BLOCK {
         emit_line("{")
-        emit_block(get_nth(ast_stmt_bodies, i))
+        emit_block(array_get(ast_stmt_bodies, i))
         emit_line("}")
     } else if kind == STMT_ASSIGN {        pilot op_w = name_w
-        pilot rhs_w = get_nth(ast_stmt_bodies, i)
+        pilot rhs_w: word = array_get(ast_stmt_bodies, i)
         emit_expr(expr_id_w)
         emit(" ")
         emit(op_w)
         emit(" ")
         emit_expr(rhs_w)
-        emit_line(";")    } else {
+        emit_line(";")    } else if kind == STMT_SHAPE {
+        -- Shape definitions handled at parse time
+        emit_line("/* shape " + name_w + " */")
+    } else if kind == STMT_BREAK {
+        emit_line("break;")
+    } else if kind == STMT_CONTINUE {
+        emit_line("continue;")
+    } else if kind == STMT_EVENTUALLY {
+        -- Emit eventually body inline (deferred execution stub)
+        emit_line("/* eventually */")
+        pilot ev_body_w: word = array_get(ast_stmt_bodies, i)
+        if ev_body_w.length() > 0 {
+            emit_block(ev_body_w)
+        }
+    } else {
         -- emit_line("/* Unknown Stmt */")
     }
 }
@@ -1407,10 +1916,10 @@ task translate_params(p: word) -> word {
 
 task emit_task(eid: word) -> void {
     pilot i = word_to_int(eid)
-    pilot name_w = get_nth(ast_stmt_names, i)
-    pilot body_id_w = get_nth(ast_stmt_bodies, i)
-    pilot params_w = get_nth(ast_task_params, i)
-    pilot returns_w = get_nth(ast_task_returns, i)
+    pilot name_w: word = array_get(ast_stmt_names, i)
+    pilot body_id_w: word = array_get(ast_stmt_bodies, i)
+    pilot params_w: word = array_get(ast_task_params, i)
+    pilot returns_w: word = array_get(ast_task_returns, i)
 
     pilot c_ret = "void"
     if returns_w == "int" { c_ret = "int64_t" }
@@ -1420,6 +1929,34 @@ task emit_task(eid: word) -> void {
     pilot c_params = "void"
     if params_w != "" {
         c_params = translate_params(params_w)
+        -- Register parameter types for is_ast_word inference
+        pilot pi = 0
+        pilot pslen = params_w.length()
+        pilot pname = ""
+        pilot ptype = ""
+        pilot in_ptype = false
+        repeat pslen times {
+            pilot pc = params_w.char_at(pi)
+            if pc == ":" {
+                in_ptype = true
+            } else if pc == "," {
+                if ptype == "word" { emt_set_var_type(pname, "w") }
+                else if ptype == "bool" { emt_set_var_type(pname, "b") }
+                else { emt_set_var_type(pname, "i") }
+                pname = ""
+                ptype = ""
+                in_ptype = false
+            } else {
+                if in_ptype { ptype = ptype + pc }
+                else { pname = pname + pc }
+            }
+            pi += 1
+        }
+        if pname != "" {
+            if ptype == "word" { emt_set_var_type(pname, "w") }
+            else if ptype == "bool" { emt_set_var_type(pname, "b") }
+            else { emt_set_var_type(pname, "i") }
+        }
     }
 
     emit(c_ret)
@@ -1431,53 +1968,122 @@ task emit_task(eid: word) -> void {
     emit_block(body_id_w)
     emit_line("}")}
 
+task emit_global_decl(eid: word) -> void {
+    pilot i = word_to_int(eid)
+    pilot name_w: word = array_get(ast_stmt_names, i)
+    pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
+    pilot e_idx = word_to_int(expr_id_w)
+    pilot e_kind: word = array_get(ast_expr_kinds, e_idx)
+    pilot type_ann_w: word = array_get(ast_stmt_extras, i)
+    pilot ctype = "int64_t "
+    pilot defval = " = 0"
+    pilot vtype = "i"
+    if type_ann_w == "word" {
+        ctype = "freak_word "
+        defval = " = FREAK_WORD_EMPTY"
+        vtype = "w"
+    } else if type_ann_w == "bool" {
+        ctype = "bool "
+        defval = " = false"
+        vtype = "b"
+    } else if type_ann_w == "num" {
+        ctype = "double "
+        defval = " = 0.0"
+        vtype = "d"
+    } else if is_ast_word(expr_id_w) {
+        ctype = "freak_word "
+        defval = " = FREAK_WORD_EMPTY"
+        vtype = "w"
+    } else if e_kind == EXPR_BOOL {
+        ctype = "bool "
+        defval = " = false"
+        vtype = "b"
+    }
+    emt_set_var_type(name_w, vtype)
+    emit(ctype)
+    emit(name_w)
+    emit(defval)
+    emit_line(";")
+}
+
+task emit_global_init(eid: word) -> void {
+    pilot i = word_to_int(eid)
+    pilot name_w: word = array_get(ast_stmt_names, i)
+    pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
+    emit(name_w)
+    emit(" = ")
+    emit_expr(expr_id_w)
+    emit_line(";")
+}
+
+task emit_fwd_decl(eid: word) -> void {
+    pilot i = word_to_int(eid)
+    pilot name_w: word = array_get(ast_stmt_names, i)
+    pilot params_w: word = array_get(ast_task_params, i)
+    pilot returns_w: word = array_get(ast_task_returns, i)
+    pilot c_ret = "void"
+    if returns_w == "int" { c_ret = "int64_t" }
+    else if returns_w == "word" { c_ret = "freak_word" }
+    else if returns_w == "bool" { c_ret = "bool" }
+    pilot c_params = "void"
+    if params_w != "" { c_params = translate_params(params_w) }
+    emit(c_ret)
+    emit(" freak_")
+    emit(name_w)
+    emit("(")
+    emit(c_params)
+    emit_line(");")
+}
+
 task emit_program() -> void {
     emit_line("#include \"freak_runtime.h\"")
 
-    -- Pass 1: Tasks
-    pilot slen = ast_top_stmts.length()
+    pilot top_count = array_len(ast_top_stmts)
     pilot i = 0
-    pilot cur_id = ""
-    repeat slen times {
-        pilot c = ast_top_stmts.char_at(i)
-        if c == "|" {
-            if cur_id != "" {
-                pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
-                if kind == STMT_TASK { emit_task(cur_id) }
-            }
-            cur_id = ""
-        } else {
-            cur_id = cur_id + c
-        }
+
+    -- Pass 0: Forward declarations for all tasks
+    repeat top_count times {
+        pilot cur_id: word = array_get(ast_top_stmts, i)
+        pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
+        if kind == STMT_TASK { emit_fwd_decl(cur_id) }
         i += 1
     }
-    if cur_id != "" {
-        pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
-        if kind == STMT_TASK { emit_task(cur_id) }
-    }
 
-    -- Pass 2: Main
-    emit_line("void freak_main(void) {")
-
-    slen = ast_top_stmts.length()
+    -- Pass 1: Global variable declarations (top-level pilot)
     i = 0
-    cur_id = ""
-    repeat slen times {
-        pilot c = ast_top_stmts.char_at(i)
-        if c == "|" {
-            if cur_id != "" {
-                pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
-                if kind != STMT_TASK { emit_stmt(cur_id) }
-            }
-            cur_id = ""
-        } else {
-            cur_id = cur_id + c
-        }
+    repeat top_count times {
+        pilot cur_id: word = array_get(ast_top_stmts, i)
+        pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
+        if kind == STMT_PILOT { emit_global_decl(cur_id) }
         i += 1
     }
-    if cur_id != "" {
-        pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
-        if kind != STMT_TASK { emit_stmt(cur_id) }
+
+    -- Pass 2: Task definitions
+    i = 0
+    repeat top_count times {
+        pilot cur_id: word = array_get(ast_top_stmts, i)
+        pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
+        if kind == STMT_TASK { emit_task(cur_id) }
+        i += 1
+    }
+
+    -- Pass 3: Main (initialize globals, then non-pilot/task/shape stmts)
+    emit_line("void freak_main(void) {")
+    -- Initialize global variables
+    i = 0
+    repeat top_count times {
+        pilot cur_id: word = array_get(ast_top_stmts, i)
+        pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
+        if kind == STMT_PILOT { emit_global_init(cur_id) }
+        i += 1
+    }
+    -- Execute remaining statements
+    i = 0
+    repeat top_count times {
+        pilot cur_id: word = array_get(ast_top_stmts, i)
+        pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
+        if kind != STMT_TASK and kind != STMT_SHAPE and kind != STMT_PILOT { emit_stmt(cur_id) }
+        i += 1
     }
     emit_line("}")
 
@@ -1493,14 +2099,40 @@ task emit_program() -> void {
 -- ===================================================================
 
 pilot llvm_out_buf = ""
+pilot llvm_out_file = ""
+pilot llvm_line_count = 0
 pilot temp_reg_counter = 0
 pilot string_literals = ""
 pilot string_literals_count = 0
 
 -- Variable type tracking: parallel pipe-delimited lists
--- Names: "x|y|greeting|" and Types: "i|w|w|" (i=int, w=word/string)
+-- Names: "x|y|greeting|" and Types: "i|w|w|" (i=int, w=word/string, n=num/double)
 pilot llvm_var_names = ""
 pilot llvm_var_types = ""
+
+-- Task return type registry: tracks return types of user-defined tasks
+-- So llvm_infer_expr_type can resolve calls to user tasks correctly
+pilot llvm_task_reg_names = ""
+pilot llvm_task_reg_types = ""
+pilot llvm_task_reg_count = 0
+
+-- Track current function context for correct ret emission
+pilot llvm_cur_func_is_void = false
+
+-- Track current loop labels for break/continue
+pilot llvm_loop_end_label = ""
+pilot llvm_loop_cond_label = ""
+
+-- Flush the LLVM output buffer to file (streaming mode)
+task llvm_flush() -> void {
+    if llvm_out_file != "" {
+        if llvm_out_buf != "" {
+            fs::append(llvm_out_file, llvm_out_buf)
+            llvm_out_buf = ""
+            llvm_line_count = 0
+        }
+    }
+}
 
 task llvm_emit(s: word) -> void {
     llvm_out_buf = llvm_out_buf + s
@@ -1509,6 +2141,13 @@ task llvm_emit(s: word) -> void {
 task llvm_emit_line(s: word) -> void {
     llvm_out_buf = llvm_out_buf + s
     llvm_out_buf = llvm_out_buf + "\n"
+    llvm_line_count += 1
+    -- In streaming mode, flush every 50 lines to prevent O(n^2) blowup
+    if llvm_out_file != "" {
+        if llvm_line_count >= 50 {
+            llvm_flush()
+        }
+    }
 }
 
 task next_reg() -> word {
@@ -1517,16 +2156,34 @@ task next_reg() -> word {
     give back r
 }
 
+task llvm_flush_strs() -> void {
+    if llvm_out_file != "" {
+        if string_literals != "" {
+            fs::append(llvm_out_file + ".strs", string_literals)
+            string_literals = ""
+        }
+    }
+}
+
 task register_string_literal(val: word) -> word {
     pilot id = "@.str." + word_from_int(string_literals_count)
     string_literals_count += 1
 
-    pilot len = val.length()
+    -- Restore escaped pipe characters from lexer
+    pilot real_val = val.replace("<<PIPE>>", "|")
+    pilot len = real_val.length()
     pilot null_term_len = len + 1
 
     -- Format: @.str.0 = private unnamed_addr constant [13 x i8] c"Hello World!\00", align 1
-    pilot decl = id + " = private unnamed_addr constant [" + word_from_int(null_term_len) + " x i8] c\"" + val + "\\00\", align 1\n"
+    pilot decl = id + " = private unnamed_addr constant [" + word_from_int(null_term_len) + " x i8] c\"" + real_val + "\\00\", align 1\n"
     string_literals = string_literals + decl
+
+    -- In streaming mode, flush string literals periodically
+    if llvm_out_file != "" {
+        if string_literals_count % 50 == 0 {
+            llvm_flush_strs()
+        }
+    }
 
     give back id
 }
@@ -1602,17 +2259,68 @@ task llvm_get_var_type(name: word) -> word {
     give back "i"
 }
 
--- Infer the type of an expression ("i" for int, "w" for word/string)
+-- Register a task's return type
+task llvm_register_task(name: word, ret_type: word) -> void {
+    pilot t = "i"
+    if ret_type == "word" { t = "w" }
+    if ret_type == "bool" { t = "b" }
+    if ret_type == "num" { t = "n" }
+    if ret_type == "int" { t = "i" }
+    if ret_type == "void" { t = "v" }
+    llvm_task_reg_names = llvm_task_reg_names + name + "|"
+    llvm_task_reg_types = llvm_task_reg_types + t + "|"
+    llvm_task_reg_count += 1
+}
+
+-- Look up a task's return type ("w", "i", "n", "b", "v", or "" if not found)
+task llvm_get_task_ret_type(name: word) -> word {
+    pilot nlen = llvm_task_reg_names.length()
+    pilot i = 0
+    pilot cur_name = ""
+    pilot idx = 0
+    repeat until i >= nlen {
+        pilot c = llvm_task_reg_names.char_at(i)
+        if c == "|" {
+            if cur_name == name {
+                pilot ti = 0
+                pilot cur_type = ""
+                pilot tidx = 0
+                pilot tlen = llvm_task_reg_types.length()
+                repeat until ti >= tlen {
+                    pilot tc = llvm_task_reg_types.char_at(ti)
+                    if tc == "|" {
+                        if tidx == idx {
+                            give back cur_type
+                        }
+                        tidx += 1
+                        cur_type = ""
+                    } else {
+                        cur_type = cur_type + tc
+                    }
+                    ti += 1
+                }
+            }
+            idx += 1
+            cur_name = ""
+        } else {
+            cur_name = cur_name + c
+        }
+        i += 1
+    }
+    give back ""
+}
+
+-- Infer the type of an expression ("i" for int, "w" for word/string, "n" for num/double)
 task llvm_infer_expr_type(expr_id: word) -> word {
     if expr_id.length() == 0 { give back "i" }
     pilot i = word_to_int(expr_id)
-    pilot kind = get_nth(ast_expr_kinds, i)
-    pilot val = get_nth(ast_expr_vals, i)
+    pilot kind: word = array_get(ast_expr_kinds, i)
+    pilot val: word = array_get(ast_expr_vals, i)
 
     if kind == EXPR_STR { give back "w" }
     if kind == EXPR_INT { give back "i" }
-    if kind == EXPR_FLOAT { give back "i" }
-    if kind == EXPR_BOOL { give back "i" }
+    if kind == EXPR_FLOAT { give back "n" }
+    if kind == EXPR_BOOL { give back "b" }
     if kind == EXPR_IDENT { give back llvm_get_var_type(val) }
 
     if kind == EXPR_METHOD {
@@ -1628,22 +2336,97 @@ task llvm_infer_expr_type(expr_id: word) -> word {
         if val == "contains" { give back "i" }
         if val == "starts_with" { give back "i" }
         if val == "ends_with" { give back "i" }
+        -- Check user-defined impl methods via task registry
+        pilot mi = 0
+        repeat shape_registry_count times {
+            pilot msname: word = "" + array_get(shape_registry_names, mi)
+            pilot impl_ret: word = llvm_get_task_ret_type(msname + "_" + val)
+            if impl_ret.length() > 0 {
+                give back impl_ret
+            }
+            mi += 1
+        }
+    }
+
+    if kind == EXPR_FIELD {
+        -- Look up the field type from shape registry
+        pilot fi = 0
+        repeat shape_registry_count times {
+            pilot sname: word = "" + array_get(shape_registry_names, fi)
+            pilot fields: word = "" + array_get(shape_registry_fields, fi)
+            pilot flen = fields.length()
+            pilot fj = 0
+            pilot fname = ""
+            pilot ftype = ""
+            pilot in_ftype = false
+            repeat flen times {
+                pilot ftc: word = "" + fields.char_at(fj)
+                if ftc == "," {
+                    if fname == val {
+                        if ftype == "num" or ftype == "float" { give back "n" }
+                        if ftype == "word" { give back "w" }
+                        if ftype == "bool" { give back "b" }
+                        give back "i"
+                    }
+                    fname = ""
+                    ftype = ""
+                    in_ftype = false
+                } else if ftc == ":" {
+                    in_ftype = true
+                } else {
+                    if in_ftype { ftype = ftype + ftc }
+                    else { fname = fname + ftc }
+                }
+                fj += 1
+            }
+            if fname == val {
+                if ftype == "num" or ftype == "float" { give back "n" }
+                if ftype == "word" { give back "w" }
+                if ftype == "bool" { give back "b" }
+                give back "i"
+            }
+            fi += 1
+        }
     }
 
     if kind == EXPR_BINOP {
+        pilot left: word = array_get(ast_expr_lefts, i)
+        pilot right: word = array_get(ast_expr_rights, i)
+        pilot lt: word = llvm_infer_expr_type(left)
+        pilot rt: word = llvm_infer_expr_type(right)
         if val == "+" {
             -- Check if either operand is a string
-            pilot left = get_nth(ast_expr_lefts, i)
-            pilot lt = llvm_infer_expr_type(left)
-            if lt.starts_with("w") { give back "w" }
+            if lt.starts_with("w") or rt.starts_with("w") { give back "w" }
+        }
+        -- Num propagation: if either operand is num, result is num
+        if lt.starts_with("n") or rt.starts_with("n") {
+            if val == "+" or val == "-" or val == "*" or val == "/" or val == "%" {
+                give back "n"
+            }
         }
     }
 
     if kind == EXPR_CALL {
-        -- Calls that return strings
+        -- Built-in calls that return strings
         if val == "fs::read" { give back "w" }
+        if val == "fs::list_dir" { give back "w" }
         if val == "process::arg" { give back "w" }
+        if val == "process::exec_capture" { give back "w" }
         if val == "ask" { give back "w" }
+        if val == "word_from_int" { give back "w" }
+        if val == "word_from_bool" { give back "w" }
+        if val == "word_concat" { give back "w" }
+        -- Runtime helpers used by the compiler itself
+        if val == "get_nth" { give back "w" }
+        if val == "push_item" { give back "w" }
+        if val == "array_get" { give back "w" }
+        if val == "array_new" { give back "i" }
+        if val == "array_len" { give back "i" }
+        -- Shape constructors return an opaque handle (int)
+        if val.starts_with("shape::ctor::") { give back "i" }
+        -- Look up user-defined task return types from the registry
+        pilot task_ret = llvm_get_task_ret_type(val)
+        if task_ret.length() > 0 { give back task_ret }
     }
 
     give back "i"
@@ -1656,22 +2439,24 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i32 @printf(i8*, ...)")
     llvm_emit_line("declare i64 @strlen(i8*)")
     -- Word primitives
-    llvm_emit_line("declare i64 @freak_llvm_word_from_int(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_from_bool(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_concat(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_from_int(i64)")
+    llvm_emit_line("declare i64 @freak_word_from_bool(i64)")
+    llvm_emit_line("declare i64 @freak_word_concat(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_eq(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_neq(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_eq(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_neq(i64, i64)")
     -- String methods
-    llvm_emit_line("declare i64 @freak_llvm_word_length(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_char_at(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_contains(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_starts_with(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_ends_with(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_to_upper(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_to_lower(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_trim(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_replace(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_to_int(i64)")
+    llvm_emit_line("declare i64 @freak_word_length(i64)")
+    llvm_emit_line("declare i64 @freak_word_char_at(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_contains(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_starts_with(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_ends_with(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_to_upper(i64)")
+    llvm_emit_line("declare i64 @freak_word_to_lower(i64)")
+    llvm_emit_line("declare i64 @freak_word_trim(i64)")
+    llvm_emit_line("declare i64 @freak_word_replace(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_to_int(i64)")
     -- I/O helpers
     llvm_emit_line("declare void @freak_llvm_say(i64)")
     llvm_emit_line("declare void @freak_llvm_print_str(i64)")
@@ -1681,18 +2466,36 @@ task llvm_emit_runtime_decls() -> void {
     -- File I/O
     llvm_emit_line("declare i64 @freak_llvm_fs_read(i64)")
     llvm_emit_line("declare void @freak_llvm_fs_write(i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_fs_append(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_exists(i64)")
+    llvm_emit_line("declare void @freak_llvm_fs_delete(i64)")
     -- Process
     llvm_emit_line("declare i64 @freak_llvm_process_args_count()")
     llvm_emit_line("declare i64 @freak_llvm_process_arg(i64)")
     llvm_emit_line("declare void @freak_llvm_process_exit(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_process_exec(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_process_exec_capture(i64)")
     -- Panic
     llvm_emit_line("declare void @freak_llvm_panic(i64)")
     -- Shapes
     llvm_emit_line("declare i64 @freak_llvm_shape_alloc(i64)")
     llvm_emit_line("declare i64 @freak_llvm_shape_get(i64, i64)")
     llvm_emit_line("declare void @freak_llvm_shape_set(i64, i64, i64)")
-    -- Args setup
     llvm_emit_line("declare void @freak_llvm_setup_args(i64, i64)")
+
+    -- Num (double) support — values stored as bitcast i64
+    llvm_emit_line("declare i64 @freak_llvm_word_from_num(i64)")
+    llvm_emit_line("declare void @freak_llvm_print_num(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_int_to_num(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_num_to_int(i64)")
+
+    -- UI
+    llvm_emit_line("declare i64 @freak_llvm_ui_create_native(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_poll_events(i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_begin_frame(i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_end_frame(i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_clear(i64, i64, i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_fill_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
 }
 
 -- Check if a string value contains interpolation placeholders
@@ -1724,14 +2527,89 @@ task llvm_emit_say_interp(val: word) -> void {
         pilot c = val.char_at(i)
         if in_var {
             if c == "}" {
-                -- Emit the variable value
-                pilot var_reg = next_reg()
-                llvm_emit_line("    " + var_reg + " = load i64, i64* %" + vname)
-                pilot var_type = llvm_get_var_type(vname)
-                if var_type.starts_with("w") {
-                    llvm_emit_line("    call void @freak_llvm_print_str(i64 " + var_reg + ")")
+                -- Check if vname contains a dot (field access like p.x)
+                pilot has_dot = false
+                pilot dot_pos = 0
+                pilot vi = 0
+                pilot vnamelen = vname.length()
+                repeat vnamelen times {
+                    if vname.char_at(vi) == "." { has_dot = true  dot_pos = vi }
+                    vi += 1
+                }
+                if has_dot {
+                    -- Split: obj_name = before dot, field_name = after dot
+                    pilot obj_name = ""
+                    pilot field_nm = ""
+                    pilot si = 0
+                    repeat vnamelen times {
+                        if si < dot_pos { obj_name = obj_name + vname.char_at(si) }
+                        if si > dot_pos { field_nm = field_nm + vname.char_at(si) }
+                        si += 1
+                    }
+                    -- Load the object pointer
+                    pilot obj_reg = next_reg()
+                    llvm_emit_line("    " + obj_reg + " = load i64, i64* %" + obj_name)
+                    -- Get field index
+                    pilot fidx = 0 - 1
+                    pilot sri = 0
+                    repeat shape_registry_count times {
+                        pilot tmpidx = get_shape_field_index("" + array_get(shape_registry_names, sri), field_nm)
+                        if tmpidx >= 0 { fidx = tmpidx }
+                        sri += 1
+                    }
+                    if fidx < 0 { fidx = 0 }
+                    pilot field_reg = next_reg()
+                    llvm_emit_line("    " + field_reg + " = call i64 @freak_llvm_shape_get(i64 " + obj_reg + ", i64 " + word_from_int(fidx) + ")")
+                    -- Determine field type from shape registry
+                    pilot ftype = "int"
+                    pilot fsi = 0
+                    repeat shape_registry_count times {
+                        pilot flds: word = array_get(shape_registry_fields, fsi)
+                        pilot ftidx = get_shape_field_index(array_get(shape_registry_names, fsi), field_nm)
+                        if ftidx >= 0 {
+                            -- Parse field type from "x:num,y:num" at index ftidx
+                            pilot fc = 0
+                            pilot fci = 0
+                            pilot fclen = flds.length()
+                            pilot cur_ftype = ""
+                            pilot in_ftype = false
+                            repeat fclen times {
+                                pilot fch = flds.char_at(fci)
+                                if fch == "," {
+                                    if fc == ftidx { ftype = cur_ftype }
+                                    fc += 1
+                                    cur_ftype = ""
+                                    in_ftype = false
+                                } else if fch == ":" {
+                                    in_ftype = true
+                                } else {
+                                    if in_ftype { cur_ftype = cur_ftype + fch }
+                                }
+                                fci += 1
+                            }
+                            if fc == ftidx { ftype = cur_ftype }
+                        }
+                        fsi += 1
+                    }
+                    if ftype == "num" or ftype == "float" {
+                        llvm_emit_line("    call void @freak_llvm_print_num(i64 " + field_reg + ")")
+                    } else if ftype == "word" {
+                        llvm_emit_line("    call void @freak_llvm_print_str(i64 " + field_reg + ")")
+                    } else {
+                        llvm_emit_line("    call void @freak_llvm_print_int(i64 " + field_reg + ")")
+                    }
                 } else {
-                    llvm_emit_line("    call void @freak_llvm_print_int(i64 " + var_reg + ")")
+                    -- Regular variable interpolation
+                    pilot var_reg = next_reg()
+                    llvm_emit_line("    " + var_reg + " = load i64, i64* %" + vname)
+                    pilot var_type = llvm_get_var_type(vname)
+                    if var_type.starts_with("w") {
+                        llvm_emit_line("    call void @freak_llvm_print_str(i64 " + var_reg + ")")
+                    } else if var_type.starts_with("n") {
+                        llvm_emit_line("    call void @freak_llvm_print_num(i64 " + var_reg + ")")
+                    } else {
+                        llvm_emit_line("    call void @freak_llvm_print_int(i64 " + var_reg + ")")
+                    }
                 }
                 vname = ""
                 in_var = false
@@ -1800,16 +2678,38 @@ task llvm_emit_args(args: word) -> word {
     give back res
 }
 
+-- ===================== NUM HELPERS =================================
+-- Bitcast i64 → double, return the double register name
+task llvm_i64_to_double(i64_reg: word) -> word {
+    pilot dbl = next_reg()
+    llvm_emit_line("    " + dbl + " = bitcast i64 " + i64_reg + " to double")
+    give back dbl
+}
+
+-- Bitcast double → i64, return the i64 register name
+task llvm_double_to_i64(dbl_reg: word) -> word {
+    pilot i64r = next_reg()
+    llvm_emit_line("    " + i64r + " = bitcast double " + dbl_reg + " to i64")
+    give back i64r
+}
+
+-- Check if an expression (by id string) infers to num type
+task llvm_is_num_expr(expr_id: word) -> bool {
+    pilot t = llvm_infer_expr_type(expr_id)
+    if t.starts_with("n") { give back true }
+    give back false
+}
+
 -- ===================== EXPRESSIONS =================================
 
 -- Emit an expression and return the register that holds the result
 -- We return a string like "%t0"
 task llvm_emit_expr(id: word) -> word {
     pilot i = word_to_int(id)
-    pilot kind = get_nth(ast_expr_kinds, i)
-    pilot val = get_nth(ast_expr_vals, i)
-    pilot left = get_nth(ast_expr_lefts, i)
-    pilot right = get_nth(ast_expr_rights, i)
+    pilot kind: word = array_get(ast_expr_kinds, i)
+    pilot val: word = array_get(ast_expr_vals, i)
+    pilot left: word = array_get(ast_expr_lefts, i)
+    pilot right: word = array_get(ast_expr_rights, i)
 
     if kind == EXPR_INT {
         give back val
@@ -1820,9 +2720,19 @@ task llvm_emit_expr(id: word) -> word {
         give back "0"
     }
 
+    if kind == EXPR_FLOAT {
+        -- Store double as i64 via bitcast: bitcast double <val> to i64
+        pilot dbl_reg = next_reg()
+        pilot cast_reg = next_reg()
+        llvm_emit_line("    " + dbl_reg + " = fadd double 0.0, " + val)
+        llvm_emit_line("    " + cast_reg + " = bitcast double " + dbl_reg + " to i64")
+        give back cast_reg
+    }
+
     if kind == EXPR_STR {
         pilot str_id = register_string_literal(val)
-        pilot len = val.length() + 1
+        -- Use real length (after unescaping pipe placeholders)
+        pilot len = val.replace("<<PIPE>>", "|").length() + 1
         pilot get_ptr = next_reg()
         llvm_emit_line("    " + get_ptr + " = getelementptr inbounds [" + word_from_int(len) + " x i8], [" + word_from_int(len) + " x i8]* " + str_id + ", i64 0, i64 0")
         pilot cast_reg = next_reg()
@@ -1840,35 +2750,123 @@ task llvm_emit_expr(id: word) -> word {
         pilot arg_str = ""
         if left.length() > 0 { arg_str = llvm_emit_args(left) }
 
-        pilot res_reg = next_reg()
         pilot func_name = "@freak_" + llvm_c_safe_ident(val)
+        pilot is_void_call = false
+
+        -- Shape constructor: shape::ctor::Name with field value expr IDs in left
+        if val.starts_with("shape::ctor::") {
+            -- Extract shape name from val (after "shape::ctor::")
+            pilot sname = ""
+            pilot vi = 13
+            pilot vlen = val.length()
+            repeat vlen times {
+                if vi < vlen {
+                    sname = sname + val.char_at(vi)
+                }
+                vi += 1
+            }
+            pilot fcount = get_shape_field_count(sname)
+            -- Allocate the shape
+            pilot alloc_reg = next_reg()
+            llvm_emit_line("    " + alloc_reg + " = call i64 @freak_llvm_shape_alloc(i64 " + word_from_int(fcount) + ")")
+            -- Set each field value
+            if left.length() > 0 {
+                pilot fi = 0
+                pilot ci = 0
+                pilot cslen = left.length()
+                pilot cur = ""
+                repeat cslen times {
+                    pilot cc = left.char_at(ci)
+                    if cc == "," {
+                        if cur.length() > 0 {
+                            pilot fval_reg = llvm_emit_expr(cur)
+                            llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + alloc_reg + ", i64 " + word_from_int(fi) + ", i64 " + fval_reg + ")")
+                            fi += 1
+                        }
+                        cur = ""
+                    } else {
+                        cur = cur + cc
+                    }
+                    ci += 1
+                }
+                if cur.length() > 0 {
+                    pilot fval_reg = llvm_emit_expr(cur)
+                    llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + alloc_reg + ", i64 " + word_from_int(fi) + ", i64 " + fval_reg + ")")
+                }
+            }
+            give back alloc_reg
+        }
+
         if val == "say" {
-             func_name = "@freak_say"
+             func_name = "@freak_llvm_say"
+             is_void_call = true
         } else if val == "word_from_int" {
-             func_name = "@freak_llvm_word_from_int"
+             func_name = "@freak_word_from_int"
         } else if val == "word_from_bool" {
-             func_name = "@freak_llvm_word_from_bool"
+             func_name = "@freak_word_from_bool"
         } else if val == "fs::read" {
              func_name = "@freak_llvm_fs_read"
         } else if val == "fs::write" {
              func_name = "@freak_llvm_fs_write"
+             is_void_call = true
+        } else if val == "fs::append" {
+             func_name = "@freak_llvm_fs_append"
+             is_void_call = true
+        } else if val == "fs::exists" {
+             func_name = "@freak_llvm_fs_exists"
+        } else if val == "fs::delete" {
+             func_name = "@freak_llvm_fs_delete"
+             is_void_call = true
         } else if val == "process::args_count" {
              func_name = "@freak_llvm_process_args_count"
         } else if val == "process::arg" {
              func_name = "@freak_llvm_process_arg"
         } else if val == "process::exit" {
              func_name = "@freak_llvm_process_exit"
+             is_void_call = true
+        } else if val == "process::exec" {
+             func_name = "@freak_llvm_process_exec"
+        } else if val == "process::exec_capture" {
+             func_name = "@freak_llvm_process_exec_capture"
         } else if val == "ask" {
              func_name = "@freak_llvm_ask"
         } else if val == "panic" {
              func_name = "@freak_llvm_panic"
+             is_void_call = true
         } else if val == "shape::alloc" {
              func_name = "@freak_llvm_shape_alloc"
         } else if val == "shape::get" {
              func_name = "@freak_llvm_shape_get"
         } else if val == "shape::set" {
              func_name = "@freak_llvm_shape_set"
+             is_void_call = true
+        } else if val == "ui::create_native" {
+             func_name = "@freak_llvm_ui_create_native"
+        } else if val == "ui::poll_events" {
+             func_name = "@freak_llvm_ui_poll_events"
+        } else if val == "ui::begin_frame" {
+             func_name = "@freak_llvm_ui_begin_frame"
+             is_void_call = true
+        } else if val == "ui::end_frame" {
+             func_name = "@freak_llvm_ui_end_frame"
+             is_void_call = true
+        } else if val == "ui::clear" {
+             func_name = "@freak_llvm_ui_clear"
+             is_void_call = true
+        } else if val == "ui::fill_rect" {
+             func_name = "@freak_llvm_ui_fill_rect"
+             is_void_call = true
         }
+        -- Check task registry for user-defined void functions
+        if not is_void_call {
+            pilot call_ret: word = llvm_get_task_ret_type(val)
+            if call_ret == "v" { is_void_call = true }
+        }
+        if is_void_call {
+            llvm_emit_line("    call void " + func_name + "(" + arg_str + ")")
+            give back "0"
+        }
+        pilot res_reg = next_reg()
         llvm_emit_line("    " + res_reg + " = call i64 " + func_name + "(" + arg_str + ")")
         give back res_reg
     }
@@ -1878,23 +2876,85 @@ task llvm_emit_expr(id: word) -> word {
         pilot r_reg = llvm_emit_expr(right)
         pilot res_reg = next_reg()
 
+        -- Check if this is a num (double) operation
+        pilot is_num_op = llvm_is_num_expr(left) or llvm_is_num_expr(right)
+
         if val == "+" {
             pilot vtype = llvm_infer_expr_type(id)
             if vtype.starts_with("w") {
-                llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_concat(i64 " + l_reg + ", i64 " + r_reg + ")")
+                -- Ensure both operands are words for concat
+                pilot lt: word = llvm_infer_expr_type(left)
+                pilot rt: word = llvm_infer_expr_type(right)
+                pilot lw = l_reg
+                pilot rw = r_reg
+                if not lt.starts_with("w") {
+                    lw = next_reg()
+                    llvm_emit_line("    " + lw + " = call i64 @freak_word_from_int(i64 " + l_reg + ")")
+                }
+                if not rt.starts_with("w") {
+                    rw = next_reg()
+                    llvm_emit_line("    " + rw + " = call i64 @freak_word_from_int(i64 " + r_reg + ")")
+                }
+                llvm_emit_line("    " + res_reg + " = call i64 @freak_word_concat(i64 " + lw + ", i64 " + rw + ")")
+            } else if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot dres = next_reg()
+                llvm_emit_line("    " + dres + " = fadd double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
             } else {
                 llvm_emit_line("    " + res_reg + " = add i64 " + l_reg + ", " + r_reg)
             }
         } else if val == "-" {
-            llvm_emit_line("    " + res_reg + " = sub i64 " + l_reg + ", " + r_reg)
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot dres = next_reg()
+                llvm_emit_line("    " + dres + " = fsub double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
+            } else {
+                llvm_emit_line("    " + res_reg + " = sub i64 " + l_reg + ", " + r_reg)
+            }
         } else if val == "*" {
-            llvm_emit_line("    " + res_reg + " = mul i64 " + l_reg + ", " + r_reg)
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot dres = next_reg()
+                llvm_emit_line("    " + dres + " = fmul double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
+            } else {
+                llvm_emit_line("    " + res_reg + " = mul i64 " + l_reg + ", " + r_reg)
+            }
         } else if val == "/" {
-            llvm_emit_line("    " + res_reg + " = sdiv i64 " + l_reg + ", " + r_reg)
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot dres = next_reg()
+                llvm_emit_line("    " + dres + " = fdiv double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
+            } else {
+                llvm_emit_line("    " + res_reg + " = sdiv i64 " + l_reg + ", " + r_reg)
+            }
+        } else if val == "%" {
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot dres = next_reg()
+                llvm_emit_line("    " + dres + " = frem double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
+            } else {
+                llvm_emit_line("    " + res_reg + " = srem i64 " + l_reg + ", " + r_reg)
+            }
         } else if val == "==" {
             pilot ltype = llvm_infer_expr_type(left)
             if ltype.starts_with("w") {
                 llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_eq(i64 " + l_reg + ", i64 " + r_reg + ")")
+            } else if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp oeq double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
             } else {
                 pilot cmp_reg = next_reg()
                 llvm_emit_line("    " + cmp_reg + " = icmp eq i64 " + l_reg + ", " + r_reg)
@@ -1904,27 +2964,65 @@ task llvm_emit_expr(id: word) -> word {
             pilot ltype = llvm_infer_expr_type(left)
             if ltype.starts_with("w") {
                 llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_neq(i64 " + l_reg + ", i64 " + r_reg + ")")
+            } else if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp une double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
             } else {
                 pilot cmp_reg = next_reg()
                 llvm_emit_line("    " + cmp_reg + " = icmp ne i64 " + l_reg + ", " + r_reg)
                 llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
             }
         } else if val == "<" {
-            pilot cmp_reg = next_reg()
-            llvm_emit_line("    " + cmp_reg + " = icmp slt i64 " + l_reg + ", " + r_reg)
-            llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp olt double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            } else {
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = icmp slt i64 " + l_reg + ", " + r_reg)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            }
         } else if val == ">" {
-            pilot cmp_reg = next_reg()
-            llvm_emit_line("    " + cmp_reg + " = icmp sgt i64 " + l_reg + ", " + r_reg)
-            llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp ogt double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            } else {
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = icmp sgt i64 " + l_reg + ", " + r_reg)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            }
         } else if val == "<=" {
-            pilot cmp_reg = next_reg()
-            llvm_emit_line("    " + cmp_reg + " = icmp sle i64 " + l_reg + ", " + r_reg)
-            llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp ole double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            } else {
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = icmp sle i64 " + l_reg + ", " + r_reg)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            }
         } else if val == ">=" {
-            pilot cmp_reg = next_reg()
-            llvm_emit_line("    " + cmp_reg + " = icmp sge i64 " + l_reg + ", " + r_reg)
-            llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp oge double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            } else {
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = icmp sge i64 " + l_reg + ", " + r_reg)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            }
         } else if val == "and" {
             pilot cmp_l = next_reg()
             llvm_emit_line("    " + cmp_l + " = icmp ne i64 " + l_reg + ", 0")
@@ -1980,37 +3078,79 @@ task llvm_emit_expr(id: word) -> word {
         pilot obj_reg = llvm_emit_expr(left)
         pilot res_reg = next_reg()
         if val == "length" {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_length(i64 " + obj_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_length(i64 " + obj_reg + ")")
         } else if val == "char_at" {
             pilot arg_reg = llvm_emit_expr(right)
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_char_at(i64 " + obj_reg + ", i64 " + arg_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_char_at(i64 " + obj_reg + ", i64 " + arg_reg + ")")
         } else if val == "contains" {
             pilot arg_reg = llvm_emit_expr(right)
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_contains(i64 " + obj_reg + ", i64 " + arg_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_contains(i64 " + obj_reg + ", i64 " + arg_reg + ")")
         } else if val == "starts_with" {
             pilot arg_reg = llvm_emit_expr(right)
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_starts_with(i64 " + obj_reg + ", i64 " + arg_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_starts_with(i64 " + obj_reg + ", i64 " + arg_reg + ")")
         } else if val == "ends_with" {
             pilot arg_reg = llvm_emit_expr(right)
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_ends_with(i64 " + obj_reg + ", i64 " + arg_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_ends_with(i64 " + obj_reg + ", i64 " + arg_reg + ")")
         } else if val == "to_upper" {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_upper(i64 " + obj_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_to_upper(i64 " + obj_reg + ")")
         } else if val == "to_lower" {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_lower(i64 " + obj_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_to_lower(i64 " + obj_reg + ")")
         } else if val == "trim" {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_trim(i64 " + obj_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_trim(i64 " + obj_reg + ")")
         } else if val == "replace" {
             -- replace has 2 args encoded as comma-separated in right
             pilot arg_reg = llvm_emit_expr(right)
             -- For now, handle the common two-arg case via the parser's expression structure
             -- The parser stores the first arg in right, second arg needs to be in args list
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_replace(i64 " + obj_reg + ", i64 " + arg_reg + ", i64 0)")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_replace(i64 " + obj_reg + ", i64 " + arg_reg + ", i64 0)")
         } else if val == "to_int" {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_int(i64 " + obj_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_to_int(i64 " + obj_reg + ")")
         } else {
-            llvm_emit_line("    ; unsupported method " + val)
-            llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+            -- Try user-defined impl method: look up ShapeName_method
+            -- The object is passed as the first arg (self)
+            pilot found_impl = false
+            pilot si = 0
+            repeat shape_registry_count times {
+                pilot sname: word = "" + array_get(shape_registry_names, si)
+                pilot impl_fname = "freak_" + sname + "_" + val
+                -- Check if this function exists in our task registry
+                pilot call_ret: word = llvm_get_task_ret_type(sname + "_" + val)
+                if call_ret.length() > 0 {
+                    found_impl = true
+                    if call_ret == "v" {
+                        llvm_emit_line("    call void @" + impl_fname + "(i64 " + obj_reg + ")")
+                        llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+                    } else {
+                        llvm_emit_line("    " + res_reg + " = call i64 @" + impl_fname + "(i64 " + obj_reg + ")")
+                    }
+                }
+                si += 1
+            }
+            if not found_impl {
+                llvm_emit_line("    ; unsupported method " + val)
+                llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+            }
         }
+        give back res_reg
+    }
+
+    if kind == EXPR_FIELD {
+        -- Field access: obj.field_name
+        -- val = field name, left = object expression
+        pilot obj_reg = llvm_emit_expr(left)
+        -- We need to figure out the object's shape type to get the field index
+        -- For now, look up the field name across all registered shapes
+        pilot fidx = 0 - 1
+        pilot si = 0
+        repeat shape_registry_count times {
+            pilot tmpidx = get_shape_field_index(array_get(shape_registry_names, si), val)
+            if tmpidx >= 0 { fidx = tmpidx }
+            si += 1
+        }
+        if fidx < 0 { fidx = 0 }
+        pilot idx_val = word_from_int(fidx)
+        pilot res_reg = next_reg()
+        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_shape_get(i64 " + obj_reg + ", i64 " + idx_val + ")")
         give back res_reg
     }
 
@@ -2061,50 +3201,42 @@ task llvm_emit_stmt(eid: word) -> void {
     if eid.length() == 0 { give back }
 
     pilot i = word_to_int(eid)
-    pilot kind = get_nth(ast_stmt_kinds, i)
-    pilot name_w = get_nth(ast_stmt_names, i)
-    pilot expr_id_w = get_nth(ast_stmt_exprs, i)
+    pilot kind: word = array_get(ast_stmt_kinds, i)
+    pilot name_w: word = array_get(ast_stmt_names, i)
+    pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
 
     if kind == STMT_PILOT {
-        pilot reg = llvm_emit_expr(expr_id_w)
-        -- Track the variable type
-        pilot vtype = llvm_infer_expr_type(expr_id_w)
+        -- Use explicit type annotation if available, otherwise infer
+        pilot type_ann: word = array_get(ast_stmt_extras, i)
+        pilot vtype = ""
+        if type_ann == "word" { vtype = "w" }
+        else if type_ann == "num" { vtype = "n" }
+        else if type_ann == "bool" { vtype = "b" }
+        else if type_ann == "int" { vtype = "i" }
+        else { vtype = llvm_infer_expr_type(expr_id_w) }
         llvm_set_var_type(name_w, vtype)
-        -- Handle string + (concatenation) at the BINOP level
-        pilot ek = get_nth(ast_expr_kinds, word_to_int(expr_id_w))
-        pilot ev = get_nth(ast_expr_vals, word_to_int(expr_id_w))
-        if ek == EXPR_BINOP and ev == "+" and vtype.starts_with("w") {
-            -- Re-emit with concat instead of add
-            pilot el = get_nth(ast_expr_lefts, word_to_int(expr_id_w))
-            pilot er = get_nth(ast_expr_rights, word_to_int(expr_id_w))
-            pilot lr = llvm_emit_expr(el)
-            pilot rr = llvm_emit_expr(er)
-            pilot concat_reg = next_reg()
-            llvm_emit_line("    " + concat_reg + " = call i64 @freak_llvm_word_concat(i64 " + lr + ", i64 " + rr + ")")
-            llvm_emit_line("    %" + name_w + " = alloca i64")
-            llvm_emit_line("    store i64 " + concat_reg + ", i64* %" + name_w)
-        } else {
-            -- Allocate space on the stack for the variable
-            llvm_emit_line("    %" + name_w + " = alloca i64")
-            -- Store the result in the allocated space
-            llvm_emit_line("    store i64 " + reg + ", i64* %" + name_w)
-        }
+        -- Emit the expression (BINOP "+" on words already produces concat via llvm_emit_expr)
+        pilot reg = llvm_emit_expr(expr_id_w)
+        -- Allocate space on the stack for the variable
+        llvm_emit_line("    %" + name_w + " = alloca i64")
+        -- Store the result in the allocated space
+        llvm_emit_line("    store i64 " + reg + ", i64* %" + name_w)
     } else if kind == STMT_SAY {
         -- Check if the expression is an interpolated string
-        pilot say_expr_kind = get_nth(ast_expr_kinds, word_to_int(expr_id_w))
-        pilot say_expr_val = get_nth(ast_expr_vals, word_to_int(expr_id_w))
+        pilot say_expr_kind: word = array_get(ast_expr_kinds, word_to_int(expr_id_w))
+        pilot say_expr_val: word = array_get(ast_expr_vals, word_to_int(expr_id_w))
         if say_expr_kind == EXPR_STR and llvm_str_has_interp(say_expr_val) {
             llvm_emit_say_interp(say_expr_val)
         } else {
             pilot reg = llvm_emit_expr(expr_id_w)
-            pilot ptr_reg = next_reg()
-            llvm_emit_line("    " + ptr_reg + " = inttoptr i64 " + reg + " to i8*")
-            llvm_emit_line("    call i32 @puts(i8* " + ptr_reg + ")")
+            llvm_emit_line("    call void @freak_llvm_say(i64 " + reg + ")")
         }
     } else if kind == STMT_EXPR {
         llvm_emit_expr(expr_id_w)
     } else if kind == STMT_GIVE_BACK {
-        if expr_id_w.length() > 0 and not expr_id_w.starts_with("-") {
+        if llvm_cur_func_is_void {
+            llvm_emit_line("    ret void")
+        } else if expr_id_w.length() > 0 and not expr_id_w.starts_with("-") {
             pilot reg = llvm_emit_expr(expr_id_w)
             llvm_emit_line("    ret i64 " + reg)
         } else {
@@ -2122,7 +3254,7 @@ task llvm_emit_stmt(eid: word) -> void {
         pilot cmp_reg = next_reg()
         llvm_emit_line("    " + cmp_reg + " = icmp ne i64 " + cond_reg + ", 0")
 
-        pilot else_body_w = get_nth(ast_stmt_else_bodies, i)
+        pilot else_body_w: word = array_get(ast_stmt_else_bodies, i)
         if else_body_w.length() > 0 {
             llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_then + ", label %" + l_else)
         } else {
@@ -2130,7 +3262,7 @@ task llvm_emit_stmt(eid: word) -> void {
         }
 
         llvm_emit_line(l_then + ":")
-        llvm_emit_block(get_nth(ast_stmt_bodies, i))
+        llvm_emit_block(array_get(ast_stmt_bodies, i))
         llvm_emit_line("    br label %" + l_end)
 
         if else_body_w.length() > 0 {
@@ -2149,6 +3281,11 @@ task llvm_emit_stmt(eid: word) -> void {
             pilot l_end = "loop.end." + word_from_int(temp_reg_counter)
             temp_reg_counter += 1
 
+            pilot save_end = llvm_loop_end_label
+            pilot save_cond = llvm_loop_cond_label
+            llvm_loop_end_label = l_end
+            llvm_loop_cond_label = l_cond
+
             llvm_emit_line("    br label %" + l_cond)
             llvm_emit_line(l_cond + ":")
             pilot cond_reg = llvm_emit_expr(expr_id_w)
@@ -2157,10 +3294,12 @@ task llvm_emit_stmt(eid: word) -> void {
             llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_body + ", label %" + l_end)
 
             llvm_emit_line(l_body + ":")
-            llvm_emit_block(get_nth(ast_stmt_bodies, i))
+            llvm_emit_block(array_get(ast_stmt_bodies, i))
             llvm_emit_line("    br label %" + l_cond)
 
             llvm_emit_line(l_end + ":")
+            llvm_loop_end_label = save_end
+            llvm_loop_cond_label = save_cond
         } else {
             pilot l_cond = "loop.cond." + word_from_int(temp_reg_counter)
             temp_reg_counter += 1
@@ -2169,6 +3308,8 @@ task llvm_emit_stmt(eid: word) -> void {
             pilot l_end = "loop.end." + word_from_int(temp_reg_counter)
             temp_reg_counter += 1
 
+            pilot l_inc = "loop.inc." + word_from_int(temp_reg_counter)
+            temp_reg_counter += 1
             pilot rep_var = "rep." + word_from_int(temp_reg_counter)
             temp_reg_counter += 1
 
@@ -2185,15 +3326,26 @@ task llvm_emit_stmt(eid: word) -> void {
             llvm_emit_line("    " + cmp_reg + " = icmp slt i64 " + curr_val + ", " + count_reg)
             llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_body + ", label %" + l_end)
 
-            llvm_emit_line(l_body + ":")
-            llvm_emit_block(get_nth(ast_stmt_bodies, i))
+            pilot save_end2 = llvm_loop_end_label
+            pilot save_cond2 = llvm_loop_cond_label
+            llvm_loop_end_label = l_end
+            llvm_loop_cond_label = l_inc
 
+            llvm_emit_line(l_body + ":")
+            llvm_emit_block(array_get(ast_stmt_bodies, i))
+
+            llvm_emit_line("    br label %" + l_inc)
+            llvm_emit_line(l_inc + ":")
             pilot next_val = next_reg()
-            llvm_emit_line("    " + next_val + " = add i64 " + curr_val + ", 1")
-            llvm_emit_line("    store i64 " + next_val + ", i64* %" + rep_var)
+            llvm_emit_line("    " + next_val + " = load i64, i64* %" + rep_var)
+            pilot inc_val = next_reg()
+            llvm_emit_line("    " + inc_val + " = add i64 " + next_val + ", 1")
+            llvm_emit_line("    store i64 " + inc_val + ", i64* %" + rep_var)
             llvm_emit_line("    br label %" + l_cond)
 
             llvm_emit_line(l_end + ":")
+            llvm_loop_end_label = save_end2
+            llvm_loop_cond_label = save_cond2
         }
     } else if kind == STMT_TRAINING_ARC {
         pilot l_cond = "loop.cond." + word_from_int(temp_reg_counter)
@@ -2202,11 +3354,13 @@ task llvm_emit_stmt(eid: word) -> void {
         temp_reg_counter += 1
         pilot l_end = "loop.end." + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
+        pilot l_inc = "loop.inc." + word_from_int(temp_reg_counter)
+        temp_reg_counter += 1
 
         pilot rep_var = "rep." + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
 
-        pilot max_reg = llvm_emit_expr(get_nth(ast_stmt_extras, i))
+        pilot max_reg = llvm_emit_expr(array_get(ast_stmt_extras, i))
 
         llvm_emit_line("    %" + rep_var + " = alloca i64")
         llvm_emit_line("    store i64 0, i64* %" + rep_var)
@@ -2226,18 +3380,29 @@ task llvm_emit_stmt(eid: word) -> void {
         llvm_emit_line("    " + loop_continue + " = and i1 " + cmp_max + ", " + cmp_cond)
         llvm_emit_line("    br i1 " + loop_continue + ", label %" + l_body + ", label %" + l_end)
 
-        llvm_emit_line(l_body + ":")
-        llvm_emit_block(get_nth(ast_stmt_bodies, i))
+        pilot save_end3 = llvm_loop_end_label
+        pilot save_cond3 = llvm_loop_cond_label
+        llvm_loop_end_label = l_end
+        llvm_loop_cond_label = l_inc
 
+        llvm_emit_line(l_body + ":")
+        llvm_emit_block(array_get(ast_stmt_bodies, i))
+
+        llvm_emit_line("    br label %" + l_inc)
+        llvm_emit_line(l_inc + ":")
         pilot next_val = next_reg()
-        llvm_emit_line("    " + next_val + " = add i64 " + curr_val + ", 1")
-        llvm_emit_line("    store i64 " + next_val + ", i64* %" + rep_var)
+        llvm_emit_line("    " + next_val + " = load i64, i64* %" + rep_var)
+        pilot inc_val = next_reg()
+        llvm_emit_line("    " + inc_val + " = add i64 " + next_val + ", 1")
+        llvm_emit_line("    store i64 " + inc_val + ", i64* %" + rep_var)
         llvm_emit_line("    br label %" + l_cond)
 
         llvm_emit_line(l_end + ":")
+        llvm_loop_end_label = save_end3
+        llvm_loop_cond_label = save_cond3
     } else if kind == STMT_WHEN {
         pilot target_reg = llvm_emit_expr(expr_id_w)
-        pilot cases_str = get_nth(ast_stmt_bodies, i)
+        pilot cases_str: word = array_get(ast_stmt_bodies, i)
 
         pilot l_end = "when.end." + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
@@ -2318,10 +3483,10 @@ task llvm_emit_stmt(eid: word) -> void {
         llvm_emit_line("    br label %" + l_end)
         llvm_emit_line(l_end + ":")
     } else if kind == STMT_BLOCK {
-        llvm_emit_block(get_nth(ast_stmt_bodies, i))
+        llvm_emit_block(array_get(ast_stmt_bodies, i))
     } else if kind == STMT_ASSIGN {
-        pilot rhs_w = get_nth(ast_stmt_bodies, i)
-        pilot var_name_expr = get_nth(ast_expr_vals, word_to_int(expr_id_w))
+        pilot rhs_w: word = array_get(ast_stmt_bodies, i)
+        pilot var_name_expr: word = array_get(ast_expr_vals, word_to_int(expr_id_w))
         pilot reg = llvm_emit_expr(rhs_w)
         if name_w == "=" {
             llvm_emit_line("    store i64 " + reg + ", i64* %" + var_name_expr)
@@ -2338,6 +3503,27 @@ task llvm_emit_stmt(eid: word) -> void {
                 llvm_emit_line("    " + op_reg + " = mul i64 " + load_reg + ", " + reg)
             }
             llvm_emit_line("    store i64 " + op_reg + ", i64* %" + var_name_expr)
+        }
+    } else if kind == STMT_BREAK {
+        llvm_emit_line("    br label %" + llvm_loop_end_label)
+        pilot break_dead = "break.dead." + word_from_int(temp_reg_counter)
+        temp_reg_counter += 1
+        llvm_emit_line(break_dead + ":")
+    } else if kind == STMT_CONTINUE {
+        llvm_emit_line("    br label %" + llvm_loop_cond_label)
+        pilot cont_dead = "cont.dead." + word_from_int(temp_reg_counter)
+        temp_reg_counter += 1
+        llvm_emit_line(cont_dead + ":")
+    } else if kind == STMT_SHAPE {
+        -- Shape definitions are handled at parse time via register_shape()
+        -- No IR needs to be emitted
+        llvm_emit_line("    ; shape " + name_w + " defined")
+    } else if kind == STMT_EVENTUALLY {
+        -- Emit eventually body inline (deferred execution)
+        llvm_emit_line("    ; eventually block")
+        pilot ev_body_w: word = array_get(ast_stmt_bodies, i)
+        if ev_body_w.length() > 0 {
+            llvm_emit_block(ev_body_w)
         }
     }
 }
@@ -2378,6 +3564,7 @@ task llvm_translate_params(p: word) -> word {
 
 task llvm_allocate_params(p: word) -> void {
     pilot cur_name = ""
+    pilot cur_type = ""
     pilot in_type = false
     pilot i = 0
     pilot slen = p.length()
@@ -2388,10 +3575,19 @@ task llvm_allocate_params(p: word) -> void {
         } else if c == "," {
             llvm_emit_line("    %" + cur_name + " = alloca i64")
             llvm_emit_line("    store i64 %arg_" + cur_name + ", i64* %" + cur_name)
+            -- Track the parameter type for correct inference
+            pilot pt = "i"
+            if cur_type == "word" { pt = "w" }
+            if cur_type == "num" { pt = "n" }
+            if cur_type == "bool" { pt = "b" }
+            llvm_set_var_type(cur_name, pt)
             cur_name = ""
+            cur_type = ""
             in_type = false
         } else {
-            if not in_type {
+            if in_type {
+                cur_type = cur_type + c
+            } else {
                 cur_name = cur_name + c
             }
         }
@@ -2400,17 +3596,32 @@ task llvm_allocate_params(p: word) -> void {
     if cur_name.length() > 0 {
         llvm_emit_line("    %" + cur_name + " = alloca i64")
         llvm_emit_line("    store i64 %arg_" + cur_name + ", i64* %" + cur_name)
+        pilot pt = "i"
+        if cur_type == "word" { pt = "w" }
+        if cur_type == "num" { pt = "n" }
+        if cur_type == "bool" { pt = "b" }
+        llvm_set_var_type(cur_name, pt)
     }
 }
 
 task llvm_emit_task(eid: word) -> void {
+    -- Reset variable type tracking for this function scope
+    llvm_var_names = ""
+    llvm_var_types = ""
+
     pilot i = word_to_int(eid)
-    pilot name_w = get_nth(ast_stmt_names, i)
-    pilot body_id_w = get_nth(ast_stmt_bodies, i)
-    pilot params_w = get_nth(ast_task_params, i)
-    pilot returns_w = get_nth(ast_task_returns, i)
+    pilot name_w: word = array_get(ast_stmt_names, i)
+    pilot body_id_w: word = array_get(ast_stmt_bodies, i)
+    pilot params_w: word = array_get(ast_task_params, i)
+    pilot returns_w: word = array_get(ast_task_returns, i)
 
     pilot ret_type = "i64"
+    pilot is_void = false
+    if returns_w == "void" or returns_w == "" {
+        ret_type = "void"
+        is_void = true
+    }
+    llvm_cur_func_is_void = is_void
 
     pilot p_str = ""
     if params_w.length() > 0 {
@@ -2426,7 +3637,11 @@ task llvm_emit_task(eid: word) -> void {
 
     llvm_emit_block(body_id_w)
 
-    llvm_emit_line("    ret i64 0")
+    if is_void {
+        llvm_emit_line("    ret void")
+    } else {
+        llvm_emit_line("    ret i64 0")
+    }
     llvm_emit_line("}")
     llvm_emit_line("")
 }
@@ -2439,35 +3654,40 @@ task emit_llvm_program() -> void {
     string_literals = ""
     string_literals_count = 0
 
+    -- If streaming mode, initialize temp file for string literals
+    if llvm_out_file != "" {
+        fs::write(llvm_out_file + ".strs", "")
+    }
+
     llvm_emit_line("; FREAK LLVM IR Generator")
-    llvm_emit_line("target triple = \"x86_64-pc-windows-msvc\"")
+    -- Omit target triple — let clang/llc infer from host
+    -- This enables cross-compilation by passing --target to clang
     llvm_emit_line("")
 
     llvm_emit_runtime_decls()
     llvm_emit_line("")
 
-    -- Pre-scan to build string literals (we process body first into a temp buffer in reality, but here we'll just emit them at the end or assume we can print them before main)
-
-    -- First pass: Tasks
-    pilot slen = ast_top_stmts.length()
-    pilot i = 0
-    pilot cur_id = ""
-    repeat slen times {
-        pilot c = ast_top_stmts.char_at(i)
-        if c == "|" {
-            if cur_id.length() > 0 {
-                pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
-                if kind == STMT_TASK { llvm_emit_task(cur_id) }
-            }
-            cur_id = ""
-        } else {
-            cur_id = cur_id + c
+    -- Pre-scan: Register return types for all user-defined tasks
+    pilot top_count = array_len(ast_top_stmts)
+    pilot prescan_i = 0
+    repeat top_count times {
+        pilot prescan_id: word = array_get(ast_top_stmts, prescan_i)
+        pilot prescan_kind: word = array_get(ast_stmt_kinds, word_to_int(prescan_id))
+        if prescan_kind == STMT_TASK {
+            pilot prescan_name: word = array_get(ast_stmt_names, word_to_int(prescan_id))
+            pilot prescan_ret: word = array_get(ast_task_returns, word_to_int(prescan_id))
+            llvm_register_task(prescan_name, prescan_ret)
         }
-        i += 1
+        prescan_i += 1
     }
-    if cur_id.length() > 0 {
-        pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
+
+    -- First pass: Tasks (emitted before @main and @freak_main so they're visible)
+    pilot i = 0
+    repeat top_count times {
+        pilot cur_id: word = array_get(ast_top_stmts, i)
+        pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
         if kind == STMT_TASK { llvm_emit_task(cur_id) }
+        i += 1
     }
 
     -- Emit main function wrapper
@@ -2481,60 +3701,127 @@ task emit_llvm_program() -> void {
     llvm_emit_line("}")
     llvm_emit_line("")
 
-    -- Real main function
-    llvm_emit_line("define void @freak_main() {")
-    llvm_emit_line("entry:")
-
-    slen = ast_top_stmts.length()
+    -- Check if user defined a main task (already emitted in first pass)
+    pilot has_main_task = false
     i = 0
-    cur_id = ""
-    repeat slen times {
-        pilot c = ast_top_stmts.char_at(i)
-        if c == "|" {
-            if cur_id.length() > 0 {
-                pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
-                if kind != STMT_TASK { llvm_emit_stmt(cur_id) }
-            }
-            cur_id = ""
-        } else {
-            cur_id = cur_id + c
+    repeat top_count times {
+        pilot cur_id: word = array_get(ast_top_stmts, i)
+        pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
+        if kind == STMT_TASK {
+            pilot tname: word = array_get(ast_stmt_names, word_to_int(cur_id))
+            if tname == "main" { has_main_task = true }
         }
         i += 1
     }
-    if cur_id.length() > 0 {
-        pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
-        if kind != STMT_TASK { llvm_emit_stmt(cur_id) }
-    }
 
-    llvm_emit_line("    ret void")
-    llvm_emit_line("}")
+    -- Only emit @freak_main wrapper if user didn't define task main()
+    if not has_main_task {
+        llvm_var_names = ""
+        llvm_var_types = ""
+        llvm_emit_line("define void @freak_main() {")
+        llvm_emit_line("entry:")
+
+        i = 0
+        repeat top_count times {
+            pilot cur_id: word = array_get(ast_top_stmts, i)
+            pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
+            if kind != STMT_TASK { llvm_emit_stmt(cur_id) }
+            i += 1
+        }
+
+        llvm_emit_line("    ret void")
+        llvm_emit_line("}")
+    }
 
     llvm_emit_line("")
     llvm_emit_line("; String Literals")
-    llvm_emit_line(string_literals)
+
+    if llvm_out_file != "" {
+        -- Flush any remaining IR buffer
+        llvm_flush()
+        -- Flush remaining string literals
+        llvm_flush_strs()
+        -- Read string literals from temp file and append to main output
+        pilot strs_file = llvm_out_file + ".strs"
+        if fs::exists(strs_file) {
+            pilot strs_data = fs::read(strs_file)
+            fs::append(llvm_out_file, strs_data)
+            fs::delete(strs_file)
+        }
+    } else {
+        llvm_emit_line(string_literals)
+    }
 }
 -- ===================================================================
 -- FREAK COMPILER MAIN ENTRY (v2) - STRING BASED
 -- ===================================================================
 
+pilot FREAKC_VERSION = "0.9.0"
+pilot FREAKC_CODENAME = "Alternative-4"
+
 pilot input_file = ""
 
-pilot emit_target = "c"
+pilot emit_target = "llvm"
+pilot opt_level = "2"
+pilot cross_target = ""
 
 task freakc_v2_main() -> void {
     pilot args_cnt = process::args_count()
+
+    -- Handle --version and --help before file arg check
+    if args_cnt >= 2 {
+        pilot cli_first_arg: word = process::arg(1)
+        if cli_first_arg == "--version" or cli_first_arg == "-V" {
+            pilot ver_str = "freakc " + FREAKC_VERSION + " (" + FREAKC_CODENAME + ")"
+            say ver_str
+            give back
+        }
+        if cli_first_arg == "--help" or cli_first_arg == "-h" {
+            pilot help_hdr = "FREAK Compiler " + FREAKC_VERSION + " (" + FREAKC_CODENAME + ")"
+            say help_hdr
+            say ""
+            say "Usage: freakc <file.fk> [options]"
+            say ""
+            say "Options:"
+            say "  --llvm             Use LLVM IR backend (default)"
+            say "  --c                Use C backend"
+            say "  --opt=N            Optimization level 0-3 (default: 2)"
+            say "  --target=TRIPLE    Cross-compile target triple"
+            say "  --version, -V      Show version"
+            say "  --help, -h         Show this help"
+            give back
+        }
+    }
+
     if args_cnt < 2 {
-        say "Usage: freakc_v2 <file.fk> [--llvm]"
-        -- process::exit(1)
+        say "Usage: freakc <file.fk> [--c] [--llvm] [--opt=N] [--target=TRIPLE]"
+        say "       freakc --version | --help"
         give back
     }
 
     input_file = process::arg(1)
 
-    if args_cnt > 2 {
-        if process::arg(2) == "--llvm" {
+    -- Parse flags
+    pilot fi = 2
+    repeat until fi >= args_cnt {
+        pilot flag = process::arg(fi)
+        if flag == "--c" {
+            emit_target = "c"
+        } else if flag == "--llvm" {
             emit_target = "llvm"
+        } else if flag.starts_with("--opt=") {
+            opt_level = flag.char_at(6)
+        } else if flag.starts_with("--target=") {
+            -- Extract everything after --target=
+            pilot ti = 9
+            pilot tval = ""
+            repeat until ti >= flag.length() {
+                tval = tval + flag.char_at(ti)
+                ti += 1
+            }
+            cross_target = tval
         }
+        fi += 1
     }
 
     pilot msg = "FREAK v2 Compiling: " + input_file + " (Target: " + emit_target + ")"
@@ -2547,6 +3834,8 @@ task freakc_v2_main() -> void {
         give back
     }
 
+    init_arrays()
+
     say "[1/4] Lexing..."
     tokenize(src)
 
@@ -2558,9 +3847,12 @@ task freakc_v2_main() -> void {
 
     say "[4/4] Emitting..."
     if emit_target == "llvm" {
-        emit_llvm_program()
         pilot out_file = input_file + ".ll"
-        fs::write(out_file, llvm_out_buf)
+        -- Stream LLVM IR directly to file to avoid O(n^2) string buildup
+        llvm_out_file = out_file
+        fs::write(out_file, "")
+        emit_llvm_program()
+        llvm_out_file = ""
         pilot msg2 = "Generated LLVM IR at " + out_file
         say msg2
     } else {

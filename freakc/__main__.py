@@ -101,7 +101,8 @@ def transpile(source: str, path: Path):
     return c_source, diag_msgs
 
 
-def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path) -> tuple[bool, str]:
+def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path,
+              opt_level: str = "0") -> tuple[bool, str]:
     """Compile the generated C file. Returns (success, message)."""
     cc = find_c_compiler()
     if not cc:
@@ -116,7 +117,7 @@ def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path) -> tuple[bool, str
         str(c_path),
         str(runtime_c),
         f"-I{runtime_dir}",
-        "-g",
+        f"-O{opt_level}",
         "-std=c11",
         "-Wall",
     ]
@@ -130,10 +131,45 @@ def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path) -> tuple[bool, str
     return True, ""
 
 
+def compile_llvm(ll_path: Path, out_bin: Path, runtime_dir: Path,
+                 opt_level: str = "2", target: str = "") -> tuple[bool, str]:
+    """Compile LLVM IR (.ll) to native binary via clang. Returns (success, message)."""
+    cc = find_c_compiler()
+    if not cc:
+        return False, "No C compiler found (gcc/clang). Install one to compile."
+
+    runtime_c = runtime_dir / "freak_llvm_runtime.c"
+    if not runtime_c.exists():
+        return False, f"LLVM runtime not found at {runtime_c}"
+
+    cmd = [
+        cc,
+        "-o",
+        str(out_bin),
+        str(ll_path),
+        str(runtime_c),
+        f"-I{runtime_dir}",
+        f"-O{opt_level}",
+        "-w",
+        "-D_CRT_SECURE_NO_WARNINGS",
+    ]
+    if target:
+        cmd.extend(["--target", target])
+    # Linux requires explicit math library linkage
+    if sys.platform.startswith("linux"):
+        cmd.append("-lm")
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        return False, result.stderr.strip()
+    return True, ""
+
+
 # ── Subcommands ─────────────────────────────────────────────────────
 
 
-def cmd_run(path: Path, keep_c: bool = False, output: str = None) -> int:
+def cmd_run(path: Path, keep_c: bool = False, output: str = None,
+            backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile → run."""
     source = path.read_text(encoding="utf-8")
     c_source, diags = transpile(source, path)
@@ -160,8 +196,8 @@ def cmd_run(path: Path, keep_c: bool = False, output: str = None) -> int:
             else path.with_suffix("")
         )
 
-    print(_dim(f"→ Compiling..."))
-    ok, err_msg = compile_c(out_c, out_bin, runtime_dir)
+    print(_dim(f"→ Compiling ({backend} backend, -O{opt_level})..."))
+    ok, err_msg = compile_c(out_c, out_bin, runtime_dir, opt_level)
     if not ok:
         print(_red("✗ Compilation failed:"), file=sys.stderr)
         print(err_msg, file=sys.stderr)
@@ -187,7 +223,8 @@ def cmd_run(path: Path, keep_c: bool = False, output: str = None) -> int:
     return result.returncode
 
 
-def cmd_build(path: Path, keep_c: bool = False, output: str = None) -> int:
+def cmd_build(path: Path, keep_c: bool = False, output: str = None,
+              backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile (no run)."""
     source = path.read_text(encoding="utf-8")
     c_source, diags = transpile(source, path)
@@ -212,8 +249,8 @@ def cmd_build(path: Path, keep_c: bool = False, output: str = None) -> int:
             else path.with_suffix("")
         )
 
-    print(_dim("→ Compiling..."))
-    ok, err_msg = compile_c(out_c, out_bin, runtime_dir)
+    print(_dim(f"→ Compiling ({backend} backend, -O{opt_level})..."))
+    ok, err_msg = compile_c(out_c, out_bin, runtime_dir, opt_level)
     if not ok:
         print(_red("✗ Compilation failed:"), file=sys.stderr)
         print(err_msg, file=sys.stderr)
@@ -303,6 +340,81 @@ def cmd_audit(sub: str, argv: list[str]) -> int:
     return 1
 
 
+def cmd_v2(path: Path, output: str = None, backend: str = "llvm",
+           opt_level: str = "2", target: str = "", run_after: bool = False) -> int:
+    """Use the self-hosted v2 compiler (supports LLVM + C backends)."""
+    v2_exe = Path("build/freakc_v2.exe") if sys.platform == "win32" else Path("build/freakc_v2")
+    if not v2_exe.exists():
+        print(_red(f"✗ v2 compiler not found at {v2_exe}"), file=sys.stderr)
+        print(_dim("  Build it with: bootstrap.bat (Windows) or run.sh (Linux/macOS)"))
+        return 1
+
+    # Run v2 compiler with flags
+    cmd = [str(v2_exe), str(path)]
+    if backend == "c":
+        cmd.append("--c")
+    else:
+        cmd.append("--llvm")
+    if opt_level != "2":
+        cmd.append(f"--opt={opt_level}")
+    if target:
+        cmd.append(f"--target={target}")
+
+    print(_dim(f"→ v2 compiling {path} ({backend} backend)..."))
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.stdout.strip():
+        print(res.stdout.strip())
+    if res.returncode != 0:
+        print(_red("✗ v2 compilation failed:"), file=sys.stderr)
+        if res.stderr.strip():
+            print(res.stderr.strip(), file=sys.stderr)
+        return 1
+
+    # Now compile the output to a native binary
+    runtime_dir = Path(__file__).parent / "runtime"
+    if output:
+        out_bin = Path(output)
+    else:
+        out_bin = (
+            path.with_suffix(".exe")
+            if sys.platform == "win32"
+            else path.with_suffix("")
+        )
+
+    if backend == "llvm":
+        ll_path = Path(str(path) + ".ll")
+        if not ll_path.exists():
+            print(_red(f"✗ Expected LLVM IR at {ll_path}"), file=sys.stderr)
+            return 1
+        print(_dim(f"→ Compiling LLVM IR (-O{opt_level})..."))
+        ok, err_msg = compile_llvm(ll_path, out_bin, runtime_dir, opt_level, target)
+    else:
+        c_path = Path(str(path) + ".c")
+        if not c_path.exists():
+            print(_red(f"✗ Expected C output at {c_path}"), file=sys.stderr)
+            return 1
+        print(_dim(f"→ Compiling C (-O{opt_level})..."))
+        ok, err_msg = compile_c(c_path, out_bin, runtime_dir, opt_level)
+
+    if not ok:
+        print(_red("✗ Compilation failed:"), file=sys.stderr)
+        print(err_msg, file=sys.stderr)
+        return 1
+
+    print(_green(f"✓ Built {out_bin}"))
+
+    if run_after:
+        print(_dim("→ Running..."))
+        print("─" * 40)
+        result = subprocess.run([str(out_bin)], text=True)
+        print("─" * 40)
+        if result.returncode != 0:
+            print(_red(f"✗ Process exited with code {result.returncode}"))
+        return result.returncode
+
+    return 0
+
+
 def cmd_jit(path: Path) -> int:
     """Compile to LLVM IR and run directly in memory using llvmlite."""
     from .jit import run_jit
@@ -348,11 +460,11 @@ def cmd_hangar(argv: list[str]) -> int:
     """Handle 'freak hangar <subcommand>' commands."""
     from .hangar import (
         hangar_add, hangar_init, hangar_install, hangar_remove,
-        hangar_install_toolchain,
+        hangar_install_toolchain, hangar_version,
     )
 
     if not argv:
-        print(_red("✗ Missing hangar subcommand. Use: init, install, add, remove, upgrade"))
+        print(_red("✗ Missing hangar subcommand. Use: init, install, add, remove, upgrade, version"))
         return 1
 
     sub = argv[0]
@@ -388,6 +500,10 @@ def cmd_hangar(argv: list[str]) -> int:
             return 1
         return hangar_remove(project_dir, argv[1])
 
+    if sub == "version":
+        bump = argv[1] if len(argv) > 1 else ""
+        return hangar_version(project_dir, bump)
+
     print(_red(f"✗ Unknown hangar subcommand: '{sub}'"))
     return 1
 
@@ -412,39 +528,64 @@ def main(argv: list[str] | None = None) -> int:
             output = argv[idx + 1]
             argv = argv[:idx] + argv[idx + 2 :]
 
+    # Backend selection
+    backend = "llvm"  # LLVM is now the default (LB6)
+    if "--c" in argv:
+        backend = "c"
+        argv = [a for a in argv if a != "--c"]
+    if "--llvm" in argv:
+        backend = "llvm"
+        argv = [a for a in argv if a != "--llvm"]
+
+    # Optimization level (LB8)
+    opt_level = "2"
+    filtered = []
+    for a in argv:
+        if a.startswith("--opt="):
+            opt_level = a[6:]
+        else:
+            filtered.append(a)
+    argv = filtered
+
+    # Cross-compilation target (LB9)
+    target = ""
+    filtered = []
+    for a in argv:
+        if a.startswith("--target="):
+            target = a[9:]
+        else:
+            filtered.append(a)
+    argv = filtered
+
     if not argv:
-        print("FREAK Lite Compiler v0.4.0")
+        print("FREAK Compiler v0.8.0")
         print()
         print("Usage:")
-        print("  python -m freakc run <file.fk>       Transpile + compile + run")
-        print(
-            "  python -m freakc jit <file.fk>       Compile to LLVM IR and JIT execute"
-        )
-        print("  python -m freakc build <file.fk>     Transpile + compile")
+        print("  python -m freakc run <file.fk>       Transpile + compile + run (Python transpiler)")
+        print("  python -m freakc build <file.fk>     Transpile + compile (Python transpiler)")
+        print("  python -m freakc v2 <file.fk>        Compile via v2 self-hosted compiler")
+        print("  python -m freakc jit <file.fk>       Compile to LLVM IR and JIT execute")
         print("  python -m freakc check <file.fk>     Type check only")
         print("  python -m freakc test                Run all tests/*.fk")
         print("  python -m freakc hangar <cmd>        Package manager")
-        print(
-            "  python -m freakc audit-science [paths]   List 'for science' call sites"
-        )
-        print("  python -m freakc audit-trust [paths]     List 'trust me' blocks")
-        print("  python -m freakc audit-miracles [paths]  List deus_ex_machina blocks")
-        print(
-            "  python -m freakc foreshadow-audit [paths] Check foreshadow/payoff pairs"
-        )
-        print("  python -m freakc <file.fk>           Same as 'run'")
+        print()
+        print("Backend flags (for v2 command):")
+        print("  --llvm             Use LLVM IR backend (default)")
+        print("  --c                Use C backend")
+        print("  --opt=N            Optimization level 0-3 (default: 2)")
+        print("  --target=TRIPLE    Cross-compile target (e.g. x86_64-linux-gnu)")
+        print()
+        print("Other options:")
+        print("  --keep-c           Keep generated .c file")
+        print("  -o, --output       Output binary name")
         print()
         print("Hangar commands:")
         print("  hangar init                  Create project skeleton")
         print("  hangar install               Install all dependencies")
         print("  hangar add <name> <repo>     Add a dependency")
         print("  hangar remove <name>         Remove a dependency")
-        print()
-        print("Audit commands scan one or more .fk files/directories (default: cwd).")
-        print()
-        print("Options:")
-        print("  --keep-c       Keep generated .c file")
-        print("  -o, --output   Output binary name")
+        print("  hangar install freak         Install FREAK compiler")
+        print("  hangar upgrade freak         Update FREAK compiler")
         return 0
 
     cmd = argv[0]
@@ -458,6 +599,26 @@ def main(argv: list[str] | None = None) -> int:
     if cmd in ("audit-science", "audit-trust", "audit-miracles", "foreshadow-audit"):
         return cmd_audit(cmd, argv[1:])
 
+    if cmd == "v2":
+        if len(argv) < 2:
+            print(_red("✗ Missing file argument for 'v2'"), file=sys.stderr)
+            return 1
+        path = Path(argv[1])
+        if not path.exists():
+            print(_red(f"✗ File not found: {path}"), file=sys.stderr)
+            return 1
+        return cmd_v2(path, output, backend, opt_level, target, run_after=False)
+
+    if cmd == "v2-run":
+        if len(argv) < 2:
+            print(_red("✗ Missing file argument for 'v2-run'"), file=sys.stderr)
+            return 1
+        path = Path(argv[1])
+        if not path.exists():
+            print(_red(f"✗ File not found: {path}"), file=sys.stderr)
+            return 1
+        return cmd_v2(path, output, backend, opt_level, target, run_after=True)
+
     if cmd in ("run", "build", "check", "jit"):
         if len(argv) < 2:
             print(_red(f"✗ Missing file argument for '{cmd}'"), file=sys.stderr)
@@ -468,11 +629,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         if cmd == "run":
-            return cmd_run(path, keep_c, output)
+            return cmd_run(path, keep_c, output, backend, opt_level, target)
         elif cmd == "jit":
             return cmd_jit(path)
         elif cmd == "build":
-            return cmd_build(path, keep_c, output)
+            return cmd_build(path, keep_c, output, backend, opt_level, target)
         elif cmd == "check":
             return cmd_check(path)
 
@@ -481,7 +642,7 @@ def main(argv: list[str] | None = None) -> int:
     if not path.exists():
         print(_red(f"✗ Unknown command or file: '{cmd}'"), file=sys.stderr)
         return 1
-    return cmd_run(path, keep_c, output)
+    return cmd_run(path, keep_c, output, backend, opt_level, target)
 
 
 if __name__ == "__main__":

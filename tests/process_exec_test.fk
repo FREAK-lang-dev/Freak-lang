@@ -1,0 +1,35 @@
+-- Test process::exec and process::exec_capture
+
+say "=== process::exec test ==="
+
+-- Test process::exec (returns exit code)
+pilot code = process::exec("echo hello from exec")
+pilot code_str: word = word_from_int(code)
+pilot msg1 = "Exit code: " + code_str
+say msg1
+
+say "=== process::exec_capture test ==="
+
+-- Test process::exec_capture (returns stdout as word)
+pilot output: word = process::exec_capture("echo captured_output")
+pilot msg2 = "Captured: " + output
+say msg2
+
+say "=== fs::exists test ==="
+
+-- Test fs::exists
+pilot exists_result: bool = fs::exists("tests/process_exec_test.fk")
+if exists_result {
+    say "File exists: yes"
+} else {
+    say "File exists: no"
+}
+
+pilot not_exists: bool = fs::exists("nonexistent_file.xyz")
+if not_exists {
+    say "Nonexistent file: found (ERROR)"
+} else {
+    say "Nonexistent file: not found (correct)"
+}
+
+say "=== All tests passed ==="

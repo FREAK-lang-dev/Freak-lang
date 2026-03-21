@@ -73,6 +73,8 @@ task is_ast_word(id: word) -> bool {
         if val == "fs::read" { give back true }
         if val == "fs::list_dir" { give back true }
         if val == "process::arg" { give back true }
+        if val == "process::exec_capture" { give back true }
+        if val == "process::env" { give back true }
         if val == "ask" { give back true }
         if val == "array_get" { give back true }
         if val == "word_from_int" { give back true }
@@ -226,6 +228,26 @@ task emit_expr(id: word) -> void {
             emit(")")
         } else if val == "fs::append" {
             emit("freak_fs_append(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "fs::exists" {
+            emit("freak_fs_exists(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "fs::delete" {
+            emit("freak_fs_delete(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "process::exec" {
+            emit("freak_process_exec(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "process::exec_capture" {
+            emit("freak_process_exec_capture(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "process::env" {
+            emit("freak_process_env(")
             if left != "" { emit_args(left) }
             emit(")")
         } else {
@@ -415,9 +437,22 @@ task emit_stmt(eid: word) -> void {
     if kind == STMT_PILOT {
         pilot e_idx = word_to_int(expr_id_w)
         pilot e_kind: word = array_get(ast_expr_kinds, e_idx)
+        pilot type_ann_w: word = array_get(ast_stmt_extras, i)
         pilot ctype = "int64_t "
         pilot vtype = "i"
-        if is_ast_word(expr_id_w) {
+        if type_ann_w == "word" {
+            ctype = "freak_word "
+            vtype = "w"
+        } else if type_ann_w == "bool" {
+            ctype = "bool "
+            vtype = "b"
+        } else if type_ann_w == "num" {
+            ctype = "double "
+            vtype = "d"
+        } else if type_ann_w == "int" {
+            ctype = "int64_t "
+            vtype = "i"
+        } else if is_ast_word(expr_id_w) {
             ctype = "freak_word "
             vtype = "w"
         } else if e_kind == EXPR_BOOL {
@@ -671,15 +706,32 @@ task emit_global_decl(eid: word) -> void {
     pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
     pilot e_idx = word_to_int(expr_id_w)
     pilot e_kind: word = array_get(ast_expr_kinds, e_idx)
+    pilot type_ann_w: word = array_get(ast_stmt_extras, i)
     pilot ctype = "int64_t "
     pilot defval = " = 0"
-    if is_ast_word(expr_id_w) {
+    pilot vtype = "i"
+    if type_ann_w == "word" {
         ctype = "freak_word "
         defval = " = FREAK_WORD_EMPTY"
+        vtype = "w"
+    } else if type_ann_w == "bool" {
+        ctype = "bool "
+        defval = " = false"
+        vtype = "b"
+    } else if type_ann_w == "num" {
+        ctype = "double "
+        defval = " = 0.0"
+        vtype = "d"
+    } else if is_ast_word(expr_id_w) {
+        ctype = "freak_word "
+        defval = " = FREAK_WORD_EMPTY"
+        vtype = "w"
     } else if e_kind == EXPR_BOOL {
         ctype = "bool "
         defval = " = false"
+        vtype = "b"
     }
+    emt_set_var_type(name_w, vtype)
     emit(ctype)
     emit(name_w)
     emit(defval)

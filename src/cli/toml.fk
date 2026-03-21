@@ -1,0 +1,431 @@
+-- ===================================================================
+-- Simple TOML Parser/Writer for hangar.toml
+-- ===================================================================
+-- Data stored as flat dot-notation in parallel arrays.
+-- ===================================================================
+
+pilot toml_keys_arr = 0
+pilot toml_vals_arr = 0
+pilot toml_count = 0
+
+task toml_clear() -> void {
+    toml_keys_arr = array_new()
+    toml_vals_arr = array_new()
+    toml_count = 0
+}
+
+task toml_set(key: word, val: word) -> void {
+    pilot i = 0
+    repeat until i >= toml_count {
+        pilot k: word = array_get(toml_keys_arr, i)
+        if k == key {
+            array_set(toml_vals_arr, i, val)
+            give back
+        }
+        i += 1
+    }
+    array_push(toml_keys_arr, key)
+    array_push(toml_vals_arr, val)
+    toml_count += 1
+}
+
+task toml_get(key: word) -> word {
+    pilot i = 0
+    repeat until i >= toml_count {
+        pilot k: word = array_get(toml_keys_arr, i)
+        if k == key {
+            give back array_get(toml_vals_arr, i)
+        }
+        i += 1
+    }
+    give back ""
+}
+
+task toml_has(key: word) -> bool {
+    pilot i = 0
+    repeat until i >= toml_count {
+        pilot k: word = array_get(toml_keys_arr, i)
+        if k == key {
+            give back true
+        }
+        i += 1
+    }
+    give back false
+}
+
+task toml_remove_prefix(prefix: word) -> void {
+    pilot new_keys = array_new()
+    pilot new_vals = array_new()
+    pilot new_count = 0
+    pilot i = 0
+    repeat until i >= toml_count {
+        pilot k: word = array_get(toml_keys_arr, i)
+        pilot v: word = array_get(toml_vals_arr, i)
+        if k.starts_with(prefix) == false {
+            array_push(new_keys, k)
+            array_push(new_vals, v)
+            new_count += 1
+        }
+        i += 1
+    }
+    toml_keys_arr = new_keys
+    toml_vals_arr = new_vals
+    toml_count = new_count
+}
+
+-- ===================== LINE EXTRACTION ==============================
+
+task toml_get_line(content: word, start: int) -> word {
+    -- Extract one line from content starting at start, up to \n
+    pilot line = ""
+    pilot i = start
+    pilot clen = content.length()
+    repeat until i >= clen {
+        pilot c: word = content.char_at(i)
+        if c == "\n" {
+            give back line
+        }
+        line = line + c
+        i += 1
+    }
+    give back line
+}
+
+task toml_line_end(content: word, start: int) -> int {
+    -- Return position after the newline
+    pilot i = start
+    pilot clen = content.length()
+    repeat until i >= clen {
+        pilot c: word = content.char_at(i)
+        i += 1
+        if c == "\n" {
+            give back i
+        }
+    }
+    give back clen
+}
+
+task toml_trim(s: word) -> word {
+    give back s.trim()
+}
+
+-- ===================== PARSING =====================================
+
+task toml_parse(content: word) -> void {
+    toml_clear()
+    pilot section = ""
+    pilot pos = 0
+    pilot clen = content.length()
+
+    repeat until pos >= clen {
+        pilot line: word = toml_get_line(content, pos)
+        pos = toml_line_end(content, pos)
+
+        pilot trimmed: word = toml_trim(line)
+        if trimmed == "" {
+            -- skip empty line
+        } else if trimmed.starts_with("#") {
+            -- skip comment
+        } else if trimmed.starts_with("[") {
+            -- Section header: extract name between [ and ]
+            section = toml_extract_section(trimmed)
+        } else if trimmed.contains("=") {
+            -- Key = value
+            toml_parse_kv(trimmed, section)
+        }
+    }
+}
+
+task toml_extract_section(line: word) -> word {
+    -- Extract "project" from "[project]"
+    pilot name = ""
+    pilot i = 1
+    pilot llen = line.length()
+    repeat until i >= llen {
+        pilot c: word = line.char_at(i)
+        if c == "]" {
+            give back name
+        }
+        if c != " " {
+            name = name + c
+        }
+        i += 1
+    }
+    give back name
+}
+
+task toml_parse_kv(line: word, section: word) -> void {
+    -- Parse "key = value" or "key = { ... }"
+    -- Find the = sign
+    pilot eq_pos = 0 - 1
+    pilot i = 0
+    pilot llen = line.length()
+    pilot in_quotes = false
+    repeat until i >= llen {
+        pilot c: word = line.char_at(i)
+        if c == "\"" { in_quotes = in_quotes == false }
+        if c == "=" and in_quotes == false and eq_pos < 0 {
+            eq_pos = i
+        }
+        i += 1
+    }
+    if eq_pos < 0 { give back }
+
+    -- Extract key (before =)
+    pilot raw_key = ""
+    pilot ki = 0
+    repeat until ki >= eq_pos {
+        pilot kc: word = line.char_at(ki)
+        if kc != " " and kc != "\t" {
+            raw_key = raw_key + kc
+        }
+        ki += 1
+    }
+
+    -- Extract value (after =), trimmed
+    pilot raw_val = ""
+    pilot vi = eq_pos + 1
+    repeat until vi >= llen {
+        raw_val = raw_val + line.char_at(vi)
+        vi += 1
+    }
+    raw_val = toml_trim(raw_val)
+
+    pilot full_key = ""
+    if section != "" {
+        full_key = section + "." + raw_key
+    } else {
+        full_key = raw_key
+    }
+
+    -- Check if value is a quoted string
+    if raw_val.starts_with("\"") {
+        pilot str_val: word = toml_unquote(raw_val)
+        toml_set(full_key, str_val)
+    } else if raw_val.starts_with("{") {
+        -- Inline table: { git = "...", version = "..." }
+        toml_parse_inline_table(raw_val, full_key)
+    } else {
+        -- Bare value (number, bool, etc)
+        toml_set(full_key, raw_val)
+    }
+}
+
+task toml_unquote(s: word) -> word {
+    -- Remove surrounding quotes from "value"
+    pilot slen = s.length()
+    if slen < 2 { give back s }
+    pilot out = ""
+    pilot i = 1
+    pilot end_pos = slen - 1
+    repeat until i >= end_pos {
+        out = out + s.char_at(i)
+        i += 1
+    }
+    give back out
+}
+
+task toml_parse_inline_table(s: word, prefix: word) -> void {
+    -- Parse { key = "val", key2 = "val2" }
+    -- Strip { and }
+    pilot inner = ""
+    pilot i = 1
+    pilot slen = s.length()
+    repeat until i >= slen {
+        pilot c: word = s.char_at(i)
+        if c == "}" { i = slen }
+        if c != "}" {
+            inner = inner + c
+        }
+        i += 1
+    }
+
+    -- Split on commas and parse each pair
+    pilot pair = ""
+    pilot pi = 0
+    pilot ilen = inner.length()
+    repeat until pi >= ilen {
+        pilot pc: word = inner.char_at(pi)
+        if pc == "," {
+            toml_parse_inline_pair(pair, prefix)
+            pair = ""
+        } else {
+            pair = pair + pc
+        }
+        pi += 1
+    }
+    if pair != "" {
+        toml_parse_inline_pair(pair, prefix)
+    }
+}
+
+task toml_parse_inline_pair(pair: word, prefix: word) -> void {
+    -- Parse "key = \"val\""
+    pilot trimmed: word = toml_trim(pair)
+    if trimmed == "" { give back }
+
+    -- Find =
+    pilot eq = 0 - 1
+    pilot i = 0
+    pilot plen = trimmed.length()
+    repeat until i >= plen {
+        pilot c: word = trimmed.char_at(i)
+        if c == "=" and eq < 0 { eq = i }
+        i += 1
+    }
+    if eq < 0 { give back }
+
+    -- Extract key
+    pilot subkey = ""
+    pilot ki = 0
+    repeat until ki >= eq {
+        pilot kc: word = trimmed.char_at(ki)
+        if kc != " " and kc != "\t" {
+            subkey = subkey + kc
+        }
+        ki += 1
+    }
+
+    -- Extract value
+    pilot raw_val = ""
+    pilot vi = eq + 1
+    repeat until vi >= plen {
+        raw_val = raw_val + trimmed.char_at(vi)
+        vi += 1
+    }
+    raw_val = toml_trim(raw_val)
+
+    pilot full_key = prefix + "." + subkey
+    if raw_val.starts_with("\"") {
+        pilot uv: word = toml_unquote(raw_val)
+        toml_set(full_key, uv)
+    } else {
+        toml_set(full_key, raw_val)
+    }
+}
+
+-- ===================== WRITING =====================================
+
+task toml_write_file(path: word) -> void {
+    pilot out = ""
+
+    -- Write [project] section
+    if toml_has("project.name") or toml_has("project.version") {
+        out = out + "[project]\n"
+        pilot pname: word = toml_get("project.name")
+        if pname != "" {
+            out = out + "name = \"" + pname + "\"\n"
+        }
+        pilot pver: word = toml_get("project.version")
+        if pver != "" {
+            out = out + "version = \"" + pver + "\"\n"
+        }
+        out = out + "\n"
+    }
+
+    -- Collect unique dependency names
+    pilot dep_names = array_new()
+    pilot dep_names_count = 0
+    pilot i = 0
+    repeat until i >= toml_count {
+        pilot k: word = array_get(toml_keys_arr, i)
+        if k.starts_with("dependencies.") {
+            pilot dname: word = toml_extract_dep_name(k)
+            if dname != "" {
+                if toml_arr_contains(dep_names, dep_names_count, dname) == false {
+                    array_push(dep_names, dname)
+                    dep_names_count += 1
+                }
+            }
+        }
+        i += 1
+    }
+
+    if dep_names_count > 0 {
+        out = out + "[dependencies]\n"
+        pilot di = 0
+        repeat until di >= dep_names_count {
+            pilot dn: word = array_get(dep_names, di)
+            pilot git_key = "dependencies." + dn + ".git"
+            pilot ver_key = "dependencies." + dn + ".version"
+            pilot git_val: word = toml_get(git_key)
+            pilot ver_val: word = toml_get(ver_key)
+            pilot ln = dn + " = { "
+            pilot has_f = false
+            if git_val != "" {
+                ln = ln + "git = \"" + git_val + "\""
+                has_f = true
+            }
+            if ver_val != "" {
+                if has_f { ln = ln + ", " }
+                ln = ln + "version = \"" + ver_val + "\""
+            }
+            ln = ln + " }\n"
+            out = out + ln
+            di += 1
+        }
+        out = out + "\n"
+    }
+
+    fs::write(path, out)
+}
+
+task toml_extract_dep_name(key: word) -> word {
+    -- From "dependencies.muvluv.git" extract "muvluv"
+    pilot prefix_len = 13
+    pilot rest = ""
+    pilot i = prefix_len
+    pilot klen = key.length()
+    repeat until i >= klen {
+        pilot c: word = key.char_at(i)
+        if c == "." {
+            give back rest
+        }
+        rest = rest + c
+        i += 1
+    }
+    give back rest
+}
+
+task toml_arr_contains(arr: int, count: int, item: word) -> bool {
+    pilot i = 0
+    repeat until i >= count {
+        pilot v: word = array_get(arr, i)
+        if v == item { give back true }
+        i += 1
+    }
+    give back false
+}
+
+-- ===================== READING FROM FILE ===========================
+
+task toml_load(path: word) -> void {
+    pilot content: word = fs::read(path)
+    toml_parse(content)
+}
+
+-- ===================== DEPENDENCY LISTING ===========================
+
+task toml_dep_names_arr() -> int {
+    -- Returns array handle with dep names
+    pilot deps = array_new()
+    pilot i = 0
+    repeat until i >= toml_count {
+        pilot k: word = array_get(toml_keys_arr, i)
+        if k.starts_with("dependencies.") {
+            pilot dn: word = toml_extract_dep_name(k)
+            if dn != "" {
+                if toml_arr_contains(deps, array_len(deps), dn) == false {
+                    array_push(deps, dn)
+                }
+            }
+        }
+        i += 1
+    }
+    give back deps
+}
+
+task toml_dep_count() -> int {
+    pilot deps = toml_dep_names_arr()
+    give back array_len(deps)
+}

@@ -315,6 +315,7 @@ task llvm_infer_expr_type(expr_id: word) -> word {
         if val == "fs::read" { give back "w" }
         if val == "fs::list_dir" { give back "w" }
         if val == "process::arg" { give back "w" }
+        if val == "process::exec_capture" { give back "w" }
         if val == "ask" { give back "w" }
         if val == "word_from_int" { give back "w" }
         if val == "word_from_bool" { give back "w" }
@@ -376,6 +377,8 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_llvm_process_args_count()")
     llvm_emit_line("declare i64 @freak_llvm_process_arg(i64)")
     llvm_emit_line("declare void @freak_llvm_process_exit(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_process_exec(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_process_exec_capture(i64)")
     -- Panic
     llvm_emit_line("declare void @freak_llvm_panic(i64)")
     -- Shapes
@@ -725,6 +728,10 @@ task llvm_emit_expr(id: word) -> word {
         } else if val == "process::exit" {
              func_name = "@freak_llvm_process_exit"
              is_void_call = true
+        } else if val == "process::exec" {
+             func_name = "@freak_llvm_process_exec"
+        } else if val == "process::exec_capture" {
+             func_name = "@freak_llvm_process_exec_capture"
         } else if val == "ask" {
              func_name = "@freak_llvm_ask"
         } else if val == "panic" {

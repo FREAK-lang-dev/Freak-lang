@@ -2,24 +2,72 @@
 -- FREAK COMPILER MAIN ENTRY (v2) - STRING BASED
 -- ===================================================================
 
+pilot FREAKC_VERSION = "0.9.0"
+pilot FREAKC_CODENAME = "Alternative-4"
+
 pilot input_file = ""
 
-pilot emit_target = "c"
+pilot emit_target = "llvm"
+pilot opt_level = "2"
+pilot cross_target = ""
 
 task freakc_v2_main() -> void {
     pilot args_cnt = process::args_count()
+
+    -- Handle --version and --help before file arg check
+    if args_cnt >= 2 {
+        pilot cli_first_arg: word = process::arg(1)
+        if cli_first_arg == "--version" or cli_first_arg == "-V" {
+            pilot ver_str = "freakc " + FREAKC_VERSION + " (" + FREAKC_CODENAME + ")"
+            say ver_str
+            give back
+        }
+        if cli_first_arg == "--help" or cli_first_arg == "-h" {
+            pilot help_hdr = "FREAK Compiler " + FREAKC_VERSION + " (" + FREAKC_CODENAME + ")"
+            say help_hdr
+            say ""
+            say "Usage: freakc <file.fk> [options]"
+            say ""
+            say "Options:"
+            say "  --llvm             Use LLVM IR backend (default)"
+            say "  --c                Use C backend"
+            say "  --opt=N            Optimization level 0-3 (default: 2)"
+            say "  --target=TRIPLE    Cross-compile target triple"
+            say "  --version, -V      Show version"
+            say "  --help, -h         Show this help"
+            give back
+        }
+    }
+
     if args_cnt < 2 {
-        say "Usage: freakc_v2 <file.fk> [--llvm]"
-        -- process::exit(1)
+        say "Usage: freakc <file.fk> [--c] [--llvm] [--opt=N] [--target=TRIPLE]"
+        say "       freakc --version | --help"
         give back
     }
 
     input_file = process::arg(1)
 
-    if args_cnt > 2 {
-        if process::arg(2) == "--llvm" {
+    -- Parse flags
+    pilot fi = 2
+    repeat until fi >= args_cnt {
+        pilot flag = process::arg(fi)
+        if flag == "--c" {
+            emit_target = "c"
+        } else if flag == "--llvm" {
             emit_target = "llvm"
+        } else if flag.starts_with("--opt=") {
+            opt_level = flag.char_at(6)
+        } else if flag.starts_with("--target=") {
+            -- Extract everything after --target=
+            pilot ti = 9
+            pilot tval = ""
+            repeat until ti >= flag.length() {
+                tval = tval + flag.char_at(ti)
+                ti += 1
+            }
+            cross_target = tval
         }
+        fi += 1
     }
 
     pilot msg = "FREAK v2 Compiling: " + input_file + " (Target: " + emit_target + ")"

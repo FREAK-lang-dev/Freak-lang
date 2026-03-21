@@ -1,0 +1,560 @@
+-- ===================================================================
+-- FREAK Hangar — Package Manager (native FREAK implementation)
+-- ===================================================================
+-- Commands: init, add, remove, install, version
+-- Uses toml.fk for hangar.toml parsing/writing.
+-- Uses git clone for package downloads (no zip handling needed).
+-- ===================================================================
+
+task hangar_init(project_dir: word) -> int {
+    pilot manifest = project_dir + "/hangar.toml"
+    if fs::exists(manifest) {
+        pilot msg = "  hangar.toml already exists in " + project_dir
+        say msg
+        give back 1
+    }
+
+    -- Get project name from directory (last component)
+    pilot project_name: word = hangar_basename(project_dir)
+
+    toml_clear()
+    toml_set("project.name", project_name)
+    toml_set("project.version", "0.1.0")
+    toml_write_file(manifest)
+
+    -- Create src/main.fk
+    pilot src_dir = project_dir + "/src"
+    pilot src_main = src_dir + "/main.fk"
+    if fs::exists(src_dir) == false {
+        fs::make_dir(src_dir)
+    }
+    if fs::exists(src_main) == false {
+        pilot main_content = "-- " + project_name + " -- a FREAK project\n\nsay \"Hello from " + project_name + "!\"\n"
+        fs::write(src_main, main_content)
+    }
+
+    -- Create hangar_modules/
+    pilot modules_dir = project_dir + "/hangar_modules"
+    if fs::exists(modules_dir) == false {
+        fs::make_dir(modules_dir)
+    }
+
+    pilot msg1 = "  Initialized FREAK project '" + project_name + "'"
+    say msg1
+    say "  Created hangar.toml"
+    say "  Created src/main.fk"
+    say "  Created hangar_modules/"
+    give back 0
+}
+
+task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int {
+    pilot manifest = project_dir + "/hangar.toml"
+    if fs::exists(manifest) == false {
+        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        give back 1
+    }
+
+    toml_load(manifest)
+
+    pilot git_key = "dependencies." + pkg_name + ".git"
+    pilot ver_key = "dependencies." + pkg_name + ".version"
+    toml_set(git_key, repo)
+    toml_set(ver_key, ver)
+    toml_write_file(manifest)
+
+    pilot msg = "  Added " + pkg_name + " (" + repo + " @ " + ver + ")"
+    say msg
+
+    -- Also install it
+    pilot install_res = hangar_install_one(project_dir, pkg_name, repo, ver)
+    give back install_res
+}
+
+task hangar_remove(project_dir: word, pkg_name: word) -> int {
+    pilot manifest = project_dir + "/hangar.toml"
+    if fs::exists(manifest) == false {
+        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        give back 1
+    }
+
+    toml_load(manifest)
+
+    pilot git_key = "dependencies." + pkg_name + ".git"
+    if toml_has(git_key) == false {
+        pilot msg = "  Package '" + pkg_name + "' is not in hangar.toml"
+        say msg
+        give back 1
+    }
+
+    -- Remove from toml
+    pilot prefix = "dependencies." + pkg_name
+    toml_remove_prefix(prefix)
+    toml_write_file(manifest)
+
+    -- Remove cached files
+    pilot pkg_dir = project_dir + "/hangar_modules/" + pkg_name
+    if fs::exists(pkg_dir) {
+        pilot rm_cmd: word = hangar_rm_cmd(pkg_dir)
+        process::exec(rm_cmd)
+    }
+
+    pilot msg2 = "  Removed " + pkg_name
+    say msg2
+    give back 0
+}
+
+task hangar_install(project_dir: word) -> int {
+    pilot manifest = project_dir + "/hangar.toml"
+    if fs::exists(manifest) == false {
+        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        give back 1
+    }
+
+    toml_load(manifest)
+
+    pilot dep_cnt = toml_dep_count()
+    if dep_cnt == 0 {
+        say "  No dependencies to install."
+        give back 0
+    }
+
+    pilot dep_arr = toml_dep_names_arr()
+    pilot errors = 0
+    pilot di = 0
+    repeat until di >= dep_cnt {
+        pilot dname: word = array_get(dep_arr, di)
+        pilot git_key = "dependencies." + dname + ".git"
+        pilot ver_key = "dependencies." + dname + ".version"
+        pilot git_val: word = toml_get(git_key)
+        pilot ver_val: word = toml_get(ver_key)
+        if ver_val == "" { ver_val = "latest" }
+        pilot ires = hangar_install_one(project_dir, dname, git_val, ver_val)
+        if ires != 0 {
+            errors += 1
+        }
+        di += 1
+    }
+
+    if errors > 0 {
+        pilot err_str: word = word_from_int(errors)
+        pilot errmsg = "  " + err_str + " package(s) failed to install."
+        say errmsg
+        give back 1
+    }
+
+    pilot cnt_str: word = word_from_int(dep_cnt)
+    pilot ok_msg = "  All " + cnt_str + " package(s) installed."
+    say ok_msg
+    give back 0
+}
+
+task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word) -> int {
+    pilot modules_dir = project_dir + "/hangar_modules"
+    if fs::exists(modules_dir) == false {
+        fs::make_dir(modules_dir)
+    }
+    pilot pkg_dir = modules_dir + "/" + pkg_name
+
+    if repo == "" {
+        pilot msg = "  No git repository specified for " + pkg_name
+        say msg
+        give back 1
+    }
+
+    pilot fetch_msg = "  Fetching " + pkg_name + " from " + repo + "..."
+    say fetch_msg
+
+    -- Remove existing package dir if present
+    if fs::exists(pkg_dir) {
+        pilot rm_cmd: word = hangar_rm_cmd(pkg_dir)
+        process::exec(rm_cmd)
+    }
+
+    -- Construct git URL
+    pilot git_url = ""
+    if repo.starts_with("https://") {
+        git_url = repo
+    } else {
+        git_url = "https://github.com/" + repo + ".git"
+    }
+
+    -- Clone with git
+    pilot clone_cmd = "git clone --depth 1 --quiet " + git_url + " " + pkg_dir
+    if ver != "latest" and ver != "*" {
+        clone_cmd = "git clone --depth 1 --quiet --branch v" + ver + " " + git_url + " " + pkg_dir
+    }
+    pilot clone_res = process::exec(clone_cmd)
+    if clone_res != 0 {
+        -- Try without v prefix on tag
+        if ver != "latest" and ver != "*" {
+            pilot clone2 = "git clone --depth 1 --quiet --branch " + ver + " " + git_url + " " + pkg_dir
+            pilot clone2_res = process::exec(clone2)
+            if clone2_res != 0 {
+                pilot fail_msg = "  Could not fetch " + pkg_name + ". Creating stub..."
+                say fail_msg
+                hangar_create_stub(pkg_dir, pkg_name)
+                give back 0
+            }
+        } else {
+            pilot fail_msg2 = "  Could not fetch " + pkg_name + ". Creating stub..."
+            say fail_msg2
+            hangar_create_stub(pkg_dir, pkg_name)
+            give back 0
+        }
+    }
+
+    -- Remove .git directory from cloned package (not needed)
+    pilot git_dir = pkg_dir + "/.git"
+    if fs::exists(git_dir) {
+        pilot rm_git: word = hangar_rm_cmd(git_dir)
+        process::exec(rm_git)
+    }
+
+    pilot ok_msg = "  Installed " + pkg_name + " -> hangar_modules/" + pkg_name + "/"
+    say ok_msg
+    give back 0
+}
+
+task hangar_create_stub(pkg_dir: word, pkg_name: word) -> void {
+    fs::make_dir(pkg_dir)
+    pilot stub_path = pkg_dir + "/" + pkg_name + ".fk"
+    pilot stub_content = "-- " + pkg_name + " (stub module -- install with 'freakc hangar install')\n-- This stub was created because the package could not be downloaded.\n\n"
+    fs::write(stub_path, stub_content)
+    pilot msg = "  Created stub: hangar_modules/" + pkg_name + "/" + pkg_name + ".fk"
+    say msg
+}
+
+task hangar_version_cmd(project_dir: word, bump: word) -> int {
+    pilot manifest = project_dir + "/hangar.toml"
+    if fs::exists(manifest) == false {
+        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        give back 1
+    }
+
+    toml_load(manifest)
+    pilot pname: word = toml_get("project.name")
+    pilot current: word = toml_get("project.version")
+    if pname == "" { pname = "unknown" }
+    if current == "" { current = "0.0.0" }
+
+    if bump == "" {
+        pilot show_msg = "  " + pname + " v" + current
+        say show_msg
+        give back 0
+    }
+
+    -- Parse current version using std/version.fk
+    pilot parsed: word = ver_parse(current)
+    pilot maj = ver_major(parsed)
+    pilot min = ver_minor(parsed)
+    pilot pat = ver_patch(parsed)
+    pilot new_ver = ""
+
+    if bump == "major" {
+        new_ver = word_from_int(maj + 1) + ".0.0"
+    } else if bump == "minor" {
+        pilot new_min: word = word_from_int(min + 1)
+        new_ver = word_from_int(maj) + "." + new_min + ".0"
+    } else if bump == "patch" {
+        pilot new_pat: word = word_from_int(pat + 1)
+        new_ver = word_from_int(maj) + "." + word_from_int(min) + "." + new_pat
+    } else {
+        -- Explicit version string
+        new_ver = bump
+    }
+
+    toml_set("project.version", new_ver)
+    toml_write_file(manifest)
+
+    pilot done_msg = "  " + pname + ": " + current + " -> " + new_ver
+    say done_msg
+    give back 0
+}
+
+-- ===================== TOOLCHAIN BOOTSTRAP ==========================
+
+task hangar_install_freak() -> int {
+    say "  Detecting platform..."
+
+    -- Detect OS using a simple heuristic
+    pilot os_tag = ""
+    pilot ext = ""
+    pilot sep = "/"
+
+    -- Try Windows detection
+    pilot win_check: word = process::exec_capture("echo %OS%")
+    if win_check.contains("Windows") {
+        os_tag = "windows"
+        ext = ".exe"
+        sep = "\\"
+    } else {
+        -- Try uname for Unix
+        pilot uname_out: word = process::exec_capture("uname -s 2>/dev/null")
+        if uname_out.contains("Linux") {
+            os_tag = "linux"
+        } else if uname_out.contains("Darwin") {
+            os_tag = "macos"
+        } else {
+            say "  Unsupported OS. Download manually from GitHub."
+            give back 1
+        }
+    }
+
+    -- Detect architecture
+    pilot arch_tag = "x64"
+    if os_tag != "windows" {
+        pilot arch_out: word = process::exec_capture("uname -m 2>/dev/null")
+        if arch_out.contains("aarch64") or arch_out.contains("arm64") {
+            arch_tag = "arm64"
+        }
+    }
+
+    pilot platform = os_tag + "-" + arch_tag
+    pilot plat_msg = "  Platform: " + platform
+    say plat_msg
+
+    -- Fetch latest release tag via GitHub API
+    say "  Checking latest version..."
+    pilot tag_cmd = "curl -sL https://api.github.com/repos/FREAK-lang-dev/Freak-lang/releases/latest"
+    pilot api_resp: word = process::exec_capture(tag_cmd)
+
+    -- Simple JSON extraction: find "tag_name": "vX.Y.Z"
+    pilot version: word = hangar_extract_json_field(api_resp, "tag_name")
+    if version == "" {
+        say "  Could not fetch latest release. Check your internet connection."
+        give back 1
+    }
+    pilot ver_msg = "  Latest version: " + version
+    say ver_msg
+
+    -- Download binary
+    pilot artifact = "freakc-" + platform + ext
+    pilot download_url = "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/" + version + "/" + artifact
+    pilot dl_msg = "  Downloading " + artifact + "..."
+    say dl_msg
+
+    -- Determine install location
+    pilot freak_home = ""
+    if os_tag == "windows" {
+        pilot appdata: word = process::exec_capture("echo %APPDATA%")
+        freak_home = appdata.trim() + "\\freak"
+    } else {
+        pilot home_dir: word = process::exec_capture("echo $HOME")
+        freak_home = home_dir.trim() + "/.freak"
+    }
+    pilot bin_dir = freak_home + sep + "bin"
+    pilot binary_path = bin_dir + sep + "freakc" + ext
+
+    -- Create directories and download
+    if os_tag == "windows" {
+        pilot mkdir_cmd = "mkdir \"" + bin_dir + "\" 2>nul"
+        process::exec(mkdir_cmd)
+        pilot dl_cmd = "curl -sL -o \"" + binary_path + "\" " + download_url
+        pilot dl_res = process::exec(dl_cmd)
+        if dl_res != 0 {
+            say "  Download failed. Check the URL manually."
+            give back 1
+        }
+    } else {
+        pilot mkdir_cmd2 = "mkdir -p \"" + bin_dir + "\""
+        process::exec(mkdir_cmd2)
+        pilot dl_cmd2 = "curl -sL -o \"" + binary_path + "\" " + download_url
+        pilot dl_res2 = process::exec(dl_cmd2)
+        if dl_res2 != 0 {
+            say "  Download failed. Check the URL manually."
+            give back 1
+        }
+        pilot chmod_cmd = "chmod +x \"" + binary_path + "\""
+        process::exec(chmod_cmd)
+    }
+
+    -- Download runtime files
+    pilot runtime_dir = freak_home + sep + "runtime"
+    if os_tag == "windows" {
+        process::exec("mkdir \"" + runtime_dir + "\" 2>nul")
+    } else {
+        process::exec("mkdir -p \"" + runtime_dir + "\"")
+    }
+
+    pilot raw_base = "https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/" + version + "/freakc/runtime"
+    pilot rt_arr = array_new()
+    array_push(rt_arr, "freak_runtime.c")
+    array_push(rt_arr, "freak_runtime.h")
+    array_push(rt_arr, "freak_llvm_runtime.c")
+    pilot ri = 0
+    repeat 3 times {
+        pilot rtf: word = array_get(rt_arr, ri)
+        pilot rt_url = raw_base + "/" + rtf
+        pilot rt_dest = runtime_dir + sep + rtf
+        pilot rt_cmd = "curl -sL -o \"" + rt_dest + "\" " + rt_url
+        process::exec(rt_cmd)
+        ri += 1
+    }
+
+    say ""
+    pilot inst_msg = "  Installed FREAK " + version + " successfully!"
+    say inst_msg
+    say ""
+    pilot comp_msg = "  Compiler: " + binary_path
+    say comp_msg
+    pilot rt_msg = "  Runtime:  " + runtime_dir
+    say rt_msg
+    say ""
+    pilot path_msg = "  Add to PATH: " + bin_dir
+    say path_msg
+    say ""
+    say "  Try: freakc build hello.fk"
+    give back 0
+}
+
+-- ===================== HELPERS =====================================
+
+task hangar_basename(path: word) -> word {
+    -- Get last component of a path
+    pilot last = ""
+    pilot i = 0
+    pilot plen = path.length()
+    repeat until i >= plen {
+        pilot c: word = path.char_at(i)
+        if c == "/" or c == "\\" {
+            last = ""
+        } else {
+            last = last + c
+        }
+        i += 1
+    }
+    if last == "" { last = "my-project" }
+    give back last
+}
+
+task hangar_rm_cmd(path: word) -> word {
+    -- Cross-platform remove directory command
+    -- Detect Windows vs Unix
+    pilot win_check: word = process::exec_capture("echo %OS%")
+    if win_check.contains("Windows") {
+        pilot win_path: word = path.replace("/", "\\")
+        give back "rmdir /s /q \"" + win_path + "\""
+    } else {
+        give back "rm -rf \"" + path + "\""
+    }
+}
+
+task hangar_extract_json_field(json: word, field: word) -> word {
+    -- Very simple JSON field extractor
+    -- Finds "field": "value" and returns value
+    pilot search = "\"" + field + "\""
+    pilot jlen = json.length()
+    pilot slen = search.length()
+    pilot i = 0
+    repeat until i >= jlen {
+        -- Check if search string matches at position i
+        pilot match = true
+        pilot si = 0
+        repeat until si >= slen {
+            if i + si >= jlen {
+                match = false
+            }
+            if match {
+                pilot jc: word = json.char_at(i + si)
+                pilot sc: word = search.char_at(si)
+                if jc != sc { match = false }
+            }
+            si += 1
+        }
+        if match {
+            -- Found the field, now skip ": " and extract value
+            pilot vi = i + slen
+            -- Skip whitespace and colon
+            repeat until vi >= jlen {
+                pilot vc: word = json.char_at(vi)
+                if vc != ":" and vc != " " and vc != "\t" {
+                    -- At the start of value
+                    if vc == "\"" {
+                        vi += 1
+                        pilot val = ""
+                        repeat until vi >= jlen {
+                            pilot vv: word = json.char_at(vi)
+                            if vv == "\"" {
+                                give back val
+                            }
+                            val = val + vv
+                            vi += 1
+                        }
+                    }
+                }
+                vi += 1
+            }
+        }
+        i += 1
+    }
+    give back ""
+}
+
+-- ===================== MAIN DISPATCH ================================
+
+task hangar_dispatch(args_cnt: int) -> void {
+    if args_cnt < 3 {
+        say "FREAK Hangar -- Package Manager"
+        say ""
+        say "Usage:"
+        say "  freakc hangar init                 Create new project"
+        say "  freakc hangar add <name> <repo>    Add dependency"
+        say "  freakc hangar remove <name>        Remove dependency"
+        say "  freakc hangar install              Install all dependencies"
+        say "  freakc hangar install freak        Install FREAK compiler"
+        say "  freakc hangar version              Show project version"
+        say "  freakc hangar version patch        Bump patch version"
+        say "  freakc hangar version minor        Bump minor version"
+        say "  freakc hangar version major        Bump major version"
+        give back
+    }
+
+    pilot subcmd: word = process::arg(2)
+    pilot project_dir = "."
+
+    if subcmd == "init" {
+        if args_cnt >= 4 {
+            project_dir = process::arg(3)
+        }
+        hangar_init(project_dir)
+    } else if subcmd == "add" {
+        if args_cnt < 5 {
+            say "Usage: freakc hangar add <name> <repo> [version]"
+            give back
+        }
+        pilot pkg: word = process::arg(3)
+        pilot repo: word = process::arg(4)
+        pilot ver = "latest"
+        if args_cnt >= 6 {
+            ver = process::arg(5)
+        }
+        hangar_add(project_dir, pkg, repo, ver)
+    } else if subcmd == "remove" {
+        if args_cnt < 4 {
+            say "Usage: freakc hangar remove <name>"
+            give back
+        }
+        pilot pkg2: word = process::arg(3)
+        hangar_remove(project_dir, pkg2)
+    } else if subcmd == "install" {
+        -- Check if "install freak" (toolchain bootstrap)
+        if args_cnt >= 4 {
+            pilot install_target: word = process::arg(3)
+            if install_target == "freak" {
+                hangar_install_freak()
+                give back
+            }
+        }
+        hangar_install(project_dir)
+    } else if subcmd == "version" {
+        pilot bump = ""
+        if args_cnt >= 4 {
+            bump = process::arg(3)
+        }
+        hangar_version_cmd(project_dir, bump)
+    } else {
+        pilot msg = "Unknown hangar command: " + subcmd
+        say msg
+        say "Run 'freakc hangar' for usage."
+    }
+}

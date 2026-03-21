@@ -22,7 +22,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo [Stage 3] Building freakc_v2.exe natively with Clang...
-clang -o build\freakc_v2.exe build\freakc_v2.fk.c freakc\runtime\freak_runtime.c -Ifreakc\runtime -g -std=c11 -Wall
+clang -o build\freakc_v2.exe build\freakc_v2.fk.c freakc\runtime\freak_runtime.c -Ifreakc\runtime -g -std=c11 -Wall -Wno-deprecated -Wno-incompatible-pointer-types
 
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Clang failed to compile freakc_v2.c

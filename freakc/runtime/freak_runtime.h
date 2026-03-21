@@ -232,9 +232,14 @@ uint64_t freak_process_pid(void);
 void freak_process_exit(int64_t code);
 freak_maybe_word freak_process_env_var(freak_word name);
 void freak_process_set_env(freak_word name, freak_word val);
+freak_word freak_process_env(freak_word name);
 void* freak_process_args(void); /* TODO: list<word> */
 int64_t freak_process_args_count(void);
 freak_word freak_process_arg(int64_t index);
+
+/* Simple command execution */
+int64_t freak_process_exec(freak_word cmd);
+freak_word freak_process_exec_capture(freak_word cmd);
 
 /* process handle methods */
 int64_t freak_process_wait(freak_process_handle p);

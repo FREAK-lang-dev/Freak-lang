@@ -54,31 +54,38 @@ jobs:
           ./self_hosted/freakc_self.exe build/freakc_v2.fk
           clang -o build/freakc_v2.exe build/freakc_v2.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
-      - name: Test — hello.fk (C backend)
+      - name: Test — hello.fk (LLVM backend, default)
         shell: bash
         run: |
           ./build/freakc_v2.exe tests/hello.fk
+          clang -o tests/hello_llvm_ci.exe tests/hello.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          ./tests/hello_llvm_ci.exe
+
+      - name: Test — hello.fk (C backend, explicit)
+        shell: bash
+        run: |
+          ./build/freakc_v2.exe tests/hello.fk --c
           clang -o tests/hello_ci.exe tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           ./tests/hello_ci.exe
 
       - name: Test — control_flow.fk (C backend)
         shell: bash
         run: |
-          ./build/freakc_v2.exe tests/control_flow.fk
+          ./build/freakc_v2.exe tests/control_flow.fk --c
           clang -o tests/control_flow_ci.exe tests/control_flow.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           ./tests/control_flow_ci.exe
 
-      - name: Test — hello.fk (LLVM backend)
+      - name: Test — control_flow.fk (LLVM backend)
         shell: bash
         run: |
-          ./build/freakc_v2.exe tests/hello.fk --llvm
-          clang -o tests/hello_llvm_ci.exe tests/hello.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          ./tests/hello_llvm_ci.exe
+          ./build/freakc_v2.exe tests/control_flow.fk --llvm
+          clang -o tests/control_flow_llvm_ci.exe tests/control_flow.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          ./tests/control_flow_llvm_ci.exe
 
       - name: Self-hosting bootstrap test
         shell: bash
         run: |
-          ./build/freakc_v2.exe tests/hello.fk
+          ./build/freakc_v2.exe tests/hello.fk --c
           clang -o tests/hello_bootstrap.exe tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           echo "--- Bootstrap verification output ---"
           ./tests/hello_bootstrap.exe

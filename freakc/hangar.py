@@ -131,6 +131,140 @@ def _write_manifest(project_dir: Path, data: Dict[str, Any]) -> None:
     manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+# ── Semantic Versioning ─────────────────────────────────────────────
+
+import re as _re
+
+_SEMVER_RE = _re.compile(
+    r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
+    r"(?:-(?P<pre>[A-Za-z0-9.]+))?"
+    r"(?:\+(?P<build>[A-Za-z0-9.]+))?$"
+)
+
+
+def parse_semver(version: str) -> tuple[int, int, int, str, str] | None:
+    """Parse a semver string. Returns (major, minor, patch, pre, build) or None."""
+    m = _SEMVER_RE.match(version.strip())
+    if not m:
+        return None
+    return (
+        int(m.group("major")),
+        int(m.group("minor")),
+        int(m.group("patch")),
+        m.group("pre") or "",
+        m.group("build") or "",
+    )
+
+
+def format_semver(major: int, minor: int, patch: int,
+                  pre: str = "", build: str = "") -> str:
+    """Format a semver tuple back to string."""
+    v = f"{major}.{minor}.{patch}"
+    if pre:
+        v += f"-{pre}"
+    if build:
+        v += f"+{build}"
+    return v
+
+
+def _semver_key(v: tuple[int, int, int, str, str]):
+    """Sort key: releases sort after pre-releases with the same version."""
+    major, minor, patch, pre, _ = v
+    # No pre-release → sorts last (higher), pre-release → sorts by string
+    return (major, minor, patch, 0 if pre == "" else -1, pre)
+
+
+def semver_satisfies(version: str, constraint: str) -> bool:
+    """Check if a version satisfies a constraint.
+
+    Supports: >=, <=, >, <, =, ^, ~, *, latest, exact match.
+    """
+    if constraint in ("*", "latest", ""):
+        return True
+
+    v = parse_semver(version)
+    if v is None:
+        return False
+
+    # Caret: ^1.2.3 → >=1.2.3, <2.0.0
+    if constraint.startswith("^"):
+        c = parse_semver(constraint[1:])
+        if c is None:
+            return False
+        if v[0] != c[0]:
+            return False
+        return _semver_key(v) >= _semver_key(c)
+
+    # Tilde: ~1.2.3 → >=1.2.3, <1.3.0
+    if constraint.startswith("~"):
+        c = parse_semver(constraint[1:])
+        if c is None:
+            return False
+        if v[0] != c[0] or v[1] != c[1]:
+            return False
+        return _semver_key(v) >= _semver_key(c)
+
+    # Comparison operators
+    for op, fn in [
+        (">=", lambda a, b: _semver_key(a) >= _semver_key(b)),
+        ("<=", lambda a, b: _semver_key(a) <= _semver_key(b)),
+        (">",  lambda a, b: _semver_key(a) > _semver_key(b)),
+        ("<",  lambda a, b: _semver_key(a) < _semver_key(b)),
+        ("=",  lambda a, b: _semver_key(a) == _semver_key(b)),
+    ]:
+        if constraint.startswith(op):
+            c = parse_semver(constraint[len(op):])
+            if c is None:
+                return False
+            return fn(v, c)
+
+    # Exact match
+    c = parse_semver(constraint)
+    if c is None:
+        return False
+    return _semver_key(v) == _semver_key(c)
+
+
+def hangar_version(project_dir: Path, bump: str = "") -> int:
+    """Show or bump project version in hangar.toml.
+
+    bump can be: "", "major", "minor", "patch", or an explicit version string.
+    """
+    data = _read_manifest(project_dir)
+    project = data.get("project", {})
+    current = project.get("version", "0.0.0")
+
+    if not bump:
+        print(f"  {project.get('name', 'unknown')} v{current}")
+        return 0
+
+    parsed = parse_semver(current)
+    if parsed is None:
+        print(f"  Invalid current version: {current}", file=sys.stderr)
+        return 1
+
+    major, minor, patch, pre, build = parsed
+
+    if bump == "major":
+        new_ver = format_semver(major + 1, 0, 0)
+    elif bump == "minor":
+        new_ver = format_semver(major, minor + 1, 0)
+    elif bump == "patch":
+        new_ver = format_semver(major, minor, patch + 1)
+    else:
+        # Explicit version
+        if parse_semver(bump) is None:
+            print(f"  Invalid version: {bump}", file=sys.stderr)
+            return 1
+        new_ver = bump
+
+    project["version"] = new_ver
+    data["project"] = project
+    _write_manifest(project_dir, data)
+    print(f"  {project.get('name', 'unknown')}: {current} -> {new_ver}")
+    return 0
+
+
 # ── Commands ────────────────────────────────────────────────────────
 
 def hangar_init(project_dir: Path) -> int:
@@ -489,5 +623,6 @@ def hangar_install_toolchain(upgrade: bool = False) -> int:
 
 __all__ = [
     "hangar_init", "hangar_install", "hangar_add", "hangar_remove",
-    "hangar_install_toolchain", "resolve_module",
+    "hangar_install_toolchain", "hangar_version", "resolve_module",
+    "parse_semver", "format_semver", "semver_satisfies",
 ]

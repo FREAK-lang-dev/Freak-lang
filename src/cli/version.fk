@@ -1,0 +1,40 @@
+-- ===================================================================
+-- FREAK CLI — Version Management
+-- ===================================================================
+-- Uses std/version.fk for semver parsing and comparison.
+-- ===================================================================
+
+pilot CLI_VERSION = "0.9.0"
+pilot CLI_CODENAME = "Alternative-4"
+
+task cli_show_version() -> void {
+    pilot ver_msg = "freakc " + CLI_VERSION + " (" + CLI_CODENAME + ")"
+    say ver_msg
+}
+
+task cli_show_help() -> void {
+    pilot hdr = "FREAK Compiler " + CLI_VERSION + " (" + CLI_CODENAME + ")"
+    say hdr
+    say ""
+    say "Usage:"
+    say "  freakc build <file.fk> [options]    Compile to native binary"
+    say "  freakc run <file.fk> [options]       Build and run"
+    say "  freakc check <file.fk>               Type-check only"
+    say "  freakc transpile <file.fk> [options]  Transpile only (no compile)"
+    say "  freakc hangar <cmd>                  Package manager"
+    say "  freakc version                       Show version"
+    say "  freakc help                          Show this help"
+    say ""
+    say "Options:"
+    say "  --llvm             Use LLVM IR backend (default)"
+    say "  --c                Use C backend"
+    say "  --opt=N            Optimization level 0-3 (default: 2)"
+    say "  --target=TRIPLE    Cross-compile target triple"
+    say "  --version, -V      Show version"
+    say "  --help, -h         Show this help"
+    say ""
+    say "Examples:"
+    say "  freakc build hello.fk"
+    say "  freakc run hello.fk --c --opt=3"
+    say "  freakc build game.fk --target=x86_64-linux-gnu"
+}

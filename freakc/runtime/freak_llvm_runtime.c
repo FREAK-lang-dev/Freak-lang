@@ -235,6 +235,43 @@ void freak_llvm_process_exit(int64_t code) {
     exit((int)code);
 }
 
+int64_t freak_llvm_process_exec(int64_t cmd_p) {
+    const char* cmd = (const char*)cmd_p;
+    return (int64_t)system(cmd);
+}
+
+int64_t freak_llvm_process_exec_capture(int64_t cmd_p) {
+    const char* cmd = (const char*)cmd_p;
+#ifdef _WIN32
+    FILE* fp = _popen(cmd, "r");
+#else
+    FILE* fp = popen(cmd, "r");
+#endif
+    if (!fp) return (int64_t)"";
+    size_t cap = 1024, len = 0;
+    char* buf = (char*)malloc(cap);
+    if (!buf) {
+#ifdef _WIN32
+        _pclose(fp);
+#else
+        pclose(fp);
+#endif
+        return (int64_t)"";
+    }
+    size_t n;
+    while ((n = fread(buf + len, 1, cap - len - 1, fp)) > 0) {
+        len += n;
+        if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); }
+    }
+    buf[len] = '\0';
+#ifdef _WIN32
+    _pclose(fp);
+#else
+    pclose(fp);
+#endif
+    return (int64_t)buf;
+}
+
 /* ── Panic ──────────────────────────────────────────── */
 
 void freak_llvm_panic(int64_t msg_p) {

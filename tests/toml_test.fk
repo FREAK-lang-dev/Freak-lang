@@ -1,0 +1,28 @@
+-- Test TOML parser
+
+-- Write a test hangar.toml
+pilot test_toml = "[project]\nname = \"my-app\"\nversion = \"1.2.3\"\n\n[dependencies]\nmuvluv = { git = \"https://github.com/test/muvluv\", version = \"latest\" }\n"
+fs::write("tests/test_hangar.toml", test_toml)
+say "Wrote test TOML"
+
+-- Parse it
+toml_load("tests/test_hangar.toml")
+
+pilot cnt_str: word = word_from_int(toml_count)
+pilot cnt_msg = "Parsed " + cnt_str + " keys"
+say cnt_msg
+
+-- Check values
+pilot pname: word = toml_get("project.name")
+pilot pver: word = toml_get("project.version")
+pilot mgit: word = toml_get("dependencies.muvluv.git")
+pilot mver: word = toml_get("dependencies.muvluv.version")
+
+pilot msg1 = "project.name = " + pname
+say msg1
+pilot msg2 = "project.version = " + pver
+say msg2
+pilot msg3 = "dependencies.muvluv.git = " + mgit
+say msg3
+pilot msg4 = "dependencies.muvluv.version = " + mver
+say msg4

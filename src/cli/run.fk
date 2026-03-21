@@ -1,0 +1,24 @@
+-- ===================================================================
+-- FREAK CLI — Run Pipeline
+-- ===================================================================
+-- Handles: build + execute the resulting binary.
+-- ===================================================================
+
+task cli_run(src_file: word, target: word, opt: word, cross: word) -> void {
+    pilot binary: word = cli_build(src_file, target, opt, cross)
+    if binary == "" {
+        say "Error: Build failed, cannot run."
+        give back
+    }
+
+    say ""
+    say "--- Running ---"
+    -- Convert forward slashes to backslashes for Windows compatibility
+    pilot run_cmd: word = binary.replace("/", "\\")
+    pilot run_code = process::exec(run_cmd)
+    if run_code != 0 {
+        pilot rc_str: word = word_from_int(run_code)
+        pilot exit_msg = "Process exited with code: " + rc_str
+        say exit_msg
+    }
+}

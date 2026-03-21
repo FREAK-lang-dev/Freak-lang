@@ -1,0 +1,61 @@
+-- ===================================================================
+-- Version System Test
+-- ===================================================================
+
+pilot v1: word = ver_parse("1.2.3")
+say "Parsed 1.2.3:"
+pilot v1_maj = word_from_int(ver_major(v1))
+pilot v1_min = word_from_int(ver_minor(v1))
+pilot v1_pat = word_from_int(ver_patch(v1))
+pilot v1_str: word = ver_to_string(v1)
+say "  major = " + v1_maj
+say "  minor = " + v1_min
+say "  patch = " + v1_pat
+say "  string = " + v1_str
+
+pilot v2: word = ver_parse("v0.8.0")
+say "Parsed v0.8.0:"
+pilot v2_maj = word_from_int(ver_major(v2))
+pilot v2_min = word_from_int(ver_minor(v2))
+pilot v2_pat = word_from_int(ver_patch(v2))
+say "  major = " + v2_maj
+say "  minor = " + v2_min
+say "  patch = " + v2_pat
+
+pilot v3: word = ver_parse("2.0.0-beta.1")
+say "Parsed 2.0.0-beta.1:"
+pilot v3_pre: word = ver_pre(v3)
+pilot v3_str: word = ver_to_string(v3)
+say "  pre = " + v3_pre
+say "  string = " + v3_str
+
+pilot va: word = ver_parse("1.0.0")
+pilot vb: word = ver_parse("2.0.0")
+pilot vc: word = ver_parse("1.1.0")
+pilot vd: word = ver_parse("1.0.1")
+pilot ve: word = ver_parse("1.0.0")
+
+say ""
+say "Comparisons:"
+pilot cmp1 = word_from_int(ver_compare(va, vb))
+pilot cmp2 = word_from_int(ver_compare(vb, va))
+pilot cmp3 = word_from_int(ver_compare(va, ve))
+pilot cmp4 = word_from_int(ver_compare(va, vc))
+pilot cmp5 = word_from_int(ver_compare(va, vd))
+say "  1.0.0 < 2.0.0 = " + cmp1
+say "  2.0.0 > 1.0.0 = " + cmp2
+say "  1.0.0 == 1.0.0 = " + cmp3
+say "  1.0.0 < 1.1.0 = " + cmp4
+say "  1.0.0 < 1.0.1 = " + cmp5
+
+say ""
+say "Bumping 1.2.3:"
+pilot bump_maj: word = ver_to_string(ver_bump_major(v1))
+pilot bump_min: word = ver_to_string(ver_bump_minor(v1))
+pilot bump_pat: word = ver_to_string(ver_bump_patch(v1))
+say "  major -> " + bump_maj
+say "  minor -> " + bump_min
+say "  patch -> " + bump_pat
+
+say ""
+say "Version system test complete."
