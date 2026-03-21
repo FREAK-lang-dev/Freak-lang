@@ -22,9 +22,6 @@ jobs:
           - os: macos-latest
             target: macos-arm64
             ext: ""
-          - os: macos-13
-            target: macos-x64
-            ext: ""
           - os: windows-latest
             target: windows-x64
             ext: ".exe"
@@ -109,7 +106,6 @@ jobs:
           files: |
             artifacts/freakc-linux-x64/freakc-linux-x64
             artifacts/freakc-linux-arm64/freakc-linux-arm64
-            artifacts/freakc-macos-x64/freakc-macos-x64
             artifacts/freakc-macos-arm64/freakc-macos-arm64
             artifacts/freakc-windows-x64/freakc-windows-x64.exe
             artifacts/SHA256SUMS
