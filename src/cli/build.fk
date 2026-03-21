@@ -98,7 +98,11 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         }
         out_bin = oname
     }
-    out_bin = out_bin + ".exe"
+    -- Only add .exe on Windows
+    pilot windir: word = process::env("WINDIR")
+    if windir != "" {
+        out_bin = out_bin + ".exe"
+    }
 
     -- Build clang command
     pilot runtime_c = ""
@@ -109,6 +113,11 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     }
 
     pilot cmd = "clang -o " + out_bin + " " + transpiled_file + " " + runtime_c + " -I" + runtime_dir + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
+
+    -- Linux requires -lm for math functions
+    if windir == "" {
+        cmd = cmd + " -lm"
+    }
 
     if cross != "" {
         cmd = cmd + " --target=" + cross
