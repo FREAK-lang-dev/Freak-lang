@@ -166,6 +166,48 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     give back out_bin
 }
 
+task cli_find_std_dir() -> word {
+    -- Try to find the std/ directory.
+    if fs::exists("std/math.fk") { give back "std" }
+    pilot home_dir: word = process::env("HOME")
+    if home_dir != "" {
+        pilot home_std = home_dir + "/.freak/std"
+        if fs::exists(home_std + "/math.fk") { give back home_std }
+    }
+    pilot appdata_dir: word = process::env("APPDATA")
+    if appdata_dir != "" {
+        pilot app_std = appdata_dir + "/freak/std"
+        if fs::exists(app_std + "/math.fk") { give back app_std }
+    }
+    pilot freak_home: word = process::env("FREAK_HOME")
+    if freak_home != "" {
+        pilot fh_std = freak_home + "/std"
+        if fs::exists(fh_std + "/math.fk") { give back fh_std }
+    }
+    give back ""
+}
+
+task cli_load_std() -> word {
+    -- Load the standard library source files.
+    -- Returns concatenated source, or "" if std not found.
+    pilot std_dir: word = cli_find_std_dir()
+    if std_dir == "" { give back "" }
+    pilot std_src = ""
+    pilot math_path = std_dir + "/math.fk"
+    if fs::exists(math_path) {
+        std_src = std_src + fs::read(math_path) + "\n"
+    }
+    pilot string_path = std_dir + "/string.fk"
+    if fs::exists(string_path) {
+        std_src = std_src + fs::read(string_path) + "\n"
+    }
+    pilot convert_path = std_dir + "/convert.fk"
+    if fs::exists(convert_path) {
+        std_src = std_src + fs::read(convert_path) + "\n"
+    }
+    give back std_src
+}
+
 task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     -- Full build pipeline: read source, transpile, compile.
     -- Returns the output binary path, or "" on error.
@@ -174,6 +216,12 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
         pilot err_msg = "Error: Could not read file: " + src_file
         say err_msg
         give back ""
+    }
+
+    -- Auto-include standard library if available
+    pilot std_source: word = cli_load_std()
+    if std_source != "" {
+        source = std_source + source
     }
 
     pilot transpiled: word = cli_transpile(src_file, source, target)
