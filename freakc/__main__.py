@@ -119,11 +119,14 @@ def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path,
         f"-I{runtime_dir}",
         f"-O{opt_level}",
         "-std=c11",
-        "-Wall",
+        "-w",
+        "-D_CRT_SECURE_NO_WARNINGS",
     ]
-    # Linux requires explicit math library linkage
+    # Platform-specific linker flags
     if sys.platform.startswith("linux"):
         cmd.append("-lm")
+    elif sys.platform == "win32":
+        cmd.append("-lws2_32")
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -155,9 +158,11 @@ def compile_llvm(ll_path: Path, out_bin: Path, runtime_dir: Path,
     ]
     if target:
         cmd.extend(["--target", target])
-    # Linux requires explicit math library linkage
+    # Platform-specific linker flags
     if sys.platform.startswith("linux"):
         cmd.append("-lm")
+    elif sys.platform == "win32":
+        cmd.append("-lws2_32")
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
