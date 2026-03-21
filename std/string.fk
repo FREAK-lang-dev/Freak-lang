@@ -182,3 +182,132 @@ task is_whitespace(c: word) -> bool {
     if c == "\r" { give back true }
     give back false
 }
+
+task string_starts_with(s: word, prefix: word) -> bool {
+    pilot slen = s.length()
+    pilot plen = prefix.length()
+    if plen > slen { give back false }
+    pilot si = 0
+    repeat plen times {
+        if s.char_at(si) != prefix.char_at(si) { give back false }
+        si += 1
+    }
+    give back true
+}
+
+task string_ends_with(s: word, suffix: word) -> bool {
+    pilot slen = s.length()
+    pilot xlen = suffix.length()
+    if xlen > slen { give back false }
+    pilot offset = slen - xlen
+    pilot ei = 0
+    repeat xlen times {
+        if s.char_at(offset + ei) != suffix.char_at(ei) { give back false }
+        ei += 1
+    }
+    give back true
+}
+
+task string_contains(haystack: word, needle: word) -> bool {
+    give back string_count(haystack, needle) > 0
+}
+
+task string_trim(s: word) -> word {
+    pilot slen = s.length()
+    if slen == 0 { give back s }
+    pilot tstart = 0
+    repeat until tstart >= slen {
+        if not is_whitespace(s.char_at(tstart)) { give back string_trim_end(s, tstart) }
+        tstart += 1
+    }
+    give back ""
+}
+
+task string_trim_end(s: word, tstart: int) -> word {
+    pilot tend = s.length() - 1
+    repeat until tend < tstart {
+        if not is_whitespace(s.char_at(tend)) {
+            pilot tout = ""
+            pilot ti = tstart
+            repeat until ti > tend {
+                tout = tout + s.char_at(ti)
+                ti += 1
+            }
+            give back tout
+        }
+        tend -= 1
+    }
+    give back ""
+}
+
+task string_replace(s: word, old_str: word, new_str: word) -> word {
+    pilot slen = s.length()
+    pilot olen = old_str.length()
+    if olen == 0 { give back s }
+    pilot rout = ""
+    pilot ri = 0
+    repeat until ri >= slen {
+        pilot rmatch = true
+        if ri + olen <= slen {
+            pilot rj = 0
+            repeat olen times {
+                if rmatch {
+                    if s.char_at(ri + rj) != old_str.char_at(rj) {
+                        rmatch = false
+                    }
+                }
+                rj += 1
+            }
+        } else {
+            rmatch = false
+        }
+        if rmatch {
+            rout = rout + new_str
+            ri += olen
+        } else {
+            rout = rout + s.char_at(ri)
+            ri += 1
+        }
+    }
+    give back rout
+}
+
+task string_substring(s: word, start_idx: int, end_idx: int) -> word {
+    pilot slen = s.length()
+    pilot ss = start_idx
+    pilot se = end_idx
+    if ss < 0 { ss = 0 }
+    if se > slen { se = slen }
+    if ss >= se { give back "" }
+    pilot sub_out = ""
+    pilot si = ss
+    repeat until si >= se {
+        sub_out = sub_out + s.char_at(si)
+        si += 1
+    }
+    give back sub_out
+}
+
+task string_index_of(s: word, needle: word) -> int {
+    pilot slen = s.length()
+    pilot nlen = needle.length()
+    if nlen == 0 { give back 0 }
+    if nlen > slen { give back 0 - 1 }
+    pilot limit = slen - nlen + 1
+    pilot fi = 0
+    repeat limit times {
+        pilot fmatch = true
+        pilot fj = 0
+        repeat nlen times {
+            if fmatch {
+                if s.char_at(fi + fj) != needle.char_at(fj) {
+                    fmatch = false
+                }
+            }
+            fj += 1
+        }
+        if fmatch { give back fi }
+        fi += 1
+    }
+    give back 0 - 1
+}

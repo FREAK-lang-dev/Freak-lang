@@ -48,3 +48,64 @@ task std_min(a: int, b: int) -> int {
 task int_to_word(n: int) -> word {
     give back word_from_int(n)
 }
+
+task std_sign(x: int) -> int {
+    if x > 0 { give back 1 }
+    if x < 0 { give back 0 - 1 }
+    give back 0
+}
+
+task std_gcd(a: int, b: int) -> int {
+    pilot x = std_abs(a)
+    pilot y = std_abs(b)
+    repeat until y == 0 {
+        pilot tmp = y
+        pilot rem = x - x / y * y
+        x = tmp
+        y = rem
+    }
+    give back x
+}
+
+task std_lcm(a: int, b: int) -> int {
+    if a == 0 or b == 0 { give back 0 }
+    pilot g = std_gcd(a, b)
+    pilot aa = std_abs(a)
+    pilot bb = std_abs(b)
+    give back aa / g * bb
+}
+
+task std_factorial(n: int) -> int {
+    if n <= 1 { give back 1 }
+    pilot f = 1
+    pilot i = 2
+    repeat until i > n {
+        f = f * i
+        i += 1
+    }
+    give back f
+}
+
+task std_fibonacci(n: int) -> int {
+    if n <= 0 { give back 0 }
+    if n == 1 { give back 1 }
+    pilot a = 0
+    pilot b = 1
+    pilot i = 2
+    repeat until i > n {
+        pilot tmp = a + b
+        a = b
+        b = tmp
+        i += 1
+    }
+    give back b
+}
+
+task std_is_even(x: int) -> bool {
+    pilot half = x / 2
+    give back half * 2 == x
+}
+
+task std_is_odd(x: int) -> bool {
+    give back not std_is_even(x)
+}

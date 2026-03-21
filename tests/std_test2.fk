@@ -1,0 +1,91 @@
+-- Test: Extended FREAK standard library functions
+
+-- === std::math extended ===
+pilot s1 = std_sign(42)
+say "sign(42) = " + word_from_int(s1)
+
+pilot s2 = std_sign(0 - 7)
+say "sign(-7) = " + word_from_int(s2)
+
+pilot s3 = std_sign(0)
+say "sign(0) = " + word_from_int(s3)
+
+pilot g1 = std_gcd(48, 18)
+say "gcd(48,18) = " + word_from_int(g1)
+
+pilot g2 = std_gcd(100, 75)
+say "gcd(100,75) = " + word_from_int(g2)
+
+pilot l1 = std_lcm(4, 6)
+say "lcm(4,6) = " + word_from_int(l1)
+
+pilot f1 = std_factorial(5)
+say "factorial(5) = " + word_from_int(f1)
+
+pilot f2 = std_factorial(10)
+say "factorial(10) = " + word_from_int(f2)
+
+pilot fib1 = std_fibonacci(10)
+say "fibonacci(10) = " + word_from_int(fib1)
+
+pilot fib2 = std_fibonacci(20)
+say "fibonacci(20) = " + word_from_int(fib2)
+
+pilot ev1 = std_is_even(42)
+say "is_even(42) = " + bool_to_word(ev1)
+
+pilot ev2 = std_is_odd(7)
+say "is_odd(7) = " + bool_to_word(ev2)
+
+-- === std::convert ===
+pilot h1 = int_to_hex(255)
+say "hex(255) = " + h1
+
+pilot h2 = int_to_hex(4096)
+say "hex(4096) = " + h2
+
+pilot b1 = int_to_bin(42)
+say "bin(42) = " + b1
+
+pilot b2 = int_to_bin(255)
+say "bin(255) = " + b2
+
+pilot o1 = int_to_oct(255)
+say "oct(255) = " + o1
+
+pilot wi1 = word_to_int_safe("12345")
+say "word_to_int('12345') = " + word_from_int(wi1)
+
+pilot wi2 = word_to_int_safe("-42")
+say "word_to_int('-42') = " + word_from_int(wi2)
+
+-- === std::string extended ===
+pilot sw1 = string_starts_with("FREAK lang", "FREAK")
+say "starts_with('FREAK lang','FREAK') = " + bool_to_word(sw1)
+
+pilot sw2 = string_starts_with("FREAK lang", "lang")
+say "starts_with('FREAK lang','lang') = " + bool_to_word(sw2)
+
+pilot ew1 = string_ends_with("FREAK lang", "lang")
+say "ends_with('FREAK lang','lang') = " + bool_to_word(ew1)
+
+pilot ct1 = string_contains("hello world", "world")
+say "contains('hello world','world') = " + bool_to_word(ct1)
+
+pilot tr1 = string_trim("  hello  ")
+say "trim('  hello  ') = [" + tr1 + "]"
+
+pilot rp1 = string_replace("foo bar foo", "foo", "baz")
+say "replace('foo bar foo','foo','baz') = " + rp1
+
+pilot ss1 = string_substring("FREAK lang", 0, 5)
+say "substring('FREAK lang',0,5) = " + ss1
+
+pilot ix1 = string_index_of("hello world", "world")
+say "index_of('hello world','world') = " + word_from_int(ix1)
+
+pilot ix2 = string_index_of("hello world", "xyz")
+say "index_of('hello world','xyz') = " + word_from_int(ix2)
+
+say ""
+say "All extended std tests passed!"

@@ -1,0 +1,104 @@
+-- ===================================================================
+-- FREAK Standard Library — std::convert
+-- ===================================================================
+-- Number-to-string conversion utilities in pure FREAK.
+-- ===================================================================
+
+task int_to_hex(n: int) -> word {
+    if n == 0 { give back "0" }
+    pilot hex_chars = "0123456789abcdef"
+    pilot neg = false
+    pilot val = n
+    if val < 0 {
+        neg = true
+        val = 0 - val
+    }
+    pilot hex_out = ""
+    repeat until val <= 0 {
+        pilot rem = val - val / 16 * 16
+        hex_out = hex_chars.char_at(rem) + hex_out
+        val = val / 16
+    }
+    if neg { hex_out = "-" + hex_out }
+    give back hex_out
+}
+
+task int_to_bin(n: int) -> word {
+    if n == 0 { give back "0" }
+    pilot neg = false
+    pilot val = n
+    if val < 0 {
+        neg = true
+        val = 0 - val
+    }
+    pilot bin_out = ""
+    repeat until val <= 0 {
+        pilot rem = val - val / 2 * 2
+        if rem == 1 {
+            bin_out = "1" + bin_out
+        } else {
+            bin_out = "0" + bin_out
+        }
+        val = val / 2
+    }
+    if neg { bin_out = "-" + bin_out }
+    give back bin_out
+}
+
+task int_to_oct(n: int) -> word {
+    if n == 0 { give back "0" }
+    pilot oct_chars = "01234567"
+    pilot neg = false
+    pilot val = n
+    if val < 0 {
+        neg = true
+        val = 0 - val
+    }
+    pilot oct_out = ""
+    repeat until val <= 0 {
+        pilot rem = val - val / 8 * 8
+        oct_out = oct_chars.char_at(rem) + oct_out
+        val = val / 8
+    }
+    if neg { oct_out = "-" + oct_out }
+    give back oct_out
+}
+
+task char_to_digit(c: word) -> int {
+    if c == "0" { give back 0 }
+    if c == "1" { give back 1 }
+    if c == "2" { give back 2 }
+    if c == "3" { give back 3 }
+    if c == "4" { give back 4 }
+    if c == "5" { give back 5 }
+    if c == "6" { give back 6 }
+    if c == "7" { give back 7 }
+    if c == "8" { give back 8 }
+    if c == "9" { give back 9 }
+    give back 0 - 1
+}
+
+task word_to_int_safe(s: word) -> int {
+    pilot slen = s.length()
+    if slen == 0 { give back 0 }
+    pilot neg = false
+    pilot wi = 0
+    if s.char_at(0) == "-" {
+        neg = true
+        wi = 1
+    }
+    pilot num = 0
+    repeat until wi >= slen {
+        pilot d = char_to_digit(s.char_at(wi))
+        if d < 0 { give back 0 }
+        num = num * 10 + d
+        wi += 1
+    }
+    if neg { give back 0 - num }
+    give back num
+}
+
+task bool_to_word(b: bool) -> word {
+    if b { give back "true" }
+    give back "false"
+}
