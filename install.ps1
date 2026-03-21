@@ -11,8 +11,8 @@ function Ok($msg)    { Write-Host "> $msg" -ForegroundColor Green }
 function Err($msg)   { Write-Host "> $msg" -ForegroundColor Red; throw $msg }
 
 # Detect architecture
-$Arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-if ($Arch -eq "X64") {
+$Arch = $env:PROCESSOR_ARCHITECTURE
+if ($Arch -eq "AMD64" -or $Arch -eq "x86_64" -or $Arch -eq "X64") {
     $Target = "freakc-windows-x64.exe"
 } else {
     Err "Unsupported architecture: $Arch (only x64 supported for now)"
