@@ -150,7 +150,7 @@ Freak-lang/
 [x] M10 — GitHub repo public, README written
 [x] M11 — std::process, std::thread, std::bytes done
 [x] M12 — operator overloading (Add/Sub/Mul/Div/Neg/Eq via doctrines)
-[ ] M13 — freak-http and freak-json published to Hangar
+[x] M13 — freak-http and freak-json published to Hangar
 [ ] M14 — freak-image and freak-zip exist
 [x] M15 — self-hosting compiler bootstrap COMPLETE (freakc_self.exe compiles hello.fk)
 [x] M16 — std::fs, std::math, std::time integrated in v2 compiler
@@ -357,20 +357,24 @@ Squadron model (structured concurrency) is preferred over raw `std::thread`. Use
 
 ## Standard Library Modules
 
-| Module | What it provides |
-|---|---|
-| `std::fs` | File I/O |
-| `std::net` | TCP, UDP, HTTP client |
-| `std::json` | Parse and serialize JSON |
-| `std::thread` | Threads, atomics, channels |
-| `std::math` | Everything `num` needs |
-| `std::time` | Timestamps, durations, sleep |
-| `std::process` | Spawn processes, read env, CLI args |
-| `std::bytes` | `ByteBuffer` for binary I/O |
-| `std::ui` | Native window, events, canvas |
-| `std::anime` | Mood arithmetic, power checks |
-| `std::narrative` | Death flags, foreshadow logs |
-| `std::test` | Tests with vibes ratings |
+| Module | What it provides | Status |
+|---|---|---|
+| `std::math` | abs, min, max, clamp, pow, sqrt, gcd, lcm, factorial, fibonacci | ✅ Pure FREAK |
+| `std::string` | starts_with, ends_with, contains, trim, replace, substring, index_of | ✅ Pure FREAK |
+| `std::convert` | int_to_hex/bin/oct, char_to_digit, bool_to_word | ✅ Pure FREAK |
+| `std::algorithm` | sort, binary_search, find, contains, reverse, copy, unique, sum/max/min | ✅ Pure FREAK |
+| `std::json` | Parse and serialize JSON (recursive descent, value pool) | ✅ Pure FREAK |
+| `std::http` | HTTP/1.1 client (GET/POST/PUT/DELETE) over TCP sockets | ✅ Pure FREAK + C runtime |
+| `std::fs` | File I/O | ✅ C runtime |
+| `std::process` | Spawn processes, read env, CLI args | ✅ C runtime |
+| `std::time` | Timestamps, durations, sleep | ✅ C runtime |
+| `std::bytes` | `ByteBuffer` for binary I/O | ✅ C runtime |
+| `std::thread` | Threads, atomics, channels | 📐 Planned |
+| `std::net` | TCP, UDP sockets (low-level) | ✅ C runtime |
+| `std::ui` | Native window, events, canvas | 🚧 In progress |
+| `std::anime` | Mood arithmetic, power checks | 📐 Planned |
+| `std::narrative` | Death flags, foreshadow logs | 📐 Planned |
+| `std::test` | Tests with vibes ratings | 📐 Planned |
 
 `std::narrative` ships with the compiler. The `foreshadow_log.unpaid` field should be 0 at program end — this is a compiler warning if it isn't.
 
@@ -598,7 +602,7 @@ In rough priority order:
 5. **LLVM IR backend (LB5, LB7, LB10)** — runtime intrinsics, JIT, debug info. ~~LB6 (default backend)~~, ~~LB8 (opt levels)~~, ~~LB9 (cross-compilation)~~ done.
 6. **freak-ui Phase MA–MG** — window system, layout engine, calculator demo app.
 7. **HFML lexer/parser (MH0–MH3)** — can start before freak-ui Phase C is done.
-8. **M13: freak-http + freak-json** — publish as official Hangar packages.
+8. ~~**M13: freak-http + freak-json**~~ — ✅ Done. std::json (pure FREAK) + std::http (TCP sockets + pure FREAK).
 9. **Sortie IDE Phase 1** — VS Code extension.
 10. **Update CI/release workflows** — build `freakc.exe` (native CLI) instead of `freakc_v2.exe` in release artifacts.
 
@@ -634,6 +638,10 @@ In rough priority order:
 | `src/cli/toml.fk` | TOML parser/writer for hangar.toml |
 | `src/cli/hangar.fk` | Hangar package manager (native FREAK) |
 | `src/cli/version.fk` | Version display and help |
+| `std/json.fk` | JSON parser and serializer (pure FREAK) |
+| `std/http.fk` | HTTP/1.1 client (pure FREAK + TCP runtime) |
+| `std/algorithm.fk` | Sort, search, aggregate algorithms (pure FREAK) |
+| `std/convert.fk` | Type conversion utilities (pure FREAK) |
 | `std/version.fk` | Semver library (parse, compare, bump, constraints) |
 | `build_cli.bat` | Build script for native CLI binary |
 | `build/freakc.exe` | Native CLI binary (compiler + CLI + Hangar) |
