@@ -1,14 +1,14 @@
 # FREAK Language Installer — Windows
-# Usage: irm https://raw.githubusercontent.com/OttoApocalypse69/Freak-lang/main/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 
-$Repo = "OttoApocalypse69/Freak-lang"
+$Repo = "FREAK-lang-dev/Freak-lang"
 $InstallDir = if ($env:FREAK_HOME) { $env:FREAK_HOME } else { "$env:APPDATA\freak" }
 $BinDir = "$InstallDir\bin"
 
 function Info($msg)  { Write-Host "> $msg" -ForegroundColor Cyan }
 function Ok($msg)    { Write-Host "> $msg" -ForegroundColor Green }
-function Err($msg)   { Write-Host "> $msg" -ForegroundColor Red; exit 1 }
+function Err($msg)   { Write-Host "> $msg" -ForegroundColor Red; throw $msg }
 
 # Detect architecture
 $Arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture

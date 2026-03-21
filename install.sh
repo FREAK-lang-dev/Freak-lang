@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # FREAK Language Installer — Linux / macOS
-# Usage: curl -fsSL https://raw.githubusercontent.com/OttoApocalypse69/Freak-lang/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.sh | bash
 set -euo pipefail
 
-REPO="OttoApocalypse69/Freak-lang"
+REPO="FREAK-lang-dev/Freak-lang"
 INSTALL_DIR="${FREAK_HOME:-$HOME/.freak}"
 BIN_DIR="$INSTALL_DIR/bin"
 
