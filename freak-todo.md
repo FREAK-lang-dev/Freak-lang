@@ -403,7 +403,48 @@ A running Hello World beats a perfect unfinished type checker every time.
 [ ] M14 — freak-image and freak-zip exist (yours or community)
 [x] M15 — self-hosting compiler bootstrap COMPLETE (freakc_self.exe compiles hello.fk)
 [x] M16 — std::fs, std::math, std::time integrated in v2 compiler
+[x] M17 — LLVM IR backend core complete (LB1-LB4: hello, types, control flow, shapes, impl)
+[x] M18 — CI/CD: GitHub Actions on Linux/macOS/Windows, auto-release on tag push
+[x] M19 — Distribution: install.sh, install.ps1, hangar install freak, v0.8.0 released
 ```
+
+---
+
+## PHASE 16 — LLVM IR Backend (v2 self-hosting compiler)
+*Emit LLVM IR from the self-hosting compiler written in FREAK*
+
+- [x] LLVM IR emitter framework (`src/compiler/backend/llvm.fk`, ~1450 lines)
+- [x] Variables (int, word, bool, num) → alloca/store/load
+- [x] Functions with proper void/i64 return types
+- [x] String interpolation with type-aware formatting
+- [x] If/else → conditional branching
+- [x] When (pattern matching) → chained comparisons
+- [x] Repeat until / repeat N times / training arc loops
+- [x] Break/continue with label save/restore
+- [x] Shapes (structs) with typed field registry
+- [x] Impl methods (ShapeName_method mangling)
+- [x] Pipe operator (`|>` desugaring)
+- [x] Eventually (defer) blocks
+- [x] Boolean logic (and/or/not)
+- [x] Comparisons (==, !=, <, >, <=, >=)
+- [ ] Runtime intrinsics (replace freak_runtime.c calls with IR)
+- [ ] JIT mode via OrcJIT
+- [ ] Optimization levels (--opt=0/1/2/3)
+- [ ] Cross-compilation targets
+- [ ] DWARF debug info
+
+---
+
+## PHASE 17 — CI/CD & Distribution
+
+- [x] GitHub Actions CI on Linux/macOS/Windows
+- [x] Release workflow: 4-platform binary matrix on tag push
+- [x] v0.8.0 released with downloadable binaries + SHA256SUMS
+- [x] `install.sh` — Linux/macOS curl installer
+- [x] `install.ps1` — Windows PowerShell installer
+- [x] `hangar install freak` / `hangar upgrade freak` — toolchain bootstrap
+- [ ] Homebrew formula
+- [ ] Scoop/Winget manifests
 
 ---
 

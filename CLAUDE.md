@@ -90,9 +90,15 @@ Freak-lang/
 ├── freak-todo.md              # Development checklist with milestone tracking
 ├── freak-distribution-llvm-plan.md  # LLVM backend + distribution strategy
 ├── freak-ui-plan.md           # freak-ui implementation plan
+├── .github/
+│   └── workflows/
+│       ├── ci.yml             # CI: test on push/PR (3 platforms)
+│       └── release.yml        # Release: build binaries on tag push (4 platforms)
 ├── README.md                  # Public-facing README (M10 complete)
 ├── bootstrap.bat              # Windows self-hosting bootstrap script
 ├── run.sh                     # Linux/macOS run helper
+├── install.sh                 # Linux/macOS installer (curl | bash)
+├── install.ps1                # Windows installer (irm | iex)
 └── CLAUDE.md                  # This file
 ```
 
@@ -135,18 +141,29 @@ Pending — window system, layout engine, calculator app demo, five themes.
 ### HFML Milestones (MH0–MH9 track)
 Pending — depends on freak-ui Phase C for codegen; lexer/parser can start earlier.
 
-### LLVM Backend Milestones (LB-series) — NEXT PRIORITY
+### LLVM Backend Milestones (LB-series)
 ```
-[ ] LB1  — LLVM IR emitter: hello world compiles via llc + lld
-[ ] LB2  — All FREAK primitives map to LLVM types
-[ ] LB3  — All control flow emits correct IR (if/when/loops)
-[ ] LB4  — Shapes (structs) and impl methods work
+[x] LB1  — LLVM IR emitter: hello world compiles via clang
+[x] LB2  — All FREAK primitives map to LLVM types
+[x] LB3  — All control flow emits correct IR (if/when/loops/break/continue)
+[x] LB4  — Shapes (structs) and impl methods work
 [ ] LB5  — freak_runtime.h functions replaced by IR intrinsics
 [ ] LB6  — freak build uses LLVM backend by default
 [ ] LB7  — JIT mode: freak run executes via OrcJIT (no binary written)
 [ ] LB8  — Optimization levels: --opt=0/1/2/3
 [ ] LB9  — Cross-compilation: freak build --target x86_64-linux
 [ ] LB10 — Debug info: source line numbers in DWARF via DIBuilder
+```
+
+### Distribution Milestones (D-series)
+```
+[x] D1  — GitHub Actions CI on Linux/macOS/Windows
+[x] D2  — Release workflow: 4-platform binary matrix on tag push
+[x] D3  — v0.8.0 released with downloadable binaries
+[x] D4  — Install scripts: install.sh (Linux/macOS) + install.ps1 (Windows)
+[x] D5  — Hangar bootstrap: hangar install freak / hangar upgrade freak
+[ ] D6  — Homebrew formula
+[ ] D7  — Scoop/Winget manifests
 ```
 
 ---
@@ -358,6 +375,8 @@ freak foreshadow-audit   # show all foreshadow/payoff pairs and unpaid ones
 hangar init my-project
 hangar add pkg-name https://github.com/...
 hangar install
+hangar install freak             # download freakc binary
+hangar upgrade freak             # update to latest release
 hangar remove pkg-name
 ```
 
@@ -453,14 +472,18 @@ Every tagged release builds:
 - Same matrix for `hangar`
 - `SHA256SUMS` checksum file
 
-### Install Scripts (planned)
+### Install Scripts (working)
 
 ```bash
 # Linux/macOS
-curl -fsSL https://freak-lang.dev/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.sh | bash
 
 # Windows
-irm https://freak-lang.dev/install.ps1 | iex
+irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
+
+# Via Hangar (if you already have Python + freakc)
+python -m freakc hangar install freak
+python -m freakc hangar upgrade freak
 ```
 
 Long-term: Homebrew formula, Scoop/Winget manifests.
@@ -508,7 +531,11 @@ Test files in `tests/` directory. Run with `python -m freakc test` or `freak tes
 
 ### LLVM Backend Progress
 
-The `src/compiler/backend/llvm.fk` file exists. Initial LLVM IR tests are in `tests/` (`.fk.ll` files for hello, control_flow, operators, shapes, strings). The IR emitter is partially working — `tests/control_flow.fk.ll` and `tests/hello.fk.ll` have been generated.
+The LLVM IR backend (`src/compiler/backend/llvm.fk`, ~1450 lines) is fully working for core features. Use `freakc_v2.exe file.fk --llvm` to generate `.fk.ll` files, then compile with `clang file.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime`.
+
+**Working features:** variables, functions (void + i64), if/else, when, all loop types, break/continue, shapes with typed fields, impl methods, pipe operator, eventually blocks, string interpolation, boolean logic, comparisons.
+
+**Not yet implemented:** runtime intrinsics (LB5), JIT (LB7), optimization levels (LB8), cross-compilation (LB9), debug info (LB10).
 
 ---
 
@@ -524,7 +551,7 @@ The `src/compiler/backend/llvm.fk` file exists. Initial LLVM IR tests are in `te
 
 5. **PEAK is independent.** It is not a transpiler target for FREAK. It compiles separately.
 
-6. **Hangar can't bootstrap itself.** Install script is the entry point. This is a known constraint, not a bug.
+6. **Hangar can now bootstrap FREAK.** `hangar install freak` downloads the compiler. Install scripts are the entry point for first-time users without Python.
 
 7. **Get M1 working before doing anything else.** (Done. But the principle stands for new features — a running minimal version beats a perfect unfinished one.)
 
@@ -534,13 +561,14 @@ The `src/compiler/backend/llvm.fk` file exists. Initial LLVM IR tests are in `te
 
 In rough priority order:
 
-1. **LLVM IR backend (LB1–LB10)** — removes Clang dependency, enables JIT, proper cross-compilation. Start with `LB1`: hello world through llc + lld.
-2. **GitHub Actions CI/CD** — cross-compilation matrix, automated releases on tag push.
-3. **Hangar bootstrapper** — tiny Python/Go script that downloads the freakc binary and sets up PATH.
-4. **freak-ui Phase MA–MG** — window system, layout engine, calculator demo app.
-5. **HFML lexer/parser (MH0–MH3)** — can start before freak-ui Phase C is done.
-6. **M13: freak-http + freak-json** — publish as official Hangar packages.
-7. **Sortie IDE Phase 1** — VS Code extension (parallel workstream after CI is set up).
+1. ~~**LLVM IR backend (LB1–LB4)**~~ — ✅ Done. Hello world, primitives, control flow, shapes, impl methods, pipe, break/continue, eventually all working.
+2. ~~**GitHub Actions CI/CD**~~ — ✅ Done. Tests on 3 platforms, release workflow on 4 platforms.
+3. ~~**Hangar bootstrapper**~~ — ✅ Done. `hangar install freak` + install.sh/install.ps1.
+4. **LLVM IR backend (LB5–LB10)** — runtime intrinsics, default backend switch, JIT, optimization levels, cross-compilation, debug info.
+5. **freak-ui Phase MA–MG** — window system, layout engine, calculator demo app.
+6. **HFML lexer/parser (MH0–MH3)** — can start before freak-ui Phase C is done.
+7. **M13: freak-http + freak-json** — publish as official Hangar packages.
+8. **Sortie IDE Phase 1** — VS Code extension.
 
 ---
 
@@ -562,6 +590,12 @@ In rough priority order:
 | `tests/rpg_console.fk` | Larger showcase program |
 | `bootstrap.bat` | Full self-hosting bootstrap (Windows) |
 | `run.sh` | Compile + run helper (Linux/macOS) |
+| `install.sh` | Linux/macOS binary installer |
+| `install.ps1` | Windows binary installer |
+| `.github/workflows/ci.yml` | CI workflow (3 platforms) |
+| `.github/workflows/release.yml` | Release workflow (4 platform binaries) |
+| `freakc/hangar.py` | Hangar package manager + toolchain bootstrap |
+| `freakc/runtime/freak_llvm_runtime.c` | LLVM backend runtime |
 
 ---
 
