@@ -17,6 +17,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <dirent.h>
+#define _strdup strdup
 #endif
 
 /* runtime bootstrap globals (set by generated main) */
