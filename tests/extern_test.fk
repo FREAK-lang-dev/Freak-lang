@@ -1,0 +1,18 @@
+-- Test: extern task declarations
+-- Declare C runtime functions, then call them from FREAK.
+
+extern task freak_abs_int(x: int) -> int
+extern task freak_pow_int(base: int, exp: int) -> int
+extern task freak_word_to_upper(w: word) -> word
+
+pilot a = freak_abs_int(0 - 42)
+pilot msg_a = "abs(-42) = " + word_from_int(a)
+say msg_a
+
+pilot p = freak_pow_int(2, 10)
+pilot msg_p = "pow(2,10) = " + word_from_int(p)
+say msg_p
+
+pilot upper = freak_word_to_upper("hello freak")
+pilot msg_u = "to_upper = " + upper
+say msg_u

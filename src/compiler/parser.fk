@@ -615,6 +615,46 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_WHEN, "", word_from_int(target_id), cases_str, "", "", "", "")
     }
 
+    -- extern task: foreign function declaration (no body)
+    if match_tok(TOK_KW, "extern") {
+        expect_tok(TOK_KW, "task")
+        pilot ename = cur_tok_val()
+        advance_tok()
+        expect_tok(TOK_PUNCT, "(")
+        pilot eparams = ""
+        pilot efin = false
+        pilot eis_first = true
+        if match_tok(TOK_PUNCT, ")") {
+            efin = true
+        }
+        repeat until efin {
+            pilot epname = cur_tok_val()
+            advance_tok()
+            expect_tok(TOK_PUNCT, ":")
+            pilot eptype = cur_tok_val()
+            advance_tok()
+
+            pilot epstr = epname + ":"
+            epstr = epstr + eptype
+
+            if eis_first {
+                eparams = epstr
+                eis_first = false
+            } else {
+                pilot etmp = eparams + ","
+                eparams = etmp + epstr
+            }
+            if match_tok(TOK_PUNCT, ")") { efin = true }
+            else { expect_tok(TOK_PUNCT, ",") }
+        }
+
+        expect_tok(TOK_PUNCT, "->")
+        pilot eret_type = cur_tok_val()
+        advance_tok()
+
+        give back alloc_stmt(STMT_EXTERN, ename, "", "", "", "", eparams, eret_type)
+    }
+
     if match_tok(TOK_KW, "task") {
         pilot name = cur_tok_val()
         advance_tok()

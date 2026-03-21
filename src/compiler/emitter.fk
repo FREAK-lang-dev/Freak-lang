@@ -38,6 +38,43 @@ task emt_get_var_type(name: word) -> word {
     give back ""
 }
 
+-- Extern function registry (functions declared with 'extern task')
+pilot emt_extern_names = 0
+pilot emt_extern_rets = 0
+pilot emt_extern_count = 0
+
+task emt_register_extern(name: word, ret_type: word) -> void {
+    array_push(emt_extern_names, name)
+    array_push(emt_extern_rets, ret_type)
+    emt_extern_count += 1
+}
+
+task emt_is_extern(xname: word) -> bool {
+    pilot xi = 0
+    pilot xtarget = "" + xname
+    repeat emt_extern_count times {
+        pilot xentry: word = array_get(emt_extern_names, xi)
+        if xentry == xtarget { give back true }
+        xi += 1
+    }
+    give back false
+}
+
+task emt_extern_returns_word(xname: word) -> bool {
+    pilot xi = 0
+    pilot xtarget = "" + xname
+    repeat emt_extern_count times {
+        pilot xentry: word = array_get(emt_extern_names, xi)
+        if xentry == xtarget {
+            pilot xret: word = array_get(emt_extern_rets, xi)
+            if xret == "word" { give back true }
+            give back false
+        }
+        xi += 1
+    }
+    give back false
+}
+
 task emit(s: word) -> void {
     out_buf = out_buf + s
 }
@@ -104,6 +141,8 @@ task is_ast_word(id: word) -> bool {
         if val == "llvm_double_to_i64" { give back true }
         if val == "next_reg" { give back true }
         if val == "register_string_literal" { give back true }
+        -- Check extern functions that return word
+        if emt_extern_returns_word(val) { give back true }
     }
     if kind == EXPR_BINOP {
         pilot val: word = array_get(ast_expr_vals, i)
@@ -248,6 +287,13 @@ task emit_expr(id: word) -> void {
             emit(")")
         } else if val == "process::env" {
             emit("freak_process_env(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if emt_is_extern(val) {
+            -- Extern function: call without freak_ prefix
+            pilot etmp = c_safe_ident(val)
+            etmp = etmp + "("
+            emit(etmp)
             if left != "" { emit_args(left) }
             emit(")")
         } else {
@@ -767,17 +813,41 @@ task emit_fwd_decl(eid: word) -> void {
     emit_line(");")
 }
 
+task emit_extern_decl(eid: word) -> void {
+    -- Emit a forward declaration for an extern C function (no freak_ prefix).
+    pilot i = word_to_int(eid)
+    pilot name_w: word = array_get(ast_stmt_names, i)
+    pilot params_w: word = array_get(ast_task_params, i)
+    pilot returns_w: word = array_get(ast_task_returns, i)
+    emt_register_extern(name_w, returns_w)
+    pilot c_ret = "void"
+    if returns_w == "int" { c_ret = "int64_t" }
+    else if returns_w == "word" { c_ret = "freak_word" }
+    else if returns_w == "bool" { c_ret = "bool" }
+    else if returns_w == "num" { c_ret = "double" }
+    pilot c_params = "void"
+    if params_w != "" { c_params = translate_params(params_w) }
+    emit("extern ")
+    emit(c_ret)
+    emit(" ")
+    emit(name_w)
+    emit("(")
+    emit(c_params)
+    emit_line(");")
+}
+
 task emit_program() -> void {
     emit_line("#include \"freak_runtime.h\"")
 
     pilot top_count = array_len(ast_top_stmts)
     pilot i = 0
 
-    -- Pass 0: Forward declarations for all tasks
+    -- Pass 0: Forward declarations for all tasks + extern declarations
     repeat top_count times {
         pilot cur_id: word = array_get(ast_top_stmts, i)
         pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
         if kind == STMT_TASK { emit_fwd_decl(cur_id) }
+        if kind == STMT_EXTERN { emit_extern_decl(cur_id) }
         i += 1
     }
 
@@ -814,7 +884,7 @@ task emit_program() -> void {
     repeat top_count times {
         pilot cur_id: word = array_get(ast_top_stmts, i)
         pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
-        if kind != STMT_TASK and kind != STMT_SHAPE and kind != STMT_PILOT { emit_stmt(cur_id) }
+        if kind != STMT_TASK and kind != STMT_SHAPE and kind != STMT_PILOT and kind != STMT_EXTERN { emit_stmt(cur_id) }
         i += 1
     }
     emit_line("}")

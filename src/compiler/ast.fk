@@ -55,6 +55,7 @@ pilot STMT_SHAPE = "12"
 pilot STMT_BREAK = "13"
 pilot STMT_CONTINUE = "14"
 pilot STMT_EVENTUALLY = "15"
+pilot STMT_EXTERN = "16"
 
 pilot ast_stmt_kinds = 0
 pilot ast_stmt_names = 0
@@ -169,6 +170,10 @@ task init_arrays() -> void {
     emt_var_names = array_new()
     emt_var_types = array_new()
     emt_var_count = 0
+
+    emt_extern_names = array_new()
+    emt_extern_rets = array_new()
+    emt_extern_count = 0
 }
 
 -- ===================== LEGACY COMPAT =================================
