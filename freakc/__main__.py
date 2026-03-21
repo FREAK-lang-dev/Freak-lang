@@ -108,6 +108,7 @@ def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path) -> tuple[bool, str
         return False, "No C compiler found (gcc/clang). Install one to compile."
 
     runtime_c = runtime_dir / "freak_runtime.c"
+    import sys
     cmd = [
         cc,
         "-o",
@@ -119,6 +120,9 @@ def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path) -> tuple[bool, str
         "-std=c11",
         "-Wall",
     ]
+    # Linux requires explicit math library linkage
+    if sys.platform.startswith("linux"):
+        cmd.append("-lm")
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:

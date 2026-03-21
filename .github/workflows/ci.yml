@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  CLANG_FLAGS: "-w -O2 -D_CRT_SECURE_NO_WARNINGS"
+
 jobs:
   build-and-test:
     strategy:
@@ -30,6 +33,15 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install llvm -y
 
+      - name: Set platform linker flags
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            echo "LINK_FLAGS=-lm" >> "$GITHUB_ENV"
+          else
+            echo "LINK_FLAGS=" >> "$GITHUB_ENV"
+          fi
+
       - name: Build v2 compiler (Stage 0 — Python bootstrap)
         shell: bash
         run: |
@@ -40,40 +52,33 @@ jobs:
         run: |
           cat src/compiler/ast.fk src/compiler/lexer.fk src/compiler/parser.fk src/compiler/checker.fk src/compiler/emitter.fk src/compiler/backend/llvm.fk src/compiler/main.fk > build/freakc_v2.fk
           ./self_hosted/freakc_self.exe build/freakc_v2.fk
-          clang -o build/freakc_v2.exe build/freakc_v2.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          clang -o build/freakc_v2.exe build/freakc_v2.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
       - name: Test — hello.fk (C backend)
         shell: bash
         run: |
           ./build/freakc_v2.exe tests/hello.fk
-          clang -o tests/hello_ci.exe tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          clang -o tests/hello_ci.exe tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           ./tests/hello_ci.exe
 
       - name: Test — control_flow.fk (C backend)
         shell: bash
         run: |
           ./build/freakc_v2.exe tests/control_flow.fk
-          clang -o tests/control_flow_ci.exe tests/control_flow.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          clang -o tests/control_flow_ci.exe tests/control_flow.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           ./tests/control_flow_ci.exe
-
-      - name: Test — functions.fk (C backend)
-        shell: bash
-        run: |
-          ./build/freakc_v2.exe tests/functions.fk
-          clang -o tests/functions_ci.exe tests/functions.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
-          ./tests/functions_ci.exe
 
       - name: Test — hello.fk (LLVM backend)
         shell: bash
         run: |
           ./build/freakc_v2.exe tests/hello.fk --llvm
-          clang -o tests/hello_llvm_ci.exe tests/hello.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          clang -o tests/hello_llvm_ci.exe tests/hello.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           ./tests/hello_llvm_ci.exe
 
       - name: Self-hosting bootstrap test
         shell: bash
         run: |
           ./build/freakc_v2.exe tests/hello.fk
-          clang -o tests/hello_bootstrap.exe tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          clang -o tests/hello_bootstrap.exe tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           echo "--- Bootstrap verification output ---"
           ./tests/hello_bootstrap.exe

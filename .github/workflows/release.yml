@@ -42,13 +42,18 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang lld
 
-      - name: Install Clang (macOS)
-        if: runner.os == 'macOS'
-        run: brew install llvm
-
       - name: Install Clang (Windows)
         if: runner.os == 'Windows'
         run: choco install llvm -y
+
+      - name: Set platform linker flags
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            echo "LINK_FLAGS=-lm" >> "$GITHUB_ENV"
+          else
+            echo "LINK_FLAGS=" >> "$GITHUB_ENV"
+          fi
 
       - name: Build freakc compiler
         shell: bash
@@ -59,13 +64,13 @@ jobs:
           # Stage 1: Concatenate and compile v2
           cat src/compiler/ast.fk src/compiler/lexer.fk src/compiler/parser.fk src/compiler/checker.fk src/compiler/emitter.fk src/compiler/backend/llvm.fk src/compiler/main.fk > build/freakc_v2.fk
           ./self_hosted/freakc_self.exe build/freakc_v2.fk
-          clang -o build/freakc_v2${{ matrix.ext }} build/freakc_v2.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O3 -D_CRT_SECURE_NO_WARNINGS
+          clang -o build/freakc_v2${{ matrix.ext }} build/freakc_v2.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O3 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
 
       - name: Smoke test
         shell: bash
         run: |
           ./build/freakc_v2${{ matrix.ext }} tests/hello.fk
-          clang -o tests/hello_release${{ matrix.ext }} tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          clang -o tests/hello_release${{ matrix.ext }} tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
           ./tests/hello_release${{ matrix.ext }}
 
       - name: Package release artifact
