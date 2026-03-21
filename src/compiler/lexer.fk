@@ -35,10 +35,10 @@ task lex_advance() -> word {
 }
 
 task push_token(kind: word, val: word) -> void {
-    tok_types = push_item(tok_types, kind, tokens_count)
-    tok_vals = push_item(tok_vals, val, tokens_count)
-    tok_lines = push_item(tok_lines, word_from_int(cur_tok_line), tokens_count)
-    tok_cols = push_item(tok_cols, word_from_int(cur_tok_col), tokens_count)
+    array_push(tok_types, kind)
+    array_push(tok_vals, val)
+    array_push(tok_lines, word_from_int(cur_tok_line))
+    array_push(tok_cols, word_from_int(cur_tok_col))
     tokens_count += 1
 }
 
@@ -246,13 +246,17 @@ task lex_string() -> void {
             pilot esc = lex_advance()
             if esc == "n" {
                 res = res + "\n"
+            } else if esc == "r" {
+                res = res + "\r"
+            } else if esc == "t" {
+                res = res + "\t"
             } else {
-                if esc == "t" {
-                    res = res + "\t"
-                } else {
-                    res = res + esc
-                }
+                res = res + esc
             }
+        } else if c == "|" {
+            -- Escape pipe chars in string literals to avoid corrupting
+            -- pipe-delimited token storage. Emitters must reverse this.
+            res = res + "<<PIPE>>"
         } else {
             res = res + c
         }
@@ -270,10 +274,7 @@ task tokenize(source: word) -> void {
     lex_line = 1
     lex_col = 1
 
-    tok_types = ""
-    tok_vals = ""
-    tok_lines = ""
-    tok_cols = ""
+    tokens_count = 0
 
     pilot fin = false
     repeat until fin {
@@ -297,40 +298,40 @@ task tokenize(source: word) -> void {
                 lex_advance()
                 pilot next_c = lex_cur_ch()
 
-                pilot double = false
+                pilot is_double = false
                 if op == "=" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "!" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "<" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == ">" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "+" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "-" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "*" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "/" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "%" and next_c == "=" {
-                    double = true
+                    is_double = true
                 } else if op == "-" and next_c == ">" {
-                    double = true
+                    is_double = true
                 } else if op == "=" and next_c == ">" {
-                    double = true
+                    is_double = true
                 } else if op == "*" and next_c == "*" {
-                    double = true
+                    is_double = true
                 } else if op == "|" and next_c == ">" {
-                    double = true
+                    is_double = true
                 } else if op == "|" and next_c == "|" {
-                    double = true
+                    is_double = true
                 } else if op == ":" and next_c == ":" {
-                    double = true
+                    is_double = true
                 }
 
-                if double {
+                if is_double {
                     op = op + next_c
                     lex_advance()
                 }

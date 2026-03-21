@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Clang (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: Install Clang (macOS)
+        if: runner.os == 'macOS'
+        run: brew install llvm
+
+      - name: Install Clang (Windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm -y
+
+      - name: Build v2 compiler (Stage 0 — Python bootstrap)
+        shell: bash
+        run: |
+          python -m freakc build self_hosted/main.fk -o self_hosted/freakc_self.exe --keep-c
+
+      - name: Build v2 compiler (Stage 1 — concatenate + compile)
+        shell: bash
+        run: |
+          cat src/compiler/ast.fk src/compiler/lexer.fk src/compiler/parser.fk src/compiler/checker.fk src/compiler/emitter.fk src/compiler/backend/llvm.fk src/compiler/main.fk > build/freakc_v2.fk
+          ./self_hosted/freakc_self.exe build/freakc_v2.fk
+          clang -o build/freakc_v2.exe build/freakc_v2.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+
+      - name: Test — hello.fk (C backend)
+        shell: bash
+        run: |
+          ./build/freakc_v2.exe tests/hello.fk
+          clang -o tests/hello_ci.exe tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          ./tests/hello_ci.exe
+
+      - name: Test — control_flow.fk (C backend)
+        shell: bash
+        run: |
+          ./build/freakc_v2.exe tests/control_flow.fk
+          clang -o tests/control_flow_ci.exe tests/control_flow.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          ./tests/control_flow_ci.exe
+
+      - name: Test — operators.fk (C backend)
+        shell: bash
+        run: |
+          ./build/freakc_v2.exe tests/operators.fk
+          clang -o tests/operators_ci.exe tests/operators.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          ./tests/operators_ci.exe
+
+      - name: Test — functions.fk (C backend)
+        shell: bash
+        run: |
+          ./build/freakc_v2.exe tests/functions.fk
+          clang -o tests/functions_ci.exe tests/functions.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          ./tests/functions_ci.exe
+
+      - name: Test — hello.fk (LLVM backend)
+        shell: bash
+        run: |
+          ./build/freakc_v2.exe tests/hello.fk --llvm
+          clang -o tests/hello_llvm_ci.exe tests/hello.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          ./tests/hello_llvm_ci.exe
+
+      - name: Test — control_flow.fk (LLVM backend)
+        shell: bash
+        run: |
+          ./build/freakc_v2.exe tests/control_flow.fk --llvm
+          clang -o tests/control_flow_llvm_ci.exe tests/control_flow.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          ./tests/control_flow_llvm_ci.exe
+
+      - name: Self-hosting bootstrap test
+        shell: bash
+        run: |
+          # Stage 2: v2 compiler compiles hello.fk — proves self-hosting chain works
+          ./build/freakc_v2.exe tests/hello.fk
+          clang -o tests/hello_bootstrap.exe tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS
+          echo "--- Bootstrap verification output ---"
+          ./tests/hello_bootstrap.exe

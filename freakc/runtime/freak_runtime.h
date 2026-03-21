@@ -91,6 +91,14 @@ freak_word freak_fs_read(freak_word path);
 /* Write word contents to a file. Panics on failure. */
 void freak_fs_write(freak_word path, freak_word content);
 
+/* Append word contents to a file. Creates if not exists. Panics on failure. */
+void freak_fs_append(freak_word path, freak_word content);
+
+/* Aliases without freak_ prefix (self-hosted compiler compatibility) */
+void fs_append(freak_word path, freak_word content);
+bool fs_exists(freak_word path);
+void fs_delete(freak_word path);
+
 bool freak_fs_exists(freak_word path);
 void freak_fs_delete(freak_word path);
 void freak_fs_make_dir(freak_word path);
@@ -225,6 +233,8 @@ void freak_process_exit(int64_t code);
 freak_maybe_word freak_process_env_var(freak_word name);
 void freak_process_set_env(freak_word name, freak_word val);
 void* freak_process_args(void); /* TODO: list<word> */
+int64_t freak_process_args_count(void);
+freak_word freak_process_arg(int64_t index);
 
 /* process handle methods */
 int64_t freak_process_wait(freak_process_handle p);
@@ -293,3 +303,34 @@ uint64_t freak_bytes_length(const freak_byte_buffer* b);
 
 void* freak_bytes_to_list(const freak_byte_buffer* b); /* TODO: list<tiny> */
 freak_result_word_word freak_bytes_to_word(const freak_byte_buffer* b);
+
+/* ------------------------------------------------------------------ */
+/*  Dynamic arrays (replaces pipe-delimited string "arrays")          */
+/* ------------------------------------------------------------------ */
+
+/* Creates a new dynamic array, returns a handle (int64_t). */
+int64_t freak_array_new(void);
+
+/* Push a word onto the array. */
+void freak_array_push(int64_t handle, freak_word item);
+
+/* Get item at index (0-based). Returns empty word if out of bounds. */
+freak_word freak_array_get(int64_t handle, int64_t index);
+
+/* Get current length of the array. */
+int64_t freak_array_len(int64_t handle);
+
+/* Set item at index. Panics if out of bounds. */
+void freak_array_set(int64_t handle, int64_t index, freak_word item);
+
+/* ------------------------------------------------------------------ */
+/*  UI Runtime Subsystem                                              */
+/* ------------------------------------------------------------------ */
+
+int64_t freak_llvm_ui_create_native(int64_t title_word, int64_t width, int64_t height);
+int64_t freak_llvm_ui_poll_events(int64_t handle);
+void freak_llvm_ui_begin_frame(int64_t handle);
+void freak_llvm_ui_end_frame(int64_t handle);
+void freak_llvm_ui_clear(int64_t handle, int64_t r, int64_t g, int64_t b, int64_t a);
+void freak_llvm_ui_fill_rect(int64_t handle, int64_t x, int64_t y, int64_t w, int64_t h, int64_t r, int64_t g, int64_t b, int64_t a);
+

@@ -1,11 +1,10 @@
 -- ===================================================================
--- FREAK AST DATA STRUCTURES (v2) - PARALLEL WORD ARRAYS
+-- FREAK AST DATA STRUCTURES (v2) - DYNAMIC ARRAY BACKED
 -- ===================================================================
 
--- Since our stage-1 compiler `freakc_self.exe` does not yet support `shape`
--- or `List<T>`, we must simulate our AST nodes and Tokens using flat, delimited
--- strings (words). We will use a special delimiter sequence "`|`" to separate
--- items, allowing us to build dynamic lists.
+-- Uses C runtime dynamic arrays instead of pipe-delimited strings.
+-- array_new() returns a handle (int), array_push/get/len operate on handles.
+-- This gives O(1) access instead of O(n) scanning.
 
 -- ===================== TOKENS ======================================
 pilot TOK_EOF = "0"
@@ -16,33 +15,14 @@ pilot TOK_BOOL = "4"
 pilot TOK_PUNCT = "5"
 pilot TOK_KW = "6"
 
--- Tokens are stored as a single massive string, using `\x1E` (Record Separator)
--- and `\x1F` (Unit Separator). Since we can't reliably type those in the
--- bootstrapper, we'll use `#` as a field separator, and `|` as a record separator.
--- Format: "type#val#line#col|type#val#line#col|..."
-
-pilot tokens_db = ""
+-- Token storage: parallel arrays, each holding one field per token.
+pilot tok_types = 0
+pilot tok_vals  = 0
+pilot tok_lines = 0
+pilot tok_cols  = 0
 pilot tokens_count = 0
 
--- Helper to split strings by index. Since we don't have arrays, we simulate it
--- by traversing the string.
-task tok_get_field(idx: int, field_no: int) -> word {
-    give back ""
-}
-
--- Better approach: Parallel words where each token is exactly padded to a certain length? No.
--- Best approach: Separate words for each field, using `|` to separate values.
-pilot tok_types = ""
-pilot tok_vals  = ""
-pilot tok_lines = ""
-pilot tok_cols  = ""
-
--- We just concat like: tok_types = tok_types + ttype + "|"
-
 -- ===================== AST NODES ===================================
--- Similar to tokens, we store AST nodes in parallel strings.
--- Each node ID is its index (0, 1, 2...).
-
 pilot EXPR_INT = "1"
 pilot EXPR_FLOAT = "2"
 pilot EXPR_STR = "3"
@@ -55,10 +35,10 @@ pilot EXPR_METHOD = "9"
 pilot EXPR_FIELD = "10"
 pilot EXPR_INDEX = "11"
 
-pilot ast_expr_kinds = ""
-pilot ast_expr_vals = ""
-pilot ast_expr_lefts = ""
-pilot ast_expr_rights = ""
+pilot ast_expr_kinds = 0
+pilot ast_expr_vals = 0
+pilot ast_expr_lefts = 0
+pilot ast_expr_rights = 0
 
 pilot STMT_PILOT = "1"
 pilot STMT_SAY = "2"
@@ -71,20 +51,129 @@ pilot STMT_REPEAT = "8"
 pilot STMT_TRAINING_ARC = "9"
 pilot STMT_WHEN = "10"
 pilot STMT_BLOCK = "11"
+pilot STMT_SHAPE = "12"
+pilot STMT_BREAK = "13"
+pilot STMT_CONTINUE = "14"
 
-pilot ast_stmt_kinds = ""
-pilot ast_stmt_names = ""
-pilot ast_stmt_exprs = ""
-pilot ast_stmt_bodies = ""
-pilot ast_stmt_else_bodies = ""
-pilot ast_stmt_extras = ""
-pilot ast_task_params = ""
-pilot ast_task_returns = ""
+pilot ast_stmt_kinds = 0
+pilot ast_stmt_names = 0
+pilot ast_stmt_exprs = 0
+pilot ast_stmt_bodies = 0
+pilot ast_stmt_else_bodies = 0
+pilot ast_stmt_extras = 0
+pilot ast_task_params = 0
+pilot ast_task_returns = 0
 
-pilot ast_top_stmts = ""
+pilot ast_top_stmts = 0
 
--- ===================== STRING UTILS ================================
--- We'll need a way to extract the Nth item from a `|` separated list.
+-- ===================== SHAPE REGISTRY ==============================
+pilot shape_registry_names = 0
+pilot shape_registry_fields = 0
+pilot shape_registry_count = 0
+
+task register_shape(name: word, fields: word) -> void {
+    array_push(shape_registry_names, name)
+    array_push(shape_registry_fields, fields)
+    shape_registry_count += 1
+}
+
+task is_shape_name(name: word) -> bool {
+    pilot i = 0
+    repeat shape_registry_count times {
+        pilot sname = "" + array_get(shape_registry_names, i)
+        if sname == name { give back true }
+        i += 1
+    }
+    give back false
+}
+
+task get_shape_fields(name: word) -> word {
+    pilot i = 0
+    repeat shape_registry_count times {
+        pilot sname = "" + array_get(shape_registry_names, i)
+        if sname == name { give back array_get(shape_registry_fields, i) }
+        i += 1
+    }
+    give back ""
+}
+
+-- Get the index of a field within a shape (comma-separated "name:type" list)
+task get_shape_field_index(shape_name: word, field_name: word) -> int {
+    pilot fields = "" + get_shape_fields(shape_name)
+    if fields.length() == 0 { give back 0 - 1 }
+    pilot idx = 0
+    pilot cur_name = ""
+    pilot in_type = false
+    pilot slen = fields.length()
+    pilot i = 0
+    repeat slen times {
+        pilot c = "" + fields.char_at(i)
+        if c == "," {
+            if cur_name == field_name { give back idx }
+            idx += 1
+            cur_name = ""
+            in_type = false
+        } else if c == ":" {
+            in_type = true
+        } else {
+            if not in_type { cur_name = cur_name + c }
+        }
+        i += 1
+    }
+    if cur_name == field_name { give back idx }
+    give back 0 - 1
+}
+
+task get_shape_field_count(shape_name: word) -> int {
+    pilot fields = "" + get_shape_fields(shape_name)
+    if fields.length() == 0 { give back 0 }
+    pilot count = 1
+    pilot slen = fields.length()
+    pilot i = 0
+    repeat slen times {
+        pilot c = "" + fields.char_at(i)
+        if c == "," { count += 1 }
+        i += 1
+    }
+    give back count
+}
+
+-- ===================== INIT ==========================================
+-- Must be called before any compiler pass to initialize all arrays.
+task init_arrays() -> void {
+    tok_types = array_new()
+    tok_vals = array_new()
+    tok_lines = array_new()
+    tok_cols = array_new()
+
+    ast_expr_kinds = array_new()
+    ast_expr_vals = array_new()
+    ast_expr_lefts = array_new()
+    ast_expr_rights = array_new()
+
+    ast_stmt_kinds = array_new()
+    ast_stmt_names = array_new()
+    ast_stmt_exprs = array_new()
+    ast_stmt_bodies = array_new()
+    ast_stmt_else_bodies = array_new()
+    ast_stmt_extras = array_new()
+    ast_task_params = array_new()
+    ast_task_returns = array_new()
+
+    ast_top_stmts = array_new()
+
+    shape_registry_names = array_new()
+    shape_registry_fields = array_new()
+
+    emt_var_names = array_new()
+    emt_var_types = array_new()
+    emt_var_count = 0
+}
+
+-- ===================== LEGACY COMPAT =================================
+-- get_nth and push_item kept for any remaining callers during migration.
+-- These now delegate to array functions where possible, but the old
+-- pipe-delimited versions are kept for non-array strings.
 
 task get_nth(s: word, n: int) -> word {
     pilot res = ""
@@ -112,7 +201,6 @@ task get_nth(s: word, n: int) -> word {
     give back res
 }
 
--- Simple `append_item`
 task push_item(list: word, item: word, count: int) -> word {
     if count == 0 {
         give back item

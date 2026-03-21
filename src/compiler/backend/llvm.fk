@@ -3,14 +3,40 @@
 -- ===================================================================
 
 pilot llvm_out_buf = ""
+pilot llvm_out_file = ""
+pilot llvm_line_count = 0
 pilot temp_reg_counter = 0
 pilot string_literals = ""
 pilot string_literals_count = 0
 
 -- Variable type tracking: parallel pipe-delimited lists
--- Names: "x|y|greeting|" and Types: "i|w|w|" (i=int, w=word/string)
+-- Names: "x|y|greeting|" and Types: "i|w|w|" (i=int, w=word/string, n=num/double)
 pilot llvm_var_names = ""
 pilot llvm_var_types = ""
+
+-- Task return type registry: tracks return types of user-defined tasks
+-- So llvm_infer_expr_type can resolve calls to user tasks correctly
+pilot llvm_task_reg_names = ""
+pilot llvm_task_reg_types = ""
+pilot llvm_task_reg_count = 0
+
+-- Track current function context for correct ret emission
+pilot llvm_cur_func_is_void = false
+
+-- Track current loop labels for break/continue
+pilot llvm_loop_end_label = ""
+pilot llvm_loop_cond_label = ""
+
+-- Flush the LLVM output buffer to file (streaming mode)
+task llvm_flush() -> void {
+    if llvm_out_file != "" {
+        if llvm_out_buf != "" {
+            fs::append(llvm_out_file, llvm_out_buf)
+            llvm_out_buf = ""
+            llvm_line_count = 0
+        }
+    }
+}
 
 task llvm_emit(s: word) -> void {
     llvm_out_buf = llvm_out_buf + s
@@ -19,6 +45,13 @@ task llvm_emit(s: word) -> void {
 task llvm_emit_line(s: word) -> void {
     llvm_out_buf = llvm_out_buf + s
     llvm_out_buf = llvm_out_buf + "\n"
+    llvm_line_count += 1
+    -- In streaming mode, flush every 50 lines to prevent O(n^2) blowup
+    if llvm_out_file != "" {
+        if llvm_line_count >= 50 {
+            llvm_flush()
+        }
+    }
 }
 
 task next_reg() -> word {
@@ -27,16 +60,34 @@ task next_reg() -> word {
     give back r
 }
 
+task llvm_flush_strs() -> void {
+    if llvm_out_file != "" {
+        if string_literals != "" {
+            fs::append(llvm_out_file + ".strs", string_literals)
+            string_literals = ""
+        }
+    }
+}
+
 task register_string_literal(val: word) -> word {
     pilot id = "@.str." + word_from_int(string_literals_count)
     string_literals_count += 1
 
-    pilot len = val.length()
+    -- Restore escaped pipe characters from lexer
+    pilot real_val = val.replace("<<PIPE>>", "|")
+    pilot len = real_val.length()
     pilot null_term_len = len + 1
 
     -- Format: @.str.0 = private unnamed_addr constant [13 x i8] c"Hello World!\00", align 1
-    pilot decl = id + " = private unnamed_addr constant [" + word_from_int(null_term_len) + " x i8] c\"" + val + "\\00\", align 1\n"
+    pilot decl = id + " = private unnamed_addr constant [" + word_from_int(null_term_len) + " x i8] c\"" + real_val + "\\00\", align 1\n"
     string_literals = string_literals + decl
+
+    -- In streaming mode, flush string literals periodically
+    if llvm_out_file != "" {
+        if string_literals_count % 50 == 0 {
+            llvm_flush_strs()
+        }
+    }
 
     give back id
 }
@@ -112,17 +163,68 @@ task llvm_get_var_type(name: word) -> word {
     give back "i"
 }
 
--- Infer the type of an expression ("i" for int, "w" for word/string)
+-- Register a task's return type
+task llvm_register_task(name: word, ret_type: word) -> void {
+    pilot t = "i"
+    if ret_type == "word" { t = "w" }
+    if ret_type == "bool" { t = "b" }
+    if ret_type == "num" { t = "n" }
+    if ret_type == "int" { t = "i" }
+    if ret_type == "void" { t = "v" }
+    llvm_task_reg_names = llvm_task_reg_names + name + "|"
+    llvm_task_reg_types = llvm_task_reg_types + t + "|"
+    llvm_task_reg_count += 1
+}
+
+-- Look up a task's return type ("w", "i", "n", "b", "v", or "" if not found)
+task llvm_get_task_ret_type(name: word) -> word {
+    pilot nlen = llvm_task_reg_names.length()
+    pilot i = 0
+    pilot cur_name = ""
+    pilot idx = 0
+    repeat until i >= nlen {
+        pilot c = llvm_task_reg_names.char_at(i)
+        if c == "|" {
+            if cur_name == name {
+                pilot ti = 0
+                pilot cur_type = ""
+                pilot tidx = 0
+                pilot tlen = llvm_task_reg_types.length()
+                repeat until ti >= tlen {
+                    pilot tc = llvm_task_reg_types.char_at(ti)
+                    if tc == "|" {
+                        if tidx == idx {
+                            give back cur_type
+                        }
+                        tidx += 1
+                        cur_type = ""
+                    } else {
+                        cur_type = cur_type + tc
+                    }
+                    ti += 1
+                }
+            }
+            idx += 1
+            cur_name = ""
+        } else {
+            cur_name = cur_name + c
+        }
+        i += 1
+    }
+    give back ""
+}
+
+-- Infer the type of an expression ("i" for int, "w" for word/string, "n" for num/double)
 task llvm_infer_expr_type(expr_id: word) -> word {
     if expr_id.length() == 0 { give back "i" }
     pilot i = word_to_int(expr_id)
-    pilot kind = get_nth(ast_expr_kinds, i)
-    pilot val = get_nth(ast_expr_vals, i)
+    pilot kind: word = array_get(ast_expr_kinds, i)
+    pilot val: word = array_get(ast_expr_vals, i)
 
     if kind == EXPR_STR { give back "w" }
     if kind == EXPR_INT { give back "i" }
-    if kind == EXPR_FLOAT { give back "i" }
-    if kind == EXPR_BOOL { give back "i" }
+    if kind == EXPR_FLOAT { give back "n" }
+    if kind == EXPR_BOOL { give back "b" }
     if kind == EXPR_IDENT { give back llvm_get_var_type(val) }
 
     if kind == EXPR_METHOD {
@@ -138,22 +240,96 @@ task llvm_infer_expr_type(expr_id: word) -> word {
         if val == "contains" { give back "i" }
         if val == "starts_with" { give back "i" }
         if val == "ends_with" { give back "i" }
+        -- Check user-defined impl methods via task registry
+        pilot mi = 0
+        repeat shape_registry_count times {
+            pilot msname: word = "" + array_get(shape_registry_names, mi)
+            pilot impl_ret: word = llvm_get_task_ret_type(msname + "_" + val)
+            if impl_ret.length() > 0 {
+                give back impl_ret
+            }
+            mi += 1
+        }
+    }
+
+    if kind == EXPR_FIELD {
+        -- Look up the field type from shape registry
+        pilot fi = 0
+        repeat shape_registry_count times {
+            pilot sname: word = "" + array_get(shape_registry_names, fi)
+            pilot fields: word = "" + array_get(shape_registry_fields, fi)
+            pilot flen = fields.length()
+            pilot fj = 0
+            pilot fname = ""
+            pilot ftype = ""
+            pilot in_ftype = false
+            repeat flen times {
+                pilot ftc: word = "" + fields.char_at(fj)
+                if ftc == "," {
+                    if fname == val {
+                        if ftype == "num" or ftype == "float" { give back "n" }
+                        if ftype == "word" { give back "w" }
+                        if ftype == "bool" { give back "b" }
+                        give back "i"
+                    }
+                    fname = ""
+                    ftype = ""
+                    in_ftype = false
+                } else if ftc == ":" {
+                    in_ftype = true
+                } else {
+                    if in_ftype { ftype = ftype + ftc }
+                    else { fname = fname + ftc }
+                }
+                fj += 1
+            }
+            if fname == val {
+                if ftype == "num" or ftype == "float" { give back "n" }
+                if ftype == "word" { give back "w" }
+                if ftype == "bool" { give back "b" }
+                give back "i"
+            }
+            fi += 1
+        }
     }
 
     if kind == EXPR_BINOP {
+        pilot left: word = array_get(ast_expr_lefts, i)
+        pilot right: word = array_get(ast_expr_rights, i)
+        pilot lt: word = llvm_infer_expr_type(left)
+        pilot rt: word = llvm_infer_expr_type(right)
         if val == "+" {
             -- Check if either operand is a string
-            pilot left = get_nth(ast_expr_lefts, i)
-            pilot lt = llvm_infer_expr_type(left)
-            if lt.starts_with("w") { give back "w" }
+            if lt.starts_with("w") or rt.starts_with("w") { give back "w" }
+        }
+        -- Num propagation: if either operand is num, result is num
+        if lt.starts_with("n") or rt.starts_with("n") {
+            if val == "+" or val == "-" or val == "*" or val == "/" or val == "%" {
+                give back "n"
+            }
         }
     }
 
     if kind == EXPR_CALL {
-        -- Calls that return strings
+        -- Built-in calls that return strings
         if val == "fs::read" { give back "w" }
+        if val == "fs::list_dir" { give back "w" }
         if val == "process::arg" { give back "w" }
         if val == "ask" { give back "w" }
+        if val == "word_from_int" { give back "w" }
+        if val == "word_from_bool" { give back "w" }
+        if val == "word_concat" { give back "w" }
+        -- Runtime helpers used by the compiler itself
+        if val == "get_nth" { give back "w" }
+        if val == "push_item" { give back "w" }
+        if val == "array_get" { give back "w" }
+        if val == "array_new" { give back "i" }
+        if val == "array_len" { give back "i" }
+        -- Shape constructors return an opaque handle (int)
+        if val.starts_with("shape::ctor::") { give back "i" }
+        -- Look up user-defined task return types from the registry
+        pilot task_ret = llvm_get_task_ret_type(val)
+        if task_ret.length() > 0 { give back task_ret }
     }
 
     give back "i"
@@ -166,22 +342,24 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i32 @printf(i8*, ...)")
     llvm_emit_line("declare i64 @strlen(i8*)")
     -- Word primitives
-    llvm_emit_line("declare i64 @freak_llvm_word_from_int(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_from_bool(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_concat(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_from_int(i64)")
+    llvm_emit_line("declare i64 @freak_word_from_bool(i64)")
+    llvm_emit_line("declare i64 @freak_word_concat(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_eq(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_neq(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_eq(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_neq(i64, i64)")
     -- String methods
-    llvm_emit_line("declare i64 @freak_llvm_word_length(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_char_at(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_contains(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_starts_with(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_ends_with(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_to_upper(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_to_lower(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_trim(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_replace(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_word_to_int(i64)")
+    llvm_emit_line("declare i64 @freak_word_length(i64)")
+    llvm_emit_line("declare i64 @freak_word_char_at(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_contains(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_starts_with(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_ends_with(i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_to_upper(i64)")
+    llvm_emit_line("declare i64 @freak_word_to_lower(i64)")
+    llvm_emit_line("declare i64 @freak_word_trim(i64)")
+    llvm_emit_line("declare i64 @freak_word_replace(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_word_to_int(i64)")
     -- I/O helpers
     llvm_emit_line("declare void @freak_llvm_say(i64)")
     llvm_emit_line("declare void @freak_llvm_print_str(i64)")
@@ -191,6 +369,9 @@ task llvm_emit_runtime_decls() -> void {
     -- File I/O
     llvm_emit_line("declare i64 @freak_llvm_fs_read(i64)")
     llvm_emit_line("declare void @freak_llvm_fs_write(i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_fs_append(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_exists(i64)")
+    llvm_emit_line("declare void @freak_llvm_fs_delete(i64)")
     -- Process
     llvm_emit_line("declare i64 @freak_llvm_process_args_count()")
     llvm_emit_line("declare i64 @freak_llvm_process_arg(i64)")
@@ -201,8 +382,21 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_llvm_shape_alloc(i64)")
     llvm_emit_line("declare i64 @freak_llvm_shape_get(i64, i64)")
     llvm_emit_line("declare void @freak_llvm_shape_set(i64, i64, i64)")
-    -- Args setup
     llvm_emit_line("declare void @freak_llvm_setup_args(i64, i64)")
+
+    -- Num (double) support — values stored as bitcast i64
+    llvm_emit_line("declare i64 @freak_llvm_word_from_num(i64)")
+    llvm_emit_line("declare void @freak_llvm_print_num(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_int_to_num(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_num_to_int(i64)")
+
+    -- UI
+    llvm_emit_line("declare i64 @freak_llvm_ui_create_native(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_poll_events(i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_begin_frame(i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_end_frame(i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_clear(i64, i64, i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_fill_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
 }
 
 -- Check if a string value contains interpolation placeholders
@@ -234,14 +428,89 @@ task llvm_emit_say_interp(val: word) -> void {
         pilot c = val.char_at(i)
         if in_var {
             if c == "}" {
-                -- Emit the variable value
-                pilot var_reg = next_reg()
-                llvm_emit_line("    " + var_reg + " = load i64, i64* %" + vname)
-                pilot var_type = llvm_get_var_type(vname)
-                if var_type.starts_with("w") {
-                    llvm_emit_line("    call void @freak_llvm_print_str(i64 " + var_reg + ")")
+                -- Check if vname contains a dot (field access like p.x)
+                pilot has_dot = false
+                pilot dot_pos = 0
+                pilot vi = 0
+                pilot vnamelen = vname.length()
+                repeat vnamelen times {
+                    if vname.char_at(vi) == "." { has_dot = true  dot_pos = vi }
+                    vi += 1
+                }
+                if has_dot {
+                    -- Split: obj_name = before dot, field_name = after dot
+                    pilot obj_name = ""
+                    pilot field_nm = ""
+                    pilot si = 0
+                    repeat vnamelen times {
+                        if si < dot_pos { obj_name = obj_name + vname.char_at(si) }
+                        if si > dot_pos { field_nm = field_nm + vname.char_at(si) }
+                        si += 1
+                    }
+                    -- Load the object pointer
+                    pilot obj_reg = next_reg()
+                    llvm_emit_line("    " + obj_reg + " = load i64, i64* %" + obj_name)
+                    -- Get field index
+                    pilot fidx = 0 - 1
+                    pilot sri = 0
+                    repeat shape_registry_count times {
+                        pilot tmpidx = get_shape_field_index("" + array_get(shape_registry_names, sri), field_nm)
+                        if tmpidx >= 0 { fidx = tmpidx }
+                        sri += 1
+                    }
+                    if fidx < 0 { fidx = 0 }
+                    pilot field_reg = next_reg()
+                    llvm_emit_line("    " + field_reg + " = call i64 @freak_llvm_shape_get(i64 " + obj_reg + ", i64 " + word_from_int(fidx) + ")")
+                    -- Determine field type from shape registry
+                    pilot ftype = "int"
+                    pilot fsi = 0
+                    repeat shape_registry_count times {
+                        pilot flds: word = array_get(shape_registry_fields, fsi)
+                        pilot ftidx = get_shape_field_index(array_get(shape_registry_names, fsi), field_nm)
+                        if ftidx >= 0 {
+                            -- Parse field type from "x:num,y:num" at index ftidx
+                            pilot fc = 0
+                            pilot fci = 0
+                            pilot fclen = flds.length()
+                            pilot cur_ftype = ""
+                            pilot in_ftype = false
+                            repeat fclen times {
+                                pilot fch = flds.char_at(fci)
+                                if fch == "," {
+                                    if fc == ftidx { ftype = cur_ftype }
+                                    fc += 1
+                                    cur_ftype = ""
+                                    in_ftype = false
+                                } else if fch == ":" {
+                                    in_ftype = true
+                                } else {
+                                    if in_ftype { cur_ftype = cur_ftype + fch }
+                                }
+                                fci += 1
+                            }
+                            if fc == ftidx { ftype = cur_ftype }
+                        }
+                        fsi += 1
+                    }
+                    if ftype == "num" or ftype == "float" {
+                        llvm_emit_line("    call void @freak_llvm_print_num(i64 " + field_reg + ")")
+                    } else if ftype == "word" {
+                        llvm_emit_line("    call void @freak_llvm_print_str(i64 " + field_reg + ")")
+                    } else {
+                        llvm_emit_line("    call void @freak_llvm_print_int(i64 " + field_reg + ")")
+                    }
                 } else {
-                    llvm_emit_line("    call void @freak_llvm_print_int(i64 " + var_reg + ")")
+                    -- Regular variable interpolation
+                    pilot var_reg = next_reg()
+                    llvm_emit_line("    " + var_reg + " = load i64, i64* %" + vname)
+                    pilot var_type = llvm_get_var_type(vname)
+                    if var_type.starts_with("w") {
+                        llvm_emit_line("    call void @freak_llvm_print_str(i64 " + var_reg + ")")
+                    } else if var_type.starts_with("n") {
+                        llvm_emit_line("    call void @freak_llvm_print_num(i64 " + var_reg + ")")
+                    } else {
+                        llvm_emit_line("    call void @freak_llvm_print_int(i64 " + var_reg + ")")
+                    }
                 }
                 vname = ""
                 in_var = false
@@ -310,16 +579,38 @@ task llvm_emit_args(args: word) -> word {
     give back res
 }
 
+-- ===================== NUM HELPERS =================================
+-- Bitcast i64 → double, return the double register name
+task llvm_i64_to_double(i64_reg: word) -> word {
+    pilot dbl = next_reg()
+    llvm_emit_line("    " + dbl + " = bitcast i64 " + i64_reg + " to double")
+    give back dbl
+}
+
+-- Bitcast double → i64, return the i64 register name
+task llvm_double_to_i64(dbl_reg: word) -> word {
+    pilot i64r = next_reg()
+    llvm_emit_line("    " + i64r + " = bitcast double " + dbl_reg + " to i64")
+    give back i64r
+}
+
+-- Check if an expression (by id string) infers to num type
+task llvm_is_num_expr(expr_id: word) -> bool {
+    pilot t = llvm_infer_expr_type(expr_id)
+    if t.starts_with("n") { give back true }
+    give back false
+}
+
 -- ===================== EXPRESSIONS =================================
 
 -- Emit an expression and return the register that holds the result
 -- We return a string like "%t0"
 task llvm_emit_expr(id: word) -> word {
     pilot i = word_to_int(id)
-    pilot kind = get_nth(ast_expr_kinds, i)
-    pilot val = get_nth(ast_expr_vals, i)
-    pilot left = get_nth(ast_expr_lefts, i)
-    pilot right = get_nth(ast_expr_rights, i)
+    pilot kind: word = array_get(ast_expr_kinds, i)
+    pilot val: word = array_get(ast_expr_vals, i)
+    pilot left: word = array_get(ast_expr_lefts, i)
+    pilot right: word = array_get(ast_expr_rights, i)
 
     if kind == EXPR_INT {
         give back val
@@ -330,9 +621,19 @@ task llvm_emit_expr(id: word) -> word {
         give back "0"
     }
 
+    if kind == EXPR_FLOAT {
+        -- Store double as i64 via bitcast: bitcast double <val> to i64
+        pilot dbl_reg = next_reg()
+        pilot cast_reg = next_reg()
+        llvm_emit_line("    " + dbl_reg + " = fadd double 0.0, " + val)
+        llvm_emit_line("    " + cast_reg + " = bitcast double " + dbl_reg + " to i64")
+        give back cast_reg
+    }
+
     if kind == EXPR_STR {
         pilot str_id = register_string_literal(val)
-        pilot len = val.length() + 1
+        -- Use real length (after unescaping pipe placeholders)
+        pilot len = val.replace("<<PIPE>>", "|").length() + 1
         pilot get_ptr = next_reg()
         llvm_emit_line("    " + get_ptr + " = getelementptr inbounds [" + word_from_int(len) + " x i8], [" + word_from_int(len) + " x i8]* " + str_id + ", i64 0, i64 0")
         pilot cast_reg = next_reg()
@@ -350,35 +651,119 @@ task llvm_emit_expr(id: word) -> word {
         pilot arg_str = ""
         if left.length() > 0 { arg_str = llvm_emit_args(left) }
 
-        pilot res_reg = next_reg()
         pilot func_name = "@freak_" + llvm_c_safe_ident(val)
+        pilot is_void_call = false
+
+        -- Shape constructor: shape::ctor::Name with field value expr IDs in left
+        if val.starts_with("shape::ctor::") {
+            -- Extract shape name from val (after "shape::ctor::")
+            pilot sname = ""
+            pilot vi = 13
+            pilot vlen = val.length()
+            repeat vlen times {
+                if vi < vlen {
+                    sname = sname + val.char_at(vi)
+                }
+                vi += 1
+            }
+            pilot fcount = get_shape_field_count(sname)
+            -- Allocate the shape
+            pilot alloc_reg = next_reg()
+            llvm_emit_line("    " + alloc_reg + " = call i64 @freak_llvm_shape_alloc(i64 " + word_from_int(fcount) + ")")
+            -- Set each field value
+            if left.length() > 0 {
+                pilot fi = 0
+                pilot ci = 0
+                pilot cslen = left.length()
+                pilot cur = ""
+                repeat cslen times {
+                    pilot cc = left.char_at(ci)
+                    if cc == "," {
+                        if cur.length() > 0 {
+                            pilot fval_reg = llvm_emit_expr(cur)
+                            llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + alloc_reg + ", i64 " + word_from_int(fi) + ", i64 " + fval_reg + ")")
+                            fi += 1
+                        }
+                        cur = ""
+                    } else {
+                        cur = cur + cc
+                    }
+                    ci += 1
+                }
+                if cur.length() > 0 {
+                    pilot fval_reg = llvm_emit_expr(cur)
+                    llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + alloc_reg + ", i64 " + word_from_int(fi) + ", i64 " + fval_reg + ")")
+                }
+            }
+            give back alloc_reg
+        }
+
         if val == "say" {
-             func_name = "@freak_say"
+             func_name = "@freak_llvm_say"
+             is_void_call = true
         } else if val == "word_from_int" {
-             func_name = "@freak_llvm_word_from_int"
+             func_name = "@freak_word_from_int"
         } else if val == "word_from_bool" {
-             func_name = "@freak_llvm_word_from_bool"
+             func_name = "@freak_word_from_bool"
         } else if val == "fs::read" {
              func_name = "@freak_llvm_fs_read"
         } else if val == "fs::write" {
              func_name = "@freak_llvm_fs_write"
+             is_void_call = true
+        } else if val == "fs::append" {
+             func_name = "@freak_llvm_fs_append"
+             is_void_call = true
+        } else if val == "fs::exists" {
+             func_name = "@freak_llvm_fs_exists"
+        } else if val == "fs::delete" {
+             func_name = "@freak_llvm_fs_delete"
+             is_void_call = true
         } else if val == "process::args_count" {
              func_name = "@freak_llvm_process_args_count"
         } else if val == "process::arg" {
              func_name = "@freak_llvm_process_arg"
         } else if val == "process::exit" {
              func_name = "@freak_llvm_process_exit"
+             is_void_call = true
         } else if val == "ask" {
              func_name = "@freak_llvm_ask"
         } else if val == "panic" {
              func_name = "@freak_llvm_panic"
+             is_void_call = true
         } else if val == "shape::alloc" {
              func_name = "@freak_llvm_shape_alloc"
         } else if val == "shape::get" {
              func_name = "@freak_llvm_shape_get"
         } else if val == "shape::set" {
              func_name = "@freak_llvm_shape_set"
+             is_void_call = true
+        } else if val == "ui::create_native" {
+             func_name = "@freak_llvm_ui_create_native"
+        } else if val == "ui::poll_events" {
+             func_name = "@freak_llvm_ui_poll_events"
+        } else if val == "ui::begin_frame" {
+             func_name = "@freak_llvm_ui_begin_frame"
+             is_void_call = true
+        } else if val == "ui::end_frame" {
+             func_name = "@freak_llvm_ui_end_frame"
+             is_void_call = true
+        } else if val == "ui::clear" {
+             func_name = "@freak_llvm_ui_clear"
+             is_void_call = true
+        } else if val == "ui::fill_rect" {
+             func_name = "@freak_llvm_ui_fill_rect"
+             is_void_call = true
         }
+        -- Check task registry for user-defined void functions
+        if not is_void_call {
+            pilot call_ret: word = llvm_get_task_ret_type(val)
+            if call_ret == "v" { is_void_call = true }
+        }
+        if is_void_call {
+            llvm_emit_line("    call void " + func_name + "(" + arg_str + ")")
+            give back "0"
+        }
+        pilot res_reg = next_reg()
         llvm_emit_line("    " + res_reg + " = call i64 " + func_name + "(" + arg_str + ")")
         give back res_reg
     }
@@ -388,23 +773,85 @@ task llvm_emit_expr(id: word) -> word {
         pilot r_reg = llvm_emit_expr(right)
         pilot res_reg = next_reg()
 
+        -- Check if this is a num (double) operation
+        pilot is_num_op = llvm_is_num_expr(left) or llvm_is_num_expr(right)
+
         if val == "+" {
             pilot vtype = llvm_infer_expr_type(id)
             if vtype.starts_with("w") {
-                llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_concat(i64 " + l_reg + ", i64 " + r_reg + ")")
+                -- Ensure both operands are words for concat
+                pilot lt: word = llvm_infer_expr_type(left)
+                pilot rt: word = llvm_infer_expr_type(right)
+                pilot lw = l_reg
+                pilot rw = r_reg
+                if not lt.starts_with("w") {
+                    lw = next_reg()
+                    llvm_emit_line("    " + lw + " = call i64 @freak_word_from_int(i64 " + l_reg + ")")
+                }
+                if not rt.starts_with("w") {
+                    rw = next_reg()
+                    llvm_emit_line("    " + rw + " = call i64 @freak_word_from_int(i64 " + r_reg + ")")
+                }
+                llvm_emit_line("    " + res_reg + " = call i64 @freak_word_concat(i64 " + lw + ", i64 " + rw + ")")
+            } else if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot dres = next_reg()
+                llvm_emit_line("    " + dres + " = fadd double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
             } else {
                 llvm_emit_line("    " + res_reg + " = add i64 " + l_reg + ", " + r_reg)
             }
         } else if val == "-" {
-            llvm_emit_line("    " + res_reg + " = sub i64 " + l_reg + ", " + r_reg)
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot dres = next_reg()
+                llvm_emit_line("    " + dres + " = fsub double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
+            } else {
+                llvm_emit_line("    " + res_reg + " = sub i64 " + l_reg + ", " + r_reg)
+            }
         } else if val == "*" {
-            llvm_emit_line("    " + res_reg + " = mul i64 " + l_reg + ", " + r_reg)
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot dres = next_reg()
+                llvm_emit_line("    " + dres + " = fmul double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
+            } else {
+                llvm_emit_line("    " + res_reg + " = mul i64 " + l_reg + ", " + r_reg)
+            }
         } else if val == "/" {
-            llvm_emit_line("    " + res_reg + " = sdiv i64 " + l_reg + ", " + r_reg)
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot dres = next_reg()
+                llvm_emit_line("    " + dres + " = fdiv double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
+            } else {
+                llvm_emit_line("    " + res_reg + " = sdiv i64 " + l_reg + ", " + r_reg)
+            }
+        } else if val == "%" {
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot dres = next_reg()
+                llvm_emit_line("    " + dres + " = frem double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = bitcast double " + dres + " to i64")
+            } else {
+                llvm_emit_line("    " + res_reg + " = srem i64 " + l_reg + ", " + r_reg)
+            }
         } else if val == "==" {
             pilot ltype = llvm_infer_expr_type(left)
             if ltype.starts_with("w") {
                 llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_eq(i64 " + l_reg + ", i64 " + r_reg + ")")
+            } else if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp oeq double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
             } else {
                 pilot cmp_reg = next_reg()
                 llvm_emit_line("    " + cmp_reg + " = icmp eq i64 " + l_reg + ", " + r_reg)
@@ -414,27 +861,65 @@ task llvm_emit_expr(id: word) -> word {
             pilot ltype = llvm_infer_expr_type(left)
             if ltype.starts_with("w") {
                 llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_neq(i64 " + l_reg + ", i64 " + r_reg + ")")
+            } else if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp une double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
             } else {
                 pilot cmp_reg = next_reg()
                 llvm_emit_line("    " + cmp_reg + " = icmp ne i64 " + l_reg + ", " + r_reg)
                 llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
             }
         } else if val == "<" {
-            pilot cmp_reg = next_reg()
-            llvm_emit_line("    " + cmp_reg + " = icmp slt i64 " + l_reg + ", " + r_reg)
-            llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp olt double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            } else {
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = icmp slt i64 " + l_reg + ", " + r_reg)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            }
         } else if val == ">" {
-            pilot cmp_reg = next_reg()
-            llvm_emit_line("    " + cmp_reg + " = icmp sgt i64 " + l_reg + ", " + r_reg)
-            llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp ogt double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            } else {
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = icmp sgt i64 " + l_reg + ", " + r_reg)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            }
         } else if val == "<=" {
-            pilot cmp_reg = next_reg()
-            llvm_emit_line("    " + cmp_reg + " = icmp sle i64 " + l_reg + ", " + r_reg)
-            llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp ole double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            } else {
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = icmp sle i64 " + l_reg + ", " + r_reg)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            }
         } else if val == ">=" {
-            pilot cmp_reg = next_reg()
-            llvm_emit_line("    " + cmp_reg + " = icmp sge i64 " + l_reg + ", " + r_reg)
-            llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            if is_num_op {
+                pilot ld = llvm_i64_to_double(l_reg)
+                pilot rd = llvm_i64_to_double(r_reg)
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = fcmp oge double " + ld + ", " + rd)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            } else {
+                pilot cmp_reg = next_reg()
+                llvm_emit_line("    " + cmp_reg + " = icmp sge i64 " + l_reg + ", " + r_reg)
+                llvm_emit_line("    " + res_reg + " = zext i1 " + cmp_reg + " to i64")
+            }
         } else if val == "and" {
             pilot cmp_l = next_reg()
             llvm_emit_line("    " + cmp_l + " = icmp ne i64 " + l_reg + ", 0")
@@ -490,37 +975,79 @@ task llvm_emit_expr(id: word) -> word {
         pilot obj_reg = llvm_emit_expr(left)
         pilot res_reg = next_reg()
         if val == "length" {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_length(i64 " + obj_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_length(i64 " + obj_reg + ")")
         } else if val == "char_at" {
             pilot arg_reg = llvm_emit_expr(right)
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_char_at(i64 " + obj_reg + ", i64 " + arg_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_char_at(i64 " + obj_reg + ", i64 " + arg_reg + ")")
         } else if val == "contains" {
             pilot arg_reg = llvm_emit_expr(right)
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_contains(i64 " + obj_reg + ", i64 " + arg_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_contains(i64 " + obj_reg + ", i64 " + arg_reg + ")")
         } else if val == "starts_with" {
             pilot arg_reg = llvm_emit_expr(right)
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_starts_with(i64 " + obj_reg + ", i64 " + arg_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_starts_with(i64 " + obj_reg + ", i64 " + arg_reg + ")")
         } else if val == "ends_with" {
             pilot arg_reg = llvm_emit_expr(right)
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_ends_with(i64 " + obj_reg + ", i64 " + arg_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_ends_with(i64 " + obj_reg + ", i64 " + arg_reg + ")")
         } else if val == "to_upper" {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_upper(i64 " + obj_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_to_upper(i64 " + obj_reg + ")")
         } else if val == "to_lower" {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_lower(i64 " + obj_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_to_lower(i64 " + obj_reg + ")")
         } else if val == "trim" {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_trim(i64 " + obj_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_trim(i64 " + obj_reg + ")")
         } else if val == "replace" {
             -- replace has 2 args encoded as comma-separated in right
             pilot arg_reg = llvm_emit_expr(right)
             -- For now, handle the common two-arg case via the parser's expression structure
             -- The parser stores the first arg in right, second arg needs to be in args list
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_replace(i64 " + obj_reg + ", i64 " + arg_reg + ", i64 0)")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_replace(i64 " + obj_reg + ", i64 " + arg_reg + ", i64 0)")
         } else if val == "to_int" {
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_int(i64 " + obj_reg + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_to_int(i64 " + obj_reg + ")")
         } else {
-            llvm_emit_line("    ; unsupported method " + val)
-            llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+            -- Try user-defined impl method: look up ShapeName_method
+            -- The object is passed as the first arg (self)
+            pilot found_impl = false
+            pilot si = 0
+            repeat shape_registry_count times {
+                pilot sname: word = "" + array_get(shape_registry_names, si)
+                pilot impl_fname = "freak_" + sname + "_" + val
+                -- Check if this function exists in our task registry
+                pilot call_ret: word = llvm_get_task_ret_type(sname + "_" + val)
+                if call_ret.length() > 0 {
+                    found_impl = true
+                    if call_ret == "v" {
+                        llvm_emit_line("    call void @" + impl_fname + "(i64 " + obj_reg + ")")
+                        llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+                    } else {
+                        llvm_emit_line("    " + res_reg + " = call i64 @" + impl_fname + "(i64 " + obj_reg + ")")
+                    }
+                }
+                si += 1
+            }
+            if not found_impl {
+                llvm_emit_line("    ; unsupported method " + val)
+                llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+            }
         }
+        give back res_reg
+    }
+
+    if kind == EXPR_FIELD {
+        -- Field access: obj.field_name
+        -- val = field name, left = object expression
+        pilot obj_reg = llvm_emit_expr(left)
+        -- We need to figure out the object's shape type to get the field index
+        -- For now, look up the field name across all registered shapes
+        pilot fidx = 0 - 1
+        pilot si = 0
+        repeat shape_registry_count times {
+            pilot tmpidx = get_shape_field_index(array_get(shape_registry_names, si), val)
+            if tmpidx >= 0 { fidx = tmpidx }
+            si += 1
+        }
+        if fidx < 0 { fidx = 0 }
+        pilot idx_val = word_from_int(fidx)
+        pilot res_reg = next_reg()
+        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_shape_get(i64 " + obj_reg + ", i64 " + idx_val + ")")
         give back res_reg
     }
 
@@ -571,50 +1098,42 @@ task llvm_emit_stmt(eid: word) -> void {
     if eid.length() == 0 { give back }
 
     pilot i = word_to_int(eid)
-    pilot kind = get_nth(ast_stmt_kinds, i)
-    pilot name_w = get_nth(ast_stmt_names, i)
-    pilot expr_id_w = get_nth(ast_stmt_exprs, i)
+    pilot kind: word = array_get(ast_stmt_kinds, i)
+    pilot name_w: word = array_get(ast_stmt_names, i)
+    pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
 
     if kind == STMT_PILOT {
-        pilot reg = llvm_emit_expr(expr_id_w)
-        -- Track the variable type
-        pilot vtype = llvm_infer_expr_type(expr_id_w)
+        -- Use explicit type annotation if available, otherwise infer
+        pilot type_ann: word = array_get(ast_stmt_extras, i)
+        pilot vtype = ""
+        if type_ann == "word" { vtype = "w" }
+        else if type_ann == "num" { vtype = "n" }
+        else if type_ann == "bool" { vtype = "b" }
+        else if type_ann == "int" { vtype = "i" }
+        else { vtype = llvm_infer_expr_type(expr_id_w) }
         llvm_set_var_type(name_w, vtype)
-        -- Handle string + (concatenation) at the BINOP level
-        pilot ek = get_nth(ast_expr_kinds, word_to_int(expr_id_w))
-        pilot ev = get_nth(ast_expr_vals, word_to_int(expr_id_w))
-        if ek == EXPR_BINOP and ev == "+" and vtype.starts_with("w") {
-            -- Re-emit with concat instead of add
-            pilot el = get_nth(ast_expr_lefts, word_to_int(expr_id_w))
-            pilot er = get_nth(ast_expr_rights, word_to_int(expr_id_w))
-            pilot lr = llvm_emit_expr(el)
-            pilot rr = llvm_emit_expr(er)
-            pilot concat_reg = next_reg()
-            llvm_emit_line("    " + concat_reg + " = call i64 @freak_llvm_word_concat(i64 " + lr + ", i64 " + rr + ")")
-            llvm_emit_line("    %" + name_w + " = alloca i64")
-            llvm_emit_line("    store i64 " + concat_reg + ", i64* %" + name_w)
-        } else {
-            -- Allocate space on the stack for the variable
-            llvm_emit_line("    %" + name_w + " = alloca i64")
-            -- Store the result in the allocated space
-            llvm_emit_line("    store i64 " + reg + ", i64* %" + name_w)
-        }
+        -- Emit the expression (BINOP "+" on words already produces concat via llvm_emit_expr)
+        pilot reg = llvm_emit_expr(expr_id_w)
+        -- Allocate space on the stack for the variable
+        llvm_emit_line("    %" + name_w + " = alloca i64")
+        -- Store the result in the allocated space
+        llvm_emit_line("    store i64 " + reg + ", i64* %" + name_w)
     } else if kind == STMT_SAY {
         -- Check if the expression is an interpolated string
-        pilot say_expr_kind = get_nth(ast_expr_kinds, word_to_int(expr_id_w))
-        pilot say_expr_val = get_nth(ast_expr_vals, word_to_int(expr_id_w))
+        pilot say_expr_kind: word = array_get(ast_expr_kinds, word_to_int(expr_id_w))
+        pilot say_expr_val: word = array_get(ast_expr_vals, word_to_int(expr_id_w))
         if say_expr_kind == EXPR_STR and llvm_str_has_interp(say_expr_val) {
             llvm_emit_say_interp(say_expr_val)
         } else {
             pilot reg = llvm_emit_expr(expr_id_w)
-            pilot ptr_reg = next_reg()
-            llvm_emit_line("    " + ptr_reg + " = inttoptr i64 " + reg + " to i8*")
-            llvm_emit_line("    call i32 @puts(i8* " + ptr_reg + ")")
+            llvm_emit_line("    call void @freak_llvm_say(i64 " + reg + ")")
         }
     } else if kind == STMT_EXPR {
         llvm_emit_expr(expr_id_w)
     } else if kind == STMT_GIVE_BACK {
-        if expr_id_w.length() > 0 and not expr_id_w.starts_with("-") {
+        if llvm_cur_func_is_void {
+            llvm_emit_line("    ret void")
+        } else if expr_id_w.length() > 0 and not expr_id_w.starts_with("-") {
             pilot reg = llvm_emit_expr(expr_id_w)
             llvm_emit_line("    ret i64 " + reg)
         } else {
@@ -632,7 +1151,7 @@ task llvm_emit_stmt(eid: word) -> void {
         pilot cmp_reg = next_reg()
         llvm_emit_line("    " + cmp_reg + " = icmp ne i64 " + cond_reg + ", 0")
 
-        pilot else_body_w = get_nth(ast_stmt_else_bodies, i)
+        pilot else_body_w: word = array_get(ast_stmt_else_bodies, i)
         if else_body_w.length() > 0 {
             llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_then + ", label %" + l_else)
         } else {
@@ -640,7 +1159,7 @@ task llvm_emit_stmt(eid: word) -> void {
         }
 
         llvm_emit_line(l_then + ":")
-        llvm_emit_block(get_nth(ast_stmt_bodies, i))
+        llvm_emit_block(array_get(ast_stmt_bodies, i))
         llvm_emit_line("    br label %" + l_end)
 
         if else_body_w.length() > 0 {
@@ -659,6 +1178,11 @@ task llvm_emit_stmt(eid: word) -> void {
             pilot l_end = "loop.end." + word_from_int(temp_reg_counter)
             temp_reg_counter += 1
 
+            pilot save_end = llvm_loop_end_label
+            pilot save_cond = llvm_loop_cond_label
+            llvm_loop_end_label = l_end
+            llvm_loop_cond_label = l_cond
+
             llvm_emit_line("    br label %" + l_cond)
             llvm_emit_line(l_cond + ":")
             pilot cond_reg = llvm_emit_expr(expr_id_w)
@@ -667,10 +1191,12 @@ task llvm_emit_stmt(eid: word) -> void {
             llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_body + ", label %" + l_end)
 
             llvm_emit_line(l_body + ":")
-            llvm_emit_block(get_nth(ast_stmt_bodies, i))
+            llvm_emit_block(array_get(ast_stmt_bodies, i))
             llvm_emit_line("    br label %" + l_cond)
 
             llvm_emit_line(l_end + ":")
+            llvm_loop_end_label = save_end
+            llvm_loop_cond_label = save_cond
         } else {
             pilot l_cond = "loop.cond." + word_from_int(temp_reg_counter)
             temp_reg_counter += 1
@@ -679,6 +1205,8 @@ task llvm_emit_stmt(eid: word) -> void {
             pilot l_end = "loop.end." + word_from_int(temp_reg_counter)
             temp_reg_counter += 1
 
+            pilot l_inc = "loop.inc." + word_from_int(temp_reg_counter)
+            temp_reg_counter += 1
             pilot rep_var = "rep." + word_from_int(temp_reg_counter)
             temp_reg_counter += 1
 
@@ -695,15 +1223,26 @@ task llvm_emit_stmt(eid: word) -> void {
             llvm_emit_line("    " + cmp_reg + " = icmp slt i64 " + curr_val + ", " + count_reg)
             llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_body + ", label %" + l_end)
 
-            llvm_emit_line(l_body + ":")
-            llvm_emit_block(get_nth(ast_stmt_bodies, i))
+            pilot save_end2 = llvm_loop_end_label
+            pilot save_cond2 = llvm_loop_cond_label
+            llvm_loop_end_label = l_end
+            llvm_loop_cond_label = l_inc
 
+            llvm_emit_line(l_body + ":")
+            llvm_emit_block(array_get(ast_stmt_bodies, i))
+
+            llvm_emit_line("    br label %" + l_inc)
+            llvm_emit_line(l_inc + ":")
             pilot next_val = next_reg()
-            llvm_emit_line("    " + next_val + " = add i64 " + curr_val + ", 1")
-            llvm_emit_line("    store i64 " + next_val + ", i64* %" + rep_var)
+            llvm_emit_line("    " + next_val + " = load i64, i64* %" + rep_var)
+            pilot inc_val = next_reg()
+            llvm_emit_line("    " + inc_val + " = add i64 " + next_val + ", 1")
+            llvm_emit_line("    store i64 " + inc_val + ", i64* %" + rep_var)
             llvm_emit_line("    br label %" + l_cond)
 
             llvm_emit_line(l_end + ":")
+            llvm_loop_end_label = save_end2
+            llvm_loop_cond_label = save_cond2
         }
     } else if kind == STMT_TRAINING_ARC {
         pilot l_cond = "loop.cond." + word_from_int(temp_reg_counter)
@@ -712,11 +1251,13 @@ task llvm_emit_stmt(eid: word) -> void {
         temp_reg_counter += 1
         pilot l_end = "loop.end." + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
+        pilot l_inc = "loop.inc." + word_from_int(temp_reg_counter)
+        temp_reg_counter += 1
 
         pilot rep_var = "rep." + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
 
-        pilot max_reg = llvm_emit_expr(get_nth(ast_stmt_extras, i))
+        pilot max_reg = llvm_emit_expr(array_get(ast_stmt_extras, i))
 
         llvm_emit_line("    %" + rep_var + " = alloca i64")
         llvm_emit_line("    store i64 0, i64* %" + rep_var)
@@ -736,18 +1277,29 @@ task llvm_emit_stmt(eid: word) -> void {
         llvm_emit_line("    " + loop_continue + " = and i1 " + cmp_max + ", " + cmp_cond)
         llvm_emit_line("    br i1 " + loop_continue + ", label %" + l_body + ", label %" + l_end)
 
-        llvm_emit_line(l_body + ":")
-        llvm_emit_block(get_nth(ast_stmt_bodies, i))
+        pilot save_end3 = llvm_loop_end_label
+        pilot save_cond3 = llvm_loop_cond_label
+        llvm_loop_end_label = l_end
+        llvm_loop_cond_label = l_inc
 
+        llvm_emit_line(l_body + ":")
+        llvm_emit_block(array_get(ast_stmt_bodies, i))
+
+        llvm_emit_line("    br label %" + l_inc)
+        llvm_emit_line(l_inc + ":")
         pilot next_val = next_reg()
-        llvm_emit_line("    " + next_val + " = add i64 " + curr_val + ", 1")
-        llvm_emit_line("    store i64 " + next_val + ", i64* %" + rep_var)
+        llvm_emit_line("    " + next_val + " = load i64, i64* %" + rep_var)
+        pilot inc_val = next_reg()
+        llvm_emit_line("    " + inc_val + " = add i64 " + next_val + ", 1")
+        llvm_emit_line("    store i64 " + inc_val + ", i64* %" + rep_var)
         llvm_emit_line("    br label %" + l_cond)
 
         llvm_emit_line(l_end + ":")
+        llvm_loop_end_label = save_end3
+        llvm_loop_cond_label = save_cond3
     } else if kind == STMT_WHEN {
         pilot target_reg = llvm_emit_expr(expr_id_w)
-        pilot cases_str = get_nth(ast_stmt_bodies, i)
+        pilot cases_str: word = array_get(ast_stmt_bodies, i)
 
         pilot l_end = "when.end." + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
@@ -828,10 +1380,10 @@ task llvm_emit_stmt(eid: word) -> void {
         llvm_emit_line("    br label %" + l_end)
         llvm_emit_line(l_end + ":")
     } else if kind == STMT_BLOCK {
-        llvm_emit_block(get_nth(ast_stmt_bodies, i))
+        llvm_emit_block(array_get(ast_stmt_bodies, i))
     } else if kind == STMT_ASSIGN {
-        pilot rhs_w = get_nth(ast_stmt_bodies, i)
-        pilot var_name_expr = get_nth(ast_expr_vals, word_to_int(expr_id_w))
+        pilot rhs_w: word = array_get(ast_stmt_bodies, i)
+        pilot var_name_expr: word = array_get(ast_expr_vals, word_to_int(expr_id_w))
         pilot reg = llvm_emit_expr(rhs_w)
         if name_w == "=" {
             llvm_emit_line("    store i64 " + reg + ", i64* %" + var_name_expr)
@@ -849,6 +1401,20 @@ task llvm_emit_stmt(eid: word) -> void {
             }
             llvm_emit_line("    store i64 " + op_reg + ", i64* %" + var_name_expr)
         }
+    } else if kind == STMT_BREAK {
+        llvm_emit_line("    br label %" + llvm_loop_end_label)
+        pilot break_dead = "break.dead." + word_from_int(temp_reg_counter)
+        temp_reg_counter += 1
+        llvm_emit_line(break_dead + ":")
+    } else if kind == STMT_CONTINUE {
+        llvm_emit_line("    br label %" + llvm_loop_cond_label)
+        pilot cont_dead = "cont.dead." + word_from_int(temp_reg_counter)
+        temp_reg_counter += 1
+        llvm_emit_line(cont_dead + ":")
+    } else if kind == STMT_SHAPE {
+        -- Shape definitions are handled at parse time via register_shape()
+        -- No IR needs to be emitted
+        llvm_emit_line("    ; shape " + name_w + " defined")
     }
 }
 
@@ -888,6 +1454,7 @@ task llvm_translate_params(p: word) -> word {
 
 task llvm_allocate_params(p: word) -> void {
     pilot cur_name = ""
+    pilot cur_type = ""
     pilot in_type = false
     pilot i = 0
     pilot slen = p.length()
@@ -898,10 +1465,19 @@ task llvm_allocate_params(p: word) -> void {
         } else if c == "," {
             llvm_emit_line("    %" + cur_name + " = alloca i64")
             llvm_emit_line("    store i64 %arg_" + cur_name + ", i64* %" + cur_name)
+            -- Track the parameter type for correct inference
+            pilot pt = "i"
+            if cur_type == "word" { pt = "w" }
+            if cur_type == "num" { pt = "n" }
+            if cur_type == "bool" { pt = "b" }
+            llvm_set_var_type(cur_name, pt)
             cur_name = ""
+            cur_type = ""
             in_type = false
         } else {
-            if not in_type {
+            if in_type {
+                cur_type = cur_type + c
+            } else {
                 cur_name = cur_name + c
             }
         }
@@ -910,17 +1486,32 @@ task llvm_allocate_params(p: word) -> void {
     if cur_name.length() > 0 {
         llvm_emit_line("    %" + cur_name + " = alloca i64")
         llvm_emit_line("    store i64 %arg_" + cur_name + ", i64* %" + cur_name)
+        pilot pt = "i"
+        if cur_type == "word" { pt = "w" }
+        if cur_type == "num" { pt = "n" }
+        if cur_type == "bool" { pt = "b" }
+        llvm_set_var_type(cur_name, pt)
     }
 }
 
 task llvm_emit_task(eid: word) -> void {
+    -- Reset variable type tracking for this function scope
+    llvm_var_names = ""
+    llvm_var_types = ""
+
     pilot i = word_to_int(eid)
-    pilot name_w = get_nth(ast_stmt_names, i)
-    pilot body_id_w = get_nth(ast_stmt_bodies, i)
-    pilot params_w = get_nth(ast_task_params, i)
-    pilot returns_w = get_nth(ast_task_returns, i)
+    pilot name_w: word = array_get(ast_stmt_names, i)
+    pilot body_id_w: word = array_get(ast_stmt_bodies, i)
+    pilot params_w: word = array_get(ast_task_params, i)
+    pilot returns_w: word = array_get(ast_task_returns, i)
 
     pilot ret_type = "i64"
+    pilot is_void = false
+    if returns_w == "void" or returns_w == "" {
+        ret_type = "void"
+        is_void = true
+    }
+    llvm_cur_func_is_void = is_void
 
     pilot p_str = ""
     if params_w.length() > 0 {
@@ -936,7 +1527,11 @@ task llvm_emit_task(eid: word) -> void {
 
     llvm_emit_block(body_id_w)
 
-    llvm_emit_line("    ret i64 0")
+    if is_void {
+        llvm_emit_line("    ret void")
+    } else {
+        llvm_emit_line("    ret i64 0")
+    }
     llvm_emit_line("}")
     llvm_emit_line("")
 }
@@ -949,35 +1544,40 @@ task emit_llvm_program() -> void {
     string_literals = ""
     string_literals_count = 0
 
+    -- If streaming mode, initialize temp file for string literals
+    if llvm_out_file != "" {
+        fs::write(llvm_out_file + ".strs", "")
+    }
+
     llvm_emit_line("; FREAK LLVM IR Generator")
-    llvm_emit_line("target triple = \"x86_64-pc-windows-msvc\"")
+    -- Omit target triple — let clang/llc infer from host
+    -- This enables cross-compilation by passing --target to clang
     llvm_emit_line("")
 
     llvm_emit_runtime_decls()
     llvm_emit_line("")
 
-    -- Pre-scan to build string literals (we process body first into a temp buffer in reality, but here we'll just emit them at the end or assume we can print them before main)
-
-    -- First pass: Tasks
-    pilot slen = ast_top_stmts.length()
-    pilot i = 0
-    pilot cur_id = ""
-    repeat slen times {
-        pilot c = ast_top_stmts.char_at(i)
-        if c == "|" {
-            if cur_id.length() > 0 {
-                pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
-                if kind == STMT_TASK { llvm_emit_task(cur_id) }
-            }
-            cur_id = ""
-        } else {
-            cur_id = cur_id + c
+    -- Pre-scan: Register return types for all user-defined tasks
+    pilot top_count = array_len(ast_top_stmts)
+    pilot prescan_i = 0
+    repeat top_count times {
+        pilot prescan_id: word = array_get(ast_top_stmts, prescan_i)
+        pilot prescan_kind: word = array_get(ast_stmt_kinds, word_to_int(prescan_id))
+        if prescan_kind == STMT_TASK {
+            pilot prescan_name: word = array_get(ast_stmt_names, word_to_int(prescan_id))
+            pilot prescan_ret: word = array_get(ast_task_returns, word_to_int(prescan_id))
+            llvm_register_task(prescan_name, prescan_ret)
         }
-        i += 1
+        prescan_i += 1
     }
-    if cur_id.length() > 0 {
-        pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
+
+    -- First pass: Tasks (emitted before @main and @freak_main so they're visible)
+    pilot i = 0
+    repeat top_count times {
+        pilot cur_id: word = array_get(ast_top_stmts, i)
+        pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
         if kind == STMT_TASK { llvm_emit_task(cur_id) }
+        i += 1
     }
 
     -- Emit main function wrapper
@@ -991,35 +1591,54 @@ task emit_llvm_program() -> void {
     llvm_emit_line("}")
     llvm_emit_line("")
 
-    -- Real main function
-    llvm_emit_line("define void @freak_main() {")
-    llvm_emit_line("entry:")
-
-    slen = ast_top_stmts.length()
+    -- Check if user defined a main task (already emitted in first pass)
+    pilot has_main_task = false
     i = 0
-    cur_id = ""
-    repeat slen times {
-        pilot c = ast_top_stmts.char_at(i)
-        if c == "|" {
-            if cur_id.length() > 0 {
-                pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
-                if kind != STMT_TASK { llvm_emit_stmt(cur_id) }
-            }
-            cur_id = ""
-        } else {
-            cur_id = cur_id + c
+    repeat top_count times {
+        pilot cur_id: word = array_get(ast_top_stmts, i)
+        pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
+        if kind == STMT_TASK {
+            pilot tname: word = array_get(ast_stmt_names, word_to_int(cur_id))
+            if tname == "main" { has_main_task = true }
         }
         i += 1
     }
-    if cur_id.length() > 0 {
-        pilot kind = get_nth(ast_stmt_kinds, word_to_int(cur_id))
-        if kind != STMT_TASK { llvm_emit_stmt(cur_id) }
-    }
 
-    llvm_emit_line("    ret void")
-    llvm_emit_line("}")
+    -- Only emit @freak_main wrapper if user didn't define task main()
+    if not has_main_task {
+        llvm_var_names = ""
+        llvm_var_types = ""
+        llvm_emit_line("define void @freak_main() {")
+        llvm_emit_line("entry:")
+
+        i = 0
+        repeat top_count times {
+            pilot cur_id: word = array_get(ast_top_stmts, i)
+            pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
+            if kind != STMT_TASK { llvm_emit_stmt(cur_id) }
+            i += 1
+        }
+
+        llvm_emit_line("    ret void")
+        llvm_emit_line("}")
+    }
 
     llvm_emit_line("")
     llvm_emit_line("; String Literals")
-    llvm_emit_line(string_literals)
+
+    if llvm_out_file != "" {
+        -- Flush any remaining IR buffer
+        llvm_flush()
+        -- Flush remaining string literals
+        llvm_flush_strs()
+        -- Read string literals from temp file and append to main output
+        pilot strs_file = llvm_out_file + ".strs"
+        if fs::exists(strs_file) {
+            pilot strs_data = fs::read(strs_file)
+            fs::append(llvm_out_file, strs_data)
+            fs::delete(strs_file)
+        }
+    } else {
+        llvm_emit_line(string_literals)
+    }
 }

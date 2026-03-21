@@ -213,6 +213,17 @@ void freak_fs_write(freak_word path, freak_word content) {
     fclose(f);
 }
 
+void freak_fs_append(freak_word path, freak_word content) {
+    const char* p = freak_word_to_cstr(path);
+    FILE* f = fopen(p, "ab");
+    if (!f) {
+        fprintf(stderr, "FREAK: cannot append file '%s': %s\n", p, strerror(errno));
+        exit(1);
+    }
+    fwrite(content.data, 1, content.length, f);
+    fclose(f);
+}
+
 bool freak_fs_exists(freak_word path) {
     const char* p = freak_word_to_cstr(path);
 #ifdef _WIN32
@@ -226,6 +237,13 @@ void freak_fs_delete(freak_word path) {
     const char* p = freak_word_to_cstr(path);
     remove(p); /* ignore errors for now */
 }
+
+/* Aliases without freak_ prefix — the self-hosted compiler's generic
+   call handler emits fs_append/fs_exists/fs_delete (no prefix) for
+   builtins it doesn't explicitly know about. */
+void fs_append(freak_word path, freak_word content) { freak_fs_append(path, content); }
+bool fs_exists(freak_word path) { return freak_fs_exists(path); }
+void fs_delete(freak_word path) { freak_fs_delete(path); }
 
 void freak_fs_make_dir(freak_word path) {
     const char* p = freak_word_to_cstr(path);
@@ -423,6 +441,13 @@ freak_word freak_word_trim(freak_word w) {
 
 freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s) {
     if (old_s.length == 0) return w;
+    if (w.length < old_s.length) {
+        char* buf = (char*)malloc(w.length + 1);
+        if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+        memcpy(buf, w.data, w.length);
+        buf[w.length] = '\0';
+        return freak_word_own(buf, w.length);
+    }
     /* Count occurrences */
     size_t count = 0;
     for (size_t i = 0; i <= w.length - old_s.length; i++) {
@@ -951,6 +976,17 @@ void freak_llvm_fs_write(int64_t path, int64_t content) {
     fclose(f);
 }
 
+int64_t freak_process_args_count(void) {
+    return (int64_t)freak_argc;
+}
+
+freak_word freak_process_arg(int64_t index) {
+    if (index < 0 || index >= freak_argc) {
+        return freak_word_lit("");
+    }
+    return freak_word_lit(freak_argv[index]);
+}
+
 int64_t freak_llvm_process_args_count(void) {
     return (int64_t)freak_argc;
 }
@@ -964,4 +1000,71 @@ int64_t freak_llvm_process_arg(int64_t index) {
 
 void freak_llvm_process_exit(int64_t code) {
     exit((int)code);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Dynamic arrays (replaces pipe-delimited string "arrays")          */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    freak_word* data;
+    int64_t length;
+    int64_t capacity;
+} freak_dyn_array;
+
+#define FREAK_MAX_ARRAYS 256
+static freak_dyn_array freak_arrays[FREAK_MAX_ARRAYS];
+static int64_t freak_array_count = 0;
+
+int64_t freak_array_new(void) {
+    if (freak_array_count >= FREAK_MAX_ARRAYS) {
+        fprintf(stderr, "FREAK: too many arrays (max %d)\n", FREAK_MAX_ARRAYS);
+        exit(1);
+    }
+    int64_t h = freak_array_count++;
+    freak_arrays[h].length = 0;
+    freak_arrays[h].capacity = 64;
+    freak_arrays[h].data = (freak_word*)malloc(64 * sizeof(freak_word));
+    if (!freak_arrays[h].data) {
+        fprintf(stderr, "FREAK: out of memory for array\n");
+        exit(1);
+    }
+    return h;
+}
+
+void freak_array_push(int64_t handle, freak_word item) {
+    if (handle < 0 || handle >= freak_array_count) return;
+    freak_dyn_array* a = &freak_arrays[handle];
+    if (a->length >= a->capacity) {
+        a->capacity *= 2;
+        a->data = (freak_word*)realloc(a->data, (size_t)a->capacity * sizeof(freak_word));
+        if (!a->data) {
+            fprintf(stderr, "FREAK: out of memory growing array\n");
+            exit(1);
+        }
+    }
+    a->data[a->length++] = item;
+}
+
+freak_word freak_array_get(int64_t handle, int64_t index) {
+    if (handle < 0 || handle >= freak_array_count) return freak_word_lit("");
+    freak_dyn_array* a = &freak_arrays[handle];
+    if (index < 0 || index >= a->length) return freak_word_lit("");
+    return a->data[index];
+}
+
+int64_t freak_array_len(int64_t handle) {
+    if (handle < 0 || handle >= freak_array_count) return 0;
+    return freak_arrays[handle].length;
+}
+
+void freak_array_set(int64_t handle, int64_t index, freak_word item) {
+    if (handle < 0 || handle >= freak_array_count) return;
+    freak_dyn_array* a = &freak_arrays[handle];
+    if (index < 0 || index >= a->length) {
+        fprintf(stderr, "FREAK: array_set index %lld out of bounds (len %lld)\n",
+                (long long)index, (long long)a->length);
+        exit(1);
+    }
+    a->data[index] = item;
 }

@@ -32,6 +32,8 @@ task freakc_v2_main() -> void {
         give back
     }
 
+    init_arrays()
+
     say "[1/4] Lexing..."
     tokenize(src)
 
@@ -43,9 +45,12 @@ task freakc_v2_main() -> void {
 
     say "[4/4] Emitting..."
     if emit_target == "llvm" {
-        emit_llvm_program()
         pilot out_file = input_file + ".ll"
-        fs::write(out_file, llvm_out_buf)
+        -- Stream LLVM IR directly to file to avoid O(n^2) string buildup
+        llvm_out_file = out_file
+        fs::write(out_file, "")
+        emit_llvm_program()
+        llvm_out_file = ""
         pilot msg2 = "Generated LLVM IR at " + out_file
         say msg2
     } else {
