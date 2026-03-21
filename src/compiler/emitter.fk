@@ -38,6 +38,26 @@ task emt_get_var_type(name: word) -> word {
     give back ""
 }
 
+-- Task return type registry (tracks which tasks return word)
+pilot emt_word_tasks = 0
+pilot emt_word_task_count = 0
+
+task emt_register_word_task(fname: word) -> void {
+    array_push(emt_word_tasks, fname)
+    emt_word_task_count += 1
+}
+
+task emt_task_returns_word(fname: word) -> bool {
+    pilot ti = 0
+    pilot ftarget = "" + fname
+    repeat emt_word_task_count times {
+        pilot ftentry: word = array_get(emt_word_tasks, ti)
+        if ftentry == ftarget { give back true }
+        ti += 1
+    }
+    give back false
+}
+
 -- Extern function registry (functions declared with 'extern task')
 pilot emt_extern_names = 0
 pilot emt_extern_rets = 0
@@ -143,6 +163,8 @@ task is_ast_word(id: word) -> bool {
         if val == "register_string_literal" { give back true }
         -- Check extern functions that return word
         if emt_extern_returns_word(val) { give back true }
+        -- Check user-defined tasks that return word
+        if emt_task_returns_word(val) { give back true }
     }
     if kind == EXPR_BINOP {
         pilot val: word = array_get(ast_expr_vals, i)
@@ -799,6 +821,8 @@ task emit_fwd_decl(eid: word) -> void {
     pilot name_w: word = array_get(ast_stmt_names, i)
     pilot params_w: word = array_get(ast_task_params, i)
     pilot returns_w: word = array_get(ast_task_returns, i)
+    -- Register tasks that return word for type inference
+    if returns_w == "word" { emt_register_word_task(name_w) }
     pilot c_ret = "void"
     if returns_w == "int" { c_ret = "int64_t" }
     else if returns_w == "word" { c_ret = "freak_word" }

@@ -1,0 +1,51 @@
+-- Test: FREAK standard library functions (pure FREAK, no C runtime)
+
+-- === std::math ===
+pilot a1 = std_abs(0 - 42)
+say "abs(-42) = " + word_from_int(a1)
+
+pilot a2 = std_abs(7)
+say "abs(7) = " + word_from_int(a2)
+
+pilot p1 = std_pow(2, 10)
+say "pow(2,10) = " + word_from_int(p1)
+
+pilot p2 = std_pow(3, 5)
+say "pow(3,5) = " + word_from_int(p2)
+
+pilot c1 = std_clamp(15, 0, 10)
+say "clamp(15,0,10) = " + word_from_int(c1)
+
+pilot c2 = std_clamp(0 - 5, 0, 10)
+say "clamp(-5,0,10) = " + word_from_int(c2)
+
+pilot mx = std_max(42, 17)
+say "max(42,17) = " + word_from_int(mx)
+
+pilot mn = std_min(42, 17)
+say "min(42,17) = " + word_from_int(mn)
+
+-- === std::string ===
+pilot rep = string_repeat("ha", 3)
+say "repeat('ha',3) = " + rep
+
+pilot rev = string_reverse("FREAK")
+say "reverse('FREAK') = " + rev
+
+pilot cnt = string_count("banana", "an")
+say "count('banana','an') = " + word_from_int(cnt)
+
+pilot padl = string_pad_left("42", 6, "0")
+say "pad_left('42',6,'0') = " + padl
+
+pilot padr = string_pad_right("hi", 6, ".")
+say "pad_right('hi',6,'.') = " + padr
+
+pilot spl = string_split("one,two,three", ",")
+say "split('one,two,three',',') = " + spl
+
+pilot joined = string_join("a|b|c", " + ")
+say "join('a|b|c',' + ') = " + joined
+
+say ""
+say "All std tests passed!"

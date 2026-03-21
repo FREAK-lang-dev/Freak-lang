@@ -1,0 +1,50 @@
+-- ===================================================================
+-- FREAK Standard Library — std::math
+-- ===================================================================
+-- Pure FREAK implementations of math functions.
+-- Prefixed with std_ to avoid collision with C runtime during transition.
+-- Once the C runtime is dropped, these become the canonical implementations.
+-- ===================================================================
+
+task std_abs(x: int) -> int {
+    if x < 0 { give back 0 - x }
+    give back x
+}
+
+task std_clamp(x: int, lo: int, hi: int) -> int {
+    if x < lo { give back lo }
+    if x > hi { give back hi }
+    give back x
+}
+
+task std_pow(base: int, exp: int) -> int {
+    if exp < 0 { give back 0 }
+    pilot res = 1
+    pilot b = base
+    pilot e = exp
+    repeat until e <= 0 {
+        pilot half = e / 2
+        pilot even_part = half * 2
+        pilot odd = e - even_part
+        if odd == 1 {
+            res = res * b
+        }
+        b = b * b
+        e = e / 2
+    }
+    give back res
+}
+
+task std_max(a: int, b: int) -> int {
+    if a > b { give back a }
+    give back b
+}
+
+task std_min(a: int, b: int) -> int {
+    if a < b { give back a }
+    give back b
+}
+
+task int_to_word(n: int) -> word {
+    give back word_from_int(n)
+}

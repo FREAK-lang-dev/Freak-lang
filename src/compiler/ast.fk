@@ -171,6 +171,9 @@ task init_arrays() -> void {
     emt_var_types = array_new()
     emt_var_count = 0
 
+    emt_word_tasks = array_new()
+    emt_word_task_count = 0
+
     emt_extern_names = array_new()
     emt_extern_rets = array_new()
     emt_extern_count = 0

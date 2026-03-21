@@ -1,0 +1,184 @@
+-- ===================================================================
+-- FREAK Standard Library — std::string
+-- ===================================================================
+-- String utility functions written in pure FREAK.
+-- These operate on the word type using built-in methods.
+-- ===================================================================
+
+task string_repeat(s: word, count: int) -> word {
+    pilot out = ""
+    pilot i = 0
+    repeat count times {
+        out = out + s
+        i += 1
+    }
+    give back out
+}
+
+task string_pad_left(s: word, width: int, pad_char: word) -> word {
+    pilot slen = s.length()
+    if slen >= width { give back s }
+    pilot needed = width - slen
+    pilot padding = string_repeat(pad_char, needed)
+    give back padding + s
+}
+
+task string_pad_right(s: word, width: int, pad_char: word) -> word {
+    pilot slen = s.length()
+    if slen >= width { give back s }
+    pilot needed = width - slen
+    pilot padding = string_repeat(pad_char, needed)
+    give back s + padding
+}
+
+task string_reverse(s: word) -> word {
+    pilot slen = s.length()
+    if slen <= 1 { give back s }
+    pilot out = ""
+    pilot i = slen - 1
+    repeat slen times {
+        out = out + s.char_at(i)
+        i -= 1
+    }
+    give back out
+}
+
+task string_count(haystack: word, needle: word) -> int {
+    pilot hlen = haystack.length()
+    pilot nlen = needle.length()
+    if nlen == 0 { give back 0 }
+    if nlen > hlen { give back 0 }
+    pilot count = 0
+    pilot i = 0
+    pilot limit = hlen - nlen + 1
+    repeat limit times {
+        pilot match = true
+        pilot j = 0
+        repeat nlen times {
+            if match {
+                if haystack.char_at(i + j) != needle.char_at(j) {
+                    match = false
+                }
+            }
+            j += 1
+        }
+        if match { count += 1 }
+        i += 1
+    }
+    give back count
+}
+
+task string_split(s: word, delim: word) -> word {
+    -- Returns pipe-delimited segments: "a|b|c"
+    pilot slen = s.length()
+    pilot dlen = delim.length()
+    if dlen == 0 { give back s }
+    pilot sp_out = ""
+    pilot sp_cur = ""
+    pilot sp_i = 0
+    repeat slen times {
+        pilot sp_match = true
+        if sp_i + dlen <= slen {
+            pilot sp_j = 0
+            repeat dlen times {
+                if sp_match {
+                    if s.char_at(sp_i + sp_j) != delim.char_at(sp_j) {
+                        sp_match = false
+                    }
+                }
+                sp_j += 1
+            }
+        } else {
+            sp_match = false
+        }
+        if sp_match {
+            if sp_out == "" {
+                sp_out = sp_cur
+            } else {
+                sp_out = sp_out + "|" + sp_cur
+            }
+            sp_cur = ""
+            sp_i += dlen
+        } else {
+            sp_cur = sp_cur + s.char_at(sp_i)
+            sp_i += 1
+        }
+    }
+    -- Add last segment
+    if sp_out == "" {
+        sp_out = sp_cur
+    } else {
+        sp_out = sp_out + "|" + sp_cur
+    }
+    give back sp_out
+}
+
+task string_join(parts: word, separator: word) -> word {
+    -- Joins pipe-delimited segments: "a|b|c" with separator
+    pilot plen = parts.length()
+    if plen == 0 { give back "" }
+    pilot jn_out = ""
+    pilot jn_cur = ""
+    pilot jn_first = true
+    pilot jn_i = 0
+    repeat plen times {
+        pilot jn_c = parts.char_at(jn_i)
+        if jn_c == "|" {
+            if jn_first {
+                jn_out = jn_cur
+                jn_first = false
+            } else {
+                jn_out = jn_out + separator + jn_cur
+            }
+            jn_cur = ""
+        } else {
+            jn_cur = jn_cur + jn_c
+        }
+        jn_i += 1
+    }
+    -- Add last segment
+    if jn_first {
+        jn_out = jn_cur
+    } else {
+        jn_out = jn_out + separator + jn_cur
+    }
+    give back jn_out
+}
+
+task is_digit(c: word) -> bool {
+    if c == "0" { give back true }
+    if c == "1" { give back true }
+    if c == "2" { give back true }
+    if c == "3" { give back true }
+    if c == "4" { give back true }
+    if c == "5" { give back true }
+    if c == "6" { give back true }
+    if c == "7" { give back true }
+    if c == "8" { give back true }
+    if c == "9" { give back true }
+    give back false
+}
+
+task is_alpha(c: word) -> bool {
+    -- Check lowercase
+    if c == "a" or c == "b" or c == "c" or c == "d" or c == "e" { give back true }
+    if c == "f" or c == "g" or c == "h" or c == "i" or c == "j" { give back true }
+    if c == "k" or c == "l" or c == "m" or c == "n" or c == "o" { give back true }
+    if c == "p" or c == "q" or c == "r" or c == "s" or c == "t" { give back true }
+    if c == "u" or c == "v" or c == "w" or c == "x" or c == "y" or c == "z" { give back true }
+    -- Check uppercase
+    if c == "A" or c == "B" or c == "C" or c == "D" or c == "E" { give back true }
+    if c == "F" or c == "G" or c == "H" or c == "I" or c == "J" { give back true }
+    if c == "K" or c == "L" or c == "M" or c == "N" or c == "O" { give back true }
+    if c == "P" or c == "Q" or c == "R" or c == "S" or c == "T" { give back true }
+    if c == "U" or c == "V" or c == "W" or c == "X" or c == "Y" or c == "Z" { give back true }
+    give back false
+}
+
+task is_whitespace(c: word) -> bool {
+    if c == " " { give back true }
+    if c == "\t" { give back true }
+    if c == "\n" { give back true }
+    if c == "\r" { give back true }
+    give back false
+}
