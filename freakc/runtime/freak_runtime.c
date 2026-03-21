@@ -515,11 +515,10 @@ freak_process_output freak_process_run(freak_word cmd, void* args) {
     const char* cmd_str = freak_word_to_cstr(cmd);
 
     /* Capture stdout via popen */
-    FILE* fp = _popen ? _popen(cmd_str, "r") : NULL;
     #ifdef _WIN32
-    fp = _popen(cmd_str, "r");
+    FILE* fp = _popen(cmd_str, "r");
     #else
-    fp = popen(cmd_str, "r");
+    FILE* fp = popen(cmd_str, "r");
     #endif
 
     if (!fp) {
