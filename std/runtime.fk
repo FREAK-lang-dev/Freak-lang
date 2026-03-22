@@ -1,0 +1,75 @@
+-- ===================================================================
+-- FREAK Runtime — Pure FREAK implementations
+-- ===================================================================
+-- Replaces C runtime functions with native FREAK code.
+-- Uses i64 wrapper intrinsics that bridge to libc.
+--
+-- NOTE: Task names omit the "freak_" prefix because the LLVM backend
+-- automatically adds "@freak_" to all user-defined tasks.
+-- So "task llvm_fs_read(...)" becomes "@freak_llvm_fs_read" in IR.
+-- ===================================================================
+
+-- ── i64 wrapper declarations (defined as IR intrinsics) ─
+-- These are thin wrappers around libc, handling i8* <-> i64 casts.
+extern task freak_fopen(path: int, mode: int) -> int
+extern task freak_fclose(file: int) -> int
+extern task freak_fseek(file: int, offset: int, whence: int) -> int
+extern task freak_ftell(file: int) -> int
+extern task freak_fread(buf: int, size: int, count: int, file: int) -> int
+extern task freak_fwrite(buf: int, size: int, count: int, file: int) -> int
+extern task freak_calloc(count: int, size: int) -> int
+extern task freak_remove(path: int) -> int
+extern task freak_word_length(s: int) -> int
+
+-- ── fs::read — read entire file contents ─────────────
+task llvm_fs_read(path_p: int) -> int {
+    pilot f = freak_fopen(path_p, "rb")
+    if f == 0 {
+        say "FREAK: cannot read file"
+        process::exit(1)
+    }
+    freak_fseek(f, 0, 2)
+    pilot sz = freak_ftell(f)
+    freak_fseek(f, 0, 0)
+    pilot buf = freak_calloc(sz + 1, 1)
+    freak_fread(buf, 1, sz, f)
+    freak_fclose(f)
+    give back buf
+}
+
+-- ── fs::write — write string to file (overwrite) ────
+task llvm_fs_write(path_p: int, content_p: int) -> void {
+    pilot f = freak_fopen(path_p, "wb")
+    if f == 0 {
+        say "FREAK: cannot write file"
+        process::exit(1)
+    }
+    pilot len = freak_word_length(content_p)
+    freak_fwrite(content_p, 1, len, f)
+    freak_fclose(f)
+}
+
+-- ── fs::append — append string to file ───────────────
+task llvm_fs_append(path_p: int, content_p: int) -> void {
+    pilot f = freak_fopen(path_p, "ab")
+    if f == 0 {
+        say "FREAK: cannot append file"
+        process::exit(1)
+    }
+    pilot len = freak_word_length(content_p)
+    freak_fwrite(content_p, 1, len, f)
+    freak_fclose(f)
+}
+
+-- ── fs::exists — check if file exists ────────────────
+task llvm_fs_exists(path_p: int) -> int {
+    pilot f = freak_fopen(path_p, "rb")
+    if f == 0 { give back 0 }
+    freak_fclose(f)
+    give back 1
+}
+
+-- ── fs::delete — delete a file ───────────────────────
+task llvm_fs_delete(path_p: int) -> void {
+    freak_remove(path_p)
+}

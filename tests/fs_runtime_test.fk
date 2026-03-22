@@ -1,0 +1,37 @@
+-- Test: FREAK runtime file I/O (pure FREAK via extern)
+
+say "=== File I/O Test ==="
+
+-- Write a file
+fs::write("tests/test_output.txt", "Hello from FREAK runtime!")
+say "Wrote file."
+
+-- Check it exists
+pilot exists = fs::exists("tests/test_output.txt")
+if exists == 1 {
+    say "File exists: YES"
+} else {
+    say "File exists: NO"
+}
+
+-- Read it back
+pilot content: word = fs::read("tests/test_output.txt")
+say "Read back: "
+say content
+
+-- Append to it
+fs::append("tests/test_output.txt", " Appended!")
+pilot content2: word = fs::read("tests/test_output.txt")
+say "After append: "
+say content2
+
+-- Delete it
+fs::delete("tests/test_output.txt")
+pilot exists2 = fs::exists("tests/test_output.txt")
+if exists2 == 1 {
+    say "File still exists (BAD)"
+} else {
+    say "File deleted: YES"
+}
+
+say "=== All tests passed! ==="

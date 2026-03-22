@@ -3,9 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
-#ifdef _WIN32
-#include <io.h>
-#else
+#ifndef _WIN32
 #include <unistd.h>
 #endif
 
@@ -38,48 +36,8 @@ int64_t freak_llvm_ask(int64_t prompt_p) {
 }
 
 /* ── File I/O ───────────────────────────────────────── */
-
-int64_t freak_llvm_fs_read(int64_t path_p) {
-    FILE* f = fopen((char*)path_p, "rb");
-    if (!f) { fprintf(stderr, "PANIC: cannot read file: %s\n", (char*)path_p); exit(1); }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char* buf = malloc(sz + 1);
-    fread(buf, 1, sz, f);
-    buf[sz] = '\0';
-    fclose(f);
-    return (int64_t)buf;
-}
-
-void freak_llvm_fs_write(int64_t path_p, int64_t content_p) {
-    FILE* f = fopen((char*)path_p, "wb");
-    if (!f) { fprintf(stderr, "PANIC: cannot write file: %s\n", (char*)path_p); exit(1); }
-    char* content = (char*)content_p;
-    fwrite(content, 1, strlen(content), f);
-    fclose(f);
-}
-
-void freak_llvm_fs_append(int64_t path_p, int64_t content_p) {
-    FILE* f = fopen((char*)path_p, "ab");
-    if (!f) { fprintf(stderr, "PANIC: cannot append file: %s\n", (char*)path_p); exit(1); }
-    char* content = (char*)content_p;
-    fwrite(content, 1, strlen(content), f);
-    fclose(f);
-}
-
-int64_t freak_llvm_fs_exists(int64_t path_p) {
-    char* path = (char*)path_p;
-#ifdef _WIN32
-    return _access(path, 0) == 0 ? 1 : 0;
-#else
-    return access(path, F_OK) == 0 ? 1 : 0;
-#endif
-}
-
-void freak_llvm_fs_delete(int64_t path_p) {
-    remove((char*)path_p);
-}
+/* fs_read, fs_write, fs_append, fs_exists, fs_delete are now pure FREAK
+   tasks in std/runtime.fk. They call libc via i64 IR wrappers. */
 
 /* ── Process ────────────────────────────────────────── */
 /* freak_llvm_process_args_count, process_arg, process_exit, process_exec

@@ -232,6 +232,12 @@ task cli_load_std() -> word {
     if fs::exists(http_path) {
         std_src = std_src + fs::read(http_path) + "\n"
     }
+    -- Runtime must be loaded FIRST so its extern declarations and task
+    -- definitions are available before user code that calls fs::read, etc.
+    pilot rt_path = std_dir + "/runtime.fk"
+    if fs::exists(rt_path) {
+        std_src = fs::read(rt_path) + "\n" + std_src
+    }
     give back std_src
 }
 

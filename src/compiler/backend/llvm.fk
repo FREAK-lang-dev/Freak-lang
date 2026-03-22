@@ -13,6 +13,9 @@ pilot string_literals_count = 0
 -- Names: "x|y|greeting|" and Types: "i|w|w|" (i=int, w=word/string, n=num/double)
 pilot llvm_var_names = ""
 pilot llvm_var_types = ""
+-- IR name mapping: source name -> unique IR name (handles shadowed locals)
+pilot llvm_var_src_names = ""
+pilot llvm_var_ir_names = ""
 
 -- Task return type registry: tracks return types of user-defined tasks
 -- So llvm_infer_expr_type can resolve calls to user tasks correctly
@@ -184,6 +187,69 @@ task llvm_c_safe_ident(s: word) -> word {
 }
 
 -- ===================== TYPE TRACKING ===============================
+
+-- Register a unique IR name for a local variable (handles shadowed names)
+task llvm_register_local(src_name: word) -> word {
+    pilot ir_name = src_name + "." + word_from_int(temp_reg_counter)
+    temp_reg_counter += 1
+    llvm_var_src_names = llvm_var_src_names + src_name + "|"
+    llvm_var_ir_names = llvm_var_ir_names + ir_name + "|"
+    give back ir_name
+}
+
+-- Look up the most recent IR name for a source variable name
+task llvm_resolve_local(src_name: word) -> word {
+    pilot nlen = llvm_var_src_names.length()
+    pilot i = nlen - 1
+    pilot cur = ""
+    pilot idx = 0
+    -- Count total entries first
+    pilot total = 0
+    pilot ci = 0
+    repeat until ci >= nlen {
+        if llvm_var_src_names.char_at(ci) == "|" { total += 1 }
+        ci += 1
+    }
+    -- Walk backwards through entries to find last match
+    pilot best_ir = ""
+    pilot wi = 0
+    pilot wname = ""
+    pilot widx = 0
+    repeat until wi >= nlen {
+        pilot c = llvm_var_src_names.char_at(wi)
+        if c == "|" {
+            if wname == src_name {
+                -- Found a match at widx, get the IR name at the same index
+                pilot ti = 0
+                pilot tname = ""
+                pilot tidx = 0
+                pilot tlen = llvm_var_ir_names.length()
+                repeat until ti >= tlen {
+                    pilot tc = llvm_var_ir_names.char_at(ti)
+                    if tc == "|" {
+                        if tidx == widx {
+                            best_ir = tname
+                        }
+                        tidx += 1
+                        tname = ""
+                    } else {
+                        tname = tname + tc
+                    }
+                    ti += 1
+                }
+            }
+            widx += 1
+            wname = ""
+        } else {
+            wname = wname + c
+        }
+        wi += 1
+    }
+    if best_ir.length() > 0 { give back best_ir }
+    -- Fallback: variable not registered (parameter or old-style), use raw name
+    give back src_name
+}
+
 task llvm_set_var_type(name: word, vtype: word) -> void {
     llvm_var_names = llvm_var_names + name + "|"
     llvm_var_types = llvm_var_types + vtype + "|"
@@ -809,12 +875,71 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("}")
     -- ask: still in C runtime (fgets + fflush use opaque FILE* — platform-specific)
     llvm_emit_line("declare i64 @freak_llvm_ask(i64)")
-    -- File I/O
-    llvm_emit_line("declare i64 @freak_llvm_fs_read(i64)")
-    llvm_emit_line("declare void @freak_llvm_fs_write(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_fs_append(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_exists(i64)")
-    llvm_emit_line("declare void @freak_llvm_fs_delete(i64)")
+    -- File I/O: FREAK tasks in std/runtime.fk call these i64 wrappers,
+    -- which bridge to the actual i8*-typed libc functions.
+    llvm_emit_line("declare i8* @fopen(i8*, i8*)")
+    llvm_emit_line("declare i32 @fclose(i8*)")
+    llvm_emit_line("declare i32 @fseek(i8*, i64, i32)")
+    llvm_emit_line("declare i64 @ftell(i8*)")
+    llvm_emit_line("declare i64 @fread(i8*, i64, i64, i8*)")
+    llvm_emit_line("declare i64 @fwrite(i8*, i64, i64, i8*)")
+    llvm_emit_line("declare i32 @remove(i8*)")
+    -- freak_fopen: i64 wrapper around fopen
+    llvm_emit_line("define i64 @freak_fopen(i64 %path, i64 %mode) {")
+    llvm_emit_line("    %p = inttoptr i64 %path to i8*")
+    llvm_emit_line("    %m = inttoptr i64 %mode to i8*")
+    llvm_emit_line("    %f = call i8* @fopen(i8* %p, i8* %m)")
+    llvm_emit_line("    %r = ptrtoint i8* %f to i64")
+    llvm_emit_line("    ret i64 %r")
+    llvm_emit_line("}")
+    -- freak_fclose: i64 wrapper around fclose
+    llvm_emit_line("define i64 @freak_fclose(i64 %file) {")
+    llvm_emit_line("    %f = inttoptr i64 %file to i8*")
+    llvm_emit_line("    %r = call i32 @fclose(i8* %f)")
+    llvm_emit_line("    %rr = sext i32 %r to i64")
+    llvm_emit_line("    ret i64 %rr")
+    llvm_emit_line("}")
+    -- freak_fseek: i64 wrapper around fseek
+    llvm_emit_line("define i64 @freak_fseek(i64 %file, i64 %offset, i64 %whence) {")
+    llvm_emit_line("    %f = inttoptr i64 %file to i8*")
+    llvm_emit_line("    %w = trunc i64 %whence to i32")
+    llvm_emit_line("    %r = call i32 @fseek(i8* %f, i64 %offset, i32 %w)")
+    llvm_emit_line("    %rr = sext i32 %r to i64")
+    llvm_emit_line("    ret i64 %rr")
+    llvm_emit_line("}")
+    -- freak_ftell: i64 wrapper around ftell
+    llvm_emit_line("define i64 @freak_ftell(i64 %file) {")
+    llvm_emit_line("    %f = inttoptr i64 %file to i8*")
+    llvm_emit_line("    %r = call i64 @ftell(i8* %f)")
+    llvm_emit_line("    ret i64 %r")
+    llvm_emit_line("}")
+    -- freak_fread: i64 wrapper around fread
+    llvm_emit_line("define i64 @freak_fread(i64 %buf, i64 %size, i64 %count, i64 %file) {")
+    llvm_emit_line("    %b = inttoptr i64 %buf to i8*")
+    llvm_emit_line("    %f = inttoptr i64 %file to i8*")
+    llvm_emit_line("    %r = call i64 @fread(i8* %b, i64 %size, i64 %count, i8* %f)")
+    llvm_emit_line("    ret i64 %r")
+    llvm_emit_line("}")
+    -- freak_fwrite: i64 wrapper around fwrite
+    llvm_emit_line("define i64 @freak_fwrite(i64 %buf, i64 %size, i64 %count, i64 %file) {")
+    llvm_emit_line("    %b = inttoptr i64 %buf to i8*")
+    llvm_emit_line("    %f = inttoptr i64 %file to i8*")
+    llvm_emit_line("    %r = call i64 @fwrite(i8* %b, i64 %size, i64 %count, i8* %f)")
+    llvm_emit_line("    ret i64 %r")
+    llvm_emit_line("}")
+    -- freak_calloc: i64 wrapper around calloc (calloc already declared above)
+    llvm_emit_line("define i64 @freak_calloc(i64 %count, i64 %size) {")
+    llvm_emit_line("    %p = call i8* @calloc(i64 %count, i64 %size)")
+    llvm_emit_line("    %r = ptrtoint i8* %p to i64")
+    llvm_emit_line("    ret i64 %r")
+    llvm_emit_line("}")
+    -- freak_remove: i64 wrapper around remove
+    llvm_emit_line("define i64 @freak_remove(i64 %path) {")
+    llvm_emit_line("    %p = inttoptr i64 %path to i8*")
+    llvm_emit_line("    %r = call i32 @remove(i8* %p)")
+    llvm_emit_line("    %rr = sext i32 %r to i64")
+    llvm_emit_line("    ret i64 %rr")
+    llvm_emit_line("}")
     -- Process args intrinsics (pure IR — read from globals)
     llvm_emit_line("define i64 @freak_llvm_process_args_count() {")
     llvm_emit_line("    %c = load i64, i64* @__freak_argc")
@@ -945,7 +1070,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_tcp_close(i64)")
 
     -- Track all runtime function names so extern decls don't duplicate them
-    llvm_declared_funcs = "|puts|printf|strlen|freak_word_from_int|freak_word_from_bool|freak_word_concat|freak_word_eq|freak_word_neq|freak_llvm_word_eq|freak_llvm_word_neq|freak_word_length|freak_word_char_at|freak_word_contains|freak_word_starts_with|freak_word_ends_with|freak_word_to_upper|freak_word_to_lower|freak_word_trim|freak_word_replace|freak_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_fs_read|freak_llvm_fs_write|freak_llvm_fs_append|freak_llvm_fs_exists|freak_llvm_fs_delete|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_native|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_array_new|freak_array_push|freak_array_get|freak_array_len|freak_array_set|freak_word_compare|freak_tcp_connect|freak_tcp_send|freak_tcp_recv|freak_tcp_recv_all|freak_tcp_close|"
+    llvm_declared_funcs = "|puts|printf|strlen|freak_word_from_int|freak_word_from_bool|freak_word_concat|freak_word_eq|freak_word_neq|freak_llvm_word_eq|freak_llvm_word_neq|freak_word_length|freak_word_char_at|freak_word_contains|freak_word_starts_with|freak_word_ends_with|freak_word_to_upper|freak_word_to_lower|freak_word_trim|freak_word_replace|freak_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_native|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_array_new|freak_array_push|freak_array_get|freak_array_len|freak_array_set|freak_word_compare|freak_tcp_connect|freak_tcp_send|freak_tcp_recv|freak_tcp_recv_all|freak_tcp_close|fopen|fclose|fseek|ftell|fread|fwrite|calloc|remove|freak_fopen|freak_fclose|freak_fseek|freak_ftell|freak_fread|freak_fwrite|freak_calloc|freak_remove|freak_word_length|"
 }
 
 task llvm_is_runtime_func(fname: word) -> bool {
@@ -962,7 +1087,8 @@ task llvm_var_ptr(vname: word) -> word {
     if llvm_is_global(vname) {
         give back "@g_" + vname
     }
-    give back "%" + vname
+    pilot ir_name = llvm_resolve_local(vname)
+    give back "%" + ir_name
 }
 
 -- Check if a string value contains interpolation placeholders
@@ -1713,8 +1839,9 @@ task llvm_emit_stmt(eid: word) -> void {
         if llvm_is_global(name_w) {
             llvm_emit_line("    store i64 " + reg + ", i64* @g_" + name_w)
         } else {
-            llvm_emit_line("    %" + name_w + " = alloca i64")
-            llvm_emit_line("    store i64 " + reg + ", i64* %" + name_w)
+            pilot ir_name = llvm_register_local(name_w)
+            llvm_emit_line("    %" + ir_name + " = alloca i64")
+            llvm_emit_line("    store i64 " + reg + ", i64* %" + ir_name)
         }
     } else if kind == STMT_SAY {
         -- Check if the expression is an interpolated string
@@ -2104,6 +2231,8 @@ task llvm_emit_task(eid: word) -> void {
     -- Reset variable type tracking for this function scope
     llvm_var_names = ""
     llvm_var_types = ""
+    llvm_var_src_names = ""
+    llvm_var_ir_names = ""
 
     pilot i = word_to_int(eid)
     pilot name_w: word = array_get(ast_stmt_names, i)
@@ -2273,6 +2402,8 @@ task emit_llvm_program() -> void {
     if not has_main_task {
         llvm_var_names = ""
         llvm_var_types = ""
+        llvm_var_src_names = ""
+        llvm_var_ir_names = ""
         llvm_emit_line("define void @freak_main() {")
         llvm_emit_line("entry:")
 

@@ -1,3 +1,6 @@
+
+
+
 -- =========================================================================
 -- FREAK Self-Hosted Compiler (freakc_self) — M15 Bootstrap
 -- Written in FREAK. Compiled by the Python compiler. Compiles FREAK.
@@ -556,6 +559,13 @@ task compile_primary() -> word {
                     if fq == "process::args_count" { give back "((int64_t)freak_argc)" }
                     if fq == "process::arg" { give back "freak_word_lit(freak_argv[" + cargs + "])" }
                     if fq == "process::exit" { give back "freak_process_exit(" + cargs + ")" }
+                    if fq == "process::exec" { give back "freak_process_exec(" + cargs + ")" }
+                    if fq == "process::exec_capture" { give back "freak_process_exec_capture(" + cargs + ")" }
+                    if fq == "process::env" { give back "freak_process_env(" + cargs + ")" }
+                    if fq == "fs::exists" { give back "freak_fs_exists(" + cargs + ")" }
+                    if fq == "fs::append" { give back "freak_fs_append(" + cargs + ")" }
+                    if fq == "fs::delete" { give back "freak_fs_delete(" + cargs + ")" }
+                    if fq == "fs::make_dir" { give back "freak_fs_make_dir(" + cargs + ")" }
                     give back name + "_" + sub + "(" + cargs + ")"
                 }
                 give back name + "_" + sub
