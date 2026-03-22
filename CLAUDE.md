@@ -559,6 +559,15 @@ Test files in `tests/` directory. Run with `python -m freakc test` or `freak tes
 - Build command: `clang -o output.exe source.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O3`
 - Bootstrap: `bootstrap.bat`
 
+### Version String (hardcoded — update before tagging releases!)
+
+The version is hardcoded in **two files** that must be updated together before tagging a release:
+
+- `src/cli/version.fk` → `pilot CLI_VERSION = "0.10.0"` (shown by `freakc version`)
+- `src/compiler/main.fk` → `pilot FREAKC_VERSION = "0.10.0"` (shown by `freakc_v2 --version`)
+
+If you forget, the installed binary will report the old version even though the release tag is newer. This has happened before (v0.10.0 shipped reporting 0.9.0).
+
 ### Known Issues
 
 - `freakc_v2.c` fails to compile with clang due to MSVC deprecation warnings for `strerror`, `getenv` — add `-D_CRT_SECURE_NO_WARNINGS` or use `strerror_s`/`_dupenv_s` variants
