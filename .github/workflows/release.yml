@@ -152,10 +152,10 @@ jobs:
             if [ -d "$dir/freak" ]; then
               if echo "$target" | grep -q windows; then
                 # ZIP for Windows
-                cd "$dir" && zip -r "../../$target.zip" freak/ && cd ../..
+                (cd "$dir" && zip -r "../$target.zip" freak/)
               else
                 # tar.gz for Linux/macOS
-                cd "$dir" && tar czf "../../$target.tar.gz" freak/ && cd ../..
+                (cd "$dir" && tar czf "../$target.tar.gz" freak/)
               fi
             fi
           done

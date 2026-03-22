@@ -4,7 +4,7 @@
 -- Uses std/version.fk for semver parsing and comparison.
 -- ===================================================================
 
-pilot CLI_VERSION = "0.9.0"
+pilot CLI_VERSION = "0.10.0"
 pilot CLI_CODENAME = "Alternative-4"
 
 task cli_show_version() -> void {
