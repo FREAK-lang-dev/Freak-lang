@@ -14,72 +14,16 @@ static int g_argc = 0;
 static char** g_argv = NULL;
 
 /* ── Word (string) primitives ───────────────────────── */
+/* freak_word_from_int, from_bool, concat, eq, neq, length, char_at,
+   starts_with, ends_with, to_int are now pure LLVM IR intrinsics. */
 
-int64_t freak_word_from_int(int64_t n) {
-    char* buf = malloc(32);
-    snprintf(buf, 32, "%lld", (long long)n);
-    return (int64_t)buf;
-}
-
-int64_t freak_word_from_bool(int64_t b) {
-    return b ? (int64_t)"true" : (int64_t)"false";
-}
-
-int64_t freak_word_concat(int64_t ap, int64_t bp) {
-    char* a = (char*)ap;
-    char* b = (char*)bp;
-    size_t la = strlen(a);
-    size_t lb = strlen(b);
-    char* res = malloc(la + lb + 1);
-    memcpy(res, a, la);
-    memcpy(res + la, b, lb);
-    res[la + lb] = '\0';
-    return (int64_t)res;
-}
-
-int64_t freak_word_eq(int64_t ap, int64_t bp) {
-    return strcmp((char*)ap, (char*)bp) == 0 ? 1 : 0;
-}
-
-int64_t freak_word_neq(int64_t ap, int64_t bp) {
-    return strcmp((char*)ap, (char*)bp) != 0 ? 1 : 0;
-}
-
-/* ── String methods ─────────────────────────────────── */
-
-int64_t freak_word_length(int64_t sp) {
-    return (int64_t)strlen((char*)sp);
-}
-
-int64_t freak_word_char_at(int64_t sp, int64_t idx) {
-    char* s = (char*)sp;
-    size_t len = strlen(s);
-    if ((size_t)idx >= len) return (int64_t)"";
-    char* buf = malloc(2);
-    buf[0] = s[idx];
-    buf[1] = '\0';
-    return (int64_t)buf;
-}
+/* ── String methods (still in C — loop-heavy, uses ctype.h) ─── */
 
 int64_t freak_word_contains(int64_t sp, int64_t np) {
     return strstr((char*)sp, (char*)np) != NULL ? 1 : 0;
 }
 
-int64_t freak_word_starts_with(int64_t sp, int64_t pp) {
-    char* s = (char*)sp;
-    char* p = (char*)pp;
-    size_t pl = strlen(p);
-    return strncmp(s, p, pl) == 0 ? 1 : 0;
-}
-
-int64_t freak_word_ends_with(int64_t sp, int64_t pp) {
-    char* s = (char*)sp;
-    char* p = (char*)pp;
-    size_t sl = strlen(s);
-    size_t pl = strlen(p);
-    if (pl > sl) return 0;
-    return strcmp(s + sl - pl, p) == 0 ? 1 : 0;
-}
+/* freak_word_starts_with and ends_with are now pure LLVM IR intrinsics. */
 
 int64_t freak_word_to_upper(int64_t sp) {
     char* s = (char*)sp;
@@ -140,9 +84,7 @@ int64_t freak_word_replace(int64_t sp, int64_t old_p, int64_t new_p) {
     return (int64_t)buf;
 }
 
-int64_t freak_word_to_int(int64_t sp) {
-    return (int64_t)atoll((char*)sp);
-}
+/* freak_word_to_int is now a pure LLVM IR intrinsic. */
 
 /* ── I/O ────────────────────────────────────────────── */
 /* freak_llvm_say, print_str, print_int, print_newline are now
@@ -263,24 +205,13 @@ void freak_llvm_panic(int64_t msg_p) {
    defined as pure LLVM IR intrinsics (calloc + GEP). */
 
 /* ── LLVM wrapper aliases ───────────────────────────── */
-/* The LLVM IR declares @freak_llvm_word_* but this file defines  */
-/* freak_word_*. Add thin wrappers so the linker can resolve them. */
-
-int64_t freak_llvm_word_from_int(int64_t n)   { return freak_word_from_int(n); }
-int64_t freak_llvm_word_from_bool(int64_t b)  { return freak_word_from_bool(b); }
-int64_t freak_llvm_word_concat(int64_t a, int64_t b) { return freak_word_concat(a, b); }
-int64_t freak_llvm_word_eq(int64_t a, int64_t b)     { return freak_word_eq(a, b); }
-int64_t freak_llvm_word_neq(int64_t a, int64_t b)    { return freak_word_neq(a, b); }
-int64_t freak_llvm_word_length(int64_t s)     { return freak_word_length(s); }
-int64_t freak_llvm_word_char_at(int64_t s, int64_t i) { return freak_word_char_at(s, i); }
+/* Most word functions are now pure LLVM IR intrinsics.
+   Only wrappers for C-only functions remain. */
 int64_t freak_llvm_word_contains(int64_t s, int64_t n) { return freak_word_contains(s, n); }
-int64_t freak_llvm_word_starts_with(int64_t s, int64_t p) { return freak_word_starts_with(s, p); }
-int64_t freak_llvm_word_ends_with(int64_t s, int64_t p) { return freak_word_ends_with(s, p); }
 int64_t freak_llvm_word_to_upper(int64_t s)   { return freak_word_to_upper(s); }
 int64_t freak_llvm_word_to_lower(int64_t s)   { return freak_word_to_lower(s); }
 int64_t freak_llvm_word_trim(int64_t s)       { return freak_word_trim(s); }
 int64_t freak_llvm_word_replace(int64_t s, int64_t o, int64_t n) { return freak_word_replace(s, o, n); }
-int64_t freak_llvm_word_to_int(int64_t s)     { return freak_word_to_int(s); }
 
 /* ── UI stubs (for LLVM backend) ───────────────────── */
 int64_t freak_llvm_ui_create_native(int64_t t, int64_t w, int64_t h) { return 0; }
