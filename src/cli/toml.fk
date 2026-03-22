@@ -201,7 +201,13 @@ task toml_parse_kv(line: word, section: word) -> void {
     -- Check if value is a quoted string
     if raw_val.starts_with("\"") {
         pilot str_val: word = toml_unquote(raw_val)
-        toml_set(full_key, str_val)
+        -- Check if this is a short dependency syntax: [dependencies] muvluv = "^1.2.0"
+        if section == "dependencies" {
+            -- Store as dependencies.name.version for uniform access
+            toml_set(full_key + ".version", str_val)
+        } else {
+            toml_set(full_key, str_val)
+        }
     } else if raw_val.starts_with("{") {
         -- Inline table: { git = "...", version = "..." }
         toml_parse_inline_table(raw_val, full_key)
@@ -350,18 +356,25 @@ task toml_write_file(path: word) -> void {
             pilot ver_key = "dependencies." + dn + ".version"
             pilot git_val: word = toml_get(git_key)
             pilot ver_val: word = toml_get(ver_key)
-            pilot ln = dn + " = { "
-            pilot has_f = false
-            if git_val != "" {
-                ln = ln + "git = \"" + git_val + "\""
-                has_f = true
+            if git_val == "" and ver_val != "" {
+                -- Short syntax: muvluv = "^1.2.0"
+                pilot ln_short = dn + " = \"" + ver_val + "\"\n"
+                out = out + ln_short
+            } else {
+                -- Full inline table syntax: muvluv = { git = "...", version = "..." }
+                pilot ln = dn + " = { "
+                pilot has_f = false
+                if git_val != "" {
+                    ln = ln + "git = \"" + git_val + "\""
+                    has_f = true
+                }
+                if ver_val != "" {
+                    if has_f { ln = ln + ", " }
+                    ln = ln + "version = \"" + ver_val + "\""
+                }
+                ln = ln + " }\n"
+                out = out + ln
             }
-            if ver_val != "" {
-                if has_f { ln = ln + ", " }
-                ln = ln + "version = \"" + ver_val + "\""
-            }
-            ln = ln + " }\n"
-            out = out + ln
             di += 1
         }
         out = out + "\n"
@@ -395,6 +408,27 @@ task toml_arr_contains(arr: int, count: int, item: word) -> bool {
         i += 1
     }
     give back false
+}
+
+-- ===================== DEPENDENCY HELPERS ===========================
+
+task toml_dep_get_version(dep_name: word) -> word {
+    -- Get version constraint for a dependency (works with both syntaxes)
+    pilot ver_key = "dependencies." + dep_name + ".version"
+    give back toml_get(ver_key)
+}
+
+task toml_dep_get_git(dep_name: word) -> word {
+    -- Get git URL for a dependency
+    pilot git_key = "dependencies." + dep_name + ".git"
+    give back toml_get(git_key)
+}
+
+task toml_dep_is_short_syntax(dep_name: word) -> bool {
+    -- Returns true if dependency uses short syntax (version only, no git URL)
+    pilot git_val: word = toml_dep_get_git(dep_name)
+    pilot ver_val: word = toml_dep_get_version(dep_name)
+    give back git_val == "" and ver_val != ""
 }
 
 -- ===================== READING FROM FILE ===========================

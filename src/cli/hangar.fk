@@ -1,8 +1,9 @@
 -- ===================================================================
 -- FREAK Hangar — Package Manager (native FREAK implementation)
 -- ===================================================================
--- Commands: init, add, remove, install, version
+-- Commands: init, add, remove, install, update, version
 -- Uses toml.fk for hangar.toml parsing/writing.
+-- Uses lockfile.fk for hangar.lock generation/reading.
 -- Uses git clone for package downloads (no zip handling needed).
 -- ===================================================================
 
@@ -66,17 +67,39 @@ task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int
 
     toml_load(manifest)
 
+    if repo == "" {
+        -- Short syntax: version constraint only (e.g. hangar add muvluv ^1.0)
+        pilot ver_key = "dependencies." + pkg_name + ".version"
+        toml_set(ver_key, ver)
+        toml_write_file(manifest)
+
+        pilot msg = C_BGREEN + "  + " + C_RESET + C_BWHITE + pkg_name + C_RESET + C_DIM + " (" + ver + ")" + C_RESET
+        say msg
+        give back 0
+    }
+
     pilot git_key = "dependencies." + pkg_name + ".git"
-    pilot ver_key = "dependencies." + pkg_name + ".version"
+    pilot ver_key2 = "dependencies." + pkg_name + ".version"
     toml_set(git_key, repo)
-    toml_set(ver_key, ver)
+    toml_set(ver_key2, ver)
     toml_write_file(manifest)
 
-    pilot msg = C_BGREEN + "  + " + C_RESET + C_BWHITE + pkg_name + C_RESET + C_DIM + " (" + repo + " @ " + ver + ")" + C_RESET
-    say msg
+    pilot msg2 = C_BGREEN + "  + " + C_RESET + C_BWHITE + pkg_name + C_RESET + C_DIM + " (" + repo + " @ " + ver + ")" + C_RESET
+    say msg2
 
     -- Also install it
     pilot install_res = hangar_install_one(project_dir, pkg_name, repo, ver)
+
+    -- Update lockfile
+    if install_res == 0 {
+        pilot lockfile = project_dir + "/hangar.lock"
+        lock_load(lockfile)
+        pilot lock_source = "git+" + repo
+        if repo == "" { lock_source = "local" }
+        lock_add_entry(pkg_name, ver, lock_source, "")
+        lock_write(lockfile)
+    }
+
     give back install_res
 }
 
@@ -90,7 +113,8 @@ task hangar_remove(project_dir: word, pkg_name: word) -> int {
     toml_load(manifest)
 
     pilot git_key = "dependencies." + pkg_name + ".git"
-    if toml_has(git_key) == false {
+    pilot ver_only_key = "dependencies." + pkg_name + ".version"
+    if toml_has(git_key) == false and toml_has(ver_only_key) == false {
         pilot msg = "  Package '" + pkg_name + "' is not in hangar.toml"
         say msg
         give back 1
@@ -100,6 +124,14 @@ task hangar_remove(project_dir: word, pkg_name: word) -> int {
     pilot prefix = "dependencies." + pkg_name
     toml_remove_prefix(prefix)
     toml_write_file(manifest)
+
+    -- Remove from lockfile if present
+    pilot lockfile = project_dir + "/hangar.lock"
+    if fs::exists(lockfile) {
+        lock_load(lockfile)
+        lock_remove_entry(pkg_name)
+        lock_write(lockfile)
+    }
 
     -- Remove cached files
     pilot pkg_dir = project_dir + "/hangar_modules/" + pkg_name
@@ -128,9 +160,22 @@ task hangar_install(project_dir: word) -> int {
         give back 0
     }
 
+    -- Check for existing lockfile
+    pilot lockfile = project_dir + "/hangar.lock"
+    pilot has_lockfile = lock_load(lockfile)
+    if has_lockfile {
+        say C_DIM + "  >> " + C_RESET + "Using versions from hangar.lock"
+    }
+
     pilot dep_arr = toml_dep_names_arr()
     pilot errors = 0
     pilot di = 0
+
+    -- Initialize lockfile state if no lockfile exists
+    if has_lockfile == false {
+        lock_clear()
+    }
+
     repeat until di >= dep_cnt {
         pilot dname: word = array_get(dep_arr, di)
         pilot git_key = "dependencies." + dname + ".git"
@@ -138,12 +183,30 @@ task hangar_install(project_dir: word) -> int {
         pilot git_val: word = toml_get(git_key)
         pilot ver_val: word = toml_get(ver_key)
         if ver_val == "" { ver_val = "latest" }
-        pilot ires = hangar_install_one(project_dir, dname, git_val, ver_val)
+
+        -- If lockfile exists and has this package, use the locked version
+        pilot use_ver = ver_val
+        if has_lockfile and lock_has(dname) {
+            use_ver = lock_get_version(dname)
+            pilot lock_msg = C_DIM + "  >> " + C_RESET + "Locked: " + C_BWHITE + dname + C_RESET + C_DIM + " @ " + use_ver + C_RESET
+            say lock_msg
+        }
+
+        pilot ires = hangar_install_one(project_dir, dname, git_val, use_ver)
         if ires != 0 {
             errors += 1
+        } else {
+            -- Record in lockfile data
+            pilot lock_source = "git+" + git_val
+            if git_val == "" { lock_source = "local" }
+            lock_add_entry(dname, use_ver, lock_source, "")
         }
         di += 1
     }
+
+    -- Write lockfile
+    lock_write(lockfile)
+    say C_DIM + "  >> " + C_RESET + "Lockfile written: hangar.lock"
 
     if errors > 0 {
         pilot err_str: word = word_from_int(errors)
@@ -154,6 +217,102 @@ task hangar_install(project_dir: word) -> int {
 
     pilot cnt_str: word = word_from_int(dep_cnt)
     pilot ok_msg = "  All " + cnt_str + " package(s) installed."
+    say ok_msg
+    give back 0
+}
+
+-- ===================== HANGAR UPDATE =================================
+
+task hangar_update(project_dir: word, pkg_name: word) -> int {
+    pilot manifest = project_dir + "/hangar.toml"
+    if fs::exists(manifest) == false {
+        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        give back 1
+    }
+
+    toml_load(manifest)
+
+    pilot dep_cnt = toml_dep_count()
+    if dep_cnt == 0 {
+        say "  No dependencies to update."
+        give back 0
+    }
+
+    pilot lockfile = project_dir + "/hangar.lock"
+
+    if pkg_name != "" {
+        -- Update a single package: re-resolve just this one
+        pilot git_key = "dependencies." + pkg_name + ".git"
+        pilot ver_key = "dependencies." + pkg_name + ".version"
+        pilot git_val: word = toml_get(git_key)
+        pilot ver_val: word = toml_get(ver_key)
+        if ver_val == "" { ver_val = "latest" }
+
+        if toml_has(git_key) == false and toml_has(ver_key) == false {
+            pilot not_found = "  Package '" + pkg_name + "' is not in hangar.toml"
+            say not_found
+            give back 1
+        }
+
+        say C_DIM + "  >> " + C_RESET + "Updating " + C_BWHITE + pkg_name + C_RESET + "..."
+
+        -- Load existing lockfile to preserve other entries
+        lock_load(lockfile)
+
+        -- Remove old entry for this package so it gets re-resolved
+        lock_remove_entry(pkg_name)
+
+        -- Re-install with the constraint from hangar.toml (not locked version)
+        pilot ires = hangar_install_one(project_dir, pkg_name, git_val, ver_val)
+        if ires == 0 {
+            pilot lock_source = "git+" + git_val
+            if git_val == "" { lock_source = "local" }
+            lock_add_entry(pkg_name, ver_val, lock_source, "")
+        }
+
+        lock_write(lockfile)
+        say C_DIM + "  >> " + C_RESET + "Lockfile updated: hangar.lock"
+        give back ires
+    }
+
+    -- Update all packages: re-resolve everything fresh
+    say C_DIM + "  >> " + C_RESET + "Re-resolving all dependencies..."
+    lock_clear()
+
+    pilot dep_arr = toml_dep_names_arr()
+    pilot errors = 0
+    pilot di = 0
+    repeat until di >= dep_cnt {
+        pilot dname: word = array_get(dep_arr, di)
+        pilot git_key2 = "dependencies." + dname + ".git"
+        pilot ver_key2 = "dependencies." + dname + ".version"
+        pilot git_val2: word = toml_get(git_key2)
+        pilot ver_val2: word = toml_get(ver_key2)
+        if ver_val2 == "" { ver_val2 = "latest" }
+
+        pilot ires2 = hangar_install_one(project_dir, dname, git_val2, ver_val2)
+        if ires2 != 0 {
+            errors += 1
+        } else {
+            pilot lock_source2 = "git+" + git_val2
+            if git_val2 == "" { lock_source2 = "local" }
+            lock_add_entry(dname, ver_val2, lock_source2, "")
+        }
+        di += 1
+    }
+
+    lock_write(lockfile)
+    say C_DIM + "  >> " + C_RESET + "Lockfile updated: hangar.lock"
+
+    if errors > 0 {
+        pilot err_str: word = word_from_int(errors)
+        pilot errmsg = "  " + err_str + " package(s) failed to update."
+        say errmsg
+        give back 1
+    }
+
+    pilot cnt_str: word = word_from_int(dep_cnt)
+    pilot ok_msg = "  All " + cnt_str + " package(s) updated."
     say ok_msg
     give back 0
 }
@@ -417,6 +576,93 @@ task hangar_install_freak() -> int {
     give back 0
 }
 
+-- ===================== OUTDATED CHECK ================================
+
+task hangar_outdated(project_dir: word) -> int {
+    pilot manifest = project_dir + "/hangar.toml"
+    if fs::exists(manifest) == false {
+        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        give back 1
+    }
+
+    toml_load(manifest)
+
+    pilot dep_cnt = toml_dep_count()
+    if dep_cnt == 0 {
+        say "  No dependencies to check."
+        give back 0
+    }
+
+    say ""
+    say C_BMAGENTA + "  OUTDATED" + C_RESET + C_DIM + " -- checking installed packages" + C_RESET
+    say ""
+
+    pilot dep_arr = toml_dep_names_arr()
+    pilot found_outdated = 0
+    pilot di = 0
+    repeat until di >= dep_cnt {
+        pilot dname: word = array_get(dep_arr, di)
+        pilot ver_val: word = toml_dep_get_version(dname)
+
+        -- Check installed version from hangar_modules/<pkg>/hangar.toml
+        pilot pkg_manifest = project_dir + "/hangar_modules/" + dname + "/hangar.toml"
+        pilot installed_ver = ""
+        if fs::exists(pkg_manifest) {
+            -- Save current toml state, load package manifest, then restore
+            pilot saved_keys = toml_keys_arr
+            pilot saved_vals = toml_vals_arr
+            pilot saved_count = toml_count
+
+            toml_load(pkg_manifest)
+            installed_ver = toml_get("project.version")
+
+            -- Restore main toml state
+            toml_keys_arr = saved_keys
+            toml_vals_arr = saved_vals
+            toml_count = saved_count
+        }
+
+        if installed_ver == "" {
+            installed_ver = "unknown"
+        }
+
+        -- Display constraint vs installed version
+        pilot constraint_str = ver_val
+        if constraint_str == "" { constraint_str = "latest" }
+
+        pilot status_line = "  " + C_BWHITE + dname + C_RESET
+        status_line = status_line + C_DIM + "  installed: " + C_RESET + installed_ver
+        status_line = status_line + C_DIM + "  constraint: " + C_RESET + constraint_str
+
+        -- Check if installed version satisfies constraint
+        if installed_ver != "unknown" and ver_val != "" and ver_val != "latest" and ver_val != "*" {
+            pilot satisfies = ver_satisfies(installed_ver, ver_val)
+            if satisfies == false {
+                status_line = status_line + "  " + C_BYELLOW + "UPDATE AVAILABLE" + C_RESET
+                found_outdated += 1
+            } else {
+                status_line = status_line + "  " + C_BGREEN + "OK" + C_RESET
+            }
+        } else {
+            status_line = status_line + "  " + C_DIM + "skip (no constraint)" + C_RESET
+        }
+
+        say status_line
+        di += 1
+    }
+
+    say ""
+    if found_outdated > 0 {
+        pilot cnt_str: word = word_from_int(found_outdated)
+        pilot summary = C_BYELLOW + "  " + cnt_str + " package(s) may need updating." + C_RESET
+        say summary
+    } else {
+        say C_BGREEN + "  All packages satisfy their constraints." + C_RESET
+    }
+    say ""
+    give back 0
+}
+
 -- ===================== HELPERS =====================================
 
 task hangar_basename(path: word) -> word {
@@ -509,10 +755,13 @@ task hangar_dispatch(args_cnt: int) -> void {
         say ""
         say C_BWHITE + "  COMMANDS" + C_RESET
         say C_BCYAN + "    init" + C_RESET + "                         " + C_DIM + "Create new project" + C_RESET
-        say C_BCYAN + "    add" + C_RESET + " <name> <repo> [version]  " + C_DIM + "Add dependency" + C_RESET
+        say C_BCYAN + "    add" + C_RESET + " <name> [constraint]       " + C_DIM + "Add dependency with version" + C_RESET
+        say C_BCYAN + "    add" + C_RESET + " <name> <repo> [version]  " + C_DIM + "Add dependency with git repo" + C_RESET
         say C_BCYAN + "    remove" + C_RESET + " <name>                " + C_DIM + "Remove dependency" + C_RESET
         say C_BCYAN + "    install" + C_RESET + "                      " + C_DIM + "Install all dependencies" + C_RESET
         say C_BCYAN + "    install freak" + C_RESET + "                " + C_DIM + "Install FREAK compiler" + C_RESET
+        say C_BCYAN + "    update" + C_RESET + " [package]              " + C_DIM + "Re-resolve and update lockfile" + C_RESET
+        say C_BCYAN + "    outdated" + C_RESET + "                     " + C_DIM + "Check for outdated packages" + C_RESET
         say C_BCYAN + "    version" + C_RESET + "                      " + C_DIM + "Show project version" + C_RESET
         say C_BCYAN + "    version" + C_RESET + " patch|minor|major    " + C_DIM + "Bump version" + C_RESET
         say ""
@@ -528,17 +777,34 @@ task hangar_dispatch(args_cnt: int) -> void {
         }
         hangar_init(project_dir)
     } else if subcmd == "add" {
-        if args_cnt < 5 {
-            say "Usage: freakc hangar add <name> <repo> [version]"
+        if args_cnt < 4 {
+            say "Usage: freakc hangar add <name> [constraint]"
+            say "       freakc hangar add <name> <repo> [version]"
             give back
         }
         pilot pkg: word = process::arg(3)
-        pilot repo: word = process::arg(4)
-        pilot ver = "latest"
-        if args_cnt >= 6 {
-            ver = process::arg(5)
+        if args_cnt == 4 {
+            -- hangar add muvluv (no constraint, defaults to latest)
+            hangar_add(project_dir, pkg, "", "latest")
+        } else if args_cnt == 5 {
+            -- Could be: hangar add muvluv ^1.0  OR  hangar add muvluv repo_url
+            pilot arg4: word = process::arg(4)
+            if arg4.starts_with("^") or arg4.starts_with("~") or arg4.starts_with("=") or arg4.starts_with(">") or arg4.starts_with("<") {
+                -- SemVer constraint: hangar add muvluv ^1.0
+                hangar_add(project_dir, pkg, "", arg4)
+            } else {
+                -- Git repo: hangar add muvluv https://github.com/...
+                hangar_add(project_dir, pkg, arg4, "latest")
+            }
+        } else {
+            -- hangar add muvluv repo version
+            pilot repo: word = process::arg(4)
+            pilot ver = "latest"
+            if args_cnt >= 6 {
+                ver = process::arg(5)
+            }
+            hangar_add(project_dir, pkg, repo, ver)
         }
-        hangar_add(project_dir, pkg, repo, ver)
     } else if subcmd == "remove" {
         if args_cnt < 4 {
             say "Usage: freakc hangar remove <name>"
@@ -556,6 +822,14 @@ task hangar_dispatch(args_cnt: int) -> void {
             }
         }
         hangar_install(project_dir)
+    } else if subcmd == "update" {
+        pilot update_pkg = ""
+        if args_cnt >= 4 {
+            update_pkg = process::arg(3)
+        }
+        hangar_update(project_dir, update_pkg)
+    } else if subcmd == "outdated" {
+        hangar_outdated(project_dir)
     } else if subcmd == "version" {
         pilot bump = ""
         if args_cnt >= 4 {
