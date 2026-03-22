@@ -77,6 +77,7 @@ jobs:
           cat src/compiler/backend/llvm.fk >> build/freakc_cli.fk
           cat src/cli/version.fk >> build/freakc_cli.fk
           cat src/cli/toml.fk >> build/freakc_cli.fk
+          cat src/cli/lockfile.fk >> build/freakc_cli.fk
           cat src/cli/build.fk >> build/freakc_cli.fk
           cat src/cli/run.fk >> build/freakc_cli.fk
           cat src/cli/hangar.fk >> build/freakc_cli.fk

@@ -19,6 +19,7 @@ type src\compiler\backend\llvm.fk >> build\freakc_cli.fk
 rem CLI modules (dependencies before dependents, main last)
 type src\cli\version.fk >> build\freakc_cli.fk
 type src\cli\toml.fk >> build\freakc_cli.fk
+type src\cli\lockfile.fk >> build\freakc_cli.fk
 type src\cli\build.fk >> build\freakc_cli.fk
 type src\cli\run.fk >> build\freakc_cli.fk
 type src\cli\hangar.fk >> build\freakc_cli.fk
