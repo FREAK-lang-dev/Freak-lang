@@ -545,7 +545,10 @@ class Lexer:
             while self._peek().isalnum():
                 self._advance()
             text = self.source[self.start : self.current]
-            value = int(text, 16)
+            try:
+                value = int(text, 16)
+            except ValueError:
+                raise LexerError(f"Invalid numeric literal '{text}' at line {self.line}, column {self.column}")
             self._add_token(TokenType.INT_LIT, value)
             return
 
@@ -555,7 +558,10 @@ class Lexer:
             while self._peek() in ("0", "1"):
                 self._advance()
             text = self.source[self.start : self.current]
-            value = int(text, 2)
+            try:
+                value = int(text, 2)
+            except ValueError:
+                raise LexerError(f"Invalid numeric literal '{text}' at line {self.line}, column {self.column}")
             self._add_token(TokenType.INT_LIT, value)
             return
 

@@ -89,6 +89,19 @@ def test_done_keyword():
     assert ts[0].type == TokenType.DONE
 
 
+def test_malformed_numbers():
+    from freakc.lexer import LexerError
+
+    malformed = ["0xZ", "0x", "0b", "0b2", "0x12G"]
+
+    for m in malformed:
+        try:
+            toks(m)
+            assert False, f"Expected LexerError for {m}"
+        except LexerError as e:
+            assert "Invalid numeric literal" in str(e)
+
+
 if __name__ == "__main__":
     # Simple ad-hoc runner
     for name, fn in sorted(globals().items()):
