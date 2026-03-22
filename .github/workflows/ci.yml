@@ -86,7 +86,11 @@ jobs:
         shell: bash
         run: |
           ./build/freakc.exe build tests/hello.fk
-          ./tests/hello.exe
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            ./tests/hello.exe
+          else
+            ./tests/hello
+          fi
 
       - name: Test — hello.fk (LLVM backend, v2 compiler)
         shell: bash
