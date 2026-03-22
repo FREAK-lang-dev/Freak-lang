@@ -307,9 +307,23 @@ task ver_strip_prefix(constraint: word, prefix_len: int) -> word {
     give back stripped
 }
 
-task ver_satisfies(version: word, constraint: word) -> bool {
-    pilot v: word = ver_parse(version)
+-- Check if a character is a digit (0-9)
+task ver_is_digit(c: word) -> bool {
+    if c == "0" { give back true }
+    if c == "1" { give back true }
+    if c == "2" { give back true }
+    if c == "3" { give back true }
+    if c == "4" { give back true }
+    if c == "5" { give back true }
+    if c == "6" { give back true }
+    if c == "7" { give back true }
+    if c == "8" { give back true }
+    if c == "9" { give back true }
+    give back false
+}
 
+-- Check a single constraint (no spaces) against a parsed version
+task ver_satisfies_single(v: word, constraint: word) -> bool {
     if constraint == "*" or constraint == "latest" {
         give back true
     }
@@ -347,5 +361,65 @@ task ver_satisfies(version: word, constraint: word) -> bool {
         give back ver_eq(v, ver_parse(ver_strip_prefix(constraint, 1)))
     }
 
+    -- Bare version (starts with digit): treat as ^ (compatible)
+    if constraint.length() > 0 {
+        pilot fc: word = constraint.char_at(0)
+        if ver_is_digit(fc) {
+            pilot c: word = ver_parse(constraint)
+            if ver_major(v) != ver_major(c) { give back false }
+            give back ver_gte(v, c)
+        }
+    }
+
     give back ver_eq(v, ver_parse(constraint))
+}
+
+-- Split compound constraint string on spaces and check all parts.
+-- Supports: ">=1.0.0 <2.0.0", "^1.2.0", "~2.4.0", "=0.9.1", bare "1.2.0"
+task ver_satisfies(version: word, constraint: word) -> bool {
+    pilot v: word = ver_parse(version)
+    pilot clen = constraint.length()
+
+    -- Split on spaces into individual constraints
+    pilot current = ""
+    pilot i = 0
+    repeat until i >= clen {
+        pilot ch: word = constraint.char_at(i)
+        if ch == " " {
+            if current.length() > 0 {
+                if ver_satisfies_single(v, current) == false {
+                    give back false
+                }
+                current = ""
+            }
+        } else {
+            current = current + ch
+        }
+        i += 1
+    }
+
+    -- Check the last token
+    if current.length() > 0 {
+        if ver_satisfies_single(v, current) == false {
+            give back false
+        }
+    }
+
+    give back true
+}
+
+-- ===================== PUBLIC API ====================================
+
+-- Check if a version string satisfies a constraint string.
+-- Supports all SemVer constraint syntax:
+--   ^1.2.0       compatible (>=1.2.0 <2.0.0)
+--   ~2.4.0       patch-compatible (>=2.4.0 <2.5.0)
+--   =0.9.1       exact pin
+--   >=, >, <, <= comparison operators
+--   1.2.0        bare version (treated as ^1.2.0)
+--   >=1.0.0 <2.0.0  compound constraints (space-separated, all must match)
+--   *            any version
+--   latest       any version
+task version_matches_constraint(version: word, constraint: word) -> bool {
+    give back ver_satisfies(version, constraint)
 }

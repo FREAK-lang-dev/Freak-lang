@@ -224,6 +224,10 @@ task cli_load_std(target: word) -> word {
     if fs::exists(json_path) {
         std_src = std_src + fs::read(json_path) + "\n"
     }
+    pilot version_path = std_dir + "/version.fk"
+    if fs::exists(version_path) {
+        std_src = std_src + fs::read(version_path) + "\n"
+    }
     -- http.fk uses TCP socket functions (tcp_recv_all returns freak_word)
     -- which only work correctly with the LLVM backend's i64 representation.
     -- The C backend's freak_word struct type causes type mismatches.
