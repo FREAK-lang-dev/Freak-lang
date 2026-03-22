@@ -121,6 +121,7 @@ jobs:
           cp std/json.fk dist/freak/std/
           cp std/http.fk dist/freak/std/
           cp std/version.fk dist/freak/std/
+          cp std/runtime.fk dist/freak/std/
           # Also keep standalone binary for backwards compat with install scripts
           cp build/freakc${{ matrix.ext }} dist/freakc-${{ matrix.target }}${{ matrix.ext }}
 

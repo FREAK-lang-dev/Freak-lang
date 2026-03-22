@@ -43,18 +43,23 @@ jobs:
           else
             echo "LINK_FLAGS=" >> "$GITHUB_ENV"
           fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "EXT=.exe" >> "$GITHUB_ENV"
+          else
+            echo "EXT=" >> "$GITHUB_ENV"
+          fi
 
       - name: Build v2 compiler (Stage 0 — Python bootstrap)
         shell: bash
         run: |
-          python -m freakc build self_hosted/main.fk -o self_hosted/freakc_self.exe --keep-c
+          python -m freakc build self_hosted/main.fk -o self_hosted/freakc_self$EXT --keep-c
 
       - name: Build v2 compiler (Stage 1 — concatenate + compile)
         shell: bash
         run: |
           cat src/compiler/ast.fk src/compiler/lexer.fk src/compiler/parser.fk src/compiler/checker.fk src/compiler/emitter.fk src/compiler/backend/llvm.fk src/compiler/main.fk > build/freakc_v2.fk
-          ./self_hosted/freakc_self.exe build/freakc_v2.fk
-          clang -o build/freakc_v2.exe build/freakc_v2.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          ./self_hosted/freakc_self$EXT build/freakc_v2.fk
+          clang -o build/freakc_v2$EXT build/freakc_v2.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
       - name: Build full CLI (Stage 2 — compiler + CLI + Hangar)
         shell: bash
@@ -75,79 +80,71 @@ jobs:
           cat src/cli/hangar.fk >> build/freakc_cli.fk
           cat src/cli/doctor.fk >> build/freakc_cli.fk
           cat src/cli/main.fk >> build/freakc_cli.fk
-          ./build/freakc_v2.exe build/freakc_cli.fk --c
-          clang -o build/freakc.exe build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          ./build/freakc_v2$EXT build/freakc_cli.fk --c
+          clang -o build/freakc$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
       - name: CLI smoke test — version
         shell: bash
-        run: ./build/freakc.exe version
+        run: ./build/freakc$EXT version
 
       - name: CLI smoke test — build + run hello.fk
         shell: bash
         run: |
-          ./build/freakc.exe build tests/hello.fk
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            ./tests/hello.exe
-          else
-            ./tests/hello
-          fi
+          ./build/freakc$EXT build tests/hello.fk
+          ./tests/hello$EXT
 
-      - name: Test — hello.fk (LLVM backend, v2 compiler)
+      - name: Test — hello.fk (LLVM backend)
         shell: bash
         run: |
-          ./build/freakc_v2.exe tests/hello.fk
-          clang -o tests/hello_llvm_ci.exe tests/hello.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          ./tests/hello_llvm_ci.exe
+          ./build/freakc$EXT build tests/hello.fk
+          ./tests/hello$EXT
 
-      - name: Test — hello.fk (C backend, v2 compiler)
+      - name: Test — hello.fk (C backend)
         shell: bash
         run: |
-          ./build/freakc_v2.exe tests/hello.fk --c
-          clang -o tests/hello_ci.exe tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          ./tests/hello_ci.exe
-
-      - name: Test — control_flow.fk (C backend)
-        shell: bash
-        run: |
-          ./build/freakc_v2.exe tests/control_flow.fk --c
-          clang -o tests/control_flow_ci.exe tests/control_flow.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          ./tests/control_flow_ci.exe
+          ./build/freakc$EXT build tests/hello.fk --c
+          ./tests/hello$EXT
 
       - name: Test — control_flow.fk (LLVM backend)
         shell: bash
         run: |
-          ./build/freakc_v2.exe tests/control_flow.fk --llvm
-          clang -o tests/control_flow_llvm_ci.exe tests/control_flow.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          ./tests/control_flow_llvm_ci.exe
+          ./build/freakc$EXT build tests/control_flow.fk
+          ./tests/control_flow$EXT
+
+      - name: Test — control_flow.fk (C backend)
+        shell: bash
+        run: |
+          ./build/freakc$EXT build tests/control_flow.fk --c
+          ./tests/control_flow$EXT
 
       - name: Test — std library (LLVM backend)
         shell: bash
         run: |
-          cat std/math.fk std/string.fk std/convert.fk tests/std_test.fk > tests/std_ci.fk
-          ./build/freakc_v2.exe tests/std_ci.fk
-          clang -o tests/std_ci.exe tests/std_ci.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          ./tests/std_ci.exe
+          ./build/freakc$EXT build tests/std_test.fk
+          ./tests/std_test$EXT
 
       - name: Test — std library (C backend)
         shell: bash
         run: |
-          cat std/math.fk std/string.fk std/convert.fk tests/std_test.fk > tests/std_ci_c.fk
-          ./build/freakc_v2.exe tests/std_ci_c.fk --c
-          clang -o tests/std_ci_c.exe tests/std_ci_c.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          ./tests/std_ci_c.exe
+          ./build/freakc$EXT build tests/std_test.fk --c
+          ./tests/std_test$EXT
 
-      - name: Test — JSON parser (LLVM backend)
+      - name: Test — JSON parser
         shell: bash
         run: |
-          cat std/math.fk std/string.fk std/convert.fk std/algorithm.fk std/json.fk tests/json_test.fk > tests/json_ci.fk
-          ./build/freakc_v2.exe tests/json_ci.fk
-          clang -o tests/json_ci.exe tests/json_ci.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          ./tests/json_ci.exe
+          ./build/freakc$EXT build tests/json_test.fk
+          ./tests/json_test$EXT
+
+      - name: Test — file I/O runtime
+        shell: bash
+        run: |
+          ./build/freakc$EXT build tests/fs_runtime_test.fk
+          ./tests/fs_runtime_test$EXT
 
       - name: Self-hosting bootstrap test
         shell: bash
         run: |
-          ./build/freakc_v2.exe tests/hello.fk --c
-          clang -o tests/hello_bootstrap.exe tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          ./build/freakc_v2$EXT tests/hello.fk --c
+          clang -o tests/hello_bootstrap$EXT tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           echo "--- Bootstrap verification output ---"
-          ./tests/hello_bootstrap.exe
+          ./tests/hello_bootstrap$EXT
