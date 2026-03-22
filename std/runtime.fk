@@ -11,7 +11,7 @@
 
 -- ── i64 wrapper declarations (defined as IR intrinsics) ─
 -- These are thin wrappers around libc, handling i8* <-> i64 casts.
-extern task freak_fopen(path: word, mode: word) -> int
+extern task freak_fopen(path: int, mode: int) -> int
 extern task freak_fclose(file: int) -> int
 extern task freak_fseek(file: int, offset: int, whence: int) -> int
 extern task freak_ftell(file: int) -> int
@@ -19,7 +19,7 @@ extern task freak_fread(buf: int, size: int, count: int, file: int) -> int
 extern task freak_fwrite(buf: int, size: int, count: int, file: int) -> int
 extern task freak_calloc(count: int, size: int) -> int
 extern task freak_remove(path: int) -> int
-extern task freak_word_length(s: word) -> int
+extern task freak_word_length(s: int) -> int
 
 -- ── fs::read — read entire file contents ─────────────
 task llvm_fs_read(path_p: int) -> int {
