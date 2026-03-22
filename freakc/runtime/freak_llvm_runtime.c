@@ -145,22 +145,8 @@ int64_t freak_word_to_int(int64_t sp) {
 }
 
 /* ── I/O ────────────────────────────────────────────── */
-
-void freak_llvm_say(int64_t sp) {
-    puts((char*)sp);
-}
-
-void freak_llvm_print_str(int64_t sp) {
-    printf("%s", (char*)sp);
-}
-
-void freak_llvm_print_int(int64_t n) {
-    printf("%lld", (long long)n);
-}
-
-void freak_llvm_print_newline(void) {
-    printf("\n");
-}
+/* freak_llvm_say, print_str, print_int, print_newline are now
+   defined as pure LLVM IR intrinsics in the emitted .ll file. */
 
 int64_t freak_llvm_ask(int64_t prompt_p) {
     printf("%s", (char*)prompt_p);
@@ -221,15 +207,8 @@ void freak_llvm_fs_delete(int64_t path_p) {
 }
 
 /* ── Process ────────────────────────────────────────── */
-
-int64_t freak_llvm_process_args_count(void) {
-    return (int64_t)g_argc;
-}
-
-int64_t freak_llvm_process_arg(int64_t idx) {
-    if (idx < 0 || idx >= g_argc) return (int64_t)"";
-    return (int64_t)g_argv[idx];
-}
+/* freak_llvm_process_args_count and process_arg are now
+   defined as pure LLVM IR intrinsics reading @__freak_argc/@__freak_argv globals. */
 
 void freak_llvm_process_exit(int64_t code) {
     exit((int)code);
@@ -280,21 +259,8 @@ void freak_llvm_panic(int64_t msg_p) {
 }
 
 /* ── Shape (struct) helpers ─────────────────────────── */
-
-int64_t freak_llvm_shape_alloc(int64_t field_count) {
-    int64_t* fields = (int64_t*)calloc((size_t)field_count, sizeof(int64_t));
-    return (int64_t)fields;
-}
-
-int64_t freak_llvm_shape_get(int64_t ptr, int64_t index) {
-    int64_t* fields = (int64_t*)ptr;
-    return fields[index];
-}
-
-void freak_llvm_shape_set(int64_t ptr, int64_t index, int64_t value) {
-    int64_t* fields = (int64_t*)ptr;
-    fields[index] = value;
-}
+/* freak_llvm_shape_alloc, shape_get, shape_set are now
+   defined as pure LLVM IR intrinsics (calloc + GEP). */
 
 /* ── LLVM wrapper aliases ───────────────────────────── */
 /* The LLVM IR declares @freak_llvm_word_* but this file defines  */
@@ -336,24 +302,8 @@ int64_t freak_llvm_word_from_num(int64_t bits) {
     return (int64_t)buf;
 }
 
-void freak_llvm_print_num(int64_t bits) {
-    double d;
-    memcpy(&d, &bits, sizeof(d));
-    printf("%g", d);
-}
-
-int64_t freak_llvm_int_to_num(int64_t n) {
-    double d = (double)n;
-    int64_t bits;
-    memcpy(&bits, &d, sizeof(bits));
-    return bits;
-}
-
-int64_t freak_llvm_num_to_int(int64_t bits) {
-    double d;
-    memcpy(&d, &bits, sizeof(d));
-    return (int64_t)d;
-}
+/* freak_llvm_print_num, int_to_num, num_to_int are now
+   defined as pure LLVM IR intrinsics (bitcast + sitofp/fptosi). */
 
 /* ── String comparison ─────────────────────────────── */
 
@@ -425,7 +375,6 @@ void freak_array_set(int64_t handle, int64_t index, int64_t item) {
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
 static int freak_wsa_inited = 0;
 static void freak_wsa_init(void) {
     if (!freak_wsa_inited) {
@@ -537,10 +486,10 @@ void freak_tcp_close(int64_t fd) {
 }
 
 /* ── Entry point setup ──────────────────────────────── */
-/* The LLVM IR main calls freak_llvm_setup_args then freak_main */
-
-void freak_llvm_setup_args(int64_t argc, int64_t argv) {
-    g_argc = (int)argc;
-    g_argv = (char**)argv;
-}
+/* freak_llvm_setup_args is now defined as a pure LLVM IR intrinsic
+   that stores argc/argv to @__freak_argc/@__freak_argv globals.
+   The C-side process_exec/exit/exec_capture functions that need g_argc/g_argv
+   are not affected — they still use the C globals below. However, these C globals
+   are no longer populated by setup_args. Process functions that rely on them
+   (exec, exit, exec_capture) don't use g_argc/g_argv so this is fine. */
 
