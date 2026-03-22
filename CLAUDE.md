@@ -157,7 +157,15 @@ Freak-lang/
 ```
 
 ### freak-ui Milestones (MA–MG track)
-Pending — window system, layout engine, calculator app demo, five themes.
+```
+[~] MA  — Window system (std::ui platform abstraction + Win32 backend prototype done, needs emitter wiring)
+[ ] MB  — Layout engine (flex-like immediate-mode layout)
+[ ] MC  — Widget library (buttons, labels, text input, sliders)
+[ ] MD  — Theming system (5 themes: default/light/terminal/alternative/muvluv)
+[ ] ME  — Input handling (keyboard focus, tab order, mouse capture)
+[ ] MF  — Calculator demo app
+[ ] MG  — Polish and publish freak-ui to Hangar
+```
 
 ### HFML Milestones (MH0–MH9 track)
 Pending — depends on freak-ui Phase C for codegen; lexer/parser can start earlier.
@@ -168,7 +176,7 @@ Pending — depends on freak-ui Phase C for codegen; lexer/parser can start earl
 [x] LB2  — All FREAK primitives map to LLVM types
 [x] LB3  — All control flow emits correct IR (if/when/loops/break/continue)
 [x] LB4  — Shapes (structs) and impl methods work
-[ ] LB5  — freak_runtime.h functions replaced by IR intrinsics
+[x] LB5  — freak_runtime.h functions replaced by IR intrinsics (platform-dependent C remains: stdin, popen, sockets, UI)
 [x] LB6  — freak build uses LLVM backend by default
 [ ] LB7  — JIT mode: freak run executes via OrcJIT (no binary written)
 [x] LB8  — Optimization levels: --opt=0/1/2/3
@@ -578,7 +586,7 @@ The LLVM IR backend (`src/compiler/backend/llvm.fk`, ~1450 lines) is fully worki
 
 **Working features:** variables, functions (void + i64), if/else, when, all loop types, break/continue, shapes with typed fields, impl methods, pipe operator, eventually blocks, string interpolation, boolean logic, comparisons.
 
-**Not yet implemented:** runtime intrinsics (LB5), JIT (LB7), optimization levels (LB8), cross-compilation (LB9), debug info (LB10).
+**Not yet implemented:** JIT (LB7), debug info (LB10). LB5 (runtime intrinsics), LB8 (opt levels), LB9 (cross-compilation) are done.
 
 ---
 
@@ -608,12 +616,61 @@ In rough priority order:
 2. ~~**GitHub Actions CI/CD**~~ — ✅ Done.
 3. ~~**Hangar bootstrapper**~~ — ✅ Done.
 4. ~~**Native CLI rewrite**~~ — ✅ Done. `build/freakc.exe` replaces `python -m freakc`. Includes compiler + CLI + Hangar + semver library in a single ~450KB binary.
-5. **LLVM IR backend (LB5, LB7, LB10)** — runtime intrinsics, JIT, debug info. ~~LB6 (default backend)~~, ~~LB8 (opt levels)~~, ~~LB9 (cross-compilation)~~ done.
-6. **freak-ui Phase MA–MG** — window system, layout engine, calculator demo app.
+5. ~~**LLVM IR backend (LB5, LB7, LB10)**~~ — ~~LB5 (runtime intrinsics)~~, ~~LB6 (default backend)~~, ~~LB8 (opt levels)~~, ~~LB9 (cross-compilation)~~ done. **LB7 (JIT)** and **LB10 (debug info)** remain.
+6. **freak-ui Phase MA–MG** — MA (window system) prototype done, needs emitter wiring. MB–MG remain.
 7. **HFML lexer/parser (MH0–MH3)** — can start before freak-ui Phase C is done.
 8. ~~**M13: freak-http + freak-json**~~ — ✅ Done. std::json (pure FREAK) + std::http (TCP sockets + pure FREAK).
 9. **Sortie IDE Phase 1** — VS Code extension.
-10. **Update CI/release workflows** — build `freakc.exe` (native CLI) instead of `freakc_v2.exe` in release artifacts.
+10. ~~**Update CI/release workflows**~~ — ✅ Done. Workflows already build `freakc.exe`. Install scripts updated with `runtime.fk`.
+
+---
+
+## Agent Teams (Parallel Development)
+
+This project uses Claude Code agent teams to parallelize work. Enable with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `.claude/settings.local.json` (already configured).
+
+### How to Use
+
+Ask Claude to create a team with 2–4 agents targeting independent work streams. Example:
+```
+Create a team: one agent works on X, another on Y, a third on Z.
+```
+
+### Parallelizable Sprint Ideas
+
+These are groups of tasks that can safely run in parallel (no merge conflicts, independent subsystems):
+
+**Sprint A — Language Features**
+- Agent 1: **LB7 — JIT mode** (OrcJIT integration, `freak run` without writing a binary)
+- Agent 2: **LB10 — DWARF debug info** (DIBuilder, source line mappings in IR)
+- Agent 3: **M14 — freak-image + freak-zip** (new std library modules, pure FREAK + C runtime)
+
+**Sprint B — UI Stack**
+- Agent 1: **freak-ui Phase MA completion** (wire extern declarations in emitter so std::ui calls compile)
+- Agent 2: **freak-ui Phase MB** (layout engine — flex-like immediate-mode positioning)
+- Agent 3: **HFML lexer/parser (MH0–MH2)** (independent of freak-ui runtime, just parsing)
+
+**Sprint C — Tooling & Distribution**
+- Agent 1: **Sortie IDE Phase 1** (VS Code extension — syntax highlighting, snippets, error lens)
+- Agent 2: **D6 — Homebrew formula** + **D7 — Scoop/Winget manifests**
+- Agent 3: **std::test framework** (test runner, vibes ratings, `freak test` command)
+
+**Sprint D — Ecosystem Expansion**
+- Agent 1: **FreakScript bootstrap** (lexer/parser from `freakscript-bible.md`, separate from FREAK compiler)
+- Agent 2: **std::thread** (threads, atomics, channels — C runtime + FREAK wrappers)
+- Agent 3: **std::anime + std::narrative** (mood arithmetic, death flags, foreshadow tracking)
+
+**Sprint E — Compiler Hardening**
+- Agent 1: **Error message improvements** (anime-themed diagnostics with source spans)
+- Agent 2: **Compiler test suite** (automated regression tests for all language features)
+- Agent 3: **Cross-platform CI validation** (ensure all tests pass on Linux/macOS/Windows)
+
+### Guidelines
+
+- Keep teams to 3–5 agents (token cost scales linearly)
+- Each agent should work in a different directory/subsystem to avoid conflicts
+- Commit after every significant change (per Git Commit Policy above)
+- The team lead coordinates, reviews output, and resolves any conflicts
 
 ---
 

@@ -141,12 +141,8 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     }
 
     pilot cmd = "clang -o " + out_bin + " " + transpiled_file + " " + runtime_file
-    -- Only add -I and C flags if linking against .c source (not .o)
-    if runtime_file.ends_with(".c") {
-        cmd = cmd + " -I" + runtime_dir + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
-    } else {
-        cmd = cmd + " -O" + opt
-    }
+    -- Always pass -I so the generated .fk.c can find freak_runtime.h
+    cmd = cmd + " -I" + runtime_dir + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
 
     -- Platform-specific linker flags
     if windir == "" {
@@ -202,7 +198,7 @@ task cli_find_std_dir() -> word {
     give back ""
 }
 
-task cli_load_std() -> word {
+task cli_load_std(target: word) -> word {
     -- Load the standard library source files.
     -- Returns concatenated source, or "" if std not found.
     pilot std_dir: word = cli_find_std_dir()
@@ -228,15 +224,25 @@ task cli_load_std() -> word {
     if fs::exists(json_path) {
         std_src = std_src + fs::read(json_path) + "\n"
     }
-    pilot http_path = std_dir + "/http.fk"
-    if fs::exists(http_path) {
-        std_src = std_src + fs::read(http_path) + "\n"
+    -- http.fk uses TCP socket functions (tcp_recv_all returns freak_word)
+    -- which only work correctly with the LLVM backend's i64 representation.
+    -- The C backend's freak_word struct type causes type mismatches.
+    if target == "llvm" {
+        pilot http_path = std_dir + "/http.fk"
+        if fs::exists(http_path) {
+            std_src = std_src + fs::read(http_path) + "\n"
+        }
     }
     -- Runtime must be loaded FIRST so its extern declarations and task
     -- definitions are available before user code that calls fs::read, etc.
-    pilot rt_path = std_dir + "/runtime.fk"
-    if fs::exists(rt_path) {
-        std_src = fs::read(rt_path) + "\n" + std_src
+    -- NOTE: runtime.fk contains i64-based extern declarations designed for
+    -- the LLVM backend. The C backend gets these from freak_runtime.h via
+    -- #include, so loading runtime.fk with --c causes type conflicts.
+    if target == "llvm" {
+        pilot rt_path = std_dir + "/runtime.fk"
+        if fs::exists(rt_path) {
+            std_src = fs::read(rt_path) + "\n" + std_src
+        }
     }
     give back std_src
 }
@@ -254,7 +260,7 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     say hdr
 
     -- Auto-include standard library if available
-    pilot std_source: word = cli_load_std()
+    pilot std_source: word = cli_load_std(target)
     if std_source != "" {
         source = std_source + source
     }
