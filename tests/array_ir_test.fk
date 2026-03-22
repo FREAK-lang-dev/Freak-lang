@@ -1,0 +1,27 @@
+-- Test: dynamic arrays with pure LLVM IR intrinsics
+pilot arr = array_new()
+array_push(arr, "hello")
+array_push(arr, "world")
+array_push(arr, "FREAK")
+
+pilot len = array_len(arr)
+say "Array length: " + word_from_int(len)
+
+say "Item 0: " + array_get(arr, 0)
+say "Item 1: " + array_get(arr, 1)
+say "Item 2: " + array_get(arr, 2)
+
+array_set(arr, 1, "LLVM")
+say "After set, item 1: " + array_get(arr, 1)
+
+-- Test second array
+pilot arr2 = array_new()
+pilot i = 0
+repeat 20 times {
+    array_push(arr2, word_from_int(i))
+    i += 1
+}
+say "Array2 length: " + word_from_int(array_len(arr2))
+say "Array2[15]: " + array_get(arr2, 15)
+
+say "Array IR test passed!"
