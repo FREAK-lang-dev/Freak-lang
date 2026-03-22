@@ -2,89 +2,22 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <ctype.h>
+/* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifdef _WIN32
 #include <io.h>
 #else
 #include <unistd.h>
 #endif
 
-/* ── Global args (set by main) ──────────────────────── */
-static int g_argc = 0;
-static char** g_argv = NULL;
+/* ── Global args — no longer needed, moved to LLVM IR globals ── */
 
 /* ── Word (string) primitives ───────────────────────── */
 /* freak_word_from_int, from_bool, concat, eq, neq, length, char_at,
    starts_with, ends_with, to_int are now pure LLVM IR intrinsics. */
 
-/* ── String methods (still in C — loop-heavy, uses ctype.h) ─── */
-
-int64_t freak_word_contains(int64_t sp, int64_t np) {
-    return strstr((char*)sp, (char*)np) != NULL ? 1 : 0;
-}
-
-/* freak_word_starts_with and ends_with are now pure LLVM IR intrinsics. */
-
-int64_t freak_word_to_upper(int64_t sp) {
-    char* s = (char*)sp;
-    size_t len = strlen(s);
-    char* buf = malloc(len + 1);
-    for (size_t i = 0; i < len; i++) buf[i] = (char)toupper((unsigned char)s[i]);
-    buf[len] = '\0';
-    return (int64_t)buf;
-}
-
-int64_t freak_word_to_lower(int64_t sp) {
-    char* s = (char*)sp;
-    size_t len = strlen(s);
-    char* buf = malloc(len + 1);
-    for (size_t i = 0; i < len; i++) buf[i] = (char)tolower((unsigned char)s[i]);
-    buf[len] = '\0';
-    return (int64_t)buf;
-}
-
-int64_t freak_word_trim(int64_t sp) {
-    char* s = (char*)sp;
-    while (*s && isspace((unsigned char)*s)) s++;
-    size_t len = strlen(s);
-    while (len > 0 && isspace((unsigned char)s[len - 1])) len--;
-    char* buf = malloc(len + 1);
-    memcpy(buf, s, len);
-    buf[len] = '\0';
-    return (int64_t)buf;
-}
-
-int64_t freak_word_replace(int64_t sp, int64_t old_p, int64_t new_p) {
-    char* s = (char*)sp;
-    char* old_s = (char*)old_p;
-    char* new_s = (char*)new_p;
-    size_t old_len = strlen(old_s);
-    size_t new_len = strlen(new_s);
-    if (old_len == 0) return sp;
-
-    /* Count occurrences */
-    int count = 0;
-    char* p = s;
-    while ((p = strstr(p, old_s)) != NULL) { count++; p += old_len; }
-
-    size_t result_len = strlen(s) + count * ((int64_t)new_len - (int64_t)old_len);
-    char* buf = malloc(result_len + 1);
-    char* dst = buf;
-    p = s;
-    while (*p) {
-        if (strncmp(p, old_s, old_len) == 0) {
-            memcpy(dst, new_s, new_len);
-            dst += new_len;
-            p += old_len;
-        } else {
-            *dst++ = *p++;
-        }
-    }
-    *dst = '\0';
-    return (int64_t)buf;
-}
-
-/* freak_word_to_int is now a pure LLVM IR intrinsic. */
+/* ── String methods ────────────────────────────────── */
+/* All word/string functions are now pure LLVM IR intrinsics,
+   including replace, contains, to_upper, to_lower, trim, etc. */
 
 /* ── I/O ────────────────────────────────────────────── */
 /* freak_llvm_say, print_str, print_int, print_newline are now
@@ -149,17 +82,8 @@ void freak_llvm_fs_delete(int64_t path_p) {
 }
 
 /* ── Process ────────────────────────────────────────── */
-/* freak_llvm_process_args_count and process_arg are now
-   defined as pure LLVM IR intrinsics reading @__freak_argc/@__freak_argv globals. */
-
-void freak_llvm_process_exit(int64_t code) {
-    exit((int)code);
-}
-
-int64_t freak_llvm_process_exec(int64_t cmd_p) {
-    const char* cmd = (const char*)cmd_p;
-    return (int64_t)system(cmd);
-}
+/* freak_llvm_process_args_count, process_arg, process_exit, process_exec
+   are now pure LLVM IR intrinsics. */
 
 int64_t freak_llvm_process_exec_capture(int64_t cmd_p) {
     const char* cmd = (const char*)cmd_p;
@@ -194,24 +118,14 @@ int64_t freak_llvm_process_exec_capture(int64_t cmd_p) {
 }
 
 /* ── Panic ──────────────────────────────────────────── */
-
-void freak_llvm_panic(int64_t msg_p) {
-    fprintf(stderr, "PANIC: %s\n", (char*)msg_p);
-    exit(1);
-}
+/* freak_llvm_panic is now a pure LLVM IR intrinsic. */
 
 /* ── Shape (struct) helpers ─────────────────────────── */
 /* freak_llvm_shape_alloc, shape_get, shape_set are now
    defined as pure LLVM IR intrinsics (calloc + GEP). */
 
 /* ── LLVM wrapper aliases ───────────────────────────── */
-/* Most word functions are now pure LLVM IR intrinsics.
-   Only wrappers for C-only functions remain. */
-int64_t freak_llvm_word_contains(int64_t s, int64_t n) { return freak_word_contains(s, n); }
-int64_t freak_llvm_word_to_upper(int64_t s)   { return freak_word_to_upper(s); }
-int64_t freak_llvm_word_to_lower(int64_t s)   { return freak_word_to_lower(s); }
-int64_t freak_llvm_word_trim(int64_t s)       { return freak_word_trim(s); }
-int64_t freak_llvm_word_replace(int64_t s, int64_t o, int64_t n) { return freak_word_replace(s, o, n); }
+/* All word function wrappers removed — now pure LLVM IR intrinsics. */
 
 /* ── UI stubs (for LLVM backend) ───────────────────── */
 int64_t freak_llvm_ui_create_native(int64_t t, int64_t w, int64_t h) { return 0; }
@@ -225,27 +139,8 @@ void    freak_llvm_ui_fill_rect(int64_t w, int64_t x, int64_t y, int64_t ww, int
 /* Doubles are stored as bitcast i64 in FREAK LLVM IR.  */
 /* These helpers reinterpret the bits.                    */
 
-int64_t freak_llvm_word_from_num(int64_t bits) {
-    double d;
-    memcpy(&d, &bits, sizeof(d));
-    char* buf = (char*)malloc(32);
-    snprintf(buf, 32, "%g", d);
-    return (int64_t)buf;
-}
-
-/* freak_llvm_print_num, int_to_num, num_to_int are now
-   defined as pure LLVM IR intrinsics (bitcast + sitofp/fptosi). */
-
-/* ── String comparison ─────────────────────────────── */
-
-int64_t freak_word_compare(int64_t ap, int64_t bp) {
-    char* a = (char*)ap;
-    char* b = (char*)bp;
-    int r = strcmp(a, b);
-    if (r < 0) return -1;
-    if (r > 0) return 1;
-    return 0;
-}
+/* freak_llvm_word_from_num, print_num, int_to_num, num_to_int, word_compare
+   are now pure LLVM IR intrinsics. */
 
 /* ── Dynamic Arrays ────────────────────────────────── */
 /* Same pool system as freak_runtime.c but with i64 interface */
@@ -417,10 +312,4 @@ void freak_tcp_close(int64_t fd) {
 }
 
 /* ── Entry point setup ──────────────────────────────── */
-/* freak_llvm_setup_args is now defined as a pure LLVM IR intrinsic
-   that stores argc/argv to @__freak_argc/@__freak_argv globals.
-   The C-side process_exec/exit/exec_capture functions that need g_argc/g_argv
-   are not affected — they still use the C globals below. However, these C globals
-   are no longer populated by setup_args. Process functions that rely on them
-   (exec, exit, exec_capture) don't use g_argc/g_argv so this is fine. */
-
+/* freak_llvm_setup_args is now a pure LLVM IR intrinsic. */

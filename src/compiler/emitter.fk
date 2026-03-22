@@ -245,22 +245,37 @@ task emit_expr(id: word) -> void {
         -- Re-escape special characters for C string literal
         pilot si = 0
         pilot sslen = str_val.length()
-        repeat sslen times {
+        repeat until si >= sslen {
             pilot sc = str_val.char_at(si)
-            if sc == "\n" {
+            if sc == "\\" and si + 3 < sslen {
+                pilot snx = str_val.char_at(si + 1)
+                if snx == "x" {
+                    -- Pass \xNN hex escapes through to C as-is
+                    tmp = tmp + "\\x" + str_val.char_at(si + 2) + str_val.char_at(si + 3)
+                    si += 4
+                } else {
+                    tmp = tmp + "\\\\"
+                    si += 1
+                }
+            } else if sc == "\n" {
                 tmp = tmp + "\\n"
+                si += 1
             } else if sc == "\r" {
                 tmp = tmp + "\\r"
+                si += 1
             } else if sc == "\t" {
                 tmp = tmp + "\\t"
+                si += 1
             } else if sc == "\\" {
                 tmp = tmp + "\\\\"
+                si += 1
             } else if sc == "\"" {
                 tmp = tmp + "\\\""
+                si += 1
             } else {
                 tmp = tmp + sc
+                si += 1
             }
-            si += 1
         }
         tmp = tmp + "\")"
         emit(tmp)

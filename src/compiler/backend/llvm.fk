@@ -78,22 +78,39 @@ task llvm_escape_str(s: word) -> word {
     pilot esc_out = ""
     pilot esc_len = s.length()
     pilot esc_i = 0
-    repeat esc_len times {
+    repeat until esc_i >= esc_len {
         pilot ch = s.char_at(esc_i)
-        if ch == "\"" {
+        if ch == "\\" and esc_i + 3 < esc_len {
+            pilot nx = s.char_at(esc_i + 1)
+            if nx == "x" {
+                -- \xNN hex escape from lexer -> LLVM IR \NN (uppercase)
+                pilot h1 = s.char_at(esc_i + 2)
+                pilot h2 = s.char_at(esc_i + 3)
+                esc_out = esc_out + "\\" + h1 + h2
+                esc_i += 4
+            } else {
+                esc_out = esc_out + "\\5C"
+                esc_i += 1
+            }
+        } else if ch == "\"" {
             esc_out = esc_out + "\\22"
+            esc_i += 1
         } else if ch == "\\" {
             esc_out = esc_out + "\\5C"
+            esc_i += 1
         } else if ch == "\n" {
             esc_out = esc_out + "\\0A"
+            esc_i += 1
         } else if ch == "\r" {
             esc_out = esc_out + "\\0D"
+            esc_i += 1
         } else if ch == "\t" {
             esc_out = esc_out + "\\09"
+            esc_i += 1
         } else {
             esc_out = esc_out + ch
+            esc_i += 1
         }
-        esc_i += 1
     }
     give back esc_out
 }
@@ -104,7 +121,24 @@ task register_string_literal(val: word) -> word {
 
     -- Restore escaped pipe characters from lexer
     pilot real_val = val.replace("<<PIPE>>", "|")
+    -- Calculate actual byte length (account for \xNN -> 1 byte)
     pilot len = real_val.length()
+    pilot adj_i = 0
+    repeat until adj_i >= len {
+        pilot adj_ch = real_val.char_at(adj_i)
+        if adj_ch == "\\" and adj_i + 3 < len {
+            pilot adj_nx = real_val.char_at(adj_i + 1)
+            if adj_nx == "x" {
+                -- \xNN is 4 chars in source but 1 byte in output
+                len -= 3
+                adj_i += 4
+            } else {
+                adj_i += 1
+            }
+        } else {
+            adj_i += 1
+        }
+    }
     pilot null_term_len = len + 1
 
     -- Escape for LLVM IR c"..." syntax
@@ -382,6 +416,10 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i32 @memcmp(i8*, i8*, i64)")
     llvm_emit_line("declare i8* @memcpy(i8*, i8*, i64)")
     llvm_emit_line("declare i64 @atoll(i8*)")
+    llvm_emit_line("declare i8* @strstr(i8*, i8*)")
+    llvm_emit_line("declare void @exit(i32)")
+    llvm_emit_line("declare i32 @system(i8*)")
+    llvm_emit_line("declare i32 @strncmp(i8*, i8*, i64)")
     -- Globals for argc/argv (set by setup_args intrinsic)
     llvm_emit_line("@__freak_argc = internal global i64 0")
     llvm_emit_line("@__freak_argv = internal global i64 0")
@@ -530,12 +568,224 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("    ret i64 %n")
     llvm_emit_line("}")
 
-    -- String methods still in C runtime (loop-heavy, uses ctype.h)
-    llvm_emit_line("declare i64 @freak_word_contains(i64, i64)")
-    llvm_emit_line("declare i64 @freak_word_to_upper(i64)")
-    llvm_emit_line("declare i64 @freak_word_to_lower(i64)")
-    llvm_emit_line("declare i64 @freak_word_trim(i64)")
-    llvm_emit_line("declare i64 @freak_word_replace(i64, i64, i64)")
+    -- word_contains: strstr wrapper
+    llvm_emit_line("define i64 @freak_word_contains(i64 %sp, i64 %np) {")
+    llvm_emit_line("    %s = inttoptr i64 %sp to i8*")
+    llvm_emit_line("    %n = inttoptr i64 %np to i8*")
+    llvm_emit_line("    %found = call i8* @strstr(i8* %s, i8* %n)")
+    llvm_emit_line("    %isnull = icmp eq i8* %found, null")
+    llvm_emit_line("    %r = select i1 %isnull, i64 0, i64 1")
+    llvm_emit_line("    ret i64 %r")
+    llvm_emit_line("}")
+
+    -- word_to_upper: loop over bytes, a-z → A-Z (subtract 32)
+    llvm_emit_line("define i64 @freak_word_to_upper(i64 %sp) {")
+    llvm_emit_line("    %s = inttoptr i64 %sp to i8*")
+    llvm_emit_line("    %len = call i64 @strlen(i8* %s)")
+    llvm_emit_line("    %alloc = add i64 %len, 1")
+    llvm_emit_line("    %buf = call i8* @malloc(i64 %alloc)")
+    llvm_emit_line("    br label %loop")
+    llvm_emit_line("loop:")
+    llvm_emit_line("    %i = phi i64 [0, %0], [%i1, %next]")
+    llvm_emit_line("    %done = icmp uge i64 %i, %len")
+    llvm_emit_line("    br i1 %done, label %end, label %body")
+    llvm_emit_line("body:")
+    llvm_emit_line("    %sp2 = getelementptr i8, i8* %s, i64 %i")
+    llvm_emit_line("    %ch = load i8, i8* %sp2")
+    llvm_emit_line("    %ge_a = icmp uge i8 %ch, 97")
+    llvm_emit_line("    %le_z = icmp ule i8 %ch, 122")
+    llvm_emit_line("    %is_lower = and i1 %ge_a, %le_z")
+    llvm_emit_line("    %upper = sub i8 %ch, 32")
+    llvm_emit_line("    %out = select i1 %is_lower, i8 %upper, i8 %ch")
+    llvm_emit_line("    %dp = getelementptr i8, i8* %buf, i64 %i")
+    llvm_emit_line("    store i8 %out, i8* %dp")
+    llvm_emit_line("    br label %next")
+    llvm_emit_line("next:")
+    llvm_emit_line("    %i1 = add i64 %i, 1")
+    llvm_emit_line("    br label %loop")
+    llvm_emit_line("end:")
+    llvm_emit_line("    %ep = getelementptr i8, i8* %buf, i64 %len")
+    llvm_emit_line("    store i8 0, i8* %ep")
+    llvm_emit_line("    %r = ptrtoint i8* %buf to i64")
+    llvm_emit_line("    ret i64 %r")
+    llvm_emit_line("}")
+
+    -- word_to_lower: loop over bytes, A-Z → a-z (add 32)
+    llvm_emit_line("define i64 @freak_word_to_lower(i64 %sp) {")
+    llvm_emit_line("    %s = inttoptr i64 %sp to i8*")
+    llvm_emit_line("    %len = call i64 @strlen(i8* %s)")
+    llvm_emit_line("    %alloc = add i64 %len, 1")
+    llvm_emit_line("    %buf = call i8* @malloc(i64 %alloc)")
+    llvm_emit_line("    br label %loop")
+    llvm_emit_line("loop:")
+    llvm_emit_line("    %i = phi i64 [0, %0], [%i1, %next]")
+    llvm_emit_line("    %done = icmp uge i64 %i, %len")
+    llvm_emit_line("    br i1 %done, label %end, label %body")
+    llvm_emit_line("body:")
+    llvm_emit_line("    %sp2 = getelementptr i8, i8* %s, i64 %i")
+    llvm_emit_line("    %ch = load i8, i8* %sp2")
+    llvm_emit_line("    %ge_A = icmp uge i8 %ch, 65")
+    llvm_emit_line("    %le_Z = icmp ule i8 %ch, 90")
+    llvm_emit_line("    %is_upper = and i1 %ge_A, %le_Z")
+    llvm_emit_line("    %lower = add i8 %ch, 32")
+    llvm_emit_line("    %out = select i1 %is_upper, i8 %lower, i8 %ch")
+    llvm_emit_line("    %dp = getelementptr i8, i8* %buf, i64 %i")
+    llvm_emit_line("    store i8 %out, i8* %dp")
+    llvm_emit_line("    br label %next")
+    llvm_emit_line("next:")
+    llvm_emit_line("    %i1 = add i64 %i, 1")
+    llvm_emit_line("    br label %loop")
+    llvm_emit_line("end:")
+    llvm_emit_line("    %ep = getelementptr i8, i8* %buf, i64 %len")
+    llvm_emit_line("    store i8 0, i8* %ep")
+    llvm_emit_line("    %r = ptrtoint i8* %buf to i64")
+    llvm_emit_line("    ret i64 %r")
+    llvm_emit_line("}")
+
+    -- word_trim: skip leading/trailing spaces (0x20), tabs (0x09), newlines (0x0A, 0x0D)
+    llvm_emit_line("define i64 @freak_word_trim(i64 %sp) {")
+    llvm_emit_line("    %s = inttoptr i64 %sp to i8*")
+    llvm_emit_line("    %len = call i64 @strlen(i8* %s)")
+    llvm_emit_line("    br label %skip_start")
+    llvm_emit_line("skip_start:")
+    llvm_emit_line("    %si = phi i64 [0, %0], [%si1, %skip_cont]")
+    llvm_emit_line("    %sdone = icmp uge i64 %si, %len")
+    llvm_emit_line("    br i1 %sdone, label %build, label %scheck")
+    llvm_emit_line("scheck:")
+    llvm_emit_line("    %scp = getelementptr i8, i8* %s, i64 %si")
+    llvm_emit_line("    %sch = load i8, i8* %scp")
+    llvm_emit_line("    %s1 = icmp eq i8 %sch, 32")
+    llvm_emit_line("    %s2 = icmp eq i8 %sch, 9")
+    llvm_emit_line("    %s3 = icmp eq i8 %sch, 10")
+    llvm_emit_line("    %s4 = icmp eq i8 %sch, 13")
+    llvm_emit_line("    %s12 = or i1 %s1, %s2")
+    llvm_emit_line("    %s34 = or i1 %s3, %s4")
+    llvm_emit_line("    %sws = or i1 %s12, %s34")
+    llvm_emit_line("    br i1 %sws, label %skip_cont, label %build")
+    llvm_emit_line("skip_cont:")
+    llvm_emit_line("    %si1 = add i64 %si, 1")
+    llvm_emit_line("    br label %skip_start")
+    llvm_emit_line("build:")
+    llvm_emit_line("    %start = phi i64 [%si, %scheck], [%si, %skip_start]")
+    llvm_emit_line("    br label %skip_end")
+    llvm_emit_line("skip_end:")
+    llvm_emit_line("    %ei = phi i64 [%len, %build], [%ei1, %econt]")
+    llvm_emit_line("    %ezero = icmp ule i64 %ei, %start")
+    llvm_emit_line("    br i1 %ezero, label %alloc, label %echeck")
+    llvm_emit_line("echeck:")
+    llvm_emit_line("    %ei1 = sub i64 %ei, 1")
+    llvm_emit_line("    %ecp = getelementptr i8, i8* %s, i64 %ei1")
+    llvm_emit_line("    %ech = load i8, i8* %ecp")
+    llvm_emit_line("    %e1 = icmp eq i8 %ech, 32")
+    llvm_emit_line("    %e2 = icmp eq i8 %ech, 9")
+    llvm_emit_line("    %e3 = icmp eq i8 %ech, 10")
+    llvm_emit_line("    %e4 = icmp eq i8 %ech, 13")
+    llvm_emit_line("    %e12 = or i1 %e1, %e2")
+    llvm_emit_line("    %e34 = or i1 %e3, %e4")
+    llvm_emit_line("    %ews = or i1 %e12, %e34")
+    llvm_emit_line("    br i1 %ews, label %econt, label %alloc")
+    llvm_emit_line("econt:")
+    llvm_emit_line("    br label %skip_end")
+    llvm_emit_line("alloc:")
+    llvm_emit_line("    %end_idx = phi i64 [%ei, %skip_end], [%ei1, %echeck]")
+    llvm_emit_line("    %tlen = sub i64 %end_idx, %start")
+    llvm_emit_line("    %talloc = add i64 %tlen, 1")
+    llvm_emit_line("    %tbuf = call i8* @malloc(i64 %talloc)")
+    llvm_emit_line("    %tsrc = getelementptr i8, i8* %s, i64 %start")
+    llvm_emit_line("    call i8* @memcpy(i8* %tbuf, i8* %tsrc, i64 %tlen)")
+    llvm_emit_line("    %tnull = getelementptr i8, i8* %tbuf, i64 %tlen")
+    llvm_emit_line("    store i8 0, i8* %tnull")
+    llvm_emit_line("    %tr = ptrtoint i8* %tbuf to i64")
+    llvm_emit_line("    ret i64 %tr")
+    llvm_emit_line("}")
+
+    -- word_replace: pure LLVM IR — count occurrences, alloc result, copy with replacements
+    llvm_emit_line("define i64 @freak_word_replace(i64 %sp, i64 %old_p, i64 %new_p) {")
+    llvm_emit_line("entry:")
+    llvm_emit_line("    %s = inttoptr i64 %sp to i8*")
+    llvm_emit_line("    %old = inttoptr i64 %old_p to i8*")
+    llvm_emit_line("    %new = inttoptr i64 %new_p to i8*")
+    llvm_emit_line("    %old_len = call i64 @strlen(i8* %old)")
+    llvm_emit_line("    %new_len = call i64 @strlen(i8* %new)")
+    llvm_emit_line("    %s_len = call i64 @strlen(i8* %s)")
+    llvm_emit_line("    %old_empty = icmp eq i64 %old_len, 0")
+    llvm_emit_line("    br i1 %old_empty, label %ret_orig, label %count_hdr")
+    -- Phase 1: count occurrences of old in s
+    llvm_emit_line("count_hdr:")
+    llvm_emit_line("    br label %count_loop")
+    llvm_emit_line("count_loop:")
+    llvm_emit_line("    %ci = phi i64 [0, %count_hdr], [%ci_adv, %count_next]")
+    llvm_emit_line("    %cnt = phi i64 [0, %count_hdr], [%cnt_n, %count_next]")
+    llvm_emit_line("    %ci_left = sub i64 %s_len, %ci")
+    llvm_emit_line("    %ci_done = icmp ult i64 %ci_left, %old_len")
+    llvm_emit_line("    br i1 %ci_done, label %alloc, label %count_body")
+    llvm_emit_line("count_body:")
+    llvm_emit_line("    %cp = getelementptr i8, i8* %s, i64 %ci")
+    llvm_emit_line("    %cmp = call i32 @strncmp(i8* %cp, i8* %old, i64 %old_len)")
+    llvm_emit_line("    %is_match = icmp eq i32 %cmp, 0")
+    llvm_emit_line("    br i1 %is_match, label %count_hit, label %count_miss")
+    llvm_emit_line("count_hit:")
+    llvm_emit_line("    %cnt_h = add i64 %cnt, 1")
+    llvm_emit_line("    %ci_h = add i64 %ci, %old_len")
+    llvm_emit_line("    br label %count_next")
+    llvm_emit_line("count_miss:")
+    llvm_emit_line("    %ci_m = add i64 %ci, 1")
+    llvm_emit_line("    br label %count_next")
+    llvm_emit_line("count_next:")
+    llvm_emit_line("    %ci_adv = phi i64 [%ci_h, %count_hit], [%ci_m, %count_miss]")
+    llvm_emit_line("    %cnt_n = phi i64 [%cnt_h, %count_hit], [%cnt, %count_miss]")
+    llvm_emit_line("    br label %count_loop")
+    -- Phase 2: allocate result buffer
+    llvm_emit_line("alloc:")
+    llvm_emit_line("    %cnt_final = phi i64 [%cnt, %count_loop]")
+    llvm_emit_line("    %diff = sub i64 %new_len, %old_len")
+    llvm_emit_line("    %extra = mul i64 %cnt_final, %diff")
+    llvm_emit_line("    %rlen = add i64 %s_len, %extra")
+    llvm_emit_line("    %rlen1 = add i64 %rlen, 1")
+    llvm_emit_line("    %buf = call i8* @malloc(i64 %rlen1)")
+    llvm_emit_line("    br label %copy_loop")
+    -- Phase 3: copy with replacements
+    llvm_emit_line("copy_loop:")
+    llvm_emit_line("    %si = phi i64 [0, %alloc], [%si_adv, %copy_next]")
+    llvm_emit_line("    %di = phi i64 [0, %alloc], [%di_adv, %copy_next]")
+    llvm_emit_line("    %si_end = icmp uge i64 %si, %s_len")
+    llvm_emit_line("    br i1 %si_end, label %done, label %copy_body")
+    llvm_emit_line("copy_body:")
+    llvm_emit_line("    %si_rem = sub i64 %s_len, %si")
+    llvm_emit_line("    %can_match = icmp uge i64 %si_rem, %old_len")
+    llvm_emit_line("    br i1 %can_match, label %copy_try, label %copy_char")
+    llvm_emit_line("copy_try:")
+    llvm_emit_line("    %srcp = getelementptr i8, i8* %s, i64 %si")
+    llvm_emit_line("    %mc = call i32 @strncmp(i8* %srcp, i8* %old, i64 %old_len)")
+    llvm_emit_line("    %found = icmp eq i32 %mc, 0")
+    llvm_emit_line("    br i1 %found, label %copy_repl, label %copy_char")
+    llvm_emit_line("copy_repl:")
+    llvm_emit_line("    %dstp_r = getelementptr i8, i8* %buf, i64 %di")
+    llvm_emit_line("    call i8* @memcpy(i8* %dstp_r, i8* %new, i64 %new_len)")
+    llvm_emit_line("    %si_r = add i64 %si, %old_len")
+    llvm_emit_line("    %di_r = add i64 %di, %new_len")
+    llvm_emit_line("    br label %copy_next")
+    llvm_emit_line("copy_char:")
+    llvm_emit_line("    %srcp2 = getelementptr i8, i8* %s, i64 %si")
+    llvm_emit_line("    %ch = load i8, i8* %srcp2")
+    llvm_emit_line("    %dstp_c = getelementptr i8, i8* %buf, i64 %di")
+    llvm_emit_line("    store i8 %ch, i8* %dstp_c")
+    llvm_emit_line("    %si_c = add i64 %si, 1")
+    llvm_emit_line("    %di_c = add i64 %di, 1")
+    llvm_emit_line("    br label %copy_next")
+    llvm_emit_line("copy_next:")
+    llvm_emit_line("    %si_adv = phi i64 [%si_r, %copy_repl], [%si_c, %copy_char]")
+    llvm_emit_line("    %di_adv = phi i64 [%di_r, %copy_repl], [%di_c, %copy_char]")
+    llvm_emit_line("    br label %copy_loop")
+    llvm_emit_line("done:")
+    llvm_emit_line("    %di_final = phi i64 [%di, %copy_loop]")
+    llvm_emit_line("    %ep = getelementptr i8, i8* %buf, i64 %di_final")
+    llvm_emit_line("    store i8 0, i8* %ep")
+    llvm_emit_line("    %r = ptrtoint i8* %buf to i64")
+    llvm_emit_line("    ret i64 %r")
+    llvm_emit_line("ret_orig:")
+    llvm_emit_line("    ret i64 %sp")
+    llvm_emit_line("}")
     -- I/O intrinsics (pure IR — no C runtime needed)
     llvm_emit_line("define void @freak_llvm_say(i64 %s) {")
     llvm_emit_line("    %p = inttoptr i64 %s to i8*")
@@ -557,6 +807,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("    call i32 @putchar(i32 10)")
     llvm_emit_line("    ret void")
     llvm_emit_line("}")
+    -- ask: still in C runtime (fgets + fflush use opaque FILE* — platform-specific)
     llvm_emit_line("declare i64 @freak_llvm_ask(i64)")
     -- File I/O
     llvm_emit_line("declare i64 @freak_llvm_fs_read(i64)")
@@ -577,11 +828,30 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("    %r = ptrtoint i8* %arg to i64")
     llvm_emit_line("    ret i64 %r")
     llvm_emit_line("}")
-    llvm_emit_line("declare void @freak_llvm_process_exit(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_process_exec(i64)")
+    -- process_exit: call exit()
+    llvm_emit_line("define void @freak_llvm_process_exit(i64 %code) {")
+    llvm_emit_line("    %c = trunc i64 %code to i32")
+    llvm_emit_line("    call void @exit(i32 %c)")
+    llvm_emit_line("    unreachable")
+    llvm_emit_line("}")
+    -- process_exec: call system()
+    llvm_emit_line("define i64 @freak_llvm_process_exec(i64 %cmdp) {")
+    llvm_emit_line("    %cmd = inttoptr i64 %cmdp to i8*")
+    llvm_emit_line("    %r = call i32 @system(i8* %cmd)")
+    llvm_emit_line("    %r64 = sext i32 %r to i64")
+    llvm_emit_line("    ret i64 %r64")
+    llvm_emit_line("}")
+    -- process_exec_capture stays in C (popen is platform-specific)
     llvm_emit_line("declare i64 @freak_llvm_process_exec_capture(i64)")
-    -- Panic
-    llvm_emit_line("declare void @freak_llvm_panic(i64)")
+    -- Panic: print message + exit(1)
+    llvm_emit_line("define void @freak_llvm_panic(i64 %msgp) {")
+    llvm_emit_line("    %msg = inttoptr i64 %msgp to i8*")
+    llvm_emit_line("    %pfmt = getelementptr [3 x i8], [3 x i8]* @.fmt_str, i64 0, i64 0")
+    llvm_emit_line("    call i32 (i8*, ...) @printf(i8* %pfmt, i8* %msg)")
+    llvm_emit_line("    call i32 @putchar(i32 10)")
+    llvm_emit_line("    call void @exit(i32 1)")
+    llvm_emit_line("    unreachable")
+    llvm_emit_line("}")
     -- Shape intrinsics (pure IR — struct field access via pointer math)
     llvm_emit_line("define i64 @freak_llvm_shape_alloc(i64 %count) {")
     llvm_emit_line("    %p = call i8* @calloc(i64 %count, i64 8)")
@@ -624,8 +894,15 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("    call i32 (i8*, ...) @printf(i8* %fmt, double %d)")
     llvm_emit_line("    ret void")
     llvm_emit_line("}")
-    -- word_from_num still in C runtime (needs sprintf + malloc)
-    llvm_emit_line("declare i64 @freak_llvm_word_from_num(i64)")
+    -- word_from_num: bitcast i64→double, snprintf %g into malloc'd buffer
+    llvm_emit_line("define i64 @freak_llvm_word_from_num(i64 %bits) {")
+    llvm_emit_line("    %d = bitcast i64 %bits to double")
+    llvm_emit_line("    %buf = call i8* @malloc(i64 32)")
+    llvm_emit_line("    %fmt = getelementptr [3 x i8], [3 x i8]* @.fmt_num, i64 0, i64 0")
+    llvm_emit_line("    call i32 (i8*, i64, i8*, ...) @snprintf(i8* %buf, i64 32, i8* %fmt, double %d)")
+    llvm_emit_line("    %r = ptrtoint i8* %buf to i64")
+    llvm_emit_line("    ret i64 %r")
+    llvm_emit_line("}")
 
     -- UI
     llvm_emit_line("declare i64 @freak_llvm_ui_create_native(i64, i64, i64)")
@@ -635,8 +912,23 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_llvm_ui_clear(i64, i64, i64, i64, i64)")
     llvm_emit_line("declare void @freak_llvm_ui_fill_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
 
-    -- String comparison
-    llvm_emit_line("declare i64 @freak_word_compare(i64, i64)")
+    -- String comparison: strcmp → -1/0/1
+    llvm_emit_line("define i64 @freak_word_compare(i64 %ap, i64 %bp) {")
+    llvm_emit_line("    %a = inttoptr i64 %ap to i8*")
+    llvm_emit_line("    %b = inttoptr i64 %bp to i8*")
+    llvm_emit_line("    %cmp = call i32 @strcmp(i8* %a, i8* %b)")
+    llvm_emit_line("    %neg = icmp slt i32 %cmp, 0")
+    llvm_emit_line("    br i1 %neg, label %ret_neg, label %check_pos")
+    llvm_emit_line("ret_neg:")
+    llvm_emit_line("    ret i64 -1")
+    llvm_emit_line("check_pos:")
+    llvm_emit_line("    %pos = icmp sgt i32 %cmp, 0")
+    llvm_emit_line("    br i1 %pos, label %ret_pos, label %ret_zero")
+    llvm_emit_line("ret_pos:")
+    llvm_emit_line("    ret i64 1")
+    llvm_emit_line("ret_zero:")
+    llvm_emit_line("    ret i64 0")
+    llvm_emit_line("}")
 
     -- Dynamic arrays
     llvm_emit_line("declare i64 @freak_array_new()")
@@ -1300,11 +1592,9 @@ task llvm_emit_expr(id: word) -> word {
         } else if val == "trim" {
             llvm_emit_line("    " + res_reg + " = call i64 @freak_word_trim(i64 " + obj_reg + ")")
         } else if val == "replace" {
-            -- replace has 2 args encoded as comma-separated in right
-            pilot arg_reg = llvm_emit_expr(right)
-            -- For now, handle the common two-arg case via the parser's expression structure
-            -- The parser stores the first arg in right, second arg needs to be in args list
-            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_replace(i64 " + obj_reg + ", i64 " + arg_reg + ", i64 0)")
+            -- replace has 2 args: old_str, new_str — encoded as comma-separated expr IDs in right
+            pilot args_str = llvm_emit_args(right)
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_word_replace(i64 " + obj_reg + ", " + args_str + ")")
         } else if val == "to_int" {
             llvm_emit_line("    " + res_reg + " = call i64 @freak_word_to_int(i64 " + obj_reg + ")")
         } else {

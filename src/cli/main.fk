@@ -88,9 +88,8 @@ task freakc_cli_main() -> void {
     -- Subcommands that require a file argument
     if subcmd == "build" or subcmd == "run" or subcmd == "check" or subcmd == "transpile" {
         if args_cnt < 3 {
-            pilot errmsg = "Error: " + subcmd + " requires a file argument."
-            say errmsg
-            pilot usage_msg = "Usage: freakc " + subcmd + " <file.fk> [options]"
+            say C_BRED + "  ERROR" + C_RESET + " " + subcmd + " requires a file argument."
+            pilot usage_msg = C_DIM + "  Usage: " + C_RESET + "freakc " + subcmd + " <file.fk> [options]"
             say usage_msg
             give back
         }
@@ -112,18 +111,19 @@ task freakc_cli_main() -> void {
             -- Type-check only: read, lex, parse, check — no emit
             pilot source: word = fs::read(src_file)
             if source == "" {
-                pilot ferr = "Error: Could not read file: " + src_file
-                say ferr
+                say C_BRED + "  ERROR" + C_RESET + " Could not read file: " + C_BWHITE + src_file + C_RESET
                 process::exit(1)
             }
+            pilot chk_hdr = C_BMAGENTA + "  FREAKC" + C_RESET + " " + C_DIM + "checking" + C_RESET + " " + C_BWHITE + src_file + C_RESET
+            say chk_hdr
             init_arrays()
-            say "[1/3] Lexing..."
+            say C_DIM + "  >> " + C_RESET + "Lexing..."
             tokenize(source)
-            say "[2/3] Parsing..."
+            say C_DIM + "  >> " + C_RESET + "Parsing..."
             parse_program()
-            say "[3/3] Type Checking..."
+            say C_DIM + "  >> " + C_RESET + "Type checking..."
             check_program()
-            say "Type check passed."
+            say C_BGREEN + "  PASSED" + C_RESET + C_DIM + " -- no type errors found" + C_RESET
         } else if subcmd == "transpile" {
             -- Transpile only (matches current freakc_v2 behavior)
             pilot source: word = fs::read(src_file)
@@ -176,9 +176,9 @@ task freakc_cli_main() -> void {
     }
 
     -- Unknown subcommand
-    pilot unknown_msg = "Error: Unknown command '" + subcmd + "'"
+    pilot unknown_msg = C_BRED + "  ERROR" + C_RESET + " Unknown command '" + C_BWHITE + subcmd + C_RESET + "'"
     say unknown_msg
-    say "Run 'freakc help' for usage information."
+    say C_DIM + "  Run '" + C_RESET + "freakc help" + C_DIM + "' for usage information." + C_RESET
 }
 
 freakc_cli_main()

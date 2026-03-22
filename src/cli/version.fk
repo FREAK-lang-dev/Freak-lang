@@ -7,35 +7,69 @@
 pilot CLI_VERSION = "0.10.0"
 pilot CLI_CODENAME = "Alternative-4"
 
+-- ANSI color codes
+pilot C_RESET   = "\x1b[0m"
+pilot C_BOLD    = "\x1b[1m"
+pilot C_DIM     = "\x1b[2m"
+pilot C_RED     = "\x1b[31m"
+pilot C_GREEN   = "\x1b[32m"
+pilot C_YELLOW  = "\x1b[33m"
+pilot C_BLUE    = "\x1b[34m"
+pilot C_MAGENTA = "\x1b[35m"
+pilot C_CYAN    = "\x1b[36m"
+pilot C_WHITE   = "\x1b[37m"
+pilot C_BRED    = "\x1b[1;31m"
+pilot C_BGREEN  = "\x1b[1;32m"
+pilot C_BYELLOW = "\x1b[1;33m"
+pilot C_BBLUE   = "\x1b[1;34m"
+pilot C_BMAGENTA = "\x1b[1;35m"
+pilot C_BCYAN   = "\x1b[1;36m"
+pilot C_BWHITE  = "\x1b[1;37m"
+
 task cli_show_version() -> void {
-    pilot ver_msg = "freakc " + CLI_VERSION + " (" + CLI_CODENAME + ")"
+    pilot ver_msg = C_BMAGENTA + "freakc" + C_RESET + " " + C_BWHITE + CLI_VERSION + C_RESET + " " + C_DIM + "(" + CLI_CODENAME + ")" + C_RESET
     say ver_msg
 }
 
+task cli_show_banner() -> void {
+    say ""
+    say C_BMAGENTA + "  ______ _____  _____    _    _  __" + C_RESET
+    say C_BMAGENTA + " |  ____|  __ \\|  ___|  / \\  | |/ /" + C_RESET
+    say C_MAGENTA  + " | |__  | |__) | |__   / _ \\ | ' / " + C_RESET
+    say C_MAGENTA  + " |  __| |  _  /|  __| / ___ \\|  <  " + C_RESET
+    say C_RED      + " | |    | | \\ \\| |___/ /   \\ \\ . \\ " + C_RESET
+    say C_RED      + " |_|    |_|  \\_\\_____/_/     \\_\\_|\\_\\" + C_RESET
+    say ""
+    pilot tag = C_DIM + "  v" + CLI_VERSION + " " + C_RESET + C_BWHITE + CLI_CODENAME + C_RESET + C_DIM + " // self-hosting compiler" + C_RESET
+    say tag
+    say ""
+}
+
 task cli_show_help() -> void {
-    pilot hdr = "FREAK Compiler " + CLI_VERSION + " (" + CLI_CODENAME + ")"
-    say hdr
+    cli_show_banner()
+
+    say C_BWHITE + "  COMMANDS" + C_RESET
+    say C_BCYAN  + "    build" + C_RESET + " <file.fk> [opts]    " + C_DIM + "Compile to native binary" + C_RESET
+    say C_BCYAN  + "    run" + C_RESET + " <file.fk> [opts]      " + C_DIM + "Build and execute" + C_RESET
+    say C_BCYAN  + "    check" + C_RESET + " <file.fk>           " + C_DIM + "Type-check only" + C_RESET
+    say C_BCYAN  + "    transpile" + C_RESET + " <file.fk> [opts] " + C_DIM + "Emit .c or .ll only" + C_RESET
+    say C_BCYAN  + "    hangar" + C_RESET + " <cmd>               " + C_DIM + "Package manager" + C_RESET
+    say C_BCYAN  + "    doctor" + C_RESET + "                     " + C_DIM + "Check setup" + C_RESET
+    say C_BCYAN  + "    version" + C_RESET + "                    " + C_DIM + "Show version" + C_RESET
+    say C_BCYAN  + "    help" + C_RESET + "                       " + C_DIM + "Show this help" + C_RESET
     say ""
-    say "Usage:"
-    say "  freakc build <file.fk> [options]    Compile to native binary"
-    say "  freakc run <file.fk> [options]       Build and run"
-    say "  freakc check <file.fk>               Type-check only"
-    say "  freakc transpile <file.fk> [options]  Transpile only (no compile)"
-    say "  freakc hangar <cmd>                  Package manager"
-    say "  freakc doctor                        Check setup (clang, runtime, std)"
-    say "  freakc version                       Show version"
-    say "  freakc help                          Show this help"
+    say C_BWHITE + "  OPTIONS" + C_RESET
+    say C_YELLOW + "    --llvm" + C_RESET + "             " + C_DIM + "Use LLVM IR backend (default)" + C_RESET
+    say C_YELLOW + "    --c" + C_RESET + "                " + C_DIM + "Use C backend" + C_RESET
+    say C_YELLOW + "    --opt=N" + C_RESET + "            " + C_DIM + "Optimization level 0-3 (default: 2)" + C_RESET
+    say C_YELLOW + "    --target=TRIPLE" + C_RESET + "    " + C_DIM + "Cross-compile target triple" + C_RESET
     say ""
-    say "Options:"
-    say "  --llvm             Use LLVM IR backend (default)"
-    say "  --c                Use C backend"
-    say "  --opt=N            Optimization level 0-3 (default: 2)"
-    say "  --target=TRIPLE    Cross-compile target triple"
-    say "  --version, -V      Show version"
-    say "  --help, -h         Show this help"
+    say C_BWHITE + "  EXAMPLES" + C_RESET
+    say C_DIM    + "    $ " + C_RESET + "freakc build hello.fk"
+    say C_DIM    + "    $ " + C_RESET + "freakc run hello.fk --c --opt=3"
+    say C_DIM    + "    $ " + C_RESET + "freakc build game.fk --target=x86_64-linux-gnu"
+    say C_DIM    + "    $ " + C_RESET + "freakc hangar init my-project"
     say ""
-    say "Examples:"
-    say "  freakc build hello.fk"
-    say "  freakc run hello.fk --c --opt=3"
-    say "  freakc build game.fk --target=x86_64-linux-gnu"
+    say C_DIM + "  \"It was always going to end this way.\"" + C_RESET
+    say ""
 }

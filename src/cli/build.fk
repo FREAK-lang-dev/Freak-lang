@@ -8,31 +8,27 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
     init_arrays()
 
-    say "[1/4] Lexing..."
+    say C_DIM + "  >> " + C_RESET + "Lexing..."
     tokenize(source)
 
-    say "[2/4] Parsing..."
+    say C_DIM + "  >> " + C_RESET + "Parsing..."
     parse_program()
 
-    say "[3/4] Type Checking..."
+    say C_DIM + "  >> " + C_RESET + "Type checking..."
     check_program()
 
-    say "[4/4] Emitting..."
+    say C_DIM + "  >> " + C_RESET + "Emitting..."
     if target == "llvm" {
         pilot out_ll = src_file + ".ll"
         llvm_out_file = out_ll
         fs::write(out_ll, "")
         emit_llvm_program()
         llvm_out_file = ""
-        pilot msg_ll = "Generated LLVM IR at " + out_ll
-        say msg_ll
         give back out_ll
     } else {
         emit_program()
         pilot out_c = src_file + ".c"
         fs::write(out_c, out_buf)
-        pilot msg_c = "Generated C code at " + out_c
-        say msg_c
         give back out_c
     }
 }
@@ -92,16 +88,17 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
 
     pilot runtime_dir: word = cli_find_runtime_dir()
     if runtime_dir == "" {
-        say "Error: Could not find FREAK runtime directory."
         say ""
-        say "The runtime is needed to compile FREAK programs."
-        say "Searched in:"
-        say "  freakc/runtime/           (dev/repo layout)"
-        say "  ~/.freak/runtime/         (install.sh layout)"
-        say "  %APPDATA%\\freak\\runtime\\  (install.ps1 layout)"
-        say "  $FREAK_HOME/runtime/      (custom location)"
+        say C_BRED + "  RUNTIME NOT FOUND" + C_RESET
         say ""
-        say "Fix: Re-run the install script, or run 'freakc doctor' for diagnostics."
+        say C_DIM + "  The runtime is needed to compile FREAK programs." + C_RESET
+        say C_DIM + "  Searched in:" + C_RESET
+        say "    freakc/runtime/           " + C_DIM + "(dev/repo)" + C_RESET
+        say "    ~/.freak/runtime/         " + C_DIM + "(install.sh)" + C_RESET
+        say "    %APPDATA%\\freak\\runtime\\  " + C_DIM + "(install.ps1)" + C_RESET
+        say "    $FREAK_HOME/runtime/      " + C_DIM + "(custom)" + C_RESET
+        say ""
+        say C_DIM + "  Fix: Re-run the install script, or run '" + C_RESET + "freakc doctor" + C_DIM + "'." + C_RESET
         give back ""
     }
 
@@ -164,24 +161,23 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         cmd = cmd + " --target=" + cross
     }
 
-    pilot compile_msg = "Compiling: " + cmd
-    say compile_msg
+    say C_DIM + "  >> " + C_RESET + "Compiling native binary..."
 
     pilot exit_code = process::exec(cmd)
     if exit_code != 0 {
-        say "Error: Compilation failed."
         say ""
-        say "Make sure clang is installed and in your PATH."
-        say "  Windows: choco install llvm  OR  winget install LLVM.LLVM"
-        say "  macOS:   xcode-select --install  OR  brew install llvm"
-        say "  Linux:   sudo apt install clang  OR  sudo dnf install clang"
+        say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- clang compilation error" + C_RESET
         say ""
-        say "Run 'freakc doctor' to diagnose your setup."
+        say C_DIM + "  Make sure clang is installed and in your PATH:" + C_RESET
+        say "    Windows: " + C_CYAN + "choco install llvm" + C_RESET + "  or  " + C_CYAN + "winget install LLVM.LLVM" + C_RESET
+        say "    macOS:   " + C_CYAN + "xcode-select --install" + C_RESET + "  or  " + C_CYAN + "brew install llvm" + C_RESET
+        say "    Linux:   " + C_CYAN + "sudo apt install clang" + C_RESET + "  or  " + C_CYAN + "sudo dnf install clang" + C_RESET
+        say ""
+        say C_DIM + "  Run '" + C_RESET + "freakc doctor" + C_DIM + "' to diagnose your setup." + C_RESET
         give back ""
     }
 
-    pilot done_msg = "Built: " + out_bin
-    say done_msg
+    say C_BGREEN + "  BUILT " + C_RESET + C_BWHITE + out_bin + C_RESET
     give back out_bin
 }
 
@@ -244,10 +240,12 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     -- Returns the output binary path, or "" on error.
     pilot source: word = fs::read(src_file)
     if source == "" {
-        pilot err_msg = "Error: Could not read file: " + src_file
-        say err_msg
+        say C_BRED + "  ERROR" + C_RESET + " Could not read file: " + C_BWHITE + src_file + C_RESET
         give back ""
     }
+
+    pilot hdr = C_BMAGENTA + "  FREAKC" + C_RESET + " " + C_DIM + "compiling" + C_RESET + " " + C_BWHITE + src_file + C_RESET + C_DIM + " [" + target + " -O" + opt + "]" + C_RESET
+    say hdr
 
     -- Auto-include standard library if available
     pilot std_source: word = cli_load_std()

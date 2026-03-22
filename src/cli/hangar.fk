@@ -14,6 +14,11 @@ task hangar_init(project_dir: word) -> int {
         give back 1
     }
 
+    -- Create project directory if it doesn't exist
+    if fs::exists(project_dir) == false {
+        fs::make_dir(project_dir)
+    }
+
     -- Get project name from directory (last component)
     pilot project_name: word = hangar_basename(project_dir)
 
@@ -39,11 +44,16 @@ task hangar_init(project_dir: word) -> int {
         fs::make_dir(modules_dir)
     }
 
-    pilot msg1 = "  Initialized FREAK project '" + project_name + "'"
-    say msg1
-    say "  Created hangar.toml"
-    say "  Created src/main.fk"
-    say "  Created hangar_modules/"
+    say ""
+    say C_BGREEN + "  INITIALIZED" + C_RESET + " " + C_BWHITE + project_name + C_RESET
+    say ""
+    say C_DIM + "    hangar.toml" + C_RESET
+    say C_DIM + "    src/main.fk" + C_RESET
+    say C_DIM + "    hangar_modules/" + C_RESET
+    say ""
+    pilot next_msg = C_DIM + "  Next: " + C_RESET + "cd " + project_dir + " && freakc run src/main.fk"
+    say next_msg
+    say ""
     give back 0
 }
 
@@ -62,7 +72,7 @@ task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int
     toml_set(ver_key, ver)
     toml_write_file(manifest)
 
-    pilot msg = "  Added " + pkg_name + " (" + repo + " @ " + ver + ")"
+    pilot msg = C_BGREEN + "  + " + C_RESET + C_BWHITE + pkg_name + C_RESET + C_DIM + " (" + repo + " @ " + ver + ")" + C_RESET
     say msg
 
     -- Also install it
@@ -98,7 +108,7 @@ task hangar_remove(project_dir: word, pkg_name: word) -> int {
         process::exec(rm_cmd)
     }
 
-    pilot msg2 = "  Removed " + pkg_name
+    pilot msg2 = C_BRED + "  - " + C_RESET + C_BWHITE + pkg_name + C_RESET
     say msg2
     give back 0
 }
@@ -161,7 +171,7 @@ task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word
         give back 1
     }
 
-    pilot fetch_msg = "  Fetching " + pkg_name + " from " + repo + "..."
+    pilot fetch_msg = C_DIM + "  >> " + C_RESET + "Fetching " + C_BWHITE + pkg_name + C_RESET + C_DIM + " from " + repo + "..." + C_RESET
     say fetch_msg
 
     -- Remove existing package dir if present
@@ -210,7 +220,7 @@ task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word
         process::exec(rm_git)
     }
 
-    pilot ok_msg = "  Installed " + pkg_name + " -> hangar_modules/" + pkg_name + "/"
+    pilot ok_msg = C_BGREEN + "  INSTALLED" + C_RESET + " " + C_BWHITE + pkg_name + C_RESET + C_DIM + " -> hangar_modules/" + pkg_name + "/" + C_RESET
     say ok_msg
     give back 0
 }
@@ -238,7 +248,7 @@ task hangar_version_cmd(project_dir: word, bump: word) -> int {
     if current == "" { current = "0.0.0" }
 
     if bump == "" {
-        pilot show_msg = "  " + pname + " v" + current
+        pilot show_msg = "  " + C_BWHITE + pname + C_RESET + " " + C_BMAGENTA + "v" + current + C_RESET
         say show_msg
         give back 0
     }
@@ -266,7 +276,7 @@ task hangar_version_cmd(project_dir: word, bump: word) -> int {
     toml_set("project.version", new_ver)
     toml_write_file(manifest)
 
-    pilot done_msg = "  " + pname + ": " + current + " -> " + new_ver
+    pilot done_msg = "  " + C_BWHITE + pname + C_RESET + " " + C_DIM + current + C_RESET + " -> " + C_BMAGENTA + new_ver + C_RESET
     say done_msg
     give back 0
 }
@@ -423,7 +433,7 @@ task hangar_basename(path: word) -> word {
         }
         i += 1
     }
-    if last == "" { last = "my-project" }
+    if last == "" or last == "." { last = "my-project" }
     give back last
 }
 
@@ -494,18 +504,18 @@ task hangar_extract_json_field(json: word, field: word) -> word {
 
 task hangar_dispatch(args_cnt: int) -> void {
     if args_cnt < 3 {
-        say "FREAK Hangar -- Package Manager"
         say ""
-        say "Usage:"
-        say "  freakc hangar init                 Create new project"
-        say "  freakc hangar add <name> <repo>    Add dependency"
-        say "  freakc hangar remove <name>        Remove dependency"
-        say "  freakc hangar install              Install all dependencies"
-        say "  freakc hangar install freak        Install FREAK compiler"
-        say "  freakc hangar version              Show project version"
-        say "  freakc hangar version patch        Bump patch version"
-        say "  freakc hangar version minor        Bump minor version"
-        say "  freakc hangar version major        Bump major version"
+        say C_BMAGENTA + "  HANGAR" + C_RESET + C_DIM + " -- FREAK package manager" + C_RESET
+        say ""
+        say C_BWHITE + "  COMMANDS" + C_RESET
+        say C_BCYAN + "    init" + C_RESET + "                         " + C_DIM + "Create new project" + C_RESET
+        say C_BCYAN + "    add" + C_RESET + " <name> <repo> [version]  " + C_DIM + "Add dependency" + C_RESET
+        say C_BCYAN + "    remove" + C_RESET + " <name>                " + C_DIM + "Remove dependency" + C_RESET
+        say C_BCYAN + "    install" + C_RESET + "                      " + C_DIM + "Install all dependencies" + C_RESET
+        say C_BCYAN + "    install freak" + C_RESET + "                " + C_DIM + "Install FREAK compiler" + C_RESET
+        say C_BCYAN + "    version" + C_RESET + "                      " + C_DIM + "Show project version" + C_RESET
+        say C_BCYAN + "    version" + C_RESET + " patch|minor|major    " + C_DIM + "Bump version" + C_RESET
+        say ""
         give back
     }
 

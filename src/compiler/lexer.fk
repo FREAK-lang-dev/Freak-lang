@@ -250,6 +250,14 @@ task lex_string() -> void {
                 res = res + "\r"
             } else if esc == "t" {
                 res = res + "\t"
+            } else if esc == "0" {
+                res = res + "\0"
+            } else if esc == "x" {
+                -- Hex escape: \xNN -> single byte
+                pilot hex_hi = lex_advance()
+                pilot hex_lo = lex_advance()
+                -- Store as raw \xNN for the emitter/backend to handle
+                res = res + "\\x" + hex_hi + hex_lo
             } else {
                 res = res + esc
             }
@@ -267,9 +275,6 @@ task lex_string() -> void {
 task tokenize(source: word) -> void {
     lex_source = source
     lex_len = source.length()
-    pilot len_msg = "Source length: "
-    len_msg = len_msg + word_from_int(lex_len)
-    say len_msg
     lex_pos = 0
     lex_line = 1
     lex_col = 1
