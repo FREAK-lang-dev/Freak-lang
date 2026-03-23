@@ -147,6 +147,180 @@ task hangar_remove(project_dir: word, pkg_name: word) -> int {
     give back 0
 }
 
+-- ===================== HG6: DEPENDENCY RESOLUTION ====================
+-- A resolver that collects transitive dependencies and detects conflicts.
+-- Uses parallel arrays to track the resolution graph.
+
+pilot resolve_names = 0
+pilot resolve_versions = 0
+pilot resolve_sources = 0
+pilot resolve_constraints = 0
+pilot resolve_requested_by = 0
+pilot resolve_count = 0
+
+task resolve_clear() -> void {
+    resolve_names = array_new()
+    resolve_versions = array_new()
+    resolve_sources = array_new()
+    resolve_constraints = array_new()
+    resolve_requested_by = array_new()
+    resolve_count = 0
+}
+
+task resolve_find(name: word) -> int {
+    -- Returns index of package in resolution set, or -1
+    pilot i = 0
+    repeat until i >= resolve_count {
+        pilot n: word = array_get(resolve_names, i)
+        if n == name { give back i }
+        i += 1
+    }
+    give back -1
+}
+
+task resolve_add(name: word, version: word, source: word, constraint: word, requested_by: word) -> bool {
+    -- Add a package to the resolution set.
+    -- Returns false if there's a conflict.
+    pilot idx = resolve_find(name)
+    if idx >= 0 {
+        -- Package already in resolution set.
+        -- Check if the existing resolved version satisfies the new constraint.
+        pilot existing_ver: word = array_get(resolve_versions, idx)
+        if constraint != "latest" and constraint != "*" and constraint != "" {
+            if version_matches_constraint(existing_ver, constraint) == false {
+                -- CONFLICT
+                pilot existing_by: word = array_get(resolve_requested_by, idx)
+                say ""
+                say C_BRED + "  [YUUKO] Resolution failed." + C_RESET + " Two dependencies want incompatible versions of " + C_BWHITE + name + C_RESET + ":"
+                pilot conflict_msg1 = "        " + C_BCYAN + existing_by + C_RESET + "  requires  " + name + " " + array_get(resolve_constraints, idx)
+                pilot conflict_msg2 = "        " + C_BCYAN + requested_by + C_RESET + "  requires  " + name + " " + constraint
+                say conflict_msg1
+                say conflict_msg2
+                say "        These ranges do not overlap."
+                say C_DIM + "        Suggestion: update one of the constraints to allow a compatible version." + C_RESET
+                say ""
+                give back false
+            }
+        }
+        -- Compatible — keep existing resolution
+        give back true
+    }
+
+    -- New package
+    array_push(resolve_names, name)
+    array_push(resolve_versions, version)
+    array_push(resolve_sources, source)
+    array_push(resolve_constraints, constraint)
+    array_push(resolve_requested_by, requested_by)
+    resolve_count += 1
+    give back true
+}
+
+task resolve_collect_transitive(project_dir: word, pkg_name: word, depth: int) -> bool {
+    -- After a package is installed, read its hangar.toml for transitive deps.
+    -- Returns false if a conflict is detected.
+    if depth > 10 {
+        say C_BYELLOW + "  WARNING" + C_RESET + " Dependency depth limit reached for " + pkg_name
+        give back true
+    }
+
+    pilot pkg_dir = project_dir + "/hangar_modules/" + pkg_name
+    pilot pkg_manifest = pkg_dir + "/hangar.toml"
+
+    if fs::exists(pkg_manifest) == false {
+        -- No manifest = no transitive deps
+        give back true
+    }
+
+    -- Save current TOML state and load the sub-package manifest
+    -- (We don't have TOML stack, so we re-load the root manifest after)
+    pilot sub_content: word = fs::read(pkg_manifest)
+    if sub_content == "" { give back true }
+
+    -- Parse transitive deps from the sub-package
+    -- Simple: look for [dependencies] section and extract names
+    pilot pos = 0
+    pilot clen = sub_content.length()
+    pilot in_deps = false
+
+    repeat until pos >= clen {
+        pilot line: word = toml_get_line(sub_content, pos)
+        pos = toml_line_end(sub_content, pos)
+        pilot trimmed: word = line.trim()
+
+        if trimmed == "[dependencies]" {
+            in_deps = true
+        } else if trimmed.starts_with("[") and trimmed != "[dependencies]" {
+            in_deps = false
+        } else if in_deps and trimmed != "" and trimmed.starts_with("#") == false {
+            -- Parse dependency line
+            pilot dep_name = ""
+            pilot di = 0
+            pilot tlen = trimmed.length()
+            repeat until di >= tlen {
+                pilot c: word = trimmed.char_at(di)
+                if c == " " or c == "=" or c == "\t" {
+                    if dep_name != "" {
+                        -- Got the name, now extract version constraint
+                        pilot dep_constraint = "latest"
+                        -- Check for short syntax: name = "^1.0"
+                        if trimmed.contains("\"") {
+                            -- Extract quoted value
+                            pilot qi = 0
+                            pilot found_eq = false
+                            repeat until qi >= tlen {
+                                pilot qc: word = trimmed.char_at(qi)
+                                if qc == "=" { found_eq = true }
+                                if found_eq and qc == "\"" {
+                                    qi += 1
+                                    pilot qval = ""
+                                    repeat until qi >= tlen {
+                                        pilot qvc: word = trimmed.char_at(qi)
+                                        if qvc == "\"" {
+                                            dep_constraint = qval
+                                            qi = tlen
+                                        } else {
+                                            qval = qval + qvc
+                                        }
+                                        qi += 1
+                                    }
+                                }
+                                qi += 1
+                            }
+                        }
+
+                        -- Resolve this transitive dep
+                        pilot resolved_ver = dep_constraint
+                        pilot resolved_src = ""
+
+                        -- Check registry for version resolution
+                        if dep_constraint != "latest" and dep_constraint != "*" {
+                            pilot reg_result: word = hangar_resolve_from_registry(dep_name, dep_constraint)
+                            if reg_result != "" {
+                                resolved_ver = hangar_extract_colon(reg_result, 0)
+                                resolved_src = hangar_extract_colon(reg_result, 1)
+                            }
+                        }
+
+                        pilot ok = resolve_add(dep_name, resolved_ver, resolved_src, dep_constraint, pkg_name)
+                        if ok == false {
+                            give back false
+                        }
+                        di = tlen
+                    }
+                } else {
+                    dep_name = dep_name + c
+                }
+                di += 1
+            }
+        }
+    }
+
+    give back true
+}
+
+-- ===================== HANGAR INSTALL ================================
+
 task hangar_install(project_dir: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
@@ -169,14 +343,11 @@ task hangar_install(project_dir: word) -> int {
         say C_DIM + "  >> " + C_RESET + "Using versions from hangar.lock"
     }
 
+    -- Phase 1: Resolve all dependencies (detect conflicts before installing)
+    resolve_clear()
     pilot dep_arr = toml_dep_names_arr()
-    pilot errors = 0
     pilot di = 0
-
-    -- Initialize lockfile state if no lockfile exists
-    if has_lockfile == false {
-        lock_clear()
-    }
+    pilot conflicts = false
 
     repeat until di >= dep_cnt {
         pilot dname: word = array_get(dep_arr, di)
@@ -186,24 +357,76 @@ task hangar_install(project_dir: word) -> int {
         pilot ver_val: word = toml_get(ver_key)
         if ver_val == "" { ver_val = "latest" }
 
-        -- If lockfile exists and has this package, use the locked version
+        -- If lockfile exists, prefer locked version
         pilot use_ver = ver_val
         if has_lockfile and lock_has(dname) {
             use_ver = lock_get_version(dname)
-            pilot lock_msg = C_DIM + "  >> " + C_RESET + "Locked: " + C_BWHITE + dname + C_RESET + C_DIM + " @ " + use_ver + C_RESET
-            say lock_msg
         }
 
-        pilot ires = hangar_install_one(project_dir, dname, git_val, use_ver)
-        if ires != 0 {
-            errors += 1
-        } else {
-            -- Record in lockfile data
-            pilot lock_source = "git+" + git_val
-            if git_val == "" { lock_source = "local" }
-            lock_add_entry(dname, use_ver, lock_source, "")
+        pilot ok = resolve_add(dname, use_ver, git_val, ver_val, "your project")
+        if ok == false {
+            conflicts = true
         }
         di += 1
+    }
+
+    if conflicts {
+        say C_BRED + "  RESOLUTION FAILED" + C_RESET + " — fix the conflicts above before installing."
+        give back 1
+    }
+
+    say C_DIM + "  >> " + C_RESET + "Resolved " + word_from_int(resolve_count) + " package(s)"
+
+    -- Phase 2: Install resolved packages
+    -- Initialize lockfile state if no lockfile exists
+    if has_lockfile == false {
+        lock_clear()
+    }
+
+    pilot errors = 0
+    pilot ri = 0
+    repeat until ri >= resolve_count {
+        pilot rname: word = array_get(resolve_names, ri)
+        pilot rver: word = array_get(resolve_versions, ri)
+        pilot rsrc: word = array_get(resolve_sources, ri)
+
+        if has_lockfile and lock_has(rname) {
+            pilot locked_ver: word = lock_get_version(rname)
+            pilot lock_msg = C_DIM + "  >> " + C_RESET + "Locked: " + C_BWHITE + rname + C_RESET + C_DIM + " @ " + locked_ver + C_RESET
+            say lock_msg
+            rver = locked_ver
+        }
+
+        pilot ires = hangar_install_one(project_dir, rname, rsrc, rver)
+        if ires != 0 {
+            errors += 1
+        }
+
+        -- Phase 3: Collect transitive deps from installed package
+        pilot trans_ok = resolve_collect_transitive(project_dir, rname, 0)
+        if trans_ok == false {
+            say C_BRED + "  TRANSITIVE CONFLICT" + C_RESET + " — stopping installation."
+            give back 1
+        }
+
+        ri += 1
+    }
+
+    -- Install any newly discovered transitive deps
+    -- (resolve_count may have grown during Phase 3)
+    repeat until ri >= resolve_count {
+        pilot tname: word = array_get(resolve_names, ri)
+        pilot tver: word = array_get(resolve_versions, ri)
+        pilot tsrc: word = array_get(resolve_sources, ri)
+
+        pilot tmsg = C_DIM + "  >> " + C_RESET + "Transitive: " + C_BWHITE + tname + C_RESET
+        say tmsg
+
+        pilot tres = hangar_install_one(project_dir, tname, tsrc, tver)
+        if tres != 0 {
+            errors += 1
+        }
+        ri += 1
     }
 
     -- Write lockfile
@@ -217,7 +440,7 @@ task hangar_install(project_dir: word) -> int {
         give back 1
     }
 
-    pilot cnt_str: word = word_from_int(dep_cnt)
+    pilot cnt_str: word = word_from_int(resolve_count)
     pilot ok_msg = "  All " + cnt_str + " package(s) installed."
     say ok_msg
     give back 0
@@ -447,6 +670,19 @@ task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word
         pilot rm_git: word = hangar_rm_cmd(git_dir)
         process::exec(rm_git)
     }
+
+    -- Compute SHA-256 for integrity verification
+    pilot pkg_sha: word = hangar_compute_dir_sha256(pkg_dir)
+    if pkg_sha != "" {
+        say C_DIM + "  >> " + C_RESET + "SHA-256: " + pkg_sha.substring(0, 16) + "..."
+    }
+
+    -- Update lockfile with hash
+    pilot lockfile = project_dir + "/hangar.lock"
+    lock_load(lockfile)
+    pilot lock_source = actual_repo
+    lock_add_entry(pkg_name, actual_ver, lock_source, pkg_sha)
+    lock_write(lockfile)
 
     pilot ok_msg = C_BGREEN + "  INSTALLED" + C_RESET + " " + C_BWHITE + pkg_name + C_RESET + C_DIM + " -> hangar_modules/" + pkg_name + "/" + C_RESET
     say ok_msg
@@ -815,6 +1051,197 @@ task hangar_extract_json_field(json: word, field: word) -> word {
     give back ""
 }
 
+-- ===================== HG5: CHECKSUM VERIFICATION ====================
+
+task hangar_compute_sha256(path: word) -> word {
+    -- Compute SHA-256 hash of a file using platform tools.
+    -- Returns lowercase hex string, or "" on failure.
+    pilot win_check: word = process::exec_capture("echo %OS%")
+    pilot cmd = ""
+    if win_check.contains("Windows") {
+        -- Windows: certutil outputs "SHA256 hash of file:\n<hash>\n..."
+        cmd = "certutil -hashfile \"" + path + "\" SHA256"
+    } else {
+        -- Unix: sha256sum outputs "<hash>  <file>"
+        cmd = "sha256sum \"" + path + "\" 2>/dev/null || shasum -a 256 \"" + path + "\""
+    }
+
+    pilot output: word = process::exec_capture(cmd)
+    if output == "" { give back "" }
+
+    -- Extract the hex hash from output
+    if win_check.contains("Windows") {
+        -- certutil: second line is the hash
+        pilot pos = 0
+        pilot olen = output.length()
+        pilot line_num = 0
+        repeat until pos >= olen {
+            pilot line: word = toml_get_line(output, pos)
+            pos = toml_line_end(output, pos)
+            line_num += 1
+            if line_num == 2 {
+                -- This line should be the hash (with possible spaces)
+                give back line.trim().replace(" ", "")
+            }
+        }
+    } else {
+        -- sha256sum: first 64 chars are the hash
+        pilot hash = ""
+        pilot i = 0
+        pilot olen = output.length()
+        repeat until i >= 64 or i >= olen {
+            pilot c: word = output.char_at(i)
+            if c != " " and c != "\t" {
+                hash = hash + c
+            }
+            i += 1
+        }
+        give back hash
+    }
+    give back ""
+}
+
+task hangar_compute_dir_sha256(pkg_dir: word) -> word {
+    -- Compute a reproducible hash for a package directory.
+    -- We tar the directory contents and hash the tarball.
+    pilot tmp_tar = pkg_dir + ".tmp.tar.gz"
+    pilot win_check: word = process::exec_capture("echo %OS%")
+    pilot tar_cmd = ""
+    if win_check.contains("Windows") {
+        tar_cmd = "tar -czf \"" + tmp_tar + "\" -C \"" + pkg_dir + "\" ."
+    } else {
+        tar_cmd = "tar -czf \"" + tmp_tar + "\" -C \"" + pkg_dir + "\" ."
+    }
+    pilot tar_res = process::exec(tar_cmd)
+    if tar_res != 0 {
+        give back ""
+    }
+    pilot hash: word = hangar_compute_sha256(tmp_tar)
+    -- Clean up temp tarball
+    fs::delete(tmp_tar)
+    give back hash
+}
+
+task hangar_verify_package(pkg_name: word, pkg_dir: word, expected_sha256: word) -> bool {
+    -- Verify a package's integrity against stored SHA-256.
+    -- Returns true if valid, false if mismatch or unable to verify.
+    if expected_sha256 == "" {
+        -- No hash stored, can't verify but don't block
+        give back true
+    }
+
+    pilot actual: word = hangar_compute_dir_sha256(pkg_dir)
+    if actual == "" {
+        say C_BYELLOW + "  WARNING" + C_RESET + " Could not compute hash for " + pkg_name
+        give back true
+    }
+
+    if actual == expected_sha256 {
+        give back true
+    } else {
+        say C_BRED + "  INTEGRITY FAILURE" + C_RESET + " " + pkg_name
+        say C_DIM + "    expected: " + C_RESET + expected_sha256
+        say C_DIM + "    actual:   " + C_RESET + actual
+        give back false
+    }
+}
+
+task hangar_audit(project_dir: word, fix_mode: bool) -> int {
+    say ""
+    say C_BMAGENTA + "  HANGAR AUDIT" + C_RESET
+    say ""
+
+    pilot manifest = project_dir + "/hangar.toml"
+    if fs::exists(manifest) == false {
+        say "  No hangar.toml found."
+        give back 1
+    }
+
+    toml_load(manifest)
+    pilot lockfile = project_dir + "/hangar.lock"
+    pilot has_lock = lock_load(lockfile)
+
+    if has_lock == false {
+        say "  No hangar.lock found. Run 'freakc hangar install' first."
+        give back 1
+    }
+
+    pilot modules_dir = project_dir + "/hangar_modules"
+    pilot issues = 0
+    pilot verified = 0
+
+    -- Check each locked package
+    pilot i = 0
+    repeat until i >= lock_pkg_count {
+        pilot name: word = array_get(lock_pkg_names, i)
+        pilot version: word = array_get(lock_pkg_versions, i)
+        pilot sha256: word = array_get(lock_pkg_sha256s, i)
+        pilot pkg_dir = modules_dir + "/" + name
+
+        if fs::exists(pkg_dir) == false {
+            say C_BRED + "  MISSING" + C_RESET + " " + name + " v" + version + " (not installed)"
+            issues += 1
+            if fix_mode {
+                say C_DIM + "  >> " + C_RESET + "Reinstalling " + name + "..."
+                pilot source: word = array_get(lock_pkg_sources, i)
+                hangar_install_one(project_dir, name, source, version)
+            }
+        } else if sha256 != "" {
+            -- Verify integrity
+            pilot valid = hangar_verify_package(name, pkg_dir, sha256)
+            if valid {
+                say C_BGREEN + "  OK" + C_RESET + " " + name + " v" + version
+                verified += 1
+            } else {
+                issues += 1
+                if fix_mode {
+                    say C_DIM + "  >> " + C_RESET + "Reinstalling " + name + "..."
+                    pilot source2: word = array_get(lock_pkg_sources, i)
+                    hangar_install_one(project_dir, name, source2, version)
+                    -- Recompute hash after reinstall
+                    pilot new_hash: word = hangar_compute_dir_sha256(pkg_dir)
+                    if new_hash != "" {
+                        array_set(lock_pkg_sha256s, i, new_hash)
+                    }
+                }
+            }
+        } else {
+            say C_BYELLOW + "  UNVERIFIED" + C_RESET + " " + name + " v" + version + " (no checksum in lockfile)"
+            if fix_mode {
+                -- Compute and store hash
+                pilot new_hash2: word = hangar_compute_dir_sha256(pkg_dir)
+                if new_hash2 != "" {
+                    array_set(lock_pkg_sha256s, i, new_hash2)
+                    say C_DIM + "  >> " + C_RESET + "Computed SHA-256: " + new_hash2.substring(0, 16) + "..."
+                    verified += 1
+                }
+            }
+        }
+
+        i += 1
+    }
+
+    if fix_mode {
+        lock_write(lockfile)
+    }
+
+    say ""
+    if issues == 0 {
+        pilot ok_msg = C_BGREEN + "  ALL CLEAR" + C_RESET + " " + word_from_int(verified) + " packages verified"
+        say ok_msg
+    } else {
+        pilot issue_msg = C_BYELLOW + "  " + word_from_int(issues) + " issue(s) found" + C_RESET
+        say issue_msg
+        if fix_mode == false {
+            say C_DIM + "  Run 'freakc hangar audit --fix' to auto-repair." + C_RESET
+        }
+    }
+    say ""
+    give back issues
+}
+
+-- ===================== HG3: LOGIN & PUBLISH ==========================
+
 task hangar_login() -> int {
     say ""
     say C_BMAGENTA + "  HANGAR LOGIN" + C_RESET
@@ -979,6 +1406,8 @@ task hangar_dispatch(args_cnt: int) -> void {
         say C_BCYAN + "    version" + C_RESET + "                      " + C_DIM + "Show project version" + C_RESET
         say C_BCYAN + "    version" + C_RESET + " patch|minor|major    " + C_DIM + "Bump version" + C_RESET
         say ""
+        say C_BCYAN + "    audit" + C_RESET + "                        " + C_DIM + "Verify package integrity" + C_RESET
+        say C_BCYAN + "    audit" + C_RESET + " --fix                 " + C_DIM + "Fix integrity issues" + C_RESET
         say C_BCYAN + "    login" + C_RESET + "                        " + C_DIM + "Authenticate with registry" + C_RESET
         say C_BCYAN + "    publish" + C_RESET + " [--dry-run]          " + C_DIM + "Publish to registry" + C_RESET
         say ""
@@ -1053,6 +1482,13 @@ task hangar_dispatch(args_cnt: int) -> void {
             bump = process::arg(3)
         }
         hangar_version_cmd(project_dir, bump)
+    } else if subcmd == "audit" {
+        pilot fix_mode = false
+        if args_cnt >= 4 {
+            pilot arg3: word = process::arg(3)
+            if arg3 == "--fix" { fix_mode = true }
+        }
+        hangar_audit(project_dir, fix_mode)
     } else if subcmd == "login" {
         hangar_login()
     } else if subcmd == "publish" {

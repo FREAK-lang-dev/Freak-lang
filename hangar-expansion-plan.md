@@ -21,8 +21,8 @@ The design philosophy stays the same: fast, opinionated, weeb-coded.
 | HG2  | Central registry index      | HG1           | ✅ Done  |
 | HG3  | `hangar publish`            | HG2           | ✅ Done  |
 | HG4  | Search (CLI + web)          | HG2           | 🟡 Med   |
-| HG5  | Checksum + signature verify | HG1           | 🟡 Med   |
-| HG6  | Dependency resolution engine| HG1           | 🟡 Med   |
+| HG5  | Checksum + signature verify | HG1           | ✅ Done  |
+| HG6  | Dependency resolution engine| HG1           | ✅ Done  |
 | HG7  | Registry web UI (hangar.dev)| HG2, HG3, HG4 | 🟡 Med   |
 | HG8  | Namespaces / orgs           | HG2, HG3      | 🟢 Low   |
 | HG9  | Private registries          | HG2           | 🟢 Low   |

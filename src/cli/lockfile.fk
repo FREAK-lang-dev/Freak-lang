@@ -243,6 +243,18 @@ task lock_parse_val(line: word) -> word {
 
 -- ===================== LOCKFILE LOADING ==============================
 
+task lock_get_sha256(name: word) -> word {
+    pilot i = 0
+    repeat until i >= lock_pkg_count {
+        pilot n: word = array_get(lock_pkg_names, i)
+        if n == name {
+            give back array_get(lock_pkg_sha256s, i)
+        }
+        i += 1
+    }
+    give back ""
+}
+
 task lock_load(path: word) -> bool {
     -- Load lockfile from disk. Returns true if loaded successfully.
     if fs::exists(path) == false {
