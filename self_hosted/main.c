@@ -748,6 +748,27 @@ static freak_word freak_compile_primary(void) {
                     if (freak_word_eq(fq, freak_word_lit("process::exit"))) {
                         return freak_word_concat(freak_word_concat(freak_word_lit("freak_process_exit("), cargs), freak_word_lit(")"));
                     }
+                    if (freak_word_eq(fq, freak_word_lit("process::exec"))) {
+                        return freak_word_concat(freak_word_concat(freak_word_lit("freak_process_exec("), cargs), freak_word_lit(")"));
+                    }
+                    if (freak_word_eq(fq, freak_word_lit("process::exec_capture"))) {
+                        return freak_word_concat(freak_word_concat(freak_word_lit("freak_process_exec_capture("), cargs), freak_word_lit(")"));
+                    }
+                    if (freak_word_eq(fq, freak_word_lit("process::env"))) {
+                        return freak_word_concat(freak_word_concat(freak_word_lit("freak_process_env("), cargs), freak_word_lit(")"));
+                    }
+                    if (freak_word_eq(fq, freak_word_lit("fs::exists"))) {
+                        return freak_word_concat(freak_word_concat(freak_word_lit("freak_fs_exists("), cargs), freak_word_lit(")"));
+                    }
+                    if (freak_word_eq(fq, freak_word_lit("fs::append"))) {
+                        return freak_word_concat(freak_word_concat(freak_word_lit("freak_fs_append("), cargs), freak_word_lit(")"));
+                    }
+                    if (freak_word_eq(fq, freak_word_lit("fs::delete"))) {
+                        return freak_word_concat(freak_word_concat(freak_word_lit("freak_fs_delete("), cargs), freak_word_lit(")"));
+                    }
+                    if (freak_word_eq(fq, freak_word_lit("fs::make_dir"))) {
+                        return freak_word_concat(freak_word_concat(freak_word_lit("freak_fs_make_dir("), cargs), freak_word_lit(")"));
+                    }
                     return freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(name, freak_word_lit("_")), sub), freak_word_lit("(")), cargs), freak_word_lit(")"));
                 }
                 return freak_word_concat(freak_word_concat(name, freak_word_lit("_")), sub);

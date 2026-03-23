@@ -206,6 +206,9 @@ freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s);
 /* Get character at index (0-based) as a single-char word. */
 freak_word freak_word_char_at(freak_word w, int64_t index);
 
+/* Get a substring from start (inclusive) with given length. */
+freak_word freak_word_substring(freak_word w, int64_t start, int64_t len);
+
 /* Conversions from word to number. */
 int64_t freak_word_to_int(freak_word w);
 int64_t freak_word_compare(freak_word a, freak_word b);
@@ -231,6 +234,7 @@ freak_process_output freak_process_run(freak_word cmd, void* args /* TODO: list<
 freak_process_handle freak_process_spawn(freak_word cmd, void* args /* TODO: list<word> */);
 uint64_t freak_process_pid(void);
 void freak_process_exit(int64_t code);
+freak_word freak_process_input(void);
 freak_maybe_word freak_process_env_var(freak_word name);
 void freak_process_set_env(freak_word name, freak_word val);
 freak_word freak_process_env(freak_word name);

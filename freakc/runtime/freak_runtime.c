@@ -500,6 +500,20 @@ freak_word freak_word_char_at(freak_word w, int64_t index) {
     return freak_word_own(buf, 1);
 }
 
+freak_word freak_word_substring(freak_word w, int64_t start, int64_t len) {
+    if (start < 0 || (size_t)start >= w.length || len <= 0) {
+        return freak_word_lit("");
+    }
+    if ((size_t)(start + len) > w.length) {
+        len = (int64_t)(w.length - (size_t)start);
+    }
+    char* buf = (char*)malloc((size_t)len + 1);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    memcpy(buf, w.data + start, (size_t)len);
+    buf[len] = '\0';
+    return freak_word_own(buf, (size_t)len);
+}
+
 int64_t freak_word_to_int(freak_word w) {
     return strtoll(w.data, NULL, 10);
 }
@@ -596,6 +610,10 @@ uint64_t freak_process_pid(void) {
 
 void freak_process_exit(int64_t code) {
     exit((int)code);
+}
+
+freak_word freak_process_input(void) {
+    return freak_ask(freak_word_lit(""));
 }
 
 freak_maybe_word freak_process_env_var(freak_word name) {

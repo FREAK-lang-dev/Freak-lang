@@ -302,8 +302,8 @@ task resolve_collect_transitive(project_dir: word, pkg_name: word, depth: int) -
                             }
                         }
 
-                        pilot ok = resolve_add(dep_name, resolved_ver, resolved_src, dep_constraint, pkg_name)
-                        if ok == false {
+                        pilot is_ok = resolve_add(dep_name, resolved_ver, resolved_src, dep_constraint, pkg_name)
+                        if is_ok == false {
                             give back false
                         }
                         di = tlen
@@ -363,8 +363,8 @@ task hangar_install(project_dir: word) -> int {
             use_ver = lock_get_version(dname)
         }
 
-        pilot ok = resolve_add(dname, use_ver, git_val, ver_val, "your project")
-        if ok == false {
+        pilot is_ok = resolve_add(dname, use_ver, git_val, ver_val, "your project")
+        if is_ok == false {
             conflicts = true
         }
         di += 1
