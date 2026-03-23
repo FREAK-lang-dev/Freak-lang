@@ -17,9 +17,9 @@ The design philosophy stays the same: fast, opinionated, weeb-coded.
 
 | ID   | Name                        | Depends On    | Priority |
 |------|-----------------------------|---------------|----------|
-| HG1  | SemVer + lockfile           | —             | 🔴 High  |
-| HG2  | Central registry index      | HG1           | 🔴 High  |
-| HG3  | `hangar publish`            | HG2           | 🔴 High  |
+| HG1  | SemVer + lockfile           | —             | ✅ Done  |
+| HG2  | Central registry index      | HG1           | ✅ Done  |
+| HG3  | `hangar publish`            | HG2           | ✅ Done  |
 | HG4  | Search (CLI + web)          | HG2           | 🟡 Med   |
 | HG5  | Checksum + signature verify | HG1           | 🟡 Med   |
 | HG6  | Dependency resolution engine| HG1           | 🟡 Med   |

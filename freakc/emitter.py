@@ -1049,6 +1049,7 @@ class CEmitter:
                 "process::env_var": "freak_process_env_var",
                 "process::set_env": "freak_process_set_env",
                 "process::args": "freak_process_args",
+                "process::input": "freak_ask",
             }
 
             if fq_name == "process::args_count":
@@ -1421,6 +1422,8 @@ class CEmitter:
                 return "freak_maybe_word"
             if fq_name in ("process::args",):
                 return "freak_list_word"
+            if fq_name in ("process::input",):
+                return "freak_word"
             if fq_name in ("ByteBuffer::new", "ByteBuffer::from"):
                 return "freak_byte_buffer"
             if fq_name in ("fs::read",):
@@ -1495,6 +1498,7 @@ class CEmitter:
                     "process::run": "freak_process_output",
                     "process::spawn": "freak_process_handle",
                     "process::set_env": "void",
+                    "process::input": "freak_word",
                 }
                 # std::thread return types
                 _THREAD_RET = {

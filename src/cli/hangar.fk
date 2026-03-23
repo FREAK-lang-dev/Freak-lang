@@ -7,6 +7,8 @@
 -- Uses git clone for package downloads (no zip handling needed).
 -- ===================================================================
 
+pilot HANGAR_DEFAULT_REGISTRY = "https://index.hangar.dev"
+
 task hangar_init(project_dir: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) {
@@ -317,6 +319,61 @@ task hangar_update(project_dir: word, pkg_name: word) -> int {
     give back 0
 }
 
+task hangar_get_index_path(name: word) -> word {
+    -- Registry index path: /mu/mv/muvluv
+    if name.length() < 2 {
+        give back "/" + name + "/" + name
+    }
+    pilot p1: word = name.char_at(0).to_lower()
+    pilot p2: word = name.char_at(1).to_lower()
+    give back "/" + p1 + "/" + p2 + "/" + name
+}
+
+task hangar_resolve_from_registry(name: word, constraint: word) -> word {
+    -- Resolves a package name and constraint to a (version, repo_url) pair.
+    -- Returns "version:repo_url" or "" if not found.
+    pilot registry: word = toml_get("registries.default")
+    if registry == "" { registry = HANGAR_DEFAULT_REGISTRY }
+
+    pilot index_url = registry + hangar_get_index_path(name)
+    pilot fetch_cmd = "curl -sL " + index_url
+    pilot index_content: word = process::exec_capture(fetch_cmd)
+
+    if index_content == "" or index_content.contains("404") {
+        give back ""
+    }
+
+    -- index_content is newline-delimited JSON. One line per version.
+    -- Find the best matching version.
+    pilot pos = 0
+    pilot clen = index_content.length()
+    pilot best_ver = ""
+    pilot best_repo = ""
+
+    repeat until pos >= clen {
+        pilot line: word = toml_get_line(index_content, pos)
+        pos = toml_line_end(index_content, pos)
+        if line.trim() != "" {
+            pilot v: word = hangar_extract_json_field(line, "vers")
+            pilot r: word = hangar_extract_json_field(line, "repo")
+            -- Use std/version.fk's satisfies
+            if version_matches_constraint(v, constraint) {
+                -- Since index lines are usually chronological, the last one is latest.
+                -- A real resolver would pick the highest version.
+                if best_ver == "" or ver_gt(ver_parse(v), ver_parse(best_ver)) {
+                    best_ver = v
+                    best_repo = r
+                }
+            }
+        }
+    }
+
+    if best_ver != "" {
+        give back best_ver + ":" + best_repo
+    }
+    give back ""
+}
+
 task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word) -> int {
     pilot modules_dir = project_dir + "/hangar_modules"
     if fs::exists(modules_dir) == false {
@@ -324,13 +381,25 @@ task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word
     }
     pilot pkg_dir = modules_dir + "/" + pkg_name
 
-    if repo == "" {
-        pilot msg = "  No git repository specified for " + pkg_name
-        say msg
-        give back 1
+    pilot actual_repo = repo
+    pilot actual_ver = ver
+
+    if actual_repo == "" {
+        -- Resolve from registry
+        pilot resolved: word = hangar_resolve_from_registry(pkg_name, ver)
+        if resolved == "" {
+            pilot msg = "  Package '" + pkg_name + "' not found in registry and no git repo specified."
+            say msg
+            give back 1
+        }
+        -- Extract version:repo_url
+        actual_ver = hangar_extract_colon(resolved, 0)
+        actual_repo = hangar_extract_colon(resolved, 1)
+        pilot res_msg = C_DIM + "  >> " + C_RESET + "Resolved " + C_BWHITE + pkg_name + C_RESET + C_DIM + " to " + actual_ver + " (" + actual_repo + ")" + C_RESET
+        say res_msg
     }
 
-    pilot fetch_msg = C_DIM + "  >> " + C_RESET + "Fetching " + C_BWHITE + pkg_name + C_RESET + C_DIM + " from " + repo + "..." + C_RESET
+    pilot fetch_msg = C_DIM + "  >> " + C_RESET + "Fetching " + C_BWHITE + pkg_name + C_RESET + C_DIM + " from " + actual_repo + "..." + C_RESET
     say fetch_msg
 
     -- Remove existing package dir if present
@@ -341,22 +410,22 @@ task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word
 
     -- Construct git URL
     pilot git_url = ""
-    if repo.starts_with("https://") {
-        git_url = repo
+    if actual_repo.starts_with("https://") {
+        git_url = actual_repo
     } else {
-        git_url = "https://github.com/" + repo + ".git"
+        git_url = "https://github.com/" + actual_repo + ".git"
     }
 
     -- Clone with git
     pilot clone_cmd = "git clone --depth 1 --quiet " + git_url + " " + pkg_dir
-    if ver != "latest" and ver != "*" {
-        clone_cmd = "git clone --depth 1 --quiet --branch v" + ver + " " + git_url + " " + pkg_dir
+    if actual_ver != "latest" and actual_ver != "*" {
+        clone_cmd = "git clone --depth 1 --quiet --branch v" + actual_ver + " " + git_url + " " + pkg_dir
     }
     pilot clone_res = process::exec(clone_cmd)
     if clone_res != 0 {
         -- Try without v prefix on tag
-        if ver != "latest" and ver != "*" {
-            pilot clone2 = "git clone --depth 1 --quiet --branch " + ver + " " + git_url + " " + pkg_dir
+        if actual_ver != "latest" and actual_ver != "*" {
+            pilot clone2 = "git clone --depth 1 --quiet --branch " + actual_ver + " " + git_url + " " + pkg_dir
             pilot clone2_res = process::exec(clone2)
             if clone2_res != 0 {
                 pilot fail_msg = "  Could not fetch " + pkg_name + ". Creating stub..."
@@ -746,6 +815,151 @@ task hangar_extract_json_field(json: word, field: word) -> word {
     give back ""
 }
 
+task hangar_login() -> int {
+    say ""
+    say C_BMAGENTA + "  HANGAR LOGIN" + C_RESET
+    say ""
+    say "  Please enter your Hangar API token:"
+    pilot token: word = process::input()
+    if token == "" {
+        say "  Login cancelled."
+        give back 1
+    }
+
+    -- Store in ~/.hangar/credentials
+    pilot home_dir: word = process::env("HOME")
+    if home_dir == "" {
+        -- Windows fallback
+        home_dir = process::env("APPDATA") + "/freak"
+    }
+    pilot hangar_dir = home_dir + "/.hangar"
+    if fs::exists(hangar_dir) == false {
+        fs::make_dir(hangar_dir)
+    }
+    pilot creds_path = hangar_dir + "/credentials"
+    fs::write(creds_path, token)
+
+    say ""
+    say C_BGREEN + "  SUCCESS" + C_RESET + " Token stored in " + creds_path
+    say ""
+    give back 0
+}
+
+task hangar_publish(project_dir: word, dry_run: bool) -> int {
+    pilot manifest = project_dir + "/hangar.toml"
+    if fs::exists(manifest) == false {
+        say "  No hangar.toml found. Cannot publish."
+        give back 1
+    }
+
+    toml_load(manifest)
+    pilot pname: word = toml_get("project.name")
+    pilot pver: word = toml_get("project.version")
+
+    if pname == "" or pver == "" {
+        say "  Invalid hangar.toml: name and version are required."
+        give back 1
+    }
+
+    say ""
+    say C_BMAGENTA + "  HANGAR PUBLISH" + C_RESET + " " + C_BWHITE + pname + C_RESET + " v" + pver
+    say ""
+
+    -- Dry run: show what would be included
+    if dry_run {
+        say C_DIM + "  [DRY RUN] Would include:" + C_RESET
+        say "    hangar.toml"
+        say "    src/"
+        if fs::exists(project_dir + "/README.md") { say "    README.md" }
+        if fs::exists(project_dir + "/LICENSE") { say "    LICENSE" }
+        say ""
+        say "  Dry run complete. No files uploaded."
+        give back 0
+    }
+
+    -- Create tarball: name-version.tar.gz
+    pilot tarball = pname + "-" + pver + ".tar.gz"
+    say C_DIM + "  >> " + C_RESET + "Packaging " + tarball + "..."
+
+    -- For simplicity in MVP, we shell out to 'tar'
+    -- Only include: hangar.toml, src/, README.md, LICENSE
+    pilot include_list = "hangar.toml src"
+    if fs::exists(project_dir + "/README.md") { include_list = include_list + " README.md" }
+    if fs::exists(project_dir + "/LICENSE") { include_list = include_list + " LICENSE" }
+
+    pilot tar_cmd = "tar -czf " + tarball + " " + include_list
+    pilot tar_res = process::exec(tar_cmd)
+    if tar_res != 0 {
+        say "  Failed to create tarball. Make sure 'tar' is in your PATH."
+        give back 1
+    }
+
+    -- Get token
+    pilot home_dir: word = process::env("HOME")
+    if home_dir == "" { home_dir = process::env("APPDATA") + "/freak" }
+    pilot creds_path = home_dir + "/.hangar/credentials"
+    if fs::exists(creds_path) == false {
+        say C_BYELLOW + "  NOT LOGGED IN" + C_RESET
+        say "  Run 'freakc hangar login' first."
+        give back 1
+    }
+    pilot token: word = fs::read(creds_path)
+
+    -- Upload to registry API
+    pilot registry: word = toml_get("registries.default")
+    if registry == "" { registry = HANGAR_DEFAULT_REGISTRY }
+    -- Convert index URL to API URL (mock)
+    -- index.hangar.dev -> api.hangar.dev
+    pilot api_url = "https://api.hangar.dev/api/v1/publish"
+
+    say C_DIM + "  >> " + C_RESET + "Uploading to " + api_url + "..."
+
+    pilot curl_cmd = "curl -s -X POST -H \"Authorization: Bearer " + token + "\" "
+    curl_cmd = curl_cmd + "-F \"package=@" + tarball + "\" " + api_url
+
+    pilot curl_res = process::exec(curl_cmd)
+
+    -- Clean up tarball
+    pilot rm_cmd = hangar_rm_cmd(tarball)
+    -- Use simple delete if it's just a file
+    fs::delete(tarball)
+
+    if curl_res == 0 {
+        say ""
+        say C_BGREEN + "  PUBLISHED" + C_RESET + " " + C_BWHITE + pname + C_RESET + " v" + pver
+        say ""
+        give back 0
+    } else {
+        say ""
+        say C_BRED + "  UPLOAD FAILED" + C_RESET
+        give back 1
+    }
+}
+
+task hangar_extract_colon(s: word, idx: int) -> word {
+    pilot res = ""
+    pilot cur_idx = 0
+    pilot i = 0
+    pilot slen = s.length()
+    repeat until i >= slen {
+        pilot c: word = s.char_at(i)
+        if c == ":" {
+            if cur_idx == idx {
+                give back res
+            }
+            cur_idx += 1
+            res = ""
+        } else {
+            res = res + c
+        }
+        i += 1
+    }
+    if cur_idx == idx {
+        give back res
+    }
+    give back ""
+}
+
 -- ===================== MAIN DISPATCH ================================
 
 task hangar_dispatch(args_cnt: int) -> void {
@@ -764,6 +978,9 @@ task hangar_dispatch(args_cnt: int) -> void {
         say C_BCYAN + "    outdated" + C_RESET + "                     " + C_DIM + "Check for outdated packages" + C_RESET
         say C_BCYAN + "    version" + C_RESET + "                      " + C_DIM + "Show project version" + C_RESET
         say C_BCYAN + "    version" + C_RESET + " patch|minor|major    " + C_DIM + "Bump version" + C_RESET
+        say ""
+        say C_BCYAN + "    login" + C_RESET + "                        " + C_DIM + "Authenticate with registry" + C_RESET
+        say C_BCYAN + "    publish" + C_RESET + " [--dry-run]          " + C_DIM + "Publish to registry" + C_RESET
         say ""
         give back
     }
@@ -836,6 +1053,15 @@ task hangar_dispatch(args_cnt: int) -> void {
             bump = process::arg(3)
         }
         hangar_version_cmd(project_dir, bump)
+    } else if subcmd == "login" {
+        hangar_login()
+    } else if subcmd == "publish" {
+        pilot dry_run = false
+        if args_cnt >= 4 {
+            pilot arg3: word = process::arg(3)
+            if arg3 == "--dry-run" { dry_run = true }
+        }
+        hangar_publish(project_dir, dry_run)
     } else {
         pilot msg = "Unknown hangar command: " + subcmd
         say msg
