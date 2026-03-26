@@ -1,7 +1,7 @@
 #pragma once
 
 /*
- * FREAK Lite Runtime — C runtime support for the FREAK→C transpiler.
+ * FREAK Lite Runtime — C runtime support for the FREAK->C transpiler.
  *
  * Every emitted .c file includes this header.  The implementation lives in
  * freak_runtime.c which must be compiled and linked alongside the generated
@@ -344,9 +344,11 @@ freak_word freak_tcp_recv_all(int64_t fd, int64_t max_bytes);
 void freak_tcp_close(int64_t fd);
 
 /* ------------------------------------------------------------------ */
-/*  UI Runtime Subsystem                                              */
+/*  UI Runtime Subsystem (std::ui)                                    */
+/*  Implemented in freakc/runtime/ui/win32_backend.c (Windows)        */
 /* ------------------------------------------------------------------ */
 
+/* Legacy LLVM backend aliases */
 int64_t freak_llvm_ui_create_native(int64_t title_word, int64_t width, int64_t height);
 int64_t freak_llvm_ui_poll_events(int64_t handle);
 void freak_llvm_ui_begin_frame(int64_t handle);
@@ -354,3 +356,44 @@ void freak_llvm_ui_end_frame(int64_t handle);
 void freak_llvm_ui_clear(int64_t handle, int64_t r, int64_t g, int64_t b, int64_t a);
 void freak_llvm_ui_fill_rect(int64_t handle, int64_t x, int64_t y, int64_t w, int64_t h, int64_t r, int64_t g, int64_t b, int64_t a);
 
+/* Phase MA: Window lifecycle (accept freak_word for string params) */
+int64_t freak_ui_create_window_word(freak_word title, int64_t width, int64_t height, int64_t resizable);
+void    freak_ui_show_window(int64_t handle);
+void    freak_ui_set_title_word(int64_t handle, freak_word title);
+int64_t freak_ui_window_should_close(int64_t handle);
+void    freak_ui_destroy_window(int64_t handle);
+
+/* Phase MA: Event loop */
+int64_t freak_ui_poll_events(int64_t handle);
+int64_t freak_ui_event_kind(int64_t index);
+int64_t freak_ui_event_key(int64_t index);
+int64_t freak_ui_event_pressed(int64_t index);
+int64_t freak_ui_event_repeat(int64_t index);
+int64_t freak_ui_event_character(int64_t index);
+int64_t freak_ui_event_mouse_x(int64_t index);
+int64_t freak_ui_event_mouse_y(int64_t index);
+int64_t freak_ui_event_button(int64_t index);
+int64_t freak_ui_event_scroll_dy(int64_t index);
+int64_t freak_ui_event_width(int64_t index);
+int64_t freak_ui_event_height(int64_t index);
+int64_t freak_ui_event_gained(int64_t index);
+
+/* Phase MA: Frame control */
+void freak_ui_begin_frame(int64_t handle);
+void freak_ui_end_frame(int64_t handle);
+
+/* Phase MA: Drawing */
+void freak_ui_clear(int64_t handle, int64_t r, int64_t g, int64_t b, int64_t a);
+void freak_ui_fill_rect(int64_t handle, int64_t x, int64_t y, int64_t w, int64_t h,
+                        int64_t r, int64_t g, int64_t b, int64_t a);
+void freak_ui_stroke_rect(int64_t handle, int64_t x, int64_t y, int64_t w, int64_t h,
+                          int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness);
+void freak_ui_fill_circle(int64_t handle, int64_t cx, int64_t cy, int64_t radius,
+                          int64_t r, int64_t g, int64_t b, int64_t a);
+void freak_ui_draw_line(int64_t handle, int64_t x1, int64_t y1, int64_t x2, int64_t y2,
+                        int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness);
+int64_t freak_ui_draw_text_word(int64_t handle, freak_word text, int64_t x, int64_t y,
+                                int64_t r, int64_t g, int64_t b, int64_t font_size,
+                                int64_t bold, int64_t italic);
+int64_t freak_ui_get_width(int64_t handle);
+int64_t freak_ui_get_height(int64_t handle);

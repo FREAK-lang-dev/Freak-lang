@@ -1,0 +1,36 @@
+-- EXPECT: neq
+-- EXPECT: le
+-- EXPECT: mod ok
+-- EXPECT: gt ok
+-- EXPECT: gte ok
+-- Test: comparison operators ==, !=, <, >, <=, >=
+
+pilot a = 10
+pilot b = 20
+
+if a == b {
+    say "eq"
+}
+if a != b {
+    say "neq"
+}
+if a <= b {
+    say "le"
+}
+if a >= b {
+    say "ge"
+}
+
+pilot c = a % 3
+if c == 1 {
+    say "mod ok"
+}
+
+pilot d = 30
+if d > b {
+    say "gt ok"
+}
+
+if d >= 30 {
+    say "gte ok"
+}

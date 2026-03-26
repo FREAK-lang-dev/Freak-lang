@@ -1,0 +1,255 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "FREAK",
+  "scopeName": "source.freak",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#annotations" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#operators" },
+    { "include": "#functions" },
+    { "include": "#shapes" },
+    { "include": "#variables" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-dash.freak",
+          "match": "--.*$"
+        }
+      ]
+    },
+    "annotations": {
+      "patterns": [
+        {
+          "name": "meta.annotation.freak",
+          "match": "@(protagonist|nakige|experiment|season_finale|deprecated|test|inline|cold|hot)",
+          "captures": {
+            "0": { "name": "storage.type.annotation.freak" }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.freak",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.freak",
+              "match": "\\\\[nrt\\\\\"0]"
+            },
+            {
+              "name": "meta.interpolation.freak",
+              "begin": "\\{",
+              "end": "\\}",
+              "beginCaptures": {
+                "0": { "name": "punctuation.section.interpolation.begin.freak" }
+              },
+              "endCaptures": {
+                "0": { "name": "punctuation.section.interpolation.end.freak" }
+              },
+              "patterns": [
+                { "include": "#keywords" },
+                { "include": "#numbers" },
+                { "include": "#operators" },
+                { "include": "#variables" }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.freak",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.freak",
+              "match": "\\\\[nrt\\\\\"0]"
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.freak",
+          "match": "\\b0x[0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.freak",
+          "match": "\\b0b[01_]+\\b"
+        },
+        {
+          "name": "constant.numeric.octal.freak",
+          "match": "\\b0o[0-7_]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.freak",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.freak",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.freak",
+          "match": "\\b(if|else|when|repeat|repeat until|training arc|for each|give back|bringing back)\\b"
+        },
+        {
+          "name": "keyword.control.flow.freak",
+          "match": "\\b(break|continue)\\b"
+        },
+        {
+          "name": "keyword.declaration.freak",
+          "match": "\\b(pilot|fixed pilot|task|shape|doctrine|impl|launch|extern|use)\\b"
+        },
+        {
+          "name": "keyword.other.freak",
+          "match": "\\b(say|done|eventually|foreshadow|payoff|deus_ex_machina|isekai|trust-me)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.freak",
+          "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "keyword.other.special.freak",
+          "match": "\\b(some|nobody|ok|err|or else|copy)\\b"
+        },
+        {
+          "name": "keyword.other.test.freak",
+          "match": "\\b(test|expect|to be|to equal)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.freak",
+          "match": "\\b(int|uint|num|tiny|bool|word|char|void|float|float32|big)\\b"
+        },
+        {
+          "name": "storage.type.generic.freak",
+          "match": "\\b(maybe|result|List|Map|Set|Lineup)\\b"
+        },
+        {
+          "name": "storage.type.special.freak",
+          "match": "\\b(mood|prob|power|route)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.freak",
+          "match": "\\b(true|false|yes|no|hai|iie)\\b"
+        },
+        {
+          "name": "constant.language.mood.freak",
+          "match": "\\.(chill|focused|hype|mono_no_aware|muv_luv)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.pipe.freak",
+          "match": "\\|>"
+        },
+        {
+          "name": "keyword.operator.arrow.freak",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.comparison.freak",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.assignment.freak",
+          "match": "(\\+=|-=|\\*=|/=|=)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.freak",
+          "match": "(\\+|-|\\*|/|%)"
+        },
+        {
+          "name": "keyword.operator.propagation.freak",
+          "match": "\\?"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "meta.function.freak",
+          "match": "\\b(task)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
+          "captures": {
+            "1": { "name": "keyword.declaration.freak" },
+            "2": { "name": "entity.name.function.freak" }
+          }
+        },
+        {
+          "name": "meta.function-call.freak",
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
+          "captures": {
+            "1": { "name": "entity.name.function.call.freak" }
+          }
+        },
+        {
+          "name": "meta.method-call.freak",
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)::([a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "entity.name.namespace.freak" },
+            "2": { "name": "entity.name.function.freak" }
+          }
+        }
+      ]
+    },
+    "shapes": {
+      "patterns": [
+        {
+          "name": "meta.shape.freak",
+          "match": "\\b(shape|doctrine)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.freak" },
+            "2": { "name": "entity.name.type.freak" }
+          }
+        },
+        {
+          "name": "meta.impl.freak",
+          "match": "\\b(impl)\\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\\s+(for)\\s+([a-zA-Z_][a-zA-Z0-9_]*))?",
+          "captures": {
+            "1": { "name": "keyword.declaration.freak" },
+            "2": { "name": "entity.name.type.freak" },
+            "3": { "name": "keyword.declaration.freak" },
+            "4": { "name": "entity.name.type.freak" }
+          }
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "meta.variable.freak",
+          "match": "\\b(pilot|fixed pilot)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.freak" },
+            "2": { "name": "variable.other.freak" }
+          }
+        }
+      ]
+    }
+  }
+}

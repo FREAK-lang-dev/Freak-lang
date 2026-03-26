@@ -1,0 +1,22 @@
+-- EXPECT: FREAK!
+-- EXPECT: FREAK!
+-- EXPECT: FREAK!
+-- EXPECT: Power after training: 5
+-- EXPECT: count: 3
+-- Test: repeat N times, training arc, repeat until
+
+repeat 3 times {
+    say "FREAK!"
+}
+
+pilot power = 0
+training arc until power >= 5 max 10 sessions {
+    power += 1
+}
+say "Power after training: {power}"
+
+pilot count = 0
+repeat until count >= 3 {
+    count += 1
+}
+say "count: {count}"

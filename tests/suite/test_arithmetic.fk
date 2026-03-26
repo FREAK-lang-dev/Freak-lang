@@ -1,0 +1,31 @@
+-- EXPECT: add: 30
+-- EXPECT: sub: 7
+-- EXPECT: mul: 50
+-- EXPECT: div: 5
+-- EXPECT: mod: 1
+-- EXPECT: neg: -1
+-- EXPECT: complex: 14
+-- Test: arithmetic operations
+
+pilot a = 10
+pilot b = 20
+pilot add_result = a + b
+say "add: {add_result}"
+
+pilot sub_result = 17 - 10
+say "sub: {sub_result}"
+
+pilot mul_result = 5 * 10
+say "mul: {mul_result}"
+
+pilot div_result = 25 / 5
+say "div: {div_result}"
+
+pilot mod_result = 10 % 3
+say "mod: {mod_result}"
+
+pilot neg_result = -1
+say "neg: {neg_result}"
+
+pilot complex_result = 2 + 3 * 4
+say "complex: {complex_result}"

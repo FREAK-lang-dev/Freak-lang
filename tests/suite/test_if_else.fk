@@ -1,0 +1,30 @@
+-- EXPECT: x is big
+-- EXPECT: negative
+-- EXPECT: equal
+-- Test: conditional branching with if/else if/else
+
+pilot x = 15
+if x > 20 {
+    say "x is huge"
+} else if x > 10 {
+    say "x is big"
+} else {
+    say "x is small"
+}
+
+pilot y = -5
+if y > 0 {
+    say "positive"
+} else if y < 0 {
+    say "negative"
+} else {
+    say "zero"
+}
+
+pilot a = 42
+pilot b = 42
+if a == b {
+    say "equal"
+} else {
+    say "not equal"
+}

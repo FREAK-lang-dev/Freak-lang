@@ -1,0 +1,16 @@
+-- SKIP: pipe operator |> has type checker arity false-positive and C forward-declaration issue
+-- Test: pipe operator |>
+
+task double_it(x: int) -> int {
+    give back x * 2
+}
+
+task add(a: int, b: int) -> int {
+    give back a + b
+}
+
+pilot val = 5 |> double_it()
+say "5 doubled = " + val
+
+pilot val2 = 10 |> add(5)
+say "10 + 5 = " + val2

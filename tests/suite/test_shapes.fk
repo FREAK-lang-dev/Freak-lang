@@ -1,0 +1,23 @@
+-- EXPECT: Point x: 3
+-- EXPECT: Point y: 4
+-- EXPECT: name: Takeru
+-- EXPECT: power: 9001
+-- Test: shape declaration and field access
+
+shape Point {
+    x: num
+    y: num
+}
+
+pilot p = Point { x: 3, y: 4 }
+say "Point x: {p.x}"
+say "Point y: {p.y}"
+
+shape Hero {
+    name: word
+    power: int
+}
+
+pilot hero = Hero { name: "Takeru", power: 9001 }
+say "name: {hero.name}"
+say "power: {hero.power}"

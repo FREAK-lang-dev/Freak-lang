@@ -1,0 +1,39 @@
+-- EXPECT: a is true
+-- EXPECT: b is false
+-- EXPECT: and: false
+-- EXPECT: or: true
+-- EXPECT: not: false
+-- Test: boolean values and logic (true/false)
+
+pilot a = true
+pilot b = false
+
+if a {
+    say "a is true"
+} else {
+    say "a is false"
+}
+
+if b {
+    say "b is true"
+} else {
+    say "b is false"
+}
+
+if a and b {
+    say "and: true"
+} else {
+    say "and: false"
+}
+
+if a or b {
+    say "or: true"
+} else {
+    say "or: false"
+}
+
+if not a {
+    say "not: true"
+} else {
+    say "not: false"
+}

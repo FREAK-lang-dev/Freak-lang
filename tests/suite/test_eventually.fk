@@ -1,0 +1,12 @@
+-- EXPECT: Start
+-- EXPECT: Cleanup done
+-- EXPECT: Middle
+-- EXPECT: End
+-- Test: eventually (deferred execution) blocks
+
+say "Start"
+eventually {
+    say "Cleanup done"
+}
+say "Middle"
+say "End"

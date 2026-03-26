@@ -1,0 +1,13 @@
+-- EXPECT: Hello FREAK!
+-- EXPECT: Hello, Takeru!
+-- EXPECT: Power is 9001
+-- Test: string concatenation and interpolation
+
+pilot greeting = "Hello" + " " + "FREAK!"
+say greeting
+
+pilot name = "Takeru"
+say "Hello, {name}!"
+
+pilot power = 9001
+say "Power is {power}"

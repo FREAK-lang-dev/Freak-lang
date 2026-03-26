@@ -27,6 +27,11 @@ import sys
 from pathlib import Path
 
 from .auditor import audit_miracles, audit_science, audit_trust, foreshadow_audit
+from .diagnostics import (
+    format_emit_error,
+    format_legacy_diagnostic,
+    format_parse_error,
+)
 from .emitter import CEmitter, EmitError
 from .parser import ParseError, Parser
 from .type_checker import TypeChecker
@@ -74,10 +79,14 @@ def find_c_compiler() -> str | None:
 
 def transpile(source: str, path: Path):
     """Parse + type-check + emit C.  Returns (c_source, diagnostics)."""
+    file_path = str(path)
+
     try:
         program = Parser.from_source(source)
     except ParseError as e:
-        return None, [f"Parse error: {e}"]
+        # Use structured location info if available, falling back to string parsing
+        formatted = format_parse_error(str(e), source=source, file_path=file_path)
+        return None, [formatted]
 
     # Type check
     checker = TypeChecker()
@@ -85,8 +94,15 @@ def transpile(source: str, path: Path):
     diag_msgs = []
     has_errors = False
     for d in diagnostics:
-        prefix = _red("✗") if d.level == "error" else _yellow("⚠")
-        diag_msgs.append(f"  {prefix} {d}")
+        formatted = format_legacy_diagnostic(
+            level=d.level,
+            message=d.message,
+            source=source,
+            file_path=file_path,
+            line=d.line,
+            column=d.column,
+        )
+        diag_msgs.append(formatted)
         if d.level == "error":
             has_errors = True
 
@@ -95,7 +111,8 @@ def transpile(source: str, path: Path):
     try:
         c_source = emitter.emit(program)
     except EmitError as e:
-        diag_msgs.append(f"Emit error: {e}")
+        formatted = format_emit_error(str(e), source=source, file_path=file_path)
+        diag_msgs.append(formatted)
         return None, diag_msgs
 
     return c_source, diag_msgs

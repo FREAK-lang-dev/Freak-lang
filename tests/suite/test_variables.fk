@@ -1,0 +1,18 @@
+-- EXPECT: name = Takeru
+-- EXPECT: power = 9001
+-- EXPECT: greeting = Hello World
+-- EXPECT: pi = 3.14
+-- EXPECT: flag = true
+-- Test: pilot declarations and fixed pilot
+
+pilot name = "Takeru"
+pilot power = 9001
+pilot greeting = "Hello World"
+pilot pi = 3.14
+pilot flag = true
+
+say "name = {name}"
+say "power = {power}"
+say "greeting = {greeting}"
+say "pi = {pi}"
+say "flag = {flag}"

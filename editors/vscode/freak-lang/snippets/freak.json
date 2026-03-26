@@ -1,0 +1,213 @@
+{
+  "Main Task": {
+    "prefix": "main",
+    "body": [
+      "@protagonist",
+      "task main() -> void {",
+      "    $0",
+      "}"
+    ],
+    "description": "Main entry point with @protagonist annotation"
+  },
+  "Task Declaration": {
+    "prefix": "task",
+    "body": [
+      "task ${1:name}(${2:params}) -> ${3:void} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Declare a new task (function)"
+  },
+  "Launch Task": {
+    "prefix": "launch",
+    "body": [
+      "launch task ${1:name}(${2:params}) -> ${3:void} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Declare a public/exported task"
+  },
+  "Shape": {
+    "prefix": "shape",
+    "body": [
+      "shape ${1:Name} {",
+      "    ${2:field}: ${3:type}",
+      "}"
+    ],
+    "description": "Declare a shape (struct)"
+  },
+  "Impl Block": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:ShapeName} {",
+      "    task ${2:method}(self${3:, params}) -> ${4:void} {",
+      "        $0",
+      "    }",
+      "}"
+    ],
+    "description": "Implement methods for a shape"
+  },
+  "Doctrine": {
+    "prefix": "doctrine",
+    "body": [
+      "doctrine ${1:Name} {",
+      "    task ${2:method}(self${3:, params}) -> ${4:void}",
+      "}"
+    ],
+    "description": "Declare a doctrine (trait/interface)"
+  },
+  "Pilot Variable": {
+    "prefix": "pilot",
+    "body": [
+      "pilot ${1:name}: ${2:type} = ${3:value}"
+    ],
+    "description": "Declare a mutable variable"
+  },
+  "Fixed Pilot": {
+    "prefix": "fixed",
+    "body": [
+      "fixed pilot ${1:name}: ${2:type} = ${3:value}"
+    ],
+    "description": "Declare an immutable variable"
+  },
+  "If Block": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "    $0",
+      "}"
+    ],
+    "description": "If conditional"
+  },
+  "If Else": {
+    "prefix": "ifelse",
+    "body": [
+      "if ${1:condition} {",
+      "    $2",
+      "} else {",
+      "    $0",
+      "}"
+    ],
+    "description": "If/else conditional"
+  },
+  "When (Match)": {
+    "prefix": "when",
+    "body": [
+      "when ${1:value} {",
+      "    ${2:pattern} => {",
+      "        $0",
+      "    }",
+      "}"
+    ],
+    "description": "Pattern matching with when"
+  },
+  "Repeat Until": {
+    "prefix": "repeat",
+    "body": [
+      "repeat until ${1:condition} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Repeat until loop"
+  },
+  "Repeat N Times": {
+    "prefix": "times",
+    "body": [
+      "repeat ${1:n} times {",
+      "    $0",
+      "}"
+    ],
+    "description": "Repeat N times loop"
+  },
+  "Training Arc": {
+    "prefix": "training",
+    "body": [
+      "training arc ${1:i} from ${2:0} to ${3:n} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Bounded loop (compiler-verified termination)"
+  },
+  "For Each": {
+    "prefix": "foreach",
+    "body": [
+      "for each ${1:item} in ${2:collection} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Iterator loop"
+  },
+  "Say (Print)": {
+    "prefix": "say",
+    "body": [
+      "say \"${1:message}\""
+    ],
+    "description": "Print output"
+  },
+  "Give Back": {
+    "prefix": "give",
+    "body": [
+      "give back ${1:value}"
+    ],
+    "description": "Return value from task"
+  },
+  "Eventually": {
+    "prefix": "eventually",
+    "body": [
+      "eventually {",
+      "    $0",
+      "}"
+    ],
+    "description": "Deferred execution block"
+  },
+  "Maybe Some": {
+    "prefix": "some",
+    "body": [
+      "some(${1:value})"
+    ],
+    "description": "Wrap value in maybe<T>"
+  },
+  "Use Import": {
+    "prefix": "use",
+    "body": [
+      "use ${1:std::${2:module}}"
+    ],
+    "description": "Import a module"
+  },
+  "Test Block": {
+    "prefix": "test",
+    "body": [
+      "test \"${1:description}\" {",
+      "    expect ${2:actual} to be ${3:expected}",
+      "}"
+    ],
+    "description": "Test with expectation"
+  },
+  "Extern Declaration": {
+    "prefix": "extern",
+    "body": [
+      "extern task ${1:name}(${2:params}) -> ${3:type}"
+    ],
+    "description": "External function declaration"
+  },
+  "Isekai Block": {
+    "prefix": "isekai",
+    "body": [
+      "isekai {",
+      "    $0",
+      "} bringing back {",
+      "    ${1:exports}",
+      "}"
+    ],
+    "description": "Isolated scope with exports"
+  },
+  "Trust Me Block": {
+    "prefix": "trust",
+    "body": [
+      "trust-me {",
+      "    $0",
+      "}"
+    ],
+    "description": "Unsafe block"
+  }
+}

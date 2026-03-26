@@ -1,0 +1,21 @@
+-- EXPECT: Point x: 3
+-- EXPECT: Point y: 4
+-- EXPECT: dist_sq: 25
+-- Test: impl blocks and method calls (numeric return types)
+
+shape Point {
+    x: num
+    y: num
+}
+
+impl Point {
+    task distance_sq(self) -> num {
+        give back self.x * self.x + self.y * self.y
+    }
+}
+
+pilot p = Point { x: 3, y: 4 }
+say "Point x: {p.x}"
+say "Point y: {p.y}"
+pilot d = p.distance_sq()
+say "dist_sq: {d}"

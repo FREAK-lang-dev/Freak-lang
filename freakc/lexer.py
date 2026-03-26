@@ -150,7 +150,11 @@ class Token:
 
 
 class LexerError(Exception):
-    pass
+    """Lexer error with optional line/column info for diagnostics."""
+    def __init__(self, message: str, line: int = 0, column: int = 0):
+        super().__init__(message)
+        self.line = line
+        self.column = column
 
 
 class Lexer:
@@ -362,7 +366,8 @@ class Lexer:
             return
 
         raise LexerError(
-            f"Unexpected character {c!r} at line {self.line}, column {self.column}"
+            f"Unexpected character {c!r} at line {self.line}, column {self.column}",
+            line=self.line, column=self.column,
         )
 
     # Identifier / keyword handling -------------------------------------
@@ -614,7 +619,8 @@ class Lexer:
                 # Escape sequence
                 if self._is_at_end():
                     raise LexerError(
-                        f"Unterminated escape sequence at line {self.line}"
+                        f"Unterminated escape sequence at line {self.line}",
+                        line=self.line, column=self.column,
                     )
                 esc = self._advance()
                 mapped = self._ESCAPE_MAP.get(esc)
@@ -631,7 +637,10 @@ class Lexer:
                 value_chars.append(ch)
 
         if self._is_at_end():
-            raise LexerError(f"Unterminated string at line {self.line}")
+            raise LexerError(
+                f"Unterminated string at line {self.line}",
+                line=self.line, column=self.column,
+            )
 
         # Consume closing "
         self._advance()

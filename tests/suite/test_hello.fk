@@ -1,0 +1,8 @@
+-- EXPECT: Hello from FREAK!
+-- EXPECT: Takeru
+-- EXPECT: Goodbye!
+-- Test: basic say output
+
+say "Hello from FREAK!"
+say "Takeru"
+say "Goodbye!"

@@ -416,7 +416,12 @@ class EventuallyBlock:
 
 
 class ParseError(Exception):
-    pass
+    """Parser error with optional token location info for diagnostics."""
+    def __init__(self, message: str, line: int = 0, column: int = 0, length: int = 1):
+        super().__init__(message)
+        self.line = line
+        self.column = column
+        self.length = length
 
 
 class Parser:
@@ -447,7 +452,11 @@ class Parser:
         try:
             tokens = lexer.tokenize()
         except LexerError as e:
-            raise ParseError(str(e)) from e
+            raise ParseError(
+                str(e),
+                line=getattr(e, 'line', 0),
+                column=getattr(e, 'column', 0),
+            ) from e
         parser = cls(tokens)
         return parser.parse()
 
@@ -1490,7 +1499,12 @@ class Parser:
 
     def _error(self, token: Token, message: str) -> ParseError:
         where = f"line {token.line}, col {token.column}"
-        return ParseError(f"[{where}] {message} (found {token.type} {token.lexeme!r})")
+        return ParseError(
+            f"[{where}] {message} (found {token.type} {token.lexeme!r})",
+            line=token.line,
+            column=token.column,
+            length=max(1, len(token.lexeme)) if token.lexeme else 1,
+        )
 
 
 __all__ = [
