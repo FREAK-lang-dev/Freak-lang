@@ -1,0 +1,27 @@
+{
+  "name": "tree-sitter-freak",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the FREAK programming language",
+  "license": "MIT",
+  "main": "bindings/node",
+  "keywords": ["parser", "tree-sitter", "freak"],
+  "dependencies": {
+    "nan": "^2.17.0"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.22.0"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.freak",
+      "file-types": ["fk"],
+      "highlights": "queries/highlights.scm",
+      "injection-regex": "freak"
+    }
+  ]
+}
