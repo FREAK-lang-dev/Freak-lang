@@ -118,7 +118,7 @@ def _sanitize_name(name: str) -> str:
 
 class CEmitter:
     """
-    FREAK Lite → C emitter.
+    FREAK Lite -> C emitter.
 
     Emission order (per Bible Section 9):
       1. #include "freak_runtime.h"
@@ -129,7 +129,7 @@ class CEmitter:
       6. int main() { return freak_main(); }
     """
 
-    # Maps binary operator → (doctrine_name, method_name) for overloading
+    # Maps binary operator -> (doctrine_name, method_name) for overloading
     _OP_DOCTRINE: Dict[str, tuple] = {
         "+": ("Add", "add"),
         "-": ("Sub", "sub"),
@@ -160,6 +160,7 @@ class CEmitter:
         self._temp_counter: int = 0
         self._closure_captures: Set[str] = set()  # names accessed as __env->name
         self._includes: Set[str] = set()  # extra #include from use imports
+        self._uses_ui: bool = False  # tracks if use std::ui is present
 
     def emit(self, program: Program) -> str:
         self.indent = 0
@@ -176,11 +177,12 @@ class CEmitter:
         self._lambda_defs = []
         self._temp_counter = 0
         self._includes = set()
+        self._uses_ui = False
 
         # Collect shapes and impl blocks first
         top_stmts: list = []
         task_decls: list = []
-        global_pilots: list = []  # top-level pilots → C globals
+        global_pilots: list = []  # top-level pilots -> C globals
         for stmt in program.statements:
             if isinstance(stmt, ShapeDecl):
                 self.shapes[stmt.name] = stmt
@@ -613,7 +615,7 @@ class CEmitter:
             target.append(f"{self._ind()}}}")
 
     def _emit_for_each(self, stmt: ForEach, target: List[str]) -> None:
-        # for each item in iterable → C for loop
+        # for each item in iterable -> C for loop
         iterable_c = self._expr_to_c(stmt.iterable)
         idx = self._next_temp("__i")
         if isinstance(stmt.pattern, Ident):
@@ -692,7 +694,7 @@ class CEmitter:
         return _RESULT_MAP.get(outer, "int64_t")
 
     def _emit_check_maybe(self, stmt: CheckMaybe, target: List[str]) -> None:
-        """check expr { got x -> ... nobody -> ... } → if (subj.has_value)"""
+        """check expr { got x -> ... nobody -> ... } -> if (subj.has_value)"""
         subject_c = self._expr_to_c(stmt.subject)
         inner_type = self._maybe_inner_type(stmt.subject)
         target.append(f"{self._ind()}/* check maybe */")
@@ -714,7 +716,7 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_check_result(self, stmt: CheckResult, target: List[str]) -> None:
-        """check result expr { ok(x) -> ... err(e) -> ... } → if (subj.is_ok)"""
+        """check result expr { ok(x) -> ... err(e) -> ... } -> if (subj.is_ok)"""
         subject_c = self._expr_to_c(stmt.subject)
         target.append(f"{self._ind()}/* check result */")
         target.append(f"{self._ind()}if ({subject_c}.is_ok) {{")
@@ -743,13 +745,13 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_annotation(self, stmt: Annotation, target: List[str]) -> None:
-        """@name declaration → C comment + emit the decorated declaration."""
+        """@name declaration -> C comment + emit the decorated declaration."""
         target.append(f"{self._ind()}/* @{stmt.name} */")
         if stmt.target:
             self._emit_statement(stmt.target, target)
 
     def _emit_trust_me(self, stmt: TrustMeBlock, target: List[str]) -> None:
-        """trust me block → plain C block with comment."""
+        """trust me block -> plain C block with comment."""
         reason = self._escape_c_string(stmt.reason) if stmt.reason else "unsafe"
         target.append(
             f'{self._ind()}/* trust me: "{reason}" (honor: .{stmt.honor_level}) */'
@@ -762,16 +764,16 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_foreshadow(self, stmt: ForeshadowDecl, target: List[str]) -> None:
-        """foreshadow pilot x = expr → pilot decl + tracking comment."""
+        """foreshadow pilot x = expr -> pilot decl + tracking comment."""
         target.append(f"{self._ind()}/* foreshadow: {stmt.decl.name} */")
         self._emit_pilot_decl(stmt.decl, target)
 
     def _emit_payoff(self, stmt: PayoffStmt, target: List[str]) -> None:
-        """payoff x → comment marking fulfillment."""
+        """payoff x -> comment marking fulfillment."""
         target.append(f"{self._ind()}/* payoff: {stmt.name} */")
 
     def _emit_deus_ex_machina(self, stmt: DeusExMachina, target: List[str]) -> None:
-        """deus_ex_machina "monologue" { body } → unsafe C block with dramatic comment."""
+        """deus_ex_machina "monologue" { body } -> unsafe C block with dramatic comment."""
         word_count = len(stmt.monologue.split())
         escaped = self._escape_c_string(stmt.monologue)
         target.append(f"{self._ind()}/* *** DEUS EX MACHINA ({word_count} words) ***")
@@ -784,7 +786,7 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_isekai(self, stmt: IsekaiBlock, target: List[str]) -> None:
-        """isekai { body } bringing back { ... } → isolated C scope + exports."""
+        """isekai { body } bringing back { ... } -> isolated C scope + exports."""
         target.append(f"{self._ind()}/* isekai: fresh scope */")
         target.append(f"{self._ind()}{{")
         self.indent += 1
@@ -797,7 +799,7 @@ class CEmitter:
             target.append(f"{self._ind()}/* bringing back: {exports_str} */")
 
     def _emit_eventually(self, stmt: EventuallyBlock, target: List[str]) -> None:
-        """eventually { body } → deferred block comment (no C equivalent without cleanup)."""
+        """eventually { body } -> deferred block comment (no C equivalent without cleanup)."""
         if stmt.condition:
             cond_c = self._expr_to_c(stmt.condition)
             target.append(f"{self._ind()}/* eventually if {cond_c} (deferred) */")
@@ -812,7 +814,7 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_use_import(self, stmt: UseImport, target: List[str]) -> None:
-        """use module::{names} → #include + comment."""
+        """use module::{names} -> #include + comment."""
         names_str = ", ".join(stmt.names)
         if stmt.alias:
             target.append(
@@ -820,11 +822,14 @@ class CEmitter:
             )
         else:
             target.append(f"{self._ind()}/* use {stmt.module}::{{{names_str}}} */")
+        # Track std::ui usage for linking UI runtime + Win32 libs
+        if stmt.module.startswith("std::ui") or stmt.module == "ui":
+            self._uses_ui = True
         # In FREAK Lite, emit an #include for the module's generated C header
         self._includes.add(f'#include "{stmt.module}.h"')
 
     # ===================================================================
-    #  Expressions → C
+    #  Expressions -> C
     # ===================================================================
 
     def _expr_to_c(self, expr) -> str:
@@ -931,7 +936,7 @@ class CEmitter:
                 return f"(!{override_fn}(&{left}, {right}))"
             return f"{override_fn}(&{left}, {right})"
 
-        # word concatenation: "hello" + " world" → freak_word_concat(a, b)
+        # word concatenation: "hello" + " world" -> freak_word_concat(a, b)
         left_type = self._infer_c_type_of_expr(expr.left)
         right_type = self._infer_c_type_of_expr(expr.right)
         if expr.op == "+" and (left_type == "freak_word" or right_type == "freak_word"):
@@ -1022,7 +1027,7 @@ class CEmitter:
         if expr.op == "TSUNDERE":
             return f"(-({operand}))"
         if expr.op == "?":
-            # ? error propagation — emit inline check
+            # ? error propagation -- emit inline check
             return f"{operand}"
         return f"({expr.op}{operand})"
 
@@ -1034,7 +1039,7 @@ class CEmitter:
                 return f"freak_panic({args_c})"
             if expr.func.name == "ask":
                 return f"freak_ask({args_c})"
-            # User function — add freak_ prefix
+            # User function -- add freak_ prefix
             return f"freak_{expr.func.name}({args_c})"
 
         if isinstance(expr.func, PathIdent):
@@ -1077,11 +1082,45 @@ class CEmitter:
                 "fs::write": "freak_fs_write",
             }
 
+            # std::ui mapping
+            ui_map = {
+                "ui::create_window": "freak_ui_create_window_word",
+                "ui::show_window": "freak_ui_show_window",
+                "ui::poll_events": "freak_ui_poll_events",
+                "ui::close_window": "freak_ui_destroy_window",
+                "ui::destroy_window": "freak_ui_destroy_window",
+                "ui::set_title": "freak_ui_set_title_word",
+                "ui::window_should_close": "freak_ui_window_should_close",
+                "ui::event_kind": "freak_ui_event_kind",
+                "ui::event_key": "freak_ui_event_key",
+                "ui::event_pressed": "freak_ui_event_pressed",
+                "ui::event_repeat": "freak_ui_event_repeat",
+                "ui::event_character": "freak_ui_event_character",
+                "ui::event_mouse_x": "freak_ui_event_mouse_x",
+                "ui::event_mouse_y": "freak_ui_event_mouse_y",
+                "ui::event_button": "freak_ui_event_button",
+                "ui::event_scroll_dy": "freak_ui_event_scroll_dy",
+                "ui::event_width": "freak_ui_event_width",
+                "ui::event_height": "freak_ui_event_height",
+                "ui::event_gained": "freak_ui_event_gained",
+                "ui::begin_frame": "freak_ui_begin_frame",
+                "ui::end_frame": "freak_ui_end_frame",
+                "ui::clear": "freak_ui_clear",
+                "ui::fill_rect": "freak_ui_fill_rect",
+                "ui::stroke_rect": "freak_ui_stroke_rect",
+                "ui::fill_circle": "freak_ui_fill_circle",
+                "ui::draw_line": "freak_ui_draw_line",
+                "ui::draw_text": "freak_ui_draw_text_word",
+                "ui::get_width": "freak_ui_get_width",
+                "ui::get_height": "freak_ui_get_height",
+            }
+
             c_func = (
                 process_map.get(fq_name)
                 or thread_map.get(fq_name)
                 or bytes_map.get(fq_name)
                 or fs_map.get(fq_name)
+                or ui_map.get(fq_name)
             )
             if c_func:
                 return f"{c_func}({args_c})"
@@ -1104,7 +1143,7 @@ class CEmitter:
                 return f"{obj_type}_{expr.method}(&{obj_c}, {args_c})"
             return f"{obj_type}_{expr.method}(&{obj_c})"
 
-        # std::bytes — ByteBuffer methods (check before WORD_METHODS so
+        # std::bytes -- ByteBuffer methods (check before WORD_METHODS so
         # .length() on a buffer doesn't accidentally call freak_word_length)
         BYTES_METHODS: dict[str, str] = {
             "write_byte": "freak_bytes_write_byte",
@@ -1127,7 +1166,7 @@ class CEmitter:
                 return f"{c_func}(&{obj_c}, {args_c})"
             return f"{c_func}(&{obj_c})"
 
-        # Built-in word methods → freak_word_* functions
+        # Built-in word methods -> freak_word_* functions
         WORD_METHODS = {
             "length": (
                 "freak_word_length",
@@ -1229,7 +1268,7 @@ class CEmitter:
 
         self._lambda_defs.append(f"static {ret_type} {fn_name}({params_str}) {{")
 
-        # Set up vars for body emission — params + captured vars via __env->
+        # Set up vars for body emission -- params + captured vars via __env->
         saved_vars = dict(self.vars)
         for p in expr.params:
             pt = self._type_to_c(p.type_ann) if p.type_ann else "int64_t"
@@ -1360,7 +1399,7 @@ class CEmitter:
                             fmt_parts.append(f"{escaped}%lld")
                             args.append(f"(long long){var_name}")
                     else:
-                        # Unknown variable — assume int
+                        # Unknown variable -- assume int
                         fmt_parts.append(f"{escaped}%lld")
                         args.append(f"(long long){var_name}")
                 else:
@@ -1451,7 +1490,7 @@ class CEmitter:
                             if doctrine_name in ("Eq", "Ord"):
                                 return "bool"
                             return lt  # default: same type as self
-                    # Doctrine registered but method not found — fall through
+                    # Doctrine registered but method not found -- fall through
                     if doctrine_name in ("Eq", "Ord"):
                         return "bool"
 
@@ -1517,7 +1556,39 @@ class CEmitter:
                     "fs::read": "freak_word",
                     "fs::write": "void",
                 }
-                all_ret = {**_PROCESS_RET, **_THREAD_RET, **_BYTES_RET, **_FS_RET}
+                # std::ui return types
+                _UI_RET = {
+                    "ui::create_window": "int64_t",
+                    "ui::show_window": "void",
+                    "ui::poll_events": "int64_t",
+                    "ui::close_window": "void",
+                    "ui::destroy_window": "void",
+                    "ui::set_title": "void",
+                    "ui::window_should_close": "int64_t",
+                    "ui::event_kind": "int64_t",
+                    "ui::event_key": "int64_t",
+                    "ui::event_pressed": "int64_t",
+                    "ui::event_repeat": "int64_t",
+                    "ui::event_character": "int64_t",
+                    "ui::event_mouse_x": "int64_t",
+                    "ui::event_mouse_y": "int64_t",
+                    "ui::event_button": "int64_t",
+                    "ui::event_scroll_dy": "int64_t",
+                    "ui::event_width": "int64_t",
+                    "ui::event_height": "int64_t",
+                    "ui::event_gained": "int64_t",
+                    "ui::begin_frame": "void",
+                    "ui::end_frame": "void",
+                    "ui::clear": "void",
+                    "ui::fill_rect": "void",
+                    "ui::stroke_rect": "void",
+                    "ui::fill_circle": "void",
+                    "ui::draw_line": "void",
+                    "ui::draw_text": "int64_t",
+                    "ui::get_width": "int64_t",
+                    "ui::get_height": "int64_t",
+                }
+                all_ret = {**_PROCESS_RET, **_THREAD_RET, **_BYTES_RET, **_FS_RET, **_UI_RET}
                 if fq in all_ret:
                     return all_ret[fq]
             return "int64_t"

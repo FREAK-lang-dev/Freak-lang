@@ -1,0 +1,335 @@
+-- FREAK Standard Library: std::ui
+-- Layer 1 of freak-ui: Window management, events, and raw drawing
+--
+-- This is the "floor" — just enough to open a window, get input,
+-- and draw pixels/text. No widgets, no layout, no retained state.
+-- freak-ui (Hangar package) builds on top of this.
+
+-- ================================================================
+--  Core types
+-- ================================================================
+
+shape WindowConfig {
+    title:     word
+    width:     int
+    height:    int
+    resizable: bool
+    vsync:     bool
+}
+
+shape Vec2 {
+    x: num
+    y: num
+}
+
+shape Rect {
+    x: num
+    y: num
+    w: num
+    h: num
+}
+
+impl Rect {
+    task contains(self, px: num, py: num) -> bool {
+        give back px >= self.x and px < self.x + self.w
+            and py >= self.y and py < self.y + self.h
+    }
+}
+
+shape Color {
+    r: int
+    g: int
+    b: int
+    a: int
+}
+
+impl Color {
+    task rgb(r: int, g: int, b: int) -> Color {
+        give back Color { r: r, g: g, b: b, a: 255 }
+    }
+
+    task rgba(r: int, g: int, b: int, a: int) -> Color {
+        give back Color { r: r, g: g, b: b, a: a }
+    }
+
+    -- Named colors
+    task red() -> Color { give back Color::rgb(255, 45, 45) }
+    task green() -> Color { give back Color::rgb(45, 200, 45) }
+    task blue() -> Color { give back Color::rgb(45, 120, 255) }
+    task white() -> Color { give back Color::rgb(255, 255, 255) }
+    task black() -> Color { give back Color::rgb(0, 0, 0) }
+    task transparent() -> Color { give back Color::rgba(0, 0, 0, 0) }
+
+    -- Theme colors
+    task dark_bg() -> Color { give back Color::rgb(20, 20, 30) }
+    task surface() -> Color { give back Color::rgb(35, 35, 50) }
+    task accent() -> Color { give back Color::rgb(255, 45, 120) }
+    task muted() -> Color { give back Color::rgb(128, 128, 160) }
+}
+
+shape Font {
+    size: int
+    bold: bool
+    italic: bool
+}
+
+impl Font {
+    task default() -> Font {
+        give back Font { size: 14, bold: false, italic: false }
+    }
+
+    task heading() -> Font {
+        give back Font { size: 24, bold: true, italic: false }
+    }
+
+    task mono() -> Font {
+        give back Font { size: 13, bold: false, italic: false }
+    }
+
+    task display() -> Font {
+        give back Font { size: 36, bold: true, italic: false }
+    }
+}
+
+-- ================================================================
+--  Events
+-- ================================================================
+
+-- Event kind constants (match C defines)
+fixed pilot EVENT_NONE   = 0
+fixed pilot EVENT_QUIT   = 1
+fixed pilot EVENT_KEY    = 2
+fixed pilot EVENT_CHAR   = 3
+fixed pilot EVENT_MOUSE  = 4
+fixed pilot EVENT_SCROLL = 5
+fixed pilot EVENT_RESIZE = 6
+fixed pilot EVENT_FOCUS  = 7
+
+-- Key constants (match C defines)
+fixed pilot KEY_A = 1
+fixed pilot KEY_B = 2
+fixed pilot KEY_C = 3
+fixed pilot KEY_D = 4
+fixed pilot KEY_E = 5
+fixed pilot KEY_F = 6
+fixed pilot KEY_G = 7
+fixed pilot KEY_H = 8
+fixed pilot KEY_I = 9
+fixed pilot KEY_J = 10
+fixed pilot KEY_K = 11
+fixed pilot KEY_L = 12
+fixed pilot KEY_M = 13
+fixed pilot KEY_N = 14
+fixed pilot KEY_O = 15
+fixed pilot KEY_P = 16
+fixed pilot KEY_Q = 17
+fixed pilot KEY_R = 18
+fixed pilot KEY_S = 19
+fixed pilot KEY_T = 20
+fixed pilot KEY_U = 21
+fixed pilot KEY_V = 22
+fixed pilot KEY_W = 23
+fixed pilot KEY_X = 24
+fixed pilot KEY_Y = 25
+fixed pilot KEY_Z = 26
+fixed pilot KEY_ENTER     = 37
+fixed pilot KEY_ESCAPE    = 38
+fixed pilot KEY_SPACE     = 39
+fixed pilot KEY_TAB       = 40
+fixed pilot KEY_BACKSPACE = 41
+fixed pilot KEY_DELETE    = 42
+fixed pilot KEY_UP        = 43
+fixed pilot KEY_DOWN      = 44
+fixed pilot KEY_LEFT      = 45
+fixed pilot KEY_RIGHT     = 46
+
+-- Mouse button constants
+fixed pilot MOUSE_NONE   = 0
+fixed pilot MOUSE_LEFT   = 1
+fixed pilot MOUSE_RIGHT  = 2
+fixed pilot MOUSE_MIDDLE = 3
+
+-- Raw event shape (flat, easy FFI)
+shape Event {
+    kind:      int
+    key:       int
+    pressed:   int
+    repeat:    int
+    character: int
+    mouse_x:   int
+    mouse_y:   int
+    button:    int
+    scroll_dy: int
+    width:     int
+    height:    int
+    gained:    int
+}
+
+impl Event {
+    task is_quit(self) -> bool {
+        give back self.kind == EVENT_QUIT
+    }
+
+    task is_key_down(self, k: int) -> bool {
+        give back self.kind == EVENT_KEY and self.key == k and self.pressed == 1
+    }
+
+    task is_key_up(self, k: int) -> bool {
+        give back self.kind == EVENT_KEY and self.key == k and self.pressed == 0
+    }
+
+    task is_mouse_down(self, btn: int) -> bool {
+        give back self.kind == EVENT_MOUSE and self.button == btn and self.pressed == 1
+    }
+
+    task is_mouse_up(self, btn: int) -> bool {
+        give back self.kind == EVENT_MOUSE and self.button == btn and self.pressed == 0
+    }
+
+    task is_click_in(self, rect: Rect) -> bool {
+        give back self.kind == EVENT_MOUSE and self.button == MOUSE_LEFT
+            and self.pressed == 1
+            and rect.contains(self.mouse_x, self.mouse_y)
+    }
+}
+
+-- ================================================================
+--  Window
+-- ================================================================
+
+-- Native C runtime interface (declared as extern, linked from win32_backend.c)
+-- These are called through the compiler's extern mechanism:
+--   freak_ui_create_window(title, width, height, resizable) -> handle
+--   freak_ui_poll_events(handle) -> event_count (-1 = quit)
+--   freak_ui_event_kind(index) -> kind
+--   freak_ui_event_key(index) -> key
+--   ... etc for each event field
+--   freak_ui_begin_frame(handle)
+--   freak_ui_end_frame(handle)
+--   freak_ui_clear(handle, r, g, b, a)
+--   freak_ui_fill_rect(handle, x, y, w, h, r, g, b, a)
+--   freak_ui_stroke_rect(handle, x, y, w, h, r, g, b, a, thickness)
+--   freak_ui_fill_circle(handle, cx, cy, radius, r, g, b, a)
+--   freak_ui_draw_line(handle, x1, y1, x2, y2, r, g, b, a, thickness)
+--   freak_ui_draw_text(handle, text, x, y, r, g, b, font_size, bold, italic) -> width
+--   freak_ui_measure_text(text, font_size, bold, italic) -> width
+--   freak_ui_get_width(handle) -> int
+--   freak_ui_get_height(handle) -> int
+--   freak_ui_destroy_window(handle)
+
+shape Window {
+    handle: int
+    width:  int
+    height: int
+}
+
+impl Window {
+    task open(config: WindowConfig) -> Window {
+        pilot resizable = 1
+        if not config.resizable { resizable = 0 }
+        pilot h = ui::create_window(config.title, config.width, config.height, resizable)
+        give back Window { handle: h, width: config.width, height: config.height }
+    }
+
+    task close(self) -> void {
+        ui::destroy_window(self.handle)
+    }
+
+    -- Poll events for this frame. Returns a list of events.
+    -- If quit was requested, the list will contain an EVENT_QUIT event.
+    task poll(self) -> List<Event> {
+        pilot events = []
+        pilot count = ui::poll_events(self.handle)
+
+        if count < 0 {
+            -- Quit requested
+            events.push(Event {
+                kind: EVENT_QUIT, key: 0, pressed: 0, repeat: 0,
+                character: 0, mouse_x: 0, mouse_y: 0, button: 0,
+                scroll_dy: 0, width: 0, height: 0, gained: 0
+            })
+            give back events
+        }
+
+        pilot i = 0
+        repeat count times {
+            pilot ev = Event {
+                kind:      ui::event_kind(i),
+                key:       ui::event_key(i),
+                pressed:   ui::event_pressed(i),
+                repeat:    ui::event_repeat(i),
+                character: ui::event_character(i),
+                mouse_x:   ui::event_mouse_x(i),
+                mouse_y:   ui::event_mouse_y(i),
+                button:    ui::event_button(i),
+                scroll_dy: ui::event_scroll_dy(i),
+                width:     ui::event_width(i),
+                height:    ui::event_height(i),
+                gained:    ui::event_gained(i)
+            }
+            events.push(ev)
+            i = i + 1
+        }
+        give back events
+    }
+}
+
+-- ================================================================
+--  Canvas — drawing commands for the current frame
+-- ================================================================
+
+shape Canvas {
+    handle: int
+}
+
+impl Canvas {
+    task from_window(win: Window) -> Canvas {
+        give back Canvas { handle: win.handle }
+    }
+
+    task begin(self) -> void {
+        ui::begin_frame(self.handle)
+    }
+
+    task finish(self) -> void {
+        ui::end_frame(self.handle)
+    }
+
+    task clear(self, color: Color) -> void {
+        ui::clear(self.handle, color.r, color.g, color.b, color.a)
+    }
+
+    task fill_rect(self, rect: Rect, color: Color) -> void {
+        ui::fill_rect(self.handle, rect.x, rect.y, rect.w, rect.h,
+                      color.r, color.g, color.b, color.a)
+    }
+
+    task stroke_rect(self, rect: Rect, color: Color, thickness: int) -> void {
+        ui::stroke_rect(self.handle, rect.x, rect.y, rect.w, rect.h,
+                        color.r, color.g, color.b, color.a, thickness)
+    }
+
+    task fill_circle(self, center: Vec2, radius: int, color: Color) -> void {
+        ui::fill_circle(self.handle, center.x, center.y, radius,
+                        color.r, color.g, color.b, color.a)
+    }
+
+    task draw_line(self, from: Vec2, to: Vec2, color: Color, thickness: int) -> void {
+        ui::draw_line(self.handle, from.x, from.y, to.x, to.y,
+                      color.r, color.g, color.b, color.a, thickness)
+    }
+
+    task draw_text(self, text: word, x: int, y: int, font: Font, color: Color) -> int {
+        give back ui::draw_text(self.handle, text, x, y,
+                                color.r, color.g, color.b,
+                                font.size, font.bold, font.italic)
+    }
+
+    task width(self) -> int {
+        give back ui::get_width(self.handle)
+    }
+
+    task height(self) -> int {
+        give back ui::get_height(self.handle)
+    }
+}
