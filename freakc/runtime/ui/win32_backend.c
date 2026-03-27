@@ -630,4 +630,19 @@ int64_t freak_ui_draw_text_word(int64_t handle, freak_word text, int64_t x, int6
     return freak_ui_draw_text(handle, text.data ? text.data : "", x, y, r, g, b, font_size, bold, italic);
 }
 
+int64_t freak_ui_measure_text_word(freak_word text, int64_t font_size, int64_t bold, int64_t italic) {
+    if (!g_win || !text.data) return 0;
+    HDC hdc = GetDC(g_win->hwnd);
+    int weight = bold ? FW_BOLD : FW_NORMAL;
+    HFONT hfont = CreateFontA(-(int)font_size, 0, 0, 0, weight, (DWORD)italic, 0, 0,
+                              DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, DEFAULT_PITCH, "Segoe UI");
+    HFONT old = (HFONT)SelectObject(hdc, hfont);
+    SIZE sz;
+    GetTextExtentPoint32A(hdc, text.data, (int)text.byte_len, &sz);
+    SelectObject(hdc, old);
+    DeleteObject(hfont);
+    ReleaseDC(g_win->hwnd, hdc);
+    return (int64_t)sz.cx;
+}
+
 #endif /* _WIN32 */

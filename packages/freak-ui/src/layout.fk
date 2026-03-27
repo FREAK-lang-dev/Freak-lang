@@ -1,0 +1,349 @@
+-- freak-ui: Layout Engine (Phase B)
+-- Immediate-mode flex-like layout system.
+--
+-- Layout works via a cursor stack. Each frame starts with a root layout
+-- context. Widgets consume space from the current context. `row` and
+-- `column` push/pop layout contexts.
+--
+-- No widget trees. No retained state. Just a cursor that moves.
+
+use std::ui::{Rect, Vec2}
+
+-- ================================================================
+--  Size hints — how a widget wants to be sized
+-- ================================================================
+
+-- Size hint constants
+fixed pilot SIZE_AUTO     = 0   -- fit content
+fixed pilot SIZE_FILL     = 1   -- fill remaining space
+fixed pilot SIZE_FIXED    = 2   -- exact pixel value
+fixed pilot SIZE_FRACTION = 3   -- fraction of available space
+
+shape SizeHint {
+    kind:  int
+    value: num
+}
+
+impl SizeHint {
+    task auto() -> SizeHint {
+        give back SizeHint { kind: SIZE_AUTO, value: 0.0 }
+    }
+
+    task fill() -> SizeHint {
+        give back SizeHint { kind: SIZE_FILL, value: 0.0 }
+    }
+
+    task fixed(px: num) -> SizeHint {
+        give back SizeHint { kind: SIZE_FIXED, value: px }
+    }
+
+    task fraction(f: num) -> SizeHint {
+        give back SizeHint { kind: SIZE_FRACTION, value: f }
+    }
+
+    -- Resolve a size hint to actual pixels
+    task resolve(self, available: num, content: num) -> num {
+        if self.kind == SIZE_AUTO {
+            give back content
+        }
+        if self.kind == SIZE_FILL {
+            give back available
+        }
+        if self.kind == SIZE_FIXED {
+            give back self.value
+        }
+        if self.kind == SIZE_FRACTION {
+            give back available * self.value
+        }
+        give back content
+    }
+}
+
+-- ================================================================
+--  Layout direction
+-- ================================================================
+
+fixed pilot DIR_VERTICAL   = 0
+fixed pilot DIR_HORIZONTAL = 1
+
+-- ================================================================
+--  Layout context — one entry on the layout stack
+-- ================================================================
+
+shape LayoutContext {
+    -- Bounding box for this context
+    x:      num
+    y:      num
+    max_w:  num
+    max_h:  num
+
+    -- Current cursor position within the context
+    cursor_x: num
+    cursor_y: num
+
+    -- Direction: vertical (column) or horizontal (row)
+    direction: int
+
+    -- Spacing between widgets
+    gap:     num
+
+    -- Padding inside the context
+    pad:     num
+
+    -- Track how many widgets placed (for gap calculation)
+    count:   int
+
+    -- Track maximum cross-axis size (for row: tallest widget, for column: widest)
+    cross_max: num
+}
+
+impl LayoutContext {
+    task new(x: num, y: num, w: num, h: num, dir: int, gap: num, pad: num) -> LayoutContext {
+        give back LayoutContext {
+            x:         x + pad,
+            y:         y + pad,
+            max_w:     w - pad * 2.0,
+            max_h:     h - pad * 2.0,
+            cursor_x:  x + pad,
+            cursor_y:  y + pad,
+            direction: dir,
+            gap:       gap,
+            pad:       pad,
+            count:     0,
+            cross_max: 0.0
+        }
+    }
+
+    -- Get the remaining width available for the next widget
+    task remaining_width(self) -> num {
+        if self.direction == DIR_HORIZONTAL {
+            pilot used = self.cursor_x - self.x
+            give back self.max_w - used
+        }
+        give back self.max_w
+    }
+
+    -- Get the remaining height available for the next widget
+    task remaining_height(self) -> num {
+        if self.direction == DIR_VERTICAL {
+            pilot used = self.cursor_y - self.y
+            give back self.max_h - used
+        }
+        give back self.max_h
+    }
+
+    -- Allocate space for a widget and return its bounding rect.
+    -- Advances the cursor after allocation.
+    task allocate(self, w: num, h: num) -> Rect {
+        -- Add gap before non-first widgets
+        if self.count > 0 {
+            if self.direction == DIR_HORIZONTAL {
+                self.cursor_x = self.cursor_x + self.gap
+            } else {
+                self.cursor_y = self.cursor_y + self.gap
+            }
+        }
+
+        pilot rect = Rect {
+            x: self.cursor_x,
+            y: self.cursor_y,
+            w: w,
+            h: h
+        }
+
+        -- Advance cursor
+        if self.direction == DIR_HORIZONTAL {
+            self.cursor_x = self.cursor_x + w
+            if h > self.cross_max {
+                self.cross_max = h
+            }
+        } else {
+            self.cursor_y = self.cursor_y + h
+            if w > self.cross_max {
+                self.cross_max = w
+            }
+        }
+
+        self.count = self.count + 1
+        give back rect
+    }
+
+    -- Get the total size consumed by all widgets so far
+    task consumed_width(self) -> num {
+        if self.direction == DIR_HORIZONTAL {
+            give back self.cursor_x - self.x
+        }
+        give back self.cross_max
+    }
+
+    task consumed_height(self) -> num {
+        if self.direction == DIR_VERTICAL {
+            give back self.cursor_y - self.y
+        }
+        give back self.cross_max
+    }
+}
+
+-- ================================================================
+--  Layout stack — manages nested layout contexts
+-- ================================================================
+
+-- Maximum nesting depth for layout contexts
+fixed pilot MAX_LAYOUT_DEPTH = 32
+
+shape LayoutStack {
+    -- Flat arrays for the layout stack (since we can't have List<LayoutContext>
+    -- easily in the C backend, we use parallel arrays)
+    ctx_x:         List<num>
+    ctx_y:         List<num>
+    ctx_max_w:     List<num>
+    ctx_max_h:     List<num>
+    ctx_cursor_x:  List<num>
+    ctx_cursor_y:  List<num>
+    ctx_direction: List<int>
+    ctx_gap:       List<num>
+    ctx_pad:       List<num>
+    ctx_count:     List<int>
+    ctx_cross_max: List<num>
+    depth:         int
+}
+
+impl LayoutStack {
+    task new() -> LayoutStack {
+        give back LayoutStack {
+            ctx_x:         [],
+            ctx_y:         [],
+            ctx_max_w:     [],
+            ctx_max_h:     [],
+            ctx_cursor_x:  [],
+            ctx_cursor_y:  [],
+            ctx_direction: [],
+            ctx_gap:       [],
+            ctx_pad:       [],
+            ctx_count:     [],
+            ctx_cross_max: [],
+            depth:         0
+        }
+    }
+
+    -- Push a new layout context onto the stack
+    task push(self, x: num, y: num, w: num, h: num, dir: int, gap: num, pad: num) -> void {
+        pilot px = x + pad
+        pilot py = y + pad
+        pilot pw = w - pad * 2.0
+        pilot ph = h - pad * 2.0
+
+        self.ctx_x.push(px)
+        self.ctx_y.push(py)
+        self.ctx_max_w.push(pw)
+        self.ctx_max_h.push(ph)
+        self.ctx_cursor_x.push(px)
+        self.ctx_cursor_y.push(py)
+        self.ctx_direction.push(dir)
+        self.ctx_gap.push(gap)
+        self.ctx_pad.push(pad)
+        self.ctx_count.push(0)
+        self.ctx_cross_max.push(0.0)
+        self.depth = self.depth + 1
+    }
+
+    -- Pop the top layout context, returning consumed size as (width, height)
+    task pop(self) -> Vec2 {
+        pilot i = self.depth - 1
+        pilot dir = self.ctx_direction[i]
+        pilot consumed_w = 0.0
+        pilot consumed_h = 0.0
+
+        if dir == DIR_HORIZONTAL {
+            consumed_w = self.ctx_cursor_x[i] - self.ctx_x[i]
+            consumed_h = self.ctx_cross_max[i]
+        } else {
+            consumed_w = self.ctx_cross_max[i]
+            consumed_h = self.ctx_cursor_y[i] - self.ctx_y[i]
+        }
+
+        -- Add padding back
+        pilot pad = self.ctx_pad[i]
+        consumed_w = consumed_w + pad * 2.0
+        consumed_h = consumed_h + pad * 2.0
+
+        self.depth = self.depth - 1
+        give back Vec2 { x: consumed_w, y: consumed_h }
+    }
+
+    -- Get remaining width in current context
+    task remaining_width(self) -> num {
+        pilot i = self.depth - 1
+        if self.ctx_direction[i] == DIR_HORIZONTAL {
+            pilot used = self.ctx_cursor_x[i] - self.ctx_x[i]
+            give back self.ctx_max_w[i] - used
+        }
+        give back self.ctx_max_w[i]
+    }
+
+    -- Get remaining height in current context
+    task remaining_height(self) -> num {
+        pilot i = self.depth - 1
+        if self.ctx_direction[i] == DIR_VERTICAL {
+            pilot used = self.ctx_cursor_y[i] - self.ctx_y[i]
+            give back self.ctx_max_h[i] - used
+        }
+        give back self.ctx_max_h[i]
+    }
+
+    -- Allocate a rect in the current context
+    task allocate(self, w: num, h: num) -> Rect {
+        pilot i = self.depth - 1
+
+        -- Add gap before non-first widgets
+        if self.ctx_count[i] > 0 {
+            if self.ctx_direction[i] == DIR_HORIZONTAL {
+                self.ctx_cursor_x[i] = self.ctx_cursor_x[i] + self.ctx_gap[i]
+            } else {
+                self.ctx_cursor_y[i] = self.ctx_cursor_y[i] + self.ctx_gap[i]
+            }
+        }
+
+        pilot rect = Rect {
+            x: self.ctx_cursor_x[i],
+            y: self.ctx_cursor_y[i],
+            w: w,
+            h: h
+        }
+
+        -- Advance cursor
+        if self.ctx_direction[i] == DIR_HORIZONTAL {
+            self.ctx_cursor_x[i] = self.ctx_cursor_x[i] + w
+            if h > self.ctx_cross_max[i] {
+                self.ctx_cross_max[i] = h
+            }
+        } else {
+            self.ctx_cursor_y[i] = self.ctx_cursor_y[i] + h
+            if w > self.ctx_cross_max[i] {
+                self.ctx_cross_max[i] = w
+            }
+        }
+
+        self.ctx_count[i] = self.ctx_count[i] + 1
+        give back rect
+    }
+
+    -- Get current cursor position
+    task cursor(self) -> Vec2 {
+        pilot i = self.depth - 1
+        give back Vec2 {
+            x: self.ctx_cursor_x[i],
+            y: self.ctx_cursor_y[i]
+        }
+    }
+
+    -- Get the current context's direction
+    task current_direction(self) -> int {
+        give back self.ctx_direction[self.depth - 1]
+    }
+
+    -- Get the current context's available width
+    task current_width(self) -> num {
+        give back self.ctx_max_w[self.depth - 1]
+    }
+}

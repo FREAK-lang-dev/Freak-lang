@@ -397,3 +397,4 @@ int64_t freak_ui_draw_text_word(int64_t handle, freak_word text, int64_t x, int6
                                 int64_t bold, int64_t italic);
 int64_t freak_ui_get_width(int64_t handle);
 int64_t freak_ui_get_height(int64_t handle);
+int64_t freak_ui_measure_text_word(freak_word text, int64_t font_size, int64_t bold, int64_t italic);

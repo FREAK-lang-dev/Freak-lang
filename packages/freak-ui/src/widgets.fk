@@ -1,0 +1,244 @@
+-- freak-ui: Core Widgets (Phase C)
+-- Immediate-mode widgets: label, button, input, spacer, separator
+--
+-- Every widget follows the same pattern:
+--   1. Measure content size
+--   2. Allocate space from layout
+--   3. Draw to canvas
+--   4. Check input (for interactive widgets)
+--   5. Return interaction result
+
+use std::ui::{Canvas, Rect, Vec2, Color, Font, Event, MOUSE_LEFT, EVENT_MOUSE, EVENT_KEY, EVENT_CHAR, KEY_BACKSPACE, KEY_ENTER, KEY_LEFT, KEY_RIGHT, KEY_DELETE}
+
+-- ================================================================
+--  Widget style constants
+-- ================================================================
+
+-- Label styles
+fixed pilot LABEL_NORMAL     = 0
+fixed pilot LABEL_HEADING    = 1
+fixed pilot LABEL_SUBHEADING = 2
+fixed pilot LABEL_DISPLAY    = 3
+fixed pilot LABEL_MONO       = 4
+fixed pilot LABEL_MUTED      = 5
+
+-- Button styles
+fixed pilot BTN_NORMAL   = 0
+fixed pilot BTN_PRIMARY  = 1
+fixed pilot BTN_DANGER   = 2
+fixed pilot BTN_OPERATOR = 3
+fixed pilot BTN_EQUALS   = 4
+fixed pilot BTN_GHOST    = 5
+
+-- ================================================================
+--  Label — display text, no interaction
+-- ================================================================
+
+-- Measure text width (approximate: ~7px per char at size 14)
+task measure_text_width(text: word, font_size: int) -> int {
+    pilot char_width = font_size * 6 / 10
+    if char_width < 1 { char_width = 7 }
+    give back text.len() * char_width + 4
+}
+
+task label_sized(canvas: Canvas, text: word, rect: Rect, style: int,
+                 text_color: Color, muted_color: Color, font_size: int) -> void {
+    pilot color = text_color
+    pilot size = font_size
+    pilot bold = 0
+    pilot italic = 0
+
+    if style == LABEL_HEADING {
+        size = 24
+        bold = 1
+    }
+    if style == LABEL_SUBHEADING {
+        size = 18
+        bold = 1
+    }
+    if style == LABEL_DISPLAY {
+        size = 36
+        bold = 1
+    }
+    if style == LABEL_MONO {
+        size = 13
+    }
+    if style == LABEL_MUTED {
+        color = muted_color
+    }
+
+    canvas.draw_text(text, rect.x, rect.y, Font { size: size, bold: bold, italic: italic }, color)
+}
+
+-- Get height for a label style
+task label_height(style: int, base_size: int) -> int {
+    if style == LABEL_HEADING    { give back 30 }
+    if style == LABEL_SUBHEADING { give back 24 }
+    if style == LABEL_DISPLAY    { give back 44 }
+    give back base_size + 6
+}
+
+-- ================================================================
+--  Button — clickable rectangle, returns true on click
+-- ================================================================
+
+shape ButtonResult {
+    clicked:  bool
+    hovered:  bool
+}
+
+task button_check(rect: Rect, mouse_x: int, mouse_y: int, mouse_down: bool, mouse_clicked: bool) -> ButtonResult {
+    pilot hovered = rect.contains(mouse_x, mouse_y)
+    pilot clicked = hovered and mouse_clicked
+    give back ButtonResult { clicked: clicked, hovered: hovered }
+}
+
+task button_draw(canvas: Canvas, text: word, rect: Rect, style: int, hovered: bool,
+                 theme_surface: Color, theme_accent: Color, theme_accent_hover: Color,
+                 theme_danger: Color, theme_text: Color, theme_border: Color,
+                 theme_radius: int, font_size: int) -> void {
+    -- Determine colors based on style
+    pilot bg = theme_surface
+    pilot fg = theme_text
+    pilot border = theme_border
+
+    if style == BTN_PRIMARY {
+        bg = theme_accent
+        fg = Color::rgb(255, 255, 255)
+        border = theme_accent
+    }
+    if style == BTN_DANGER {
+        bg = theme_danger
+        fg = Color::rgb(255, 255, 255)
+        border = theme_danger
+    }
+    if style == BTN_OPERATOR {
+        bg = Color::rgb(
+            theme_accent.r / 3,
+            theme_accent.g / 3,
+            theme_accent.b / 3
+        )
+        fg = theme_accent
+        border = theme_accent
+    }
+    if style == BTN_EQUALS {
+        bg = theme_accent
+        fg = Color::rgb(255, 255, 255)
+        border = theme_accent
+    }
+    if style == BTN_GHOST {
+        bg = Color::rgba(0, 0, 0, 0)
+        border = Color::rgba(0, 0, 0, 0)
+    }
+
+    -- Hover brightening
+    if hovered {
+        if style == BTN_PRIMARY or style == BTN_EQUALS {
+            bg = theme_accent_hover
+        } else {
+            if style != BTN_GHOST {
+                bg = Color::rgb(
+                    min_i(bg.r + 15, 255),
+                    min_i(bg.g + 15, 255),
+                    min_i(bg.b + 15, 255)
+                )
+            }
+        }
+    }
+
+    -- Draw background
+    canvas.fill_rect(rect, bg)
+
+    -- Draw border
+    if style != BTN_GHOST {
+        canvas.stroke_rect(rect, border, 1)
+    }
+
+    -- Draw text centered
+    pilot text_w = measure_text_width(text, font_size)
+    pilot text_x = rect.x + (rect.w - text_w) / 2
+    pilot text_y = rect.y + (rect.h - font_size) / 2
+    canvas.draw_text(text, text_x, text_y, Font { size: font_size, bold: false, italic: false }, fg)
+}
+
+-- ================================================================
+--  Input — text field
+-- ================================================================
+
+shape InputState {
+    cursor_pos: int
+    focused:    bool
+}
+
+impl InputState {
+    task new() -> InputState {
+        give back InputState { cursor_pos: 0, focused: false }
+    }
+}
+
+task input_draw(canvas: Canvas, value: word, rect: Rect, placeholder: word,
+                focused: bool, cursor_pos: int,
+                theme_bg: Color, theme_surface: Color, theme_border: Color,
+                theme_accent: Color, theme_text: Color, theme_muted: Color,
+                font_size: int) -> void {
+    -- Background
+    canvas.fill_rect(rect, theme_bg)
+
+    -- Border (accent if focused)
+    pilot border_color = theme_border
+    if focused {
+        border_color = theme_accent
+    }
+    canvas.stroke_rect(rect, border_color, 1)
+
+    -- Text or placeholder
+    pilot text_x = rect.x + 8
+    pilot text_y = rect.y + (rect.h - font_size) / 2
+
+    if value.len() == 0 {
+        canvas.draw_text(placeholder, text_x, text_y,
+            Font { size: font_size, bold: false, italic: false }, theme_muted)
+    } else {
+        canvas.draw_text(value, text_x, text_y,
+            Font { size: font_size, bold: false, italic: false }, theme_text)
+    }
+
+    -- Cursor (blinking would need frame counter, for now always show when focused)
+    if focused {
+        pilot cursor_x = text_x + measure_text_width(value.substring(0, cursor_pos), font_size)
+        canvas.fill_rect(Rect { x: cursor_x, y: rect.y + 4, w: 2, h: rect.h - 8 }, theme_accent)
+    }
+}
+
+-- ================================================================
+--  Spacer — empty space
+-- ================================================================
+
+-- Spacer is handled purely in layout (allocate space, draw nothing)
+
+-- ================================================================
+--  Separator — horizontal or vertical line
+-- ================================================================
+
+task separator_draw(canvas: Canvas, rect: Rect, color: Color) -> void {
+    pilot y = rect.y + rect.h / 2
+    canvas.draw_line(
+        Vec2 { x: rect.x, y: y },
+        Vec2 { x: rect.x + rect.w, y: y },
+        color, 1
+    )
+}
+
+-- ================================================================
+--  Helpers
+-- ================================================================
+
+task min_i(a: int, b: int) -> int {
+    if a < b { give back a }
+    give back b
+}
+
+task max_i(a: int, b: int) -> int {
+    if a > b { give back a }
+    give back b
+}

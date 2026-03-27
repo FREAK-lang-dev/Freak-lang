@@ -1,0 +1,487 @@
+-- freak-ui: Main UI Shape
+-- The immediate-mode state machine that drives everything.
+--
+-- Usage:
+--   pilot ui = UI::new(window, Theme::default())
+--   -- in your main loop:
+--   ui.begin_frame()
+--   ui.label("Hello")
+--   if ui.button("Click me") { ... }
+--   ui.end_frame()
+
+use std::ui::{Window, Canvas, Rect, Vec2, Color, Font, Event,
+              EVENT_NONE, EVENT_QUIT, EVENT_KEY, EVENT_CHAR, EVENT_MOUSE,
+              EVENT_SCROLL, EVENT_RESIZE, EVENT_FOCUS,
+              MOUSE_LEFT, MOUSE_RIGHT, KEY_BACKSPACE, KEY_DELETE,
+              KEY_LEFT, KEY_RIGHT, KEY_ENTER, KEY_TAB, KEY_ESCAPE}
+
+-- ================================================================
+--  UI — the immediate mode state machine
+-- ================================================================
+
+shape UI {
+    -- Window reference
+    window: Window
+    canvas: Canvas
+
+    -- Theme
+    theme: Theme
+
+    -- Layout stack (parallel arrays)
+    layout: LayoutStack
+
+    -- Input state (updated each frame from events)
+    mouse_x:       int
+    mouse_y:       int
+    mouse_down:    bool
+    mouse_clicked: bool   -- true only on the frame the button was pressed
+    mouse_released: bool  -- true only on the frame the button was released
+
+    -- Keyboard
+    key_pressed:     int   -- key code pressed this frame (0 = none)
+    char_typed:      int   -- character typed this frame (0 = none)
+    key_backspace:   bool
+    key_delete:      bool
+    key_left:        bool
+    key_right:       bool
+    key_enter:       bool
+    key_tab:         bool
+    key_escape:      bool
+
+    -- Focus tracking
+    focus_id:        int   -- which widget has focus (by widget index)
+    widget_count:    int   -- total widgets this frame (auto-increments)
+
+    -- Frame state
+    frame_count:     int
+    should_quit:     bool
+
+    -- Active input field state
+    input_cursor:    int
+    input_focus_id:  int
+}
+
+impl UI {
+    task new(win: Window, theme: Theme) -> UI {
+        give back UI {
+            window:         win,
+            canvas:         Canvas::from_window(win),
+            theme:          theme,
+            layout:         LayoutStack::new(),
+            mouse_x:        0,
+            mouse_y:        0,
+            mouse_down:     false,
+            mouse_clicked:  false,
+            mouse_released: false,
+            key_pressed:    0,
+            char_typed:     0,
+            key_backspace:  false,
+            key_delete:     false,
+            key_left:       false,
+            key_right:      false,
+            key_enter:      false,
+            key_tab:        false,
+            key_escape:     false,
+            focus_id:       -1,
+            widget_count:   0,
+            frame_count:    0,
+            should_quit:    false,
+            input_cursor:   0,
+            input_focus_id: -1
+        }
+    }
+
+    -- ============================================================
+    --  Frame lifecycle
+    -- ============================================================
+
+    task begin_frame(self) -> List<Event> {
+        -- Poll events
+        pilot events = self.window.poll()
+
+        -- Reset per-frame input state
+        self.mouse_clicked  = false
+        self.mouse_released = false
+        self.key_pressed    = 0
+        self.char_typed     = 0
+        self.key_backspace  = false
+        self.key_delete     = false
+        self.key_left       = false
+        self.key_right      = false
+        self.key_enter      = false
+        self.key_tab        = false
+        self.key_escape     = false
+        self.widget_count   = 0
+
+        -- Process events
+        pilot i = 0
+        repeat events.len() times {
+            pilot ev = events[i]
+            if ev.kind == EVENT_QUIT {
+                self.should_quit = true
+            }
+            if ev.kind == EVENT_MOUSE {
+                self.mouse_x = ev.mouse_x
+                self.mouse_y = ev.mouse_y
+                if ev.button == MOUSE_LEFT {
+                    if ev.pressed == 1 {
+                        self.mouse_down = true
+                        self.mouse_clicked = true
+                    } else {
+                        self.mouse_down = false
+                        self.mouse_released = true
+                    }
+                }
+            }
+            if ev.kind == EVENT_KEY {
+                if ev.pressed == 1 {
+                    self.key_pressed = ev.key
+                    if ev.key == KEY_BACKSPACE { self.key_backspace = true }
+                    if ev.key == KEY_DELETE    { self.key_delete = true }
+                    if ev.key == KEY_LEFT      { self.key_left = true }
+                    if ev.key == KEY_RIGHT     { self.key_right = true }
+                    if ev.key == KEY_ENTER     { self.key_enter = true }
+                    if ev.key == KEY_TAB       { self.key_tab = true }
+                    if ev.key == KEY_ESCAPE    { self.key_escape = true }
+                }
+            }
+            if ev.kind == EVENT_CHAR {
+                self.char_typed = ev.character
+            }
+            if ev.kind == EVENT_RESIZE {
+                self.window.width = ev.width
+                self.window.height = ev.height
+            }
+            i = i + 1
+        }
+
+        -- Begin canvas frame
+        self.canvas.begin()
+
+        -- Clear with theme background
+        self.canvas.clear(self.theme.bg)
+
+        -- Push root layout context (full window, vertical, theme gap/padding)
+        self.layout = LayoutStack::new()
+        self.layout.push(
+            0.0, 0.0,
+            self.window.width, self.window.height,
+            DIR_VERTICAL,
+            self.theme.gap,
+            self.theme.padding
+        )
+
+        give back events
+    }
+
+    task end_frame(self) -> void {
+        -- Pop root layout
+        if self.layout.depth > 0 {
+            self.layout.pop()
+        }
+
+        -- Finish canvas frame (present)
+        self.canvas.finish()
+
+        self.frame_count = self.frame_count + 1
+    }
+
+    -- ============================================================
+    --  Layout helpers
+    -- ============================================================
+
+    task begin_row(self, gap: num, pad: num) -> void {
+        pilot avail_w = self.layout.remaining_width()
+        pilot avail_h = self.layout.remaining_height()
+        pilot pos = self.layout.cursor()
+
+        -- Allocate a slot in the parent for this row (height will be determined by contents)
+        -- We use a temporary height; the parent cursor will be adjusted on end_row
+        self.layout.push(
+            pos.x, pos.y, avail_w, avail_h,
+            DIR_HORIZONTAL, gap, pad
+        )
+    }
+
+    task end_row(self) -> void {
+        pilot consumed = self.layout.pop()
+        -- Allocate the consumed space in the parent context
+        self.layout.allocate(consumed.x, consumed.y)
+    }
+
+    task begin_column(self, gap: num, pad: num) -> void {
+        pilot avail_w = self.layout.remaining_width()
+        pilot avail_h = self.layout.remaining_height()
+        pilot pos = self.layout.cursor()
+
+        self.layout.push(
+            pos.x, pos.y, avail_w, avail_h,
+            DIR_VERTICAL, gap, pad
+        )
+    }
+
+    task end_column(self) -> void {
+        pilot consumed = self.layout.pop()
+        self.layout.allocate(consumed.x, consumed.y)
+    }
+
+    -- ============================================================
+    --  Widgets
+    -- ============================================================
+
+    -- Label: display text
+    task label(self, text: word) -> void {
+        self.label_styled(text, LABEL_NORMAL)
+    }
+
+    task label_styled(self, text: word, style: int) -> void {
+        pilot h = label_height(style, self.theme.font_size)
+        pilot w = self.layout.remaining_width()
+        pilot rect = self.layout.allocate(w, h)
+
+        label_sized(self.canvas, text, rect, style,
+                    self.theme.text, self.theme.text_muted, self.theme.font_size)
+
+        self.widget_count = self.widget_count + 1
+    }
+
+    -- Button: clickable, returns true on click
+    task button(self, text: word) -> bool {
+        give back self.button_styled(text, BTN_NORMAL, SizeHint::auto())
+    }
+
+    task button_primary(self, text: word) -> bool {
+        give back self.button_styled(text, BTN_PRIMARY, SizeHint::auto())
+    }
+
+    task button_styled(self, text: word, style: int, width_hint: SizeHint) -> bool {
+        pilot btn_h = self.theme.font_size + self.theme.padding * 2
+        pilot content_w = measure_text_width(text, self.theme.font_size) + self.theme.padding * 2
+        pilot avail_w = self.layout.remaining_width()
+        pilot btn_w = width_hint.resolve(avail_w, content_w)
+
+        pilot rect = self.layout.allocate(btn_w, btn_h)
+
+        -- Check interaction
+        pilot result = button_check(rect, self.mouse_x, self.mouse_y,
+                                    self.mouse_down, self.mouse_clicked)
+
+        -- Draw
+        button_draw(self.canvas, text, rect, style, result.hovered,
+                    self.theme.surface, self.theme.accent, self.theme.accent_hover,
+                    self.theme.danger, self.theme.text, self.theme.border,
+                    self.theme.radius, self.theme.font_size)
+
+        self.widget_count = self.widget_count + 1
+        give back result.clicked
+    }
+
+    -- Input: text field, returns true if value changed
+    task input(self, value: word, placeholder: word) -> word {
+        pilot input_h = self.theme.font_size + self.theme.padding * 2
+        pilot avail_w = self.layout.remaining_width()
+        pilot rect = self.layout.allocate(avail_w, input_h)
+
+        pilot my_id = self.widget_count
+        self.widget_count = self.widget_count + 1
+
+        -- Click to focus
+        pilot focused = self.input_focus_id == my_id
+        if self.mouse_clicked {
+            if rect.contains(self.mouse_x, self.mouse_y) {
+                self.input_focus_id = my_id
+                self.input_cursor = value.len()
+                focused = true
+            } else {
+                if focused {
+                    self.input_focus_id = -1
+                    focused = false
+                }
+            }
+        }
+
+        -- Handle keyboard input when focused
+        pilot new_value = value
+        if focused {
+            -- Character input
+            if self.char_typed > 0 {
+                pilot ch = self.char_typed
+                -- Insert character at cursor position
+                pilot before = new_value.substring(0, self.input_cursor)
+                pilot after = new_value.substring(self.input_cursor, new_value.len())
+                -- Build new string with inserted char
+                -- (Using string concatenation with the character)
+                new_value = before + chr(ch) + after
+                self.input_cursor = self.input_cursor + 1
+            }
+            -- Backspace
+            if self.key_backspace and self.input_cursor > 0 {
+                pilot before = new_value.substring(0, self.input_cursor - 1)
+                pilot after = new_value.substring(self.input_cursor, new_value.len())
+                new_value = before + after
+                self.input_cursor = self.input_cursor - 1
+            }
+            -- Delete
+            if self.key_delete and self.input_cursor < new_value.len() {
+                pilot before = new_value.substring(0, self.input_cursor)
+                pilot after = new_value.substring(self.input_cursor + 1, new_value.len())
+                new_value = before + after
+            }
+            -- Cursor movement
+            if self.key_left and self.input_cursor > 0 {
+                self.input_cursor = self.input_cursor - 1
+            }
+            if self.key_right and self.input_cursor < new_value.len() {
+                self.input_cursor = self.input_cursor + 1
+            }
+        }
+
+        -- Draw
+        input_draw(self.canvas, new_value, rect, placeholder,
+                   focused, self.input_cursor,
+                   self.theme.bg2, self.theme.surface, self.theme.border,
+                   self.theme.accent, self.theme.text, self.theme.text_muted,
+                   self.theme.font_size)
+
+        give back new_value
+    }
+
+    -- Spacer: empty space
+    task spacer(self, size: num) -> void {
+        pilot dir = self.layout.current_direction()
+        if dir == DIR_HORIZONTAL {
+            self.layout.allocate(size, 0.0)
+        } else {
+            self.layout.allocate(0.0, size)
+        }
+    }
+
+    task spacer_fill(self) -> void {
+        pilot dir = self.layout.current_direction()
+        if dir == DIR_HORIZONTAL {
+            pilot remaining = self.layout.remaining_width()
+            self.layout.allocate(remaining, 0.0)
+        } else {
+            pilot remaining = self.layout.remaining_height()
+            self.layout.allocate(0.0, remaining)
+        }
+    }
+
+    -- Separator: horizontal or vertical line
+    task separator(self) -> void {
+        pilot dir = self.layout.current_direction()
+        if dir == DIR_HORIZONTAL {
+            pilot rect = self.layout.allocate(1.0, self.layout.remaining_height())
+            separator_draw(self.canvas, rect, self.theme.border)
+        } else {
+            pilot rect = self.layout.allocate(self.layout.remaining_width(), 1.0)
+            separator_draw(self.canvas, rect, self.theme.border)
+        }
+    }
+
+    -- Checkbox: togglable, returns true if toggled
+    task checkbox(self, text: word, checked: bool) -> bool {
+        pilot box_size = self.theme.font_size + 4
+        pilot text_w = measure_text_width(text, self.theme.font_size)
+        pilot total_w = box_size + 8 + text_w
+        pilot h = box_size + 4
+
+        pilot rect = self.layout.allocate(total_w, h)
+        self.widget_count = self.widget_count + 1
+
+        -- Check box area
+        pilot box_rect = Rect {
+            x: rect.x,
+            y: rect.y + 2,
+            w: box_size,
+            h: box_size
+        }
+
+        -- Click detection
+        pilot clicked = self.mouse_clicked and rect.contains(self.mouse_x, self.mouse_y)
+
+        -- Draw box
+        if checked {
+            self.canvas.fill_rect(box_rect, self.theme.accent)
+            -- Draw checkmark (simplified: just an X for now)
+            pilot cx = box_rect.x + 4
+            pilot cy = box_rect.y + 4
+            self.canvas.draw_text("X", cx, cy,
+                Font { size: box_size - 6, bold: true, italic: false },
+                Color::rgb(255, 255, 255))
+        } else {
+            self.canvas.fill_rect(box_rect, self.theme.bg2)
+            self.canvas.stroke_rect(box_rect, self.theme.border, 1)
+        }
+
+        -- Draw label
+        pilot text_x = rect.x + box_size + 8
+        pilot text_y = rect.y + (h - self.theme.font_size) / 2
+        self.canvas.draw_text(text, text_x, text_y,
+            Font { size: self.theme.font_size, bold: false, italic: false },
+            self.theme.text)
+
+        give back clicked
+    }
+
+    -- Slider: horizontal slider, returns true if value changed
+    task slider(self, value: num, lo: num, hi: num) -> num {
+        pilot slider_h = 24
+        pilot avail_w = self.layout.remaining_width()
+        pilot rect = self.layout.allocate(avail_w, slider_h)
+        self.widget_count = self.widget_count + 1
+
+        -- Track
+        pilot track_y = rect.y + slider_h / 2 - 2
+        pilot track_rect = Rect { x: rect.x, y: track_y, w: rect.w, h: 4 }
+        self.canvas.fill_rect(track_rect, self.theme.bg2)
+
+        -- Calculate thumb position
+        pilot range = hi - lo
+        pilot normalized = 0.0
+        if range > 0.0 {
+            normalized = (value - lo) / range
+        }
+        pilot thumb_x = rect.x + normalized * (rect.w - 16)
+
+        -- Thumb
+        pilot thumb_rect = Rect { x: thumb_x, y: rect.y + 2, w: 16, h: slider_h - 4 }
+        pilot thumb_hovered = thumb_rect.contains(self.mouse_x, self.mouse_y)
+        if thumb_hovered {
+            self.canvas.fill_rect(thumb_rect, self.theme.accent_hover)
+        } else {
+            self.canvas.fill_rect(thumb_rect, self.theme.accent)
+        }
+
+        -- Fill track up to thumb
+        pilot fill_rect = Rect { x: rect.x, y: track_y, w: thumb_x - rect.x + 8, h: 4 }
+        self.canvas.fill_rect(fill_rect, self.theme.accent)
+
+        -- Handle dragging
+        pilot new_value = value
+        if self.mouse_down and rect.contains(self.mouse_x, self.mouse_y) {
+            pilot rel_x = self.mouse_x - rect.x
+            pilot new_norm = rel_x / rect.w
+            if new_norm < 0.0 { new_norm = 0.0 }
+            if new_norm > 1.0 { new_norm = 1.0 }
+            new_value = lo + new_norm * range
+        }
+
+        give back new_value
+    }
+
+    -- ============================================================
+    --  Theme switching
+    -- ============================================================
+
+    task set_theme(self, new_theme: Theme) -> void {
+        self.theme = new_theme
+    }
+}
+
+-- Helper: convert int to char (for text input)
+-- This would normally be a runtime intrinsic
+task chr(code: int) -> word {
+    -- Runtime will handle the actual conversion
+    give back char_to_word(code)
+}

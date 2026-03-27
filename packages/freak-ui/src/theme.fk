@@ -1,0 +1,187 @@
+-- freak-ui: Theme System (Phase D)
+-- Five built-in themes, each with a mood. Custom themes supported.
+--
+-- "Every UI has a feeling. We just made it explicit."
+
+use std::ui::{Color, Font}
+
+-- ================================================================
+--  Theme shape
+-- ================================================================
+
+shape Theme {
+    name:       word
+    bg:         Color
+    bg2:        Color
+    surface:    Color
+    border:     Color
+    text:       Color
+    text_muted: Color
+    accent:     Color
+    accent_hover: Color
+    danger:     Color
+    success:    Color
+    font_size:  int
+    font_bold:  bool
+    mono_size:  int
+    radius:     int
+    padding:    int
+    gap:        int
+    shadow:     bool
+}
+
+impl Theme {
+    -- Clean dark theme. Professional. Ready.
+    task default() -> Theme {
+        give back Theme {
+            name:         "default",
+            bg:           Color::rgb(22, 22, 30),
+            bg2:          Color::rgb(30, 30, 42),
+            surface:      Color::rgb(38, 38, 54),
+            border:       Color::rgb(58, 58, 78),
+            text:         Color::rgb(230, 230, 240),
+            text_muted:   Color::rgb(128, 128, 160),
+            accent:       Color::rgb(100, 140, 255),
+            accent_hover: Color::rgb(130, 165, 255),
+            danger:       Color::rgb(255, 80, 80),
+            success:      Color::rgb(80, 200, 120),
+            font_size:    14,
+            font_bold:    false,
+            mono_size:    13,
+            radius:       6,
+            padding:      12,
+            gap:          8,
+            shadow:       true
+        }
+    }
+
+    -- Clean light theme. Calm. Readable.
+    task light() -> Theme {
+        give back Theme {
+            name:         "light",
+            bg:           Color::rgb(245, 245, 248),
+            bg2:          Color::rgb(235, 235, 240),
+            surface:      Color::rgb(255, 255, 255),
+            border:       Color::rgb(210, 210, 220),
+            text:         Color::rgb(30, 30, 40),
+            text_muted:   Color::rgb(120, 120, 140),
+            accent:       Color::rgb(60, 100, 220),
+            accent_hover: Color::rgb(80, 120, 240),
+            danger:       Color::rgb(220, 50, 50),
+            success:      Color::rgb(40, 160, 80),
+            font_size:    14,
+            font_bold:    false,
+            mono_size:    13,
+            radius:       6,
+            padding:      12,
+            gap:          8,
+            shadow:       true
+        }
+    }
+
+    -- Green on black. Pure hacker energy.
+    task terminal() -> Theme {
+        give back Theme {
+            name:         "terminal",
+            bg:           Color::rgb(0, 0, 0),
+            bg2:          Color::rgb(10, 10, 10),
+            surface:      Color::rgb(15, 15, 15),
+            border:       Color::rgb(0, 80, 0),
+            text:         Color::rgb(0, 220, 0),
+            text_muted:   Color::rgb(0, 140, 0),
+            accent:       Color::rgb(0, 255, 0),
+            accent_hover: Color::rgb(80, 255, 80),
+            danger:       Color::rgb(255, 0, 0),
+            success:      Color::rgb(0, 255, 0),
+            font_size:    13,
+            font_bold:    false,
+            mono_size:    13,
+            radius:       0,
+            padding:      8,
+            gap:          4,
+            shadow:       false
+        }
+    }
+
+    -- Deep navy and pink. Beautiful. Dangerous.
+    task alternative() -> Theme {
+        give back Theme {
+            name:         "alternative",
+            bg:           Color::rgb(12, 15, 35),
+            bg2:          Color::rgb(18, 22, 48),
+            surface:      Color::rgb(25, 30, 60),
+            border:       Color::rgb(60, 50, 100),
+            text:         Color::rgb(220, 220, 240),
+            text_muted:   Color::rgb(140, 130, 180),
+            accent:       Color::rgb(255, 45, 120),
+            accent_hover: Color::rgb(255, 80, 150),
+            danger:       Color::rgb(255, 60, 60),
+            success:      Color::rgb(60, 220, 160),
+            font_size:    14,
+            font_bold:    false,
+            mono_size:    13,
+            radius:       8,
+            padding:      14,
+            gap:          10,
+            shadow:       true
+        }
+    }
+
+    -- Blood red and black. You know what you've done.
+    task muvluv() -> Theme {
+        give back Theme {
+            name:         "muvluv",
+            bg:           Color::rgb(10, 0, 0),
+            bg2:          Color::rgb(20, 5, 5),
+            surface:      Color::rgb(30, 8, 8),
+            border:       Color::rgb(100, 20, 20),
+            text:         Color::rgb(220, 200, 200),
+            text_muted:   Color::rgb(150, 100, 100),
+            accent:       Color::rgb(200, 20, 20),
+            accent_hover: Color::rgb(240, 50, 50),
+            danger:       Color::rgb(255, 0, 0),
+            success:      Color::rgb(180, 180, 60),
+            font_size:    14,
+            font_bold:    false,
+            mono_size:    13,
+            radius:       2,
+            padding:      10,
+            gap:          6,
+            shadow:       true
+        }
+    }
+
+    -- Create a theme with a custom accent color
+    task with_accent(self, color: Color) -> Theme {
+        give back Theme {
+            name:         self.name,
+            bg:           self.bg,
+            bg2:          self.bg2,
+            surface:      self.surface,
+            border:       self.border,
+            text:         self.text,
+            text_muted:   self.text_muted,
+            accent:       color,
+            accent_hover: Color::rgb(
+                min(color.r + 30, 255),
+                min(color.g + 30, 255),
+                min(color.b + 30, 255)
+            ),
+            danger:       self.danger,
+            success:      self.success,
+            font_size:    self.font_size,
+            font_bold:    self.font_bold,
+            mono_size:    self.mono_size,
+            radius:       self.radius,
+            padding:      self.padding,
+            gap:          self.gap,
+            shadow:       self.shadow
+        }
+    }
+}
+
+-- Helper
+task min(a: int, b: int) -> int {
+    if a < b { give back a }
+    give back b
+}
