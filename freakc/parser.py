@@ -969,11 +969,21 @@ class Parser:
         return PayoffStmt(name=name_tok.lexeme)
 
     def _use_import(self) -> UseImport:
-        """Parse: use module::{a, b} / use module::* / use module::Name as Alias"""
+        """Parse: use module::{a, b} / use module::* / use module::Name as Alias
+        Supports multi-segment paths: use std::ui::{Window, Canvas}"""
         module_tok = self._consume(TokenType.IDENT, "Expected module name after 'use'")
         module_name = module_tok.lexeme
 
         self._consume(TokenType.COLON_COLON, "Expected '::' after module name")
+
+        # Consume additional path segments: std::ui::sub -> module_name = "std::ui::sub"
+        # Keep going as long as next is IDENT followed by ::
+        while (self._check(TokenType.IDENT)
+               and self._peek_next() is not None
+               and self._peek_next().type == TokenType.COLON_COLON):
+            seg = self._advance()
+            self._advance()  # consume ::
+            module_name += "::" + seg.lexeme
 
         # use module::*
         if self._match(TokenType.STAR):
@@ -1493,6 +1503,12 @@ class Parser:
 
     def _peek(self) -> Token:
         return self.tokens[self.current]
+
+    def _peek_next(self):
+        """Look ahead two tokens (one past current). Returns None if at end."""
+        if self.current + 1 < len(self.tokens):
+            return self.tokens[self.current + 1]
+        return None
 
     def _previous(self) -> Token:
         return self.tokens[self.current - 1]

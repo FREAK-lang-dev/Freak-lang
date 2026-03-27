@@ -1113,6 +1113,7 @@ class CEmitter:
                 "ui::draw_text": "freak_ui_draw_text_word",
                 "ui::get_width": "freak_ui_get_width",
                 "ui::get_height": "freak_ui_get_height",
+                "ui::measure_text": "freak_ui_measure_text_word",
             }
 
             c_func = (

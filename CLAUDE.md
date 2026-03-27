@@ -158,12 +158,12 @@ Freak-lang/
 
 ### freak-ui Milestones (MA–MG track)
 ```
-[~] MA  — Window system (std::ui platform abstraction + Win32 backend prototype done, needs emitter wiring)
-[ ] MB  — Layout engine (flex-like immediate-mode layout)
-[ ] MC  — Widget library (buttons, labels, text input, sliders)
-[ ] MD  — Theming system (5 themes: default/light/terminal/alternative/muvluv)
-[ ] ME  — Input handling (keyboard focus, tab order, mouse capture)
-[ ] MF  — Calculator demo app
+[x] MA  — Window system (std::ui platform abstraction + Win32 backend, emitter wired)
+[x] MB  — Layout engine (flex-like immediate-mode layout)
+[x] MC  — Widget library (buttons, labels, text input, sliders, checkbox)
+[x] MD  — Theming system (5 themes: default/light/terminal/alternative/muvluv)
+[x] ME  — Extended widgets (dropdown, tabs, progress bar, tooltip, modal, scroll area)
+[x] MF  — Animation system (delta_time, easing functions, tween system)
 [ ] MG  — Polish and publish freak-ui to Hangar
 ```
 
@@ -617,7 +617,7 @@ In rough priority order:
 3. ~~**Hangar bootstrapper**~~ — ✅ Done.
 4. ~~**Native CLI rewrite**~~ — ✅ Done. `build/freakc.exe` replaces `python -m freakc`. Includes compiler + CLI + Hangar + semver library in a single ~450KB binary.
 5. ~~**LLVM IR backend (LB5, LB7, LB10)**~~ — ~~LB5 (runtime intrinsics)~~, ~~LB6 (default backend)~~, ~~LB8 (opt levels)~~, ~~LB9 (cross-compilation)~~ done. **LB7 (JIT)** and **LB10 (debug info)** remain.
-6. **freak-ui Phase MA–MG** — MA (window system) prototype done, needs emitter wiring. MB–MG remain.
+6. ~~**freak-ui Phase MA–MF**~~ — ✅ Done. Window system, layout, widgets (core + extended), themes, animation. **MG (polish + Hangar publish)** remains.
 7. **HFML lexer/parser (MH0–MH3)** — can start before freak-ui Phase C is done.
 8. ~~**M13: freak-http + freak-json**~~ — ✅ Done. std::json (pure FREAK) + std::http (TCP sockets + pure FREAK).
 9. **Sortie IDE Phase 1** — VS Code extension.

@@ -1,0 +1,207 @@
+-- freak-ui Widget Showcase — Phase ME + MF demo
+-- Demonstrates all widgets: dropdown, tabs, progress, tooltip, modal,
+-- scroll, checkbox, slider, input, and the animation system.
+--
+-- "Every widget has a story. This is all of them at once."
+
+use std::ui::{Window, WindowConfig, Canvas, Event}
+
+@protagonist
+task main() {
+    pilot win = Window::open(WindowConfig {
+        title: "FREAK UI — Widget Showcase",
+        width: 720,
+        height: 600,
+        resizable: true,
+        vsync: true
+    })
+
+    pilot ui = UI::new(win, Theme::default())
+
+    -- Widget state
+    pilot selected_tab = 0
+    pilot tab_names = ["Widgets", "Animation", "Theme"]
+
+    pilot dropdown_value = 0
+    pilot dropdown_items = ["Option Alpha", "Option Beta", "Option Gamma", "Option Delta"]
+
+    pilot check_a = false
+    pilot check_b = true
+    pilot slider_val = 0.5
+    pilot input_text = ""
+    pilot progress_val = 0.0
+
+    pilot modal_visible = false
+    pilot theme_index = 0
+
+    -- Animation state
+    pilot anim_target = 0.0
+    pilot anim_bar = 0.0
+    pilot bounce_val = 0.0
+
+    repeat until ui.should_quit {
+        ui.begin_frame()
+
+        -- Title
+        ui.label_styled("FREAK UI Showcase", LABEL_HEADING)
+        ui.separator()
+
+        -- Tab bar
+        selected_tab = ui.tabs(selected_tab, tab_names)
+
+        ui.spacer(4)
+
+        -- ================================
+        --  Tab 0: Widgets
+        -- ================================
+        if selected_tab == 0 {
+            ui.begin_row(12, 0)
+
+            -- Left column
+            ui.begin_column(8, 0)
+
+            ui.label_styled("Dropdown", LABEL_SUBHEADING)
+            dropdown_value = ui.dropdown(dropdown_value, dropdown_items)
+            ui.spacer(8)
+
+            ui.label_styled("Input", LABEL_SUBHEADING)
+            input_text = ui.input(input_text, "Type something...")
+            ui.spacer(8)
+
+            ui.label_styled("Checkboxes", LABEL_SUBHEADING)
+            if ui.checkbox("Enable feature A", check_a) { check_a = not check_a }
+            if ui.checkbox("Enable feature B", check_b) { check_b = not check_b }
+
+            ui.end_column()
+
+            -- Right column
+            ui.begin_column(8, 0)
+
+            ui.label_styled("Slider", LABEL_SUBHEADING)
+            slider_val = ui.slider(slider_val, 0.0, 1.0)
+            ui.spacer(4)
+
+            ui.label_styled("Progress", LABEL_SUBHEADING)
+            progress_val = progress_val + 0.002
+            if progress_val > 1.0 { progress_val = 0.0 }
+            pilot pct_text = "" + (progress_val * 100.0) + "%"
+            ui.progress(progress_val, pct_text)
+            ui.spacer(8)
+
+            ui.label_styled("Buttons", LABEL_SUBHEADING)
+            ui.begin_row(8, 0)
+            ui.button("Normal")
+            ui.button_primary("Primary")
+            if ui.button_styled("Open Modal", BTN_DANGER, SizeHint::auto()) {
+                modal_visible = true
+            }
+            ui.end_row()
+
+            ui.end_column()
+
+            ui.end_row()
+
+            -- Tooltip demo
+            ui.spacer(8)
+            ui.label("Hover over the progress bar for a tooltip.")
+        }
+
+        -- ================================
+        --  Tab 1: Animation
+        -- ================================
+        if selected_tab == 1 {
+            ui.label_styled("Animation System", LABEL_SUBHEADING)
+            ui.label("Click buttons to trigger animated transitions.")
+            ui.spacer(8)
+
+            ui.begin_row(12, 0)
+            if ui.button("Animate to 0%") { anim_target = 0.0 }
+            if ui.button("Animate to 50%") { anim_target = 0.5 }
+            if ui.button("Animate to 100%") { anim_target = 1.0 }
+            ui.end_row()
+
+            ui.spacer(4)
+
+            -- Smoothly interpolate towards target
+            anim_bar = ui.animate(anim_bar, anim_target, 5.0)
+            ui.progress(anim_bar, "Animated")
+
+            ui.spacer(8)
+            ui.label_styled("Easing Comparison", LABEL_SUBHEADING)
+
+            -- Show different easing curves side by side
+            pilot ease_target = anim_target
+
+            pilot v_linear = ui.tween(100, ease_target, 3.0, EASE_LINEAR)
+            ui.label("Linear")
+            ui.progress(v_linear, "")
+
+            pilot v_in = ui.tween(101, ease_target, 3.0, EASE_IN)
+            ui.label("Ease In")
+            ui.progress(v_in, "")
+
+            pilot v_out = ui.tween(102, ease_target, 3.0, EASE_OUT)
+            ui.label("Ease Out")
+            ui.progress(v_out, "")
+
+            pilot v_inout = ui.tween(103, ease_target, 3.0, EASE_IN_OUT)
+            ui.label("Ease In/Out")
+            ui.progress(v_inout, "")
+
+            pilot v_spring = ui.tween(104, ease_target, 3.0, EASE_SPRING)
+            ui.label("Spring")
+            ui.progress(v_spring, "")
+        }
+
+        -- ================================
+        --  Tab 2: Theme
+        -- ================================
+        if selected_tab == 2 {
+            ui.label_styled("Theme Selection", LABEL_SUBHEADING)
+            ui.label("Choose a theme to see the UI transform.")
+            ui.spacer(8)
+
+            ui.begin_row(8, 0)
+            if ui.button("Default")     { ui.set_theme(Theme::default()) }
+            if ui.button("Light")       { ui.set_theme(Theme::light()) }
+            if ui.button("Terminal")    { ui.set_theme(Theme::terminal()) }
+            if ui.button("Alternative") { ui.set_theme(Theme::alternative()) }
+            if ui.button("Muv-Luv")     { ui.set_theme(Theme::muvluv()) }
+            ui.end_row()
+
+            ui.spacer(12)
+            ui.label("Current theme colors:")
+            ui.separator()
+
+            -- Show color swatches using progress bars as color indicators
+            ui.label_styled("Accent", LABEL_MONO)
+            ui.progress(1.0, "accent")
+            ui.label_styled("Danger", LABEL_MONO)
+            ui.progress(0.7, "danger")
+            ui.label_styled("Success", LABEL_MONO)
+            ui.progress(0.9, "success")
+        }
+
+        -- ================================
+        --  Modal overlay (drawn on top)
+        -- ================================
+        pilot modal_rect = ui.begin_modal(modal_visible, 400, 200)
+        if modal_visible {
+            ui.label_styled("Dialog", LABEL_HEADING)
+            ui.label("This is a modal dialog.")
+            ui.label("It overlays everything else.")
+            ui.spacer_fill()
+            ui.begin_row(8, 0)
+            ui.spacer_fill()
+            if ui.button_primary("Close") {
+                modal_visible = false
+            }
+            ui.end_row()
+        }
+        ui.end_modal()
+
+        ui.end_frame()
+    }
+
+    win.close()
+}

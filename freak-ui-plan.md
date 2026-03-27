@@ -665,26 +665,30 @@ task handle_equals(lend mut s: State) {
 - [ ] `with_theme(theme) { }` — scoped theme override
 - [ ] **★ MILESTONE D: calculator looks good in all 5 themes ★**
 
-### Phase E — Extended Widgets
+### Phase E — Extended Widgets ✅
 *Goal: enough to build real apps*
 
-- [ ] `checkbox(label, checked)` → bool
-- [ ] `slider(value, lo, hi)` → bool
-- [ ] `dropdown(selected, options)` → bool
+- [x] `checkbox(label, checked)` → bool
+- [x] `slider(value, lo, hi)` → num
+- [x] `dropdown(selected, items)` → int
 - [ ] `image_view(image, size, fit)`
 - [ ] `stack(size) { at(pos) { } }` — absolute layout
-- [ ] `tooltip(text) { }` — hover tooltip wrapper
-- [ ] `modal(open) { }` — overlay dialog
-- [ ] `tabs(selected, names) { }` — tabbed container
+- [x] `tooltip(text)` / `tooltip_at(text, rect)` — hover tooltip
+- [x] `begin_modal(open, w, h)` / `end_modal()` — overlay dialog
+- [x] `tabs(selected, names)` → int — tabbed container
+- [x] `progress(value, label)` — progress bar
+- [x] `begin_scroll(visible_h)` / `end_scroll()` — scrollable region
 - [ ] `menu_bar { menu("File") { item("Open") ... } }` — top menu bar
 
-### Phase F — Animation
+### Phase F — Animation ✅
 *Goal: smooth, springy UI*
 
-- [ ] Frame clock: `ui.delta_time() -> num` (seconds since last frame)
-- [ ] `ui.animate(target, speed, easing)` — smooth value interpolation
-- [ ] `ui.trigger(name)` / `ui.tween(name, from, to, duration)` — one-shot animations
-- [ ] Easing functions: .linear .ease_in .ease_out .ease_in_out .spring
+- [x] Frame clock: `ui.get_delta_time() -> num` (seconds since last frame)
+- [x] `ui.animate(current, target, speed)` — smooth value interpolation
+- [x] `ui.tween(id, target, speed, easing)` — managed tween by ID
+- [x] `ui.tween_from(id, from, target, speed, easing)` — one-shot tween trigger
+- [x] `ui.animate_eased(current, target, speed, easing)` — animate with easing
+- [x] Easing functions: EASE_LINEAR, EASE_IN, EASE_OUT, EASE_IN_OUT, EASE_SPRING
 - [ ] Built-in hover animations on all interactive widgets
 
 ### Phase G — Accessibility + Polish
@@ -702,12 +706,12 @@ task handle_equals(lend mut s: State) {
 ## MILESTONES SUMMARY
 
 ```
-[ ] MA — std::ui: window + drawing on all 3 platforms
-[ ] MB — freak-ui: layout engine working
-[ ] MC — freak-ui: calculator app compiles and runs     ← first real app
-[ ] MD — freak-ui: all 5 themes working
-[ ] ME — freak-ui: extended widget set done
-[ ] MF — freak-ui: animation system
+[x] MA — std::ui: window + drawing (Win32 done, macOS/Linux pending)
+[x] MB — freak-ui: layout engine working
+[x] MC — freak-ui: calculator app compiles and runs     ← first real app
+[x] MD — freak-ui: all 5 themes working
+[x] ME — freak-ui: extended widget set (dropdown, tabs, progress, tooltip, modal, scroll)
+[x] MF — freak-ui: animation system (delta_time, easing, tweens)
 [ ] MG — freak-ui: accessibility + polish
 ```
 

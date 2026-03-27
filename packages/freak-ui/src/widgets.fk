@@ -230,6 +230,193 @@ task separator_draw(canvas: Canvas, rect: Rect, color: Color) -> void {
 }
 
 -- ================================================================
+--  Dropdown — draw helpers
+-- ================================================================
+
+task dropdown_draw(canvas: Canvas, items: List<word>, selected: int, rect: Rect,
+                   is_open: bool, hover_index: int,
+                   theme_surface: Color, theme_bg2: Color, theme_border: Color,
+                   theme_accent: Color, theme_text: Color, theme_muted: Color,
+                   font_size: int, item_h: int) -> void {
+    -- Draw the closed dropdown button
+    canvas.fill_rect(rect, theme_surface)
+    canvas.stroke_rect(rect, theme_border, 1)
+
+    -- Selected text
+    pilot text_x = rect.x + 8
+    pilot text_y = rect.y + (rect.h - font_size) / 2
+    if selected >= 0 and selected < items.len() {
+        canvas.draw_text(items[selected], text_x, text_y,
+            Font { size: font_size, bold: false, italic: false }, theme_text)
+    } else {
+        canvas.draw_text("(none)", text_x, text_y,
+            Font { size: font_size, bold: false, italic: false }, theme_muted)
+    }
+
+    -- Down arrow indicator
+    pilot arrow_x = rect.x + rect.w - 20
+    canvas.draw_text("v", arrow_x, text_y,
+        Font { size: font_size, bold: false, italic: false }, theme_muted)
+
+    -- If open, draw the option list overlay
+    if is_open {
+        pilot list_y = rect.y + rect.h
+        pilot list_h = items.len() * item_h
+
+        -- Background
+        pilot list_rect = Rect { x: rect.x, y: list_y, w: rect.w, h: list_h }
+        canvas.fill_rect(list_rect, theme_bg2)
+        canvas.stroke_rect(list_rect, theme_border, 1)
+
+        -- Items
+        pilot i = 0
+        repeat items.len() times {
+            pilot iy = list_y + i * item_h
+            pilot item_rect = Rect { x: rect.x, y: iy, w: rect.w, h: item_h }
+
+            -- Highlight hovered item
+            if i == hover_index {
+                canvas.fill_rect(item_rect, theme_accent)
+                canvas.draw_text(items[i], rect.x + 8, iy + (item_h - font_size) / 2,
+                    Font { size: font_size, bold: false, italic: false },
+                    Color::rgb(255, 255, 255))
+            } else {
+                canvas.draw_text(items[i], rect.x + 8, iy + (item_h - font_size) / 2,
+                    Font { size: font_size, bold: false, italic: false }, theme_text)
+            }
+            i = i + 1
+        }
+    }
+}
+
+-- ================================================================
+--  Tabs — draw helpers
+-- ================================================================
+
+task tabs_draw(canvas: Canvas, names: List<word>, selected: int, rect: Rect,
+               hover_index: int,
+               theme_surface: Color, theme_bg: Color, theme_border: Color,
+               theme_accent: Color, theme_text: Color, theme_muted: Color,
+               font_size: int) -> void {
+    -- Draw tab bar background
+    canvas.fill_rect(rect, theme_bg)
+
+    -- Draw each tab
+    pilot tab_w = rect.w / names.len()
+    pilot i = 0
+    repeat names.len() times {
+        pilot tx = rect.x + i * tab_w
+        pilot tab_rect = Rect { x: tx, y: rect.y, w: tab_w, h: rect.h }
+
+        -- Selected tab highlight
+        if i == selected {
+            canvas.fill_rect(tab_rect, theme_surface)
+            -- Accent underline
+            pilot underline = Rect { x: tx, y: rect.y + rect.h - 3, w: tab_w, h: 3 }
+            canvas.fill_rect(underline, theme_accent)
+        }
+
+        -- Hover highlight (non-selected)
+        if i == hover_index and i != selected {
+            pilot hover_bg = Color::rgb(
+                min_i(theme_bg.r + 15, 255),
+                min_i(theme_bg.g + 15, 255),
+                min_i(theme_bg.b + 15, 255)
+            )
+            canvas.fill_rect(tab_rect, hover_bg)
+        }
+
+        -- Tab text
+        pilot text_w = measure_text_width(names[i], font_size)
+        pilot text_x = tx + (tab_w - text_w) / 2
+        pilot text_y = rect.y + (rect.h - font_size) / 2
+        pilot text_color = theme_muted
+        if i == selected { text_color = theme_text }
+        canvas.draw_text(names[i], text_x, text_y,
+            Font { size: font_size, bold: i == selected, italic: false }, text_color)
+
+        i = i + 1
+    }
+
+    -- Bottom border
+    pilot bottom = Rect { x: rect.x, y: rect.y + rect.h - 1, w: rect.w, h: 1 }
+    canvas.fill_rect(bottom, theme_border)
+}
+
+-- ================================================================
+--  Progress bar — draw helper
+-- ================================================================
+
+task progress_draw(canvas: Canvas, value: num, rect: Rect, label: word,
+                   theme_bg2: Color, theme_accent: Color, theme_text: Color,
+                   font_size: int) -> void {
+    -- Track background
+    canvas.fill_rect(rect, theme_bg2)
+
+    -- Fill
+    pilot clamped = value
+    if clamped < 0.0 { clamped = 0.0 }
+    if clamped > 1.0 { clamped = 1.0 }
+    pilot fill_w = rect.w * clamped
+    if fill_w > 0.0 {
+        pilot fill_rect = Rect { x: rect.x, y: rect.y, w: fill_w, h: rect.h }
+        canvas.fill_rect(fill_rect, theme_accent)
+    }
+
+    -- Label centered
+    if label.len() > 0 {
+        pilot text_w = measure_text_width(label, font_size)
+        pilot text_x = rect.x + (rect.w - text_w) / 2
+        pilot text_y = rect.y + (rect.h - font_size) / 2
+        canvas.draw_text(label, text_x, text_y,
+            Font { size: font_size, bold: false, italic: false }, theme_text)
+    }
+}
+
+-- ================================================================
+--  Tooltip — draw helper
+-- ================================================================
+
+task tooltip_draw(canvas: Canvas, text: word, anchor_x: int, anchor_y: int,
+                  theme_surface: Color, theme_border: Color, theme_text: Color,
+                  font_size: int) -> void {
+    pilot pad = 6
+    pilot text_w = measure_text_width(text, font_size) + pad * 2
+    pilot text_h = font_size + pad * 2
+
+    -- Position above the anchor point
+    pilot tx = anchor_x
+    pilot ty = anchor_y - text_h - 4
+
+    pilot bg_rect = Rect { x: tx, y: ty, w: text_w, h: text_h }
+    canvas.fill_rect(bg_rect, theme_surface)
+    canvas.stroke_rect(bg_rect, theme_border, 1)
+    canvas.draw_text(text, tx + pad, ty + pad,
+        Font { size: font_size, bold: false, italic: false }, theme_text)
+}
+
+-- ================================================================
+--  Modal overlay — draw helper
+-- ================================================================
+
+task modal_overlay_draw(canvas: Canvas, win_w: int, win_h: int,
+                        panel_w: int, panel_h: int,
+                        theme_bg: Color, theme_surface: Color, theme_border: Color) -> Rect {
+    -- Darken background
+    pilot overlay = Rect { x: 0, y: 0, w: win_w, h: win_h }
+    canvas.fill_rect(overlay, Color::rgba(0, 0, 0, 160))
+
+    -- Centered panel
+    pilot px = (win_w - panel_w) / 2
+    pilot py = (win_h - panel_h) / 2
+    pilot panel = Rect { x: px, y: py, w: panel_w, h: panel_h }
+    canvas.fill_rect(panel, theme_surface)
+    canvas.stroke_rect(panel, theme_border, 1)
+
+    give back panel
+}
+
+-- ================================================================
 --  Helpers
 -- ================================================================
 
@@ -241,4 +428,10 @@ task min_i(a: int, b: int) -> int {
 task max_i(a: int, b: int) -> int {
     if a > b { give back a }
     give back b
+}
+
+task clamp_f(v: num, lo: num, hi: num) -> num {
+    if v < lo { give back lo }
+    if v > hi { give back hi }
+    give back v
 }
