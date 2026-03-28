@@ -1,4 +1,4 @@
--- Minimal UI test: open a window, draw shapes, handle events
+-- FREAK UI Showcase: animated, interactive window demo
 
 shape Vec2 {
     x: num
@@ -50,16 +50,21 @@ impl Window {
 
 @protagonist
 task main() {
-    pilot win = Window::open(WindowConfig {
-        title: "FREAK UI Test",
-        width: 500,
-        height: 400
-    })
+    pilot win = Window::open(WindowConfig { title: "FREAK — Alternative-4 Edition", width: 800, height: 600 })
 
     pilot running = true
     pilot frame = 0
     pilot mx = 0
     pilot my = 0
+    pilot clicked = false
+    pilot click_count = 0
+    pilot active_tab = 0
+
+    -- Animation state
+    pilot pulse = 0
+    pilot bounce_y = 0
+    pilot bounce_dir = 1
+    pilot orbit_angle = 0
 
     repeat until not running {
         pilot count = ui::poll_events(win.handle)
@@ -67,6 +72,7 @@ task main() {
             running = false
         }
 
+        clicked = false
         pilot i = 0
         repeat count times {
             pilot kind = ui::event_kind(i)
@@ -81,54 +87,373 @@ task main() {
                         running = false
                     }
                 }
+                -- Tab switching: 1, 2, 3 keys
+                if pressed == 1 {
+                    if key == 49 { active_tab = 0 }
+                    if key == 50 { active_tab = 1 }
+                    if key == 51 { active_tab = 2 }
+                }
             }
             if kind == 4 {
                 mx = ui::event_mouse_x(i)
                 my = ui::event_mouse_y(i)
             }
+            -- Mouse click (kind 4 = mouse event, check button+pressed)
+            if kind == 4 {
+                pilot btn = ui::event_button(i)
+                pilot mpressed = ui::event_pressed(i)
+                if btn == 1 {
+                    if mpressed == 1 {
+                        clicked = true
+                        click_count = click_count + 1
+                    }
+                }
+            }
             i = i + 1
         }
+
+        -- Update animation
+        pulse = frame % 120
+        if pulse > 60 { pulse = 120 - pulse }
+
+        bounce_y = bounce_y + bounce_dir * 2
+        if bounce_y > 40 { bounce_dir = 0 - 1 }
+        if bounce_y < 0 { bounce_dir = 1 }
+
+        orbit_angle = frame % 360
 
         if running {
             ui::begin_frame(win.handle)
 
-            -- Background
-            ui::clear(win.handle, 12, 15, 35, 255)
+            -- Deep dark background
+            ui::clear(win.handle, 8, 10, 25, 255)
 
-            -- Title bar area
-            ui::fill_rect(win.handle, 0, 0, 500, 48, 25, 30, 60, 255)
-            ui::draw_text(win.handle, "FREAK UI", 16, 12, 220, 220, 240, 24, 1, 0)
+            -- ============================================
+            -- Title bar
+            -- ============================================
+            ui::fill_rect(win.handle, 0, 0, 800, 52, 18, 22, 48, 255)
+            ui::draw_text(win.handle, "FREAK", 20, 10, 255, 45, 120, 28, 1, 0)
+            ui::draw_text(win.handle, "Alternative-4 Edition", 120, 18, 120, 115, 160, 14, 0, 1)
 
-            -- Accent line under title
-            ui::fill_rect(win.handle, 0, 48, 500, 3, 255, 45, 120, 255)
+            -- Accent line
+            pilot accent_r = 255
+            pilot accent_g = 45 + pulse
+            pilot accent_b = 120
+            ui::fill_rect(win.handle, 0, 52, 800, 3, accent_r, accent_g, accent_b, 255)
 
-            -- Content area
-            ui::fill_rect(win.handle, 20, 70, 460, 60, 25, 30, 60, 255)
-            ui::stroke_rect(win.handle, 20, 70, 460, 60, 60, 50, 100, 255, 1)
-            ui::draw_text(win.handle, "It works! This is the alternative theme.", 32, 90, 220, 220, 240, 14, 0, 0)
+            -- ============================================
+            -- Tab bar
+            -- ============================================
+            ui::fill_rect(win.handle, 0, 55, 800, 36, 15, 18, 40, 255)
 
-            -- Mouse tracker
-            ui::fill_rect(win.handle, 20, 150, 460, 40, 25, 30, 60, 255)
-            pilot mouse_info = "Mouse: " + mx + ", " + my
-            ui::draw_text(win.handle, mouse_info, 32, 160, 140, 130, 180, 14, 0, 0)
+            -- Tab 0: Overview
+            if active_tab == 0 {
+                ui::fill_rect(win.handle, 10, 58, 120, 30, 255, 45, 120, 255)
+                ui::draw_text(win.handle, "[1] Overview", 22, 64, 255, 255, 255, 13, 1, 0)
+            }
+            if active_tab != 0 {
+                ui::stroke_rect(win.handle, 10, 58, 120, 30, 60, 55, 90, 255, 1)
+                ui::draw_text(win.handle, "[1] Overview", 22, 64, 140, 135, 170, 13, 0, 0)
+            }
 
-            -- Colored boxes
-            ui::fill_rect(win.handle, 20, 210, 100, 80, 255, 45, 120, 255)
-            ui::draw_text(win.handle, "Pink", 48, 240, 255, 255, 255, 14, 1, 0)
+            -- Tab 1: Animation
+            if active_tab == 1 {
+                ui::fill_rect(win.handle, 140, 58, 120, 30, 255, 45, 120, 255)
+                ui::draw_text(win.handle, "[2] Animation", 150, 64, 255, 255, 255, 13, 1, 0)
+            }
+            if active_tab != 1 {
+                ui::stroke_rect(win.handle, 140, 58, 120, 30, 60, 55, 90, 255, 1)
+                ui::draw_text(win.handle, "[2] Animation", 150, 64, 140, 135, 170, 13, 0, 0)
+            }
 
-            ui::fill_rect(win.handle, 140, 210, 100, 80, 100, 140, 255, 255)
-            ui::draw_text(win.handle, "Blue", 168, 240, 255, 255, 255, 14, 1, 0)
+            -- Tab 2: Interactive
+            if active_tab == 2 {
+                ui::fill_rect(win.handle, 270, 58, 120, 30, 255, 45, 120, 255)
+                ui::draw_text(win.handle, "[3] Interactive", 278, 64, 255, 255, 255, 13, 1, 0)
+            }
+            if active_tab != 2 {
+                ui::stroke_rect(win.handle, 270, 58, 120, 30, 60, 55, 90, 255, 1)
+                ui::draw_text(win.handle, "[3] Interactive", 278, 64, 140, 135, 170, 13, 0, 0)
+            }
 
-            ui::fill_rect(win.handle, 260, 210, 100, 80, 60, 220, 160, 255)
-            ui::draw_text(win.handle, "Green", 282, 240, 255, 255, 255, 14, 1, 0)
+            -- ============================================
+            -- Tab content area
+            -- ============================================
+            pilot content_y = 100
 
-            ui::fill_rect(win.handle, 380, 210, 100, 80, 200, 20, 20, 255)
-            ui::draw_text(win.handle, "Red", 410, 240, 255, 255, 255, 14, 1, 0)
+            if active_tab == 0 {
+                -- OVERVIEW TAB
+                ui::fill_rect(win.handle, 20, content_y, 760, 70, 22, 26, 55, 255)
+                ui::stroke_rect(win.handle, 20, content_y, 760, 70, 50, 45, 85, 255, 1)
+                ui::draw_text(win.handle, "Welcome to FREAK", 36, content_y + 12, 255, 220, 240, 20, 1, 0)
+                ui::draw_text(win.handle, "A compiled, statically-typed language with anime aesthetics.", 36, content_y + 42, 160, 155, 190, 13, 0, 0)
 
-            -- Frame counter
-            pilot finfo = "Frame: " + frame
-            ui::draw_text(win.handle, finfo, 20, 370, 140, 130, 180, 12, 0, 0)
-            ui::draw_text(win.handle, "Press ESC to close", 360, 370, 140, 130, 180, 12, 0, 0)
+                -- Feature cards
+                pilot card_y = content_y + 90
+
+                -- Card 1: Self-hosting
+                ui::fill_rect(win.handle, 20, card_y, 240, 100, 22, 26, 55, 255)
+                ui::stroke_rect(win.handle, 20, card_y, 240, 100, 50, 45, 85, 255, 1)
+                ui::fill_circle(win.handle, 50, card_y + 30, 14, 255, 45, 120, 255)
+                ui::draw_text(win.handle, "Self-Hosting", 74, card_y + 18, 240, 235, 255, 15, 1, 0)
+                ui::draw_text(win.handle, "The compiler can", 36, card_y + 50, 140, 135, 170, 12, 0, 0)
+                ui::draw_text(win.handle, "compile itself.", 36, card_y + 68, 140, 135, 170, 12, 0, 0)
+
+                -- Card 2: Native UI
+                ui::fill_rect(win.handle, 280, card_y, 240, 100, 22, 26, 55, 255)
+                ui::stroke_rect(win.handle, 280, card_y, 240, 100, 50, 45, 85, 255, 1)
+                ui::fill_circle(win.handle, 310, card_y + 30, 14, 100, 140, 255, 255)
+                ui::draw_text(win.handle, "Native UI", 334, card_y + 18, 240, 235, 255, 15, 1, 0)
+                ui::draw_text(win.handle, "Win32 immediate-mode", 296, card_y + 50, 140, 135, 170, 12, 0, 0)
+                ui::draw_text(win.handle, "rendering pipeline.", 296, card_y + 68, 140, 135, 170, 12, 0, 0)
+
+                -- Card 3: Hangar
+                ui::fill_rect(win.handle, 540, card_y, 240, 100, 22, 26, 55, 255)
+                ui::stroke_rect(win.handle, 540, card_y, 240, 100, 50, 45, 85, 255, 1)
+                ui::fill_circle(win.handle, 570, card_y + 30, 14, 60, 220, 160, 255)
+                ui::draw_text(win.handle, "Hangar", 594, card_y + 18, 240, 235, 255, 15, 1, 0)
+                ui::draw_text(win.handle, "Built-in package", 556, card_y + 50, 140, 135, 170, 12, 0, 0)
+                ui::draw_text(win.handle, "manager with TOML.", 556, card_y + 68, 140, 135, 170, 12, 0, 0)
+
+                -- Color palette
+                pilot pal_y = card_y + 120
+                ui::draw_text(win.handle, "Theme Palette", 20, pal_y, 180, 175, 210, 13, 1, 0)
+                pilot pal_boxy = pal_y + 24
+
+                ui::fill_rect(win.handle, 20, pal_boxy, 60, 40, 255, 45, 120, 255)
+                ui::draw_text(win.handle, "Accent", 26, pal_boxy + 12, 255, 255, 255, 11, 0, 0)
+
+                ui::fill_rect(win.handle, 90, pal_boxy, 60, 40, 100, 140, 255, 255)
+                ui::draw_text(win.handle, "Blue", 102, pal_boxy + 12, 255, 255, 255, 11, 0, 0)
+
+                ui::fill_rect(win.handle, 160, pal_boxy, 60, 40, 60, 220, 160, 255)
+                ui::draw_text(win.handle, "Green", 170, pal_boxy + 12, 255, 255, 255, 11, 0, 0)
+
+                ui::fill_rect(win.handle, 230, pal_boxy, 60, 40, 255, 200, 60, 255)
+                ui::draw_text(win.handle, "Gold", 242, pal_boxy + 12, 30, 30, 30, 11, 0, 0)
+
+                ui::fill_rect(win.handle, 300, pal_boxy, 60, 40, 200, 50, 50, 255)
+                ui::draw_text(win.handle, "Danger", 306, pal_boxy + 12, 255, 255, 255, 11, 0, 0)
+
+                ui::fill_rect(win.handle, 370, pal_boxy, 60, 40, 22, 26, 55, 255)
+                ui::stroke_rect(win.handle, 370, pal_boxy, 60, 40, 60, 55, 90, 255, 1)
+                ui::draw_text(win.handle, "Surface", 374, pal_boxy + 12, 160, 155, 190, 11, 0, 0)
+
+                ui::fill_rect(win.handle, 440, pal_boxy, 60, 40, 8, 10, 25, 255)
+                ui::stroke_rect(win.handle, 440, pal_boxy, 60, 40, 60, 55, 90, 255, 1)
+                ui::draw_text(win.handle, "BG", 460, pal_boxy + 12, 160, 155, 190, 11, 0, 0)
+
+                -- Separator line
+                ui::fill_rect(win.handle, 20, pal_boxy + 55, 760, 1, 40, 38, 70, 255)
+
+                -- Type specimens
+                pilot type_y = pal_boxy + 70
+                ui::draw_text(win.handle, "Typography", 20, type_y, 180, 175, 210, 13, 1, 0)
+                ui::draw_text(win.handle, "Display 28pt Bold", 20, type_y + 24, 240, 235, 255, 28, 1, 0)
+                ui::draw_text(win.handle, "Heading 20pt Bold", 20, type_y + 58, 220, 215, 245, 20, 1, 0)
+                ui::draw_text(win.handle, "Body 14pt — The quick brown fox jumps over the lazy dog.", 20, type_y + 84, 160, 155, 190, 14, 0, 0)
+                ui::draw_text(win.handle, "Caption 11pt — Secondary information, muted and small.", 20, type_y + 104, 110, 105, 140, 11, 0, 0)
+            }
+
+            if active_tab == 1 {
+                -- ANIMATION TAB
+                ui::draw_text(win.handle, "Live Animations", 20, content_y, 220, 215, 245, 18, 1, 0)
+
+                -- Pulsing circle
+                pilot pulse_size = 20 + pulse / 3
+                pilot pulse_alpha = 120 + pulse * 2
+                ui::fill_circle(win.handle, 120, content_y + 100, pulse_size, 255, 45, 120, pulse_alpha)
+                ui::fill_circle(win.handle, 120, content_y + 100, 16, 255, 45, 120, 255)
+                ui::draw_text(win.handle, "Pulse", 100, content_y + 135, 180, 175, 210, 12, 0, 0)
+
+                -- Bouncing box
+                pilot box_y = content_y + 80 + bounce_y
+                ui::fill_rect(win.handle, 250, box_y, 40, 40, 100, 140, 255, 255)
+                ui::draw_text(win.handle, "Bounce", 245, content_y + 135, 180, 175, 210, 12, 0, 0)
+
+                -- Loading bar animation
+                pilot bar_progress = frame % 200
+                if bar_progress > 100 { bar_progress = 200 - bar_progress }
+                pilot bar_w = bar_progress * 3
+
+                ui::draw_text(win.handle, "Loading Bar", 400, content_y + 60, 180, 175, 210, 12, 0, 0)
+                ui::fill_rect(win.handle, 400, content_y + 80, 300, 20, 22, 26, 55, 255)
+                ui::stroke_rect(win.handle, 400, content_y + 80, 300, 20, 50, 45, 85, 255, 1)
+                ui::fill_rect(win.handle, 401, content_y + 81, bar_w, 18, 255, 45, 120, 255)
+                pilot pct = bar_progress
+                pilot pct_text = "" + pct + "%"
+                ui::draw_text(win.handle, pct_text, 540, content_y + 82, 255, 255, 255, 12, 1, 0)
+
+                -- Orbiting circles
+                pilot orbit_cx = 200
+                pilot orbit_cy = content_y + 300
+                pilot orbit_r = 80
+
+                -- Draw orbit path as dotted ring (using small circles)
+                ui::stroke_rect(win.handle, orbit_cx - orbit_r - 10, orbit_cy - orbit_r - 10, orbit_r * 2 + 20, orbit_r * 2 + 20, 30, 28, 55, 255, 1)
+
+                -- Simple orbit approximation using frame-based position
+                pilot phase1 = orbit_angle
+                pilot ox1 = orbit_cx + (phase1 % 160 - 80)
+                pilot oy1 = orbit_cy + ((phase1 + 40) % 160 - 80)
+                ui::fill_circle(win.handle, ox1, oy1, 12, 255, 45, 120, 255)
+
+                pilot phase2 = (orbit_angle + 120) % 360
+                pilot ox2 = orbit_cx + (phase2 % 160 - 80)
+                pilot oy2 = orbit_cy + ((phase2 + 40) % 160 - 80)
+                ui::fill_circle(win.handle, ox2, oy2, 12, 100, 140, 255, 255)
+
+                pilot phase3 = (orbit_angle + 240) % 360
+                pilot ox3 = orbit_cx + (phase3 % 160 - 80)
+                pilot oy3 = orbit_cy + ((phase3 + 40) % 160 - 80)
+                ui::fill_circle(win.handle, ox3, oy3, 12, 60, 220, 160, 255)
+
+                ui::draw_text(win.handle, "Orbiting", 172, orbit_cy + orbit_r + 20, 180, 175, 210, 12, 0, 0)
+
+                -- Spinning bars
+                pilot spin_x = 500
+                pilot spin_y = content_y + 280
+                pilot spin_phase = frame % 8
+                pilot bar_alpha = 255
+
+                -- 8 bars around a center, brightness varies by phase
+                pilot b0 = 40
+                pilot b1 = 40
+                pilot b2 = 40
+                pilot b3 = 40
+                pilot b4 = 40
+                pilot b5 = 40
+                pilot b6 = 40
+                pilot b7 = 40
+                if spin_phase == 0 { b0 = 255 }
+                if spin_phase == 1 { b1 = 255 }
+                if spin_phase == 2 { b2 = 255 }
+                if spin_phase == 3 { b3 = 255 }
+                if spin_phase == 4 { b4 = 255 }
+                if spin_phase == 5 { b5 = 255 }
+                if spin_phase == 6 { b6 = 255 }
+                if spin_phase == 7 { b7 = 255 }
+
+                ui::fill_rect(win.handle, spin_x - 2, spin_y - 30, 4, 16, b0, b0, b0, 255)
+                ui::fill_rect(win.handle, spin_x + 16, spin_y - 18, 16, 4, b1, b1, b1, 255)
+                ui::fill_rect(win.handle, spin_x + 22, spin_y - 2, 4, 16, b2, b2, b2, 255)
+                ui::fill_rect(win.handle, spin_x + 16, spin_y + 14, 16, 4, b3, b3, b3, 255)
+                ui::fill_rect(win.handle, spin_x - 2, spin_y + 18, 4, 16, b4, b4, b4, 255)
+                ui::fill_rect(win.handle, spin_x - 30, spin_y + 14, 16, 4, b5, b5, b5, 255)
+                ui::fill_rect(win.handle, spin_x - 26, spin_y - 2, 4, 16, b6, b6, b6, 255)
+                ui::fill_rect(win.handle, spin_x - 30, spin_y - 18, 16, 4, b7, b7, b7, 255)
+                ui::draw_text(win.handle, "Spinner", 480, spin_y + 45, 180, 175, 210, 12, 0, 0)
+
+                -- Frame counter for animation tab
+                pilot fps_text = "Frame: " + frame
+                ui::draw_text(win.handle, fps_text, 20, content_y + 400, 100, 95, 130, 11, 0, 0)
+            }
+
+            if active_tab == 2 {
+                -- INTERACTIVE TAB
+                ui::draw_text(win.handle, "Mouse Interaction", 20, content_y, 220, 215, 245, 18, 1, 0)
+
+                -- Mouse cursor follower
+                ui::fill_circle(win.handle, mx, my, 24, 255, 45, 120, 60)
+                ui::fill_circle(win.handle, mx, my, 12, 255, 45, 120, 120)
+                ui::fill_circle(win.handle, mx, my, 4, 255, 255, 255, 255)
+
+                -- Crosshair
+                ui::draw_line(win.handle, mx - 30, my, mx - 8, my, 255, 45, 120, 100, 1)
+                ui::draw_line(win.handle, mx + 8, my, mx + 30, my, 255, 45, 120, 100, 1)
+                ui::draw_line(win.handle, mx, my - 30, mx, my - 8, 255, 45, 120, 100, 1)
+                ui::draw_line(win.handle, mx, my + 8, mx, my + 30, 255, 45, 120, 100, 1)
+
+                -- Mouse position panel
+                ui::fill_rect(win.handle, 20, content_y + 40, 300, 70, 22, 26, 55, 255)
+                ui::stroke_rect(win.handle, 20, content_y + 40, 300, 70, 50, 45, 85, 255, 1)
+                pilot pos_text = "Position: (" + mx + ", " + my + ")"
+                ui::draw_text(win.handle, pos_text, 36, content_y + 54, 220, 215, 245, 14, 0, 0)
+                pilot click_text = "Clicks: " + click_count
+                ui::draw_text(win.handle, click_text, 36, content_y + 78, 180, 175, 210, 13, 0, 0)
+
+                -- Hover-reactive boxes
+                pilot box_y2 = content_y + 140
+                ui::draw_text(win.handle, "Hover over the boxes:", 20, box_y2, 160, 155, 190, 12, 0, 0)
+                pilot bx1 = 20
+                pilot bx2 = 190
+                pilot bx3 = 360
+                pilot bx4 = 530
+                pilot bw = 150
+                pilot bh = 80
+                pilot by = box_y2 + 24
+
+                -- Box 1: Accent
+                if mx >= bx1 { if mx < bx1 + bw { if my >= by { if my < by + bh { ui::fill_rect(win.handle, bx1, by, bw, bh, 255, 70, 140, 255) } } } }
+                if mx < bx1 { ui::fill_rect(win.handle, bx1, by, bw, bh, 255, 45, 120, 180) }
+                if mx >= bx1 + bw { ui::fill_rect(win.handle, bx1, by, bw, bh, 255, 45, 120, 180) }
+                if my < by { ui::fill_rect(win.handle, bx1, by, bw, bh, 255, 45, 120, 180) }
+                if my >= by + bh { ui::fill_rect(win.handle, bx1, by, bw, bh, 255, 45, 120, 180) }
+                ui::draw_text(win.handle, "ACCENT", 62, by + 30, 255, 255, 255, 14, 1, 0)
+
+                -- Box 2: Blue
+                if mx >= bx2 { if mx < bx2 + bw { if my >= by { if my < by + bh { ui::fill_rect(win.handle, bx2, by, bw, bh, 120, 160, 255, 255) } } } }
+                if mx < bx2 { ui::fill_rect(win.handle, bx2, by, bw, bh, 100, 140, 255, 180) }
+                if mx >= bx2 + bw { ui::fill_rect(win.handle, bx2, by, bw, bh, 100, 140, 255, 180) }
+                if my < by { ui::fill_rect(win.handle, bx2, by, bw, bh, 100, 140, 255, 180) }
+                if my >= by + bh { ui::fill_rect(win.handle, bx2, by, bw, bh, 100, 140, 255, 180) }
+                ui::draw_text(win.handle, "ELECTRIC", 226, by + 30, 255, 255, 255, 14, 1, 0)
+
+                -- Box 3: Green
+                if mx >= bx3 { if mx < bx3 + bw { if my >= by { if my < by + bh { ui::fill_rect(win.handle, bx3, by, bw, bh, 80, 240, 180, 255) } } } }
+                if mx < bx3 { ui::fill_rect(win.handle, bx3, by, bw, bh, 60, 220, 160, 180) }
+                if mx >= bx3 + bw { ui::fill_rect(win.handle, bx3, by, bw, bh, 60, 220, 160, 180) }
+                if my < by { ui::fill_rect(win.handle, bx3, by, bw, bh, 60, 220, 160, 180) }
+                if my >= by + bh { ui::fill_rect(win.handle, bx3, by, bw, bh, 60, 220, 160, 180) }
+                ui::draw_text(win.handle, "EMERALD", 400, by + 30, 255, 255, 255, 14, 1, 0)
+
+                -- Box 4: Gold
+                if mx >= bx4 { if mx < bx4 + bw { if my >= by { if my < by + bh { ui::fill_rect(win.handle, bx4, by, bw, bh, 255, 220, 80, 255) } } } }
+                if mx < bx4 { ui::fill_rect(win.handle, bx4, by, bw, bh, 255, 200, 60, 180) }
+                if mx >= bx4 + bw { ui::fill_rect(win.handle, bx4, by, bw, bh, 255, 200, 60, 180) }
+                if my < by { ui::fill_rect(win.handle, bx4, by, bw, bh, 255, 200, 60, 180) }
+                if my >= by + bh { ui::fill_rect(win.handle, bx4, by, bw, bh, 255, 200, 60, 180) }
+                ui::draw_text(win.handle, "GOLD", 580, by + 30, 40, 30, 10, 14, 1, 0)
+
+                -- Drawing area: lines from corners to mouse
+                pilot draw_y = by + bh + 30
+                ui::fill_rect(win.handle, 20, draw_y, 760, 240, 15, 18, 38, 255)
+                ui::stroke_rect(win.handle, 20, draw_y, 760, 240, 35, 32, 60, 255, 1)
+                ui::draw_text(win.handle, "Move the mouse — lines follow you", 30, draw_y + 6, 100, 95, 130, 11, 0, 0)
+
+                -- Lines from corners to mouse
+                ui::draw_line(win.handle, 20, draw_y, mx, my, 255, 45, 120, 80, 1)
+                ui::draw_line(win.handle, 780, draw_y, mx, my, 100, 140, 255, 80, 1)
+                ui::draw_line(win.handle, 20, draw_y + 240, mx, my, 60, 220, 160, 80, 1)
+                ui::draw_line(win.handle, 780, draw_y + 240, mx, my, 255, 200, 60, 80, 1)
+
+                -- Center circle that responds to mouse distance
+                pilot dcx = 400
+                pilot dcy = draw_y + 120
+                pilot dx = mx - dcx
+                pilot dy = my - dcy
+                pilot dist = dx * dx + dy * dy
+                pilot circle_r = 30
+                if dist < 10000 { circle_r = 50 }
+                if dist < 5000 { circle_r = 60 }
+                if dist < 2000 { circle_r = 70 }
+                ui::fill_circle(win.handle, dcx, dcy, circle_r, 255, 45, 120, 100)
+                ui::fill_circle(win.handle, dcx, dcy, 20, 255, 255, 255, 200)
+            }
+
+            -- ============================================
+            -- Status bar
+            -- ============================================
+            ui::fill_rect(win.handle, 0, 574, 800, 26, 15, 18, 40, 255)
+            ui::fill_rect(win.handle, 0, 573, 800, 1, 40, 38, 70, 255)
+
+            pilot frame_text = "Frame: " + frame
+            ui::draw_text(win.handle, frame_text, 12, 578, 100, 95, 130, 11, 0, 0)
+
+            pilot mouse_text = "Mouse: " + mx + ", " + my
+            ui::draw_text(win.handle, mouse_text, 200, 578, 100, 95, 130, 11, 0, 0)
+
+            ui::draw_text(win.handle, "ESC to close  |  1/2/3 to switch tabs", 460, 578, 100, 95, 130, 11, 0, 0)
 
             ui::end_frame(win.handle)
             frame = frame + 1
