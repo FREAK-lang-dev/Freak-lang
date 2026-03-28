@@ -348,13 +348,15 @@ void freak_tcp_close(int64_t fd);
 /*  Implemented in freakc/runtime/ui/win32_backend.c (Windows)        */
 /* ------------------------------------------------------------------ */
 
-/* Legacy LLVM backend aliases */
+/* Legacy LLVM backend aliases — only declare when not already defined as macros */
+#ifndef freak_llvm_ui_create_native
 int64_t freak_llvm_ui_create_native(int64_t title_word, int64_t width, int64_t height);
 int64_t freak_llvm_ui_poll_events(int64_t handle);
 void freak_llvm_ui_begin_frame(int64_t handle);
 void freak_llvm_ui_end_frame(int64_t handle);
 void freak_llvm_ui_clear(int64_t handle, int64_t r, int64_t g, int64_t b, int64_t a);
 void freak_llvm_ui_fill_rect(int64_t handle, int64_t x, int64_t y, int64_t w, int64_t h, int64_t r, int64_t g, int64_t b, int64_t a);
+#endif
 
 /* Phase MA: Window lifecycle (accept freak_word for string params) */
 int64_t freak_ui_create_window_word(freak_word title, int64_t width, int64_t height, int64_t resizable);

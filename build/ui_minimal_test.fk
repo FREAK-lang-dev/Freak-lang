@@ -1,0 +1,140 @@
+-- Minimal UI test: open a window, draw shapes, handle events
+
+shape Vec2 {
+    x: num
+    y: num
+}
+
+shape Rect {
+    x: num
+    y: num
+    w: num
+    h: num
+}
+
+shape Color {
+    r: int
+    g: int
+    b: int
+    a: int
+}
+
+impl Color {
+    task rgb(r: int, g: int, b: int) -> Color {
+        give back Color { r: r, g: g, b: b, a: 255 }
+    }
+}
+
+shape WindowConfig {
+    title: word
+    width: int
+    height: int
+}
+
+shape Window {
+    handle: int
+    width: int
+    height: int
+}
+
+impl Window {
+    task open(config: WindowConfig) -> Window {
+        pilot h = ui::create_window(config.title, config.width, config.height, 1)
+        give back Window { handle: h, width: config.width, height: config.height }
+    }
+
+    task close(self) -> void {
+        ui::destroy_window(self.handle)
+    }
+}
+
+@protagonist
+task main() {
+    pilot win = Window::open(WindowConfig {
+        title: "FREAK UI Test",
+        width: 500,
+        height: 400
+    })
+
+    pilot running = true
+    pilot frame = 0
+    pilot mx = 0
+    pilot my = 0
+
+    repeat until not running {
+        pilot count = ui::poll_events(win.handle)
+        if count < 0 {
+            running = false
+        }
+
+        pilot i = 0
+        repeat count times {
+            pilot kind = ui::event_kind(i)
+            if kind == 1 {
+                running = false
+            }
+            if kind == 2 {
+                pilot key = ui::event_key(i)
+                pilot pressed = ui::event_pressed(i)
+                if key == 27 {
+                    if pressed == 1 {
+                        running = false
+                    }
+                }
+            }
+            if kind == 4 {
+                mx = ui::event_mouse_x(i)
+                my = ui::event_mouse_y(i)
+            }
+            i = i + 1
+        }
+
+        if running {
+            ui::begin_frame(win.handle)
+
+            -- Background
+            ui::clear(win.handle, 12, 15, 35, 255)
+
+            -- Title bar area
+            ui::fill_rect(win.handle, 0, 0, 500, 48, 25, 30, 60, 255)
+            ui::draw_text(win.handle, "FREAK UI", 16, 12, 220, 220, 240, 24, 1, 0)
+
+            -- Accent line under title
+            ui::fill_rect(win.handle, 0, 48, 500, 3, 255, 45, 120, 255)
+
+            -- Content area
+            ui::fill_rect(win.handle, 20, 70, 460, 60, 25, 30, 60, 255)
+            ui::stroke_rect(win.handle, 20, 70, 460, 60, 60, 50, 100, 255, 1)
+            ui::draw_text(win.handle, "It works! This is the alternative theme.", 32, 90, 220, 220, 240, 14, 0, 0)
+
+            -- Mouse tracker
+            ui::fill_rect(win.handle, 20, 150, 460, 40, 25, 30, 60, 255)
+            pilot mouse_info = "Mouse: " + mx + ", " + my
+            ui::draw_text(win.handle, mouse_info, 32, 160, 140, 130, 180, 14, 0, 0)
+
+            -- Colored boxes
+            ui::fill_rect(win.handle, 20, 210, 100, 80, 255, 45, 120, 255)
+            ui::draw_text(win.handle, "Pink", 48, 240, 255, 255, 255, 14, 1, 0)
+
+            ui::fill_rect(win.handle, 140, 210, 100, 80, 100, 140, 255, 255)
+            ui::draw_text(win.handle, "Blue", 168, 240, 255, 255, 255, 14, 1, 0)
+
+            ui::fill_rect(win.handle, 260, 210, 100, 80, 60, 220, 160, 255)
+            ui::draw_text(win.handle, "Green", 282, 240, 255, 255, 255, 14, 1, 0)
+
+            ui::fill_rect(win.handle, 380, 210, 100, 80, 200, 20, 20, 255)
+            ui::draw_text(win.handle, "Red", 410, 240, 255, 255, 255, 14, 1, 0)
+
+            -- Frame counter
+            pilot finfo = "Frame: " + frame
+            ui::draw_text(win.handle, finfo, 20, 370, 140, 130, 180, 12, 0, 0)
+            ui::draw_text(win.handle, "Press ESC to close", 360, 370, 140, 130, 180, 12, 0, 0)
+
+            ui::end_frame(win.handle)
+            frame = frame + 1
+        }
+    }
+
+    win.close()
+    say "Closed after " + frame + " frames."
+}

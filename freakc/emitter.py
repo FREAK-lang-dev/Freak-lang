@@ -195,6 +195,14 @@ class CEmitter:
                     )
             elif isinstance(stmt, TaskDecl):
                 task_decls.append(stmt)
+            elif isinstance(stmt, Annotation):
+                # Annotations like @protagonist wrap their target declaration
+                if isinstance(stmt.target, TaskDecl):
+                    task_decls.append(stmt.target)
+                elif isinstance(stmt.target, ShapeDecl):
+                    self.shapes[stmt.target.name] = stmt.target
+                else:
+                    top_stmts.append(stmt)
             elif isinstance(stmt, DoctrineDecl):
                 pass  # doctrines don't produce C output directly
             elif isinstance(stmt, PilotDecl):
@@ -206,9 +214,10 @@ class CEmitter:
         for name, shape in self.shapes.items():
             self._emit_shape_def(shape)
 
-        # Emit forward declarations for all tasks
+        # Emit forward declarations for all tasks (except main, which goes into freak_main)
         for td in task_decls:
-            self._forward_decls.append(self._task_forward_decl(td) + ";")
+            if td.name != "main":
+                self._forward_decls.append(self._task_forward_decl(td) + ";")
 
         # Emit impl method forward declarations
         for type_name, methods in self.impl_methods.items():
@@ -221,8 +230,17 @@ class CEmitter:
             c_type = self._infer_c_type(gp.value, gp.type_ann)
             self.vars[gp.name] = VarInfo(c_type=c_type)
 
-        # Emit task definitions
+        # Separate out `task main()` — its body goes into freak_main, not as a separate function
+        main_task = None
+        other_tasks = []
         for td in task_decls:
+            if td.name == "main":
+                main_task = td
+            else:
+                other_tasks.append(td)
+
+        # Emit task definitions (excluding main)
+        for td in other_tasks:
             self._emit_task_def(td)
 
         # Emit impl method definitions
@@ -261,8 +279,13 @@ class CEmitter:
         for gi in _global_inits:
             self._main_body.append(gi)
         self.indent = 1
-        for stmt in top_stmts:
-            self._emit_statement(stmt, self._main_body)
+        # If there's a `task main()`, emit its body here
+        if main_task and isinstance(main_task.body, Block):
+            for s in main_task.body.statements:
+                self._emit_statement(s, self._main_body)
+        else:
+            for stmt in top_stmts:
+                self._emit_statement(stmt, self._main_body)
         self._main_body.append("    return 0;")
         self._main_body.append("}")
 
@@ -1592,6 +1615,16 @@ class CEmitter:
                 all_ret = {**_PROCESS_RET, **_THREAD_RET, **_BYTES_RET, **_FS_RET, **_UI_RET}
                 if fq in all_ret:
                     return all_ret[fq]
+                # User-defined static methods: Type::method() — look up return type from impl
+                parts = expr.func.parts
+                if len(parts) == 2:
+                    type_name, method_name = parts
+                    for m in self.impl_methods.get(type_name, []):
+                        if m.name == method_name and m.return_type:
+                            return self._type_to_c(m.return_type)
+                    # If the type is a known shape, default to returning that shape
+                    if type_name in self.shapes:
+                        return type_name
             return "int64_t"
         if isinstance(expr, FieldAccess):
             # Look up the field type from the shape definition

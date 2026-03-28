@@ -638,7 +638,7 @@ int64_t freak_ui_measure_text_word(freak_word text, int64_t font_size, int64_t b
                               DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, DEFAULT_PITCH, "Segoe UI");
     HFONT old = (HFONT)SelectObject(hdc, hfont);
     SIZE sz;
-    GetTextExtentPoint32A(hdc, text.data, (int)text.byte_len, &sz);
+    GetTextExtentPoint32A(hdc, text.data, (int)text.length, &sz);
     SelectObject(hdc, old);
     DeleteObject(hfont);
     ReleaseDC(g_win->hwnd, hdc);

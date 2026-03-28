@@ -31,8 +31,7 @@ shape Rect {
 
 impl Rect {
     task contains(self, px: num, py: num) -> bool {
-        give back px >= self.x and px < self.x + self.w
-            and py >= self.y and py < self.y + self.h
+        give back px >= self.x and px < self.x + self.w and py >= self.y and py < self.y + self.h
     }
 }
 
@@ -154,7 +153,7 @@ shape Event {
     kind:      int
     key:       int
     pressed:   int
-    repeat:    int
+    key_repeat:    int
     character: int
     mouse_x:   int
     mouse_y:   int
@@ -187,9 +186,7 @@ impl Event {
     }
 
     task is_click_in(self, rect: Rect) -> bool {
-        give back self.kind == EVENT_MOUSE and self.button == MOUSE_LEFT
-            and self.pressed == 1
-            and rect.contains(self.mouse_x, self.mouse_y)
+        give back self.kind == EVENT_MOUSE and self.button == MOUSE_LEFT and self.pressed == 1 and rect.contains(self.mouse_x, self.mouse_y)
     }
 }
 
@@ -244,7 +241,7 @@ impl Window {
         if count < 0 {
             -- Quit requested
             events.push(Event {
-                kind: EVENT_QUIT, key: 0, pressed: 0, repeat: 0,
+                kind: EVENT_QUIT, key: 0, pressed: 0, key_repeat: 0,
                 character: 0, mouse_x: 0, mouse_y: 0, button: 0,
                 scroll_dy: 0, width: 0, height: 0, gained: 0
             })
@@ -257,7 +254,7 @@ impl Window {
                 kind:      ui::event_kind(i),
                 key:       ui::event_key(i),
                 pressed:   ui::event_pressed(i),
-                repeat:    ui::event_repeat(i),
+                key_repeat:    ui::event_repeat(i),
                 character: ui::event_character(i),
                 mouse_x:   ui::event_mouse_x(i),
                 mouse_y:   ui::event_mouse_y(i),
@@ -300,29 +297,23 @@ impl Canvas {
     }
 
     task fill_rect(self, rect: Rect, color: Color) -> void {
-        ui::fill_rect(self.handle, rect.x, rect.y, rect.w, rect.h,
-                      color.r, color.g, color.b, color.a)
+        ui::fill_rect(self.handle, rect.x, rect.y, rect.w, rect.h, color.r, color.g, color.b, color.a)
     }
 
     task stroke_rect(self, rect: Rect, color: Color, thickness: int) -> void {
-        ui::stroke_rect(self.handle, rect.x, rect.y, rect.w, rect.h,
-                        color.r, color.g, color.b, color.a, thickness)
+        ui::stroke_rect(self.handle, rect.x, rect.y, rect.w, rect.h, color.r, color.g, color.b, color.a, thickness)
     }
 
     task fill_circle(self, center: Vec2, radius: int, color: Color) -> void {
-        ui::fill_circle(self.handle, center.x, center.y, radius,
-                        color.r, color.g, color.b, color.a)
+        ui::fill_circle(self.handle, center.x, center.y, radius, color.r, color.g, color.b, color.a)
     }
 
     task draw_line(self, from: Vec2, to: Vec2, color: Color, thickness: int) -> void {
-        ui::draw_line(self.handle, from.x, from.y, to.x, to.y,
-                      color.r, color.g, color.b, color.a, thickness)
+        ui::draw_line(self.handle, from.x, from.y, to.x, to.y, color.r, color.g, color.b, color.a, thickness)
     }
 
     task draw_text(self, text: word, x: int, y: int, font: Font, color: Color) -> int {
-        give back ui::draw_text(self.handle, text, x, y,
-                                color.r, color.g, color.b,
-                                font.size, font.bold, font.italic)
+        give back ui::draw_text(self.handle, text, x, y, color.r, color.g, color.b, font.size, font.bold, font.italic)
     }
 
     task width(self) -> int {

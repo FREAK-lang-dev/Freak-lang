@@ -1,0 +1,129 @@
+-- freak-ui Visual Test — Phase ME + MF
+-- A simple but real app showing all widgets working together.
+--
+-- Build: build_ui_test.bat
+
+@protagonist
+task main() {
+    pilot win = Window::open(WindowConfig {
+        title: "FREAK UI — Visual Test",
+        width: 640,
+        height: 520,
+        resizable: true,
+        vsync: true
+    })
+
+    pilot ui = UI::new(win, Theme::alternative())
+
+    -- State
+    pilot selected_tab = 0
+    pilot tab_names = ["Controls", "Animation"]
+
+    pilot dropdown_val = 1
+    pilot dropdown_items = ["Alpha", "Beta", "Gamma", "Delta"]
+
+    pilot check_a = true
+    pilot check_b = false
+    pilot slider_val = 0.3
+    pilot input_text = ""
+    pilot progress_val = 0.0
+
+    pilot anim_target = 0.0
+    pilot anim_bar = 0.0
+
+    pilot modal_visible = false
+
+    repeat until ui.should_quit {
+        ui.begin_frame()
+
+        ui.label_styled("FREAK UI", LABEL_HEADING)
+        ui.separator()
+
+        selected_tab = ui.tabs(selected_tab, tab_names)
+        ui.spacer(6)
+
+        if selected_tab == 0 {
+            -- Dropdown
+            ui.label("Dropdown:")
+            dropdown_val = ui.dropdown(dropdown_val, dropdown_items)
+            ui.spacer(6)
+
+            -- Checkboxes
+            if ui.checkbox("Feature A", check_a) { check_a = not check_a }
+            if ui.checkbox("Feature B", check_b) { check_b = not check_b }
+            ui.spacer(6)
+
+            -- Slider
+            ui.label("Slider:")
+            slider_val = ui.slider(slider_val, 0.0, 1.0)
+            ui.spacer(6)
+
+            -- Input
+            ui.label("Input:")
+            input_text = ui.input(input_text, "Type here...")
+            ui.spacer(6)
+
+            -- Progress bar (auto-advancing)
+            progress_val = progress_val + 0.003
+            if progress_val > 1.0 { progress_val = 0.0 }
+            ui.progress(progress_val, "Loading...")
+            ui.spacer(6)
+
+            -- Buttons
+            ui.begin_row(8, 0)
+            ui.button("Normal")
+            ui.button_primary("Primary")
+            if ui.button_styled("Modal", BTN_DANGER, SizeHint::auto()) {
+                modal_visible = true
+            }
+            ui.end_row()
+        }
+
+        if selected_tab == 1 {
+            ui.label("Click to animate:")
+            ui.spacer(4)
+
+            ui.begin_row(8, 0)
+            if ui.button("0%")   { anim_target = 0.0 }
+            if ui.button("50%")  { anim_target = 0.5 }
+            if ui.button("100%") { anim_target = 1.0 }
+            ui.end_row()
+
+            ui.spacer(6)
+            anim_bar = ui.animate(anim_bar, anim_target, 5.0)
+            ui.progress(anim_bar, "Animated")
+
+            ui.spacer(8)
+            ui.label("Easing comparison:")
+
+            pilot v1 = ui.tween(1, anim_target, 3.0, EASE_LINEAR)
+            ui.label_styled("Linear", LABEL_MONO)
+            ui.progress(v1, "")
+
+            pilot v2 = ui.tween(2, anim_target, 3.0, EASE_OUT)
+            ui.label_styled("Ease Out", LABEL_MONO)
+            ui.progress(v2, "")
+
+            pilot v3 = ui.tween(3, anim_target, 3.0, EASE_SPRING)
+            ui.label_styled("Spring", LABEL_MONO)
+            ui.progress(v3, "")
+        }
+
+        -- Modal
+        pilot mr = ui.begin_modal(modal_visible, 360, 160)
+        if modal_visible {
+            ui.label_styled("Dialog", LABEL_HEADING)
+            ui.label("This is a modal overlay.")
+            ui.spacer_fill()
+            if ui.button_primary("Close") {
+                modal_visible = false
+            }
+        }
+        ui.end_modal()
+
+        ui.end_frame()
+    }
+
+    win.close()
+    say "Done."
+}
