@@ -412,7 +412,12 @@ int64_t freak_ui_event_gained(int64_t index) {
 /* ------------------------------------------------------------------ */
 
 void freak_ui_begin_frame(int64_t handle) {
-    /* Nothing needed — drawing goes to pixel buffer directly */
+    /* Auto-show the window on first frame if not yet visible */
+    if (g_win && g_win->hwnd && !IsWindowVisible(g_win->hwnd)) {
+        ShowWindow(g_win->hwnd, SW_SHOW);
+        UpdateWindow(g_win->hwnd);
+        g_win->focused = true;
+    }
 }
 
 void freak_ui_end_frame(int64_t handle) {
