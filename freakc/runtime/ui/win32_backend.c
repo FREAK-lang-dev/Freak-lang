@@ -93,6 +93,9 @@ static LRESULT CALLBACK FreakWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     freak_ui_event ev = {0};
 
     switch (msg) {
+        case WM_ERASEBKGND:
+            return 1; /* Suppress default erase to prevent white flash on resize */
+
         case WM_CLOSE:
             ev.kind = FREAK_UI_EVENT_QUIT;
             push_event(g_win, ev);
