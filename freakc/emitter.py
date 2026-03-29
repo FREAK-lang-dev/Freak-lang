@@ -183,6 +183,13 @@ class CEmitter:
         # Pre-register built-in function return types
         self.func_sigs["parse_num"] = "double"
         self.func_sigs["format_num"] = "freak_word"
+        self.func_sigs["math_sqrt"] = "double"
+        self.func_sigs["math_pow"] = "double"
+        self.func_sigs["math_sin"] = "double"
+        self.func_sigs["math_cos"] = "double"
+        self.func_sigs["math_tan"] = "double"
+        self.func_sigs["math_floor"] = "double"
+        self.func_sigs["math_ceil"] = "double"
 
         # Collect shapes and impl blocks first
         top_stmts: list = []
@@ -1123,6 +1130,17 @@ class CEmitter:
                 "fs::write": "freak_fs_write",
             }
 
+            # std::math mapping
+            math_map = {
+                "math::sqrt": "freak_math_sqrt",
+                "math::pow": "freak_math_pow",
+                "math::sin": "freak_math_sin",
+                "math::cos": "freak_math_cos",
+                "math::tan": "freak_math_tan",
+                "math::floor": "freak_math_floor",
+                "math::ceil": "freak_math_ceil",
+            }
+
             # std::ui mapping
             ui_map = {
                 "ui::create_window": "freak_ui_create_window_word",
@@ -1162,6 +1180,7 @@ class CEmitter:
                 or thread_map.get(fq_name)
                 or bytes_map.get(fq_name)
                 or fs_map.get(fq_name)
+                or math_map.get(fq_name)
                 or ui_map.get(fq_name)
             )
             if c_func:
@@ -1230,6 +1249,7 @@ class CEmitter:
             "to_int": ("freak_word_to_int", 0, False),
             "to_num": ("freak_word_to_num", 0, False),
             "to_word": ("freak_word_from_int", 0, False),  # on int, not word
+            "substring": ("freak_word_substring", 2, False),
         }
         if expr.method in WORD_METHODS:
             c_func, _, _ = WORD_METHODS[expr.method]

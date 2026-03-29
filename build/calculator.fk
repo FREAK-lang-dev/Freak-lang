@@ -1,4 +1,5 @@
 -- FREAK Calculator v2 — Minimal Black + Purple
+-- Now with keyboard support, backspace, and sqrt
 -- "The pilot calculates. The cockpit displays."
 
 -- ================================================================
@@ -26,7 +27,7 @@ impl Window {
 }
 
 -- ================================================================
---  Calculator state — now tracks expression history
+--  Calculator state
 -- ================================================================
 
 shape CalcState {
@@ -66,6 +67,27 @@ impl CalcState {
         }
     }
 
+    task append_dot(self) -> void {
+        -- Only add dot if display doesn't already contain one
+        if not self.display.contains(".") {
+            if self.fresh {
+                self.display = "0."
+                self.fresh = false
+            } else {
+                self.display = self.display + "."
+            }
+        }
+    }
+
+    task backspace(self) -> void {
+        pilot len = self.display.length()
+        if len <= 1 {
+            self.display = "0"
+        } else {
+            self.display = self.display.substring(0, len - 1)
+        }
+    }
+
     task set_op(self, new_op: int) -> void {
         if self.has_pending {
             self.calculate()
@@ -93,7 +115,21 @@ impl CalcState {
 
     task pct(self) -> void {
         pilot val = parse_num(self.display) / 100.0
+        self.history = self.display + " %"
         self.display = format_num(val)
+    }
+
+    task do_sqrt(self) -> void {
+        pilot val = parse_num(self.display)
+        if val < 0.0 {
+            self.history = "sqrt(" + self.display + ")"
+            self.display = "Error"
+            self.fresh = true
+            give back
+        }
+        self.history = "sqrt(" + self.display + ")"
+        self.display = format_num(math::sqrt(val))
+        self.fresh = true
     }
 
     task calculate(self) -> void {
@@ -101,7 +137,6 @@ impl CalcState {
         pilot current = parse_num(self.display)
         pilot answer = 0.0
 
-        -- Build full expression for history: "5 + 3 ="
         self.history = format_num(self.pending) + op_symbol(self.op) + self.display + " ="
 
         if self.op == op_add { answer = self.pending + current }
@@ -125,7 +160,7 @@ impl CalcState {
 }
 
 -- ================================================================
---  Button: minimal flat style, no borders
+--  Button helper
 -- ================================================================
 
 task draw_button(handle: int, text: word, x: int, y: int, w: int, h: int, bg_r: int, bg_g: int, bg_b: int, hover_r: int, hover_g: int, hover_b: int, text_r: int, text_g: int, text_b: int, font_size: int, mx: int, my: int, clicked: bool) -> bool {
@@ -139,7 +174,6 @@ task draw_button(handle: int, text: word, x: int, y: int, w: int, h: int, bg_r: 
         ui::fill_rect(handle, x, y, w, h, bg_r, bg_g, bg_b, 255)
     }
 
-    -- Center text
     pilot tw = ui::measure_text(text, font_size, 0, 0)
     pilot tx = x + (w - tw) / 2
     pilot ty = y + (h - font_size - 2) / 2
@@ -155,16 +189,15 @@ task draw_button(handle: int, text: word, x: int, y: int, w: int, h: int, bg_r: 
 
 @protagonist
 task main() {
-    pilot win = Window::open(WindowConfig { title: "FREAK Calc", width: 340, height: 520, resizable: 0 })
+    pilot win = Window::open(WindowConfig { title: "FREAK Calc", width: 340, height: 580, resizable: 0 })
     pilot state = CalcState::new()
 
-    -- === COLOR PALETTE ===
-    -- Background: pure black
+    -- === COLOR PALETTE: Black + Purple ===
     pilot bg_r = 0
     pilot bg_g = 0
     pilot bg_b = 0
 
-    -- Number buttons: very dark gray
+    -- Number buttons: dark gray
     pilot num_r = 28
     pilot num_g = 28
     pilot num_b = 30
@@ -188,7 +221,7 @@ task main() {
     pilot eq_hg = 70
     pilot eq_hb = 220
 
-    -- Top row (C, +/-, %): slightly lighter surface
+    -- Top row: slightly lighter
     pilot top_r = 38
     pilot top_g = 38
     pilot top_b = 40
@@ -197,18 +230,27 @@ task main() {
     pilot top_hb = 58
 
     -- Text colors
-    pilot txt_w = 240
-    pilot txt_g2 = 240
-    pilot txt_b2 = 245
-    pilot txt_dim_r = 130
-    pilot txt_dim_g = 110
-    pilot txt_dim_b = 160
+    pilot txt_r = 240
+    pilot txt_gg = 240
+    pilot txt_b = 245
+    pilot dim_r = 130
+    pilot dim_g = 110
+    pilot dim_b = 160
+    -- Purple text for operator labels
+    pilot ptxt_r = 180
+    pilot ptxt_g = 120
+    pilot ptxt_b = 255
 
     pilot running = true
     pilot mx = 0
     pilot my = 0
     pilot mouse_clicked = false
     pilot prev_down = false
+
+    -- Key code constants
+    pilot key_backspace = 41
+    pilot key_enter = 37
+    pilot key_escape = 38
 
     repeat 9999999 times {
         if not running { give back }
@@ -223,7 +265,44 @@ task main() {
         repeat 64 times {
             if i < count {
                 pilot kind = ui::event_kind(i)
+
+                -- Quit event
                 if kind == 1 { running = false }
+
+                -- Key press event (kind == 2)
+                if kind == 2 {
+                    pilot key = ui::event_key(i)
+                    pilot pressed = ui::event_pressed(i)
+                    if pressed == 1 {
+                        if key == key_backspace { state.backspace() }
+                        if key == key_enter { state.calculate() }
+                        if key == key_escape { state.clear() }
+                    }
+                }
+
+                -- Character event (kind == 3): typed digits and operators
+                if kind == 3 {
+                    pilot ch = ui::event_character(i)
+                    if ch == 48 { state.append_digit("0") }
+                    if ch == 49 { state.append_digit("1") }
+                    if ch == 50 { state.append_digit("2") }
+                    if ch == 51 { state.append_digit("3") }
+                    if ch == 52 { state.append_digit("4") }
+                    if ch == 53 { state.append_digit("5") }
+                    if ch == 54 { state.append_digit("6") }
+                    if ch == 55 { state.append_digit("7") }
+                    if ch == 56 { state.append_digit("8") }
+                    if ch == 57 { state.append_digit("9") }
+                    if ch == 46 { state.append_dot() }
+                    if ch == 43 { state.set_op(op_add) }
+                    if ch == 45 { state.set_op(op_sub) }
+                    if ch == 42 { state.set_op(op_mul) }
+                    if ch == 47 { state.set_op(op_div) }
+                    if ch == 61 { state.calculate() }
+                    if ch == 13 { state.calculate() }
+                }
+
+                -- Mouse event (kind == 4)
                 if kind == 4 {
                     mx = ui::event_mouse_x(i)
                     my = ui::event_mouse_y(i)
@@ -242,68 +321,76 @@ task main() {
         }
 
         -- === BACKGROUND ===
-        ui::fill_rect(win.handle, 0, 0, 340, 520, bg_r, bg_g, bg_b, 255)
+        ui::fill_rect(win.handle, 0, 0, 340, 580, bg_r, bg_g, bg_b, 255)
 
         -- === DISPLAY AREA ===
-        -- History line (small, dim purple text, right-aligned)
+        -- History line (small, dim purple)
         pilot hw = ui::measure_text(state.history, 14, 0, 0)
         pilot hx = 320 - hw
         if hx < 20 { hx = 20 }
-        ui::draw_text(win.handle, state.history, hx, 30, txt_dim_r, txt_dim_g, txt_dim_b, 14, 0, 0)
+        ui::draw_text(win.handle, state.history, hx, 30, dim_r, dim_g, dim_b, 14, 0, 0)
 
         -- Main display (large, white, right-aligned)
         pilot dw = ui::measure_text(state.display, 42, 1, 0)
         pilot dx = 320 - dw
         if dx < 20 { dx = 20 }
-        ui::draw_text(win.handle, state.display, dx, 55, txt_w, txt_g2, txt_b2, 42, 1, 0)
+        ui::draw_text(win.handle, state.display, dx, 55, txt_r, txt_gg, txt_b, 42, 1, 0)
 
-        -- Thin purple separator line
+        -- Thin purple separator
         ui::fill_rect(win.handle, 20, 110, 300, 1, 80, 40, 120, 255)
 
-        -- === BUTTON GRID ===
-        -- 4 columns x 5 rows, 2px gaps for minimal look
+        -- === BUTTON GRID: 6 rows x 4 columns ===
         pilot bw = 78
-        pilot bh = 64
-        pilot gap = 4
+        pilot bh = 60
         pilot sx = 10
         pilot sy = 122
         pilot fs = 20
+        pilot step = 82
+        pilot row_h = 64
 
-        -- Row 1: C  +/-  %  /
-        if draw_button(win.handle, "C", sx, sy, bw, bh, top_r, top_g, top_b, top_hr, top_hg, top_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.clear() }
-        if draw_button(win.handle, "+/-", sx + 82, sy, bw, bh, top_r, top_g, top_b, top_hr, top_hg, top_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.negate() }
-        if draw_button(win.handle, "%", sx + 164, sy, bw, bh, top_r, top_g, top_b, top_hr, top_hg, top_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.pct() }
-        if draw_button(win.handle, "/", sx + 246, sy, bw, bh, opr, opg, opb, ophr, ophg, ophb, eq_r, eq_g, eq_b, fs, mx, my, mouse_clicked) { state.set_op(op_div) }
+        -- Row 1: C  sqrt  %  Backspace
+        if draw_button(win.handle, "C", sx, sy, bw, bh, top_r, top_g, top_b, top_hr, top_hg, top_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.clear() }
+        if draw_button(win.handle, "sqrt", sx + step, sy, bw, bh, top_r, top_g, top_b, top_hr, top_hg, top_hb, txt_r, txt_gg, txt_b, 16, mx, my, mouse_clicked) { state.do_sqrt() }
+        if draw_button(win.handle, "%", sx + step * 2, sy, bw, bh, top_r, top_g, top_b, top_hr, top_hg, top_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.pct() }
+        if draw_button(win.handle, "<-", sx + step * 3, sy, bw, bh, top_r, top_g, top_b, top_hr, top_hg, top_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.backspace() }
 
-        -- Row 2: 7  8  9  *
-        pilot r2 = sy + 68
-        if draw_button(win.handle, "7", sx, r2, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.append_digit("7") }
-        if draw_button(win.handle, "8", sx + 82, r2, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.append_digit("8") }
-        if draw_button(win.handle, "9", sx + 164, r2, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.append_digit("9") }
-        if draw_button(win.handle, "x", sx + 246, r2, bw, bh, opr, opg, opb, ophr, ophg, ophb, eq_r, eq_g, eq_b, fs, mx, my, mouse_clicked) { state.set_op(op_mul) }
+        -- Row 2: +/-  (  )  /
+        pilot r2 = sy + row_h
+        if draw_button(win.handle, "+/-", sx, r2, bw, bh, top_r, top_g, top_b, top_hr, top_hg, top_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.negate() }
+        -- Placeholder spots for future parens — just empty for now
+        ui::fill_rect(win.handle, sx + step, r2, bw, bh, num_r, num_g, num_b, 255)
+        ui::fill_rect(win.handle, sx + step * 2, r2, bw, bh, num_r, num_g, num_b, 255)
+        if draw_button(win.handle, "/", sx + step * 3, r2, bw, bh, opr, opg, opb, ophr, ophg, ophb, ptxt_r, ptxt_g, ptxt_b, fs, mx, my, mouse_clicked) { state.set_op(op_div) }
 
-        -- Row 3: 4  5  6  -
-        pilot r3 = sy + 136
-        if draw_button(win.handle, "4", sx, r3, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.append_digit("4") }
-        if draw_button(win.handle, "5", sx + 82, r3, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.append_digit("5") }
-        if draw_button(win.handle, "6", sx + 164, r3, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.append_digit("6") }
-        if draw_button(win.handle, "-", sx + 246, r3, bw, bh, opr, opg, opb, ophr, ophg, ophb, eq_r, eq_g, eq_b, fs, mx, my, mouse_clicked) { state.set_op(op_sub) }
+        -- Row 3: 7  8  9  *
+        pilot r3 = sy + row_h * 2
+        if draw_button(win.handle, "7", sx, r3, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.append_digit("7") }
+        if draw_button(win.handle, "8", sx + step, r3, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.append_digit("8") }
+        if draw_button(win.handle, "9", sx + step * 2, r3, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.append_digit("9") }
+        if draw_button(win.handle, "x", sx + step * 3, r3, bw, bh, opr, opg, opb, ophr, ophg, ophb, ptxt_r, ptxt_g, ptxt_b, fs, mx, my, mouse_clicked) { state.set_op(op_mul) }
 
-        -- Row 4: 1  2  3  +
-        pilot r4 = sy + 204
-        if draw_button(win.handle, "1", sx, r4, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.append_digit("1") }
-        if draw_button(win.handle, "2", sx + 82, r4, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.append_digit("2") }
-        if draw_button(win.handle, "3", sx + 164, r4, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.append_digit("3") }
-        if draw_button(win.handle, "+", sx + 246, r4, bw, bh, opr, opg, opb, ophr, ophg, ophb, eq_r, eq_g, eq_b, fs, mx, my, mouse_clicked) { state.set_op(op_add) }
+        -- Row 4: 4  5  6  -
+        pilot r4 = sy + row_h * 3
+        if draw_button(win.handle, "4", sx, r4, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.append_digit("4") }
+        if draw_button(win.handle, "5", sx + step, r4, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.append_digit("5") }
+        if draw_button(win.handle, "6", sx + step * 2, r4, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.append_digit("6") }
+        if draw_button(win.handle, "-", sx + step * 3, r4, bw, bh, opr, opg, opb, ophr, ophg, ophb, ptxt_r, ptxt_g, ptxt_b, fs, mx, my, mouse_clicked) { state.set_op(op_sub) }
 
-        -- Row 5: 0 (wide)  .  =
-        pilot r5 = sy + 272
-        if draw_button(win.handle, "0", sx, r5, 160, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.append_digit("0") }
-        if draw_button(win.handle, ".", sx + 164, r5, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.append_digit(".") }
-        if draw_button(win.handle, "=", sx + 246, r5, bw, bh, eq_r, eq_g, eq_b, eq_hr, eq_hg, eq_hb, txt_w, txt_g2, txt_b2, fs, mx, my, mouse_clicked) { state.calculate() }
+        -- Row 5: 1  2  3  +
+        pilot r5 = sy + row_h * 4
+        if draw_button(win.handle, "1", sx, r5, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.append_digit("1") }
+        if draw_button(win.handle, "2", sx + step, r5, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.append_digit("2") }
+        if draw_button(win.handle, "3", sx + step * 2, r5, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.append_digit("3") }
+        if draw_button(win.handle, "+", sx + step * 3, r5, bw, bh, opr, opg, opb, ophr, ophg, ophb, ptxt_r, ptxt_g, ptxt_b, fs, mx, my, mouse_clicked) { state.set_op(op_add) }
 
-        -- Subtle branding at bottom
-        ui::draw_text(win.handle, "FREAK Calc", 12, 500, 50, 30, 70, 11, 0, 0)
+        -- Row 6: 0 (wide)  .  =
+        pilot r6 = sy + row_h * 5
+        if draw_button(win.handle, "0", sx, r6, 160, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.append_digit("0") }
+        if draw_button(win.handle, ".", sx + step * 2, r6, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.append_dot() }
+        if draw_button(win.handle, "=", sx + step * 3, r6, bw, bh, eq_r, eq_g, eq_b, eq_hr, eq_hg, eq_hb, txt_r, txt_gg, txt_b, fs, mx, my, mouse_clicked) { state.calculate() }
+
+        -- Subtle branding
+        ui::draw_text(win.handle, "FREAK Calc", 12, 562, 40, 25, 55, 11, 0, 0)
 
         ui::end_frame(win.handle)
     }
