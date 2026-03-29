@@ -180,6 +180,10 @@ class CEmitter:
         self._includes = set()
         self._uses_ui = False
 
+        # Pre-register built-in function return types
+        self.func_sigs["parse_num"] = "double"
+        self.func_sigs["format_num"] = "freak_word"
+
         # Collect shapes and impl blocks first
         top_stmts: list = []
         task_decls: list = []
@@ -1175,11 +1179,15 @@ class CEmitter:
 
         # Check if this is a method on a known shape
         obj_type = self._infer_c_type_of_expr(expr.obj)
-        if obj_type in self.shapes:
-            # Call as TypeName_method(&obj, args)
+        # Strip pointer suffix for shape lookup (self is CalcState* inside methods)
+        base_type = obj_type.rstrip("*").strip() if obj_type else obj_type
+        is_ptr = obj_type.endswith("*") if obj_type else False
+        if base_type in self.shapes:
+            # Call as TypeName_method(&obj, args) or TypeName_method(obj, args) if already pointer
+            ref = obj_c if is_ptr else f"&{obj_c}"
             if args_c:
-                return f"{obj_type}_{expr.method}(&{obj_c}, {args_c})"
-            return f"{obj_type}_{expr.method}(&{obj_c})"
+                return f"{base_type}_{expr.method}({ref}, {args_c})"
+            return f"{base_type}_{expr.method}({ref})"
 
         # std::bytes -- ByteBuffer methods (check before WORD_METHODS so
         # .length() on a buffer doesn't accidentally call freak_word_length)
@@ -1230,9 +1238,10 @@ class CEmitter:
             return f"{c_func}({obj_c})"
 
         # Generic method call: try type_method pattern
+        ref = obj_c if is_ptr else f"&{obj_c}"
         if args_c:
-            return f"{obj_type}_{expr.method}(&{obj_c}, {args_c})"
-        return f"{obj_type}_{expr.method}(&{obj_c})"
+            return f"{base_type}_{expr.method}({ref}, {args_c})"
+        return f"{base_type}_{expr.method}({ref})"
 
     def _emit_field_access(self, expr: FieldAccess) -> str:
         obj_c = self._expr_to_c(expr.obj)
