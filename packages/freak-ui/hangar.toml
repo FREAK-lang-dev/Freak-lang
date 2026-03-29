@@ -1,8 +1,0 @@
-[project]
-name = "freak-ui"
-version = "0.1.0"
-author = "FREAK Core Team"
-edition = "alternative-4"
-description = "Immediate-mode UI framework for FREAK"
-
-[dependencies]

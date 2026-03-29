@@ -1,0 +1,272 @@
+-- FREAK Calculator — COCKPIT Alternative theme
+-- "It was always going to be a calculator."
+
+-- ================================================================
+--  Shapes (inline since multi-file not yet wired for low-level)
+-- ================================================================
+
+shape WindowConfig {
+    title: word
+    width: int
+    height: int
+    resizable: int
+}
+
+shape Window {
+    handle: int
+    width: int
+    height: int
+}
+
+impl Window {
+    task open(config: WindowConfig) -> Window {
+        pilot h = ui::create_window(config.title, config.width, config.height, config.resizable)
+        give back Window { handle: h, width: config.width, height: config.height }
+    }
+}
+
+-- ================================================================
+--  Calculator state
+-- ================================================================
+
+shape CalcState {
+    display:   word
+    pending:   num
+    has_pending: bool
+    op:        int
+    fresh:     bool
+}
+
+pilot op_none = 0
+pilot op_add  = 1
+pilot op_sub  = 2
+pilot op_mul  = 3
+pilot op_div  = 4
+
+impl CalcState {
+    task new() -> CalcState {
+        give back CalcState { display: "0", pending: 0.0, has_pending: false, op: op_none, fresh: false }
+    }
+
+    task append_digit(self, digit: word) -> void {
+        if self.fresh or self.display == "0" {
+            self.display = digit
+            self.fresh = false
+        } else {
+            self.display = self.display + digit
+        }
+    }
+
+    task set_op(self, new_op: int) -> void {
+        self.pending = parse_num(self.display)
+        self.has_pending = true
+        self.op = new_op
+        self.fresh = true
+    }
+
+    task clear(self) -> void {
+        self.display = "0"
+        self.pending = 0.0
+        self.has_pending = false
+        self.op = op_none
+        self.fresh = false
+    }
+
+    task negate(self) -> void {
+        pilot val = parse_num(self.display) * -1.0
+        self.display = format_num(val)
+    }
+
+    task pct(self) -> void {
+        pilot val = parse_num(self.display) / 100.0
+        self.display = format_num(val)
+    }
+
+    task calculate(self) -> void {
+        if not self.has_pending { give back }
+        pilot current = parse_num(self.display)
+        pilot answer = 0.0
+        if self.op == op_add { answer = self.pending + current }
+        if self.op == op_sub { answer = self.pending - current }
+        if self.op == op_mul { answer = self.pending * current }
+        if self.op == op_div {
+            if current == 0.0 {
+                self.display = "Error"
+                self.has_pending = false
+                self.op = op_none
+                self.fresh = true
+                give back
+            }
+            answer = self.pending / current
+        }
+        self.display = format_num(answer)
+        self.has_pending = false
+        self.op = op_none
+        self.fresh = true
+    }
+}
+
+-- ================================================================
+--  Button helper: draw a button, return true if clicked
+-- ================================================================
+
+task draw_button(handle: int, text: word, x: int, y: int, w: int, h: int, bg_r: int, bg_g: int, bg_b: int, hover_r: int, hover_g: int, hover_b: int, mx: int, my: int, clicked: bool) -> bool {
+    -- Check hover
+    pilot hovered = false
+    if mx >= x { if mx < x + w { if my >= y { if my < y + h { hovered = true } } } }
+
+    -- Draw background
+    if hovered {
+        ui::fill_rect(handle, x, y, w, h, hover_r, hover_g, hover_b, 255)
+    }
+    if not hovered {
+        ui::fill_rect(handle, x, y, w, h, bg_r, bg_g, bg_b, 255)
+    }
+
+    -- Draw border
+    ui::stroke_rect(handle, x, y, w, h, 60, 50, 100, 255, 1)
+
+    -- Draw text centered
+    pilot tw = ui::measure_text(text, 18, 0, 0)
+    pilot tx = x + (w - tw) / 2
+    pilot ty = y + (h - 20) / 2
+    ui::draw_text(handle, text, tx, ty, 220, 220, 240, 18, 0, 0)
+
+    -- Return if clicked
+    if hovered { if clicked { give back true } }
+    give back false
+}
+
+-- ================================================================
+--  Main
+-- ================================================================
+
+@protagonist
+task main() {
+    pilot win = Window::open(WindowConfig { title: "FREAK Calculator", width: 320, height: 480, resizable: 0 })
+    pilot state = CalcState::new()
+
+    -- COCKPIT Alternative theme colors
+    -- bg: 15, 20, 45   surface: 25, 30, 60   border: 60, 50, 100
+    -- accent: 255, 45, 120   text: 220, 220, 240
+    -- number buttons: surface   operator buttons: accent-ish
+    pilot num_r = 25
+    pilot num_g = 30
+    pilot num_b = 60
+    pilot num_hr = 40
+    pilot num_hg = 45
+    pilot num_hb = 80
+    pilot op_r = 180
+    pilot op_g = 30
+    pilot op_b = 90
+    pilot op_hr = 255
+    pilot op_hg = 45
+    pilot op_hb = 120
+    pilot eq_r = 255
+    pilot eq_g = 45
+    pilot eq_b = 120
+    pilot eq_hr = 255
+    pilot eq_hg = 80
+    pilot eq_hb = 150
+
+    pilot running = true
+    pilot mx = 0
+    pilot my = 0
+    pilot mouse_down = false
+    pilot mouse_clicked = false
+    pilot prev_down = false
+
+    repeat 9999999 times {
+        if not running { give back }
+
+        ui::begin_frame(win.handle)
+
+        -- Poll events
+        pilot count = ui::poll_events(win.handle)
+        if count < 0 { running = false }
+
+        mouse_clicked = false
+        pilot i = 0
+        repeat 64 times {
+            if i < count {
+                pilot kind = ui::event_kind(i)
+                if kind == 1 { running = false }
+                if kind == 4 {
+                    mx = ui::event_mouse_x(i)
+                    my = ui::event_mouse_y(i)
+                    pilot btn = ui::event_button(i)
+                    pilot pressed = ui::event_pressed(i)
+                    if btn == 1 {
+                        if pressed == 1 {
+                            if not prev_down { mouse_clicked = true }
+                            prev_down = true
+                        }
+                        if pressed == 0 { prev_down = false }
+                    }
+                }
+            }
+            i = i + 1
+        }
+
+        -- Clear background
+        ui::fill_rect(win.handle, 0, 0, 320, 480, 15, 20, 45, 255)
+
+        -- Display area
+        ui::fill_rect(win.handle, 10, 10, 300, 70, 25, 30, 60, 255)
+        ui::stroke_rect(win.handle, 10, 10, 300, 70, 60, 50, 100, 255, 1)
+
+        -- Display text (right-aligned)
+        pilot dw = ui::measure_text(state.display, 32, 1, 0)
+        pilot dx = 300 - dw
+        if dx < 20 { dx = 20 }
+        ui::draw_text(win.handle, state.display, dx, 30, 220, 220, 240, 32, 1, 0)
+
+        -- Button grid: 5 rows x 4 columns
+        -- Starts at y=95, each button 70x60 with 5px gaps
+        pilot bw = 70
+        pilot bh = 60
+        pilot gap = 5
+        pilot sx = 10
+        pilot sy = 95
+
+        -- Row 1: C  +/-  %  /
+        if draw_button(win.handle, "C", sx, sy, bw, bh, op_r, op_g, op_b, op_hr, op_hg, op_hb, mx, my, mouse_clicked) { state.clear() }
+        if draw_button(win.handle, "+/-", sx + 75, sy, bw, bh, op_r, op_g, op_b, op_hr, op_hg, op_hb, mx, my, mouse_clicked) { state.negate() }
+        if draw_button(win.handle, "%", sx + 150, sy, bw, bh, op_r, op_g, op_b, op_hr, op_hg, op_hb, mx, my, mouse_clicked) { state.pct() }
+        if draw_button(win.handle, "/", sx + 225, sy, bw, bh, op_r, op_g, op_b, op_hr, op_hg, op_hb, mx, my, mouse_clicked) { state.set_op(op_div) }
+
+        -- Row 2: 7  8  9  *
+        pilot r2 = sy + 65
+        if draw_button(win.handle, "7", sx, r2, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, mx, my, mouse_clicked) { state.append_digit("7") }
+        if draw_button(win.handle, "8", sx + 75, r2, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, mx, my, mouse_clicked) { state.append_digit("8") }
+        if draw_button(win.handle, "9", sx + 150, r2, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, mx, my, mouse_clicked) { state.append_digit("9") }
+        if draw_button(win.handle, "*", sx + 225, r2, bw, bh, op_r, op_g, op_b, op_hr, op_hg, op_hb, mx, my, mouse_clicked) { state.set_op(op_mul) }
+
+        -- Row 3: 4  5  6  -
+        pilot r3 = sy + 130
+        if draw_button(win.handle, "4", sx, r3, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, mx, my, mouse_clicked) { state.append_digit("4") }
+        if draw_button(win.handle, "5", sx + 75, r3, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, mx, my, mouse_clicked) { state.append_digit("5") }
+        if draw_button(win.handle, "6", sx + 150, r3, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, mx, my, mouse_clicked) { state.append_digit("6") }
+        if draw_button(win.handle, "-", sx + 225, r3, bw, bh, op_r, op_g, op_b, op_hr, op_hg, op_hb, mx, my, mouse_clicked) { state.set_op(op_sub) }
+
+        -- Row 4: 1  2  3  +
+        pilot r4 = sy + 195
+        if draw_button(win.handle, "1", sx, r4, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, mx, my, mouse_clicked) { state.append_digit("1") }
+        if draw_button(win.handle, "2", sx + 75, r4, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, mx, my, mouse_clicked) { state.append_digit("2") }
+        if draw_button(win.handle, "3", sx + 150, r4, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, mx, my, mouse_clicked) { state.append_digit("3") }
+        if draw_button(win.handle, "+", sx + 225, r4, bw, bh, op_r, op_g, op_b, op_hr, op_hg, op_hb, mx, my, mouse_clicked) { state.set_op(op_add) }
+
+        -- Row 5: 0(wide)  .  =
+        pilot r5 = sy + 260
+        if draw_button(win.handle, "0", sx, r5, 145, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, mx, my, mouse_clicked) { state.append_digit("0") }
+        if draw_button(win.handle, ".", sx + 150, r5, bw, bh, num_r, num_g, num_b, num_hr, num_hg, num_hb, mx, my, mouse_clicked) { state.append_digit(".") }
+        if draw_button(win.handle, "=", sx + 225, r5, bw, bh, eq_r, eq_g, eq_b, eq_hr, eq_hg, eq_hb, mx, my, mouse_clicked) { state.calculate() }
+
+        -- Title bar text
+        ui::draw_text(win.handle, "COCKPIT Calculator", 10, 460, 140, 130, 180, 11, 0, 0)
+
+        ui::end_frame(win.handle)
+    }
+
+    ui::destroy_window(win.handle)
+}

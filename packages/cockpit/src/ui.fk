@@ -1,4 +1,4 @@
--- freak-ui: Main UI Shape
+-- COCKPIT: Main UI Shape
 -- The immediate-mode state machine that drives everything.
 --
 -- Usage:
@@ -10,17 +10,17 @@
 --   ui.end_frame()
 
 use std::ui::{Window, Canvas, Rect, Vec2, Color, Font, Event,
-              EVENT_NONE, EVENT_QUIT, EVENT_KEY, EVENT_CHAR, EVENT_MOUSE,
-              EVENT_SCROLL, EVENT_RESIZE, EVENT_FOCUS,
-              MOUSE_LEFT, MOUSE_RIGHT, KEY_BACKSPACE, KEY_DELETE,
-              KEY_LEFT, KEY_RIGHT, KEY_ENTER, KEY_TAB, KEY_ESCAPE}
+              event_none, event_quit, event_key, event_char, event_mouse,
+              event_scroll, event_resize, event_focus,
+              mouse_left, mouse_right, key_backspace, key_delete,
+              key_left, key_right, key_enter, key_tab, key_escape}
 
 -- Easing function constants
-fixed pilot EASE_LINEAR      = 0
-fixed pilot EASE_IN          = 1
-fixed pilot EASE_OUT         = 2
-fixed pilot EASE_IN_OUT      = 3
-fixed pilot EASE_SPRING      = 4
+fixed pilot ease_linear      = 0
+fixed pilot ease_in          = 1
+fixed pilot ease_out         = 2
+fixed pilot ease_in_out      = 3
+fixed pilot ease_spring      = 4
 
 -- ================================================================
 --  UI — the immediate mode state machine
@@ -175,13 +175,13 @@ impl UI {
         pilot i = 0
         repeat events.len() times {
             pilot ev = events[i]
-            if ev.kind == EVENT_QUIT {
+            if ev.kind == event_quit {
                 self.should_quit = true
             }
-            if ev.kind == EVENT_MOUSE {
+            if ev.kind == event_mouse {
                 self.mouse_x = ev.mouse_x
                 self.mouse_y = ev.mouse_y
-                if ev.button == MOUSE_LEFT {
+                if ev.button == mouse_left {
                     if ev.pressed == 1 {
                         self.mouse_down = true
                         self.mouse_clicked = true
@@ -191,25 +191,25 @@ impl UI {
                     }
                 }
             }
-            if ev.kind == EVENT_KEY {
+            if ev.kind == event_key {
                 if ev.pressed == 1 {
                     self.key_pressed = ev.key
-                    if ev.key == KEY_BACKSPACE { self.key_backspace = true }
-                    if ev.key == KEY_DELETE    { self.key_delete = true }
-                    if ev.key == KEY_LEFT      { self.key_left = true }
-                    if ev.key == KEY_RIGHT     { self.key_right = true }
-                    if ev.key == KEY_ENTER     { self.key_enter = true }
-                    if ev.key == KEY_TAB       { self.key_tab = true }
-                    if ev.key == KEY_ESCAPE    { self.key_escape = true }
+                    if ev.key == key_backspace { self.key_backspace = true }
+                    if ev.key == key_delete    { self.key_delete = true }
+                    if ev.key == key_left      { self.key_left = true }
+                    if ev.key == key_right     { self.key_right = true }
+                    if ev.key == key_enter     { self.key_enter = true }
+                    if ev.key == key_tab       { self.key_tab = true }
+                    if ev.key == key_escape    { self.key_escape = true }
                 }
             }
-            if ev.kind == EVENT_CHAR {
+            if ev.kind == event_char {
                 self.char_typed = ev.character
             }
-            if ev.kind == EVENT_SCROLL {
+            if ev.kind == event_scroll {
                 self.scroll_delta = self.scroll_delta + ev.scroll_dy
             }
-            if ev.kind == EVENT_RESIZE {
+            if ev.kind == event_resize {
                 self.window.width = ev.width
                 self.window.height = ev.height
             }
@@ -227,7 +227,7 @@ impl UI {
         self.layout.push(
             0.0, 0.0,
             self.window.width, self.window.height,
-            DIR_VERTICAL,
+            dir_vertical,
             self.theme.gap,
             self.theme.padding
         )
@@ -271,7 +271,7 @@ impl UI {
         -- We use a temporary height; the parent cursor will be adjusted on end_row
         self.layout.push(
             pos.x, pos.y, avail_w, avail_h,
-            DIR_HORIZONTAL, gap, pad
+            dir_horizontal, gap, pad
         )
     }
 
@@ -288,7 +288,7 @@ impl UI {
 
         self.layout.push(
             pos.x, pos.y, avail_w, avail_h,
-            DIR_VERTICAL, gap, pad
+            dir_vertical, gap, pad
         )
     }
 
@@ -303,7 +303,7 @@ impl UI {
 
     -- Label: display text
     task label(self, text: word) -> void {
-        self.label_styled(text, LABEL_NORMAL)
+        self.label_styled(text, label_normal)
     }
 
     task label_styled(self, text: word, style: int) -> void {
@@ -319,11 +319,11 @@ impl UI {
 
     -- Button: clickable, returns true on click
     task button(self, text: word) -> bool {
-        give back self.button_styled(text, BTN_NORMAL, SizeHint::auto())
+        give back self.button_styled(text, btn_normal, SizeHint::auto())
     }
 
     task button_primary(self, text: word) -> bool {
-        give back self.button_styled(text, BTN_PRIMARY, SizeHint::auto())
+        give back self.button_styled(text, btn_primary, SizeHint::auto())
     }
 
     task button_styled(self, text: word, style: int, width_hint: SizeHint) -> bool {
@@ -335,17 +335,17 @@ impl UI {
         pilot rect = self.layout.allocate(btn_w, btn_h)
 
         -- Check interaction
-        pilot result = button_check(rect, self.mouse_x, self.mouse_y,
+        pilot btn_result = button_check(rect, self.mouse_x, self.mouse_y,
                                     self.mouse_down, self.mouse_clicked)
 
         -- Draw
-        button_draw(self.canvas, text, rect, style, result.hovered,
+        button_draw(self.canvas, text, rect, style, btn_result.hovered,
                     self.theme.surface, self.theme.accent, self.theme.accent_hover,
                     self.theme.danger, self.theme.text, self.theme.border,
                     self.theme.radius, self.theme.font_size)
 
         self.widget_count = self.widget_count + 1
-        give back result.clicked
+        give back btn_result.clicked
     }
 
     -- Input: text field, returns true if value changed
@@ -421,7 +421,7 @@ impl UI {
     -- Spacer: empty space
     task spacer(self, size: num) -> void {
         pilot dir = self.layout.current_direction()
-        if dir == DIR_HORIZONTAL {
+        if dir == dir_horizontal {
             self.layout.allocate(size, 0.0)
         } else {
             self.layout.allocate(0.0, size)
@@ -430,7 +430,7 @@ impl UI {
 
     task spacer_fill(self) -> void {
         pilot dir = self.layout.current_direction()
-        if dir == DIR_HORIZONTAL {
+        if dir == dir_horizontal {
             pilot remaining = self.layout.remaining_width()
             self.layout.allocate(remaining, 0.0)
         } else {
@@ -442,7 +442,7 @@ impl UI {
     -- Separator: horizontal or vertical line
     task separator(self) -> void {
         pilot dir = self.layout.current_direction()
-        if dir == DIR_HORIZONTAL {
+        if dir == dir_horizontal {
             pilot rect = self.layout.allocate(1.0, self.layout.remaining_height())
             separator_draw(self.canvas, rect, self.theme.border)
         } else {
@@ -702,7 +702,7 @@ impl UI {
         -- Push a layout context inside the panel
         self.layout.push(
             panel.x, panel.y, panel.w, panel.h,
-            DIR_VERTICAL, self.theme.gap, self.theme.padding
+            dir_vertical, self.theme.gap, self.theme.padding
         )
 
         give back panel
@@ -749,7 +749,7 @@ impl UI {
         -- Content starts at rect.y - scroll_offset (clipped by the visible area)
         self.layout.push(
             rect.x, rect.y - scroll_offset, avail_w, 10000.0,
-            DIR_VERTICAL, self.theme.gap, 0.0
+            dir_vertical, self.theme.gap, 0.0
         )
 
         -- Draw background
@@ -889,19 +889,19 @@ impl UI {
 
 -- Apply easing curve to a 0..1 parameter t
 task ease(t: num, easing: int) -> num {
-    if easing == EASE_LINEAR {
+    if easing == ease_linear {
         give back t
     }
-    if easing == EASE_IN {
+    if easing == ease_in {
         -- Quadratic ease in: t^2
         give back t * t
     }
-    if easing == EASE_OUT {
+    if easing == ease_out {
         -- Quadratic ease out: 1 - (1-t)^2
         pilot inv = 1.0 - t
         give back 1.0 - inv * inv
     }
-    if easing == EASE_IN_OUT {
+    if easing == ease_in_out {
         -- Cubic ease in-out
         if t < 0.5 {
             give back 4.0 * t * t * t
@@ -909,7 +909,7 @@ task ease(t: num, easing: int) -> num {
         pilot p = 2.0 * t - 2.0
         give back 0.5 * p * p * p + 1.0
     }
-    if easing == EASE_SPRING {
+    if easing == ease_spring {
         -- Damped spring approximation
         -- Overshoots then settles
         pilot p = t * t

@@ -95,58 +95,58 @@ impl Font {
 -- ================================================================
 
 -- Event kind constants (match C defines)
-fixed pilot EVENT_NONE   = 0
-fixed pilot EVENT_QUIT   = 1
-fixed pilot EVENT_KEY    = 2
-fixed pilot EVENT_CHAR   = 3
-fixed pilot EVENT_MOUSE  = 4
-fixed pilot EVENT_SCROLL = 5
-fixed pilot EVENT_RESIZE = 6
-fixed pilot EVENT_FOCUS  = 7
+fixed pilot event_none   = 0
+fixed pilot event_quit   = 1
+fixed pilot event_key    = 2
+fixed pilot event_char   = 3
+fixed pilot event_mouse  = 4
+fixed pilot event_scroll = 5
+fixed pilot event_resize = 6
+fixed pilot event_focus  = 7
 
 -- Key constants (match C defines)
-fixed pilot KEY_A = 1
-fixed pilot KEY_B = 2
-fixed pilot KEY_C = 3
-fixed pilot KEY_D = 4
-fixed pilot KEY_E = 5
-fixed pilot KEY_F = 6
-fixed pilot KEY_G = 7
-fixed pilot KEY_H = 8
-fixed pilot KEY_I = 9
-fixed pilot KEY_J = 10
-fixed pilot KEY_K = 11
-fixed pilot KEY_L = 12
-fixed pilot KEY_M = 13
-fixed pilot KEY_N = 14
-fixed pilot KEY_O = 15
-fixed pilot KEY_P = 16
-fixed pilot KEY_Q = 17
-fixed pilot KEY_R = 18
-fixed pilot KEY_S = 19
-fixed pilot KEY_T = 20
-fixed pilot KEY_U = 21
-fixed pilot KEY_V = 22
-fixed pilot KEY_W = 23
-fixed pilot KEY_X = 24
-fixed pilot KEY_Y = 25
-fixed pilot KEY_Z = 26
-fixed pilot KEY_ENTER     = 37
-fixed pilot KEY_ESCAPE    = 38
-fixed pilot KEY_SPACE     = 39
-fixed pilot KEY_TAB       = 40
-fixed pilot KEY_BACKSPACE = 41
-fixed pilot KEY_DELETE    = 42
-fixed pilot KEY_UP        = 43
-fixed pilot KEY_DOWN      = 44
-fixed pilot KEY_LEFT      = 45
-fixed pilot KEY_RIGHT     = 46
+fixed pilot key_a = 1
+fixed pilot key_b = 2
+fixed pilot key_c = 3
+fixed pilot key_d = 4
+fixed pilot key_e = 5
+fixed pilot key_f = 6
+fixed pilot key_g = 7
+fixed pilot key_h = 8
+fixed pilot key_i = 9
+fixed pilot key_j = 10
+fixed pilot key_k = 11
+fixed pilot key_l = 12
+fixed pilot key_m = 13
+fixed pilot key_n = 14
+fixed pilot key_o = 15
+fixed pilot key_p = 16
+fixed pilot key_q = 17
+fixed pilot key_r = 18
+fixed pilot key_s = 19
+fixed pilot key_t = 20
+fixed pilot key_u = 21
+fixed pilot key_v = 22
+fixed pilot key_w = 23
+fixed pilot key_x = 24
+fixed pilot key_y = 25
+fixed pilot key_z = 26
+fixed pilot key_enter     = 37
+fixed pilot key_escape    = 38
+fixed pilot key_space     = 39
+fixed pilot key_tab       = 40
+fixed pilot key_backspace = 41
+fixed pilot key_delete    = 42
+fixed pilot key_up        = 43
+fixed pilot key_down      = 44
+fixed pilot key_left      = 45
+fixed pilot key_right     = 46
 
 -- Mouse button constants
-fixed pilot MOUSE_NONE   = 0
-fixed pilot MOUSE_LEFT   = 1
-fixed pilot MOUSE_RIGHT  = 2
-fixed pilot MOUSE_MIDDLE = 3
+fixed pilot mouse_none   = 0
+fixed pilot mouse_left   = 1
+fixed pilot mouse_right  = 2
+fixed pilot mouse_middle = 3
 
 -- Raw event shape (flat, easy FFI)
 shape Event {
@@ -166,27 +166,27 @@ shape Event {
 
 impl Event {
     task is_quit(self) -> bool {
-        give back self.kind == EVENT_QUIT
+        give back self.kind == event_quit
     }
 
     task is_key_down(self, k: int) -> bool {
-        give back self.kind == EVENT_KEY and self.key == k and self.pressed == 1
+        give back self.kind == event_key and self.key == k and self.pressed == 1
     }
 
     task is_key_up(self, k: int) -> bool {
-        give back self.kind == EVENT_KEY and self.key == k and self.pressed == 0
+        give back self.kind == event_key and self.key == k and self.pressed == 0
     }
 
     task is_mouse_down(self, btn: int) -> bool {
-        give back self.kind == EVENT_MOUSE and self.button == btn and self.pressed == 1
+        give back self.kind == event_mouse and self.button == btn and self.pressed == 1
     }
 
     task is_mouse_up(self, btn: int) -> bool {
-        give back self.kind == EVENT_MOUSE and self.button == btn and self.pressed == 0
+        give back self.kind == event_mouse and self.button == btn and self.pressed == 0
     }
 
     task is_click_in(self, rect: Rect) -> bool {
-        give back self.kind == EVENT_MOUSE and self.button == MOUSE_LEFT and self.pressed == 1 and rect.contains(self.mouse_x, self.mouse_y)
+        give back self.kind == event_mouse and self.button == mouse_left and self.pressed == 1 and rect.contains(self.mouse_x, self.mouse_y)
     }
 }
 
@@ -233,7 +233,7 @@ impl Window {
     }
 
     -- Poll events for this frame. Returns a list of events.
-    -- If quit was requested, the list will contain an EVENT_QUIT event.
+    -- If quit was requested, the list will contain an event_quit event.
     task poll(self) -> List<Event> {
         pilot events = []
         pilot count = ui::poll_events(self.handle)
@@ -241,7 +241,7 @@ impl Window {
         if count < 0 {
             -- Quit requested
             events.push(Event {
-                kind: EVENT_QUIT, key: 0, pressed: 0, key_repeat: 0,
+                kind: event_quit, key: 0, pressed: 0, key_repeat: 0,
                 character: 0, mouse_x: 0, mouse_y: 0, button: 0,
                 scroll_dy: 0, width: 0, height: 0, gained: 0
             })

@@ -213,6 +213,8 @@ freak_word freak_word_substring(freak_word w, int64_t start, int64_t len);
 int64_t freak_word_to_int(freak_word w);
 int64_t freak_word_compare(freak_word a, freak_word b);
 double  freak_word_to_num(freak_word w);
+double  freak_parse_num(freak_word w);
+freak_word freak_format_num(double n);
 
 /* ------------------------------------------------------------------ */
 /*  std::process                                                      */

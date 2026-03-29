@@ -529,6 +529,16 @@ double freak_word_to_num(freak_word w) {
     return strtod(w.data, NULL);
 }
 
+double freak_parse_num(freak_word w) {
+    return strtod(w.data, NULL);
+}
+
+freak_word freak_format_num(double n) {
+    static char buf[64];
+    snprintf(buf, sizeof(buf), "%.10g", n);
+    return freak_word_lit(buf);
+}
+
 /* ------------------------------------------------------------------ */
 /*  std::process                                                      */
 /* ------------------------------------------------------------------ */

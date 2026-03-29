@@ -1,4 +1,4 @@
--- freak-ui: Layout Engine (Phase B)
+-- COCKPIT: Layout Engine (Phase B)
 -- Immediate-mode flex-like layout system.
 --
 -- Layout works via a cursor stack. Each frame starts with a root layout
@@ -14,10 +14,10 @@ use std::ui::{Rect, Vec2}
 -- ================================================================
 
 -- Size hint constants
-fixed pilot SIZE_AUTO     = 0   -- fit content
-fixed pilot SIZE_FILL     = 1   -- fill remaining space
-fixed pilot SIZE_FIXED    = 2   -- exact pixel value
-fixed pilot SIZE_FRACTION = 3   -- fraction of available space
+fixed pilot size_auto     = 0   -- fit content
+fixed pilot size_fill     = 1   -- fill remaining space
+fixed pilot size_fixed    = 2   -- exact pixel value
+fixed pilot size_fraction = 3   -- fraction of available space
 
 shape SizeHint {
     kind:  int
@@ -26,33 +26,33 @@ shape SizeHint {
 
 impl SizeHint {
     task auto() -> SizeHint {
-        give back SizeHint { kind: SIZE_AUTO, value: 0.0 }
+        give back SizeHint { kind: size_auto, value: 0.0 }
     }
 
     task fill() -> SizeHint {
-        give back SizeHint { kind: SIZE_FILL, value: 0.0 }
+        give back SizeHint { kind: size_fill, value: 0.0 }
     }
 
     task fixed(px: num) -> SizeHint {
-        give back SizeHint { kind: SIZE_FIXED, value: px }
+        give back SizeHint { kind: size_fixed, value: px }
     }
 
     task fraction(f: num) -> SizeHint {
-        give back SizeHint { kind: SIZE_FRACTION, value: f }
+        give back SizeHint { kind: size_fraction, value: f }
     }
 
     -- Resolve a size hint to actual pixels
     task resolve(self, available: num, content: num) -> num {
-        if self.kind == SIZE_AUTO {
+        if self.kind == size_auto {
             give back content
         }
-        if self.kind == SIZE_FILL {
+        if self.kind == size_fill {
             give back available
         }
-        if self.kind == SIZE_FIXED {
+        if self.kind == size_fixed {
             give back self.value
         }
-        if self.kind == SIZE_FRACTION {
+        if self.kind == size_fraction {
             give back available * self.value
         }
         give back content
@@ -63,8 +63,8 @@ impl SizeHint {
 --  Layout direction
 -- ================================================================
 
-fixed pilot DIR_VERTICAL   = 0
-fixed pilot DIR_HORIZONTAL = 1
+fixed pilot dir_vertical   = 0
+fixed pilot dir_horizontal = 1
 
 -- ================================================================
 --  Layout context — one entry on the layout stack
@@ -116,7 +116,7 @@ impl LayoutContext {
 
     -- Get the remaining width available for the next widget
     task remaining_width(self) -> num {
-        if self.direction == DIR_HORIZONTAL {
+        if self.direction == dir_horizontal {
             pilot used = self.cursor_x - self.x
             give back self.max_w - used
         }
@@ -125,7 +125,7 @@ impl LayoutContext {
 
     -- Get the remaining height available for the next widget
     task remaining_height(self) -> num {
-        if self.direction == DIR_VERTICAL {
+        if self.direction == dir_vertical {
             pilot used = self.cursor_y - self.y
             give back self.max_h - used
         }
@@ -137,7 +137,7 @@ impl LayoutContext {
     task allocate(self, w: num, h: num) -> Rect {
         -- Add gap before non-first widgets
         if self.count > 0 {
-            if self.direction == DIR_HORIZONTAL {
+            if self.direction == dir_horizontal {
                 self.cursor_x = self.cursor_x + self.gap
             } else {
                 self.cursor_y = self.cursor_y + self.gap
@@ -152,7 +152,7 @@ impl LayoutContext {
         }
 
         -- Advance cursor
-        if self.direction == DIR_HORIZONTAL {
+        if self.direction == dir_horizontal {
             self.cursor_x = self.cursor_x + w
             if h > self.cross_max {
                 self.cross_max = h
@@ -170,14 +170,14 @@ impl LayoutContext {
 
     -- Get the total size consumed by all widgets so far
     task consumed_width(self) -> num {
-        if self.direction == DIR_HORIZONTAL {
+        if self.direction == dir_horizontal {
             give back self.cursor_x - self.x
         }
         give back self.cross_max
     }
 
     task consumed_height(self) -> num {
-        if self.direction == DIR_VERTICAL {
+        if self.direction == dir_vertical {
             give back self.cursor_y - self.y
         }
         give back self.cross_max
@@ -254,7 +254,7 @@ impl LayoutStack {
         pilot consumed_w = 0.0
         pilot consumed_h = 0.0
 
-        if dir == DIR_HORIZONTAL {
+        if dir == dir_horizontal {
             consumed_w = self.ctx_cursor_x[i] - self.ctx_x[i]
             consumed_h = self.ctx_cross_max[i]
         } else {
@@ -274,7 +274,7 @@ impl LayoutStack {
     -- Get remaining width in current context
     task remaining_width(self) -> num {
         pilot i = self.depth - 1
-        if self.ctx_direction[i] == DIR_HORIZONTAL {
+        if self.ctx_direction[i] == dir_horizontal {
             pilot used = self.ctx_cursor_x[i] - self.ctx_x[i]
             give back self.ctx_max_w[i] - used
         }
@@ -284,7 +284,7 @@ impl LayoutStack {
     -- Get remaining height in current context
     task remaining_height(self) -> num {
         pilot i = self.depth - 1
-        if self.ctx_direction[i] == DIR_VERTICAL {
+        if self.ctx_direction[i] == dir_vertical {
             pilot used = self.ctx_cursor_y[i] - self.ctx_y[i]
             give back self.ctx_max_h[i] - used
         }
@@ -297,7 +297,7 @@ impl LayoutStack {
 
         -- Add gap before non-first widgets
         if self.ctx_count[i] > 0 {
-            if self.ctx_direction[i] == DIR_HORIZONTAL {
+            if self.ctx_direction[i] == dir_horizontal {
                 self.ctx_cursor_x[i] = self.ctx_cursor_x[i] + self.ctx_gap[i]
             } else {
                 self.ctx_cursor_y[i] = self.ctx_cursor_y[i] + self.ctx_gap[i]
@@ -312,7 +312,7 @@ impl LayoutStack {
         }
 
         -- Advance cursor
-        if self.ctx_direction[i] == DIR_HORIZONTAL {
+        if self.ctx_direction[i] == dir_horizontal {
             self.ctx_cursor_x[i] = self.ctx_cursor_x[i] + w
             if h > self.ctx_cross_max[i] {
                 self.ctx_cross_max[i] = h

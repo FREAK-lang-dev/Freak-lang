@@ -1,4 +1,4 @@
--- freak-ui: Core Widgets (Phase C)
+-- COCKPIT: Core Widgets (Phase C)
 -- Immediate-mode widgets: label, button, input, spacer, separator
 --
 -- Every widget follows the same pattern:
@@ -8,27 +8,27 @@
 --   4. Check input (for interactive widgets)
 --   5. Return interaction result
 
-use std::ui::{Canvas, Rect, Vec2, Color, Font, Event, MOUSE_LEFT, EVENT_MOUSE, EVENT_KEY, EVENT_CHAR, KEY_BACKSPACE, KEY_ENTER, KEY_LEFT, KEY_RIGHT, KEY_DELETE}
+use std::ui::{Canvas, Rect, Vec2, Color, Font, Event, mouse_left, event_mouse, event_key, event_char, key_backspace, key_enter, key_left, key_right, key_delete}
 
 -- ================================================================
 --  Widget style constants
 -- ================================================================
 
 -- Label styles
-fixed pilot LABEL_NORMAL     = 0
-fixed pilot LABEL_HEADING    = 1
-fixed pilot LABEL_SUBHEADING = 2
-fixed pilot LABEL_DISPLAY    = 3
-fixed pilot LABEL_MONO       = 4
-fixed pilot LABEL_MUTED      = 5
+fixed pilot label_normal     = 0
+fixed pilot label_heading    = 1
+fixed pilot label_subheading = 2
+fixed pilot label_display    = 3
+fixed pilot label_mono       = 4
+fixed pilot label_muted      = 5
 
 -- Button styles
-fixed pilot BTN_NORMAL   = 0
-fixed pilot BTN_PRIMARY  = 1
-fixed pilot BTN_DANGER   = 2
-fixed pilot BTN_OPERATOR = 3
-fixed pilot BTN_EQUALS   = 4
-fixed pilot BTN_GHOST    = 5
+fixed pilot btn_normal   = 0
+fixed pilot btn_primary  = 1
+fixed pilot btn_danger   = 2
+fixed pilot btn_operator = 3
+fixed pilot btn_equals   = 4
+fixed pilot btn_ghost    = 5
 
 -- ================================================================
 --  Label — display text, no interaction
@@ -48,22 +48,22 @@ task label_sized(canvas: Canvas, text: word, rect: Rect, style: int,
     pilot bold = 0
     pilot italic = 0
 
-    if style == LABEL_HEADING {
+    if style == label_heading {
         size = 24
         bold = 1
     }
-    if style == LABEL_SUBHEADING {
+    if style == label_subheading {
         size = 18
         bold = 1
     }
-    if style == LABEL_DISPLAY {
+    if style == label_display {
         size = 36
         bold = 1
     }
-    if style == LABEL_MONO {
+    if style == label_mono {
         size = 13
     }
-    if style == LABEL_MUTED {
+    if style == label_muted {
         color = muted_color
     }
 
@@ -72,9 +72,9 @@ task label_sized(canvas: Canvas, text: word, rect: Rect, style: int,
 
 -- Get height for a label style
 task label_height(style: int, base_size: int) -> int {
-    if style == LABEL_HEADING    { give back 30 }
-    if style == LABEL_SUBHEADING { give back 24 }
-    if style == LABEL_DISPLAY    { give back 44 }
+    if style == label_heading    { give back 30 }
+    if style == label_subheading { give back 24 }
+    if style == label_display    { give back 44 }
     give back base_size + 6
 }
 
@@ -102,17 +102,17 @@ task button_draw(canvas: Canvas, text: word, rect: Rect, style: int, hovered: bo
     pilot fg = theme_text
     pilot border = theme_border
 
-    if style == BTN_PRIMARY {
+    if style == btn_primary {
         bg = theme_accent
         fg = Color::rgb(255, 255, 255)
         border = theme_accent
     }
-    if style == BTN_DANGER {
+    if style == btn_danger {
         bg = theme_danger
         fg = Color::rgb(255, 255, 255)
         border = theme_danger
     }
-    if style == BTN_OPERATOR {
+    if style == btn_operator {
         bg = Color::rgb(
             theme_accent.r / 3,
             theme_accent.g / 3,
@@ -121,22 +121,22 @@ task button_draw(canvas: Canvas, text: word, rect: Rect, style: int, hovered: bo
         fg = theme_accent
         border = theme_accent
     }
-    if style == BTN_EQUALS {
+    if style == btn_equals {
         bg = theme_accent
         fg = Color::rgb(255, 255, 255)
         border = theme_accent
     }
-    if style == BTN_GHOST {
+    if style == btn_ghost {
         bg = Color::rgba(0, 0, 0, 0)
         border = Color::rgba(0, 0, 0, 0)
     }
 
     -- Hover brightening
     if hovered {
-        if style == BTN_PRIMARY or style == BTN_EQUALS {
+        if style == btn_primary or style == btn_equals {
             bg = theme_accent_hover
         } else {
-            if style != BTN_GHOST {
+            if style != btn_ghost {
                 bg = Color::rgb(
                     min_i(bg.r + 15, 255),
                     min_i(bg.g + 15, 255),
@@ -150,7 +150,7 @@ task button_draw(canvas: Canvas, text: word, rect: Rect, style: int, hovered: bo
     canvas.fill_rect(rect, bg)
 
     -- Draw border
-    if style != BTN_GHOST {
+    if style != btn_ghost {
         canvas.stroke_rect(rect, border, 1)
     }
 

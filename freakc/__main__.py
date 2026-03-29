@@ -67,6 +67,217 @@ def _bold(msg):
     return _c("1", msg)
 
 
+# ── Import resolution ─────────────────────────────────────────────
+
+# Map module paths to .fk source files (relative to project root).
+# Order matters — dependencies listed first.
+_MODULE_FILES: dict[str, list[str]] = {
+    "std::ui": ["std/ui/window.fk"],
+    "cockpit": [
+        # Order: theme → layout → widgets → ui (ui.fk depends on all others)
+        "packages/cockpit/src/theme.fk",
+        "packages/cockpit/src/layout.fk",
+        "packages/cockpit/src/widgets.fk",
+        "packages/cockpit/src/ui.fk",
+    ],
+}
+
+
+def _find_project_root(start: Path) -> Path:
+    """Walk up from start looking for CLAUDE.md or .git as project root marker."""
+    p = start.resolve()
+    for _ in range(20):
+        if (p / "CLAUDE.md").exists() or (p / ".git").exists():
+            return p
+        parent = p.parent
+        if parent == p:
+            break
+        p = parent
+    return start.resolve().parent  # fallback: file's directory
+
+
+def resolve_imports(source: str, source_path: Path) -> tuple[str, bool]:
+    """Scan source for `use` statements, resolve to .fk files, concatenate.
+
+    Returns (combined_source, uses_ui).
+    The combined source has library code prepended (with their own `use` lines
+    stripped) so the parser sees one big compilation unit.
+    """
+    project_root = _find_project_root(source_path)
+    uses_ui = False
+    needed_modules: list[str] = []  # preserve order, no dupes
+
+    for line in source.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("use "):
+            continue
+        # Extract module path: "use std::ui::{...}" → "std::ui"
+        rest = stripped[4:].strip()
+        # Find the module part before the last ::{ or ::Name
+        # e.g. "std::ui::{Window, Canvas}" → module = "std::ui"
+        # e.g. "cockpit::{UI, Theme}" → module = "cockpit"
+        parts = rest.split("::")
+        # Build module name by taking parts until we hit { or a capitalized name
+        module_parts = []
+        for part in parts:
+            clean = part.strip().rstrip(",").rstrip("}")
+            if clean.startswith("{") or (clean and clean[0].isupper()):
+                break
+            if clean == "*":
+                break
+            module_parts.append(clean)
+        module = "::".join(module_parts)
+
+        if module in _MODULE_FILES and module not in needed_modules:
+            needed_modules.append(module)
+            if module == "std::ui" or module == "cockpit":
+                uses_ui = True
+
+    # Also detect direct ui:: calls without a use statement
+    if not uses_ui and "ui::" in source:
+        uses_ui = True
+
+    if not needed_modules:
+        return source, uses_ui
+
+    # Ensure std::ui comes before cockpit (cockpit depends on std::ui types)
+    if "cockpit" in needed_modules and "std::ui" not in needed_modules:
+        needed_modules.insert(0, "std::ui")
+
+    # Collect library sources in order
+    lib_sources: list[str] = []
+    already_included: set[str] = set()
+
+    for module in needed_modules:
+        for rel_path in _MODULE_FILES[module]:
+            if rel_path in already_included:
+                continue
+            already_included.add(rel_path)
+
+            fk_path = project_root / rel_path
+            if not fk_path.exists():
+                print(_yellow(f"  warning: cannot resolve '{rel_path}' for module '{module}'"),
+                      file=sys.stderr)
+                continue
+
+            lib_src = fk_path.read_text(encoding="utf-8")
+            # Join multi-line expressions first (so multi-line `use` becomes one line)
+            lib_src = _join_continuation_lines(lib_src)
+            # Strip `use` lines from library files (they reference modules
+            # we're already including in this compilation unit)
+            filtered_lines = []
+            for lib_line in lib_src.splitlines():
+                if lib_line.strip().startswith("use "):
+                    filtered_lines.append(f"-- [resolved] {lib_line.strip()}")
+                else:
+                    filtered_lines.append(lib_line)
+            lib_sources.append("\n".join(filtered_lines))
+
+    # Join multi-line expressions in user source too
+    source = _join_continuation_lines(source)
+    # Strip `use` lines from the user's source too (for resolved modules)
+    user_lines = []
+    for line in source.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("use "):
+            # Check if this use references a resolved module
+            resolved = False
+            for module in needed_modules:
+                if module.replace("::", "::") in stripped:
+                    resolved = True
+                    break
+            if resolved:
+                user_lines.append(f"-- [resolved] {stripped}")
+            else:
+                user_lines.append(line)
+        else:
+            user_lines.append(line)
+
+    combined = "\n\n".join(lib_sources) + "\n\n" + "\n".join(user_lines)
+    return combined, uses_ui
+
+
+def _join_continuation_lines(source: str) -> str:
+    """Collapse multi-line expressions into single lines.
+
+    FREAK's parser treats newlines as statement terminators, so multi-line
+    function calls like:
+        Color::rgb(
+            255, 0, 0
+        )
+    must become: Color::rgb(255, 0, 0)
+
+    Also joins multi-line `use` statements (which use { } for import lists).
+    """
+    lines = source.splitlines()
+    result: list[str] = []
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0  # only tracked for `use` statements
+    in_use = False  # whether we're inside a multi-line `use` statement
+    accumulator = ""
+
+    for line in lines:
+        stripped = line.strip()
+        # Skip comments for depth counting but preserve them
+        if stripped.startswith("--"):
+            if paren_depth > 0 or bracket_depth > 0 or in_use:
+                # Inside an open expression — skip comment lines
+                continue
+            else:
+                result.append(line)
+                continue
+
+        is_continuation = paren_depth > 0 or bracket_depth > 0 or in_use
+
+        if is_continuation:
+            # Continuation: append to accumulator (strip leading whitespace)
+            accumulator += " " + stripped
+        else:
+            # Flush previous accumulator if any
+            if accumulator:
+                result.append(accumulator)
+                accumulator = ""
+            accumulator = line
+            # Check if this is a `use` statement with braces
+            if stripped.startswith("use "):
+                in_use = True
+                brace_depth = 0
+
+        # Count parens/brackets/braces in this line (ignoring strings)
+        in_string = False
+        for ch in stripped:
+            if ch == '"' and not in_string:
+                in_string = True
+            elif ch == '"' and in_string:
+                in_string = False
+            elif not in_string:
+                if ch == '(':
+                    paren_depth += 1
+                elif ch == ')':
+                    paren_depth = max(0, paren_depth - 1)
+                elif ch == '[':
+                    bracket_depth += 1
+                elif ch == ']':
+                    bracket_depth = max(0, bracket_depth - 1)
+                elif ch == '{' and in_use:
+                    brace_depth += 1
+                elif ch == '}' and in_use:
+                    brace_depth = max(0, brace_depth - 1)
+                    if brace_depth == 0:
+                        in_use = False
+
+        # If balanced, flush
+        if paren_depth == 0 and bracket_depth == 0 and not in_use and accumulator:
+            result.append(accumulator)
+            accumulator = ""
+
+    if accumulator:
+        result.append(accumulator)
+
+    return "\n".join(result)
+
+
 # ── Compiler pipeline ──────────────────────────────────────────────
 
 
@@ -78,15 +289,18 @@ def find_c_compiler() -> str | None:
 
 
 def transpile(source: str, path: Path):
-    """Parse + type-check + emit C.  Returns (c_source, diagnostics)."""
+    """Parse + type-check + emit C.  Returns (c_source, diagnostics, uses_ui)."""
     file_path = str(path)
+
+    # Resolve imports: concatenate library .fk files into one compilation unit
+    source, uses_ui = resolve_imports(source, path)
 
     try:
         program = Parser.from_source(source)
     except ParseError as e:
         # Use structured location info if available, falling back to string parsing
         formatted = format_parse_error(str(e), source=source, file_path=file_path)
-        return None, [formatted]
+        return None, [formatted], uses_ui
 
     # Type check
     checker = TypeChecker()
@@ -113,13 +327,13 @@ def transpile(source: str, path: Path):
     except EmitError as e:
         formatted = format_emit_error(str(e), source=source, file_path=file_path)
         diag_msgs.append(formatted)
-        return None, diag_msgs
+        return None, diag_msgs, uses_ui
 
-    return c_source, diag_msgs
+    return c_source, diag_msgs, uses_ui
 
 
 def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path,
-              opt_level: str = "0") -> tuple[bool, str]:
+              opt_level: str = "0", uses_ui: bool = False) -> tuple[bool, str]:
     """Compile the generated C file. Returns (success, message)."""
     cc = find_c_compiler()
     if not cc:
@@ -139,6 +353,16 @@ def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path,
         "-w",
         "-D_CRT_SECURE_NO_WARNINGS",
     ]
+
+    # UI runtime: add win32_backend.c + platform libs
+    if uses_ui:
+        ui_backend = runtime_dir / "ui" / "win32_backend.c"
+        if ui_backend.exists():
+            cmd.append(str(ui_backend))
+            cmd.append(f"-I{runtime_dir / 'ui'}")
+        if sys.platform == "win32":
+            cmd.extend(["-luser32", "-lgdi32"])
+
     # Platform-specific linker flags
     if sys.platform.startswith("linux"):
         cmd.append("-lm")
@@ -194,7 +418,7 @@ def cmd_run(path: Path, keep_c: bool = False, output: str = None,
             backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile → run."""
     source = path.read_text(encoding="utf-8")
-    c_source, diags = transpile(source, path)
+    c_source, diags, uses_ui = transpile(source, path)
 
     for d in diags:
         print(d, file=sys.stderr)
@@ -218,8 +442,10 @@ def cmd_run(path: Path, keep_c: bool = False, output: str = None,
             else path.with_suffix("")
         )
 
+    if uses_ui:
+        print(_dim("→ COCKPIT detected — linking UI runtime"))
     print(_dim(f"→ Compiling ({backend} backend, -O{opt_level})..."))
-    ok, err_msg = compile_c(out_c, out_bin, runtime_dir, opt_level)
+    ok, err_msg = compile_c(out_c, out_bin, runtime_dir, opt_level, uses_ui=uses_ui)
     if not ok:
         print(_red("✗ Compilation failed:"), file=sys.stderr)
         print(err_msg, file=sys.stderr)
@@ -249,7 +475,7 @@ def cmd_build(path: Path, keep_c: bool = False, output: str = None,
               backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile (no run)."""
     source = path.read_text(encoding="utf-8")
-    c_source, diags = transpile(source, path)
+    c_source, diags, uses_ui = transpile(source, path)
 
     for d in diags:
         print(d, file=sys.stderr)
@@ -271,8 +497,10 @@ def cmd_build(path: Path, keep_c: bool = False, output: str = None,
             else path.with_suffix("")
         )
 
+    if uses_ui:
+        print(_dim("→ COCKPIT detected — linking UI runtime"))
     print(_dim(f"→ Compiling ({backend} backend, -O{opt_level})..."))
-    ok, err_msg = compile_c(out_c, out_bin, runtime_dir, opt_level)
+    ok, err_msg = compile_c(out_c, out_bin, runtime_dir, opt_level, uses_ui=uses_ui)
     if not ok:
         print(_red("✗ Compilation failed:"), file=sys.stderr)
         print(err_msg, file=sys.stderr)
@@ -292,7 +520,7 @@ def cmd_build(path: Path, keep_c: bool = False, output: str = None,
 def cmd_check(path: Path) -> int:
     """Type-check only (no compilation)."""
     source = path.read_text(encoding="utf-8")
-    _, diags = transpile(source, path)
+    _, diags, _ = transpile(source, path)
 
     if not diags:
         print(_green(f"✓ {path.name}: No issues found"))

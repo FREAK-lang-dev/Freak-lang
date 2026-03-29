@@ -1,4 +1,4 @@
--- freak-ui Widget Showcase — Phase ME + MF demo
+-- COCKPIT Widget Showcase — Phase ME + MF demo
 -- Demonstrates all widgets: dropdown, tabs, progress, tooltip, modal,
 -- scroll, checkbox, slider, input, and the animation system.
 --
@@ -43,7 +43,7 @@ task main() {
         ui.begin_frame()
 
         -- Title
-        ui.label_styled("FREAK UI Showcase", LABEL_HEADING)
+        ui.label_styled("FREAK UI Showcase", label_heading)
         ui.separator()
 
         -- Tab bar
@@ -60,15 +60,15 @@ task main() {
             -- Left column
             ui.begin_column(8, 0)
 
-            ui.label_styled("Dropdown", LABEL_SUBHEADING)
+            ui.label_styled("Dropdown", label_subheading)
             dropdown_value = ui.dropdown(dropdown_value, dropdown_items)
             ui.spacer(8)
 
-            ui.label_styled("Input", LABEL_SUBHEADING)
+            ui.label_styled("Input", label_subheading)
             input_text = ui.input(input_text, "Type something...")
             ui.spacer(8)
 
-            ui.label_styled("Checkboxes", LABEL_SUBHEADING)
+            ui.label_styled("Checkboxes", label_subheading)
             if ui.checkbox("Enable feature A", check_a) { check_a = not check_a }
             if ui.checkbox("Enable feature B", check_b) { check_b = not check_b }
 
@@ -77,22 +77,22 @@ task main() {
             -- Right column
             ui.begin_column(8, 0)
 
-            ui.label_styled("Slider", LABEL_SUBHEADING)
+            ui.label_styled("Slider", label_subheading)
             slider_val = ui.slider(slider_val, 0.0, 1.0)
             ui.spacer(4)
 
-            ui.label_styled("Progress", LABEL_SUBHEADING)
+            ui.label_styled("Progress", label_subheading)
             progress_val = progress_val + 0.002
             if progress_val > 1.0 { progress_val = 0.0 }
             pilot pct_text = "" + (progress_val * 100.0) + "%"
             ui.progress(progress_val, pct_text)
             ui.spacer(8)
 
-            ui.label_styled("Buttons", LABEL_SUBHEADING)
+            ui.label_styled("Buttons", label_subheading)
             ui.begin_row(8, 0)
             ui.button("Normal")
             ui.button_primary("Primary")
-            if ui.button_styled("Open Modal", BTN_DANGER, SizeHint::auto()) {
+            if ui.button_styled("Open Modal", btn_danger, SizeHint::auto()) {
                 modal_visible = true
             }
             ui.end_row()
@@ -110,7 +110,7 @@ task main() {
         --  Tab 1: Animation
         -- ================================
         if selected_tab == 1 {
-            ui.label_styled("Animation System", LABEL_SUBHEADING)
+            ui.label_styled("Animation System", label_subheading)
             ui.label("Click buttons to trigger animated transitions.")
             ui.spacer(8)
 
@@ -127,28 +127,28 @@ task main() {
             ui.progress(anim_bar, "Animated")
 
             ui.spacer(8)
-            ui.label_styled("Easing Comparison", LABEL_SUBHEADING)
+            ui.label_styled("Easing Comparison", label_subheading)
 
             -- Show different easing curves side by side
             pilot ease_target = anim_target
 
-            pilot v_linear = ui.tween(100, ease_target, 3.0, EASE_LINEAR)
+            pilot v_linear = ui.tween(100, ease_target, 3.0, ease_linear)
             ui.label("Linear")
             ui.progress(v_linear, "")
 
-            pilot v_in = ui.tween(101, ease_target, 3.0, EASE_IN)
+            pilot v_in = ui.tween(101, ease_target, 3.0, ease_in)
             ui.label("Ease In")
             ui.progress(v_in, "")
 
-            pilot v_out = ui.tween(102, ease_target, 3.0, EASE_OUT)
+            pilot v_out = ui.tween(102, ease_target, 3.0, ease_out)
             ui.label("Ease Out")
             ui.progress(v_out, "")
 
-            pilot v_inout = ui.tween(103, ease_target, 3.0, EASE_IN_OUT)
+            pilot v_inout = ui.tween(103, ease_target, 3.0, ease_in_out)
             ui.label("Ease In/Out")
             ui.progress(v_inout, "")
 
-            pilot v_spring = ui.tween(104, ease_target, 3.0, EASE_SPRING)
+            pilot v_spring = ui.tween(104, ease_target, 3.0, ease_spring)
             ui.label("Spring")
             ui.progress(v_spring, "")
         }
@@ -157,7 +157,7 @@ task main() {
         --  Tab 2: Theme
         -- ================================
         if selected_tab == 2 {
-            ui.label_styled("Theme Selection", LABEL_SUBHEADING)
+            ui.label_styled("Theme Selection", label_subheading)
             ui.label("Choose a theme to see the UI transform.")
             ui.spacer(8)
 
@@ -174,11 +174,11 @@ task main() {
             ui.separator()
 
             -- Show color swatches using progress bars as color indicators
-            ui.label_styled("Accent", LABEL_MONO)
+            ui.label_styled("Accent", label_mono)
             ui.progress(1.0, "accent")
-            ui.label_styled("Danger", LABEL_MONO)
+            ui.label_styled("Danger", label_mono)
             ui.progress(0.7, "danger")
-            ui.label_styled("Success", LABEL_MONO)
+            ui.label_styled("Success", label_mono)
             ui.progress(0.9, "success")
         }
 
@@ -187,7 +187,7 @@ task main() {
         -- ================================
         pilot modal_rect = ui.begin_modal(modal_visible, 400, 200)
         if modal_visible {
-            ui.label_styled("Dialog", LABEL_HEADING)
+            ui.label_styled("Dialog", label_heading)
             ui.label("This is a modal dialog.")
             ui.label("It overlays everything else.")
             ui.spacer_fill()

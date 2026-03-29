@@ -1,4 +1,4 @@
--- freak-ui: Theme System (Phase D)
+-- COCKPIT: Theme System (Phase D)
 -- Five built-in themes, each with a mood. Custom themes supported.
 --
 -- "Every UI has a feeling. We just made it explicit."
@@ -162,11 +162,7 @@ impl Theme {
             text:         self.text,
             text_muted:   self.text_muted,
             accent:       color,
-            accent_hover: Color::rgb(
-                min(color.r + 30, 255),
-                min(color.g + 30, 255),
-                min(color.b + 30, 255)
-            ),
+            accent_hover: Color::rgb(min(color.r + 30, 255), min(color.g + 30, 255), min(color.b + 30, 255)),
             danger:       self.danger,
             success:      self.success,
             font_size:    self.font_size,

@@ -161,6 +161,7 @@ class CEmitter:
         self._closure_captures: Set[str] = set()  # names accessed as __env->name
         self._includes: Set[str] = set()  # extra #include from use imports
         self._uses_ui: bool = False  # tracks if use std::ui is present
+        self._in_main: bool = False  # True when emitting inside freak_main
 
     def emit(self, program: Program) -> str:
         self.indent = 0
@@ -280,12 +281,14 @@ class CEmitter:
             self._main_body.append(gi)
         self.indent = 1
         # If there's a `task main()`, emit its body here
+        self._in_main = True
         if main_task and isinstance(main_task.body, Block):
             for s in main_task.body.statements:
                 self._emit_statement(s, self._main_body)
         else:
             for stmt in top_stmts:
                 self._emit_statement(stmt, self._main_body)
+        self._in_main = False
         self._main_body.append("    return 0;")
         self._main_body.append("}")
 
@@ -370,6 +373,9 @@ class CEmitter:
             return f"{inner}*"
         if te.name in mapping:
             return mapping[te.name]
+        # Generic containers: List<T>, Map<K,V>, Set<T> → int64_t (handle-based)
+        if te.name in ("List", "Map", "Set", "Lineup"):
+            return "int64_t"
         # Could be a shape name or other user-defined type
         if te.name in self.shapes:
             return te.name
@@ -426,6 +432,7 @@ class CEmitter:
 
     def _impl_method_signature(self, type_name: str, td: TaskDecl) -> str:
         ret = self._type_to_c(td.return_type) if td.return_type else "void"
+        has_self = any(p.name == "self" for p in td.params)
         params_c = []
         for p in td.params:
             if p.name == "self":
@@ -433,8 +440,12 @@ class CEmitter:
             else:
                 pt = self._type_to_c(p.type_ann) if p.type_ann else "int64_t"
                 params_c.append(f"{pt} {p.name}")
-        if not params_c:
+        # Only add implicit self for instance methods (those with no params but
+        # that are clearly not static constructors)
+        if not params_c and has_self:
             params_c = [f"{type_name}* self"]
+        if not params_c:
+            params_c = ["void"]
         params_str = ", ".join(params_c)
         return f"{ret} {type_name}_{td.name}({params_str})"
 
@@ -554,7 +565,10 @@ class CEmitter:
 
     def _emit_give_back(self, stmt: GiveBack, target: List[str]) -> None:
         if stmt.value is None:
-            target.append(f"{self._ind()}return;")
+            if self._in_main:
+                target.append(f"{self._ind()}return 0;")
+            else:
+                target.append(f"{self._ind()}return;")
         else:
             c = self._expr_to_c(stmt.value)
             target.append(f"{self._ind()}return {c};")
