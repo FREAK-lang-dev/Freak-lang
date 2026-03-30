@@ -173,8 +173,10 @@ def resolve_imports(source: str, source_path: Path) -> tuple[str, bool]:
                     filtered_lines.append(lib_line)
             lib_sources.append("\n".join(filtered_lines))
 
-    # Join multi-line expressions in user source too
-    source = _join_continuation_lines(source)
+    # Only join continuation lines in user source if it has resolved imports
+    # (avoids breaking large single-file programs like the v2 compiler)
+    if needed_modules:
+        source = _join_continuation_lines(source)
     # Strip `use` lines from the user's source too (for resolved modules)
     user_lines = []
     for line in source.splitlines():

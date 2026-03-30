@@ -758,6 +758,16 @@ task parse_primary() -> int {
         give back alloc_expr(EXPR_IDENT, tval, "", "")
     }
 
+    -- Parenthesized expression: (expr)
+    if ttype == TOK_PUNCT {
+        if tval == "(" {
+            advance_tok()
+            pilot inner = parse_expr()
+            expect_tok(TOK_PUNCT, ")")
+            give back inner
+        }
+    }
+
     pilot msg = "Unexpected token in primary: "
     msg = msg + tval
     msg = msg + " ("
@@ -972,6 +982,16 @@ task parse_stmt() -> int {
     pilot ttype = cur_tok_type()
     pilot tval = cur_tok_val()
 
+    -- Skip @annotations (e.g. @protagonist, @nakige)
+    if ttype == TOK_PUNCT {
+        if tval == "@" {
+            advance_tok()
+            advance_tok()
+            ttype = cur_tok_type()
+            tval = cur_tok_val()
+        }
+    }
+
     if match_tok(TOK_KW, "say") {
         pilot expr_id = parse_expr()
         give back alloc_stmt(STMT_SAY, "", word_from_int(expr_id), "", "", "", "", "")
@@ -1056,9 +1076,11 @@ task parse_stmt() -> int {
                     }
                 }
 
-                expect_tok(TOK_PUNCT, "->")
-                pilot ret_type = cur_tok_val()
-                advance_tok()
+                pilot ret_type = "void"
+                if match_tok(TOK_PUNCT, "->") {
+                    ret_type = cur_tok_val()
+                    advance_tok()
+                }
 
                 pilot body_id = parse_block()
                 pilot full_name = impl_name + "_" + mname
@@ -1257,9 +1279,11 @@ task parse_stmt() -> int {
             else { expect_tok(TOK_PUNCT, ",") }
         }
 
-        expect_tok(TOK_PUNCT, "->")
-        pilot ret_type = cur_tok_val()
-        advance_tok()
+        pilot ret_type = "void"
+        if match_tok(TOK_PUNCT, "->") {
+            ret_type = cur_tok_val()
+            advance_tok()
+        }
 
         pilot body_id = parse_block()
         give back alloc_stmt(STMT_TASK, name, "", body_id, "", "", params, ret_type)
@@ -1554,6 +1578,8 @@ task emit_expr(id: word) -> void {
 
     if kind == EXPR_INT {
         emit(val)
+    } else if kind == EXPR_FLOAT {
+        emit(val)
     } else if kind == EXPR_STR {
         pilot tmp = "freak_word_lit(\""
         -- Restore escaped pipe characters from lexer
@@ -1625,6 +1651,102 @@ task emit_expr(id: word) -> void {
             emit(")")
         } else if val == "process::env" {
             emit("freak_process_env(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "math::sqrt" {
+            emit("freak_math_sqrt(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "math::pow" {
+            emit("freak_math_pow(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "math::sin" {
+            emit("freak_math_sin(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "math::cos" {
+            emit("freak_math_cos(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "math::floor" {
+            emit("freak_math_floor(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "math::ceil" {
+            emit("freak_math_ceil(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::create_window" {
+            emit("freak_ui_create_window_word(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::destroy_window" {
+            emit("freak_ui_destroy_window(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::begin_frame" {
+            emit("freak_ui_begin_frame(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::end_frame" {
+            emit("freak_ui_end_frame(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::poll_events" {
+            emit("freak_ui_poll_events(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::event_kind" {
+            emit("freak_ui_event_kind(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::event_key" {
+            emit("freak_ui_event_key(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::event_pressed" {
+            emit("freak_ui_event_pressed(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::event_character" {
+            emit("freak_ui_event_character(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::event_mouse_x" {
+            emit("freak_ui_event_mouse_x(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::event_mouse_y" {
+            emit("freak_ui_event_mouse_y(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::event_button" {
+            emit("freak_ui_event_button(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::fill_rect" {
+            emit("freak_ui_fill_rect(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::stroke_rect" {
+            emit("freak_ui_stroke_rect(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::draw_text" {
+            emit("freak_ui_draw_text_word(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::measure_text" {
+            emit("freak_ui_measure_text_word(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::fill_circle" {
+            emit("freak_ui_fill_circle(")
+            if left != "" { emit_args(left) }
+            emit(")")
+        } else if val == "ui::draw_line" {
+            emit("freak_ui_draw_line(")
             if left != "" { emit_args(left) }
             emit(")")
         } else if emt_is_extern(val) {
@@ -1842,6 +1964,9 @@ task emit_stmt(eid: word) -> void {
         } else if e_kind == EXPR_BOOL {
             ctype = "bool "
             vtype = "b"
+        } else if e_kind == EXPR_FLOAT {
+            ctype = "double "
+            vtype = "d"
         }
         emt_set_var_type(name_w, vtype)
 
@@ -2114,6 +2239,10 @@ task emit_global_decl(eid: word) -> void {
         ctype = "bool "
         defval = " = false"
         vtype = "b"
+    } else if e_kind == EXPR_FLOAT {
+        ctype = "double "
+        defval = " = 0.0"
+        vtype = "d"
     }
     emt_set_var_type(name_w, vtype)
     emit(ctype)
@@ -2209,8 +2338,8 @@ task emit_program() -> void {
         i += 1
     }
 
-    -- Pass 3: Main (initialize globals, then non-pilot/task/shape stmts)
-    emit_line("void freak_main(void) {")
+    -- Pass 3: Global init + main wrapper
+    emit_line("void freak_init_globals(void) {")
     -- Initialize global variables
     i = 0
     repeat top_count times {
@@ -2219,7 +2348,7 @@ task emit_program() -> void {
         if kind == STMT_PILOT { emit_global_init(cur_id) }
         i += 1
     }
-    -- Execute remaining statements
+    -- Execute remaining statements (non-task, non-shape, non-pilot, non-extern)
     i = 0
     repeat top_count times {
         pilot cur_id: word = array_get(ast_top_stmts, i)
@@ -2232,6 +2361,7 @@ task emit_program() -> void {
     emit_line("int main(int argc, char** argv) {")
     emit_line("    freak_argc = argc;")
     emit_line("    freak_argv = argv;")
+    emit_line("    freak_init_globals();")
     emit_line("    freak_main();")
     emit_line("    return 0;")
     emit_line("}")
