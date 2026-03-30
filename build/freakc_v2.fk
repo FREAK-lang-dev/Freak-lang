@@ -2338,8 +2338,28 @@ task emit_program() -> void {
         i += 1
     }
 
+    -- Check if user defined a task main()
+    pilot has_user_main = false
+    i = 0
+    repeat top_count times {
+        pilot cur_id: word = array_get(ast_top_stmts, i)
+        pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
+        if kind == STMT_TASK {
+            pilot tname: word = array_get(ast_stmt_names, word_to_int(cur_id))
+            if tname == "main" { has_user_main = true }
+        }
+        i += 1
+    }
+
     -- Pass 3: Global init + main wrapper
-    emit_line("void freak_init_globals(void) {")
+    if has_user_main {
+        -- User has task main(), emit separate init function
+        emit_line("void freak_init_globals(void) {")
+    }
+    if not has_user_main {
+        -- No task main(), globals + top-level code IS freak_main
+        emit_line("void freak_main(void) {")
+    }
     -- Initialize global variables
     i = 0
     repeat top_count times {
@@ -2361,8 +2381,13 @@ task emit_program() -> void {
     emit_line("int main(int argc, char** argv) {")
     emit_line("    freak_argc = argc;")
     emit_line("    freak_argv = argv;")
-    emit_line("    freak_init_globals();")
-    emit_line("    freak_main();")
+    if has_user_main {
+        emit_line("    freak_init_globals();")
+        emit_line("    freak_main();")
+    }
+    if not has_user_main {
+        emit_line("    freak_main();")
+    }
     emit_line("    return 0;")
     emit_line("}")
 }
@@ -2720,6 +2745,26 @@ task llvm_infer_expr_type(expr_id: word) -> word {
         if val == "word_from_int" { give back "w" }
         if val == "word_from_bool" { give back "w" }
         if val == "word_concat" { give back "w" }
+        if val == "format_num" { give back "w" }
+        if val == "parse_num" { give back "i" }
+        if val == "math::sqrt" { give back "i" }
+        if val == "math::pow" { give back "i" }
+        if val == "math::sin" { give back "i" }
+        if val == "math::cos" { give back "i" }
+        if val == "math::tan" { give back "i" }
+        if val == "math::floor" { give back "i" }
+        if val == "math::ceil" { give back "i" }
+        if val == "ui::create_window" { give back "i" }
+        if val == "ui::poll_events" { give back "i" }
+        if val == "ui::event_kind" { give back "i" }
+        if val == "ui::event_key" { give back "i" }
+        if val == "ui::event_pressed" { give back "i" }
+        if val == "ui::event_character" { give back "i" }
+        if val == "ui::event_mouse_x" { give back "i" }
+        if val == "ui::event_mouse_y" { give back "i" }
+        if val == "ui::event_button" { give back "i" }
+        if val == "ui::draw_text" { give back "i" }
+        if val == "ui::measure_text" { give back "i" }
         -- Runtime helpers used by the compiler itself
         if val == "get_nth" { give back "w" }
         if val == "push_item" { give back "w" }
@@ -2794,12 +2839,38 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_llvm_num_to_int(i64)")
 
     -- UI
-    llvm_emit_line("declare i64 @freak_llvm_ui_create_native(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_create_window(i64, i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_destroy_window(i64)")
     llvm_emit_line("declare i64 @freak_llvm_ui_poll_events(i64)")
     llvm_emit_line("declare void @freak_llvm_ui_begin_frame(i64)")
     llvm_emit_line("declare void @freak_llvm_ui_end_frame(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_kind(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_key(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_pressed(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_character(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_mouse_x(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_mouse_y(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_button(i64)")
     llvm_emit_line("declare void @freak_llvm_ui_clear(i64, i64, i64, i64, i64)")
     llvm_emit_line("declare void @freak_llvm_ui_fill_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_stroke_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_fill_circle(i64, i64, i64, i64, i64, i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_draw_line(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_draw_text(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_measure_text(i64, i64, i64, i64)")
+
+    -- Math
+    llvm_emit_line("declare i64 @freak_llvm_math_sqrt(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_math_pow(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_math_sin(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_math_cos(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_math_tan(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_math_floor(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_math_ceil(i64)")
+
+    -- parse_num / format_num
+    llvm_emit_line("declare i64 @freak_llvm_parse_num(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_format_num(i64)")
 
     -- String comparison
     llvm_emit_line("declare i64 @freak_word_compare(i64, i64)")
@@ -2812,14 +2883,14 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_array_set(i64, i64, i64)")
 
     -- TCP sockets
-    llvm_emit_line("declare i64 @freak_tcp_connect(i64, i64)")
-    llvm_emit_line("declare i64 @freak_tcp_send(i64, i64)")
-    llvm_emit_line("declare i64 @freak_tcp_recv(i64, i64)")
-    llvm_emit_line("declare i64 @freak_tcp_recv_all(i64, i64)")
-    llvm_emit_line("declare void @freak_tcp_close(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_tcp_connect(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_tcp_send(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_tcp_recv(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_tcp_recv_all(i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_tcp_close(i64)")
 
     -- Track all runtime function names so extern decls don't duplicate them
-    llvm_declared_funcs = "|puts|printf|strlen|freak_word_from_int|freak_word_from_bool|freak_word_concat|freak_word_eq|freak_word_neq|freak_llvm_word_eq|freak_llvm_word_neq|freak_word_length|freak_word_char_at|freak_word_contains|freak_word_starts_with|freak_word_ends_with|freak_word_to_upper|freak_word_to_lower|freak_word_trim|freak_word_replace|freak_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_fs_read|freak_llvm_fs_write|freak_llvm_fs_append|freak_llvm_fs_exists|freak_llvm_fs_delete|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_native|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_array_new|freak_array_push|freak_array_get|freak_array_len|freak_array_set|freak_word_compare|freak_tcp_connect|freak_tcp_send|freak_tcp_recv|freak_tcp_recv_all|freak_tcp_close|"
+    llvm_declared_funcs = "|puts|printf|strlen|freak_word_from_int|freak_word_from_bool|freak_word_concat|freak_word_eq|freak_word_neq|freak_llvm_word_eq|freak_llvm_word_neq|freak_word_length|freak_word_char_at|freak_word_contains|freak_word_starts_with|freak_word_ends_with|freak_word_to_upper|freak_word_to_lower|freak_word_trim|freak_word_replace|freak_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_fs_read|freak_llvm_fs_write|freak_llvm_fs_append|freak_llvm_fs_exists|freak_llvm_fs_delete|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_window|freak_llvm_ui_destroy_window|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_event_kind|freak_llvm_ui_event_key|freak_llvm_ui_event_pressed|freak_llvm_ui_event_character|freak_llvm_ui_event_mouse_x|freak_llvm_ui_event_mouse_y|freak_llvm_ui_event_button|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_llvm_ui_stroke_rect|freak_llvm_ui_fill_circle|freak_llvm_ui_draw_line|freak_llvm_ui_draw_text|freak_llvm_ui_measure_text|freak_llvm_math_sqrt|freak_llvm_math_pow|freak_llvm_math_sin|freak_llvm_math_cos|freak_llvm_math_tan|freak_llvm_math_floor|freak_llvm_math_ceil|freak_llvm_parse_num|freak_llvm_format_num|freak_array_new|freak_array_push|freak_array_get|freak_array_len|freak_array_set|freak_word_compare|freak_llvm_tcp_connect|freak_llvm_tcp_send|freak_llvm_tcp_recv|freak_llvm_tcp_recv_all|freak_llvm_tcp_close|"
 }
 
 task llvm_is_runtime_func(fname: word) -> bool {
@@ -3185,8 +3256,11 @@ task llvm_emit_expr(id: word) -> word {
         } else if val == "shape::set" {
              func_name = "@freak_llvm_shape_set"
              is_void_call = true
-        } else if val == "ui::create_native" {
-             func_name = "@freak_llvm_ui_create_native"
+        } else if val == "ui::create_window" {
+             func_name = "@freak_llvm_ui_create_window"
+        } else if val == "ui::destroy_window" {
+             func_name = "@freak_llvm_ui_destroy_window"
+             is_void_call = true
         } else if val == "ui::poll_events" {
              func_name = "@freak_llvm_ui_poll_events"
         } else if val == "ui::begin_frame" {
@@ -3195,12 +3269,57 @@ task llvm_emit_expr(id: word) -> word {
         } else if val == "ui::end_frame" {
              func_name = "@freak_llvm_ui_end_frame"
              is_void_call = true
+        } else if val == "ui::event_kind" {
+             func_name = "@freak_llvm_ui_event_kind"
+        } else if val == "ui::event_key" {
+             func_name = "@freak_llvm_ui_event_key"
+        } else if val == "ui::event_pressed" {
+             func_name = "@freak_llvm_ui_event_pressed"
+        } else if val == "ui::event_character" {
+             func_name = "@freak_llvm_ui_event_character"
+        } else if val == "ui::event_mouse_x" {
+             func_name = "@freak_llvm_ui_event_mouse_x"
+        } else if val == "ui::event_mouse_y" {
+             func_name = "@freak_llvm_ui_event_mouse_y"
+        } else if val == "ui::event_button" {
+             func_name = "@freak_llvm_ui_event_button"
         } else if val == "ui::clear" {
              func_name = "@freak_llvm_ui_clear"
              is_void_call = true
         } else if val == "ui::fill_rect" {
              func_name = "@freak_llvm_ui_fill_rect"
              is_void_call = true
+        } else if val == "ui::stroke_rect" {
+             func_name = "@freak_llvm_ui_stroke_rect"
+             is_void_call = true
+        } else if val == "ui::fill_circle" {
+             func_name = "@freak_llvm_ui_fill_circle"
+             is_void_call = true
+        } else if val == "ui::draw_line" {
+             func_name = "@freak_llvm_ui_draw_line"
+             is_void_call = true
+        } else if val == "ui::draw_text" {
+             func_name = "@freak_llvm_ui_draw_text"
+        } else if val == "ui::measure_text" {
+             func_name = "@freak_llvm_ui_measure_text"
+        } else if val == "math::sqrt" {
+             func_name = "@freak_llvm_math_sqrt"
+        } else if val == "math::pow" {
+             func_name = "@freak_llvm_math_pow"
+        } else if val == "math::sin" {
+             func_name = "@freak_llvm_math_sin"
+        } else if val == "math::cos" {
+             func_name = "@freak_llvm_math_cos"
+        } else if val == "math::tan" {
+             func_name = "@freak_llvm_math_tan"
+        } else if val == "math::floor" {
+             func_name = "@freak_llvm_math_floor"
+        } else if val == "math::ceil" {
+             func_name = "@freak_llvm_math_ceil"
+        } else if val == "parse_num" {
+             func_name = "@freak_llvm_parse_num"
+        } else if val == "format_num" {
+             func_name = "@freak_llvm_format_num"
         } else if val == "array_push" {
              func_name = "@freak_array_push"
              is_void_call = true
@@ -3214,15 +3333,15 @@ task llvm_emit_expr(id: word) -> word {
         } else if val == "array_len" {
              func_name = "@freak_array_len"
         } else if val == "tcp_connect" {
-             func_name = "@freak_tcp_connect"
+             func_name = "@freak_llvm_tcp_connect"
         } else if val == "tcp_send" {
-             func_name = "@freak_tcp_send"
+             func_name = "@freak_llvm_tcp_send"
         } else if val == "tcp_recv" {
-             func_name = "@freak_tcp_recv"
+             func_name = "@freak_llvm_tcp_recv"
         } else if val == "tcp_recv_all" {
-             func_name = "@freak_tcp_recv_all"
+             func_name = "@freak_llvm_tcp_recv_all"
         } else if val == "tcp_close" {
-             func_name = "@freak_tcp_close"
+             func_name = "@freak_llvm_tcp_close"
              is_void_call = true
         }
         -- Check task registry for user-defined void functions

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include "freak_runtime.h"
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifndef _WIN32
 #include <unistd.h>
@@ -20,20 +21,7 @@
 /* ── I/O ────────────────────────────────────────────── */
 /* freak_llvm_say, print_str, print_int, print_newline are now
    defined as pure LLVM IR intrinsics in the emitted .ll file. */
-
-int64_t freak_llvm_ask(int64_t prompt_p) {
-    printf("%s", (char*)prompt_p);
-    fflush(stdout);
-    char buf[1024];
-    if (fgets(buf, sizeof(buf), stdin)) {
-        size_t len = strlen(buf);
-        if (len > 0 && buf[len-1] == '\n') buf[--len] = '\0';
-        char* res = malloc(len + 1);
-        memcpy(res, buf, len + 1);
-        return (int64_t)res;
-    }
-    return (int64_t)"";
-}
+/* freak_llvm_ask is defined in freak_runtime.c */
 
 /* ── File I/O ───────────────────────────────────────── */
 /* fs_read, fs_write, fs_append, fs_exists, fs_delete are now pure FREAK
@@ -85,13 +73,84 @@ int64_t freak_llvm_process_exec_capture(int64_t cmd_p) {
 /* ── LLVM wrapper aliases ───────────────────────────── */
 /* All word function wrappers removed — now pure LLVM IR intrinsics. */
 
-/* ── UI stubs (for LLVM backend) ───────────────────── */
-int64_t freak_llvm_ui_create_native(int64_t t, int64_t w, int64_t h) { return 0; }
-int64_t freak_llvm_ui_poll_events(int64_t w)  { return 0; }
-void    freak_llvm_ui_begin_frame(int64_t w)  { }
-void    freak_llvm_ui_end_frame(int64_t w)    { }
-void    freak_llvm_ui_clear(int64_t w, int64_t r, int64_t g, int64_t b, int64_t a) { }
-void    freak_llvm_ui_fill_rect(int64_t w, int64_t x, int64_t y, int64_t ww, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) { }
+/* ── Bitcast helpers for double ↔ i64 ──────────────── */
+static inline double i64_to_double(int64_t v) {
+    double d; memcpy(&d, &v, sizeof(d)); return d;
+}
+static inline int64_t double_to_i64(double d) {
+    int64_t v; memcpy(&v, &d, sizeof(v)); return v;
+}
+
+/* ── UI bridge (LLVM i64 → real freak_ui_* calls) ──── */
+/* The LLVM backend passes everything as i64. These      */
+/* bridge functions call the real UI runtime.             */
+
+int64_t freak_llvm_ui_create_window(int64_t title, int64_t w, int64_t h, int64_t flags) {
+    freak_word t; memcpy(&t, &title, sizeof(t));
+    return freak_ui_create_window_word(t, w, h, flags);
+}
+void freak_llvm_ui_destroy_window(int64_t handle) {
+    freak_ui_destroy_window(handle);
+}
+int64_t freak_llvm_ui_poll_events(int64_t handle) {
+    return freak_ui_poll_events(handle);
+}
+void freak_llvm_ui_begin_frame(int64_t handle) {
+    freak_ui_begin_frame(handle);
+}
+void freak_llvm_ui_end_frame(int64_t handle) {
+    freak_ui_end_frame(handle);
+}
+int64_t freak_llvm_ui_event_kind(int64_t idx)      { return freak_ui_event_kind(idx); }
+int64_t freak_llvm_ui_event_key(int64_t idx)       { return freak_ui_event_key(idx); }
+int64_t freak_llvm_ui_event_pressed(int64_t idx)   { return freak_ui_event_pressed(idx); }
+int64_t freak_llvm_ui_event_character(int64_t idx)  { return freak_ui_event_character(idx); }
+int64_t freak_llvm_ui_event_mouse_x(int64_t idx)   { return freak_ui_event_mouse_x(idx); }
+int64_t freak_llvm_ui_event_mouse_y(int64_t idx)   { return freak_ui_event_mouse_y(idx); }
+int64_t freak_llvm_ui_event_button(int64_t idx)    { return freak_ui_event_button(idx); }
+void freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) {
+    freak_ui_clear(h, r, g, b, a);
+}
+void freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) {
+    freak_ui_fill_rect(h, x, y, w, hh, r, g, b, a);
+}
+void freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) {
+    freak_ui_stroke_rect(h, x, y, w, hh, r, g, b, a, 1);
+}
+void freak_llvm_ui_fill_circle(int64_t h, int64_t cx, int64_t cy, int64_t radius, int64_t r, int64_t g, int64_t b, int64_t a) {
+    freak_ui_fill_circle(h, cx, cy, radius, r, g, b, a);
+}
+void freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a) {
+    freak_ui_draw_line(h, x1, y1, x2, y2, r, g, b, a, 1);
+}
+int64_t freak_llvm_ui_draw_text(int64_t h, int64_t text, int64_t x, int64_t y, int64_t r, int64_t g, int64_t b, int64_t size, int64_t bold, int64_t italic) {
+    freak_word t; memcpy(&t, &text, sizeof(t));
+    return freak_ui_draw_text_word(h, t, x, y, r, g, b, size, bold, italic);
+}
+int64_t freak_llvm_ui_measure_text(int64_t text, int64_t size, int64_t bold, int64_t italic) {
+    freak_word t; memcpy(&t, &text, sizeof(t));
+    return freak_ui_measure_text_word(t, size, bold, italic);
+}
+
+/* ── Math bridge (LLVM i64-bitcast-double → real math) ─ */
+int64_t freak_llvm_math_sqrt(int64_t x)  { return double_to_i64(freak_math_sqrt(i64_to_double(x))); }
+int64_t freak_llvm_math_pow(int64_t b, int64_t e) { return double_to_i64(freak_math_pow(i64_to_double(b), i64_to_double(e))); }
+int64_t freak_llvm_math_sin(int64_t x)   { return double_to_i64(freak_math_sin(i64_to_double(x))); }
+int64_t freak_llvm_math_cos(int64_t x)   { return double_to_i64(freak_math_cos(i64_to_double(x))); }
+int64_t freak_llvm_math_tan(int64_t x)   { return double_to_i64(freak_math_tan(i64_to_double(x))); }
+int64_t freak_llvm_math_floor(int64_t x) { return double_to_i64(freak_math_floor(i64_to_double(x))); }
+int64_t freak_llvm_math_ceil(int64_t x)  { return double_to_i64(freak_math_ceil(i64_to_double(x))); }
+
+/* ── parse_num / format_num bridge ─────────────────── */
+int64_t freak_llvm_parse_num(int64_t w) {
+    freak_word word; memcpy(&word, &w, sizeof(word));
+    return double_to_i64(freak_parse_num(word));
+}
+int64_t freak_llvm_format_num(int64_t n) {
+    freak_word result = freak_format_num(i64_to_double(n));
+    int64_t r; memcpy(&r, &result, sizeof(r));
+    return r;
+}
 
 /* ── Num (double) helpers ──────────────────────────── */
 /* Doubles are stored as bitcast i64 in FREAK LLVM IR.  */
@@ -125,7 +184,7 @@ static void freak_wsa_init(void) {
 #endif
 
 /* freak_tcp_connect(host_ptr, port) -> socket fd (or -1 on error) */
-int64_t freak_tcp_connect(int64_t host_ptr, int64_t port) {
+int64_t freak_llvm_tcp_connect(int64_t host_ptr, int64_t port) {
     char* host = (char*)host_ptr;
 #ifdef _WIN32
     freak_wsa_init();
@@ -164,7 +223,7 @@ int64_t freak_tcp_connect(int64_t host_ptr, int64_t port) {
 }
 
 /* freak_tcp_send(fd, data_ptr) -> bytes sent (or -1) */
-int64_t freak_tcp_send(int64_t fd, int64_t data_ptr) {
+int64_t freak_llvm_tcp_send(int64_t fd, int64_t data_ptr) {
     char* data = (char*)data_ptr;
     int len = (int)strlen(data);
 #ifdef _WIN32
@@ -175,7 +234,7 @@ int64_t freak_tcp_send(int64_t fd, int64_t data_ptr) {
 }
 
 /* freak_tcp_recv(fd, max_bytes) -> string pointer (caller-owned) */
-int64_t freak_tcp_recv(int64_t fd, int64_t max_bytes) {
+int64_t freak_llvm_tcp_recv(int64_t fd, int64_t max_bytes) {
     int bufsz = (int)max_bytes;
     if (bufsz <= 0) bufsz = 4096;
     char* buf = malloc(bufsz + 1);
@@ -191,7 +250,7 @@ int64_t freak_tcp_recv(int64_t fd, int64_t max_bytes) {
 }
 
 /* freak_tcp_recv_all(fd, max_bytes) -> read until connection closes */
-int64_t freak_tcp_recv_all(int64_t fd, int64_t max_bytes) {
+int64_t freak_llvm_tcp_recv_all(int64_t fd, int64_t max_bytes) {
     int bufsz = (int)max_bytes;
     if (bufsz <= 0) bufsz = 65536;
     char* buf = malloc(bufsz + 1);
@@ -211,7 +270,7 @@ int64_t freak_tcp_recv_all(int64_t fd, int64_t max_bytes) {
 }
 
 /* freak_tcp_close(fd) -> void */
-void freak_tcp_close(int64_t fd) {
+void freak_llvm_tcp_close(int64_t fd) {
 #ifdef _WIN32
     closesocket((SOCKET)fd);
 #else
