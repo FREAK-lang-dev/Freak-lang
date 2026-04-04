@@ -61,6 +61,61 @@ task cli_extract_flag(flags: word, idx: int) -> word {
     give back ""
 }
 
+-- ── Flex Command (easter egg) ────────────────────────
+task cli_flex() -> void {
+    cli_show_banner()
+
+    say cli_box_top(50)
+    say cli_box_mid(" " + C_G1 + SYM_FIRE + " FREAK FLEXING" + C_RESET, 50)
+    say cli_box_sep(50)
+    say cli_box_mid("  " + C_BWHITE + "Language" + C_RESET + "        FREAK " + C_DIM + "(.fk)" + C_RESET, 50)
+    say cli_box_mid("  " + C_BWHITE + "Version" + C_RESET + "         " + CLI_VERSION + " " + C_DIM + CLI_CODENAME + C_RESET, 50)
+    say cli_box_mid("  " + C_BWHITE + "Self-hosting" + C_RESET + "    " + C_BGREEN + SYM_CHECK + " YES" + C_RESET + C_DIM + " (compiler compiles itself)" + C_RESET, 50)
+    say cli_box_mid("  " + C_BWHITE + "Backends" + C_RESET + "        " + C_BCYAN + "LLVM IR" + C_RESET + " + " + C_BYELLOW + "C" + C_RESET, 50)
+    say cli_box_mid("  " + C_BWHITE + "Cross-compile" + C_RESET + "   " + C_BGREEN + SYM_CHECK + " YES" + C_RESET + C_DIM + " (--target=TRIPLE)" + C_RESET, 50)
+    say cli_box_mid("  " + C_BWHITE + "Package mgr" + C_RESET + "     " + C_BGREEN + SYM_CHECK + " Hangar" + C_RESET + C_DIM + " (built-in)" + C_RESET, 50)
+    say cli_box_mid("  " + C_BWHITE + "GUI framework" + C_RESET + "   " + C_BGREEN + SYM_CHECK + " freak-ui" + C_RESET + C_DIM + " (immediate mode)" + C_RESET, 50)
+    say cli_box_mid("  " + C_BWHITE + "Platforms" + C_RESET + "       " + C_BCYAN + "Windows" + C_RESET + " / " + C_BGREEN + "Linux" + C_RESET + " / " + C_BWHITE + "macOS" + C_RESET, 50)
+    say cli_box_mid("  " + C_BWHITE + "Std library" + C_RESET + "     " + C_DIM + "math, string, json, http, fs..." + C_RESET, 50)
+    say cli_box_sep(50)
+    say cli_box_mid("  " + C_BWHITE + "Aesthetic" + C_RESET + "       " + C_G1 + "A" + C_G2 + "n" + C_G3 + "i" + C_G4 + "m" + C_G5 + "e" + C_G6 + "-" + C_G1 + "c" + C_G2 + "o" + C_G3 + "r" + C_G4 + "e" + C_RESET, 50)
+    say cli_box_mid("  " + C_BWHITE + "Vibe" + C_RESET + "            " + C_BMAGENTA + "MAXIMUM" + C_RESET, 50)
+    say cli_box_bot(50)
+    say ""
+
+    -- Count .fk files in tests/ as a flex metric
+    say "  " + C_DIM + C_ITALIC + "\"My compiler compiles itself. Does yours?\"" + C_RESET
+    say ""
+}
+
+-- ── Init Command ─────────────────────────────────────
+task cli_init(project_name: word) -> void {
+    say ""
+    say "  " + C_G1 + SYM_SPARK + " Creating project: " + C_RESET + C_BWHITE + project_name + C_RESET
+    say ""
+
+    -- Create project directory
+    pilot mkdir_cmd = "mkdir " + project_name
+    process::exec(mkdir_cmd)
+
+    -- Create main.fk
+    pilot main_content = "-- " + project_name + "\n-- Created with FREAK " + CLI_VERSION + "\n\nsay \"Hello from " + project_name + "!\"\n"
+    fs::write(project_name + "/main.fk", main_content)
+    say "  " + C_BGREEN + SYM_CHECK + C_RESET + " " + project_name + "/main.fk"
+
+    -- Create hangar.toml
+    pilot toml_content = "[project]\nname = \"" + project_name + "\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+    fs::write(project_name + "/hangar.toml", toml_content)
+    say "  " + C_BGREEN + SYM_CHECK + C_RESET + " " + project_name + "/hangar.toml"
+
+    say ""
+    say "  " + C_DIM + "Get started:" + C_RESET
+    say "    " + C_BWHITE + "cd " + project_name + C_RESET
+    say "    " + C_BWHITE + "freakc run main.fk" + C_RESET
+    say ""
+}
+
+-- ── Main Dispatch ────────────────────────────────────
 task freakc_cli_main() -> void {
     pilot args_cnt = process::args_count()
 
@@ -85,12 +140,32 @@ task freakc_cli_main() -> void {
         give back
     }
 
+    -- Flex easter egg
+    if subcmd == "flex" {
+        cli_flex()
+        give back
+    }
+
+    -- Quick init
+    if subcmd == "init" {
+        if args_cnt < 3 {
+            say ""
+            say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " init requires a project name."
+            say "  " + C_DIM + "Usage: " + C_RESET + "freakc init <project-name>"
+            say ""
+            give back
+        }
+        cli_init(process::arg(2))
+        give back
+    }
+
     -- Subcommands that require a file argument
     if subcmd == "build" or subcmd == "run" or subcmd == "check" or subcmd == "transpile" {
         if args_cnt < 3 {
-            say C_BRED + "  ERROR" + C_RESET + " " + subcmd + " requires a file argument."
-            pilot usage_msg = C_DIM + "  Usage: " + C_RESET + "freakc " + subcmd + " <file.fk> [options]"
-            say usage_msg
+            say ""
+            say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " " + subcmd + " requires a file argument."
+            say "  " + C_DIM + "Usage: " + C_RESET + "freakc " + subcmd + " <file.fk> [options]"
+            say ""
             give back
         }
 
@@ -111,25 +186,34 @@ task freakc_cli_main() -> void {
             -- Type-check only: read, lex, parse, check — no emit
             pilot source: word = fs::read(src_file)
             if source == "" {
-                say C_BRED + "  ERROR" + C_RESET + " Could not read file: " + C_BWHITE + src_file + C_RESET
+                say ""
+                say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " Could not read file: " + C_BWHITE + src_file + C_RESET
+                say ""
                 process::exit(1)
             }
-            pilot chk_hdr = C_BMAGENTA + "  FREAKC" + C_RESET + " " + C_DIM + "checking" + C_RESET + " " + C_BWHITE + src_file + C_RESET
-            say chk_hdr
+            say ""
+            say "  " + C_G3 + SYM_GEAR + " CHECKING" + C_RESET + " " + C_BWHITE + src_file + C_RESET
+            say ""
             init_arrays()
-            say C_DIM + "  >> " + C_RESET + "Lexing..."
+            cli_step_start()
             tokenize(source)
-            say C_DIM + "  >> " + C_RESET + "Parsing..."
+            cli_step_done("Lexing")
+            cli_step_start()
             parse_program()
-            say C_DIM + "  >> " + C_RESET + "Type checking..."
+            cli_step_done("Parsing")
+            cli_step_start()
             check_program()
-            say C_BGREEN + "  PASSED" + C_RESET + C_DIM + " -- no type errors found" + C_RESET
+            cli_step_done("Type checking")
+            say ""
+            say "  " + C_BGREEN + SYM_SPARK + " PASSED" + C_RESET + C_DIM + " -- no type errors found" + C_RESET
+            say ""
         } else if subcmd == "transpile" {
-            -- Transpile only (matches current freakc_v2 behavior)
+            -- Transpile only
             pilot source: word = fs::read(src_file)
             if source == "" {
-                pilot ferr2 = "Error: Could not read file: " + src_file
-                say ferr2
+                say ""
+                say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " Could not read file: " + src_file
+                say ""
                 process::exit(1)
             }
             pilot transpiled: word = cli_transpile(src_file, source, target)
@@ -160,8 +244,9 @@ task freakc_cli_main() -> void {
 
         pilot source: word = fs::read(subcmd)
         if source == "" {
-            pilot ferr3 = "Error: Could not read file: " + subcmd
-            say ferr3
+            say ""
+            say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " Could not read file: " + subcmd
+            say ""
             process::exit(1)
         }
 
@@ -176,9 +261,10 @@ task freakc_cli_main() -> void {
     }
 
     -- Unknown subcommand
-    pilot unknown_msg = C_BRED + "  ERROR" + C_RESET + " Unknown command '" + C_BWHITE + subcmd + C_RESET + "'"
-    say unknown_msg
-    say C_DIM + "  Run '" + C_RESET + "freakc help" + C_DIM + "' for usage information." + C_RESET
+    say ""
+    say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " Unknown command '" + C_BWHITE + subcmd + C_RESET + "'"
+    say "  " + C_DIM + "Run '" + C_RESET + "freakc help" + C_DIM + "' for usage." + C_RESET
+    say ""
 }
 
 freakc_cli_main()

@@ -970,6 +970,8 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("}")
     -- process_exec_capture stays in C (popen is platform-specific)
     llvm_emit_line("declare i64 @freak_llvm_process_exec_capture(i64)")
+    -- time_now_ms stays in C (platform-specific clock)
+    llvm_emit_line("declare i64 @freak_llvm_time_now_ms()")
     -- Panic: print message + exit(1)
     llvm_emit_line("define void @freak_llvm_panic(i64 %msgp) {")
     llvm_emit_line("    %msg = inttoptr i64 %msgp to i8*")
@@ -1157,7 +1159,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_llvm_tcp_close(i64)")
 
     -- Track all runtime function names so extern decls don't duplicate them
-    llvm_declared_funcs = "|puts|printf|strlen|freak_word_from_int|freak_word_from_bool|freak_word_concat|freak_word_eq|freak_word_neq|freak_llvm_word_eq|freak_llvm_word_neq|freak_word_length|freak_word_char_at|freak_word_contains|freak_word_starts_with|freak_word_ends_with|freak_word_to_upper|freak_word_to_lower|freak_word_trim|freak_word_replace|freak_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_native|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_array_new|freak_array_push|freak_array_get|freak_array_len|freak_array_set|freak_word_compare|freak_llvm_tcp_connect|freak_llvm_tcp_send|freak_llvm_tcp_recv|freak_llvm_tcp_recv_all|freak_llvm_tcp_close|fopen|fclose|fseek|ftell|fread|fwrite|calloc|remove|freak_fopen|freak_fclose|freak_fseek|freak_ftell|freak_fread|freak_fwrite|freak_calloc|freak_remove|freak_word_length|"
+    llvm_declared_funcs = "|puts|printf|strlen|freak_word_from_int|freak_word_from_bool|freak_word_concat|freak_word_eq|freak_word_neq|freak_llvm_word_eq|freak_llvm_word_neq|freak_word_length|freak_word_char_at|freak_word_contains|freak_word_starts_with|freak_word_ends_with|freak_word_to_upper|freak_word_to_lower|freak_word_trim|freak_word_replace|freak_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_time_now_ms|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_native|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_array_new|freak_array_push|freak_array_get|freak_array_len|freak_array_set|freak_word_compare|freak_llvm_tcp_connect|freak_llvm_tcp_send|freak_llvm_tcp_recv|freak_llvm_tcp_recv_all|freak_llvm_tcp_close|fopen|fclose|fseek|ftell|fread|fwrite|calloc|remove|freak_fopen|freak_fclose|freak_fseek|freak_ftell|freak_fread|freak_fwrite|freak_calloc|freak_remove|freak_word_length|"
 }
 
 task llvm_is_runtime_func(fname: word) -> bool {
@@ -1512,6 +1514,8 @@ task llvm_emit_expr(id: word) -> word {
              func_name = "@freak_llvm_process_exec"
         } else if val == "process::exec_capture" {
              func_name = "@freak_llvm_process_exec_capture"
+        } else if val == "time::now_ms" {
+             func_name = "@freak_llvm_time_now_ms"
         } else if val == "ask" {
              func_name = "@freak_llvm_ask"
         } else if val == "panic" {

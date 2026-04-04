@@ -4,31 +4,50 @@
 -- Handles: transpile .fk → .c/.ll, then invoke clang to produce binary.
 -- ===================================================================
 
+-- Timing state for build steps
+pilot cli_build_start_ms = 0
+pilot cli_step_ms = 0
+
+task cli_step_start() -> void {
+    cli_step_ms = time::now_ms()
+}
+
+task cli_step_done(label: word) -> void {
+    pilot elapsed = time::now_ms() - cli_step_ms
+    pilot elapsed_str = word_from_int(elapsed)
+    say "  " + C_BGREEN + SYM_CHECK + C_RESET + "  " + label + C_DIM + " (" + elapsed_str + "ms)" + C_RESET
+}
+
 task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
     init_arrays()
 
-    say C_DIM + "  >> " + C_RESET + "Lexing..."
+    cli_step_start()
     tokenize(source)
+    cli_step_done("Lexing")
 
-    say C_DIM + "  >> " + C_RESET + "Parsing..."
+    cli_step_start()
     parse_program()
+    cli_step_done("Parsing")
 
-    say C_DIM + "  >> " + C_RESET + "Type checking..."
+    cli_step_start()
     check_program()
+    cli_step_done("Type checking")
 
-    say C_DIM + "  >> " + C_RESET + "Emitting..."
+    cli_step_start()
     if target == "llvm" {
         pilot out_ll = src_file + ".ll"
         llvm_out_file = out_ll
         fs::write(out_ll, "")
         emit_llvm_program()
         llvm_out_file = ""
+        cli_step_done("Emit LLVM IR")
         give back out_ll
     } else {
         emit_program()
         pilot out_c = src_file + ".c"
         fs::write(out_c, out_buf)
+        cli_step_done("Emit C")
         give back out_c
     }
 }
@@ -163,7 +182,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         pilot cc_cmd = "clang -c -o " + user_obj + " " + transpiled_file + " -O" + opt + " -w"
         if cross != "" { cc_cmd = cc_cmd + " --target=" + cross }
 
-        say C_DIM + "  >> " + C_RESET + "Compiling IR to object..."
+        say "  " + C_DIM + SYM_GEAR + "  Compiling IR..." + C_RESET
         pilot cc_exit = process::exec(cc_cmd)
         if cc_exit != 0 {
             say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- IR compilation error" + C_RESET
@@ -183,7 +202,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
             }
             link_cmd = link_cmd + " /out:" + out_bin + " /subsystem:console"
             link_cmd = link_cmd + " libcmt.lib user32.lib gdi32.lib msimg32.lib ws2_32.lib"
-            say C_DIM + "  >> " + C_RESET + "Linking with lld..."
+            say "  " + C_DIM + SYM_GEAR + "  Linking..." + C_RESET
             pilot link_exit = process::exec(link_cmd)
             if link_exit != 0 {
                 say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- link error" + C_RESET
@@ -196,7 +215,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
                 link_cmd = link_cmd + " " + ui_obj
             }
             link_cmd = link_cmd + " -lc -lm"
-            say C_DIM + "  >> " + C_RESET + "Linking with lld..."
+            say "  " + C_DIM + SYM_GEAR + "  Linking..." + C_RESET
             pilot link_exit = process::exec(link_cmd)
             if link_exit != 0 {
                 say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- link error" + C_RESET
@@ -204,7 +223,6 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
             }
         }
 
-        say C_BGREEN + "  BUILT " + C_RESET + C_BWHITE + out_bin + C_RESET + C_DIM + " (bundle mode)" + C_RESET
         give back out_bin
     }
 
@@ -238,7 +256,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         cmd = cmd + " --target=" + cross
     }
 
-    say C_DIM + "  >> " + C_RESET + "Compiling native binary..."
+    say "  " + C_DIM + SYM_GEAR + "  Compiling native binary..." + C_RESET
 
     pilot exit_code = process::exec(cmd)
     if exit_code != 0 {
@@ -254,7 +272,6 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         give back ""
     }
 
-    say C_BGREEN + "  BUILT " + C_RESET + C_BWHITE + out_bin + C_RESET
     give back out_bin
 }
 
@@ -335,14 +352,24 @@ task cli_load_std(target: word) -> word {
 task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     -- Full build pipeline: read source, transpile, compile.
     -- Returns the output binary path, or "" on error.
+    cli_build_start_ms = time::now_ms()
+
     pilot source: word = fs::read(src_file)
     if source == "" {
-        say C_BRED + "  ERROR" + C_RESET + " Could not read file: " + C_BWHITE + src_file + C_RESET
+        say ""
+        say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " Could not read file: " + C_BWHITE + src_file + C_RESET
         give back ""
     }
 
-    pilot hdr = C_BMAGENTA + "  FREAKC" + C_RESET + " " + C_DIM + "compiling" + C_RESET + " " + C_BWHITE + src_file + C_RESET + C_DIM + " [" + target + " -O" + opt + "]" + C_RESET
-    say hdr
+    -- Build header with box
+    pilot backend_label = "LLVM IR"
+    if target == "c" { backend_label = "C" }
+    say ""
+    say cli_box_top(45)
+    say cli_box_mid(" " + C_G1 + SYM_BOLT + " FREAKC" + C_RESET + "  " + C_BWHITE + src_file + C_RESET, 45)
+    say cli_box_mid(" " + C_DIM + "  Backend: " + C_RESET + C_BCYAN + backend_label + C_RESET + C_DIM + "  Opt: -O" + opt + C_RESET, 45)
+    say cli_box_bot(45)
+    say ""
 
     -- Auto-include standard library if available
     pilot std_source: word = cli_load_std(target)
@@ -352,9 +379,37 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
 
     pilot transpiled: word = cli_transpile(src_file, source, target)
     if transpiled == "" {
+        say ""
+        say "  " + C_BRED + SYM_SKULL + " BUILD FAILED" + C_RESET
+        say "  " + C_DIM + C_ITALIC + cli_fail_quote(time::now_ms()) + C_RESET
+        say ""
         give back ""
     }
 
+    cli_step_start()
     pilot binary: word = cli_build_binary(transpiled, src_file, target, opt, cross)
+    if binary == "" {
+        say ""
+        say "  " + C_BRED + SYM_SKULL + " BUILD FAILED" + C_RESET
+        say "  " + C_DIM + C_ITALIC + cli_fail_quote(time::now_ms()) + C_RESET
+        say ""
+        give back ""
+    }
+    cli_step_done("Native binary")
+
+    -- Success summary
+    pilot total_ms = time::now_ms() - cli_build_start_ms
+    pilot total_str = word_from_int(total_ms)
+    say ""
+    say cli_box_top(45)
+    say cli_box_mid(" " + C_BGREEN + SYM_SPARK + " BUILD SUCCESSFUL" + C_RESET, 45)
+    say cli_box_sep(45)
+    say cli_box_mid("  " + C_DIM + "Binary: " + C_RESET + C_BWHITE + binary + C_RESET, 45)
+    say cli_box_mid("  " + C_DIM + "Time:   " + C_RESET + C_BCYAN + total_str + "ms" + C_RESET, 45)
+    say cli_box_bot(45)
+    say ""
+    say "  " + C_DIM + C_ITALIC + cli_random_quote(total_ms) + C_RESET
+    say ""
+
     give back binary
 }

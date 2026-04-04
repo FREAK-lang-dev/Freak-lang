@@ -328,6 +328,8 @@ task emit_expr(id: word) -> void {
             emit(")")
         } else if val == "process::input" {
             emit("freak_process_input()")
+        } else if val == "time::now_ms" {
+            emit("freak_time_now_ms()")
         } else if emt_is_extern(val) {
             -- Extern function: call without freak_ prefix
             pilot etmp = c_safe_ident(val)

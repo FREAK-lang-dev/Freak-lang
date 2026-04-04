@@ -3,8 +3,11 @@
 #include <stdint.h>
 #include <string.h>
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
-#ifndef _WIN32
+#ifdef _WIN32
+__declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
+#else
 #include <unistd.h>
+#include <sys/time.h>
 #endif
 
 /* ── Global args — no longer needed, moved to LLVM IR globals ── */
@@ -60,6 +63,17 @@ int64_t freak_llvm_process_exec_capture(int64_t cmd_p) {
     pclose(fp);
 #endif
     return (int64_t)buf;
+}
+
+/* ── Time ──────────────────────────────────────────── */
+int64_t freak_llvm_time_now_ms(void) {
+#ifdef _WIN32
+    return (int64_t)GetTickCount64();
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (int64_t)(tv.tv_sec * 1000LL + tv.tv_usec / 1000LL);
+#endif
 }
 
 /* ── Panic ──────────────────────────────────────────── */

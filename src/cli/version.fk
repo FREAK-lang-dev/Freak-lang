@@ -1,16 +1,22 @@
 -- ===================================================================
--- FREAK CLI — Version Management
+-- FREAK CLI — Version, Colors, Banner, Quotes
 -- ===================================================================
--- Uses std/version.fk for semver parsing and comparison.
+-- The visual identity of FREAK. Make it beautiful.
 -- ===================================================================
 
-pilot CLI_VERSION = "0.10.0"
+pilot CLI_VERSION = "0.11.0"
 pilot CLI_CODENAME = "Alternative-4"
 
--- ANSI color codes
+-- ── ANSI Reset & Styles ──────────────────────────────
 pilot C_RESET   = "\x1b[0m"
 pilot C_BOLD    = "\x1b[1m"
 pilot C_DIM     = "\x1b[2m"
+pilot C_ITALIC  = "\x1b[3m"
+pilot C_ULINE   = "\x1b[4m"
+pilot C_BLINK   = "\x1b[5m"
+pilot C_STRIKE  = "\x1b[9m"
+
+-- ── Standard Colors ──────────────────────────────────
 pilot C_RED     = "\x1b[31m"
 pilot C_GREEN   = "\x1b[32m"
 pilot C_YELLOW  = "\x1b[33m"
@@ -18,6 +24,8 @@ pilot C_BLUE    = "\x1b[34m"
 pilot C_MAGENTA = "\x1b[35m"
 pilot C_CYAN    = "\x1b[36m"
 pilot C_WHITE   = "\x1b[37m"
+
+-- ── Bold Colors ──────────────────────────────────────
 pilot C_BRED    = "\x1b[1;31m"
 pilot C_BGREEN  = "\x1b[1;32m"
 pilot C_BYELLOW = "\x1b[1;33m"
@@ -26,50 +34,159 @@ pilot C_BMAGENTA = "\x1b[1;35m"
 pilot C_BCYAN   = "\x1b[1;36m"
 pilot C_BWHITE  = "\x1b[1;37m"
 
-task cli_show_version() -> void {
-    pilot ver_msg = C_BMAGENTA + "freakc" + C_RESET + " " + C_BWHITE + CLI_VERSION + C_RESET + " " + C_DIM + "(" + CLI_CODENAME + ")" + C_RESET
-    say ver_msg
+-- ── 24-bit RGB Colors (gradient palette) ─────────────
+-- Pink → Purple → Blue → Cyan gradient for the banner
+pilot C_G1 = "\x1b[38;2;255;100;200m"
+pilot C_G2 = "\x1b[38;2;220;80;220m"
+pilot C_G3 = "\x1b[38;2;180;70;240m"
+pilot C_G4 = "\x1b[38;2;140;80;255m"
+pilot C_G5 = "\x1b[38;2;100;120;255m"
+pilot C_G6 = "\x1b[38;2;60;180;255m"
+
+-- ── Background accent ────────────────────────────────
+pilot C_BG_DARK = "\x1b[48;2;20;20;30m"
+
+-- ── Box Drawing Characters ───────────────────────────
+pilot BOX_TL = "\xe2\x95\xad"
+pilot BOX_TR = "\xe2\x95\xae"
+pilot BOX_BL = "\xe2\x95\xb0"
+pilot BOX_BR = "\xe2\x95\xaf"
+pilot BOX_H  = "\xe2\x94\x80"
+pilot BOX_V  = "\xe2\x94\x82"
+pilot BOX_VR = "\xe2\x94\x9c"
+pilot BOX_VL = "\xe2\x94\xa4"
+
+-- ── Unicode Symbols ──────────────────────────────────
+pilot SYM_CHECK  = "\xe2\x9c\x93"
+pilot SYM_CROSS  = "\xe2\x9c\x97"
+pilot SYM_SPARK  = "\xe2\x9c\xa8"
+pilot SYM_BOLT   = "\xe2\x9a\xa1"
+pilot SYM_GEAR   = "\xe2\x9a\x99"
+pilot SYM_ARROW  = "\xe2\x96\xb8"
+pilot SYM_DOT    = "\xe2\x97\x8f"
+pilot SYM_RING   = "\xe2\x97\x8b"
+pilot SYM_STAR   = "\xe2\x98\x85"
+pilot SYM_SKULL  = "\xe2\x98\xa0"
+pilot SYM_ROCKET = "\xf0\x9f\x9a\x80"
+pilot SYM_FIRE   = "\xf0\x9f\x94\xa5"
+
+-- ── RGB Helper ───────────────────────────────────────
+task cli_rgb(r: int, g: int, b: int) -> word {
+    give back "\x1b[38;2;" + word_from_int(r) + ";" + word_from_int(g) + ";" + word_from_int(b) + "m"
 }
 
+-- ── Box Drawing Helpers ──────────────────────────────
+task cli_box_line(width: int) -> word {
+    pilot line = ""
+    pilot i = 0
+    repeat until i >= width {
+        line = line + BOX_H
+        i += 1
+    }
+    give back line
+}
+
+task cli_box_top(width: int) -> word {
+    give back "  " + C_DIM + BOX_TL + cli_box_line(width) + BOX_TR + C_RESET
+}
+
+task cli_box_bot(width: int) -> word {
+    give back "  " + C_DIM + BOX_BL + cli_box_line(width) + BOX_BR + C_RESET
+}
+
+task cli_box_mid(content: word, width: int) -> word {
+    -- Pad content to width (rough — no ANSI-aware length calc)
+    give back "  " + C_DIM + BOX_V + C_RESET + " " + content
+}
+
+task cli_box_sep(width: int) -> word {
+    give back "  " + C_DIM + BOX_VR + cli_box_line(width) + BOX_VL + C_RESET
+}
+
+-- ── Anime Quotes ─────────────────────────────────────
+task cli_random_quote(seed: int) -> word {
+    pilot idx = seed % 12
+    if idx == 0  { give back "\"This is the choice of Steins;Gate.\"" }
+    if idx == 1  { give back "\"People die when they are killed.\"" }
+    if idx == 2  { give back "\"You can't change the past, but you can change the future.\"" }
+    if idx == 3  { give back "\"The only ones who should kill are those prepared to be killed.\"" }
+    if idx == 4  { give back "\"If you don't take risks, you can't create a future.\"" }
+    if idx == 5  { give back "\"A lesson without pain is meaningless.\"" }
+    if idx == 6  { give back "\"It was always going to end this way.\"" }
+    if idx == 7  { give back "\"I am the bone of my sword.\"" }
+    if idx == 8  { give back "\"Believe in the me that believes in you!\"" }
+    if idx == 9  { give back "\"There is no way to take back a move once played.\"" }
+    if idx == 10 { give back "\"The world is not beautiful; and that is why it is beautiful.\"" }
+    give back "\"Even if I die, I can be replaced.\" -- Rei Ayanami"
+}
+
+task cli_fail_quote(seed: int) -> word {
+    pilot idx = seed % 8
+    if idx == 0  { give back "\"I mustn't run away. I mustn't run away.\"" }
+    if idx == 1  { give back "\"How many times must I tell you? This is reality.\"" }
+    if idx == 2  { give back "\"Omae wa mou shindeiru.\"" }
+    if idx == 3  { give back "\"You thought it would compile? Too bad, it was me, Dio!\"" }
+    if idx == 4  { give back "\"This pain... it's still not enough.\"" }
+    if idx == 5  { give back "\"The cruelest thing is a held-out hope.\"" }
+    if idx == 6  { give back "\"No one can escape the fate chosen for them.\"" }
+    give back "\"I'll accept any curse. I don't care.\" -- Homura"
+}
+
+-- ── Version Display ──────────────────────────────────
+task cli_show_version() -> void {
+    pilot ver = C_G1 + "freakc" + C_RESET + " " + C_BWHITE + CLI_VERSION + C_RESET + " " + C_DIM + "(" + CLI_CODENAME + ")" + C_RESET
+    say ver
+}
+
+-- ── Gradient Banner ──────────────────────────────────
 task cli_show_banner() -> void {
     say ""
-    say C_BMAGENTA + "  ______ _____  _____    _    _  __" + C_RESET
-    say C_BMAGENTA + " |  ____|  __ \\|  ___|  / \\  | |/ /" + C_RESET
-    say C_MAGENTA  + " | |__  | |__) | |__   / _ \\ | ' / " + C_RESET
-    say C_MAGENTA  + " |  __| |  _  /|  __| / ___ \\|  <  " + C_RESET
-    say C_RED      + " | |    | | \\ \\| |___/ /   \\ \\ . \\ " + C_RESET
-    say C_RED      + " |_|    |_|  \\_\\_____/_/     \\_\\_|\\_\\" + C_RESET
+    say "  " + C_G1 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_G2 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97 " + C_G3 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_G4 + " \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97 " + C_G5 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97  " + C_G6 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_RESET
+    say "  " + C_G1 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d" + C_G2 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_G3 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d" + C_G4 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_G5 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x91 " + C_G6 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x9d" + C_RESET
+    say "  " + C_G1 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97  " + C_G2 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x9d" + C_G3 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97  " + C_G4 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x91" + C_G5 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x9d " + C_RESET
+    say "  " + C_G2 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d  " + C_G3 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_G4 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d  " + C_G5 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x96\x88\xe2\x96\x88\xe2\x95\x91" + C_G5 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_RESET
+    say "  " + C_G3 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x91     " + C_G4 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x91  \xe2\x96\x88\xe2\x96\x88\xe2\x95\x91" + C_G5 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_G5 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x91  \xe2\x96\x88\xe2\x96\x88\xe2\x95\x91" + C_G6 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x91  \xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_RESET
+    say "  " + C_G4 + "\xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d     " + C_G5 + "\xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d  \xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d" + C_G5 + "\xe2\x95\x9a\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d" + C_G5 + "\xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d  \xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d" + C_G6 + "\xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d  \xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d" + C_RESET
     say ""
-    pilot tag = C_DIM + "  v" + CLI_VERSION + " " + C_RESET + C_BWHITE + CLI_CODENAME + C_RESET + C_DIM + " // self-hosting compiler" + C_RESET
+    pilot tag = "  " + C_DIM + "v" + CLI_VERSION + C_RESET + " " + C_G1 + CLI_CODENAME + C_RESET + C_DIM + " " + BOX_V + " self-hosting compiler " + BOX_V + " LLVM backend" + C_RESET
     say tag
     say ""
 }
 
+-- ── Help Display ─────────────────────────────────────
 task cli_show_help() -> void {
     cli_show_banner()
 
-    say C_BWHITE + "  COMMANDS" + C_RESET
-    say C_BCYAN  + "    build" + C_RESET + " <file.fk> [opts]    " + C_DIM + "Compile to native binary" + C_RESET
-    say C_BCYAN  + "    run" + C_RESET + " <file.fk> [opts]      " + C_DIM + "Build and execute" + C_RESET
-    say C_BCYAN  + "    check" + C_RESET + " <file.fk>           " + C_DIM + "Type-check only" + C_RESET
-    say C_BCYAN  + "    transpile" + C_RESET + " <file.fk> [opts] " + C_DIM + "Emit .c or .ll only" + C_RESET
-    say C_BCYAN  + "    hangar" + C_RESET + " <cmd>               " + C_DIM + "Package manager" + C_RESET
-    say C_BCYAN  + "    doctor" + C_RESET + "                     " + C_DIM + "Check setup" + C_RESET
-    say C_BCYAN  + "    version" + C_RESET + "                    " + C_DIM + "Show version" + C_RESET
-    say C_BCYAN  + "    help" + C_RESET + "                       " + C_DIM + "Show this help" + C_RESET
+    say cli_box_top(45)
+    say cli_box_mid(C_BWHITE + " COMMANDS" + C_RESET, 45)
+    say cli_box_sep(45)
+    say cli_box_mid("  " + C_G1 + "build" + C_RESET + "     <file.fk> [opts]  " + C_DIM + "Compile to binary" + C_RESET, 45)
+    say cli_box_mid("  " + C_G2 + "run" + C_RESET + "       <file.fk> [opts]  " + C_DIM + "Build & execute" + C_RESET, 45)
+    say cli_box_mid("  " + C_G3 + "check" + C_RESET + "     <file.fk>         " + C_DIM + "Type-check only" + C_RESET, 45)
+    say cli_box_mid("  " + C_G4 + "transpile" + C_RESET + " <file.fk> [opts]  " + C_DIM + "Emit .c or .ll" + C_RESET, 45)
+    say cli_box_mid("  " + C_G5 + "hangar" + C_RESET + "    <cmd>              " + C_DIM + "Package manager" + C_RESET, 45)
+    say cli_box_mid("  " + C_G6 + "doctor" + C_RESET + "                       " + C_DIM + "Check setup" + C_RESET, 45)
+    say cli_box_mid("  " + C_BCYAN + "version" + C_RESET + "                      " + C_DIM + "Show version" + C_RESET, 45)
+    say cli_box_mid("  " + C_BCYAN + "help" + C_RESET + "                         " + C_DIM + "This screen" + C_RESET, 45)
+    say cli_box_bot(45)
     say ""
-    say C_BWHITE + "  OPTIONS" + C_RESET
-    say C_YELLOW + "    --llvm" + C_RESET + "             " + C_DIM + "Use LLVM IR backend (default)" + C_RESET
-    say C_YELLOW + "    --c" + C_RESET + "                " + C_DIM + "Use C backend" + C_RESET
-    say C_YELLOW + "    --opt=N" + C_RESET + "            " + C_DIM + "Optimization level 0-3 (default: 2)" + C_RESET
-    say C_YELLOW + "    --target=TRIPLE" + C_RESET + "    " + C_DIM + "Cross-compile target triple" + C_RESET
+
+    say cli_box_top(45)
+    say cli_box_mid(C_BWHITE + " OPTIONS" + C_RESET, 45)
+    say cli_box_sep(45)
+    say cli_box_mid("  " + C_BYELLOW + "--llvm" + C_RESET + "            " + C_DIM + "LLVM IR backend (default)" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "--c" + C_RESET + "               " + C_DIM + "C backend" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "--opt=N" + C_RESET + "           " + C_DIM + "Optimization 0-3 (default: 2)" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "--target=TRIPLE" + C_RESET + "   " + C_DIM + "Cross-compile target" + C_RESET, 45)
+    say cli_box_bot(45)
     say ""
-    say C_BWHITE + "  EXAMPLES" + C_RESET
-    say C_DIM    + "    $ " + C_RESET + "freakc build hello.fk"
-    say C_DIM    + "    $ " + C_RESET + "freakc run hello.fk --c --opt=3"
-    say C_DIM    + "    $ " + C_RESET + "freakc build game.fk --target=x86_64-linux-gnu"
-    say C_DIM    + "    $ " + C_RESET + "freakc hangar init my-project"
+
+    say "  " + C_DIM + "EXAMPLES" + C_RESET
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freakc build" + C_RESET + " hello.fk"
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freakc run" + C_RESET + " hello.fk " + C_BYELLOW + "--c --opt=3" + C_RESET
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freakc build" + C_RESET + " game.fk " + C_BYELLOW + "--target=x86_64-linux-gnu" + C_RESET
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freakc hangar" + C_RESET + " init my-project"
     say ""
-    say C_DIM + "  \"It was always going to end this way.\"" + C_RESET
+    say "  " + C_DIM + C_ITALIC + cli_random_quote(42) + C_RESET
     say ""
 }

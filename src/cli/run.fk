@@ -7,19 +7,24 @@
 task cli_run(src_file: word, target: word, opt: word, cross: word) -> void {
     pilot binary: word = cli_build(src_file, target, opt, cross)
     if binary == "" {
-        say C_BRED + "  BUILD FAILED" + C_RESET + C_DIM + " -- cannot run." + C_RESET
         give back
     }
 
-    say ""
-    say C_BMAGENTA + "  RUNNING" + C_RESET + C_DIM + " ----------------------------------" + C_RESET
+    say cli_box_top(45)
+    say cli_box_mid(" " + C_G5 + SYM_ARROW + " RUNNING" + C_RESET + "  " + C_BWHITE + binary + C_RESET, 45)
+    say cli_box_bot(45)
     say ""
     -- Convert forward slashes to backslashes for Windows compatibility
     pilot run_cmd: word = binary.replace("/", "\\")
+    pilot run_start = time::now_ms()
     pilot run_code = process::exec(run_cmd)
+    pilot run_elapsed = time::now_ms() - run_start
+    say ""
     if run_code != 0 {
-        say ""
         pilot rc_str: word = word_from_int(run_code)
-        say C_BYELLOW + "  EXIT " + C_RESET + C_DIM + "code " + rc_str + C_RESET
+        say "  " + C_BYELLOW + SYM_BOLT + " EXIT" + C_RESET + C_DIM + " code " + rc_str + " (" + word_from_int(run_elapsed) + "ms)" + C_RESET
+    } else {
+        say "  " + C_BGREEN + SYM_CHECK + " DONE" + C_RESET + C_DIM + " (" + word_from_int(run_elapsed) + "ms)" + C_RESET
     }
+    say ""
 }

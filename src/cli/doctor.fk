@@ -6,19 +6,23 @@
 
 task cli_doctor() -> void {
     say ""
-    say C_BMAGENTA + "  FREAK DOCTOR" + C_RESET + C_DIM + " -- diagnosing your setup..." + C_RESET
+    say cli_box_top(45)
+    say cli_box_mid(" " + C_G1 + SYM_GEAR + " FREAK DOCTOR" + C_RESET + C_DIM + "  diagnosing your setup..." + C_RESET, 45)
+    say cli_box_bot(45)
     say ""
 
     pilot all_ok = true
+    pilot checks_passed = 0
 
     -- 1. Check clang
-    say C_BWHITE + "  [1/4]" + C_RESET + " clang"
+    say "  " + C_BWHITE + "[1/4]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " clang"
     pilot clang_exit = process::exec("clang --version")
     if clang_exit == 0 {
-        say C_BGREEN + "        OK" + C_RESET + C_DIM + " clang found" + C_RESET
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " clang found"
+        checks_passed += 1
     } else {
-        say C_BRED + "        MISSING" + C_RESET + " clang not found"
-        say C_DIM + "        Install:" + C_RESET
+        say "        " + C_BRED + SYM_CROSS + C_RESET + " clang " + C_RED + "not found" + C_RESET
+        say "        " + C_DIM + "Install:" + C_RESET
         say "          Windows: " + C_CYAN + "choco install llvm" + C_RESET
         say "          macOS:   " + C_CYAN + "xcode-select --install" + C_RESET
         say "          Linux:   " + C_CYAN + "sudo apt install clang" + C_RESET
@@ -27,29 +31,29 @@ task cli_doctor() -> void {
     say ""
 
     -- 2. Check runtime
-    say C_BWHITE + "  [2/4]" + C_RESET + " runtime"
+    say "  " + C_BWHITE + "[2/4]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " runtime"
     pilot rt_dir: word = cli_find_runtime_dir()
     if rt_dir != "" {
-        pilot rt_msg = C_BGREEN + "        OK" + C_RESET + C_DIM + " " + rt_dir + C_RESET
-        say rt_msg
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + rt_dir + C_RESET
         pilot has_o = fs::exists(rt_dir + "/freak_runtime.o")
         pilot has_llvm_o = fs::exists(rt_dir + "/freak_llvm_runtime.o")
         if has_o or has_llvm_o {
-            say C_BGREEN + "        OK" + C_RESET + C_DIM + " pre-compiled .o files (fast builds)" + C_RESET
+            say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " pre-compiled .o files (fast builds)" + C_RESET
         }
         pilot has_llvm_c = fs::exists(rt_dir + "/freak_llvm_runtime.c")
         if has_llvm_c or has_llvm_o {
-            say C_BGREEN + "        OK" + C_RESET + C_DIM + " LLVM runtime available" + C_RESET
+            say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " LLVM runtime available" + C_RESET
         }
+        checks_passed += 1
     } else {
-        say C_BRED + "        MISSING" + C_RESET + " cannot find runtime directory"
-        say C_DIM + "        Fix: Re-run install script or set FREAK_HOME" + C_RESET
+        say "        " + C_BRED + SYM_CROSS + C_RESET + " cannot find runtime directory"
+        say "        " + C_DIM + "Fix: Re-run install script or set FREAK_HOME" + C_RESET
         all_ok = false
     }
     say ""
 
     -- 3. Check std library
-    say C_BWHITE + "  [3/4]" + C_RESET + " standard library"
+    say "  " + C_BWHITE + "[3/4]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " standard library"
     pilot std_dir: word = cli_find_std_dir()
     if std_dir != "" {
         pilot mod_count = 0
@@ -60,17 +64,17 @@ task cli_doctor() -> void {
         if fs::exists(std_dir + "/json.fk") { mod_count += 1 }
         if fs::exists(std_dir + "/http.fk") { mod_count += 1 }
         if fs::exists(std_dir + "/version.fk") { mod_count += 1 }
-        pilot mod_msg = C_BGREEN + "        OK" + C_RESET + C_DIM + " " + word_from_int(mod_count) + " modules in " + std_dir + C_RESET
-        say mod_msg
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + " modules in " + C_DIM + std_dir + C_RESET
+        checks_passed += 1
     } else {
-        say C_BRED + "        MISSING" + C_RESET + " cannot find standard library"
-        say C_DIM + "        Fix: Re-run install script" + C_RESET
+        say "        " + C_BRED + SYM_CROSS + C_RESET + " cannot find standard library"
+        say "        " + C_DIM + "Fix: Re-run install script" + C_RESET
         all_ok = false
     }
     say ""
 
     -- 4. Quick compile test
-    say C_BWHITE + "  [4/4]" + C_RESET + " compile test"
+    say "  " + C_BWHITE + "[4/4]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " compile pipeline"
     if clang_exit == 0 and rt_dir != "" {
         fs::write("_freak_doctor_test.fk", "say \"FREAK works!\"")
         pilot test_src = fs::read("_freak_doctor_test.fk")
@@ -79,33 +83,36 @@ task cli_doctor() -> void {
             if transpiled != "" {
                 pilot bin: word = cli_build_binary(transpiled, "_freak_doctor_test.fk", "llvm", "2", "")
                 if bin != "" {
-                    say C_BGREEN + "        OK" + C_RESET + C_DIM + " full pipeline works" + C_RESET
+                    say "        " + C_BGREEN + SYM_CHECK + C_RESET + " full pipeline works"
                     fs::delete(bin)
+                    checks_passed += 1
                 } else {
-                    say C_BRED + "        FAIL" + C_RESET + " clang compilation error"
+                    say "        " + C_BRED + SYM_CROSS + C_RESET + " clang compilation error"
                     all_ok = false
                 }
                 fs::delete(transpiled)
             } else {
-                say C_BRED + "        FAIL" + C_RESET + " transpilation error"
+                say "        " + C_BRED + SYM_CROSS + C_RESET + " transpilation error"
                 all_ok = false
             }
         }
         fs::delete("_freak_doctor_test.fk")
     } else {
-        say C_BYELLOW + "        SKIP" + C_RESET + C_DIM + " missing clang or runtime" + C_RESET
+        say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " skipped (missing clang or runtime)" + C_RESET
     }
     say ""
 
     -- Summary
+    say cli_box_top(45)
     if all_ok {
-        say C_BGREEN + "  ALL SYSTEMS OPERATIONAL" + C_RESET
-        say ""
-        say C_DIM + "  Get started:" + C_RESET
-        say "    freakc build hello.fk"
-        say "    freakc run hello.fk"
+        say cli_box_mid(" " + C_BGREEN + SYM_SPARK + " ALL SYSTEMS OPERATIONAL" + C_RESET + "  " + C_DIM + word_from_int(checks_passed) + "/4 passed" + C_RESET, 45)
+        say cli_box_sep(45)
+        say cli_box_mid("  " + C_DIM + "Get started:" + C_RESET + "  freakc build hello.fk", 45)
     } else {
-        say C_BRED + "  ISSUES DETECTED" + C_RESET + C_DIM + " -- fix the above and run 'freakc doctor' again." + C_RESET
+        say cli_box_mid(" " + C_BRED + SYM_CROSS + " ISSUES DETECTED" + C_RESET + "  " + C_DIM + word_from_int(checks_passed) + "/4 passed" + C_RESET, 45)
+        say cli_box_sep(45)
+        say cli_box_mid("  " + C_DIM + "Fix the above, then run " + C_RESET + "freakc doctor" + C_DIM + " again" + C_RESET, 45)
     }
+    say cli_box_bot(45)
     say ""
 }
