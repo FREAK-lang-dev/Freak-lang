@@ -3169,6 +3169,37 @@ task llvm_emit_expr(id: word) -> word {
         }
         pilot is_void_call = false
 
+        -- UI/math/num builtins: override func_name with LLVM bridge names
+        -- These use flat if (not else-if) to avoid nesting depth limits
+        if val == "ui::create_window" { func_name = "@freak_llvm_ui_create_window" }
+        if val == "ui::destroy_window" { func_name = "@freak_llvm_ui_destroy_window" is_void_call = true }
+        if val == "ui::poll_events" { func_name = "@freak_llvm_ui_poll_events" }
+        if val == "ui::begin_frame" { func_name = "@freak_llvm_ui_begin_frame" is_void_call = true }
+        if val == "ui::end_frame" { func_name = "@freak_llvm_ui_end_frame" is_void_call = true }
+        if val == "ui::event_kind" { func_name = "@freak_llvm_ui_event_kind" }
+        if val == "ui::event_key" { func_name = "@freak_llvm_ui_event_key" }
+        if val == "ui::event_pressed" { func_name = "@freak_llvm_ui_event_pressed" }
+        if val == "ui::event_character" { func_name = "@freak_llvm_ui_event_character" }
+        if val == "ui::event_mouse_x" { func_name = "@freak_llvm_ui_event_mouse_x" }
+        if val == "ui::event_mouse_y" { func_name = "@freak_llvm_ui_event_mouse_y" }
+        if val == "ui::event_button" { func_name = "@freak_llvm_ui_event_button" }
+        if val == "ui::clear" { func_name = "@freak_llvm_ui_clear" is_void_call = true }
+        if val == "ui::fill_rect" { func_name = "@freak_llvm_ui_fill_rect" is_void_call = true }
+        if val == "ui::stroke_rect" { func_name = "@freak_llvm_ui_stroke_rect" is_void_call = true }
+        if val == "ui::fill_circle" { func_name = "@freak_llvm_ui_fill_circle" is_void_call = true }
+        if val == "ui::draw_line" { func_name = "@freak_llvm_ui_draw_line" is_void_call = true }
+        if val == "ui::draw_text" { func_name = "@freak_llvm_ui_draw_text" }
+        if val == "ui::measure_text" { func_name = "@freak_llvm_ui_measure_text" }
+        if val == "math::sqrt" { func_name = "@freak_llvm_math_sqrt" }
+        if val == "math::pow" { func_name = "@freak_llvm_math_pow" }
+        if val == "math::sin" { func_name = "@freak_llvm_math_sin" }
+        if val == "math::cos" { func_name = "@freak_llvm_math_cos" }
+        if val == "math::tan" { func_name = "@freak_llvm_math_tan" }
+        if val == "math::floor" { func_name = "@freak_llvm_math_floor" }
+        if val == "math::ceil" { func_name = "@freak_llvm_math_ceil" }
+        if val == "parse_num" { func_name = "@freak_llvm_parse_num" }
+        if val == "format_num" { func_name = "@freak_llvm_format_num" }
+
         -- Shape constructor: shape::ctor::Name with field value expr IDs in left
         if val.starts_with("shape::ctor::") {
             -- Extract shape name from val (after "shape::ctor::")

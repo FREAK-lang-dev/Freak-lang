@@ -84,9 +84,12 @@ static inline int64_t double_to_i64(double d) {
 /* ── UI bridge (LLVM i64 → real freak_ui_* calls) ──── */
 /* The LLVM backend passes everything as i64. These      */
 /* bridge functions call the real UI runtime.             */
+/* Only compiled when FREAK_HAS_UI is defined (i.e. when */
+/* the UI backend .c file is included in the build).     */
 
+#ifdef FREAK_HAS_UI
 int64_t freak_llvm_ui_create_window(int64_t title, int64_t w, int64_t h, int64_t flags) {
-    freak_word t; memcpy(&t, &title, sizeof(t));
+    freak_word t = freak_word_lit((const char*)title);
     return freak_ui_create_window_word(t, w, h, flags);
 }
 void freak_llvm_ui_destroy_window(int64_t handle) {
@@ -124,13 +127,14 @@ void freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int6
     freak_ui_draw_line(h, x1, y1, x2, y2, r, g, b, a, 1);
 }
 int64_t freak_llvm_ui_draw_text(int64_t h, int64_t text, int64_t x, int64_t y, int64_t r, int64_t g, int64_t b, int64_t size, int64_t bold, int64_t italic) {
-    freak_word t; memcpy(&t, &text, sizeof(t));
+    freak_word t = freak_word_lit((const char*)text);
     return freak_ui_draw_text_word(h, t, x, y, r, g, b, size, bold, italic);
 }
 int64_t freak_llvm_ui_measure_text(int64_t text, int64_t size, int64_t bold, int64_t italic) {
-    freak_word t; memcpy(&t, &text, sizeof(t));
+    freak_word t = freak_word_lit((const char*)text);
     return freak_ui_measure_text_word(t, size, bold, italic);
 }
+#endif /* FREAK_HAS_UI */
 
 /* ── Math bridge (LLVM i64-bitcast-double → real math) ─ */
 int64_t freak_llvm_math_sqrt(int64_t x)  { return double_to_i64(freak_math_sqrt(i64_to_double(x))); }
@@ -143,13 +147,12 @@ int64_t freak_llvm_math_ceil(int64_t x)  { return double_to_i64(freak_math_ceil(
 
 /* ── parse_num / format_num bridge ─────────────────── */
 int64_t freak_llvm_parse_num(int64_t w) {
-    freak_word word; memcpy(&word, &w, sizeof(word));
+    freak_word word = freak_word_lit((const char*)w);
     return double_to_i64(freak_parse_num(word));
 }
 int64_t freak_llvm_format_num(int64_t n) {
     freak_word result = freak_format_num(i64_to_double(n));
-    int64_t r; memcpy(&r, &result, sizeof(r));
-    return r;
+    return (int64_t)result.data;
 }
 
 /* ── Num (double) helpers ──────────────────────────── */
