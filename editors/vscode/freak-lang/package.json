@@ -1,0 +1,46 @@
+{
+  "name": "freak-lang",
+  "displayName": "FREAK Language",
+  "description": "Language support for FREAK — syntax highlighting, file icons, and bracket matching for .fk files",
+  "version": "0.13.0",
+  "publisher": "freak-lang-dev",
+  "icon": "icons/freak-marketplace.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FREAK-lang-dev/Freak-lang"
+  },
+  "engines": {
+    "vscode": "^1.73.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "freak",
+    "fk",
+    "anime",
+    "compiled",
+    "systems"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "freak",
+        "aliases": ["FREAK", "freak", "Freak"],
+        "extensions": [".fk"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/freak-file.svg",
+          "dark": "./icons/freak-file.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "freak",
+        "scopeName": "source.freak",
+        "path": "./syntaxes/freak.tmLanguage.json"
+      }
+    ]
+  }
+}

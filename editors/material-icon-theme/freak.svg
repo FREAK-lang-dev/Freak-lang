@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- FREAK language icon for Material Icon Theme -->
+  <!-- Pink/magenta to match FREAK's visual identity (#ff64c8) -->
+  <defs>
+    <linearGradient id="freakGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff64c8"/>
+      <stop offset="100%" stop-color="#b81882"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect x="1" y="1" width="22" height="22" rx="4" ry="4" fill="url(#freakGrad)"/>
+  <!-- Lightning bolt — FREAK's ⚡ symbol, centered -->
+  <polygon
+    points="13.8,2.5 7.5,13.0 12.0,13.0 10.2,21.5 16.5,11.0 12.0,11.0"
+    fill="white"
+    opacity="0.95"
+  />
+</svg>

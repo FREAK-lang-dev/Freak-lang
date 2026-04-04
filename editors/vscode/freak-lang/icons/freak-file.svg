@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff64c8"/>
+      <stop offset="100%" stop-color="#b81882"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect x="1" y="1" width="22" height="22" rx="5" ry="5" fill="url(#bg)"/>
+  <!-- Lightning bolt -->
+  <polygon points="13.5,3.5 8.5,13 12,13 10.5,20.5 15.5,11 12,11" fill="white" opacity="0.95"/>
+</svg>
