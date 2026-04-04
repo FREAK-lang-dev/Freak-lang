@@ -1063,31 +1063,6 @@ int64_t freak_llvm_ask(int64_t prompt) {
     return (int64_t)_strdup("");
 }
 
-int64_t freak_llvm_fs_read(int64_t path) {
-    const char* p = (const char*)path;
-    if (!p) return (int64_t)_strdup("");
-    FILE* f = fopen(p, "rb");
-    if (!f) return (int64_t)_strdup("");
-    fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char* string = (char*)malloc(fsize + 1);
-    fread(string, 1, fsize, f);
-    fclose(f);
-    string[fsize] = 0;
-    return (int64_t)string;
-}
-
-void freak_llvm_fs_write(int64_t path, int64_t content) {
-    const char* p = (const char*)path;
-    const char* c = (const char*)content;
-    if (!p || !c) return;
-    FILE* f = fopen(p, "wb");
-    if (!f) return;
-    fwrite(c, 1, strlen(c), f);
-    fclose(f);
-}
-
 int64_t freak_process_args_count(void) {
     return (int64_t)freak_argc;
 }

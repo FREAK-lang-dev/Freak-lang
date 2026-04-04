@@ -19,7 +19,7 @@ extern task freak_fread(buf: int, size: int, count: int, file: int) -> int
 extern task freak_fwrite(buf: int, size: int, count: int, file: int) -> int
 extern task freak_calloc(count: int, size: int) -> int
 extern task freak_remove(path: int) -> int
-extern task freak_word_length(s: int) -> int
+extern task freak_llvm_word_length(s: int) -> int
 
 -- ── fs::read — read entire file contents ─────────────
 task llvm_fs_read(path_p: int) -> int {
@@ -44,7 +44,7 @@ task llvm_fs_write(path_p: int, content_p: int) -> void {
         say "FREAK: cannot write file"
         process::exit(1)
     }
-    pilot len = freak_word_length(content_p)
+    pilot len = freak_llvm_word_length(content_p)
     freak_fwrite(content_p, 1, len, f)
     freak_fclose(f)
 }
@@ -56,7 +56,7 @@ task llvm_fs_append(path_p: int, content_p: int) -> void {
         say "FREAK: cannot append file"
         process::exit(1)
     }
-    pilot len = freak_word_length(content_p)
+    pilot len = freak_llvm_word_length(content_p)
     freak_fwrite(content_p, 1, len, f)
     freak_fclose(f)
 }

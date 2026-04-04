@@ -27,7 +27,33 @@ __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 
 /* ── File I/O ───────────────────────────────────────── */
 /* fs_read, fs_write, fs_append, fs_exists, fs_delete are now pure FREAK
-   tasks in std/runtime.fk. They call libc via i64 IR wrappers. */
+   tasks in std/runtime.fk. They call the libc wrappers below. */
+
+/* libc wrappers — take/return i64 (FREAK's universal ABI) */
+int64_t freak_fopen(int64_t path, int64_t mode) {
+    return (int64_t)fopen((const char*)path, (const char*)mode);
+}
+int64_t freak_fclose(int64_t file) {
+    return (int64_t)fclose((FILE*)file);
+}
+int64_t freak_fseek(int64_t file, int64_t offset, int64_t whence) {
+    return (int64_t)fseek((FILE*)file, (long)offset, (int)whence);
+}
+int64_t freak_ftell(int64_t file) {
+    return (int64_t)ftell((FILE*)file);
+}
+int64_t freak_fread(int64_t buf, int64_t size, int64_t count, int64_t file) {
+    return (int64_t)fread((void*)buf, (size_t)size, (size_t)count, (FILE*)file);
+}
+int64_t freak_fwrite(int64_t buf, int64_t size, int64_t count, int64_t file) {
+    return (int64_t)fwrite((const void*)buf, (size_t)size, (size_t)count, (FILE*)file);
+}
+int64_t freak_calloc(int64_t count, int64_t size) {
+    return (int64_t)calloc((size_t)count, (size_t)size);
+}
+int64_t freak_remove(int64_t path) {
+    return (int64_t)remove((const char*)path);
+}
 
 /* ── Process ────────────────────────────────────────── */
 /* freak_llvm_process_args_count, process_arg, process_exit, process_exec
@@ -78,6 +104,62 @@ int64_t freak_llvm_time_now_ms(void) {
 
 /* ── Panic ──────────────────────────────────────────── */
 /* freak_llvm_panic is now a pure LLVM IR intrinsic. */
+
+/* ── LLVM-compatible dynamic arrays (store int64_t) ─── */
+/* The C backend arrays store freak_word structs (24 bytes each).
+   The LLVM backend passes all values as int64_t (8 bytes), so we
+   need a separate pool that stores int64_t. */
+#define FREAK_LLVM_MAX_ARRAYS 1024
+typedef struct {
+    int64_t* data;
+    int64_t  length;
+    int64_t  capacity;
+} freak_llvm_dyn_array;
+static freak_llvm_dyn_array freak_llvm_arrays[FREAK_LLVM_MAX_ARRAYS];
+static int64_t freak_llvm_array_count = 0;
+
+int64_t freak_llvm_array_new(void) {
+    if (freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS) {
+        fprintf(stderr, "FREAK: too many arrays (max %d)\n", FREAK_LLVM_MAX_ARRAYS);
+        exit(1);
+    }
+    int64_t h = freak_llvm_array_count++;
+    freak_llvm_arrays[h].length = 0;
+    freak_llvm_arrays[h].capacity = 64;
+    freak_llvm_arrays[h].data = (int64_t*)malloc(64 * sizeof(int64_t));
+    if (!freak_llvm_arrays[h].data) { fprintf(stderr, "FREAK: OOM\n"); exit(1); }
+    return h;
+}
+void freak_llvm_array_push(int64_t handle, int64_t item) {
+    if (handle < 0 || handle >= freak_llvm_array_count) return;
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[handle];
+    if (a->length >= a->capacity) {
+        a->capacity *= 2;
+        a->data = (int64_t*)realloc(a->data, (size_t)a->capacity * sizeof(int64_t));
+        if (!a->data) { fprintf(stderr, "FREAK: OOM growing array\n"); exit(1); }
+    }
+    a->data[a->length++] = item;
+}
+int64_t freak_llvm_array_get(int64_t handle, int64_t index) {
+    if (handle < 0 || handle >= freak_llvm_array_count) return 0;
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[handle];
+    if (index < 0 || index >= a->length) return 0;
+    return a->data[index];
+}
+int64_t freak_llvm_array_len(int64_t handle) {
+    if (handle < 0 || handle >= freak_llvm_array_count) return 0;
+    return freak_llvm_arrays[handle].length;
+}
+void freak_llvm_array_set(int64_t handle, int64_t index, int64_t item) {
+    if (handle < 0 || handle >= freak_llvm_array_count) return;
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[handle];
+    if (index < 0 || index >= a->length) {
+        fprintf(stderr, "FREAK: array_set index %lld out of bounds (len %lld)\n",
+                (long long)index, (long long)a->length);
+        exit(1);
+    }
+    a->data[index] = item;
+}
 
 /* ── Shape (struct) helpers ─────────────────────────── */
 /* freak_llvm_shape_alloc, shape_get, shape_set are now

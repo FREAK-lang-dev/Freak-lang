@@ -27,15 +27,26 @@ task llvm_escape_str(s: word) -> word {
     pilot esc_out = ""
     pilot esc_len = s.length()
     pilot esc_i = 0
-    repeat esc_len times {
+    repeat until esc_i >= esc_len {
         pilot ch = s.char_at(esc_i)
-        if ch == "\"" { esc_out = esc_out + "\\22" }
-        else if ch == "\\" { esc_out = esc_out + "\\5C" }
-        else if ch == "\n" { esc_out = esc_out + "\\0A" }
-        else if ch == "\r" { esc_out = esc_out + "\\0D" }
-        else if ch == "\t" { esc_out = esc_out + "\\09" }
-        else { esc_out = esc_out + ch }
-        esc_i += 1
+        if ch == "\\" and esc_i + 3 < esc_len {
+            pilot nx = s.char_at(esc_i + 1)
+            if nx == "x" {
+                -- \xNN hex escape from lexer -> LLVM IR \NN
+                pilot h1 = s.char_at(esc_i + 2)
+                pilot h2 = s.char_at(esc_i + 3)
+                esc_out = esc_out + "\\" + h1 + h2
+                esc_i += 4
+            } else {
+                esc_out = esc_out + "\\5C"
+                esc_i += 1
+            }
+        } else if ch == "\"" { esc_out = esc_out + "\\22" esc_i += 1 }
+        else if ch == "\\" { esc_out = esc_out + "\\5C" esc_i += 1 }
+        else if ch == "\n" { esc_out = esc_out + "\\0A" esc_i += 1 }
+        else if ch == "\r" { esc_out = esc_out + "\\0D" esc_i += 1 }
+        else if ch == "\t" { esc_out = esc_out + "\\09" esc_i += 1 }
+        else { esc_out = esc_out + ch esc_i += 1 }
     }
     give back esc_out
 }
@@ -44,7 +55,19 @@ task register_string_literal(val: word) -> word {
     pilot id = "@.str." + word_from_int(string_literals_count)
     string_literals_count += 1
     pilot real_val = val.replace("<<PIPE>>", "|")
+    -- Calculate actual byte length (\xNN is 4 source chars but 1 byte)
     pilot len = real_val.length()
+    pilot adj_i = 0
+    repeat until adj_i >= len {
+        pilot adj_ch = real_val.char_at(adj_i)
+        if adj_ch == "\\" and adj_i + 3 < len {
+            pilot adj_nx = real_val.char_at(adj_i + 1)
+            if adj_nx == "x" {
+                len -= 3
+                adj_i += 4
+            } else { adj_i += 1 }
+        } else { adj_i += 1 }
+    }
     pilot null_term_len = len + 1
     pilot escaped = llvm_escape_str(real_val)
     pilot decl = id + " = private unnamed_addr constant [" + word_from_int(null_term_len) + " x i8] c\"" + escaped + "\\00\", align 1\n"
@@ -157,8 +180,45 @@ task llvm_is_global(vname: word) -> bool {
     give back llvm_global_names.contains(needle)
 }
 
+-- Register a FREAK→LLVM name binding (latest entry wins on lookup)
+task llvm_reg_var(freak_name: word, llvm_name: word) -> void {
+    llvm_var_reg_map = llvm_var_reg_map + freak_name + ":" + llvm_name + "|"
+}
+
+-- Look up the latest LLVM name for a FREAK variable name (scan from end)
+-- Format: "freak_name:llvm_name|freak_name2:llvm_name2|..."
+task llvm_get_llvm_name(freak_name: word) -> word {
+    pilot mlen = llvm_var_reg_map.length()
+    pilot i = mlen - 1
+    pilot cur_llvm = ""
+    pilot cur_freak = ""
+    pilot in_llvm = true
+    repeat until i < 0 {
+        pilot ch = llvm_var_reg_map.char_at(i)
+        if ch == "|" {
+            -- End of an entry: check the accumulated freak name
+            if cur_freak == freak_name and cur_llvm.length() > 0 { give back cur_llvm }
+            cur_llvm = ""
+            cur_freak = ""
+            in_llvm = true
+        } else if ch == ":" {
+            in_llvm = false
+        } else if in_llvm {
+            cur_llvm = ch + cur_llvm
+        } else {
+            cur_freak = ch + cur_freak
+        }
+        i -= 1
+    }
+    -- Check the first entry (no leading |)
+    if cur_freak == freak_name and cur_llvm.length() > 0 { give back cur_llvm }
+    give back ""
+}
+
 task llvm_var_ptr(vname: word) -> word {
     if llvm_is_global(vname) { give back "@g_" + vname }
+    pilot unique = llvm_get_llvm_name(vname)
+    if unique != "" { give back "%" + unique }
     give back "%" + vname
 }
 
@@ -294,8 +354,9 @@ task llvm_is_num_expr(expr_id: word) -> bool {
 task llvm_map_call_name(val: word) -> word {
     if val == "say" { give back "@freak_llvm_say" }
     if val == "ask" { give back "@freak_llvm_ask" }
-    if val == "word_from_int" { give back "@freak_word_from_int" }
-    if val == "word_from_bool" { give back "@freak_word_from_bool" }
+    if val == "word_from_int" { give back "@freak_llvm_word_from_int" }
+    if val == "word_from_bool" { give back "@freak_llvm_word_from_bool" }
+    if val == "word_to_int" { give back "@freak_llvm_word_to_int" }
     if val == "fs::read" { give back "@freak_llvm_fs_read" }
     if val == "fs::write" { give back "@freak_llvm_fs_write" }
     if val == "fs::append" { give back "@freak_llvm_fs_append" }
@@ -307,11 +368,11 @@ task llvm_map_call_name(val: word) -> word {
     if val == "process::exec" { give back "@freak_llvm_process_exec" }
     if val == "process::exec_capture" { give back "@freak_llvm_process_exec_capture" }
     if val == "panic" { give back "@freak_llvm_panic" }
-    if val == "array_new" { give back "@freak_array_new" }
-    if val == "array_push" { give back "@freak_array_push" }
-    if val == "array_get" { give back "@freak_array_get" }
-    if val == "array_set" { give back "@freak_array_set" }
-    if val == "array_len" { give back "@freak_array_len" }
+    if val == "array_new" { give back "@freak_llvm_array_new" }
+    if val == "array_push" { give back "@freak_llvm_array_push" }
+    if val == "array_get" { give back "@freak_llvm_array_get" }
+    if val == "array_set" { give back "@freak_llvm_array_set" }
+    if val == "array_len" { give back "@freak_llvm_array_len" }
     if val == "ui::create_window" { give back "@freak_llvm_ui_create_window" }
     if val == "ui::destroy_window" { give back "@freak_llvm_ui_destroy_window" }
     if val == "ui::poll_events" { give back "@freak_llvm_ui_poll_events" }
@@ -343,11 +404,11 @@ task llvm_map_call_name(val: word) -> word {
     if val == "shape::alloc" { give back "@freak_llvm_shape_alloc" }
     if val == "shape::get" { give back "@freak_llvm_shape_get" }
     if val == "shape::set" { give back "@freak_llvm_shape_set" }
-    if val == "tcp::connect" { give back "@freak_llvm_tcp_connect" }
-    if val == "tcp::send" { give back "@freak_llvm_tcp_send" }
-    if val == "tcp::recv" { give back "@freak_llvm_tcp_recv" }
-    if val == "tcp::recv_all" { give back "@freak_llvm_tcp_recv_all" }
-    if val == "tcp::close" { give back "@freak_llvm_tcp_close" }
+    if val == "tcp::connect" or val == "tcp_connect" { give back "@freak_llvm_tcp_connect" }
+    if val == "tcp::send" or val == "tcp_send" { give back "@freak_llvm_tcp_send" }
+    if val == "tcp::recv" or val == "tcp_recv" { give back "@freak_llvm_tcp_recv" }
+    if val == "tcp::recv_all" or val == "tcp_recv_all" { give back "@freak_llvm_tcp_recv_all" }
+    if val == "tcp::close" or val == "tcp_close" { give back "@freak_llvm_tcp_close" }
     give back ""
 }
 
@@ -357,7 +418,7 @@ task llvm_is_void_call(val: word) -> bool {
     if val == "process::exit" { give back true }
     if val == "array_push" or val == "array_set" { give back true }
     if val == "shape::set" { give back true }
-    if val == "tcp::close" { give back true }
+    if val == "tcp::close" or val == "tcp_close" { give back true }
     if val == "ui::destroy_window" or val == "ui::begin_frame" or val == "ui::end_frame" { give back true }
     if val == "ui::clear" or val == "ui::fill_rect" or val == "ui::stroke_rect" { give back true }
     if val == "ui::fill_circle" or val == "ui::draw_line" { give back true }
@@ -583,13 +644,13 @@ task llvm_emit_add(l_reg: word, r_reg: word, res_reg: word, left: word, right: w
         pilot rw = r_reg
         if not lt.starts_with("w") {
             lw = next_reg()
-            llvm_emit_line("    " + lw + " = call i64 @freak_word_from_int(i64 " + l_reg + ")")
+            llvm_emit_line("    " + lw + " = call i64 @freak_llvm_word_from_int(i64 " + l_reg + ")")
         }
         if not rt.starts_with("w") {
             rw = next_reg()
-            llvm_emit_line("    " + rw + " = call i64 @freak_word_from_int(i64 " + r_reg + ")")
+            llvm_emit_line("    " + rw + " = call i64 @freak_llvm_word_from_int(i64 " + r_reg + ")")
         }
-        llvm_emit_line("    " + res_reg + " = call i64 @freak_word_concat(i64 " + lw + ", i64 " + rw + ")")
+        llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_concat(i64 " + lw + ", i64 " + rw + ")")
         give back res_reg
     }
     if is_num_op {
@@ -667,16 +728,16 @@ task llvm_emit_unaryop(val: word, left: word) -> word {
 task llvm_emit_method(val: word, left: word, right: word) -> word {
     pilot obj_reg = llvm_emit_expr(left)
     pilot res_reg = next_reg()
-    if val == "length" { llvm_emit_line("    " + res_reg + " = call i64 @freak_word_length(i64 " + obj_reg + ")") give back res_reg }
-    if val == "char_at" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_word_char_at(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
-    if val == "contains" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_word_contains(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
-    if val == "starts_with" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_word_starts_with(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
-    if val == "ends_with" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_word_ends_with(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
-    if val == "to_upper" { llvm_emit_line("    " + res_reg + " = call i64 @freak_word_to_upper(i64 " + obj_reg + ")") give back res_reg }
-    if val == "to_lower" { llvm_emit_line("    " + res_reg + " = call i64 @freak_word_to_lower(i64 " + obj_reg + ")") give back res_reg }
-    if val == "trim" { llvm_emit_line("    " + res_reg + " = call i64 @freak_word_trim(i64 " + obj_reg + ")") give back res_reg }
-    if val == "replace" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_word_replace(i64 " + obj_reg + ", i64 " + a + ", i64 0)") give back res_reg }
-    if val == "to_int" { llvm_emit_line("    " + res_reg + " = call i64 @freak_word_to_int(i64 " + obj_reg + ")") give back res_reg }
+    if val == "length" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_length(i64 " + obj_reg + ")") give back res_reg }
+    if val == "char_at" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_char_at(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
+    if val == "contains" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_contains(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
+    if val == "starts_with" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_starts_with(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
+    if val == "ends_with" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_ends_with(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
+    if val == "to_upper" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_upper(i64 " + obj_reg + ")") give back res_reg }
+    if val == "to_lower" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_lower(i64 " + obj_reg + ")") give back res_reg }
+    if val == "trim" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_trim(i64 " + obj_reg + ")") give back res_reg }
+    if val == "replace" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_replace(i64 " + obj_reg + ", i64 " + a + ", i64 0)") give back res_reg }
+    if val == "to_int" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_int(i64 " + obj_reg + ")") give back res_reg }
     -- User-defined impl methods
     pilot si = 0
     repeat shape_registry_count times {
@@ -814,8 +875,11 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
     if llvm_is_global(name_w) {
         llvm_emit_line("    store i64 " + reg + ", i64* @g_" + name_w)
     } else {
-        llvm_emit_line("    %" + name_w + " = alloca i64")
-        llvm_emit_line("    store i64 " + reg + ", i64* %" + name_w)
+        pilot uniq = name_w + "_v" + word_from_int(temp_reg_counter)
+        temp_reg_counter += 1
+        llvm_reg_var(name_w, uniq)
+        llvm_emit_line("    %" + uniq + " = alloca i64")
+        llvm_emit_line("    store i64 " + reg + ", i64* %" + uniq)
     }
 }
 
@@ -1187,6 +1251,7 @@ task llvm_allocate_params(p: word) -> void {
 task llvm_emit_task(eid: word) -> void {
     llvm_var_names = ""
     llvm_var_types = ""
+    llvm_var_reg_map = ""
     pilot i = word_to_int(eid)
     pilot name_w: word = array_get(ast_stmt_names, i)
     pilot body_id_w: word = array_get(ast_stmt_bodies, i)
@@ -1216,33 +1281,27 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i32 @puts(i8*)")
     llvm_emit_line("declare i32 @printf(i8*, ...)")
     llvm_emit_line("declare i64 @strlen(i8*)")
-    llvm_emit_line("declare i64 @freak_word_from_int(i64)")
-    llvm_emit_line("declare i64 @freak_word_from_bool(i64)")
-    llvm_emit_line("declare i64 @freak_word_concat(i64, i64)")
-    llvm_emit_line("declare i64 @freak_word_eq(i64, i64)")
-    llvm_emit_line("declare i64 @freak_word_neq(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_from_int(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_from_bool(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_concat(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_eq(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_neq(i64, i64)")
-    llvm_emit_line("declare i64 @freak_word_length(i64)")
-    llvm_emit_line("declare i64 @freak_word_char_at(i64, i64)")
-    llvm_emit_line("declare i64 @freak_word_contains(i64, i64)")
-    llvm_emit_line("declare i64 @freak_word_starts_with(i64, i64)")
-    llvm_emit_line("declare i64 @freak_word_ends_with(i64, i64)")
-    llvm_emit_line("declare i64 @freak_word_to_upper(i64)")
-    llvm_emit_line("declare i64 @freak_word_to_lower(i64)")
-    llvm_emit_line("declare i64 @freak_word_trim(i64)")
-    llvm_emit_line("declare i64 @freak_word_replace(i64, i64, i64)")
-    llvm_emit_line("declare i64 @freak_word_to_int(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_length(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_char_at(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_contains(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_starts_with(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_ends_with(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_to_upper(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_to_lower(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_trim(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_replace(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_to_int(i64)")
     llvm_emit_line("declare void @freak_llvm_say(i64)")
     llvm_emit_line("declare void @freak_llvm_print_str(i64)")
     llvm_emit_line("declare void @freak_llvm_print_int(i64)")
     llvm_emit_line("declare void @freak_llvm_print_newline()")
     llvm_emit_line("declare i64 @freak_llvm_ask(i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_read(i64)")
-    llvm_emit_line("declare void @freak_llvm_fs_write(i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_fs_append(i64, i64)")
-    llvm_emit_line("declare i64 @freak_llvm_fs_exists(i64)")
-    llvm_emit_line("declare void @freak_llvm_fs_delete(i64)")
+    -- fs functions are defined as FREAK tasks in std/runtime.fk — no declare needed
     llvm_emit_line("declare i64 @freak_llvm_process_args_count()")
     llvm_emit_line("declare i64 @freak_llvm_process_arg(i64)")
     llvm_emit_line("declare void @freak_llvm_process_exit(i64)")
@@ -1286,18 +1345,18 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_llvm_parse_num(i64)")
     llvm_emit_line("declare i64 @freak_llvm_format_num(i64)")
     llvm_emit_line("declare i64 @freak_word_compare(i64, i64)")
-    llvm_emit_line("declare i64 @freak_array_new()")
-    llvm_emit_line("declare void @freak_array_push(i64, i64)")
-    llvm_emit_line("declare i64 @freak_array_get(i64, i64)")
-    llvm_emit_line("declare i64 @freak_array_len(i64)")
-    llvm_emit_line("declare void @freak_array_set(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_array_new()")
+    llvm_emit_line("declare void @freak_llvm_array_push(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_array_get(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_array_len(i64)")
+    llvm_emit_line("declare void @freak_llvm_array_set(i64, i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_tcp_connect(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_tcp_send(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_tcp_recv(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_tcp_recv_all(i64, i64)")
     llvm_emit_line("declare void @freak_llvm_tcp_close(i64)")
 
-    llvm_declared_funcs = "|puts|printf|strlen|freak_word_from_int|freak_word_from_bool|freak_word_concat|freak_word_eq|freak_word_neq|freak_llvm_word_eq|freak_llvm_word_neq|freak_word_length|freak_word_char_at|freak_word_contains|freak_word_starts_with|freak_word_ends_with|freak_word_to_upper|freak_word_to_lower|freak_word_trim|freak_word_replace|freak_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_fs_read|freak_llvm_fs_write|freak_llvm_fs_append|freak_llvm_fs_exists|freak_llvm_fs_delete|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_window|freak_llvm_ui_destroy_window|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_event_kind|freak_llvm_ui_event_key|freak_llvm_ui_event_pressed|freak_llvm_ui_event_character|freak_llvm_ui_event_mouse_x|freak_llvm_ui_event_mouse_y|freak_llvm_ui_event_button|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_llvm_ui_stroke_rect|freak_llvm_ui_fill_circle|freak_llvm_ui_draw_line|freak_llvm_ui_draw_text|freak_llvm_ui_measure_text|freak_llvm_math_sqrt|freak_llvm_math_pow|freak_llvm_math_sin|freak_llvm_math_cos|freak_llvm_math_tan|freak_llvm_math_floor|freak_llvm_math_ceil|freak_llvm_parse_num|freak_llvm_format_num|freak_array_new|freak_array_push|freak_array_get|freak_array_len|freak_array_set|freak_word_compare|freak_llvm_tcp_connect|freak_llvm_tcp_send|freak_llvm_tcp_recv|freak_llvm_tcp_recv_all|freak_llvm_tcp_close|"
+    llvm_declared_funcs = "|puts|printf|strlen|freak_llvm_word_from_int|freak_llvm_word_from_bool|freak_llvm_word_concat|freak_llvm_word_eq|freak_llvm_word_neq|freak_llvm_word_length|freak_llvm_word_char_at|freak_llvm_word_contains|freak_llvm_word_starts_with|freak_llvm_word_ends_with|freak_llvm_word_to_upper|freak_llvm_word_to_lower|freak_llvm_word_trim|freak_llvm_word_replace|freak_llvm_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_window|freak_llvm_ui_destroy_window|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_event_kind|freak_llvm_ui_event_key|freak_llvm_ui_event_pressed|freak_llvm_ui_event_character|freak_llvm_ui_event_mouse_x|freak_llvm_ui_event_mouse_y|freak_llvm_ui_event_button|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_llvm_ui_stroke_rect|freak_llvm_ui_fill_circle|freak_llvm_ui_draw_line|freak_llvm_ui_draw_text|freak_llvm_ui_measure_text|freak_llvm_math_sqrt|freak_llvm_math_pow|freak_llvm_math_sin|freak_llvm_math_cos|freak_llvm_math_tan|freak_llvm_math_floor|freak_llvm_math_ceil|freak_llvm_parse_num|freak_llvm_format_num|freak_llvm_array_new|freak_llvm_array_push|freak_llvm_array_get|freak_llvm_array_len|freak_llvm_array_set|freak_word_compare|freak_llvm_tcp_connect|freak_llvm_tcp_send|freak_llvm_tcp_recv|freak_llvm_tcp_recv_all|freak_llvm_tcp_close|freak_llvm_time_now_ms|"
 }
 
 -- ===================== PROGRAM ASSEMBLY ==============================
@@ -1413,6 +1472,7 @@ task emit_llvm_program() -> void {
     if has_main_task {
         llvm_var_names = ""
         llvm_var_types = ""
+        llvm_var_reg_map = ""
         llvm_cur_func_is_void = true
         llvm_emit_line("define void @freak_init_globals() {")
         llvm_emit_line("entry:")
@@ -1432,6 +1492,7 @@ task emit_llvm_program() -> void {
     if not has_main_task {
         llvm_var_names = ""
         llvm_var_types = ""
+        llvm_var_reg_map = ""
         llvm_cur_func_is_void = true
         llvm_emit_line("define void @freak_main() {")
         llvm_emit_line("entry:")

@@ -37,16 +37,18 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
     cli_step_start()
     if target == "llvm" {
         pilot out_ll = src_file + ".ll"
-        llvm_out_file = out_ll
+        out_file = out_ll
         fs::write(out_ll, "")
         emit_llvm_program()
-        llvm_out_file = ""
+        out_file = ""
         cli_step_done("Emit LLVM IR")
         give back out_ll
     } else {
-        emit_program()
         pilot out_c = src_file + ".c"
-        fs::write(out_c, out_buf)
+        out_file = out_c
+        fs::write(out_c, "")
+        emit_c_program()
+        out_file = ""
         cli_step_done("Emit C")
         give back out_c
     }
@@ -195,7 +197,9 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         pilot ui_obj = runtime_dir + "/freak_ui_win32" + obj_ext
 
         if is_win {
-            pilot link_cmd = "lld-link " + user_obj + " " + llvm_rt_obj
+            -- user_obj first (FREAK impls), then llvm_rt_obj (libc wrappers), then rt_obj (word/array fns)
+            -- /FORCE:MULTIPLE resolves duplicates by using first definition seen
+            pilot link_cmd = "lld-link /FORCE:MULTIPLE " + user_obj + " " + llvm_rt_obj + " " + rt_obj
             -- Add UI runtime if it exists
             if fs::exists(ui_obj) {
                 link_cmd = link_cmd + " " + ui_obj
@@ -210,7 +214,8 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
             }
         }
         if not is_win {
-            pilot link_cmd = "ld.lld -o " + out_bin + " " + user_obj + " " + llvm_rt_obj
+            -- user_obj first (FREAK), then llvm_rt_obj (libc wrappers), then rt_obj (word/array fns)
+            pilot link_cmd = "ld.lld --allow-multiple-definition -o " + out_bin + " " + user_obj + " " + llvm_rt_obj + " " + rt_obj
             if fs::exists(ui_obj) {
                 link_cmd = link_cmd + " " + ui_obj
             }
@@ -227,9 +232,15 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     }
 
     -- LEGACY MODE: clang does everything (transpiled + runtime source -> binary)
+    -- LLVM builds need both runtimes: freak_runtime.c (word/array/io functions)
+    -- and freak_llvm_runtime.c (math/tcp/time bridge functions)
     pilot runtime_file = ""
     if target == "llvm" {
-        runtime_file = runtime_dir + "/freak_llvm_runtime.c"
+        -- llvm_runtime first (libc wrappers + LLVM bridge), then freak_runtime (word/array fns)
+        -- -z muldefs on Linux allows duplicate symbols (freak_word_length, freak_llvm_fs_*)
+        pilot llvm_rt_c = runtime_dir + "/freak_llvm_runtime.c"
+        pilot rt_c = runtime_dir + "/freak_runtime.c"
+        runtime_file = llvm_rt_c + " " + rt_c
     } else {
         runtime_file = runtime_dir + "/freak_runtime.c"
     }

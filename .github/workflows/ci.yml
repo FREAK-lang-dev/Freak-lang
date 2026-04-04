@@ -20,11 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - name: Install Clang (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang lld
@@ -49,30 +44,24 @@ jobs:
             echo "EXT=" >> "$GITHUB_ENV"
           fi
 
-      - name: Build v2 compiler (Stage 0 — Python bootstrap)
+      - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
         shell: bash
         run: |
-          python -m freakc build self_hosted/main.fk -o self_hosted/freakc_self$EXT --keep-c
+          cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
+          clang -o build/freakc_v3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
-      - name: Build v2 compiler (Stage 1 — concatenate + compile)
-        shell: bash
-        run: |
-          cat src/compiler/ast.fk src/compiler/lexer.fk src/compiler/parser.fk src/compiler/checker.fk src/compiler/emitter.fk src/compiler/backend/llvm.fk src/compiler/main.fk > build/freakc_v2.fk
-          ./self_hosted/freakc_self$EXT build/freakc_v2.fk
-          clang -o build/freakc_v2$EXT build/freakc_v2.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-
-      - name: Build full CLI (Stage 2 — compiler + CLI + Hangar)
+      - name: Build full CLI (Stage 1 — V3 compiler + CLI + Hangar)
         shell: bash
         run: |
           mkdir -p build
           rm -f build/freakc_cli.fk
           cat std/version.fk >> build/freakc_cli.fk
-          cat src/compiler/ast.fk >> build/freakc_cli.fk
-          cat src/compiler/lexer.fk >> build/freakc_cli.fk
-          cat src/compiler/parser.fk >> build/freakc_cli.fk
-          cat src/compiler/checker.fk >> build/freakc_cli.fk
-          cat src/compiler/emitter.fk >> build/freakc_cli.fk
-          cat src/compiler/backend/llvm.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/globals.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/helpers.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/lexer.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/parser.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/emit_c.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/emit_llvm.fk >> build/freakc_cli.fk
           cat src/cli/version.fk >> build/freakc_cli.fk
           cat src/cli/toml.fk >> build/freakc_cli.fk
           cat src/cli/lockfile.fk >> build/freakc_cli.fk
@@ -81,10 +70,17 @@ jobs:
           cat src/cli/hangar.fk >> build/freakc_cli.fk
           cat src/cli/doctor.fk >> build/freakc_cli.fk
           cat src/cli/main.fk >> build/freakc_cli.fk
-          ./build/freakc_v2$EXT build/freakc_cli.fk --c
+          ./build/freakc_v3$EXT build/freakc_cli.fk --c
           clang -o build/freak$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          # Create hangar symlink/copy (BusyBox pattern)
+          # Create hangar binary (BusyBox pattern)
           cp build/freak$EXT build/hangar$EXT
+
+      - name: Self-hosting test (V3 compiles itself)
+        shell: bash
+        run: |
+          ./build/freakc_v3$EXT build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          echo "V3 self-hosting: OK"
 
       - name: CLI smoke test — version
         shell: bash
@@ -144,10 +140,3 @@ jobs:
           ./build/freak$EXT build tests/fs_runtime_test.fk
           ./tests/fs_runtime_test$EXT
 
-      - name: Self-hosting bootstrap test
-        shell: bash
-        run: |
-          ./build/freakc_v2$EXT tests/hello.fk --c
-          clang -o tests/hello_bootstrap$EXT tests/hello.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          echo "--- Bootstrap verification output ---"
-          ./tests/hello_bootstrap$EXT

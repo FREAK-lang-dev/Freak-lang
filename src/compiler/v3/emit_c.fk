@@ -188,15 +188,24 @@ task emit_c_string(val: word) -> void {
     pilot str_val = val.replace("<<PIPE>>", "|")
     pilot si = 0
     pilot sslen = str_val.length()
-    repeat sslen times {
+    repeat until si >= sslen {
         pilot sc = str_val.char_at(si)
-        if sc == "\n" { tmp = tmp + "\\n" }
-        else if sc == "\r" { tmp = tmp + "\\r" }
-        else if sc == "\t" { tmp = tmp + "\\t" }
-        else if sc == "\\" { tmp = tmp + "\\\\" }
-        else if sc == "\"" { tmp = tmp + "\\\"" }
-        else { tmp = tmp + sc }
-        si += 1
+        if sc == "\\" and si + 3 < sslen {
+            pilot snx = str_val.char_at(si + 1)
+            if snx == "x" {
+                -- Pass \xNN hex escapes through to C as-is
+                tmp = tmp + "\\x" + str_val.char_at(si + 2) + str_val.char_at(si + 3)
+                si += 4
+            } else {
+                tmp = tmp + "\\\\"
+                si += 1
+            }
+        } else if sc == "\n" { tmp = tmp + "\\n" si += 1 }
+        else if sc == "\r" { tmp = tmp + "\\r" si += 1 }
+        else if sc == "\t" { tmp = tmp + "\\t" si += 1 }
+        else if sc == "\\" { tmp = tmp + "\\\\" si += 1 }
+        else if sc == "\"" { tmp = tmp + "\\\"" si += 1 }
+        else { tmp = tmp + sc si += 1 }
     }
     emit(tmp + "\")")
 }

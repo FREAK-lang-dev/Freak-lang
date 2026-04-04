@@ -197,7 +197,12 @@ task lex_string() -> void {
             if esc == "n" { res = res + "\n" }
             else if esc == "r" { res = res + "\r" }
             else if esc == "t" { res = res + "\t" }
-            else { res = res + esc }
+            else if esc == "x" {
+                -- Hex escape \xNN: store as \\xNN so C emitter passes it through
+                pilot hex_hi = lex_advance()
+                pilot hex_lo = lex_advance()
+                res = res + "\\x" + hex_hi + hex_lo
+            } else { res = res + esc }
         } else if c == "|" {
             res = res + "<<PIPE>>"
         } else {

@@ -30,11 +30,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - name: Install Clang (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang lld
@@ -54,27 +49,24 @@ jobs:
             echo "LINK_FLAGS=" >> "$GITHUB_ENV"
           fi
 
-      - name: Build freakc compiler
+      - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
         shell: bash
         run: |
-          # Stage 0: Python bootstraps the self-hosting compiler
-          python -m freakc build self_hosted/main.fk -o self_hosted/freakc_self.exe --keep-c
+          cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
+          clang -o build/freakc_v3${{ matrix.ext }} build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
 
-          # Stage 1: Concatenate and compile v2 (transpile-only compiler)
-          cat src/compiler/ast.fk src/compiler/lexer.fk src/compiler/parser.fk src/compiler/checker.fk src/compiler/emitter.fk src/compiler/backend/llvm.fk src/compiler/main.fk > build/freakc_v2.fk
-          ./self_hosted/freakc_self.exe build/freakc_v2.fk
-          clang -o build/freakc_v2${{ matrix.ext }} build/freakc_v2.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O3 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
-
-          # Stage 2: Build full CLI binary (compiler + CLI + Hangar)
+      - name: Build full CLI (Stage 1 — V3 compiler + CLI + Hangar)
+        shell: bash
+        run: |
           mkdir -p build
           rm -f build/freakc_cli.fk
           cat std/version.fk >> build/freakc_cli.fk
-          cat src/compiler/ast.fk >> build/freakc_cli.fk
-          cat src/compiler/lexer.fk >> build/freakc_cli.fk
-          cat src/compiler/parser.fk >> build/freakc_cli.fk
-          cat src/compiler/checker.fk >> build/freakc_cli.fk
-          cat src/compiler/emitter.fk >> build/freakc_cli.fk
-          cat src/compiler/backend/llvm.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/globals.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/helpers.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/lexer.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/parser.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/emit_c.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/emit_llvm.fk >> build/freakc_cli.fk
           cat src/cli/version.fk >> build/freakc_cli.fk
           cat src/cli/toml.fk >> build/freakc_cli.fk
           cat src/cli/lockfile.fk >> build/freakc_cli.fk
@@ -83,7 +75,7 @@ jobs:
           cat src/cli/hangar.fk >> build/freakc_cli.fk
           cat src/cli/doctor.fk >> build/freakc_cli.fk
           cat src/cli/main.fk >> build/freakc_cli.fk
-          ./build/freakc_v2${{ matrix.ext }} build/freakc_cli.fk --c
+          ./build/freakc_v3${{ matrix.ext }} build/freakc_cli.fk --c
           clang -o build/freak${{ matrix.ext }} build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
           # Create hangar binary (same binary, BusyBox pattern)
           cp build/freak${{ matrix.ext }} build/hangar${{ matrix.ext }}

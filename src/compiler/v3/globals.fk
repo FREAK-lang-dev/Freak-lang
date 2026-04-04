@@ -4,7 +4,7 @@
 -- All global state in one file. Keeps other files pure logic.
 
 -- ===================== VERSION =====================================
-pilot FREAKC_VERSION = "0.11.0"
+pilot FREAKC_VERSION = "0.12.0"
 pilot FREAKC_CODENAME = "Alternative-4 v3"
 
 -- ===================== TOKENS ======================================
@@ -121,6 +121,7 @@ pilot llvm_declared_funcs = ""
 pilot llvm_loop_end_label = ""
 pilot llvm_loop_cond_label = ""
 pilot llvm_global_names = ""
+pilot llvm_var_reg_map = ""   -- "freak_name:llvm_name|..." latest binding wins
 
 -- ===================== CLI STATE ===================================
 pilot input_file = ""
