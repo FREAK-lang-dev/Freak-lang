@@ -14,6 +14,8 @@
 - **Stage specific files** — avoid `git add -A`. Never commit `.env`, credentials, or multi-GB build artifacts.
 - **Before starting risky work** (refactors, parser changes, emitter rewrites): make sure the current state is committed so you can revert if needed.
 - **After a successful build/test cycle**: if you just verified something works end-to-end, that's a natural commit point. Don't wait.
+- **Commit automatically** — do not ask for permission before committing. Just commit after completing significant work. Push silently when appropriate.
+- **No AI attribution** — do NOT include `Co-Authored-By` trailers or any other AI/Claude attribution in commit messages. Commits should look like they came from the repo owner alone.
 
 The cost of committing too often is zero. The cost of losing work because you forgot to commit is real — it has happened before on this project.
 

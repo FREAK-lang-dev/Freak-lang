@@ -82,6 +82,43 @@ task cli_find_runtime_dir() -> word {
     give back ""
 }
 
+task cli_strip_fk(path: word) -> word {
+    -- Strip .fk suffix from a file path
+    if path.ends_with(".fk") {
+        pilot oi = 0
+        pilot oname = ""
+        pilot olen = path.length() - 3
+        repeat until oi >= olen {
+            oname = oname + path.char_at(oi)
+            oi += 1
+        }
+        give back oname
+    }
+    give back path
+}
+
+task cli_is_windows() -> bool {
+    pilot windir: word = process::env("WINDIR")
+    if windir != "" { give back true }
+    give back false
+}
+
+task cli_has_precompiled_runtime(runtime_dir: word) -> bool {
+    -- Check if pre-compiled .obj/.o runtime files exist (bundle mode)
+    pilot rt_obj = runtime_dir + "/freak_runtime.obj"
+    pilot llvm_obj = runtime_dir + "/freak_llvm_runtime.obj"
+    if fs::exists(rt_obj) {
+        if fs::exists(llvm_obj) { give back true }
+    }
+    -- Also check .o extension (Linux/macOS)
+    pilot rt_o = runtime_dir + "/freak_runtime.o"
+    pilot llvm_o = runtime_dir + "/freak_llvm_runtime.o"
+    if fs::exists(rt_o) {
+        if fs::exists(llvm_o) { give back true }
+    }
+    give back false
+}
+
 task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: word, cross: word) -> word {
     -- Compile the transpiled .c or .ll file into a native binary.
     -- Returns the output binary path, or "" on error.
@@ -102,55 +139,99 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         give back ""
     }
 
-    -- Determine output binary name (strip .fk extension, add .exe on Windows)
-    pilot out_bin = src_file
-    -- Strip .fk suffix if present
-    if src_file.ends_with(".fk") {
-        pilot oi = 0
-        pilot oname = ""
-        pilot olen = src_file.length() - 3
-        repeat until oi >= olen {
-            oname = oname + src_file.char_at(oi)
-            oi += 1
+    -- Determine output binary name
+    pilot out_bin = cli_strip_fk(src_file)
+    if cli_is_windows() { out_bin = out_bin + ".exe" }
+
+    pilot is_win = cli_is_windows()
+    pilot use_bundle = false
+
+    -- Bundle mode: pre-compiled .obj + lld-link (LLVM backend only, no clang needed for link)
+    if target == "llvm" {
+        if cli_has_precompiled_runtime(runtime_dir) {
+            use_bundle = true
         }
-        out_bin = oname
-    }
-    -- Only add .exe on Windows
-    pilot windir: word = process::env("WINDIR")
-    if windir != "" {
-        out_bin = out_bin + ".exe"
     }
 
-    -- Build clang command
-    -- Prefer pre-compiled runtime .o if available (no C compiler needed for runtime)
+    if use_bundle {
+        -- BUNDLE MODE: .ll -> .obj (clang -c), then lld-link with pre-compiled runtime
+        pilot obj_ext = ".obj"
+        if not is_win { obj_ext = ".o" }
+
+        -- Step 1: Compile LLVM IR to object file
+        pilot user_obj = cli_strip_fk(src_file) + obj_ext
+        pilot cc_cmd = "clang -c -o " + user_obj + " " + transpiled_file + " -O" + opt + " -w"
+        if cross != "" { cc_cmd = cc_cmd + " --target=" + cross }
+
+        say C_DIM + "  >> " + C_RESET + "Compiling IR to object..."
+        pilot cc_exit = process::exec(cc_cmd)
+        if cc_exit != 0 {
+            say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- IR compilation error" + C_RESET
+            give back ""
+        }
+
+        -- Step 2: Link with lld-link (Windows) or ld.lld (Linux/macOS)
+        pilot rt_obj = runtime_dir + "/freak_runtime" + obj_ext
+        pilot llvm_rt_obj = runtime_dir + "/freak_llvm_runtime" + obj_ext
+        pilot ui_obj = runtime_dir + "/freak_ui_win32" + obj_ext
+
+        if is_win {
+            pilot link_cmd = "lld-link " + user_obj + " " + llvm_rt_obj
+            -- Add UI runtime if it exists
+            if fs::exists(ui_obj) {
+                link_cmd = link_cmd + " " + ui_obj
+            }
+            link_cmd = link_cmd + " /out:" + out_bin + " /subsystem:console"
+            link_cmd = link_cmd + " libcmt.lib user32.lib gdi32.lib msimg32.lib ws2_32.lib"
+            say C_DIM + "  >> " + C_RESET + "Linking with lld..."
+            pilot link_exit = process::exec(link_cmd)
+            if link_exit != 0 {
+                say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- link error" + C_RESET
+                give back ""
+            }
+        }
+        if not is_win {
+            pilot link_cmd = "ld.lld -o " + out_bin + " " + user_obj + " " + llvm_rt_obj
+            if fs::exists(ui_obj) {
+                link_cmd = link_cmd + " " + ui_obj
+            }
+            link_cmd = link_cmd + " -lc -lm"
+            say C_DIM + "  >> " + C_RESET + "Linking with lld..."
+            pilot link_exit = process::exec(link_cmd)
+            if link_exit != 0 {
+                say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- link error" + C_RESET
+                give back ""
+            }
+        }
+
+        say C_BGREEN + "  BUILT " + C_RESET + C_BWHITE + out_bin + C_RESET + C_DIM + " (bundle mode)" + C_RESET
+        give back out_bin
+    }
+
+    -- LEGACY MODE: clang does everything (transpiled + runtime source -> binary)
     pilot runtime_file = ""
     if target == "llvm" {
-        pilot rt_obj = runtime_dir + "/freak_llvm_runtime.o"
-        if fs::exists(rt_obj) {
-            runtime_file = rt_obj
-        } else {
-            runtime_file = runtime_dir + "/freak_llvm_runtime.c"
-        }
+        runtime_file = runtime_dir + "/freak_llvm_runtime.c"
     } else {
-        pilot rt_obj2 = runtime_dir + "/freak_runtime.o"
-        if fs::exists(rt_obj2) {
-            runtime_file = rt_obj2
-        } else {
-            runtime_file = runtime_dir + "/freak_runtime.c"
-        }
+        runtime_file = runtime_dir + "/freak_runtime.c"
     }
 
     pilot cmd = "clang -o " + out_bin + " " + transpiled_file + " " + runtime_file
-    -- Always pass -I so the generated .fk.c can find freak_runtime.h
     cmd = cmd + " -I" + runtime_dir + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
 
-    -- Platform-specific linker flags
-    if windir == "" {
-        -- Linux/macOS requires -lm for math functions
+    if not is_win {
         cmd = cmd + " -lm"
-    } else {
-        -- Windows requires ws2_32 for TCP sockets (std::http)
+    }
+    if is_win {
         cmd = cmd + " -lws2_32"
+    }
+
+    -- Add UI runtime if source file uses ui:: functions
+    pilot ui_c = runtime_dir + "/ui/win32_backend.c"
+    if is_win {
+        if fs::exists(ui_c) {
+            cmd = cmd + " " + ui_c + " -luser32 -lgdi32 -lmsimg32"
+        }
     }
 
     if cross != "" {

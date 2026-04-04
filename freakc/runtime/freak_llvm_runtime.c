@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include "freak_runtime.h"
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifndef _WIN32
 #include <unistd.h>
@@ -88,6 +87,7 @@ static inline int64_t double_to_i64(double d) {
 /* the UI backend .c file is included in the build).     */
 
 #ifdef FREAK_HAS_UI
+#include "freak_runtime.h"
 int64_t freak_llvm_ui_create_window(int64_t title, int64_t w, int64_t h, int64_t flags) {
     freak_word t = freak_word_lit((const char*)title);
     return freak_ui_create_window_word(t, w, h, flags);
@@ -134,25 +134,33 @@ int64_t freak_llvm_ui_measure_text(int64_t text, int64_t size, int64_t bold, int
     freak_word t = freak_word_lit((const char*)text);
     return freak_ui_measure_text_word(t, size, bold, italic);
 }
+#else /* !FREAK_HAS_UI — no-op stubs so non-UI builds still link */
+int64_t freak_llvm_ui_create_native(int64_t t, int64_t w, int64_t h) { return 0; }
+int64_t freak_llvm_ui_poll_events(int64_t h)  { return 0; }
+void    freak_llvm_ui_begin_frame(int64_t h)  { }
+void    freak_llvm_ui_end_frame(int64_t h)    { }
+void    freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) { }
+void    freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) { }
 #endif /* FREAK_HAS_UI */
 
-/* ── Math bridge (LLVM i64-bitcast-double → real math) ─ */
-int64_t freak_llvm_math_sqrt(int64_t x)  { return double_to_i64(freak_math_sqrt(i64_to_double(x))); }
-int64_t freak_llvm_math_pow(int64_t b, int64_t e) { return double_to_i64(freak_math_pow(i64_to_double(b), i64_to_double(e))); }
-int64_t freak_llvm_math_sin(int64_t x)   { return double_to_i64(freak_math_sin(i64_to_double(x))); }
-int64_t freak_llvm_math_cos(int64_t x)   { return double_to_i64(freak_math_cos(i64_to_double(x))); }
-int64_t freak_llvm_math_tan(int64_t x)   { return double_to_i64(freak_math_tan(i64_to_double(x))); }
-int64_t freak_llvm_math_floor(int64_t x) { return double_to_i64(freak_math_floor(i64_to_double(x))); }
-int64_t freak_llvm_math_ceil(int64_t x)  { return double_to_i64(freak_math_ceil(i64_to_double(x))); }
+/* ── Math bridge (LLVM i64-bitcast-double → real <math.h>) ─ */
+#include <math.h>
+int64_t freak_llvm_math_sqrt(int64_t x)  { return double_to_i64(sqrt(i64_to_double(x))); }
+int64_t freak_llvm_math_pow(int64_t b, int64_t e) { return double_to_i64(pow(i64_to_double(b), i64_to_double(e))); }
+int64_t freak_llvm_math_sin(int64_t x)   { return double_to_i64(sin(i64_to_double(x))); }
+int64_t freak_llvm_math_cos(int64_t x)   { return double_to_i64(cos(i64_to_double(x))); }
+int64_t freak_llvm_math_tan(int64_t x)   { return double_to_i64(tan(i64_to_double(x))); }
+int64_t freak_llvm_math_floor(int64_t x) { return double_to_i64(floor(i64_to_double(x))); }
+int64_t freak_llvm_math_ceil(int64_t x)  { return double_to_i64(ceil(i64_to_double(x))); }
 
-/* ── parse_num / format_num bridge ─────────────────── */
+/* ── parse_num / format_num (self-contained) ───────── */
 int64_t freak_llvm_parse_num(int64_t w) {
-    freak_word word = freak_word_lit((const char*)w);
-    return double_to_i64(freak_parse_num(word));
+    return double_to_i64(strtod((const char*)w, NULL));
 }
 int64_t freak_llvm_format_num(int64_t n) {
-    freak_word result = freak_format_num(i64_to_double(n));
-    return (int64_t)result.data;
+    static char buf[64];
+    snprintf(buf, sizeof(buf), "%.10g", i64_to_double(n));
+    return (int64_t)buf;
 }
 
 /* ── Num (double) helpers ──────────────────────────── */
