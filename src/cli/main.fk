@@ -111,13 +111,35 @@ task cli_init(project_name: word) -> void {
     say ""
     say "  " + C_DIM + "Get started:" + C_RESET
     say "    " + C_BWHITE + "cd " + project_name + C_RESET
-    say "    " + C_BWHITE + "freakc run main.fk" + C_RESET
+    say "    " + C_BWHITE + "freak run main.fk" + C_RESET
     say ""
+}
+
+-- ── Standalone Hangar Dispatch ────────────────────────
+-- When invoked as "hangar" (BusyBox pattern), args shift by 1:
+--   hangar init   → process::arg(0)="hangar", arg(1)="init"
+-- vs freak hangar init → arg(0)="freak", arg(1)="hangar", arg(2)="init"
+task hangar_standalone_main() -> void {
+    pilot args_cnt = process::args_count()
+
+    -- Set the global offset so hangar_arg(N) reads process::arg(N-1)
+    hangar_arg_offset = 1
+
+    -- Adjust args_cnt to match what hangar_dispatch expects
+    -- (it checks args_cnt < 3, expects subcmd at hangar_arg(2) which becomes arg(1))
+    hangar_dispatch(args_cnt + 1)
 }
 
 -- ── Main Dispatch ────────────────────────────────────
 task freakc_cli_main() -> void {
     pilot args_cnt = process::args_count()
+
+    -- BusyBox pattern: check if invoked as "hangar"
+    pilot argv0: word = process::arg(0)
+    if argv0.ends_with("hangar") or argv0.ends_with("hangar.exe") {
+        hangar_standalone_main()
+        give back
+    }
 
     if args_cnt < 2 {
         cli_show_help()
@@ -151,7 +173,7 @@ task freakc_cli_main() -> void {
         if args_cnt < 3 {
             say ""
             say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " init requires a project name."
-            say "  " + C_DIM + "Usage: " + C_RESET + "freakc init <project-name>"
+            say "  " + C_DIM + "Usage: " + C_RESET + "freak init <project-name>"
             say ""
             give back
         }
@@ -164,7 +186,7 @@ task freakc_cli_main() -> void {
         if args_cnt < 3 {
             say ""
             say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " " + subcmd + " requires a file argument."
-            say "  " + C_DIM + "Usage: " + C_RESET + "freakc " + subcmd + " <file.fk> [options]"
+            say "  " + C_DIM + "Usage: " + C_RESET + "freak " + subcmd + " <file.fk> [options]"
             say ""
             give back
         }
@@ -263,7 +285,7 @@ task freakc_cli_main() -> void {
     -- Unknown subcommand
     say ""
     say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " Unknown command '" + C_BWHITE + subcmd + C_RESET + "'"
-    say "  " + C_DIM + "Run '" + C_RESET + "freakc help" + C_DIM + "' for usage." + C_RESET
+    say "  " + C_DIM + "Run '" + C_RESET + "freak help" + C_DIM + "' for usage." + C_RESET
     say ""
 }
 

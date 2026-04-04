@@ -40,8 +40,8 @@ task freakc_v2_main() -> void {
     }
 
     if args_cnt < 2 {
-        say "Usage: freakc <file.fk> [--c] [--llvm] [--opt=N] [--target=TRIPLE]"
-        say "       freakc --version | --help"
+        say "Usage: freak <file.fk> [--c] [--llvm] [--opt=N] [--target=TRIPLE]"
+        say "       freak --version | --help"
         give back
     }
 

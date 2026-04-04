@@ -9,6 +9,14 @@
 
 pilot HANGAR_DEFAULT_REGISTRY = "https://index.hangar.dev"
 
+-- Arg offset for standalone mode: when invoked as "hangar <cmd>",
+-- args are shifted by 1 compared to "freak hangar <cmd>".
+pilot hangar_arg_offset = 0
+
+task hangar_arg(idx: int) -> word {
+    give back process::arg(idx - hangar_arg_offset)
+}
+
 task hangar_init(project_dir: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) {
@@ -54,7 +62,7 @@ task hangar_init(project_dir: word) -> int {
     say C_DIM + "    src/main.fk" + C_RESET
     say C_DIM + "    hangar_modules/" + C_RESET
     say ""
-    pilot next_msg = C_DIM + "  Next: " + C_RESET + "cd " + project_dir + " && freakc run src/main.fk"
+    pilot next_msg = C_DIM + "  Next: " + C_RESET + "cd " + project_dir + " && freak run src/main.fk"
     say next_msg
     say ""
     give back 0
@@ -63,7 +71,7 @@ task hangar_init(project_dir: word) -> int {
 task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
-        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        say "  No hangar.toml found. Run 'hangar init' first."
         give back 1
     }
 
@@ -108,7 +116,7 @@ task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int
 task hangar_remove(project_dir: word, pkg_name: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
-        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        say "  No hangar.toml found. Run 'hangar init' first."
         give back 1
     }
 
@@ -324,7 +332,7 @@ task resolve_collect_transitive(project_dir: word, pkg_name: word, depth: int) -
 task hangar_install(project_dir: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
-        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        say "  No hangar.toml found. Run 'hangar init' first."
         give back 1
     }
 
@@ -451,7 +459,7 @@ task hangar_install(project_dir: word) -> int {
 task hangar_update(project_dir: word, pkg_name: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
-        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        say "  No hangar.toml found. Run 'hangar init' first."
         give back 1
     }
 
@@ -692,7 +700,7 @@ task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word
 task hangar_create_stub(pkg_dir: word, pkg_name: word) -> void {
     fs::make_dir(pkg_dir)
     pilot stub_path = pkg_dir + "/" + pkg_name + ".fk"
-    pilot stub_content = "-- " + pkg_name + " (stub module -- install with 'freakc hangar install')\n-- This stub was created because the package could not be downloaded.\n\n"
+    pilot stub_content = "-- " + pkg_name + " (stub module -- install with 'hangar install')\n-- This stub was created because the package could not be downloaded.\n\n"
     fs::write(stub_path, stub_content)
     pilot msg = "  Created stub: hangar_modules/" + pkg_name + "/" + pkg_name + ".fk"
     say msg
@@ -701,7 +709,7 @@ task hangar_create_stub(pkg_dir: word, pkg_name: word) -> void {
 task hangar_version_cmd(project_dir: word, bump: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
-        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        say "  No hangar.toml found. Run 'hangar init' first."
         give back 1
     }
 
@@ -802,7 +810,7 @@ task hangar_install_freak() -> int {
     say ver_msg
 
     -- Download binary
-    pilot artifact = "freakc-" + platform + ext
+    pilot artifact = "freak-" + platform + ext
     pilot download_url = "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/" + version + "/" + artifact
     pilot dl_msg = "  Downloading " + artifact + "..."
     say dl_msg
@@ -817,7 +825,7 @@ task hangar_install_freak() -> int {
         freak_home = home_dir.trim() + "/.freak"
     }
     pilot bin_dir = freak_home + sep + "bin"
-    pilot binary_path = bin_dir + sep + "freakc" + ext
+    pilot binary_path = bin_dir + sep + "freak" + ext
 
     -- Create directories and download
     if os_tag == "windows" {
@@ -877,7 +885,7 @@ task hangar_install_freak() -> int {
     pilot path_msg = "  Add to PATH: " + bin_dir
     say path_msg
     say ""
-    say "  Try: freakc build hello.fk"
+    say "  Try: freak build hello.fk"
     give back 0
 }
 
@@ -886,7 +894,7 @@ task hangar_install_freak() -> int {
 task hangar_outdated(project_dir: word) -> int {
     pilot manifest = project_dir + "/hangar.toml"
     if fs::exists(manifest) == false {
-        say "  No hangar.toml found. Run 'freakc hangar init' first."
+        say "  No hangar.toml found. Run 'hangar init' first."
         give back 1
     }
 
@@ -1162,7 +1170,7 @@ task hangar_audit(project_dir: word, fix_mode: bool) -> int {
     pilot has_lock = lock_load(lockfile)
 
     if has_lock == false {
-        say "  No hangar.lock found. Run 'freakc hangar install' first."
+        say "  No hangar.lock found. Run 'hangar install' first."
         give back 1
     }
 
@@ -1233,7 +1241,7 @@ task hangar_audit(project_dir: word, fix_mode: bool) -> int {
         pilot issue_msg = C_BYELLOW + "  " + word_from_int(issues) + " issue(s) found" + C_RESET
         say issue_msg
         if fix_mode == false {
-            say C_DIM + "  Run 'freakc hangar audit --fix' to auto-repair." + C_RESET
+            say C_DIM + "  Run 'hangar audit --fix' to auto-repair." + C_RESET
         }
     }
     say ""
@@ -1327,7 +1335,7 @@ task hangar_publish(project_dir: word, dry_run: bool) -> int {
     pilot creds_path = home_dir + "/.hangar/credentials"
     if fs::exists(creds_path) == false {
         say C_BYELLOW + "  NOT LOGGED IN" + C_RESET
-        say "  Run 'freakc hangar login' first."
+        say "  Run 'hangar login' first."
         give back 1
     }
     pilot token: word = fs::read(creds_path)
@@ -1414,27 +1422,27 @@ task hangar_dispatch(args_cnt: int) -> void {
         give back
     }
 
-    pilot subcmd: word = process::arg(2)
+    pilot subcmd: word = hangar_arg(2)
     pilot project_dir = "."
 
     if subcmd == "init" {
         if args_cnt >= 4 {
-            project_dir = process::arg(3)
+            project_dir = hangar_arg(3)
         }
         hangar_init(project_dir)
     } else if subcmd == "add" {
         if args_cnt < 4 {
-            say "Usage: freakc hangar add <name> [constraint]"
-            say "       freakc hangar add <name> <repo> [version]"
+            say "Usage: hangar add <name> [constraint]"
+            say "       hangar add <name> <repo> [version]"
             give back
         }
-        pilot pkg: word = process::arg(3)
+        pilot pkg: word = hangar_arg(3)
         if args_cnt == 4 {
             -- hangar add muvluv (no constraint, defaults to latest)
             hangar_add(project_dir, pkg, "", "latest")
         } else if args_cnt == 5 {
             -- Could be: hangar add muvluv ^1.0  OR  hangar add muvluv repo_url
-            pilot arg4: word = process::arg(4)
+            pilot arg4: word = hangar_arg(4)
             if arg4.starts_with("^") or arg4.starts_with("~") or arg4.starts_with("=") or arg4.starts_with(">") or arg4.starts_with("<") {
                 -- SemVer constraint: hangar add muvluv ^1.0
                 hangar_add(project_dir, pkg, "", arg4)
@@ -1444,24 +1452,24 @@ task hangar_dispatch(args_cnt: int) -> void {
             }
         } else {
             -- hangar add muvluv repo version
-            pilot repo: word = process::arg(4)
+            pilot repo: word = hangar_arg(4)
             pilot ver = "latest"
             if args_cnt >= 6 {
-                ver = process::arg(5)
+                ver = hangar_arg(5)
             }
             hangar_add(project_dir, pkg, repo, ver)
         }
     } else if subcmd == "remove" {
         if args_cnt < 4 {
-            say "Usage: freakc hangar remove <name>"
+            say "Usage: hangar remove <name>"
             give back
         }
-        pilot pkg2: word = process::arg(3)
+        pilot pkg2: word = hangar_arg(3)
         hangar_remove(project_dir, pkg2)
     } else if subcmd == "install" {
         -- Check if "install freak" (toolchain bootstrap)
         if args_cnt >= 4 {
-            pilot install_target: word = process::arg(3)
+            pilot install_target: word = hangar_arg(3)
             if install_target == "freak" {
                 hangar_install_freak()
                 give back
@@ -1471,7 +1479,7 @@ task hangar_dispatch(args_cnt: int) -> void {
     } else if subcmd == "update" {
         pilot update_pkg = ""
         if args_cnt >= 4 {
-            update_pkg = process::arg(3)
+            update_pkg = hangar_arg(3)
         }
         hangar_update(project_dir, update_pkg)
     } else if subcmd == "outdated" {
@@ -1479,13 +1487,13 @@ task hangar_dispatch(args_cnt: int) -> void {
     } else if subcmd == "version" {
         pilot bump = ""
         if args_cnt >= 4 {
-            bump = process::arg(3)
+            bump = hangar_arg(3)
         }
         hangar_version_cmd(project_dir, bump)
     } else if subcmd == "audit" {
         pilot fix_mode = false
         if args_cnt >= 4 {
-            pilot arg3: word = process::arg(3)
+            pilot arg3: word = hangar_arg(3)
             if arg3 == "--fix" { fix_mode = true }
         }
         hangar_audit(project_dir, fix_mode)
@@ -1494,13 +1502,13 @@ task hangar_dispatch(args_cnt: int) -> void {
     } else if subcmd == "publish" {
         pilot dry_run = false
         if args_cnt >= 4 {
-            pilot arg3: word = process::arg(3)
+            pilot arg3: word = hangar_arg(3)
             if arg3 == "--dry-run" { dry_run = true }
         }
         hangar_publish(project_dir, dry_run)
     } else {
         pilot msg = "Unknown hangar command: " + subcmd
         say msg
-        say "Run 'freakc hangar' for usage."
+        say "Run 'hangar' for usage."
     }
 }

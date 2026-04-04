@@ -11,7 +11,7 @@ function Ok($msg)    { Write-Host "> $msg" -ForegroundColor Green }
 function Err($msg)   { Write-Host "> $msg" -ForegroundColor Red; throw $msg }
 
 # Only x64 Windows binaries for now — ARM64 will come later
-$Target = "freakc-windows-x64"
+$Target = "freak-windows-x64"
 Info "Detected platform: windows-x64"
 
 # Get latest release
@@ -51,7 +51,9 @@ try {
         New-Item -ItemType Directory -Path "$InstallDir\runtime" -Force | Out-Null
         New-Item -ItemType Directory -Path "$InstallDir\std" -Force | Out-Null
 
-        Copy-Item "$TmpDir\freak\bin\freakc.exe" "$BinDir\freakc.exe" -Force
+        Copy-Item "$TmpDir\freak\bin\freak.exe" "$BinDir\freak.exe" -Force
+        Copy-Item "$TmpDir\freak\bin\hangar.exe" "$BinDir\hangar.exe" -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path "$BinDir\hangar.exe")) { Copy-Item "$BinDir\freak.exe" "$BinDir\hangar.exe" }
         Copy-Item "$TmpDir\freak\runtime\*" "$InstallDir\runtime\" -Force -ErrorAction SilentlyContinue
         Copy-Item "$TmpDir\freak\std\*" "$InstallDir\std\" -Force -ErrorAction SilentlyContinue
     } else {
@@ -60,13 +62,16 @@ try {
         $DownloadUrl = "https://github.com/$Repo/releases/download/$Latest/$Target.exe"
 
         New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
-        $OutPath = "$BinDir\freakc.exe"
+        $OutPath = "$BinDir\freak.exe"
 
         try {
             Invoke-WebRequest -Uri $DownloadUrl -OutFile $OutPath -UseBasicParsing
         } catch {
             Err "Download failed: $_"
         }
+
+        # Create hangar.exe (BusyBox pattern — same binary, dispatches on argv[0])
+        Copy-Item "$BinDir\freak.exe" "$BinDir\hangar.exe" -Force
 
         # Download runtime files from source tree
         $RuntimeDir = "$InstallDir\runtime"
@@ -113,14 +118,15 @@ if ($env:PATH -notlike "*$BinDir*") {
 Ok ""
 Ok "FREAK $Latest installed successfully!"
 Ok ""
-Ok "  Compiler: $BinDir\freakc.exe"
+Ok "  Compiler: $BinDir\freak.exe"
+Ok "  Hangar:   $BinDir\hangar.exe"
 Ok "  Runtime:  $InstallDir\runtime\"
 Ok "  Std lib:  $InstallDir\std\"
 Ok ""
 Ok "Open a new terminal, then try:"
-Ok "  freakc version"
-Ok "  freakc build hello.fk"
-Ok "  freakc run hello.fk"
-Ok "  freakc hangar init my-project"
+Ok "  freak version"
+Ok "  freak build hello.fk"
+Ok "  freak run hello.fk"
+Ok "  hangar init my-project"
 Ok ""
 Ok "`"It was always going to end this way.`""

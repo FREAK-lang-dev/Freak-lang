@@ -134,7 +134,7 @@ task cli_fail_quote(seed: int) -> word {
 
 -- ── Version Display ──────────────────────────────────
 task cli_show_version() -> void {
-    pilot ver = C_G1 + "freakc" + C_RESET + " " + C_BWHITE + CLI_VERSION + C_RESET + " " + C_DIM + "(" + CLI_CODENAME + ")" + C_RESET
+    pilot ver = C_G1 + "freak" + C_RESET + " " + C_BWHITE + CLI_VERSION + C_RESET + " " + C_DIM + "(" + CLI_CODENAME + ")" + C_RESET
     say ver
 }
 
@@ -182,10 +182,10 @@ task cli_show_help() -> void {
     say ""
 
     say "  " + C_DIM + "EXAMPLES" + C_RESET
-    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freakc build" + C_RESET + " hello.fk"
-    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freakc run" + C_RESET + " hello.fk " + C_BYELLOW + "--c --opt=3" + C_RESET
-    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freakc build" + C_RESET + " game.fk " + C_BYELLOW + "--target=x86_64-linux-gnu" + C_RESET
-    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freakc hangar" + C_RESET + " init my-project"
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " hello.fk"
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak run" + C_RESET + " hello.fk " + C_BYELLOW + "--c --opt=3" + C_RESET
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--target=x86_64-linux-gnu" + C_RESET
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak hangar" + C_RESET + " init my-project"
     say ""
     say "  " + C_DIM + C_ITALIC + cli_random_quote(42) + C_RESET
     say ""

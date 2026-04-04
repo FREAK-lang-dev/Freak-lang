@@ -84,18 +84,20 @@ jobs:
           cat src/cli/doctor.fk >> build/freakc_cli.fk
           cat src/cli/main.fk >> build/freakc_cli.fk
           ./build/freakc_v2${{ matrix.ext }} build/freakc_cli.fk --c
-          clang -o build/freakc${{ matrix.ext }} build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
+          clang -o build/freak${{ matrix.ext }} build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
+          # Create hangar binary (same binary, BusyBox pattern)
+          cp build/freak${{ matrix.ext }} build/hangar${{ matrix.ext }}
 
       - name: Smoke test (CLI build command)
         shell: bash
         run: |
-          ./build/freakc${{ matrix.ext }} build tests/hello.fk
+          ./build/freak${{ matrix.ext }} build tests/hello.fk
           ./tests/hello${{ matrix.ext }}
 
       - name: Smoke test (CLI version)
         shell: bash
         run: |
-          ./build/freakc${{ matrix.ext }} version
+          ./build/freak${{ matrix.ext }} version
 
       - name: Pre-compile runtime to .o
         shell: bash
@@ -107,7 +109,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/freak/bin dist/freak/runtime dist/freak/std
-          cp build/freakc${{ matrix.ext }} dist/freak/bin/freakc${{ matrix.ext }}
+          cp build/freak${{ matrix.ext }} dist/freak/bin/freak${{ matrix.ext }}
+          cp build/hangar${{ matrix.ext }} dist/freak/bin/hangar${{ matrix.ext }}
           # Ship pre-compiled .o files (preferred) + .c/.h source (fallback)
           cp freakc/runtime/freak_runtime.o dist/freak/runtime/
           cp freakc/runtime/freak_llvm_runtime.o dist/freak/runtime/
@@ -123,13 +126,14 @@ jobs:
           cp std/http.fk dist/freak/std/
           cp std/version.fk dist/freak/std/
           cp std/runtime.fk dist/freak/std/
-          # Also keep standalone binary for backwards compat with install scripts
-          cp build/freakc${{ matrix.ext }} dist/freakc-${{ matrix.target }}${{ matrix.ext }}
+          # Standalone binaries for direct download
+          cp build/freak${{ matrix.ext }} dist/freak-${{ matrix.target }}${{ matrix.ext }}
+          cp build/hangar${{ matrix.ext }} dist/hangar-${{ matrix.target }}${{ matrix.ext }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: freakc-${{ matrix.target }}
+          name: freak-${{ matrix.target }}
           path: dist/
 
   publish:
@@ -144,12 +148,12 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          find . -type f \( -name "freakc-*" \) -exec sha256sum {} \; | sort > SHA256SUMS
+          find . -type f \( -name "freak-*" -o -name "hangar-*" \) -exec sha256sum {} \; | sort > SHA256SUMS
           cat SHA256SUMS
 
       - name: Package distributions as tarballs/zips
         run: |
-          for dir in artifacts/freakc-*/; do
+          for dir in artifacts/freak-*/; do
             target=$(basename "$dir")
             if [ -d "$dir/freak" ]; then
               if echo "$target" | grep -q windows; then
@@ -168,12 +172,16 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            artifacts/freakc-linux-x64/freakc-linux-x64
-            artifacts/freakc-linux-arm64/freakc-linux-arm64
-            artifacts/freakc-macos-arm64/freakc-macos-arm64
-            artifacts/freakc-windows-x64/freakc-windows-x64.exe
-            artifacts/freakc-linux-x64.tar.gz
-            artifacts/freakc-linux-arm64.tar.gz
-            artifacts/freakc-macos-arm64.tar.gz
-            artifacts/freakc-windows-x64.zip
+            artifacts/freak-linux-x64/freak-linux-x64
+            artifacts/freak-linux-x64/hangar-linux-x64
+            artifacts/freak-linux-arm64/freak-linux-arm64
+            artifacts/freak-linux-arm64/hangar-linux-arm64
+            artifacts/freak-macos-arm64/freak-macos-arm64
+            artifacts/freak-macos-arm64/hangar-macos-arm64
+            artifacts/freak-windows-x64/freak-windows-x64.exe
+            artifacts/freak-windows-x64/hangar-windows-x64.exe
+            artifacts/freak-linux-x64.tar.gz
+            artifacts/freak-linux-arm64.tar.gz
+            artifacts/freak-macos-arm64.tar.gz
+            artifacts/freak-windows-x64.zip
             artifacts/SHA256SUMS

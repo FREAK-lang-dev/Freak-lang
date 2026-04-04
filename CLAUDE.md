@@ -393,25 +393,26 @@ Squadron model (structured concurrency) is preferred over raw `std::thread`. Use
 ## CLI Commands
 
 ```bash
-# Native CLI (build/freakc.exe — replaces Python CLI)
-freakc build file.fk              # compile to native binary (default: LLVM backend)
-freakc build file.fk --c          # compile using C backend
-freakc build file.fk --opt=3      # set optimization level
-freakc build file.fk --target=x86_64-linux-gnu  # cross-compile
-freakc run file.fk                # build and execute
-freakc check file.fk              # type check only
-freakc transpile file.fk          # transpile only (emit .c or .ll)
-freakc --version                  # show version
-freakc help                       # show help
+# Native CLI (build/freak.exe)
+freak build file.fk              # compile to native binary (default: LLVM backend)
+freak build file.fk --c          # compile using C backend
+freak build file.fk --opt=3      # set optimization level
+freak build file.fk --target=x86_64-linux-gnu  # cross-compile
+freak run file.fk                # build and execute
+freak check file.fk              # type check only
+freak transpile file.fk          # transpile only (emit .c or .ll)
+freak --version                  # show version
+freak help                       # show help
 
-# Hangar package manager (built into freakc)
-freakc hangar init                # create project skeleton + hangar.toml
-freakc hangar add pkg repo        # add dependency
-freakc hangar remove pkg          # remove dependency
-freakc hangar install             # install all dependencies
-freakc hangar install freak       # download freakc binary
-freakc hangar version             # show project version
-freakc hangar version patch       # bump patch version
+# Hangar package manager (standalone or via freak)
+hangar init                       # create project skeleton + hangar.toml
+hangar add pkg repo               # add dependency
+hangar remove pkg                 # remove dependency
+hangar install                    # install all dependencies
+hangar install freak              # download freak binary
+hangar version                    # show project version
+hangar version patch              # bump patch version
+# Also available as: freak hangar <cmd>
 
 # Legacy Python CLI (still available as bootstrap)
 python -m freakc build file.fk
@@ -573,8 +574,8 @@ Test files in `tests/` directory. Run with `python -m freakc test` or `freak tes
 
 The version is hardcoded in **two files** that must be updated together before tagging a release:
 
-- `src/cli/version.fk` → `pilot CLI_VERSION = "0.10.0"` (shown by `freakc version`)
-- `src/compiler/main.fk` → `pilot FREAKC_VERSION = "0.10.0"` (shown by `freakc_v2 --version`)
+- `src/cli/version.fk` → `pilot CLI_VERSION = "0.11.0"` (shown by `freak version`)
+- `src/compiler/main.fk` → `pilot FREAKC_VERSION = "0.11.0"` (shown by `freakc_v2 --version`)
 
 If you forget, the installed binary will report the old version even though the release tag is newer. This has happened before (v0.10.0 shipped reporting 0.9.0).
 
@@ -617,13 +618,13 @@ In rough priority order:
 1. ~~**LLVM IR backend (LB1–LB4)**~~ — ✅ Done.
 2. ~~**GitHub Actions CI/CD**~~ — ✅ Done.
 3. ~~**Hangar bootstrapper**~~ — ✅ Done.
-4. ~~**Native CLI rewrite**~~ — ✅ Done. `build/freakc.exe` replaces `python -m freakc`. Includes compiler + CLI + Hangar + semver library in a single ~450KB binary.
+4. ~~**Native CLI rewrite**~~ — ✅ Done. `build/freak.exe` replaces `python -m freakc`. Includes compiler + CLI + Hangar + semver library in a single ~450KB binary. `hangar.exe` is a BusyBox-style copy that dispatches to package manager mode.
 5. ~~**LLVM IR backend (LB5, LB7, LB10)**~~ — ~~LB5 (runtime intrinsics)~~, ~~LB6 (default backend)~~, ~~LB8 (opt levels)~~, ~~LB9 (cross-compilation)~~ done. **LB7 (JIT)** and **LB10 (debug info)** remain.
 6. ~~**freak-ui Phase MA–MF**~~ — ✅ Done. Window system, layout, widgets (core + extended), themes, animation. **MG (polish + Hangar publish)** remains.
 7. **HFML lexer/parser (MH0–MH3)** — can start before freak-ui Phase C is done.
 8. ~~**M13: freak-http + freak-json**~~ — ✅ Done. std::json (pure FREAK) + std::http (TCP sockets + pure FREAK).
 9. **Sortie IDE Phase 1** — VS Code extension.
-10. ~~**Update CI/release workflows**~~ — ✅ Done. Workflows already build `freakc.exe`. Install scripts updated with `runtime.fk`.
+10. ~~**Update CI/release workflows**~~ — ✅ Done. Workflows build `freak.exe` + `hangar.exe`. Install scripts updated with `runtime.fk`.
 
 ---
 
@@ -712,7 +713,8 @@ These are groups of tasks that can safely run in parallel (no merge conflicts, i
 | `std/convert.fk` | Type conversion utilities (pure FREAK) |
 | `std/version.fk` | Semver library (parse, compare, bump, constraints) |
 | `build_cli.bat` | Build script for native CLI binary |
-| `build/freakc.exe` | Native CLI binary (compiler + CLI + Hangar) |
+| `build/freak.exe` | Native CLI binary (compiler + CLI + Hangar) |
+| `build/hangar.exe` | Standalone package manager (BusyBox copy of freak.exe) |
 
 ---
 

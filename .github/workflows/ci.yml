@@ -82,64 +82,66 @@ jobs:
           cat src/cli/doctor.fk >> build/freakc_cli.fk
           cat src/cli/main.fk >> build/freakc_cli.fk
           ./build/freakc_v2$EXT build/freakc_cli.fk --c
-          clang -o build/freakc$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          clang -o build/freak$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          # Create hangar symlink/copy (BusyBox pattern)
+          cp build/freak$EXT build/hangar$EXT
 
       - name: CLI smoke test — version
         shell: bash
-        run: ./build/freakc$EXT version
+        run: ./build/freak$EXT version
 
       - name: CLI smoke test — build + run hello.fk
         shell: bash
         run: |
-          ./build/freakc$EXT build tests/hello.fk
+          ./build/freak$EXT build tests/hello.fk
           ./tests/hello$EXT
 
       - name: Test — hello.fk (LLVM backend)
         shell: bash
         run: |
-          ./build/freakc$EXT build tests/hello.fk
+          ./build/freak$EXT build tests/hello.fk
           ./tests/hello$EXT
 
       - name: Test — hello.fk (C backend)
         shell: bash
         run: |
-          ./build/freakc$EXT build tests/hello.fk --c
+          ./build/freak$EXT build tests/hello.fk --c
           ./tests/hello$EXT
 
       - name: Test — control_flow.fk (LLVM backend)
         shell: bash
         run: |
-          ./build/freakc$EXT build tests/control_flow.fk
+          ./build/freak$EXT build tests/control_flow.fk
           ./tests/control_flow$EXT
 
       - name: Test — control_flow.fk (C backend)
         shell: bash
         run: |
-          ./build/freakc$EXT build tests/control_flow.fk --c
+          ./build/freak$EXT build tests/control_flow.fk --c
           ./tests/control_flow$EXT
 
       - name: Test — std library (LLVM backend)
         shell: bash
         run: |
-          ./build/freakc$EXT build tests/std_test.fk
+          ./build/freak$EXT build tests/std_test.fk
           ./tests/std_test$EXT
 
       - name: Test — std library (C backend)
         shell: bash
         run: |
-          ./build/freakc$EXT build tests/std_test.fk --c
+          ./build/freak$EXT build tests/std_test.fk --c
           ./tests/std_test$EXT
 
       - name: Test — JSON parser
         shell: bash
         run: |
-          ./build/freakc$EXT build tests/json_test.fk
+          ./build/freak$EXT build tests/json_test.fk
           ./tests/json_test$EXT
 
       - name: Test — file I/O runtime
         shell: bash
         run: |
-          ./build/freakc$EXT build tests/fs_runtime_test.fk
+          ./build/freak$EXT build tests/fs_runtime_test.fk
           ./tests/fs_runtime_test$EXT
 
       - name: Self-hosting bootstrap test

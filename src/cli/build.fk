@@ -154,7 +154,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         say "    %APPDATA%\\freak\\runtime\\  " + C_DIM + "(install.ps1)" + C_RESET
         say "    $FREAK_HOME/runtime/      " + C_DIM + "(custom)" + C_RESET
         say ""
-        say C_DIM + "  Fix: Re-run the install script, or run '" + C_RESET + "freakc doctor" + C_DIM + "'." + C_RESET
+        say C_DIM + "  Fix: Re-run the install script, or run '" + C_RESET + "freak doctor" + C_DIM + "'." + C_RESET
         give back ""
     }
 
@@ -268,7 +268,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         say "    macOS:   " + C_CYAN + "xcode-select --install" + C_RESET + "  or  " + C_CYAN + "brew install llvm" + C_RESET
         say "    Linux:   " + C_CYAN + "sudo apt install clang" + C_RESET + "  or  " + C_CYAN + "sudo dnf install clang" + C_RESET
         say ""
-        say C_DIM + "  Run '" + C_RESET + "freakc doctor" + C_DIM + "' to diagnose your setup." + C_RESET
+        say C_DIM + "  Run '" + C_RESET + "freak doctor" + C_DIM + "' to diagnose your setup." + C_RESET
         give back ""
     }
 
@@ -366,7 +366,7 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     if target == "c" { backend_label = "C" }
     say ""
     say cli_box_top(45)
-    say cli_box_mid(" " + C_G1 + SYM_BOLT + " FREAKC" + C_RESET + "  " + C_BWHITE + src_file + C_RESET, 45)
+    say cli_box_mid(" " + C_G1 + SYM_BOLT + " FREAK" + C_RESET + "  " + C_BWHITE + src_file + C_RESET, 45)
     say cli_box_mid(" " + C_DIM + "  Backend: " + C_RESET + C_BCYAN + backend_label + C_RESET + C_DIM + "  Opt: -O" + opt + C_RESET, 45)
     say cli_box_bot(45)
     say ""

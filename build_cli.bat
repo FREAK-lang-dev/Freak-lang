@@ -34,25 +34,28 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b %ERRORLEVEL%
 )
 
-echo [Stage 3] Building freakc.exe natively with Clang...
-clang -o build\freakc.exe build\freakc_cli.fk.c freakc\runtime\freak_runtime.c -Ifreakc\runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS
+echo [Stage 3] Building freak.exe natively with Clang...
+clang -o build\freak.exe build\freakc_cli.fk.c freakc\runtime\freak_runtime.c -Ifreakc\runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS
 
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Clang failed to compile freakc_cli.fk.c
     exit /b %ERRORLEVEL%
 )
 
-rem Also keep as freakc_cli.exe for backwards compat
-copy /y build\freakc.exe build\freakc_cli.exe >nul 2>&1
+rem Also create hangar.exe (same binary, BusyBox pattern — dispatches based on argv[0])
+copy /y build\freak.exe build\hangar.exe >nul 2>&1
+
+rem Backwards compat aliases
+copy /y build\freak.exe build\freakc.exe >nul 2>&1
 
 echo .
-echo FREAK CLI build complete! Binary at build\freakc.exe
+echo FREAK CLI build complete! Binaries at build\freak.exe + build\hangar.exe
 echo .
-echo This binary replaces 'python -m freakc'. Usage:
-echo   build\freakc.exe build file.fk          Compile to native binary
-echo   build\freakc.exe run file.fk            Build and run
-echo   build\freakc.exe check file.fk          Type-check only
-echo   build\freakc.exe hangar init            Initialize project
-echo   build\freakc.exe hangar install         Install dependencies
-echo   build\freakc.exe --version              Show version
+echo Usage:
+echo   build\freak.exe build file.fk          Compile to native binary
+echo   build\freak.exe run file.fk            Build and run
+echo   build\freak.exe check file.fk          Type-check only
+echo   build\freak.exe hangar init            Initialize project
+echo   build\hangar.exe init                  Standalone package manager
+echo   build\freak.exe --version              Show version
 echo .

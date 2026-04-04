@@ -27,7 +27,7 @@ case "$ARCH" in
     *)             err "Unsupported architecture: $ARCH" ;;
 esac
 
-TARGET="freakc-${PLATFORM}-${ARCH_TAG}"
+TARGET="freak-${PLATFORM}-${ARCH_TAG}"
 info "Detected platform: ${PLATFORM}-${ARCH_TAG}"
 
 # Get latest release tag
@@ -70,8 +70,10 @@ if [ "$TARBALL_OK" = true ]; then
 
     # Install from extracted tarball
     mkdir -p "$BIN_DIR" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"
-    cp "$TMPDIR_INSTALL/freak/bin/freakc" "$BIN_DIR/freakc"
-    chmod +x "$BIN_DIR/freakc"
+    cp "$TMPDIR_INSTALL/freak/bin/freak" "$BIN_DIR/freak"
+    chmod +x "$BIN_DIR/freak"
+    cp "$TMPDIR_INSTALL/freak/bin/hangar" "$BIN_DIR/hangar" 2>/dev/null || cp "$BIN_DIR/freak" "$BIN_DIR/hangar"
+    chmod +x "$BIN_DIR/hangar"
     cp "$TMPDIR_INSTALL/freak/runtime/"* "$INSTALL_DIR/runtime/" 2>/dev/null || true
     cp "$TMPDIR_INSTALL/freak/std/"* "$INSTALL_DIR/std/" 2>/dev/null || true
 else
@@ -82,12 +84,15 @@ else
     mkdir -p "$BIN_DIR"
 
     if command -v curl &>/dev/null; then
-        curl -fsSL "$DOWNLOAD_URL" -o "$BIN_DIR/freakc"
+        curl -fsSL "$DOWNLOAD_URL" -o "$BIN_DIR/freak"
     else
-        wget -q "$DOWNLOAD_URL" -O "$BIN_DIR/freakc"
+        wget -q "$DOWNLOAD_URL" -O "$BIN_DIR/freak"
     fi
 
-    chmod +x "$BIN_DIR/freakc"
+    chmod +x "$BIN_DIR/freak"
+    # Create hangar as copy of freak (BusyBox pattern)
+    cp "$BIN_DIR/freak" "$BIN_DIR/hangar"
+    chmod +x "$BIN_DIR/hangar"
 
     # Download runtime files from source tree
     RUNTIME_URL="https://raw.githubusercontent.com/$REPO/$LATEST/freakc/runtime"
@@ -138,7 +143,8 @@ fi
 ok ""
 ok "FREAK $LATEST installed successfully!"
 ok ""
-ok "  Compiler: $BIN_DIR/freakc"
+ok "  Compiler: $BIN_DIR/freak"
+ok "  Hangar:   $BIN_DIR/hangar"
 ok "  Runtime:  $INSTALL_DIR/runtime/"
 ok "  Std lib:  $INSTALL_DIR/std/"
 ok ""
@@ -146,9 +152,9 @@ ok "Restart your shell or run:"
 ok "  export PATH=\"$BIN_DIR:\$PATH\""
 ok ""
 ok "Then try:"
-ok "  freakc version"
-ok "  freakc build hello.fk"
-ok "  freakc run hello.fk"
-ok "  freakc hangar init my-project"
+ok "  freak version"
+ok "  freak build hello.fk"
+ok "  freak run hello.fk"
+ok "  hangar init my-project"
 ok ""
 ok "\"It was always going to end this way.\""

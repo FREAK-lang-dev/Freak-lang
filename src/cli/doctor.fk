@@ -107,11 +107,11 @@ task cli_doctor() -> void {
     if all_ok {
         say cli_box_mid(" " + C_BGREEN + SYM_SPARK + " ALL SYSTEMS OPERATIONAL" + C_RESET + "  " + C_DIM + word_from_int(checks_passed) + "/4 passed" + C_RESET, 45)
         say cli_box_sep(45)
-        say cli_box_mid("  " + C_DIM + "Get started:" + C_RESET + "  freakc build hello.fk", 45)
+        say cli_box_mid("  " + C_DIM + "Get started:" + C_RESET + "  freak build hello.fk", 45)
     } else {
         say cli_box_mid(" " + C_BRED + SYM_CROSS + " ISSUES DETECTED" + C_RESET + "  " + C_DIM + word_from_int(checks_passed) + "/4 passed" + C_RESET, 45)
         say cli_box_sep(45)
-        say cli_box_mid("  " + C_DIM + "Fix the above, then run " + C_RESET + "freakc doctor" + C_DIM + " again" + C_RESET, 45)
+        say cli_box_mid("  " + C_DIM + "Fix the above, then run " + C_RESET + "freak doctor" + C_DIM + " again" + C_RESET, 45)
     }
     say cli_box_bot(45)
     say ""
