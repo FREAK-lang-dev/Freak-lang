@@ -892,7 +892,21 @@ freak_result_word_word freak_bytes_to_word(const freak_byte_buffer* b) {
     return r;
 }
 
+void freak_enable_ansi(void) {
+#ifdef _WIN32
+    /* Enable ANSI/VT100 escape sequences on Windows consoles (PowerShell, CMD) */
+    void* hOut = GetStdHandle((unsigned long)-11); /* STD_OUTPUT_HANDLE */
+    if (hOut && hOut != (void*)(intptr_t)-1) {
+        unsigned long mode = 0;
+        GetConsoleMode(hOut, &mode);
+        mode |= 0x0004; /* ENABLE_VIRTUAL_TERMINAL_PROCESSING */
+        SetConsoleMode(hOut, mode);
+    }
+#endif
+}
+
 void freak_llvm_setup_args(int64_t argc, int64_t argv) {
+    freak_enable_ansi();
     freak_argc = (int)argc;
     freak_argv = (char**)argv;
 }

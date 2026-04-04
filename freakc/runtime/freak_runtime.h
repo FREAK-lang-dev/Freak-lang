@@ -20,6 +20,9 @@
 extern int freak_argc;
 extern char** freak_argv;
 
+/* Enable ANSI escape sequences on Windows (no-op on other platforms). */
+void freak_enable_ansi(void);
+
 /* ------------------------------------------------------------------ */
 /*  word type (UTF-8 string)                                          */
 /* ------------------------------------------------------------------ */

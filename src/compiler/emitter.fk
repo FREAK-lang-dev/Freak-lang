@@ -935,6 +935,7 @@ task emit_program() -> void {
     emit_line("int main(int argc, char** argv) {")
     emit_line("    freak_argc = argc;")
     emit_line("    freak_argv = argv;")
+    emit_line("    freak_enable_ansi();")
     emit_line("    freak_main();")
     emit_line("    return 0;")
     emit_line("}")
