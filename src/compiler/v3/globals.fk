@@ -4,8 +4,8 @@
 -- All global state in one file. Keeps other files pure logic.
 
 -- ===================== VERSION =====================================
-pilot FREAKC_VERSION = "0.12.0"
-pilot FREAKC_CODENAME = "Alternative-4 v3"
+pilot FREAKC_VERSION = "0.13.0"
+pilot FREAKC_CODENAME = "Shiranui"
 
 -- ===================== TOKENS ======================================
 pilot TOK_EOF = "0"

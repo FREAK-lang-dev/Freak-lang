@@ -28,7 +28,7 @@ The cost of committing too often is zero. The cost of losing work because you fo
 Key facts:
 - Files use the `.fk` extension
 - The authoritative spec is `freak-full-bible.md` — if code disagrees with the bible, **the bible wins**
-- Version name: **Alternative-4 Edition**
+- Version name: **Alternative-4 Edition** — current release **v0.13.0 "Shiranui"**
 - The self-hosting compiler (`freakc_self.exe`) is a major credibility milestone and should be prominently featured in public materials
 
 ---
@@ -574,22 +574,26 @@ Test files in `tests/` directory. Run with `python -m freakc test` or `freak tes
 
 The version is hardcoded in **two files** that must be updated together before tagging a release:
 
-- `src/cli/version.fk` → `pilot CLI_VERSION = "0.12.0"` (shown by `freak version`)
-- `src/compiler/main.fk` → `pilot FREAKC_VERSION = "0.12.0"` (shown by `freakc_v2 --version`)
+- `src/cli/version.fk` → `pilot CLI_VERSION = "0.13.0"` and `CLI_CODENAME = "Shiranui"` (shown by `freak version`)
+- `src/compiler/v3/globals.fk` → `pilot FREAKC_VERSION = "0.13.0"` and `FREAKC_CODENAME = "Shiranui"` (shown by `freakc_v3 --version`)
 
 If you forget, the installed binary will report the old version even though the release tag is newer. This has happened before (v0.10.0 shipped reporting 0.9.0).
 
-### Known Issues
+### LLVM Backend Progress (V3 — current default)
 
-- `freakc_v2.c` fails to compile with clang due to MSVC deprecation warnings for `strerror`, `getenv` — add `-D_CRT_SECURE_NO_WARNINGS` or use `strerror_s`/`_dupenv_s` variants
+The V3 LLVM IR backend (`src/compiler/v3/emit_llvm.fk`) is the **default** backend as of v0.13.0. The pipeline is:
 
-### LLVM Backend Progress
+```
+.fk source → V3 compiler (freakc_v3.exe) → .ll → clang/lld → native binary
+```
 
-The LLVM IR backend (`src/compiler/backend/llvm.fk`, ~1450 lines) is fully working for core features. Use `freakc_v2.exe file.fk --llvm` to generate `.fk.ll` files, then compile with `clang file.fk.ll freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime`.
+Bootstrap: `build_cli.bat` (Windows) or CI workflow. Pre-compiled bootstrap at `build/freakc_v3.fk.c`.
 
-**Working features:** variables, functions (void + i64), if/else, when, all loop types, break/continue, shapes with typed fields, impl methods, pipe operator, eventually blocks, string interpolation, boolean logic, comparisons.
+**Working features:** all control flow, shapes/impl, arrays (LLVM-compatible pool), string methods, fs::read/write/append/exists/delete (via std/runtime.fk), process, math, UI, TCP, JSON, HTTP.
 
-**Not yet implemented:** JIT (LB7), debug info (LB10). LB5 (runtime intrinsics), LB8 (opt levels), LB9 (cross-compilation) are done.
+**Runtime:** LLVM builds link `freak_llvm_runtime.c` (libc wrappers, LLVM-compatible array pool, time, process_exec_capture) + `freak_runtime.c` (word/string methods, C-backend arrays — separate pool).
+
+**Not yet implemented:** JIT (LB7), debug info (LB10).
 
 ---
 

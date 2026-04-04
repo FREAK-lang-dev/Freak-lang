@@ -4652,8 +4652,8 @@ freak_say(freak_word_concat(freak_word_lit("Generated C code at "), out_file));
 freak_say(freak_word_lit("Done."));
 }
 void freak_main(void) {
-FREAKC_VERSION = freak_word_lit("0.12.0");
-FREAKC_CODENAME = freak_word_lit("Alternative-4 v3");
+FREAKC_VERSION = freak_word_lit("0.13.0");
+FREAKC_CODENAME = freak_word_lit("Shiranui");
 TOK_EOF = freak_word_lit("0");
 TOK_IDENT = freak_word_lit("1");
 TOK_NUM = freak_word_lit("2");

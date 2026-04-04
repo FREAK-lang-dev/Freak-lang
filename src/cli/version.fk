@@ -4,8 +4,8 @@
 -- The visual identity of FREAK. Make it beautiful.
 -- ===================================================================
 
-pilot CLI_VERSION = "0.12.0"
-pilot CLI_CODENAME = "Alternative-4"
+pilot CLI_VERSION = "0.13.0"
+pilot CLI_CODENAME = "Shiranui"
 
 -- ── ANSI Reset & Styles ──────────────────────────────
 pilot C_RESET   = "\x1b[0m"
