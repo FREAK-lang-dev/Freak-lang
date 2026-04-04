@@ -1,0 +1,249 @@
+-- ===================================================================
+-- FREAK v3 COMPILER — HELPERS
+-- ===================================================================
+-- Array init, shape registry, AST builders, emit infrastructure.
+
+task init_arrays() -> void {
+    tok_types = array_new()
+    tok_vals = array_new()
+    tok_lines = array_new()
+    tok_cols = array_new()
+    ast_expr_kinds = array_new()
+    ast_expr_vals = array_new()
+    ast_expr_lefts = array_new()
+    ast_expr_rights = array_new()
+    ast_stmt_kinds = array_new()
+    ast_stmt_names = array_new()
+    ast_stmt_exprs = array_new()
+    ast_stmt_bodies = array_new()
+    ast_stmt_else_bodies = array_new()
+    ast_stmt_extras = array_new()
+    ast_task_params = array_new()
+    ast_task_returns = array_new()
+    ast_top_stmts = array_new()
+    shape_registry_names = array_new()
+    shape_registry_fields = array_new()
+    emt_var_names = array_new()
+    emt_var_types = array_new()
+    emt_word_tasks = array_new()
+    emt_extern_names = array_new()
+    emt_extern_rets = array_new()
+}
+
+-- ===================== AST BUILDERS ================================
+
+task alloc_expr(kind: word, val: word, left: word, right: word) -> int {
+    pilot id = next_expr_id
+    next_expr_id += 1
+    array_push(ast_expr_kinds, kind)
+    array_push(ast_expr_vals, val)
+    array_push(ast_expr_lefts, left)
+    array_push(ast_expr_rights, right)
+    give back id
+}
+
+task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body: word, extra: word, params: word, returns: word) -> int {
+    pilot id = next_stmt_id
+    next_stmt_id += 1
+    array_push(ast_stmt_kinds, kind)
+    array_push(ast_stmt_names, name)
+    array_push(ast_stmt_exprs, expr_id)
+    array_push(ast_stmt_bodies, body_id)
+    array_push(ast_stmt_else_bodies, else_body)
+    array_push(ast_stmt_extras, extra)
+    array_push(ast_task_params, params)
+    array_push(ast_task_returns, returns)
+    give back id
+}
+
+-- ===================== SHAPE REGISTRY ==============================
+
+task register_shape(name: word, fields: word) -> void {
+    array_push(shape_registry_names, name)
+    array_push(shape_registry_fields, fields)
+    shape_registry_count += 1
+}
+
+task is_shape_name(name: word) -> bool {
+    pilot si = 0
+    repeat shape_registry_count times {
+        if array_get(shape_registry_names, si) == name { give back true }
+        si += 1
+    }
+    give back false
+}
+
+task get_shape_fields(name: word) -> word {
+    pilot si = 0
+    repeat shape_registry_count times {
+        if array_get(shape_registry_names, si) == name {
+            give back array_get(shape_registry_fields, si)
+        }
+        si += 1
+    }
+    give back ""
+}
+
+task get_shape_field_count(shape_name: word) -> int {
+    pilot fields = get_shape_fields(shape_name)
+    if fields.length() == 0 { give back 0 }
+    pilot count = 1
+    pilot i = 0
+    pilot slen = fields.length()
+    repeat slen times {
+        if fields.char_at(i) == "," { count += 1 }
+        i += 1
+    }
+    give back count
+}
+
+task get_shape_field_index(shape_name: word, field_name: word) -> int {
+    pilot fields = get_shape_fields(shape_name)
+    if fields.length() == 0 { give back 0 - 1 }
+    pilot idx = 0
+    pilot cur_name = ""
+    pilot in_type = false
+    pilot slen = fields.length()
+    pilot i = 0
+    repeat slen times {
+        pilot c = fields.char_at(i)
+        if c == "," {
+            if cur_name == field_name { give back idx }
+            idx += 1
+            cur_name = ""
+            in_type = false
+        } else if c == ":" {
+            in_type = true
+        } else {
+            if not in_type { cur_name = cur_name + c }
+        }
+        i += 1
+    }
+    if cur_name == field_name { give back idx }
+    give back 0 - 1
+}
+
+-- ===================== STREAMING EMIT ==============================
+-- v3 KEY CHANGE: emit writes directly to file. No buffer.
+
+task emit(s: word) -> void {
+    fs::append(out_file, s)
+}
+
+task emit_line(s: word) -> void {
+    fs::append(out_file, s + "\n")
+}
+
+-- ===================== EMITTER VARIABLE TRACKING ===================
+
+task emt_set_var_type(name: word, vtype: word) -> void {
+    pilot i = 0
+    repeat emt_var_count times {
+        if array_get(emt_var_names, i) == name {
+            array_set(emt_var_types, i, vtype)
+            give back
+        }
+        i += 1
+    }
+    array_push(emt_var_names, name)
+    array_push(emt_var_types, vtype)
+    emt_var_count += 1
+}
+
+task emt_get_var_type(name: word) -> word {
+    pilot i = 0
+    repeat emt_var_count times {
+        if array_get(emt_var_names, i) == name {
+            give back array_get(emt_var_types, i)
+        }
+        i += 1
+    }
+    give back "i"
+}
+
+task emt_register_word_task(name: word) -> void {
+    array_push(emt_word_tasks, name)
+    emt_word_task_count += 1
+}
+
+task emt_is_word_task(name: word) -> bool {
+    pilot i = 0
+    repeat emt_word_task_count times {
+        if array_get(emt_word_tasks, i) == name { give back true }
+        i += 1
+    }
+    give back false
+}
+
+task emt_register_extern(name: word, ret: word) -> void {
+    array_push(emt_extern_names, name)
+    array_push(emt_extern_rets, ret)
+    emt_extern_count += 1
+}
+
+task emt_is_extern(name: word) -> bool {
+    pilot i = 0
+    repeat emt_extern_count times {
+        if array_get(emt_extern_names, i) == name { give back true }
+        i += 1
+    }
+    give back false
+}
+
+task emt_get_extern_ret(name: word) -> word {
+    pilot i = 0
+    repeat emt_extern_count times {
+        if array_get(emt_extern_names, i) == name {
+            give back array_get(emt_extern_rets, i)
+        }
+        i += 1
+    }
+    give back ""
+}
+
+-- ===================== WORD TYPE DETECTION =========================
+
+task is_ast_word(id: word) -> bool {
+    pilot i = word_to_int(id)
+    pilot kind: word = array_get(ast_expr_kinds, i)
+    if kind == EXPR_STR { give back true }
+    if kind == EXPR_METHOD {
+        pilot mname: word = array_get(ast_expr_vals, i)
+        if mname == "length" { give back false }
+        if mname == "to_int" { give back false }
+        if mname == "starts_with" { give back false }
+        if mname == "ends_with" { give back false }
+        if mname == "contains" { give back false }
+        give back true
+    }
+    if kind == EXPR_CALL {
+        pilot cname: word = array_get(ast_expr_vals, i)
+        if cname == "word_from_int" { give back true }
+        if cname == "word_from_bool" { give back true }
+        if cname == "ask" { give back true }
+        if cname == "fs::read" { give back true }
+        if cname == "process::arg" { give back true }
+        if cname == "process::exec_capture" { give back true }
+        if cname == "format_num" { give back true }
+        if emt_is_word_task(cname) { give back true }
+        pilot eret: word = emt_get_extern_ret(cname)
+        if eret == "word" { give back true }
+        give back false
+    }
+    if kind == EXPR_IDENT {
+        pilot vname: word = array_get(ast_expr_vals, i)
+        pilot vt: word = emt_get_var_type(vname)
+        if vt == "w" { give back true }
+        give back false
+    }
+    if kind == EXPR_BINOP {
+        pilot op: word = array_get(ast_expr_vals, i)
+        if op == "+" {
+            pilot lft: word = array_get(ast_expr_lefts, i)
+            if is_ast_word(lft) { give back true }
+        }
+        give back false
+    }
+    if kind == EXPR_FIELD { give back false }
+    give back false
+}

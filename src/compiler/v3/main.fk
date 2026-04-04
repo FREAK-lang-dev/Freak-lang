@@ -1,0 +1,94 @@
+-- ===================================================================
+-- FREAK v3 COMPILER — MAIN ENTRY POINT
+-- ===================================================================
+-- CLI arg parsing, file reading, backend dispatch.
+
+task freakc_v3_main() -> void {
+    pilot args_cnt = process::args_count()
+
+    -- Handle --version and --help
+    if args_cnt >= 2 {
+        pilot first_arg: word = process::arg(1)
+        if first_arg == "--version" or first_arg == "-V" {
+            say "freakc " + FREAKC_VERSION + " (" + FREAKC_CODENAME + ")"
+            give back
+        }
+        if first_arg == "--help" or first_arg == "-h" {
+            say "FREAK Compiler " + FREAKC_VERSION + " (" + FREAKC_CODENAME + ")"
+            say ""
+            say "Usage: freakc <file.fk> [options]"
+            say ""
+            say "Options:"
+            say "  --llvm             Use LLVM IR backend (default)"
+            say "  --c                Use C backend"
+            say "  --opt=N            Optimization level 0-3 (default: 2)"
+            say "  --target=TRIPLE    Cross-compile target triple"
+            say "  --version, -V      Show version"
+            say "  --help, -h         Show this help"
+            give back
+        }
+    }
+
+    if args_cnt < 2 {
+        say "Usage: freakc <file.fk> [--c] [--llvm] [--opt=N] [--target=TRIPLE]"
+        say "       freakc --version | --help"
+        give back
+    }
+
+    input_file = process::arg(1)
+
+    -- Parse flags
+    pilot fi = 2
+    repeat until fi >= args_cnt {
+        pilot flag = process::arg(fi)
+        if flag == "--c" { emit_target = "c" }
+        if flag == "--llvm" { emit_target = "llvm" }
+        if flag.starts_with("--opt=") { opt_level = flag.char_at(6) }
+        if flag.starts_with("--target=") {
+            pilot ti = 9
+            pilot tval = ""
+            repeat until ti >= flag.length() {
+                tval = tval + flag.char_at(ti)
+                ti += 1
+            }
+            cross_target = tval
+        }
+        fi += 1
+    }
+
+    say "FREAK v3 Compiling: " + input_file + " (Target: " + emit_target + ")"
+
+    pilot src = fs::read(input_file)
+    if src == "" {
+        say "Error: Could not read file."
+        give back
+    }
+
+    init_arrays()
+
+    say "[1/4] Lexing..."
+    tokenize(src)
+
+    say "[2/4] Parsing..."
+    parse_program()
+
+    say "[3/4] Type Checking..."
+    check_program()
+
+    say "[4/4] Emitting..."
+    if emit_target == "llvm" {
+        out_file = input_file + ".ll"
+        emit_llvm_program()
+        say "Generated LLVM IR at " + out_file
+    } else {
+        out_file = input_file + ".c"
+        -- Clear the output file before streaming
+        fs::write(out_file, "")
+        emit_c_program()
+        say "Generated C code at " + out_file
+    }
+
+    say "Done."
+}
+
+freakc_v3_main()

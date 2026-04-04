@@ -1,0 +1,128 @@
+-- ===================================================================
+-- FREAK v3 COMPILER — GLOBALS
+-- ===================================================================
+-- All global state in one file. Keeps other files pure logic.
+
+-- ===================== VERSION =====================================
+pilot FREAKC_VERSION = "0.11.0"
+pilot FREAKC_CODENAME = "Alternative-4 v3"
+
+-- ===================== TOKENS ======================================
+pilot TOK_EOF = "0"
+pilot TOK_IDENT = "1"
+pilot TOK_NUM = "2"
+pilot TOK_STR = "3"
+pilot TOK_BOOL = "4"
+pilot TOK_PUNCT = "5"
+pilot TOK_KW = "6"
+
+pilot tok_types = 0
+pilot tok_vals  = 0
+pilot tok_lines = 0
+pilot tok_cols  = 0
+pilot tokens_count = 0
+
+-- ===================== AST EXPRESSION KINDS ========================
+pilot EXPR_INT = "1"
+pilot EXPR_FLOAT = "2"
+pilot EXPR_STR = "3"
+pilot EXPR_BOOL = "4"
+pilot EXPR_IDENT = "5"
+pilot EXPR_BINOP = "6"
+pilot EXPR_UNARYOP = "7"
+pilot EXPR_CALL = "8"
+pilot EXPR_METHOD = "9"
+pilot EXPR_FIELD = "10"
+pilot EXPR_INDEX = "11"
+
+pilot ast_expr_kinds = 0
+pilot ast_expr_vals = 0
+pilot ast_expr_lefts = 0
+pilot ast_expr_rights = 0
+
+-- ===================== AST STATEMENT KINDS =========================
+pilot STMT_PILOT = "1"
+pilot STMT_SAY = "2"
+pilot STMT_TASK = "3"
+pilot STMT_GIVE_BACK = "4"
+pilot STMT_IF = "5"
+pilot STMT_ASSIGN = "6"
+pilot STMT_EXPR = "7"
+pilot STMT_REPEAT = "8"
+pilot STMT_TRAINING_ARC = "9"
+pilot STMT_WHEN = "10"
+pilot STMT_BLOCK = "11"
+pilot STMT_SHAPE = "12"
+pilot STMT_BREAK = "13"
+pilot STMT_CONTINUE = "14"
+pilot STMT_EVENTUALLY = "15"
+pilot STMT_EXTERN = "16"
+
+pilot ast_stmt_kinds = 0
+pilot ast_stmt_names = 0
+pilot ast_stmt_exprs = 0
+pilot ast_stmt_bodies = 0
+pilot ast_stmt_else_bodies = 0
+pilot ast_stmt_extras = 0
+pilot ast_task_params = 0
+pilot ast_task_returns = 0
+
+pilot ast_top_stmts = 0
+
+-- ===================== SHAPE REGISTRY ==============================
+pilot shape_registry_names = 0
+pilot shape_registry_fields = 0
+pilot shape_registry_count = 0
+
+-- ===================== LEXER STATE =================================
+pilot lex_source = ""
+pilot lex_len = 0
+pilot lex_pos = 0
+pilot lex_line = 1
+pilot lex_col = 1
+pilot cur_tok_line = 1
+pilot cur_tok_col = 1
+
+-- ===================== PARSER STATE ================================
+pilot parse_idx = 1
+pilot tok_total = 0
+pilot parse_error_count = 0
+pilot next_expr_id = 0
+pilot next_stmt_id = 0
+
+-- ===================== EMIT STATE ==================================
+-- v3 KEY CHANGE: out_file replaces out_buf. All emit() calls
+-- append directly to this file. No O(n^2) string buffer.
+pilot out_file = ""
+pilot emit_target = "llvm"
+
+-- C emitter variable tracking
+pilot emt_var_names = 0
+pilot emt_var_types = 0
+pilot emt_var_count = 0
+pilot emt_word_tasks = 0
+pilot emt_word_task_count = 0
+pilot emt_extern_names = 0
+pilot emt_extern_rets = 0
+pilot emt_extern_count = 0
+
+-- LLVM emitter state
+pilot llvm_line_count = 0
+pilot temp_reg_counter = 0
+pilot string_literals = ""
+pilot string_literals_count = 0
+pilot llvm_var_names = ""
+pilot llvm_var_types = ""
+pilot llvm_task_reg_names = ""
+pilot llvm_task_reg_types = ""
+pilot llvm_task_reg_count = 0
+pilot llvm_cur_func_is_void = false
+pilot llvm_declared_funcs = ""
+pilot llvm_loop_end_label = ""
+pilot llvm_loop_cond_label = ""
+pilot llvm_global_names = ""
+
+-- ===================== CLI STATE ===================================
+pilot input_file = ""
+pilot opt_level = "2"
+pilot cross_target = ""

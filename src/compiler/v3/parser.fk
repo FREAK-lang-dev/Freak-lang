@@ -1,0 +1,689 @@
+-- ===================================================================
+-- FREAK v3 COMPILER — PARSER
+-- ===================================================================
+-- Recursive descent parser. Builds AST in parallel arrays.
+-- v3 changes: flat if chains (no else-if nesting), early returns.
+
+task cur_tok_type() -> word {
+    give back array_get(tok_types, parse_idx)
+}
+
+task cur_tok_val() -> word {
+    give back array_get(tok_vals, parse_idx)
+}
+
+task advance_tok() -> void {
+    parse_idx += 1
+}
+
+task match_tok(type: word, val: word) -> bool {
+    if cur_tok_type() == type {
+        if val == "" or cur_tok_val() == val {
+            advance_tok()
+            give back true
+        }
+    }
+    give back false
+}
+
+task expect_tok(type: word, val: word) -> void {
+    if not match_tok(type, val) {
+        parse_error_count += 1
+        if parse_error_count < 50 {
+            pilot msg = "Syntax Error: Expected token type "
+            msg = msg + type
+            msg = msg + " with value '"
+            msg = msg + val
+            msg = msg + "' but got "
+            msg = msg + cur_tok_type()
+            msg = msg + " '"
+            msg = msg + cur_tok_val()
+            msg = msg + "'"
+            say msg
+        }
+        if cur_tok_type() != TOK_EOF and cur_tok_type() != "" {
+            advance_tok()
+        }
+    }
+}
+
+-- ===================== EXPRESSION PARSING ============================
+
+task parse_primary() -> int {
+    pilot ttype = cur_tok_type()
+    pilot tval = cur_tok_val()
+
+    if ttype == TOK_EOF or ttype == "" { give back 0 - 1 }
+
+    if ttype == TOK_NUM {
+        advance_tok()
+        pilot is_float = false
+        pilot nci = 0
+        pilot nclen = tval.length()
+        repeat nclen times {
+            if tval.char_at(nci) == "." { is_float = true }
+            nci += 1
+        }
+        if is_float { give back alloc_expr(EXPR_FLOAT, tval, "", "") }
+        give back alloc_expr(EXPR_INT, tval, "", "")
+    }
+    if ttype == TOK_STR {
+        advance_tok()
+        give back alloc_expr(EXPR_STR, tval, "", "")
+    }
+    if ttype == TOK_BOOL {
+        advance_tok()
+        give back alloc_expr(EXPR_BOOL, tval, "", "")
+    }
+    if ttype == TOK_IDENT {
+        advance_tok()
+
+        -- Namespace: foo::bar
+        if match_tok(TOK_PUNCT, "::") {
+            pilot nttype = cur_tok_type()
+            pilot ntval = cur_tok_val()
+            if nttype == TOK_IDENT {
+                tval = tval + "::" + ntval
+                advance_tok()
+            } else {
+                say "Expected identifier after ::"
+            }
+        }
+        -- Shape constructor: Name { field: val, ... }
+        if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "{" {
+            if is_shape_name(tval) {
+                advance_tok()
+                pilot val_ids = ""
+                pilot cfin = false
+                pilot cis_first = true
+                if match_tok(TOK_PUNCT, "}") { cfin = true }
+                repeat until cfin {
+                    pilot fname = cur_tok_val()
+                    advance_tok()
+                    expect_tok(TOK_PUNCT, ":")
+                    pilot fval_id = parse_expr()
+                    if cis_first {
+                        val_ids = word_from_int(fval_id)
+                        cis_first = false
+                    } else {
+                        val_ids = val_ids + "," + word_from_int(fval_id)
+                    }
+                    if match_tok(TOK_PUNCT, "}") { cfin = true }
+                    else { expect_tok(TOK_PUNCT, ",") }
+                }
+                give back alloc_expr(EXPR_CALL, "shape::ctor::" + tval, val_ids, "")
+            }
+        }
+
+        -- Function call: name(args)
+        if match_tok(TOK_PUNCT, "(") {
+            pilot args = ""
+            pilot fin = false
+            pilot is_first = true
+            if match_tok(TOK_PUNCT, ")") { fin = true }
+            repeat until fin {
+                pilot arg_id = parse_expr()
+                if is_first {
+                    args = word_from_int(arg_id)
+                    is_first = false
+                } else {
+                    args = args + "," + word_from_int(arg_id)
+                }
+                if match_tok(TOK_PUNCT, ")") { fin = true }
+                else { expect_tok(TOK_PUNCT, ",") }
+            }
+            give back alloc_expr(EXPR_CALL, tval, args, "")
+        }
+
+        give back alloc_expr(EXPR_IDENT, tval, "", "")
+    }
+
+    -- Parenthesized expression
+    if ttype == TOK_PUNCT and tval == "(" {
+        advance_tok()
+        pilot inner = parse_expr()
+        expect_tok(TOK_PUNCT, ")")
+        give back inner
+    }
+
+    say "Unexpected token in primary: " + tval + " (" + ttype + ")"
+    if ttype != TOK_EOF and ttype != "" { advance_tok() }
+    give back 0 - 1
+}
+
+task parse_postfix() -> int {
+    pilot left = parse_primary()
+    pilot fin = false
+    repeat until fin {
+        if match_tok(TOK_PUNCT, ".") {
+            pilot mname = cur_tok_val()
+            expect_tok(TOK_IDENT, "")
+            if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "(" {
+                -- Method call: .name(args)
+                advance_tok()
+                pilot args = ""
+                pilot argfin = false
+                pilot is_first = true
+                if match_tok(TOK_PUNCT, ")") { argfin = true }
+                repeat until argfin {
+                    pilot arg_id = parse_expr()
+                    if is_first {
+                        args = word_from_int(arg_id)
+                        is_first = false
+                    } else {
+                        args = args + "," + word_from_int(arg_id)
+                    }
+                    if match_tok(TOK_PUNCT, ")") { argfin = true }
+                    else { expect_tok(TOK_PUNCT, ",") }
+                }
+                left = alloc_expr(EXPR_METHOD, mname, word_from_int(left), args)
+            } else {
+                -- Field access: .name
+                left = alloc_expr(EXPR_FIELD, mname, word_from_int(left), "")
+            }
+        } else if match_tok(TOK_PUNCT, "[") {
+            pilot idx_expr = parse_expr()
+            expect_tok(TOK_PUNCT, "]")
+            left = alloc_expr(EXPR_INDEX, "", word_from_int(left), word_from_int(idx_expr))
+        } else if match_tok(TOK_PUNCT, "|>") {
+            -- Pipe: a |> f(args) => f(a, args)
+            pilot fname = cur_tok_val()
+            advance_tok()
+            pilot pipe_args = word_from_int(left)
+            if match_tok(TOK_PUNCT, "(") {
+                if not match_tok(TOK_PUNCT, ")") {
+                    pilot pfin = false
+                    repeat until pfin {
+                        pilot parg_id = parse_expr()
+                        pipe_args = pipe_args + "," + word_from_int(parg_id)
+                        if match_tok(TOK_PUNCT, ")") { pfin = true }
+                        else { expect_tok(TOK_PUNCT, ",") }
+                    }
+                }
+            }
+            left = alloc_expr(EXPR_CALL, fname, pipe_args, "")
+        } else {
+            fin = true
+        }
+    }
+    give back left
+}
+
+-- v3: flat if with early return (no else-if nesting)
+task parse_unary() -> int {
+    if match_tok(TOK_KW, "not") {
+        pilot op = parse_unary()
+        give back alloc_expr(EXPR_UNARYOP, "not", word_from_int(op), "")
+    }
+    if match_tok(TOK_PUNCT, "-") {
+        pilot op = parse_unary()
+        give back alloc_expr(EXPR_UNARYOP, "-", word_from_int(op), "")
+    }
+    if match_tok(TOK_KW, "PLUS ULTRA") {
+        pilot op = parse_unary()
+        give back alloc_expr(EXPR_UNARYOP, "PLUS ULTRA", word_from_int(op), "")
+    }
+    if match_tok(TOK_KW, "FINAL FORM") {
+        pilot op = parse_unary()
+        give back alloc_expr(EXPR_UNARYOP, "FINAL FORM", word_from_int(op), "")
+    }
+    if match_tok(TOK_KW, "TSUNDERE") {
+        pilot op = parse_unary()
+        give back alloc_expr(EXPR_UNARYOP, "TSUNDERE", word_from_int(op), "")
+    }
+    give back parse_postfix()
+}
+
+-- Precedence: or < and < comparison < add < mul < unary < postfix
+
+task parse_mul() -> int {
+    pilot left = parse_unary()
+    pilot fin = false
+    repeat until fin {
+        pilot tval = cur_tok_val()
+        if tval == "*" or tval == "/" or tval == "%" {
+            advance_tok()
+            pilot right = parse_unary()
+            left = alloc_expr(EXPR_BINOP, tval, word_from_int(left), word_from_int(right))
+        } else {
+            fin = true
+        }
+    }
+    give back left
+}
+
+task parse_add() -> int {
+    pilot left = parse_mul()
+    pilot fin = false
+    repeat until fin {
+        pilot tval = cur_tok_val()
+        if tval == "+" or tval == "-" or tval == "NAKAMA" {
+            advance_tok()
+            pilot right = parse_mul()
+            left = alloc_expr(EXPR_BINOP, tval, word_from_int(left), word_from_int(right))
+        } else {
+            fin = true
+        }
+    }
+    give back left
+}
+
+task parse_comparison() -> int {
+    pilot left = parse_add()
+    pilot fin = false
+    repeat until fin {
+        pilot tval = cur_tok_val()
+        if tval == "==" or tval == "!=" or tval == "<" or tval == ">" or tval == "<=" or tval == ">=" {
+            advance_tok()
+            pilot right = parse_add()
+            left = alloc_expr(EXPR_BINOP, tval, word_from_int(left), word_from_int(right))
+        } else {
+            fin = true
+        }
+    }
+    give back left
+}
+
+task parse_and() -> int {
+    pilot left = parse_comparison()
+    pilot fin = false
+    repeat until fin {
+        pilot tval = cur_tok_val()
+        if tval == "and" {
+            advance_tok()
+            pilot right = parse_comparison()
+            left = alloc_expr(EXPR_BINOP, "and", word_from_int(left), word_from_int(right))
+        } else {
+            fin = true
+        }
+    }
+    give back left
+}
+
+task parse_expr() -> int {
+    pilot left = parse_and()
+    pilot fin = false
+    repeat until fin {
+        pilot tval = cur_tok_val()
+        if tval == "or" {
+            advance_tok()
+            pilot right = parse_and()
+            left = alloc_expr(EXPR_BINOP, "or", word_from_int(left), word_from_int(right))
+        } else {
+            fin = true
+        }
+    }
+    give back left
+}
+
+-- ===================== BLOCK + STATEMENT PARSING =====================
+
+task parse_block() -> word {
+    expect_tok(TOK_PUNCT, "{")
+    pilot block = ""
+    pilot fin = false
+    pilot is_first = true
+    if match_tok(TOK_PUNCT, "}") { fin = true }
+    repeat until fin {
+        pilot stmt_id = parse_stmt()
+        if is_first {
+            block = word_from_int(stmt_id)
+            is_first = false
+        } else {
+            block = block + "," + word_from_int(stmt_id)
+        }
+        if match_tok(TOK_PUNCT, "}") { fin = true }
+    }
+    give back block
+}
+
+task parse_stmt() -> int {
+    pilot ttype = cur_tok_type()
+    pilot tval = cur_tok_val()
+
+    -- Skip @annotations
+    if ttype == TOK_PUNCT and tval == "@" {
+        advance_tok()
+        advance_tok()
+        ttype = cur_tok_type()
+        tval = cur_tok_val()
+    }
+
+    -- say expr
+    if match_tok(TOK_KW, "say") {
+        pilot expr_id = parse_expr()
+        give back alloc_stmt(STMT_SAY, "", word_from_int(expr_id), "", "", "", "", "")
+    }
+
+    -- shape Name { field: type, ... }
+    if match_tok(TOK_KW, "shape") {
+        give back parse_shape()
+    }
+
+    -- impl Name { task ... }
+    if match_tok(TOK_KW, "impl") {
+        give back parse_impl()
+    }
+
+    -- eventually { body }
+    if match_tok(TOK_KW, "eventually") {
+        pilot ev_body = parse_block()
+        give back alloc_stmt(STMT_EVENTUALLY, "", "", ev_body, "", "", "", "")
+    }
+
+    -- pilot name = expr
+    if match_tok(TOK_KW, "pilot") {
+        pilot name = cur_tok_val()
+        advance_tok()
+        pilot type_ann = ""
+        if cur_tok_type() == TOK_PUNCT and cur_tok_val() == ":" {
+            advance_tok()
+            type_ann = cur_tok_val()
+            advance_tok()
+        }
+        expect_tok(TOK_PUNCT, "=")
+        pilot expr_id = parse_expr()
+        give back alloc_stmt(STMT_PILOT, name, word_from_int(expr_id), "", "", type_ann, "", "")
+    }
+
+    -- give back expr
+    if match_tok(TOK_KW, "give back") {
+        pilot expr_id = 0 - 1
+        if cur_tok_type() != TOK_PUNCT or cur_tok_val() != "}" {
+            expr_id = parse_expr()
+        }
+        give back alloc_stmt(STMT_GIVE_BACK, "", word_from_int(expr_id), "", "", "", "", "")
+    }
+
+    -- break / continue
+    if match_tok(TOK_KW, "break") {
+        give back alloc_stmt(STMT_BREAK, "", "", "", "", "", "", "")
+    }
+    if match_tok(TOK_KW, "continue") {
+        give back alloc_stmt(STMT_CONTINUE, "", "", "", "", "", "", "")
+    }
+
+    -- if expr { body } else { body }
+    if match_tok(TOK_KW, "if") {
+        pilot expr_id = parse_expr()
+        pilot body_id = parse_block()
+        pilot else_body = ""
+        if match_tok(TOK_KW, "else") {
+            if cur_tok_type() == TOK_KW and cur_tok_val() == "if" {
+                pilot elif_id = parse_stmt()
+                else_body = word_from_int(elif_id)
+            } else {
+                else_body = parse_block()
+            }
+        }
+        give back alloc_stmt(STMT_IF, "", word_from_int(expr_id), body_id, else_body, "", "", "")
+    }
+
+    -- repeat until cond { body }  /  repeat N times { body }
+    if match_tok(TOK_KW, "repeat") {
+        if match_tok(TOK_KW, "until") {
+            pilot expr_id = parse_expr()
+            pilot body_id = parse_block()
+            give back alloc_stmt(STMT_REPEAT, "until", word_from_int(expr_id), body_id, "", "", "", "")
+        }
+        pilot expr_id = parse_expr()
+        expect_tok(TOK_KW, "times")
+        pilot body_id = parse_block()
+        give back alloc_stmt(STMT_REPEAT, "times", word_from_int(expr_id), body_id, "", "", "", "")
+    }
+
+    -- training arc until cond max N sessions { body }
+    if match_tok(TOK_KW, "training arc") {
+        expect_tok(TOK_KW, "until")
+        pilot cond_id = parse_expr()
+        expect_tok(TOK_KW, "max")
+        pilot max_id = parse_expr()
+        expect_tok(TOK_KW, "sessions")
+        pilot body_id = parse_block()
+        give back alloc_stmt(STMT_TRAINING_ARC, "", word_from_int(cond_id), body_id, "", word_from_int(max_id), "", "")
+    }
+
+    -- when expr { val -> stmt, ... }
+    if match_tok(TOK_KW, "when") {
+        give back parse_when()
+    }
+
+    -- extern task name(params) -> ret
+    if match_tok(TOK_KW, "extern") {
+        give back parse_extern()
+    }
+
+    -- task name(params) -> ret { body }
+    if match_tok(TOK_KW, "task") {
+        give back parse_task_def()
+    }
+
+    -- Bare block { ... }
+    if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "{" {
+        pilot block_id = parse_block()
+        give back alloc_stmt(STMT_BLOCK, "", "", block_id, "", "", "", "")
+    }
+
+    -- Expression statement (or assignment)
+    pilot expr_id = parse_expr()
+
+    if match_tok(TOK_PUNCT, "=") {
+        pilot rhs = parse_expr()
+        give back alloc_stmt(STMT_ASSIGN, "=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+    }
+    if match_tok(TOK_PUNCT, "+=") {
+        pilot rhs = parse_expr()
+        give back alloc_stmt(STMT_ASSIGN, "+=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+    }
+    if match_tok(TOK_PUNCT, "-=") {
+        pilot rhs = parse_expr()
+        give back alloc_stmt(STMT_ASSIGN, "-=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+    }
+    if match_tok(TOK_PUNCT, "*=") {
+        pilot rhs = parse_expr()
+        give back alloc_stmt(STMT_ASSIGN, "*=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+    }
+    if match_tok(TOK_PUNCT, "/=") {
+        pilot rhs = parse_expr()
+        give back alloc_stmt(STMT_ASSIGN, "/=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+    }
+    if match_tok(TOK_PUNCT, "%=") {
+        pilot rhs = parse_expr()
+        give back alloc_stmt(STMT_ASSIGN, "%=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+    }
+
+    give back alloc_stmt(STMT_EXPR, "", word_from_int(expr_id), "", "", "", "", "")
+}
+
+-- ===================== HELPER PARSE TASKS ============================
+-- v3: Split out from parse_stmt to keep functions short.
+
+task parse_params() -> word {
+    pilot params = ""
+    pilot fin = false
+    pilot is_first = true
+    if match_tok(TOK_PUNCT, ")") { fin = true }
+    repeat until fin {
+        pilot pname = cur_tok_val()
+        advance_tok()
+        if pname == "self" {
+            if match_tok(TOK_PUNCT, ")") { fin = true }
+            else { expect_tok(TOK_PUNCT, ",") }
+            if is_first {
+                params = "self:word"
+                is_first = false
+            } else {
+                params = params + ",self:word"
+            }
+        } else {
+            expect_tok(TOK_PUNCT, ":")
+            pilot ptype = cur_tok_val()
+            advance_tok()
+            pilot pstr = pname + ":" + ptype
+            if is_first {
+                params = pstr
+                is_first = false
+            } else {
+                params = params + "," + pstr
+            }
+            if match_tok(TOK_PUNCT, ")") { fin = true }
+            else { expect_tok(TOK_PUNCT, ",") }
+        }
+    }
+    give back params
+}
+
+task parse_shape() -> int {
+    pilot shape_name = cur_tok_val()
+    advance_tok()
+    expect_tok(TOK_PUNCT, "{")
+    pilot fields = ""
+    pilot sfin = false
+    pilot sis_first = true
+    repeat until sfin {
+        if match_tok(TOK_PUNCT, "}") {
+            sfin = true
+        } else {
+            pilot fname = cur_tok_val()
+            advance_tok()
+            expect_tok(TOK_PUNCT, ":")
+            pilot ftype = cur_tok_val()
+            advance_tok()
+            if sis_first {
+                fields = fname + ":" + ftype
+                sis_first = false
+            } else {
+                fields = fields + "," + fname + ":" + ftype
+            }
+        }
+    }
+    register_shape(shape_name, fields)
+    give back alloc_stmt(STMT_SHAPE, shape_name, "", "", "", fields, "", "")
+}
+
+task parse_impl() -> int {
+    pilot impl_name = cur_tok_val()
+    advance_tok()
+    expect_tok(TOK_PUNCT, "{")
+
+    repeat until cur_tok_type() == TOK_PUNCT and cur_tok_val() == "}" {
+        if match_tok(TOK_KW, "task") {
+            pilot mname = cur_tok_val()
+            advance_tok()
+            expect_tok(TOK_PUNCT, "(")
+            pilot params = parse_params()
+            pilot ret_type = "void"
+            if match_tok(TOK_PUNCT, "->") {
+                ret_type = cur_tok_val()
+                advance_tok()
+            }
+            pilot body_id = parse_block()
+            pilot full_name = impl_name + "_" + mname
+            pilot sid = alloc_stmt(STMT_TASK, full_name, "", body_id, "", "", params, ret_type)
+            array_push(ast_top_stmts, word_from_int(sid))
+        } else {
+            advance_tok()
+        }
+    }
+    expect_tok(TOK_PUNCT, "}")
+    give back alloc_stmt(STMT_BLOCK, "", "", "", "", "", "", "")
+}
+
+task parse_when() -> int {
+    pilot target_id = parse_expr()
+    expect_tok(TOK_PUNCT, "{")
+    pilot cases_str = ""
+    pilot fin = false
+    pilot is_first = true
+    repeat until fin {
+        if match_tok(TOK_PUNCT, "}") {
+            fin = true
+        } else {
+            pilot case_expr = 0 - 1
+            if match_tok(TOK_IDENT, "_") {
+                case_expr = 0 - 1
+            } else {
+                case_expr = parse_expr()
+            }
+            expect_tok(TOK_PUNCT, "->")
+            pilot stmt_id = parse_stmt()
+            pilot case_str = word_from_int(case_expr) + ":" + word_from_int(stmt_id)
+            if is_first {
+                cases_str = case_str
+                is_first = false
+            } else {
+                cases_str = cases_str + "," + case_str
+            }
+        }
+    }
+    give back alloc_stmt(STMT_WHEN, "", word_from_int(target_id), cases_str, "", "", "", "")
+}
+
+task parse_extern() -> int {
+    expect_tok(TOK_KW, "task")
+    pilot ename = cur_tok_val()
+    advance_tok()
+    expect_tok(TOK_PUNCT, "(")
+    pilot eparams = ""
+    pilot efin = false
+    pilot eis_first = true
+    if match_tok(TOK_PUNCT, ")") { efin = true }
+    repeat until efin {
+        pilot epname = cur_tok_val()
+        advance_tok()
+        expect_tok(TOK_PUNCT, ":")
+        pilot eptype = cur_tok_val()
+        advance_tok()
+        pilot epstr = epname + ":" + eptype
+        if eis_first {
+            eparams = epstr
+            eis_first = false
+        } else {
+            eparams = eparams + "," + epstr
+        }
+        if match_tok(TOK_PUNCT, ")") { efin = true }
+        else { expect_tok(TOK_PUNCT, ",") }
+    }
+    expect_tok(TOK_PUNCT, "->")
+    pilot eret_type = cur_tok_val()
+    advance_tok()
+    give back alloc_stmt(STMT_EXTERN, ename, "", "", "", "", eparams, eret_type)
+}
+
+task parse_task_def() -> int {
+    pilot name = cur_tok_val()
+    advance_tok()
+    expect_tok(TOK_PUNCT, "(")
+    pilot params = parse_params()
+    pilot ret_type = "void"
+    if match_tok(TOK_PUNCT, "->") {
+        ret_type = cur_tok_val()
+        advance_tok()
+    }
+    pilot body_id = parse_block()
+    give back alloc_stmt(STMT_TASK, name, "", body_id, "", "", params, ret_type)
+}
+
+-- ===================== TOP-LEVEL PARSING =============================
+
+task parse_program() -> void {
+    parse_idx = 0
+    tok_total = tokens_count
+    parse_error_count = 0
+    pilot pfin = false
+    repeat until pfin {
+        if cur_tok_type() == TOK_EOF or cur_tok_type() == "" {
+            pfin = true
+        } else if parse_error_count > 100 {
+            say "Too many parse errors, aborting."
+            pfin = true
+        } else {
+            pilot stmt_id = parse_stmt()
+            array_push(ast_top_stmts, word_from_int(stmt_id))
+        }
+    }
+}
+
+task check_program() -> void {
+    -- Type checker stub (v3 Phase 1)
+}
