@@ -574,8 +574,8 @@ Test files in `tests/` directory. Run with `python -m freakc test` or `freak tes
 
 The version is hardcoded in **two files** that must be updated together before tagging a release:
 
-- `src/cli/version.fk` → `pilot CLI_VERSION = "0.11.0"` (shown by `freak version`)
-- `src/compiler/main.fk` → `pilot FREAKC_VERSION = "0.11.0"` (shown by `freakc_v2 --version`)
+- `src/cli/version.fk` → `pilot CLI_VERSION = "0.12.0"` (shown by `freak version`)
+- `src/compiler/main.fk` → `pilot FREAKC_VERSION = "0.12.0"` (shown by `freakc_v2 --version`)
 
 If you forget, the installed binary will report the old version even though the release tag is newer. This has happened before (v0.10.0 shipped reporting 0.9.0).
 

@@ -2,7 +2,7 @@
 -- FREAK COMPILER MAIN ENTRY (v2) - STRING BASED
 -- ===================================================================
 
-pilot FREAKC_VERSION = "0.11.0"
+pilot FREAKC_VERSION = "0.12.0"
 pilot FREAKC_CODENAME = "Alternative-4"
 
 pilot input_file = ""

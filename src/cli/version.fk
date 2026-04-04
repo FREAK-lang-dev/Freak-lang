@@ -4,7 +4,7 @@
 -- The visual identity of FREAK. Make it beautiful.
 -- ===================================================================
 
-pilot CLI_VERSION = "0.11.0"
+pilot CLI_VERSION = "0.12.0"
 pilot CLI_CODENAME = "Alternative-4"
 
 -- ── ANSI Reset & Styles ──────────────────────────────
