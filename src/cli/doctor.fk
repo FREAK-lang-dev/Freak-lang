@@ -1,118 +1,246 @@
 -- ===================================================================
--- FREAK CLI — Doctor (Setup Diagnostics)
+-- FREAK CLI — Doctor (Setup Diagnostics + Auto-Fix)
 -- ===================================================================
--- Checks that the FREAK toolchain is properly installed and ready.
+-- freak doctor        — diagnose your setup
+-- freak doctor --fix  — diagnose AND auto-install missing tools
 -- ===================================================================
 
-task cli_doctor() -> void {
+-- Try to install clang/lld on the current platform.
+-- Returns 0 if installation succeeded (or already installed).
+task cli_install_clang(os_tag: word) -> int {
+    say "  " + C_DIM + "Attempting to install clang..." + C_RESET
+    if os_tag == "windows" {
+        -- Try winget first (ships with Windows 10 1.0 and later)
+        pilot wg_res = process::exec("winget install LLVM.LLVM --silent --accept-package-agreements --accept-source-agreements")
+        if wg_res == 0 { give back 0 }
+        -- Fallback: chocolatey
+        pilot choco_res = process::exec("choco install llvm -y")
+        if choco_res == 0 { give back 0 }
+        say "  " + C_BYELLOW + "  Auto-install failed. Install manually:" + C_RESET
+        say "    " + C_CYAN + "winget install LLVM.LLVM" + C_RESET
+        say "    " + C_CYAN + "choco install llvm" + C_RESET
+        say "    https://github.com/llvm/llvm-project/releases"
+        give back 1
+    } else if os_tag == "linux" {
+        -- Try apt (Debian/Ubuntu)
+        pilot apt_res = process::exec("sudo apt-get install -y clang lld")
+        if apt_res == 0 { give back 0 }
+        -- Try dnf (Fedora/RHEL)
+        pilot dnf_res = process::exec("sudo dnf install -y clang lld")
+        if dnf_res == 0 { give back 0 }
+        -- Try pacman (Arch)
+        pilot pacman_res = process::exec("sudo pacman -S --noconfirm clang lld")
+        if pacman_res == 0 { give back 0 }
+        say "  " + C_BYELLOW + "  Could not auto-install. Try:" + C_RESET
+        say "    " + C_CYAN + "sudo apt install clang lld" + C_RESET + "  (Debian/Ubuntu)"
+        say "    " + C_CYAN + "sudo dnf install clang lld" + C_RESET + "  (Fedora)"
+        give back 1
+    } else if os_tag == "macos" {
+        -- Try brew
+        pilot brew_res = process::exec("brew install llvm")
+        if brew_res == 0 { give back 0 }
+        -- Fallback: xcode command line tools
+        process::exec("xcode-select --install")
+        say "  " + C_DIM + "If prompted, complete the Xcode CLT install then rerun 'freak doctor'" + C_RESET
+        give back 0
+    }
+    give back 1
+}
+
+task cli_doctor(fix_mode: bool) -> void {
+    -- Detect OS
+    pilot os_tag = "unix"
+    pilot is_win = false
+    pilot windir_env: word = process::env("WINDIR")
+    if windir_env != "" {
+        os_tag = "windows"
+        is_win = true
+    } else {
+        pilot uname_out: word = process::exec_capture("uname -s 2>/dev/null")
+        if uname_out.contains("Darwin") { os_tag = "macos" }
+        else { os_tag = "linux" }
+    }
+
     say ""
-    say cli_box_top(45)
-    say cli_box_mid(" " + C_G1 + SYM_GEAR + " FREAK DOCTOR" + C_RESET + C_DIM + "  diagnosing your setup..." + C_RESET, 45)
-    say cli_box_bot(45)
+    say cli_box_top(50)
+    if fix_mode {
+        say cli_box_mid(" " + C_G1 + SYM_GEAR + " FREAK DOCTOR" + C_RESET + C_DIM + " --fix  repairing..." + C_RESET, 50)
+    } else {
+        say cli_box_mid(" " + C_G1 + SYM_GEAR + " FREAK DOCTOR" + C_RESET + C_DIM + "  diagnosing your setup..." + C_RESET, 50)
+    }
+    say cli_box_bot(50)
     say ""
 
     pilot all_ok = true
     pilot checks_passed = 0
 
-    -- 1. Check clang
-    say "  " + C_BWHITE + "[1/4]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " clang"
+    -- ── 1. clang ──────────────────────────────────────────
+    say "  " + C_BWHITE + "[1/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " clang"
     pilot clang_exit = process::exec("clang --version")
     if clang_exit == 0 {
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " clang found"
+        pilot clang_ver: word = process::exec_capture("clang --version")
+        -- First line of clang version output
+        pilot cv_line = ""
+        pilot cvi = 0
+        pilot cv_done = false
+        repeat until cv_done {
+            if cvi >= clang_ver.length() { cv_done = true }
+            else {
+                pilot cch: word = clang_ver.char_at(cvi)
+                if cch == "\n" or cch == "\r" { cv_done = true }
+                else { cv_line = cv_line + cch }
+            }
+            cvi += 1
+        }
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + cv_line + C_RESET
         checks_passed += 1
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " clang " + C_RED + "not found" + C_RESET
-        say "        " + C_DIM + "Install:" + C_RESET
-        say "          Windows: " + C_CYAN + "choco install llvm" + C_RESET
-        say "          macOS:   " + C_CYAN + "xcode-select --install" + C_RESET
-        say "          Linux:   " + C_CYAN + "sudo apt install clang" + C_RESET
         all_ok = false
+        if fix_mode {
+            say "        " + C_DIM + "Attempting auto-install..." + C_RESET
+            pilot clang_fix = cli_install_clang(os_tag)
+            if clang_fix == 0 {
+                say "        " + C_BGREEN + SYM_CHECK + C_RESET + " clang installed!"
+                checks_passed += 1
+                all_ok = true
+            }
+        } else {
+            say "        " + C_DIM + "Fix: " + C_RESET + "run " + C_BWHITE + "freak doctor --fix" + C_RESET
+            if is_win {
+                say "         or: " + C_CYAN + "winget install LLVM.LLVM" + C_RESET
+            } else if os_tag == "linux" {
+                say "         or: " + C_CYAN + "sudo apt install clang lld" + C_RESET
+            } else if os_tag == "macos" {
+                say "         or: " + C_CYAN + "xcode-select --install" + C_RESET
+            }
+        }
     }
     say ""
 
-    -- 2. Check runtime
-    say "  " + C_BWHITE + "[2/4]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " runtime"
+    -- ── 2. lld (linker) ───────────────────────────────────
+    say "  " + C_BWHITE + "[2/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " lld linker"
+    pilot lld_found = false
+    if is_win {
+        -- "where" checks PATH without running the binary
+        pilot lld_exit = process::exec("where lld-link")
+        if lld_exit == 0 { lld_found = true }
+    } else {
+        pilot lld_exit = process::exec("ld.lld --version")
+        if lld_exit == 0 { lld_found = true }
+    }
+    if lld_found {
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " lld found " + C_DIM + "(bundle mode available)" + C_RESET
+        checks_passed += 1
+    } else {
+        say "        " + C_BYELLOW + SYM_RING + C_RESET + " lld not found " + C_DIM + "(optional — clang can link too)" + C_RESET
+        checks_passed += 1
+    }
+    say ""
+
+    -- ── 3. Runtime ────────────────────────────────────────
+    say "  " + C_BWHITE + "[3/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " runtime"
     pilot rt_dir: word = cli_find_runtime_dir()
     if rt_dir != "" {
         say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + rt_dir + C_RESET
-        pilot has_o = fs::exists(rt_dir + "/freak_runtime.o")
-        pilot has_llvm_o = fs::exists(rt_dir + "/freak_llvm_runtime.o")
-        if has_o or has_llvm_o {
-            say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " pre-compiled .o files (fast builds)" + C_RESET
+        pilot has_obj = false
+        if is_win {
+            has_obj = fs::exists(rt_dir + "/freak_runtime.obj")
+        } else {
+            has_obj = fs::exists(rt_dir + "/freak_runtime.o")
         }
-        pilot has_llvm_c = fs::exists(rt_dir + "/freak_llvm_runtime.c")
-        if has_llvm_c or has_llvm_o {
+        if has_obj {
+            say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " pre-compiled objects (fast bundle mode)" + C_RESET
+        } else {
+            say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " no pre-compiled objects (source fallback active)" + C_RESET
+        }
+        if fs::exists(rt_dir + "/freak_llvm_runtime.c") {
             say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " LLVM runtime available" + C_RESET
         }
         checks_passed += 1
     } else {
-        say "        " + C_BRED + SYM_CROSS + C_RESET + " cannot find runtime directory"
-        say "        " + C_DIM + "Fix: Re-run install script or set FREAK_HOME" + C_RESET
+        say "        " + C_BRED + SYM_CROSS + C_RESET + " runtime directory not found"
         all_ok = false
+        if fix_mode {
+            say "        " + C_DIM + "Downloading runtime..." + C_RESET
+            -- Re-run the upgrade to get runtime files
+            hangar_install_freak()
+        } else {
+            say "        " + C_DIM + "Fix: " + C_RESET + "run " + C_BWHITE + "freak upgrade" + C_RESET + " or re-run install script"
+        }
     }
     say ""
 
-    -- 3. Check std library
-    say "  " + C_BWHITE + "[3/4]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " standard library"
+    -- ── 4. Standard library ───────────────────────────────
+    say "  " + C_BWHITE + "[4/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " standard library"
     pilot std_dir: word = cli_find_std_dir()
     if std_dir != "" {
         pilot mod_count = 0
-        if fs::exists(std_dir + "/math.fk") { mod_count += 1 }
-        if fs::exists(std_dir + "/string.fk") { mod_count += 1 }
-        if fs::exists(std_dir + "/convert.fk") { mod_count += 1 }
+        if fs::exists(std_dir + "/math.fk")      { mod_count += 1 }
+        if fs::exists(std_dir + "/string.fk")    { mod_count += 1 }
+        if fs::exists(std_dir + "/convert.fk")   { mod_count += 1 }
         if fs::exists(std_dir + "/algorithm.fk") { mod_count += 1 }
-        if fs::exists(std_dir + "/json.fk") { mod_count += 1 }
-        if fs::exists(std_dir + "/http.fk") { mod_count += 1 }
-        if fs::exists(std_dir + "/version.fk") { mod_count += 1 }
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + " modules in " + C_DIM + std_dir + C_RESET
+        if fs::exists(std_dir + "/json.fk")      { mod_count += 1 }
+        if fs::exists(std_dir + "/http.fk")      { mod_count += 1 }
+        if fs::exists(std_dir + "/version.fk")   { mod_count += 1 }
+        if fs::exists(std_dir + "/runtime.fk")   { mod_count += 1 }
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/8 modules in " + C_DIM + std_dir + C_RESET
         checks_passed += 1
     } else {
-        say "        " + C_BRED + SYM_CROSS + C_RESET + " cannot find standard library"
-        say "        " + C_DIM + "Fix: Re-run install script" + C_RESET
+        say "        " + C_BRED + SYM_CROSS + C_RESET + " standard library not found"
         all_ok = false
+        if fix_mode {
+            say "        " + C_DIM + "Re-run upgrade to download std..." + C_RESET
+            hangar_install_freak()
+        } else {
+            say "        " + C_DIM + "Fix: " + C_RESET + "run " + C_BWHITE + "freak upgrade" + C_RESET
+        }
     }
     say ""
 
-    -- 4. Quick compile test
-    say "  " + C_BWHITE + "[4/4]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " compile pipeline"
+    -- ── 5. Compile pipeline test ──────────────────────────
+    say "  " + C_BWHITE + "[5/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " compile pipeline"
     if clang_exit == 0 and rt_dir != "" {
-        fs::write("_freak_doctor_test.fk", "say \"FREAK works!\"")
-        pilot test_src = fs::read("_freak_doctor_test.fk")
-        if test_src != "" {
-            pilot transpiled: word = cli_transpile("_freak_doctor_test.fk", test_src, "llvm")
-            if transpiled != "" {
-                pilot bin: word = cli_build_binary(transpiled, "_freak_doctor_test.fk", "llvm", "2", "")
-                if bin != "" {
-                    say "        " + C_BGREEN + SYM_CHECK + C_RESET + " full pipeline works"
-                    fs::delete(bin)
-                    checks_passed += 1
-                } else {
-                    say "        " + C_BRED + SYM_CROSS + C_RESET + " clang compilation error"
-                    all_ok = false
-                }
-                fs::delete(transpiled)
+        pilot test_src = "say \"FREAK doctor test\""
+        pilot test_path = "_freak_doctor_test.fk"
+        fs::write(test_path, test_src)
+        pilot transpiled: word = cli_transpile(test_path, test_src, "llvm")
+        if transpiled != "" {
+            pilot bin: word = cli_build_binary(transpiled, test_path, "llvm", "2", "")
+            if bin != "" {
+                say "        " + C_BGREEN + SYM_CHECK + C_RESET + " full pipeline works"
+                fs::delete(bin)
+                checks_passed += 1
             } else {
-                say "        " + C_BRED + SYM_CROSS + C_RESET + " transpilation error"
+                say "        " + C_BRED + SYM_CROSS + C_RESET + " clang compilation error (see above)"
                 all_ok = false
             }
+            fs::delete(transpiled)
+        } else {
+            say "        " + C_BRED + SYM_CROSS + C_RESET + " transpilation error"
+            all_ok = false
         }
-        fs::delete("_freak_doctor_test.fk")
+        fs::delete(test_path)
     } else {
-        say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " skipped (missing clang or runtime)" + C_RESET
+        say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " skipped (fix missing clang/runtime first)" + C_RESET
     }
     say ""
 
-    -- Summary
-    say cli_box_top(45)
+    -- ── Summary ───────────────────────────────────────────
+    say cli_box_top(50)
     if all_ok {
-        say cli_box_mid(" " + C_BGREEN + SYM_SPARK + " ALL SYSTEMS OPERATIONAL" + C_RESET + "  " + C_DIM + word_from_int(checks_passed) + "/4 passed" + C_RESET, 45)
-        say cli_box_sep(45)
-        say cli_box_mid("  " + C_DIM + "Get started:" + C_RESET + "  freak build hello.fk", 45)
+        say cli_box_mid(" " + C_BGREEN + SYM_SPARK + " ALL SYSTEMS GO" + C_RESET + "  " + C_DIM + word_from_int(checks_passed) + "/5 passed" + C_RESET, 50)
+        say cli_box_sep(50)
+        say cli_box_mid("  " + C_DIM + "Get started:" + C_RESET + "  freak build hello.fk", 50)
     } else {
-        say cli_box_mid(" " + C_BRED + SYM_CROSS + " ISSUES DETECTED" + C_RESET + "  " + C_DIM + word_from_int(checks_passed) + "/4 passed" + C_RESET, 45)
-        say cli_box_sep(45)
-        say cli_box_mid("  " + C_DIM + "Fix the above, then run " + C_RESET + "freak doctor" + C_DIM + " again" + C_RESET, 45)
+        say cli_box_mid(" " + C_BRED + SYM_CROSS + " ISSUES FOUND" + C_RESET + "  " + C_DIM + word_from_int(checks_passed) + "/5 passed" + C_RESET, 50)
+        say cli_box_sep(50)
+        if fix_mode {
+            say cli_box_mid("  Run " + C_BWHITE + "freak doctor" + C_RESET + " to verify fixes", 50)
+        } else {
+            say cli_box_mid("  Run " + C_BWHITE + "freak doctor --fix" + C_RESET + " to auto-repair", 50)
+        }
     }
-    say cli_box_bot(45)
+    say cli_box_bot(50)
     say ""
 }

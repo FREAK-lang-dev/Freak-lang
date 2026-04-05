@@ -267,7 +267,11 @@ task freakc_cli_main() -> void {
 
     -- Doctor (setup diagnostics)
     if subcmd == "doctor" {
-        cli_doctor()
+        pilot fix_mode = false
+        if args_cnt >= 3 {
+            if process::arg(2) == "--fix" { fix_mode = true }
+        }
+        cli_doctor(fix_mode)
         give back
     }
 

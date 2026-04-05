@@ -755,36 +755,63 @@ task hangar_version_cmd(project_dir: word, bump: word) -> int {
 
 -- ===================== TOOLCHAIN BOOTSTRAP ==========================
 
+-- Download a file to a local path.
+-- Returns 0 on success, non-zero on failure.
+task hangar_download_file(url: word, dest: word, is_win: bool) -> int {
+    if is_win {
+        -- Try PowerShell first (ships with all Windows versions, handles HTTPS/redirects)
+        pilot ps_cmd = "powershell -NoProfile -NonInteractive -Command \"(New-Object Net.WebClient).DownloadFile('" + url + "', '" + dest + "')\""
+        pilot ps_res = process::exec(ps_cmd)
+        if ps_res == 0 { give back 0 }
+        -- Fallback: curl (available on Windows 10 1803+)
+        pilot curl_cmd = "curl -fsSL -o \"" + dest + "\" \"" + url + "\""
+        give back process::exec(curl_cmd)
+    } else {
+        pilot curl_cmd = "curl -fsSL -o \"" + dest + "\" \"" + url + "\""
+        give back process::exec(curl_cmd)
+    }
+}
+
+-- Ensure a directory exists (cross-platform).
+task hangar_mkdir(path: word, is_win: bool) -> void {
+    if is_win {
+        -- powershell New-Item handles nested dirs and ignores already-exists
+        pilot cmd = "powershell -NoProfile -NonInteractive -Command \"New-Item -Force -ItemType Directory -Path '" + path + "' | Out-Null\""
+        process::exec(cmd)
+    } else {
+        process::exec("mkdir -p \"" + path + "\"")
+    }
+}
+
 task hangar_install_freak() -> int {
     say "  Detecting platform..."
 
-    -- Detect OS using a simple heuristic
+    -- Detect OS via environment variables (reliable, no shell expansion needed)
     pilot os_tag = ""
     pilot ext = ""
-    pilot sep = "/"
 
-    -- Try Windows detection
-    pilot win_check: word = process::exec_capture("echo %OS%")
-    if win_check.contains("Windows") {
+    pilot windir_env: word = process::env("WINDIR")
+    if windir_env != "" {
         os_tag = "windows"
         ext = ".exe"
-        sep = "\\"
     } else {
-        -- Try uname for Unix
         pilot uname_out: word = process::exec_capture("uname -s 2>/dev/null")
         if uname_out.contains("Linux") {
             os_tag = "linux"
         } else if uname_out.contains("Darwin") {
             os_tag = "macos"
         } else {
-            say "  Unsupported OS. Download manually from GitHub."
+            say "  " + C_BRED + SYM_CROSS + C_RESET + " Unsupported OS."
+            say "  Download manually: https://github.com/FREAK-lang-dev/Freak-lang/releases"
             give back 1
         }
     }
 
+    pilot is_win = os_tag == "windows"
+
     -- Detect architecture
     pilot arch_tag = "x64"
-    if os_tag != "windows" {
+    if not is_win {
         pilot arch_out: word = process::exec_capture("uname -m 2>/dev/null")
         if arch_out.contains("aarch64") or arch_out.contains("arm64") {
             arch_tag = "arm64"
@@ -792,100 +819,158 @@ task hangar_install_freak() -> int {
     }
 
     pilot platform = os_tag + "-" + arch_tag
-    pilot plat_msg = "  Platform: " + platform
-    say plat_msg
+    say "  Platform: " + C_BWHITE + platform + C_RESET
+
+    -- Determine install location using env vars (no shell expansion)
+    pilot freak_home = ""
+    if is_win {
+        pilot appdata: word = process::env("APPDATA")
+        if appdata == "" {
+            pilot userprofile: word = process::env("USERPROFILE")
+            appdata = userprofile + "/AppData/Roaming"
+        }
+        freak_home = appdata + "/freak"
+    } else {
+        pilot home_dir: word = process::env("HOME")
+        freak_home = home_dir + "/.freak"
+    }
+
+    pilot bin_dir = freak_home + "/bin"
+    pilot runtime_dir = freak_home + "/runtime"
+    pilot std_dir = freak_home + "/std"
+    pilot binary_path = bin_dir + "/freak" + ext
+    pilot hangar_path = bin_dir + "/hangar" + ext
 
     -- Fetch latest release tag via GitHub API
     say "  Checking latest version..."
-    pilot tag_cmd = "curl -sL https://api.github.com/repos/FREAK-lang-dev/Freak-lang/releases/latest"
-    pilot api_resp: word = process::exec_capture(tag_cmd)
+    pilot api_resp: word = ""
+    if is_win {
+        pilot ps_api = "powershell -NoProfile -NonInteractive -Command \"(New-Object Net.WebClient).DownloadString('https://api.github.com/repos/FREAK-lang-dev/Freak-lang/releases/latest')\""
+        api_resp = process::exec_capture(ps_api)
+        if api_resp == "" {
+            api_resp = process::exec_capture("curl -fsSL \"https://api.github.com/repos/FREAK-lang-dev/Freak-lang/releases/latest\"")
+        }
+    } else {
+        api_resp = process::exec_capture("curl -fsSL \"https://api.github.com/repos/FREAK-lang-dev/Freak-lang/releases/latest\"")
+    }
 
-    -- Simple JSON extraction: find "tag_name": "vX.Y.Z"
     pilot version: word = hangar_extract_json_field(api_resp, "tag_name")
     if version == "" {
-        say "  Could not fetch latest release. Check your internet connection."
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " Could not fetch latest release."
+        say "  Check your internet connection and try again."
+        say "  Manual download: https://github.com/FREAK-lang-dev/Freak-lang/releases"
         give back 1
     }
-    pilot ver_msg = "  Latest version: " + version
-    say ver_msg
+    say "  Latest: " + C_BGREEN + version + C_RESET
 
-    -- Download binary
+    -- Create directories
+    say "  Creating directories..."
+    hangar_mkdir(bin_dir, is_win)
+    hangar_mkdir(runtime_dir, is_win)
+    hangar_mkdir(std_dir, is_win)
+
+    -- Download freak binary
     pilot artifact = "freak-" + platform + ext
-    pilot download_url = "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/" + version + "/" + artifact
-    pilot dl_msg = "  Downloading " + artifact + "..."
-    say dl_msg
-
-    -- Determine install location
-    pilot freak_home = ""
-    if os_tag == "windows" {
-        pilot appdata: word = process::exec_capture("echo %APPDATA%")
-        freak_home = appdata.trim() + "\\freak"
-    } else {
-        pilot home_dir: word = process::exec_capture("echo $HOME")
-        freak_home = home_dir.trim() + "/.freak"
+    pilot base_url = "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/" + version
+    pilot freak_url = base_url + "/" + artifact
+    say "  Downloading " + C_BWHITE + artifact + C_RESET + "..."
+    pilot dl_res = hangar_download_file(freak_url, binary_path, is_win)
+    if dl_res != 0 {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " Download failed."
+        say "  URL tried: " + freak_url
+        say "  Try: " + C_DIM + "curl -fsSL -o freak" + ext + " \"" + freak_url + "\"" + C_RESET
+        give back 1
     }
-    pilot bin_dir = freak_home + sep + "bin"
-    pilot binary_path = bin_dir + sep + "freak" + ext
+    if not is_win {
+        process::exec("chmod +x \"" + binary_path + "\"")
+    }
 
-    -- Create directories and download
-    if os_tag == "windows" {
-        pilot mkdir_cmd = "mkdir \"" + bin_dir + "\" 2>nul"
-        process::exec(mkdir_cmd)
-        pilot dl_cmd = "curl -sL -o \"" + binary_path + "\" " + download_url
-        pilot dl_res = process::exec(dl_cmd)
-        if dl_res != 0 {
-            say "  Download failed. Check the URL manually."
-            give back 1
+    -- Download hangar binary (same binary, BusyBox pattern)
+    pilot hangar_artifact = "hangar-" + platform + ext
+    pilot hangar_url = base_url + "/" + hangar_artifact
+    pilot hg_res = hangar_download_file(hangar_url, hangar_path, is_win)
+    if hg_res == 0 {
+        if not is_win { process::exec("chmod +x \"" + hangar_path + "\"") }
+    }
+
+    -- Download runtime files (prefer .o pre-compiled for bundle mode; fall back to .c)
+    say "  Downloading runtime..."
+    pilot raw_base = "https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/" + version
+
+    -- Pre-compiled object files (needed for bundle mode — no clang for linking)
+    pilot rt_o_ext = ".o"
+    if is_win { rt_o_ext = ".obj" }
+    pilot rt_o_url = raw_base + "/freakc/runtime/freak_runtime" + rt_o_ext
+    pilot llvm_o_url = raw_base + "/freakc/runtime/freak_llvm_runtime" + rt_o_ext
+    hangar_download_file(rt_o_url, runtime_dir + "/freak_runtime" + rt_o_ext, is_win)
+    hangar_download_file(llvm_o_url, runtime_dir + "/freak_llvm_runtime" + rt_o_ext, is_win)
+
+    -- C source fallbacks
+    hangar_download_file(raw_base + "/freakc/runtime/freak_runtime.c",    runtime_dir + "/freak_runtime.c",    is_win)
+    hangar_download_file(raw_base + "/freakc/runtime/freak_runtime.h",    runtime_dir + "/freak_runtime.h",    is_win)
+    hangar_download_file(raw_base + "/freakc/runtime/freak_llvm_runtime.c", runtime_dir + "/freak_llvm_runtime.c", is_win)
+
+    -- Standard library
+    say "  Downloading standard library..."
+    pilot std_files = array_new()
+    array_push(std_files, "math.fk")
+    array_push(std_files, "string.fk")
+    array_push(std_files, "convert.fk")
+    array_push(std_files, "algorithm.fk")
+    array_push(std_files, "json.fk")
+    array_push(std_files, "http.fk")
+    array_push(std_files, "version.fk")
+    array_push(std_files, "runtime.fk")
+    pilot si = 0
+    repeat 8 times {
+        pilot sf: word = array_get(std_files, si)
+        hangar_download_file(raw_base + "/std/" + sf, std_dir + "/" + sf, is_win)
+        si += 1
+    }
+
+    say ""
+    say cli_box_top(48)
+    say cli_box_mid(" " + C_BGREEN + SYM_SPARK + " FREAK " + version + " installed!" + C_RESET, 48)
+    say cli_box_sep(48)
+    say cli_box_mid("  " + C_DIM + "Compiler: " + C_RESET + binary_path, 48)
+    say cli_box_mid("  " + C_DIM + "Runtime:  " + C_RESET + runtime_dir, 48)
+    say cli_box_mid("  " + C_DIM + "Stdlib:   " + C_RESET + std_dir, 48)
+    say cli_box_sep(48)
+    if is_win {
+        say cli_box_mid("  Add to PATH (PowerShell):", 48)
+        pilot ps_path_cmd = "$env:PATH += ';' + '" + bin_dir + "'"
+        say cli_box_mid("  " + C_CYAN + ps_path_cmd + C_RESET, 48)
+        say cli_box_mid("  Or: " + C_DIM + "setx PATH \"%PATH%;" + bin_dir + "\"" + C_RESET, 48)
+    } else {
+        say cli_box_mid("  Add to PATH:", 48)
+        say cli_box_mid("  " + C_CYAN + "export PATH=\"" + bin_dir + ":$PATH\"" + C_RESET, 48)
+    }
+    say cli_box_bot(48)
+    say ""
+
+    -- Check if clang is available; suggest install if not
+    pilot clang_test = process::exec("clang --version")
+    if clang_test != 0 {
+        say "  " + C_BYELLOW + SYM_BOLT + " clang not found" + C_RESET + " — needed to compile .fk programs."
+        if is_win {
+            say "  Install with: " + C_CYAN + "winget install LLVM.LLVM" + C_RESET
+            say "           or: " + C_CYAN + "choco install llvm" + C_RESET
+            say "  Then reopen terminal and run: " + C_BWHITE + "freak doctor" + C_RESET
+        } else if os_tag == "linux" {
+            say "  Install with: " + C_CYAN + "sudo apt install clang lld" + C_RESET + "  (Debian/Ubuntu)"
+            say "            or: " + C_CYAN + "sudo dnf install clang lld" + C_RESET + "  (Fedora/RHEL)"
+        } else if os_tag == "macos" {
+            say "  Install with: " + C_CYAN + "xcode-select --install" + C_RESET
+            say "            or: " + C_CYAN + "brew install llvm" + C_RESET
         }
+        say ""
     } else {
-        pilot mkdir_cmd2 = "mkdir -p \"" + bin_dir + "\""
-        process::exec(mkdir_cmd2)
-        pilot dl_cmd2 = "curl -sL -o \"" + binary_path + "\" " + download_url
-        pilot dl_res2 = process::exec(dl_cmd2)
-        if dl_res2 != 0 {
-            say "  Download failed. Check the URL manually."
-            give back 1
-        }
-        pilot chmod_cmd = "chmod +x \"" + binary_path + "\""
-        process::exec(chmod_cmd)
+        say "  " + C_BGREEN + SYM_CHECK + " clang found" + C_RESET + " — ready to compile!"
+        say ""
+        say "  " + C_DIM + "Try: " + C_RESET + C_BWHITE + "freak build hello.fk" + C_RESET
+        say ""
     }
 
-    -- Download runtime files
-    pilot runtime_dir = freak_home + sep + "runtime"
-    if os_tag == "windows" {
-        process::exec("mkdir \"" + runtime_dir + "\" 2>nul")
-    } else {
-        process::exec("mkdir -p \"" + runtime_dir + "\"")
-    }
-
-    pilot raw_base = "https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/" + version + "/freakc/runtime"
-    pilot rt_arr = array_new()
-    array_push(rt_arr, "freak_runtime.c")
-    array_push(rt_arr, "freak_runtime.h")
-    array_push(rt_arr, "freak_llvm_runtime.c")
-    pilot ri = 0
-    repeat 3 times {
-        pilot rtf: word = array_get(rt_arr, ri)
-        pilot rt_url = raw_base + "/" + rtf
-        pilot rt_dest = runtime_dir + sep + rtf
-        pilot rt_cmd = "curl -sL -o \"" + rt_dest + "\" " + rt_url
-        process::exec(rt_cmd)
-        ri += 1
-    }
-
-    say ""
-    pilot inst_msg = "  Installed FREAK " + version + " successfully!"
-    say inst_msg
-    say ""
-    pilot comp_msg = "  Compiler: " + binary_path
-    say comp_msg
-    pilot rt_msg = "  Runtime:  " + runtime_dir
-    say rt_msg
-    say ""
-    pilot path_msg = "  Add to PATH: " + bin_dir
-    say path_msg
-    say ""
-    say "  Try: freak build hello.fk"
     give back 0
 }
 
