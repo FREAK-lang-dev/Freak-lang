@@ -247,3 +247,82 @@ task is_ast_word(id: word) -> bool {
     if kind == EXPR_FIELD { give back false }
     give back false
 }
+
+-- ===================== DIAGNOSTICS =================================
+
+-- Extract the text of line N from the source (1-indexed).
+task get_source_line(n: int) -> word {
+    if n <= 0 { give back "" }
+    pilot cur_line = 1
+    pilot i = 0
+    pilot slen = lex_source.length()
+    pilot line_text = ""
+    pilot found_line = false
+    repeat until i >= slen {
+        if cur_line == n and not found_line {
+            found_line = true
+        }
+        if found_line {
+            pilot ch = lex_source.char_at(i)
+            if ch == "\n" or ch == "\r" { give back line_text }
+            line_text = line_text + ch
+        } else {
+            if lex_source.char_at(i) == "\n" { cur_line += 1 }
+        }
+        i += 1
+    }
+    give back line_text
+}
+
+-- Build a caret string: (col-1) spaces then '^'.
+task diag_make_caret(col: int) -> word {
+    pilot s = ""
+    pilot i = 1
+    repeat until i >= col {
+        s = s + " "
+        i += 1
+    }
+    give back s + "^"
+}
+
+-- Human-readable name for a token (no internal type numbers).
+task friendly_tok(ttype: word, tval: word) -> word {
+    if ttype == TOK_EOF or ttype == "" { give back "end of file" }
+    if ttype == TOK_IDENT { give back "'" + tval + "'" }
+    if ttype == TOK_NUM   { give back "number '" + tval + "'" }
+    if ttype == TOK_STR   { give back "string literal" }
+    if ttype == TOK_BOOL  { give back "'" + tval + "'" }
+    if ttype == TOK_KW    { give back "'" + tval + "'" }
+    if ttype == TOK_PUNCT { give back "'" + tval + "'" }
+    give back "'" + tval + "'"
+}
+
+-- Emit a Rust-style diagnostic and increment error counters.
+-- Reads the current token position from parse_idx + tok_lines/tok_cols.
+task diag_error(msg: word, hint: word) -> void {
+    error_count += 1
+    parse_error_count += 1
+    -- Clamp index to valid range
+    pilot tidx = parse_idx
+    if tokens_count == 0 {
+        say "\x1b[1;31merror\x1b[0m: " + msg
+        say " --> " + input_file
+        say ""
+        give back
+    }
+    if tidx >= tokens_count { tidx = tokens_count - 1 }
+    if tidx < 0 { tidx = 0 }
+    pilot line_n = word_to_int(array_get(tok_lines, tidx))
+    pilot col_n  = word_to_int(array_get(tok_cols,  tidx))
+    pilot src_line = get_source_line(line_n)
+    pilot line_str = word_from_int(line_n)
+    pilot col_str  = word_from_int(col_n)
+    say "\x1b[1;31merror\x1b[0m: " + msg
+    say " --> " + input_file + ":" + line_str + ":" + col_str
+    say "  |"
+    say line_str + " | " + src_line
+    pilot caret = "  | " + diag_make_caret(col_n)
+    if hint != "" { caret = caret + " " + hint }
+    say "\x1b[1;31m" + caret + "\x1b[0m"
+    say ""
+}

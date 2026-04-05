@@ -64,6 +64,7 @@ task freakc_v3_main() -> void {
         give back
     }
 
+    error_count = 0
     init_arrays()
 
     say "[1/4] Lexing..."
@@ -71,6 +72,10 @@ task freakc_v3_main() -> void {
 
     say "[2/4] Parsing..."
     parse_program()
+    if error_count > 0 {
+        say "\x1b[1;31maborting: " + word_from_int(error_count) + " error(s) found\x1b[0m"
+        process::exit(1)
+    }
 
     say "[3/4] Type Checking..."
     check_program()

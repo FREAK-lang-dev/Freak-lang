@@ -17,6 +17,10 @@ void freak_emt_register_extern(freak_word name, freak_word ret);
 bool freak_emt_is_extern(freak_word name);
 freak_word freak_emt_get_extern_ret(freak_word name);
 bool freak_is_ast_word(freak_word id);
+freak_word freak_get_source_line(int64_t n);
+freak_word freak_diag_make_caret(int64_t col);
+freak_word freak_friendly_tok(freak_word ttype, freak_word tval);
+void freak_diag_error(freak_word msg, freak_word hint);
 freak_word freak_lex_cur_ch(void);
 freak_word freak_lex_ch_at(int64_t offset);
 freak_word freak_lex_advance(void);
@@ -195,6 +199,7 @@ int64_t cur_tok_col = 0;
 int64_t parse_idx = 0;
 int64_t tok_total = 0;
 int64_t parse_error_count = 0;
+int64_t error_count = 0;
 int64_t next_expr_id = 0;
 int64_t next_stmt_id = 0;
 freak_word out_file = FREAK_WORD_EMPTY;
@@ -498,6 +503,100 @@ if (freak_word_eq(kind, EXPR_FIELD)) {
 return false;
 }
 return false;
+}
+freak_word freak_get_source_line(int64_t n) {
+if ((n <= 0)) {
+return freak_word_lit("");
+}
+int64_t cur_line = 1;
+int64_t i = 0;
+int64_t slen = freak_word_length(lex_source);
+freak_word line_text = freak_word_lit("");
+bool found_line = false;
+while (!((i >= slen))) {
+if (((cur_line == n) && (!found_line))) {
+found_line = true;
+}
+if (found_line) {
+freak_word ch = freak_word_char_at(lex_source, i);
+if ((freak_word_eq(ch, freak_word_lit("\n")) || freak_word_eq(ch, freak_word_lit("\r")))) {
+return line_text;
+}
+line_text = freak_word_concat(line_text, ch);
+}
+else {
+if (freak_word_eq(freak_word_char_at(lex_source, i), freak_word_lit("\n"))) {
+cur_line += 1;
+}
+}
+i += 1;
+}
+return line_text;
+}
+freak_word freak_diag_make_caret(int64_t col) {
+freak_word s = freak_word_lit("");
+int64_t i = 1;
+while (!((i >= col))) {
+s = freak_word_concat(s, freak_word_lit(" "));
+i += 1;
+}
+return freak_word_concat(s, freak_word_lit("^"));
+}
+freak_word freak_friendly_tok(freak_word ttype, freak_word tval) {
+if ((freak_word_eq(ttype, TOK_EOF) || freak_word_eq(ttype, freak_word_lit("")))) {
+return freak_word_lit("end of file");
+}
+if (freak_word_eq(ttype, TOK_IDENT)) {
+return freak_word_concat(freak_word_concat(freak_word_lit("'"), tval), freak_word_lit("'"));
+}
+if (freak_word_eq(ttype, TOK_NUM)) {
+return freak_word_concat(freak_word_concat(freak_word_lit("number '"), tval), freak_word_lit("'"));
+}
+if (freak_word_eq(ttype, TOK_STR)) {
+return freak_word_lit("string literal");
+}
+if (freak_word_eq(ttype, TOK_BOOL)) {
+return freak_word_concat(freak_word_concat(freak_word_lit("'"), tval), freak_word_lit("'"));
+}
+if (freak_word_eq(ttype, TOK_KW)) {
+return freak_word_concat(freak_word_concat(freak_word_lit("'"), tval), freak_word_lit("'"));
+}
+if (freak_word_eq(ttype, TOK_PUNCT)) {
+return freak_word_concat(freak_word_concat(freak_word_lit("'"), tval), freak_word_lit("'"));
+}
+return freak_word_concat(freak_word_concat(freak_word_lit("'"), tval), freak_word_lit("'"));
+}
+void freak_diag_error(freak_word msg, freak_word hint) {
+error_count += 1;
+parse_error_count += 1;
+int64_t tidx = parse_idx;
+if ((tokens_count == 0)) {
+freak_say(freak_word_concat(freak_word_lit("\x1b[1;31merror\x1b[0m: "), msg));
+freak_say(freak_word_concat(freak_word_lit(" --> "), input_file));
+freak_say(freak_word_lit(""));
+return ;
+}
+if ((tidx >= tokens_count)) {
+tidx = (tokens_count - 1);
+}
+if ((tidx < 0)) {
+tidx = 0;
+}
+int64_t line_n = freak_word_to_int(freak_array_get(tok_lines, tidx));
+int64_t col_n = freak_word_to_int(freak_array_get(tok_cols, tidx));
+freak_word src_line = freak_get_source_line(line_n);
+freak_word line_str = freak_word_from_int(line_n);
+freak_word col_str = freak_word_from_int(col_n);
+freak_say(freak_word_concat(freak_word_lit("\x1b[1;31merror\x1b[0m: "), msg));
+freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit(" --> "), input_file), freak_word_lit(":")), line_str), freak_word_lit(":")), col_str));
+freak_say(freak_word_lit("  |"));
+freak_say(freak_word_concat(freak_word_concat(line_str, freak_word_lit(" | ")), src_line));
+freak_word caret = freak_word_concat(freak_word_lit("  | "), freak_diag_make_caret(col_n));
+if ((!freak_word_eq(hint, freak_word_lit("")))) {
+caret = freak_word_concat(freak_word_concat(caret, freak_word_lit(" ")), hint);
+}
+freak_say(freak_word_concat(freak_word_concat(freak_word_lit("\x1b[1;31m"), caret), freak_word_lit("\x1b[0m")));
+freak_say(freak_word_lit(""));
 }
 freak_word freak_lex_cur_ch(void) {
 if ((lex_pos >= lex_len)) {
@@ -924,19 +1023,21 @@ return false;
 }
 void freak_expect_tok(freak_word type, freak_word val) {
 if ((!freak_match_tok(type, val))) {
-parse_error_count += 1;
-if ((parse_error_count < 50)) {
-freak_word msg = freak_word_lit("Syntax Error: Expected token type ");
-msg = freak_word_concat(msg, type);
-msg = freak_word_concat(msg, freak_word_lit(" with value '"));
-msg = freak_word_concat(msg, val);
-msg = freak_word_concat(msg, freak_word_lit("' but got "));
-msg = freak_word_concat(msg, freak_cur_tok_type());
-msg = freak_word_concat(msg, freak_word_lit(" '"));
-msg = freak_word_concat(msg, freak_cur_tok_val());
-msg = freak_word_concat(msg, freak_word_lit("'"));
-freak_say(msg);
+freak_word expected = freak_word_lit("");
+if ((freak_word_eq(type, TOK_IDENT) && freak_word_eq(val, freak_word_lit("")))) {
+expected = freak_word_lit("an identifier");
 }
+if (freak_word_eq(type, TOK_PUNCT)) {
+expected = freak_word_concat(freak_word_concat(freak_word_lit("'"), val), freak_word_lit("'"));
+}
+if (freak_word_eq(type, TOK_KW)) {
+expected = freak_word_concat(freak_word_concat(freak_word_lit("keyword '"), val), freak_word_lit("'"));
+}
+if (freak_word_eq(expected, freak_word_lit(""))) {
+expected = freak_word_concat(freak_word_concat(freak_word_lit("'"), val), freak_word_lit("'"));
+}
+freak_word found_tok = freak_friendly_tok(freak_cur_tok_type(), freak_cur_tok_val());
+freak_diag_error(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("expected "), expected), freak_word_lit(", found ")), found_tok), freak_word_lit(""));
 if (((!freak_word_eq(freak_cur_tok_type(), TOK_EOF)) && (!freak_word_eq(freak_cur_tok_type(), freak_word_lit(""))))) {
 freak_advance_tok();
 }
@@ -1049,7 +1150,7 @@ int64_t inner = freak_parse_expr();
 freak_expect_tok(TOK_PUNCT, freak_word_lit(")"));
 return inner;
 }
-freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("Unexpected token in primary: "), tval), freak_word_lit(" (")), ttype), freak_word_lit(")")));
+freak_diag_error(freak_word_concat(freak_word_concat(freak_word_lit("unexpected "), freak_friendly_tok(ttype, tval)), freak_word_lit(" — this token cannot start an expression")), freak_word_lit(""));
 if (((!freak_word_eq(ttype, TOK_EOF)) && (!freak_word_eq(ttype, freak_word_lit(""))))) {
 freak_advance_tok();
 }
@@ -1071,6 +1172,10 @@ if (freak_match_tok(TOK_PUNCT, freak_word_lit(")"))) {
 argfin = true;
 }
 while (!(argfin)) {
+if ((freak_word_eq(freak_cur_tok_type(), TOK_EOF) || freak_word_eq(freak_cur_tok_type(), freak_word_lit("")))) {
+argfin = true;
+}
+else {
 int64_t arg_id = freak_parse_expr();
 if (is_first) {
 args = freak_word_from_int(arg_id);
@@ -1084,6 +1189,7 @@ argfin = true;
 }
 else {
 freak_expect_tok(TOK_PUNCT, freak_word_lit(","));
+}
 }
 }
 left = freak_alloc_expr(EXPR_METHOD, mname, freak_word_from_int(left), args);
@@ -1240,6 +1346,11 @@ if (freak_match_tok(TOK_PUNCT, freak_word_lit("}"))) {
 fin = true;
 }
 while (!(fin)) {
+if ((freak_word_eq(freak_cur_tok_type(), TOK_EOF) || freak_word_eq(freak_cur_tok_type(), freak_word_lit("")))) {
+freak_diag_error(freak_word_lit("unexpected end of file — missing '}'"), freak_word_lit("block opened here"));
+fin = true;
+}
+else {
 int64_t stmt_id = freak_parse_stmt();
 if (is_first) {
 block = freak_word_from_int(stmt_id);
@@ -1250,6 +1361,7 @@ block = freak_word_concat(freak_word_concat(block, freak_word_lit(",")), freak_w
 }
 if (freak_match_tok(TOK_PUNCT, freak_word_lit("}"))) {
 fin = true;
+}
 }
 }
 return block;
@@ -1386,6 +1498,11 @@ if (freak_match_tok(TOK_PUNCT, freak_word_lit(")"))) {
 fin = true;
 }
 while (!(fin)) {
+if ((freak_word_eq(freak_cur_tok_type(), TOK_EOF) || freak_word_eq(freak_cur_tok_type(), freak_word_lit("")))) {
+freak_diag_error(freak_word_lit("unexpected end of file inside parameter list"), freak_word_lit(""));
+fin = true;
+}
+else {
 freak_word pname = freak_cur_tok_val();
 freak_advance_tok();
 if (freak_word_eq(pname, freak_word_lit("self"))) {
@@ -1420,6 +1537,7 @@ fin = true;
 }
 else {
 freak_expect_tok(TOK_PUNCT, freak_word_lit(","));
+}
 }
 }
 }
@@ -1574,7 +1692,7 @@ pfin = true;
 }
 else {
 if ((parse_error_count > 100)) {
-freak_say(freak_word_lit("Too many parse errors, aborting."));
+freak_say(freak_word_concat(freak_word_concat(freak_word_lit("\x1b[1;31merror\x1b[0m: too many errors, giving up (>100 syntax errors in "), input_file), freak_word_lit(")")));
 pfin = true;
 }
 else {
@@ -4630,11 +4748,16 @@ if (freak_word_eq(src, freak_word_lit(""))) {
 freak_say(freak_word_lit("Error: Could not read file."));
 return ;
 }
+error_count = 0;
 freak_init_arrays();
 freak_say(freak_word_lit("[1/4] Lexing..."));
 freak_tokenize(src);
 freak_say(freak_word_lit("[2/4] Parsing..."));
 freak_parse_program();
+if ((error_count > 0)) {
+freak_say(freak_word_concat(freak_word_concat(freak_word_lit("\x1b[1;31maborting: "), freak_word_from_int(error_count)), freak_word_lit(" error(s) found\x1b[0m")));
+freak_process_exit(1);
+}
 freak_say(freak_word_lit("[3/4] Type Checking..."));
 freak_check_program();
 freak_say(freak_word_lit("[4/4] Emitting..."));
@@ -4719,6 +4842,7 @@ cur_tok_col = 1;
 parse_idx = 1;
 tok_total = 0;
 parse_error_count = 0;
+error_count = 0;
 next_expr_id = 0;
 next_stmt_id = 0;
 out_file = freak_word_lit("");

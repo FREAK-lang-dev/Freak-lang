@@ -87,6 +87,7 @@ pilot cur_tok_col = 1
 pilot parse_idx = 1
 pilot tok_total = 0
 pilot parse_error_count = 0
+pilot error_count = 0
 pilot next_expr_id = 0
 pilot next_stmt_id = 0
 

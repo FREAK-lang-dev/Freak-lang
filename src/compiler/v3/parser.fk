@@ -28,19 +28,13 @@ task match_tok(type: word, val: word) -> bool {
 
 task expect_tok(type: word, val: word) -> void {
     if not match_tok(type, val) {
-        parse_error_count += 1
-        if parse_error_count < 50 {
-            pilot msg = "Syntax Error: Expected token type "
-            msg = msg + type
-            msg = msg + " with value '"
-            msg = msg + val
-            msg = msg + "' but got "
-            msg = msg + cur_tok_type()
-            msg = msg + " '"
-            msg = msg + cur_tok_val()
-            msg = msg + "'"
-            say msg
-        }
+        pilot expected = ""
+        if type == TOK_IDENT and val == "" { expected = "an identifier" }
+        if type == TOK_PUNCT { expected = "'" + val + "'" }
+        if type == TOK_KW    { expected = "keyword '" + val + "'" }
+        if expected == ""    { expected = "'" + val + "'" }
+        pilot found_tok = friendly_tok(cur_tok_type(), cur_tok_val())
+        diag_error("expected " + expected + ", found " + found_tok, "")
         if cur_tok_type() != TOK_EOF and cur_tok_type() != "" {
             advance_tok()
         }
@@ -146,7 +140,7 @@ task parse_primary() -> int {
         give back inner
     }
 
-    say "Unexpected token in primary: " + tval + " (" + ttype + ")"
+    diag_error("unexpected " + friendly_tok(ttype, tval) + " — this token cannot start an expression", "")
     if ttype != TOK_EOF and ttype != "" { advance_tok() }
     give back 0 - 1
 }
@@ -166,15 +160,18 @@ task parse_postfix() -> int {
                 pilot is_first = true
                 if match_tok(TOK_PUNCT, ")") { argfin = true }
                 repeat until argfin {
-                    pilot arg_id = parse_expr()
-                    if is_first {
-                        args = word_from_int(arg_id)
-                        is_first = false
-                    } else {
-                        args = args + "," + word_from_int(arg_id)
+                    if cur_tok_type() == TOK_EOF or cur_tok_type() == "" { argfin = true }
+                    else {
+                        pilot arg_id = parse_expr()
+                        if is_first {
+                            args = word_from_int(arg_id)
+                            is_first = false
+                        } else {
+                            args = args + "," + word_from_int(arg_id)
+                        }
+                        if match_tok(TOK_PUNCT, ")") { argfin = true }
+                        else { expect_tok(TOK_PUNCT, ",") }
                     }
-                    if match_tok(TOK_PUNCT, ")") { argfin = true }
-                    else { expect_tok(TOK_PUNCT, ",") }
                 }
                 left = alloc_expr(EXPR_METHOD, mname, word_from_int(left), args)
             } else {
@@ -325,14 +322,19 @@ task parse_block() -> word {
     pilot is_first = true
     if match_tok(TOK_PUNCT, "}") { fin = true }
     repeat until fin {
-        pilot stmt_id = parse_stmt()
-        if is_first {
-            block = word_from_int(stmt_id)
-            is_first = false
+        if cur_tok_type() == TOK_EOF or cur_tok_type() == "" {
+            diag_error("unexpected end of file — missing '}'", "block opened here")
+            fin = true
         } else {
-            block = block + "," + word_from_int(stmt_id)
+            pilot stmt_id = parse_stmt()
+            if is_first {
+                block = word_from_int(stmt_id)
+                is_first = false
+            } else {
+                block = block + "," + word_from_int(stmt_id)
+            }
+            if match_tok(TOK_PUNCT, "}") { fin = true }
         }
-        if match_tok(TOK_PUNCT, "}") { fin = true }
     }
     give back block
 }
@@ -504,30 +506,35 @@ task parse_params() -> word {
     pilot is_first = true
     if match_tok(TOK_PUNCT, ")") { fin = true }
     repeat until fin {
-        pilot pname = cur_tok_val()
-        advance_tok()
-        if pname == "self" {
-            if match_tok(TOK_PUNCT, ")") { fin = true }
-            else { expect_tok(TOK_PUNCT, ",") }
-            if is_first {
-                params = "self:word"
-                is_first = false
-            } else {
-                params = params + ",self:word"
-            }
+        if cur_tok_type() == TOK_EOF or cur_tok_type() == "" {
+            diag_error("unexpected end of file inside parameter list", "")
+            fin = true
         } else {
-            expect_tok(TOK_PUNCT, ":")
-            pilot ptype = cur_tok_val()
+            pilot pname = cur_tok_val()
             advance_tok()
-            pilot pstr = pname + ":" + ptype
-            if is_first {
-                params = pstr
-                is_first = false
+            if pname == "self" {
+                if match_tok(TOK_PUNCT, ")") { fin = true }
+                else { expect_tok(TOK_PUNCT, ",") }
+                if is_first {
+                    params = "self:word"
+                    is_first = false
+                } else {
+                    params = params + ",self:word"
+                }
             } else {
-                params = params + "," + pstr
+                expect_tok(TOK_PUNCT, ":")
+                pilot ptype = cur_tok_val()
+                advance_tok()
+                pilot pstr = pname + ":" + ptype
+                if is_first {
+                    params = pstr
+                    is_first = false
+                } else {
+                    params = params + "," + pstr
+                }
+                if match_tok(TOK_PUNCT, ")") { fin = true }
+                else { expect_tok(TOK_PUNCT, ",") }
             }
-            if match_tok(TOK_PUNCT, ")") { fin = true }
-            else { expect_tok(TOK_PUNCT, ",") }
         }
     }
     give back params
@@ -675,7 +682,7 @@ task parse_program() -> void {
         if cur_tok_type() == TOK_EOF or cur_tok_type() == "" {
             pfin = true
         } else if parse_error_count > 100 {
-            say "Too many parse errors, aborting."
+            say "\x1b[1;31merror\x1b[0m: too many errors, giving up (>100 syntax errors in " + input_file + ")"
             pfin = true
         } else {
             pilot stmt_id = parse_stmt()
