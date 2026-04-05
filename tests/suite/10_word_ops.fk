@@ -1,0 +1,15 @@
+-- word (string) built-in operations
+pilot s = "Hello, FREAK!"
+say word_from_int(s.length())
+say s.char_at(0)
+say s.char_at(7)
+
+-- concatenation
+pilot a = "Muv-"
+pilot b = "Luv"
+say a + b
+
+-- word_from_int / word_from_bool
+say word_from_int(2025)
+say word_from_bool(true)
+say word_from_bool(false)

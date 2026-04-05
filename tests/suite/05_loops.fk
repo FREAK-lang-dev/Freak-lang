@@ -1,0 +1,20 @@
+-- repeat N times
+pilot count = 0
+repeat 4 times {
+    count += 1
+}
+say word_from_int(count)
+
+-- training arc
+pilot power = 1
+training arc until power >= 16 max 20 sessions {
+    power *= 2
+}
+say word_from_int(power)
+
+-- repeat until
+pilot i = 0
+repeat until i >= 3 {
+    i += 1
+}
+say word_from_int(i)

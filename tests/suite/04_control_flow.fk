@@ -1,0 +1,27 @@
+-- if / else if / else
+pilot x = 15
+if x > 20 {
+    say "huge"
+} else if x > 10 {
+    say "big"
+} else {
+    say "small"
+}
+
+-- when / pattern match
+pilot day = 3
+when day {
+    1 -> say "Monday"
+    2 -> say "Tuesday"
+    3 -> say "Wednesday"
+    _ -> say "Other"
+}
+
+-- bool conditions
+pilot active = true
+if active {
+    say "active"
+}
+if not active {
+    say "inactive"
+}

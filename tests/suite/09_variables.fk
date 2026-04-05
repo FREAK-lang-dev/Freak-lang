@@ -1,0 +1,20 @@
+-- variable declarations and mutations
+pilot x = 42
+pilot name = "Yui"
+pilot flag = true
+
+say word_from_int(x)
+say name
+if flag { say "true" }
+
+-- reassignment
+x = 100
+say word_from_int(x)
+
+-- compound assignment
+x += 5
+say word_from_int(x)
+x -= 10
+say word_from_int(x)
+x *= 2
+say word_from_int(x)

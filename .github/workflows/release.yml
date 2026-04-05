@@ -159,6 +159,30 @@ jobs:
           done
           ls -la artifacts/*.tar.gz artifacts/*.zip 2>/dev/null || true
 
+      - name: Checkout for packaging update
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Update packaging checksums
+        run: |
+          # Parse SHA256SUMS and patch packaging files with real hashes
+          cd artifacts
+          HASH_MACOS=$(grep 'freak-macos-arm64.tar.gz' SHA256SUMS | awk '{print $1}' || echo "")
+          HASH_LINUX_X64=$(grep 'freak-linux-x64.tar.gz' SHA256SUMS | awk '{print $1}' || echo "")
+          HASH_LINUX_ARM64=$(grep 'freak-linux-arm64.tar.gz' SHA256SUMS | awk '{print $1}' || echo "")
+          HASH_WIN=$(grep 'freak-windows-x64.zip' SHA256SUMS | awk '{print $1}' || echo "")
+          cd ..
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/HOMEBREW_SHA256_MACOS_ARM64_PLACEHOLDER/$HASH_MACOS/g" repo/packaging/homebrew/freak.rb
+          sed -i "s/HOMEBREW_SHA256_LINUX_X64_PLACEHOLDER/$HASH_LINUX_X64/g" repo/packaging/homebrew/freak.rb
+          sed -i "s/HOMEBREW_SHA256_LINUX_ARM64_PLACEHOLDER/$HASH_LINUX_ARM64/g" repo/packaging/homebrew/freak.rb
+          sed -i "s/SCOOP_HASH_PLACEHOLDER/$HASH_WIN/g" repo/packaging/scoop/freak.json
+          sed -i "s/WINGET_HASH_PLACEHOLDER/$HASH_WIN/g" repo/packaging/winget/manifests/F/FREAK/freak/0.13.1/FREAK.freak.installer.yaml
+          sed -i "s/0\.13\.1/$VERSION/g" repo/packaging/scoop/freak.json
+          echo "Checksums injected for $VERSION"
+          cat repo/packaging/scoop/freak.json
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

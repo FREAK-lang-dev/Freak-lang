@@ -1,0 +1,9 @@
+say string_repeat("ha", 3)
+say string_reverse("FREAK")
+say word_from_int(string_count("banana", "an"))
+say string_pad_left("42", 6, "0")
+say string_pad_right("hi", 5, ".")
+pilot parts = string_split("one,two,three", ",")
+say parts
+pilot joined = string_join("a|b|c", "-")
+say joined

@@ -1,0 +1,8 @@
+say word_from_int(std_abs(0 - 42))
+say word_from_int(std_abs(7))
+say word_from_int(std_pow(2, 10))
+say word_from_int(std_max(42, 17))
+say word_from_int(std_min(42, 17))
+say word_from_int(std_clamp(15, 0, 10))
+say word_from_int(std_clamp(0 - 5, 0, 10))
+say word_from_int(std_gcd(48, 18))

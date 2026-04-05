@@ -1,0 +1,9 @@
+pilot a = 10
+pilot b = 3
+say word_from_int(a + b)
+say word_from_int(a - b)
+say word_from_int(a * b)
+say word_from_int(a / b)
+say word_from_int(a % b)
+pilot neg = 0 - 7
+say word_from_int(neg)

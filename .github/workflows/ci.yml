@@ -140,3 +140,13 @@ jobs:
           ./build/freak$EXT build tests/fs_runtime_test.fk
           ./tests/fs_runtime_test$EXT
 
+      - name: Test suite (regression tests)
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            powershell -NoProfile -File tests/suite/run_tests.ps1 ./build/freak.exe
+          else
+            chmod +x tests/suite/run_tests.sh
+            ./tests/suite/run_tests.sh ./build/freak
+          fi
+
