@@ -1469,7 +1469,7 @@ res = freak_word_concat(res, esc);
 }
 else {
 if (freak_word_eq(c, freak_word_lit("|"))) {
-res = freak_word_concat(res, freak_word_lit("|"));
+res = freak_word_concat(res, freak_word_lit("<<PIPE>>"));
 }
 else {
 res = freak_word_concat(res, c);
@@ -2584,7 +2584,7 @@ freak_emit(freak_word_lit("/* Unknown Expr */"));
 }
 void freak_emit_c_string(freak_word val) {
 freak_word tmp = freak_word_lit("freak_word_lit(\"");
-freak_word str_val = freak_word_replace(val, freak_word_lit("|"), freak_word_lit("|"));
+freak_word str_val = freak_word_replace(val, freak_word_lit("<<PIPE>>"), freak_word_lit("|"));
 int64_t si = 0;
 int64_t sslen = freak_word_length(str_val);
 while (!((si >= sslen))) {
@@ -3458,7 +3458,7 @@ return esc_out;
 freak_word freak_register_string_literal(freak_word val) {
 freak_word id = freak_word_concat(freak_word_lit("@.str."), freak_word_from_int(string_literals_count));
 string_literals_count += 1;
-freak_word real_val = freak_word_replace(val, freak_word_lit("|"), freak_word_lit("|"));
+freak_word real_val = freak_word_replace(val, freak_word_lit("<<PIPE>>"), freak_word_lit("|"));
 int64_t len = freak_word_length(real_val);
 int64_t adj_i = 0;
 while (!((adj_i >= len))) {
@@ -4091,7 +4091,7 @@ return cast_reg;
 }
 if (freak_word_eq(kind, EXPR_STR)) {
 freak_word str_id = freak_register_string_literal(val);
-int64_t len = (freak_word_length(freak_word_replace(val, freak_word_lit("|"), freak_word_lit("|"))) + 1);
+int64_t len = (freak_word_length(freak_word_replace(val, freak_word_lit("<<PIPE>>"), freak_word_lit("|"))) + 1);
 freak_word get_ptr = freak_next_reg();
 freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), get_ptr), freak_word_lit(" = getelementptr inbounds [")), freak_word_from_int(len)), freak_word_lit(" x i8], [")), freak_word_from_int(len)), freak_word_lit(" x i8]* ")), str_id), freak_word_lit(", i64 0, i64 0")));
 freak_word cast_reg = freak_next_reg();
@@ -8372,7 +8372,7 @@ freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_conca
 freak_say(freak_word_lit(""));
 }
 void freak_main(void) {
-FREAKC_VERSION = freak_word_lit("0.13.0");
+FREAKC_VERSION = freak_word_lit("0.13.1");
 FREAKC_CODENAME = freak_word_lit("Shiranui");
 TOK_EOF = freak_word_lit("0");
 TOK_IDENT = freak_word_lit("1");
@@ -8470,7 +8470,7 @@ llvm_var_reg_map = freak_word_lit("");
 input_file = freak_word_lit("");
 opt_level = freak_word_lit("2");
 cross_target = freak_word_lit("");
-CLI_VERSION = freak_word_lit("0.13.0");
+CLI_VERSION = freak_word_lit("0.13.1");
 CLI_CODENAME = freak_word_lit("Shiranui");
 C_RESET = freak_word_lit("\x1b[0m");
 C_BOLD = freak_word_lit("\x1b[1m");

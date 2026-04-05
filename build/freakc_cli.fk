@@ -429,7 +429,7 @@ task version_matches_constraint(version: word, constraint: word) -> bool {
 -- All global state in one file. Keeps other files pure logic.
 
 -- ===================== VERSION =====================================
-pilot FREAKC_VERSION = "0.13.0"
+pilot FREAKC_VERSION = "0.13.1"
 pilot FREAKC_CODENAME = "Shiranui"
 
 -- ===================== TOKENS ======================================
@@ -4209,7 +4209,7 @@ task emit_llvm_program() -> void {
 -- The visual identity of FREAK. Make it beautiful.
 -- ===================================================================
 
-pilot CLI_VERSION = "0.13.0"
+pilot CLI_VERSION = "0.13.1"
 pilot CLI_CODENAME = "Shiranui"
 
 -- ── ANSI Reset & Styles ──────────────────────────────
