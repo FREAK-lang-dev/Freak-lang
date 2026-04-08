@@ -894,13 +894,27 @@ freak_result_word_word freak_bytes_to_word(const freak_byte_buffer* b) {
 
 void freak_enable_ansi(void) {
 #ifdef _WIN32
-    /* Enable ANSI/VT100 escape sequences on Windows consoles (PowerShell, CMD) */
-    void* hOut = GetStdHandle((unsigned long)-11); /* STD_OUTPUT_HANDLE */
-    if (hOut && hOut != (void*)(intptr_t)-1) {
-        unsigned long mode = 0;
-        GetConsoleMode(hOut, &mode);
-        mode |= 0x0004; /* ENABLE_VIRTUAL_TERMINAL_PROCESSING */
-        SetConsoleMode(hOut, mode);
+    /* Match the console code page to our UTF-8 string literals before writing banner art. */
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+
+    HANDLE handles[2];
+    handles[0] = GetStdHandle(STD_OUTPUT_HANDLE);
+    handles[1] = GetStdHandle(STD_ERROR_HANDLE);
+
+    for (int i = 0; i < 2; i++) {
+        HANDLE h = handles[i];
+        if (!h || h == INVALID_HANDLE_VALUE) {
+            continue;
+        }
+
+        DWORD mode = 0;
+        if (!GetConsoleMode(h, &mode)) {
+            continue;
+        }
+
+        mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+        SetConsoleMode(h, mode);
     }
 #endif
 }

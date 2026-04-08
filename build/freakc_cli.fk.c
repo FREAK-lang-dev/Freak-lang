@@ -3378,6 +3378,7 @@ freak_emit_line(freak_word_lit("}"));
 freak_emit_line(freak_word_lit("int main(int argc, char** argv) {"));
 freak_emit_line(freak_word_lit("    freak_argc = argc;"));
 freak_emit_line(freak_word_lit("    freak_argv = argv;"));
+freak_emit_line(freak_word_lit("    freak_enable_ansi();"));
 if (has_user_main) {
 freak_emit_line(freak_word_lit("    freak_init_globals();"));
 freak_emit_line(freak_word_lit("    freak_main();"));

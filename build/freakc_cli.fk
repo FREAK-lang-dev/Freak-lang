@@ -2662,6 +2662,7 @@ task emit_c_program() -> void {
     emit_line("int main(int argc, char** argv) {")
     emit_line("    freak_argc = argc;")
     emit_line("    freak_argv = argv;")
+    emit_line("    freak_enable_ansi();")
     if has_user_main {
         emit_line("    freak_init_globals();")
         emit_line("    freak_main();")
