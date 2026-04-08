@@ -30,6 +30,12 @@ shape Matrix4x4 {
     m41: num, m42: num, m43: num, m44: num,
 }
 
+shape Transform {
+    position: Vector3,
+    rotation: Vector3,
+    scale: Vector3,
+}
+
 impl Add for Vector2 {
     task add(self, other: Vector2) -> Vector2 {
         give back Vector2 { x: self.x + other.x, y: self.y + other.y }
@@ -344,4 +350,34 @@ task math3d_mat4_orthographic(left: num, right: num, bottom: num, top: num, near
         0.0, 0.0, -2.0 / (far_plane - near_plane), 0.0 - ((far_plane + near_plane) / (far_plane - near_plane)),
         0.0, 0.0, 0.0, 1.0
     )
+}
+
+task math3d_transform_identity() -> Transform {
+    give back Transform {
+        position: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+        rotation: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+        scale: Vector3 { x: 1.0, y: 1.0, z: 1.0 }
+    }
+}
+
+task math3d_transform_make(position: Vector3, rotation: Vector3, scale: Vector3) -> Transform {
+    give back Transform { position: position, rotation: rotation, scale: scale }
+}
+
+task math3d_transform_matrix(t: Transform) -> Matrix4x4 {
+    pilot scale_m = math3d_mat4_scale(t.scale.x, t.scale.y, t.scale.z)
+    pilot rot_x = math3d_mat4_rotation_x(t.rotation.x)
+    pilot rot_y = math3d_mat4_rotation_y(t.rotation.y)
+    pilot rot_z = math3d_mat4_rotation_z(t.rotation.z)
+    pilot translation = math3d_mat4_translation(t.position.x, t.position.y, t.position.z)
+    pilot rotation = math3d_mat4_mul(rot_z, math3d_mat4_mul(rot_y, rot_x))
+    give back math3d_mat4_mul(translation, math3d_mat4_mul(rotation, scale_m))
+}
+
+task math3d_transform_point(t: Transform, v: Vector3) -> Vector3 {
+    give back math3d_mat4_transform_point(math3d_transform_matrix(t), v)
+}
+
+task math3d_transform_direction(t: Transform, v: Vector3) -> Vector3 {
+    give back math3d_mat4_transform_direction(math3d_transform_matrix(t), v)
 }
