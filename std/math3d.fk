@@ -186,6 +186,10 @@ task math3d_scale4(v: Vector4, s: num) -> Vector4 {
     give back Vector4 { x: v.x * s, y: v.y * s, z: v.z * s, w: v.w * s }
 }
 
+task math3d_lerp(a: num, b: num, t: num) -> num {
+    give back a + (b - a) * t
+}
+
 task math3d_approx_eq(a: num, b: num, epsilon: num) -> bool {
     pilot diff = a - b
     if diff < 0.0 { diff = 0.0 - diff }
@@ -299,4 +303,45 @@ task math3d_mat4_transform_point(m: Matrix4x4, v: Vector3) -> Vector3 {
         give back Vector3 { x: x, y: y, z: z }
     }
     give back Vector3 { x: x / w, y: y / w, z: z / w }
+}
+
+task math3d_mat4_transform_direction(m: Matrix4x4, v: Vector3) -> Vector3 {
+    give back Vector3 {
+        x: m.m11 * v.x + m.m12 * v.y + m.m13 * v.z,
+        y: m.m21 * v.x + m.m22 * v.y + m.m23 * v.z,
+        z: m.m31 * v.x + m.m32 * v.y + m.m33 * v.z
+    }
+}
+
+task math3d_mat4_look_at(eye: Vector3, target: Vector3, up: Vector3) -> Matrix4x4 {
+    pilot forward = math3d_normalize3(target - eye)
+    pilot side = math3d_normalize3(math3d_cross(forward, up))
+    pilot true_up = math3d_cross(side, forward)
+    give back math3d_mat4(
+        side.x, side.y, side.z, 0.0 - math3d_dot3(side, eye),
+        true_up.x, true_up.y, true_up.z, 0.0 - math3d_dot3(true_up, eye),
+        0.0 - forward.x, 0.0 - forward.y, 0.0 - forward.z, math3d_dot3(forward, eye),
+        0.0, 0.0, 0.0, 1.0
+    )
+}
+
+task math3d_mat4_perspective(fov_y_radians: num, aspect: num, near_plane: num, far_plane: num) -> Matrix4x4 {
+    pilot half_fov = fov_y_radians / 2.0
+    pilot f = 1.0 / math::tan(half_fov)
+    pilot depth = near_plane - far_plane
+    give back math3d_mat4(
+        f / aspect, 0.0, 0.0, 0.0,
+        0.0, f, 0.0, 0.0,
+        0.0, 0.0, (far_plane + near_plane) / depth, (2.0 * far_plane * near_plane) / depth,
+        0.0, 0.0, -1.0, 0.0
+    )
+}
+
+task math3d_mat4_orthographic(left: num, right: num, bottom: num, top: num, near_plane: num, far_plane: num) -> Matrix4x4 {
+    give back math3d_mat4(
+        2.0 / (right - left), 0.0, 0.0, 0.0 - ((right + left) / (right - left)),
+        0.0, 2.0 / (top - bottom), 0.0, 0.0 - ((top + bottom) / (top - bottom)),
+        0.0, 0.0, -2.0 / (far_plane - near_plane), 0.0 - ((far_plane + near_plane) / (far_plane - near_plane)),
+        0.0, 0.0, 0.0, 1.0
+    )
 }

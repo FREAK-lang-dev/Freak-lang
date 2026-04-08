@@ -54,4 +54,30 @@ assert_ok("mat4 mul x", combo_point.x == 7.0)
 assert_ok("mat4 mul y", combo_point.y == 1.0)
 assert_ok("mat4 mul z", combo_point.z == 5.0)
 
+pilot view = math3d_mat4_look_at(
+    Vector3 { x: 0.0, y: 0.0, z: 5.0 },
+    Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+    Vector3 { x: 0.0, y: 1.0, z: 0.0 }
+)
+pilot view_origin = math3d_mat4_transform_point(view, Vector3 { x: 0.0, y: 0.0, z: 0.0 })
+assert_ok("look_at origin x", math3d_approx_eq(view_origin.x, 0.0, 0.0001))
+assert_ok("look_at origin y", math3d_approx_eq(view_origin.y, 0.0, 0.0001))
+assert_ok("look_at origin z", math3d_approx_eq(view_origin.z, -5.0, 0.0001))
+
+pilot view_forward = math3d_mat4_transform_direction(view, Vector3 { x: 0.0, y: 0.0, z: -1.0 })
+assert_ok("view forward z", math3d_approx_eq(view_forward.z, -1.0, 0.0001))
+
+pilot projection = math3d_mat4_perspective(half_pi, 1.0, 0.1, 100.0)
+pilot projected = math3d_mat4_transform_point(projection, Vector3 { x: 0.0, y: 0.0, z: -5.0 })
+assert_ok("perspective center x", math3d_approx_eq(projected.x, 0.0, 0.0001))
+assert_ok("perspective center y", math3d_approx_eq(projected.y, 0.0, 0.0001))
+assert_ok("perspective depth positive", projected.z > 0.0)
+assert_ok("perspective depth bounded", projected.z < 1.0)
+
+pilot ortho = math3d_mat4_orthographic(-10.0, 10.0, -10.0, 10.0, -10.0, 10.0)
+pilot ortho_point = math3d_mat4_transform_point(ortho, Vector3 { x: 5.0, y: -5.0, z: 0.0 })
+assert_ok("ortho x", math3d_approx_eq(ortho_point.x, 0.5, 0.0001))
+assert_ok("ortho y", math3d_approx_eq(ortho_point.y, -0.5, 0.0001))
+assert_ok("ortho z", math3d_approx_eq(ortho_point.z, 0.0, 0.0001))
+
 say "math3d test complete"
