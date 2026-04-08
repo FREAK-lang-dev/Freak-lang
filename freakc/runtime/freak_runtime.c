@@ -141,21 +141,85 @@ freak_word freak_interpolate(const char* fmt, ...) {
 /*  I/O                                                               */
 /* ------------------------------------------------------------------ */
 
+#ifdef _WIN32
+static void freak_write_stream_utf8(FILE* stream, HANDLE handle, const char* data, size_t len, bool newline) {
+    DWORD mode = 0;
+    if (!handle || handle == INVALID_HANDLE_VALUE || !GetConsoleMode(handle, &mode)) {
+        if (len > 0) {
+            fwrite(data, 1, len, stream);
+        }
+        if (newline) {
+            fputc('\n', stream);
+        }
+        fflush(stream);
+        return;
+    }
+
+    int src_len = (int)len;
+    int wide_len = MultiByteToWideChar(CP_UTF8, 0, data, src_len, NULL, 0);
+    if (wide_len <= 0) {
+        if (len > 0) {
+            fwrite(data, 1, len, stream);
+        }
+        if (newline) {
+            fputc('\n', stream);
+        }
+        fflush(stream);
+        return;
+    }
+
+    int total_wide_len = wide_len + (newline ? 1 : 0);
+    wchar_t* wide_buf = (wchar_t*)malloc((size_t)total_wide_len * sizeof(wchar_t));
+    if (!wide_buf) {
+        fprintf(stderr, "FREAK: out of memory\n");
+        exit(1);
+    }
+
+    MultiByteToWideChar(CP_UTF8, 0, data, src_len, wide_buf, wide_len);
+    if (newline) {
+        wide_buf[wide_len] = L'\n';
+    }
+
+    DWORD written = 0;
+    WriteConsoleW(handle, wide_buf, (DWORD)total_wide_len, &written, NULL);
+    free(wide_buf);
+    fflush(stream);
+}
+#else
+static void freak_write_stream_utf8(FILE* stream, const char* data, size_t len, bool newline) {
+    if (len > 0) {
+        fwrite(data, 1, len, stream);
+    }
+    if (newline) {
+        fputc('\n', stream);
+    }
+    fflush(stream);
+}
+#endif
+
 void freak_say(freak_word msg) {
-    fwrite(msg.data, 1, msg.length, stdout);
-    fputc('\n', stdout);
-    fflush(stdout);
+#ifdef _WIN32
+    freak_write_stream_utf8(stdout, GetStdHandle(STD_OUTPUT_HANDLE), msg.data, msg.length, true);
+#else
+    freak_write_stream_utf8(stdout, msg.data, msg.length, true);
+#endif
 }
 
 void freak_say_err(freak_word msg) {
-    fwrite(msg.data, 1, msg.length, stderr);
-    fputc('\n', stderr);
+#ifdef _WIN32
+    freak_write_stream_utf8(stderr, GetStdHandle(STD_ERROR_HANDLE), msg.data, msg.length, true);
+#else
+    freak_write_stream_utf8(stderr, msg.data, msg.length, true);
+#endif
 }
 
 freak_word freak_ask(freak_word prompt) {
     /* Print the prompt (no newline). */
-    fwrite(prompt.data, 1, prompt.length, stdout);
-    fflush(stdout);
+#ifdef _WIN32
+    freak_write_stream_utf8(stdout, GetStdHandle(STD_OUTPUT_HANDLE), prompt.data, prompt.length, false);
+#else
+    freak_write_stream_utf8(stdout, prompt.data, prompt.length, false);
+#endif
 
     char* line = NULL;
     size_t cap  = 0;
@@ -1044,27 +1108,53 @@ int64_t freak_llvm_word_to_int(int64_t a) {
 
 void freak_llvm_say(int64_t msg) {
     const char* s = (const char*)msg;
-    if (s) puts(s);
+    if (!s) return;
+#ifdef _WIN32
+    freak_write_stream_utf8(stdout, GetStdHandle(STD_OUTPUT_HANDLE), s, strlen(s), true);
+#else
+    freak_write_stream_utf8(stdout, s, strlen(s), true);
+#endif
 }
 
 void freak_llvm_print_str(int64_t msg) {
     const char* s = (const char*)msg;
-    if (s) fputs(s, stdout);
+    if (!s) return;
+#ifdef _WIN32
+    freak_write_stream_utf8(stdout, GetStdHandle(STD_OUTPUT_HANDLE), s, strlen(s), false);
+#else
+    freak_write_stream_utf8(stdout, s, strlen(s), false);
+#endif
 }
 
 void freak_llvm_print_int(int64_t n) {
-    printf("%lld", (long long)n);
+    char buf[32];
+    int len = snprintf(buf, sizeof(buf), "%lld", (long long)n);
+    if (len < 0) {
+        return;
+    }
+#ifdef _WIN32
+    freak_write_stream_utf8(stdout, GetStdHandle(STD_OUTPUT_HANDLE), buf, (size_t)len, false);
+#else
+    freak_write_stream_utf8(stdout, buf, (size_t)len, false);
+#endif
 }
 
 void freak_llvm_print_newline(void) {
-    puts("");
+#ifdef _WIN32
+    freak_write_stream_utf8(stdout, GetStdHandle(STD_OUTPUT_HANDLE), "", 0, true);
+#else
+    freak_write_stream_utf8(stdout, "", 0, true);
+#endif
 }
 
 int64_t freak_llvm_ask(int64_t prompt) {
     const char* p = (const char*)prompt;
     if (p) {
-        fputs(p, stdout);
-        fflush(stdout);
+#ifdef _WIN32
+        freak_write_stream_utf8(stdout, GetStdHandle(STD_OUTPUT_HANDLE), p, strlen(p), false);
+#else
+        freak_write_stream_utf8(stdout, p, strlen(p), false);
+#endif
     }
     char buf[1024];
     if (fgets(buf, sizeof(buf), stdin)) {
