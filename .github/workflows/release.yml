@@ -111,6 +111,7 @@ jobs:
           cp freakc/runtime/freak_llvm_runtime.c dist/freak/runtime/
           # Ship standard library
           cp std/math.fk dist/freak/std/
+          cp std/math3d.fk dist/freak/std/
           cp std/string.fk dist/freak/std/
           cp std/convert.fk dist/freak/std/
           cp std/algorithm.fk dist/freak/std/

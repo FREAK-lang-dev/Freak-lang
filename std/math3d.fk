@@ -1,0 +1,302 @@
+-- ===================================================================
+-- FREAK Standard Library -- std::math3d
+-- ===================================================================
+-- Foundational 3D math helpers for vectors, matrices, and transforms.
+-- Convention: row-major matrices, column-vector style transform_point.
+-- ===================================================================
+
+shape Vector2 {
+    x: num,
+    y: num,
+}
+
+shape Vector3 {
+    x: num,
+    y: num,
+    z: num,
+}
+
+shape Vector4 {
+    x: num,
+    y: num,
+    z: num,
+    w: num,
+}
+
+shape Matrix4x4 {
+    m11: num, m12: num, m13: num, m14: num,
+    m21: num, m22: num, m23: num, m24: num,
+    m31: num, m32: num, m33: num, m34: num,
+    m41: num, m42: num, m43: num, m44: num,
+}
+
+impl Add for Vector2 {
+    task add(self, other: Vector2) -> Vector2 {
+        give back Vector2 { x: self.x + other.x, y: self.y + other.y }
+    }
+}
+
+impl Sub for Vector2 {
+    task sub(self, other: Vector2) -> Vector2 {
+        give back Vector2 { x: self.x - other.x, y: self.y - other.y }
+    }
+}
+
+impl Neg for Vector2 {
+    task neg(self) -> Vector2 {
+        give back Vector2 { x: -self.x, y: -self.y }
+    }
+}
+
+impl Eq for Vector2 {
+    task equals(self, other: Vector2) -> bool {
+        give back self.x == other.x and self.y == other.y
+    }
+}
+
+impl Add for Vector3 {
+    task add(self, other: Vector3) -> Vector3 {
+        give back Vector3 { x: self.x + other.x, y: self.y + other.y, z: self.z + other.z }
+    }
+}
+
+impl Sub for Vector3 {
+    task sub(self, other: Vector3) -> Vector3 {
+        give back Vector3 { x: self.x - other.x, y: self.y - other.y, z: self.z - other.z }
+    }
+}
+
+impl Neg for Vector3 {
+    task neg(self) -> Vector3 {
+        give back Vector3 { x: -self.x, y: -self.y, z: -self.z }
+    }
+}
+
+impl Eq for Vector3 {
+    task equals(self, other: Vector3) -> bool {
+        give back self.x == other.x and self.y == other.y and self.z == other.z
+    }
+}
+
+impl Add for Vector4 {
+    task add(self, other: Vector4) -> Vector4 {
+        give back Vector4 {
+            x: self.x + other.x,
+            y: self.y + other.y,
+            z: self.z + other.z,
+            w: self.w + other.w
+        }
+    }
+}
+
+impl Sub for Vector4 {
+    task sub(self, other: Vector4) -> Vector4 {
+        give back Vector4 {
+            x: self.x - other.x,
+            y: self.y - other.y,
+            z: self.z - other.z,
+            w: self.w - other.w
+        }
+    }
+}
+
+impl Neg for Vector4 {
+    task neg(self) -> Vector4 {
+        give back Vector4 { x: -self.x, y: -self.y, z: -self.z, w: -self.w }
+    }
+}
+
+impl Eq for Vector4 {
+    task equals(self, other: Vector4) -> bool {
+        give back self.x == other.x and self.y == other.y and self.z == other.z and self.w == other.w
+    }
+}
+
+task math3d_vec2(x: num, y: num) -> Vector2 {
+    give back Vector2 { x: x, y: y }
+}
+
+task math3d_vec3(x: num, y: num, z: num) -> Vector3 {
+    give back Vector3 { x: x, y: y, z: z }
+}
+
+task math3d_vec4(x: num, y: num, z: num, w: num) -> Vector4 {
+    give back Vector4 { x: x, y: y, z: z, w: w }
+}
+
+task math3d_dot2(a: Vector2, b: Vector2) -> num {
+    give back a.x * b.x + a.y * b.y
+}
+
+task math3d_dot3(a: Vector3, b: Vector3) -> num {
+    give back a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+task math3d_dot4(a: Vector4, b: Vector4) -> num {
+    give back a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w
+}
+
+task math3d_cross(a: Vector3, b: Vector3) -> Vector3 {
+    give back Vector3 {
+        x: a.y * b.z - a.z * b.y,
+        y: a.z * b.x - a.x * b.z,
+        z: a.x * b.y - a.y * b.x
+    }
+}
+
+task math3d_magnitude2(v: Vector2) -> num {
+    give back math::sqrt(math3d_dot2(v, v))
+}
+
+task math3d_magnitude3(v: Vector3) -> num {
+    give back math::sqrt(math3d_dot3(v, v))
+}
+
+task math3d_magnitude4(v: Vector4) -> num {
+    give back math::sqrt(math3d_dot4(v, v))
+}
+
+task math3d_normalize2(v: Vector2) -> Vector2 {
+    pilot mag = math3d_magnitude2(v)
+    if mag == 0.0 { give back v }
+    give back Vector2 { x: v.x / mag, y: v.y / mag }
+}
+
+task math3d_normalize3(v: Vector3) -> Vector3 {
+    pilot mag = math3d_magnitude3(v)
+    if mag == 0.0 { give back v }
+    give back Vector3 { x: v.x / mag, y: v.y / mag, z: v.z / mag }
+}
+
+task math3d_normalize4(v: Vector4) -> Vector4 {
+    pilot mag = math3d_magnitude4(v)
+    if mag == 0.0 { give back v }
+    give back Vector4 { x: v.x / mag, y: v.y / mag, z: v.z / mag, w: v.w / mag }
+}
+
+task math3d_scale2(v: Vector2, s: num) -> Vector2 {
+    give back Vector2 { x: v.x * s, y: v.y * s }
+}
+
+task math3d_scale3(v: Vector3, s: num) -> Vector3 {
+    give back Vector3 { x: v.x * s, y: v.y * s, z: v.z * s }
+}
+
+task math3d_scale4(v: Vector4, s: num) -> Vector4 {
+    give back Vector4 { x: v.x * s, y: v.y * s, z: v.z * s, w: v.w * s }
+}
+
+task math3d_approx_eq(a: num, b: num, epsilon: num) -> bool {
+    pilot diff = a - b
+    if diff < 0.0 { diff = 0.0 - diff }
+    give back diff <= epsilon
+}
+
+task math3d_mat4(
+    m11: num, m12: num, m13: num, m14: num,
+    m21: num, m22: num, m23: num, m24: num,
+    m31: num, m32: num, m33: num, m34: num,
+    m41: num, m42: num, m43: num, m44: num
+) -> Matrix4x4 {
+    give back Matrix4x4 {
+        m11: m11, m12: m12, m13: m13, m14: m14,
+        m21: m21, m22: m22, m23: m23, m24: m24,
+        m31: m31, m32: m32, m33: m33, m34: m34,
+        m41: m41, m42: m42, m43: m43, m44: m44
+    }
+}
+
+task math3d_mat4_identity() -> Matrix4x4 {
+    give back math3d_mat4(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    )
+}
+
+task math3d_mat4_translation(tx: num, ty: num, tz: num) -> Matrix4x4 {
+    give back math3d_mat4(
+        1.0, 0.0, 0.0, tx,
+        0.0, 1.0, 0.0, ty,
+        0.0, 0.0, 1.0, tz,
+        0.0, 0.0, 0.0, 1.0
+    )
+}
+
+task math3d_mat4_scale(sx: num, sy: num, sz: num) -> Matrix4x4 {
+    give back math3d_mat4(
+        sx,  0.0, 0.0, 0.0,
+        0.0, sy,  0.0, 0.0,
+        0.0, 0.0, sz,  0.0,
+        0.0, 0.0, 0.0, 1.0
+    )
+}
+
+task math3d_mat4_rotation_x(angle: num) -> Matrix4x4 {
+    pilot c = math::cos(angle)
+    pilot s = math::sin(angle)
+    give back math3d_mat4(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, c,   0.0 - s, 0.0,
+        0.0, s,   c,   0.0,
+        0.0, 0.0, 0.0, 1.0
+    )
+}
+
+task math3d_mat4_rotation_y(angle: num) -> Matrix4x4 {
+    pilot c = math::cos(angle)
+    pilot s = math::sin(angle)
+    give back math3d_mat4(
+        c,   0.0, s,   0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0 - s, 0.0, c,   0.0,
+        0.0, 0.0, 0.0, 1.0
+    )
+}
+
+task math3d_mat4_rotation_z(angle: num) -> Matrix4x4 {
+    pilot c = math::cos(angle)
+    pilot s = math::sin(angle)
+    give back math3d_mat4(
+        c,   0.0 - s, 0.0, 0.0,
+        s,   c,   0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    )
+}
+
+task math3d_mat4_mul(a: Matrix4x4, b: Matrix4x4) -> Matrix4x4 {
+    give back math3d_mat4(
+        a.m11 * b.m11 + a.m12 * b.m21 + a.m13 * b.m31 + a.m14 * b.m41,
+        a.m11 * b.m12 + a.m12 * b.m22 + a.m13 * b.m32 + a.m14 * b.m42,
+        a.m11 * b.m13 + a.m12 * b.m23 + a.m13 * b.m33 + a.m14 * b.m43,
+        a.m11 * b.m14 + a.m12 * b.m24 + a.m13 * b.m34 + a.m14 * b.m44,
+
+        a.m21 * b.m11 + a.m22 * b.m21 + a.m23 * b.m31 + a.m24 * b.m41,
+        a.m21 * b.m12 + a.m22 * b.m22 + a.m23 * b.m32 + a.m24 * b.m42,
+        a.m21 * b.m13 + a.m22 * b.m23 + a.m23 * b.m33 + a.m24 * b.m43,
+        a.m21 * b.m14 + a.m22 * b.m24 + a.m23 * b.m34 + a.m24 * b.m44,
+
+        a.m31 * b.m11 + a.m32 * b.m21 + a.m33 * b.m31 + a.m34 * b.m41,
+        a.m31 * b.m12 + a.m32 * b.m22 + a.m33 * b.m32 + a.m34 * b.m42,
+        a.m31 * b.m13 + a.m32 * b.m23 + a.m33 * b.m33 + a.m34 * b.m43,
+        a.m31 * b.m14 + a.m32 * b.m24 + a.m33 * b.m34 + a.m34 * b.m44,
+
+        a.m41 * b.m11 + a.m42 * b.m21 + a.m43 * b.m31 + a.m44 * b.m41,
+        a.m41 * b.m12 + a.m42 * b.m22 + a.m43 * b.m32 + a.m44 * b.m42,
+        a.m41 * b.m13 + a.m42 * b.m23 + a.m43 * b.m33 + a.m44 * b.m43,
+        a.m41 * b.m14 + a.m42 * b.m24 + a.m43 * b.m34 + a.m44 * b.m44
+    )
+}
+
+task math3d_mat4_transform_point(m: Matrix4x4, v: Vector3) -> Vector3 {
+    pilot x = m.m11 * v.x + m.m12 * v.y + m.m13 * v.z + m.m14
+    pilot y = m.m21 * v.x + m.m22 * v.y + m.m23 * v.z + m.m24
+    pilot z = m.m31 * v.x + m.m32 * v.y + m.m33 * v.z + m.m34
+    pilot w = m.m41 * v.x + m.m42 * v.y + m.m43 * v.z + m.m44
+    if w == 0.0 or w == 1.0 {
+        give back Vector3 { x: x, y: y, z: z }
+    }
+    give back Vector3 { x: x / w, y: y / w, z: z / w }
+}

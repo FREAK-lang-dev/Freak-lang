@@ -1,0 +1,57 @@
+use std::math3d::{Vector2, Vector3, Vector4, Matrix4x4}
+
+task assert_ok(label: word, passed: bool) -> void {
+    if passed {
+        say label + ": OK"
+    } else {
+        say label + ": FAIL"
+    }
+}
+
+pilot a = Vector3 { x: 1.0, y: 2.0, z: 3.0 }
+pilot b = Vector3 { x: 4.0, y: 5.0, z: 6.0 }
+pilot c = a + b
+assert_ok("vec3 add x", c.x == 5.0)
+assert_ok("vec3 add y", c.y == 7.0)
+assert_ok("vec3 add z", c.z == 9.0)
+
+pilot d = math3d_dot3(a, b)
+assert_ok("dot3", d == 32.0)
+
+pilot cross = math3d_cross(a, b)
+assert_ok("cross x", cross.x == -3.0)
+assert_ok("cross y", cross.y == 6.0)
+assert_ok("cross z", cross.z == -3.0)
+
+pilot mag = math3d_magnitude3(Vector3 { x: 3.0, y: 0.0, z: 4.0 })
+assert_ok("magnitude3", math3d_approx_eq(mag, 5.0, 0.0001))
+
+pilot unit = math3d_normalize3(Vector3 { x: 3.0, y: 0.0, z: 4.0 })
+assert_ok("normalize3 x", math3d_approx_eq(unit.x, 0.6, 0.0001))
+assert_ok("normalize3 z", math3d_approx_eq(unit.z, 0.8, 0.0001))
+
+pilot translation = math3d_mat4_translation(5.0, -2.0, 1.0)
+pilot moved = math3d_mat4_transform_point(translation, Vector3 { x: 1.0, y: 2.0, z: 3.0 })
+assert_ok("translate x", moved.x == 6.0)
+assert_ok("translate y", moved.y == 0.0)
+assert_ok("translate z", moved.z == 4.0)
+
+pilot scale = math3d_mat4_scale(2.0, 3.0, 4.0)
+pilot scaled = math3d_mat4_transform_point(scale, Vector3 { x: 2.0, y: 3.0, z: 4.0 })
+assert_ok("scale x", scaled.x == 4.0)
+assert_ok("scale y", scaled.y == 9.0)
+assert_ok("scale z", scaled.z == 16.0)
+
+pilot half_pi = 3.1415926535 / 2.0
+pilot rotation = math3d_mat4_rotation_z(half_pi)
+pilot spun = math3d_mat4_transform_point(rotation, Vector3 { x: 1.0, y: 0.0, z: 0.0 })
+assert_ok("rotate z x", math3d_approx_eq(spun.x, 0.0, 0.0001))
+assert_ok("rotate z y", math3d_approx_eq(spun.y, 1.0, 0.0001))
+
+pilot combo = math3d_mat4_mul(translation, scale)
+pilot combo_point = math3d_mat4_transform_point(combo, Vector3 { x: 1.0, y: 1.0, z: 1.0 })
+assert_ok("mat4 mul x", combo_point.x == 7.0)
+assert_ok("mat4 mul y", combo_point.y == 1.0)
+assert_ok("mat4 mul z", combo_point.z == 5.0)
+
+say "math3d test complete"

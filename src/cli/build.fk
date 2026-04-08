@@ -347,6 +347,10 @@ task cli_load_std(target: word) -> word {
     if fs::exists(algo_path) {
         std_src = std_src + fs::read(algo_path) + "\n"
     }
+    pilot math3d_path = std_dir + "/math3d.fk"
+    if fs::exists(math3d_path) {
+        std_src = std_src + fs::read(math3d_path) + "\n"
+    }
     pilot json_path = std_dir + "/json.fk"
     if fs::exists(json_path) {
         std_src = std_src + fs::read(json_path) + "\n"

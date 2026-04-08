@@ -73,6 +73,7 @@ def _bold(msg):
 # Order matters — dependencies listed first.
 _MODULE_FILES: dict[str, list[str]] = {
     "std::ui": ["std/ui/window.fk"],
+    "std::math3d": ["std/math3d.fk"],
     "cockpit": [
         # Order: theme → layout → widgets → ui (ui.fk depends on all others)
         "packages/cockpit/src/theme.fk",

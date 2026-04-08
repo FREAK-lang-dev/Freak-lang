@@ -370,6 +370,7 @@ Squadron model (structured concurrency) is preferred over raw `std::thread`. Use
 | Module | What it provides | Status |
 |---|---|---|
 | `std::math` | abs, min, max, clamp, pow, sqrt, gcd, lcm, factorial, fibonacci | ✅ Pure FREAK |
+| `std::math3d` | Vector2/3/4, Matrix4x4, dot/cross/normalize, transforms | ✅ Pure FREAK |
 | `std::string` | starts_with, ends_with, contains, trim, replace, substring, index_of | ✅ Pure FREAK |
 | `std::convert` | int_to_hex/bin/oct, char_to_digit, bool_to_word | ✅ Pure FREAK |
 | `std::algorithm` | sort, binary_search, find, contains, reverse, copy, unique, sum/max/min | ✅ Pure FREAK |
