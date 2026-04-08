@@ -74,6 +74,7 @@ def _bold(msg):
 _MODULE_FILES: dict[str, list[str]] = {
     "std::ui": ["std/ui/window.fk"],
     "std::math3d": ["std/math3d.fk"],
+    "std::zip": ["std/zip.fk"],
     "cockpit": [
         # Order: theme → layout → widgets → ui (ui.fk depends on all others)
         "packages/cockpit/src/theme.fk",

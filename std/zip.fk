@@ -1,0 +1,265 @@
+-- ===================================================================
+-- FREAK Standard Library -- std::zip
+-- ===================================================================
+-- First-pass ZIP archive support implemented in pure FREAK.
+-- Uses Python's zipfile module as the cross-platform execution backend
+-- while storing archive state in integer handles, like std::json.
+-- ===================================================================
+
+pilot zip_arch_names = 0
+pilot zip_arch_contents = 0
+pilot zip_arch_paths = 0
+pilot zip_arch_count = 0
+pilot zip_arch_inited = false
+pilot zip_last_error_message = ""
+
+task zip_init() -> void {
+    if not zip_arch_inited {
+        zip_arch_names = array_new()
+        zip_arch_contents = array_new()
+        zip_arch_paths = array_new()
+        zip_arch_count = 0
+        zip_arch_inited = true
+    }
+}
+
+task zip_archive_new() -> int {
+    zip_init()
+    pilot archive_id = zip_arch_count
+    array_push(zip_arch_names, word_from_int(array_new()))
+    array_push(zip_arch_contents, word_from_int(array_new()))
+    array_push(zip_arch_paths, "")
+    zip_arch_count += 1
+    give back archive_id
+}
+
+task zip_archive_add(archive: int, name: word, content: word) -> void {
+    zip_init()
+    pilot names_handle = word_to_int(array_get(zip_arch_names, archive))
+    pilot contents_handle = word_to_int(array_get(zip_arch_contents, archive))
+    array_push(names_handle, name)
+    array_push(contents_handle, content)
+}
+
+task zip_archive_entry_count(archive: int) -> int {
+    zip_init()
+    pilot names_handle = word_to_int(array_get(zip_arch_names, archive))
+    give back array_len(names_handle)
+}
+
+task zip_archive_name_at(archive: int, index: int) -> word {
+    zip_init()
+    pilot names_handle = word_to_int(array_get(zip_arch_names, archive))
+    give back array_get(names_handle, index)
+}
+
+task zip_archive_content_at(archive: int, index: int) -> word {
+    zip_init()
+    pilot contents_handle = word_to_int(array_get(zip_arch_contents, archive))
+    give back array_get(contents_handle, index)
+}
+
+task zip_escape_json(s: word) -> word {
+    pilot out = ""
+    pilot i = 0
+    pilot slen = s.length()
+    repeat slen times {
+        if s.char_at(i) == "\\" {
+            out = out + "\\\\"
+        } else if s.char_at(i) == "\"" {
+            out = out + "\\\""
+        } else if s.char_at(i) == "\n" {
+            out = out + "\\n"
+        } else if s.char_at(i) == "\r" {
+            out = out + "\\r"
+        } else if s.char_at(i) == "\t" {
+            out = out + "\\t"
+        } else {
+            out = out + s.char_at(i)
+        }
+        i += 1
+    }
+    give back out
+}
+
+task zip_quote_arg(s: word) -> word {
+    give back "\"" + s.replace("\"", "\\\"") + "\""
+}
+
+task zip_temp_path(prefix: word, suffix: word) -> word {
+    give back prefix + "_" + word_from_int(time::now_ms()) + suffix
+}
+
+task zip_tool_script() -> word {
+    pilot script = ""
+    script = script + "import json\n"
+    script = script + "import sys\n"
+    script = script + "import zipfile\n"
+    script = script + "\n"
+    script = script + "mode = sys.argv[1]\n"
+    script = script + "archive = sys.argv[2]\n"
+    script = script + "data_path = sys.argv[3]\n"
+    script = script + "err_path = sys.argv[4]\n"
+    script = script + "\n"
+    script = script + "def fail(msg):\n"
+    script = script + "    with open(err_path, 'w', encoding='utf-8') as fh:\n"
+    script = script + "        fh.write(str(msg))\n"
+    script = script + "    raise SystemExit(1)\n"
+    script = script + "\n"
+    script = script + "try:\n"
+    script = script + "    if mode == 'read':\n"
+    script = script + "        entries = []\n"
+    script = script + "        with zipfile.ZipFile(archive, 'r') as zf:\n"
+    script = script + "            for info in zf.infolist():\n"
+    script = script + "                if info.is_dir():\n"
+    script = script + "                    continue\n"
+    script = script + "                data = zf.read(info.filename).decode('utf-8')\n"
+    script = script + "                entry = dict()\n"
+    script = script + "                entry['name'] = info.filename\n"
+    script = script + "                entry['content'] = data\n"
+    script = script + "                entries.append(entry)\n"
+    script = script + "        with open(data_path, 'w', encoding='utf-8') as fh:\n"
+    script = script + "            payload = dict()\n"
+    script = script + "            payload['entries'] = entries\n"
+    script = script + "            fh.write(json.dumps(payload, ensure_ascii=False))\n"
+    script = script + "        with open(err_path, 'w', encoding='utf-8') as fh:\n"
+    script = script + "            fh.write('')\n"
+    script = script + "    elif mode == 'write':\n"
+    script = script + "        with open(data_path, 'r', encoding='utf-8') as fh:\n"
+    script = script + "            payload = json.loads(fh.read())\n"
+    script = script + "        with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:\n"
+    script = script + "            for entry in payload.get('entries', []):\n"
+    script = script + "                zf.writestr(entry['name'], entry['content'])\n"
+    script = script + "        with open(err_path, 'w', encoding='utf-8') as fh:\n"
+    script = script + "            fh.write('')\n"
+    script = script + "    else:\n"
+    script = script + "        fail('unknown zip mode: ' + mode)\n"
+    script = script + "except Exception as exc:\n"
+    script = script + "    fail(exc)\n"
+    give back script
+}
+
+task zip_cleanup(script_path: word, data_path: word, err_path: word) -> void {
+    if fs::exists(script_path) { fs::delete(script_path) }
+    if fs::exists(data_path) { fs::delete(data_path) }
+    if fs::exists(err_path) { fs::delete(err_path) }
+}
+
+task zip_build_command(script_path: word, mode: word, archive_path: word, data_path: word, err_path: word) -> word {
+    pilot args = zip_quote_arg(script_path) + " " + zip_quote_arg(mode) + " " + zip_quote_arg(archive_path) + " " + zip_quote_arg(data_path) + " " + zip_quote_arg(err_path)
+    give back "python3 " + args + " || python " + args + " || py -3 " + args
+}
+
+task zip_write_payload(archive: int) -> word {
+    pilot out = "{\"entries\":["
+    pilot i = 0
+    pilot names_handle = word_to_int(array_get(zip_arch_names, archive))
+    pilot contents_handle = word_to_int(array_get(zip_arch_contents, archive))
+    pilot total = array_len(names_handle)
+    repeat total times {
+        if i > 0 { out = out + "," }
+        pilot name = zip_escape_json(array_get(names_handle, i))
+        pilot content = zip_escape_json(array_get(contents_handle, i))
+        out = out + "{\"name\":\"" + name + "\",\"content\":\"" + content + "\"}"
+        i += 1
+    }
+    give back out + "]}"
+}
+
+task zip_last_error() -> word {
+    give back zip_last_error_message
+}
+
+task zip_read(path: word) -> int {
+    zip_init()
+    pilot script_path = zip_temp_path(".freak_zip_read", ".py")
+    pilot data_path = zip_temp_path(".freak_zip_read", ".json")
+    pilot err_path = zip_temp_path(".freak_zip_read", ".err")
+
+    fs::write(script_path, zip_tool_script())
+    fs::write(err_path, "")
+
+    pilot command = zip_build_command(script_path, "read", path, data_path, err_path)
+    pilot exit_code = process::exec(command)
+    if exit_code != 0 {
+        zip_last_error_message = "zip read failed"
+        if fs::exists(err_path) {
+            pilot raw_err = fs::read(err_path).trim()
+            if raw_err != "" {
+                zip_last_error_message = raw_err
+            }
+        }
+        zip_cleanup(script_path, data_path, err_path)
+        give back 0 - 1
+    }
+
+    if not fs::exists(data_path) {
+        zip_last_error_message = "zip read produced no archive data"
+        zip_cleanup(script_path, data_path, err_path)
+        give back 0 - 1
+    }
+
+    pilot payload = fs::read(data_path)
+    pilot root = json_parse(payload)
+    if root < 0 {
+        zip_last_error_message = "zip read returned invalid JSON"
+        zip_cleanup(script_path, data_path, err_path)
+        give back 0 - 1
+    }
+
+    pilot entries_handle = json_obj_get(root, "entries")
+    if entries_handle < 0 {
+        zip_last_error_message = "zip read returned no entries array"
+        zip_cleanup(script_path, data_path, err_path)
+        give back 0 - 1
+    }
+
+    pilot archive = zip_archive_new()
+    array_set(zip_arch_paths, archive, path)
+
+    pilot i = 0
+    pilot total = json_arr_len(entries_handle)
+    pilot names_handle = word_to_int(array_get(zip_arch_names, archive))
+    pilot contents_handle = word_to_int(array_get(zip_arch_contents, archive))
+    repeat total times {
+        pilot entry_handle = json_arr_get(entries_handle, i)
+        pilot name_handle = json_obj_get(entry_handle, "name")
+        pilot content_handle = json_obj_get(entry_handle, "content")
+        array_push(names_handle, json_get_str(name_handle))
+        array_push(contents_handle, json_get_str(content_handle))
+        i += 1
+    }
+
+    zip_last_error_message = ""
+    zip_cleanup(script_path, data_path, err_path)
+    give back archive
+}
+
+task zip_write(path: word, archive: int) -> bool {
+    zip_init()
+    pilot script_path = zip_temp_path(".freak_zip_write", ".py")
+    pilot data_path = zip_temp_path(".freak_zip_write", ".json")
+    pilot err_path = zip_temp_path(".freak_zip_write", ".err")
+
+    fs::write(script_path, zip_tool_script())
+    fs::write(data_path, zip_write_payload(archive))
+    fs::write(err_path, "")
+
+    pilot command = zip_build_command(script_path, "write", path, data_path, err_path)
+    pilot exit_code = process::exec(command)
+    if exit_code != 0 {
+        zip_last_error_message = "zip write failed"
+        if fs::exists(err_path) {
+            pilot raw_err = fs::read(err_path).trim()
+            if raw_err != "" {
+                zip_last_error_message = raw_err
+            }
+        }
+        zip_cleanup(script_path, data_path, err_path)
+        give back false
+    }
+
+    zip_last_error_message = ""
+    zip_cleanup(script_path, data_path, err_path)
+    give back true
+}

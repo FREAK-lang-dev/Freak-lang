@@ -91,7 +91,7 @@ try {
         New-Item -ItemType Directory -Path $StdDir -Force | Out-Null
         $StdUrl = "https://raw.githubusercontent.com/$Repo/$Latest/std"
 
-        foreach ($file in @("math.fk", "math3d.fk", "string.fk", "convert.fk", "algorithm.fk", "json.fk", "http.fk", "version.fk")) {
+        foreach ($file in @("math.fk", "math3d.fk", "zip.fk", "string.fk", "convert.fk", "algorithm.fk", "json.fk", "http.fk", "version.fk")) {
             try {
                 Invoke-WebRequest -Uri "$StdUrl/$file" -OutFile "$StdDir\$file" -UseBasicParsing 2>$null
             } catch {

@@ -6282,7 +6282,7 @@ while (!((i >= slen))) {
 freak_word ch = freak_word_char_at(source, i);
 if (freak_word_eq(ch, freak_word_lit("\n"))) {
 freak_word trimmed = freak_word_trim(line);
-if (freak_word_starts_with(trimmed, freak_word_lit("use std::math3d"))) {
+if ((freak_word_starts_with(trimmed, freak_word_lit("use std::math3d")) || freak_word_starts_with(trimmed, freak_word_lit("use std::zip")))) {
 out = freak_word_concat(freak_word_concat(freak_word_concat(out, freak_word_lit("-- [resolved] ")), trimmed), freak_word_lit("\n"));
 }
 else {
@@ -6299,7 +6299,7 @@ i += 1;
 }
 if ((!freak_word_eq(line, freak_word_lit("")))) {
 freak_word trimmed_last = freak_word_trim(line);
-if (freak_word_starts_with(trimmed_last, freak_word_lit("use std::math3d"))) {
+if ((freak_word_starts_with(trimmed_last, freak_word_lit("use std::math3d")) || freak_word_starts_with(trimmed_last, freak_word_lit("use std::zip")))) {
 out = freak_word_concat(freak_word_concat(out, freak_word_lit("-- [resolved] ")), trimmed_last);
 }
 else {
@@ -6600,6 +6600,17 @@ need_math3d = true;
 freak_word math3d_path = freak_word_concat(std_dir, freak_word_lit("/math3d.fk"));
 if ((need_math3d && freak_fs_exists(math3d_path))) {
 std_src = freak_word_concat(freak_word_concat(std_src, freak_fs_read(math3d_path)), freak_word_lit("\n"));
+}
+bool need_zip = false;
+if (freak_word_contains(source, freak_word_lit("use std::zip"))) {
+need_zip = true;
+}
+if (freak_word_contains(source, freak_word_lit("use std::zip::{"))) {
+need_zip = true;
+}
+freak_word zip_path = freak_word_concat(std_dir, freak_word_lit("/zip.fk"));
+if ((need_zip && freak_fs_exists(zip_path))) {
+std_src = freak_word_concat(freak_word_concat(std_src, freak_fs_read(zip_path)), freak_word_lit("\n"));
 }
 freak_word json_path = freak_word_concat(std_dir, freak_word_lit("/json.fk"));
 if (freak_fs_exists(json_path)) {
@@ -7442,6 +7453,7 @@ freak_say(freak_word_lit("  Downloading standard library..."));
 int64_t std_files = freak_array_new();
 freak_array_push(std_files, freak_word_lit("math.fk"));
 freak_array_push(std_files, freak_word_lit("math3d.fk"));
+freak_array_push(std_files, freak_word_lit("zip.fk"));
 freak_array_push(std_files, freak_word_lit("string.fk"));
 freak_array_push(std_files, freak_word_lit("convert.fk"));
 freak_array_push(std_files, freak_word_lit("algorithm.fk"));
@@ -8285,6 +8297,12 @@ int64_t mod_count = 0;
 if (freak_fs_exists(freak_word_concat(std_dir, freak_word_lit("/math.fk")))) {
 mod_count += 1;
 }
+if (freak_fs_exists(freak_word_concat(std_dir, freak_word_lit("/math3d.fk")))) {
+mod_count += 1;
+}
+if (freak_fs_exists(freak_word_concat(std_dir, freak_word_lit("/zip.fk")))) {
+mod_count += 1;
+}
 if (freak_fs_exists(freak_word_concat(std_dir, freak_word_lit("/string.fk")))) {
 mod_count += 1;
 }
@@ -8306,7 +8324,7 @@ mod_count += 1;
 if (freak_fs_exists(freak_word_concat(std_dir, freak_word_lit("/runtime.fk")))) {
 mod_count += 1;
 }
-freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("        "), C_BGREEN), SYM_CHECK), C_RESET), freak_word_lit(" ")), freak_word_from_int(mod_count)), freak_word_lit("/8 modules in ")), C_DIM), std_dir), C_RESET));
+freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("        "), C_BGREEN), SYM_CHECK), C_RESET), freak_word_lit(" ")), freak_word_from_int(mod_count)), freak_word_lit("/10 modules in ")), C_DIM), std_dir), C_RESET));
 checks_passed += 1;
 }
 else {

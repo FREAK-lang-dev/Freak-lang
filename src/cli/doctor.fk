@@ -177,6 +177,8 @@ task cli_doctor(fix_mode: bool) -> void {
     if std_dir != "" {
         pilot mod_count = 0
         if fs::exists(std_dir + "/math.fk")      { mod_count += 1 }
+        if fs::exists(std_dir + "/math3d.fk")    { mod_count += 1 }
+        if fs::exists(std_dir + "/zip.fk")       { mod_count += 1 }
         if fs::exists(std_dir + "/string.fk")    { mod_count += 1 }
         if fs::exists(std_dir + "/convert.fk")   { mod_count += 1 }
         if fs::exists(std_dir + "/algorithm.fk") { mod_count += 1 }
@@ -184,7 +186,7 @@ task cli_doctor(fix_mode: bool) -> void {
         if fs::exists(std_dir + "/http.fk")      { mod_count += 1 }
         if fs::exists(std_dir + "/version.fk")   { mod_count += 1 }
         if fs::exists(std_dir + "/runtime.fk")   { mod_count += 1 }
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/8 modules in " + C_DIM + std_dir + C_RESET
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/10 modules in " + C_DIM + std_dir + C_RESET
         checks_passed += 1
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " standard library not found"

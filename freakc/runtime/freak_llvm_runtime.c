@@ -385,5 +385,41 @@ void freak_llvm_tcp_close(int64_t fd) {
 #endif
 }
 
+int64_t freak_llvm_shape_alloc(int64_t field_count) {
+    if (field_count <= 0) {
+        field_count = 1;
+    }
+    int64_t* fields = (int64_t*)calloc((size_t)field_count, sizeof(int64_t));
+    if (!fields) {
+        fprintf(stderr, "FREAK: OOM allocating shape\n");
+        exit(1);
+    }
+    return (int64_t)fields;
+}
+
+int64_t freak_llvm_shape_get(int64_t shape_handle, int64_t field_index) {
+    int64_t* fields = (int64_t*)shape_handle;
+    if (!fields || field_index < 0) {
+        return 0;
+    }
+    return fields[field_index];
+}
+
+void freak_llvm_shape_set(int64_t shape_handle, int64_t field_index, int64_t value) {
+    int64_t* fields = (int64_t*)shape_handle;
+    if (!fields || field_index < 0) {
+        return;
+    }
+    fields[field_index] = value;
+}
+
+int64_t freak_llvm_process_exec(int64_t cmd_p) {
+    const char* cmd = (const char*)cmd_p;
+    if (!cmd) {
+        return -1;
+    }
+    return (int64_t)system(cmd);
+}
+
 /* ── Entry point setup ──────────────────────────────── */
 /* freak_llvm_setup_args is now a pure LLVM IR intrinsic. */

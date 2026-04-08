@@ -915,6 +915,7 @@ task hangar_install_freak() -> int {
     pilot std_files = array_new()
     array_push(std_files, "math.fk")
     array_push(std_files, "math3d.fk")
+    array_push(std_files, "zip.fk")
     array_push(std_files, "string.fk")
     array_push(std_files, "convert.fk")
     array_push(std_files, "algorithm.fk")

@@ -1,0 +1,39 @@
+use std::zip::{zip_archive_new, zip_archive_add, zip_write, zip_read, zip_last_error, zip_archive_entry_count, zip_archive_name_at, zip_archive_content_at}
+
+task assert_ok(label: word, passed: bool) -> void {
+    if passed {
+        say label + ": OK"
+    } else {
+        say label + ": FAIL"
+    }
+}
+
+pilot zip_path = "tests/zip_test_archive.zip"
+if fs::exists(zip_path) {
+    fs::delete(zip_path)
+}
+
+pilot archive = zip_archive_new()
+zip_archive_add(archive, "hello.txt", "Hello from FREAK ZIP")
+zip_archive_add(archive, "nested/data.txt", "Takeru|Meiya|Sumika")
+
+pilot write_ok = zip_write(zip_path, archive)
+assert_ok("zip write", write_ok)
+
+pilot loaded = zip_read(zip_path)
+assert_ok("zip read", loaded >= 0)
+if zip_last_error() == "" {
+    assert_ok("zip count", zip_archive_entry_count(loaded) == 2)
+    assert_ok("zip name 0", zip_archive_name_at(loaded, 0) == "hello.txt")
+    assert_ok("zip content 0", zip_archive_content_at(loaded, 0) == "Hello from FREAK ZIP")
+    assert_ok("zip name 1", zip_archive_name_at(loaded, 1) == "nested/data.txt")
+    assert_ok("zip content 1", zip_archive_content_at(loaded, 1) == "Takeru|Meiya|Sumika")
+} else {
+    say "zip read error: " + zip_last_error()
+}
+
+if fs::exists(zip_path) {
+    fs::delete(zip_path)
+}
+
+say "zip test complete"

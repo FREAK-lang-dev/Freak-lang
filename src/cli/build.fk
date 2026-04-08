@@ -41,7 +41,7 @@ task cli_strip_resolved_use_lines(source: word) -> word {
         pilot ch = source.char_at(i)
         if ch == "\n" {
             pilot trimmed = line.trim()
-            if trimmed.starts_with("use std::math3d") {
+            if trimmed.starts_with("use std::math3d") or trimmed.starts_with("use std::zip") {
                 out = out + "-- [resolved] " + trimmed + "\n"
             } else {
                 out = out + line + "\n"
@@ -54,7 +54,7 @@ task cli_strip_resolved_use_lines(source: word) -> word {
     }
     if line != "" {
         pilot trimmed_last = line.trim()
-        if trimmed_last.starts_with("use std::math3d") {
+        if trimmed_last.starts_with("use std::math3d") or trimmed_last.starts_with("use std::zip") {
             out = out + "-- [resolved] " + trimmed_last
         } else {
             out = out + line
@@ -388,6 +388,17 @@ task cli_load_std(source: word, target: word) -> word {
     pilot math3d_path = std_dir + "/math3d.fk"
     if need_math3d and fs::exists(math3d_path) {
         std_src = std_src + fs::read(math3d_path) + "\n"
+    }
+    pilot need_zip = false
+    if source.contains("use std::zip") {
+        need_zip = true
+    }
+    if source.contains("use std::zip::{") {
+        need_zip = true
+    }
+    pilot zip_path = std_dir + "/zip.fk"
+    if need_zip and fs::exists(zip_path) {
+        std_src = std_src + fs::read(zip_path) + "\n"
     }
     pilot json_path = std_dir + "/json.fk"
     if fs::exists(json_path) {

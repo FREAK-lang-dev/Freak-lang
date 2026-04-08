@@ -5347,7 +5347,7 @@ task cli_strip_resolved_use_lines(source: word) -> word {
         pilot ch = source.char_at(i)
         if ch == "\n" {
             pilot trimmed = line.trim()
-            if trimmed.starts_with("use std::math3d") {
+            if trimmed.starts_with("use std::math3d") or trimmed.starts_with("use std::zip") {
                 out = out + "-- [resolved] " + trimmed + "\n"
             } else {
                 out = out + line + "\n"
@@ -5360,7 +5360,7 @@ task cli_strip_resolved_use_lines(source: word) -> word {
     }
     if line != "" {
         pilot trimmed_last = line.trim()
-        if trimmed_last.starts_with("use std::math3d") {
+        if trimmed_last.starts_with("use std::math3d") or trimmed_last.starts_with("use std::zip") {
             out = out + "-- [resolved] " + trimmed_last
         } else {
             out = out + line
@@ -5694,6 +5694,17 @@ task cli_load_std(source: word, target: word) -> word {
     pilot math3d_path = std_dir + "/math3d.fk"
     if need_math3d and fs::exists(math3d_path) {
         std_src = std_src + fs::read(math3d_path) + "\n"
+    }
+    pilot need_zip = false
+    if source.contains("use std::zip") {
+        need_zip = true
+    }
+    if source.contains("use std::zip::{") {
+        need_zip = true
+    }
+    pilot zip_path = std_dir + "/zip.fk"
+    if need_zip and fs::exists(zip_path) {
+        std_src = std_src + fs::read(zip_path) + "\n"
     }
     pilot json_path = std_dir + "/json.fk"
     if fs::exists(json_path) {
@@ -6740,6 +6751,7 @@ task hangar_install_freak() -> int {
     pilot std_files = array_new()
     array_push(std_files, "math.fk")
     array_push(std_files, "math3d.fk")
+    array_push(std_files, "zip.fk")
     array_push(std_files, "string.fk")
     array_push(std_files, "convert.fk")
     array_push(std_files, "algorithm.fk")
@@ -7602,6 +7614,8 @@ task cli_doctor(fix_mode: bool) -> void {
     if std_dir != "" {
         pilot mod_count = 0
         if fs::exists(std_dir + "/math.fk")      { mod_count += 1 }
+        if fs::exists(std_dir + "/math3d.fk")    { mod_count += 1 }
+        if fs::exists(std_dir + "/zip.fk")       { mod_count += 1 }
         if fs::exists(std_dir + "/string.fk")    { mod_count += 1 }
         if fs::exists(std_dir + "/convert.fk")   { mod_count += 1 }
         if fs::exists(std_dir + "/algorithm.fk") { mod_count += 1 }
@@ -7609,7 +7623,7 @@ task cli_doctor(fix_mode: bool) -> void {
         if fs::exists(std_dir + "/http.fk")      { mod_count += 1 }
         if fs::exists(std_dir + "/version.fk")   { mod_count += 1 }
         if fs::exists(std_dir + "/runtime.fk")   { mod_count += 1 }
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/8 modules in " + C_DIM + std_dir + C_RESET
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/10 modules in " + C_DIM + std_dir + C_RESET
         checks_passed += 1
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " standard library not found"

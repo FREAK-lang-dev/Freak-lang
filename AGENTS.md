@@ -376,6 +376,7 @@ Squadron model (structured concurrency) is preferred over raw `std::thread`. Use
 | `std::algorithm` | sort, binary_search, find, contains, reverse, copy, unique, sum/max/min | ✅ Pure FREAK |
 | `std::json` | Parse and serialize JSON (recursive descent, value pool) | ✅ Pure FREAK |
 | `std::http` | HTTP/1.1 client (GET/POST/PUT/DELETE) over TCP sockets | ✅ Pure FREAK + C runtime |
+| `std::zip` | ZIP archive read/write for text entries | ✅ Pure FREAK + external backend |
 | `std::fs` | File I/O | ✅ C runtime |
 | `std::process` | Spawn processes, read env, CLI args | ✅ C runtime |
 | `std::time` | Timestamps, durations, sleep | ✅ C runtime |
