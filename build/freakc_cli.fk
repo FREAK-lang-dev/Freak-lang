@@ -429,7 +429,7 @@ task version_matches_constraint(version: word, constraint: word) -> bool {
 -- All global state in one file. Keeps other files pure logic.
 
 -- ===================== VERSION =====================================
-pilot FREAKC_VERSION = "0.13.1"
+pilot FREAKC_VERSION = "0.13.2"
 pilot FREAKC_CODENAME = "Shiranui"
 
 -- ===================== TOKENS ======================================
@@ -3195,6 +3195,7 @@ task llvm_map_call_name(val: word) -> word {
     if val == "process::exit" { give back "@freak_llvm_process_exit" }
     if val == "process::exec" { give back "@freak_llvm_process_exec" }
     if val == "process::exec_capture" { give back "@freak_llvm_process_exec_capture" }
+    if val == "time::now_ms" { give back "@freak_llvm_time_now_ms" }
     if val == "panic" { give back "@freak_llvm_panic" }
     if val == "array_new" { give back "@freak_llvm_array_new" }
     if val == "array_push" { give back "@freak_llvm_array_push" }
@@ -4140,6 +4141,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_llvm_process_exit(i64)")
     llvm_emit_line("declare i64 @freak_llvm_process_exec(i64)")
     llvm_emit_line("declare i64 @freak_llvm_process_exec_capture(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_time_now_ms()")
     llvm_emit_line("declare void @freak_llvm_panic(i64)")
     llvm_emit_line("declare i64 @freak_llvm_shape_alloc(i64)")
     llvm_emit_line("declare i64 @freak_llvm_shape_get(i64, i64)")
@@ -4381,7 +4383,7 @@ task emit_llvm_program() -> void {
 -- The visual identity of FREAK. Make it beautiful.
 -- ===================================================================
 
-pilot CLI_VERSION = "0.13.1"
+pilot CLI_VERSION = "0.13.2"
 pilot CLI_CODENAME = "Shiranui"
 
 -- ── ANSI Reset & Styles ──────────────────────────────
@@ -5336,6 +5338,37 @@ task cli_count_lines(s: word) -> int {
     give back count
 }
 
+task cli_strip_resolved_use_lines(source: word) -> word {
+    pilot out = ""
+    pilot line = ""
+    pilot i = 0
+    pilot slen = source.length()
+    repeat until i >= slen {
+        pilot ch = source.char_at(i)
+        if ch == "\n" {
+            pilot trimmed = line.trim()
+            if trimmed.starts_with("use std::math3d") {
+                out = out + "-- [resolved] " + trimmed + "\n"
+            } else {
+                out = out + line + "\n"
+            }
+            line = ""
+        } else if ch != "\r" {
+            line = line + ch
+        }
+        i += 1
+    }
+    if line != "" {
+        pilot trimmed_last = line.trim()
+        if trimmed_last.starts_with("use std::math3d") {
+            out = out + "-- [resolved] " + trimmed_last
+        } else {
+            out = out + line
+        }
+    }
+    give back out
+}
+
 task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
     input_file = src_file
@@ -5629,7 +5662,7 @@ task cli_find_std_dir() -> word {
     give back ""
 }
 
-task cli_load_std(target: word) -> word {
+task cli_load_std(source: word, target: word) -> word {
     -- Load the standard library source files.
     -- Returns concatenated source, or "" if std not found.
     pilot std_dir: word = cli_find_std_dir()
@@ -5650,6 +5683,17 @@ task cli_load_std(target: word) -> word {
     pilot algo_path = std_dir + "/algorithm.fk"
     if fs::exists(algo_path) {
         std_src = std_src + fs::read(algo_path) + "\n"
+    }
+    pilot need_math3d = false
+    if source.contains("use std::math3d") {
+        need_math3d = true
+    }
+    if source.contains("use std::math3d::{") {
+        need_math3d = true
+    }
+    pilot math3d_path = std_dir + "/math3d.fk"
+    if need_math3d and fs::exists(math3d_path) {
+        std_src = std_src + fs::read(math3d_path) + "\n"
     }
     pilot json_path = std_dir + "/json.fk"
     if fs::exists(json_path) {
@@ -5705,10 +5749,11 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     say ""
 
     -- Auto-include standard library if available
-    pilot std_source: word = cli_load_std(target)
+    pilot std_source: word = cli_load_std(source, target)
     source_line_offset = 0
     if std_source != "" {
         source_line_offset = cli_count_lines(std_source)
+        source = cli_strip_resolved_use_lines(source)
         source = std_source + source
     }
 
@@ -6694,6 +6739,7 @@ task hangar_install_freak() -> int {
     say "  Downloading standard library..."
     pilot std_files = array_new()
     array_push(std_files, "math.fk")
+    array_push(std_files, "math3d.fk")
     array_push(std_files, "string.fk")
     array_push(std_files, "convert.fk")
     array_push(std_files, "algorithm.fk")
