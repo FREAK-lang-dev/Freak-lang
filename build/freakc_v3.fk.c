@@ -3294,6 +3294,9 @@ return freak_word_lit("@freak_llvm_process_exec");
 if (freak_word_eq(val, freak_word_lit("process::exec_capture"))) {
 return freak_word_lit("@freak_llvm_process_exec_capture");
 }
+if (freak_word_eq(val, freak_word_lit("time::now_ms"))) {
+return freak_word_lit("@freak_llvm_time_now_ms");
+}
 if (freak_word_eq(val, freak_word_lit("panic"))) {
 return freak_word_lit("@freak_llvm_panic");
 }
@@ -4481,6 +4484,7 @@ freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_process_arg(i64)"))
 freak_llvm_emit_line(freak_word_lit("declare void @freak_llvm_process_exit(i64)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_process_exec(i64)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_process_exec_capture(i64)"));
+freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_time_now_ms()"));
 freak_llvm_emit_line(freak_word_lit("declare void @freak_llvm_panic(i64)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_shape_alloc(i64)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_shape_get(i64, i64)"));

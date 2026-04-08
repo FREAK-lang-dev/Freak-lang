@@ -470,6 +470,7 @@ task llvm_map_call_name(val: word) -> word {
     if val == "process::exit" { give back "@freak_llvm_process_exit" }
     if val == "process::exec" { give back "@freak_llvm_process_exec" }
     if val == "process::exec_capture" { give back "@freak_llvm_process_exec_capture" }
+    if val == "time::now_ms" { give back "@freak_llvm_time_now_ms" }
     if val == "panic" { give back "@freak_llvm_panic" }
     if val == "array_new" { give back "@freak_llvm_array_new" }
     if val == "array_push" { give back "@freak_llvm_array_push" }
@@ -1415,6 +1416,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_llvm_process_exit(i64)")
     llvm_emit_line("declare i64 @freak_llvm_process_exec(i64)")
     llvm_emit_line("declare i64 @freak_llvm_process_exec_capture(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_time_now_ms()")
     llvm_emit_line("declare void @freak_llvm_panic(i64)")
     llvm_emit_line("declare i64 @freak_llvm_shape_alloc(i64)")
     llvm_emit_line("declare i64 @freak_llvm_shape_get(i64, i64)")
