@@ -80,6 +80,18 @@ _MODULE_FILES: dict[str, list[str]] = {
         "packages/cockpit/src/widgets.fk",
         "packages/cockpit/src/ui.fk",
     ],
+    "freak-ui": [
+        "packages/cockpit/src/theme.fk",
+        "packages/cockpit/src/layout.fk",
+        "packages/cockpit/src/widgets.fk",
+        "packages/cockpit/src/ui.fk",
+    ],
+    "freak_ui": [
+        "packages/cockpit/src/theme.fk",
+        "packages/cockpit/src/layout.fk",
+        "packages/cockpit/src/widgets.fk",
+        "packages/cockpit/src/ui.fk",
+    ],
 }
 
 
@@ -130,7 +142,7 @@ def resolve_imports(source: str, source_path: Path) -> tuple[str, bool]:
 
         if module in _MODULE_FILES and module not in needed_modules:
             needed_modules.append(module)
-            if module == "std::ui" or module == "cockpit":
+            if module == "std::ui" or module == "cockpit" or module == "freak-ui" or module == "freak_ui":
                 uses_ui = True
 
     # Also detect direct ui:: calls without a use statement
@@ -140,8 +152,8 @@ def resolve_imports(source: str, source_path: Path) -> tuple[str, bool]:
     if not needed_modules:
         return source, uses_ui
 
-    # Ensure std::ui comes before cockpit (cockpit depends on std::ui types)
-    if "cockpit" in needed_modules and "std::ui" not in needed_modules:
+    # Ensure std::ui comes before cockpit/freak-ui (UI package depends on std::ui types)
+    if ("cockpit" in needed_modules or "freak-ui" in needed_modules or "freak_ui" in needed_modules) and "std::ui" not in needed_modules:
         needed_modules.insert(0, "std::ui")
 
     # Collect library sources in order

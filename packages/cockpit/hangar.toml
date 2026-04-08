@@ -3,6 +3,6 @@ name = "cockpit"
 version = "0.1.0"
 author = "FREAK Core Team"
 edition = "alternative-4"
-description = "COCKPIT — immediate-mode UI framework for FREAK. The pilot sits in the cockpit."
+description = "COCKPIT — FREAK's official immediate-mode UI framework. The pilot sits in the cockpit."
 
 [dependencies]

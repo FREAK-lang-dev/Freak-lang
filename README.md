@@ -19,7 +19,7 @@ and not enough sleep, but somehow it compiles.
 
 FREAK is a compiled, statically-typed, memory-safe systems language with a syntax inspired by visual novels, anime, and the kind of programming that only makes sense at 3am.
 
-It compiles to native binaries. It has a borrow checker. It has **mood types**. It has a package manager called **Hangar**. It has a UI framework called **freak-ui**. And every variable is called `pilot` because you are always on a mission.
+It compiles to native binaries. It has a borrow checker. It has **mood types**. It has a package manager called **Hangar**. It has a UI framework called **COCKPIT**. And every variable is called `pilot` because you are always on a mission.
 
 ```fk
 pilot name = "Takeru"
@@ -162,13 +162,13 @@ freakc hangar init my-project
 cd my-project
 
 # Add a dependency
-freakc hangar add freak-ui https://github.com/yourname/freak-ui
+freakc hangar add cockpit https://github.com/FREAK-lang-dev/Freak-lang
 
 # Install all dependencies
 freakc hangar install
 
 # Remove a package
-freakc hangar remove freak-ui
+freakc hangar remove cockpit
 ```
 
 `hangar.toml` looks like this:
@@ -179,22 +179,22 @@ name = "my-project"
 version = "0.1.0"
 
 [dependencies]
-freak-ui = { git = "https://github.com/yourname/freak-ui", version = "latest" }
+cockpit = { git = "https://github.com/FREAK-lang-dev/Freak-lang", version = "latest" }
 ```
 
 Dependencies live in `hangar_modules/`. The layout is deliberately minimal.
 
 ---
 
-## freak-ui — The UI Framework
+## COCKPIT — The UI Framework
 
-freak-ui is FREAK's immediate mode UI framework. It runs on Windows, macOS, and Linux. It has five built-in themes. It does not have widget trees, callbacks, or retained state. You just call widget functions in order and the frame renders.
+COCKPIT is FREAK's immediate mode UI framework. It runs on Windows, macOS, and Linux. It has five built-in themes. It does not have widget trees, callbacks, or retained state. You just call widget functions in order and the frame renders.
 
 ```
 Your FREAK app
      │
      ▼
-freak-ui (Hangar)     ← widgets, layout, theming, input
+COCKPIT (Hangar)      ← widgets, layout, theming, input
      │
      ▼
 std::ui               ← window, events, raw draw calls
@@ -204,26 +204,25 @@ std::ui               ← window, events, raw draw calls
      └── Linux:   X11 / Cairo
 ```
 
-### A Calculator in freak-ui
+### A Calculator in COCKPIT
 
 ```fk
-use freak_ui::{UI, Theme}
-use std::ui::Window
+use cockpit::{UI, Theme, label_heading}
+use std::ui::{Window, WindowConfig}
 
 pilot win = Window::open(WindowConfig { title: "Calc", width: 300, height: 400 })
-pilot ui  = UI::new(Theme::default())
+pilot ui  = UI::new(win, Theme::default())
 
-win.run(|canvas, events| {
-    ui.begin_frame(canvas, events)
+repeat until ui.should_quit {
+    ui.begin_frame()
 
-    ui.label("FREAK Calc", LabelStyle::title())
+    ui.label_styled("FREAK Calc", label_heading)
 
     if ui.button("7") { append_digit(7) }
     if ui.button("=") { evaluate() }
 
     ui.end_frame()
-    give back true
-})
+}
 ```
 
 ### Themes
@@ -403,7 +402,7 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 | Cross-compilation | ✅ Complete |
 | One-command install (Linux/macOS/Windows) | ✅ Complete |
 | CI/CD with 4-platform releases | ✅ Complete |
-| freak-ui framework | 🚧 In progress |
+| COCKPIT UI framework | 🚧 In progress |
 | HFML (markup language) | 📐 Planned |
 
 The language specification is complete — see `freak-full-bible.md`. Development checklist is in [`freak-todo.md`](freak-todo.md).
@@ -431,6 +430,6 @@ MIT. Do whatever you want. Just know the `std::narrative` death flag system is w
 <div align="center">
 
 *"It was always going to end this way."*  
-*— freak-ui mono_no_aware theme, on program exit*
+*— COCKPIT mono_no_aware theme, on program exit*
 
 </div>

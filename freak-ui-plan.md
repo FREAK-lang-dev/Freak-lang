@@ -1,4 +1,4 @@
-# freak-ui — Official UI Framework Plan
+# COCKPIT — Official UI Framework Plan
 ## Cross-platform immediate mode UI, built from scratch on OS APIs
 ### Style: Immediate Mode | Target: Windows + Mac + Linux | Status: Planning
 
@@ -6,13 +6,13 @@
 
 ## WHAT YOU ARE BUILDING
 
-freak-ui is FREAK's official UI framework. It is split into two layers:
+COCKPIT is FREAK's official UI framework. It is split into two layers:
 
 **std::ui** — ships with the compiler. Thin abstraction over the OS window
 and input system. Just enough to open a window, get input events, and draw
 pixels. No widgets. No layout. Just the floor.
 
-**freak-ui (Hangar package)** — the full framework. Built on top of std::ui.
+**COCKPIT (Hangar package)** — the full framework. Built on top of std::ui.
 Widgets, layout, theming, the calculator example. This is what people actually use.
 
 The design philosophy: **one task per frame, describe what you want, get it drawn.**
@@ -27,7 +27,7 @@ in order and the frame renders.
 Your FREAK app
      │
      ▼
-freak-ui (Hangar)          ← widgets, layout, theming, input handling
+COCKPIT (Hangar)           ← widgets, layout, theming, input handling
      │
      ▼
 std::ui                    ← window, events, raw draw calls, pixel buffer
@@ -214,7 +214,7 @@ route MouseButton { Left / Right / Middle / X1 / X2 }
 
 ---
 
-## LAYER 2: freak-ui (Hangar Package)
+## LAYER 2: COCKPIT (Hangar Package)
 ### The full widget framework. Built on std::ui.
 
 ### Design Principles:
@@ -228,7 +228,7 @@ route MouseButton { Left / Right / Middle / X1 / X2 }
 ### Core Loop Pattern:
 
 ```
-use freak_ui::{UI, button, label, input, row, column, Theme}
+use cockpit::{UI, button, label, input, row, column, Theme}
 
 pilot display = "0"
 pilot ui = UI::new(win, Theme::default())
@@ -447,7 +447,7 @@ task draw_calculator(lend mut state: CalcState, lend mut ui: UI) {
 ### Animation:
 
 ```
--- freak-ui has a simple animation system
+-- COCKPIT has a simple animation system
 -- Animations are driven by the frame clock
 
 -- Animated value: smoothly interpolates to target
@@ -474,11 +474,11 @@ pilot pop = ui.tween("button_pop", from: 1.2, to: 1.0, duration: 0.3)
 
 ## THE CALCULATOR APP (Reference Implementation)
 
-This is the target. Build freak-ui until this works.
+This is the target. Build COCKPIT until this works.
 
 ```
 use std::ui::Window
-use freak_ui::{UI, Theme, button, label, row, column}
+use cockpit::{UI, Theme, button, label, row, column}
 
 route Op { Add, Sub, Mul, Div }
 
@@ -627,7 +627,7 @@ task handle_equals(lend mut s: State) {
 - [ ] Image loading: embed stb_image.h (single-header, public domain, easiest)
 - [ ] **★ MILESTONE A: window opens, rectangle draws, events fire on all 3 platforms ★**
 
-### Phase B — freak-ui Core (immediate mode engine)
+### Phase B — COCKPIT Core (immediate mode engine)
 *Goal: the UI state machine that makes immediate mode work*
 
 - [ ] `UI` shape: holds frame state, input state, layout cursor, draw list
@@ -707,12 +707,12 @@ task handle_equals(lend mut s: State) {
 
 ```
 [x] MA — std::ui: window + drawing (Win32 done, macOS/Linux pending)
-[x] MB — freak-ui: layout engine working
-[x] MC — freak-ui: calculator app compiles and runs     ← first real app
-[x] MD — freak-ui: all 5 themes working
-[x] ME — freak-ui: extended widget set (dropdown, tabs, progress, tooltip, modal, scroll)
-[x] MF — freak-ui: animation system (delta_time, easing, tweens)
-[ ] MG — freak-ui: accessibility + polish
+[x] MB — COCKPIT: layout engine working
+[x] MC — COCKPIT: calculator app compiles and runs     ← first real app
+[x] MD — COCKPIT: all 5 themes working
+[x] ME — COCKPIT: extended widget set (dropdown, tabs, progress, tooltip, modal, scroll)
+[x] MF — COCKPIT: animation system (delta_time, easing, tweens)
+[ ] MG — COCKPIT: accessibility + polish
 ```
 
 ---
@@ -746,7 +746,7 @@ std::ui dependencies:
 - Linux: libX11, libcairo (common, apt install libx11-dev libcairo2-dev)
 - All platforms: stb_image.h (single header, embed in repo, no install)
 
-freak-ui dependencies:
+COCKPIT dependencies:
 - std::ui (above)
 - Nothing else. Zero external dependencies.
 
@@ -756,7 +756,7 @@ freak-ui dependencies:
 
 ```toml
 [unit]
-name    = "freak-ui"
+name    = "cockpit"
 version = "0.1.0"
 author  = "FREAK Core Team"
 edition = "alternative-4"
@@ -769,8 +769,8 @@ links   = ["user32", "gdi32"]   -- Windows
 
 ---
 
-## END OF freak-ui PLAN
+## END OF COCKPIT PLAN
 
-Target: calculator app in FREAK with freak-ui.
+Target: calculator app in FREAK with COCKPIT.
 First milestone: window opens on Windows.
 Final milestone: same app runs on Windows, Mac, and Linux with one codebase.
