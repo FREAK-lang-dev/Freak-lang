@@ -1,0 +1,45 @@
+-- Pure CPU benchmark for bragging-rights runs.
+-- Usage:
+--   freak build tests/speed_benchmark.fk
+--   tests/speed_benchmark.exe
+--   tests/speed_benchmark.exe 50000000
+
+task bench_step(x: int) -> int {
+    pilot a = x * 123 + 4567
+    pilot q = a / 1000003
+    give back a - q * 1000003
+}
+
+task run_benchmark(iterations: int) -> int {
+    pilot a = 1
+    pilot b = 2
+    pilot c = 3
+    pilot d = 4
+    pilot i = 0
+
+    repeat until i >= iterations {
+        a = bench_step(a + i)
+        b = bench_step(b + a)
+        c = bench_step(c + b)
+        d = bench_step(d + c)
+        i += 1
+    }
+
+    give back a + b + c + d
+}
+
+pilot iterations = 10000000
+pilot argc = process::args_count()
+if argc > 1 {
+    iterations = word_to_int(process::arg(1))
+}
+
+say "FREAK pure speed benchmark"
+say "iterations=" + word_from_int(iterations)
+
+pilot start_ms = time::now_ms()
+pilot checksum = run_benchmark(iterations)
+pilot elapsed_ms = time::now_ms() - start_ms
+
+say "checksum=" + word_from_int(checksum)
+say "elapsed_ms=" + word_from_int(elapsed_ms)
