@@ -41,6 +41,22 @@ task expect_tok(type: word, val: word) -> void {
     }
 }
 
+task current_source_line() -> word {
+    if parse_idx < 0 or parse_idx >= tokens_count {
+        give back "1"
+    }
+    pilot line_no = word_to_int(array_get(tok_lines, parse_idx))
+    if source_line_offset > 0 {
+        if line_no > source_line_offset {
+            line_no -= source_line_offset
+        } else {
+            line_no = 1
+        }
+    }
+    if line_no <= 0 { line_no = 1 }
+    give back word_from_int(line_no)
+}
+
 -- ===================== EXPRESSION PARSING ============================
 
 task parse_primary() -> int {
@@ -351,10 +367,12 @@ task parse_stmt() -> int {
         tval = cur_tok_val()
     }
 
+    pilot stmt_line = current_source_line()
+
     -- say expr
     if match_tok(TOK_KW, "say") {
         pilot expr_id = parse_expr()
-        give back alloc_stmt(STMT_SAY, "", word_from_int(expr_id), "", "", "", "", "")
+        give back alloc_stmt(STMT_SAY, "", word_from_int(expr_id), "", "", "", "", "", stmt_line)
     }
 
     -- shape Name { field: type, ... }
@@ -370,7 +388,7 @@ task parse_stmt() -> int {
     -- eventually { body }
     if match_tok(TOK_KW, "eventually") {
         pilot ev_body = parse_block()
-        give back alloc_stmt(STMT_EVENTUALLY, "", "", ev_body, "", "", "", "")
+        give back alloc_stmt(STMT_EVENTUALLY, "", "", ev_body, "", "", "", "", stmt_line)
     }
 
     -- pilot name = expr
@@ -385,7 +403,7 @@ task parse_stmt() -> int {
         }
         expect_tok(TOK_PUNCT, "=")
         pilot expr_id = parse_expr()
-        give back alloc_stmt(STMT_PILOT, name, word_from_int(expr_id), "", "", type_ann, "", "")
+        give back alloc_stmt(STMT_PILOT, name, word_from_int(expr_id), "", "", type_ann, "", "", stmt_line)
     }
 
     -- give back expr
@@ -394,15 +412,15 @@ task parse_stmt() -> int {
         if cur_tok_type() != TOK_PUNCT or cur_tok_val() != "}" {
             expr_id = parse_expr()
         }
-        give back alloc_stmt(STMT_GIVE_BACK, "", word_from_int(expr_id), "", "", "", "", "")
+        give back alloc_stmt(STMT_GIVE_BACK, "", word_from_int(expr_id), "", "", "", "", "", stmt_line)
     }
 
     -- break / continue
     if match_tok(TOK_KW, "break") {
-        give back alloc_stmt(STMT_BREAK, "", "", "", "", "", "", "")
+        give back alloc_stmt(STMT_BREAK, "", "", "", "", "", "", "", stmt_line)
     }
     if match_tok(TOK_KW, "continue") {
-        give back alloc_stmt(STMT_CONTINUE, "", "", "", "", "", "", "")
+        give back alloc_stmt(STMT_CONTINUE, "", "", "", "", "", "", "", stmt_line)
     }
 
     -- if expr { body } else { body }
@@ -418,7 +436,7 @@ task parse_stmt() -> int {
                 else_body = parse_block()
             }
         }
-        give back alloc_stmt(STMT_IF, "", word_from_int(expr_id), body_id, else_body, "", "", "")
+        give back alloc_stmt(STMT_IF, "", word_from_int(expr_id), body_id, else_body, "", "", "", stmt_line)
     }
 
     -- repeat until cond { body }  /  repeat N times { body }
@@ -426,12 +444,12 @@ task parse_stmt() -> int {
         if match_tok(TOK_KW, "until") {
             pilot expr_id = parse_expr()
             pilot body_id = parse_block()
-            give back alloc_stmt(STMT_REPEAT, "until", word_from_int(expr_id), body_id, "", "", "", "")
+            give back alloc_stmt(STMT_REPEAT, "until", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
         }
         pilot expr_id = parse_expr()
         expect_tok(TOK_KW, "times")
         pilot body_id = parse_block()
-        give back alloc_stmt(STMT_REPEAT, "times", word_from_int(expr_id), body_id, "", "", "", "")
+        give back alloc_stmt(STMT_REPEAT, "times", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
     }
 
     -- training arc until cond max N sessions { body }
@@ -442,7 +460,7 @@ task parse_stmt() -> int {
         pilot max_id = parse_expr()
         expect_tok(TOK_KW, "sessions")
         pilot body_id = parse_block()
-        give back alloc_stmt(STMT_TRAINING_ARC, "", word_from_int(cond_id), body_id, "", word_from_int(max_id), "", "")
+        give back alloc_stmt(STMT_TRAINING_ARC, "", word_from_int(cond_id), body_id, "", word_from_int(max_id), "", "", stmt_line)
     }
 
     -- when expr { val -> stmt, ... }
@@ -463,7 +481,7 @@ task parse_stmt() -> int {
     -- Bare block { ... }
     if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "{" {
         pilot block_id = parse_block()
-        give back alloc_stmt(STMT_BLOCK, "", "", block_id, "", "", "", "")
+        give back alloc_stmt(STMT_BLOCK, "", "", block_id, "", "", "", "", stmt_line)
     }
 
     -- Expression statement (or assignment)
@@ -471,30 +489,30 @@ task parse_stmt() -> int {
 
     if match_tok(TOK_PUNCT, "=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
     if match_tok(TOK_PUNCT, "+=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "+=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "+=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
     if match_tok(TOK_PUNCT, "-=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "-=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "-=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
     if match_tok(TOK_PUNCT, "*=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "*=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "*=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
     if match_tok(TOK_PUNCT, "/=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "/=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "/=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
     if match_tok(TOK_PUNCT, "%=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "%=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "%=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
 
-    give back alloc_stmt(STMT_EXPR, "", word_from_int(expr_id), "", "", "", "", "")
+    give back alloc_stmt(STMT_EXPR, "", word_from_int(expr_id), "", "", "", "", "", stmt_line)
 }
 
 -- ===================== HELPER PARSE TASKS ============================
@@ -565,11 +583,12 @@ task parse_shape() -> int {
         }
     }
     register_shape(shape_name, fields)
-    give back alloc_stmt(STMT_SHAPE, shape_name, "", "", "", fields, "", "")
+    give back alloc_stmt(STMT_SHAPE, shape_name, "", "", "", fields, "", "", "1")
 }
 
 task parse_impl() -> int {
     pilot impl_name = cur_tok_val()
+    pilot stmt_line = current_source_line()
     advance_tok()
     expect_tok(TOK_PUNCT, "{")
 
@@ -586,17 +605,18 @@ task parse_impl() -> int {
             }
             pilot body_id = parse_block()
             pilot full_name = impl_name + "_" + mname
-            pilot sid = alloc_stmt(STMT_TASK, full_name, "", body_id, "", "", params, ret_type)
+            pilot sid = alloc_stmt(STMT_TASK, full_name, "", body_id, "", "", params, ret_type, stmt_line)
             array_push(ast_top_stmts, word_from_int(sid))
         } else {
             advance_tok()
         }
     }
     expect_tok(TOK_PUNCT, "}")
-    give back alloc_stmt(STMT_BLOCK, "", "", "", "", "", "", "")
+    give back alloc_stmt(STMT_BLOCK, "", "", "", "", "", "", "", "1")
 }
 
 task parse_when() -> int {
+    pilot stmt_line = current_source_line()
     pilot target_id = parse_expr()
     expect_tok(TOK_PUNCT, "{")
     pilot cases_str = ""
@@ -623,10 +643,11 @@ task parse_when() -> int {
             }
         }
     }
-    give back alloc_stmt(STMT_WHEN, "", word_from_int(target_id), cases_str, "", "", "", "")
+    give back alloc_stmt(STMT_WHEN, "", word_from_int(target_id), cases_str, "", "", "", "", stmt_line)
 }
 
 task parse_extern() -> int {
+    pilot stmt_line = current_source_line()
     expect_tok(TOK_KW, "task")
     pilot ename = cur_tok_val()
     advance_tok()
@@ -654,10 +675,11 @@ task parse_extern() -> int {
     expect_tok(TOK_PUNCT, "->")
     pilot eret_type = cur_tok_val()
     advance_tok()
-    give back alloc_stmt(STMT_EXTERN, ename, "", "", "", "", eparams, eret_type)
+    give back alloc_stmt(STMT_EXTERN, ename, "", "", "", "", eparams, eret_type, stmt_line)
 }
 
 task parse_task_def() -> int {
+    pilot stmt_line = current_source_line()
     pilot name = cur_tok_val()
     advance_tok()
     expect_tok(TOK_PUNCT, "(")
@@ -668,7 +690,7 @@ task parse_task_def() -> int {
         advance_tok()
     }
     pilot body_id = parse_block()
-    give back alloc_stmt(STMT_TASK, name, "", body_id, "", "", params, ret_type)
+    give back alloc_stmt(STMT_TASK, name, "", body_id, "", "", params, ret_type, stmt_line)
 }
 
 -- ===================== TOP-LEVEL PARSING =============================

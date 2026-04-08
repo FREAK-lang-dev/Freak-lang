@@ -18,12 +18,28 @@ task cli_step_done(label: word) -> void {
     say "  " + C_BGREEN + SYM_CHECK + C_RESET + "  " + label + C_DIM + " (" + elapsed_str + "ms)" + C_RESET
 }
 
+task cli_count_lines(s: word) -> int {
+    if s == "" { give back 0 }
+    pilot count = 1
+    pilot i = 0
+    pilot slen = s.length()
+    repeat until i >= slen {
+        if s.char_at(i) == "\n" {
+            count += 1
+        }
+        i += 1
+    }
+    give back count
+}
+
 task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
+    input_file = src_file
     init_arrays()
 
     cli_step_start()
     tokenize(source)
+    adjust_token_lines(source_line_offset)
     cli_step_done("Lexing")
 
     cli_step_start()
@@ -169,7 +185,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
 
     -- Bundle mode: pre-compiled .obj + lld-link (LLVM backend only, no clang needed for link)
     if target == "llvm" {
-        if cli_has_precompiled_runtime(runtime_dir) {
+        if cli_has_precompiled_runtime(runtime_dir) and not is_win {
             use_bundle = true
         }
     }
@@ -181,7 +197,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
 
         -- Step 1: Compile LLVM IR to object file
         pilot user_obj = cli_strip_fk(src_file) + obj_ext
-        pilot cc_cmd = "clang -c -o " + user_obj + " " + transpiled_file + " -O" + opt + " -w"
+        pilot cc_cmd = "clang -c -g -o " + user_obj + " " + transpiled_file + " -O" + opt + " -w"
         if cross != "" { cc_cmd = cc_cmd + " --target=" + cross }
 
         say "  " + C_DIM + SYM_GEAR + "  Compiling IR..." + C_RESET
@@ -205,6 +221,8 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
                 link_cmd = link_cmd + " " + ui_obj
             }
             link_cmd = link_cmd + " /out:" + out_bin + " /subsystem:console"
+            pilot pdb_out = cli_strip_fk(src_file) + ".pdb"
+            link_cmd = link_cmd + " /debug /pdb:" + pdb_out
             link_cmd = link_cmd + " libcmt.lib user32.lib gdi32.lib msimg32.lib ws2_32.lib"
             say "  " + C_DIM + SYM_GEAR + "  Linking..." + C_RESET
             pilot link_exit = process::exec(link_cmd)
@@ -245,7 +263,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         runtime_file = runtime_dir + "/freak_runtime.c"
     }
 
-    pilot cmd = "clang -o " + out_bin + " " + transpiled_file + " " + runtime_file
+    pilot cmd = "clang -g -o " + out_bin + " " + transpiled_file + " " + runtime_file
     cmd = cmd + " -I" + runtime_dir + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
 
     if not is_win {
@@ -384,7 +402,9 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
 
     -- Auto-include standard library if available
     pilot std_source: word = cli_load_std(target)
+    source_line_offset = 0
     if std_source != "" {
+        source_line_offset = cli_count_lines(std_source)
         source = std_source + source
     }
 

@@ -66,6 +66,7 @@ pilot ast_stmt_else_bodies = 0
 pilot ast_stmt_extras = 0
 pilot ast_task_params = 0
 pilot ast_task_returns = 0
+pilot ast_stmt_lines = 0
 
 pilot ast_top_stmts = 0
 
@@ -123,8 +124,19 @@ pilot llvm_loop_end_label = ""
 pilot llvm_loop_cond_label = ""
 pilot llvm_global_names = ""
 pilot llvm_var_reg_map = ""   -- "freak_name:llvm_name|..." latest binding wins
+pilot llvm_dbg_md = ""
+pilot llvm_dbg_next_id = 0
+pilot llvm_dbg_file_id = 0
+pilot llvm_dbg_cu_id = 0
+pilot llvm_dbg_empty_id = 0
+pilot llvm_dbg_subroutine_type_id = 0
+pilot llvm_dbg_current_scope_id = 0
+pilot llvm_dbg_current_line = 0
+pilot llvm_dbg_current_dir = "."
+pilot llvm_dbg_current_file = ""
 
 -- ===================== CLI STATE ===================================
 pilot input_file = ""
 pilot opt_level = "2"
 pilot cross_target = ""
+pilot source_line_offset = 0

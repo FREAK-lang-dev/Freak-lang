@@ -20,6 +20,7 @@ task init_arrays() -> void {
     ast_stmt_extras = array_new()
     ast_task_params = array_new()
     ast_task_returns = array_new()
+    ast_stmt_lines = array_new()
     ast_top_stmts = array_new()
     shape_registry_names = array_new()
     shape_registry_fields = array_new()
@@ -42,7 +43,7 @@ task alloc_expr(kind: word, val: word, left: word, right: word) -> int {
     give back id
 }
 
-task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body: word, extra: word, params: word, returns: word) -> int {
+task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body: word, extra: word, params: word, returns: word, line_no: word) -> int {
     pilot id = next_stmt_id
     next_stmt_id += 1
     array_push(ast_stmt_kinds, kind)
@@ -53,6 +54,7 @@ task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body:
     array_push(ast_stmt_extras, extra)
     array_push(ast_task_params, params)
     array_push(ast_task_returns, returns)
+    array_push(ast_stmt_lines, line_no)
     give back id
 }
 
@@ -132,6 +134,20 @@ task emit(s: word) -> void {
 
 task emit_line(s: word) -> void {
     fs::append(out_file, s + "\n")
+}
+
+task adjust_token_lines(offset: int) -> void {
+    if offset <= 0 { give back }
+    pilot i = 0
+    repeat until i >= tokens_count {
+        pilot line_no = word_to_int(array_get(tok_lines, i))
+        if line_no > offset {
+            array_set(tok_lines, i, word_from_int(line_no - offset))
+        } else {
+            array_set(tok_lines, i, "1")
+        }
+        i += 1
+    }
 }
 
 -- ===================== EMITTER VARIABLE TRACKING ===================

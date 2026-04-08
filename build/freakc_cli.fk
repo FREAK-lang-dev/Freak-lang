@@ -491,6 +491,7 @@ pilot ast_stmt_else_bodies = 0
 pilot ast_stmt_extras = 0
 pilot ast_task_params = 0
 pilot ast_task_returns = 0
+pilot ast_stmt_lines = 0
 
 pilot ast_top_stmts = 0
 
@@ -548,11 +549,22 @@ pilot llvm_loop_end_label = ""
 pilot llvm_loop_cond_label = ""
 pilot llvm_global_names = ""
 pilot llvm_var_reg_map = ""   -- "freak_name:llvm_name|..." latest binding wins
+pilot llvm_dbg_md = ""
+pilot llvm_dbg_next_id = 0
+pilot llvm_dbg_file_id = 0
+pilot llvm_dbg_cu_id = 0
+pilot llvm_dbg_empty_id = 0
+pilot llvm_dbg_subroutine_type_id = 0
+pilot llvm_dbg_current_scope_id = 0
+pilot llvm_dbg_current_line = 0
+pilot llvm_dbg_current_dir = "."
+pilot llvm_dbg_current_file = ""
 
 -- ===================== CLI STATE ===================================
 pilot input_file = ""
 pilot opt_level = "2"
 pilot cross_target = ""
+pilot source_line_offset = 0
 -- ===================================================================
 -- FREAK v3 COMPILER — HELPERS
 -- ===================================================================
@@ -575,6 +587,7 @@ task init_arrays() -> void {
     ast_stmt_extras = array_new()
     ast_task_params = array_new()
     ast_task_returns = array_new()
+    ast_stmt_lines = array_new()
     ast_top_stmts = array_new()
     shape_registry_names = array_new()
     shape_registry_fields = array_new()
@@ -597,7 +610,7 @@ task alloc_expr(kind: word, val: word, left: word, right: word) -> int {
     give back id
 }
 
-task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body: word, extra: word, params: word, returns: word) -> int {
+task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body: word, extra: word, params: word, returns: word, line_no: word) -> int {
     pilot id = next_stmt_id
     next_stmt_id += 1
     array_push(ast_stmt_kinds, kind)
@@ -608,6 +621,7 @@ task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body:
     array_push(ast_stmt_extras, extra)
     array_push(ast_task_params, params)
     array_push(ast_task_returns, returns)
+    array_push(ast_stmt_lines, line_no)
     give back id
 }
 
@@ -687,6 +701,20 @@ task emit(s: word) -> void {
 
 task emit_line(s: word) -> void {
     fs::append(out_file, s + "\n")
+}
+
+task adjust_token_lines(offset: int) -> void {
+    if offset <= 0 { give back }
+    pilot i = 0
+    repeat until i >= tokens_count {
+        pilot line_no = word_to_int(array_get(tok_lines, i))
+        if line_no > offset {
+            array_set(tok_lines, i, word_from_int(line_no - offset))
+        } else {
+            array_set(tok_lines, i, "1")
+        }
+        i += 1
+    }
 }
 
 -- ===================== EMITTER VARIABLE TRACKING ===================
@@ -1202,6 +1230,22 @@ task expect_tok(type: word, val: word) -> void {
     }
 }
 
+task current_source_line() -> word {
+    if parse_idx < 0 or parse_idx >= tokens_count {
+        give back "1"
+    }
+    pilot line_no = word_to_int(array_get(tok_lines, parse_idx))
+    if source_line_offset > 0 {
+        if line_no > source_line_offset {
+            line_no -= source_line_offset
+        } else {
+            line_no = 1
+        }
+    }
+    if line_no <= 0 { line_no = 1 }
+    give back word_from_int(line_no)
+}
+
 -- ===================== EXPRESSION PARSING ============================
 
 task parse_primary() -> int {
@@ -1512,10 +1556,12 @@ task parse_stmt() -> int {
         tval = cur_tok_val()
     }
 
+    pilot stmt_line = current_source_line()
+
     -- say expr
     if match_tok(TOK_KW, "say") {
         pilot expr_id = parse_expr()
-        give back alloc_stmt(STMT_SAY, "", word_from_int(expr_id), "", "", "", "", "")
+        give back alloc_stmt(STMT_SAY, "", word_from_int(expr_id), "", "", "", "", "", stmt_line)
     }
 
     -- shape Name { field: type, ... }
@@ -1531,7 +1577,7 @@ task parse_stmt() -> int {
     -- eventually { body }
     if match_tok(TOK_KW, "eventually") {
         pilot ev_body = parse_block()
-        give back alloc_stmt(STMT_EVENTUALLY, "", "", ev_body, "", "", "", "")
+        give back alloc_stmt(STMT_EVENTUALLY, "", "", ev_body, "", "", "", "", stmt_line)
     }
 
     -- pilot name = expr
@@ -1546,7 +1592,7 @@ task parse_stmt() -> int {
         }
         expect_tok(TOK_PUNCT, "=")
         pilot expr_id = parse_expr()
-        give back alloc_stmt(STMT_PILOT, name, word_from_int(expr_id), "", "", type_ann, "", "")
+        give back alloc_stmt(STMT_PILOT, name, word_from_int(expr_id), "", "", type_ann, "", "", stmt_line)
     }
 
     -- give back expr
@@ -1555,15 +1601,15 @@ task parse_stmt() -> int {
         if cur_tok_type() != TOK_PUNCT or cur_tok_val() != "}" {
             expr_id = parse_expr()
         }
-        give back alloc_stmt(STMT_GIVE_BACK, "", word_from_int(expr_id), "", "", "", "", "")
+        give back alloc_stmt(STMT_GIVE_BACK, "", word_from_int(expr_id), "", "", "", "", "", stmt_line)
     }
 
     -- break / continue
     if match_tok(TOK_KW, "break") {
-        give back alloc_stmt(STMT_BREAK, "", "", "", "", "", "", "")
+        give back alloc_stmt(STMT_BREAK, "", "", "", "", "", "", "", stmt_line)
     }
     if match_tok(TOK_KW, "continue") {
-        give back alloc_stmt(STMT_CONTINUE, "", "", "", "", "", "", "")
+        give back alloc_stmt(STMT_CONTINUE, "", "", "", "", "", "", "", stmt_line)
     }
 
     -- if expr { body } else { body }
@@ -1579,7 +1625,7 @@ task parse_stmt() -> int {
                 else_body = parse_block()
             }
         }
-        give back alloc_stmt(STMT_IF, "", word_from_int(expr_id), body_id, else_body, "", "", "")
+        give back alloc_stmt(STMT_IF, "", word_from_int(expr_id), body_id, else_body, "", "", "", stmt_line)
     }
 
     -- repeat until cond { body }  /  repeat N times { body }
@@ -1587,12 +1633,12 @@ task parse_stmt() -> int {
         if match_tok(TOK_KW, "until") {
             pilot expr_id = parse_expr()
             pilot body_id = parse_block()
-            give back alloc_stmt(STMT_REPEAT, "until", word_from_int(expr_id), body_id, "", "", "", "")
+            give back alloc_stmt(STMT_REPEAT, "until", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
         }
         pilot expr_id = parse_expr()
         expect_tok(TOK_KW, "times")
         pilot body_id = parse_block()
-        give back alloc_stmt(STMT_REPEAT, "times", word_from_int(expr_id), body_id, "", "", "", "")
+        give back alloc_stmt(STMT_REPEAT, "times", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
     }
 
     -- training arc until cond max N sessions { body }
@@ -1603,7 +1649,7 @@ task parse_stmt() -> int {
         pilot max_id = parse_expr()
         expect_tok(TOK_KW, "sessions")
         pilot body_id = parse_block()
-        give back alloc_stmt(STMT_TRAINING_ARC, "", word_from_int(cond_id), body_id, "", word_from_int(max_id), "", "")
+        give back alloc_stmt(STMT_TRAINING_ARC, "", word_from_int(cond_id), body_id, "", word_from_int(max_id), "", "", stmt_line)
     }
 
     -- when expr { val -> stmt, ... }
@@ -1624,7 +1670,7 @@ task parse_stmt() -> int {
     -- Bare block { ... }
     if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "{" {
         pilot block_id = parse_block()
-        give back alloc_stmt(STMT_BLOCK, "", "", block_id, "", "", "", "")
+        give back alloc_stmt(STMT_BLOCK, "", "", block_id, "", "", "", "", stmt_line)
     }
 
     -- Expression statement (or assignment)
@@ -1632,30 +1678,30 @@ task parse_stmt() -> int {
 
     if match_tok(TOK_PUNCT, "=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
     if match_tok(TOK_PUNCT, "+=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "+=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "+=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
     if match_tok(TOK_PUNCT, "-=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "-=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "-=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
     if match_tok(TOK_PUNCT, "*=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "*=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "*=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
     if match_tok(TOK_PUNCT, "/=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "/=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "/=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
     if match_tok(TOK_PUNCT, "%=") {
         pilot rhs = parse_expr()
-        give back alloc_stmt(STMT_ASSIGN, "%=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "")
+        give back alloc_stmt(STMT_ASSIGN, "%=", word_from_int(expr_id), word_from_int(rhs), "", "", "", "", stmt_line)
     }
 
-    give back alloc_stmt(STMT_EXPR, "", word_from_int(expr_id), "", "", "", "", "")
+    give back alloc_stmt(STMT_EXPR, "", word_from_int(expr_id), "", "", "", "", "", stmt_line)
 }
 
 -- ===================== HELPER PARSE TASKS ============================
@@ -1726,11 +1772,12 @@ task parse_shape() -> int {
         }
     }
     register_shape(shape_name, fields)
-    give back alloc_stmt(STMT_SHAPE, shape_name, "", "", "", fields, "", "")
+    give back alloc_stmt(STMT_SHAPE, shape_name, "", "", "", fields, "", "", "1")
 }
 
 task parse_impl() -> int {
     pilot impl_name = cur_tok_val()
+    pilot stmt_line = current_source_line()
     advance_tok()
     expect_tok(TOK_PUNCT, "{")
 
@@ -1747,17 +1794,18 @@ task parse_impl() -> int {
             }
             pilot body_id = parse_block()
             pilot full_name = impl_name + "_" + mname
-            pilot sid = alloc_stmt(STMT_TASK, full_name, "", body_id, "", "", params, ret_type)
+            pilot sid = alloc_stmt(STMT_TASK, full_name, "", body_id, "", "", params, ret_type, stmt_line)
             array_push(ast_top_stmts, word_from_int(sid))
         } else {
             advance_tok()
         }
     }
     expect_tok(TOK_PUNCT, "}")
-    give back alloc_stmt(STMT_BLOCK, "", "", "", "", "", "", "")
+    give back alloc_stmt(STMT_BLOCK, "", "", "", "", "", "", "", "1")
 }
 
 task parse_when() -> int {
+    pilot stmt_line = current_source_line()
     pilot target_id = parse_expr()
     expect_tok(TOK_PUNCT, "{")
     pilot cases_str = ""
@@ -1784,10 +1832,11 @@ task parse_when() -> int {
             }
         }
     }
-    give back alloc_stmt(STMT_WHEN, "", word_from_int(target_id), cases_str, "", "", "", "")
+    give back alloc_stmt(STMT_WHEN, "", word_from_int(target_id), cases_str, "", "", "", "", stmt_line)
 }
 
 task parse_extern() -> int {
+    pilot stmt_line = current_source_line()
     expect_tok(TOK_KW, "task")
     pilot ename = cur_tok_val()
     advance_tok()
@@ -1815,10 +1864,11 @@ task parse_extern() -> int {
     expect_tok(TOK_PUNCT, "->")
     pilot eret_type = cur_tok_val()
     advance_tok()
-    give back alloc_stmt(STMT_EXTERN, ename, "", "", "", "", eparams, eret_type)
+    give back alloc_stmt(STMT_EXTERN, ename, "", "", "", "", eparams, eret_type, stmt_line)
 }
 
 task parse_task_def() -> int {
+    pilot stmt_line = current_source_line()
     pilot name = cur_tok_val()
     advance_tok()
     expect_tok(TOK_PUNCT, "(")
@@ -1829,7 +1879,7 @@ task parse_task_def() -> int {
         advance_tok()
     }
     pilot body_id = parse_block()
-    give back alloc_stmt(STMT_TASK, name, "", body_id, "", "", params, ret_type)
+    give back alloc_stmt(STMT_TASK, name, "", body_id, "", "", params, ret_type, stmt_line)
 }
 
 -- ===================== TOP-LEVEL PARSING =============================
@@ -2689,7 +2739,14 @@ task llvm_emit(s: word) -> void {
 }
 
 task llvm_emit_line(s: word) -> void {
-    fs::append(out_file, s + "\n")
+    pilot out = s
+    if llvm_dbg_current_scope_id > 0 and llvm_dbg_current_line > 0 {
+        if s.starts_with("    ") and not s.starts_with("    ;") {
+            pilot loc_id = llvm_dbg_emit_location(llvm_dbg_current_line)
+            out = s + ", !dbg !" + word_from_int(loc_id)
+        }
+    }
+    fs::append(out_file, out + "\n")
 }
 
 task next_reg() -> word {
@@ -2724,6 +2781,102 @@ task llvm_escape_str(s: word) -> word {
         else { esc_out = esc_out + ch esc_i += 1 }
     }
     give back esc_out
+}
+
+task llvm_dbg_escape(s: word) -> word {
+    pilot out = ""
+    pilot i = 0
+    pilot slen = s.length()
+    repeat until i >= slen {
+        pilot ch = s.char_at(i)
+        if ch == "\\" { out = out + "\\5C" }
+        else if ch == "\"" { out = out + "\\22" }
+        else { out = out + ch }
+        i += 1
+    }
+    give back out
+}
+
+task llvm_dbg_append(defn: word) -> int {
+    pilot id = llvm_dbg_next_id
+    llvm_dbg_next_id += 1
+    llvm_dbg_md = llvm_dbg_md + "!" + word_from_int(id) + " = " + defn + "\n"
+    give back id
+}
+
+task llvm_dbg_init() -> void {
+    llvm_dbg_md = ""
+    llvm_dbg_next_id = 0
+    llvm_dbg_current_scope_id = 0
+    llvm_dbg_current_line = 0
+    llvm_dbg_current_dir = "."
+    llvm_dbg_current_file = input_file
+
+    pilot slash = -1
+    pilot i = 0
+    pilot plen = input_file.length()
+    repeat until i >= plen {
+        pilot ch = input_file.char_at(i)
+        if ch == "/" or ch == "\\" {
+            slash = i
+        }
+        i += 1
+    }
+
+    if slash >= 0 {
+        pilot base = ""
+        i = slash + 1
+        repeat until i >= plen {
+            base = base + input_file.char_at(i)
+            i += 1
+        }
+        if base != "" {
+            llvm_dbg_current_file = base
+        }
+
+        pilot dir = ""
+        i = 0
+        repeat until i >= slash {
+            dir = dir + input_file.char_at(i)
+            i += 1
+        }
+        if dir != "" {
+            llvm_dbg_current_dir = dir
+        }
+    }
+
+    pilot file_name = llvm_dbg_escape(llvm_dbg_current_file)
+    pilot dir_name = llvm_dbg_escape(llvm_dbg_current_dir)
+    llvm_dbg_file_id = llvm_dbg_append("!DIFile(filename: \"" + file_name + "\", directory: \"" + dir_name + "\")")
+    llvm_dbg_cu_id = llvm_dbg_append("distinct !DICompileUnit(language: DW_LANG_C, file: !" + word_from_int(llvm_dbg_file_id) + ", producer: \"FREAK v3\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)")
+    llvm_dbg_empty_id = llvm_dbg_append("!{}")
+    llvm_dbg_subroutine_type_id = llvm_dbg_append("!DISubroutineType(types: !" + word_from_int(llvm_dbg_empty_id) + ")")
+}
+
+task llvm_dbg_emit_subprogram(name: word, line_no: int) -> int {
+    if line_no <= 0 { line_no = 1 }
+    give back llvm_dbg_append("distinct !DISubprogram(name: \"" + llvm_dbg_escape(name) + "\", scope: !" + word_from_int(llvm_dbg_file_id) + ", file: !" + word_from_int(llvm_dbg_file_id) + ", line: " + word_from_int(line_no) + ", type: !" + word_from_int(llvm_dbg_subroutine_type_id) + ", scopeLine: " + word_from_int(line_no) + ", spFlags: DISPFlagDefinition, unit: !" + word_from_int(llvm_dbg_cu_id) + ", retainedNodes: !" + word_from_int(llvm_dbg_empty_id) + ")")
+}
+
+task llvm_dbg_emit_location(line_no: int) -> int {
+    if line_no <= 0 { line_no = 1 }
+    give back llvm_dbg_append("!DILocation(line: " + word_from_int(line_no) + ", column: 1, scope: !" + word_from_int(llvm_dbg_current_scope_id) + ")")
+}
+
+task llvm_dbg_set_stmt_line(eid: word) -> void {
+    pilot line_no = 1
+    if eid.length() > 0 {
+        pilot idx = word_to_int(eid)
+        line_no = word_to_int(array_get(ast_stmt_lines, idx))
+        if line_no <= 0 { line_no = 1 }
+    }
+    llvm_dbg_current_line = line_no
+}
+
+task llvm_dbg_begin_func(name: word, line_no: int) -> word {
+    llvm_dbg_current_scope_id = llvm_dbg_emit_subprogram(name, line_no)
+    llvm_dbg_current_line = line_no
+    give back " !dbg !" + word_from_int(llvm_dbg_current_scope_id)
 }
 
 task register_string_literal(val: word) -> word {
@@ -3477,6 +3630,7 @@ task llvm_emit_stmt(eid: word) -> void {
     pilot kind: word = array_get(ast_stmt_kinds, i)
     pilot name_w: word = array_get(ast_stmt_names, i)
     pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
+    llvm_dbg_set_stmt_line(eid)
 
     if kind == STMT_PILOT { llvm_emit_stmt_pilot(eid) give back }
     if kind == STMT_SAY {
@@ -3932,6 +4086,7 @@ task llvm_emit_task(eid: word) -> void {
     pilot body_id_w: word = array_get(ast_stmt_bodies, i)
     pilot params_w: word = array_get(ast_task_params, i)
     pilot returns_w: word = array_get(ast_task_returns, i)
+    pilot line_no = word_to_int(array_get(ast_stmt_lines, i))
 
     pilot ret_type = "i64"
     pilot is_void = false
@@ -3940,7 +4095,8 @@ task llvm_emit_task(eid: word) -> void {
 
     pilot p_str = ""
     if params_w.length() > 0 { p_str = llvm_translate_params(params_w) }
-    llvm_emit_line("define " + ret_type + " @freak_" + name_w + "(" + p_str + ") {")
+    pilot dbg_attr = llvm_dbg_begin_func(name_w, line_no)
+    llvm_emit_line("define " + ret_type + " @freak_" + name_w + "(" + p_str + ")" + dbg_attr + " {")
     llvm_emit_line("entry:")
     if params_w.length() > 0 { llvm_allocate_params(params_w) }
     llvm_emit_block(body_id_w)
@@ -3948,6 +4104,8 @@ task llvm_emit_task(eid: word) -> void {
     else { llvm_emit_line("    ret i64 0") }
     llvm_emit_line("}")
     llvm_emit_line("")
+    llvm_dbg_current_scope_id = 0
+    llvm_dbg_current_line = 0
 }
 
 -- ===================== RUNTIME DECLARATIONS ==========================
@@ -4041,6 +4199,7 @@ task emit_llvm_program() -> void {
     temp_reg_counter = 0
     string_literals = ""
     string_literals_count = 0
+    llvm_dbg_init()
 
     -- Write empty file (streaming appends from here)
     fs::write(out_file, "")
@@ -4149,7 +4308,8 @@ task emit_llvm_program() -> void {
         llvm_var_types = ""
         llvm_var_reg_map = ""
         llvm_cur_func_is_void = true
-        llvm_emit_line("define void @freak_init_globals() {")
+        pilot init_dbg = llvm_dbg_begin_func("freak_init_globals", 1)
+        llvm_emit_line("define void @freak_init_globals()" + init_dbg + " {")
         llvm_emit_line("entry:")
         i = 0
         repeat top_count times {
@@ -4161,6 +4321,8 @@ task emit_llvm_program() -> void {
         llvm_emit_line("    ret void")
         llvm_emit_line("}")
         llvm_emit_line("")
+        llvm_dbg_current_scope_id = 0
+        llvm_dbg_current_line = 0
     }
 
     -- Emit @freak_main wrapper (only if no user main)
@@ -4169,7 +4331,8 @@ task emit_llvm_program() -> void {
         llvm_var_types = ""
         llvm_var_reg_map = ""
         llvm_cur_func_is_void = true
-        llvm_emit_line("define void @freak_main() {")
+        pilot main_dbg = llvm_dbg_begin_func("freak_main", 1)
+        llvm_emit_line("define void @freak_main()" + main_dbg + " {")
         llvm_emit_line("entry:")
         i = 0
         repeat top_count times {
@@ -4180,11 +4343,14 @@ task emit_llvm_program() -> void {
         }
         llvm_emit_line("    ret void")
         llvm_emit_line("}")
+        llvm_dbg_current_scope_id = 0
+        llvm_dbg_current_line = 0
     }
 
     -- Emit C main entry
     llvm_emit_line("")
-    llvm_emit_line("define i32 @main(i32 %argc, i8** %argv) {")
+    pilot cmain_dbg = llvm_dbg_begin_func("main", 1)
+    llvm_emit_line("define i32 @main(i32 %argc, i8** %argv)" + cmain_dbg + " {")
     llvm_emit_line("entry:")
     llvm_emit_line("    %argc_ext = sext i32 %argc to i64")
     llvm_emit_line("    %argv_ptr = ptrtoint i8** %argv to i64")
@@ -4198,11 +4364,16 @@ task emit_llvm_program() -> void {
     }
     llvm_emit_line("    ret i32 0")
     llvm_emit_line("}")
+    llvm_dbg_current_scope_id = 0
+    llvm_dbg_current_line = 0
 
     -- Append string literals at end
     llvm_emit_line("")
     llvm_emit_line("; String Literals")
     llvm_emit_line(string_literals)
+    llvm_emit_line("!llvm.dbg.cu = !{!" + word_from_int(llvm_dbg_cu_id) + "}")
+    llvm_emit_line("!llvm.module.flags = !{!" + word_from_int(llvm_dbg_append("!{i32 7, !\"Dwarf Version\", i32 4}")) + ", !" + word_from_int(llvm_dbg_append("!{i32 2, !\"Debug Info Version\", i32 3}")) + "}")
+    llvm_emit_line(llvm_dbg_md)
 }
 -- ===================================================================
 -- FREAK CLI — Version, Colors, Banner, Quotes
@@ -5151,12 +5322,28 @@ task cli_step_done(label: word) -> void {
     say "  " + C_BGREEN + SYM_CHECK + C_RESET + "  " + label + C_DIM + " (" + elapsed_str + "ms)" + C_RESET
 }
 
+task cli_count_lines(s: word) -> int {
+    if s == "" { give back 0 }
+    pilot count = 1
+    pilot i = 0
+    pilot slen = s.length()
+    repeat until i >= slen {
+        if s.char_at(i) == "\n" {
+            count += 1
+        }
+        i += 1
+    }
+    give back count
+}
+
 task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
+    input_file = src_file
     init_arrays()
 
     cli_step_start()
     tokenize(source)
+    adjust_token_lines(source_line_offset)
     cli_step_done("Lexing")
 
     cli_step_start()
@@ -5302,7 +5489,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
 
     -- Bundle mode: pre-compiled .obj + lld-link (LLVM backend only, no clang needed for link)
     if target == "llvm" {
-        if cli_has_precompiled_runtime(runtime_dir) {
+        if cli_has_precompiled_runtime(runtime_dir) and not is_win {
             use_bundle = true
         }
     }
@@ -5314,7 +5501,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
 
         -- Step 1: Compile LLVM IR to object file
         pilot user_obj = cli_strip_fk(src_file) + obj_ext
-        pilot cc_cmd = "clang -c -o " + user_obj + " " + transpiled_file + " -O" + opt + " -w"
+        pilot cc_cmd = "clang -c -g -o " + user_obj + " " + transpiled_file + " -O" + opt + " -w"
         if cross != "" { cc_cmd = cc_cmd + " --target=" + cross }
 
         say "  " + C_DIM + SYM_GEAR + "  Compiling IR..." + C_RESET
@@ -5338,6 +5525,8 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
                 link_cmd = link_cmd + " " + ui_obj
             }
             link_cmd = link_cmd + " /out:" + out_bin + " /subsystem:console"
+            pilot pdb_out = cli_strip_fk(src_file) + ".pdb"
+            link_cmd = link_cmd + " /debug /pdb:" + pdb_out
             link_cmd = link_cmd + " libcmt.lib user32.lib gdi32.lib msimg32.lib ws2_32.lib"
             say "  " + C_DIM + SYM_GEAR + "  Linking..." + C_RESET
             pilot link_exit = process::exec(link_cmd)
@@ -5378,7 +5567,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         runtime_file = runtime_dir + "/freak_runtime.c"
     }
 
-    pilot cmd = "clang -o " + out_bin + " " + transpiled_file + " " + runtime_file
+    pilot cmd = "clang -g -o " + out_bin + " " + transpiled_file + " " + runtime_file
     cmd = cmd + " -I" + runtime_dir + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
 
     if not is_win {
@@ -5517,7 +5706,9 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
 
     -- Auto-include standard library if available
     pilot std_source: word = cli_load_std(target)
+    source_line_offset = 0
     if std_source != "" {
+        source_line_offset = cli_count_lines(std_source)
         source = std_source + source
     }
 

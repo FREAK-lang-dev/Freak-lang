@@ -14,7 +14,14 @@ task llvm_emit(s: word) -> void {
 }
 
 task llvm_emit_line(s: word) -> void {
-    fs::append(out_file, s + "\n")
+    pilot out = s
+    if llvm_dbg_current_scope_id > 0 and llvm_dbg_current_line > 0 {
+        if s.starts_with("    ") and not s.starts_with("    ;") {
+            pilot loc_id = llvm_dbg_emit_location(llvm_dbg_current_line)
+            out = s + ", !dbg !" + word_from_int(loc_id)
+        }
+    }
+    fs::append(out_file, out + "\n")
 }
 
 task next_reg() -> word {
@@ -49,6 +56,102 @@ task llvm_escape_str(s: word) -> word {
         else { esc_out = esc_out + ch esc_i += 1 }
     }
     give back esc_out
+}
+
+task llvm_dbg_escape(s: word) -> word {
+    pilot out = ""
+    pilot i = 0
+    pilot slen = s.length()
+    repeat until i >= slen {
+        pilot ch = s.char_at(i)
+        if ch == "\\" { out = out + "\\5C" }
+        else if ch == "\"" { out = out + "\\22" }
+        else { out = out + ch }
+        i += 1
+    }
+    give back out
+}
+
+task llvm_dbg_append(defn: word) -> int {
+    pilot id = llvm_dbg_next_id
+    llvm_dbg_next_id += 1
+    llvm_dbg_md = llvm_dbg_md + "!" + word_from_int(id) + " = " + defn + "\n"
+    give back id
+}
+
+task llvm_dbg_init() -> void {
+    llvm_dbg_md = ""
+    llvm_dbg_next_id = 0
+    llvm_dbg_current_scope_id = 0
+    llvm_dbg_current_line = 0
+    llvm_dbg_current_dir = "."
+    llvm_dbg_current_file = input_file
+
+    pilot slash = -1
+    pilot i = 0
+    pilot plen = input_file.length()
+    repeat until i >= plen {
+        pilot ch = input_file.char_at(i)
+        if ch == "/" or ch == "\\" {
+            slash = i
+        }
+        i += 1
+    }
+
+    if slash >= 0 {
+        pilot base = ""
+        i = slash + 1
+        repeat until i >= plen {
+            base = base + input_file.char_at(i)
+            i += 1
+        }
+        if base != "" {
+            llvm_dbg_current_file = base
+        }
+
+        pilot dir = ""
+        i = 0
+        repeat until i >= slash {
+            dir = dir + input_file.char_at(i)
+            i += 1
+        }
+        if dir != "" {
+            llvm_dbg_current_dir = dir
+        }
+    }
+
+    pilot file_name = llvm_dbg_escape(llvm_dbg_current_file)
+    pilot dir_name = llvm_dbg_escape(llvm_dbg_current_dir)
+    llvm_dbg_file_id = llvm_dbg_append("!DIFile(filename: \"" + file_name + "\", directory: \"" + dir_name + "\")")
+    llvm_dbg_cu_id = llvm_dbg_append("distinct !DICompileUnit(language: DW_LANG_C, file: !" + word_from_int(llvm_dbg_file_id) + ", producer: \"FREAK v3\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)")
+    llvm_dbg_empty_id = llvm_dbg_append("!{}")
+    llvm_dbg_subroutine_type_id = llvm_dbg_append("!DISubroutineType(types: !" + word_from_int(llvm_dbg_empty_id) + ")")
+}
+
+task llvm_dbg_emit_subprogram(name: word, line_no: int) -> int {
+    if line_no <= 0 { line_no = 1 }
+    give back llvm_dbg_append("distinct !DISubprogram(name: \"" + llvm_dbg_escape(name) + "\", scope: !" + word_from_int(llvm_dbg_file_id) + ", file: !" + word_from_int(llvm_dbg_file_id) + ", line: " + word_from_int(line_no) + ", type: !" + word_from_int(llvm_dbg_subroutine_type_id) + ", scopeLine: " + word_from_int(line_no) + ", spFlags: DISPFlagDefinition, unit: !" + word_from_int(llvm_dbg_cu_id) + ", retainedNodes: !" + word_from_int(llvm_dbg_empty_id) + ")")
+}
+
+task llvm_dbg_emit_location(line_no: int) -> int {
+    if line_no <= 0 { line_no = 1 }
+    give back llvm_dbg_append("!DILocation(line: " + word_from_int(line_no) + ", column: 1, scope: !" + word_from_int(llvm_dbg_current_scope_id) + ")")
+}
+
+task llvm_dbg_set_stmt_line(eid: word) -> void {
+    pilot line_no = 1
+    if eid.length() > 0 {
+        pilot idx = word_to_int(eid)
+        line_no = word_to_int(array_get(ast_stmt_lines, idx))
+        if line_no <= 0 { line_no = 1 }
+    }
+    llvm_dbg_current_line = line_no
+}
+
+task llvm_dbg_begin_func(name: word, line_no: int) -> word {
+    llvm_dbg_current_scope_id = llvm_dbg_emit_subprogram(name, line_no)
+    llvm_dbg_current_line = line_no
+    give back " !dbg !" + word_from_int(llvm_dbg_current_scope_id)
 }
 
 task register_string_literal(val: word) -> word {
@@ -802,6 +905,7 @@ task llvm_emit_stmt(eid: word) -> void {
     pilot kind: word = array_get(ast_stmt_kinds, i)
     pilot name_w: word = array_get(ast_stmt_names, i)
     pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
+    llvm_dbg_set_stmt_line(eid)
 
     if kind == STMT_PILOT { llvm_emit_stmt_pilot(eid) give back }
     if kind == STMT_SAY {
@@ -1257,6 +1361,7 @@ task llvm_emit_task(eid: word) -> void {
     pilot body_id_w: word = array_get(ast_stmt_bodies, i)
     pilot params_w: word = array_get(ast_task_params, i)
     pilot returns_w: word = array_get(ast_task_returns, i)
+    pilot line_no = word_to_int(array_get(ast_stmt_lines, i))
 
     pilot ret_type = "i64"
     pilot is_void = false
@@ -1265,7 +1370,8 @@ task llvm_emit_task(eid: word) -> void {
 
     pilot p_str = ""
     if params_w.length() > 0 { p_str = llvm_translate_params(params_w) }
-    llvm_emit_line("define " + ret_type + " @freak_" + name_w + "(" + p_str + ") {")
+    pilot dbg_attr = llvm_dbg_begin_func(name_w, line_no)
+    llvm_emit_line("define " + ret_type + " @freak_" + name_w + "(" + p_str + ")" + dbg_attr + " {")
     llvm_emit_line("entry:")
     if params_w.length() > 0 { llvm_allocate_params(params_w) }
     llvm_emit_block(body_id_w)
@@ -1273,6 +1379,8 @@ task llvm_emit_task(eid: word) -> void {
     else { llvm_emit_line("    ret i64 0") }
     llvm_emit_line("}")
     llvm_emit_line("")
+    llvm_dbg_current_scope_id = 0
+    llvm_dbg_current_line = 0
 }
 
 -- ===================== RUNTIME DECLARATIONS ==========================
@@ -1366,6 +1474,7 @@ task emit_llvm_program() -> void {
     temp_reg_counter = 0
     string_literals = ""
     string_literals_count = 0
+    llvm_dbg_init()
 
     -- Write empty file (streaming appends from here)
     fs::write(out_file, "")
@@ -1474,7 +1583,8 @@ task emit_llvm_program() -> void {
         llvm_var_types = ""
         llvm_var_reg_map = ""
         llvm_cur_func_is_void = true
-        llvm_emit_line("define void @freak_init_globals() {")
+        pilot init_dbg = llvm_dbg_begin_func("freak_init_globals", 1)
+        llvm_emit_line("define void @freak_init_globals()" + init_dbg + " {")
         llvm_emit_line("entry:")
         i = 0
         repeat top_count times {
@@ -1486,6 +1596,8 @@ task emit_llvm_program() -> void {
         llvm_emit_line("    ret void")
         llvm_emit_line("}")
         llvm_emit_line("")
+        llvm_dbg_current_scope_id = 0
+        llvm_dbg_current_line = 0
     }
 
     -- Emit @freak_main wrapper (only if no user main)
@@ -1494,7 +1606,8 @@ task emit_llvm_program() -> void {
         llvm_var_types = ""
         llvm_var_reg_map = ""
         llvm_cur_func_is_void = true
-        llvm_emit_line("define void @freak_main() {")
+        pilot main_dbg = llvm_dbg_begin_func("freak_main", 1)
+        llvm_emit_line("define void @freak_main()" + main_dbg + " {")
         llvm_emit_line("entry:")
         i = 0
         repeat top_count times {
@@ -1505,11 +1618,14 @@ task emit_llvm_program() -> void {
         }
         llvm_emit_line("    ret void")
         llvm_emit_line("}")
+        llvm_dbg_current_scope_id = 0
+        llvm_dbg_current_line = 0
     }
 
     -- Emit C main entry
     llvm_emit_line("")
-    llvm_emit_line("define i32 @main(i32 %argc, i8** %argv) {")
+    pilot cmain_dbg = llvm_dbg_begin_func("main", 1)
+    llvm_emit_line("define i32 @main(i32 %argc, i8** %argv)" + cmain_dbg + " {")
     llvm_emit_line("entry:")
     llvm_emit_line("    %argc_ext = sext i32 %argc to i64")
     llvm_emit_line("    %argv_ptr = ptrtoint i8** %argv to i64")
@@ -1523,9 +1639,14 @@ task emit_llvm_program() -> void {
     }
     llvm_emit_line("    ret i32 0")
     llvm_emit_line("}")
+    llvm_dbg_current_scope_id = 0
+    llvm_dbg_current_line = 0
 
     -- Append string literals at end
     llvm_emit_line("")
     llvm_emit_line("; String Literals")
     llvm_emit_line(string_literals)
+    llvm_emit_line("!llvm.dbg.cu = !{!" + word_from_int(llvm_dbg_cu_id) + "}")
+    llvm_emit_line("!llvm.module.flags = !{!" + word_from_int(llvm_dbg_append("!{i32 7, !\"Dwarf Version\", i32 4}")) + ", !" + word_from_int(llvm_dbg_append("!{i32 2, !\"Debug Info Version\", i32 3}")) + "}")
+    llvm_emit_line(llvm_dbg_md)
 }

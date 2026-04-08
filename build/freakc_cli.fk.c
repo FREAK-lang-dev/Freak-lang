@@ -28,7 +28,7 @@ bool freak_ver_satisfies(freak_word version, freak_word constraint);
 bool freak_version_matches_constraint(freak_word version, freak_word constraint);
 void freak_init_arrays(void);
 int64_t freak_alloc_expr(freak_word kind, freak_word val, freak_word left, freak_word right);
-int64_t freak_alloc_stmt(freak_word kind, freak_word name, freak_word expr_id, freak_word body_id, freak_word else_body, freak_word extra, freak_word params, freak_word returns);
+int64_t freak_alloc_stmt(freak_word kind, freak_word name, freak_word expr_id, freak_word body_id, freak_word else_body, freak_word extra, freak_word params, freak_word returns, freak_word line_no);
 void freak_register_shape(freak_word name, freak_word fields);
 bool freak_is_shape_name(freak_word name);
 freak_word freak_get_shape_fields(freak_word name);
@@ -36,6 +36,7 @@ int64_t freak_get_shape_field_count(freak_word shape_name);
 int64_t freak_get_shape_field_index(freak_word shape_name, freak_word field_name);
 void freak_emit(freak_word s);
 void freak_emit_line(freak_word s);
+void freak_adjust_token_lines(int64_t offset);
 void freak_emt_set_var_type(freak_word name, freak_word vtype);
 freak_word freak_emt_get_var_type(freak_word name);
 void freak_emt_register_word_task(freak_word name);
@@ -67,6 +68,7 @@ freak_word freak_cur_tok_val(void);
 void freak_advance_tok(void);
 bool freak_match_tok(freak_word type, freak_word val);
 void freak_expect_tok(freak_word type, freak_word val);
+freak_word freak_current_source_line(void);
 int64_t freak_parse_primary(void);
 int64_t freak_parse_postfix(void);
 int64_t freak_parse_unary(void);
@@ -112,6 +114,13 @@ void freak_llvm_emit(freak_word s);
 void freak_llvm_emit_line(freak_word s);
 freak_word freak_next_reg(void);
 freak_word freak_llvm_escape_str(freak_word s);
+freak_word freak_llvm_dbg_escape(freak_word s);
+int64_t freak_llvm_dbg_append(freak_word defn);
+void freak_llvm_dbg_init(void);
+int64_t freak_llvm_dbg_emit_subprogram(freak_word name, int64_t line_no);
+int64_t freak_llvm_dbg_emit_location(int64_t line_no);
+void freak_llvm_dbg_set_stmt_line(freak_word eid);
+freak_word freak_llvm_dbg_begin_func(freak_word name, int64_t line_no);
 freak_word freak_register_string_literal(freak_word val);
 freak_word freak_llvm_c_safe_ident(freak_word s);
 void freak_llvm_set_var_type(freak_word name, freak_word vtype);
@@ -206,6 +215,7 @@ freak_word freak_lock_get_sha256(freak_word name);
 bool freak_lock_load(freak_word path);
 void freak_cli_step_start(void);
 void freak_cli_step_done(freak_word label);
+int64_t freak_cli_count_lines(freak_word s);
 freak_word freak_cli_transpile(freak_word src_file, freak_word source, freak_word target);
 bool freak_cli_has_runtime(freak_word dir);
 freak_word freak_cli_find_runtime_dir(void);
@@ -308,6 +318,7 @@ int64_t ast_stmt_else_bodies = 0;
 int64_t ast_stmt_extras = 0;
 int64_t ast_task_params = 0;
 int64_t ast_task_returns = 0;
+int64_t ast_stmt_lines = 0;
 int64_t ast_top_stmts = 0;
 int64_t shape_registry_names = 0;
 int64_t shape_registry_fields = 0;
@@ -350,9 +361,20 @@ freak_word llvm_loop_end_label = FREAK_WORD_EMPTY;
 freak_word llvm_loop_cond_label = FREAK_WORD_EMPTY;
 freak_word llvm_global_names = FREAK_WORD_EMPTY;
 freak_word llvm_var_reg_map = FREAK_WORD_EMPTY;
+freak_word llvm_dbg_md = FREAK_WORD_EMPTY;
+int64_t llvm_dbg_next_id = 0;
+int64_t llvm_dbg_file_id = 0;
+int64_t llvm_dbg_cu_id = 0;
+int64_t llvm_dbg_empty_id = 0;
+int64_t llvm_dbg_subroutine_type_id = 0;
+int64_t llvm_dbg_current_scope_id = 0;
+int64_t llvm_dbg_current_line = 0;
+freak_word llvm_dbg_current_dir = FREAK_WORD_EMPTY;
+freak_word llvm_dbg_current_file = FREAK_WORD_EMPTY;
 freak_word input_file = FREAK_WORD_EMPTY;
 freak_word opt_level = FREAK_WORD_EMPTY;
 freak_word cross_target = FREAK_WORD_EMPTY;
+int64_t source_line_offset = 0;
 freak_word CLI_VERSION = FREAK_WORD_EMPTY;
 freak_word CLI_CODENAME = FREAK_WORD_EMPTY;
 freak_word C_RESET = FREAK_WORD_EMPTY;
@@ -831,6 +853,7 @@ ast_stmt_else_bodies = freak_array_new();
 ast_stmt_extras = freak_array_new();
 ast_task_params = freak_array_new();
 ast_task_returns = freak_array_new();
+ast_stmt_lines = freak_array_new();
 ast_top_stmts = freak_array_new();
 shape_registry_names = freak_array_new();
 shape_registry_fields = freak_array_new();
@@ -849,7 +872,7 @@ freak_array_push(ast_expr_lefts, left);
 freak_array_push(ast_expr_rights, right);
 return id;
 }
-int64_t freak_alloc_stmt(freak_word kind, freak_word name, freak_word expr_id, freak_word body_id, freak_word else_body, freak_word extra, freak_word params, freak_word returns) {
+int64_t freak_alloc_stmt(freak_word kind, freak_word name, freak_word expr_id, freak_word body_id, freak_word else_body, freak_word extra, freak_word params, freak_word returns, freak_word line_no) {
 int64_t id = next_stmt_id;
 next_stmt_id += 1;
 freak_array_push(ast_stmt_kinds, kind);
@@ -860,6 +883,7 @@ freak_array_push(ast_stmt_else_bodies, else_body);
 freak_array_push(ast_stmt_extras, extra);
 freak_array_push(ast_task_params, params);
 freak_array_push(ast_task_returns, returns);
+freak_array_push(ast_stmt_lines, line_no);
 return id;
 }
 void freak_register_shape(freak_word name, freak_word fields) {
@@ -945,6 +969,22 @@ freak_fs_append(out_file, s);
 }
 void freak_emit_line(freak_word s) {
 freak_fs_append(out_file, freak_word_concat(s, freak_word_lit("\n")));
+}
+void freak_adjust_token_lines(int64_t offset) {
+if ((offset <= 0)) {
+return ;
+}
+int64_t i = 0;
+while (!((i >= tokens_count))) {
+int64_t line_no = freak_word_to_int(freak_array_get(tok_lines, i));
+if ((line_no > offset)) {
+freak_array_set(tok_lines, i, freak_word_from_int((line_no - offset)));
+}
+else {
+freak_array_set(tok_lines, i, freak_word_lit("1"));
+}
+i += 1;
+}
 }
 void freak_emt_set_var_type(freak_word name, freak_word vtype) {
 int64_t i = 0;
@@ -1627,6 +1667,24 @@ freak_advance_tok();
 }
 }
 }
+freak_word freak_current_source_line(void) {
+if (((parse_idx < 0) || (parse_idx >= tokens_count))) {
+return freak_word_lit("1");
+}
+int64_t line_no = freak_word_to_int(freak_array_get(tok_lines, parse_idx));
+if ((source_line_offset > 0)) {
+if ((line_no > source_line_offset)) {
+line_no -= source_line_offset;
+}
+else {
+line_no = 1;
+}
+}
+if ((line_no <= 0)) {
+line_no = 1;
+}
+return freak_word_from_int(line_no);
+}
 int64_t freak_parse_primary(void) {
 freak_word ttype = freak_cur_tok_type();
 freak_word tval = freak_cur_tok_val();
@@ -1959,9 +2017,10 @@ freak_advance_tok();
 ttype = freak_cur_tok_type();
 tval = freak_cur_tok_val();
 }
+freak_word stmt_line = freak_current_source_line();
 if (freak_match_tok(TOK_KW, freak_word_lit("say"))) {
 int64_t expr_id = freak_parse_expr();
-return freak_alloc_stmt(STMT_SAY, freak_word_lit(""), freak_word_from_int(expr_id), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_SAY, freak_word_lit(""), freak_word_from_int(expr_id), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_KW, freak_word_lit("shape"))) {
 return freak_parse_shape();
@@ -1971,7 +2030,7 @@ return freak_parse_impl();
 }
 if (freak_match_tok(TOK_KW, freak_word_lit("eventually"))) {
 freak_word ev_body = freak_parse_block();
-return freak_alloc_stmt(STMT_EVENTUALLY, freak_word_lit(""), freak_word_lit(""), ev_body, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_EVENTUALLY, freak_word_lit(""), freak_word_lit(""), ev_body, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_KW, freak_word_lit("pilot"))) {
 freak_word name = freak_cur_tok_val();
@@ -1984,20 +2043,20 @@ freak_advance_tok();
 }
 freak_expect_tok(TOK_PUNCT, freak_word_lit("="));
 int64_t expr_id = freak_parse_expr();
-return freak_alloc_stmt(STMT_PILOT, name, freak_word_from_int(expr_id), freak_word_lit(""), freak_word_lit(""), type_ann, freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_PILOT, name, freak_word_from_int(expr_id), freak_word_lit(""), freak_word_lit(""), type_ann, freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_KW, freak_word_lit("give back"))) {
 int64_t expr_id = (0 - 1);
 if (((!freak_word_eq(freak_cur_tok_type(), TOK_PUNCT)) || (!freak_word_eq(freak_cur_tok_val(), freak_word_lit("}"))))) {
 expr_id = freak_parse_expr();
 }
-return freak_alloc_stmt(STMT_GIVE_BACK, freak_word_lit(""), freak_word_from_int(expr_id), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_GIVE_BACK, freak_word_lit(""), freak_word_from_int(expr_id), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_KW, freak_word_lit("break"))) {
-return freak_alloc_stmt(STMT_BREAK, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_BREAK, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_KW, freak_word_lit("continue"))) {
-return freak_alloc_stmt(STMT_CONTINUE, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_CONTINUE, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_KW, freak_word_lit("if"))) {
 int64_t expr_id = freak_parse_expr();
@@ -2012,18 +2071,18 @@ else {
 else_body = freak_parse_block();
 }
 }
-return freak_alloc_stmt(STMT_IF, freak_word_lit(""), freak_word_from_int(expr_id), body_id, else_body, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_IF, freak_word_lit(""), freak_word_from_int(expr_id), body_id, else_body, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_KW, freak_word_lit("repeat"))) {
 if (freak_match_tok(TOK_KW, freak_word_lit("until"))) {
 int64_t expr_id = freak_parse_expr();
 freak_word body_id = freak_parse_block();
-return freak_alloc_stmt(STMT_REPEAT, freak_word_lit("until"), freak_word_from_int(expr_id), body_id, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_REPEAT, freak_word_lit("until"), freak_word_from_int(expr_id), body_id, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 int64_t expr_id = freak_parse_expr();
 freak_expect_tok(TOK_KW, freak_word_lit("times"));
 freak_word body_id = freak_parse_block();
-return freak_alloc_stmt(STMT_REPEAT, freak_word_lit("times"), freak_word_from_int(expr_id), body_id, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_REPEAT, freak_word_lit("times"), freak_word_from_int(expr_id), body_id, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_KW, freak_word_lit("training arc"))) {
 freak_expect_tok(TOK_KW, freak_word_lit("until"));
@@ -2032,7 +2091,7 @@ freak_expect_tok(TOK_KW, freak_word_lit("max"));
 int64_t max_id = freak_parse_expr();
 freak_expect_tok(TOK_KW, freak_word_lit("sessions"));
 freak_word body_id = freak_parse_block();
-return freak_alloc_stmt(STMT_TRAINING_ARC, freak_word_lit(""), freak_word_from_int(cond_id), body_id, freak_word_lit(""), freak_word_from_int(max_id), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_TRAINING_ARC, freak_word_lit(""), freak_word_from_int(cond_id), body_id, freak_word_lit(""), freak_word_from_int(max_id), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_KW, freak_word_lit("when"))) {
 return freak_parse_when();
@@ -2045,34 +2104,34 @@ return freak_parse_task_def();
 }
 if ((freak_word_eq(freak_cur_tok_type(), TOK_PUNCT) && freak_word_eq(freak_cur_tok_val(), freak_word_lit("{")))) {
 freak_word block_id = freak_parse_block();
-return freak_alloc_stmt(STMT_BLOCK, freak_word_lit(""), freak_word_lit(""), block_id, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_BLOCK, freak_word_lit(""), freak_word_lit(""), block_id, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 int64_t expr_id = freak_parse_expr();
 if (freak_match_tok(TOK_PUNCT, freak_word_lit("="))) {
 int64_t rhs = freak_parse_expr();
-return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_PUNCT, freak_word_lit("+="))) {
 int64_t rhs = freak_parse_expr();
-return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("+="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("+="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_PUNCT, freak_word_lit("-="))) {
 int64_t rhs = freak_parse_expr();
-return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("-="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("-="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_PUNCT, freak_word_lit("*="))) {
 int64_t rhs = freak_parse_expr();
-return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("*="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("*="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_PUNCT, freak_word_lit("/="))) {
 int64_t rhs = freak_parse_expr();
-return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("/="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("/="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 if (freak_match_tok(TOK_PUNCT, freak_word_lit("%="))) {
 int64_t rhs = freak_parse_expr();
-return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("%="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_ASSIGN, freak_word_lit("%="), freak_word_from_int(expr_id), freak_word_from_int(rhs), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
-return freak_alloc_stmt(STMT_EXPR, freak_word_lit(""), freak_word_from_int(expr_id), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_EXPR, freak_word_lit(""), freak_word_from_int(expr_id), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 freak_word freak_parse_params(void) {
 freak_word params = freak_word_lit("");
@@ -2154,10 +2213,11 @@ fields = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat
 }
 }
 freak_register_shape(shape_name, fields);
-return freak_alloc_stmt(STMT_SHAPE, shape_name, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), fields, freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_SHAPE, shape_name, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), fields, freak_word_lit(""), freak_word_lit(""), freak_word_lit("1"));
 }
 int64_t freak_parse_impl(void) {
 freak_word impl_name = freak_cur_tok_val();
+freak_word stmt_line = freak_current_source_line();
 freak_advance_tok();
 freak_expect_tok(TOK_PUNCT, freak_word_lit("{"));
 while (!((freak_word_eq(freak_cur_tok_type(), TOK_PUNCT) && freak_word_eq(freak_cur_tok_val(), freak_word_lit("}"))))) {
@@ -2173,7 +2233,7 @@ freak_advance_tok();
 }
 freak_word body_id = freak_parse_block();
 freak_word full_name = freak_word_concat(freak_word_concat(impl_name, freak_word_lit("_")), mname);
-int64_t sid = freak_alloc_stmt(STMT_TASK, full_name, freak_word_lit(""), body_id, freak_word_lit(""), freak_word_lit(""), params, ret_type);
+int64_t sid = freak_alloc_stmt(STMT_TASK, full_name, freak_word_lit(""), body_id, freak_word_lit(""), freak_word_lit(""), params, ret_type, stmt_line);
 freak_array_push(ast_top_stmts, freak_word_from_int(sid));
 }
 else {
@@ -2181,9 +2241,10 @@ freak_advance_tok();
 }
 }
 freak_expect_tok(TOK_PUNCT, freak_word_lit("}"));
-return freak_alloc_stmt(STMT_BLOCK, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_BLOCK, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit("1"));
 }
 int64_t freak_parse_when(void) {
+freak_word stmt_line = freak_current_source_line();
 int64_t target_id = freak_parse_expr();
 freak_expect_tok(TOK_PUNCT, freak_word_lit("{"));
 freak_word cases_str = freak_word_lit("");
@@ -2213,9 +2274,10 @@ cases_str = freak_word_concat(freak_word_concat(cases_str, freak_word_lit(",")),
 }
 }
 }
-return freak_alloc_stmt(STMT_WHEN, freak_word_lit(""), freak_word_from_int(target_id), cases_str, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""));
+return freak_alloc_stmt(STMT_WHEN, freak_word_lit(""), freak_word_from_int(target_id), cases_str, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
 int64_t freak_parse_extern(void) {
+freak_word stmt_line = freak_current_source_line();
 freak_expect_tok(TOK_KW, freak_word_lit("task"));
 freak_word ename = freak_cur_tok_val();
 freak_advance_tok();
@@ -2250,9 +2312,10 @@ freak_expect_tok(TOK_PUNCT, freak_word_lit(","));
 freak_expect_tok(TOK_PUNCT, freak_word_lit("->"));
 freak_word eret_type = freak_cur_tok_val();
 freak_advance_tok();
-return freak_alloc_stmt(STMT_EXTERN, ename, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), eparams, eret_type);
+return freak_alloc_stmt(STMT_EXTERN, ename, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), eparams, eret_type, stmt_line);
 }
 int64_t freak_parse_task_def(void) {
+freak_word stmt_line = freak_current_source_line();
 freak_word name = freak_cur_tok_val();
 freak_advance_tok();
 freak_expect_tok(TOK_PUNCT, freak_word_lit("("));
@@ -2263,7 +2326,7 @@ ret_type = freak_cur_tok_val();
 freak_advance_tok();
 }
 freak_word body_id = freak_parse_block();
-return freak_alloc_stmt(STMT_TASK, name, freak_word_lit(""), body_id, freak_word_lit(""), freak_word_lit(""), params, ret_type);
+return freak_alloc_stmt(STMT_TASK, name, freak_word_lit(""), body_id, freak_word_lit(""), freak_word_lit(""), params, ret_type, stmt_line);
 }
 void freak_parse_program(void) {
 parse_idx = 0;
@@ -3393,7 +3456,14 @@ void freak_llvm_emit(freak_word s) {
 freak_fs_append(out_file, s);
 }
 void freak_llvm_emit_line(freak_word s) {
-freak_fs_append(out_file, freak_word_concat(s, freak_word_lit("\n")));
+freak_word out = s;
+if (((llvm_dbg_current_scope_id > 0) && (llvm_dbg_current_line > 0))) {
+if ((freak_word_starts_with(s, freak_word_lit("    ")) && (!freak_word_starts_with(s, freak_word_lit("    ;"))))) {
+int64_t loc_id = freak_llvm_dbg_emit_location(llvm_dbg_current_line);
+out = freak_word_concat(freak_word_concat(s, freak_word_lit(", !dbg !")), freak_word_from_int(loc_id));
+}
+}
+freak_fs_append(out_file, freak_word_concat(out, freak_word_lit("\n")));
 }
 freak_word freak_next_reg(void) {
 freak_word r = freak_word_concat(freak_word_lit("%t"), freak_word_from_int(temp_reg_counter));
@@ -3455,6 +3525,105 @@ esc_i += 1;
 }
 }
 return esc_out;
+}
+freak_word freak_llvm_dbg_escape(freak_word s) {
+freak_word out = freak_word_lit("");
+int64_t i = 0;
+int64_t slen = freak_word_length(s);
+while (!((i >= slen))) {
+freak_word ch = freak_word_char_at(s, i);
+if (freak_word_eq(ch, freak_word_lit("\\"))) {
+out = freak_word_concat(out, freak_word_lit("\\5C"));
+}
+else {
+if (freak_word_eq(ch, freak_word_lit("\""))) {
+out = freak_word_concat(out, freak_word_lit("\\22"));
+}
+else {
+out = freak_word_concat(out, ch);
+}
+}
+i += 1;
+}
+return out;
+}
+int64_t freak_llvm_dbg_append(freak_word defn) {
+int64_t id = llvm_dbg_next_id;
+llvm_dbg_next_id += 1;
+llvm_dbg_md = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(llvm_dbg_md, freak_word_lit("!")), freak_word_from_int(id)), freak_word_lit(" = ")), defn), freak_word_lit("\n"));
+return id;
+}
+void freak_llvm_dbg_init(void) {
+llvm_dbg_md = freak_word_lit("");
+llvm_dbg_next_id = 0;
+llvm_dbg_current_scope_id = 0;
+llvm_dbg_current_line = 0;
+llvm_dbg_current_dir = freak_word_lit(".");
+llvm_dbg_current_file = input_file;
+int64_t slash = (-1);
+int64_t i = 0;
+int64_t plen = freak_word_length(input_file);
+while (!((i >= plen))) {
+freak_word ch = freak_word_char_at(input_file, i);
+if ((freak_word_eq(ch, freak_word_lit("/")) || freak_word_eq(ch, freak_word_lit("\\")))) {
+slash = i;
+}
+i += 1;
+}
+if ((slash >= 0)) {
+freak_word base = freak_word_lit("");
+i = (slash + 1);
+while (!((i >= plen))) {
+base = freak_word_concat(base, freak_word_char_at(input_file, i));
+i += 1;
+}
+if ((!freak_word_eq(base, freak_word_lit("")))) {
+llvm_dbg_current_file = base;
+}
+freak_word dir = freak_word_lit("");
+i = 0;
+while (!((i >= slash))) {
+dir = freak_word_concat(dir, freak_word_char_at(input_file, i));
+i += 1;
+}
+if ((!freak_word_eq(dir, freak_word_lit("")))) {
+llvm_dbg_current_dir = dir;
+}
+}
+freak_word file_name = freak_llvm_dbg_escape(llvm_dbg_current_file);
+freak_word dir_name = freak_llvm_dbg_escape(llvm_dbg_current_dir);
+llvm_dbg_file_id = freak_llvm_dbg_append(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("!DIFile(filename: \""), file_name), freak_word_lit("\", directory: \"")), dir_name), freak_word_lit("\")")));
+llvm_dbg_cu_id = freak_llvm_dbg_append(freak_word_concat(freak_word_concat(freak_word_lit("distinct !DICompileUnit(language: DW_LANG_C, file: !"), freak_word_from_int(llvm_dbg_file_id)), freak_word_lit(", producer: \"FREAK v3\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)")));
+llvm_dbg_empty_id = freak_llvm_dbg_append(freak_word_lit("!{}"));
+llvm_dbg_subroutine_type_id = freak_llvm_dbg_append(freak_word_concat(freak_word_concat(freak_word_lit("!DISubroutineType(types: !"), freak_word_from_int(llvm_dbg_empty_id)), freak_word_lit(")")));
+}
+int64_t freak_llvm_dbg_emit_subprogram(freak_word name, int64_t line_no) {
+if ((line_no <= 0)) {
+line_no = 1;
+}
+return freak_llvm_dbg_append(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("distinct !DISubprogram(name: \""), freak_llvm_dbg_escape(name)), freak_word_lit("\", scope: !")), freak_word_from_int(llvm_dbg_file_id)), freak_word_lit(", file: !")), freak_word_from_int(llvm_dbg_file_id)), freak_word_lit(", line: ")), freak_word_from_int(line_no)), freak_word_lit(", type: !")), freak_word_from_int(llvm_dbg_subroutine_type_id)), freak_word_lit(", scopeLine: ")), freak_word_from_int(line_no)), freak_word_lit(", spFlags: DISPFlagDefinition, unit: !")), freak_word_from_int(llvm_dbg_cu_id)), freak_word_lit(", retainedNodes: !")), freak_word_from_int(llvm_dbg_empty_id)), freak_word_lit(")")));
+}
+int64_t freak_llvm_dbg_emit_location(int64_t line_no) {
+if ((line_no <= 0)) {
+line_no = 1;
+}
+return freak_llvm_dbg_append(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("!DILocation(line: "), freak_word_from_int(line_no)), freak_word_lit(", column: 1, scope: !")), freak_word_from_int(llvm_dbg_current_scope_id)), freak_word_lit(")")));
+}
+void freak_llvm_dbg_set_stmt_line(freak_word eid) {
+int64_t line_no = 1;
+if ((freak_word_length(eid) > 0)) {
+int64_t idx = freak_word_to_int(eid);
+line_no = freak_word_to_int(freak_array_get(ast_stmt_lines, idx));
+if ((line_no <= 0)) {
+line_no = 1;
+}
+}
+llvm_dbg_current_line = line_no;
+}
+freak_word freak_llvm_dbg_begin_func(freak_word name, int64_t line_no) {
+llvm_dbg_current_scope_id = freak_llvm_dbg_emit_subprogram(name, line_no);
+llvm_dbg_current_line = line_no;
+return freak_word_concat(freak_word_lit(" !dbg !"), freak_word_from_int(llvm_dbg_current_scope_id));
 }
 freak_word freak_register_string_literal(freak_word val) {
 freak_word id = freak_word_concat(freak_word_lit("@.str."), freak_word_from_int(string_literals_count));
@@ -4482,6 +4651,7 @@ int64_t i = freak_word_to_int(eid);
 freak_word kind = freak_array_get(ast_stmt_kinds, i);
 freak_word name_w = freak_array_get(ast_stmt_names, i);
 freak_word expr_id_w = freak_array_get(ast_stmt_exprs, i);
+freak_llvm_dbg_set_stmt_line(eid);
 if (freak_word_eq(kind, STMT_PILOT)) {
 freak_llvm_emit_stmt_pilot(eid);
 return ;
@@ -5011,6 +5181,7 @@ freak_word name_w = freak_array_get(ast_stmt_names, i);
 freak_word body_id_w = freak_array_get(ast_stmt_bodies, i);
 freak_word params_w = freak_array_get(ast_task_params, i);
 freak_word returns_w = freak_array_get(ast_task_returns, i);
+int64_t line_no = freak_word_to_int(freak_array_get(ast_stmt_lines, i));
 freak_word ret_type = freak_word_lit("i64");
 bool is_void = false;
 if ((freak_word_eq(returns_w, freak_word_lit("void")) || freak_word_eq(returns_w, freak_word_lit("")))) {
@@ -5022,7 +5193,8 @@ freak_word p_str = freak_word_lit("");
 if ((freak_word_length(params_w) > 0)) {
 p_str = freak_llvm_translate_params(params_w);
 }
-freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("define "), ret_type), freak_word_lit(" @freak_")), name_w), freak_word_lit("(")), p_str), freak_word_lit(") {")));
+freak_word dbg_attr = freak_llvm_dbg_begin_func(name_w, line_no);
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("define "), ret_type), freak_word_lit(" @freak_")), name_w), freak_word_lit("(")), p_str), freak_word_lit(")")), dbg_attr), freak_word_lit(" {")));
 freak_llvm_emit_line(freak_word_lit("entry:"));
 if ((freak_word_length(params_w) > 0)) {
 freak_llvm_allocate_params(params_w);
@@ -5036,6 +5208,8 @@ freak_llvm_emit_line(freak_word_lit("    ret i64 0"));
 }
 freak_llvm_emit_line(freak_word_lit("}"));
 freak_llvm_emit_line(freak_word_lit(""));
+llvm_dbg_current_scope_id = 0;
+llvm_dbg_current_line = 0;
 }
 void freak_llvm_emit_runtime_decls(void) {
 freak_llvm_emit_line(freak_word_lit("declare i32 @puts(i8*)"));
@@ -5120,6 +5294,7 @@ void freak_emit_llvm_program(void) {
 temp_reg_counter = 0;
 string_literals = freak_word_lit("");
 string_literals_count = 0;
+freak_llvm_dbg_init();
 freak_fs_write(out_file, freak_word_lit(""));
 freak_llvm_emit_line(freak_word_lit("; FREAK LLVM IR Generator (v3)"));
 freak_llvm_emit_line(freak_word_lit(""));
@@ -5222,7 +5397,8 @@ llvm_var_names = freak_word_lit("");
 llvm_var_types = freak_word_lit("");
 llvm_var_reg_map = freak_word_lit("");
 llvm_cur_func_is_void = true;
-freak_llvm_emit_line(freak_word_lit("define void @freak_init_globals() {"));
+freak_word init_dbg = freak_llvm_dbg_begin_func(freak_word_lit("freak_init_globals"), 1);
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_lit("define void @freak_init_globals()"), init_dbg), freak_word_lit(" {")));
 freak_llvm_emit_line(freak_word_lit("entry:"));
 i = 0;
 for (int64_t __rep = 0; __rep < top_count; __rep++) {
@@ -5236,13 +5412,16 @@ i += 1;
 freak_llvm_emit_line(freak_word_lit("    ret void"));
 freak_llvm_emit_line(freak_word_lit("}"));
 freak_llvm_emit_line(freak_word_lit(""));
+llvm_dbg_current_scope_id = 0;
+llvm_dbg_current_line = 0;
 }
 if ((!has_main_task)) {
 llvm_var_names = freak_word_lit("");
 llvm_var_types = freak_word_lit("");
 llvm_var_reg_map = freak_word_lit("");
 llvm_cur_func_is_void = true;
-freak_llvm_emit_line(freak_word_lit("define void @freak_main() {"));
+freak_word main_dbg = freak_llvm_dbg_begin_func(freak_word_lit("freak_main"), 1);
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_lit("define void @freak_main()"), main_dbg), freak_word_lit(" {")));
 freak_llvm_emit_line(freak_word_lit("entry:"));
 i = 0;
 for (int64_t __rep = 0; __rep < top_count; __rep++) {
@@ -5255,9 +5434,12 @@ i += 1;
 }
 freak_llvm_emit_line(freak_word_lit("    ret void"));
 freak_llvm_emit_line(freak_word_lit("}"));
+llvm_dbg_current_scope_id = 0;
+llvm_dbg_current_line = 0;
 }
 freak_llvm_emit_line(freak_word_lit(""));
-freak_llvm_emit_line(freak_word_lit("define i32 @main(i32 %argc, i8** %argv) {"));
+freak_word cmain_dbg = freak_llvm_dbg_begin_func(freak_word_lit("main"), 1);
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_lit("define i32 @main(i32 %argc, i8** %argv)"), cmain_dbg), freak_word_lit(" {")));
 freak_llvm_emit_line(freak_word_lit("entry:"));
 freak_llvm_emit_line(freak_word_lit("    %argc_ext = sext i32 %argc to i64"));
 freak_llvm_emit_line(freak_word_lit("    %argv_ptr = ptrtoint i8** %argv to i64"));
@@ -5271,9 +5453,14 @@ freak_llvm_emit_line(freak_word_lit("    call void @freak_main()"));
 }
 freak_llvm_emit_line(freak_word_lit("    ret i32 0"));
 freak_llvm_emit_line(freak_word_lit("}"));
+llvm_dbg_current_scope_id = 0;
+llvm_dbg_current_line = 0;
 freak_llvm_emit_line(freak_word_lit(""));
 freak_llvm_emit_line(freak_word_lit("; String Literals"));
 freak_llvm_emit_line(string_literals);
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_lit("!llvm.dbg.cu = !{!"), freak_word_from_int(llvm_dbg_cu_id)), freak_word_lit("}")));
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("!llvm.module.flags = !{!"), freak_word_from_int(freak_llvm_dbg_append(freak_word_lit("!{i32 7, !\"Dwarf Version\", i32 4}")))), freak_word_lit(", !")), freak_word_from_int(freak_llvm_dbg_append(freak_word_lit("!{i32 2, !\"Debug Info Version\", i32 3}")))), freak_word_lit("}")));
+freak_llvm_emit_line(llvm_dbg_md);
 }
 freak_word freak_cli_rgb(int64_t r, int64_t g, int64_t b) {
 return freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("\x1b[38;2;"), freak_word_from_int(r)), freak_word_lit(";")), freak_word_from_int(g)), freak_word_lit(";")), freak_word_from_int(b)), freak_word_lit("m"));
@@ -6066,10 +6253,27 @@ int64_t elapsed = (freak_time_now_ms() - cli_step_ms);
 freak_word elapsed_str = freak_word_from_int(elapsed);
 freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_BGREEN), SYM_CHECK), C_RESET), freak_word_lit("  ")), label), C_DIM), freak_word_lit(" (")), elapsed_str), freak_word_lit("ms)")), C_RESET));
 }
+int64_t freak_cli_count_lines(freak_word s) {
+if (freak_word_eq(s, freak_word_lit(""))) {
+return 0;
+}
+int64_t count = 1;
+int64_t i = 0;
+int64_t slen = freak_word_length(s);
+while (!((i >= slen))) {
+if (freak_word_eq(freak_word_char_at(s, i), freak_word_lit("\n"))) {
+count += 1;
+}
+i += 1;
+}
+return count;
+}
 freak_word freak_cli_transpile(freak_word src_file, freak_word source, freak_word target) {
+input_file = src_file;
 freak_init_arrays();
 freak_cli_step_start();
 freak_tokenize(source);
+freak_adjust_token_lines(source_line_offset);
 freak_cli_step_done(freak_word_lit("Lexing"));
 freak_cli_step_start();
 freak_parse_program();
@@ -6201,7 +6405,7 @@ out_bin = freak_word_concat(out_bin, freak_word_lit(".exe"));
 int64_t is_win = freak_cli_is_windows();
 bool use_bundle = false;
 if (freak_word_eq(target, freak_word_lit("llvm"))) {
-if (freak_cli_has_precompiled_runtime(runtime_dir)) {
+if ((freak_cli_has_precompiled_runtime(runtime_dir) && (!is_win))) {
 use_bundle = true;
 }
 }
@@ -6211,7 +6415,7 @@ if ((!is_win)) {
 obj_ext = freak_word_lit(".o");
 }
 freak_word user_obj = freak_word_concat(freak_cli_strip_fk(src_file), obj_ext);
-freak_word cc_cmd = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("clang -c -o "), user_obj), freak_word_lit(" ")), transpiled_file), freak_word_lit(" -O")), opt), freak_word_lit(" -w"));
+freak_word cc_cmd = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("clang -c -g -o "), user_obj), freak_word_lit(" ")), transpiled_file), freak_word_lit(" -O")), opt), freak_word_lit(" -w"));
 if ((!freak_word_eq(cross, freak_word_lit("")))) {
 cc_cmd = freak_word_concat(freak_word_concat(cc_cmd, freak_word_lit(" --target=")), cross);
 }
@@ -6230,6 +6434,8 @@ if (freak_fs_exists(ui_obj)) {
 link_cmd = freak_word_concat(freak_word_concat(link_cmd, freak_word_lit(" ")), ui_obj);
 }
 link_cmd = freak_word_concat(freak_word_concat(freak_word_concat(link_cmd, freak_word_lit(" /out:")), out_bin), freak_word_lit(" /subsystem:console"));
+freak_word pdb_out = freak_word_concat(freak_cli_strip_fk(src_file), freak_word_lit(".pdb"));
+link_cmd = freak_word_concat(freak_word_concat(link_cmd, freak_word_lit(" /debug /pdb:")), pdb_out);
 link_cmd = freak_word_concat(link_cmd, freak_word_lit(" libcmt.lib user32.lib gdi32.lib msimg32.lib ws2_32.lib"));
 freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), SYM_GEAR), freak_word_lit("  Linking...")), C_RESET));
 int64_t link_exit = freak_process_exec(link_cmd);
@@ -6262,7 +6468,7 @@ runtime_file = freak_word_concat(freak_word_concat(llvm_rt_c, freak_word_lit(" "
 else {
 runtime_file = freak_word_concat(runtime_dir, freak_word_lit("/freak_runtime.c"));
 }
-freak_word cmd = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("clang -o "), out_bin), freak_word_lit(" ")), transpiled_file), freak_word_lit(" ")), runtime_file);
+freak_word cmd = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("clang -g -o "), out_bin), freak_word_lit(" ")), transpiled_file), freak_word_lit(" ")), runtime_file);
 cmd = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(cmd, freak_word_lit(" -I")), runtime_dir), freak_word_lit(" -O")), opt), freak_word_lit(" -w -D_CRT_SECURE_NO_WARNINGS"));
 if ((!is_win)) {
 cmd = freak_word_concat(cmd, freak_word_lit(" -lm"));
@@ -6385,7 +6591,9 @@ freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_conca
 freak_say(freak_cli_box_bot(45));
 freak_say(freak_word_lit(""));
 freak_word std_source = freak_cli_load_std(target);
+source_line_offset = 0;
 if ((!freak_word_eq(std_source, freak_word_lit("")))) {
+source_line_offset = freak_cli_count_lines(std_source);
 source = freak_word_concat(std_source, source);
 }
 freak_word transpiled = freak_cli_transpile(src_file, source, target);
@@ -8426,6 +8634,7 @@ ast_stmt_else_bodies = 0;
 ast_stmt_extras = 0;
 ast_task_params = 0;
 ast_task_returns = 0;
+ast_stmt_lines = 0;
 ast_top_stmts = 0;
 shape_registry_names = 0;
 shape_registry_fields = 0;
@@ -8468,9 +8677,20 @@ llvm_loop_end_label = freak_word_lit("");
 llvm_loop_cond_label = freak_word_lit("");
 llvm_global_names = freak_word_lit("");
 llvm_var_reg_map = freak_word_lit("");
+llvm_dbg_md = freak_word_lit("");
+llvm_dbg_next_id = 0;
+llvm_dbg_file_id = 0;
+llvm_dbg_cu_id = 0;
+llvm_dbg_empty_id = 0;
+llvm_dbg_subroutine_type_id = 0;
+llvm_dbg_current_scope_id = 0;
+llvm_dbg_current_line = 0;
+llvm_dbg_current_dir = freak_word_lit(".");
+llvm_dbg_current_file = freak_word_lit("");
 input_file = freak_word_lit("");
 opt_level = freak_word_lit("2");
 cross_target = freak_word_lit("");
+source_line_offset = 0;
 CLI_VERSION = freak_word_lit("0.13.1");
 CLI_CODENAME = freak_word_lit("Shiranui");
 C_RESET = freak_word_lit("\x1b[0m");
