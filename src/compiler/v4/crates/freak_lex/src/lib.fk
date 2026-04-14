@@ -1,0 +1,367 @@
+-- ===================================================================
+-- freak_lex - V4 lossless lexer prototype
+-- ===================================================================
+-- Depends on freak_span and freak_diag.
+-- Produces token streams with trivia, spans, line/column positions, and
+-- lexical diagnostics. Syntax recovery belongs to freak_parse; this crate
+-- only turns source text into stable lexical facts.
+
+pilot v4_tok_eof = "eof"
+pilot v4_tok_ident = "ident"
+pilot v4_tok_keyword = "keyword"
+pilot v4_tok_int = "int"
+pilot v4_tok_float = "float"
+pilot v4_tok_string = "string"
+pilot v4_tok_bool = "bool"
+pilot v4_tok_symbol = "symbol"
+pilot v4_tok_trivia = "trivia"
+pilot v4_tok_unknown = "unknown"
+
+pilot v4_lex_stream_files = 0
+pilot v4_lex_stream_types = 0
+pilot v4_lex_stream_values = 0
+pilot v4_lex_stream_spans = 0
+pilot v4_lex_stream_lines = 0
+pilot v4_lex_stream_cols = 0
+pilot v4_lex_stream_diags = 0
+pilot v4_lex_ready = 0
+
+task v4_lex_init() -> void {
+    if v4_lex_ready == 0 {
+        v4_lex_stream_files = array_new()
+        v4_lex_stream_types = array_new()
+        v4_lex_stream_values = array_new()
+        v4_lex_stream_spans = array_new()
+        v4_lex_stream_lines = array_new()
+        v4_lex_stream_cols = array_new()
+        v4_lex_stream_diags = array_new()
+        v4_lex_ready = 1
+    }
+}
+
+task v4_lex_stream_new(file_id: int) -> int {
+    v4_lex_init()
+    pilot stream_id = array_len(v4_lex_stream_files)
+    array_push(v4_lex_stream_files, word_from_int(file_id))
+    array_push(v4_lex_stream_types, word_from_int(array_new()))
+    array_push(v4_lex_stream_values, word_from_int(array_new()))
+    array_push(v4_lex_stream_spans, word_from_int(array_new()))
+    array_push(v4_lex_stream_lines, word_from_int(array_new()))
+    array_push(v4_lex_stream_cols, word_from_int(array_new()))
+    array_push(v4_lex_stream_diags, word_from_int(array_new()))
+    give back stream_id
+}
+
+task v4_lex_types_handle(stream_id: int) -> int {
+    give back word_to_int(array_get(v4_lex_stream_types, stream_id))
+}
+
+task v4_lex_values_handle(stream_id: int) -> int {
+    give back word_to_int(array_get(v4_lex_stream_values, stream_id))
+}
+
+task v4_lex_spans_handle(stream_id: int) -> int {
+    give back word_to_int(array_get(v4_lex_stream_spans, stream_id))
+}
+
+task v4_lex_lines_handle(stream_id: int) -> int {
+    give back word_to_int(array_get(v4_lex_stream_lines, stream_id))
+}
+
+task v4_lex_cols_handle(stream_id: int) -> int {
+    give back word_to_int(array_get(v4_lex_stream_cols, stream_id))
+}
+
+task v4_lex_diags_handle(stream_id: int) -> int {
+    give back word_to_int(array_get(v4_lex_stream_diags, stream_id))
+}
+
+task v4_lex_add_token(stream_id: int, tok_type: word, value: word, span: word, line_no: int, col_no: int) -> void {
+    array_push(v4_lex_types_handle(stream_id), tok_type)
+    array_push(v4_lex_values_handle(stream_id), value)
+    array_push(v4_lex_spans_handle(stream_id), span)
+    array_push(v4_lex_lines_handle(stream_id), word_from_int(line_no))
+    array_push(v4_lex_cols_handle(stream_id), word_from_int(col_no))
+}
+
+task v4_lex_add_diag(stream_id: int, severity: int, span: word, message: word, help: word) -> void {
+    array_push(v4_lex_diags_handle(stream_id), v4_diag_new(severity, span, message, help))
+}
+
+task v4_lex_token_count(stream_id: int) -> int {
+    give back array_len(v4_lex_types_handle(stream_id))
+}
+
+task v4_lex_diag_count(stream_id: int) -> int {
+    give back array_len(v4_lex_diags_handle(stream_id))
+}
+
+task v4_lex_token_type(stream_id: int, token_id: int) -> word {
+    give back array_get(v4_lex_types_handle(stream_id), token_id)
+}
+
+task v4_lex_token_value(stream_id: int, token_id: int) -> word {
+    give back array_get(v4_lex_values_handle(stream_id), token_id)
+}
+
+task v4_lex_token_span(stream_id: int, token_id: int) -> word {
+    give back array_get(v4_lex_spans_handle(stream_id), token_id)
+}
+
+task v4_lex_token_line(stream_id: int, token_id: int) -> int {
+    give back word_to_int(array_get(v4_lex_lines_handle(stream_id), token_id))
+}
+
+task v4_lex_token_col(stream_id: int, token_id: int) -> int {
+    give back word_to_int(array_get(v4_lex_cols_handle(stream_id), token_id))
+}
+
+task v4_lex_diag(stream_id: int, diag_id: int) -> word {
+    give back array_get(v4_lex_diags_handle(stream_id), diag_id)
+}
+
+task v4_lex_char_at(text: word, pos: int) -> word {
+    if pos < 0 {
+        give back ""
+    }
+    if pos >= text.length() {
+        give back ""
+    }
+    give back text.char_at(pos)
+}
+
+task v4_lex_is_digit(ch: word) -> bool {
+    give back ch == "0" or ch == "1" or ch == "2" or ch == "3" or ch == "4" or ch == "5" or ch == "6" or ch == "7" or ch == "8" or ch == "9"
+}
+
+task v4_lex_is_alpha(ch: word) -> bool {
+    if ch == "a" or ch == "b" or ch == "c" or ch == "d" or ch == "e" or ch == "f" or ch == "g" or ch == "h" or ch == "i" or ch == "j" or ch == "k" or ch == "l" or ch == "m" {
+        give back true
+    }
+    if ch == "n" or ch == "o" or ch == "p" or ch == "q" or ch == "r" or ch == "s" or ch == "t" or ch == "u" or ch == "v" or ch == "w" or ch == "x" or ch == "y" or ch == "z" {
+        give back true
+    }
+    if ch == "A" or ch == "B" or ch == "C" or ch == "D" or ch == "E" or ch == "F" or ch == "G" or ch == "H" or ch == "I" or ch == "J" or ch == "K" or ch == "L" or ch == "M" {
+        give back true
+    }
+    if ch == "N" or ch == "O" or ch == "P" or ch == "Q" or ch == "R" or ch == "S" or ch == "T" or ch == "U" or ch == "V" or ch == "W" or ch == "X" or ch == "Y" or ch == "Z" {
+        give back true
+    }
+    give back false
+}
+
+task v4_lex_is_ident_start(ch: word) -> bool {
+    give back v4_lex_is_alpha(ch) or ch == "_"
+}
+
+task v4_lex_is_ident_continue(ch: word) -> bool {
+    give back v4_lex_is_ident_start(ch) or v4_lex_is_digit(ch)
+}
+
+task v4_lex_is_horizontal_space(ch: word) -> bool {
+    give back ch == " " or ch == "\t" or ch == "\r"
+}
+
+task v4_lex_is_newline(ch: word) -> bool {
+    give back ch == "\n"
+}
+
+task v4_lex_is_bool_word(text_word: word) -> bool {
+    pilot lower = text_word.to_lower()
+    give back lower == "true" or lower == "false" or lower == "yes" or lower == "no" or lower == "hai" or lower == "iie"
+}
+
+task v4_lex_is_keyword_word(text_word: word) -> bool {
+    pilot lower = text_word.to_lower()
+    if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "impl" or lower == "doctrine" or lower == "launch" {
+        give back true
+    }
+    if lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "break" or lower == "continue" {
+        give back true
+    }
+    if lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" {
+        give back true
+    }
+    if lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "or" {
+        give back true
+    }
+    if lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "sadly" or lower == "deus_ex_machina" {
+        give back true
+    }
+    if lower == "isekai" or lower == "eventually" or lower == "and" or lower == "not" or lower == "nakama" or lower == "tsundere" or lower == "extern" {
+        give back true
+    }
+    if lower == "give" or lower == "back" or lower == "trust" or lower == "me" or lower == "training" or lower == "arc" or lower == "bringing" {
+        give back true
+    }
+    give back false
+}
+
+task v4_lex_is_symbol_start(ch: word) -> bool {
+    if ch == "=" or ch == "+" or ch == "-" or ch == "*" or ch == "/" or ch == "<" or ch == ">" or ch == "!" or ch == ":" or ch == "|" {
+        give back true
+    }
+    if ch == "%" or ch == "@" or ch == "?" or ch == "{" or ch == "}" or ch == "(" or ch == ")" or ch == "[" or ch == "]" {
+        give back true
+    }
+    give back ch == "," or ch == "." or ch == ";"
+}
+
+task v4_lex_symbol_len(text: word, pos: int) -> int {
+    pilot ch = v4_lex_char_at(text, pos)
+    pilot next_ch = v4_lex_char_at(text, pos + 1)
+    if ch == "=" and next_ch == "=" { give back 2 }
+    if ch == "!" and next_ch == "=" { give back 2 }
+    if ch == "<" and next_ch == "=" { give back 2 }
+    if ch == ">" and next_ch == "=" { give back 2 }
+    if ch == "+" and next_ch == "=" { give back 2 }
+    if ch == "-" and next_ch == "=" { give back 2 }
+    if ch == "*" and next_ch == "=" { give back 2 }
+    if ch == "/" and next_ch == "=" { give back 2 }
+    if ch == "%" and next_ch == "=" { give back 2 }
+    if ch == "-" and next_ch == ">" { give back 2 }
+    if ch == "=" and next_ch == ">" { give back 2 }
+    if ch == "*" and next_ch == "*" { give back 2 }
+    if ch == "|" and next_ch == ">" { give back 2 }
+    if ch == "|" and next_ch == "|" { give back 2 }
+    if ch == ":" and next_ch == ":" { give back 2 }
+    if ch == "&" and next_ch == "&" { give back 2 }
+    give back 1
+}
+
+task v4_lex_token_at(stream_id: int, offset: int) -> int {
+    pilot spans = v4_lex_spans_handle(stream_id)
+    pilot i = 0
+    pilot count = array_len(spans)
+    repeat until i >= count {
+        pilot span = array_get(spans, i)
+        pilot start_pos = v4_span_start(span)
+        pilot end_pos = v4_span_end(span)
+        if offset >= start_pos {
+            if offset < end_pos {
+                give back i
+            }
+        }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task v4_lex_summary(stream_id: int) -> word {
+    pilot summary = "lex-ok stream=" + word_from_int(stream_id)
+    summary = summary + " tokens=" + word_from_int(v4_lex_token_count(stream_id))
+    summary = summary + " diagnostics=" + word_from_int(v4_lex_diag_count(stream_id))
+    give back summary
+}
+
+task v4_lex_text(file_id: int, text: word) -> int {
+    v4_lex_init()
+    pilot stream_id = v4_lex_stream_new(file_id)
+    pilot pos = 0
+    pilot line_no = 1
+    pilot col_no = 1
+    pilot text_len = text.length()
+
+    repeat until pos >= text_len {
+        pilot start_pos = pos
+        pilot start_line = line_no
+        pilot start_col = col_no
+        pilot ch = v4_lex_char_at(text, pos)
+
+        if v4_lex_is_newline(ch) {
+            pos += 1
+            line_no += 1
+            col_no = 1
+            v4_lex_add_token(stream_id, v4_tok_trivia, "\n", v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+        } else if v4_lex_is_horizontal_space(ch) {
+            repeat until pos >= text_len or not v4_lex_is_horizontal_space(v4_lex_char_at(text, pos)) {
+                pos += 1
+                col_no += 1
+            }
+            v4_lex_add_token(stream_id, v4_tok_trivia, v4_slice(text, start_pos, pos), v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+        } else if ch == "-" and v4_lex_char_at(text, pos + 1) == "-" {
+            repeat until pos >= text_len or v4_lex_is_newline(v4_lex_char_at(text, pos)) {
+                pos += 1
+                col_no += 1
+            }
+            v4_lex_add_token(stream_id, v4_tok_trivia, v4_slice(text, start_pos, pos), v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+        } else if v4_lex_is_ident_start(ch) {
+            repeat until pos >= text_len or not v4_lex_is_ident_continue(v4_lex_char_at(text, pos)) {
+                pos += 1
+                col_no += 1
+            }
+            pilot ident_text = v4_slice(text, start_pos, pos)
+            if v4_lex_is_bool_word(ident_text) {
+                v4_lex_add_token(stream_id, v4_tok_bool, ident_text, v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+            } else if v4_lex_is_keyword_word(ident_text) {
+                v4_lex_add_token(stream_id, v4_tok_keyword, ident_text, v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+            } else {
+                v4_lex_add_token(stream_id, v4_tok_ident, ident_text, v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+            }
+        } else if v4_lex_is_digit(ch) {
+            repeat until pos >= text_len or not v4_lex_is_digit(v4_lex_char_at(text, pos)) {
+                pos += 1
+                col_no += 1
+            }
+            pilot number_type = v4_tok_int
+            if v4_lex_char_at(text, pos) == "." {
+                if v4_lex_is_digit(v4_lex_char_at(text, pos + 1)) {
+                    number_type = v4_tok_float
+                    pos += 1
+                    col_no += 1
+                    repeat until pos >= text_len or not v4_lex_is_digit(v4_lex_char_at(text, pos)) {
+                        pos += 1
+                        col_no += 1
+                    }
+                }
+            }
+            v4_lex_add_token(stream_id, number_type, v4_slice(text, start_pos, pos), v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+        } else if ch == "\"" {
+            pos += 1
+            col_no += 1
+            pilot string_start = pos
+            pilot closed = false
+            repeat until pos >= text_len or closed {
+                pilot str_ch = v4_lex_char_at(text, pos)
+                if str_ch == "\"" {
+                    closed = true
+                } else if str_ch == "\\" {
+                    pos += 1
+                    col_no += 1
+                    if pos < text_len {
+                        pos += 1
+                        col_no += 1
+                    }
+                } else if v4_lex_is_newline(str_ch) {
+                    closed = true
+                } else {
+                    pos += 1
+                    col_no += 1
+                }
+            }
+            pilot string_end = pos
+            if v4_lex_char_at(text, pos) == "\"" {
+                pos += 1
+                col_no += 1
+            } else {
+                v4_lex_add_diag(stream_id, v4_diag_error, v4_span_new(word_from_int(file_id), start_pos, pos), "unterminated string literal", "add a closing quote before the line ends")
+            }
+            v4_lex_add_token(stream_id, v4_tok_string, v4_slice(text, string_start, string_end), v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+        } else if v4_lex_is_symbol_start(ch) {
+            pilot sym_len = v4_lex_symbol_len(text, pos)
+            pos += sym_len
+            col_no += sym_len
+            v4_lex_add_token(stream_id, v4_tok_symbol, v4_slice(text, start_pos, pos), v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+        } else {
+            pos += 1
+            col_no += 1
+            pilot bad_span = v4_span_new(word_from_int(file_id), start_pos, pos)
+            v4_lex_add_token(stream_id, v4_tok_unknown, ch, bad_span, start_line, start_col)
+            v4_lex_add_diag(stream_id, v4_diag_error, bad_span, "unknown character", ch)
+        }
+    }
+
+    v4_lex_add_token(stream_id, v4_tok_eof, "", v4_span_new(word_from_int(file_id), pos, pos), line_no, col_no)
+    give back stream_id
+}
+

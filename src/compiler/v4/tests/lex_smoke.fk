@@ -1,0 +1,12 @@
+-- V4 lexer smoke fixture.
+-- The current compiler consumes flattened source, so verification prepends
+-- the V4 crates before this file.
+
+pilot v4_smoke_source = "-- comment\npilot name = \"Takeru\"\nsay name\n"
+pilot v4_smoke_stream = v4_lex_text(0, v4_smoke_source)
+
+say v4_lex_summary(v4_smoke_stream)
+say "first-token=" + v4_lex_token_type(v4_smoke_stream, 0)
+say "first-value=" + v4_lex_token_value(v4_smoke_stream, 0)
+say "token-at-12=" + v4_lex_token_type(v4_smoke_stream, v4_lex_token_at(v4_smoke_stream, 12))
+
