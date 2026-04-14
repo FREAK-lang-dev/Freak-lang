@@ -77,6 +77,14 @@ task v4_hir_diags_handle(hir_id: int) -> int {
     give back word_to_int(array_get(v4_hir_diags, hir_id))
 }
 
+task v4_hir_file_id(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_files, hir_id))
+}
+
+task v4_hir_tree_id(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_trees, hir_id))
+}
+
 task v4_hir_def_id(file_id: int, item_kind: word, item_name: word, item_index: int) -> word {
     pilot safe_name = item_name
     if safe_name == "" {
@@ -186,4 +194,3 @@ task v4_hir_summary(hir_id: int) -> word {
     summary = summary + " diagnostics=" + word_from_int(v4_hir_diag_count(hir_id))
     give back summary
 }
-

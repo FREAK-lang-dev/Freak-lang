@@ -1,14 +1,23 @@
 -- ===================================================================
--- freak_mir - V4 MIR body scaffold
+-- freak_mir - V4 MIR body and statement lowering scaffold
 -- ===================================================================
--- Depends on freak_span, freak_diag, and freak_ty.
--- This first MIR layer creates empty MIR bodies for task signatures.
--- It establishes body/basic-block/terminator storage before real HIR
--- expression and statement lowering begins.
+-- Depends on freak_span, freak_diag, freak_parse, freak_hir,
+-- freak_resolve, and freak_ty.
+-- This MIR layer creates task bodies, entry blocks, locals, and simple
+-- statement records by lowering from HIR item spans back through the
+-- lossless token stream. Yuuko would call this "ugly but reversible":
+-- the parser remains resilient and shallow while MIR starts carrying
+-- useful semantic cargo for Meiya.
 
 pilot v4_mir_term_return = "Return"
 pilot v4_mir_term_unreachable = "Unreachable"
 pilot v4_mir_term_goto = "Goto"
+
+pilot v4_mir_stmt_local = "LocalInit"
+pilot v4_mir_stmt_assign = "Assign"
+pilot v4_mir_stmt_return = "ReturnValue"
+pilot v4_mir_stmt_expr = "Expr"
+pilot v4_mir_local_unknown = "unknown"
 
 pilot v4_mir_files = 0
 pilot v4_mir_tys = 0
@@ -16,6 +25,13 @@ pilot v4_mir_body_defs = 0
 pilot v4_mir_body_names = 0
 pilot v4_mir_body_sigs = 0
 pilot v4_mir_body_blocks = 0
+pilot v4_mir_body_local_names = 0
+pilot v4_mir_body_local_tys = 0
+pilot v4_mir_body_local_spans = 0
+pilot v4_mir_body_stmt_kinds = 0
+pilot v4_mir_body_stmt_lhs = 0
+pilot v4_mir_body_stmt_rhs = 0
+pilot v4_mir_body_stmt_spans = 0
 pilot v4_mir_diags = 0
 pilot v4_mir_ready = 0
 
@@ -27,6 +43,13 @@ task v4_mir_init() -> void {
         v4_mir_body_names = array_new()
         v4_mir_body_sigs = array_new()
         v4_mir_body_blocks = array_new()
+        v4_mir_body_local_names = array_new()
+        v4_mir_body_local_tys = array_new()
+        v4_mir_body_local_spans = array_new()
+        v4_mir_body_stmt_kinds = array_new()
+        v4_mir_body_stmt_lhs = array_new()
+        v4_mir_body_stmt_rhs = array_new()
+        v4_mir_body_stmt_spans = array_new()
         v4_mir_diags = array_new()
         v4_mir_ready = 1
     }
@@ -41,6 +64,13 @@ task v4_mir_file_new(file_id: int, ty_id: int) -> int {
     array_push(v4_mir_body_names, word_from_int(array_new()))
     array_push(v4_mir_body_sigs, word_from_int(array_new()))
     array_push(v4_mir_body_blocks, word_from_int(array_new()))
+    array_push(v4_mir_body_local_names, word_from_int(array_new()))
+    array_push(v4_mir_body_local_tys, word_from_int(array_new()))
+    array_push(v4_mir_body_local_spans, word_from_int(array_new()))
+    array_push(v4_mir_body_stmt_kinds, word_from_int(array_new()))
+    array_push(v4_mir_body_stmt_lhs, word_from_int(array_new()))
+    array_push(v4_mir_body_stmt_rhs, word_from_int(array_new()))
+    array_push(v4_mir_body_stmt_spans, word_from_int(array_new()))
     array_push(v4_mir_diags, word_from_int(array_new()))
     give back mir_id
 }
@@ -59,6 +89,34 @@ task v4_mir_sigs_handle(mir_id: int) -> int {
 
 task v4_mir_blocks_handle(mir_id: int) -> int {
     give back word_to_int(array_get(v4_mir_body_blocks, mir_id))
+}
+
+task v4_mir_local_names_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_local_names, mir_id))
+}
+
+task v4_mir_local_tys_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_local_tys, mir_id))
+}
+
+task v4_mir_local_spans_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_local_spans, mir_id))
+}
+
+task v4_mir_stmt_kinds_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_stmt_kinds, mir_id))
+}
+
+task v4_mir_stmt_lhs_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_stmt_lhs, mir_id))
+}
+
+task v4_mir_stmt_rhs_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_stmt_rhs, mir_id))
+}
+
+task v4_mir_stmt_spans_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_stmt_spans, mir_id))
 }
 
 task v4_mir_diags_handle(mir_id: int) -> int {
@@ -89,8 +147,72 @@ task v4_mir_body_blocks_handle(mir_id: int, body_id: int) -> int {
     give back word_to_int(array_get(v4_mir_blocks_handle(mir_id), body_id))
 }
 
+task v4_mir_body_local_names_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_local_names_index_handle(mir_id), body_id))
+}
+
+task v4_mir_body_local_tys_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_local_tys_index_handle(mir_id), body_id))
+}
+
+task v4_mir_body_local_spans_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body_id))
+}
+
+task v4_mir_body_stmt_kinds_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_stmt_kinds_index_handle(mir_id), body_id))
+}
+
+task v4_mir_body_stmt_lhs_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_stmt_lhs_index_handle(mir_id), body_id))
+}
+
+task v4_mir_body_stmt_rhs_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_stmt_rhs_index_handle(mir_id), body_id))
+}
+
+task v4_mir_body_stmt_spans_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_stmt_spans_index_handle(mir_id), body_id))
+}
+
 task v4_mir_body_block_count(mir_id: int, body_id: int) -> int {
     give back array_len(v4_mir_body_blocks_handle(mir_id, body_id))
+}
+
+task v4_mir_body_local_count(mir_id: int, body_id: int) -> int {
+    give back array_len(v4_mir_body_local_names_handle(mir_id, body_id))
+}
+
+task v4_mir_body_stmt_count(mir_id: int, body_id: int) -> int {
+    give back array_len(v4_mir_body_stmt_kinds_handle(mir_id, body_id))
+}
+
+task v4_mir_local_name(mir_id: int, body_id: int, local_id: int) -> word {
+    give back array_get(v4_mir_body_local_names_handle(mir_id, body_id), local_id)
+}
+
+task v4_mir_local_ty(mir_id: int, body_id: int, local_id: int) -> word {
+    give back array_get(v4_mir_body_local_tys_handle(mir_id, body_id), local_id)
+}
+
+task v4_mir_local_span(mir_id: int, body_id: int, local_id: int) -> word {
+    give back array_get(v4_mir_body_local_spans_handle(mir_id, body_id), local_id)
+}
+
+task v4_mir_stmt_kind(mir_id: int, body_id: int, stmt_id: int) -> word {
+    give back array_get(v4_mir_body_stmt_kinds_handle(mir_id, body_id), stmt_id)
+}
+
+task v4_mir_stmt_lhs(mir_id: int, body_id: int, stmt_id: int) -> word {
+    give back array_get(v4_mir_body_stmt_lhs_handle(mir_id, body_id), stmt_id)
+}
+
+task v4_mir_stmt_rhs(mir_id: int, body_id: int, stmt_id: int) -> word {
+    give back array_get(v4_mir_body_stmt_rhs_handle(mir_id, body_id), stmt_id)
+}
+
+task v4_mir_stmt_span(mir_id: int, body_id: int, stmt_id: int) -> word {
+    give back array_get(v4_mir_body_stmt_spans_handle(mir_id, body_id), stmt_id)
 }
 
 task v4_mir_diag(mir_id: int, diag_id: int) -> word {
@@ -138,21 +260,322 @@ task v4_mir_body_block(mir_id: int, body_id: int, block_id: int) -> word {
     give back array_get(v4_mir_body_blocks_handle(mir_id, body_id), block_id)
 }
 
+task v4_mir_find_local(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot local_idx = 0
+    pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+    repeat until local_idx >= local_count {
+        if v4_mir_local_name(mir_id, body_id, local_idx) == local_name {
+            give back local_idx
+        }
+        local_idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_add_local(mir_id: int, body_id: int, local_name: word, local_ty: word, span: word) -> int {
+    pilot existing = v4_mir_find_local(mir_id, body_id, local_name)
+    if existing >= 0 {
+        give back existing
+    }
+
+    pilot local_id = array_len(v4_mir_body_local_names_handle(mir_id, body_id))
+    array_push(v4_mir_body_local_names_handle(mir_id, body_id), local_name)
+    array_push(v4_mir_body_local_tys_handle(mir_id, body_id), local_ty)
+    array_push(v4_mir_body_local_spans_handle(mir_id, body_id), span)
+    give back local_id
+}
+
+task v4_mir_add_stmt(mir_id: int, body_id: int, stmt_kind: word, lhs: word, rhs: word, span: word) -> int {
+    pilot stmt_id = array_len(v4_mir_body_stmt_kinds_handle(mir_id, body_id))
+    array_push(v4_mir_body_stmt_kinds_handle(mir_id, body_id), stmt_kind)
+    array_push(v4_mir_body_stmt_lhs_handle(mir_id, body_id), lhs)
+    array_push(v4_mir_body_stmt_rhs_handle(mir_id, body_id), rhs)
+    array_push(v4_mir_body_stmt_spans_handle(mir_id, body_id), span)
+    give back stmt_id
+}
+
 task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word) -> int {
     pilot body_id = array_len(v4_mir_defs_handle(mir_id))
     pilot blocks_handle = array_new()
+    pilot local_names_handle = array_new()
+    pilot local_tys_handle = array_new()
+    pilot local_spans_handle = array_new()
+    pilot stmt_kinds_handle = array_new()
+    pilot stmt_lhs_handle = array_new()
+    pilot stmt_rhs_handle = array_new()
+    pilot stmt_spans_handle = array_new()
     array_push(blocks_handle, v4_mir_block_new(0, v4_mir_term_return, 0 - 1))
     array_push(v4_mir_defs_handle(mir_id), def_id)
     array_push(v4_mir_names_handle(mir_id), body_name)
     array_push(v4_mir_sigs_handle(mir_id), signature)
     array_push(v4_mir_blocks_handle(mir_id), word_from_int(blocks_handle))
+    array_push(v4_mir_local_names_index_handle(mir_id), word_from_int(local_names_handle))
+    array_push(v4_mir_local_tys_index_handle(mir_id), word_from_int(local_tys_handle))
+    array_push(v4_mir_local_spans_index_handle(mir_id), word_from_int(local_spans_handle))
+    array_push(v4_mir_stmt_kinds_index_handle(mir_id), word_from_int(stmt_kinds_handle))
+    array_push(v4_mir_stmt_lhs_index_handle(mir_id), word_from_int(stmt_lhs_handle))
+    array_push(v4_mir_stmt_rhs_index_handle(mir_id), word_from_int(stmt_rhs_handle))
+    array_push(v4_mir_stmt_spans_index_handle(mir_id), word_from_int(stmt_spans_handle))
     give back body_id
+}
+
+task v4_mir_skip_trivia(stream_id: int, token_id: int) -> int {
+    pilot idx = token_id
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until idx >= count or v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+        idx += 1
+    }
+    give back idx
+}
+
+task v4_mir_first_token_at_or_after(stream_id: int, offset: int) -> int {
+    pilot idx = 0
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until idx >= count {
+        pilot token_span = v4_lex_token_span(stream_id, idx)
+        if v4_span_start(token_span) >= offset {
+            give back idx
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_mir_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot count = v4_lex_token_count(stream_id)
+    if count == 0 {
+        give back V4_NO_SPAN
+    }
+
+    pilot first = start_token
+    if first < 0 { first = 0 }
+    if first >= count { first = count - 1 }
+
+    pilot last = end_token - 1
+    if last < first { last = first }
+    if last >= count { last = count - 1 }
+
+    pilot first_span = v4_lex_token_span(stream_id, first)
+    pilot last_span = v4_lex_token_span(stream_id, last)
+    give back v4_span_new(v4_span_file(first_span), v4_span_start(first_span), v4_span_end(last_span))
+}
+
+task v4_mir_find_token_value(stream_id: int, start_token: int, end_token: int, wanted: word) -> int {
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            if v4_lex_token_value(stream_id, idx) == wanted {
+                give back idx
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_find_body_token(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if val == "{" or val == "=>" {
+                give back idx
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_find_matching_brace(stream_id: int, open_token: int, end_token: int) -> int {
+    pilot idx = open_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if val == "{" {
+                depth += 1
+            } else if val == "}" {
+                depth -= 1
+                if depth == 0 {
+                    give back idx
+                }
+            }
+        }
+        idx += 1
+    }
+    give back end_token
+}
+
+task v4_mir_statement_end(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot idx = start_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+
+        if tok_type != v4_tok_trivia {
+            if val == "(" or val == "[" or val == "{" {
+                depth += 1
+            } else if val == ")" or val == "]" {
+                if depth > 0 { depth -= 1 }
+            } else if val == "}" {
+                if depth == 0 {
+                    give back idx
+                }
+                depth -= 1
+            } else if val == ";" {
+                if depth == 0 {
+                    give back idx
+                }
+            }
+        } else if val == "\n" {
+            if depth == 0 {
+                give back idx
+            }
+        }
+        idx += 1
+    }
+    give back end_token
+}
+
+task v4_mir_expr_text(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot out = ""
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            if out != "" {
+                out = out + " "
+            }
+            out = out + v4_lex_token_value(stream_id, idx)
+        }
+        idx += 1
+    }
+    give back out
+}
+
+task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, stream_id: int, pilot_token: int, stmt_end: int) -> void {
+    pilot name_token = v4_mir_skip_trivia(stream_id, pilot_token + 1)
+    if name_token >= stmt_end {
+        give back
+    }
+
+    pilot local_name = v4_lex_token_value(stream_id, name_token)
+    pilot eq_token = v4_mir_find_token_value(stream_id, name_token + 1, stmt_end, "=")
+    pilot rhs_start = name_token + 1
+    if eq_token >= 0 {
+        rhs_start = eq_token + 1
+    }
+
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, pilot_token, stmt_end)
+    pilot rhs = v4_mir_expr_text(stream_id, rhs_start, stmt_end)
+    v4_mir_add_local(mir_id, body_id, local_name, v4_mir_local_unknown, stmt_span)
+    v4_mir_add_stmt(mir_id, body_id, v4_mir_stmt_local, local_name, rhs, stmt_span)
+}
+
+task v4_mir_lower_return_stmt(mir_id: int, body_id: int, stream_id: int, give_token: int, stmt_end: int) -> void {
+    pilot back_token = v4_mir_skip_trivia(stream_id, give_token + 1)
+    pilot rhs_start = give_token + 1
+    if back_token < stmt_end {
+        if v4_lex_token_value(stream_id, back_token) == "back" {
+            rhs_start = back_token + 1
+        }
+    }
+
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, give_token, stmt_end)
+    pilot rhs = v4_mir_expr_text(stream_id, rhs_start, stmt_end)
+    v4_mir_add_stmt(mir_id, body_id, v4_mir_stmt_return, "_return", rhs, stmt_span)
+}
+
+task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> void {
+    pilot eq_token = v4_mir_find_token_value(stream_id, stmt_start, stmt_end, "=")
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, stmt_start, stmt_end)
+    if eq_token > stmt_start {
+        pilot lhs = v4_mir_expr_text(stream_id, stmt_start, eq_token)
+        pilot rhs = v4_mir_expr_text(stream_id, eq_token + 1, stmt_end)
+        v4_mir_add_stmt(mir_id, body_id, v4_mir_stmt_assign, lhs, rhs, stmt_span)
+    } else {
+        pilot expr = v4_mir_expr_text(stream_id, stmt_start, stmt_end)
+        if expr != "" {
+            v4_mir_add_stmt(mir_id, body_id, v4_mir_stmt_expr, "", expr, stmt_span)
+        }
+    }
+}
+
+task v4_mir_lower_statement(mir_id: int, body_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> void {
+    pilot first = v4_mir_skip_trivia(stream_id, stmt_start)
+    if first >= stmt_end {
+        give back
+    }
+
+    pilot first_val = v4_lex_token_value(stream_id, first)
+    if first_val == "pilot" {
+        v4_mir_lower_pilot_stmt(mir_id, body_id, stream_id, first, stmt_end)
+    } else if first_val == "fixed" {
+        pilot maybe_pilot = v4_mir_skip_trivia(stream_id, first + 1)
+        if maybe_pilot < stmt_end and v4_lex_token_value(stream_id, maybe_pilot) == "pilot" {
+            v4_mir_lower_pilot_stmt(mir_id, body_id, stream_id, maybe_pilot, stmt_end)
+        } else {
+            v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, stream_id, first, stmt_end)
+        }
+    } else if first_val == "give" {
+        v4_mir_lower_return_stmt(mir_id, body_id, stream_id, first, stmt_end)
+    } else {
+        v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, stream_id, first, stmt_end)
+    }
+}
+
+task v4_mir_lower_block_body(mir_id: int, body_id: int, stream_id: int, open_token: int, end_token: int) -> void {
+    pilot close_token = v4_mir_find_matching_brace(stream_id, open_token, end_token)
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        idx = v4_mir_skip_trivia(stream_id, idx)
+        if idx >= close_token {
+            give back
+        }
+        pilot stmt_end = v4_mir_statement_end(stream_id, idx, close_token)
+        v4_mir_lower_statement(mir_id, body_id, stream_id, idx, stmt_end)
+        if stmt_end <= idx {
+            idx += 1
+        } else {
+            idx = stmt_end + 1
+        }
+    }
+}
+
+task v4_mir_lower_arrow_body(mir_id: int, body_id: int, stream_id: int, arrow_token: int, end_token: int) -> void {
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, arrow_token, end_token)
+    pilot rhs = v4_mir_expr_text(stream_id, arrow_token + 1, end_token)
+    if rhs != "" {
+        v4_mir_add_stmt(mir_id, body_id, v4_mir_stmt_return, "_return", rhs, stmt_span)
+    }
+}
+
+task v4_mir_lower_task_body_tokens(mir_id: int, body_id: int, stream_id: int, item_span: word) -> void {
+    pilot start_token = v4_mir_first_token_at_or_after(stream_id, v4_span_start(item_span))
+    pilot end_token = v4_mir_first_token_at_or_after(stream_id, v4_span_end(item_span))
+    pilot body_token = v4_mir_find_body_token(stream_id, start_token, end_token)
+    if body_token < 0 {
+        v4_mir_add_diag(mir_id, v4_diag_new(v4_diag_warning, item_span, "task body not lowered into MIR", "Meiya sees only a signature shell here"))
+        give back
+    }
+
+    pilot body_marker = v4_lex_token_value(stream_id, body_token)
+    if body_marker == "{" {
+        v4_mir_lower_block_body(mir_id, body_id, stream_id, body_token, end_token)
+    } else if body_marker == "=>" {
+        v4_mir_lower_arrow_body(mir_id, body_id, stream_id, body_token, end_token)
+    }
 }
 
 task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {
     v4_mir_init()
     pilot mir_id = v4_mir_file_new(file_id, ty_id)
     v4_mir_copy_ty_diags(mir_id, ty_id)
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    pilot hir_id = v4_resolve_hir_id(resolve_id)
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
 
     pilot sig_idx = 0
     pilot sig_count = v4_ty_signature_count(ty_id)
@@ -162,7 +585,11 @@ task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {
             pilot def_id = v4_ty_signature_def(ty_id, sig_idx)
             pilot body_name = v4_ty_signature_name(ty_id, sig_idx)
             pilot sig_display = v4_ty_signature_display(ty_id, sig_idx)
-            v4_mir_add_body(mir_id, def_id, body_name, sig_display)
+            pilot body_id = v4_mir_add_body(mir_id, def_id, body_name, sig_display)
+            pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_idx)
+            pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
+            pilot item_span = v4_parse_node_span(tree_id, parse_node)
+            v4_mir_lower_task_body_tokens(mir_id, body_id, stream_id, item_span)
         }
         sig_idx += 1
     }
@@ -182,10 +609,33 @@ task v4_mir_lookup_body(mir_id: int, def_id: word) -> int {
     give back 0 - 1
 }
 
+task v4_mir_local_count(mir_id: int) -> int {
+    pilot total = 0
+    pilot body_idx = 0
+    pilot body_count = v4_mir_body_count(mir_id)
+    repeat until body_idx >= body_count {
+        total = total + v4_mir_body_local_count(mir_id, body_idx)
+        body_idx += 1
+    }
+    give back total
+}
+
+task v4_mir_stmt_count(mir_id: int) -> int {
+    pilot total = 0
+    pilot body_idx = 0
+    pilot body_count = v4_mir_body_count(mir_id)
+    repeat until body_idx >= body_count {
+        total = total + v4_mir_body_stmt_count(mir_id, body_idx)
+        body_idx += 1
+    }
+    give back total
+}
+
 task v4_mir_summary(mir_id: int) -> word {
     pilot summary = "mir-ok mir=" + word_from_int(mir_id)
     summary = summary + " bodies=" + word_from_int(v4_mir_body_count(mir_id))
+    summary = summary + " locals=" + word_from_int(v4_mir_local_count(mir_id))
+    summary = summary + " statements=" + word_from_int(v4_mir_stmt_count(mir_id))
     summary = summary + " diagnostics=" + word_from_int(v4_mir_diag_count(mir_id))
     give back summary
 }
-

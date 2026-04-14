@@ -16,8 +16,8 @@ crates/
   freak_hir/       top-level item lowering and stable def ids
   freak_resolve/   file-local semantic index and duplicate diagnostics
   freak_ty/        item-level signature scaffold
-  freak_mir/       empty MIR body/basic-block scaffold for task signatures
-  freak_borrowck/  Meiya borrow-check result scaffold
+  freak_mir/       task MIR bodies with entry blocks, locals, and statements
+  freak_borrowck/  Meiya borrow-check result scaffold over MIR bodies
   freak_query/     memoized query cache prototype
   freak_driver/    early driver facade over the V4 services
 ```

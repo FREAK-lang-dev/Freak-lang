@@ -61,6 +61,14 @@ task v4_resolve_diags_handle(resolve_id: int) -> int {
     give back word_to_int(array_get(v4_resolve_diags, resolve_id))
 }
 
+task v4_resolve_file_id(resolve_id: int) -> int {
+    give back word_to_int(array_get(v4_resolve_files, resolve_id))
+}
+
+task v4_resolve_hir_id(resolve_id: int) -> int {
+    give back word_to_int(array_get(v4_resolve_hirs, resolve_id))
+}
+
 task v4_resolve_symbol_count(resolve_id: int) -> int {
     give back array_len(v4_resolve_defs_handle(resolve_id))
 }
@@ -196,4 +204,3 @@ task v4_resolve_summary(resolve_id: int) -> word {
     summary = summary + " diagnostics=" + word_from_int(v4_resolve_diag_count(resolve_id))
     give back summary
 }
-

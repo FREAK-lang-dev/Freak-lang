@@ -138,6 +138,59 @@ task v4_borrowck_add_result(borrow_id: int, def_id: word, body_name: word, statu
     give back result_id
 }
 
+task v4_borrowck_rhs_starts_digit(rhs: word) -> bool {
+    if rhs == "" {
+        give back false
+    }
+    pilot ch = rhs.char_at(0)
+    give back ch == "0" or ch == "1" or ch == "2" or ch == "3" or ch == "4" or ch == "5" or ch == "6" or ch == "7" or ch == "8" or ch == "9"
+}
+
+task v4_borrowck_rhs_is_literal(rhs: word) -> bool {
+    if rhs == "" {
+        give back true
+    }
+    if v4_borrowck_rhs_starts_digit(rhs) {
+        give back true
+    }
+    if rhs == "true" or rhs == "false" or rhs == "yes" or rhs == "no" or rhs == "hai" or rhs == "iie" {
+        give back true
+    }
+    if rhs == "nobody" {
+        give back true
+    }
+    give back false
+}
+
+task v4_borrowck_rhs_needs_move(rhs: word) -> bool {
+    if v4_borrowck_rhs_is_literal(rhs) {
+        give back false
+    }
+    if v4_index_of_from(rhs, "+", 0) >= 0 { give back false }
+    if v4_index_of_from(rhs, "-", 0) >= 0 { give back false }
+    if v4_index_of_from(rhs, "*", 0) >= 0 { give back false }
+    if v4_index_of_from(rhs, "/", 0) >= 0 { give back false }
+    if v4_index_of_from(rhs, "(", 0) >= 0 { give back false }
+    give back true
+}
+
+task v4_borrowck_count_moves(mir_id: int, body_id: int) -> int {
+    pilot moves = 0
+    pilot stmt_idx = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_idx >= stmt_count {
+        pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_idx)
+        if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign or stmt_kind == v4_mir_stmt_return {
+            pilot rhs = v4_mir_stmt_rhs(mir_id, body_id, stmt_idx)
+            if v4_borrowck_rhs_needs_move(rhs) {
+                moves += 1
+            }
+        }
+        stmt_idx += 1
+    }
+    give back moves
+}
+
 task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
     v4_borrowck_init()
     pilot borrow_id = v4_borrowck_file_new(file_id, mir_id)
@@ -149,12 +202,15 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         pilot def_id = v4_mir_body_def(mir_id, body_idx)
         pilot body_name = v4_mir_body_name(mir_id, body_idx)
         pilot block_count = v4_mir_body_block_count(mir_id, body_idx)
+        pilot local_count = v4_mir_body_local_count(mir_id, body_idx)
+        pilot move_count = v4_borrowck_count_moves(mir_id, body_idx)
+        pilot drop_count = local_count
         pilot status = v4_borrowck_clean
         if block_count == 0 {
             status = v4_borrowck_blocked
             v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, V4_NO_SPAN, "MIR body has no blocks", body_name))
         }
-        v4_borrowck_add_result(borrow_id, def_id, body_name, status, 0, 0, 0)
+        v4_borrowck_add_result(borrow_id, def_id, body_name, status, 0, move_count, drop_count)
         body_idx += 1
     }
 
@@ -179,4 +235,3 @@ task v4_borrowck_summary(borrow_id: int) -> word {
     summary = summary + " diagnostics=" + word_from_int(v4_borrowck_diag_count(borrow_id))
     give back summary
 }
-

@@ -71,6 +71,14 @@ task v4_parse_diags_handle(tree_id: int) -> int {
     give back word_to_int(array_get(v4_parse_tree_diags, tree_id))
 }
 
+task v4_parse_file_id(tree_id: int) -> int {
+    give back word_to_int(array_get(v4_parse_tree_files, tree_id))
+}
+
+task v4_parse_stream_id(tree_id: int) -> int {
+    give back word_to_int(array_get(v4_parse_tree_streams, tree_id))
+}
+
 task v4_parse_add_node(tree_id: int, node_kind: word, value: word, span: word, parent: int) -> int {
     pilot node_id = array_len(v4_parse_kinds_handle(tree_id))
     array_push(v4_parse_kinds_handle(tree_id), node_kind)
@@ -333,4 +341,3 @@ task v4_parse_summary(tree_id: int) -> word {
     summary = summary + " diagnostics=" + word_from_int(v4_parse_diag_count(tree_id))
     give back summary
 }
-

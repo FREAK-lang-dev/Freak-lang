@@ -77,6 +77,14 @@ task v4_ty_diags_handle(ty_id: int) -> int {
     give back word_to_int(array_get(v4_ty_diags, ty_id))
 }
 
+task v4_ty_file_id(ty_id: int) -> int {
+    give back word_to_int(array_get(v4_ty_files, ty_id))
+}
+
+task v4_ty_resolve_id(ty_id: int) -> int {
+    give back word_to_int(array_get(v4_ty_resolves, ty_id))
+}
+
 task v4_ty_signature_count(ty_id: int) -> int {
     give back array_len(v4_ty_defs_handle(ty_id))
 }
@@ -215,4 +223,3 @@ task v4_ty_summary(ty_id: int) -> word {
     summary = summary + " diagnostics=" + word_from_int(v4_ty_diag_count(ty_id))
     give back summary
 }
-
