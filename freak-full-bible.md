@@ -85,9 +85,11 @@ connect(host: "localhost", port: 8080, timeout: 30)
 | bool        | Boolean. true/false/yes/no/hai/iie all valid literals.         |
 | char        | Unicode scalar value (32-bit codepoint)                        |
 | void        | Unit type. Absence of value.                                   |
+| never       | Bottom type. Produced by `panic`, `process::exit`, infinite loops. Coerces to any type. |
 | [T; N]      | Fixed-size array. Stack-allocated. Size known at compile time. |
 | (A, B, ...) | Tuple. Heterogeneous fixed grouping.                           |
-| *T          | Raw pointer. Only inside trust-me blocks.                      |
+| *T          | Raw immutable pointer. Only dereferenced inside trust-me blocks.|
+| *const T    | C-style spelling alias for `*T` in FFI signatures.             |
 | *mut T      | Raw mutable pointer. Only inside trust-me blocks.              |
 
 ### 1.4 Types — Compound
@@ -177,6 +179,68 @@ impl Add for Vector2 {
 }
 pilot v = v1 + v2   -- calls freak_add_Vector2
 ```
+
+Doctrines dispatch statically by default. A generic bound such as
+`T: Widget` monomorphizes like a disciplined TSF production line: fast,
+predictable, and not interested in your feelings.
+
+Use `dyn DoctrineName` for dynamic dispatch when values of different
+concrete types must share one collection or API surface.
+
+```
+doctrine Widget {
+    task draw(lend self, canvas: lend mut Canvas) -> void
+    task event(lend mut self, ev: UiEvent) -> bool
+}
+
+shape Button { text: word }
+shape Label { text: word }
+
+impl Widget for Button { ... }
+impl Widget for Label { ... }
+
+pilot widgets: List<dyn Widget> = []
+widgets.push(Button { text: "Deploy" })
+widgets.push(Label { text: "Status: green" })
+
+for each w in widgets {
+    w.draw(lend mut canvas)    -- vtable call
+}
+```
+
+Object-safety rules for `dyn`:
+
+- A doctrine is object-safe only if each dispatched method has a receiver: `self`, `lend self`, or `lend mut self`.
+- Dispatched methods may not be generic.
+- Dispatched methods may not mention `Self` in argument or return position except for the receiver.
+- Associated constants and compile-time-only requirements are not available through `dyn`.
+- Operator doctrines such as `Add<Self>` are usually not object-safe because the right-hand side depends on the concrete `Self`.
+
+Representation:
+
+```
+dyn Widget fat pointer:
+    data:   *mut void
+    vtable: *const WidgetVTable
+
+WidgetVTable:
+    type_id: TypeId
+    size: uint
+    align: uint
+    drop: task(*mut void) -> void
+    clone: maybe<task(*const void) -> *mut void>
+    draw: task(*mut void, lend mut Canvas) -> void
+    event: task(*mut void, UiEvent) -> bool
+```
+
+Rules:
+
+- `dyn D` is a dynamically sized erased type. It can appear as `lend dyn D`, `lend mut dyn D`, `Shared<dyn D>`, `Weak<dyn D>`, function parameters, return values through owning containers, and collection elements.
+- `List<dyn D>` is an owning heterogeneous list. Each element stores a fat pointer and drop glue. If shared graph ownership is needed, prefer `List<Shared<dyn D>>`.
+- Converting `T` to `dyn D` requires `impl D for T`.
+- Converting `Shared<T>` to `Shared<dyn D>` preserves the reference counts and changes only the pointer metadata.
+- Dynamic dispatch is never inferred when static dispatch is possible. Write `dyn` when you want the vtable.
+- Downcasting is explicit: `value as? Button` returns `maybe<Button>` for owned objects and `maybe<lend Button>` for borrowed objects.
 
 ### 1.7 Control Flow
 
@@ -357,6 +421,131 @@ use[feature="orbital"] cosmo::GBomb
 launch task my_function() { ... }
 launch shape MyType { ... }
 ```
+
+### 1.14 Variants, Aliases, and Compile-Time Constants
+
+FREAK has nominal sum types. Use `variant` when the universe can take
+one of several named forms and the compiler must prove every route is
+handled before anyone gets eaten by a Laser-class.
+
+```
+variant Contact {
+    Soldier {
+        id: uint
+        position: Vector3
+    }
+
+    Laser
+
+    Fort {
+        armor: int
+        hive: word
+    }
+}
+
+pilot c1 = Contact::Soldier { id: 7u, position: pos }
+pilot c2 = Contact::Laser
+
+when c1 {
+    Contact::Soldier { id, position } -> engage(id, position)
+    Contact::Laser                    -> smoke_now()
+    Contact::Fort { hive, .. }         -> request_cosmo(hive)
+}
+```
+
+Rules:
+
+- A `variant` declaration creates one nominal type and one constructor per case.
+- Case names live under the variant namespace: `Contact::Laser`, not bare `Laser`, unless imported explicitly.
+- Payload cases use shape-style named fields. Field order is declaration order and is stable for debug info, but not FFI-stable unless the type is annotated for layout in Section 16.
+- `when` over a variant must be exhaustive unless it has `_`.
+- Variants may be generic: `variant UiEvent<T> { Changed { value: T }, Closed }`.
+- Direct infinite-size recursion is forbidden. Recursive variants must go through indirection such as `Shared<T>`, `Weak<T>`, `List<T>`, or a raw pointer in a `trust me` boundary.
+- Codegen represents variants as a tag plus payload storage. The tag is compiler-chosen unless `@repr(...)` or `@layout(C)` is used.
+
+Type aliases name an existing type. They do not create a new nominal type.
+Yuuko will not let you fake a new TSF by repainting the hull.
+
+```
+alias Matrix4 = [[num; 4]; 4]
+alias Handler<T> = task(T) -> result<void, word>
+launch alias WindowId = uint
+
+pilot m: Matrix4 = [[0.0; 4]; 4]
+```
+
+Rules:
+
+- `alias A = B` is purely compile-time substitution for type checking and diagnostics.
+- Generic aliases are allowed.
+- You cannot implement a doctrine for an alias as though it were a new type. Use a one-field `shape` for nominal distinction.
+- `launch alias` exports the alias using the visibility rules in Section 17.
+
+Module-level constants are immutable compile-time bindings declared with
+`fixed pilot` at root scope.
+
+```
+fixed pilot MAX_WIDGETS: uint = 4096u
+fixed pilot SORTIE_NAME: word = "Sortie"
+launch fixed pilot VERSION: word = "0.13.0"
+```
+
+Rules:
+
+- Root-scope `fixed pilot` initializers must be constant expressions: literals, arithmetic on constants, arrays/tuples/shapes/variants made from constants, and calls to `const task`s.
+- Root-scope mutable `pilot` is forbidden. Global mutable state must be explicit through `Shared<Mutex<T>>`, `Atomic<T>`, OS handles, or another runtime type that owns its synchronization story.
+- Constants have static lifetime, may be placed in read-only data, and have no destructor.
+- Taking a raw pointer to a constant is FFI-safe only if the constant's type is FFI-safe.
+- Cycles in constant evaluation are compile errors:
+  `fixed pilot A = B + 1; fixed pilot B = A + 1` does not become character development.
+
+### 1.15 Array Initialization and Return Semantics
+
+Array and list literals are context-sensitive but deterministic.
+
+```
+pilot a = [1, 2, 3]              -- List<int>
+pilot b: [int; 3] = [1, 2, 3]    -- fixed array
+pilot zeros: [int; 100] = [0; 100]
+pilot grid: [[num; 4]; 4] = [[0.0; 4]; 4]
+
+pilot names = List::filled("cadet", 100)  -- dynamic list with 100 entries
+```
+
+Rules:
+
+- `[a, b, c]` becomes `List<T>` when no fixed array type is expected.
+- `[a, b, c]` becomes `[T; N]` when the target type is a fixed array with length `N`.
+- All elements must type-check to one common `T`.
+- `[expr; N]` creates a fixed array `[T; N]`. `N` must be a compile-time `uint` or `int` constant and must be non-negative.
+- For `Copy` types, `[expr; N]` evaluates `expr` once and copies it into each slot.
+- For non-`Copy` types, `[expr; N]` requires `T: Cloneable`; the first slot receives the original value and the rest receive clones.
+- To allocate a dynamic list with repeated values, use `List::filled(value, count)` or `List::with_capacity(count)` plus pushes.
+- Fixed arrays are value types. Moving an array moves every element. Borrowing an array borrows every element unless indexing narrows the borrow.
+
+Block-bodied tasks do not have implicit tail returns. `give back` is
+required for every value-returning control path. FREAK chose drama on
+purpose, but not ambiguity.
+
+```
+task area(r: num) -> num {
+    num::PI * r * r        -- COMPILE ERROR: expression is discarded
+}
+
+task area(r: num) -> num {
+    give back num::PI * r * r
+}
+
+task area_short(r: num) => num::PI * r * r
+```
+
+Rules:
+
+- `give back expr` is mandatory inside `{ ... }` or `done` task bodies that return a non-`void` type.
+- Arrow shorthand `task f(...) => expr` is the only implicit expression-return function form.
+- Block lambdas follow the same rule as tasks. Arrow lambdas return their expression.
+- A bare expression at the end of a block is evaluated for side effects and discarded unless the grammar explicitly defines that construct as an expression, such as `when` used in expression position.
+- `panic(...)`, `process::exit(...)`, and provably infinite loops have type `never` and satisfy any required return type because they do not return.
 
 ---
 
@@ -719,7 +908,42 @@ shape Important<'a> {
 }
 ```
 
-### 4.4 The trust-me Escape Hatch
+### 4.4 Shared Ownership and Aliasing
+
+`std::mem::Shared<T>` gives multiple owners one heap allocation.
+It does not delete the borrow checker; it gives it a shared bunker and
+posts guards at the door.
+
+```
+use std::mem::{Shared, Weak}
+
+pilot root: Shared<dyn Widget> = Shared::new(WindowRoot::new())
+pilot button: Shared<dyn Widget> = Shared::new(Button::new("Launch"))
+
+root.borrow_mut()?.add_child(button.clone())
+
+pilot weak_parent: Weak<dyn Widget> = root.downgrade()
+button.borrow_mut()?.set_parent(weak_parent)
+```
+
+Rules:
+
+- Cloning `Shared<T>` clones ownership of the allocation, not `T`.
+- Dropping the final `Shared<T>` drops `T` and then frees the allocation.
+- `Weak<T>` observes an allocation without keeping it alive. `weak.upgrade()` returns `maybe<Shared<T>>`.
+- A `lend T` obtained from `Shared<T>` may not outlive the `Shared<T>` value or guard that produced it.
+- `Shared<T>` permits any number of immutable borrows through `.borrow()`.
+- Mutable access requires proof of exclusivity or a runtime guard:
+  `.get_mut()` succeeds only when the strong count is one;
+  `.borrow_mut()` returns `result<SharedMut<T>, BorrowError>` and fails if active borrows conflict.
+- Shared mutable state across sorties must use `Shared<Mutex<T>>`, `Shared<RwLock<T>>`, atomics, channels, or another synchronization type. `Shared<T>` alone is shared ownership, not shared permission to mutate.
+- `Shared<T>` may cross sorties only when `T: Send + Sync`. Otherwise it is confined to the sortie that created it.
+- Cycles made entirely of `Shared<T>` leak by design. Parent links in UI trees should be `Weak<T>`.
+- `Shared<dyn D>` is legal when `T: D`; the allocation is shared and the pointer metadata carries the vtable.
+
+Compiler note (Meiya voice): "Shared command is still command. Name your owners, weaken your parent links, and return alive."
+
+### 4.5 The trust-me Escape Hatch
 
 ```
 -- trust me: bypass borrow checker for this block
@@ -824,6 +1048,28 @@ task the_confrontation(takeru: Eishi, meiya: Eishi) -> route {
 @season_finale
 task alternative() { ... }
 ```
+
+#### 5.1.1 Annotation and Macro Boundary
+
+Anime annotations are compiler intrinsics, not user-defined macros.
+`@protagonist`, `@nakige`, `@experiment`, `@classified`, and the rest of
+the core cast are recognized by the compiler before type checking and may
+change typing, diagnostics, optimization, or audit output.
+
+User code cannot define syntax-rewriting macros in Alternative-4 Edition.
+Unknown annotations are allowed only as inert metadata when namespaced:
+
+```
+@tool::sortie_panel("expanded")
+task render_panel() { ... }
+```
+
+Rules:
+
+- Built-in annotations are reserved words in annotation position.
+- Namespaced custom annotations are preserved in the AST, emitted to IDE metadata, and ignored by the core compiler unless a registered tool consumes them.
+- Custom annotations cannot introduce bindings, rewrite tokens, change borrow rules, or bypass visibility.
+- An unnamespaced unknown annotation is a compile warning in dev builds and a compile error in release builds. Yuuko's note: "If you want magic, file the paperwork."
 
 ### 5.2 Foreshadowing System
 
@@ -1008,9 +1254,12 @@ eventually if mission_failed {
 
 ```
 -- File = module. Directory = module with same name as directory.
--- 'launch' makes things public. Without launch: private to file.
+-- Without launch: private to the declaring module.
+-- launch(package): visible inside the current Hangar unit.
+-- launch or launch(universe): public to dependent packages.
 
 launch task my_function() { ... }
+launch(package) task helper_for_this_unit() { ... }
 launch shape MyType { ... }
 launch use muvluv::BETA::{Tier, Hive}   -- re-export
 
@@ -1140,7 +1389,24 @@ set.subset_of(other)
 -- Lineup<T> (FIFO Queue)
 Lineup::new()
 lineup.enqueue(val) / lineup.dequeue() / lineup.peek()
+
+-- Heterogeneous doctrine-object collections
+pilot widgets: List<dyn Widget> = []
+widgets.push(Button::new("OK"))
+widgets.push(TextInput::new())
+
+-- Shared graph collections
+pilot children: List<Shared<dyn Widget>> = []
+children.push(Shared::new(Button::new("Deploy")) as Shared<dyn Widget>)
 ```
+
+Collection rules:
+
+- Generic collections are invariant in `T`. `List<Button>` is not a `List<dyn Widget>`; push elements into a `List<dyn Widget>` or map explicitly.
+- `List<dyn D>` stores owned doctrine objects as fat pointers plus drop glue.
+- `List<Shared<dyn D>>` stores shared pointers to erased objects and is the preferred representation for UI trees, scene graphs, IDE buffers, and other cyclic-ish systems.
+- `Map<K,V>` keys must implement `Eq + Hashable`. `dyn` keys are forbidden unless the doctrine object also exposes stable equality and hashing through an object-safe doctrine.
+- Removing an element drops the collection's ownership of that element. If the element is `Shared<T>`, the allocation remains alive while other strong references exist.
 
 ### 7.5 std::iter (lazy, all collections)
 
@@ -1327,6 +1593,77 @@ expect X to match route Y
 -- vibes: MONO_NO_AWARE  (almost there. so close.)
 ```
 
+### 7.18 std::mem
+
+```
+use std::mem::{Shared, Weak, size_of, align_of, alloc, free, null}
+
+-- Shared ownership
+pilot a = Shared::new(Button::new("Launch"))
+pilot b = a.clone()
+pilot weak = a.downgrade()
+
+pilot view = a.borrow()             -- lend Button
+pilot edit = a.borrow_mut()?        -- SharedMut<Button> guard
+pilot unique = a.get_mut()?         -- lend mut Button, only if strong_count == 1
+
+pilot maybe_alive = weak.upgrade()  -- maybe<Shared<Button>>
+
+-- Raw allocation and layout queries (trust-me only for alloc/free/deref)
+pilot bytes = size_of<WindowMessage>()
+pilot align = align_of<WindowMessage>()
+
+trust me "bridge to OS allocator" on my honor as .pilot {
+    pilot p: *mut tiny = alloc(size_of<tiny>() * 256)
+    p.offset(0).write(42t)
+    free(p)
+}
+```
+
+Types and functions:
+
+| Name | Meaning |
+|------|---------|
+| `Shared<T>` | Atomic reference-counted owning pointer. |
+| `Weak<T>` | Non-owning observer pointer that can be upgraded while allocation is alive. |
+| `SharedMut<T>` | Runtime mutable-borrow guard returned by `borrow_mut`. |
+| `BorrowError` | Error when a shared borrow conflicts. |
+| `size_of<T>()` | Compile-time size in bytes for sized `T`. |
+| `align_of<T>()` | Compile-time alignment in bytes for sized `T`. |
+| `alloc(bytes)` | Allocate raw untyped memory. Requires `trust me`. |
+| `free(ptr)` | Free memory from `alloc`. Requires `trust me`. |
+| `null<T>()` | Produce a null raw pointer of type `*T` or `*mut T`. |
+| `copy_nonoverlapping<T>(src, dst, count)` | Raw memory copy. Requires `trust me`. |
+| `zeroed<T>()` | All-zero value. Requires `trust me` unless `T: ZeroValid`. |
+
+`Shared<T>` is the official tool for IDE widget graphs, syntax tree
+sharing, cached diagnostics, and UI state that outlives one function call.
+Weak parent links are not optional ceremony; they are how Sortie avoids
+leaking the whole tree after closing one tab.
+
+### 7.19 std::ffi
+
+```
+use std::ffi::{
+    c_int, c_uint, c_long, c_ulong, c_size, c_isize,
+    c_float, c_double, c_char, c_uchar, c_bool, c_void,
+    usize, isize, wchar
+}
+```
+
+`std::ffi` contains target-correct aliases for C and OS boundary types.
+Their exact widths are chosen from the compilation target triple, not the
+host machine running the compiler.
+
+Rules:
+
+- Use `c_int`, not FREAK `int`, for C `int`.
+- Use `c_bool`, not FREAK `bool`, for C `_Bool` or Win32 `BOOL` wrappers that declare it.
+- Use `c_size` for C `size_t`.
+- Use `usize` and `isize` for pointer-sized OS callback parameters.
+- Use `wchar` only for platform APIs that actually require wide characters.
+- `c_void` may appear only behind a pointer or as an extern return type equivalent to `void`.
+
 ---
 
 ## SECTION 8: FULL LEXER SPECIFICATION
@@ -1341,6 +1678,7 @@ class TokenType(Enum):
     # Core keywords
     PILOT / FIXED / TASK / GIVE_BACK / SAY / SHAPE / IMPL / DOCTRINE
     LAUNCH / USE / AS / IN / LEND / MUT / MOVE / COPY / TRUST_ME
+    VARIANT / ALIAS / EXTERN / DYN / NEVER / CONST_KW
     GIVE_BACK / BREAK / CONTINUE
 
     # Control flow
@@ -1367,7 +1705,8 @@ class TokenType(Enum):
 
     # Delimiters
     LBRACE / RBRACE / LPAREN / RPAREN / LBRACKET / RBRACKET
-    COMMA / COLON / SEMICOLON / DOT / COLON_COLON / PIPE_SINGLE / AT
+    COMMA / COLON / SEMICOLON / DOT / DOT_DOT / ELLIPSIS
+    COLON_COLON / PIPE_SINGLE / AT
 
     # Assignment
     EQ / PLUS_EQ / MINUS_EQ / STAR_EQ / SLASH_EQ
@@ -1383,6 +1722,7 @@ give back / or else / trust me / for each / training arc
 on my honor as / knowing this will hurt / for science
 PLUS ULTRA / FINAL FORM / only on / bringing back
 deus_ex_machina / declare was / prob when
+fixed pilot / launch(package) / launch(universe)
 ```
 
 ### 8.3 Special Lexer Notes
@@ -1392,6 +1732,7 @@ deus_ex_machina / declare was / prob when
 - `||` in xm3 blocks is branch separator (not OR)
 - `@` followed by IDENT is an annotation
 - `'` followed by IDENT is a lifetime annotation
+- `...` is an ellipsis token used only in extern variadic signatures
 - `prob[lo..hi]` lexes as: IDENT("prob") LBRACKET FLOAT DOT_DOT FLOAT RBRACKET
 - Number suffixes: `42u` → uint, `3.14f` → float, `42t` → tiny, `999b` → big
 
@@ -1402,6 +1743,100 @@ deus_ex_machina / declare was / prob when
 All nodes from freak-lite-bible.md Section 7.1, plus:
 
 ```python
+@dataclass
+class VariantDecl:            # variant Name<T> { Case { fields } Other }
+    name: str
+    generics: List[GenericParam]
+    cases: List["VariantCase"]
+    annotations: List[Annotation]
+    visibility: Visibility
+
+@dataclass
+class VariantCase:
+    name: str
+    fields: List[FieldDecl]   # empty for fieldless cases
+    discriminant: Optional[Expr]
+    span: Span
+
+@dataclass
+class TypeAliasDecl:          # alias Matrix = [[num; 4]; 4]
+    name: str
+    generics: List[GenericParam]
+    target: TypeExpr
+    visibility: Visibility
+
+@dataclass
+class GlobalConstDecl:        # root-scope fixed pilot NAME: T = expr
+    decl: PilotDecl
+    const_eval_required: bool = True
+
+@dataclass
+class FixedArrayType:         # [T; N]
+    element: TypeExpr
+    length: Expr
+
+@dataclass
+class ArrayLiteral:           # [a, b, c]
+    elements: List[Expr]
+
+@dataclass
+class ArrayRepeat:            # [expr; N]
+    value: Expr
+    count: Expr
+
+@dataclass
+class DynType:                # dyn Widget
+    doctrine: TypeExpr
+
+@dataclass
+class RawPointerType:         # *T / *const T / *mut T
+    inner: TypeExpr
+    mutable: bool
+
+@dataclass
+class DerefExpr:              # *ptr
+    pointer: Expr
+
+@dataclass
+class PointerWrite:           # *ptr = value
+    pointer: Expr
+    value: Expr
+
+@dataclass
+class ExternBlock:            # extern [C, link="user32"] { ... }
+    abi: AbiSpec
+    items: List["ExternItem"]
+    span: Span
+
+@dataclass
+class ExternTaskDecl:
+    name: str
+    params: List[Param]
+    ret: TypeExpr
+    abi: AbiSpec
+    link_name: Optional[str]
+    variadic: bool
+
+@dataclass
+class LayoutAnnotation:       # @layout(C), @layout(C, packed=1)
+    kind: str
+    options: Dict[str, Expr]
+
+@dataclass
+class ErrorNode:
+    span: Span
+    message: str
+    expected: List[str]
+    found: Optional[Token]
+    recovered_children: List[Node]
+
+@dataclass
+class IncompleteNode:
+    span: Span
+    construct: str            # "task", "shape", "when-arm", etc.
+    expected: List[str]
+    partial: Optional[Node]
+
 @dataclass
 class PowerType:             # power<N>
     level: Expr              # can be numeric literal or 'over9000'
@@ -1526,6 +1961,16 @@ class DirectOrder:           # direct_order [arch] (bindings) { asm }
 - eventually: guaranteed execution tracked in control flow graph
 - training arc with growth: verify condition variable mutated in body
 - declare was: verify timeline name is registered causality timeline
+- variant exhaustiveness: every `when` over a variant covers all cases or has `_`
+- variant payloads: destructuring names and field types must match the selected case
+- type aliases: expand aliases during type comparison but preserve alias names in diagnostics
+- root constants: evaluate root `fixed pilot` initializers at compile time and reject cycles
+- arrays: verify fixed array lengths are compile-time constants and repeat initializers are `Copy` or `Cloneable`
+- dynamic dispatch: verify object-safety for every `dyn D` and vtable availability for every erased type
+- FFI safety: extern signatures may use only FFI-safe types unless wrapped in `trust me`
+- layout annotations: reject `@layout(C)` shapes containing non-layout-stable fields
+- visibility: public APIs cannot expose private types; package APIs cannot expose module-private types
+- parser recovery nodes: `ErrorNode` and `IncompleteNode` have type `error` and suppress cascading diagnostics
 
 ### 10.2 Borrow Checker Pass (after type checker)
 
@@ -1533,7 +1978,10 @@ class DirectOrder:           # direct_order [arch] (bindings) { asm }
 2. Track borrows: immutable borrows counted, only one mutable allowed
 3. Verify lifetimes: no reference outlives its referent
 4. trust-me blocks: suspended within block, re-engaged after
-5. Report errors with Meiya voice
+5. Track `Shared<T>` inner borrows through runtime guards and ensure guards do not escape
+6. Reject sending `Shared<T>` across sorties unless `T: Send + Sync`
+7. Treat `Weak<T>` as non-owning: it cannot produce a `lend T` without successful `upgrade()`
+8. Report errors with Meiya voice
 
 ---
 
@@ -1546,6 +1994,12 @@ not C. Key differences from FREAK Lite:
 - prob[lo..hi]: compiles to double + bounds metadata (stripped in release)
 - causality<T>: compiles to value + broadcast function table
 - mood type: compiles to uint8_t enum, compound arithmetic is integer ops
+- variants: compile to tag + payload storage unless `@layout(C)` or `@repr(...)` fixes representation
+- type aliases: erased after type checking
+- fixed arrays: inline aggregate values; `[expr; N]` lowers to copy/clone initialization
+- `dyn` doctrine objects: fat pointer + vtable; static generics remain monomorphized
+- `Shared<T>`: runtime allocation header with strong/weak counters and borrow state
+- extern calls: emit target ABI call sites exactly as declared; panics may not unwind across them
 - xm3 {}: LLVM coroutines or OS threads, first-result-wins via atomics
 - deus_ex_machina: pragma optimize("O3") + disable sanitizers for block
 - isekai {}: fresh stack frame, only exports pass through
@@ -1629,14 +2083,21 @@ done
 task name(p: T) => expr
 
 -- Types
-num int uint tiny float float32 big word bool char void
-[T; N]  (A, B)  *T  *mut T
+num int uint tiny float float32 big word bool char void never
+[T; N]  (A, B)  *T  *const T  *mut T
 maybe<T>  result<T,E>  List<T>  Map<K,V>  Set<T>  Lineup<T>
+Shared<T>  Weak<T>  dyn Doctrine
 power<N>  prob[lo..hi]  causality<T>  mood
+
+-- Declarations
+variant Name { Case { field: T } Other }
+alias Name = OtherType
+fixed pilot NAME: T = const_expr
 
 -- Values
 42  3.14  "string {interp}"  true/yes/hai  false/no/iie
 some(x)  nobody  ok(x)  err(x)  [1,2,3]  {"k":v}  (a,b)
+[expr; N]  Variant::Case { field: value }  Variant::Fieldless
 
 -- Control
 if cond { } else { }
@@ -1685,6 +2146,7 @@ wingman Name { on msg(...) { } }
 ==  !=  <  >  <=  >=
 and  or  not
 |>  ?  !  ->  =>  ||
+*ptr  *ptr = value  ptr.read()  ptr.write(value)
 PLUS ULTRA / NAKAMA / FINAL FORM / TSUNDERE
 
 -- Anime annotations
@@ -1715,13 +2177,389 @@ declare val was x in timeline "name"
 -- Modules
 use module::{Thing}
 use module::*
+launch(package) task ...
+launch(universe) task ...
 launch task ...
 launch shape ...
+
+-- System boundaries
+extern [C] { task puts(s: *const tiny) -> std::ffi::c_int }
+extern [system, link="user32"] { task CreateWindowExW(...) -> *mut void }
+@layout(C) shape CShape { field: std::ffi::c_int }
+@repr(u32) variant CEnum { A = 1, B = 2 }
 
 -- Route system
 task f() -> route { route TrueRoute }
 only on TrueRoute from result { }
 ```
+
+---
+
+## SECTION 16: SYSTEM BOUNDARIES -- FFI, ABI, AND OS INTEROP
+
+FREAK is memory-safe until you deliberately walk to the perimeter fence.
+The fence is marked `extern`, `@layout(C)`, raw pointers, and `trust me`.
+The compiler will open the gate. It will also write down your name.
+
+### 16.1 FFI Safety Contract
+
+Foreign code is outside the FREAK borrow checker. Importing a symbol is safe;
+calling it is unsafe unless the imported task is wrapped by a standard-library
+API that proves the contract.
+
+```
+use std::ffi::{c_int, c_void}
+
+extern [C, cdecl, link="msvcrt"] {
+    task puts(s: *const tiny) -> c_int
+}
+
+task say_c_string(s: *const tiny) -> result<void, word> {
+    trust me "puts expects a valid null-terminated string" on my honor as .pilot {
+        pilot rc = puts(s)
+        if rc < 0 { give back err("puts failed") }
+    }
+    give back ok(void)
+}
+```
+
+FFI-safe types:
+
+- Fixed-width C aliases from `std::ffi`: `c_int`, `c_uint`, `c_long`, `c_ulong`, `c_size`, `c_isize`, `c_float`, `c_double`, `c_char`, `c_uchar`, `c_bool`, `c_void`, `usize`, `isize`, `wchar`.
+- Raw pointers: `*T`, `*const T`, `*mut T`.
+- `void` as a return type.
+- `@layout(C)` shapes whose fields are all FFI-safe.
+- Fieldless `@repr(...)` variants.
+- Fixed arrays `[T; N]` where `T` is FFI-safe.
+- Extern function pointers: `extern [C] task(...) -> T`.
+
+Not FFI-safe by default: `word`, `List<T>`, `Map<K,V>`, `Set<T>`,
+`Shared<T>`, `Weak<T>`, `dyn D`, closures, `maybe<T>`, `result<T,E>`,
+payload variants, and any shape without an explicit layout annotation.
+
+Yuuko note: "A FREAK `word` is not a `char*`. If you hand it to C raw,
+the BETA are no longer the main threat."
+
+### 16.2 extern Blocks and Calling Conventions
+
+```
+extern [C] {
+    task strlen(s: *const tiny) -> std::ffi::c_size
+}
+
+extern [C, link="m"] {
+    @link_name("sqrt")
+    task c_sqrt(x: std::ffi::c_double) -> std::ffi::c_double
+}
+
+extern [system, link="user32", if target_os = "windows"] {
+    task MessageBoxW(
+        hwnd: *mut void,
+        text: *const std::ffi::wchar,
+        caption: *const std::ffi::wchar,
+        flags: std::ffi::c_uint
+    ) -> std::ffi::c_int
+}
+
+extern [C] {
+    task printf(fmt: *const tiny, args: ...) -> std::ffi::c_int
+}
+```
+
+Rules:
+
+- `extern [C]` means C language ABI with the platform C default calling convention.
+- Calling conventions may be specified as `cdecl`, `stdcall`, `fastcall`, `thiscall`, `vectorcall`, `win64`, `sysv64`, or `system`.
+- `system` means "the OS API convention for this target": WinAPI on Windows, C ABI elsewhere.
+- At most one calling convention may appear in an extern ABI list.
+- `link="name"` names the native library. `@link_name("symbol")` overrides the symbol for one task.
+- `args: ...` is allowed only as the final parameter of an extern task and only for C-compatible variadic functions.
+- Extern declarations do not own symbols. They describe symbols the linker must find.
+- FREAK panics must not unwind across an extern call boundary or callback boundary. Catch them before returning to foreign code.
+
+### 16.3 Memory Layout Constraints
+
+Use `@layout(C)` for shapes that cross FFI. Without it, the compiler may
+reorder, pad, niche-optimize, or otherwise improve layout like Yuuko
+rearranging a lab while refusing to explain herself.
+
+```
+@layout(C)
+shape Rect {
+    left: std::ffi::c_long
+    top: std::ffi::c_long
+    right: std::ffi::c_long
+    bottom: std::ffi::c_long
+}
+
+@layout(C, packed=1)
+shape BitmapHeader {
+    magic: [tiny; 2]
+    size: std::ffi::c_uint
+}
+
+@layout(transparent)
+shape WindowHandle {
+    raw: *mut void
+}
+
+@repr(u32)
+variant MessageKind {
+    Paint = 15
+    Destroy = 2
+}
+```
+
+Rules:
+
+- `@layout(C)` preserves field order and uses the target C ABI's alignment and padding.
+- `@layout(C, packed=N)` lowers alignment to `N`. Misaligned field access is unsafe and may require `.read_unaligned()`.
+- `@layout(transparent)` is valid only for one non-zero-sized field plus zero-sized marker fields.
+- `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` fixes the discriminant size for fieldless variants.
+- Payload variants are not FFI-safe unless wrapped in an explicit `@layout(C)` tagged shape.
+- `int`, `uint`, and `bool` are FREAK types, not promises about C's `int`, `unsigned`, or `_Bool`. Use `std::ffi` aliases at the boundary.
+
+### 16.4 Raw Pointer Dereferencing
+
+Raw pointers are inert outside `trust me`. You may store them, compare
+them, pass them through FFI, and check for null safely. Dereferencing,
+pointer arithmetic, allocation, and freeing require a `trust me` block.
+
+```
+trust me "read OS message" on my honor as .pilot {
+    pilot msg: Message = *msg_ptr       -- read
+    *msg_ptr = next_msg                 -- write, requires *mut Message
+
+    pilot x = msg_ptr.read()
+    msg_ptr.write(next_msg)
+
+    pilot third = msg_ptr.offset(2).read()
+    pilot bytes = msg_ptr.cast<tiny>()
+}
+```
+
+Rules:
+
+- `*ptr` reads the pointee. It requires `ptr: *T` or `ptr: *mut T`.
+- `*ptr = value` writes the pointee. It requires `ptr: *mut T`.
+- `ptr.read()` and `ptr.write(value)` are method forms of the same operations.
+- `ptr.offset(n)` moves by `n * size_of<T>()` bytes and keeps type `*T` or `*mut T`.
+- `ptr.cast<U>()` changes pointer type without changing address.
+- `ptr.is_null()` checks for null. Dereferencing null is immediate undefined behavior.
+- Reading uninitialized memory is undefined behavior unless using a type that explicitly allows it.
+- `free(ptr)` must receive a pointer returned by `alloc` and must be called exactly once.
+- Creating a `lend T` from a raw pointer requires proving the referent outlives the borrow. The compiler accepts that proof only inside `trust me`.
+
+### 16.5 OS Modules and Callbacks
+
+The standard library exposes platform modules under `std::os`.
+
+```
+use[target_os="windows"] std::os::windows::{Hwnd, WndProc}
+use[target_os="macos"] std::os::macos::{NsWindow, ObjcId}
+use[target_os="linux"] std::os::linux::{XDisplay, XWindow}
+```
+
+Rules:
+
+- Platform imports are conditionally resolved by target triple.
+- Public cross-platform libraries should hide OS handles behind `@layout(transparent)` newtypes or safe shapes.
+- OS callbacks must use an extern function type:
+  `extern [system] task(hwnd: Hwnd, msg: c_uint, w: std::ffi::usize, l: std::ffi::isize) -> std::ffi::isize`.
+- A callback must catch FREAK panics before returning to the OS. If a panic reaches a foreign callback boundary, the process aborts.
+- OS handles are resources. Wrap them in shapes with explicit `drop` behavior or standard-library RAII wrappers.
+
+### 16.6 Boundary Wrappers
+
+Public APIs should translate system failure into FREAK error types:
+
+```
+task create_window(title: word) -> result<Window, OsError>
+task read_file(path: word) -> result<word, FsError>
+task socket_connect(addr: Address) -> result<TcpSocket, NetError>
+```
+
+Rules:
+
+- C integer error codes become `result<T, OsError>`, not magic numbers.
+- `errno`, `GetLastError`, and platform-specific diagnostics must be captured before any other foreign call can overwrite them.
+- Safe wrappers must document ownership of every pointer and handle: borrowed, transferred, retained, or released by callee.
+- If ownership is ambiguous, the wrapper is unsafe. Sagiri's review comment: "Ambiguous command structure. Rejected."
+
+---
+
+## SECTION 17: COMPILER INTERNALS AND IDE PARSER SUPPORT
+
+Sortie, the language server, and the self-hosting compiler must survive
+half-written code. A pilot who crashes because someone typed `task f(`
+does not get assigned to the IDE team.
+
+### 17.1 Panic Semantics
+
+`panic(msg: word) -> never` stops normal control flow.
+
+```
+task impossible() -> int {
+    panic("this route should not exist")
+}
+
+pilot parsed = std::panic::catch(|| => parse_file(path))
+when parsed {
+    ok(ast) -> use_ast(ast)
+    err(p) -> report_panic(p.message, p.stack)
+}
+```
+
+Rules:
+
+- A panic creates `PanicInfo { message, location, stack, payload }`.
+- Default behavior is unwinding within the current sortie: run `eventually` blocks, run destructors, release borrows, then leave the sortie as panicked.
+- `panic=abort` build mode skips unwinding and aborts the whole process after printing diagnostics.
+- `std::panic::catch(f)` catches panics from `f` in the current sortie and returns `result<T, PanicInfo>`.
+- A child sortie panic is contained by the sortie boundary. APIs may expose it as `result<T, PanicInfo>`; plain `debrief handle` re-panics in the waiting sortie to preserve simple structured-concurrency semantics.
+- Panics cannot cross FFI calls, OS callbacks, or C++ exception boundaries. Catch before crossing or abort.
+- `panic` is for violated invariants. Recoverable OS, parse, network, and user-input failures use `result`.
+
+### 17.2 Tolerant AST Nodes
+
+Strict compiler mode may reject invalid source. IDE mode must return a
+tree even when the file is actively on fire.
+
+```
+ErrorNode {
+    span,
+    message,
+    expected: ["identifier", "}", "done"],
+    found: token,
+    recovered_children
+}
+
+IncompleteNode {
+    span,
+    construct: "task",
+    expected: [")", "->", "{"],
+    partial
+}
+```
+
+Rules:
+
+- The parser must never throw an uncaught panic for malformed source.
+- `ErrorNode` represents tokens that are present but invalid.
+- `IncompleteNode` represents a construct that began correctly but is missing required trailing syntax.
+- Both nodes preserve source spans and trivia so formatting, highlighting, and autocomplete remain stable.
+- The type checker assigns them `error` type and suppresses duplicate cascading errors nearby.
+- Codegen is forbidden if any reachable `ErrorNode`, `IncompleteNode`, or `error` type remains.
+- Tree-sitter and the self-hosting parser should use the same recovery boundaries: newline, `}`, `done`, `,`, `->`, and top-level declaration starts.
+
+### 17.3 Base AST and Type Model
+
+Every AST node used by compiler or IDE tooling must carry:
+
+- `node_id`: stable within one parse.
+- `span`: byte offsets plus line/column for diagnostics.
+- `kind`: concrete node kind.
+- `annotations`: annotation list, possibly empty.
+- `visibility`: for declarations.
+- `parent`: optional parent id for IDE navigation.
+
+The canonical type model contains:
+
+```
+Primitive(name)
+Never
+ErrorType
+ShapeType(name, args)
+VariantType(name, args)
+AliasType(name, args, target)
+GenericParam(name, bounds)
+TupleType(items)
+FixedArrayType(element, length)
+ListType(element)
+MapType(key, value)
+FunctionType(params, ret, abi)
+DoctrineType(name, args)
+DynType(doctrine)
+BorrowType(inner, mutability, lifetime)
+RawPointerType(inner, mutability)
+SharedType(inner)
+WeakType(inner)
+```
+
+Rules:
+
+- `AliasType` may appear in diagnostics and IDE hover, but type equality expands to its target.
+- `Never` coerces to any expected type and has no values.
+- `ErrorType` unifies with any type only to continue analysis; it must not reach codegen.
+- Type identity for shapes, variants, and doctrines is nominal and includes the defining package and module.
+- Type identity for aliases is structural after expansion.
+
+### 17.4 Module Resolution Edge Cases
+
+Resolution happens in phases:
+
+1. Discover package roots from `hangar.toml`.
+2. Discover module files and directories.
+3. Parse declaration headers for `shape`, `variant`, `doctrine`, `alias`, `task`, and root `fixed pilot`.
+4. Resolve imports and visibility.
+5. Expand aliases and check type-level cycles.
+6. Type-check bodies and constant initializers.
+7. Run borrow checking and anime-layer audits.
+
+Cyclic imports:
+
+- Module import cycles are allowed for declarations.
+- Alias cycles are compile errors unless broken by a nominal type boundary. `alias A = B; alias B = A` is rejected.
+- Direct recursive shapes or variants are rejected unless recursion goes through indirection.
+- Constant evaluation cycles are compile errors.
+- Runtime module initialization cycles are forbidden. Root scope may contain declarations and constants only, not arbitrary executable statements.
+
+Namespace collisions:
+
+- FREAK has separate namespaces for modules, types, values, and annotations.
+- `shape`, `variant`, `doctrine`, and `alias` names share the type namespace.
+- `task`, root `fixed pilot`, local `pilot`, and imported functions share the value namespace.
+- Variant case constructors are accessed through the variant type namespace unless explicitly imported.
+- A local declaration shadows an imported name only in an inner scope.
+- Two explicit imports with the same final name in the same namespace are compile errors unless one is aliased.
+- Two glob imports may collide silently until the name is used; use then becomes an ambiguity error.
+- `launch use` re-exports a name and participates in collision checks as if declared locally.
+
+### 17.5 Visibility Scoping
+
+Visibility has three levels:
+
+```
+task private_helper() { ... }              -- module-private
+launch(package) task parse_header() { ... } -- package-private
+launch task compile() { ... }              -- universe-public
+launch(universe) shape AstNode { ... }      -- explicit universe-public
+```
+
+Rules:
+
+- No modifier means visible only inside the declaring module.
+- `launch(package)` means visible to every module in the same Hangar unit, but invisible to dependent packages.
+- `launch` and `launch(universe)` are equivalent. They export the item as public API to dependent packages.
+- Public APIs may not expose private or package-private types in parameter, return, field, or variant payload positions.
+- Package-private APIs may not expose module-private types outside their declaring module.
+- `launch use` re-exports with the visibility written on the re-export, never with greater visibility than the original item.
+- IDEs should display package-private symbols inside the workspace and hide them from external dependency completion unless explicitly requested.
+
+### 17.6 IDE Robustness Requirements
+
+Language servers, formatters, and refactoring tools must follow the same
+combat rule as a TSF squad: lose one sensor, not the whole formation.
+
+- Parsing must be cancellable and restartable by file.
+- Diagnostics must be deterministic for the same source text and package graph.
+- Incremental parsing must preserve node ids when text outside a node changes.
+- Name resolution must produce partial symbol tables even with `ErrorNode`s.
+- Autocomplete must work inside incomplete declarations, argument lists, `when` arms, and import paths.
+- Formatter tools must not delete unknown annotations or trivia attached to error nodes.
+- A compiler panic in IDE mode is reported as a tool bug diagnostic and must not crash the editor process.
+
+Compiler voice (Mana): "Bad code is input. Crashing is behavior. Fix the behavior."
 
 ---
 
