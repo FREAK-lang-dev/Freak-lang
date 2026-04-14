@@ -13,6 +13,7 @@ CRATE_ORDER = [
     "freak_lex",
     "freak_parse",
     "freak_hir",
+    "freak_resolve",
     "freak_query",
     "freak_driver",
 ]

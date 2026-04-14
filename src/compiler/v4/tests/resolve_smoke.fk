@@ -1,0 +1,17 @@
+-- V4 resolver smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_resolve_smoke_source = "task main() => \"hi\"\n"
+v4_resolve_smoke_source = v4_resolve_smoke_source + "shape Pilot\n"
+v4_resolve_smoke_source = v4_resolve_smoke_source + "task main() => \"again\"\n"
+
+pilot v4_resolve_smoke_stream = v4_lex_text(0, v4_resolve_smoke_source)
+pilot v4_resolve_smoke_tree = v4_parse_stream(0, v4_resolve_smoke_stream)
+pilot v4_resolve_smoke_hir = v4_hir_lower_tree(0, v4_resolve_smoke_tree)
+pilot v4_resolve_smoke_index = v4_resolve_lower_hir(0, v4_resolve_smoke_hir)
+
+say v4_resolve_summary(v4_resolve_smoke_index)
+say "main-def=" + v4_resolve_def_for_name(v4_resolve_smoke_index, "main")
+say "first-symbol-kind=" + v4_resolve_symbol_kind(v4_resolve_smoke_index, 0)
+say "resolve-diagnostics=" + word_from_int(v4_resolve_diag_count(v4_resolve_smoke_index))
+

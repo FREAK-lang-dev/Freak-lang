@@ -1,0 +1,199 @@
+-- ===================================================================
+-- freak_resolve - V4 top-level semantic index prototype
+-- ===================================================================
+-- Depends on freak_span, freak_diag, and freak_hir.
+-- This first resolver pass builds a file-local item index from HIR,
+-- detects duplicate named definitions, and exposes name/def lookup for
+-- future LSP hover and type inference queries.
+
+pilot v4_resolve_files = 0
+pilot v4_resolve_hirs = 0
+pilot v4_resolve_names = 0
+pilot v4_resolve_kinds = 0
+pilot v4_resolve_defs = 0
+pilot v4_resolve_hir_items = 0
+pilot v4_resolve_diags = 0
+pilot v4_resolve_ready = 0
+
+task v4_resolve_init() -> void {
+    if v4_resolve_ready == 0 {
+        v4_resolve_files = array_new()
+        v4_resolve_hirs = array_new()
+        v4_resolve_names = array_new()
+        v4_resolve_kinds = array_new()
+        v4_resolve_defs = array_new()
+        v4_resolve_hir_items = array_new()
+        v4_resolve_diags = array_new()
+        v4_resolve_ready = 1
+    }
+}
+
+task v4_resolve_new(file_id: int, hir_id: int) -> int {
+    v4_resolve_init()
+    pilot resolve_id = array_len(v4_resolve_files)
+    array_push(v4_resolve_files, word_from_int(file_id))
+    array_push(v4_resolve_hirs, word_from_int(hir_id))
+    array_push(v4_resolve_names, word_from_int(array_new()))
+    array_push(v4_resolve_kinds, word_from_int(array_new()))
+    array_push(v4_resolve_defs, word_from_int(array_new()))
+    array_push(v4_resolve_hir_items, word_from_int(array_new()))
+    array_push(v4_resolve_diags, word_from_int(array_new()))
+    give back resolve_id
+}
+
+task v4_resolve_names_handle(resolve_id: int) -> int {
+    give back word_to_int(array_get(v4_resolve_names, resolve_id))
+}
+
+task v4_resolve_kinds_handle(resolve_id: int) -> int {
+    give back word_to_int(array_get(v4_resolve_kinds, resolve_id))
+}
+
+task v4_resolve_defs_handle(resolve_id: int) -> int {
+    give back word_to_int(array_get(v4_resolve_defs, resolve_id))
+}
+
+task v4_resolve_hir_items_handle(resolve_id: int) -> int {
+    give back word_to_int(array_get(v4_resolve_hir_items, resolve_id))
+}
+
+task v4_resolve_diags_handle(resolve_id: int) -> int {
+    give back word_to_int(array_get(v4_resolve_diags, resolve_id))
+}
+
+task v4_resolve_symbol_count(resolve_id: int) -> int {
+    give back array_len(v4_resolve_defs_handle(resolve_id))
+}
+
+task v4_resolve_diag_count(resolve_id: int) -> int {
+    give back array_len(v4_resolve_diags_handle(resolve_id))
+}
+
+task v4_resolve_symbol_name(resolve_id: int, symbol_id: int) -> word {
+    give back array_get(v4_resolve_names_handle(resolve_id), symbol_id)
+}
+
+task v4_resolve_symbol_kind(resolve_id: int, symbol_id: int) -> word {
+    give back array_get(v4_resolve_kinds_handle(resolve_id), symbol_id)
+}
+
+task v4_resolve_symbol_def(resolve_id: int, symbol_id: int) -> word {
+    give back array_get(v4_resolve_defs_handle(resolve_id), symbol_id)
+}
+
+task v4_resolve_symbol_hir_item(resolve_id: int, symbol_id: int) -> int {
+    give back word_to_int(array_get(v4_resolve_hir_items_handle(resolve_id), symbol_id))
+}
+
+task v4_resolve_diag(resolve_id: int, diag_id: int) -> word {
+    give back array_get(v4_resolve_diags_handle(resolve_id), diag_id)
+}
+
+task v4_resolve_add_diag(resolve_id: int, diag: word) -> void {
+    array_push(v4_resolve_diags_handle(resolve_id), diag)
+}
+
+task v4_resolve_copy_hir_diags(resolve_id: int, hir_id: int) -> void {
+    pilot diag_idx = 0
+    pilot diag_count = v4_hir_diag_count(hir_id)
+    repeat until diag_idx >= diag_count {
+        v4_resolve_add_diag(resolve_id, v4_hir_diag(hir_id, diag_idx))
+        diag_idx += 1
+    }
+}
+
+task v4_resolve_is_definition_kind(item_kind: word) -> bool {
+    if item_kind == v4_hir_task { give back true }
+    if item_kind == v4_hir_shape { give back true }
+    if item_kind == v4_hir_doctrine { give back true }
+    if item_kind == v4_hir_extern { give back true }
+    give back false
+}
+
+task v4_resolve_is_indexable_kind(item_kind: word) -> bool {
+    if item_kind == v4_hir_attribute { give back true }
+    if item_kind == v4_hir_import { give back true }
+    if item_kind == v4_hir_impl { give back true }
+    give back v4_resolve_is_definition_kind(item_kind)
+}
+
+task v4_resolve_lookup_symbol(resolve_id: int, lookup_name: word, lookup_kind: word) -> int {
+    pilot idx = 0
+    pilot count = v4_resolve_symbol_count(resolve_id)
+    repeat until idx >= count {
+        if array_get(v4_resolve_names_handle(resolve_id), idx) == lookup_name {
+            if array_get(v4_resolve_kinds_handle(resolve_id), idx) == lookup_kind {
+                give back idx
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_resolve_lookup_any(resolve_id: int, lookup_name: word) -> int {
+    pilot idx = 0
+    pilot count = v4_resolve_symbol_count(resolve_id)
+    repeat until idx >= count {
+        if array_get(v4_resolve_names_handle(resolve_id), idx) == lookup_name {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_resolve_add_symbol(resolve_id: int, item_name: word, item_kind: word, def_id: word, hir_item: int) -> int {
+    pilot symbol_id = array_len(v4_resolve_defs_handle(resolve_id))
+    array_push(v4_resolve_names_handle(resolve_id), item_name)
+    array_push(v4_resolve_kinds_handle(resolve_id), item_kind)
+    array_push(v4_resolve_defs_handle(resolve_id), def_id)
+    array_push(v4_resolve_hir_items_handle(resolve_id), word_from_int(hir_item))
+    give back symbol_id
+}
+
+task v4_resolve_lower_hir(file_id: int, hir_id: int) -> int {
+    v4_resolve_init()
+    pilot resolve_id = v4_resolve_new(file_id, hir_id)
+    v4_resolve_copy_hir_diags(resolve_id, hir_id)
+
+    pilot item_idx = 0
+    pilot item_count = v4_hir_item_count(hir_id)
+    repeat until item_idx >= item_count {
+        pilot item_kind = v4_hir_item_kind(hir_id, item_idx)
+        pilot item_name = v4_hir_item_name(hir_id, item_idx)
+        pilot item_def = v4_hir_item_def(hir_id, item_idx)
+
+        if v4_resolve_is_indexable_kind(item_kind) {
+            if item_name != "" {
+                if v4_resolve_is_definition_kind(item_kind) {
+                    pilot existing = v4_resolve_lookup_symbol(resolve_id, item_name, item_kind)
+                    if existing >= 0 {
+                        pilot span = v4_hir_item_span(hir_id, item_idx)
+                        v4_resolve_add_diag(resolve_id, v4_diag_new(v4_diag_error, span, "duplicate definition", item_name))
+                    }
+                }
+                v4_resolve_add_symbol(resolve_id, item_name, item_kind, item_def, item_idx)
+            }
+        }
+        item_idx += 1
+    }
+
+    give back resolve_id
+}
+
+task v4_resolve_def_for_name(resolve_id: int, lookup_name: word) -> word {
+    pilot symbol_id = v4_resolve_lookup_any(resolve_id, lookup_name)
+    if symbol_id < 0 {
+        give back ""
+    }
+    give back v4_resolve_symbol_def(resolve_id, symbol_id)
+}
+
+task v4_resolve_summary(resolve_id: int) -> word {
+    pilot summary = "resolve-ok resolve=" + word_from_int(resolve_id)
+    summary = summary + " symbols=" + word_from_int(v4_resolve_symbol_count(resolve_id))
+    summary = summary + " diagnostics=" + word_from_int(v4_resolve_diag_count(resolve_id))
+    give back summary
+}
+
