@@ -1,0 +1,336 @@
+-- ===================================================================
+-- freak_parse - V4 resilient parser prototype
+-- ===================================================================
+-- Depends on freak_span, freak_diag, and freak_lex.
+-- This first parser slice indexes top-level items and records ErrorNode
+-- and IncompleteNode entries instead of aborting on malformed source.
+
+pilot v4_node_source_file = "SourceFile"
+pilot v4_node_task = "TaskDecl"
+pilot v4_node_shape = "ShapeDecl"
+pilot v4_node_impl = "ImplDecl"
+pilot v4_node_doctrine = "DoctrineDecl"
+pilot v4_node_use = "UseImport"
+pilot v4_node_extern = "ExternBlock"
+pilot v4_node_attribute = "Attribute"
+pilot v4_node_error = "ErrorNode"
+pilot v4_node_incomplete = "IncompleteNode"
+
+pilot v4_parse_tree_files = 0
+pilot v4_parse_tree_streams = 0
+pilot v4_parse_tree_node_kinds = 0
+pilot v4_parse_tree_node_values = 0
+pilot v4_parse_tree_node_spans = 0
+pilot v4_parse_tree_node_parents = 0
+pilot v4_parse_tree_diags = 0
+pilot v4_parse_ready = 0
+
+task v4_parse_init() -> void {
+    if v4_parse_ready == 0 {
+        v4_parse_tree_files = array_new()
+        v4_parse_tree_streams = array_new()
+        v4_parse_tree_node_kinds = array_new()
+        v4_parse_tree_node_values = array_new()
+        v4_parse_tree_node_spans = array_new()
+        v4_parse_tree_node_parents = array_new()
+        v4_parse_tree_diags = array_new()
+        v4_parse_ready = 1
+    }
+}
+
+task v4_parse_tree_new(file_id: int, stream_id: int) -> int {
+    v4_parse_init()
+    pilot tree_id = array_len(v4_parse_tree_files)
+    array_push(v4_parse_tree_files, word_from_int(file_id))
+    array_push(v4_parse_tree_streams, word_from_int(stream_id))
+    array_push(v4_parse_tree_node_kinds, word_from_int(array_new()))
+    array_push(v4_parse_tree_node_values, word_from_int(array_new()))
+    array_push(v4_parse_tree_node_spans, word_from_int(array_new()))
+    array_push(v4_parse_tree_node_parents, word_from_int(array_new()))
+    array_push(v4_parse_tree_diags, word_from_int(array_new()))
+    give back tree_id
+}
+
+task v4_parse_kinds_handle(tree_id: int) -> int {
+    give back word_to_int(array_get(v4_parse_tree_node_kinds, tree_id))
+}
+
+task v4_parse_values_handle(tree_id: int) -> int {
+    give back word_to_int(array_get(v4_parse_tree_node_values, tree_id))
+}
+
+task v4_parse_spans_handle(tree_id: int) -> int {
+    give back word_to_int(array_get(v4_parse_tree_node_spans, tree_id))
+}
+
+task v4_parse_parents_handle(tree_id: int) -> int {
+    give back word_to_int(array_get(v4_parse_tree_node_parents, tree_id))
+}
+
+task v4_parse_diags_handle(tree_id: int) -> int {
+    give back word_to_int(array_get(v4_parse_tree_diags, tree_id))
+}
+
+task v4_parse_add_node(tree_id: int, node_kind: word, value: word, span: word, parent: int) -> int {
+    pilot node_id = array_len(v4_parse_kinds_handle(tree_id))
+    array_push(v4_parse_kinds_handle(tree_id), node_kind)
+    array_push(v4_parse_values_handle(tree_id), value)
+    array_push(v4_parse_spans_handle(tree_id), span)
+    array_push(v4_parse_parents_handle(tree_id), word_from_int(parent))
+    give back node_id
+}
+
+task v4_parse_add_diag(tree_id: int, severity: int, span: word, message: word, help: word) -> void {
+    array_push(v4_parse_diags_handle(tree_id), v4_diag_new(severity, span, message, help))
+}
+
+task v4_parse_node_count(tree_id: int) -> int {
+    give back array_len(v4_parse_kinds_handle(tree_id))
+}
+
+task v4_parse_diag_count(tree_id: int) -> int {
+    give back array_len(v4_parse_diags_handle(tree_id))
+}
+
+task v4_parse_node_kind(tree_id: int, node_id: int) -> word {
+    give back array_get(v4_parse_kinds_handle(tree_id), node_id)
+}
+
+task v4_parse_node_value(tree_id: int, node_id: int) -> word {
+    give back array_get(v4_parse_values_handle(tree_id), node_id)
+}
+
+task v4_parse_node_span(tree_id: int, node_id: int) -> word {
+    give back array_get(v4_parse_spans_handle(tree_id), node_id)
+}
+
+task v4_parse_node_parent(tree_id: int, node_id: int) -> int {
+    give back word_to_int(array_get(v4_parse_parents_handle(tree_id), node_id))
+}
+
+task v4_parse_diag(tree_id: int, diag_id: int) -> word {
+    give back array_get(v4_parse_diags_handle(tree_id), diag_id)
+}
+
+task v4_parse_token_is_trivia(stream_id: int, token_id: int) -> bool {
+    give back v4_lex_token_type(stream_id, token_id) == v4_tok_trivia
+}
+
+task v4_parse_skip_trivia(stream_id: int, token_id: int) -> int {
+    pilot idx = token_id
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until idx >= count or not v4_parse_token_is_trivia(stream_id, idx) {
+        idx += 1
+    }
+    give back idx
+}
+
+task v4_parse_is_eof(stream_id: int, token_id: int) -> bool {
+    if token_id >= v4_lex_token_count(stream_id) {
+        give back true
+    }
+    give back v4_lex_token_type(stream_id, token_id) == v4_tok_eof
+}
+
+task v4_parse_is_newline_token(stream_id: int, token_id: int) -> bool {
+    if token_id >= v4_lex_token_count(stream_id) {
+        give back false
+    }
+    give back v4_lex_token_type(stream_id, token_id) == v4_tok_trivia and v4_lex_token_value(stream_id, token_id) == "\n"
+}
+
+task v4_parse_is_top_keyword(value: word) -> bool {
+    give back value == "task" or value == "shape" or value == "impl" or value == "doctrine" or value == "use" or value == "extern"
+}
+
+task v4_parse_kind_for_keyword(value: word) -> word {
+    if value == "task" { give back v4_node_task }
+    if value == "shape" { give back v4_node_shape }
+    if value == "impl" { give back v4_node_impl }
+    if value == "doctrine" { give back v4_node_doctrine }
+    if value == "use" { give back v4_node_use }
+    if value == "extern" { give back v4_node_extern }
+    give back v4_node_error
+}
+
+task v4_parse_keyword_requires_name(value: word) -> bool {
+    give back value == "task" or value == "shape" or value == "impl" or value == "doctrine"
+}
+
+task v4_parse_keyword_requires_body(value: word) -> bool {
+    give back value == "task" or value == "shape" or value == "impl" or value == "doctrine" or value == "extern"
+}
+
+task v4_parse_make_span(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot count = v4_lex_token_count(stream_id)
+    if count == 0 {
+        give back V4_NO_SPAN
+    }
+    pilot first = start_token
+    if first < 0 { first = 0 }
+    if first >= count { first = count - 1 }
+    pilot last = end_token - 1
+    if last < first { last = first }
+    if last >= count { last = count - 1 }
+
+    pilot first_span = v4_lex_token_span(stream_id, first)
+    pilot last_span = v4_lex_token_span(stream_id, last)
+    give back v4_span_new(v4_span_file(first_span), v4_span_start(first_span), v4_span_end(last_span))
+}
+
+task v4_parse_item_has_body(stream_id: int, start_token: int, end_token: int) -> bool {
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if val == "{" or val == "=>" or val == "done" {
+            give back true
+        }
+        idx += 1
+    }
+    give back false
+}
+
+task v4_parse_skip_item(stream_id: int, start_token: int) -> int {
+    pilot idx = start_token
+    pilot depth = 0
+    pilot saw_body = false
+    pilot count = v4_lex_token_count(stream_id)
+
+    repeat until idx >= count {
+        if v4_parse_is_eof(stream_id, idx) {
+            give back idx
+        }
+
+        if v4_parse_is_newline_token(stream_id, idx) and not saw_body {
+            give back idx + 1
+        }
+
+        if not v4_parse_token_is_trivia(stream_id, idx) {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if val == "{" {
+                depth += 1
+                saw_body = true
+            } else if val == "}" {
+                if depth > 0 {
+                    depth -= 1
+                }
+                if saw_body and depth == 0 {
+                    give back idx + 1
+                }
+            } else if val == "done" {
+                if saw_body {
+                    give back idx + 1
+                }
+            }
+        }
+        idx += 1
+    }
+    give back idx
+}
+
+task v4_parse_add_incomplete(tree_id: int, parent: int, span: word, missing: word) -> void {
+    v4_parse_add_node(tree_id, v4_node_incomplete, missing, span, parent)
+    v4_parse_add_diag(tree_id, v4_diag_error, span, "incomplete syntax node", missing)
+}
+
+task v4_parse_parse_attribute(tree_id: int, stream_id: int, token_id: int, root_id: int) -> int {
+    pilot start_token = token_id
+    pilot name_token = v4_parse_skip_trivia(stream_id, token_id + 1)
+    pilot end_token = v4_parse_skip_item(stream_id, token_id)
+    pilot attr_name = ""
+    if name_token < v4_lex_token_count(stream_id) {
+        attr_name = v4_lex_token_value(stream_id, name_token)
+    }
+    pilot attr_span = v4_parse_make_span(stream_id, start_token, end_token)
+    pilot attr_node = v4_parse_add_node(tree_id, v4_node_attribute, attr_name, attr_span, root_id)
+    if attr_name == "" {
+        v4_parse_add_incomplete(tree_id, attr_node, attr_span, "expected attribute name after @")
+    }
+    give back end_token
+}
+
+task v4_parse_parse_top_item(tree_id: int, stream_id: int, token_id: int, root_id: int) -> int {
+    pilot keyword = v4_lex_token_value(stream_id, token_id)
+    pilot node_kind = v4_parse_kind_for_keyword(keyword)
+    pilot end_token = v4_parse_skip_item(stream_id, token_id)
+    pilot item_span = v4_parse_make_span(stream_id, token_id, end_token)
+    pilot name_value = ""
+
+    if v4_parse_keyword_requires_name(keyword) {
+        pilot name_token = v4_parse_skip_trivia(stream_id, token_id + 1)
+        if name_token < v4_lex_token_count(stream_id) {
+            pilot name_type = v4_lex_token_type(stream_id, name_token)
+            if name_type == v4_tok_ident or name_type == v4_tok_keyword {
+                name_value = v4_lex_token_value(stream_id, name_token)
+            }
+        }
+    } else if keyword == "use" {
+        pilot use_token = v4_parse_skip_trivia(stream_id, token_id + 1)
+        if use_token < v4_lex_token_count(stream_id) {
+            name_value = v4_lex_token_value(stream_id, use_token)
+        }
+    } else if keyword == "extern" {
+        name_value = "extern"
+    }
+
+    pilot item_node = v4_parse_add_node(tree_id, node_kind, name_value, item_span, root_id)
+
+    if v4_parse_keyword_requires_name(keyword) and name_value == "" {
+        v4_parse_add_incomplete(tree_id, item_node, item_span, "expected name after " + keyword)
+    }
+
+    if v4_parse_keyword_requires_body(keyword) {
+        if not v4_parse_item_has_body(stream_id, token_id, end_token) {
+            v4_parse_add_incomplete(tree_id, item_node, item_span, "expected body for " + keyword)
+        }
+    }
+
+    give back end_token
+}
+
+task v4_parse_parse_error(tree_id: int, stream_id: int, token_id: int, root_id: int) -> int {
+    pilot end_token = v4_parse_skip_item(stream_id, token_id)
+    pilot err_span = v4_parse_make_span(stream_id, token_id, end_token)
+    pilot val = v4_lex_token_value(stream_id, token_id)
+    v4_parse_add_node(tree_id, v4_node_error, val, err_span, root_id)
+    v4_parse_add_diag(tree_id, v4_diag_error, err_span, "unexpected token at top level", val)
+    give back end_token
+}
+
+task v4_parse_stream(file_id: int, stream_id: int) -> int {
+    v4_parse_init()
+    pilot tree_id = v4_parse_tree_new(file_id, stream_id)
+    pilot root_id = v4_parse_add_node(tree_id, v4_node_source_file, word_from_int(file_id), V4_NO_SPAN, 0 - 1)
+    pilot idx = 0
+    pilot count = v4_lex_token_count(stream_id)
+
+    repeat until idx >= count {
+        idx = v4_parse_skip_trivia(stream_id, idx)
+        if v4_parse_is_eof(stream_id, idx) {
+            give back tree_id
+        }
+
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot tok_value = v4_lex_token_value(stream_id, idx)
+
+        if tok_type == v4_tok_symbol and tok_value == "@" {
+            idx = v4_parse_parse_attribute(tree_id, stream_id, idx, root_id)
+        } else if tok_type == v4_tok_keyword and v4_parse_is_top_keyword(tok_value) {
+            idx = v4_parse_parse_top_item(tree_id, stream_id, idx, root_id)
+        } else if tok_type == v4_tok_unknown {
+            idx = v4_parse_parse_error(tree_id, stream_id, idx, root_id)
+        } else {
+            idx = v4_parse_parse_error(tree_id, stream_id, idx, root_id)
+        }
+    }
+
+    give back tree_id
+}
+
+task v4_parse_summary(tree_id: int) -> word {
+    pilot summary = "parse-ok tree=" + word_from_int(tree_id)
+    summary = summary + " nodes=" + word_from_int(v4_parse_node_count(tree_id))
+    summary = summary + " diagnostics=" + word_from_int(v4_parse_diag_count(tree_id))
+    give back summary
+}
+

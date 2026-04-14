@@ -1,0 +1,14 @@
+-- V4 parser smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_parse_smoke_source = "@protagonist\n"
+v4_parse_smoke_source = v4_parse_smoke_source + "task main() => \"hi\"\n"
+v4_parse_smoke_source = v4_parse_smoke_source + "shape Pilot\n"
+v4_parse_smoke_source = v4_parse_smoke_source + "task\n"
+pilot v4_parse_smoke_stream = v4_lex_text(0, v4_parse_smoke_source)
+pilot v4_parse_smoke_tree = v4_parse_stream(0, v4_parse_smoke_stream)
+
+say v4_parse_summary(v4_parse_smoke_tree)
+say "root-kind=" + v4_parse_node_kind(v4_parse_smoke_tree, 0)
+say "first-item=" + v4_parse_node_kind(v4_parse_smoke_tree, 1)
+say "diagnostics=" + word_from_int(v4_parse_diag_count(v4_parse_smoke_tree))
