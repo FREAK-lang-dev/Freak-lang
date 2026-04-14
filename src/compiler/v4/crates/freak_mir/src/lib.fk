@@ -1,0 +1,191 @@
+-- ===================================================================
+-- freak_mir - V4 MIR body scaffold
+-- ===================================================================
+-- Depends on freak_span, freak_diag, and freak_ty.
+-- This first MIR layer creates empty MIR bodies for task signatures.
+-- It establishes body/basic-block/terminator storage before real HIR
+-- expression and statement lowering begins.
+
+pilot v4_mir_term_return = "Return"
+pilot v4_mir_term_unreachable = "Unreachable"
+pilot v4_mir_term_goto = "Goto"
+
+pilot v4_mir_files = 0
+pilot v4_mir_tys = 0
+pilot v4_mir_body_defs = 0
+pilot v4_mir_body_names = 0
+pilot v4_mir_body_sigs = 0
+pilot v4_mir_body_blocks = 0
+pilot v4_mir_diags = 0
+pilot v4_mir_ready = 0
+
+task v4_mir_init() -> void {
+    if v4_mir_ready == 0 {
+        v4_mir_files = array_new()
+        v4_mir_tys = array_new()
+        v4_mir_body_defs = array_new()
+        v4_mir_body_names = array_new()
+        v4_mir_body_sigs = array_new()
+        v4_mir_body_blocks = array_new()
+        v4_mir_diags = array_new()
+        v4_mir_ready = 1
+    }
+}
+
+task v4_mir_file_new(file_id: int, ty_id: int) -> int {
+    v4_mir_init()
+    pilot mir_id = array_len(v4_mir_files)
+    array_push(v4_mir_files, word_from_int(file_id))
+    array_push(v4_mir_tys, word_from_int(ty_id))
+    array_push(v4_mir_body_defs, word_from_int(array_new()))
+    array_push(v4_mir_body_names, word_from_int(array_new()))
+    array_push(v4_mir_body_sigs, word_from_int(array_new()))
+    array_push(v4_mir_body_blocks, word_from_int(array_new()))
+    array_push(v4_mir_diags, word_from_int(array_new()))
+    give back mir_id
+}
+
+task v4_mir_defs_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_defs, mir_id))
+}
+
+task v4_mir_names_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_names, mir_id))
+}
+
+task v4_mir_sigs_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_sigs, mir_id))
+}
+
+task v4_mir_blocks_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_blocks, mir_id))
+}
+
+task v4_mir_diags_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_diags, mir_id))
+}
+
+task v4_mir_body_count(mir_id: int) -> int {
+    give back array_len(v4_mir_defs_handle(mir_id))
+}
+
+task v4_mir_diag_count(mir_id: int) -> int {
+    give back array_len(v4_mir_diags_handle(mir_id))
+}
+
+task v4_mir_body_def(mir_id: int, body_id: int) -> word {
+    give back array_get(v4_mir_defs_handle(mir_id), body_id)
+}
+
+task v4_mir_body_name(mir_id: int, body_id: int) -> word {
+    give back array_get(v4_mir_names_handle(mir_id), body_id)
+}
+
+task v4_mir_body_signature(mir_id: int, body_id: int) -> word {
+    give back array_get(v4_mir_sigs_handle(mir_id), body_id)
+}
+
+task v4_mir_body_blocks_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_blocks_handle(mir_id), body_id))
+}
+
+task v4_mir_body_block_count(mir_id: int, body_id: int) -> int {
+    give back array_len(v4_mir_body_blocks_handle(mir_id, body_id))
+}
+
+task v4_mir_diag(mir_id: int, diag_id: int) -> word {
+    give back array_get(v4_mir_diags_handle(mir_id), diag_id)
+}
+
+task v4_mir_add_diag(mir_id: int, diag: word) -> void {
+    array_push(v4_mir_diags_handle(mir_id), diag)
+}
+
+task v4_mir_copy_ty_diags(mir_id: int, ty_id: int) -> void {
+    pilot diag_idx = 0
+    pilot diag_count = v4_ty_diag_count(ty_id)
+    repeat until diag_idx >= diag_count {
+        v4_mir_add_diag(mir_id, v4_ty_diag(ty_id, diag_idx))
+        diag_idx += 1
+    }
+}
+
+task v4_mir_block_new(block_id: int, terminator: word, target: int) -> word {
+    give back word_from_int(block_id) + "|" + terminator + "|" + word_from_int(target)
+}
+
+task v4_mir_block_id(block_record: word) -> int {
+    pilot first = v4_index_of_from(block_record, "|", 0)
+    if first < 0 {
+        give back 0
+    }
+    give back word_to_int(v4_slice(block_record, 0, first))
+}
+
+task v4_mir_block_terminator(block_record: word) -> word {
+    pilot first = v4_index_of_from(block_record, "|", 0)
+    if first < 0 {
+        give back ""
+    }
+    pilot second = v4_index_of_from(block_record, "|", first + 1)
+    if second < 0 {
+        give back ""
+    }
+    give back v4_slice(block_record, first + 1, second)
+}
+
+task v4_mir_body_block(mir_id: int, body_id: int, block_id: int) -> word {
+    give back array_get(v4_mir_body_blocks_handle(mir_id, body_id), block_id)
+}
+
+task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word) -> int {
+    pilot body_id = array_len(v4_mir_defs_handle(mir_id))
+    pilot blocks_handle = array_new()
+    array_push(blocks_handle, v4_mir_block_new(0, v4_mir_term_return, 0 - 1))
+    array_push(v4_mir_defs_handle(mir_id), def_id)
+    array_push(v4_mir_names_handle(mir_id), body_name)
+    array_push(v4_mir_sigs_handle(mir_id), signature)
+    array_push(v4_mir_blocks_handle(mir_id), word_from_int(blocks_handle))
+    give back body_id
+}
+
+task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {
+    v4_mir_init()
+    pilot mir_id = v4_mir_file_new(file_id, ty_id)
+    v4_mir_copy_ty_diags(mir_id, ty_id)
+
+    pilot sig_idx = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_idx >= sig_count {
+        pilot sig_kind = v4_ty_signature_kind(ty_id, sig_idx)
+        if sig_kind == v4_ty_task_sig {
+            pilot def_id = v4_ty_signature_def(ty_id, sig_idx)
+            pilot body_name = v4_ty_signature_name(ty_id, sig_idx)
+            pilot sig_display = v4_ty_signature_display(ty_id, sig_idx)
+            v4_mir_add_body(mir_id, def_id, body_name, sig_display)
+        }
+        sig_idx += 1
+    }
+
+    give back mir_id
+}
+
+task v4_mir_lookup_body(mir_id: int, def_id: word) -> int {
+    pilot body_idx = 0
+    pilot body_count = v4_mir_body_count(mir_id)
+    repeat until body_idx >= body_count {
+        if v4_mir_body_def(mir_id, body_idx) == def_id {
+            give back body_idx
+        }
+        body_idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_summary(mir_id: int) -> word {
+    pilot summary = "mir-ok mir=" + word_from_int(mir_id)
+    summary = summary + " bodies=" + word_from_int(v4_mir_body_count(mir_id))
+    summary = summary + " diagnostics=" + word_from_int(v4_mir_diag_count(mir_id))
+    give back summary
+}
+
