@@ -24,3 +24,13 @@ freak_span -> freak_diag -> freak_arena -> freak_intern -> freak_session -> frea
 ```
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
+
+## Checks
+
+Run the V4 bootstrap checks from the repository root:
+
+```powershell
+python src/compiler/v4/check_v4.py
+```
+
+The harness verifies crate existence/order, ASCII source, individual parser acceptance, flattened-crate type checking, and transpilation of every `src/compiler/v4/tests/*.fk` smoke fixture.
