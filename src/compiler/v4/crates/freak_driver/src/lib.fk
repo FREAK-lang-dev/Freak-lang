@@ -2,9 +2,9 @@
 -- freak_driver - early V4 driver facade
 -- ===================================================================
 -- Depends on freak_span, freak_diag, freak_session, freak_lex, freak_parse,
--- freak_hir, freak_resolve, freak_ty, freak_mir, and freak_query. Syntax
--- checking is currently a query-backed source, lexing, parse, HIR, resolve,
--- type signature, and MIR body scaffold path.
+-- freak_hir, freak_resolve, freak_ty, freak_mir, freak_borrowck, and
+-- freak_query. Syntax checking is currently a query-backed source, lexing,
+-- parse, HIR, resolve, type signature, MIR, and Meiya scaffold path.
 
 pilot FREAKC_V4_VERSION = "0.1.0-bootstrap"
 pilot FREAKC_V4_CODENAME = "00-Unit"
@@ -40,6 +40,10 @@ task v4_ty_query_key(path: word) -> word {
 
 task v4_mir_query_key(path: word) -> word {
     give back "mir:" + path
+}
+
+task v4_borrowck_query_key(path: word) -> word {
+    give back "borrowck:" + path
 }
 
 task v4_lex_text_cached(path: word, text: word) -> int {
@@ -245,6 +249,40 @@ task v4_mir_file(path: word) -> word {
     give back summary
 }
 
+task v4_borrowck_text_cached(path: word, text: word) -> int {
+    v4_driver_init()
+
+    pilot file_id = v4_source_set_text(path, text)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot key = v4_borrowck_query_key(path)
+    pilot cached = v4_query_get(key, fingerprint)
+    if cached != "" {
+        give back word_to_int(cached)
+    }
+
+    pilot mir_id = v4_mir_text_cached(path, text)
+    pilot borrow_id = v4_borrowck_check_mir(file_id, mir_id)
+    v4_query_store(key, fingerprint, word_from_int(borrow_id))
+    v4_query_record_dep(key, v4_mir_query_key(path))
+    give back borrow_id
+}
+
+task v4_borrowck_file(path: word) -> word {
+    pilot text = fs::read(path)
+    if text == "" {
+        pilot span = v4_span_new("0", 0, 0)
+        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
+        give back v4_diag_render(diag, "")
+    }
+
+    pilot borrow_id = v4_borrowck_text_cached(path, text)
+    pilot file_id = v4_source_find(path)
+    pilot summary = v4_borrowck_summary(borrow_id)
+    summary = summary + " file=" + word_from_int(file_id)
+    summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
+    give back summary
+}
+
 task v4_check_syntax_text(path: word, text: word) -> word {
     v4_driver_init()
 
@@ -262,6 +300,7 @@ task v4_check_syntax_text(path: word, text: word) -> word {
     pilot resolve_id = v4_resolve_text_cached(path, text)
     pilot ty_id = v4_ty_text_cached(path, text)
     pilot mir_id = v4_mir_text_cached(path, text)
+    pilot borrow_id = v4_borrowck_text_cached(path, text)
     pilot lines = v4_line_count(text)
     pilot syntax_summary = "syntax-ok file=" + word_from_int(file_id)
     syntax_summary = syntax_summary + " rev=" + word_from_int(v4_source_revision(file_id))
@@ -279,6 +318,8 @@ task v4_check_syntax_text(path: word, text: word) -> word {
     syntax_summary = syntax_summary + " ty-diagnostics=" + word_from_int(v4_ty_diag_count(ty_id))
     syntax_summary = syntax_summary + " mir-bodies=" + word_from_int(v4_mir_body_count(mir_id))
     syntax_summary = syntax_summary + " mir-diagnostics=" + word_from_int(v4_mir_diag_count(mir_id))
+    syntax_summary = syntax_summary + " borrow-results=" + word_from_int(v4_borrowck_result_count(borrow_id))
+    syntax_summary = syntax_summary + " borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(borrow_id))
 
     v4_query_store(key, fingerprint, syntax_summary)
     v4_query_record_dep(key, "source:" + path)
@@ -288,6 +329,7 @@ task v4_check_syntax_text(path: word, text: word) -> word {
     v4_query_record_dep(key, v4_resolve_query_key(path))
     v4_query_record_dep(key, v4_ty_query_key(path))
     v4_query_record_dep(key, v4_mir_query_key(path))
+    v4_query_record_dep(key, v4_borrowck_query_key(path))
     give back syntax_summary
 }
 

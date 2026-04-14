@@ -16,6 +16,7 @@ CRATE_ORDER = [
     "freak_resolve",
     "freak_ty",
     "freak_mir",
+    "freak_borrowck",
     "freak_query",
     "freak_driver",
 ]

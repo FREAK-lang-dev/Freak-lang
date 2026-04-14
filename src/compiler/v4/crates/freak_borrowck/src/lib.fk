@@ -1,0 +1,182 @@
+-- ===================================================================
+-- freak_borrowck - Meiya borrow-check scaffold
+-- ===================================================================
+-- Depends on freak_span, freak_diag, and freak_mir.
+-- This first Meiya layer creates borrow-check result records for MIR
+-- bodies. Real move paths, loans, regions, and drop flags will fill in
+-- these counters once body lowering becomes real.
+
+pilot v4_borrowck_clean = "clean"
+pilot v4_borrowck_blocked = "blocked"
+
+pilot v4_borrowck_files = 0
+pilot v4_borrowck_mirs = 0
+pilot v4_borrowck_body_defs = 0
+pilot v4_borrowck_body_names = 0
+pilot v4_borrowck_statuses = 0
+pilot v4_borrowck_loan_counts = 0
+pilot v4_borrowck_move_counts = 0
+pilot v4_borrowck_drop_counts = 0
+pilot v4_borrowck_diags = 0
+pilot v4_borrowck_ready = 0
+
+task v4_borrowck_init() -> void {
+    if v4_borrowck_ready == 0 {
+        v4_borrowck_files = array_new()
+        v4_borrowck_mirs = array_new()
+        v4_borrowck_body_defs = array_new()
+        v4_borrowck_body_names = array_new()
+        v4_borrowck_statuses = array_new()
+        v4_borrowck_loan_counts = array_new()
+        v4_borrowck_move_counts = array_new()
+        v4_borrowck_drop_counts = array_new()
+        v4_borrowck_diags = array_new()
+        v4_borrowck_ready = 1
+    }
+}
+
+task v4_borrowck_file_new(file_id: int, mir_id: int) -> int {
+    v4_borrowck_init()
+    pilot borrow_id = array_len(v4_borrowck_files)
+    array_push(v4_borrowck_files, word_from_int(file_id))
+    array_push(v4_borrowck_mirs, word_from_int(mir_id))
+    array_push(v4_borrowck_body_defs, word_from_int(array_new()))
+    array_push(v4_borrowck_body_names, word_from_int(array_new()))
+    array_push(v4_borrowck_statuses, word_from_int(array_new()))
+    array_push(v4_borrowck_loan_counts, word_from_int(array_new()))
+    array_push(v4_borrowck_move_counts, word_from_int(array_new()))
+    array_push(v4_borrowck_drop_counts, word_from_int(array_new()))
+    array_push(v4_borrowck_diags, word_from_int(array_new()))
+    give back borrow_id
+}
+
+task v4_borrowck_defs_handle(borrow_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_body_defs, borrow_id))
+}
+
+task v4_borrowck_names_handle(borrow_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_body_names, borrow_id))
+}
+
+task v4_borrowck_statuses_handle(borrow_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_statuses, borrow_id))
+}
+
+task v4_borrowck_loans_handle(borrow_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_loan_counts, borrow_id))
+}
+
+task v4_borrowck_moves_handle(borrow_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_move_counts, borrow_id))
+}
+
+task v4_borrowck_drops_handle(borrow_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_drop_counts, borrow_id))
+}
+
+task v4_borrowck_diags_handle(borrow_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_diags, borrow_id))
+}
+
+task v4_borrowck_result_count(borrow_id: int) -> int {
+    give back array_len(v4_borrowck_defs_handle(borrow_id))
+}
+
+task v4_borrowck_diag_count(borrow_id: int) -> int {
+    give back array_len(v4_borrowck_diags_handle(borrow_id))
+}
+
+task v4_borrowck_result_def(borrow_id: int, result_id: int) -> word {
+    give back array_get(v4_borrowck_defs_handle(borrow_id), result_id)
+}
+
+task v4_borrowck_result_name(borrow_id: int, result_id: int) -> word {
+    give back array_get(v4_borrowck_names_handle(borrow_id), result_id)
+}
+
+task v4_borrowck_result_status(borrow_id: int, result_id: int) -> word {
+    give back array_get(v4_borrowck_statuses_handle(borrow_id), result_id)
+}
+
+task v4_borrowck_result_loans(borrow_id: int, result_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_loans_handle(borrow_id), result_id))
+}
+
+task v4_borrowck_result_moves(borrow_id: int, result_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_moves_handle(borrow_id), result_id))
+}
+
+task v4_borrowck_result_drops(borrow_id: int, result_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_drops_handle(borrow_id), result_id))
+}
+
+task v4_borrowck_diag(borrow_id: int, diag_id: int) -> word {
+    give back array_get(v4_borrowck_diags_handle(borrow_id), diag_id)
+}
+
+task v4_borrowck_add_diag(borrow_id: int, diag: word) -> void {
+    array_push(v4_borrowck_diags_handle(borrow_id), diag)
+}
+
+task v4_borrowck_copy_mir_diags(borrow_id: int, mir_id: int) -> void {
+    pilot diag_idx = 0
+    pilot diag_count = v4_mir_diag_count(mir_id)
+    repeat until diag_idx >= diag_count {
+        v4_borrowck_add_diag(borrow_id, v4_mir_diag(mir_id, diag_idx))
+        diag_idx += 1
+    }
+}
+
+task v4_borrowck_add_result(borrow_id: int, def_id: word, body_name: word, status: word, loans: int, moves: int, drops: int) -> int {
+    pilot result_id = array_len(v4_borrowck_defs_handle(borrow_id))
+    array_push(v4_borrowck_defs_handle(borrow_id), def_id)
+    array_push(v4_borrowck_names_handle(borrow_id), body_name)
+    array_push(v4_borrowck_statuses_handle(borrow_id), status)
+    array_push(v4_borrowck_loans_handle(borrow_id), word_from_int(loans))
+    array_push(v4_borrowck_moves_handle(borrow_id), word_from_int(moves))
+    array_push(v4_borrowck_drops_handle(borrow_id), word_from_int(drops))
+    give back result_id
+}
+
+task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
+    v4_borrowck_init()
+    pilot borrow_id = v4_borrowck_file_new(file_id, mir_id)
+    v4_borrowck_copy_mir_diags(borrow_id, mir_id)
+
+    pilot body_idx = 0
+    pilot body_count = v4_mir_body_count(mir_id)
+    repeat until body_idx >= body_count {
+        pilot def_id = v4_mir_body_def(mir_id, body_idx)
+        pilot body_name = v4_mir_body_name(mir_id, body_idx)
+        pilot block_count = v4_mir_body_block_count(mir_id, body_idx)
+        pilot status = v4_borrowck_clean
+        if block_count == 0 {
+            status = v4_borrowck_blocked
+            v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, V4_NO_SPAN, "MIR body has no blocks", body_name))
+        }
+        v4_borrowck_add_result(borrow_id, def_id, body_name, status, 0, 0, 0)
+        body_idx += 1
+    }
+
+    give back borrow_id
+}
+
+task v4_borrowck_lookup_result(borrow_id: int, def_id: word) -> int {
+    pilot result_idx = 0
+    pilot result_count = v4_borrowck_result_count(borrow_id)
+    repeat until result_idx >= result_count {
+        if v4_borrowck_result_def(borrow_id, result_idx) == def_id {
+            give back result_idx
+        }
+        result_idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_borrowck_summary(borrow_id: int) -> word {
+    pilot summary = "borrowck-ok borrow=" + word_from_int(borrow_id)
+    summary = summary + " results=" + word_from_int(v4_borrowck_result_count(borrow_id))
+    summary = summary + " diagnostics=" + word_from_int(v4_borrowck_diag_count(borrow_id))
+    give back summary
+}
+

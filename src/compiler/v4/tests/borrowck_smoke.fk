@@ -1,0 +1,20 @@
+-- V4 borrow checker smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_borrow_smoke_source = "task main() => \"hi\"\n"
+v4_borrow_smoke_source = v4_borrow_smoke_source + "task helper() => \"ok\"\n"
+
+pilot v4_borrow_smoke_stream = v4_lex_text(0, v4_borrow_smoke_source)
+pilot v4_borrow_smoke_tree = v4_parse_stream(0, v4_borrow_smoke_stream)
+pilot v4_borrow_smoke_hir = v4_hir_lower_tree(0, v4_borrow_smoke_tree)
+pilot v4_borrow_smoke_resolve = v4_resolve_lower_hir(0, v4_borrow_smoke_hir)
+pilot v4_borrow_smoke_ty = v4_ty_lower_resolve(0, v4_borrow_smoke_resolve)
+pilot v4_borrow_smoke_mir = v4_mir_lower_ty(0, v4_borrow_smoke_ty)
+pilot v4_borrow_smoke_check = v4_borrowck_check_mir(0, v4_borrow_smoke_mir)
+pilot v4_borrow_main_def = v4_resolve_def_for_name(v4_borrow_smoke_resolve, "main")
+pilot v4_borrow_main_result = v4_borrowck_lookup_result(v4_borrow_smoke_check, v4_borrow_main_def)
+
+say v4_borrowck_summary(v4_borrow_smoke_check)
+say "main-status=" + v4_borrowck_result_status(v4_borrow_smoke_check, v4_borrow_main_result)
+say "main-loans=" + word_from_int(v4_borrowck_result_loans(v4_borrow_smoke_check, v4_borrow_main_result))
+say "result-count=" + word_from_int(v4_borrowck_result_count(v4_borrow_smoke_check))
