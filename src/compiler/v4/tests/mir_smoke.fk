@@ -4,6 +4,14 @@
 pilot v4_mir_smoke_source = "task main() -> int {\n"
 v4_mir_smoke_source = v4_mir_smoke_source + "    pilot x = 40\n"
 v4_mir_smoke_source = v4_mir_smoke_source + "    pilot y = x + 2\n"
+v4_mir_smoke_source = v4_mir_smoke_source + "    if y > 40 {\n"
+v4_mir_smoke_source = v4_mir_smoke_source + "        pilot z = y\n"
+v4_mir_smoke_source = v4_mir_smoke_source + "    } else {\n"
+v4_mir_smoke_source = v4_mir_smoke_source + "        pilot z = 0\n"
+v4_mir_smoke_source = v4_mir_smoke_source + "    }\n"
+v4_mir_smoke_source = v4_mir_smoke_source + "    repeat until y > 45 {\n"
+v4_mir_smoke_source = v4_mir_smoke_source + "        y = y + 1\n"
+v4_mir_smoke_source = v4_mir_smoke_source + "    }\n"
 v4_mir_smoke_source = v4_mir_smoke_source + "    give back y\n"
 v4_mir_smoke_source = v4_mir_smoke_source + "}\n"
 v4_mir_smoke_source = v4_mir_smoke_source + "shape Pilot\n"
@@ -22,8 +30,12 @@ pilot v4_mir_entry_block = v4_mir_body_block(v4_mir_smoke_mir, v4_mir_main_body,
 say v4_mir_summary(v4_mir_smoke_mir)
 say "main-body=" + word_from_int(v4_mir_main_body)
 say "entry-term=" + v4_mir_block_terminator(v4_mir_entry_block)
+say "entry-cond=" + v4_mir_block_condition(v4_mir_entry_block)
+say "entry-target=" + word_from_int(v4_mir_block_target(v4_mir_entry_block))
+say "entry-else=" + word_from_int(v4_mir_block_else_target(v4_mir_entry_block))
+say "main-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_smoke_mir, v4_mir_main_body))
 say "main-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_smoke_mir, v4_mir_main_body))
 say "main-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_smoke_mir, v4_mir_main_body))
 say "first-local=" + v4_mir_local_name(v4_mir_smoke_mir, v4_mir_main_body, 0)
-say "return-rhs=" + v4_mir_stmt_rhs(v4_mir_smoke_mir, v4_mir_main_body, 2)
+say "stmt0-block=" + word_from_int(v4_mir_stmt_block(v4_mir_smoke_mir, v4_mir_main_body, 0))
 say "body-count=" + word_from_int(v4_mir_body_count(v4_mir_smoke_mir))
