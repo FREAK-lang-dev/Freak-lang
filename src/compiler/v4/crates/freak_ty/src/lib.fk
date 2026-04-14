@@ -1,0 +1,218 @@
+-- ===================================================================
+-- freak_ty - V4 type signature scaffold
+-- ===================================================================
+-- Depends on freak_span, freak_diag, freak_hir, and freak_resolve.
+-- This first type layer does not infer expression bodies. It builds
+-- item-level signatures from resolved HIR symbols so tools and later
+-- inference passes can ask stable questions like signature_of(def).
+
+pilot v4_ty_unknown = "unknown"
+pilot v4_ty_task_sig = "task-signature"
+pilot v4_ty_shape_sig = "shape-signature"
+pilot v4_ty_doctrine_sig = "doctrine-signature"
+pilot v4_ty_extern_sig = "extern-signature"
+pilot v4_ty_import_sig = "import-signature"
+pilot v4_ty_attribute_sig = "attribute-signature"
+pilot v4_ty_error_sig = "error-signature"
+
+pilot v4_ty_files = 0
+pilot v4_ty_resolves = 0
+pilot v4_ty_defs = 0
+pilot v4_ty_kinds = 0
+pilot v4_ty_names = 0
+pilot v4_ty_displays = 0
+pilot v4_ty_hir_items = 0
+pilot v4_ty_diags = 0
+pilot v4_ty_ready = 0
+
+task v4_ty_init() -> void {
+    if v4_ty_ready == 0 {
+        v4_ty_files = array_new()
+        v4_ty_resolves = array_new()
+        v4_ty_defs = array_new()
+        v4_ty_kinds = array_new()
+        v4_ty_names = array_new()
+        v4_ty_displays = array_new()
+        v4_ty_hir_items = array_new()
+        v4_ty_diags = array_new()
+        v4_ty_ready = 1
+    }
+}
+
+task v4_ty_file_new(file_id: int, resolve_id: int) -> int {
+    v4_ty_init()
+    pilot ty_id = array_len(v4_ty_files)
+    array_push(v4_ty_files, word_from_int(file_id))
+    array_push(v4_ty_resolves, word_from_int(resolve_id))
+    array_push(v4_ty_defs, word_from_int(array_new()))
+    array_push(v4_ty_kinds, word_from_int(array_new()))
+    array_push(v4_ty_names, word_from_int(array_new()))
+    array_push(v4_ty_displays, word_from_int(array_new()))
+    array_push(v4_ty_hir_items, word_from_int(array_new()))
+    array_push(v4_ty_diags, word_from_int(array_new()))
+    give back ty_id
+}
+
+task v4_ty_defs_handle(ty_id: int) -> int {
+    give back word_to_int(array_get(v4_ty_defs, ty_id))
+}
+
+task v4_ty_kinds_handle(ty_id: int) -> int {
+    give back word_to_int(array_get(v4_ty_kinds, ty_id))
+}
+
+task v4_ty_names_handle(ty_id: int) -> int {
+    give back word_to_int(array_get(v4_ty_names, ty_id))
+}
+
+task v4_ty_displays_handle(ty_id: int) -> int {
+    give back word_to_int(array_get(v4_ty_displays, ty_id))
+}
+
+task v4_ty_hir_items_handle(ty_id: int) -> int {
+    give back word_to_int(array_get(v4_ty_hir_items, ty_id))
+}
+
+task v4_ty_diags_handle(ty_id: int) -> int {
+    give back word_to_int(array_get(v4_ty_diags, ty_id))
+}
+
+task v4_ty_signature_count(ty_id: int) -> int {
+    give back array_len(v4_ty_defs_handle(ty_id))
+}
+
+task v4_ty_diag_count(ty_id: int) -> int {
+    give back array_len(v4_ty_diags_handle(ty_id))
+}
+
+task v4_ty_signature_def(ty_id: int, sig_id: int) -> word {
+    give back array_get(v4_ty_defs_handle(ty_id), sig_id)
+}
+
+task v4_ty_signature_kind(ty_id: int, sig_id: int) -> word {
+    give back array_get(v4_ty_kinds_handle(ty_id), sig_id)
+}
+
+task v4_ty_signature_name(ty_id: int, sig_id: int) -> word {
+    give back array_get(v4_ty_names_handle(ty_id), sig_id)
+}
+
+task v4_ty_signature_display(ty_id: int, sig_id: int) -> word {
+    give back array_get(v4_ty_displays_handle(ty_id), sig_id)
+}
+
+task v4_ty_signature_hir_item(ty_id: int, sig_id: int) -> int {
+    give back word_to_int(array_get(v4_ty_hir_items_handle(ty_id), sig_id))
+}
+
+task v4_ty_diag(ty_id: int, diag_id: int) -> word {
+    give back array_get(v4_ty_diags_handle(ty_id), diag_id)
+}
+
+task v4_ty_add_diag(ty_id: int, diag: word) -> void {
+    array_push(v4_ty_diags_handle(ty_id), diag)
+}
+
+task v4_ty_copy_resolve_diags(ty_id: int, resolve_id: int) -> void {
+    pilot diag_idx = 0
+    pilot diag_count = v4_resolve_diag_count(resolve_id)
+    repeat until diag_idx >= diag_count {
+        v4_ty_add_diag(ty_id, v4_resolve_diag(resolve_id, diag_idx))
+        diag_idx += 1
+    }
+}
+
+task v4_ty_kind_for_symbol(symbol_kind: word) -> word {
+    if symbol_kind == v4_hir_task { give back v4_ty_task_sig }
+    if symbol_kind == v4_hir_shape { give back v4_ty_shape_sig }
+    if symbol_kind == v4_hir_doctrine { give back v4_ty_doctrine_sig }
+    if symbol_kind == v4_hir_extern { give back v4_ty_extern_sig }
+    if symbol_kind == v4_hir_import { give back v4_ty_import_sig }
+    if symbol_kind == v4_hir_attribute { give back v4_ty_attribute_sig }
+    if symbol_kind == v4_hir_error { give back v4_ty_error_sig }
+    give back v4_ty_unknown
+}
+
+task v4_ty_display_for_symbol(symbol_kind: word, symbol_name: word) -> word {
+    if symbol_kind == v4_hir_task {
+        give back "task " + symbol_name + "(...) -> unknown"
+    }
+    if symbol_kind == v4_hir_shape {
+        give back "shape " + symbol_name
+    }
+    if symbol_kind == v4_hir_doctrine {
+        give back "doctrine " + symbol_name
+    }
+    if symbol_kind == v4_hir_extern {
+        give back "extern " + symbol_name
+    }
+    if symbol_kind == v4_hir_import {
+        give back "use " + symbol_name
+    }
+    if symbol_kind == v4_hir_attribute {
+        give back "@" + symbol_name
+    }
+    if symbol_kind == v4_hir_error {
+        give back "error " + symbol_name
+    }
+    give back "unknown " + symbol_name
+}
+
+task v4_ty_add_signature(ty_id: int, def_id: word, sig_kind: word, sig_name: word, sig_display: word, hir_item: int) -> int {
+    pilot sig_id = array_len(v4_ty_defs_handle(ty_id))
+    array_push(v4_ty_defs_handle(ty_id), def_id)
+    array_push(v4_ty_kinds_handle(ty_id), sig_kind)
+    array_push(v4_ty_names_handle(ty_id), sig_name)
+    array_push(v4_ty_displays_handle(ty_id), sig_display)
+    array_push(v4_ty_hir_items_handle(ty_id), word_from_int(hir_item))
+    give back sig_id
+}
+
+task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
+    v4_ty_init()
+    pilot ty_id = v4_ty_file_new(file_id, resolve_id)
+    v4_ty_copy_resolve_diags(ty_id, resolve_id)
+
+    pilot symbol_idx = 0
+    pilot symbol_count = v4_resolve_symbol_count(resolve_id)
+    repeat until symbol_idx >= symbol_count {
+        pilot symbol_kind = v4_resolve_symbol_kind(resolve_id, symbol_idx)
+        pilot symbol_name = v4_resolve_symbol_name(resolve_id, symbol_idx)
+        pilot symbol_def = v4_resolve_symbol_def(resolve_id, symbol_idx)
+        pilot hir_item = v4_resolve_symbol_hir_item(resolve_id, symbol_idx)
+        pilot sig_kind = v4_ty_kind_for_symbol(symbol_kind)
+        pilot sig_display = v4_ty_display_for_symbol(symbol_kind, symbol_name)
+        v4_ty_add_signature(ty_id, symbol_def, sig_kind, symbol_name, sig_display, hir_item)
+        symbol_idx += 1
+    }
+
+    give back ty_id
+}
+
+task v4_ty_lookup_signature(ty_id: int, def_id: word) -> int {
+    pilot sig_idx = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_idx >= sig_count {
+        if v4_ty_signature_def(ty_id, sig_idx) == def_id {
+            give back sig_idx
+        }
+        sig_idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_signature_of(ty_id: int, def_id: word) -> word {
+    pilot sig_id = v4_ty_lookup_signature(ty_id, def_id)
+    if sig_id < 0 {
+        give back ""
+    }
+    give back v4_ty_signature_display(ty_id, sig_id)
+}
+
+task v4_ty_summary(ty_id: int) -> word {
+    pilot summary = "ty-ok ty=" + word_from_int(ty_id)
+    summary = summary + " signatures=" + word_from_int(v4_ty_signature_count(ty_id))
+    summary = summary + " diagnostics=" + word_from_int(v4_ty_diag_count(ty_id))
+    give back summary
+}
+
