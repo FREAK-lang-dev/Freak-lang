@@ -1,0 +1,126 @@
+-- ===================================================================
+-- freak_session - V4 source database and revision tracking
+-- ===================================================================
+-- Depends on freak_span.
+
+pilot v4_source_paths = 0
+pilot v4_source_texts = 0
+pilot v4_source_revisions = 0
+pilot v4_source_fingerprints = 0
+pilot v4_source_ready = 0
+
+task v4_session_init() -> void {
+    if v4_source_ready == 0 {
+        v4_source_paths = array_new()
+        v4_source_texts = array_new()
+        v4_source_revisions = array_new()
+        v4_source_fingerprints = array_new()
+        v4_source_ready = 1
+    }
+}
+
+task v4_text_fingerprint(text: word) -> word {
+    pilot first = ""
+    pilot last = ""
+    if text.length() > 0 {
+        first = text.char_at(0)
+        last = text.char_at(text.length() - 1)
+    }
+    -- This is a bootstrap fingerprint, not the final stable hash.
+    give back "len=" + word_from_int(text.length()) + ";first=" + first + ";last=" + last + ";body=" + text
+}
+
+task v4_source_find(path: word) -> int {
+    v4_session_init()
+    pilot i = 0
+    pilot count = array_len(v4_source_paths)
+    repeat until i >= count {
+        if array_get(v4_source_paths, i) == path {
+            give back i
+        }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task v4_source_add(path: word, text: word) -> int {
+    v4_session_init()
+    pilot existing = v4_source_find(path)
+    if existing >= 0 {
+        give back existing
+    }
+    pilot id = array_len(v4_source_paths)
+    array_push(v4_source_paths, path)
+    array_push(v4_source_texts, text)
+    array_push(v4_source_revisions, "1")
+    array_push(v4_source_fingerprints, v4_text_fingerprint(text))
+    give back id
+}
+
+task v4_source_set_text(path: word, text: word) -> int {
+    v4_session_init()
+    pilot id = v4_source_find(path)
+    if id < 0 {
+        give back v4_source_add(path, text)
+    }
+
+    pilot old_text = array_get(v4_source_texts, id)
+    if old_text == text {
+        give back id
+    }
+
+    pilot rev = word_to_int(array_get(v4_source_revisions, id))
+    array_set(v4_source_texts, id, text)
+    array_set(v4_source_revisions, id, word_from_int(rev + 1))
+    array_set(v4_source_fingerprints, id, v4_text_fingerprint(text))
+    give back id
+}
+
+task v4_source_text(file_id: int) -> word {
+    v4_session_init()
+    if file_id < 0 {
+        give back ""
+    }
+    if file_id >= array_len(v4_source_texts) {
+        give back ""
+    }
+    give back array_get(v4_source_texts, file_id)
+}
+
+task v4_source_path(file_id: int) -> word {
+    v4_session_init()
+    if file_id < 0 {
+        give back ""
+    }
+    if file_id >= array_len(v4_source_paths) {
+        give back ""
+    }
+    give back array_get(v4_source_paths, file_id)
+}
+
+task v4_source_revision(file_id: int) -> int {
+    v4_session_init()
+    if file_id < 0 {
+        give back 0
+    }
+    if file_id >= array_len(v4_source_revisions) {
+        give back 0
+    }
+    give back word_to_int(array_get(v4_source_revisions, file_id))
+}
+
+task v4_source_fingerprint(file_id: int) -> word {
+    v4_session_init()
+    if file_id < 0 {
+        give back ""
+    }
+    if file_id >= array_len(v4_source_fingerprints) {
+        give back ""
+    }
+    give back array_get(v4_source_fingerprints, file_id)
+}
+
+task v4_source_span(file_id: int, start_byte: int, end_byte: int) -> word {
+    give back v4_span_new(word_from_int(file_id), start_byte, end_byte)
+}
+

@@ -1,0 +1,128 @@
+-- ===================================================================
+-- freak_query - 00-Unit memoized query cache prototype
+-- ===================================================================
+-- This is the first executable version of the query model. It stores
+-- key + input fingerprint -> output fingerprint/value records and a
+-- small dependency edge table for future invalidation work.
+
+pilot v4_query_valid = "valid"
+pilot v4_query_dirty = "dirty"
+
+pilot v4_query_keys = 0
+pilot v4_query_inputs = 0
+pilot v4_query_outputs = 0
+pilot v4_query_states = 0
+pilot v4_query_dep_from = 0
+pilot v4_query_dep_to = 0
+pilot v4_query_ready = 0
+pilot v4_query_revision = 1
+
+task v4_query_init() -> void {
+    if v4_query_ready == 0 {
+        v4_query_keys = array_new()
+        v4_query_inputs = array_new()
+        v4_query_outputs = array_new()
+        v4_query_states = array_new()
+        v4_query_dep_from = array_new()
+        v4_query_dep_to = array_new()
+        v4_query_ready = 1
+    }
+}
+
+task v4_query_bump_revision() -> int {
+    v4_query_init()
+    v4_query_revision += 1
+    give back v4_query_revision
+}
+
+task v4_query_find(key: word, input_fingerprint: word) -> int {
+    v4_query_init()
+    pilot i = 0
+    pilot count = array_len(v4_query_keys)
+    repeat until i >= count {
+        if array_get(v4_query_keys, i) == key {
+            if array_get(v4_query_inputs, i) == input_fingerprint {
+                give back i
+            }
+        }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task v4_query_get(key: word, input_fingerprint: word) -> word {
+    pilot idx = v4_query_find(key, input_fingerprint)
+    if idx < 0 {
+        give back ""
+    }
+    if array_get(v4_query_states, idx) != v4_query_valid {
+        give back ""
+    }
+    give back array_get(v4_query_outputs, idx)
+}
+
+task v4_query_store(key: word, input_fingerprint: word, output: word) -> int {
+    v4_query_init()
+    pilot idx = v4_query_find(key, input_fingerprint)
+    if idx >= 0 {
+        array_set(v4_query_outputs, idx, output)
+        array_set(v4_query_states, idx, v4_query_valid)
+        give back idx
+    }
+
+    pilot new_idx = array_len(v4_query_keys)
+    array_push(v4_query_keys, key)
+    array_push(v4_query_inputs, input_fingerprint)
+    array_push(v4_query_outputs, output)
+    array_push(v4_query_states, v4_query_valid)
+    give back new_idx
+}
+
+task v4_query_mark_dirty_key(key: word) -> void {
+    v4_query_init()
+    pilot i = 0
+    pilot count = array_len(v4_query_keys)
+    repeat until i >= count {
+        if array_get(v4_query_keys, i) == key {
+            array_set(v4_query_states, i, v4_query_dirty)
+        }
+        i += 1
+    }
+}
+
+task v4_query_invalidate_prefix(prefix: word) -> int {
+    v4_query_init()
+    pilot dirtied = 0
+    pilot i = 0
+    pilot count = array_len(v4_query_keys)
+    repeat until i >= count {
+        pilot key = array_get(v4_query_keys, i)
+        if key.starts_with(prefix) {
+            if array_get(v4_query_states, i) != v4_query_dirty {
+                array_set(v4_query_states, i, v4_query_dirty)
+                dirtied += 1
+            }
+        }
+        i += 1
+    }
+    if dirtied > 0 {
+        v4_query_bump_revision()
+    }
+    give back dirtied
+}
+
+task v4_query_record_dep(from_key: word, to_key: word) -> void {
+    v4_query_init()
+    array_push(v4_query_dep_from, from_key)
+    array_push(v4_query_dep_to, to_key)
+}
+
+task v4_query_dep_count() -> int {
+    v4_query_init()
+    give back array_len(v4_query_dep_from)
+}
+
+task v4_query_cache_size() -> int {
+    v4_query_init()
+    give back array_len(v4_query_keys)
+}

@@ -1,0 +1,78 @@
+-- ===================================================================
+-- freak_diag - V4 diagnostic encoding helpers
+-- ===================================================================
+-- Depends on freak_span.
+
+pilot v4_diag_note = 0
+pilot v4_diag_warning = 1
+pilot v4_diag_error = 2
+pilot v4_diag_fatal = 3
+
+task v4_diag_severity_name(severity: int) -> word {
+    if severity == v4_diag_note {
+        give back "note"
+    }
+    if severity == v4_diag_warning {
+        give back "warning"
+    }
+    if severity == v4_diag_error {
+        give back "error"
+    }
+    if severity == v4_diag_fatal {
+        give back "fatal"
+    }
+    give back "unknown"
+}
+
+task v4_diag_new(severity: int, span: word, message: word, help: word) -> word {
+    give back word_from_int(severity) + "|" + span + "|" + message + "|" + help
+}
+
+task v4_diag_part(diag: word, wanted: int) -> word {
+    pilot part = 0
+    pilot start_pos = 0
+    pilot i = 0
+    repeat until i >= diag.length() {
+        if diag.char_at(i) == "|" {
+            if part == wanted {
+                give back v4_slice(diag, start_pos, i)
+            }
+            part += 1
+            start_pos = i + 1
+        }
+        i += 1
+    }
+    if part == wanted {
+        give back v4_slice(diag, start_pos, diag.length())
+    }
+    give back ""
+}
+
+task v4_diag_severity(diag: word) -> int {
+    give back word_to_int(v4_diag_part(diag, 0))
+}
+
+task v4_diag_span(diag: word) -> word {
+    give back v4_diag_part(diag, 1)
+}
+
+task v4_diag_message(diag: word) -> word {
+    give back v4_diag_part(diag, 2)
+}
+
+task v4_diag_help(diag: word) -> word {
+    give back v4_diag_part(diag, 3)
+}
+
+task v4_diag_render(diag: word, source_text: word) -> word {
+    pilot severity = v4_diag_severity(diag)
+    pilot span = v4_diag_span(diag)
+    pilot start_pos = v4_span_start(span)
+    pilot where = v4_line_col(source_text, start_pos)
+    pilot rendered = v4_diag_severity_name(severity) + " at " + where + ": " + v4_diag_message(diag)
+    pilot help = v4_diag_help(diag)
+    if help != "" {
+        rendered = rendered + "\nhelp: " + help
+    }
+    give back rendered
+}

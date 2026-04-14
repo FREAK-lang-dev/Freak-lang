@@ -1,0 +1,150 @@
+-- ===================================================================
+-- freak_span - V4 source ids, spans, and line/column helpers
+-- ===================================================================
+-- This crate is the bottom of the V4 compiler stack. It must stay free
+-- of parser, type, MIR, and codegen knowledge.
+
+pilot V4_NO_FILE = "0:0"
+pilot V4_NO_SPAN = "0:0@0:0"
+
+task v4_file_id(package_id: int, path_hash: int) -> word {
+    give back word_from_int(package_id) + ":" + word_from_int(path_hash)
+}
+
+task v4_span_new(file_id: word, start_byte: int, end_byte: int) -> word {
+    give back file_id + "@" + word_from_int(start_byte) + ":" + word_from_int(end_byte)
+}
+
+task v4_slice(text: word, start_pos: int, end_pos: int) -> word {
+    pilot out = ""
+    pilot i = start_pos
+    pilot limit = end_pos
+    if limit > text.length() {
+        limit = text.length()
+    }
+    repeat until i >= limit {
+        out = out + text.char_at(i)
+        i += 1
+    }
+    give back out
+}
+
+task v4_index_of_from(text: word, needle: word, start_pos: int) -> int {
+    pilot i = start_pos
+    pilot len = text.length()
+    repeat until i >= len {
+        if text.char_at(i) == needle {
+            give back i
+        }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task v4_span_file(span: word) -> word {
+    pilot at_pos = v4_index_of_from(span, "@", 0)
+    if at_pos < 0 {
+        give back V4_NO_FILE
+    }
+    give back v4_slice(span, 0, at_pos)
+}
+
+task v4_span_start(span: word) -> int {
+    pilot at_pos = v4_index_of_from(span, "@", 0)
+    if at_pos < 0 {
+        give back 0
+    }
+    pilot colon_pos = v4_index_of_from(span, ":", at_pos + 1)
+    if colon_pos < 0 {
+        give back 0
+    }
+    give back word_to_int(v4_slice(span, at_pos + 1, colon_pos))
+}
+
+task v4_span_end(span: word) -> int {
+    pilot at_pos = v4_index_of_from(span, "@", 0)
+    if at_pos < 0 {
+        give back 0
+    }
+    pilot colon_pos = v4_index_of_from(span, ":", at_pos + 1)
+    if colon_pos < 0 {
+        give back 0
+    }
+    give back word_to_int(v4_slice(span, colon_pos + 1, span.length()))
+}
+
+task v4_span_len(span: word) -> int {
+    pilot start_pos = v4_span_start(span)
+    pilot end_pos = v4_span_end(span)
+    if end_pos < start_pos {
+        give back 0
+    }
+    give back end_pos - start_pos
+}
+
+task v4_line_count(text: word) -> int {
+    pilot lines = 1
+    pilot i = 0
+    repeat until i >= text.length() {
+        if text.char_at(i) == "\n" {
+            lines += 1
+        }
+        i += 1
+    }
+    give back lines
+}
+
+task v4_line_start(text: word, wanted_line: int) -> int {
+    if wanted_line <= 1 {
+        give back 0
+    }
+    pilot line = 1
+    pilot i = 0
+    repeat until i >= text.length() {
+        if text.char_at(i) == "\n" {
+            line += 1
+            if line == wanted_line {
+                give back i + 1
+            }
+        }
+        i += 1
+    }
+    give back text.length()
+}
+
+task v4_offset_line(text: word, offset: int) -> int {
+    pilot line = 1
+    pilot i = 0
+    pilot limit = offset
+    if limit > text.length() {
+        limit = text.length()
+    }
+    repeat until i >= limit {
+        if text.char_at(i) == "\n" {
+            line += 1
+        }
+        i += 1
+    }
+    give back line
+}
+
+task v4_offset_col(text: word, offset: int) -> int {
+    pilot line_start = 0
+    pilot i = 0
+    pilot limit = offset
+    if limit > text.length() {
+        limit = text.length()
+    }
+    repeat until i >= limit {
+        if text.char_at(i) == "\n" {
+            line_start = i + 1
+        }
+        i += 1
+    }
+    give back limit - line_start + 1
+}
+
+task v4_line_col(text: word, offset: int) -> word {
+    give back word_from_int(v4_offset_line(text, offset)) + ":" + word_from_int(v4_offset_col(text, offset))
+}
+

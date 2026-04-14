@@ -1,0 +1,57 @@
+-- ===================================================================
+-- freak_intern - V4 string interning table
+-- ===================================================================
+-- Stores unique words and returns stable integer ids for the current
+-- compiler session. Persistent ids will be layered over this later.
+
+pilot v4_intern_values = 0
+pilot v4_intern_ready = 0
+
+task v4_intern_init() -> void {
+    if v4_intern_ready == 0 {
+        v4_intern_values = array_new()
+        array_push(v4_intern_values, "")
+        v4_intern_ready = 1
+    }
+}
+
+task v4_intern_count() -> int {
+    v4_intern_init()
+    give back array_len(v4_intern_values)
+}
+
+task v4_intern_lookup(value: word) -> int {
+    v4_intern_init()
+    pilot i = 0
+    pilot count = array_len(v4_intern_values)
+    repeat until i >= count {
+        if array_get(v4_intern_values, i) == value {
+            give back i
+        }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task v4_intern(value: word) -> int {
+    v4_intern_init()
+    pilot existing = v4_intern_lookup(value)
+    if existing >= 0 {
+        give back existing
+    }
+    pilot id = array_len(v4_intern_values)
+    array_push(v4_intern_values, value)
+    give back id
+}
+
+task v4_intern_get(id: int) -> word {
+    v4_intern_init()
+    if id < 0 {
+        give back ""
+    }
+    if id >= array_len(v4_intern_values) {
+        give back ""
+    }
+    give back array_get(v4_intern_values, id)
+}
+

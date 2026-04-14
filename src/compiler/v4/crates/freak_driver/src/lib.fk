@@ -1,0 +1,59 @@
+-- ===================================================================
+-- freak_driver - early V4 driver facade
+-- ===================================================================
+-- Depends on freak_span, freak_diag, freak_session, and freak_query.
+-- The parser is not landed yet, so syntax checking is a query-backed
+-- source/line-index smoke path. This gives Phase V4-A something real
+-- to call before freak_lex and freak_parse arrive.
+
+pilot FREAKC_V4_VERSION = "0.1.0-bootstrap"
+pilot FREAKC_V4_CODENAME = "00-Unit"
+
+task v4_driver_init() -> void {
+    v4_session_init()
+    v4_query_init()
+}
+
+task v4_check_syntax_query_key(path: word) -> word {
+    give back "syntax:" + path
+}
+
+task v4_check_syntax_text(path: word, text: word) -> word {
+    v4_driver_init()
+
+    pilot file_id = v4_source_set_text(path, text)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot key = v4_check_syntax_query_key(path)
+    pilot cached = v4_query_get(key, fingerprint)
+    if cached != "" {
+        give back cached
+    }
+
+    pilot lines = v4_line_count(text)
+    pilot syntax_summary = "syntax-ok file=" + word_from_int(file_id)
+    syntax_summary = syntax_summary + " rev=" + word_from_int(v4_source_revision(file_id))
+    syntax_summary = syntax_summary + " lines=" + word_from_int(lines)
+    syntax_summary = syntax_summary + " bytes=" + word_from_int(text.length())
+
+    v4_query_store(key, fingerprint, syntax_summary)
+    v4_query_record_dep(key, "source:" + path)
+    give back syntax_summary
+}
+
+task v4_check_syntax_file(path: word) -> word {
+    pilot text = fs::read(path)
+    if text == "" {
+        pilot span = v4_span_new("0", 0, 0)
+        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
+        give back v4_diag_render(diag, "")
+    }
+    give back v4_check_syntax_text(path, text)
+}
+
+task v4_driver_status() -> word {
+    v4_driver_init()
+    pilot status = "freakc_v4 " + FREAKC_V4_VERSION + " (" + FREAKC_V4_CODENAME + ")"
+    status = status + " queries=" + word_from_int(v4_query_cache_size())
+    status = status + " deps=" + word_from_int(v4_query_dep_count())
+    give back status
+}

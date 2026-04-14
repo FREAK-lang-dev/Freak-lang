@@ -1,0 +1,96 @@
+-- ===================================================================
+-- freak_arena - V4 append-only arena prototype
+-- ===================================================================
+-- Stores encoded compiler facts in named arenas. Later V4 phases can
+-- replace the word payload with typed arenas while keeping stable ids.
+
+pilot v4_arena_names = 0
+pilot v4_arena_handles = 0
+pilot v4_arena_ready = 0
+
+task v4_arena_init() -> void {
+    if v4_arena_ready == 0 {
+        v4_arena_names = array_new()
+        v4_arena_handles = array_new()
+        v4_arena_ready = 1
+    }
+}
+
+task v4_arena_find(name: word) -> int {
+    v4_arena_init()
+    pilot i = 0
+    pilot count = array_len(v4_arena_names)
+    repeat until i >= count {
+        if array_get(v4_arena_names, i) == name {
+            give back i
+        }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task v4_arena_new(name: word) -> int {
+    v4_arena_init()
+    pilot existing = v4_arena_find(name)
+    if existing >= 0 {
+        give back existing
+    }
+
+    pilot id = array_len(v4_arena_names)
+    pilot handle = array_new()
+    array_push(v4_arena_names, name)
+    array_push(v4_arena_handles, word_from_int(handle))
+    give back id
+}
+
+task v4_arena_handle(arena_id: int) -> int {
+    v4_arena_init()
+    if arena_id < 0 {
+        give back 0
+    }
+    if arena_id >= array_len(v4_arena_handles) {
+        give back 0
+    }
+    give back word_to_int(array_get(v4_arena_handles, arena_id))
+}
+
+task v4_arena_alloc(arena_id: int, value: word) -> word {
+    pilot handle = v4_arena_handle(arena_id)
+    if handle == 0 {
+        give back "0:0"
+    }
+
+    pilot slot = array_len(handle)
+    array_push(handle, value)
+    give back word_from_int(arena_id) + ":" + word_from_int(slot)
+}
+
+task v4_arena_get(ref: word) -> word {
+    pilot colon_pos = v4_index_of_from(ref, ":", 0)
+    if colon_pos < 0 {
+        give back ""
+    }
+
+    pilot arena_id = word_to_int(v4_slice(ref, 0, colon_pos))
+    pilot slot = word_to_int(v4_slice(ref, colon_pos + 1, ref.length()))
+    pilot handle = v4_arena_handle(arena_id)
+    if handle == 0 {
+        give back ""
+    }
+    if slot < 0 {
+        give back ""
+    }
+    if slot >= array_len(handle) {
+        give back ""
+    }
+    give back array_get(handle, slot)
+}
+
+task v4_arena_len(arena_id: int) -> int {
+    pilot handle = v4_arena_handle(arena_id)
+    if handle == 0 {
+        give back 0
+    }
+    give back array_len(handle)
+}
+
