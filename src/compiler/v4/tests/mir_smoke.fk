@@ -12,6 +12,7 @@ v4_mir_smoke_source = v4_mir_smoke_source + "    }\n"
 v4_mir_smoke_source = v4_mir_smoke_source + "    repeat until y > 45 {\n"
 v4_mir_smoke_source = v4_mir_smoke_source + "        y = y + 1\n"
 v4_mir_smoke_source = v4_mir_smoke_source + "    }\n"
+v4_mir_smoke_source = v4_mir_smoke_source + "    pilot w = helper()\n"
 v4_mir_smoke_source = v4_mir_smoke_source + "    give back y\n"
 v4_mir_smoke_source = v4_mir_smoke_source + "}\n"
 v4_mir_smoke_source = v4_mir_smoke_source + "shape Pilot\n"
@@ -26,6 +27,7 @@ pilot v4_mir_smoke_mir = v4_mir_lower_ty(0, v4_mir_smoke_ty)
 pilot v4_mir_main_def = v4_resolve_def_for_name(v4_mir_smoke_resolve, "main")
 pilot v4_mir_main_body = v4_mir_lookup_body(v4_mir_smoke_mir, v4_mir_main_def)
 pilot v4_mir_entry_block = v4_mir_body_block(v4_mir_smoke_mir, v4_mir_main_body, 0)
+pilot v4_mir_y_stmt_rvalue = v4_mir_stmt_rvalue(v4_mir_smoke_mir, v4_mir_main_body, 1)
 
 say v4_mir_summary(v4_mir_smoke_mir)
 say "main-body=" + word_from_int(v4_mir_main_body)
@@ -36,6 +38,9 @@ say "entry-else=" + word_from_int(v4_mir_block_else_target(v4_mir_entry_block))
 say "main-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_smoke_mir, v4_mir_main_body))
 say "main-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_smoke_mir, v4_mir_main_body))
 say "main-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_smoke_mir, v4_mir_main_body))
+say "main-rvalues=" + word_from_int(v4_mir_body_rvalue_count(v4_mir_smoke_mir, v4_mir_main_body))
 say "first-local=" + v4_mir_local_name(v4_mir_smoke_mir, v4_mir_main_body, 0)
 say "stmt0-block=" + word_from_int(v4_mir_stmt_block(v4_mir_smoke_mir, v4_mir_main_body, 0))
+say "stmt1-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_smoke_mir, v4_mir_main_body, v4_mir_y_stmt_rvalue)
+say "stmt1-rvalue-op=" + v4_mir_rvalue_op(v4_mir_smoke_mir, v4_mir_main_body, v4_mir_y_stmt_rvalue)
 say "body-count=" + word_from_int(v4_mir_body_count(v4_mir_smoke_mir))
