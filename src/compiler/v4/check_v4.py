@@ -12,6 +12,7 @@ CRATE_ORDER = [
     "freak_session",
     "freak_lex",
     "freak_parse",
+    "freak_hir",
     "freak_query",
     "freak_driver",
 ]
@@ -167,4 +168,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

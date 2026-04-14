@@ -2,8 +2,8 @@
 -- freak_driver - early V4 driver facade
 -- ===================================================================
 -- Depends on freak_span, freak_diag, freak_session, freak_lex, freak_parse,
--- and freak_query. Syntax checking is currently a query-backed source,
--- lexing, and resilient top-level parse path.
+-- freak_hir, and freak_query. Syntax checking is currently a query-backed
+-- source, lexing, resilient top-level parse, and HIR item path.
 
 pilot FREAKC_V4_VERSION = "0.1.0-bootstrap"
 pilot FREAKC_V4_CODENAME = "00-Unit"
@@ -23,6 +23,10 @@ task v4_lex_query_key(path: word) -> word {
 
 task v4_parse_query_key(path: word) -> word {
     give back "parse:" + path
+}
+
+task v4_hir_query_key(path: word) -> word {
+    give back "hir:" + path
 }
 
 task v4_lex_text_cached(path: word, text: word) -> int {
@@ -92,6 +96,40 @@ task v4_parse_file(path: word) -> word {
     give back summary
 }
 
+task v4_hir_text_cached(path: word, text: word) -> int {
+    v4_driver_init()
+
+    pilot file_id = v4_source_set_text(path, text)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot key = v4_hir_query_key(path)
+    pilot cached = v4_query_get(key, fingerprint)
+    if cached != "" {
+        give back word_to_int(cached)
+    }
+
+    pilot tree_id = v4_parse_text_cached(path, text)
+    pilot hir_id = v4_hir_lower_tree(file_id, tree_id)
+    v4_query_store(key, fingerprint, word_from_int(hir_id))
+    v4_query_record_dep(key, v4_parse_query_key(path))
+    give back hir_id
+}
+
+task v4_hir_file(path: word) -> word {
+    pilot text = fs::read(path)
+    if text == "" {
+        pilot span = v4_span_new("0", 0, 0)
+        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
+        give back v4_diag_render(diag, "")
+    }
+
+    pilot hir_id = v4_hir_text_cached(path, text)
+    pilot file_id = v4_source_find(path)
+    pilot summary = v4_hir_summary(hir_id)
+    summary = summary + " file=" + word_from_int(file_id)
+    summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
+    give back summary
+}
+
 task v4_check_syntax_text(path: word, text: word) -> word {
     v4_driver_init()
 
@@ -105,6 +143,7 @@ task v4_check_syntax_text(path: word, text: word) -> word {
 
     pilot stream_id = v4_lex_text_cached(path, text)
     pilot tree_id = v4_parse_text_cached(path, text)
+    pilot hir_id = v4_hir_text_cached(path, text)
     pilot lines = v4_line_count(text)
     pilot syntax_summary = "syntax-ok file=" + word_from_int(file_id)
     syntax_summary = syntax_summary + " rev=" + word_from_int(v4_source_revision(file_id))
@@ -114,11 +153,14 @@ task v4_check_syntax_text(path: word, text: word) -> word {
     syntax_summary = syntax_summary + " lex-diagnostics=" + word_from_int(v4_lex_diag_count(stream_id))
     syntax_summary = syntax_summary + " parse-nodes=" + word_from_int(v4_parse_node_count(tree_id))
     syntax_summary = syntax_summary + " parse-diagnostics=" + word_from_int(v4_parse_diag_count(tree_id))
+    syntax_summary = syntax_summary + " hir-items=" + word_from_int(v4_hir_item_count(hir_id))
+    syntax_summary = syntax_summary + " hir-diagnostics=" + word_from_int(v4_hir_diag_count(hir_id))
 
     v4_query_store(key, fingerprint, syntax_summary)
     v4_query_record_dep(key, "source:" + path)
     v4_query_record_dep(key, v4_lex_query_key(path))
     v4_query_record_dep(key, v4_parse_query_key(path))
+    v4_query_record_dep(key, v4_hir_query_key(path))
     give back syntax_summary
 }
 

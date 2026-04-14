@@ -1,0 +1,189 @@
+-- ===================================================================
+-- freak_hir - V4 top-level HIR item lowering prototype
+-- ===================================================================
+-- Depends on freak_span, freak_diag, and freak_parse.
+-- HIR is the first compiler-owned representation. This initial slice
+-- lowers resilient parse nodes into syntax-independent top-level item
+-- records with stable-ish def ids and carried diagnostics.
+
+pilot v4_hir_task = "Task"
+pilot v4_hir_shape = "Shape"
+pilot v4_hir_impl = "Impl"
+pilot v4_hir_doctrine = "Doctrine"
+pilot v4_hir_import = "Import"
+pilot v4_hir_extern = "Extern"
+pilot v4_hir_attribute = "Attribute"
+pilot v4_hir_error = "Error"
+
+pilot v4_hir_files = 0
+pilot v4_hir_trees = 0
+pilot v4_hir_item_kinds = 0
+pilot v4_hir_item_names = 0
+pilot v4_hir_item_defs = 0
+pilot v4_hir_item_spans = 0
+pilot v4_hir_item_parse_nodes = 0
+pilot v4_hir_diags = 0
+pilot v4_hir_ready = 0
+
+task v4_hir_init() -> void {
+    if v4_hir_ready == 0 {
+        v4_hir_files = array_new()
+        v4_hir_trees = array_new()
+        v4_hir_item_kinds = array_new()
+        v4_hir_item_names = array_new()
+        v4_hir_item_defs = array_new()
+        v4_hir_item_spans = array_new()
+        v4_hir_item_parse_nodes = array_new()
+        v4_hir_diags = array_new()
+        v4_hir_ready = 1
+    }
+}
+
+task v4_hir_file_new(file_id: int, tree_id: int) -> int {
+    v4_hir_init()
+    pilot hir_id = array_len(v4_hir_files)
+    array_push(v4_hir_files, word_from_int(file_id))
+    array_push(v4_hir_trees, word_from_int(tree_id))
+    array_push(v4_hir_item_kinds, word_from_int(array_new()))
+    array_push(v4_hir_item_names, word_from_int(array_new()))
+    array_push(v4_hir_item_defs, word_from_int(array_new()))
+    array_push(v4_hir_item_spans, word_from_int(array_new()))
+    array_push(v4_hir_item_parse_nodes, word_from_int(array_new()))
+    array_push(v4_hir_diags, word_from_int(array_new()))
+    give back hir_id
+}
+
+task v4_hir_kinds_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_item_kinds, hir_id))
+}
+
+task v4_hir_names_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_item_names, hir_id))
+}
+
+task v4_hir_defs_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_item_defs, hir_id))
+}
+
+task v4_hir_spans_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_item_spans, hir_id))
+}
+
+task v4_hir_parse_nodes_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_item_parse_nodes, hir_id))
+}
+
+task v4_hir_diags_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_diags, hir_id))
+}
+
+task v4_hir_def_id(file_id: int, item_kind: word, item_name: word, item_index: int) -> word {
+    pilot safe_name = item_name
+    if safe_name == "" {
+        safe_name = "_"
+    }
+    give back "file" + word_from_int(file_id) + "::" + item_kind + "::" + safe_name + "#" + word_from_int(item_index)
+}
+
+task v4_hir_add_item(hir_id: int, item_kind: word, item_name: word, span: word, parse_node: int) -> int {
+    pilot item_index = array_len(v4_hir_kinds_handle(hir_id))
+    pilot file_id = word_to_int(array_get(v4_hir_files, hir_id))
+    pilot def_id = v4_hir_def_id(file_id, item_kind, item_name, item_index)
+    array_push(v4_hir_kinds_handle(hir_id), item_kind)
+    array_push(v4_hir_names_handle(hir_id), item_name)
+    array_push(v4_hir_defs_handle(hir_id), def_id)
+    array_push(v4_hir_spans_handle(hir_id), span)
+    array_push(v4_hir_parse_nodes_handle(hir_id), word_from_int(parse_node))
+    give back item_index
+}
+
+task v4_hir_add_diag(hir_id: int, diag: word) -> void {
+    array_push(v4_hir_diags_handle(hir_id), diag)
+}
+
+task v4_hir_item_count(hir_id: int) -> int {
+    give back array_len(v4_hir_kinds_handle(hir_id))
+}
+
+task v4_hir_diag_count(hir_id: int) -> int {
+    give back array_len(v4_hir_diags_handle(hir_id))
+}
+
+task v4_hir_item_kind(hir_id: int, item_id: int) -> word {
+    give back array_get(v4_hir_kinds_handle(hir_id), item_id)
+}
+
+task v4_hir_item_name(hir_id: int, item_id: int) -> word {
+    give back array_get(v4_hir_names_handle(hir_id), item_id)
+}
+
+task v4_hir_item_def(hir_id: int, item_id: int) -> word {
+    give back array_get(v4_hir_defs_handle(hir_id), item_id)
+}
+
+task v4_hir_item_span(hir_id: int, item_id: int) -> word {
+    give back array_get(v4_hir_spans_handle(hir_id), item_id)
+}
+
+task v4_hir_item_parse_node(hir_id: int, item_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_parse_nodes_handle(hir_id), item_id))
+}
+
+task v4_hir_diag(hir_id: int, diag_id: int) -> word {
+    give back array_get(v4_hir_diags_handle(hir_id), diag_id)
+}
+
+task v4_hir_kind_from_parse(parse_kind: word) -> word {
+    if parse_kind == v4_node_task { give back v4_hir_task }
+    if parse_kind == v4_node_shape { give back v4_hir_shape }
+    if parse_kind == v4_node_impl { give back v4_hir_impl }
+    if parse_kind == v4_node_doctrine { give back v4_hir_doctrine }
+    if parse_kind == v4_node_use { give back v4_hir_import }
+    if parse_kind == v4_node_extern { give back v4_hir_extern }
+    if parse_kind == v4_node_attribute { give back v4_hir_attribute }
+    if parse_kind == v4_node_error { give back v4_hir_error }
+    if parse_kind == v4_node_incomplete { give back v4_hir_error }
+    give back ""
+}
+
+task v4_hir_should_lower_parse_node(parse_kind: word) -> bool {
+    give back v4_hir_kind_from_parse(parse_kind) != ""
+}
+
+task v4_hir_copy_parse_diags(hir_id: int, tree_id: int) -> void {
+    pilot diag_idx = 0
+    pilot diag_count = v4_parse_diag_count(tree_id)
+    repeat until diag_idx >= diag_count {
+        v4_hir_add_diag(hir_id, v4_parse_diag(tree_id, diag_idx))
+        diag_idx += 1
+    }
+}
+
+task v4_hir_lower_tree(file_id: int, tree_id: int) -> int {
+    v4_hir_init()
+    pilot hir_id = v4_hir_file_new(file_id, tree_id)
+    v4_hir_copy_parse_diags(hir_id, tree_id)
+
+    pilot node_idx = 0
+    pilot node_count = v4_parse_node_count(tree_id)
+    repeat until node_idx >= node_count {
+        pilot parse_kind = v4_parse_node_kind(tree_id, node_idx)
+        if v4_hir_should_lower_parse_node(parse_kind) {
+            pilot hir_kind = v4_hir_kind_from_parse(parse_kind)
+            pilot item_name = v4_parse_node_value(tree_id, node_idx)
+            pilot item_span = v4_parse_node_span(tree_id, node_idx)
+            v4_hir_add_item(hir_id, hir_kind, item_name, item_span, node_idx)
+        }
+        node_idx += 1
+    }
+
+    give back hir_id
+}
+
+task v4_hir_summary(hir_id: int) -> word {
+    pilot summary = "hir-ok hir=" + word_from_int(hir_id)
+    summary = summary + " items=" + word_from_int(v4_hir_item_count(hir_id))
+    summary = summary + " diagnostics=" + word_from_int(v4_hir_diag_count(hir_id))
+    give back summary
+}
+

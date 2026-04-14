@@ -1,0 +1,17 @@
+-- V4 HIR smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_hir_smoke_source = "@protagonist\n"
+v4_hir_smoke_source = v4_hir_smoke_source + "task main() => \"hi\"\n"
+v4_hir_smoke_source = v4_hir_smoke_source + "shape Pilot\n"
+v4_hir_smoke_source = v4_hir_smoke_source + "use std::fs\n"
+
+pilot v4_hir_smoke_stream = v4_lex_text(0, v4_hir_smoke_source)
+pilot v4_hir_smoke_tree = v4_parse_stream(0, v4_hir_smoke_stream)
+pilot v4_hir_smoke_file = v4_hir_lower_tree(0, v4_hir_smoke_tree)
+
+say v4_hir_summary(v4_hir_smoke_file)
+say "first-hir-kind=" + v4_hir_item_kind(v4_hir_smoke_file, 0)
+say "first-hir-name=" + v4_hir_item_name(v4_hir_smoke_file, 0)
+say "first-hir-def=" + v4_hir_item_def(v4_hir_smoke_file, 0)
+
