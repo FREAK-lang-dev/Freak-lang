@@ -1087,6 +1087,8 @@ class CEmitter:
                 return f"freak_panic({args_c})"
             if expr.func.name == "ask":
                 return f"freak_ask({args_c})"
+            if expr.func.name == "chr":
+                return f"freak_char_to_word({args_c})"
             # User function -- add freak_ prefix
             return f"freak_{expr.func.name}({args_c})"
 
@@ -1099,10 +1101,13 @@ class CEmitter:
                 "process::spawn": "freak_process_spawn",
                 "process::pid": "freak_process_pid",
                 "process::exit": "freak_process_exit",
+                "process::env": "freak_process_env",
                 "process::env_var": "freak_process_env_var",
                 "process::set_env": "freak_process_set_env",
                 "process::args": "freak_process_args",
                 "process::input": "freak_ask",
+                "process::exec": "freak_process_exec",
+                "process::exec_capture": "freak_process_exec_capture",
             }
 
             if fq_name == "process::args_count":
@@ -1128,6 +1133,10 @@ class CEmitter:
             fs_map = {
                 "fs::read": "freak_fs_read",
                 "fs::write": "freak_fs_write",
+                "fs::append": "freak_fs_append",
+                "fs::exists": "freak_fs_exists",
+                "fs::delete": "freak_fs_delete",
+                "fs::list_dir": "freak_fs_list_dir",
             }
 
             # std::math mapping
@@ -1587,6 +1596,10 @@ class CEmitter:
             if isinstance(expr.func, Ident):
                 if expr.func.name == "ask":
                     return "freak_word"
+                if expr.func.name in ("word_from_int", "word_from_bool", "format_num", "chr"):
+                    return "freak_word"
+                if expr.func.name == "parse_num":
+                    return "double"
                 # Look up known function signatures
                 ret = self.func_sigs.get(expr.func.name)
                 if ret:
@@ -1597,6 +1610,7 @@ class CEmitter:
                 _PROCESS_RET = {
                     "process::pid": "uint64_t",
                     "process::exit": "void",
+                    "process::env": "freak_word",
                     "process::env_var": "freak_maybe_word",
                     "process::args": "void*",
                     "process::args_count": "int64_t",
@@ -1605,6 +1619,8 @@ class CEmitter:
                     "process::spawn": "freak_process_handle",
                     "process::set_env": "void",
                     "process::input": "freak_word",
+                    "process::exec": "int64_t",
+                    "process::exec_capture": "freak_word",
                 }
                 # std::thread return types
                 _THREAD_RET = {
@@ -1622,6 +1638,10 @@ class CEmitter:
                 _FS_RET = {
                     "fs::read": "freak_word",
                     "fs::write": "void",
+                    "fs::append": "void",
+                    "fs::exists": "bool",
+                    "fs::delete": "void",
+                    "fs::list_dir": "freak_word",
                 }
                 # std::ui return types
                 _UI_RET = {

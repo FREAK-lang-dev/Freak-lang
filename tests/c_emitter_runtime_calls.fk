@@ -1,0 +1,46 @@
+-- Regression: Python C-emitter mappings used by Sortie.
+
+@protagonist
+task main() {
+    pilot temp_path = "tests/c_emitter_runtime_calls.tmp"
+
+    fs::write(temp_path, "alpha")
+    fs::append(temp_path, "\nbeta")
+
+    pilot content: word = fs::read(temp_path)
+    if content.contains("alpha") {
+        say "fs read ok"
+    }
+
+    if fs::exists(temp_path) {
+        say "fs exists ok"
+    }
+
+    pilot listed: word = fs::list_dir("tests")
+    if listed.contains("c_emitter_runtime_calls.fk") {
+        say "fs list ok"
+    }
+
+    pilot captured: word = process::exec_capture("echo sortie_capture")
+    if captured.contains("sortie_capture") {
+        say "process capture ok"
+    }
+
+    pilot env_value: word = process::env("WINDIR")
+    if env_value == "" {
+        say "process env empty"
+    } else {
+        say "process env ok"
+    }
+
+    pilot code = process::exec("echo sortie_exec")
+    say "process exec exit " + word_from_int(code)
+
+    pilot letter: word = chr(83)
+    say "chr " + letter
+
+    fs::delete(temp_path)
+    if not fs::exists(temp_path) {
+        say "fs delete ok"
+    }
+}
