@@ -1,0 +1,15 @@
+-- V4 go-to-definition query smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_def_source = "task main() -> int {\n"
+v4_def_source = v4_def_source + "    give back 0\n"
+v4_def_source = v4_def_source + "}\n"
+
+pilot v4_def_main = v4_definition_at_text_cached("definition_at.fk", v4_def_source, 5)
+
+say v4_definition_at_summary(v4_def_main)
+say "definition-found=" + word_from_int(v4_definition_at_found(v4_def_main))
+say "definition-name=" + v4_definition_at_name(v4_def_main)
+say "definition-kind=" + v4_definition_at_kind(v4_def_main)
+say "definition-def=" + v4_definition_at_def(v4_def_main)
+say "definition-span=" + v4_definition_at_span(v4_def_main)

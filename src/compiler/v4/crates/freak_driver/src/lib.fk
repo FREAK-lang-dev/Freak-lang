@@ -32,6 +32,15 @@ pilot v4_driver_hover_names = 0
 pilot v4_driver_hover_kinds = 0
 pilot v4_driver_hover_types = 0
 pilot v4_driver_hover_markdowns = 0
+pilot v4_driver_defn_paths = 0
+pilot v4_driver_defn_offsets = 0
+pilot v4_driver_defn_semantic_ids = 0
+pilot v4_driver_defn_names = 0
+pilot v4_driver_defn_kinds = 0
+pilot v4_driver_defn_defs = 0
+pilot v4_driver_defn_hir_items = 0
+pilot v4_driver_defn_spans = 0
+pilot v4_driver_defn_found = 0
 pilot v4_driver_ready = 0
 
 task v4_driver_init() -> void {
@@ -61,6 +70,15 @@ task v4_driver_init() -> void {
         v4_driver_hover_kinds = array_new()
         v4_driver_hover_types = array_new()
         v4_driver_hover_markdowns = array_new()
+        v4_driver_defn_paths = array_new()
+        v4_driver_defn_offsets = array_new()
+        v4_driver_defn_semantic_ids = array_new()
+        v4_driver_defn_names = array_new()
+        v4_driver_defn_kinds = array_new()
+        v4_driver_defn_defs = array_new()
+        v4_driver_defn_hir_items = array_new()
+        v4_driver_defn_spans = array_new()
+        v4_driver_defn_found = array_new()
         v4_driver_ready = 1
     }
 }
@@ -79,6 +97,10 @@ task v4_semantic_at_query_key(path: word, offset: int) -> word {
 
 task v4_hover_query_key(path: word, offset: int) -> word {
     give back "hover:" + path + ":" + word_from_int(offset)
+}
+
+task v4_definition_at_query_key(path: word, offset: int) -> word {
+    give back "definition-at:" + path + ":" + word_from_int(offset)
 }
 
 task v4_lex_query_key(path: word) -> word {
@@ -521,6 +543,18 @@ task v4_driver_ty_signature_for_hir_item(ty_id: int, hir_item: int) -> int {
     give back 0 - 1
 }
 
+task v4_driver_hir_item_for_def(hir_id: int, def_id: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_hir_item_count(hir_id)
+    repeat until item_id >= item_count {
+        if v4_hir_item_def(hir_id, item_id) == def_id {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
 task v4_driver_semantic_fact_new(path: word, offset: int, token_id: int, token_kind: word, token_value: word, token_span: word, hir_item: int, item_name: word, item_kind: word, symbol_id: int, name: word, kind: word, def_id: word, type_display: word) -> int {
     v4_driver_init()
     pilot fact_id = array_len(v4_driver_sem_paths)
@@ -802,6 +836,116 @@ task v4_hover_file(path: word, offset: int) -> word {
         give back v4_diag_render(diag, "")
     }
     give back v4_hover_text(path, text, offset)
+}
+
+task v4_driver_definition_new(path: word, offset: int, semantic_id: int, name: word, kind: word, def_id: word, hir_item: int, span: word, found: int) -> int {
+    v4_driver_init()
+    pilot defn_id = array_len(v4_driver_defn_paths)
+    array_push(v4_driver_defn_paths, path)
+    array_push(v4_driver_defn_offsets, word_from_int(offset))
+    array_push(v4_driver_defn_semantic_ids, word_from_int(semantic_id))
+    array_push(v4_driver_defn_names, name)
+    array_push(v4_driver_defn_kinds, kind)
+    array_push(v4_driver_defn_defs, def_id)
+    array_push(v4_driver_defn_hir_items, word_from_int(hir_item))
+    array_push(v4_driver_defn_spans, span)
+    array_push(v4_driver_defn_found, word_from_int(found))
+    give back defn_id
+}
+
+task v4_definition_at_offset(defn_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_defn_offsets, defn_id))
+}
+
+task v4_definition_at_semantic_id(defn_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_defn_semantic_ids, defn_id))
+}
+
+task v4_definition_at_name(defn_id: int) -> word {
+    give back array_get(v4_driver_defn_names, defn_id)
+}
+
+task v4_definition_at_kind(defn_id: int) -> word {
+    give back array_get(v4_driver_defn_kinds, defn_id)
+}
+
+task v4_definition_at_def(defn_id: int) -> word {
+    give back array_get(v4_driver_defn_defs, defn_id)
+}
+
+task v4_definition_at_hir_item(defn_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_defn_hir_items, defn_id))
+}
+
+task v4_definition_at_span(defn_id: int) -> word {
+    give back array_get(v4_driver_defn_spans, defn_id)
+}
+
+task v4_definition_at_found(defn_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_defn_found, defn_id))
+}
+
+task v4_definition_at_summary(defn_id: int) -> word {
+    pilot summary = "definition-at id=" + word_from_int(defn_id)
+    summary = summary + " offset=" + word_from_int(v4_definition_at_offset(defn_id))
+    summary = summary + " semantic=" + word_from_int(v4_definition_at_semantic_id(defn_id))
+    summary = summary + " found=" + word_from_int(v4_definition_at_found(defn_id))
+    summary = summary + " name=" + v4_definition_at_name(defn_id)
+    summary = summary + " kind=" + v4_definition_at_kind(defn_id)
+    summary = summary + " def=" + v4_definition_at_def(defn_id)
+    summary = summary + " span=" + v4_definition_at_span(defn_id)
+    give back summary
+}
+
+task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
+    v4_driver_init()
+
+    pilot file_id = v4_source_set_text(path, text)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot key = v4_definition_at_query_key(path, offset)
+    pilot cached = v4_query_get(key, fingerprint)
+    if cached != "" {
+        give back word_to_int(cached)
+    }
+
+    pilot semantic_id = v4_semantic_at_text_cached(path, text, offset)
+    pilot hir_id = v4_hir_text_cached(path, text)
+    pilot name = v4_semantic_at_name(semantic_id)
+    pilot kind = v4_semantic_at_kind(semantic_id)
+    pilot def_id = v4_semantic_at_def(semantic_id)
+    pilot hir_item = 0 - 1
+    pilot span = V4_NO_SPAN
+    pilot found = 0
+
+    if def_id != "" {
+        hir_item = v4_driver_hir_item_for_def(hir_id, def_id)
+        if hir_item >= 0 {
+            span = v4_hir_item_span(hir_id, hir_item)
+            found = 1
+        }
+    }
+
+    pilot defn_id = v4_driver_definition_new(path, offset, semantic_id, name, kind, def_id, hir_item, span, found)
+    v4_query_store(key, fingerprint, word_from_int(defn_id))
+    v4_query_record_dep(key, "source:" + path)
+    v4_query_record_dep(key, v4_semantic_at_query_key(path, offset))
+    v4_query_record_dep(key, v4_hir_query_key(path))
+    give back defn_id
+}
+
+task v4_definition_at_text(path: word, text: word, offset: int) -> word {
+    pilot defn_id = v4_definition_at_text_cached(path, text, offset)
+    give back v4_definition_at_summary(defn_id)
+}
+
+task v4_definition_at_file(path: word, offset: int) -> word {
+    pilot text = fs::read(path)
+    if text == "" {
+        pilot span = v4_span_new("0", 0, 0)
+        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
+        give back v4_diag_render(diag, "")
+    }
+    give back v4_definition_at_text(path, text, offset)
 }
 
 task v4_check_syntax_text(path: word, text: word) -> word {
