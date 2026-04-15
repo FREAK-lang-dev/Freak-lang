@@ -25,7 +25,8 @@ task v4_lsp_find_document(path: word) -> int {
     pilot doc_id = 0
     pilot doc_count = array_len(v4_lsp_doc_paths)
     repeat until doc_id >= doc_count {
-        if array_get(v4_lsp_doc_paths, doc_id) == path {
+        pilot doc_path: word = array_get(v4_lsp_doc_paths, doc_id)
+        if doc_path == path {
             give back doc_id
         }
         doc_id += 1

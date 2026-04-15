@@ -21,7 +21,8 @@ task v4_arena_find(name: word) -> int {
     pilot i = 0
     pilot count = array_len(v4_arena_names)
     repeat until i >= count {
-        if array_get(v4_arena_names, i) == name {
+        pilot arena_name: word = array_get(v4_arena_names, i)
+        if arena_name == name {
             give back i
         }
         i += 1
@@ -93,4 +94,3 @@ task v4_arena_len(arena_id: int) -> int {
     }
     give back array_len(handle)
 }
-

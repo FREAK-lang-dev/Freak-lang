@@ -25,7 +25,8 @@ task v4_intern_lookup(value: word) -> int {
     pilot i = 0
     pilot count = array_len(v4_intern_values)
     repeat until i >= count {
-        if array_get(v4_intern_values, i) == value {
+        pilot interned: word = array_get(v4_intern_values, i)
+        if interned == value {
             give back i
         }
         i += 1
@@ -54,4 +55,3 @@ task v4_intern_get(id: int) -> word {
     }
     give back array_get(v4_intern_values, id)
 }
-

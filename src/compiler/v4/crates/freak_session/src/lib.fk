@@ -35,7 +35,8 @@ task v4_source_find(path: word) -> int {
     pilot i = 0
     pilot count = array_len(v4_source_paths)
     repeat until i >= count {
-        if array_get(v4_source_paths, i) == path {
+        pilot source_path: word = array_get(v4_source_paths, i)
+        if source_path == path {
             give back i
         }
         i += 1
@@ -64,7 +65,7 @@ task v4_source_set_text(path: word, text: word) -> int {
         give back v4_source_add(path, text)
     }
 
-    pilot old_text = array_get(v4_source_texts, id)
+    pilot old_text: word = array_get(v4_source_texts, id)
     if old_text == text {
         give back id
     }

@@ -61,7 +61,8 @@ task v4_query_telemetry_index(key: word) -> int {
     pilot idx = 0
     pilot count = array_len(v4_query_telemetry_keys)
     repeat until idx >= count {
-        if array_get(v4_query_telemetry_keys, idx) == key {
+        pilot telemetry_key: word = array_get(v4_query_telemetry_keys, idx)
+        if telemetry_key == key {
             give back idx
         }
         idx += 1
@@ -144,8 +145,10 @@ task v4_query_find(key: word, input_fingerprint: word) -> int {
     pilot i = 0
     pilot count = array_len(v4_query_keys)
     repeat until i >= count {
-        if array_get(v4_query_keys, i) == key {
-            if array_get(v4_query_inputs, i) == input_fingerprint {
+        pilot entry_key: word = array_get(v4_query_keys, i)
+        pilot entry_input: word = array_get(v4_query_inputs, i)
+        if entry_key == key {
+            if entry_input == input_fingerprint {
                 give back i
             }
         }
@@ -160,7 +163,8 @@ task v4_query_get(key: word, input_fingerprint: word) -> word {
         v4_query_record_miss(key)
         give back ""
     }
-    if array_get(v4_query_states, idx) != v4_query_valid {
+    pilot state: word = array_get(v4_query_states, idx)
+    if state != v4_query_valid {
         array_set(v4_query_entry_last_generations, idx, word_from_int(v4_query_generation()))
         array_set(v4_query_entry_last_events, idx, "miss:dirty")
         v4_query_record_miss(key)
@@ -202,7 +206,8 @@ task v4_query_mark_dirty_key(key: word) -> void {
     pilot i = 0
     pilot count = array_len(v4_query_keys)
     repeat until i >= count {
-        if array_get(v4_query_keys, i) == key {
+        pilot entry_key: word = array_get(v4_query_keys, i)
+        if entry_key == key {
             array_set(v4_query_states, i, v4_query_dirty)
             array_set(v4_query_entry_last_generations, i, word_from_int(v4_query_generation()))
             array_set(v4_query_entry_last_events, i, "dirty")
@@ -217,8 +222,10 @@ task v4_query_mark_dirty_key_at_generation(key: word, generation: int, reason: w
     pilot i = 0
     pilot count = array_len(v4_query_keys)
     repeat until i >= count {
-        if array_get(v4_query_keys, i) == key {
-            if array_get(v4_query_states, i) != v4_query_dirty {
+        pilot entry_key: word = array_get(v4_query_keys, i)
+        pilot entry_state: word = array_get(v4_query_states, i)
+        if entry_key == key {
+            if entry_state != v4_query_dirty {
                 array_set(v4_query_states, i, v4_query_dirty)
                 array_set(v4_query_entry_last_generations, i, word_from_int(generation))
                 array_set(v4_query_entry_last_events, i, "dirty:" + reason)
@@ -237,9 +244,10 @@ task v4_query_dirtyable_prefix_count(prefix: word) -> int {
     pilot i = 0
     pilot count = array_len(v4_query_keys)
     repeat until i >= count {
-        pilot key = array_get(v4_query_keys, i)
+        pilot key: word = array_get(v4_query_keys, i)
         if key.starts_with(prefix) {
-            if array_get(v4_query_states, i) != v4_query_dirty {
+            pilot entry_state: word = array_get(v4_query_states, i)
+            if entry_state != v4_query_dirty {
                 dirtied += 1
             }
         }
@@ -254,9 +262,10 @@ task v4_query_invalidate_prefix_at_generation(prefix: word, generation: int, rea
     pilot i = 0
     pilot count = array_len(v4_query_keys)
     repeat until i >= count {
-        pilot key = array_get(v4_query_keys, i)
+        pilot key: word = array_get(v4_query_keys, i)
         if key.starts_with(prefix) {
-            if array_get(v4_query_states, i) != v4_query_dirty {
+            pilot entry_state: word = array_get(v4_query_states, i)
+            if entry_state != v4_query_dirty {
                 dirtied += 1
             }
         }
@@ -267,9 +276,10 @@ task v4_query_invalidate_prefix_at_generation(prefix: word, generation: int, rea
     }
     i = 0
     repeat until i >= count {
-        pilot key2 = array_get(v4_query_keys, i)
+        pilot key2: word = array_get(v4_query_keys, i)
         if key2.starts_with(prefix) {
-            if array_get(v4_query_states, i) != v4_query_dirty {
+            pilot entry_state: word = array_get(v4_query_states, i)
+            if entry_state != v4_query_dirty {
                 array_set(v4_query_states, i, v4_query_dirty)
                 array_set(v4_query_entry_last_generations, i, word_from_int(generation))
                 array_set(v4_query_entry_last_events, i, "dirty:" + reason)
@@ -295,8 +305,10 @@ task v4_query_record_dep(from_key: word, to_key: word) -> void {
     pilot i = 0
     pilot count = array_len(v4_query_dep_from)
     repeat until i >= count {
-        if array_get(v4_query_dep_from, i) == from_key {
-            if array_get(v4_query_dep_to, i) == to_key {
+        pilot dep_from: word = array_get(v4_query_dep_from, i)
+        pilot dep_to: word = array_get(v4_query_dep_to, i)
+        if dep_from == from_key {
+            if dep_to == to_key {
                 give back
             }
         }
@@ -325,7 +337,8 @@ task v4_query_word_array_contains(words: int, key: word) -> bool {
     pilot i = 0
     pilot count = array_len(words)
     repeat until i >= count {
-        if array_get(words, i) == key {
+        pilot existing: word = array_get(words, i)
+        if existing == key {
             give back true
         }
         i += 1
@@ -347,7 +360,8 @@ task v4_query_direct_dependency_count(key: word) -> int {
     pilot dep_id = 0
     pilot dep_count = array_len(v4_query_dep_from)
     repeat until dep_id >= dep_count {
-        if array_get(v4_query_dep_from, dep_id) == key {
+        pilot dep_from: word = array_get(v4_query_dep_from, dep_id)
+        if dep_from == key {
             found += 1
         }
         dep_id += 1
@@ -361,7 +375,8 @@ task v4_query_direct_dependent_count(key: word) -> int {
     pilot dep_id = 0
     pilot dep_count = array_len(v4_query_dep_to)
     repeat until dep_id >= dep_count {
-        if array_get(v4_query_dep_to, dep_id) == key {
+        pilot dep_to: word = array_get(v4_query_dep_to, dep_id)
+        if dep_to == key {
             found += 1
         }
         dep_id += 1
@@ -375,7 +390,8 @@ task v4_query_direct_dependency_at(key: word, wanted: int) -> word {
     pilot dep_id = 0
     pilot dep_count = array_len(v4_query_dep_from)
     repeat until dep_id >= dep_count {
-        if array_get(v4_query_dep_from, dep_id) == key {
+        pilot dep_from: word = array_get(v4_query_dep_from, dep_id)
+        if dep_from == key {
             if found == wanted {
                 give back array_get(v4_query_dep_to, dep_id)
             }
@@ -392,7 +408,8 @@ task v4_query_direct_dependent_at(key: word, wanted: int) -> word {
     pilot dep_id = 0
     pilot dep_count = array_len(v4_query_dep_to)
     repeat until dep_id >= dep_count {
-        if array_get(v4_query_dep_to, dep_id) == key {
+        pilot dep_to: word = array_get(v4_query_dep_to, dep_id)
+        if dep_to == key {
             if found == wanted {
                 give back array_get(v4_query_dep_from, dep_id)
             }
@@ -413,12 +430,13 @@ task v4_query_invalidate_dependents_at_generation(root_key: word, generation: in
     pilot dirtied = 0
     pilot work_id = 0
     repeat until work_id >= array_len(work) {
-        pilot target = array_get(work, work_id)
+        pilot target: word = array_get(work, work_id)
         pilot dep_id = 0
         pilot dep_count = array_len(v4_query_dep_to)
         repeat until dep_id >= dep_count {
-            if array_get(v4_query_dep_to, dep_id) == target {
-                pilot dependent = array_get(v4_query_dep_from, dep_id)
+            pilot dep_to: word = array_get(v4_query_dep_to, dep_id)
+            if dep_to == target {
+                pilot dependent: word = array_get(v4_query_dep_from, dep_id)
                 dirtied += v4_query_mark_dirty_key_at_generation(dependent, generation, reason)
                 if v4_query_enqueue_unique(seen, dependent) == 1 {
                     array_push(work, dependent)
@@ -460,7 +478,7 @@ task v4_query_graph_summary() -> word {
     pilot key_id = 0
     pilot key_count = array_len(v4_query_keys)
     repeat until key_id >= key_count {
-        pilot key = array_get(v4_query_keys, key_id)
+        pilot key: word = array_get(v4_query_keys, key_id)
         if v4_query_direct_dependency_count(key) == 0 {
             roots += 1
         }
@@ -485,7 +503,8 @@ task v4_query_entry_count_for_key(key: word) -> int {
     pilot entry_id = 0
     pilot entry_count = array_len(v4_query_keys)
     repeat until entry_id >= entry_count {
-        if array_get(v4_query_keys, entry_id) == key {
+        pilot entry_key: word = array_get(v4_query_keys, entry_id)
+        if entry_key == key {
             found += 1
         }
         entry_id += 1
@@ -499,7 +518,8 @@ task v4_query_entry_at_key(key: word, wanted: int) -> int {
     pilot entry_id = 0
     pilot entry_count = array_len(v4_query_keys)
     repeat until entry_id >= entry_count {
-        if array_get(v4_query_keys, entry_id) == key {
+        pilot entry_key: word = array_get(v4_query_keys, entry_id)
+        if entry_key == key {
             if found == wanted {
                 give back entry_id
             }
@@ -635,7 +655,8 @@ task v4_query_telemetry_find(key: word) -> int {
     pilot telemetry_id = 0
     pilot telemetry_count = array_len(v4_query_telemetry_keys)
     repeat until telemetry_id >= telemetry_count {
-        if array_get(v4_query_telemetry_keys, telemetry_id) == key {
+        pilot telemetry_key: word = array_get(v4_query_telemetry_keys, telemetry_id)
+        if telemetry_key == key {
             give back telemetry_id
         }
         telemetry_id += 1
@@ -673,7 +694,8 @@ task v4_query_invalidation_count_for_key(key: word) -> int {
     pilot invalidation_id = 0
     pilot invalidation_count = array_len(v4_query_invalidated_keys)
     repeat until invalidation_id >= invalidation_count {
-        if array_get(v4_query_invalidated_keys, invalidation_id) == key {
+        pilot invalidated_key: word = array_get(v4_query_invalidated_keys, invalidation_id)
+        if invalidated_key == key {
             found += 1
         }
         invalidation_id += 1
@@ -687,7 +709,8 @@ task v4_query_latest_invalidation_generation(key: word) -> int {
     pilot invalidation_id = 0
     pilot invalidation_count = array_len(v4_query_invalidated_keys)
     repeat until invalidation_id >= invalidation_count {
-        if array_get(v4_query_invalidated_keys, invalidation_id) == key {
+        pilot invalidated_key: word = array_get(v4_query_invalidated_keys, invalidation_id)
+        if invalidated_key == key {
             latest = word_to_int(array_get(v4_query_invalidated_generations, invalidation_id))
         }
         invalidation_id += 1
@@ -701,7 +724,8 @@ task v4_query_latest_invalidation_reason(key: word) -> word {
     pilot invalidation_id = 0
     pilot invalidation_count = array_len(v4_query_invalidated_keys)
     repeat until invalidation_id >= invalidation_count {
-        if array_get(v4_query_invalidated_keys, invalidation_id) == key {
+        pilot invalidated_key: word = array_get(v4_query_invalidated_keys, invalidation_id)
+        if invalidated_key == key {
             latest = array_get(v4_query_invalidated_reasons, invalidation_id)
         }
         invalidation_id += 1
@@ -804,7 +828,8 @@ task v4_query_dirty_count() -> int {
     pilot i = 0
     pilot count = array_len(v4_query_states)
     repeat until i >= count {
-        if array_get(v4_query_states, i) == v4_query_dirty {
+        pilot state: word = array_get(v4_query_states, i)
+        if state == v4_query_dirty {
             dirty += 1
         }
         i += 1

@@ -147,8 +147,10 @@ task v4_resolve_lookup_symbol(resolve_id: int, lookup_name: word, lookup_kind: w
     pilot idx = 0
     pilot count = v4_resolve_symbol_count(resolve_id)
     repeat until idx >= count {
-        if array_get(v4_resolve_names_handle(resolve_id), idx) == lookup_name {
-            if array_get(v4_resolve_kinds_handle(resolve_id), idx) == lookup_kind {
+        pilot symbol_name: word = array_get(v4_resolve_names_handle(resolve_id), idx)
+        pilot symbol_kind: word = array_get(v4_resolve_kinds_handle(resolve_id), idx)
+        if symbol_name == lookup_name {
+            if symbol_kind == lookup_kind {
                 give back idx
             }
         }
@@ -161,7 +163,8 @@ task v4_resolve_lookup_any(resolve_id: int, lookup_name: word) -> int {
     pilot idx = 0
     pilot count = v4_resolve_symbol_count(resolve_id)
     repeat until idx >= count {
-        if array_get(v4_resolve_names_handle(resolve_id), idx) == lookup_name {
+        pilot symbol_name: word = array_get(v4_resolve_names_handle(resolve_id), idx)
+        if symbol_name == lookup_name {
             give back idx
         }
         idx += 1

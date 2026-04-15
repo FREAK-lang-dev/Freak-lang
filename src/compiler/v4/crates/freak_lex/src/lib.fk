@@ -259,7 +259,7 @@ task v4_lex_token_at(stream_id: int, offset: int) -> int {
     pilot i = 0
     pilot count = array_len(spans)
     repeat until i >= count {
-        pilot span = array_get(spans, i)
+        pilot span: word = array_get(spans, i)
         pilot start_pos = v4_span_start(span)
         pilot end_pos = v4_span_end(span)
         if offset >= start_pos {
