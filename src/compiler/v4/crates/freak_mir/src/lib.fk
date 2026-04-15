@@ -48,6 +48,7 @@ pilot v4_mir_place_field = "Field"
 pilot v4_mir_place_index = "Index"
 pilot v4_mir_place_return = "Return"
 pilot v4_mir_place_unknown = "Unknown"
+pilot v4_mir_snapshot_format = "freak-mir-snapshot-v1"
 
 pilot v4_mir_files = 0
 pilot v4_mir_tys = 0
@@ -270,6 +271,30 @@ task v4_mir_rvalue_tys_index_handle(mir_id: int) -> int {
 
 task v4_mir_diags_handle(mir_id: int) -> int {
     give back word_to_int(array_get(v4_mir_diags, mir_id))
+}
+
+task v4_mir_file_count() -> int {
+    v4_mir_init()
+    give back array_len(v4_mir_files)
+}
+
+task v4_mir_file_exists(mir_id: int) -> bool {
+    v4_mir_init()
+    if mir_id < 0 {
+        give back false
+    }
+    if mir_id >= array_len(v4_mir_files) {
+        give back false
+    }
+    give back true
+}
+
+task v4_mir_file_id(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_files, mir_id))
+}
+
+task v4_mir_ty_id(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_tys, mir_id))
 }
 
 task v4_mir_body_count(mir_id: int) -> int {
@@ -1430,4 +1455,751 @@ task v4_mir_summary(mir_id: int) -> word {
     summary = summary + " rvalues=" + word_from_int(v4_mir_rvalue_count(mir_id))
     summary = summary + " diagnostics=" + word_from_int(v4_mir_diag_count(mir_id))
     give back summary
+}
+
+task v4_mir_snapshot_escape(value: word) -> word {
+    give back v4_ty_snapshot_escape(value)
+}
+
+task v4_mir_snapshot_unescape(value: word) -> word {
+    give back v4_ty_snapshot_unescape(value)
+}
+
+task v4_mir_snapshot_line_count(payload: word) -> int {
+    give back v4_ty_snapshot_line_count(payload)
+}
+
+task v4_mir_snapshot_line(payload: word, wanted: int) -> word {
+    give back v4_ty_snapshot_line(payload, wanted)
+}
+
+task v4_mir_snapshot_field_count(line: word) -> int {
+    give back v4_ty_snapshot_field_count(line)
+}
+
+task v4_mir_snapshot_field_raw(line: word, wanted: int) -> word {
+    give back v4_ty_snapshot_field_raw(line, wanted)
+}
+
+task v4_mir_snapshot_field(line: word, wanted: int) -> word {
+    give back v4_ty_snapshot_field(line, wanted)
+}
+
+task v4_mir_snapshot_key_value(line: word, wanted_key: word) -> word {
+    give back v4_ty_snapshot_key_value(line, wanted_key)
+}
+
+task v4_mir_snapshot_body_total() -> int {
+    v4_mir_init()
+    pilot total = 0
+    pilot mir_id = 0
+    repeat until mir_id >= v4_mir_file_count() {
+        total += v4_mir_body_count(mir_id)
+        mir_id += 1
+    }
+    give back total
+}
+
+task v4_mir_snapshot_block_total() -> int {
+    v4_mir_init()
+    pilot total = 0
+    pilot mir_id = 0
+    repeat until mir_id >= v4_mir_file_count() {
+        total += v4_mir_block_count(mir_id)
+        mir_id += 1
+    }
+    give back total
+}
+
+task v4_mir_snapshot_local_total() -> int {
+    v4_mir_init()
+    pilot total = 0
+    pilot mir_id = 0
+    repeat until mir_id >= v4_mir_file_count() {
+        total += v4_mir_local_count(mir_id)
+        mir_id += 1
+    }
+    give back total
+}
+
+task v4_mir_snapshot_stmt_total() -> int {
+    v4_mir_init()
+    pilot total = 0
+    pilot mir_id = 0
+    repeat until mir_id >= v4_mir_file_count() {
+        total += v4_mir_stmt_count(mir_id)
+        mir_id += 1
+    }
+    give back total
+}
+
+task v4_mir_snapshot_place_total() -> int {
+    v4_mir_init()
+    pilot total = 0
+    pilot mir_id = 0
+    repeat until mir_id >= v4_mir_file_count() {
+        total += v4_mir_place_count(mir_id)
+        mir_id += 1
+    }
+    give back total
+}
+
+task v4_mir_snapshot_rvalue_total() -> int {
+    v4_mir_init()
+    pilot total = 0
+    pilot mir_id = 0
+    repeat until mir_id >= v4_mir_file_count() {
+        total += v4_mir_rvalue_count(mir_id)
+        mir_id += 1
+    }
+    give back total
+}
+
+task v4_mir_snapshot_diag_total() -> int {
+    v4_mir_init()
+    pilot total = 0
+    pilot mir_id = 0
+    repeat until mir_id >= v4_mir_file_count() {
+        total += v4_mir_diag_count(mir_id)
+        mir_id += 1
+    }
+    give back total
+}
+
+task v4_mir_snapshot_summary() -> word {
+    pilot summary = "mir-snapshot"
+    summary = summary + " format=" + v4_mir_snapshot_format
+    summary = summary + " files=" + word_from_int(v4_mir_file_count())
+    summary = summary + " bodies=" + word_from_int(v4_mir_snapshot_body_total())
+    summary = summary + " blocks=" + word_from_int(v4_mir_snapshot_block_total())
+    summary = summary + " locals=" + word_from_int(v4_mir_snapshot_local_total())
+    summary = summary + " statements=" + word_from_int(v4_mir_snapshot_stmt_total())
+    summary = summary + " places=" + word_from_int(v4_mir_snapshot_place_total())
+    summary = summary + " rvalues=" + word_from_int(v4_mir_snapshot_rvalue_total())
+    summary = summary + " diagnostics=" + word_from_int(v4_mir_snapshot_diag_total())
+    give back summary
+}
+
+task v4_mir_snapshot_header() -> word {
+    pilot out = "mir-snapshot"
+    out = out + "|format=" + v4_mir_snapshot_format
+    out = out + "|files=" + word_from_int(v4_mir_file_count())
+    out = out + "|bodies=" + word_from_int(v4_mir_snapshot_body_total())
+    out = out + "|blocks=" + word_from_int(v4_mir_snapshot_block_total())
+    out = out + "|locals=" + word_from_int(v4_mir_snapshot_local_total())
+    out = out + "|statements=" + word_from_int(v4_mir_snapshot_stmt_total())
+    out = out + "|places=" + word_from_int(v4_mir_snapshot_place_total())
+    out = out + "|rvalues=" + word_from_int(v4_mir_snapshot_rvalue_total())
+    out = out + "|diagnostics=" + word_from_int(v4_mir_snapshot_diag_total())
+    give back out
+}
+
+task v4_mir_snapshot_file_line(mir_id: int) -> word {
+    pilot out = "mir"
+    out = out + "|" + word_from_int(mir_id)
+    out = out + "|" + word_from_int(v4_mir_file_id(mir_id))
+    out = out + "|" + word_from_int(v4_mir_ty_id(mir_id))
+    out = out + "|" + word_from_int(v4_mir_body_count(mir_id))
+    out = out + "|" + word_from_int(v4_mir_diag_count(mir_id))
+    give back out
+}
+
+task v4_mir_snapshot_body_line(mir_id: int, body_id: int) -> word {
+    pilot out = "mir-body"
+    out = out + "|" + word_from_int(mir_id)
+    out = out + "|" + word_from_int(body_id)
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_body_def(mir_id, body_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_body_name(mir_id, body_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_body_signature(mir_id, body_id))
+    out = out + "|" + word_from_int(v4_mir_body_block_count(mir_id, body_id))
+    out = out + "|" + word_from_int(v4_mir_body_local_count(mir_id, body_id))
+    out = out + "|" + word_from_int(v4_mir_body_stmt_count(mir_id, body_id))
+    out = out + "|" + word_from_int(v4_mir_body_place_count(mir_id, body_id))
+    out = out + "|" + word_from_int(v4_mir_body_rvalue_count(mir_id, body_id))
+    give back out
+}
+
+task v4_mir_snapshot_block_line(mir_id: int, body_id: int, block_id: int) -> word {
+    pilot out = "mir-block"
+    out = out + "|" + word_from_int(mir_id)
+    out = out + "|" + word_from_int(body_id)
+    out = out + "|" + word_from_int(block_id)
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_body_block(mir_id, body_id, block_id))
+    give back out
+}
+
+task v4_mir_snapshot_local_line(mir_id: int, body_id: int, local_id: int) -> word {
+    pilot out = "mir-local"
+    out = out + "|" + word_from_int(mir_id)
+    out = out + "|" + word_from_int(body_id)
+    out = out + "|" + word_from_int(local_id)
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_name(mir_id, body_id, local_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_ty(mir_id, body_id, local_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_span(mir_id, body_id, local_id))
+    give back out
+}
+
+task v4_mir_snapshot_stmt_line(mir_id: int, body_id: int, stmt_id: int) -> word {
+    pilot out = "mir-stmt"
+    out = out + "|" + word_from_int(mir_id)
+    out = out + "|" + word_from_int(body_id)
+    out = out + "|" + word_from_int(stmt_id)
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_stmt_kind(mir_id, body_id, stmt_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_stmt_lhs(mir_id, body_id, stmt_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_stmt_rhs(mir_id, body_id, stmt_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_stmt_span(mir_id, body_id, stmt_id))
+    out = out + "|" + word_from_int(v4_mir_stmt_block(mir_id, body_id, stmt_id))
+    out = out + "|" + word_from_int(v4_mir_stmt_place(mir_id, body_id, stmt_id))
+    out = out + "|" + word_from_int(v4_mir_stmt_rvalue(mir_id, body_id, stmt_id))
+    give back out
+}
+
+task v4_mir_snapshot_place_line(mir_id: int, body_id: int, place_id: int) -> word {
+    pilot out = "mir-place"
+    out = out + "|" + word_from_int(mir_id)
+    out = out + "|" + word_from_int(body_id)
+    out = out + "|" + word_from_int(place_id)
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_place_kind(mir_id, body_id, place_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_place_text(mir_id, body_id, place_id))
+    out = out + "|" + word_from_int(v4_mir_place_base(mir_id, body_id, place_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_place_field(mir_id, body_id, place_id))
+    out = out + "|" + word_from_int(v4_mir_place_index(mir_id, body_id, place_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_place_span(mir_id, body_id, place_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_place_ty(mir_id, body_id, place_id))
+    give back out
+}
+
+task v4_mir_snapshot_rvalue_line(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot out = "mir-rvalue"
+    out = out + "|" + word_from_int(mir_id)
+    out = out + "|" + word_from_int(body_id)
+    out = out + "|" + word_from_int(rvalue_id)
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_rvalue_kind(mir_id, body_id, rvalue_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
+    out = out + "|" + word_from_int(v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+    out = out + "|" + word_from_int(v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_rvalue_span(mir_id, body_id, rvalue_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+    give back out
+}
+
+task v4_mir_snapshot_diag_line(mir_id: int, diag_id: int) -> word {
+    pilot out = "mir-diag"
+    out = out + "|" + word_from_int(mir_id)
+    out = out + "|" + word_from_int(diag_id)
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_diag(mir_id, diag_id))
+    give back out
+}
+
+task v4_mir_snapshot() -> word {
+    v4_mir_init()
+    pilot out = v4_mir_snapshot_header()
+    pilot mir_id = 0
+    repeat until mir_id >= v4_mir_file_count() {
+        out = out + "\n" + v4_mir_snapshot_file_line(mir_id)
+
+        pilot body_id = 0
+        pilot body_count = v4_mir_body_count(mir_id)
+        repeat until body_id >= body_count {
+            out = out + "\n" + v4_mir_snapshot_body_line(mir_id, body_id)
+
+            pilot block_id = 0
+            pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+            repeat until block_id >= block_count {
+                out = out + "\n" + v4_mir_snapshot_block_line(mir_id, body_id, block_id)
+                block_id += 1
+            }
+
+            pilot local_id = 0
+            pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+            repeat until local_id >= local_count {
+                out = out + "\n" + v4_mir_snapshot_local_line(mir_id, body_id, local_id)
+                local_id += 1
+            }
+
+            pilot stmt_id = 0
+            pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+            repeat until stmt_id >= stmt_count {
+                out = out + "\n" + v4_mir_snapshot_stmt_line(mir_id, body_id, stmt_id)
+                stmt_id += 1
+            }
+
+            pilot place_id = 0
+            pilot place_count = v4_mir_body_place_count(mir_id, body_id)
+            repeat until place_id >= place_count {
+                out = out + "\n" + v4_mir_snapshot_place_line(mir_id, body_id, place_id)
+                place_id += 1
+            }
+
+            pilot rvalue_id = 0
+            pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
+            repeat until rvalue_id >= rvalue_count {
+                out = out + "\n" + v4_mir_snapshot_rvalue_line(mir_id, body_id, rvalue_id)
+                rvalue_id += 1
+            }
+            body_id += 1
+        }
+
+        pilot diag_id = 0
+        pilot diag_count = v4_mir_diag_count(mir_id)
+        repeat until diag_id >= diag_count {
+            out = out + "\n" + v4_mir_snapshot_diag_line(mir_id, diag_id)
+            diag_id += 1
+        }
+        mir_id += 1
+    }
+    out = out + "\nend|" + v4_mir_snapshot_format
+    give back out
+}
+
+task v4_mir_snapshot_record_expected_fields(kind: word) -> int {
+    if kind == "mir-snapshot" { give back 10 }
+    if kind == "mir" { give back 6 }
+    if kind == "mir-body" { give back 11 }
+    if kind == "mir-block" { give back 5 }
+    if kind == "mir-local" { give back 7 }
+    if kind == "mir-stmt" { give back 11 }
+    if kind == "mir-place" { give back 11 }
+    if kind == "mir-rvalue" { give back 11 }
+    if kind == "mir-diag" { give back 4 }
+    if kind == "end" { give back 2 }
+    give back 0
+}
+
+task v4_mir_snapshot_record_is_valid(line: word) -> bool {
+    pilot kind = v4_mir_snapshot_field_raw(line, 0)
+    pilot expected = v4_mir_snapshot_record_expected_fields(kind)
+    if expected == 0 {
+        give back false
+    }
+    if v4_mir_snapshot_field_count(line) < expected {
+        give back false
+    }
+    give back true
+}
+
+task v4_mir_snapshot_validate(payload: word) -> word {
+    pilot lines = v4_mir_snapshot_line_count(payload)
+    pilot files = 0
+    pilot bodies = 0
+    pilot blocks = 0
+    pilot locals = 0
+    pilot statements = 0
+    pilot places = 0
+    pilot rvalues = 0
+    pilot diagnostics = 0
+    pilot malformed = 0
+    pilot saw_header = 0
+    pilot saw_end = 0
+    pilot format = ""
+
+    pilot line_id = 0
+    repeat until line_id >= lines {
+        pilot line = v4_mir_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_mir_snapshot_field_raw(line, 0)
+            if v4_mir_snapshot_record_is_valid(line) == false {
+                malformed += 1
+            } else if kind == "mir-snapshot" {
+                saw_header += 1
+                format = v4_mir_snapshot_key_value(line, "format")
+                if format != v4_mir_snapshot_format {
+                    malformed += 1
+                }
+            } else if kind == "mir" {
+                files += 1
+            } else if kind == "mir-body" {
+                bodies += 1
+            } else if kind == "mir-block" {
+                blocks += 1
+            } else if kind == "mir-local" {
+                locals += 1
+            } else if kind == "mir-stmt" {
+                statements += 1
+            } else if kind == "mir-place" {
+                places += 1
+            } else if kind == "mir-rvalue" {
+                rvalues += 1
+            } else if kind == "mir-diag" {
+                diagnostics += 1
+            } else if kind == "end" {
+                saw_end += 1
+                if v4_mir_snapshot_field(line, 1) != v4_mir_snapshot_format {
+                    malformed += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+
+    pilot import_ok = 1
+    if saw_header != 1 { import_ok = 0 }
+    if saw_end != 1 { import_ok = 0 }
+    if malformed > 0 { import_ok = 0 }
+
+    pilot out = "mir-snapshot-import"
+    out = out + " ok=" + word_from_int(import_ok)
+    out = out + " format=" + format
+    out = out + " lines=" + word_from_int(lines)
+    out = out + " files=" + word_from_int(files)
+    out = out + " bodies=" + word_from_int(bodies)
+    out = out + " blocks=" + word_from_int(blocks)
+    out = out + " locals=" + word_from_int(locals)
+    out = out + " statements=" + word_from_int(statements)
+    out = out + " places=" + word_from_int(places)
+    out = out + " rvalues=" + word_from_int(rvalues)
+    out = out + " diagnostics=" + word_from_int(diagnostics)
+    out = out + " malformed=" + word_from_int(malformed)
+    out = out + " headers=" + word_from_int(saw_header)
+    out = out + " ends=" + word_from_int(saw_end)
+    give back out
+}
+
+task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
+    v4_mir_init()
+    repeat until array_len(v4_mir_files) > mir_id {
+        v4_mir_file_new(0, 0)
+    }
+
+    array_set(v4_mir_files, mir_id, word_from_int(file_id))
+    array_set(v4_mir_tys, mir_id, word_from_int(ty_id))
+    array_set(v4_mir_body_defs, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_names, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_sigs, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_blocks, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_local_names, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_local_tys, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_local_spans, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_stmt_kinds, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_stmt_lhs, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_stmt_rhs, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_stmt_spans, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_stmt_blocks, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_stmt_places, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_stmt_rvalues, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_place_kinds, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_place_texts, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_place_bases, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_place_fields, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_place_indices, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_place_spans, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_place_tys, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_rvalue_kinds, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_rvalue_texts, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_rvalue_ops, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_rvalue_lhs, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_rvalue_rhs, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_rvalue_spans, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_rvalue_tys, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_diags, mir_id, word_from_int(array_new()))
+    give back mir_id
+}
+
+task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name: word, signature: word) -> int {
+    if v4_mir_file_exists(mir_id) == false {
+        give back 0
+    }
+    repeat until v4_mir_body_count(mir_id) > body_id {
+        v4_mir_add_body(mir_id, "", "", "")
+    }
+
+    array_set(v4_mir_defs_handle(mir_id), body_id, def_id)
+    array_set(v4_mir_names_handle(mir_id), body_id, body_name)
+    array_set(v4_mir_sigs_handle(mir_id), body_id, signature)
+    array_set(v4_mir_blocks_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_local_names_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_local_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_local_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_stmt_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_stmt_lhs_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_stmt_rhs_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_stmt_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_stmt_blocks_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_stmt_places_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_stmt_rvalues_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_place_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_place_texts_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_place_bases_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_place_fields_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_place_indices_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_place_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_place_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_rvalue_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_rvalue_texts_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_rvalue_ops_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_rvalue_lhs_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_rvalue_rhs_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_rvalue_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_rvalue_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
+    give back 1
+}
+
+task v4_mir_body_slot_exists(mir_id: int, body_id: int) -> bool {
+    if v4_mir_file_exists(mir_id) == false { give back false }
+    if body_id < 0 { give back false }
+    if body_id >= v4_mir_body_count(mir_id) { give back false }
+    give back true
+}
+
+task v4_mir_restore_block_slot(mir_id: int, body_id: int, block_id: int, block_record: word) -> int {
+    if v4_mir_body_slot_exists(mir_id, body_id) == false {
+        give back 0
+    }
+    repeat until v4_mir_body_block_count(mir_id, body_id) > block_id {
+        pilot next_block = v4_mir_body_block_count(mir_id, body_id)
+        array_push(v4_mir_body_blocks_handle(mir_id, body_id), v4_mir_block_new(next_block, v4_mir_term_unreachable, 0 - 1))
+    }
+    array_set(v4_mir_body_blocks_handle(mir_id, body_id), block_id, block_record)
+    give back 1
+}
+
+task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_name: word, local_ty: word, span: word) -> int {
+    if v4_mir_body_slot_exists(mir_id, body_id) == false {
+        give back 0
+    }
+    repeat until v4_mir_body_local_count(mir_id, body_id) > local_id {
+        array_push(v4_mir_body_local_names_handle(mir_id, body_id), "")
+        array_push(v4_mir_body_local_tys_handle(mir_id, body_id), v4_ty_unknown)
+        array_push(v4_mir_body_local_spans_handle(mir_id, body_id), V4_NO_SPAN)
+    }
+    array_set(v4_mir_body_local_names_handle(mir_id, body_id), local_id, local_name)
+    array_set(v4_mir_body_local_tys_handle(mir_id, body_id), local_id, local_ty)
+    array_set(v4_mir_body_local_spans_handle(mir_id, body_id), local_id, span)
+    give back 1
+}
+
+task v4_mir_restore_stmt_slot(mir_id: int, body_id: int, stmt_id: int, stmt_kind: word, lhs: word, rhs: word, span: word, block_id: int, place_id: int, rvalue_id: int) -> int {
+    if v4_mir_body_slot_exists(mir_id, body_id) == false {
+        give back 0
+    }
+    repeat until v4_mir_body_stmt_count(mir_id, body_id) > stmt_id {
+        array_push(v4_mir_body_stmt_kinds_handle(mir_id, body_id), "")
+        array_push(v4_mir_body_stmt_lhs_handle(mir_id, body_id), "")
+        array_push(v4_mir_body_stmt_rhs_handle(mir_id, body_id), "")
+        array_push(v4_mir_body_stmt_spans_handle(mir_id, body_id), V4_NO_SPAN)
+        array_push(v4_mir_body_stmt_blocks_handle(mir_id, body_id), word_from_int(0 - 1))
+        array_push(v4_mir_body_stmt_places_handle(mir_id, body_id), word_from_int(0 - 1))
+        array_push(v4_mir_body_stmt_rvalues_handle(mir_id, body_id), word_from_int(0 - 1))
+    }
+    array_set(v4_mir_body_stmt_kinds_handle(mir_id, body_id), stmt_id, stmt_kind)
+    array_set(v4_mir_body_stmt_lhs_handle(mir_id, body_id), stmt_id, lhs)
+    array_set(v4_mir_body_stmt_rhs_handle(mir_id, body_id), stmt_id, rhs)
+    array_set(v4_mir_body_stmt_spans_handle(mir_id, body_id), stmt_id, span)
+    array_set(v4_mir_body_stmt_blocks_handle(mir_id, body_id), stmt_id, word_from_int(block_id))
+    array_set(v4_mir_body_stmt_places_handle(mir_id, body_id), stmt_id, word_from_int(place_id))
+    array_set(v4_mir_body_stmt_rvalues_handle(mir_id, body_id), stmt_id, word_from_int(rvalue_id))
+    give back 1
+}
+
+task v4_mir_restore_place_slot(mir_id: int, body_id: int, place_id: int, place_kind: word, text: word, base: int, field: word, index_id: int, span: word, place_ty: word) -> int {
+    if v4_mir_body_slot_exists(mir_id, body_id) == false {
+        give back 0
+    }
+    repeat until v4_mir_body_place_count(mir_id, body_id) > place_id {
+        array_push(v4_mir_body_place_kinds_handle(mir_id, body_id), v4_mir_place_unknown)
+        array_push(v4_mir_body_place_texts_handle(mir_id, body_id), "")
+        array_push(v4_mir_body_place_bases_handle(mir_id, body_id), word_from_int(0 - 1))
+        array_push(v4_mir_body_place_fields_handle(mir_id, body_id), "")
+        array_push(v4_mir_body_place_indices_handle(mir_id, body_id), word_from_int(0 - 1))
+        array_push(v4_mir_body_place_spans_handle(mir_id, body_id), V4_NO_SPAN)
+        array_push(v4_mir_body_place_tys_handle(mir_id, body_id), v4_ty_unknown)
+    }
+    array_set(v4_mir_body_place_kinds_handle(mir_id, body_id), place_id, place_kind)
+    array_set(v4_mir_body_place_texts_handle(mir_id, body_id), place_id, text)
+    array_set(v4_mir_body_place_bases_handle(mir_id, body_id), place_id, word_from_int(base))
+    array_set(v4_mir_body_place_fields_handle(mir_id, body_id), place_id, field)
+    array_set(v4_mir_body_place_indices_handle(mir_id, body_id), place_id, word_from_int(index_id))
+    array_set(v4_mir_body_place_spans_handle(mir_id, body_id), place_id, span)
+    array_set(v4_mir_body_place_tys_handle(mir_id, body_id), place_id, place_ty)
+    give back 1
+}
+
+task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalue_kind: word, text: word, op: word, lhs: int, rhs: int, span: word, rvalue_ty: word) -> int {
+    if v4_mir_body_slot_exists(mir_id, body_id) == false {
+        give back 0
+    }
+    repeat until v4_mir_body_rvalue_count(mir_id, body_id) > rvalue_id {
+        array_push(v4_mir_body_rvalue_kinds_handle(mir_id, body_id), v4_mir_rvalue_unknown)
+        array_push(v4_mir_body_rvalue_texts_handle(mir_id, body_id), "")
+        array_push(v4_mir_body_rvalue_ops_handle(mir_id, body_id), "")
+        array_push(v4_mir_body_rvalue_lhs_handle(mir_id, body_id), word_from_int(0 - 1))
+        array_push(v4_mir_body_rvalue_rhs_handle(mir_id, body_id), word_from_int(0 - 1))
+        array_push(v4_mir_body_rvalue_spans_handle(mir_id, body_id), V4_NO_SPAN)
+        array_push(v4_mir_body_rvalue_tys_handle(mir_id, body_id), v4_ty_unknown)
+    }
+    array_set(v4_mir_body_rvalue_kinds_handle(mir_id, body_id), rvalue_id, rvalue_kind)
+    array_set(v4_mir_body_rvalue_texts_handle(mir_id, body_id), rvalue_id, text)
+    array_set(v4_mir_body_rvalue_ops_handle(mir_id, body_id), rvalue_id, op)
+    array_set(v4_mir_body_rvalue_lhs_handle(mir_id, body_id), rvalue_id, word_from_int(lhs))
+    array_set(v4_mir_body_rvalue_rhs_handle(mir_id, body_id), rvalue_id, word_from_int(rhs))
+    array_set(v4_mir_body_rvalue_spans_handle(mir_id, body_id), rvalue_id, span)
+    array_set(v4_mir_body_rvalue_tys_handle(mir_id, body_id), rvalue_id, rvalue_ty)
+    give back 1
+}
+
+task v4_mir_restore_diag_slot(mir_id: int, diag_id: int, diag: word) -> int {
+    if v4_mir_file_exists(mir_id) == false {
+        give back 0
+    }
+    repeat until v4_mir_diag_count(mir_id) > diag_id {
+        array_push(v4_mir_diags_handle(mir_id), "")
+    }
+    array_set(v4_mir_diags_handle(mir_id), diag_id, diag)
+    give back 1
+}
+
+task v4_mir_snapshot_restore_file_line(line: word) -> int {
+    if v4_mir_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_mir_snapshot_field_raw(line, 0) != "mir" { give back 0 }
+    pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
+    pilot file_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
+    pilot ty_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
+    v4_mir_restore_file_slot(mir_id, file_id, ty_id)
+    give back 1
+}
+
+task v4_mir_snapshot_restore_body_line(line: word) -> int {
+    if v4_mir_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_mir_snapshot_field_raw(line, 0) != "mir-body" { give back 0 }
+    pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
+    pilot body_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
+    pilot def_id = v4_mir_snapshot_field(line, 3)
+    pilot body_name = v4_mir_snapshot_field(line, 4)
+    pilot signature = v4_mir_snapshot_field(line, 5)
+    give back v4_mir_restore_body_slot(mir_id, body_id, def_id, body_name, signature)
+}
+
+task v4_mir_snapshot_restore_block_line(line: word) -> int {
+    if v4_mir_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_mir_snapshot_field_raw(line, 0) != "mir-block" { give back 0 }
+    pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
+    pilot body_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
+    pilot block_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
+    pilot block_record = v4_mir_snapshot_field(line, 4)
+    give back v4_mir_restore_block_slot(mir_id, body_id, block_id, block_record)
+}
+
+task v4_mir_snapshot_restore_local_line(line: word) -> int {
+    if v4_mir_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_mir_snapshot_field_raw(line, 0) != "mir-local" { give back 0 }
+    pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
+    pilot body_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
+    pilot local_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
+    give back v4_mir_restore_local_slot(mir_id, body_id, local_id, v4_mir_snapshot_field(line, 4), v4_mir_snapshot_field(line, 5), v4_mir_snapshot_field(line, 6))
+}
+
+task v4_mir_snapshot_restore_stmt_line(line: word) -> int {
+    if v4_mir_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_mir_snapshot_field_raw(line, 0) != "mir-stmt" { give back 0 }
+    pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
+    pilot body_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
+    pilot stmt_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
+    pilot stmt_kind = v4_mir_snapshot_field(line, 4)
+    pilot lhs = v4_mir_snapshot_field(line, 5)
+    pilot rhs = v4_mir_snapshot_field(line, 6)
+    pilot span = v4_mir_snapshot_field(line, 7)
+    pilot block_id = word_to_int(v4_mir_snapshot_field_raw(line, 8))
+    pilot place_id = word_to_int(v4_mir_snapshot_field_raw(line, 9))
+    pilot rvalue_id = word_to_int(v4_mir_snapshot_field_raw(line, 10))
+    give back v4_mir_restore_stmt_slot(mir_id, body_id, stmt_id, stmt_kind, lhs, rhs, span, block_id, place_id, rvalue_id)
+}
+
+task v4_mir_snapshot_restore_place_line(line: word) -> int {
+    if v4_mir_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_mir_snapshot_field_raw(line, 0) != "mir-place" { give back 0 }
+    pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
+    pilot body_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
+    pilot place_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
+    pilot place_kind = v4_mir_snapshot_field(line, 4)
+    pilot text = v4_mir_snapshot_field(line, 5)
+    pilot base = word_to_int(v4_mir_snapshot_field_raw(line, 6))
+    pilot field = v4_mir_snapshot_field(line, 7)
+    pilot index_id = word_to_int(v4_mir_snapshot_field_raw(line, 8))
+    pilot span = v4_mir_snapshot_field(line, 9)
+    pilot place_ty = v4_mir_snapshot_field(line, 10)
+    give back v4_mir_restore_place_slot(mir_id, body_id, place_id, place_kind, text, base, field, index_id, span, place_ty)
+}
+
+task v4_mir_snapshot_restore_rvalue_line(line: word) -> int {
+    if v4_mir_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_mir_snapshot_field_raw(line, 0) != "mir-rvalue" { give back 0 }
+    pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
+    pilot body_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
+    pilot rvalue_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
+    pilot rvalue_kind = v4_mir_snapshot_field(line, 4)
+    pilot text = v4_mir_snapshot_field(line, 5)
+    pilot op = v4_mir_snapshot_field(line, 6)
+    pilot lhs = word_to_int(v4_mir_snapshot_field_raw(line, 7))
+    pilot rhs = word_to_int(v4_mir_snapshot_field_raw(line, 8))
+    pilot span = v4_mir_snapshot_field(line, 9)
+    pilot rvalue_ty = v4_mir_snapshot_field(line, 10)
+    give back v4_mir_restore_rvalue_slot(mir_id, body_id, rvalue_id, rvalue_kind, text, op, lhs, rhs, span, rvalue_ty)
+}
+
+task v4_mir_snapshot_restore_diag_line(line: word) -> int {
+    if v4_mir_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_mir_snapshot_field_raw(line, 0) != "mir-diag" { give back 0 }
+    pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
+    pilot diag_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
+    pilot diag = v4_mir_snapshot_field(line, 3)
+    give back v4_mir_restore_diag_slot(mir_id, diag_id, diag)
+}
+
+task v4_mir_snapshot_restore(payload: word) -> word {
+    pilot validation = v4_mir_snapshot_validate(payload)
+    if validation.starts_with("mir-snapshot-import ok=1") == false {
+        give back "mir-snapshot-restore ok=0 reason=validation-failed\n" + validation
+    }
+
+    pilot restored_files = 0
+    pilot restored_bodies = 0
+    pilot restored_blocks = 0
+    pilot restored_locals = 0
+    pilot restored_statements = 0
+    pilot restored_places = 0
+    pilot restored_rvalues = 0
+    pilot restored_diagnostics = 0
+    pilot skipped_other = 0
+    pilot line_id = 0
+    pilot line_count = v4_mir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_mir_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_mir_snapshot_field_raw(line, 0)
+            if kind == "mir" {
+                restored_files += v4_mir_snapshot_restore_file_line(line)
+            } else if kind == "mir-body" {
+                restored_bodies += v4_mir_snapshot_restore_body_line(line)
+            } else if kind == "mir-block" {
+                restored_blocks += v4_mir_snapshot_restore_block_line(line)
+            } else if kind == "mir-local" {
+                restored_locals += v4_mir_snapshot_restore_local_line(line)
+            } else if kind == "mir-stmt" {
+                restored_statements += v4_mir_snapshot_restore_stmt_line(line)
+            } else if kind == "mir-place" {
+                restored_places += v4_mir_snapshot_restore_place_line(line)
+            } else if kind == "mir-rvalue" {
+                restored_rvalues += v4_mir_snapshot_restore_rvalue_line(line)
+            } else if kind == "mir-diag" {
+                restored_diagnostics += v4_mir_snapshot_restore_diag_line(line)
+            } else if kind != "mir-snapshot" and kind != "end" {
+                skipped_other += 1
+            }
+        }
+        line_id += 1
+    }
+
+    pilot out = "mir-snapshot-restore ok=1"
+    out = out + " files=" + word_from_int(restored_files)
+    out = out + " bodies=" + word_from_int(restored_bodies)
+    out = out + " blocks=" + word_from_int(restored_blocks)
+    out = out + " locals=" + word_from_int(restored_locals)
+    out = out + " statements=" + word_from_int(restored_statements)
+    out = out + " places=" + word_from_int(restored_places)
+    out = out + " rvalues=" + word_from_int(restored_rvalues)
+    out = out + " diagnostics=" + word_from_int(restored_diagnostics)
+    out = out + " skipped-other=" + word_from_int(skipped_other)
+    out = out + " live-files=" + word_from_int(v4_mir_file_count())
+    give back out
 }

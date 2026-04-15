@@ -1,0 +1,52 @@
+-- V4 MIR arena snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_mir_snapshot_source = "task main() -> int {\n"
+v4_mir_snapshot_source = v4_mir_snapshot_source + "    pilot x = 40\n"
+v4_mir_snapshot_source = v4_mir_snapshot_source + "    pilot y = x + 2\n"
+v4_mir_snapshot_source = v4_mir_snapshot_source + "    if y > 40 {\n"
+v4_mir_snapshot_source = v4_mir_snapshot_source + "        pilot z = y\n"
+v4_mir_snapshot_source = v4_mir_snapshot_source + "    }\n"
+v4_mir_snapshot_source = v4_mir_snapshot_source + "    give back y\n"
+v4_mir_snapshot_source = v4_mir_snapshot_source + "}\n"
+v4_mir_snapshot_source = v4_mir_snapshot_source + "task main() => 0\n"
+
+pilot v4_mir_snapshot_id = v4_mir_text_cached("mir-snapshot.fk", v4_mir_snapshot_source)
+pilot v4_mir_snapshot_main_def = v4_resolve_def_for_name(v4_ty_resolve_id(v4_mir_ty_id(v4_mir_snapshot_id)), "main")
+pilot v4_mir_snapshot_body = v4_mir_lookup_body(v4_mir_snapshot_id, v4_mir_snapshot_main_def)
+say v4_mir_summary(v4_mir_snapshot_id)
+say v4_mir_snapshot_summary()
+
+pilot v4_mir_snapshot_payload = v4_mir_snapshot()
+say v4_mir_snapshot_validate(v4_mir_snapshot_payload)
+say "mir-snapshot-bytes=" + word_from_int(v4_mir_snapshot_payload.length())
+say "mir-snapshot-escape=" + v4_mir_snapshot_escape("block|value%z\ncondition")
+say "mir-snapshot-unescape=" + v4_mir_snapshot_unescape("block%7Cvalue%25z%0Acondition")
+say v4_mir_snapshot_file_line(v4_mir_snapshot_id)
+say v4_mir_snapshot_body_line(v4_mir_snapshot_id, v4_mir_snapshot_body)
+say v4_mir_snapshot_block_line(v4_mir_snapshot_id, v4_mir_snapshot_body, 0)
+say v4_mir_snapshot_local_line(v4_mir_snapshot_id, v4_mir_snapshot_body, 0)
+say v4_mir_snapshot_stmt_line(v4_mir_snapshot_id, v4_mir_snapshot_body, 0)
+say v4_mir_snapshot_place_line(v4_mir_snapshot_id, v4_mir_snapshot_body, 0)
+say v4_mir_snapshot_rvalue_line(v4_mir_snapshot_id, v4_mir_snapshot_body, 0)
+say v4_mir_snapshot_diag_line(v4_mir_snapshot_id, 0)
+say v4_parse_snapshot_restore(v4_parse_snapshot())
+say v4_hir_snapshot_restore(v4_hir_snapshot())
+say v4_resolve_snapshot_restore(v4_resolve_snapshot())
+say v4_ty_snapshot_restore(v4_ty_snapshot())
+say v4_mir_snapshot_restore(v4_mir_snapshot_payload)
+say v4_lsp_mir_snapshot_text()
+say v4_lsp_mir_snapshot_restore_text(v4_mir_snapshot_payload)
+say v4_lsp_handle_text_request("workspace/mirSnapshotRestore", "mir-snapshot.fk", v4_mir_snapshot_payload, 0)
+say v4_lsp_handle_request("workspace/mirSnapshotRestore", "mir-snapshot.fk", 0)
+
+pilot v4_mir_query_payload = v4_query_snapshot()
+say v4_query_snapshot_restore(v4_mir_query_payload)
+say v4_driver_confirm_restored_document_text("mir-snapshot.fk", v4_mir_snapshot_source)
+pilot v4_mir_file = v4_source_find("mir-snapshot.fk")
+pilot v4_mir_fingerprint = v4_source_fingerprint(v4_mir_file)
+pilot v4_mir_restored_id = word_to_int(v4_query_get(v4_mir_query_key("mir-snapshot.fk"), v4_mir_fingerprint))
+pilot v4_mir_restored_borrow = v4_borrowck_check_mir(v4_mir_file_id(v4_mir_restored_id), v4_mir_restored_id)
+say v4_mir_summary(v4_mir_restored_id)
+say v4_borrowck_summary(v4_mir_restored_borrow)
+say v4_driver_confirm_restored_document_text("mir-snapshot.fk", "task changed() => 7\n")
