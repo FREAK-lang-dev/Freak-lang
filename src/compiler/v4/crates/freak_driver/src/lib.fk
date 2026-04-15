@@ -165,6 +165,107 @@ task v4_borrowck_query_key(path: word) -> word {
     give back "borrowck:" + path
 }
 
+task v4_driver_query_key_matches_path(path: word, key: word) -> bool {
+    if key == v4_check_syntax_query_key(path) { give back true }
+    if key == v4_lex_query_key(path) { give back true }
+    if key == v4_parse_query_key(path) { give back true }
+    if key == v4_hir_query_key(path) { give back true }
+    if key == v4_resolve_query_key(path) { give back true }
+    if key == v4_ty_query_key(path) { give back true }
+    if key == v4_mir_query_key(path) { give back true }
+    if key == v4_borrowck_query_key(path) { give back true }
+    if key == v4_diagnostics_query_key(path) { give back true }
+    if key.starts_with("semantic-at:" + path + ":") { give back true }
+    if key.starts_with("hover:" + path + ":") { give back true }
+    if key.starts_with("definition-at:" + path + ":") { give back true }
+    if key == v4_document_symbols_query_key(path) { give back true }
+    if key.starts_with("completion:" + path + ":") { give back true }
+    give back false
+}
+
+task v4_driver_query_output_can_promote(path: word, key: word) -> int {
+    -- Snapshot restore currently hydrates only query records, not the
+    -- backing arenas for lex/parse/HIR/MIR/editor payload ids.
+    if key == v4_check_syntax_query_key(path) {
+        give back 1
+    }
+    give back 0
+}
+
+task v4_driver_confirm_restored_key(path: word, key: word) -> word {
+    v4_driver_init()
+    pilot file_id = v4_source_find(path)
+    if file_id < 0 {
+        give back "query-confirm-key ok=0 reason=source-missing path=" + path + " key=" + key
+    }
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot allow_promote = v4_driver_query_output_can_promote(path, key)
+    give back v4_query_confirm_key_input(key, fingerprint, "source-confirm:" + path, allow_promote)
+}
+
+task v4_driver_confirm_restored_document(path: word) -> word {
+    v4_driver_init()
+    pilot file_id = v4_source_find(path)
+    if file_id < 0 {
+        give back "query-confirm ok=0 reason=source-missing path=" + path
+    }
+
+    pilot generation = v4_query_bump_generation("source-confirm:" + path)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot considered = 0
+    pilot matched = 0
+    pilot promoted = 0
+    pilot blocked = 0
+    pilot already_valid = 0
+    pilot dirty_nonrestored = 0
+    pilot mismatched = 0
+
+    pilot entry_id = 0
+    pilot entry_count = v4_query_cache_size()
+    repeat until entry_id >= entry_count {
+        pilot key = v4_query_entry_key(entry_id)
+        if v4_driver_query_key_matches_path(path, key) {
+            considered += 1
+            pilot allow_promote = v4_driver_query_output_can_promote(path, key)
+            pilot code = v4_query_confirm_entry_input(entry_id, fingerprint, "source-confirm:" + path, allow_promote)
+            if code == 1 {
+                matched += 1
+                promoted += 1
+            } else if code == 2 {
+                matched += 1
+                blocked += 1
+            } else if code == 3 {
+                matched += 1
+                already_valid += 1
+            } else if code == 4 {
+                matched += 1
+                dirty_nonrestored += 1
+            } else {
+                mismatched += 1
+            }
+        }
+        entry_id += 1
+    }
+
+    pilot out = "query-confirm ok=1"
+    out = out + " path=" + path
+    out = out + " generation=" + word_from_int(generation)
+    out = out + " considered=" + word_from_int(considered)
+    out = out + " matched=" + word_from_int(matched)
+    out = out + " promoted=" + word_from_int(promoted)
+    out = out + " blocked=" + word_from_int(blocked)
+    out = out + " already-valid=" + word_from_int(already_valid)
+    out = out + " dirty-nonrestored=" + word_from_int(dirty_nonrestored)
+    out = out + " mismatched=" + word_from_int(mismatched)
+    out = out + " dirty=" + word_from_int(v4_query_dirty_count())
+    give back out
+}
+
+task v4_driver_confirm_restored_document_text(path: word, text: word) -> word {
+    v4_source_set_text(path, text)
+    give back v4_driver_confirm_restored_document(path)
+}
+
 task v4_lex_text_cached(path: word, text: word) -> int {
     v4_driver_init()
 

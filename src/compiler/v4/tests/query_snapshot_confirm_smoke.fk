@@ -1,0 +1,29 @@
+-- V4 query snapshot source confirmation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_confirm_source = "task main() => \"warm-cache\"\n"
+v4_confirm_source = v4_confirm_source + "shape Pilot\n"
+
+say v4_check_syntax_text("snapshot-confirm.fk", v4_confirm_source)
+say v4_lsp_hover_text("snapshot-confirm.fk", v4_confirm_source, 5)
+
+pilot v4_confirm_payload = v4_query_snapshot()
+say v4_query_snapshot_restore(v4_confirm_payload)
+say "confirm-dirty-before=" + word_from_int(v4_query_dirty_count())
+say v4_driver_confirm_restored_key("snapshot-confirm.fk", v4_check_syntax_query_key("snapshot-confirm.fk"))
+say v4_driver_confirm_restored_document_text("snapshot-confirm.fk", v4_confirm_source)
+say "confirm-dirty-after=" + word_from_int(v4_query_dirty_count())
+say v4_query_explain(v4_check_syntax_query_key("snapshot-confirm.fk"))
+
+pilot v4_confirm_file = v4_source_find("snapshot-confirm.fk")
+pilot v4_confirm_fingerprint = v4_source_fingerprint(v4_confirm_file)
+say v4_query_get(v4_check_syntax_query_key("snapshot-confirm.fk"), v4_confirm_fingerprint)
+
+say v4_lsp_query_snapshot_confirm_text("snapshot-confirm.fk", v4_confirm_source)
+v4_lsp_open_document("snapshot-confirm.fk", v4_confirm_source)
+say v4_lsp_handle_request("workspace/querySnapshotConfirm", "snapshot-confirm.fk", 0)
+
+say v4_query_snapshot_restore(v4_confirm_payload)
+pilot v4_confirm_changed = "shape Pilot\n"
+v4_confirm_changed = v4_confirm_changed + "task main() => \"changed\"\n"
+say v4_driver_confirm_restored_document_text("snapshot-confirm.fk", v4_confirm_changed)
