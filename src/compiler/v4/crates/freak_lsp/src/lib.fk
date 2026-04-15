@@ -5,6 +5,133 @@
 -- formats driver query results into stable line payloads that a future
 -- JSON-RPC daemon can wrap as Language Server Protocol responses.
 
+pilot v4_lsp_doc_paths = 0
+pilot v4_lsp_doc_texts = 0
+pilot v4_lsp_doc_revisions = 0
+pilot v4_lsp_ready = 0
+
+task v4_lsp_init() -> void {
+    v4_driver_init()
+    if v4_lsp_ready == 0 {
+        v4_lsp_doc_paths = array_new()
+        v4_lsp_doc_texts = array_new()
+        v4_lsp_doc_revisions = array_new()
+        v4_lsp_ready = 1
+    }
+}
+
+task v4_lsp_find_document(path: word) -> int {
+    v4_lsp_init()
+    pilot doc_id = 0
+    pilot doc_count = array_len(v4_lsp_doc_paths)
+    repeat until doc_id >= doc_count {
+        if array_get(v4_lsp_doc_paths, doc_id) == path {
+            give back doc_id
+        }
+        doc_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_lsp_document_count() -> int {
+    v4_lsp_init()
+    give back array_len(v4_lsp_doc_paths)
+}
+
+task v4_lsp_document_path(doc_id: int) -> word {
+    v4_lsp_init()
+    give back array_get(v4_lsp_doc_paths, doc_id)
+}
+
+task v4_lsp_document_text(doc_id: int) -> word {
+    v4_lsp_init()
+    give back array_get(v4_lsp_doc_texts, doc_id)
+}
+
+task v4_lsp_document_revision(doc_id: int) -> int {
+    v4_lsp_init()
+    give back word_to_int(array_get(v4_lsp_doc_revisions, doc_id))
+}
+
+task v4_lsp_open_document(path: word, text: word) -> int {
+    v4_lsp_init()
+    pilot existing = v4_lsp_find_document(path)
+    v4_source_set_text(path, text)
+    if existing >= 0 {
+        pilot revision = v4_lsp_document_revision(existing) + 1
+        array_set(v4_lsp_doc_texts, existing, text)
+        array_set(v4_lsp_doc_revisions, existing, word_from_int(revision))
+        give back existing
+    }
+
+    pilot doc_id = array_len(v4_lsp_doc_paths)
+    array_push(v4_lsp_doc_paths, path)
+    array_push(v4_lsp_doc_texts, text)
+    array_push(v4_lsp_doc_revisions, "1")
+    give back doc_id
+}
+
+task v4_lsp_change_document(path: word, text: word) -> int {
+    give back v4_lsp_open_document(path, text)
+}
+
+task v4_lsp_document_id_or_missing(path: word) -> int {
+    pilot doc_id = v4_lsp_find_document(path)
+    give back doc_id
+}
+
+task v4_lsp_document_summary(path: word) -> word {
+    pilot doc_id = v4_lsp_document_id_or_missing(path)
+    if doc_id < 0 {
+        give back "document missing path=" + path
+    }
+    pilot out = "document id=" + word_from_int(doc_id)
+    out = out + " path=" + v4_lsp_document_path(doc_id)
+    out = out + " rev=" + word_from_int(v4_lsp_document_revision(doc_id))
+    out = out + " bytes=" + word_from_int(v4_lsp_document_text(doc_id).length())
+    give back out
+}
+
+task v4_lsp_hover_document(path: word, offset: int) -> word {
+    pilot doc_id = v4_lsp_document_id_or_missing(path)
+    if doc_id < 0 {
+        give back "hover missing document"
+    }
+    give back v4_lsp_hover_text(path, v4_lsp_document_text(doc_id), offset)
+}
+
+task v4_lsp_definition_document(path: word, offset: int) -> word {
+    pilot doc_id = v4_lsp_document_id_or_missing(path)
+    if doc_id < 0 {
+        give back "definition missing document"
+    }
+    give back v4_lsp_definition_text(path, v4_lsp_document_text(doc_id), offset)
+}
+
+task v4_lsp_document_symbols_document(path: word) -> word {
+    pilot doc_id = v4_lsp_document_id_or_missing(path)
+    if doc_id < 0 {
+        give back "document-symbols missing document"
+    }
+    give back v4_lsp_document_symbols_text(path, v4_lsp_document_text(doc_id))
+}
+
+task v4_lsp_completion_document(path: word, offset: int) -> word {
+    pilot doc_id = v4_lsp_document_id_or_missing(path)
+    if doc_id < 0 {
+        give back "completion missing document"
+    }
+    give back v4_lsp_completion_text(path, v4_lsp_document_text(doc_id), offset)
+}
+
+task v4_lsp_diagnostics_document(path: word) -> word {
+    pilot doc_id = v4_lsp_document_id_or_missing(path)
+    if doc_id < 0 {
+        give back "diagnostics missing document"
+    }
+    give back v4_lsp_diagnostics_text(path, v4_lsp_document_text(doc_id))
+}
+
 task v4_lsp_hover_text(path: word, text: word, offset: int) -> word {
     pilot hover_id = v4_hover_text_cached(path, text, offset)
     pilot markdown = v4_hover_markdown(hover_id)
