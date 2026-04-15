@@ -12,6 +12,7 @@ pilot v4_unit_snapshot_format = "freak-00-unit-snapshot-v1"
 pilot v4_diagnostics_snapshot_format = "freak-diagnostics-snapshot-v1"
 pilot v4_semantic_snapshot_format = "freak-semantic-snapshot-v1"
 pilot v4_hover_snapshot_format = "freak-hover-snapshot-v1"
+pilot v4_definition_snapshot_format = "freak-definition-snapshot-v1"
 
 pilot v4_driver_diag_paths = 0
 pilot v4_driver_diag_items = 0
@@ -372,6 +373,29 @@ task v4_driver_query_entry_can_promote(path: word, entry_id: int) -> int {
                         if semantic_entry >= 0 {
                             pilot restored_semantic = word_to_int(v4_query_entry_output(semantic_entry))
                             if restored_semantic == semantic_id {
+                                give back 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if key.starts_with("definition-at:" + path + ":") {
+        pilot defn_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_definition_at_exists(defn_id) {
+            if v4_definition_at_path(defn_id) == path {
+                pilot offset = v4_definition_at_offset(defn_id)
+                if v4_definition_at_query_key(path, offset) == key {
+                    pilot semantic_id = v4_definition_at_semantic_id(defn_id)
+                    if v4_semantic_fact_exists(semantic_id) {
+                        pilot fingerprint = v4_query_entry_input(entry_id)
+                        pilot semantic_entry = v4_query_find(v4_semantic_at_query_key(path, offset), fingerprint)
+                        pilot hir_entry = v4_query_find(v4_hir_query_key(path), fingerprint)
+                        if semantic_entry >= 0 and hir_entry >= 0 {
+                            pilot restored_semantic = word_to_int(v4_query_entry_output(semantic_entry))
+                            pilot hir_id = word_to_int(v4_query_entry_output(hir_entry))
+                            if restored_semantic == semantic_id and v4_hir_file_exists(hir_id) {
                                 give back 1
                             }
                         }
@@ -1069,7 +1093,7 @@ task v4_unit_snapshot_key_value(line: word, wanted_key: word) -> word {
 }
 
 task v4_unit_snapshot_section_count() -> int {
-    give back 11
+    give back 12
 }
 
 task v4_unit_snapshot_summary() -> word {
@@ -1128,6 +1152,7 @@ task v4_unit_snapshot() -> word {
     out = out + "\n" + v4_unit_snapshot_section_line("diagnostics", v4_diagnostics_snapshot())
     out = out + "\n" + v4_unit_snapshot_section_line("semantic", v4_semantic_snapshot())
     out = out + "\n" + v4_unit_snapshot_section_line("hover", v4_hover_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("definition", v4_definition_snapshot())
     out = out + "\n" + v4_unit_snapshot_section_line("query", v4_query_snapshot())
     out = out + "\nend|" + v4_unit_snapshot_format
     give back out
@@ -1277,6 +1302,8 @@ task v4_unit_snapshot_restore_named_section(payload: word, section_name: word) -
         v4_semantic_snapshot_restore(section_payload)
     } else if section_name == "hover" {
         v4_hover_snapshot_restore(section_payload)
+    } else if section_name == "definition" {
+        v4_definition_snapshot_restore(section_payload)
     } else if section_name == "query" {
         v4_query_snapshot_restore(section_payload)
     } else {
@@ -1322,6 +1349,7 @@ task v4_unit_snapshot_restore(payload: word) -> word {
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "diagnostics")
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "semantic")
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "hover")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "definition")
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "query")
 
     pilot confirmed_sources = v4_unit_snapshot_confirm_sources(payload)
@@ -2210,6 +2238,29 @@ task v4_driver_definition_new(path: word, offset: int, semantic_id: int, name: w
     give back defn_id
 }
 
+task v4_definition_at_count() -> int {
+    v4_driver_init()
+    give back array_len(v4_driver_defn_paths)
+}
+
+task v4_definition_at_exists(defn_id: int) -> bool {
+    v4_driver_init()
+    if defn_id < 0 {
+        give back false
+    }
+    if defn_id >= array_len(v4_driver_defn_paths) {
+        give back false
+    }
+    give back true
+}
+
+task v4_definition_at_path(defn_id: int) -> word {
+    if v4_definition_at_exists(defn_id) == false {
+        give back ""
+    }
+    give back array_get(v4_driver_defn_paths, defn_id)
+}
+
 task v4_definition_at_offset(defn_id: int) -> int {
     give back word_to_int(array_get(v4_driver_defn_offsets, defn_id))
 }
@@ -2244,6 +2295,7 @@ task v4_definition_at_found(defn_id: int) -> int {
 
 task v4_definition_at_summary(defn_id: int) -> word {
     pilot summary = "definition-at id=" + word_from_int(defn_id)
+    summary = summary + " path=" + v4_definition_at_path(defn_id)
     summary = summary + " offset=" + word_from_int(v4_definition_at_offset(defn_id))
     summary = summary + " semantic=" + word_from_int(v4_definition_at_semantic_id(defn_id))
     summary = summary + " found=" + word_from_int(v4_definition_at_found(defn_id))
@@ -2252,6 +2304,212 @@ task v4_definition_at_summary(defn_id: int) -> word {
     summary = summary + " def=" + v4_definition_at_def(defn_id)
     summary = summary + " span=" + v4_definition_at_span(defn_id)
     give back summary
+}
+
+task v4_definition_snapshot_escape(value: word) -> word {
+    give back v4_hover_snapshot_escape(value)
+}
+
+task v4_definition_snapshot_unescape(value: word) -> word {
+    give back v4_hover_snapshot_unescape(value)
+}
+
+task v4_definition_snapshot_line_count(payload: word) -> int {
+    give back v4_hover_snapshot_line_count(payload)
+}
+
+task v4_definition_snapshot_line(payload: word, wanted: int) -> word {
+    give back v4_hover_snapshot_line(payload, wanted)
+}
+
+task v4_definition_snapshot_field_count(line: word) -> int {
+    give back v4_hover_snapshot_field_count(line)
+}
+
+task v4_definition_snapshot_field_raw(line: word, wanted: int) -> word {
+    give back v4_hover_snapshot_field_raw(line, wanted)
+}
+
+task v4_definition_snapshot_field(line: word, wanted: int) -> word {
+    give back v4_hover_snapshot_field(line, wanted)
+}
+
+task v4_definition_snapshot_key_value(line: word, wanted_key: word) -> word {
+    give back v4_hover_snapshot_key_value(line, wanted_key)
+}
+
+task v4_definition_snapshot_summary() -> word {
+    pilot summary = "definition-snapshot"
+    summary = summary + " format=" + v4_definition_snapshot_format
+    summary = summary + " definitions=" + word_from_int(v4_definition_at_count())
+    give back summary
+}
+
+task v4_definition_snapshot_header() -> word {
+    pilot out = "definition-snapshot"
+    out = out + "|format=" + v4_definition_snapshot_format
+    out = out + "|definitions=" + word_from_int(v4_definition_at_count())
+    give back out
+}
+
+task v4_definition_snapshot_definition_line(defn_id: int) -> word {
+    pilot out = "definition"
+    out = out + "|" + word_from_int(defn_id)
+    out = out + "|" + v4_definition_snapshot_escape(v4_definition_at_path(defn_id))
+    out = out + "|" + word_from_int(v4_definition_at_offset(defn_id))
+    out = out + "|" + word_from_int(v4_definition_at_semantic_id(defn_id))
+    out = out + "|" + v4_definition_snapshot_escape(v4_definition_at_name(defn_id))
+    out = out + "|" + v4_definition_snapshot_escape(v4_definition_at_kind(defn_id))
+    out = out + "|" + v4_definition_snapshot_escape(v4_definition_at_def(defn_id))
+    out = out + "|" + word_from_int(v4_definition_at_hir_item(defn_id))
+    out = out + "|" + v4_definition_snapshot_escape(v4_definition_at_span(defn_id))
+    out = out + "|" + word_from_int(v4_definition_at_found(defn_id))
+    give back out
+}
+
+task v4_definition_snapshot() -> word {
+    v4_driver_init()
+    pilot out = v4_definition_snapshot_header()
+    pilot defn_id = 0
+    pilot defn_count = v4_definition_at_count()
+    repeat until defn_id >= defn_count {
+        out = out + "\n" + v4_definition_snapshot_definition_line(defn_id)
+        defn_id += 1
+    }
+    out = out + "\nend|" + v4_definition_snapshot_format
+    give back out
+}
+
+task v4_definition_snapshot_record_expected_fields(kind: word) -> int {
+    if kind == "definition-snapshot" { give back 3 }
+    if kind == "definition" { give back 11 }
+    if kind == "end" { give back 2 }
+    give back 0
+}
+
+task v4_definition_snapshot_record_is_valid(line: word) -> bool {
+    pilot kind = v4_definition_snapshot_field_raw(line, 0)
+    pilot expected = v4_definition_snapshot_record_expected_fields(kind)
+    if expected == 0 {
+        give back false
+    }
+    if v4_definition_snapshot_field_count(line) < expected {
+        give back false
+    }
+    give back true
+}
+
+task v4_definition_snapshot_validate(payload: word) -> word {
+    pilot lines = v4_definition_snapshot_line_count(payload)
+    pilot definitions = 0
+    pilot malformed = 0
+    pilot saw_header = 0
+    pilot saw_end = 0
+    pilot format = ""
+
+    pilot line_id = 0
+    repeat until line_id >= lines {
+        pilot line = v4_definition_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_definition_snapshot_field_raw(line, 0)
+            if v4_definition_snapshot_record_is_valid(line) == false {
+                malformed += 1
+            } else if kind == "definition-snapshot" {
+                saw_header += 1
+                format = v4_definition_snapshot_key_value(line, "format")
+                if format != v4_definition_snapshot_format {
+                    malformed += 1
+                }
+            } else if kind == "definition" {
+                definitions += 1
+            } else if kind == "end" {
+                saw_end += 1
+                if v4_definition_snapshot_field(line, 1) != v4_definition_snapshot_format {
+                    malformed += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+
+    pilot import_ok = 1
+    if saw_header != 1 { import_ok = 0 }
+    if saw_end != 1 { import_ok = 0 }
+    if malformed > 0 { import_ok = 0 }
+
+    pilot out = "definition-snapshot-import"
+    out = out + " ok=" + word_from_int(import_ok)
+    out = out + " format=" + format
+    out = out + " lines=" + word_from_int(lines)
+    out = out + " definitions=" + word_from_int(definitions)
+    out = out + " malformed=" + word_from_int(malformed)
+    out = out + " headers=" + word_from_int(saw_header)
+    out = out + " ends=" + word_from_int(saw_end)
+    give back out
+}
+
+task v4_definition_restore_slot(defn_id: int, path: word, offset: int, semantic_id: int, name: word, kind: word, def_id: word, hir_item: int, span: word, found: int) -> int {
+    v4_driver_init()
+    repeat until array_len(v4_driver_defn_paths) > defn_id {
+        v4_driver_definition_new("", 0, 0 - 1, "", "", "", 0 - 1, V4_NO_SPAN, 0)
+    }
+
+    array_set(v4_driver_defn_paths, defn_id, path)
+    array_set(v4_driver_defn_offsets, defn_id, word_from_int(offset))
+    array_set(v4_driver_defn_semantic_ids, defn_id, word_from_int(semantic_id))
+    array_set(v4_driver_defn_names, defn_id, name)
+    array_set(v4_driver_defn_kinds, defn_id, kind)
+    array_set(v4_driver_defn_defs, defn_id, def_id)
+    array_set(v4_driver_defn_hir_items, defn_id, word_from_int(hir_item))
+    array_set(v4_driver_defn_spans, defn_id, span)
+    array_set(v4_driver_defn_found, defn_id, word_from_int(found))
+    give back 1
+}
+
+task v4_definition_snapshot_restore_definition_line(line: word) -> int {
+    if v4_definition_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_definition_snapshot_field_raw(line, 0) != "definition" { give back 0 }
+    pilot defn_id = word_to_int(v4_definition_snapshot_field_raw(line, 1))
+    pilot path = v4_definition_snapshot_field(line, 2)
+    pilot offset = word_to_int(v4_definition_snapshot_field_raw(line, 3))
+    pilot semantic_id = word_to_int(v4_definition_snapshot_field_raw(line, 4))
+    pilot name = v4_definition_snapshot_field(line, 5)
+    pilot kind = v4_definition_snapshot_field(line, 6)
+    pilot def_id = v4_definition_snapshot_field(line, 7)
+    pilot hir_item = word_to_int(v4_definition_snapshot_field_raw(line, 8))
+    pilot span = v4_definition_snapshot_field(line, 9)
+    pilot found = word_to_int(v4_definition_snapshot_field_raw(line, 10))
+    give back v4_definition_restore_slot(defn_id, path, offset, semantic_id, name, kind, def_id, hir_item, span, found)
+}
+
+task v4_definition_snapshot_restore(payload: word) -> word {
+    pilot validation = v4_definition_snapshot_validate(payload)
+    if validation.starts_with("definition-snapshot-import ok=1") == false {
+        give back "definition-snapshot-restore ok=0 reason=validation-failed\n" + validation
+    }
+
+    pilot restored_definitions = 0
+    pilot skipped_other = 0
+    pilot line_id = 0
+    pilot line_count = v4_definition_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_definition_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_definition_snapshot_field_raw(line, 0)
+            if kind == "definition" {
+                restored_definitions += v4_definition_snapshot_restore_definition_line(line)
+            } else if kind != "definition-snapshot" and kind != "end" {
+                skipped_other += 1
+            }
+        }
+        line_id += 1
+    }
+
+    pilot out = "definition-snapshot-restore ok=1"
+    out = out + " definitions=" + word_from_int(restored_definitions)
+    out = out + " skipped-other=" + word_from_int(skipped_other)
+    out = out + " arena-definitions=" + word_from_int(v4_definition_at_count())
+    give back out
 }
 
 task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {

@@ -476,6 +476,14 @@ task v4_lsp_hover_snapshot_restore_text(payload: word) -> word {
     give back v4_lsp_response_ok("workspace/hoverSnapshotRestore", v4_hover_snapshot_restore(payload))
 }
 
+task v4_lsp_definition_snapshot_text() -> word {
+    give back v4_lsp_response_ok("workspace/definitionSnapshot", v4_definition_snapshot())
+}
+
+task v4_lsp_definition_snapshot_restore_text(payload: word) -> word {
+    give back v4_lsp_response_ok("workspace/definitionSnapshotRestore", v4_definition_snapshot_restore(payload))
+}
+
 task v4_lsp_unit_snapshot_text() -> word {
     give back v4_lsp_response_ok("workspace/unitSnapshot", v4_unit_snapshot())
 }
@@ -557,6 +565,8 @@ task v4_lsp_initialize_payload() -> word {
     out = out + "|workspace/semanticSnapshotRestore"
     out = out + "|workspace/hoverSnapshot"
     out = out + "|workspace/hoverSnapshotRestore"
+    out = out + "|workspace/definitionSnapshot"
+    out = out + "|workspace/definitionSnapshotRestore"
     out = out + "|workspace/unitSnapshot"
     out = out + "|workspace/unitSnapshotRestore"
     out = out + "|textDocument/didOpen"
@@ -674,6 +684,12 @@ task v4_lsp_handle_text_request(method: word, path: word, text: word, offset: in
     }
     if method == "workspace/hoverSnapshotRestore" {
         give back v4_lsp_hover_snapshot_restore_text(text)
+    }
+    if method == "workspace/definitionSnapshot" {
+        give back v4_lsp_definition_snapshot_text()
+    }
+    if method == "workspace/definitionSnapshotRestore" {
+        give back v4_lsp_definition_snapshot_restore_text(text)
     }
     if method == "workspace/unitSnapshot" {
         give back v4_lsp_unit_snapshot_text()
@@ -804,6 +820,12 @@ task v4_lsp_handle_request(method: word, path: word, offset: int) -> word {
         give back v4_lsp_hover_snapshot_text()
     }
     if method == "workspace/hoverSnapshotRestore" {
+        give back v4_lsp_response_error(method, 0 - 32602, "method requires snapshot text")
+    }
+    if method == "workspace/definitionSnapshot" {
+        give back v4_lsp_definition_snapshot_text()
+    }
+    if method == "workspace/definitionSnapshotRestore" {
         give back v4_lsp_response_error(method, 0 - 32602, "method requires snapshot text")
     }
     if method == "workspace/unitSnapshot" {

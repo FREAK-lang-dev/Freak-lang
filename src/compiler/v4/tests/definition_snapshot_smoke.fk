@@ -1,0 +1,36 @@
+-- V4 definition-at arena snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_definition_snapshot_source = "task main() -> int {\n"
+v4_definition_snapshot_source = v4_definition_snapshot_source + "    give back 0\n"
+v4_definition_snapshot_source = v4_definition_snapshot_source + "}\n"
+
+pilot v4_definition_snapshot_main = v4_definition_at_text_cached("definition-snapshot.fk", v4_definition_snapshot_source, 5)
+say v4_definition_at_summary(v4_definition_snapshot_main)
+say v4_definition_snapshot_summary()
+
+pilot v4_definition_snapshot_payload = v4_definition_snapshot()
+say v4_definition_snapshot_validate(v4_definition_snapshot_payload)
+say "definition-snapshot-bytes=" + word_from_int(v4_definition_snapshot_payload.length())
+say "definition-snapshot-escape=" + v4_definition_snapshot_escape("def|Yuuko%0\nMeiya")
+say "definition-snapshot-unescape=" + v4_definition_snapshot_unescape("def%7CYuuko%250%0AMeiya")
+say v4_definition_snapshot_definition_line(v4_definition_snapshot_main)
+say v4_parse_snapshot_restore(v4_parse_snapshot())
+say v4_hir_snapshot_restore(v4_hir_snapshot())
+say v4_resolve_snapshot_restore(v4_resolve_snapshot())
+say v4_ty_snapshot_restore(v4_ty_snapshot())
+say v4_semantic_snapshot_restore(v4_semantic_snapshot())
+say v4_definition_snapshot_restore(v4_definition_snapshot_payload)
+say v4_lsp_definition_snapshot_text()
+say v4_lsp_definition_snapshot_restore_text(v4_definition_snapshot_payload)
+say v4_lsp_handle_text_request("workspace/definitionSnapshotRestore", "definition-snapshot.fk", v4_definition_snapshot_payload, 0)
+say v4_lsp_handle_request("workspace/definitionSnapshotRestore", "definition-snapshot.fk", 0)
+
+pilot v4_definition_query_payload = v4_query_snapshot()
+say v4_query_snapshot_restore(v4_definition_query_payload)
+say v4_driver_confirm_restored_document_text("definition-snapshot.fk", v4_definition_snapshot_source)
+pilot v4_definition_file = v4_source_find("definition-snapshot.fk")
+pilot v4_definition_fingerprint = v4_source_fingerprint(v4_definition_file)
+pilot v4_definition_restored_id = word_to_int(v4_query_get(v4_definition_at_query_key("definition-snapshot.fk", 5), v4_definition_fingerprint))
+say v4_definition_at_summary(v4_definition_restored_id)
+say v4_driver_confirm_restored_document_text("definition-snapshot.fk", "task changed() => 7\n")
