@@ -25,6 +25,13 @@ pilot v4_driver_sem_names = 0
 pilot v4_driver_sem_kinds = 0
 pilot v4_driver_sem_defs = 0
 pilot v4_driver_sem_types = 0
+pilot v4_driver_hover_paths = 0
+pilot v4_driver_hover_offsets = 0
+pilot v4_driver_hover_semantic_ids = 0
+pilot v4_driver_hover_names = 0
+pilot v4_driver_hover_kinds = 0
+pilot v4_driver_hover_types = 0
+pilot v4_driver_hover_markdowns = 0
 pilot v4_driver_ready = 0
 
 task v4_driver_init() -> void {
@@ -47,6 +54,13 @@ task v4_driver_init() -> void {
         v4_driver_sem_kinds = array_new()
         v4_driver_sem_defs = array_new()
         v4_driver_sem_types = array_new()
+        v4_driver_hover_paths = array_new()
+        v4_driver_hover_offsets = array_new()
+        v4_driver_hover_semantic_ids = array_new()
+        v4_driver_hover_names = array_new()
+        v4_driver_hover_kinds = array_new()
+        v4_driver_hover_types = array_new()
+        v4_driver_hover_markdowns = array_new()
         v4_driver_ready = 1
     }
 }
@@ -61,6 +75,10 @@ task v4_diagnostics_query_key(path: word) -> word {
 
 task v4_semantic_at_query_key(path: word, offset: int) -> word {
     give back "semantic-at:" + path + ":" + word_from_int(offset)
+}
+
+task v4_hover_query_key(path: word, offset: int) -> word {
+    give back "hover:" + path + ":" + word_from_int(offset)
 }
 
 task v4_lex_query_key(path: word) -> word {
@@ -671,6 +689,119 @@ task v4_semantic_at_file(path: word, offset: int) -> word {
         give back v4_diag_render(diag, "")
     }
     give back v4_semantic_at_text(path, text, offset)
+}
+
+task v4_driver_hover_new(path: word, offset: int, semantic_id: int, name: word, kind: word, type_display: word, markdown: word) -> int {
+    v4_driver_init()
+    pilot hover_id = array_len(v4_driver_hover_paths)
+    array_push(v4_driver_hover_paths, path)
+    array_push(v4_driver_hover_offsets, word_from_int(offset))
+    array_push(v4_driver_hover_semantic_ids, word_from_int(semantic_id))
+    array_push(v4_driver_hover_names, name)
+    array_push(v4_driver_hover_kinds, kind)
+    array_push(v4_driver_hover_types, type_display)
+    array_push(v4_driver_hover_markdowns, markdown)
+    give back hover_id
+}
+
+task v4_hover_offset(hover_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_hover_offsets, hover_id))
+}
+
+task v4_hover_semantic_id(hover_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_hover_semantic_ids, hover_id))
+}
+
+task v4_hover_name(hover_id: int) -> word {
+    give back array_get(v4_driver_hover_names, hover_id)
+}
+
+task v4_hover_kind(hover_id: int) -> word {
+    give back array_get(v4_driver_hover_kinds, hover_id)
+}
+
+task v4_hover_type(hover_id: int) -> word {
+    give back array_get(v4_driver_hover_types, hover_id)
+}
+
+task v4_hover_markdown(hover_id: int) -> word {
+    give back array_get(v4_driver_hover_markdowns, hover_id)
+}
+
+task v4_hover_markdown_for_semantic(semantic_id: int) -> word {
+    pilot name = v4_semantic_at_name(semantic_id)
+    if name == "" {
+        give back ""
+    }
+
+    pilot kind = v4_semantic_at_kind(semantic_id)
+    pilot type_display = v4_semantic_at_type(semantic_id)
+    pilot item_name = v4_semantic_at_item_name(semantic_id)
+    pilot item_kind = v4_semantic_at_item_kind(semantic_id)
+    pilot markdown = "**" + name + "**"
+    if kind != "" {
+        markdown = markdown + " `" + kind + "`"
+    }
+    if type_display != "" and type_display != v4_ty_unknown {
+        markdown = markdown + "\n\n```freak\n" + type_display + "\n```"
+    } else {
+        markdown = markdown + "\n\n`type: unknown`"
+    }
+    if item_name != "" {
+        markdown = markdown + "\n\nin " + item_kind + " `" + item_name + "`"
+    }
+    markdown = markdown + "\n\nYuuko cache: hover <- semantic-at <- 00-Unit."
+    give back markdown
+}
+
+task v4_hover_summary(hover_id: int) -> word {
+    pilot summary = "hover id=" + word_from_int(hover_id)
+    summary = summary + " offset=" + word_from_int(v4_hover_offset(hover_id))
+    summary = summary + " semantic=" + word_from_int(v4_hover_semantic_id(hover_id))
+    summary = summary + " name=" + v4_hover_name(hover_id)
+    summary = summary + " kind=" + v4_hover_kind(hover_id)
+    summary = summary + " type=" + v4_hover_type(hover_id)
+    summary = summary + " markdown-bytes=" + word_from_int(v4_hover_markdown(hover_id).length())
+    give back summary
+}
+
+task v4_hover_text_cached(path: word, text: word, offset: int) -> int {
+    v4_driver_init()
+
+    pilot file_id = v4_source_set_text(path, text)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot key = v4_hover_query_key(path, offset)
+    pilot cached = v4_query_get(key, fingerprint)
+    if cached != "" {
+        give back word_to_int(cached)
+    }
+
+    pilot semantic_id = v4_semantic_at_text_cached(path, text, offset)
+    pilot name = v4_semantic_at_name(semantic_id)
+    pilot kind = v4_semantic_at_kind(semantic_id)
+    pilot type_display = v4_semantic_at_type(semantic_id)
+    pilot markdown = v4_hover_markdown_for_semantic(semantic_id)
+    pilot hover_id = v4_driver_hover_new(path, offset, semantic_id, name, kind, type_display, markdown)
+
+    v4_query_store(key, fingerprint, word_from_int(hover_id))
+    v4_query_record_dep(key, "source:" + path)
+    v4_query_record_dep(key, v4_semantic_at_query_key(path, offset))
+    give back hover_id
+}
+
+task v4_hover_text(path: word, text: word, offset: int) -> word {
+    pilot hover_id = v4_hover_text_cached(path, text, offset)
+    give back v4_hover_summary(hover_id)
+}
+
+task v4_hover_file(path: word, offset: int) -> word {
+    pilot text = fs::read(path)
+    if text == "" {
+        pilot span = v4_span_new("0", 0, 0)
+        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
+        give back v4_diag_render(diag, "")
+    }
+    give back v4_hover_text(path, text, offset)
 }
 
 task v4_check_syntax_text(path: word, text: word) -> word {

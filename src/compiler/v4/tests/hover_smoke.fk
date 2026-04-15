@@ -1,0 +1,16 @@
+-- V4 LSP-facing hover query smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_hover_source = "task main() -> int {\n"
+v4_hover_source = v4_hover_source + "    give back 0\n"
+v4_hover_source = v4_hover_source + "}\n"
+
+pilot v4_hover_main = v4_hover_text_cached("hover.fk", v4_hover_source, 5)
+pilot v4_hover_body = v4_hover_text_cached("hover.fk", v4_hover_source, 24)
+
+say v4_hover_summary(v4_hover_main)
+say "hover-name=" + v4_hover_name(v4_hover_main)
+say "hover-kind=" + v4_hover_kind(v4_hover_main)
+say "hover-type=" + v4_hover_type(v4_hover_main)
+say "hover-markdown=" + v4_hover_markdown(v4_hover_main)
+say "body-hover=" + v4_hover_summary(v4_hover_body)
