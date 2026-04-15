@@ -1,0 +1,35 @@
+-- V4 HIR arena snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_hir_snapshot_source = "@protagonist\n"
+v4_hir_snapshot_source = v4_hir_snapshot_source + "task main() => \"Unit|00\"\n"
+v4_hir_snapshot_source = v4_hir_snapshot_source + "shape Pilot\n"
+v4_hir_snapshot_source = v4_hir_snapshot_source + "task\n"
+
+pilot v4_hir_snapshot_id = v4_hir_text_cached("hir-snapshot.fk", v4_hir_snapshot_source)
+say v4_hir_summary(v4_hir_snapshot_id)
+say v4_hir_snapshot_summary()
+
+pilot v4_hir_snapshot_payload = v4_hir_snapshot()
+say v4_hir_snapshot_validate(v4_hir_snapshot_payload)
+say "hir-snapshot-bytes=" + word_from_int(v4_hir_snapshot_payload.length())
+say "hir-snapshot-escape=" + v4_hir_snapshot_escape("hir|value%z\nspan")
+say "hir-snapshot-unescape=" + v4_hir_snapshot_unescape("hir%7Cvalue%25z%0Aspan")
+say v4_hir_snapshot_file_line(v4_hir_snapshot_id)
+say v4_hir_snapshot_item_line(v4_hir_snapshot_id, 0)
+say v4_hir_snapshot_diag_line(v4_hir_snapshot_id, 0)
+say v4_parse_snapshot_restore(v4_parse_snapshot())
+say v4_hir_snapshot_restore(v4_hir_snapshot_payload)
+say v4_lsp_hir_snapshot_text()
+say v4_lsp_hir_snapshot_restore_text(v4_hir_snapshot_payload)
+say v4_lsp_handle_text_request("workspace/hirSnapshotRestore", "hir-snapshot.fk", v4_hir_snapshot_payload, 0)
+say v4_lsp_handle_request("workspace/hirSnapshotRestore", "hir-snapshot.fk", 0)
+
+pilot v4_hir_query_payload = v4_query_snapshot()
+say v4_query_snapshot_restore(v4_hir_query_payload)
+say v4_driver_confirm_restored_document_text("hir-snapshot.fk", v4_hir_snapshot_source)
+pilot v4_hir_file = v4_source_find("hir-snapshot.fk")
+pilot v4_hir_fingerprint = v4_source_fingerprint(v4_hir_file)
+pilot v4_hir_restored_id = word_to_int(v4_query_get(v4_hir_query_key("hir-snapshot.fk"), v4_hir_fingerprint))
+say v4_hir_summary(v4_hir_restored_id)
+say v4_driver_confirm_restored_document_text("hir-snapshot.fk", "task changed() => 7\n")
