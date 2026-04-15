@@ -48,6 +48,12 @@ pilot v4_driver_doc_defs = 0
 pilot v4_driver_doc_hir_items = 0
 pilot v4_driver_doc_spans = 0
 pilot v4_driver_doc_types = 0
+pilot v4_driver_comp_paths = 0
+pilot v4_driver_comp_offsets = 0
+pilot v4_driver_comp_labels = 0
+pilot v4_driver_comp_kinds = 0
+pilot v4_driver_comp_details = 0
+pilot v4_driver_comp_inserts = 0
 pilot v4_driver_ready = 0
 
 task v4_driver_init() -> void {
@@ -93,6 +99,12 @@ task v4_driver_init() -> void {
         v4_driver_doc_hir_items = array_new()
         v4_driver_doc_spans = array_new()
         v4_driver_doc_types = array_new()
+        v4_driver_comp_paths = array_new()
+        v4_driver_comp_offsets = array_new()
+        v4_driver_comp_labels = array_new()
+        v4_driver_comp_kinds = array_new()
+        v4_driver_comp_details = array_new()
+        v4_driver_comp_inserts = array_new()
         v4_driver_ready = 1
     }
 }
@@ -119,6 +131,10 @@ task v4_definition_at_query_key(path: word, offset: int) -> word {
 
 task v4_document_symbols_query_key(path: word) -> word {
     give back "document-symbols:" + path
+}
+
+task v4_completion_query_key(path: word, offset: int) -> word {
+    give back "completion:" + path + ":" + word_from_int(offset)
 }
 
 task v4_lex_query_key(path: word) -> word {
@@ -1108,6 +1124,139 @@ task v4_document_symbols_file(path: word) -> word {
         give back v4_diag_render(diag, "")
     }
     give back v4_document_symbols_text(path, text)
+}
+
+task v4_driver_completion_new(path: word, offset: int) -> int {
+    v4_driver_init()
+    pilot completion_id = array_len(v4_driver_comp_paths)
+    array_push(v4_driver_comp_paths, path)
+    array_push(v4_driver_comp_offsets, word_from_int(offset))
+    array_push(v4_driver_comp_labels, word_from_int(array_new()))
+    array_push(v4_driver_comp_kinds, word_from_int(array_new()))
+    array_push(v4_driver_comp_details, word_from_int(array_new()))
+    array_push(v4_driver_comp_inserts, word_from_int(array_new()))
+    give back completion_id
+}
+
+task v4_driver_comp_labels_handle(completion_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_comp_labels, completion_id))
+}
+
+task v4_driver_comp_kinds_handle(completion_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_comp_kinds, completion_id))
+}
+
+task v4_driver_comp_details_handle(completion_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_comp_details, completion_id))
+}
+
+task v4_driver_comp_inserts_handle(completion_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_comp_inserts, completion_id))
+}
+
+task v4_completion_add(completion_id: int, label: word, kind: word, detail: word, insert_text: word) -> int {
+    pilot item_id = array_len(v4_driver_comp_labels_handle(completion_id))
+    array_push(v4_driver_comp_labels_handle(completion_id), label)
+    array_push(v4_driver_comp_kinds_handle(completion_id), kind)
+    array_push(v4_driver_comp_details_handle(completion_id), detail)
+    array_push(v4_driver_comp_inserts_handle(completion_id), insert_text)
+    give back item_id
+}
+
+task v4_completion_count(completion_id: int) -> int {
+    give back array_len(v4_driver_comp_labels_handle(completion_id))
+}
+
+task v4_completion_label(completion_id: int, item_id: int) -> word {
+    give back array_get(v4_driver_comp_labels_handle(completion_id), item_id)
+}
+
+task v4_completion_kind(completion_id: int, item_id: int) -> word {
+    give back array_get(v4_driver_comp_kinds_handle(completion_id), item_id)
+}
+
+task v4_completion_detail(completion_id: int, item_id: int) -> word {
+    give back array_get(v4_driver_comp_details_handle(completion_id), item_id)
+}
+
+task v4_completion_insert_text(completion_id: int, item_id: int) -> word {
+    give back array_get(v4_driver_comp_inserts_handle(completion_id), item_id)
+}
+
+task v4_completion_add_keywords(completion_id: int) -> void {
+    v4_completion_add(completion_id, "task", "keyword", "declare a task", "task ")
+    v4_completion_add(completion_id, "shape", "keyword", "declare a shape", "shape ")
+    v4_completion_add(completion_id, "doctrine", "keyword", "declare a doctrine", "doctrine ")
+    v4_completion_add(completion_id, "impl", "keyword", "implement a shape or doctrine", "impl ")
+    v4_completion_add(completion_id, "use", "keyword", "import a module", "use ")
+    v4_completion_add(completion_id, "extern", "keyword", "declare native bindings", "extern ")
+    v4_completion_add(completion_id, "pilot", "keyword", "declare a local pilot", "pilot ")
+    v4_completion_add(completion_id, "give back", "keyword", "return from a task", "give back ")
+    v4_completion_add(completion_id, "if", "keyword", "conditional branch", "if ")
+    v4_completion_add(completion_id, "repeat until", "keyword", "loop until a condition", "repeat until ")
+    v4_completion_add(completion_id, "when", "keyword", "route matching", "when ")
+}
+
+task v4_completion_add_document_symbols(completion_id: int, doc_id: int) -> void {
+    pilot symbol_id = 0
+    pilot symbol_count = v4_document_symbol_count(doc_id)
+    repeat until symbol_id >= symbol_count {
+        pilot label = v4_document_symbol_name(doc_id, symbol_id)
+        pilot kind = v4_document_symbol_kind(doc_id, symbol_id)
+        pilot detail = v4_document_symbol_type(doc_id, symbol_id)
+        if detail == "" or detail == v4_ty_unknown {
+            detail = v4_document_symbol_def(doc_id, symbol_id)
+        }
+        v4_completion_add(completion_id, label, kind, detail, label)
+        symbol_id += 1
+    }
+}
+
+task v4_completion_summary(completion_id: int) -> word {
+    pilot summary = "completion id=" + word_from_int(completion_id)
+    summary = summary + " count=" + word_from_int(v4_completion_count(completion_id))
+    if v4_completion_count(completion_id) > 0 {
+        summary = summary + " first=" + v4_completion_label(completion_id, 0)
+        summary = summary + " first-kind=" + v4_completion_kind(completion_id, 0)
+    }
+    give back summary
+}
+
+task v4_completion_text_cached(path: word, text: word, offset: int) -> int {
+    v4_driver_init()
+
+    pilot file_id = v4_source_set_text(path, text)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot key = v4_completion_query_key(path, offset)
+    pilot cached = v4_query_get(key, fingerprint)
+    if cached != "" {
+        give back word_to_int(cached)
+    }
+
+    pilot doc_id = v4_document_symbols_text_cached(path, text)
+    pilot completion_id = v4_driver_completion_new(path, offset)
+    v4_completion_add_document_symbols(completion_id, doc_id)
+    v4_completion_add_keywords(completion_id)
+
+    v4_query_store(key, fingerprint, word_from_int(completion_id))
+    v4_query_record_dep(key, "source:" + path)
+    v4_query_record_dep(key, v4_document_symbols_query_key(path))
+    give back completion_id
+}
+
+task v4_completion_text(path: word, text: word, offset: int) -> word {
+    pilot completion_id = v4_completion_text_cached(path, text, offset)
+    give back v4_completion_summary(completion_id)
+}
+
+task v4_completion_file(path: word, offset: int) -> word {
+    pilot text = fs::read(path)
+    if text == "" {
+        pilot span = v4_span_new("0", 0, 0)
+        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
+        give back v4_diag_render(diag, "")
+    }
+    give back v4_completion_text(path, text, offset)
 }
 
 task v4_check_syntax_text(path: word, text: word) -> word {

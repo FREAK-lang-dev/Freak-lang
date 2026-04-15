@@ -1,0 +1,15 @@
+-- V4 completion query smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_completion_source = "task main() => \"hi\"\n"
+v4_completion_source = v4_completion_source + "shape Pilot\n"
+
+pilot v4_completion_items = v4_completion_text_cached("completion.fk", v4_completion_source, 0)
+
+say v4_completion_summary(v4_completion_items)
+say "completion-count=" + word_from_int(v4_completion_count(v4_completion_items))
+say "completion0-label=" + v4_completion_label(v4_completion_items, 0)
+say "completion0-kind=" + v4_completion_kind(v4_completion_items, 0)
+say "completion1-label=" + v4_completion_label(v4_completion_items, 1)
+say "completion2-label=" + v4_completion_label(v4_completion_items, 2)
+say "completion2-insert=" + v4_completion_insert_text(v4_completion_items, 2)
