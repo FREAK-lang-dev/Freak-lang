@@ -187,6 +187,24 @@ task v4_query_mark_dirty_key(key: word) -> void {
     }
 }
 
+task v4_query_mark_dirty_key_at_generation(key: word, generation: int, reason: word) -> int {
+    v4_query_init()
+    pilot dirtied = 0
+    pilot i = 0
+    pilot count = array_len(v4_query_keys)
+    repeat until i >= count {
+        if array_get(v4_query_keys, i) == key {
+            if array_get(v4_query_states, i) != v4_query_dirty {
+                array_set(v4_query_states, i, v4_query_dirty)
+                v4_query_record_invalidation(key, generation, reason)
+                dirtied += 1
+            }
+        }
+        i += 1
+    }
+    give back dirtied
+}
+
 task v4_query_dirtyable_prefix_count(prefix: word) -> int {
     v4_query_init()
     pilot dirtied = 0
@@ -246,6 +264,16 @@ task v4_query_invalidate_prefix(prefix: word) -> int {
 
 task v4_query_record_dep(from_key: word, to_key: word) -> void {
     v4_query_init()
+    pilot i = 0
+    pilot count = array_len(v4_query_dep_from)
+    repeat until i >= count {
+        if array_get(v4_query_dep_from, i) == from_key {
+            if array_get(v4_query_dep_to, i) == to_key {
+                give back
+            }
+        }
+        i += 1
+    }
     array_push(v4_query_dep_from, from_key)
     array_push(v4_query_dep_to, to_key)
 }
@@ -253,6 +281,174 @@ task v4_query_record_dep(from_key: word, to_key: word) -> void {
 task v4_query_dep_count() -> int {
     v4_query_init()
     give back array_len(v4_query_dep_from)
+}
+
+task v4_query_dep_from_key(dep_id: int) -> word {
+    v4_query_init()
+    give back array_get(v4_query_dep_from, dep_id)
+}
+
+task v4_query_dep_to_key(dep_id: int) -> word {
+    v4_query_init()
+    give back array_get(v4_query_dep_to, dep_id)
+}
+
+task v4_query_word_array_contains(words: int, key: word) -> bool {
+    pilot i = 0
+    pilot count = array_len(words)
+    repeat until i >= count {
+        if array_get(words, i) == key {
+            give back true
+        }
+        i += 1
+    }
+    give back false
+}
+
+task v4_query_enqueue_unique(words: int, key: word) -> int {
+    if v4_query_word_array_contains(words, key) {
+        give back 0
+    }
+    array_push(words, key)
+    give back 1
+}
+
+task v4_query_direct_dependency_count(key: word) -> int {
+    v4_query_init()
+    pilot found = 0
+    pilot dep_id = 0
+    pilot dep_count = array_len(v4_query_dep_from)
+    repeat until dep_id >= dep_count {
+        if array_get(v4_query_dep_from, dep_id) == key {
+            found += 1
+        }
+        dep_id += 1
+    }
+    give back found
+}
+
+task v4_query_direct_dependent_count(key: word) -> int {
+    v4_query_init()
+    pilot found = 0
+    pilot dep_id = 0
+    pilot dep_count = array_len(v4_query_dep_to)
+    repeat until dep_id >= dep_count {
+        if array_get(v4_query_dep_to, dep_id) == key {
+            found += 1
+        }
+        dep_id += 1
+    }
+    give back found
+}
+
+task v4_query_direct_dependency_at(key: word, wanted: int) -> word {
+    v4_query_init()
+    pilot found = 0
+    pilot dep_id = 0
+    pilot dep_count = array_len(v4_query_dep_from)
+    repeat until dep_id >= dep_count {
+        if array_get(v4_query_dep_from, dep_id) == key {
+            if found == wanted {
+                give back array_get(v4_query_dep_to, dep_id)
+            }
+            found += 1
+        }
+        dep_id += 1
+    }
+    give back ""
+}
+
+task v4_query_direct_dependent_at(key: word, wanted: int) -> word {
+    v4_query_init()
+    pilot found = 0
+    pilot dep_id = 0
+    pilot dep_count = array_len(v4_query_dep_to)
+    repeat until dep_id >= dep_count {
+        if array_get(v4_query_dep_to, dep_id) == key {
+            if found == wanted {
+                give back array_get(v4_query_dep_from, dep_id)
+            }
+            found += 1
+        }
+        dep_id += 1
+    }
+    give back ""
+}
+
+task v4_query_invalidate_dependents_at_generation(root_key: word, generation: int, reason: word) -> int {
+    v4_query_init()
+    pilot work = array_new()
+    pilot seen = array_new()
+    array_push(work, root_key)
+    array_push(seen, root_key)
+
+    pilot dirtied = 0
+    pilot work_id = 0
+    repeat until work_id >= array_len(work) {
+        pilot target = array_get(work, work_id)
+        pilot dep_id = 0
+        pilot dep_count = array_len(v4_query_dep_to)
+        repeat until dep_id >= dep_count {
+            if array_get(v4_query_dep_to, dep_id) == target {
+                pilot dependent = array_get(v4_query_dep_from, dep_id)
+                dirtied += v4_query_mark_dirty_key_at_generation(dependent, generation, reason)
+                if v4_query_enqueue_unique(seen, dependent) == 1 {
+                    array_push(work, dependent)
+                }
+            }
+            dep_id += 1
+        }
+        work_id += 1
+    }
+    give back dirtied
+}
+
+task v4_query_invalidate_dependents(root_key: word) -> int {
+    v4_query_init()
+    if v4_query_direct_dependent_count(root_key) == 0 {
+        give back 0
+    }
+    pilot generation = v4_query_bump_generation("invalidate-dependents:" + root_key)
+    give back v4_query_invalidate_dependents_at_generation(root_key, generation, "dependency:" + root_key)
+}
+
+task v4_query_dependency_summary(key: word) -> word {
+    pilot summary = "query-deps key=" + key
+    summary = summary + " deps=" + word_from_int(v4_query_direct_dependency_count(key))
+    summary = summary + " dependents=" + word_from_int(v4_query_direct_dependent_count(key))
+    if v4_query_direct_dependency_count(key) > 0 {
+        summary = summary + " first-dep=" + v4_query_direct_dependency_at(key, 0)
+    }
+    if v4_query_direct_dependent_count(key) > 0 {
+        summary = summary + " first-dependent=" + v4_query_direct_dependent_at(key, 0)
+    }
+    give back summary
+}
+
+task v4_query_graph_summary() -> word {
+    v4_query_init()
+    pilot roots = 0
+    pilot leaves = 0
+    pilot key_id = 0
+    pilot key_count = array_len(v4_query_keys)
+    repeat until key_id >= key_count {
+        pilot key = array_get(v4_query_keys, key_id)
+        if v4_query_direct_dependency_count(key) == 0 {
+            roots += 1
+        }
+        if v4_query_direct_dependent_count(key) == 0 {
+            leaves += 1
+        }
+        key_id += 1
+    }
+
+    pilot summary = "query-graph"
+    summary = summary + " nodes=" + word_from_int(v4_query_cache_size())
+    summary = summary + " edges=" + word_from_int(v4_query_dep_count())
+    summary = summary + " roots=" + word_from_int(roots)
+    summary = summary + " leaves=" + word_from_int(leaves)
+    summary = summary + " generation=" + word_from_int(v4_query_generation())
+    give back summary
 }
 
 task v4_query_cache_size() -> int {

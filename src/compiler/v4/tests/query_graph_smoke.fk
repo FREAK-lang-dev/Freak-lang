@@ -1,0 +1,25 @@
+-- V4 query dependency graph smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_graph_source = "task main() => \"hi\"\n"
+v4_graph_source = v4_graph_source + "shape Pilot\n"
+
+say v4_check_syntax_text("graph.fk", v4_graph_source)
+say v4_lsp_hover_text("graph.fk", v4_graph_source, 5)
+say v4_lsp_definition_text("graph.fk", v4_graph_source, 5)
+say v4_lsp_completion_text("graph.fk", v4_graph_source, 0)
+say v4_query_graph_summary()
+say v4_query_dependency_summary(v4_check_syntax_query_key("graph.fk"))
+say v4_query_dependency_summary("source:graph.fk")
+say "source-dependents=" + word_from_int(v4_query_direct_dependent_count("source:graph.fk"))
+say "syntax-deps=" + word_from_int(v4_query_direct_dependency_count(v4_check_syntax_query_key("graph.fk")))
+say "dep0=" + v4_query_direct_dependency_at(v4_check_syntax_query_key("graph.fk"), 0)
+say "dependent0=" + v4_query_direct_dependent_at("source:graph.fk", 0)
+say v4_lsp_query_graph_text("source:graph.fk")
+
+pilot v4_graph_changed = "shape Pilot\n"
+v4_graph_changed = v4_graph_changed + "task main() => \"hi\"\n"
+v4_lsp_open_document("graph.fk", v4_graph_source)
+say v4_lsp_handle_text_request("textDocument/didChange", "graph.fk", v4_graph_changed, 0)
+say "graph-dirty=" + word_from_int(v4_query_dirty_count())
+say "graph-invalidated=" + word_from_int(v4_query_invalidated_count())

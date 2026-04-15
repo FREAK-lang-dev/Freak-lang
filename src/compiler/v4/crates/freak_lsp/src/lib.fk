@@ -115,22 +115,7 @@ task v4_lsp_invalidation_key_matches(path: word, key: word) -> bool {
 task v4_lsp_invalidate_document_queries(path: word) -> int {
     pilot generation = v4_query_bump_generation("didChange:" + path)
     pilot reason = "didChange:" + path
-    pilot dirtied = 0
-    dirtied += v4_query_invalidate_prefix_at_generation(v4_check_syntax_query_key(path), generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation(v4_lex_query_key(path), generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation(v4_parse_query_key(path), generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation(v4_hir_query_key(path), generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation(v4_resolve_query_key(path), generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation(v4_ty_query_key(path), generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation(v4_mir_query_key(path), generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation(v4_borrowck_query_key(path), generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation(v4_diagnostics_query_key(path), generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation("semantic-at:" + path + ":", generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation("hover:" + path + ":", generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation("definition-at:" + path + ":", generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation(v4_document_symbols_query_key(path), generation, reason)
-    dirtied += v4_query_invalidate_prefix_at_generation("completion:" + path + ":", generation, reason)
-    give back dirtied
+    give back v4_query_invalidate_dependents_at_generation("source:" + path, generation, reason)
 }
 
 task v4_lsp_invalidation_summary(path: word) -> word {
@@ -355,6 +340,34 @@ task v4_lsp_query_telemetry_text() -> word {
     give back v4_lsp_response_ok("workspace/queryTelemetry", out)
 }
 
+task v4_lsp_query_graph_text(root_key: word) -> word {
+    pilot out = v4_query_graph_summary()
+    if root_key != "" {
+        out = out + "\n"
+        out = out + v4_query_dependency_summary(root_key)
+        pilot dependent_id = 0
+        pilot dependent_count = v4_query_direct_dependent_count(root_key)
+        repeat until dependent_id >= dependent_count {
+            out = out + "\n"
+            out = out + "dependent"
+            out = out + "|" + root_key
+            out = out + "|" + v4_query_direct_dependent_at(root_key, dependent_id)
+            dependent_id += 1
+        }
+    }
+
+    pilot dep_id = 0
+    pilot dep_count = v4_query_dep_count()
+    repeat until dep_id >= dep_count {
+        out = out + "\n"
+        out = out + "edge"
+        out = out + "|" + v4_query_dep_from_key(dep_id)
+        out = out + "|" + v4_query_dep_to_key(dep_id)
+        dep_id += 1
+    }
+    give back v4_lsp_response_ok("workspace/queryGraph", out)
+}
+
 task v4_lsp_hover_position_text(path: word, text: word, line: int, character_pos: int) -> word {
     pilot offset = v4_lsp_offset_from_position(text, line, character_pos)
     give back v4_lsp_hover_text(path, text, offset)
@@ -402,6 +415,7 @@ task v4_lsp_initialize_payload() -> word {
     out = out + "|textDocument/completion"
     out = out + "|textDocument/publishDiagnostics"
     out = out + "|workspace/queryTelemetry"
+    out = out + "|workspace/queryGraph"
     out = out + "|textDocument/didOpen"
     out = out + "|textDocument/didChange"
     give back out
@@ -439,6 +453,9 @@ task v4_lsp_handle_text_request(method: word, path: word, text: word, offset: in
     }
     if method == "workspace/queryTelemetry" {
         give back v4_lsp_query_telemetry_text()
+    }
+    if method == "workspace/queryGraph" {
+        give back v4_lsp_query_graph_text("source:" + path)
     }
     give back v4_lsp_response_error(method, 0 - 32601, "method not found")
 }
@@ -486,6 +503,9 @@ task v4_lsp_handle_request(method: word, path: word, offset: int) -> word {
     }
     if method == "workspace/queryTelemetry" {
         give back v4_lsp_query_telemetry_text()
+    }
+    if method == "workspace/queryGraph" {
+        give back v4_lsp_query_graph_text("source:" + path)
     }
     if method == "textDocument/didOpen" or method == "textDocument/didChange" {
         give back v4_lsp_response_error(method, 0 - 32602, "method requires source text")
