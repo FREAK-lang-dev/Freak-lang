@@ -1,0 +1,21 @@
+-- V4 query snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_snapshot_source = "task main() => \"hi|there\"\n"
+v4_snapshot_source = v4_snapshot_source + "shape Pilot\n"
+
+say v4_check_syntax_text("snapshot.fk", v4_snapshot_source)
+say v4_lsp_hover_text("snapshot.fk", v4_snapshot_source, 5)
+say v4_lsp_definition_text("snapshot.fk", v4_snapshot_source, 5)
+say v4_lsp_completion_text("snapshot.fk", v4_snapshot_source, 0)
+say v4_query_snapshot_summary()
+
+pilot v4_snapshot_payload = v4_query_snapshot()
+say "snapshot-bytes=" + word_from_int(v4_snapshot_payload.length())
+say "snapshot-escape=" + v4_query_snapshot_escape("a|b%z\nc")
+say v4_query_snapshot_header()
+say v4_query_snapshot_generation_line(0)
+say v4_query_snapshot_entry_line(0)
+say v4_query_snapshot_edge_line(0)
+say v4_lsp_query_snapshot_text()
+say v4_lsp_handle_request("workspace/querySnapshot", "snapshot.fk", 0)

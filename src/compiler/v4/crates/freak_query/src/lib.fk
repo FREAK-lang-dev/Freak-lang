@@ -7,6 +7,7 @@
 
 pilot v4_query_valid = "valid"
 pilot v4_query_dirty = "dirty"
+pilot v4_query_snapshot_format = "freak-query-snapshot-v1"
 
 pilot v4_query_keys = 0
 pilot v4_query_inputs = 0
@@ -117,6 +118,11 @@ task v4_query_generation_reason(generation: int) -> word {
         give back ""
     }
     give back array_get(v4_query_generation_reasons, idx)
+}
+
+task v4_query_generation_count() -> int {
+    v4_query_init()
+    give back array_len(v4_query_generation_reasons)
 }
 
 task v4_query_bump_generation(reason: word) -> int {
@@ -771,4 +777,140 @@ task v4_query_telemetry_summary() -> word {
     summary = summary + " stores=" + word_from_int(v4_query_store_count())
     summary = summary + " keys=" + word_from_int(v4_query_telemetry_key_count())
     give back summary
+}
+
+task v4_query_snapshot_escape(value: word) -> word {
+    pilot out = ""
+    pilot i = 0
+    repeat until i >= value.length() {
+        pilot ch = value.char_at(i)
+        if ch == "%" {
+            out = out + "%25"
+        } else if ch == "|" {
+            out = out + "%7C"
+        } else if ch == "\n" {
+            out = out + "%0A"
+        } else if ch == "\r" {
+            out = out + "%0D"
+        } else {
+            out = out + ch
+        }
+        i += 1
+    }
+    give back out
+}
+
+task v4_query_snapshot_summary() -> word {
+    pilot summary = "query-snapshot"
+    summary = summary + " format=" + v4_query_snapshot_format
+    summary = summary + " generation=" + word_from_int(v4_query_generation())
+    summary = summary + " generations=" + word_from_int(v4_query_generation_count())
+    summary = summary + " entries=" + word_from_int(v4_query_cache_size())
+    summary = summary + " edges=" + word_from_int(v4_query_dep_count())
+    summary = summary + " invalidations=" + word_from_int(v4_query_invalidated_count())
+    summary = summary + " telemetry=" + word_from_int(v4_query_telemetry_key_count())
+    give back summary
+}
+
+task v4_query_snapshot_header() -> word {
+    pilot out = "snapshot"
+    out = out + "|format=" + v4_query_snapshot_format
+    out = out + "|generation=" + word_from_int(v4_query_generation())
+    out = out + "|generations=" + word_from_int(v4_query_generation_count())
+    out = out + "|entries=" + word_from_int(v4_query_cache_size())
+    out = out + "|edges=" + word_from_int(v4_query_dep_count())
+    out = out + "|invalidations=" + word_from_int(v4_query_invalidated_count())
+    out = out + "|telemetry=" + word_from_int(v4_query_telemetry_key_count())
+    give back out
+}
+
+task v4_query_snapshot_generation_line(generation_id: int) -> word {
+    pilot generation = generation_id + 1
+    pilot out = "generation"
+    out = out + "|" + word_from_int(generation)
+    out = out + "|" + v4_query_snapshot_escape(v4_query_generation_reason(generation))
+    give back out
+}
+
+task v4_query_snapshot_entry_line(entry_id: int) -> word {
+    pilot out = "entry"
+    out = out + "|" + word_from_int(entry_id)
+    out = out + "|" + v4_query_snapshot_escape(v4_query_entry_key(entry_id))
+    out = out + "|" + v4_query_snapshot_escape(v4_query_entry_input(entry_id))
+    out = out + "|" + v4_query_snapshot_escape(v4_query_entry_output(entry_id))
+    out = out + "|" + v4_query_snapshot_escape(v4_query_entry_state(entry_id))
+    out = out + "|" + word_from_int(v4_query_entry_store_generation(entry_id))
+    out = out + "|" + word_from_int(v4_query_entry_last_generation(entry_id))
+    out = out + "|" + v4_query_snapshot_escape(v4_query_entry_last_event(entry_id))
+    give back out
+}
+
+task v4_query_snapshot_edge_line(dep_id: int) -> word {
+    pilot out = "edge"
+    out = out + "|" + word_from_int(dep_id)
+    out = out + "|" + v4_query_snapshot_escape(v4_query_dep_from_key(dep_id))
+    out = out + "|" + v4_query_snapshot_escape(v4_query_dep_to_key(dep_id))
+    give back out
+}
+
+task v4_query_snapshot_invalidation_line(invalidation_id: int) -> word {
+    pilot out = "invalidation"
+    out = out + "|" + word_from_int(invalidation_id)
+    out = out + "|" + v4_query_snapshot_escape(v4_query_invalidated_key(invalidation_id))
+    out = out + "|" + word_from_int(v4_query_invalidated_generation(invalidation_id))
+    out = out + "|" + v4_query_snapshot_escape(v4_query_invalidated_reason(invalidation_id))
+    give back out
+}
+
+task v4_query_snapshot_telemetry_line(telemetry_id: int) -> word {
+    pilot out = "telemetry"
+    out = out + "|" + word_from_int(telemetry_id)
+    out = out + "|" + v4_query_snapshot_escape(v4_query_telemetry_key(telemetry_id))
+    out = out + "|" + word_from_int(v4_query_telemetry_hits_for(telemetry_id))
+    out = out + "|" + word_from_int(v4_query_telemetry_misses_for(telemetry_id))
+    out = out + "|" + word_from_int(v4_query_telemetry_stores_for(telemetry_id))
+    give back out
+}
+
+task v4_query_snapshot() -> word {
+    v4_query_init()
+    pilot out = v4_query_snapshot_header()
+
+    pilot generation_id = 0
+    pilot generation_count = v4_query_generation_count()
+    repeat until generation_id >= generation_count {
+        out = out + "\n" + v4_query_snapshot_generation_line(generation_id)
+        generation_id += 1
+    }
+
+    pilot entry_id = 0
+    pilot entry_count = v4_query_cache_size()
+    repeat until entry_id >= entry_count {
+        out = out + "\n" + v4_query_snapshot_entry_line(entry_id)
+        entry_id += 1
+    }
+
+    pilot dep_id = 0
+    pilot dep_count = v4_query_dep_count()
+    repeat until dep_id >= dep_count {
+        out = out + "\n" + v4_query_snapshot_edge_line(dep_id)
+        dep_id += 1
+    }
+
+    pilot invalidation_id = 0
+    pilot invalidation_count = v4_query_invalidated_count()
+    repeat until invalidation_id >= invalidation_count {
+        out = out + "\n" + v4_query_snapshot_invalidation_line(invalidation_id)
+        invalidation_id += 1
+    }
+
+    pilot telemetry_id = 0
+    pilot telemetry_count = v4_query_telemetry_key_count()
+    repeat until telemetry_id >= telemetry_count {
+        out = out + "\n" + v4_query_snapshot_telemetry_line(telemetry_id)
+        telemetry_id += 1
+    }
+
+    out = out + "\nend|" + v4_query_snapshot_format
+    give back out
 }
