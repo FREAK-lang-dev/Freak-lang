@@ -1,0 +1,18 @@
+-- V4 LSP protocol payload smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_lsp_protocol_source = "task main() => \"hi\"\n"
+v4_lsp_protocol_source = v4_lsp_protocol_source + "shape Pilot\n"
+pilot v4_lsp_protocol_span = v4_span_new("0", 0, 4)
+pilot v4_lsp_protocol_diag = v4_diag_new(v4_diag_error, v4_lsp_protocol_span, "protocol smoke", "Yuuko says the range must be stable")
+
+say v4_lsp_response_ok("initialize", "capabilities|hover|definition|completion")
+say v4_lsp_response_error("textDocument/hover", 0 - 32001, "no hover available")
+say v4_lsp_range_from_span(v4_lsp_protocol_span, v4_lsp_protocol_source)
+say v4_lsp_location("protocol.fk", v4_lsp_protocol_span, v4_lsp_protocol_source)
+say v4_lsp_completion_item("main", "Task", "task main(...) -> unknown", "main")
+say v4_lsp_symbol_item("Pilot", "Shape", v4_lsp_protocol_span, v4_lsp_protocol_source)
+say v4_lsp_diagnostic_item(v4_lsp_protocol_diag, v4_lsp_protocol_source)
+say v4_lsp_hover_text("protocol.fk", v4_lsp_protocol_source, 5)
+say v4_lsp_definition_text("protocol.fk", v4_lsp_protocol_source, 5)
+say v4_lsp_completion_text("protocol.fk", v4_lsp_protocol_source, 0)

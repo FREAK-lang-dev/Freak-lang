@@ -95,7 +95,7 @@ task v4_lsp_document_summary(path: word) -> word {
 task v4_lsp_hover_document(path: word, offset: int) -> word {
     pilot doc_id = v4_lsp_document_id_or_missing(path)
     if doc_id < 0 {
-        give back "hover missing document"
+        give back v4_lsp_response_error("textDocument/hover", 0 - 32004, "document not open")
     }
     give back v4_lsp_hover_text(path, v4_lsp_document_text(doc_id), offset)
 }
@@ -103,7 +103,7 @@ task v4_lsp_hover_document(path: word, offset: int) -> word {
 task v4_lsp_definition_document(path: word, offset: int) -> word {
     pilot doc_id = v4_lsp_document_id_or_missing(path)
     if doc_id < 0 {
-        give back "definition missing document"
+        give back v4_lsp_response_error("textDocument/definition", 0 - 32004, "document not open")
     }
     give back v4_lsp_definition_text(path, v4_lsp_document_text(doc_id), offset)
 }
@@ -111,7 +111,7 @@ task v4_lsp_definition_document(path: word, offset: int) -> word {
 task v4_lsp_document_symbols_document(path: word) -> word {
     pilot doc_id = v4_lsp_document_id_or_missing(path)
     if doc_id < 0 {
-        give back "document-symbols missing document"
+        give back v4_lsp_response_error("textDocument/documentSymbol", 0 - 32004, "document not open")
     }
     give back v4_lsp_document_symbols_text(path, v4_lsp_document_text(doc_id))
 }
@@ -119,7 +119,7 @@ task v4_lsp_document_symbols_document(path: word) -> word {
 task v4_lsp_completion_document(path: word, offset: int) -> word {
     pilot doc_id = v4_lsp_document_id_or_missing(path)
     if doc_id < 0 {
-        give back "completion missing document"
+        give back v4_lsp_response_error("textDocument/completion", 0 - 32004, "document not open")
     }
     give back v4_lsp_completion_text(path, v4_lsp_document_text(doc_id), offset)
 }
@@ -127,74 +127,115 @@ task v4_lsp_completion_document(path: word, offset: int) -> word {
 task v4_lsp_diagnostics_document(path: word) -> word {
     pilot doc_id = v4_lsp_document_id_or_missing(path)
     if doc_id < 0 {
-        give back "diagnostics missing document"
+        give back v4_lsp_response_error("textDocument/publishDiagnostics", 0 - 32004, "document not open")
     }
     give back v4_lsp_diagnostics_text(path, v4_lsp_document_text(doc_id))
+}
+
+task v4_lsp_response_ok(method: word, body: word) -> word {
+    give back "ok|" + method + "\n" + body
+}
+
+task v4_lsp_response_error(method: word, code: int, message: word) -> word {
+    give back "error|" + method + "|" + word_from_int(code) + "|" + message
+}
+
+task v4_lsp_range_from_span(span: word, source: word) -> word {
+    pilot start_pos = v4_span_start(span)
+    pilot end_pos = v4_span_end(span)
+    pilot range = "range"
+    range = range + "|" + word_from_int(v4_offset_line(source, start_pos))
+    range = range + "|" + word_from_int(v4_offset_col(source, start_pos))
+    range = range + "|" + word_from_int(v4_offset_line(source, end_pos))
+    range = range + "|" + word_from_int(v4_offset_col(source, end_pos))
+    give back range
+}
+
+task v4_lsp_location(path: word, span: word, source: word) -> word {
+    pilot start_pos = v4_span_start(span)
+    pilot end_pos = v4_span_end(span)
+    pilot location = "location|" + path
+    location = location + "|" + word_from_int(v4_offset_line(source, start_pos))
+    location = location + "|" + word_from_int(v4_offset_col(source, start_pos))
+    location = location + "|" + word_from_int(v4_offset_line(source, end_pos))
+    location = location + "|" + word_from_int(v4_offset_col(source, end_pos))
+    give back location
+}
+
+task v4_lsp_completion_item(label: word, kind: word, detail: word, insert_text: word) -> word {
+    give back "completion-item|" + label + "|" + kind + "|" + detail + "|" + insert_text
+}
+
+task v4_lsp_symbol_item(name: word, kind: word, span: word, source: word) -> word {
+    give back "symbol|" + name + "|" + kind + "|" + v4_lsp_range_from_span(span, source)
+}
+
+task v4_lsp_diagnostic_item(diag: word, source: word) -> word {
+    pilot item = "diagnostic"
+    item = item + "|" + v4_diag_severity_name(v4_diag_severity(diag))
+    item = item + "|" + v4_lsp_range_from_span(v4_diag_span(diag), source)
+    item = item + "|" + v4_diag_message(diag)
+    item = item + "|" + v4_diag_help(diag)
+    give back item
 }
 
 task v4_lsp_hover_text(path: word, text: word, offset: int) -> word {
     pilot hover_id = v4_hover_text_cached(path, text, offset)
     pilot markdown = v4_hover_markdown(hover_id)
     if markdown == "" {
-        give back "hover missing"
+        give back v4_lsp_response_error("textDocument/hover", 0 - 32001, "no hover available")
     }
-    give back "hover markdown\n" + markdown
+    give back v4_lsp_response_ok("textDocument/hover", "hover|markdown\n" + markdown)
 }
 
 task v4_lsp_definition_text(path: word, text: word, offset: int) -> word {
     pilot defn_id = v4_definition_at_text_cached(path, text, offset)
-    pilot out = "definition found=" + word_from_int(v4_definition_at_found(defn_id))
-    out = out + " name=" + v4_definition_at_name(defn_id)
-    out = out + " kind=" + v4_definition_at_kind(defn_id)
-    out = out + " span=" + v4_definition_at_span(defn_id)
-    give back out
+    if v4_definition_at_found(defn_id) == 0 {
+        give back v4_lsp_response_ok("textDocument/definition", "location|missing")
+    }
+    pilot out = v4_lsp_location(path, v4_definition_at_span(defn_id), text)
+    out = out + "|" + v4_definition_at_name(defn_id)
+    out = out + "|" + v4_definition_at_kind(defn_id)
+    give back v4_lsp_response_ok("textDocument/definition", out)
 }
 
 task v4_lsp_document_symbols_text(path: word, text: word) -> word {
     pilot doc_id = v4_document_symbols_text_cached(path, text)
-    pilot out = "document-symbols count=" + word_from_int(v4_document_symbol_count(doc_id))
+    pilot out = "document-symbols|" + word_from_int(v4_document_symbol_count(doc_id))
     pilot symbol_id = 0
     pilot symbol_count = v4_document_symbol_count(doc_id)
     repeat until symbol_id >= symbol_count {
         out = out + "\n"
-        out = out + v4_document_symbol_name(doc_id, symbol_id)
-        out = out + "|" + v4_document_symbol_kind(doc_id, symbol_id)
-        out = out + "|" + v4_document_symbol_span(doc_id, symbol_id)
+        out = out + v4_lsp_symbol_item(v4_document_symbol_name(doc_id, symbol_id), v4_document_symbol_kind(doc_id, symbol_id), v4_document_symbol_span(doc_id, symbol_id), text)
         out = out + "|" + v4_document_symbol_type(doc_id, symbol_id)
         symbol_id += 1
     }
-    give back out
+    give back v4_lsp_response_ok("textDocument/documentSymbol", out)
 }
 
 task v4_lsp_completion_text(path: word, text: word, offset: int) -> word {
     pilot completion_id = v4_completion_text_cached(path, text, offset)
-    pilot out = "completion count=" + word_from_int(v4_completion_count(completion_id))
+    pilot out = "completion|" + word_from_int(v4_completion_count(completion_id))
     pilot item_id = 0
     pilot item_count = v4_completion_count(completion_id)
     repeat until item_id >= item_count {
         out = out + "\n"
-        out = out + v4_completion_label(completion_id, item_id)
-        out = out + "|" + v4_completion_kind(completion_id, item_id)
-        out = out + "|" + v4_completion_detail(completion_id, item_id)
-        out = out + "|" + v4_completion_insert_text(completion_id, item_id)
+        out = out + v4_lsp_completion_item(v4_completion_label(completion_id, item_id), v4_completion_kind(completion_id, item_id), v4_completion_detail(completion_id, item_id), v4_completion_insert_text(completion_id, item_id))
         item_id += 1
     }
-    give back out
+    give back v4_lsp_response_ok("textDocument/completion", out)
 }
 
 task v4_lsp_diagnostics_text(path: word, text: word) -> word {
     pilot diagnostics_id = v4_diagnostics_text_cached(path, text)
-    pilot out = v4_diagnostics_summary(diagnostics_id)
+    pilot out = "diagnostics|" + word_from_int(v4_diagnostics_count(diagnostics_id))
     pilot diag_id = 0
     pilot diag_count = v4_diagnostics_count(diagnostics_id)
     repeat until diag_id >= diag_count {
         pilot diag = v4_diagnostics_diag(diagnostics_id, diag_id)
         out = out + "\n"
-        out = out + v4_diag_severity_name(v4_diag_severity(diag))
-        out = out + "|" + v4_diag_span(diag)
-        out = out + "|" + v4_diag_message(diag)
-        out = out + "|" + v4_diag_help(diag)
+        out = out + v4_lsp_diagnostic_item(diag, text)
         diag_id += 1
     }
-    give back out
+    give back v4_lsp_response_ok("textDocument/publishDiagnostics", out)
 }
