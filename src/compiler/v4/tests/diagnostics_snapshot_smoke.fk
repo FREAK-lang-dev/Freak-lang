@@ -1,0 +1,45 @@
+-- V4 diagnostics arena snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_diagnostics_snapshot_source = "task main() -> int {\n"
+v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    pilot text = \"hi\"\n"
+v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    pilot bad = text - 1\n"
+v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    if 1 {\n"
+v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "        pilot y = 0\n"
+v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    }\n"
+v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    text = 1\n"
+v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    give back 0\n"
+v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "}\n"
+
+pilot v4_diagnostics_snapshot_id = v4_diagnostics_text_cached("diagnostics-snapshot.fk", v4_diagnostics_snapshot_source)
+say v4_diagnostics_summary(v4_diagnostics_snapshot_id)
+say v4_diagnostics_snapshot_summary()
+
+pilot v4_diagnostics_snapshot_payload = v4_diagnostics_snapshot()
+say v4_diagnostics_snapshot_validate(v4_diagnostics_snapshot_payload)
+say "diagnostics-snapshot-bytes=" + word_from_int(v4_diagnostics_snapshot_payload.length())
+say "diagnostics-snapshot-escape=" + v4_diagnostics_snapshot_escape("error|Yuuko%0\nMeiya")
+say "diagnostics-snapshot-unescape=" + v4_diagnostics_snapshot_unescape("error%7CYuuko%250%0AMeiya")
+say v4_diagnostics_snapshot_set_line(v4_diagnostics_snapshot_id)
+say v4_diagnostics_snapshot_diag_line(v4_diagnostics_snapshot_id, 0)
+say v4_parse_snapshot_restore(v4_parse_snapshot())
+say v4_hir_snapshot_restore(v4_hir_snapshot())
+say v4_resolve_snapshot_restore(v4_resolve_snapshot())
+say v4_ty_snapshot_restore(v4_ty_snapshot())
+say v4_mir_snapshot_restore(v4_mir_snapshot())
+say v4_borrowck_snapshot_restore(v4_borrowck_snapshot())
+say v4_diagnostics_snapshot_restore(v4_diagnostics_snapshot_payload)
+say v4_lsp_diagnostics_snapshot_text()
+say v4_lsp_diagnostics_snapshot_restore_text(v4_diagnostics_snapshot_payload)
+say v4_lsp_handle_text_request("workspace/diagnosticsSnapshotRestore", "diagnostics-snapshot.fk", v4_diagnostics_snapshot_payload, 0)
+say v4_lsp_handle_request("workspace/diagnosticsSnapshotRestore", "diagnostics-snapshot.fk", 0)
+
+pilot v4_diagnostics_query_payload = v4_query_snapshot()
+say v4_query_snapshot_restore(v4_diagnostics_query_payload)
+say v4_driver_confirm_restored_document_text("diagnostics-snapshot.fk", v4_diagnostics_snapshot_source)
+pilot v4_diagnostics_file = v4_source_find("diagnostics-snapshot.fk")
+pilot v4_diagnostics_fingerprint = v4_source_fingerprint(v4_diagnostics_file)
+pilot v4_diagnostics_restored_id = word_to_int(v4_query_get(v4_diagnostics_query_key("diagnostics-snapshot.fk"), v4_diagnostics_fingerprint))
+say v4_diagnostics_summary(v4_diagnostics_restored_id)
+say "restored-diagnostic0=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_restored_id, 0))
+say v4_driver_confirm_restored_document_text("diagnostics-snapshot.fk", "task changed() => 7\n")
