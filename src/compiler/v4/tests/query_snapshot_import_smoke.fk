@@ -1,0 +1,24 @@
+-- V4 query snapshot import smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_import_source = "task main() => \"hi|there\"\n"
+v4_import_source = v4_import_source + "shape Pilot\n"
+
+say v4_check_syntax_text("snapshot-import.fk", v4_import_source)
+say v4_lsp_hover_text("snapshot-import.fk", v4_import_source, 5)
+
+pilot v4_import_payload = v4_query_snapshot()
+say v4_query_snapshot_validate(v4_import_payload)
+say v4_lsp_query_snapshot_import_text(v4_import_payload)
+say v4_lsp_handle_text_request("workspace/querySnapshotImport", "snapshot-import.fk", v4_import_payload, 0)
+say v4_lsp_handle_request("workspace/querySnapshotImport", "snapshot-import.fk", 0)
+
+pilot v4_import_header = v4_query_snapshot_line(v4_import_payload, 0)
+pilot v4_import_entry = v4_query_snapshot_line(v4_import_payload, 2)
+say "import-lines=" + word_from_int(v4_query_snapshot_line_count(v4_import_payload))
+say "header-format=" + v4_query_snapshot_key_value(v4_import_header, "format")
+say "header-fields=" + word_from_int(v4_query_snapshot_field_count(v4_import_header))
+say "entry-kind=" + v4_query_snapshot_field_raw(v4_import_entry, 0)
+say "entry-key=" + v4_query_snapshot_field(v4_import_entry, 2)
+say "unescape=" + v4_query_snapshot_unescape("a%7Cb%25z%0Ac")
+say v4_query_snapshot_validate("snapshot|format=wrong\nend|wrong")
