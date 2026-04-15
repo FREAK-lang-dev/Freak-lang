@@ -1,0 +1,73 @@
+-- ===================================================================
+-- freak_lsp - V4 editor-facing query facade
+-- ===================================================================
+-- Depends on freak_driver. This crate owns no compiler facts; it only
+-- formats driver query results into stable line payloads that a future
+-- JSON-RPC daemon can wrap as Language Server Protocol responses.
+
+task v4_lsp_hover_text(path: word, text: word, offset: int) -> word {
+    pilot hover_id = v4_hover_text_cached(path, text, offset)
+    pilot markdown = v4_hover_markdown(hover_id)
+    if markdown == "" {
+        give back "hover missing"
+    }
+    give back "hover markdown\n" + markdown
+}
+
+task v4_lsp_definition_text(path: word, text: word, offset: int) -> word {
+    pilot defn_id = v4_definition_at_text_cached(path, text, offset)
+    pilot out = "definition found=" + word_from_int(v4_definition_at_found(defn_id))
+    out = out + " name=" + v4_definition_at_name(defn_id)
+    out = out + " kind=" + v4_definition_at_kind(defn_id)
+    out = out + " span=" + v4_definition_at_span(defn_id)
+    give back out
+}
+
+task v4_lsp_document_symbols_text(path: word, text: word) -> word {
+    pilot doc_id = v4_document_symbols_text_cached(path, text)
+    pilot out = "document-symbols count=" + word_from_int(v4_document_symbol_count(doc_id))
+    pilot symbol_id = 0
+    pilot symbol_count = v4_document_symbol_count(doc_id)
+    repeat until symbol_id >= symbol_count {
+        out = out + "\n"
+        out = out + v4_document_symbol_name(doc_id, symbol_id)
+        out = out + "|" + v4_document_symbol_kind(doc_id, symbol_id)
+        out = out + "|" + v4_document_symbol_span(doc_id, symbol_id)
+        out = out + "|" + v4_document_symbol_type(doc_id, symbol_id)
+        symbol_id += 1
+    }
+    give back out
+}
+
+task v4_lsp_completion_text(path: word, text: word, offset: int) -> word {
+    pilot completion_id = v4_completion_text_cached(path, text, offset)
+    pilot out = "completion count=" + word_from_int(v4_completion_count(completion_id))
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        out = out + "\n"
+        out = out + v4_completion_label(completion_id, item_id)
+        out = out + "|" + v4_completion_kind(completion_id, item_id)
+        out = out + "|" + v4_completion_detail(completion_id, item_id)
+        out = out + "|" + v4_completion_insert_text(completion_id, item_id)
+        item_id += 1
+    }
+    give back out
+}
+
+task v4_lsp_diagnostics_text(path: word, text: word) -> word {
+    pilot diagnostics_id = v4_diagnostics_text_cached(path, text)
+    pilot out = v4_diagnostics_summary(diagnostics_id)
+    pilot diag_id = 0
+    pilot diag_count = v4_diagnostics_count(diagnostics_id)
+    repeat until diag_id >= diag_count {
+        pilot diag = v4_diagnostics_diag(diagnostics_id, diag_id)
+        out = out + "\n"
+        out = out + v4_diag_severity_name(v4_diag_severity(diag))
+        out = out + "|" + v4_diag_span(diag)
+        out = out + "|" + v4_diag_message(diag)
+        out = out + "|" + v4_diag_help(diag)
+        diag_id += 1
+    }
+    give back out
+}
