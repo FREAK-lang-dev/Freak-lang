@@ -9,13 +9,26 @@
 pilot FREAKC_V4_VERSION = "0.1.0-bootstrap"
 pilot FREAKC_V4_CODENAME = "00-Unit"
 
+pilot v4_driver_diag_paths = 0
+pilot v4_driver_diag_items = 0
+pilot v4_driver_ready = 0
+
 task v4_driver_init() -> void {
     v4_session_init()
     v4_query_init()
+    if v4_driver_ready == 0 {
+        v4_driver_diag_paths = array_new()
+        v4_driver_diag_items = array_new()
+        v4_driver_ready = 1
+    }
 }
 
 task v4_check_syntax_query_key(path: word) -> word {
     give back "syntax:" + path
+}
+
+task v4_diagnostics_query_key(path: word) -> word {
+    give back "diagnostics:" + path
 }
 
 task v4_lex_query_key(path: word) -> word {
@@ -283,6 +296,134 @@ task v4_borrowck_file(path: word) -> word {
     give back summary
 }
 
+task v4_driver_diag_items_handle(diag_set_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_diag_items, diag_set_id))
+}
+
+task v4_driver_diag_set_new(path: word) -> int {
+    v4_driver_init()
+    pilot diag_set_id = array_len(v4_driver_diag_paths)
+    array_push(v4_driver_diag_paths, path)
+    array_push(v4_driver_diag_items, word_from_int(array_new()))
+    give back diag_set_id
+}
+
+task v4_diagnostics_count(diag_set_id: int) -> int {
+    give back array_len(v4_driver_diag_items_handle(diag_set_id))
+}
+
+task v4_diagnostics_diag(diag_set_id: int, diag_id: int) -> word {
+    give back array_get(v4_driver_diag_items_handle(diag_set_id), diag_id)
+}
+
+task v4_diagnostics_add(diag_set_id: int, diag: word) -> void {
+    array_push(v4_driver_diag_items_handle(diag_set_id), diag)
+}
+
+task v4_diagnostics_copy_lex(diag_set_id: int, stream_id: int) -> void {
+    pilot diag_idx = 0
+    pilot diag_count = v4_lex_diag_count(stream_id)
+    repeat until diag_idx >= diag_count {
+        v4_diagnostics_add(diag_set_id, v4_lex_diag(stream_id, diag_idx))
+        diag_idx += 1
+    }
+}
+
+task v4_diagnostics_copy_borrowck(diag_set_id: int, borrow_id: int) -> void {
+    pilot diag_idx = 0
+    pilot diag_count = v4_borrowck_diag_count(borrow_id)
+    repeat until diag_idx >= diag_count {
+        v4_diagnostics_add(diag_set_id, v4_borrowck_diag(borrow_id, diag_idx))
+        diag_idx += 1
+    }
+}
+
+task v4_diagnostics_error_count(diag_set_id: int) -> int {
+    pilot errors = 0
+    pilot diag_idx = 0
+    pilot diag_count = v4_diagnostics_count(diag_set_id)
+    repeat until diag_idx >= diag_count {
+        pilot diag = v4_diagnostics_diag(diag_set_id, diag_idx)
+        pilot severity = v4_diag_severity(diag)
+        if severity == v4_diag_error or severity == v4_diag_fatal {
+            errors += 1
+        }
+        diag_idx += 1
+    }
+    give back errors
+}
+
+task v4_diagnostics_warning_count(diag_set_id: int) -> int {
+    pilot warnings = 0
+    pilot diag_idx = 0
+    pilot diag_count = v4_diagnostics_count(diag_set_id)
+    repeat until diag_idx >= diag_count {
+        pilot diag = v4_diagnostics_diag(diag_set_id, diag_idx)
+        if v4_diag_severity(diag) == v4_diag_warning {
+            warnings += 1
+        }
+        diag_idx += 1
+    }
+    give back warnings
+}
+
+task v4_diagnostics_summary(diag_set_id: int) -> word {
+    pilot summary = "diagnostics id=" + word_from_int(diag_set_id)
+    summary = summary + " count=" + word_from_int(v4_diagnostics_count(diag_set_id))
+    summary = summary + " errors=" + word_from_int(v4_diagnostics_error_count(diag_set_id))
+    summary = summary + " warnings=" + word_from_int(v4_diagnostics_warning_count(diag_set_id))
+    give back summary
+}
+
+task v4_diagnostics_text_cached(path: word, text: word) -> int {
+    v4_driver_init()
+
+    pilot file_id = v4_source_set_text(path, text)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot key = v4_diagnostics_query_key(path)
+    pilot cached = v4_query_get(key, fingerprint)
+    if cached != "" {
+        give back word_to_int(cached)
+    }
+
+    pilot stream_id = v4_lex_text_cached(path, text)
+    pilot tree_id = v4_parse_text_cached(path, text)
+    pilot hir_id = v4_hir_text_cached(path, text)
+    pilot resolve_id = v4_resolve_text_cached(path, text)
+    pilot ty_id = v4_ty_text_cached(path, text)
+    pilot mir_id = v4_mir_text_cached(path, text)
+    pilot borrow_id = v4_borrowck_text_cached(path, text)
+    pilot diag_set_id = v4_driver_diag_set_new(path)
+    v4_diagnostics_copy_lex(diag_set_id, stream_id)
+    v4_diagnostics_copy_borrowck(diag_set_id, borrow_id)
+
+    v4_query_store(key, fingerprint, word_from_int(diag_set_id))
+    v4_query_record_dep(key, "source:" + path)
+    v4_query_record_dep(key, v4_lex_query_key(path))
+    v4_query_record_dep(key, v4_parse_query_key(path))
+    v4_query_record_dep(key, v4_hir_query_key(path))
+    v4_query_record_dep(key, v4_resolve_query_key(path))
+    v4_query_record_dep(key, v4_ty_query_key(path))
+    v4_query_record_dep(key, v4_mir_query_key(path))
+    v4_query_record_dep(key, v4_borrowck_query_key(path))
+    give back diag_set_id
+}
+
+task v4_diagnostics_text(path: word, text: word) -> word {
+    pilot diag_set_id = v4_diagnostics_text_cached(path, text)
+    give back v4_diagnostics_summary(diag_set_id)
+}
+
+task v4_diagnostics_file(path: word) -> word {
+    pilot text = fs::read(path)
+    if text == "" {
+        pilot span = v4_span_new("0", 0, 0)
+        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
+        give back v4_diag_render(diag, "")
+    }
+    give back v4_diagnostics_text(path, text)
+}
+
 task v4_check_syntax_text(path: word, text: word) -> word {
     v4_driver_init()
 
@@ -301,6 +442,7 @@ task v4_check_syntax_text(path: word, text: word) -> word {
     pilot ty_id = v4_ty_text_cached(path, text)
     pilot mir_id = v4_mir_text_cached(path, text)
     pilot borrow_id = v4_borrowck_text_cached(path, text)
+    pilot diagnostics_id = v4_diagnostics_text_cached(path, text)
     pilot lines = v4_line_count(text)
     pilot syntax_summary = "syntax-ok file=" + word_from_int(file_id)
     syntax_summary = syntax_summary + " rev=" + word_from_int(v4_source_revision(file_id))
@@ -320,6 +462,7 @@ task v4_check_syntax_text(path: word, text: word) -> word {
     syntax_summary = syntax_summary + " mir-diagnostics=" + word_from_int(v4_mir_diag_count(mir_id))
     syntax_summary = syntax_summary + " borrow-results=" + word_from_int(v4_borrowck_result_count(borrow_id))
     syntax_summary = syntax_summary + " borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(borrow_id))
+    syntax_summary = syntax_summary + " diagnostics=" + word_from_int(v4_diagnostics_count(diagnostics_id))
 
     v4_query_store(key, fingerprint, syntax_summary)
     v4_query_record_dep(key, "source:" + path)
@@ -330,6 +473,7 @@ task v4_check_syntax_text(path: word, text: word) -> word {
     v4_query_record_dep(key, v4_ty_query_key(path))
     v4_query_record_dep(key, v4_mir_query_key(path))
     v4_query_record_dep(key, v4_borrowck_query_key(path))
+    v4_query_record_dep(key, v4_diagnostics_query_key(path))
     give back syntax_summary
 }
 

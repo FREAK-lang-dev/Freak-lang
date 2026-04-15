@@ -1,0 +1,19 @@
+-- V4 query-facing diagnostics smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_diag_query_source = "task main() -> int {\n"
+v4_diag_query_source = v4_diag_query_source + "    pilot text = \"hi\"\n"
+v4_diag_query_source = v4_diag_query_source + "    pilot bad = text - 1\n"
+v4_diag_query_source = v4_diag_query_source + "    if 1 {\n"
+v4_diag_query_source = v4_diag_query_source + "        pilot y = 0\n"
+v4_diag_query_source = v4_diag_query_source + "    }\n"
+v4_diag_query_source = v4_diag_query_source + "    text = 1\n"
+v4_diag_query_source = v4_diag_query_source + "    give back 0\n"
+v4_diag_query_source = v4_diag_query_source + "}\n"
+
+pilot v4_diag_query_id = v4_diagnostics_text_cached("diag_query.fk", v4_diag_query_source)
+
+say v4_diagnostics_summary(v4_diag_query_id)
+say "query-diag-count=" + word_from_int(v4_diagnostics_count(v4_diag_query_id))
+say "query-diag0-message=" + v4_diag_message(v4_diagnostics_diag(v4_diag_query_id, 0))
+say "syntax-summary=" + v4_check_syntax_text("diag_query.fk", v4_diag_query_source)
