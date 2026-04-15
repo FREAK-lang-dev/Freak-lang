@@ -19,6 +19,7 @@ CRATE_ORDER = [
     "freak_borrowck",
     "freak_query",
     "freak_driver",
+    "freak_snapshot",
     "freak_lsp",
 ]
 

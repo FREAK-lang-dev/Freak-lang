@@ -1,0 +1,1197 @@
+-- ===================================================================
+-- freak_snapshot - V4 00-Unit workspace snapshot layer
+-- ===================================================================
+-- Depends on freak_driver and the lower V4 crates. This crate owns
+-- the unified workspace snapshot envelope, manifest, diff, health,
+-- and restore coordination so the driver does not become the new monolith.
+
+pilot v4_unit_snapshot_format = "freak-00-unit-snapshot-v1"
+pilot v4_unit_snapshot_manifest_format = "freak-00-unit-manifest-v1"
+pilot v4_unit_snapshot_diff_format = "freak-00-unit-snapshot-diff-v1"
+pilot v4_unit_snapshot_diff_input_format = "freak-00-unit-snapshot-diff-input-v1"
+pilot v4_unit_snapshot_health_format = "freak-00-unit-health-v1"
+
+task v4_unit_snapshot_escape(value: word) -> word {
+    give back v4_diagnostics_snapshot_escape(value)
+}
+
+task v4_unit_snapshot_unescape(value: word) -> word {
+    give back v4_diagnostics_snapshot_unescape(value)
+}
+
+task v4_unit_snapshot_line_count(payload: word) -> int {
+    give back v4_diagnostics_snapshot_line_count(payload)
+}
+
+task v4_unit_snapshot_line(payload: word, wanted: int) -> word {
+    give back v4_diagnostics_snapshot_line(payload, wanted)
+}
+
+task v4_unit_snapshot_field_count(line: word) -> int {
+    give back v4_diagnostics_snapshot_field_count(line)
+}
+
+task v4_unit_snapshot_field_raw(line: word, wanted: int) -> word {
+    give back v4_diagnostics_snapshot_field_raw(line, wanted)
+}
+
+task v4_unit_snapshot_field(line: word, wanted: int) -> word {
+    give back v4_diagnostics_snapshot_field(line, wanted)
+}
+
+task v4_unit_snapshot_key_value(line: word, wanted_key: word) -> word {
+    give back v4_diagnostics_snapshot_key_value(line, wanted_key)
+}
+
+task v4_unit_snapshot_section_count() -> int {
+    give back 14
+}
+
+task v4_unit_snapshot_summary() -> word {
+    pilot summary = "00-unit-snapshot"
+    summary = summary + " format=" + v4_unit_snapshot_format
+    summary = summary + " sources=" + word_from_int(v4_source_count())
+    summary = summary + " sections=" + word_from_int(v4_unit_snapshot_section_count())
+    summary = summary + " queries=" + word_from_int(v4_query_cache_size())
+    summary = summary + " diagnostics=" + word_from_int(v4_diagnostics_set_count())
+    give back summary
+}
+
+task v4_unit_snapshot_header() -> word {
+    pilot out = "00-unit-snapshot"
+    out = out + "|format=" + v4_unit_snapshot_format
+    out = out + "|sources=" + word_from_int(v4_source_count())
+    out = out + "|sections=" + word_from_int(v4_unit_snapshot_section_count())
+    give back out
+}
+
+task v4_unit_snapshot_source_line(file_id: int) -> word {
+    pilot out = "unit-source"
+    out = out + "|" + word_from_int(file_id)
+    out = out + "|" + v4_unit_snapshot_escape(v4_source_path(file_id))
+    out = out + "|" + word_from_int(v4_source_revision(file_id))
+    out = out + "|" + v4_unit_snapshot_escape(v4_source_fingerprint(file_id))
+    out = out + "|" + v4_unit_snapshot_escape(v4_source_text(file_id))
+    give back out
+}
+
+task v4_unit_snapshot_section_line(section_name: word, section_payload: word) -> word {
+    pilot out = "unit-section"
+    out = out + "|" + section_name
+    out = out + "|" + v4_unit_snapshot_escape(section_payload)
+    give back out
+}
+
+task v4_unit_snapshot() -> word {
+    v4_driver_init()
+    pilot out = v4_unit_snapshot_header()
+
+    pilot file_id = 0
+    pilot source_count = v4_source_count()
+    repeat until file_id >= source_count {
+        out = out + "\n" + v4_unit_snapshot_source_line(file_id)
+        file_id += 1
+    }
+
+    out = out + "\n" + v4_unit_snapshot_section_line("lex", v4_lex_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("parse", v4_parse_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("hir", v4_hir_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("resolve", v4_resolve_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("ty", v4_ty_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("mir", v4_mir_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("borrowck", v4_borrowck_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("diagnostics", v4_diagnostics_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("semantic", v4_semantic_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("hover", v4_hover_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("definition", v4_definition_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("document-symbols", v4_document_symbols_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("completion", v4_completion_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("query", v4_query_snapshot())
+    out = out + "\nend|" + v4_unit_snapshot_format
+    give back out
+}
+
+task v4_unit_snapshot_record_expected_fields(kind: word) -> int {
+    if kind == "00-unit-snapshot" { give back 4 }
+    if kind == "unit-source" { give back 6 }
+    if kind == "unit-section" { give back 3 }
+    if kind == "end" { give back 2 }
+    give back 0
+}
+
+task v4_unit_snapshot_record_is_valid(line: word) -> bool {
+    pilot kind = v4_unit_snapshot_field_raw(line, 0)
+    pilot expected = v4_unit_snapshot_record_expected_fields(kind)
+    if expected == 0 {
+        give back false
+    }
+    if v4_unit_snapshot_field_count(line) < expected {
+        give back false
+    }
+    give back true
+}
+
+task v4_unit_snapshot_validate(payload: word) -> word {
+    pilot lines = v4_unit_snapshot_line_count(payload)
+    pilot sources = 0
+    pilot sections = 0
+    pilot malformed = 0
+    pilot saw_header = 0
+    pilot saw_end = 0
+    pilot format = ""
+
+    pilot line_id = 0
+    repeat until line_id >= lines {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_unit_snapshot_field_raw(line, 0)
+            if v4_unit_snapshot_record_is_valid(line) == false {
+                malformed += 1
+            } else if kind == "00-unit-snapshot" {
+                saw_header += 1
+                format = v4_unit_snapshot_key_value(line, "format")
+                if format != v4_unit_snapshot_format {
+                    malformed += 1
+                }
+            } else if kind == "unit-source" {
+                sources += 1
+            } else if kind == "unit-section" {
+                sections += 1
+            } else if kind == "end" {
+                saw_end += 1
+                if v4_unit_snapshot_field(line, 1) != v4_unit_snapshot_format {
+                    malformed += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+
+    pilot import_ok = 1
+    if saw_header != 1 { import_ok = 0 }
+    if saw_end != 1 { import_ok = 0 }
+    if malformed > 0 { import_ok = 0 }
+
+    pilot out = "00-unit-snapshot-import"
+    out = out + " ok=" + word_from_int(import_ok)
+    out = out + " format=" + format
+    out = out + " lines=" + word_from_int(lines)
+    out = out + " sources=" + word_from_int(sources)
+    out = out + " sections=" + word_from_int(sections)
+    out = out + " malformed=" + word_from_int(malformed)
+    out = out + " headers=" + word_from_int(saw_header)
+    out = out + " ends=" + word_from_int(saw_end)
+    give back out
+}
+
+task v4_unit_snapshot_section_payload(payload: word, section_name: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "unit-section" {
+                if v4_unit_snapshot_field_raw(line, 1) == section_name {
+                    give back v4_unit_snapshot_field(line, 2)
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_payload_record_count(section_payload: word) -> int {
+    pilot records = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(section_payload)
+    repeat until line_id >= line_count {
+        if v4_unit_snapshot_line(section_payload, line_id) != "" {
+            records += 1
+        }
+        line_id += 1
+    }
+    give back records
+}
+
+task v4_unit_snapshot_section_validate(section_name: word, section_payload: word) -> word {
+    if section_name == "lex" { give back v4_lex_snapshot_validate(section_payload) }
+    if section_name == "parse" { give back v4_parse_snapshot_validate(section_payload) }
+    if section_name == "hir" { give back v4_hir_snapshot_validate(section_payload) }
+    if section_name == "resolve" { give back v4_resolve_snapshot_validate(section_payload) }
+    if section_name == "ty" { give back v4_ty_snapshot_validate(section_payload) }
+    if section_name == "mir" { give back v4_mir_snapshot_validate(section_payload) }
+    if section_name == "borrowck" { give back v4_borrowck_snapshot_validate(section_payload) }
+    if section_name == "diagnostics" { give back v4_diagnostics_snapshot_validate(section_payload) }
+    if section_name == "semantic" { give back v4_semantic_snapshot_validate(section_payload) }
+    if section_name == "hover" { give back v4_hover_snapshot_validate(section_payload) }
+    if section_name == "definition" { give back v4_definition_snapshot_validate(section_payload) }
+    if section_name == "document-symbols" { give back v4_document_symbols_snapshot_validate(section_payload) }
+    if section_name == "completion" { give back v4_completion_snapshot_validate(section_payload) }
+    if section_name == "query" { give back v4_query_snapshot_validate(section_payload) }
+    give back "unit-section-snapshot-import ok=0 reason=unknown-section name=" + section_name
+}
+
+task v4_unit_snapshot_section_validation_prefix(section_name: word) -> word {
+    if section_name == "lex" { give back "lex-snapshot-import ok=1" }
+    if section_name == "parse" { give back "parse-snapshot-import ok=1" }
+    if section_name == "hir" { give back "hir-snapshot-import ok=1" }
+    if section_name == "resolve" { give back "resolve-snapshot-import ok=1" }
+    if section_name == "ty" { give back "ty-snapshot-import ok=1" }
+    if section_name == "mir" { give back "mir-snapshot-import ok=1" }
+    if section_name == "borrowck" { give back "borrowck-snapshot-import ok=1" }
+    if section_name == "diagnostics" { give back "diagnostics-snapshot-import ok=1" }
+    if section_name == "semantic" { give back "semantic-snapshot-import ok=1" }
+    if section_name == "hover" { give back "hover-snapshot-import ok=1" }
+    if section_name == "definition" { give back "definition-snapshot-import ok=1" }
+    if section_name == "document-symbols" { give back "document-symbols-snapshot-import ok=1" }
+    if section_name == "completion" { give back "completion-snapshot-import ok=1" }
+    if section_name == "query" { give back "query-snapshot-import ok=1" }
+    give back ""
+}
+
+task v4_unit_snapshot_section_validation_ok(section_name: word, validation: word) -> int {
+    pilot prefix = v4_unit_snapshot_section_validation_prefix(section_name)
+    if prefix == "" { give back 0 }
+    if validation.starts_with(prefix) { give back 1 }
+    give back 0
+}
+
+task v4_unit_snapshot_source_manifest_line(line: word) -> word {
+    if v4_unit_snapshot_record_is_valid(line) == false {
+        give back "source|malformed=1"
+    }
+
+    pilot file_id = v4_unit_snapshot_field_raw(line, 1)
+    pilot path = v4_unit_snapshot_field(line, 2)
+    pilot revision = v4_unit_snapshot_field_raw(line, 3)
+    pilot fingerprint = v4_unit_snapshot_field(line, 4)
+    pilot text = v4_unit_snapshot_field(line, 5)
+
+    pilot out = "source|" + file_id
+    out = out + "|path=" + v4_unit_snapshot_escape(path)
+    out = out + "|revision=" + revision
+    out = out + "|fingerprint-bytes=" + word_from_int(fingerprint.length())
+    out = out + "|text-bytes=" + word_from_int(text.length())
+    give back out
+}
+
+task v4_unit_snapshot_section_manifest_line(line: word) -> word {
+    if v4_unit_snapshot_record_is_valid(line) == false {
+        give back "section|malformed=1"
+    }
+
+    pilot section_name = v4_unit_snapshot_field_raw(line, 1)
+    pilot section_payload = v4_unit_snapshot_field(line, 2)
+    pilot validation = v4_unit_snapshot_section_validate(section_name, section_payload)
+    pilot section_ok = v4_unit_snapshot_section_validation_ok(section_name, validation)
+
+    pilot out = "section|" + section_name
+    out = out + "|bytes=" + word_from_int(section_payload.length())
+    out = out + "|lines=" + word_from_int(v4_unit_snapshot_line_count(section_payload))
+    out = out + "|records=" + word_from_int(v4_unit_snapshot_payload_record_count(section_payload))
+    out = out + "|ok=" + word_from_int(section_ok)
+    out = out + "|validation=" + v4_unit_snapshot_escape(validation)
+    give back out
+}
+
+task v4_unit_snapshot_manifest(payload: word) -> word {
+    pilot validation = v4_unit_snapshot_validate(payload)
+    pilot manifest_ok = 0
+    if validation.starts_with("00-unit-snapshot-import ok=1") {
+        manifest_ok = 1
+    }
+
+    pilot lines = v4_unit_snapshot_line_count(payload)
+    pilot sources = 0
+    pilot sections = 0
+    pilot malformed = 0
+    pilot payload_format = ""
+    pilot declared_sources = ""
+    pilot declared_sections = ""
+
+    pilot line_id = 0
+    repeat until line_id >= lines {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_unit_snapshot_field_raw(line, 0)
+            if v4_unit_snapshot_record_is_valid(line) == false {
+                malformed += 1
+            } else if kind == "00-unit-snapshot" {
+                payload_format = v4_unit_snapshot_key_value(line, "format")
+                declared_sources = v4_unit_snapshot_key_value(line, "sources")
+                declared_sections = v4_unit_snapshot_key_value(line, "sections")
+            } else if kind == "unit-source" {
+                sources += 1
+            } else if kind == "unit-section" {
+                sections += 1
+            }
+        }
+        line_id += 1
+    }
+
+    pilot out = "00-unit-manifest"
+    out = out + "|format=" + v4_unit_snapshot_manifest_format
+    out = out + "|ok=" + word_from_int(manifest_ok)
+    out = out + "|payload-format=" + v4_unit_snapshot_escape(payload_format)
+    out = out + "|payload-bytes=" + word_from_int(payload.length())
+    out = out + "|payload-lines=" + word_from_int(lines)
+    out = out + "|sources=" + word_from_int(sources)
+    out = out + "|declared-sources=" + declared_sources
+    out = out + "|sections=" + word_from_int(sections)
+    out = out + "|declared-sections=" + declared_sections
+    out = out + "|malformed=" + word_from_int(malformed)
+    out = out + "|validation=" + v4_unit_snapshot_escape(validation)
+
+    line_id = 0
+    repeat until line_id >= lines {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_unit_snapshot_field_raw(line, 0)
+            if kind == "unit-source" {
+                out = out + "\n" + v4_unit_snapshot_source_manifest_line(line)
+            } else if kind == "unit-section" {
+                out = out + "\n" + v4_unit_snapshot_section_manifest_line(line)
+            }
+        }
+        line_id += 1
+    }
+
+    out = out + "\nend|" + v4_unit_snapshot_manifest_format
+    give back out
+}
+
+task v4_unit_snapshot_section_name_at(section_id: int) -> word {
+    if section_id == 0 { give back "lex" }
+    if section_id == 1 { give back "parse" }
+    if section_id == 2 { give back "hir" }
+    if section_id == 3 { give back "resolve" }
+    if section_id == 4 { give back "ty" }
+    if section_id == 5 { give back "mir" }
+    if section_id == 6 { give back "borrowck" }
+    if section_id == 7 { give back "diagnostics" }
+    if section_id == 8 { give back "semantic" }
+    if section_id == 9 { give back "hover" }
+    if section_id == 10 { give back "definition" }
+    if section_id == 11 { give back "document-symbols" }
+    if section_id == 12 { give back "completion" }
+    if section_id == 13 { give back "query" }
+    give back ""
+}
+
+task v4_unit_snapshot_payload_has_line(payload: word, wanted_line: word) -> bool {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        if v4_unit_snapshot_line(payload, line_id) == wanted_line {
+            give back true
+        }
+        line_id += 1
+    }
+    give back false
+}
+
+task v4_unit_snapshot_source_line_by_path(payload: word, path: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "unit-source" {
+                if v4_unit_snapshot_field(line, 2) == path {
+                    give back line
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_source_revision_from_line(line: word) -> word {
+    if line == "" { give back "" }
+    if v4_unit_snapshot_record_is_valid(line) == false { give back "" }
+    give back v4_unit_snapshot_field_raw(line, 3)
+}
+
+task v4_unit_snapshot_source_fingerprint_from_line(line: word) -> word {
+    if line == "" { give back "" }
+    if v4_unit_snapshot_record_is_valid(line) == false { give back "" }
+    give back v4_unit_snapshot_field(line, 4)
+}
+
+task v4_unit_snapshot_source_text_bytes_from_line(line: word) -> int {
+    if line == "" { give back 0 }
+    if v4_unit_snapshot_record_is_valid(line) == false { give back 0 }
+    give back v4_unit_snapshot_field(line, 5).length()
+}
+
+task v4_unit_snapshot_diff_source_record(state: word, path: word, snapshot_before_line: word, snapshot_after_line: word) -> word {
+    pilot before_revision = v4_unit_snapshot_source_revision_from_line(snapshot_before_line)
+    pilot after_revision = v4_unit_snapshot_source_revision_from_line(snapshot_after_line)
+    pilot before_fingerprint = v4_unit_snapshot_source_fingerprint_from_line(snapshot_before_line)
+    pilot after_fingerprint = v4_unit_snapshot_source_fingerprint_from_line(snapshot_after_line)
+
+    pilot out = "source-diff"
+    out = out + "|path=" + v4_unit_snapshot_escape(path)
+    out = out + "|state=" + state
+    out = out + "|before-revision=" + before_revision
+    out = out + "|after-revision=" + after_revision
+    out = out + "|before-bytes=" + word_from_int(v4_unit_snapshot_source_text_bytes_from_line(snapshot_before_line))
+    out = out + "|after-bytes=" + word_from_int(v4_unit_snapshot_source_text_bytes_from_line(snapshot_after_line))
+    out = out + "|before-fingerprint-bytes=" + word_from_int(before_fingerprint.length())
+    out = out + "|after-fingerprint-bytes=" + word_from_int(after_fingerprint.length())
+    give back out
+}
+
+task v4_unit_snapshot_diff_section_record(state: word, section_name: word, snapshot_before_payload: word, snapshot_after_payload: word) -> word {
+    pilot before_validation = ""
+    pilot after_validation = ""
+    pilot before_section_ok = 0
+    pilot after_section_ok = 0
+    if snapshot_before_payload != "" {
+        before_validation = v4_unit_snapshot_section_validate(section_name, snapshot_before_payload)
+        before_section_ok = v4_unit_snapshot_section_validation_ok(section_name, before_validation)
+    }
+    if snapshot_after_payload != "" {
+        after_validation = v4_unit_snapshot_section_validate(section_name, snapshot_after_payload)
+        after_section_ok = v4_unit_snapshot_section_validation_ok(section_name, after_validation)
+    }
+
+    pilot out = "section-diff"
+    out = out + "|name=" + section_name
+    out = out + "|state=" + state
+    out = out + "|before-bytes=" + word_from_int(snapshot_before_payload.length())
+    out = out + "|after-bytes=" + word_from_int(snapshot_after_payload.length())
+    out = out + "|before-lines=" + word_from_int(v4_unit_snapshot_line_count(snapshot_before_payload))
+    out = out + "|after-lines=" + word_from_int(v4_unit_snapshot_line_count(snapshot_after_payload))
+    out = out + "|before-records=" + word_from_int(v4_unit_snapshot_payload_record_count(snapshot_before_payload))
+    out = out + "|after-records=" + word_from_int(v4_unit_snapshot_payload_record_count(snapshot_after_payload))
+    out = out + "|before-ok=" + word_from_int(before_section_ok)
+    out = out + "|after-ok=" + word_from_int(after_section_ok)
+    out = out + "|before-validation=" + v4_unit_snapshot_escape(before_validation)
+    out = out + "|after-validation=" + v4_unit_snapshot_escape(after_validation)
+    give back out
+}
+
+task v4_unit_snapshot_query_entry_line(query_payload: word, key: word, input_fingerprint: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(query_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(query_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "entry" {
+                if v4_unit_snapshot_field(line, 2) == key {
+                    if v4_unit_snapshot_field(line, 3) == input_fingerprint {
+                        give back line
+                    }
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_query_entry_diff_state(snapshot_before_line: word, snapshot_after_line: word) -> word {
+    if snapshot_before_line == "" { give back "added" }
+    if snapshot_after_line == "" { give back "removed" }
+    if v4_unit_snapshot_field(snapshot_before_line, 5) != v4_unit_snapshot_field(snapshot_after_line, 5) {
+        give back "changed"
+    }
+    if v4_unit_snapshot_field(snapshot_before_line, 4) != v4_unit_snapshot_field(snapshot_after_line, 4) {
+        give back "changed"
+    }
+    give back "unchanged"
+}
+
+task v4_unit_snapshot_query_entry_diff_record(state: word, key: word, snapshot_before_line: word, snapshot_after_line: word) -> word {
+    pilot before_state = ""
+    pilot after_state = ""
+    pilot before_generation = ""
+    pilot after_generation = ""
+    pilot before_event = ""
+    pilot after_event = ""
+    if snapshot_before_line != "" {
+        before_state = v4_unit_snapshot_field(snapshot_before_line, 5)
+        before_generation = v4_unit_snapshot_field_raw(snapshot_before_line, 7)
+        before_event = v4_unit_snapshot_field(snapshot_before_line, 8)
+    }
+    if snapshot_after_line != "" {
+        after_state = v4_unit_snapshot_field(snapshot_after_line, 5)
+        after_generation = v4_unit_snapshot_field_raw(snapshot_after_line, 7)
+        after_event = v4_unit_snapshot_field(snapshot_after_line, 8)
+    }
+
+    pilot out = "query-entry-diff"
+    out = out + "|key=" + v4_unit_snapshot_escape(key)
+    out = out + "|state=" + state
+    out = out + "|before-state=" + before_state
+    out = out + "|after-state=" + after_state
+    out = out + "|before-generation=" + before_generation
+    out = out + "|after-generation=" + after_generation
+    out = out + "|before-event=" + v4_unit_snapshot_escape(before_event)
+    out = out + "|after-event=" + v4_unit_snapshot_escape(after_event)
+    give back out
+}
+
+task v4_unit_snapshot_query_invalidation_diff_record(line: word) -> word {
+    pilot out = "query-invalidation-diff"
+    out = out + "|state=added"
+    out = out + "|key=" + v4_unit_snapshot_escape(v4_unit_snapshot_field(line, 2))
+    out = out + "|generation=" + v4_unit_snapshot_field_raw(line, 3)
+    out = out + "|reason=" + v4_unit_snapshot_escape(v4_unit_snapshot_field(line, 4))
+    give back out
+}
+
+task v4_unit_snapshot_query_new_invalidation_count(snapshot_before_query: word, snapshot_after_query: word) -> int {
+    pilot added = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(snapshot_after_query)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(snapshot_after_query, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "invalidation" {
+                if v4_unit_snapshot_payload_has_line(snapshot_before_query, line) == false {
+                    added += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back added
+}
+
+task v4_unit_snapshot_query_invalidation_diff_details(snapshot_before_query: word, snapshot_after_query: word) -> word {
+    pilot out = ""
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(snapshot_after_query)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(snapshot_after_query, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "invalidation" {
+                if v4_unit_snapshot_payload_has_line(snapshot_before_query, line) == false {
+                    out = out + "\n" + v4_unit_snapshot_query_invalidation_diff_record(line)
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_unit_snapshot_query_entry_added_count(snapshot_before_query: word, snapshot_after_query: word) -> int {
+    pilot added = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(snapshot_after_query)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(snapshot_after_query, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "entry" {
+                pilot key = v4_unit_snapshot_field(line, 2)
+                pilot input_fingerprint = v4_unit_snapshot_field(line, 3)
+                if v4_unit_snapshot_query_entry_line(snapshot_before_query, key, input_fingerprint) == "" {
+                    added += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back added
+}
+
+task v4_unit_snapshot_query_entry_changed_count(snapshot_before_query: word, snapshot_after_query: word) -> int {
+    pilot changed = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(snapshot_after_query)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(snapshot_after_query, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "entry" {
+                pilot key = v4_unit_snapshot_field(line, 2)
+                pilot input_fingerprint = v4_unit_snapshot_field(line, 3)
+                pilot snapshot_before_line = v4_unit_snapshot_query_entry_line(snapshot_before_query, key, input_fingerprint)
+                if snapshot_before_line != "" {
+                    if v4_unit_snapshot_query_entry_diff_state(snapshot_before_line, line) == "changed" {
+                        changed += 1
+                    }
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back changed
+}
+
+task v4_unit_snapshot_query_entry_removed_count(snapshot_before_query: word, snapshot_after_query: word) -> int {
+    pilot removed = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(snapshot_before_query)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(snapshot_before_query, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "entry" {
+                pilot key = v4_unit_snapshot_field(line, 2)
+                pilot input_fingerprint = v4_unit_snapshot_field(line, 3)
+                if v4_unit_snapshot_query_entry_line(snapshot_after_query, key, input_fingerprint) == "" {
+                    removed += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back removed
+}
+
+task v4_unit_snapshot_query_entry_diff_details(snapshot_before_query: word, snapshot_after_query: word) -> word {
+    pilot out = ""
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(snapshot_after_query)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(snapshot_after_query, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "entry" {
+                pilot key = v4_unit_snapshot_field(line, 2)
+                pilot input_fingerprint = v4_unit_snapshot_field(line, 3)
+                pilot snapshot_before_line = v4_unit_snapshot_query_entry_line(snapshot_before_query, key, input_fingerprint)
+                pilot state = v4_unit_snapshot_query_entry_diff_state(snapshot_before_line, line)
+                if state != "unchanged" {
+                    out = out + "\n" + v4_unit_snapshot_query_entry_diff_record(state, key, snapshot_before_line, line)
+                }
+            }
+        }
+        line_id += 1
+    }
+
+    line_id = 0
+    line_count = v4_unit_snapshot_line_count(snapshot_before_query)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(snapshot_before_query, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "entry" {
+                pilot key = v4_unit_snapshot_field(line, 2)
+                pilot input_fingerprint = v4_unit_snapshot_field(line, 3)
+                if v4_unit_snapshot_query_entry_line(snapshot_after_query, key, input_fingerprint) == "" {
+                    out = out + "\n" + v4_unit_snapshot_query_entry_diff_record("removed", key, line, "")
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_unit_snapshot_diff(snapshot_before_payload: word, snapshot_after_payload: word) -> word {
+    pilot before_validation = v4_unit_snapshot_validate(snapshot_before_payload)
+    pilot after_validation = v4_unit_snapshot_validate(snapshot_after_payload)
+    pilot before_manifest = v4_unit_snapshot_manifest(snapshot_before_payload)
+    pilot after_manifest = v4_unit_snapshot_manifest(snapshot_after_payload)
+
+    pilot before_valid = 0
+    pilot after_valid = 0
+    if before_validation.starts_with("00-unit-snapshot-import ok=1") { before_valid = 1 }
+    if after_validation.starts_with("00-unit-snapshot-import ok=1") { after_valid = 1 }
+
+    pilot sources_added = 0
+    pilot sources_changed = 0
+    pilot sources_removed = 0
+    pilot sources_unchanged = 0
+    pilot sections_added = 0
+    pilot sections_changed = 0
+    pilot sections_removed = 0
+    pilot sections_unchanged = 0
+    pilot details = ""
+
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(snapshot_after_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(snapshot_after_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "unit-source" {
+                pilot path = v4_unit_snapshot_field(line, 2)
+                pilot snapshot_before_line = v4_unit_snapshot_source_line_by_path(snapshot_before_payload, path)
+                if snapshot_before_line == "" {
+                    sources_added += 1
+                    details = details + "\n" + v4_unit_snapshot_diff_source_record("added", path, "", line)
+                } else if v4_unit_snapshot_source_fingerprint_from_line(snapshot_before_line) != v4_unit_snapshot_source_fingerprint_from_line(line) {
+                    sources_changed += 1
+                    details = details + "\n" + v4_unit_snapshot_diff_source_record("changed", path, snapshot_before_line, line)
+                } else {
+                    sources_unchanged += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+
+    line_id = 0
+    line_count = v4_unit_snapshot_line_count(snapshot_before_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(snapshot_before_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "unit-source" {
+                pilot path = v4_unit_snapshot_field(line, 2)
+                if v4_unit_snapshot_source_line_by_path(snapshot_after_payload, path) == "" {
+                    sources_removed += 1
+                    details = details + "\n" + v4_unit_snapshot_diff_source_record("removed", path, line, "")
+                }
+            }
+        }
+        line_id += 1
+    }
+
+    pilot section_id = 0
+    repeat until section_id >= v4_unit_snapshot_section_count() {
+        pilot section_name = v4_unit_snapshot_section_name_at(section_id)
+        pilot snapshot_before_section = v4_unit_snapshot_section_payload(snapshot_before_payload, section_name)
+        pilot snapshot_after_section = v4_unit_snapshot_section_payload(snapshot_after_payload, section_name)
+        if snapshot_before_section == "" and snapshot_after_section != "" {
+            sections_added += 1
+            details = details + "\n" + v4_unit_snapshot_diff_section_record("added", section_name, snapshot_before_section, snapshot_after_section)
+        } else if snapshot_before_section != "" and snapshot_after_section == "" {
+            sections_removed += 1
+            details = details + "\n" + v4_unit_snapshot_diff_section_record("removed", section_name, snapshot_before_section, snapshot_after_section)
+        } else if snapshot_before_section != snapshot_after_section {
+            sections_changed += 1
+            details = details + "\n" + v4_unit_snapshot_diff_section_record("changed", section_name, snapshot_before_section, snapshot_after_section)
+        } else {
+            sections_unchanged += 1
+        }
+        section_id += 1
+    }
+
+    pilot snapshot_before_query = v4_unit_snapshot_section_payload(snapshot_before_payload, "query")
+    pilot snapshot_after_query = v4_unit_snapshot_section_payload(snapshot_after_payload, "query")
+    pilot query_invalidations_added = v4_unit_snapshot_query_new_invalidation_count(snapshot_before_query, snapshot_after_query)
+    pilot query_entries_added = v4_unit_snapshot_query_entry_added_count(snapshot_before_query, snapshot_after_query)
+    pilot query_entries_changed = v4_unit_snapshot_query_entry_changed_count(snapshot_before_query, snapshot_after_query)
+    pilot query_entries_removed = v4_unit_snapshot_query_entry_removed_count(snapshot_before_query, snapshot_after_query)
+    details = details + v4_unit_snapshot_query_invalidation_diff_details(snapshot_before_query, snapshot_after_query)
+    details = details + v4_unit_snapshot_query_entry_diff_details(snapshot_before_query, snapshot_after_query)
+
+    pilot diff_valid = 1
+    if before_valid == 0 { diff_valid = 0 }
+    if after_valid == 0 { diff_valid = 0 }
+
+    pilot out = "00-unit-diff"
+    out = out + "|format=" + v4_unit_snapshot_diff_format
+    out = out + "|ok=" + word_from_int(diff_valid)
+    out = out + "|before-ok=" + word_from_int(before_valid)
+    out = out + "|after-ok=" + word_from_int(after_valid)
+    out = out + "|before-manifest-bytes=" + word_from_int(before_manifest.length())
+    out = out + "|after-manifest-bytes=" + word_from_int(after_manifest.length())
+    out = out + "|before-manifest-lines=" + word_from_int(v4_unit_snapshot_line_count(before_manifest))
+    out = out + "|after-manifest-lines=" + word_from_int(v4_unit_snapshot_line_count(after_manifest))
+    out = out + "|sources-added=" + word_from_int(sources_added)
+    out = out + "|sources-changed=" + word_from_int(sources_changed)
+    out = out + "|sources-removed=" + word_from_int(sources_removed)
+    out = out + "|sources-unchanged=" + word_from_int(sources_unchanged)
+    out = out + "|sections-added=" + word_from_int(sections_added)
+    out = out + "|sections-changed=" + word_from_int(sections_changed)
+    out = out + "|sections-removed=" + word_from_int(sections_removed)
+    out = out + "|sections-unchanged=" + word_from_int(sections_unchanged)
+    out = out + "|query-invalidations-added=" + word_from_int(query_invalidations_added)
+    out = out + "|query-entries-added=" + word_from_int(query_entries_added)
+    out = out + "|query-entries-changed=" + word_from_int(query_entries_changed)
+    out = out + "|query-entries-removed=" + word_from_int(query_entries_removed)
+    out = out + "|before-validation=" + v4_unit_snapshot_escape(before_validation)
+    out = out + "|after-validation=" + v4_unit_snapshot_escape(after_validation)
+    out = out + details
+    out = out + "\nend|" + v4_unit_snapshot_diff_format
+    give back out
+}
+
+task v4_unit_snapshot_diff_input(snapshot_before_payload: word, snapshot_after_payload: word) -> word {
+    pilot out = "00-unit-diff-input"
+    out = out + "|format=" + v4_unit_snapshot_diff_input_format
+    out = out + "\nbefore|" + v4_unit_snapshot_escape(snapshot_before_payload)
+    out = out + "\nafter|" + v4_unit_snapshot_escape(snapshot_after_payload)
+    out = out + "\nend|" + v4_unit_snapshot_diff_input_format
+    give back out
+}
+
+task v4_unit_snapshot_diff_input_part(diff_payload: word, part_name: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(diff_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(diff_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == part_name {
+                give back v4_unit_snapshot_field(line, 1)
+            }
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_diff_from_input(diff_payload: word) -> word {
+    pilot snapshot_before_payload = v4_unit_snapshot_diff_input_part(diff_payload, "before")
+    pilot snapshot_after_payload = v4_unit_snapshot_diff_input_part(diff_payload, "after")
+    if snapshot_before_payload == "" or snapshot_after_payload == "" {
+        pilot out = "00-unit-diff"
+        out = out + "|format=" + v4_unit_snapshot_diff_format
+        out = out + "|ok=0"
+        out = out + "|reason=missing-diff-input"
+        out = out + "\nend|" + v4_unit_snapshot_diff_format
+        give back out
+    }
+    give back v4_unit_snapshot_diff(snapshot_before_payload, snapshot_after_payload)
+}
+
+task v4_unit_snapshot_manifest_header_value(manifest_payload: word, key: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(manifest_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(manifest_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "00-unit-manifest" {
+                give back v4_unit_snapshot_key_value(line, key)
+            }
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_manifest_section_count_for_ok(manifest_payload: word, wanted_ok: int) -> int {
+    pilot count = 0
+    pilot wanted = word_from_int(wanted_ok)
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(manifest_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(manifest_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "section" {
+                if v4_unit_snapshot_key_value(line, "ok") == wanted {
+                    count += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back count
+}
+
+task v4_unit_snapshot_health_section_lines(manifest_payload: word) -> word {
+    pilot out = ""
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(manifest_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(manifest_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "section" {
+                pilot name = v4_unit_snapshot_field_raw(line, 1)
+                pilot section_ok = v4_unit_snapshot_key_value(line, "ok")
+                pilot bytes = v4_unit_snapshot_key_value(line, "bytes")
+                pilot records = v4_unit_snapshot_key_value(line, "records")
+                pilot validation = v4_unit_snapshot_key_value(line, "validation")
+                out = out + "\nhealth-section"
+                out = out + "|name=" + name
+                out = out + "|ok=" + section_ok
+                out = out + "|bytes=" + bytes
+                out = out + "|records=" + records
+                out = out + "|validation=" + v4_unit_snapshot_escape(validation)
+            }
+        }
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_unit_snapshot_query_header_value(query_payload: word, key: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(query_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(query_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "snapshot" {
+                give back v4_unit_snapshot_key_value(line, key)
+            }
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_query_dirty_entry_count(query_payload: word) -> int {
+    pilot dirty_entries = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(query_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(query_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "entry" {
+                if v4_unit_snapshot_field(line, 5) == "dirty" {
+                    dirty_entries += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back dirty_entries
+}
+
+task v4_unit_snapshot_query_telemetry_sum(query_payload: word, field_id: int) -> int {
+    pilot total = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(query_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(query_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "telemetry" {
+                total += word_to_int(v4_unit_snapshot_field_raw(line, field_id))
+            }
+        }
+        line_id += 1
+    }
+    give back total
+}
+
+task v4_unit_snapshot_health_query_line(query_payload: word) -> word {
+    pilot validation = v4_unit_snapshot_section_validate("query", query_payload)
+    pilot query_section_ok = v4_unit_snapshot_section_validation_ok("query", validation)
+
+    pilot out = "health-query"
+    out = out + "|ok=" + word_from_int(query_section_ok)
+    out = out + "|generation=" + v4_unit_snapshot_query_header_value(query_payload, "generation")
+    out = out + "|generations=" + v4_unit_snapshot_query_header_value(query_payload, "generations")
+    out = out + "|entries=" + v4_unit_snapshot_query_header_value(query_payload, "entries")
+    out = out + "|dirty=" + word_from_int(v4_unit_snapshot_query_dirty_entry_count(query_payload))
+    out = out + "|edges=" + v4_unit_snapshot_query_header_value(query_payload, "edges")
+    out = out + "|invalidations=" + v4_unit_snapshot_query_header_value(query_payload, "invalidations")
+    out = out + "|telemetry=" + v4_unit_snapshot_query_header_value(query_payload, "telemetry")
+    out = out + "|hits=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 3))
+    out = out + "|misses=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 4))
+    out = out + "|stores=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 5))
+    out = out + "|validation=" + v4_unit_snapshot_escape(validation)
+    give back out
+}
+
+task v4_unit_snapshot_diff_header_value(diff_payload: word, key: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(diff_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(diff_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "00-unit-diff" {
+                give back v4_unit_snapshot_key_value(line, key)
+            }
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_health_diff_line(diff_payload: word) -> word {
+    pilot out = "health-diff"
+    out = out + "|ok=" + v4_unit_snapshot_diff_header_value(diff_payload, "ok")
+    out = out + "|sources-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "sources-added")
+    out = out + "|sources-changed=" + v4_unit_snapshot_diff_header_value(diff_payload, "sources-changed")
+    out = out + "|sources-removed=" + v4_unit_snapshot_diff_header_value(diff_payload, "sources-removed")
+    out = out + "|sections-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "sections-added")
+    out = out + "|sections-changed=" + v4_unit_snapshot_diff_header_value(diff_payload, "sections-changed")
+    out = out + "|sections-removed=" + v4_unit_snapshot_diff_header_value(diff_payload, "sections-removed")
+    out = out + "|query-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-invalidations-added")
+    out = out + "|query-entries-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-entries-added")
+    out = out + "|query-entries-changed=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-entries-changed")
+    out = out + "|query-entries-removed=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-entries-removed")
+    give back out
+}
+
+task v4_unit_snapshot_health_append_diff(report: word, diff_payload: word) -> word {
+    pilot out = ""
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(report)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(report, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) != "end" {
+                if out != "" { out = out + "\n" }
+                out = out + line
+            }
+        }
+        line_id += 1
+    }
+    out = out + "\n" + v4_unit_snapshot_health_diff_line(diff_payload)
+    out = out + "\nend|" + v4_unit_snapshot_health_format
+    give back out
+}
+
+task v4_unit_snapshot_health(payload: word) -> word {
+    pilot validation = v4_unit_snapshot_validate(payload)
+    pilot manifest = v4_unit_snapshot_manifest(payload)
+    pilot query_payload = v4_unit_snapshot_section_payload(payload, "query")
+    pilot query_line = v4_unit_snapshot_health_query_line(query_payload)
+    pilot sections_ok = v4_unit_snapshot_manifest_section_count_for_ok(manifest, 1)
+    pilot sections_bad = v4_unit_snapshot_manifest_section_count_for_ok(manifest, 0)
+
+    pilot snapshot_ok = 0
+    if validation.starts_with("00-unit-snapshot-import ok=1") { snapshot_ok = 1 }
+
+    pilot health_ok = snapshot_ok
+    if sections_bad > 0 { health_ok = 0 }
+
+    pilot out = "00-unit-health"
+    out = out + "|format=" + v4_unit_snapshot_health_format
+    out = out + "|ok=" + word_from_int(health_ok)
+    out = out + "|snapshot-ok=" + word_from_int(snapshot_ok)
+    out = out + "|snapshot-bytes=" + word_from_int(payload.length())
+    out = out + "|manifest-bytes=" + word_from_int(manifest.length())
+    out = out + "|manifest-lines=" + word_from_int(v4_unit_snapshot_line_count(manifest))
+    out = out + "|sources=" + v4_unit_snapshot_manifest_header_value(manifest, "sources")
+    out = out + "|sections-ok=" + word_from_int(sections_ok)
+    out = out + "|sections-bad=" + word_from_int(sections_bad)
+    out = out + "|query-entries=" + v4_unit_snapshot_query_header_value(query_payload, "entries")
+    out = out + "|query-dirty=" + word_from_int(v4_unit_snapshot_query_dirty_entry_count(query_payload))
+    out = out + "|query-invalidations=" + v4_unit_snapshot_query_header_value(query_payload, "invalidations")
+    out = out + "|query-hits=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 3))
+    out = out + "|query-misses=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 4))
+    out = out + "|query-stores=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 5))
+    out = out + "|validation=" + v4_unit_snapshot_escape(validation)
+    out = out + "\n" + query_line
+    out = out + v4_unit_snapshot_health_section_lines(manifest)
+    out = out + "\nend|" + v4_unit_snapshot_health_format
+    give back out
+}
+
+task v4_unit_snapshot_health_current() -> word {
+    give back v4_unit_snapshot_health(v4_unit_snapshot())
+}
+
+task v4_unit_snapshot_health_from_diff_input(diff_payload: word) -> word {
+    pilot snapshot_before_payload = v4_unit_snapshot_diff_input_part(diff_payload, "before")
+    pilot snapshot_after_payload = v4_unit_snapshot_diff_input_part(diff_payload, "after")
+    if snapshot_before_payload == "" or snapshot_after_payload == "" {
+        pilot out = "00-unit-health"
+        out = out + "|format=" + v4_unit_snapshot_health_format
+        out = out + "|ok=0"
+        out = out + "|reason=missing-diff-input"
+        out = out + "\nend|" + v4_unit_snapshot_health_format
+        give back out
+    }
+    pilot diff = v4_unit_snapshot_diff(snapshot_before_payload, snapshot_after_payload)
+    give back v4_unit_snapshot_health_append_diff(v4_unit_snapshot_health(snapshot_after_payload), diff)
+}
+
+task v4_unit_snapshot_restore_source_line(line: word) -> int {
+    if v4_unit_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_unit_snapshot_field_raw(line, 0) != "unit-source" { give back 0 }
+    pilot file_id = word_to_int(v4_unit_snapshot_field_raw(line, 1))
+    pilot path = v4_unit_snapshot_field(line, 2)
+    pilot revision = word_to_int(v4_unit_snapshot_field_raw(line, 3))
+    pilot fingerprint = v4_unit_snapshot_field(line, 4)
+    pilot text = v4_unit_snapshot_field(line, 5)
+    v4_source_restore_slot(file_id, path, text, revision, fingerprint)
+    give back 1
+}
+
+task v4_unit_snapshot_restore_sources(payload: word) -> int {
+    pilot restored = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "unit-source" {
+                restored += v4_unit_snapshot_restore_source_line(line)
+            }
+        }
+        line_id += 1
+    }
+    give back restored
+}
+
+task v4_unit_snapshot_restore_named_section(payload: word, section_name: word) -> int {
+    pilot section_payload = v4_unit_snapshot_section_payload(payload, section_name)
+    if section_payload == "" {
+        give back 0
+    }
+
+    if section_name == "lex" {
+        v4_lex_snapshot_restore(section_payload)
+    } else if section_name == "parse" {
+        v4_parse_snapshot_restore(section_payload)
+    } else if section_name == "hir" {
+        v4_hir_snapshot_restore(section_payload)
+    } else if section_name == "resolve" {
+        v4_resolve_snapshot_restore(section_payload)
+    } else if section_name == "ty" {
+        v4_ty_snapshot_restore(section_payload)
+    } else if section_name == "mir" {
+        v4_mir_snapshot_restore(section_payload)
+    } else if section_name == "borrowck" {
+        v4_borrowck_snapshot_restore(section_payload)
+    } else if section_name == "diagnostics" {
+        v4_diagnostics_snapshot_restore(section_payload)
+    } else if section_name == "semantic" {
+        v4_semantic_snapshot_restore(section_payload)
+    } else if section_name == "hover" {
+        v4_hover_snapshot_restore(section_payload)
+    } else if section_name == "definition" {
+        v4_definition_snapshot_restore(section_payload)
+    } else if section_name == "document-symbols" {
+        v4_document_symbols_snapshot_restore(section_payload)
+    } else if section_name == "completion" {
+        v4_completion_snapshot_restore(section_payload)
+    } else if section_name == "query" {
+        v4_query_snapshot_restore(section_payload)
+    } else {
+        give back 0
+    }
+    give back 1
+}
+
+task v4_unit_snapshot_confirm_sources(payload: word) -> int {
+    pilot confirmed = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "unit-source" {
+                pilot path = v4_unit_snapshot_field(line, 2)
+                if v4_driver_confirm_restored_document(path).starts_with("query-confirm ok=1") {
+                    confirmed += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back confirmed
+}
+
+task v4_unit_snapshot_restore(payload: word) -> word {
+    pilot validation = v4_unit_snapshot_validate(payload)
+    if validation.starts_with("00-unit-snapshot-import ok=1") == false {
+        give back "00-unit-snapshot-restore ok=0 reason=validation-failed\n" + validation
+    }
+
+    pilot restored_sources = v4_unit_snapshot_restore_sources(payload)
+    pilot restored_sections = 0
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "lex")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "parse")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "hir")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "resolve")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "ty")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "mir")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "borrowck")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "diagnostics")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "semantic")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "hover")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "definition")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "document-symbols")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "completion")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "query")
+
+    pilot confirmed_sources = v4_unit_snapshot_confirm_sources(payload)
+
+    pilot out = "00-unit-snapshot-restore ok=1"
+    out = out + " sources=" + word_from_int(restored_sources)
+    out = out + " sections=" + word_from_int(restored_sections)
+    out = out + " confirmed-sources=" + word_from_int(confirmed_sources)
+    out = out + " query-dirty=" + word_from_int(v4_query_dirty_count())
+    out = out + " query-cache=" + word_from_int(v4_query_cache_size())
+    give back out
+}
+

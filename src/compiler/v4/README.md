@@ -20,13 +20,14 @@ crates/
   freak_borrowck/  Meiya borrow-check paths and result scaffold over MIR bodies
   freak_query/     memoized query cache prototype
   freak_driver/    early driver facade over the V4 services
+  freak_snapshot/  00-Unit workspace snapshots, manifests, diffs, health, restore
   freak_lsp/       editor-facing facade over hover, definition, symbols, completion, diagnostics
 ```
 
 Current FREAK compilation still works best with concatenated source files, so these crates use globally unique `v4_` names and a dependency order that can be flattened by a later bootstrap script:
 
 ```text
-freak_span -> freak_diag -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_borrowck -> freak_query -> freak_driver -> freak_lsp
+freak_span -> freak_diag -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_borrowck -> freak_query -> freak_driver -> freak_snapshot -> freak_lsp
 ```
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.

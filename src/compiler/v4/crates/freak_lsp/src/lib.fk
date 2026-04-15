@@ -1,7 +1,7 @@
 -- ===================================================================
 -- freak_lsp - V4 editor-facing query facade
 -- ===================================================================
--- Depends on freak_driver. This crate owns no compiler facts; it only
+-- Depends on freak_driver and freak_snapshot. This crate owns no compiler facts; it only
 -- formats driver query results into stable line payloads that a future
 -- JSON-RPC daemon can wrap as Language Server Protocol responses.
 
