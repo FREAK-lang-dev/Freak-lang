@@ -1267,6 +1267,355 @@ task v4_completion_snapshot_restore(payload: word) -> word {
 }
 
 
+task v4_driver_query_key_matches_path(path: word, key: word) -> bool {
+    if key == v4_check_syntax_query_key(path) { give back true }
+    if key == v4_lex_query_key(path) { give back true }
+    if key == v4_parse_query_key(path) { give back true }
+    if key == v4_hir_query_key(path) { give back true }
+    if key == v4_resolve_query_key(path) { give back true }
+    if key == v4_ty_query_key(path) { give back true }
+    if key == v4_mir_query_key(path) { give back true }
+    if key == v4_borrowck_query_key(path) { give back true }
+    if key == v4_diagnostics_query_key(path) { give back true }
+    if key.starts_with("semantic-at:" + path + ":") { give back true }
+    if key.starts_with("hover:" + path + ":") { give back true }
+    if key.starts_with("definition-at:" + path + ":") { give back true }
+    if key == v4_document_symbols_query_key(path) { give back true }
+    if key.starts_with("completion:" + path + ":") { give back true }
+    give back false
+}
+
+task v4_driver_query_output_can_promote(path: word, key: word) -> int {
+    if key == v4_check_syntax_query_key(path) {
+        give back 1
+    }
+    give back 0
+}
+
+task v4_driver_query_entry_can_promote(path: word, entry_id: int) -> int {
+    pilot key = v4_query_entry_key(entry_id)
+    if v4_driver_query_output_can_promote(path, key) == 1 {
+        give back 1
+    }
+    if key == v4_lex_query_key(path) {
+        pilot stream_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_lex_stream_exists(stream_id) {
+            give back 1
+        }
+    }
+    if key == v4_parse_query_key(path) {
+        pilot tree_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_parse_tree_exists(tree_id) {
+            pilot stream_id = v4_parse_stream_id(tree_id)
+            if v4_lex_stream_exists(stream_id) {
+                give back 1
+            }
+        }
+    }
+    if key == v4_hir_query_key(path) {
+        pilot hir_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_hir_file_exists(hir_id) {
+            pilot tree_id = v4_hir_tree_id(hir_id)
+            if v4_parse_tree_exists(tree_id) {
+                pilot stream_id = v4_parse_stream_id(tree_id)
+                if v4_lex_stream_exists(stream_id) {
+                    give back 1
+                }
+            }
+        }
+    }
+    if key == v4_resolve_query_key(path) {
+        pilot resolve_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_resolve_exists(resolve_id) {
+            pilot hir_id = v4_resolve_hir_id(resolve_id)
+            if v4_hir_file_exists(hir_id) {
+                pilot tree_id = v4_hir_tree_id(hir_id)
+                if v4_parse_tree_exists(tree_id) {
+                    pilot stream_id = v4_parse_stream_id(tree_id)
+                    if v4_lex_stream_exists(stream_id) {
+                        give back 1
+                    }
+                }
+            }
+        }
+    }
+    if key == v4_ty_query_key(path) {
+        pilot ty_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_ty_file_exists(ty_id) {
+            pilot resolve_id = v4_ty_resolve_id(ty_id)
+            if v4_resolve_exists(resolve_id) {
+                pilot hir_id = v4_resolve_hir_id(resolve_id)
+                if v4_hir_file_exists(hir_id) {
+                    pilot tree_id = v4_hir_tree_id(hir_id)
+                    if v4_parse_tree_exists(tree_id) {
+                        pilot stream_id = v4_parse_stream_id(tree_id)
+                        if v4_lex_stream_exists(stream_id) {
+                            give back 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if key == v4_mir_query_key(path) {
+        pilot mir_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_mir_file_exists(mir_id) {
+            pilot ty_id = v4_mir_ty_id(mir_id)
+            if v4_ty_file_exists(ty_id) {
+                pilot resolve_id = v4_ty_resolve_id(ty_id)
+                if v4_resolve_exists(resolve_id) {
+                    pilot hir_id = v4_resolve_hir_id(resolve_id)
+                    if v4_hir_file_exists(hir_id) {
+                        pilot tree_id = v4_hir_tree_id(hir_id)
+                        if v4_parse_tree_exists(tree_id) {
+                            pilot stream_id = v4_parse_stream_id(tree_id)
+                            if v4_lex_stream_exists(stream_id) {
+                                give back 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if key == v4_borrowck_query_key(path) {
+        pilot borrow_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_borrowck_file_exists(borrow_id) {
+            pilot mir_id = v4_borrowck_mir_id(borrow_id)
+            if v4_mir_file_exists(mir_id) {
+                pilot ty_id = v4_mir_ty_id(mir_id)
+                if v4_ty_file_exists(ty_id) {
+                    pilot resolve_id = v4_ty_resolve_id(ty_id)
+                    if v4_resolve_exists(resolve_id) {
+                        pilot hir_id = v4_resolve_hir_id(resolve_id)
+                        if v4_hir_file_exists(hir_id) {
+                            pilot tree_id = v4_hir_tree_id(hir_id)
+                            if v4_parse_tree_exists(tree_id) {
+                                pilot stream_id = v4_parse_stream_id(tree_id)
+                                if v4_lex_stream_exists(stream_id) {
+                                    give back 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if key == v4_diagnostics_query_key(path) {
+        pilot diag_set_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_diagnostics_set_exists(diag_set_id) {
+            if v4_diagnostics_path(diag_set_id) == path {
+                pilot fingerprint = v4_query_entry_input(entry_id)
+                pilot lex_entry = v4_query_find(v4_lex_query_key(path), fingerprint)
+                pilot borrow_entry = v4_query_find(v4_borrowck_query_key(path), fingerprint)
+                if lex_entry >= 0 and borrow_entry >= 0 {
+                    pilot stream_id = word_to_int(v4_query_entry_output(lex_entry))
+                    pilot borrow_id = word_to_int(v4_query_entry_output(borrow_entry))
+                    if v4_lex_stream_exists(stream_id) and v4_borrowck_file_exists(borrow_id) {
+                        pilot mir_id = v4_borrowck_mir_id(borrow_id)
+                        if v4_mir_file_exists(mir_id) {
+                            pilot ty_id = v4_mir_ty_id(mir_id)
+                            if v4_ty_file_exists(ty_id) {
+                                pilot resolve_id = v4_ty_resolve_id(ty_id)
+                                if v4_resolve_exists(resolve_id) {
+                                    pilot hir_id = v4_resolve_hir_id(resolve_id)
+                                    if v4_hir_file_exists(hir_id) {
+                                        pilot tree_id = v4_hir_tree_id(hir_id)
+                                        if v4_parse_tree_exists(tree_id) {
+                                            give back 1
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if key.starts_with("semantic-at:" + path + ":") {
+        pilot fact_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_semantic_fact_exists(fact_id) {
+            if v4_semantic_at_path(fact_id) == path {
+                if v4_semantic_at_query_key(path, v4_semantic_at_offset(fact_id)) == key {
+                    pilot fingerprint = v4_query_entry_input(entry_id)
+                    pilot lex_entry = v4_query_find(v4_lex_query_key(path), fingerprint)
+                    pilot hir_entry = v4_query_find(v4_hir_query_key(path), fingerprint)
+                    pilot resolve_entry = v4_query_find(v4_resolve_query_key(path), fingerprint)
+                    pilot ty_entry = v4_query_find(v4_ty_query_key(path), fingerprint)
+                    if lex_entry >= 0 and hir_entry >= 0 and resolve_entry >= 0 and ty_entry >= 0 {
+                        pilot stream_id = word_to_int(v4_query_entry_output(lex_entry))
+                        pilot hir_id = word_to_int(v4_query_entry_output(hir_entry))
+                        pilot resolve_id = word_to_int(v4_query_entry_output(resolve_entry))
+                        pilot ty_id = word_to_int(v4_query_entry_output(ty_entry))
+                        if v4_lex_stream_exists(stream_id) and v4_hir_file_exists(hir_id) and v4_resolve_exists(resolve_id) and v4_ty_file_exists(ty_id) {
+                            give back 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if key.starts_with("hover:" + path + ":") {
+        pilot hover_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_hover_exists(hover_id) {
+            if v4_hover_path(hover_id) == path {
+                pilot offset = v4_hover_offset(hover_id)
+                if v4_hover_query_key(path, offset) == key {
+                    pilot semantic_id = v4_hover_semantic_id(hover_id)
+                    if v4_semantic_fact_exists(semantic_id) {
+                        pilot fingerprint = v4_query_entry_input(entry_id)
+                        pilot semantic_entry = v4_query_find(v4_semantic_at_query_key(path, offset), fingerprint)
+                        if semantic_entry >= 0 {
+                            pilot restored_semantic = word_to_int(v4_query_entry_output(semantic_entry))
+                            if restored_semantic == semantic_id {
+                                give back 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if key.starts_with("definition-at:" + path + ":") {
+        pilot defn_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_definition_at_exists(defn_id) {
+            if v4_definition_at_path(defn_id) == path {
+                pilot offset = v4_definition_at_offset(defn_id)
+                if v4_definition_at_query_key(path, offset) == key {
+                    pilot semantic_id = v4_definition_at_semantic_id(defn_id)
+                    if v4_semantic_fact_exists(semantic_id) {
+                        pilot fingerprint = v4_query_entry_input(entry_id)
+                        pilot semantic_entry = v4_query_find(v4_semantic_at_query_key(path, offset), fingerprint)
+                        pilot hir_entry = v4_query_find(v4_hir_query_key(path), fingerprint)
+                        if semantic_entry >= 0 and hir_entry >= 0 {
+                            pilot restored_semantic = word_to_int(v4_query_entry_output(semantic_entry))
+                            pilot hir_id = word_to_int(v4_query_entry_output(hir_entry))
+                            if restored_semantic == semantic_id and v4_hir_file_exists(hir_id) {
+                                give back 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if key == v4_document_symbols_query_key(path) {
+        pilot doc_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_document_symbols_exists(doc_id) {
+            if v4_document_symbols_path(doc_id) == path {
+                pilot fingerprint = v4_query_entry_input(entry_id)
+                pilot hir_entry = v4_query_find(v4_hir_query_key(path), fingerprint)
+                pilot resolve_entry = v4_query_find(v4_resolve_query_key(path), fingerprint)
+                pilot ty_entry = v4_query_find(v4_ty_query_key(path), fingerprint)
+                if hir_entry >= 0 and resolve_entry >= 0 and ty_entry >= 0 {
+                    pilot hir_id = word_to_int(v4_query_entry_output(hir_entry))
+                    pilot resolve_id = word_to_int(v4_query_entry_output(resolve_entry))
+                    pilot ty_id = word_to_int(v4_query_entry_output(ty_entry))
+                    if v4_hir_file_exists(hir_id) and v4_resolve_exists(resolve_id) and v4_ty_file_exists(ty_id) {
+                        give back 1
+                    }
+                }
+            }
+        }
+    }
+    if key.starts_with("completion:" + path + ":") {
+        pilot completion_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_completion_exists(completion_id) {
+            if v4_completion_path(completion_id) == path {
+                pilot offset = v4_completion_offset(completion_id)
+                if v4_completion_query_key(path, offset) == key {
+                    pilot fingerprint = v4_query_entry_input(entry_id)
+                    pilot doc_entry = v4_query_find(v4_document_symbols_query_key(path), fingerprint)
+                    if doc_entry >= 0 {
+                        pilot doc_id = word_to_int(v4_query_entry_output(doc_entry))
+                        if v4_document_symbols_exists(doc_id) {
+                            give back 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+    give back 0
+}
+
+task v4_driver_confirm_restored_key(path: word, key: word) -> word {
+    v4_driver_init()
+    pilot file_id = v4_source_find(path)
+    if file_id < 0 {
+        give back "query-confirm-key ok=0 reason=source-missing path=" + path + " key=" + key
+    }
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot allow_promote = v4_driver_query_output_can_promote(path, key)
+    give back v4_query_confirm_key_input(key, fingerprint, "source-confirm:" + path, allow_promote)
+}
+
+task v4_driver_confirm_restored_document(path: word) -> word {
+    v4_driver_init()
+    pilot file_id = v4_source_find(path)
+    if file_id < 0 {
+        give back "query-confirm ok=0 reason=source-missing path=" + path
+    }
+
+    pilot generation = v4_query_bump_generation("source-confirm:" + path)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot considered = 0
+    pilot matched = 0
+    pilot promoted = 0
+    pilot blocked = 0
+    pilot already_valid = 0
+    pilot dirty_nonrestored = 0
+    pilot mismatched = 0
+
+    pilot entry_id = 0
+    pilot entry_count = v4_query_cache_size()
+    repeat until entry_id >= entry_count {
+        pilot key = v4_query_entry_key(entry_id)
+        if v4_driver_query_key_matches_path(path, key) {
+            considered += 1
+            pilot allow_promote = v4_driver_query_entry_can_promote(path, entry_id)
+            pilot code = v4_query_confirm_entry_input(entry_id, fingerprint, "source-confirm:" + path, allow_promote)
+            if code == 1 {
+                matched += 1
+                promoted += 1
+            } else if code == 2 {
+                matched += 1
+                blocked += 1
+            } else if code == 3 {
+                matched += 1
+                already_valid += 1
+            } else if code == 4 {
+                matched += 1
+                dirty_nonrestored += 1
+            } else {
+                mismatched += 1
+            }
+        }
+        entry_id += 1
+    }
+
+    pilot out = "query-confirm ok=1"
+    out = out + " path=" + path
+    out = out + " generation=" + word_from_int(generation)
+    out = out + " considered=" + word_from_int(considered)
+    out = out + " matched=" + word_from_int(matched)
+    out = out + " promoted=" + word_from_int(promoted)
+    out = out + " blocked=" + word_from_int(blocked)
+    out = out + " already-valid=" + word_from_int(already_valid)
+    out = out + " dirty-nonrestored=" + word_from_int(dirty_nonrestored)
+    out = out + " mismatched=" + word_from_int(mismatched)
+    out = out + " dirty=" + word_from_int(v4_query_dirty_count())
+    give back out
+}
+
+task v4_driver_confirm_restored_document_text(path: word, text: word) -> word {
+    v4_source_set_text(path, text)
+    give back v4_driver_confirm_restored_document(path)
+}
+
+
 pilot v4_unit_snapshot_format = "freak-00-unit-snapshot-v1"
 pilot v4_unit_snapshot_manifest_format = "freak-00-unit-manifest-v1"
 pilot v4_unit_snapshot_diff_format = "freak-00-unit-snapshot-diff-v1"
@@ -2456,4 +2805,5 @@ task v4_unit_snapshot_restore(payload: word) -> word {
     out = out + " query-cache=" + word_from_int(v4_query_cache_size())
     give back out
 }
+
 
