@@ -1150,3 +1150,117 @@ task v4_query_snapshot_validate(payload: word) -> word {
     out = out + " ends=" + word_from_int(saw_end)
     give back out
 }
+
+task v4_query_snapshot_validate_is_ok(payload: word) -> bool {
+    give back v4_query_snapshot_validate(payload).starts_with("query-snapshot-import ok=1")
+}
+
+task v4_query_restore_entry(key: word, input_fingerprint: word, output: word, stored_generation: int, imported_event: word) -> int {
+    v4_query_init()
+    pilot generation = stored_generation
+    if generation <= 0 {
+        generation = v4_query_generation()
+    }
+
+    pilot idx = v4_query_find(key, input_fingerprint)
+    if idx >= 0 {
+        array_set(v4_query_outputs, idx, output)
+        array_set(v4_query_states, idx, v4_query_dirty)
+        array_set(v4_query_entry_generations, idx, word_from_int(generation))
+        array_set(v4_query_entry_last_generations, idx, word_from_int(v4_query_generation()))
+        array_set(v4_query_entry_last_events, idx, "restore:dirty:" + imported_event)
+        give back idx
+    }
+
+    pilot new_idx = array_len(v4_query_keys)
+    array_push(v4_query_keys, key)
+    array_push(v4_query_inputs, input_fingerprint)
+    array_push(v4_query_outputs, output)
+    array_push(v4_query_states, v4_query_dirty)
+    array_push(v4_query_entry_generations, word_from_int(generation))
+    array_push(v4_query_entry_last_generations, word_from_int(v4_query_generation()))
+    array_push(v4_query_entry_last_events, "restore:dirty:" + imported_event)
+    give back new_idx
+}
+
+task v4_query_snapshot_restore_entry_line(line: word) -> int {
+    if v4_query_snapshot_record_is_valid(line) == false {
+        give back 0
+    }
+    if v4_query_snapshot_field_raw(line, 0) != "entry" {
+        give back 0
+    }
+
+    pilot key = v4_query_snapshot_field(line, 2)
+    pilot input_fingerprint = v4_query_snapshot_field(line, 3)
+    pilot output = v4_query_snapshot_field(line, 4)
+    pilot stored_generation = word_to_int(v4_query_snapshot_field_raw(line, 6))
+    pilot imported_event = v4_query_snapshot_field(line, 8)
+    v4_query_restore_entry(key, input_fingerprint, output, stored_generation, imported_event)
+    give back 1
+}
+
+task v4_query_snapshot_restore_edge_line(line: word) -> int {
+    if v4_query_snapshot_record_is_valid(line) == false {
+        give back 0
+    }
+    if v4_query_snapshot_field_raw(line, 0) != "edge" {
+        give back 0
+    }
+
+    pilot from_key = v4_query_snapshot_field(line, 2)
+    pilot to_key = v4_query_snapshot_field(line, 3)
+    v4_query_record_dep(from_key, to_key)
+    give back 1
+}
+
+task v4_query_snapshot_restore(payload: word) -> word {
+    pilot validation = v4_query_snapshot_validate(payload)
+    if validation.starts_with("query-snapshot-import ok=1") == false {
+        give back "query-snapshot-restore ok=0 reason=validation-failed\n" + validation
+    }
+
+    pilot restore_generation = v4_query_bump_generation("snapshot-restore")
+    pilot restored_entries = 0
+    pilot restored_edges = 0
+    pilot skipped_generations = 0
+    pilot skipped_invalidations = 0
+    pilot skipped_telemetry = 0
+    pilot skipped_other = 0
+
+    pilot line_id = 0
+    pilot line_count = v4_query_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_query_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_query_snapshot_field_raw(line, 0)
+            if kind == "entry" {
+                restored_entries += v4_query_snapshot_restore_entry_line(line)
+            } else if kind == "edge" {
+                restored_edges += v4_query_snapshot_restore_edge_line(line)
+            } else if kind == "generation" {
+                skipped_generations += 1
+            } else if kind == "invalidation" {
+                skipped_invalidations += 1
+            } else if kind == "telemetry" {
+                skipped_telemetry += 1
+            } else if kind != "snapshot" and kind != "end" {
+                skipped_other += 1
+            }
+        }
+        line_id += 1
+    }
+
+    pilot out = "query-snapshot-restore ok=1"
+    out = out + " generation=" + word_from_int(restore_generation)
+    out = out + " entries=" + word_from_int(restored_entries)
+    out = out + " edges=" + word_from_int(restored_edges)
+    out = out + " dirty=" + word_from_int(v4_query_dirty_count())
+    out = out + " cache=" + word_from_int(v4_query_cache_size())
+    out = out + " deps=" + word_from_int(v4_query_dep_count())
+    out = out + " skipped-generations=" + word_from_int(skipped_generations)
+    out = out + " skipped-invalidations=" + word_from_int(skipped_invalidations)
+    out = out + " skipped-telemetry=" + word_from_int(skipped_telemetry)
+    out = out + " skipped-other=" + word_from_int(skipped_other)
+    give back out
+}

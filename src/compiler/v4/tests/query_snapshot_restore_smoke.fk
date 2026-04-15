@@ -1,0 +1,19 @@
+-- V4 query snapshot restore smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_restore_source = "task main() => \"warm|cache\"\n"
+v4_restore_source = v4_restore_source + "shape Pilot\n"
+
+say v4_check_syntax_text("snapshot-restore.fk", v4_restore_source)
+say v4_lsp_hover_text("snapshot-restore.fk", v4_restore_source, 5)
+
+pilot v4_restore_payload = v4_query_snapshot()
+say v4_query_snapshot_validate(v4_restore_payload)
+say v4_query_snapshot_validate_is_ok(v4_restore_payload)
+say v4_query_snapshot_restore(v4_restore_payload)
+say "restore-dirty=" + word_from_int(v4_query_dirty_count())
+say v4_query_explain(v4_check_syntax_query_key("snapshot-restore.fk"))
+say v4_lsp_query_snapshot_restore_text(v4_restore_payload)
+say v4_lsp_handle_text_request("workspace/querySnapshotRestore", "snapshot-restore.fk", v4_restore_payload, 0)
+say v4_lsp_handle_request("workspace/querySnapshotRestore", "snapshot-restore.fk", 0)
+say v4_query_snapshot_restore("snapshot|format=wrong\nend|wrong")
