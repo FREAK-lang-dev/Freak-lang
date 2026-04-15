@@ -1,0 +1,17 @@
+-- V4 LSP zero-based position smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_lsp_position_source = "task main() => \"hi\"\n"
+v4_lsp_position_source = v4_lsp_position_source + "shape Pilot\n"
+
+say "offset-main=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_source, 0, 5))
+say "offset-line1=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_source, 1, 6))
+say v4_lsp_range_from_span(v4_span_new("0", 0, 4), v4_lsp_position_source)
+say v4_lsp_hover_position_text("position.fk", v4_lsp_position_source, 0, 5)
+say v4_lsp_definition_position_text("position.fk", v4_lsp_position_source, 0, 5)
+say v4_lsp_completion_position_text("position.fk", v4_lsp_position_source, 1, 0)
+
+v4_lsp_open_document("position-live.fk", v4_lsp_position_source)
+say v4_lsp_handle_position_request("textDocument/hover", "position-live.fk", 0, 5)
+say v4_lsp_handle_position_request("textDocument/definition", "position-live.fk", 0, 5)
+say v4_lsp_handle_position_request("textDocument/completion", "position-live.fk", 1, 0)
