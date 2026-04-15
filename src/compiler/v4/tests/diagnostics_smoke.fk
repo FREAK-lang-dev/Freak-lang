@@ -1,0 +1,24 @@
+-- V4 typed MIR diagnostics smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_diag_smoke_source = "task main() -> int {\n"
+v4_diag_smoke_source = v4_diag_smoke_source + "    pilot text = \"hi\"\n"
+v4_diag_smoke_source = v4_diag_smoke_source + "    pilot bad = text - 1\n"
+v4_diag_smoke_source = v4_diag_smoke_source + "    if 1 {\n"
+v4_diag_smoke_source = v4_diag_smoke_source + "        pilot y = 0\n"
+v4_diag_smoke_source = v4_diag_smoke_source + "    }\n"
+v4_diag_smoke_source = v4_diag_smoke_source + "    text = 1\n"
+v4_diag_smoke_source = v4_diag_smoke_source + "    give back 0\n"
+v4_diag_smoke_source = v4_diag_smoke_source + "}\n"
+
+pilot v4_diag_smoke_stream = v4_lex_text(0, v4_diag_smoke_source)
+pilot v4_diag_smoke_tree = v4_parse_stream(0, v4_diag_smoke_stream)
+pilot v4_diag_smoke_hir = v4_hir_lower_tree(0, v4_diag_smoke_tree)
+pilot v4_diag_smoke_resolve = v4_resolve_lower_hir(0, v4_diag_smoke_hir)
+pilot v4_diag_smoke_ty = v4_ty_lower_resolve(0, v4_diag_smoke_resolve)
+pilot v4_diag_smoke_mir = v4_mir_lower_ty(0, v4_diag_smoke_ty)
+
+say v4_mir_summary(v4_diag_smoke_mir)
+say "diagnostic-count=" + word_from_int(v4_mir_diag_count(v4_diag_smoke_mir))
+say "diag0-message=" + v4_diag_message(v4_mir_diag(v4_diag_smoke_mir, 0))
+say "diag1-message=" + v4_diag_message(v4_mir_diag(v4_diag_smoke_mir, 1))

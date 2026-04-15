@@ -141,6 +141,23 @@ task v4_ty_is_numeric(ty_name: word) -> bool {
     give back ty_name == v4_ty_int or ty_name == v4_ty_num
 }
 
+task v4_ty_is_known(ty_name: word) -> bool {
+    give back ty_name != "" and ty_name != v4_ty_unknown
+}
+
+task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
+    if not v4_ty_is_known(expected_ty) or not v4_ty_is_known(actual_ty) {
+        give back true
+    }
+    if expected_ty == actual_ty {
+        give back true
+    }
+    if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
+        give back true
+    }
+    give back false
+}
+
 task v4_ty_numeric_result(left_ty: word, right_ty: word) -> word {
     if left_ty == v4_ty_unknown or right_ty == v4_ty_unknown {
         give back v4_ty_unknown
@@ -156,7 +173,32 @@ task v4_ty_numeric_result(left_ty: word, right_ty: word) -> word {
     give back v4_ty_unknown
 }
 
+task v4_ty_binary_valid(op: word, left_ty: word, right_ty: word) -> bool {
+    if not v4_ty_is_known(left_ty) or not v4_ty_is_known(right_ty) {
+        give back true
+    }
+    if op == "Eq" or op == "Ne" {
+        give back v4_ty_types_compatible(left_ty, right_ty)
+    }
+    if op == "Gt" or op == "Lt" or op == "Ge" or op == "Le" {
+        give back v4_ty_is_numeric(left_ty) and v4_ty_is_numeric(right_ty)
+    }
+    if op == "Add" {
+        if left_ty == v4_ty_word and right_ty == v4_ty_word {
+            give back true
+        }
+        give back v4_ty_is_numeric(left_ty) and v4_ty_is_numeric(right_ty)
+    }
+    if op == "Sub" or op == "Mul" or op == "Div" {
+        give back v4_ty_is_numeric(left_ty) and v4_ty_is_numeric(right_ty)
+    }
+    give back true
+}
+
 task v4_ty_binary_result(op: word, left_ty: word, right_ty: word) -> word {
+    if not v4_ty_binary_valid(op, left_ty, right_ty) {
+        give back v4_ty_unknown
+    }
     if op == "Eq" or op == "Ne" or op == "Gt" or op == "Lt" or op == "Ge" or op == "Le" {
         give back v4_ty_bool
     }
