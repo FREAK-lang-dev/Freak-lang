@@ -5,7 +5,8 @@ sys.path.insert(0, '.')
 from freakc.parser import (
     Parser, Program, PilotDecl, SayStmt, TaskDecl, GiveBack, Block,
     IfExpr, WhenExpr, WhenArm, ForEach, RepeatTimes, RepeatUntil,
-    TrainingArc, ListLit, MapLit, TupleLit, IntLit, StrLit, Ident, BinOp
+    TrainingArc, ListLit, MapLit, TupleLit, IntLit, StrLit, Ident, BinOp,
+    ExprStmt
 )
 
 
@@ -107,7 +108,6 @@ def test_map_literal():
     prog = parse('{ "a": 1, "b": 2 }\n')
     stmt = prog.statements[0]
     # In our updated parser, a bare expression is wrapped in ExprStmt
-    from freakc.parser import ExprStmt
     if isinstance(stmt, ExprStmt):
         expr = stmt.expr
     else:
