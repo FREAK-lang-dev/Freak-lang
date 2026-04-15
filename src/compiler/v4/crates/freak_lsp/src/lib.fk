@@ -239,3 +239,76 @@ task v4_lsp_diagnostics_text(path: word, text: word) -> word {
     }
     give back v4_lsp_response_ok("textDocument/publishDiagnostics", out)
 }
+
+task v4_lsp_initialize_payload() -> word {
+    pilot out = "capabilities"
+    out = out + "|textDocument/hover"
+    out = out + "|textDocument/definition"
+    out = out + "|textDocument/documentSymbol"
+    out = out + "|textDocument/completion"
+    out = out + "|textDocument/publishDiagnostics"
+    out = out + "|textDocument/didOpen"
+    out = out + "|textDocument/didChange"
+    give back out
+}
+
+task v4_lsp_handle_text_request(method: word, path: word, text: word, offset: int) -> word {
+    if method == "initialize" {
+        give back v4_lsp_response_ok(method, v4_lsp_initialize_payload())
+    }
+    if method == "shutdown" {
+        give back v4_lsp_response_ok(method, "shutdown|ok")
+    }
+    if method == "textDocument/didOpen" {
+        v4_lsp_open_document(path, text)
+        give back v4_lsp_response_ok(method, v4_lsp_document_summary(path))
+    }
+    if method == "textDocument/didChange" {
+        v4_lsp_change_document(path, text)
+        give back v4_lsp_response_ok(method, v4_lsp_document_summary(path))
+    }
+    if method == "textDocument/hover" {
+        give back v4_lsp_hover_text(path, text, offset)
+    }
+    if method == "textDocument/definition" {
+        give back v4_lsp_definition_text(path, text, offset)
+    }
+    if method == "textDocument/documentSymbol" {
+        give back v4_lsp_document_symbols_text(path, text)
+    }
+    if method == "textDocument/completion" {
+        give back v4_lsp_completion_text(path, text, offset)
+    }
+    if method == "textDocument/publishDiagnostics" {
+        give back v4_lsp_diagnostics_text(path, text)
+    }
+    give back v4_lsp_response_error(method, 0 - 32601, "method not found")
+}
+
+task v4_lsp_handle_request(method: word, path: word, offset: int) -> word {
+    if method == "initialize" {
+        give back v4_lsp_response_ok(method, v4_lsp_initialize_payload())
+    }
+    if method == "shutdown" {
+        give back v4_lsp_response_ok(method, "shutdown|ok")
+    }
+    if method == "textDocument/hover" {
+        give back v4_lsp_hover_document(path, offset)
+    }
+    if method == "textDocument/definition" {
+        give back v4_lsp_definition_document(path, offset)
+    }
+    if method == "textDocument/documentSymbol" {
+        give back v4_lsp_document_symbols_document(path)
+    }
+    if method == "textDocument/completion" {
+        give back v4_lsp_completion_document(path, offset)
+    }
+    if method == "textDocument/publishDiagnostics" {
+        give back v4_lsp_diagnostics_document(path)
+    }
+    if method == "textDocument/didOpen" or method == "textDocument/didChange" {
+        give back v4_lsp_response_error(method, 0 - 32602, "method requires source text")
+    }
+    give back v4_lsp_response_error(method, 0 - 32601, "method not found")
+}

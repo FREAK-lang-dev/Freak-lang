@@ -1,0 +1,18 @@
+-- V4 LSP method dispatch smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_lsp_dispatch_source = "task main() => \"hi\"\n"
+v4_lsp_dispatch_source = v4_lsp_dispatch_source + "shape Pilot\n"
+
+say v4_lsp_handle_text_request("initialize", "", "", 0)
+say v4_lsp_handle_text_request("textDocument/didOpen", "dispatch.fk", v4_lsp_dispatch_source, 0)
+say v4_lsp_handle_request("textDocument/hover", "dispatch.fk", 5)
+say v4_lsp_handle_request("textDocument/definition", "dispatch.fk", 5)
+say v4_lsp_handle_request("textDocument/documentSymbol", "dispatch.fk", 0)
+say v4_lsp_handle_request("textDocument/completion", "dispatch.fk", 0)
+say v4_lsp_handle_request("textDocument/publishDiagnostics", "dispatch.fk", 0)
+
+pilot v4_lsp_dispatch_changed = "shape Pilot\n"
+v4_lsp_dispatch_changed = v4_lsp_dispatch_changed + "task main() => \"hi\"\n"
+say v4_lsp_handle_text_request("textDocument/didChange", "dispatch.fk", v4_lsp_dispatch_changed, 0)
+say v4_lsp_handle_request("unknown/method", "dispatch.fk", 0)
