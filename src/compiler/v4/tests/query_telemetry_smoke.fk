@@ -1,0 +1,18 @@
+-- V4 query telemetry smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_telemetry_source = "task main() => \"hi\"\n"
+v4_telemetry_source = v4_telemetry_source + "shape Pilot\n"
+
+say v4_check_syntax_text("telemetry.fk", v4_telemetry_source)
+say v4_check_syntax_text("telemetry.fk", v4_telemetry_source)
+say v4_lsp_hover_text("telemetry.fk", v4_telemetry_source, 5)
+say v4_lsp_hover_text("telemetry.fk", v4_telemetry_source, 5)
+say v4_query_telemetry_summary()
+say "query-hits=" + word_from_int(v4_query_hit_count())
+say "query-misses=" + word_from_int(v4_query_miss_count())
+say "query-stores=" + word_from_int(v4_query_store_count())
+say "telemetry-keys=" + word_from_int(v4_query_telemetry_key_count())
+say "telemetry-key0=" + v4_query_telemetry_key(0)
+say v4_lsp_query_telemetry_text()
+say v4_driver_status()

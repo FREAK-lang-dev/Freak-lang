@@ -18,6 +18,13 @@ pilot v4_query_generation_reasons = 0
 pilot v4_query_invalidated_keys = 0
 pilot v4_query_invalidated_generations = 0
 pilot v4_query_invalidated_reasons = 0
+pilot v4_query_telemetry_keys = 0
+pilot v4_query_telemetry_hits = 0
+pilot v4_query_telemetry_misses = 0
+pilot v4_query_telemetry_stores = 0
+pilot v4_query_hit_total = 0
+pilot v4_query_miss_total = 0
+pilot v4_query_store_total = 0
 pilot v4_query_ready = 0
 pilot v4_query_revision = 1
 
@@ -33,9 +40,56 @@ task v4_query_init() -> void {
         v4_query_invalidated_keys = array_new()
         v4_query_invalidated_generations = array_new()
         v4_query_invalidated_reasons = array_new()
+        v4_query_telemetry_keys = array_new()
+        v4_query_telemetry_hits = array_new()
+        v4_query_telemetry_misses = array_new()
+        v4_query_telemetry_stores = array_new()
         array_push(v4_query_generation_reasons, "bootstrap")
         v4_query_ready = 1
     }
+}
+
+task v4_query_telemetry_index(key: word) -> int {
+    v4_query_init()
+    pilot idx = 0
+    pilot count = array_len(v4_query_telemetry_keys)
+    repeat until idx >= count {
+        if array_get(v4_query_telemetry_keys, idx) == key {
+            give back idx
+        }
+        idx += 1
+    }
+
+    pilot new_idx = array_len(v4_query_telemetry_keys)
+    array_push(v4_query_telemetry_keys, key)
+    array_push(v4_query_telemetry_hits, "0")
+    array_push(v4_query_telemetry_misses, "0")
+    array_push(v4_query_telemetry_stores, "0")
+    give back new_idx
+}
+
+task v4_query_record_hit(key: word) -> void {
+    v4_query_init()
+    v4_query_hit_total += 1
+    pilot idx = v4_query_telemetry_index(key)
+    pilot hits = word_to_int(array_get(v4_query_telemetry_hits, idx)) + 1
+    array_set(v4_query_telemetry_hits, idx, word_from_int(hits))
+}
+
+task v4_query_record_miss(key: word) -> void {
+    v4_query_init()
+    v4_query_miss_total += 1
+    pilot idx = v4_query_telemetry_index(key)
+    pilot misses = word_to_int(array_get(v4_query_telemetry_misses, idx)) + 1
+    array_set(v4_query_telemetry_misses, idx, word_from_int(misses))
+}
+
+task v4_query_record_store(key: word) -> void {
+    v4_query_init()
+    v4_query_store_total += 1
+    pilot idx = v4_query_telemetry_index(key)
+    pilot stores = word_to_int(array_get(v4_query_telemetry_stores, idx)) + 1
+    array_set(v4_query_telemetry_stores, idx, word_from_int(stores))
 }
 
 task v4_query_bump_revision() -> int {
@@ -91,11 +145,14 @@ task v4_query_find(key: word, input_fingerprint: word) -> int {
 task v4_query_get(key: word, input_fingerprint: word) -> word {
     pilot idx = v4_query_find(key, input_fingerprint)
     if idx < 0 {
+        v4_query_record_miss(key)
         give back ""
     }
     if array_get(v4_query_states, idx) != v4_query_valid {
+        v4_query_record_miss(key)
         give back ""
     }
+    v4_query_record_hit(key)
     give back array_get(v4_query_outputs, idx)
 }
 
@@ -105,6 +162,7 @@ task v4_query_store(key: word, input_fingerprint: word, output: word) -> int {
     if idx >= 0 {
         array_set(v4_query_outputs, idx, output)
         array_set(v4_query_states, idx, v4_query_valid)
+        v4_query_record_store(key)
         give back idx
     }
 
@@ -113,6 +171,7 @@ task v4_query_store(key: word, input_fingerprint: word, output: word) -> int {
     array_push(v4_query_inputs, input_fingerprint)
     array_push(v4_query_outputs, output)
     array_push(v4_query_states, v4_query_valid)
+    v4_query_record_store(key)
     give back new_idx
 }
 
@@ -233,4 +292,56 @@ task v4_query_dirty_count() -> int {
         i += 1
     }
     give back dirty
+}
+
+task v4_query_hit_count() -> int {
+    v4_query_init()
+    give back v4_query_hit_total
+}
+
+task v4_query_miss_count() -> int {
+    v4_query_init()
+    give back v4_query_miss_total
+}
+
+task v4_query_store_count() -> int {
+    v4_query_init()
+    give back v4_query_store_total
+}
+
+task v4_query_telemetry_key_count() -> int {
+    v4_query_init()
+    give back array_len(v4_query_telemetry_keys)
+}
+
+task v4_query_telemetry_key(telemetry_id: int) -> word {
+    v4_query_init()
+    give back array_get(v4_query_telemetry_keys, telemetry_id)
+}
+
+task v4_query_telemetry_hits_for(telemetry_id: int) -> int {
+    v4_query_init()
+    give back word_to_int(array_get(v4_query_telemetry_hits, telemetry_id))
+}
+
+task v4_query_telemetry_misses_for(telemetry_id: int) -> int {
+    v4_query_init()
+    give back word_to_int(array_get(v4_query_telemetry_misses, telemetry_id))
+}
+
+task v4_query_telemetry_stores_for(telemetry_id: int) -> int {
+    v4_query_init()
+    give back word_to_int(array_get(v4_query_telemetry_stores, telemetry_id))
+}
+
+task v4_query_telemetry_summary() -> word {
+    pilot summary = "query-telemetry"
+    summary = summary + " generation=" + word_from_int(v4_query_generation())
+    summary = summary + " cache=" + word_from_int(v4_query_cache_size())
+    summary = summary + " dirty=" + word_from_int(v4_query_dirty_count())
+    summary = summary + " hits=" + word_from_int(v4_query_hit_count())
+    summary = summary + " misses=" + word_from_int(v4_query_miss_count())
+    summary = summary + " stores=" + word_from_int(v4_query_store_count())
+    summary = summary + " keys=" + word_from_int(v4_query_telemetry_key_count())
+    give back summary
 }

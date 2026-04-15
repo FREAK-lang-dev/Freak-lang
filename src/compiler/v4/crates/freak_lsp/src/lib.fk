@@ -339,6 +339,22 @@ task v4_lsp_diagnostics_text(path: word, text: word) -> word {
     give back v4_lsp_response_ok("textDocument/publishDiagnostics", out)
 }
 
+task v4_lsp_query_telemetry_text() -> word {
+    pilot out = v4_query_telemetry_summary()
+    pilot telemetry_id = 0
+    pilot telemetry_count = v4_query_telemetry_key_count()
+    repeat until telemetry_id >= telemetry_count {
+        out = out + "\n"
+        out = out + "query"
+        out = out + "|" + v4_query_telemetry_key(telemetry_id)
+        out = out + "|hits=" + word_from_int(v4_query_telemetry_hits_for(telemetry_id))
+        out = out + "|misses=" + word_from_int(v4_query_telemetry_misses_for(telemetry_id))
+        out = out + "|stores=" + word_from_int(v4_query_telemetry_stores_for(telemetry_id))
+        telemetry_id += 1
+    }
+    give back v4_lsp_response_ok("workspace/queryTelemetry", out)
+}
+
 task v4_lsp_hover_position_text(path: word, text: word, line: int, character_pos: int) -> word {
     pilot offset = v4_lsp_offset_from_position(text, line, character_pos)
     give back v4_lsp_hover_text(path, text, offset)
@@ -385,6 +401,7 @@ task v4_lsp_initialize_payload() -> word {
     out = out + "|textDocument/documentSymbol"
     out = out + "|textDocument/completion"
     out = out + "|textDocument/publishDiagnostics"
+    out = out + "|workspace/queryTelemetry"
     out = out + "|textDocument/didOpen"
     out = out + "|textDocument/didChange"
     give back out
@@ -419,6 +436,9 @@ task v4_lsp_handle_text_request(method: word, path: word, text: word, offset: in
     }
     if method == "textDocument/publishDiagnostics" {
         give back v4_lsp_diagnostics_text(path, text)
+    }
+    if method == "workspace/queryTelemetry" {
+        give back v4_lsp_query_telemetry_text()
     }
     give back v4_lsp_response_error(method, 0 - 32601, "method not found")
 }
@@ -463,6 +483,9 @@ task v4_lsp_handle_request(method: word, path: word, offset: int) -> word {
     }
     if method == "textDocument/publishDiagnostics" {
         give back v4_lsp_diagnostics_document(path)
+    }
+    if method == "workspace/queryTelemetry" {
+        give back v4_lsp_query_telemetry_text()
     }
     if method == "textDocument/didOpen" or method == "textDocument/didChange" {
         give back v4_lsp_response_error(method, 0 - 32602, "method requires source text")

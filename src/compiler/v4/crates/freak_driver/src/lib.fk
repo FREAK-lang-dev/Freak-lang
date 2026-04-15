@@ -1325,7 +1325,11 @@ task v4_check_syntax_file(path: word) -> word {
 task v4_driver_status() -> word {
     v4_driver_init()
     pilot status = "freakc_v4 " + FREAKC_V4_VERSION + " (" + FREAKC_V4_CODENAME + ")"
+    status = status + " generation=" + word_from_int(v4_query_generation())
     status = status + " queries=" + word_from_int(v4_query_cache_size())
     status = status + " deps=" + word_from_int(v4_query_dep_count())
+    status = status + " dirty=" + word_from_int(v4_query_dirty_count())
+    status = status + " hits=" + word_from_int(v4_query_hit_count())
+    status = status + " misses=" + word_from_int(v4_query_miss_count())
     give back status
 }
