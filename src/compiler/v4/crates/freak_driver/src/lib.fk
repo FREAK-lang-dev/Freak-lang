@@ -14,6 +14,7 @@ pilot v4_semantic_snapshot_format = "freak-semantic-snapshot-v1"
 pilot v4_hover_snapshot_format = "freak-hover-snapshot-v1"
 pilot v4_definition_snapshot_format = "freak-definition-snapshot-v1"
 pilot v4_document_symbols_snapshot_format = "freak-document-symbols-snapshot-v1"
+pilot v4_completion_snapshot_format = "freak-completion-snapshot-v1"
 
 pilot v4_driver_diag_paths = 0
 pilot v4_driver_diag_items = 0
@@ -419,6 +420,24 @@ task v4_driver_query_entry_can_promote(path: word, entry_id: int) -> int {
                     pilot ty_id = word_to_int(v4_query_entry_output(ty_entry))
                     if v4_hir_file_exists(hir_id) and v4_resolve_exists(resolve_id) and v4_ty_file_exists(ty_id) {
                         give back 1
+                    }
+                }
+            }
+        }
+    }
+    if key.starts_with("completion:" + path + ":") {
+        pilot completion_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_completion_exists(completion_id) {
+            if v4_completion_path(completion_id) == path {
+                pilot offset = v4_completion_offset(completion_id)
+                if v4_completion_query_key(path, offset) == key {
+                    pilot fingerprint = v4_query_entry_input(entry_id)
+                    pilot doc_entry = v4_query_find(v4_document_symbols_query_key(path), fingerprint)
+                    if doc_entry >= 0 {
+                        pilot doc_id = word_to_int(v4_query_entry_output(doc_entry))
+                        if v4_document_symbols_exists(doc_id) {
+                            give back 1
+                        }
                     }
                 }
             }
@@ -1113,7 +1132,7 @@ task v4_unit_snapshot_key_value(line: word, wanted_key: word) -> word {
 }
 
 task v4_unit_snapshot_section_count() -> int {
-    give back 13
+    give back 14
 }
 
 task v4_unit_snapshot_summary() -> word {
@@ -1174,6 +1193,7 @@ task v4_unit_snapshot() -> word {
     out = out + "\n" + v4_unit_snapshot_section_line("hover", v4_hover_snapshot())
     out = out + "\n" + v4_unit_snapshot_section_line("definition", v4_definition_snapshot())
     out = out + "\n" + v4_unit_snapshot_section_line("document-symbols", v4_document_symbols_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("completion", v4_completion_snapshot())
     out = out + "\n" + v4_unit_snapshot_section_line("query", v4_query_snapshot())
     out = out + "\nend|" + v4_unit_snapshot_format
     give back out
@@ -1327,6 +1347,8 @@ task v4_unit_snapshot_restore_named_section(payload: word, section_name: word) -
         v4_definition_snapshot_restore(section_payload)
     } else if section_name == "document-symbols" {
         v4_document_symbols_snapshot_restore(section_payload)
+    } else if section_name == "completion" {
+        v4_completion_snapshot_restore(section_payload)
     } else if section_name == "query" {
         v4_query_snapshot_restore(section_payload)
     } else {
@@ -1374,6 +1396,7 @@ task v4_unit_snapshot_restore(payload: word) -> word {
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "hover")
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "definition")
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "document-symbols")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "completion")
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "query")
 
     pilot confirmed_sources = v4_unit_snapshot_confirm_sources(payload)
@@ -3028,6 +3051,36 @@ task v4_driver_completion_new(path: word, offset: int) -> int {
     give back completion_id
 }
 
+task v4_completion_set_count() -> int {
+    v4_driver_init()
+    give back array_len(v4_driver_comp_paths)
+}
+
+task v4_completion_exists(completion_id: int) -> bool {
+    v4_driver_init()
+    if completion_id < 0 {
+        give back false
+    }
+    if completion_id >= array_len(v4_driver_comp_paths) {
+        give back false
+    }
+    give back true
+}
+
+task v4_completion_path(completion_id: int) -> word {
+    if v4_completion_exists(completion_id) == false {
+        give back ""
+    }
+    give back array_get(v4_driver_comp_paths, completion_id)
+}
+
+task v4_completion_offset(completion_id: int) -> int {
+    if v4_completion_exists(completion_id) == false {
+        give back 0 - 1
+    }
+    give back word_to_int(array_get(v4_driver_comp_offsets, completion_id))
+}
+
 task v4_driver_comp_labels_handle(completion_id: int) -> int {
     give back word_to_int(array_get(v4_driver_comp_labels, completion_id))
 }
@@ -3104,12 +3157,270 @@ task v4_completion_add_document_symbols(completion_id: int, doc_id: int) -> void
 
 task v4_completion_summary(completion_id: int) -> word {
     pilot summary = "completion id=" + word_from_int(completion_id)
+    summary = summary + " path=" + v4_completion_path(completion_id)
+    summary = summary + " offset=" + word_from_int(v4_completion_offset(completion_id))
     summary = summary + " count=" + word_from_int(v4_completion_count(completion_id))
     if v4_completion_count(completion_id) > 0 {
         summary = summary + " first=" + v4_completion_label(completion_id, 0)
         summary = summary + " first-kind=" + v4_completion_kind(completion_id, 0)
     }
     give back summary
+}
+
+task v4_completion_snapshot_escape(value: word) -> word {
+    give back v4_document_symbols_snapshot_escape(value)
+}
+
+task v4_completion_snapshot_unescape(value: word) -> word {
+    give back v4_document_symbols_snapshot_unescape(value)
+}
+
+task v4_completion_snapshot_line_count(payload: word) -> int {
+    give back v4_document_symbols_snapshot_line_count(payload)
+}
+
+task v4_completion_snapshot_line(payload: word, wanted: int) -> word {
+    give back v4_document_symbols_snapshot_line(payload, wanted)
+}
+
+task v4_completion_snapshot_field_count(line: word) -> int {
+    give back v4_document_symbols_snapshot_field_count(line)
+}
+
+task v4_completion_snapshot_field_raw(line: word, wanted: int) -> word {
+    give back v4_document_symbols_snapshot_field_raw(line, wanted)
+}
+
+task v4_completion_snapshot_field(line: word, wanted: int) -> word {
+    give back v4_document_symbols_snapshot_field(line, wanted)
+}
+
+task v4_completion_snapshot_key_value(line: word, wanted_key: word) -> word {
+    give back v4_document_symbols_snapshot_key_value(line, wanted_key)
+}
+
+task v4_completion_snapshot_item_total() -> int {
+    v4_driver_init()
+    pilot total = 0
+    pilot completion_id = 0
+    repeat until completion_id >= v4_completion_set_count() {
+        total += v4_completion_count(completion_id)
+        completion_id += 1
+    }
+    give back total
+}
+
+task v4_completion_snapshot_summary() -> word {
+    pilot summary = "completion-snapshot"
+    summary = summary + " format=" + v4_completion_snapshot_format
+    summary = summary + " completions=" + word_from_int(v4_completion_set_count())
+    summary = summary + " items=" + word_from_int(v4_completion_snapshot_item_total())
+    give back summary
+}
+
+task v4_completion_snapshot_header() -> word {
+    pilot out = "completion-snapshot"
+    out = out + "|format=" + v4_completion_snapshot_format
+    out = out + "|completions=" + word_from_int(v4_completion_set_count())
+    out = out + "|items=" + word_from_int(v4_completion_snapshot_item_total())
+    give back out
+}
+
+task v4_completion_snapshot_completion_line(completion_id: int) -> word {
+    pilot out = "completion"
+    out = out + "|" + word_from_int(completion_id)
+    out = out + "|" + v4_completion_snapshot_escape(v4_completion_path(completion_id))
+    out = out + "|" + word_from_int(v4_completion_offset(completion_id))
+    out = out + "|" + word_from_int(v4_completion_count(completion_id))
+    give back out
+}
+
+task v4_completion_snapshot_item_line(completion_id: int, item_id: int) -> word {
+    pilot out = "completion-item"
+    out = out + "|" + word_from_int(completion_id)
+    out = out + "|" + word_from_int(item_id)
+    out = out + "|" + v4_completion_snapshot_escape(v4_completion_label(completion_id, item_id))
+    out = out + "|" + v4_completion_snapshot_escape(v4_completion_kind(completion_id, item_id))
+    out = out + "|" + v4_completion_snapshot_escape(v4_completion_detail(completion_id, item_id))
+    out = out + "|" + v4_completion_snapshot_escape(v4_completion_insert_text(completion_id, item_id))
+    give back out
+}
+
+task v4_completion_snapshot() -> word {
+    v4_driver_init()
+    pilot out = v4_completion_snapshot_header()
+    pilot completion_id = 0
+    pilot completion_count = v4_completion_set_count()
+    repeat until completion_id >= completion_count {
+        out = out + "\n" + v4_completion_snapshot_completion_line(completion_id)
+        pilot item_id = 0
+        pilot item_count = v4_completion_count(completion_id)
+        repeat until item_id >= item_count {
+            out = out + "\n" + v4_completion_snapshot_item_line(completion_id, item_id)
+            item_id += 1
+        }
+        completion_id += 1
+    }
+    out = out + "\nend|" + v4_completion_snapshot_format
+    give back out
+}
+
+task v4_completion_snapshot_record_expected_fields(kind: word) -> int {
+    if kind == "completion-snapshot" { give back 4 }
+    if kind == "completion" { give back 5 }
+    if kind == "completion-item" { give back 7 }
+    if kind == "end" { give back 2 }
+    give back 0
+}
+
+task v4_completion_snapshot_record_is_valid(line: word) -> bool {
+    pilot kind = v4_completion_snapshot_field_raw(line, 0)
+    pilot expected = v4_completion_snapshot_record_expected_fields(kind)
+    if expected == 0 {
+        give back false
+    }
+    if v4_completion_snapshot_field_count(line) < expected {
+        give back false
+    }
+    give back true
+}
+
+task v4_completion_snapshot_validate(payload: word) -> word {
+    pilot lines = v4_completion_snapshot_line_count(payload)
+    pilot completions = 0
+    pilot items = 0
+    pilot malformed = 0
+    pilot saw_header = 0
+    pilot saw_end = 0
+    pilot format = ""
+
+    pilot line_id = 0
+    repeat until line_id >= lines {
+        pilot line = v4_completion_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_completion_snapshot_field_raw(line, 0)
+            if v4_completion_snapshot_record_is_valid(line) == false {
+                malformed += 1
+            } else if kind == "completion-snapshot" {
+                saw_header += 1
+                format = v4_completion_snapshot_key_value(line, "format")
+                if format != v4_completion_snapshot_format {
+                    malformed += 1
+                }
+            } else if kind == "completion" {
+                completions += 1
+            } else if kind == "completion-item" {
+                items += 1
+            } else if kind == "end" {
+                saw_end += 1
+                if v4_completion_snapshot_field(line, 1) != v4_completion_snapshot_format {
+                    malformed += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+
+    pilot import_ok = 1
+    if saw_header != 1 { import_ok = 0 }
+    if saw_end != 1 { import_ok = 0 }
+    if malformed > 0 { import_ok = 0 }
+
+    pilot out = "completion-snapshot-import"
+    out = out + " ok=" + word_from_int(import_ok)
+    out = out + " format=" + format
+    out = out + " lines=" + word_from_int(lines)
+    out = out + " completions=" + word_from_int(completions)
+    out = out + " items=" + word_from_int(items)
+    out = out + " malformed=" + word_from_int(malformed)
+    out = out + " headers=" + word_from_int(saw_header)
+    out = out + " ends=" + word_from_int(saw_end)
+    give back out
+}
+
+task v4_completion_restore_completion_slot(completion_id: int, path: word, offset: int) -> int {
+    v4_driver_init()
+    repeat until array_len(v4_driver_comp_paths) > completion_id {
+        v4_driver_completion_new("", 0)
+    }
+
+    array_set(v4_driver_comp_paths, completion_id, path)
+    array_set(v4_driver_comp_offsets, completion_id, word_from_int(offset))
+    array_set(v4_driver_comp_labels, completion_id, word_from_int(array_new()))
+    array_set(v4_driver_comp_kinds, completion_id, word_from_int(array_new()))
+    array_set(v4_driver_comp_details, completion_id, word_from_int(array_new()))
+    array_set(v4_driver_comp_inserts, completion_id, word_from_int(array_new()))
+    give back 1
+}
+
+task v4_completion_restore_item_slot(completion_id: int, item_id: int, label: word, kind: word, detail: word, insert_text: word) -> int {
+    if v4_completion_exists(completion_id) == false {
+        give back 0
+    }
+    repeat until v4_completion_count(completion_id) > item_id {
+        v4_completion_add(completion_id, "", "", "", "")
+    }
+
+    array_set(v4_driver_comp_labels_handle(completion_id), item_id, label)
+    array_set(v4_driver_comp_kinds_handle(completion_id), item_id, kind)
+    array_set(v4_driver_comp_details_handle(completion_id), item_id, detail)
+    array_set(v4_driver_comp_inserts_handle(completion_id), item_id, insert_text)
+    give back 1
+}
+
+task v4_completion_snapshot_restore_completion_line(line: word) -> int {
+    if v4_completion_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_completion_snapshot_field_raw(line, 0) != "completion" { give back 0 }
+    pilot completion_id = word_to_int(v4_completion_snapshot_field_raw(line, 1))
+    pilot path = v4_completion_snapshot_field(line, 2)
+    pilot offset = word_to_int(v4_completion_snapshot_field_raw(line, 3))
+    give back v4_completion_restore_completion_slot(completion_id, path, offset)
+}
+
+task v4_completion_snapshot_restore_item_line(line: word) -> int {
+    if v4_completion_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_completion_snapshot_field_raw(line, 0) != "completion-item" { give back 0 }
+    pilot completion_id = word_to_int(v4_completion_snapshot_field_raw(line, 1))
+    pilot item_id = word_to_int(v4_completion_snapshot_field_raw(line, 2))
+    pilot label = v4_completion_snapshot_field(line, 3)
+    pilot kind = v4_completion_snapshot_field(line, 4)
+    pilot detail = v4_completion_snapshot_field(line, 5)
+    pilot insert_text = v4_completion_snapshot_field(line, 6)
+    give back v4_completion_restore_item_slot(completion_id, item_id, label, kind, detail, insert_text)
+}
+
+task v4_completion_snapshot_restore(payload: word) -> word {
+    pilot validation = v4_completion_snapshot_validate(payload)
+    if validation.starts_with("completion-snapshot-import ok=1") == false {
+        give back "completion-snapshot-restore ok=0 reason=validation-failed\n" + validation
+    }
+
+    pilot restored_completions = 0
+    pilot restored_items = 0
+    pilot skipped_other = 0
+    pilot line_id = 0
+    pilot line_count = v4_completion_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_completion_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_completion_snapshot_field_raw(line, 0)
+            if kind == "completion" {
+                restored_completions += v4_completion_snapshot_restore_completion_line(line)
+            } else if kind == "completion-item" {
+                restored_items += v4_completion_snapshot_restore_item_line(line)
+            } else if kind != "completion-snapshot" and kind != "end" {
+                skipped_other += 1
+            }
+        }
+        line_id += 1
+    }
+
+    pilot out = "completion-snapshot-restore ok=1"
+    out = out + " completions=" + word_from_int(restored_completions)
+    out = out + " items=" + word_from_int(restored_items)
+    out = out + " skipped-other=" + word_from_int(skipped_other)
+    out = out + " arena-completions=" + word_from_int(v4_completion_set_count())
+    give back out
 }
 
 task v4_completion_text_cached(path: word, text: word, offset: int) -> int {

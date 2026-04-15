@@ -1,0 +1,37 @@
+-- V4 completion arena snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_completion_snapshot_source = "task main() => \"hi\"\n"
+v4_completion_snapshot_source = v4_completion_snapshot_source + "shape Pilot\n"
+
+pilot v4_completion_snapshot_id = v4_completion_text_cached("completion-snapshot.fk", v4_completion_snapshot_source, 0)
+say v4_completion_summary(v4_completion_snapshot_id)
+say v4_completion_snapshot_summary()
+
+pilot v4_completion_snapshot_payload = v4_completion_snapshot()
+say v4_completion_snapshot_validate(v4_completion_snapshot_payload)
+say "completion-snapshot-bytes=" + word_from_int(v4_completion_snapshot_payload.length())
+say "completion-snapshot-escape=" + v4_completion_snapshot_escape("Pilot|Yuuko%0\nMeiya")
+say "completion-snapshot-unescape=" + v4_completion_snapshot_unescape("Pilot%7CYuuko%250%0AMeiya")
+say v4_completion_snapshot_completion_line(v4_completion_snapshot_id)
+say v4_completion_snapshot_item_line(v4_completion_snapshot_id, 0)
+say v4_parse_snapshot_restore(v4_parse_snapshot())
+say v4_hir_snapshot_restore(v4_hir_snapshot())
+say v4_resolve_snapshot_restore(v4_resolve_snapshot())
+say v4_ty_snapshot_restore(v4_ty_snapshot())
+say v4_document_symbols_snapshot_restore(v4_document_symbols_snapshot())
+say v4_completion_snapshot_restore(v4_completion_snapshot_payload)
+say v4_lsp_completion_snapshot_text()
+say v4_lsp_completion_snapshot_restore_text(v4_completion_snapshot_payload)
+say v4_lsp_handle_text_request("workspace/completionSnapshotRestore", "completion-snapshot.fk", v4_completion_snapshot_payload, 0)
+say v4_lsp_handle_request("workspace/completionSnapshotRestore", "completion-snapshot.fk", 0)
+
+pilot v4_completion_query_payload = v4_query_snapshot()
+say v4_query_snapshot_restore(v4_completion_query_payload)
+say v4_driver_confirm_restored_document_text("completion-snapshot.fk", v4_completion_snapshot_source)
+pilot v4_completion_file = v4_source_find("completion-snapshot.fk")
+pilot v4_completion_fingerprint = v4_source_fingerprint(v4_completion_file)
+pilot v4_completion_restored_id = word_to_int(v4_query_get(v4_completion_query_key("completion-snapshot.fk", 0), v4_completion_fingerprint))
+say v4_completion_summary(v4_completion_restored_id)
+say "restored-completion0=" + v4_completion_label(v4_completion_restored_id, 0)
+say v4_driver_confirm_restored_document_text("completion-snapshot.fk", "task changed() => 7\n")
