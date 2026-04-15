@@ -1,0 +1,23 @@
+-- V4 query invalidation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_invalidation_source = "task main() => \"hi\"\n"
+v4_invalidation_source = v4_invalidation_source + "shape Pilot\n"
+v4_lsp_open_document("invalidate.fk", v4_invalidation_source)
+
+say v4_lsp_handle_position_request("textDocument/hover", "invalidate.fk", 0, 5)
+say v4_lsp_handle_position_request("textDocument/definition", "invalidate.fk", 0, 5)
+say v4_lsp_handle_position_request("textDocument/completion", "invalidate.fk", 1, 0)
+say v4_lsp_handle_request("textDocument/documentSymbol", "invalidate.fk", 0)
+say v4_lsp_handle_request("textDocument/publishDiagnostics", "invalidate.fk", 0)
+say "generation-before=" + word_from_int(v4_query_generation())
+
+pilot v4_invalidation_changed = "shape Pilot\n"
+v4_invalidation_changed = v4_invalidation_changed + "task main() => \"hi\"\n"
+say v4_lsp_handle_text_request("textDocument/didChange", "invalidate.fk", v4_invalidation_changed, 0)
+say v4_lsp_invalidation_summary("invalidate.fk")
+say "generation-after=" + word_from_int(v4_query_generation())
+say "generation-reason=" + v4_query_generation_reason(v4_query_generation())
+say "invalidated-total=" + word_from_int(v4_query_invalidated_count())
+say "dirty-total=" + word_from_int(v4_query_dirty_count())
+say "first-invalidated=" + v4_query_invalidated_key(0)

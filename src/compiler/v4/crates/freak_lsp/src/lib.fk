@@ -72,7 +72,9 @@ task v4_lsp_open_document(path: word, text: word) -> int {
 }
 
 task v4_lsp_change_document(path: word, text: word) -> int {
-    give back v4_lsp_open_document(path, text)
+    pilot doc_id = v4_lsp_open_document(path, text)
+    v4_lsp_invalidate_document_queries(path)
+    give back doc_id
 }
 
 task v4_lsp_document_id_or_missing(path: word) -> int {
@@ -89,6 +91,73 @@ task v4_lsp_document_summary(path: word) -> word {
     out = out + " path=" + v4_lsp_document_path(doc_id)
     out = out + " rev=" + word_from_int(v4_lsp_document_revision(doc_id))
     out = out + " bytes=" + word_from_int(v4_lsp_document_text(doc_id).length())
+    give back out
+}
+
+task v4_lsp_invalidation_key_matches(path: word, key: word) -> bool {
+    if key.starts_with(v4_check_syntax_query_key(path)) { give back true }
+    if key.starts_with(v4_lex_query_key(path)) { give back true }
+    if key.starts_with(v4_parse_query_key(path)) { give back true }
+    if key.starts_with(v4_hir_query_key(path)) { give back true }
+    if key.starts_with(v4_resolve_query_key(path)) { give back true }
+    if key.starts_with(v4_ty_query_key(path)) { give back true }
+    if key.starts_with(v4_mir_query_key(path)) { give back true }
+    if key.starts_with(v4_borrowck_query_key(path)) { give back true }
+    if key.starts_with(v4_diagnostics_query_key(path)) { give back true }
+    if key.starts_with("semantic-at:" + path + ":") { give back true }
+    if key.starts_with("hover:" + path + ":") { give back true }
+    if key.starts_with("definition-at:" + path + ":") { give back true }
+    if key.starts_with(v4_document_symbols_query_key(path)) { give back true }
+    if key.starts_with("completion:" + path + ":") { give back true }
+    give back false
+}
+
+task v4_lsp_invalidate_document_queries(path: word) -> int {
+    pilot generation = v4_query_bump_generation("didChange:" + path)
+    pilot reason = "didChange:" + path
+    pilot dirtied = 0
+    dirtied += v4_query_invalidate_prefix_at_generation(v4_check_syntax_query_key(path), generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation(v4_lex_query_key(path), generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation(v4_parse_query_key(path), generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation(v4_hir_query_key(path), generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation(v4_resolve_query_key(path), generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation(v4_ty_query_key(path), generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation(v4_mir_query_key(path), generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation(v4_borrowck_query_key(path), generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation(v4_diagnostics_query_key(path), generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation("semantic-at:" + path + ":", generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation("hover:" + path + ":", generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation("definition-at:" + path + ":", generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation(v4_document_symbols_query_key(path), generation, reason)
+    dirtied += v4_query_invalidate_prefix_at_generation("completion:" + path + ":", generation, reason)
+    give back dirtied
+}
+
+task v4_lsp_invalidation_summary(path: word) -> word {
+    pilot invalidated = 0
+    pilot last_generation = 0
+    pilot first_key = ""
+    pilot idx = 0
+    pilot count = v4_query_invalidated_count()
+    repeat until idx >= count {
+        pilot key = v4_query_invalidated_key(idx)
+        if v4_lsp_invalidation_key_matches(path, key) {
+            invalidated += 1
+            last_generation = v4_query_invalidated_generation(idx)
+            if first_key == "" {
+                first_key = key
+            }
+        }
+        idx += 1
+    }
+
+    pilot out = "invalidation path=" + path
+    out = out + " generation=" + word_from_int(last_generation)
+    out = out + " invalidated=" + word_from_int(invalidated)
+    out = out + " dirty=" + word_from_int(v4_query_dirty_count())
+    if first_key != "" {
+        out = out + " first=" + first_key
+    }
     give back out
 }
 
@@ -334,7 +403,7 @@ task v4_lsp_handle_text_request(method: word, path: word, text: word, offset: in
     }
     if method == "textDocument/didChange" {
         v4_lsp_change_document(path, text)
-        give back v4_lsp_response_ok(method, v4_lsp_document_summary(path))
+        give back v4_lsp_response_ok(method, v4_lsp_document_summary(path) + "\n" + v4_lsp_invalidation_summary(path))
     }
     if method == "textDocument/hover" {
         give back v4_lsp_hover_text(path, text, offset)

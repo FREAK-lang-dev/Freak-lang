@@ -14,6 +14,10 @@ pilot v4_query_outputs = 0
 pilot v4_query_states = 0
 pilot v4_query_dep_from = 0
 pilot v4_query_dep_to = 0
+pilot v4_query_generation_reasons = 0
+pilot v4_query_invalidated_keys = 0
+pilot v4_query_invalidated_generations = 0
+pilot v4_query_invalidated_reasons = 0
 pilot v4_query_ready = 0
 pilot v4_query_revision = 1
 
@@ -25,14 +29,48 @@ task v4_query_init() -> void {
         v4_query_states = array_new()
         v4_query_dep_from = array_new()
         v4_query_dep_to = array_new()
+        v4_query_generation_reasons = array_new()
+        v4_query_invalidated_keys = array_new()
+        v4_query_invalidated_generations = array_new()
+        v4_query_invalidated_reasons = array_new()
+        array_push(v4_query_generation_reasons, "bootstrap")
         v4_query_ready = 1
     }
 }
 
 task v4_query_bump_revision() -> int {
+    give back v4_query_bump_generation("revision")
+}
+
+task v4_query_generation() -> int {
+    v4_query_init()
+    give back v4_query_revision
+}
+
+task v4_query_generation_reason(generation: int) -> word {
+    v4_query_init()
+    if generation <= 0 {
+        give back ""
+    }
+    pilot idx = generation - 1
+    if idx >= array_len(v4_query_generation_reasons) {
+        give back ""
+    }
+    give back array_get(v4_query_generation_reasons, idx)
+}
+
+task v4_query_bump_generation(reason: word) -> int {
     v4_query_init()
     v4_query_revision += 1
+    array_push(v4_query_generation_reasons, reason)
     give back v4_query_revision
+}
+
+task v4_query_record_invalidation(key: word, generation: int, reason: word) -> void {
+    v4_query_init()
+    array_push(v4_query_invalidated_keys, key)
+    array_push(v4_query_invalidated_generations, word_from_int(generation))
+    array_push(v4_query_invalidated_reasons, reason)
 }
 
 task v4_query_find(key: word, input_fingerprint: word) -> int {
@@ -90,7 +128,7 @@ task v4_query_mark_dirty_key(key: word) -> void {
     }
 }
 
-task v4_query_invalidate_prefix(prefix: word) -> int {
+task v4_query_dirtyable_prefix_count(prefix: word) -> int {
     v4_query_init()
     pilot dirtied = 0
     pilot i = 0
@@ -99,16 +137,52 @@ task v4_query_invalidate_prefix(prefix: word) -> int {
         pilot key = array_get(v4_query_keys, i)
         if key.starts_with(prefix) {
             if array_get(v4_query_states, i) != v4_query_dirty {
-                array_set(v4_query_states, i, v4_query_dirty)
                 dirtied += 1
             }
         }
         i += 1
     }
-    if dirtied > 0 {
-        v4_query_bump_revision()
+    give back dirtied
+}
+
+task v4_query_invalidate_prefix_at_generation(prefix: word, generation: int, reason: word) -> int {
+    v4_query_init()
+    pilot dirtied = 0
+    pilot i = 0
+    pilot count = array_len(v4_query_keys)
+    repeat until i >= count {
+        pilot key = array_get(v4_query_keys, i)
+        if key.starts_with(prefix) {
+            if array_get(v4_query_states, i) != v4_query_dirty {
+                dirtied += 1
+            }
+        }
+        i += 1
+    }
+    if dirtied == 0 {
+        give back 0
+    }
+    i = 0
+    repeat until i >= count {
+        pilot key2 = array_get(v4_query_keys, i)
+        if key2.starts_with(prefix) {
+            if array_get(v4_query_states, i) != v4_query_dirty {
+                array_set(v4_query_states, i, v4_query_dirty)
+                v4_query_record_invalidation(key2, generation, reason)
+            }
+        }
+        i += 1
     }
     give back dirtied
+}
+
+task v4_query_invalidate_prefix(prefix: word) -> int {
+    v4_query_init()
+    if v4_query_dirtyable_prefix_count(prefix) == 0 {
+        give back 0
+    }
+    pilot generation = v4_query_bump_generation("invalidate:" + prefix)
+    give back v4_query_invalidate_prefix_at_generation(prefix, generation, "prefix:" + prefix)
 }
 
 task v4_query_record_dep(from_key: word, to_key: word) -> void {
@@ -125,4 +199,38 @@ task v4_query_dep_count() -> int {
 task v4_query_cache_size() -> int {
     v4_query_init()
     give back array_len(v4_query_keys)
+}
+
+task v4_query_invalidated_count() -> int {
+    v4_query_init()
+    give back array_len(v4_query_invalidated_keys)
+}
+
+task v4_query_invalidated_key(invalidation_id: int) -> word {
+    v4_query_init()
+    give back array_get(v4_query_invalidated_keys, invalidation_id)
+}
+
+task v4_query_invalidated_generation(invalidation_id: int) -> int {
+    v4_query_init()
+    give back word_to_int(array_get(v4_query_invalidated_generations, invalidation_id))
+}
+
+task v4_query_invalidated_reason(invalidation_id: int) -> word {
+    v4_query_init()
+    give back array_get(v4_query_invalidated_reasons, invalidation_id)
+}
+
+task v4_query_dirty_count() -> int {
+    v4_query_init()
+    pilot dirty = 0
+    pilot i = 0
+    pilot count = array_len(v4_query_states)
+    repeat until i >= count {
+        if array_get(v4_query_states, i) == v4_query_dirty {
+            dirty += 1
+        }
+        i += 1
+    }
+    give back dirty
 }
