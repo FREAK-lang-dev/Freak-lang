@@ -12,6 +12,7 @@ pilot v4_unit_snapshot_format = "freak-00-unit-snapshot-v1"
 pilot v4_unit_snapshot_manifest_format = "freak-00-unit-manifest-v1"
 pilot v4_unit_snapshot_diff_format = "freak-00-unit-snapshot-diff-v1"
 pilot v4_unit_snapshot_diff_input_format = "freak-00-unit-snapshot-diff-input-v1"
+pilot v4_unit_snapshot_health_format = "freak-00-unit-health-v1"
 pilot v4_diagnostics_snapshot_format = "freak-diagnostics-snapshot-v1"
 pilot v4_semantic_snapshot_format = "freak-semantic-snapshot-v1"
 pilot v4_hover_snapshot_format = "freak-hover-snapshot-v1"
@@ -1928,6 +1929,241 @@ task v4_unit_snapshot_diff_from_input(diff_payload: word) -> word {
         give back out
     }
     give back v4_unit_snapshot_diff(snapshot_before_payload, snapshot_after_payload)
+}
+
+task v4_unit_snapshot_manifest_header_value(manifest_payload: word, key: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(manifest_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(manifest_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "00-unit-manifest" {
+                give back v4_unit_snapshot_key_value(line, key)
+            }
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_manifest_section_count_for_ok(manifest_payload: word, wanted_ok: int) -> int {
+    pilot count = 0
+    pilot wanted = word_from_int(wanted_ok)
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(manifest_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(manifest_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "section" {
+                if v4_unit_snapshot_key_value(line, "ok") == wanted {
+                    count += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back count
+}
+
+task v4_unit_snapshot_health_section_lines(manifest_payload: word) -> word {
+    pilot out = ""
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(manifest_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(manifest_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "section" {
+                pilot name = v4_unit_snapshot_field_raw(line, 1)
+                pilot section_ok = v4_unit_snapshot_key_value(line, "ok")
+                pilot bytes = v4_unit_snapshot_key_value(line, "bytes")
+                pilot records = v4_unit_snapshot_key_value(line, "records")
+                pilot validation = v4_unit_snapshot_key_value(line, "validation")
+                out = out + "\nhealth-section"
+                out = out + "|name=" + name
+                out = out + "|ok=" + section_ok
+                out = out + "|bytes=" + bytes
+                out = out + "|records=" + records
+                out = out + "|validation=" + v4_unit_snapshot_escape(validation)
+            }
+        }
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_unit_snapshot_query_header_value(query_payload: word, key: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(query_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(query_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "snapshot" {
+                give back v4_unit_snapshot_key_value(line, key)
+            }
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_query_dirty_entry_count(query_payload: word) -> int {
+    pilot dirty_entries = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(query_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(query_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "entry" {
+                if v4_unit_snapshot_field(line, 5) == "dirty" {
+                    dirty_entries += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back dirty_entries
+}
+
+task v4_unit_snapshot_query_telemetry_sum(query_payload: word, field_id: int) -> int {
+    pilot total = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(query_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(query_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "telemetry" {
+                total += word_to_int(v4_unit_snapshot_field_raw(line, field_id))
+            }
+        }
+        line_id += 1
+    }
+    give back total
+}
+
+task v4_unit_snapshot_health_query_line(query_payload: word) -> word {
+    pilot validation = v4_unit_snapshot_section_validate("query", query_payload)
+    pilot query_section_ok = v4_unit_snapshot_section_validation_ok("query", validation)
+
+    pilot out = "health-query"
+    out = out + "|ok=" + word_from_int(query_section_ok)
+    out = out + "|generation=" + v4_unit_snapshot_query_header_value(query_payload, "generation")
+    out = out + "|generations=" + v4_unit_snapshot_query_header_value(query_payload, "generations")
+    out = out + "|entries=" + v4_unit_snapshot_query_header_value(query_payload, "entries")
+    out = out + "|dirty=" + word_from_int(v4_unit_snapshot_query_dirty_entry_count(query_payload))
+    out = out + "|edges=" + v4_unit_snapshot_query_header_value(query_payload, "edges")
+    out = out + "|invalidations=" + v4_unit_snapshot_query_header_value(query_payload, "invalidations")
+    out = out + "|telemetry=" + v4_unit_snapshot_query_header_value(query_payload, "telemetry")
+    out = out + "|hits=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 3))
+    out = out + "|misses=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 4))
+    out = out + "|stores=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 5))
+    out = out + "|validation=" + v4_unit_snapshot_escape(validation)
+    give back out
+}
+
+task v4_unit_snapshot_diff_header_value(diff_payload: word, key: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(diff_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(diff_payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "00-unit-diff" {
+                give back v4_unit_snapshot_key_value(line, key)
+            }
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_health_diff_line(diff_payload: word) -> word {
+    pilot out = "health-diff"
+    out = out + "|ok=" + v4_unit_snapshot_diff_header_value(diff_payload, "ok")
+    out = out + "|sources-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "sources-added")
+    out = out + "|sources-changed=" + v4_unit_snapshot_diff_header_value(diff_payload, "sources-changed")
+    out = out + "|sources-removed=" + v4_unit_snapshot_diff_header_value(diff_payload, "sources-removed")
+    out = out + "|sections-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "sections-added")
+    out = out + "|sections-changed=" + v4_unit_snapshot_diff_header_value(diff_payload, "sections-changed")
+    out = out + "|sections-removed=" + v4_unit_snapshot_diff_header_value(diff_payload, "sections-removed")
+    out = out + "|query-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-invalidations-added")
+    out = out + "|query-entries-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-entries-added")
+    out = out + "|query-entries-changed=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-entries-changed")
+    out = out + "|query-entries-removed=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-entries-removed")
+    give back out
+}
+
+task v4_unit_snapshot_health_append_diff(report: word, diff_payload: word) -> word {
+    pilot out = ""
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(report)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(report, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) != "end" {
+                if out != "" { out = out + "\n" }
+                out = out + line
+            }
+        }
+        line_id += 1
+    }
+    out = out + "\n" + v4_unit_snapshot_health_diff_line(diff_payload)
+    out = out + "\nend|" + v4_unit_snapshot_health_format
+    give back out
+}
+
+task v4_unit_snapshot_health(payload: word) -> word {
+    pilot validation = v4_unit_snapshot_validate(payload)
+    pilot manifest = v4_unit_snapshot_manifest(payload)
+    pilot query_payload = v4_unit_snapshot_section_payload(payload, "query")
+    pilot query_line = v4_unit_snapshot_health_query_line(query_payload)
+    pilot sections_ok = v4_unit_snapshot_manifest_section_count_for_ok(manifest, 1)
+    pilot sections_bad = v4_unit_snapshot_manifest_section_count_for_ok(manifest, 0)
+
+    pilot snapshot_ok = 0
+    if validation.starts_with("00-unit-snapshot-import ok=1") { snapshot_ok = 1 }
+
+    pilot health_ok = snapshot_ok
+    if sections_bad > 0 { health_ok = 0 }
+
+    pilot out = "00-unit-health"
+    out = out + "|format=" + v4_unit_snapshot_health_format
+    out = out + "|ok=" + word_from_int(health_ok)
+    out = out + "|snapshot-ok=" + word_from_int(snapshot_ok)
+    out = out + "|snapshot-bytes=" + word_from_int(payload.length())
+    out = out + "|manifest-bytes=" + word_from_int(manifest.length())
+    out = out + "|manifest-lines=" + word_from_int(v4_unit_snapshot_line_count(manifest))
+    out = out + "|sources=" + v4_unit_snapshot_manifest_header_value(manifest, "sources")
+    out = out + "|sections-ok=" + word_from_int(sections_ok)
+    out = out + "|sections-bad=" + word_from_int(sections_bad)
+    out = out + "|query-entries=" + v4_unit_snapshot_query_header_value(query_payload, "entries")
+    out = out + "|query-dirty=" + word_from_int(v4_unit_snapshot_query_dirty_entry_count(query_payload))
+    out = out + "|query-invalidations=" + v4_unit_snapshot_query_header_value(query_payload, "invalidations")
+    out = out + "|query-hits=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 3))
+    out = out + "|query-misses=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 4))
+    out = out + "|query-stores=" + word_from_int(v4_unit_snapshot_query_telemetry_sum(query_payload, 5))
+    out = out + "|validation=" + v4_unit_snapshot_escape(validation)
+    out = out + "\n" + query_line
+    out = out + v4_unit_snapshot_health_section_lines(manifest)
+    out = out + "\nend|" + v4_unit_snapshot_health_format
+    give back out
+}
+
+task v4_unit_snapshot_health_current() -> word {
+    give back v4_unit_snapshot_health(v4_unit_snapshot())
+}
+
+task v4_unit_snapshot_health_from_diff_input(diff_payload: word) -> word {
+    pilot snapshot_before_payload = v4_unit_snapshot_diff_input_part(diff_payload, "before")
+    pilot snapshot_after_payload = v4_unit_snapshot_diff_input_part(diff_payload, "after")
+    if snapshot_before_payload == "" or snapshot_after_payload == "" {
+        pilot out = "00-unit-health"
+        out = out + "|format=" + v4_unit_snapshot_health_format
+        out = out + "|ok=0"
+        out = out + "|reason=missing-diff-input"
+        out = out + "\nend|" + v4_unit_snapshot_health_format
+        give back out
+    }
+    pilot diff = v4_unit_snapshot_diff(snapshot_before_payload, snapshot_after_payload)
+    give back v4_unit_snapshot_health_append_diff(v4_unit_snapshot_health(snapshot_after_payload), diff)
 }
 
 task v4_unit_snapshot_restore_source_line(line: word) -> int {

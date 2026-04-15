@@ -512,6 +512,17 @@ task v4_lsp_unit_snapshot_manifest_current() -> word {
     give back v4_lsp_response_ok("workspace/unitSnapshotManifest", v4_unit_snapshot_manifest(v4_unit_snapshot()))
 }
 
+task v4_lsp_unit_snapshot_health_text(payload: word) -> word {
+    if payload.starts_with("00-unit-diff-input") {
+        give back v4_lsp_response_ok("workspace/unitSnapshotHealth", v4_unit_snapshot_health_from_diff_input(payload))
+    }
+    give back v4_lsp_response_ok("workspace/unitSnapshotHealth", v4_unit_snapshot_health(payload))
+}
+
+task v4_lsp_unit_snapshot_health_current() -> word {
+    give back v4_lsp_response_ok("workspace/unitSnapshotHealth", v4_unit_snapshot_health_current())
+}
+
 task v4_lsp_unit_snapshot_diff_text(payload: word) -> word {
     give back v4_lsp_response_ok("workspace/unitSnapshotDiff", v4_unit_snapshot_diff_from_input(payload))
 }
@@ -601,6 +612,7 @@ task v4_lsp_initialize_payload() -> word {
     out = out + "|workspace/completionSnapshotRestore"
     out = out + "|workspace/unitSnapshot"
     out = out + "|workspace/unitSnapshotManifest"
+    out = out + "|workspace/unitSnapshotHealth"
     out = out + "|workspace/unitSnapshotDiff"
     out = out + "|workspace/unitSnapshotRestore"
     out = out + "|textDocument/didOpen"
@@ -742,6 +754,9 @@ task v4_lsp_handle_text_request(method: word, path: word, text: word, offset: in
     }
     if method == "workspace/unitSnapshotManifest" {
         give back v4_lsp_unit_snapshot_manifest_text(text)
+    }
+    if method == "workspace/unitSnapshotHealth" {
+        give back v4_lsp_unit_snapshot_health_text(text)
     }
     if method == "workspace/unitSnapshotDiff" {
         give back v4_lsp_unit_snapshot_diff_text(text)
@@ -897,6 +912,9 @@ task v4_lsp_handle_request(method: word, path: word, offset: int) -> word {
     }
     if method == "workspace/unitSnapshotManifest" {
         give back v4_lsp_unit_snapshot_manifest_current()
+    }
+    if method == "workspace/unitSnapshotHealth" {
+        give back v4_lsp_unit_snapshot_health_current()
     }
     if method == "workspace/unitSnapshotDiff" {
         give back v4_lsp_response_error(method, 0 - 32602, "method requires snapshot diff input")
