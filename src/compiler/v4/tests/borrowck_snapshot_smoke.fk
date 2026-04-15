@@ -1,0 +1,57 @@
+-- V4 Meiya borrow-check arena snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_borrowck_snapshot_source = "task main() -> int {\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    pilot x = 40\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    pilot y = x + 2\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    if y > 40 {\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "        pilot z = y\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    } else {\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "        pilot z = 0\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    }\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    repeat until y > 45 {\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "        y = y + 1\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    }\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    pilot ship = helper()\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    ship.hp = y\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    give back y\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "}\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "task helper() => \"ok\"\n"
+v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "task main() => 0\n"
+
+pilot v4_borrowck_snapshot_id = v4_borrowck_text_cached("borrowck-snapshot.fk", v4_borrowck_snapshot_source)
+pilot v4_borrowck_snapshot_main_def = v4_resolve_def_for_name(v4_ty_resolve_id(v4_mir_ty_id(v4_borrowck_mir_id(v4_borrowck_snapshot_id))), "main")
+pilot v4_borrowck_snapshot_result = v4_borrowck_lookup_result(v4_borrowck_snapshot_id, v4_borrowck_snapshot_main_def)
+say v4_borrowck_summary(v4_borrowck_snapshot_id)
+say v4_borrowck_snapshot_summary()
+
+pilot v4_borrowck_snapshot_payload = v4_borrowck_snapshot()
+say v4_borrowck_snapshot_validate(v4_borrowck_snapshot_payload)
+say "borrowck-snapshot-bytes=" + word_from_int(v4_borrowck_snapshot_payload.length())
+say "borrowck-snapshot-escape=" + v4_borrowck_snapshot_escape("Loan|x%y\nMeiya")
+say "borrowck-snapshot-unescape=" + v4_borrowck_snapshot_unescape("Loan%7Cx%25y%0AMeiya")
+say v4_borrowck_snapshot_file_line(v4_borrowck_snapshot_id)
+say v4_borrowck_snapshot_result_line(v4_borrowck_snapshot_id, v4_borrowck_snapshot_result)
+say v4_borrowck_snapshot_path_line(v4_borrowck_snapshot_id, v4_borrowck_snapshot_result, 0)
+say v4_borrowck_snapshot_diag_line(v4_borrowck_snapshot_id, 0)
+say v4_parse_snapshot_restore(v4_parse_snapshot())
+say v4_hir_snapshot_restore(v4_hir_snapshot())
+say v4_resolve_snapshot_restore(v4_resolve_snapshot())
+say v4_ty_snapshot_restore(v4_ty_snapshot())
+say v4_mir_snapshot_restore(v4_mir_snapshot())
+say v4_borrowck_snapshot_restore(v4_borrowck_snapshot_payload)
+say v4_lsp_borrowck_snapshot_text()
+say v4_lsp_borrowck_snapshot_restore_text(v4_borrowck_snapshot_payload)
+say v4_lsp_handle_text_request("workspace/borrowckSnapshotRestore", "borrowck-snapshot.fk", v4_borrowck_snapshot_payload, 0)
+say v4_lsp_handle_request("workspace/borrowckSnapshotRestore", "borrowck-snapshot.fk", 0)
+
+pilot v4_borrowck_query_payload = v4_query_snapshot()
+say v4_query_snapshot_restore(v4_borrowck_query_payload)
+say v4_driver_confirm_restored_document_text("borrowck-snapshot.fk", v4_borrowck_snapshot_source)
+pilot v4_borrowck_file = v4_source_find("borrowck-snapshot.fk")
+pilot v4_borrowck_fingerprint = v4_source_fingerprint(v4_borrowck_file)
+pilot v4_borrowck_restored_id = word_to_int(v4_query_get(v4_borrowck_query_key("borrowck-snapshot.fk"), v4_borrowck_fingerprint))
+pilot v4_borrowck_restored_main = v4_borrowck_lookup_result(v4_borrowck_restored_id, v4_borrowck_snapshot_main_def)
+say v4_borrowck_summary(v4_borrowck_restored_id)
+say "restored-main-paths=" + word_from_int(v4_borrowck_result_path_count(v4_borrowck_restored_id, v4_borrowck_restored_main))
+say v4_driver_confirm_restored_document_text("borrowck-snapshot.fk", "task changed() => 7\n")

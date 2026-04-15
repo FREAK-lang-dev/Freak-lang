@@ -276,6 +276,30 @@ task v4_driver_query_entry_can_promote(path: word, entry_id: int) -> int {
             }
         }
     }
+    if key == v4_borrowck_query_key(path) {
+        pilot borrow_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_borrowck_file_exists(borrow_id) {
+            pilot mir_id = v4_borrowck_mir_id(borrow_id)
+            if v4_mir_file_exists(mir_id) {
+                pilot ty_id = v4_mir_ty_id(mir_id)
+                if v4_ty_file_exists(ty_id) {
+                    pilot resolve_id = v4_ty_resolve_id(ty_id)
+                    if v4_resolve_exists(resolve_id) {
+                        pilot hir_id = v4_resolve_hir_id(resolve_id)
+                        if v4_hir_file_exists(hir_id) {
+                            pilot tree_id = v4_hir_tree_id(hir_id)
+                            if v4_parse_tree_exists(tree_id) {
+                                pilot stream_id = v4_parse_stream_id(tree_id)
+                                if v4_lex_stream_exists(stream_id) {
+                                    give back 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     give back 0
 }
 
