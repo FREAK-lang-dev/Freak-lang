@@ -6,6 +6,8 @@
 -- detects duplicate named definitions, and exposes name/def lookup for
 -- future LSP hover and type inference queries.
 
+pilot v4_resolve_snapshot_format = "freak-resolve-snapshot-v1"
+
 pilot v4_resolve_files = 0
 pilot v4_resolve_hirs = 0
 pilot v4_resolve_names = 0
@@ -67,6 +69,22 @@ task v4_resolve_file_id(resolve_id: int) -> int {
 
 task v4_resolve_hir_id(resolve_id: int) -> int {
     give back word_to_int(array_get(v4_resolve_hirs, resolve_id))
+}
+
+task v4_resolve_index_count() -> int {
+    v4_resolve_init()
+    give back array_len(v4_resolve_files)
+}
+
+task v4_resolve_exists(resolve_id: int) -> bool {
+    v4_resolve_init()
+    if resolve_id < 0 {
+        give back false
+    }
+    if resolve_id >= array_len(v4_resolve_files) {
+        give back false
+    }
+    give back true
 }
 
 task v4_resolve_symbol_count(resolve_id: int) -> int {
@@ -203,4 +221,356 @@ task v4_resolve_summary(resolve_id: int) -> word {
     summary = summary + " symbols=" + word_from_int(v4_resolve_symbol_count(resolve_id))
     summary = summary + " diagnostics=" + word_from_int(v4_resolve_diag_count(resolve_id))
     give back summary
+}
+
+task v4_resolve_snapshot_escape(value: word) -> word {
+    give back v4_hir_snapshot_escape(value)
+}
+
+task v4_resolve_snapshot_unescape(value: word) -> word {
+    give back v4_hir_snapshot_unescape(value)
+}
+
+task v4_resolve_snapshot_line_count(payload: word) -> int {
+    give back v4_hir_snapshot_line_count(payload)
+}
+
+task v4_resolve_snapshot_line(payload: word, wanted: int) -> word {
+    give back v4_hir_snapshot_line(payload, wanted)
+}
+
+task v4_resolve_snapshot_field_count(line: word) -> int {
+    give back v4_hir_snapshot_field_count(line)
+}
+
+task v4_resolve_snapshot_field_raw(line: word, wanted: int) -> word {
+    give back v4_hir_snapshot_field_raw(line, wanted)
+}
+
+task v4_resolve_snapshot_field(line: word, wanted: int) -> word {
+    give back v4_hir_snapshot_field(line, wanted)
+}
+
+task v4_resolve_snapshot_key_value(line: word, wanted_key: word) -> word {
+    give back v4_hir_snapshot_key_value(line, wanted_key)
+}
+
+task v4_resolve_snapshot_symbol_total() -> int {
+    v4_resolve_init()
+    pilot total = 0
+    pilot resolve_id = 0
+    repeat until resolve_id >= v4_resolve_index_count() {
+        total += v4_resolve_symbol_count(resolve_id)
+        resolve_id += 1
+    }
+    give back total
+}
+
+task v4_resolve_snapshot_diag_total() -> int {
+    v4_resolve_init()
+    pilot total = 0
+    pilot resolve_id = 0
+    repeat until resolve_id >= v4_resolve_index_count() {
+        total += v4_resolve_diag_count(resolve_id)
+        resolve_id += 1
+    }
+    give back total
+}
+
+task v4_resolve_snapshot_summary() -> word {
+    pilot summary = "resolve-snapshot"
+    summary = summary + " format=" + v4_resolve_snapshot_format
+    summary = summary + " indexes=" + word_from_int(v4_resolve_index_count())
+    summary = summary + " symbols=" + word_from_int(v4_resolve_snapshot_symbol_total())
+    summary = summary + " diagnostics=" + word_from_int(v4_resolve_snapshot_diag_total())
+    give back summary
+}
+
+task v4_resolve_snapshot_header() -> word {
+    pilot out = "resolve-snapshot"
+    out = out + "|format=" + v4_resolve_snapshot_format
+    out = out + "|indexes=" + word_from_int(v4_resolve_index_count())
+    out = out + "|symbols=" + word_from_int(v4_resolve_snapshot_symbol_total())
+    out = out + "|diagnostics=" + word_from_int(v4_resolve_snapshot_diag_total())
+    give back out
+}
+
+task v4_resolve_snapshot_index_line(resolve_id: int) -> word {
+    pilot out = "resolve"
+    out = out + "|" + word_from_int(resolve_id)
+    out = out + "|" + word_from_int(v4_resolve_file_id(resolve_id))
+    out = out + "|" + word_from_int(v4_resolve_hir_id(resolve_id))
+    out = out + "|" + word_from_int(v4_resolve_symbol_count(resolve_id))
+    out = out + "|" + word_from_int(v4_resolve_diag_count(resolve_id))
+    give back out
+}
+
+task v4_resolve_snapshot_symbol_line(resolve_id: int, symbol_id: int) -> word {
+    pilot out = "symbol"
+    out = out + "|" + word_from_int(resolve_id)
+    out = out + "|" + word_from_int(symbol_id)
+    out = out + "|" + v4_resolve_snapshot_escape(v4_resolve_symbol_name(resolve_id, symbol_id))
+    out = out + "|" + v4_resolve_snapshot_escape(v4_resolve_symbol_kind(resolve_id, symbol_id))
+    out = out + "|" + v4_resolve_snapshot_escape(v4_resolve_symbol_def(resolve_id, symbol_id))
+    out = out + "|" + word_from_int(v4_resolve_symbol_hir_item(resolve_id, symbol_id))
+    give back out
+}
+
+task v4_resolve_snapshot_diag_line(resolve_id: int, diag_id: int) -> word {
+    pilot out = "resolve-diag"
+    out = out + "|" + word_from_int(resolve_id)
+    out = out + "|" + word_from_int(diag_id)
+    out = out + "|" + v4_resolve_snapshot_escape(v4_resolve_diag(resolve_id, diag_id))
+    give back out
+}
+
+task v4_resolve_snapshot() -> word {
+    v4_resolve_init()
+    pilot out = v4_resolve_snapshot_header()
+    pilot resolve_id = 0
+    repeat until resolve_id >= v4_resolve_index_count() {
+        out = out + "\n" + v4_resolve_snapshot_index_line(resolve_id)
+
+        pilot symbol_id = 0
+        pilot symbol_count = v4_resolve_symbol_count(resolve_id)
+        repeat until symbol_id >= symbol_count {
+            out = out + "\n" + v4_resolve_snapshot_symbol_line(resolve_id, symbol_id)
+            symbol_id += 1
+        }
+
+        pilot diag_id = 0
+        pilot diag_count = v4_resolve_diag_count(resolve_id)
+        repeat until diag_id >= diag_count {
+            out = out + "\n" + v4_resolve_snapshot_diag_line(resolve_id, diag_id)
+            diag_id += 1
+        }
+        resolve_id += 1
+    }
+    out = out + "\nend|" + v4_resolve_snapshot_format
+    give back out
+}
+
+task v4_resolve_snapshot_record_expected_fields(kind: word) -> int {
+    if kind == "resolve-snapshot" {
+        give back 5
+    }
+    if kind == "resolve" {
+        give back 6
+    }
+    if kind == "symbol" {
+        give back 7
+    }
+    if kind == "resolve-diag" {
+        give back 4
+    }
+    if kind == "end" {
+        give back 2
+    }
+    give back 0
+}
+
+task v4_resolve_snapshot_record_is_valid(line: word) -> bool {
+    pilot kind = v4_resolve_snapshot_field_raw(line, 0)
+    pilot expected = v4_resolve_snapshot_record_expected_fields(kind)
+    if expected == 0 {
+        give back false
+    }
+    if v4_resolve_snapshot_field_count(line) < expected {
+        give back false
+    }
+    give back true
+}
+
+task v4_resolve_snapshot_validate(payload: word) -> word {
+    pilot lines = v4_resolve_snapshot_line_count(payload)
+    pilot indexes = 0
+    pilot symbols = 0
+    pilot diagnostics = 0
+    pilot malformed = 0
+    pilot saw_header = 0
+    pilot saw_end = 0
+    pilot format = ""
+
+    pilot line_id = 0
+    repeat until line_id >= lines {
+        pilot line = v4_resolve_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_resolve_snapshot_field_raw(line, 0)
+            if v4_resolve_snapshot_record_is_valid(line) == false {
+                malformed += 1
+            } else if kind == "resolve-snapshot" {
+                saw_header += 1
+                format = v4_resolve_snapshot_key_value(line, "format")
+                if format != v4_resolve_snapshot_format {
+                    malformed += 1
+                }
+            } else if kind == "resolve" {
+                indexes += 1
+            } else if kind == "symbol" {
+                symbols += 1
+            } else if kind == "resolve-diag" {
+                diagnostics += 1
+            } else if kind == "end" {
+                saw_end += 1
+                if v4_resolve_snapshot_field(line, 1) != v4_resolve_snapshot_format {
+                    malformed += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+
+    pilot import_ok = 1
+    if saw_header != 1 {
+        import_ok = 0
+    }
+    if saw_end != 1 {
+        import_ok = 0
+    }
+    if malformed > 0 {
+        import_ok = 0
+    }
+
+    pilot out = "resolve-snapshot-import"
+    out = out + " ok=" + word_from_int(import_ok)
+    out = out + " format=" + format
+    out = out + " lines=" + word_from_int(lines)
+    out = out + " indexes=" + word_from_int(indexes)
+    out = out + " symbols=" + word_from_int(symbols)
+    out = out + " diagnostics=" + word_from_int(diagnostics)
+    out = out + " malformed=" + word_from_int(malformed)
+    out = out + " headers=" + word_from_int(saw_header)
+    out = out + " ends=" + word_from_int(saw_end)
+    give back out
+}
+
+task v4_resolve_restore_index_slot(resolve_id: int, file_id: int, hir_id: int) -> int {
+    v4_resolve_init()
+    repeat until array_len(v4_resolve_files) > resolve_id {
+        array_push(v4_resolve_files, "0")
+        array_push(v4_resolve_hirs, "0")
+        array_push(v4_resolve_names, word_from_int(array_new()))
+        array_push(v4_resolve_kinds, word_from_int(array_new()))
+        array_push(v4_resolve_defs, word_from_int(array_new()))
+        array_push(v4_resolve_hir_items, word_from_int(array_new()))
+        array_push(v4_resolve_diags, word_from_int(array_new()))
+    }
+
+    array_set(v4_resolve_files, resolve_id, word_from_int(file_id))
+    array_set(v4_resolve_hirs, resolve_id, word_from_int(hir_id))
+    array_set(v4_resolve_names, resolve_id, word_from_int(array_new()))
+    array_set(v4_resolve_kinds, resolve_id, word_from_int(array_new()))
+    array_set(v4_resolve_defs, resolve_id, word_from_int(array_new()))
+    array_set(v4_resolve_hir_items, resolve_id, word_from_int(array_new()))
+    array_set(v4_resolve_diags, resolve_id, word_from_int(array_new()))
+    give back resolve_id
+}
+
+task v4_resolve_restore_symbol_slot(resolve_id: int, symbol_id: int, symbol_name: word, symbol_kind: word, def_id: word, hir_item: int) -> int {
+    if v4_resolve_exists(resolve_id) == false {
+        give back 0
+    }
+    repeat until v4_resolve_symbol_count(resolve_id) > symbol_id {
+        array_push(v4_resolve_names_handle(resolve_id), "")
+        array_push(v4_resolve_kinds_handle(resolve_id), "")
+        array_push(v4_resolve_defs_handle(resolve_id), "")
+        array_push(v4_resolve_hir_items_handle(resolve_id), word_from_int(0 - 1))
+    }
+    array_set(v4_resolve_names_handle(resolve_id), symbol_id, symbol_name)
+    array_set(v4_resolve_kinds_handle(resolve_id), symbol_id, symbol_kind)
+    array_set(v4_resolve_defs_handle(resolve_id), symbol_id, def_id)
+    array_set(v4_resolve_hir_items_handle(resolve_id), symbol_id, word_from_int(hir_item))
+    give back 1
+}
+
+task v4_resolve_restore_diag_slot(resolve_id: int, diag_id: int, diag: word) -> int {
+    if v4_resolve_exists(resolve_id) == false {
+        give back 0
+    }
+    repeat until array_len(v4_resolve_diags_handle(resolve_id)) > diag_id {
+        array_push(v4_resolve_diags_handle(resolve_id), "")
+    }
+    array_set(v4_resolve_diags_handle(resolve_id), diag_id, diag)
+    give back 1
+}
+
+task v4_resolve_snapshot_restore_index_line(line: word) -> int {
+    if v4_resolve_snapshot_record_is_valid(line) == false {
+        give back 0
+    }
+    if v4_resolve_snapshot_field_raw(line, 0) != "resolve" {
+        give back 0
+    }
+    pilot resolve_id = word_to_int(v4_resolve_snapshot_field_raw(line, 1))
+    pilot file_id = word_to_int(v4_resolve_snapshot_field_raw(line, 2))
+    pilot hir_id = word_to_int(v4_resolve_snapshot_field_raw(line, 3))
+    v4_resolve_restore_index_slot(resolve_id, file_id, hir_id)
+    give back 1
+}
+
+task v4_resolve_snapshot_restore_symbol_line(line: word) -> int {
+    if v4_resolve_snapshot_record_is_valid(line) == false {
+        give back 0
+    }
+    if v4_resolve_snapshot_field_raw(line, 0) != "symbol" {
+        give back 0
+    }
+    pilot resolve_id = word_to_int(v4_resolve_snapshot_field_raw(line, 1))
+    pilot symbol_id = word_to_int(v4_resolve_snapshot_field_raw(line, 2))
+    pilot symbol_name = v4_resolve_snapshot_field(line, 3)
+    pilot symbol_kind = v4_resolve_snapshot_field(line, 4)
+    pilot def_id = v4_resolve_snapshot_field(line, 5)
+    pilot hir_item = word_to_int(v4_resolve_snapshot_field_raw(line, 6))
+    give back v4_resolve_restore_symbol_slot(resolve_id, symbol_id, symbol_name, symbol_kind, def_id, hir_item)
+}
+
+task v4_resolve_snapshot_restore_diag_line(line: word) -> int {
+    if v4_resolve_snapshot_record_is_valid(line) == false {
+        give back 0
+    }
+    if v4_resolve_snapshot_field_raw(line, 0) != "resolve-diag" {
+        give back 0
+    }
+    pilot resolve_id = word_to_int(v4_resolve_snapshot_field_raw(line, 1))
+    pilot diag_id = word_to_int(v4_resolve_snapshot_field_raw(line, 2))
+    pilot diag = v4_resolve_snapshot_field(line, 3)
+    give back v4_resolve_restore_diag_slot(resolve_id, diag_id, diag)
+}
+
+task v4_resolve_snapshot_restore(payload: word) -> word {
+    pilot validation = v4_resolve_snapshot_validate(payload)
+    if validation.starts_with("resolve-snapshot-import ok=1") == false {
+        give back "resolve-snapshot-restore ok=0 reason=validation-failed\n" + validation
+    }
+
+    pilot restored_indexes = 0
+    pilot restored_symbols = 0
+    pilot restored_diagnostics = 0
+    pilot skipped_other = 0
+    pilot line_id = 0
+    pilot line_count = v4_resolve_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_resolve_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_resolve_snapshot_field_raw(line, 0)
+            if kind == "resolve" {
+                restored_indexes += v4_resolve_snapshot_restore_index_line(line)
+            } else if kind == "symbol" {
+                restored_symbols += v4_resolve_snapshot_restore_symbol_line(line)
+            } else if kind == "resolve-diag" {
+                restored_diagnostics += v4_resolve_snapshot_restore_diag_line(line)
+            } else if kind != "resolve-snapshot" and kind != "end" {
+                skipped_other += 1
+            }
+        }
+        line_id += 1
+    }
+
+    pilot out = "resolve-snapshot-restore ok=1"
+    out = out + " indexes=" + word_from_int(restored_indexes)
+    out = out + " symbols=" + word_from_int(restored_symbols)
+    out = out + " diagnostics=" + word_from_int(restored_diagnostics)
+    out = out + " skipped-other=" + word_from_int(skipped_other)
+    out = out + " live-indexes=" + word_from_int(v4_resolve_index_count())
+    give back out
 }

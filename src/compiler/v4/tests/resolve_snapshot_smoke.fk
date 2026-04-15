@@ -1,0 +1,36 @@
+-- V4 resolver arena snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_resolve_snapshot_source = "task main() => \"hi|there\"\n"
+v4_resolve_snapshot_source = v4_resolve_snapshot_source + "shape Pilot\n"
+v4_resolve_snapshot_source = v4_resolve_snapshot_source + "task main() => \"again\"\n"
+
+pilot v4_resolve_snapshot_id = v4_resolve_text_cached("resolve-snapshot.fk", v4_resolve_snapshot_source)
+say v4_resolve_summary(v4_resolve_snapshot_id)
+say v4_resolve_snapshot_summary()
+
+pilot v4_resolve_snapshot_payload = v4_resolve_snapshot()
+say v4_resolve_snapshot_validate(v4_resolve_snapshot_payload)
+say "resolve-snapshot-bytes=" + word_from_int(v4_resolve_snapshot_payload.length())
+say "resolve-snapshot-escape=" + v4_resolve_snapshot_escape("symbol|value%z\nspan")
+say "resolve-snapshot-unescape=" + v4_resolve_snapshot_unescape("symbol%7Cvalue%25z%0Aspan")
+say v4_resolve_snapshot_index_line(v4_resolve_snapshot_id)
+say v4_resolve_snapshot_symbol_line(v4_resolve_snapshot_id, 0)
+say v4_resolve_snapshot_diag_line(v4_resolve_snapshot_id, 0)
+say v4_parse_snapshot_restore(v4_parse_snapshot())
+say v4_hir_snapshot_restore(v4_hir_snapshot())
+say v4_resolve_snapshot_restore(v4_resolve_snapshot_payload)
+say v4_lsp_resolve_snapshot_text()
+say v4_lsp_resolve_snapshot_restore_text(v4_resolve_snapshot_payload)
+say v4_lsp_handle_text_request("workspace/resolveSnapshotRestore", "resolve-snapshot.fk", v4_resolve_snapshot_payload, 0)
+say v4_lsp_handle_request("workspace/resolveSnapshotRestore", "resolve-snapshot.fk", 0)
+
+pilot v4_resolve_query_payload = v4_query_snapshot()
+say v4_query_snapshot_restore(v4_resolve_query_payload)
+say v4_driver_confirm_restored_document_text("resolve-snapshot.fk", v4_resolve_snapshot_source)
+pilot v4_resolve_file = v4_source_find("resolve-snapshot.fk")
+pilot v4_resolve_fingerprint = v4_source_fingerprint(v4_resolve_file)
+pilot v4_resolve_restored_id = word_to_int(v4_query_get(v4_resolve_query_key("resolve-snapshot.fk"), v4_resolve_fingerprint))
+say v4_resolve_summary(v4_resolve_restored_id)
+say "restored-main-def=" + v4_resolve_def_for_name(v4_resolve_restored_id, "main")
+say v4_driver_confirm_restored_document_text("resolve-snapshot.fk", "task changed() => 7\n")
