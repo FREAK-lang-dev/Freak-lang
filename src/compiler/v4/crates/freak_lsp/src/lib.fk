@@ -504,6 +504,14 @@ task v4_lsp_unit_snapshot_text() -> word {
     give back v4_lsp_response_ok("workspace/unitSnapshot", v4_unit_snapshot())
 }
 
+task v4_lsp_unit_snapshot_manifest_text(payload: word) -> word {
+    give back v4_lsp_response_ok("workspace/unitSnapshotManifest", v4_unit_snapshot_manifest(payload))
+}
+
+task v4_lsp_unit_snapshot_manifest_current() -> word {
+    give back v4_lsp_response_ok("workspace/unitSnapshotManifest", v4_unit_snapshot_manifest(v4_unit_snapshot()))
+}
+
 task v4_lsp_unit_snapshot_restore_text(payload: word) -> word {
     give back v4_lsp_response_ok("workspace/unitSnapshotRestore", v4_unit_snapshot_restore(payload))
 }
@@ -588,6 +596,7 @@ task v4_lsp_initialize_payload() -> word {
     out = out + "|workspace/completionSnapshot"
     out = out + "|workspace/completionSnapshotRestore"
     out = out + "|workspace/unitSnapshot"
+    out = out + "|workspace/unitSnapshotManifest"
     out = out + "|workspace/unitSnapshotRestore"
     out = out + "|textDocument/didOpen"
     out = out + "|textDocument/didChange"
@@ -725,6 +734,9 @@ task v4_lsp_handle_text_request(method: word, path: word, text: word, offset: in
     }
     if method == "workspace/unitSnapshot" {
         give back v4_lsp_unit_snapshot_text()
+    }
+    if method == "workspace/unitSnapshotManifest" {
+        give back v4_lsp_unit_snapshot_manifest_text(text)
     }
     if method == "workspace/unitSnapshotRestore" {
         give back v4_lsp_unit_snapshot_restore_text(text)
@@ -874,6 +886,9 @@ task v4_lsp_handle_request(method: word, path: word, offset: int) -> word {
     }
     if method == "workspace/unitSnapshot" {
         give back v4_lsp_unit_snapshot_text()
+    }
+    if method == "workspace/unitSnapshotManifest" {
+        give back v4_lsp_unit_snapshot_manifest_current()
     }
     if method == "workspace/unitSnapshotRestore" {
         give back v4_lsp_response_error(method, 0 - 32602, "method requires snapshot text")
