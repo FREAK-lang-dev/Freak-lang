@@ -1,0 +1,21 @@
+-- V4 query explanation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_explain_source = "task main() => \"hi\"\n"
+v4_explain_source = v4_explain_source + "shape Pilot\n"
+
+say v4_check_syntax_text("explain.fk", v4_explain_source)
+say v4_check_syntax_text("explain.fk", v4_explain_source)
+say v4_lsp_hover_text("explain.fk", v4_explain_source, 5)
+say v4_lsp_hover_text("explain.fk", v4_explain_source, 5)
+say v4_query_explain(v4_check_syntax_query_key("explain.fk"))
+say v4_query_explain(v4_hover_query_key("explain.fk", 5))
+say v4_query_explain("source:explain.fk")
+say v4_lsp_query_explain_text(v4_check_syntax_query_key("explain.fk"))
+
+v4_lsp_open_document("explain.fk", v4_explain_source)
+pilot v4_explain_changed = "shape Pilot\n"
+v4_explain_changed = v4_explain_changed + "task main() => \"hi\"\n"
+say v4_lsp_handle_text_request("textDocument/didChange", "explain.fk", v4_explain_changed, 0)
+say v4_query_explain(v4_check_syntax_query_key("explain.fk"))
+say v4_lsp_handle_request("workspace/queryExplain", "explain.fk", 0)
