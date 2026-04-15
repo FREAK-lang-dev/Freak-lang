@@ -1,0 +1,33 @@
+-- V4 unified 00-Unit workspace snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_unit_snapshot_source = "task main() -> int {\n"
+v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot name = \"Yuuko|Meiya\"\n"
+v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot bad = name - 1\n"
+v4_unit_snapshot_source = v4_unit_snapshot_source + "    give back 0\n"
+v4_unit_snapshot_source = v4_unit_snapshot_source + "}\n"
+
+say v4_check_syntax_text("unit-snapshot.fk", v4_unit_snapshot_source)
+say v4_diagnostics_text("unit-snapshot.fk", v4_unit_snapshot_source)
+say v4_lsp_hover_text("unit-snapshot.fk", v4_unit_snapshot_source, 8)
+
+say v4_unit_snapshot_summary()
+pilot v4_unit_snapshot_payload = v4_unit_snapshot()
+say v4_unit_snapshot_validate(v4_unit_snapshot_payload)
+say "unit-snapshot-bytes=" + word_from_int(v4_unit_snapshot_payload.length())
+say "unit-source-line=" + v4_unit_snapshot_source_line(0)
+say "unit-query-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "query").length())
+say "unit-escape=" + v4_unit_snapshot_escape("00|Unit%XM3\nMeiya")
+say "unit-unescape=" + v4_unit_snapshot_unescape("00%7CUnit%25XM3%0AMeiya")
+say v4_unit_snapshot_restore(v4_unit_snapshot_payload)
+say v4_lsp_unit_snapshot_text()
+say v4_lsp_unit_snapshot_restore_text(v4_unit_snapshot_payload)
+say v4_lsp_handle_text_request("workspace/unitSnapshotRestore", "unit-snapshot.fk", v4_unit_snapshot_payload, 0)
+say v4_lsp_handle_request("workspace/unitSnapshotRestore", "unit-snapshot.fk", 0)
+
+pilot v4_unit_file = v4_source_find("unit-snapshot.fk")
+pilot v4_unit_fingerprint = v4_source_fingerprint(v4_unit_file)
+say v4_query_get(v4_check_syntax_query_key("unit-snapshot.fk"), v4_unit_fingerprint)
+pilot v4_unit_diag_id = word_to_int(v4_query_get(v4_diagnostics_query_key("unit-snapshot.fk"), v4_unit_fingerprint))
+say v4_diagnostics_summary(v4_unit_diag_id)
+say v4_unit_snapshot_restore("00-unit-snapshot|format=wrong\nend|wrong")

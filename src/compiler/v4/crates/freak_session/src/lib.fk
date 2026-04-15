@@ -76,6 +76,11 @@ task v4_source_set_text(path: word, text: word) -> int {
     give back id
 }
 
+task v4_source_count() -> int {
+    v4_session_init()
+    give back array_len(v4_source_paths)
+}
+
 task v4_source_text(file_id: int) -> word {
     v4_session_init()
     if file_id < 0 {
@@ -120,7 +125,27 @@ task v4_source_fingerprint(file_id: int) -> word {
     give back array_get(v4_source_fingerprints, file_id)
 }
 
+task v4_source_restore_slot(file_id: int, path: word, text: word, revision: int, fingerprint: word) -> int {
+    v4_session_init()
+    repeat until array_len(v4_source_paths) > file_id {
+        array_push(v4_source_paths, "")
+        array_push(v4_source_texts, "")
+        array_push(v4_source_revisions, "0")
+        array_push(v4_source_fingerprints, "")
+    }
+
+    pilot restored_fingerprint = fingerprint
+    if restored_fingerprint == "" {
+        restored_fingerprint = v4_text_fingerprint(text)
+    }
+
+    array_set(v4_source_paths, file_id, path)
+    array_set(v4_source_texts, file_id, text)
+    array_set(v4_source_revisions, file_id, word_from_int(revision))
+    array_set(v4_source_fingerprints, file_id, restored_fingerprint)
+    give back file_id
+}
+
 task v4_source_span(file_id: int, start_byte: int, end_byte: int) -> word {
     give back v4_span_new(word_from_int(file_id), start_byte, end_byte)
 }
-
