@@ -1,0 +1,17 @@
+-- V4 document symbols query smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_doc_source = "@protagonist\n"
+v4_doc_source = v4_doc_source + "task main() => \"hi\"\n"
+v4_doc_source = v4_doc_source + "shape Pilot\n"
+v4_doc_source = v4_doc_source + "doctrine Display\n"
+
+pilot v4_doc_symbols = v4_document_symbols_text_cached("document_symbols.fk", v4_doc_source)
+
+say v4_document_symbols_summary(v4_doc_symbols)
+say "document-symbol-count=" + word_from_int(v4_document_symbol_count(v4_doc_symbols))
+say "symbol0-name=" + v4_document_symbol_name(v4_doc_symbols, 0)
+say "symbol0-kind=" + v4_document_symbol_kind(v4_doc_symbols, 0)
+say "symbol1-name=" + v4_document_symbol_name(v4_doc_symbols, 1)
+say "symbol1-type=" + v4_document_symbol_type(v4_doc_symbols, 1)
+say "symbol1-span=" + v4_document_symbol_span(v4_doc_symbols, 1)

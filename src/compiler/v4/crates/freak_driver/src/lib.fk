@@ -41,6 +41,13 @@ pilot v4_driver_defn_defs = 0
 pilot v4_driver_defn_hir_items = 0
 pilot v4_driver_defn_spans = 0
 pilot v4_driver_defn_found = 0
+pilot v4_driver_doc_paths = 0
+pilot v4_driver_doc_names = 0
+pilot v4_driver_doc_kinds = 0
+pilot v4_driver_doc_defs = 0
+pilot v4_driver_doc_hir_items = 0
+pilot v4_driver_doc_spans = 0
+pilot v4_driver_doc_types = 0
 pilot v4_driver_ready = 0
 
 task v4_driver_init() -> void {
@@ -79,6 +86,13 @@ task v4_driver_init() -> void {
         v4_driver_defn_hir_items = array_new()
         v4_driver_defn_spans = array_new()
         v4_driver_defn_found = array_new()
+        v4_driver_doc_paths = array_new()
+        v4_driver_doc_names = array_new()
+        v4_driver_doc_kinds = array_new()
+        v4_driver_doc_defs = array_new()
+        v4_driver_doc_hir_items = array_new()
+        v4_driver_doc_spans = array_new()
+        v4_driver_doc_types = array_new()
         v4_driver_ready = 1
     }
 }
@@ -101,6 +115,10 @@ task v4_hover_query_key(path: word, offset: int) -> word {
 
 task v4_definition_at_query_key(path: word, offset: int) -> word {
     give back "definition-at:" + path + ":" + word_from_int(offset)
+}
+
+task v4_document_symbols_query_key(path: word) -> word {
+    give back "document-symbols:" + path
 }
 
 task v4_lex_query_key(path: word) -> word {
@@ -946,6 +964,150 @@ task v4_definition_at_file(path: word, offset: int) -> word {
         give back v4_diag_render(diag, "")
     }
     give back v4_definition_at_text(path, text, offset)
+}
+
+task v4_driver_document_symbols_new(path: word) -> int {
+    v4_driver_init()
+    pilot doc_id = array_len(v4_driver_doc_paths)
+    array_push(v4_driver_doc_paths, path)
+    array_push(v4_driver_doc_names, word_from_int(array_new()))
+    array_push(v4_driver_doc_kinds, word_from_int(array_new()))
+    array_push(v4_driver_doc_defs, word_from_int(array_new()))
+    array_push(v4_driver_doc_hir_items, word_from_int(array_new()))
+    array_push(v4_driver_doc_spans, word_from_int(array_new()))
+    array_push(v4_driver_doc_types, word_from_int(array_new()))
+    give back doc_id
+}
+
+task v4_driver_doc_names_handle(doc_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_doc_names, doc_id))
+}
+
+task v4_driver_doc_kinds_handle(doc_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_doc_kinds, doc_id))
+}
+
+task v4_driver_doc_defs_handle(doc_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_doc_defs, doc_id))
+}
+
+task v4_driver_doc_hir_items_handle(doc_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_doc_hir_items, doc_id))
+}
+
+task v4_driver_doc_spans_handle(doc_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_doc_spans, doc_id))
+}
+
+task v4_driver_doc_types_handle(doc_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_doc_types, doc_id))
+}
+
+task v4_document_symbols_add(doc_id: int, name: word, kind: word, def_id: word, hir_item: int, span: word, type_display: word) -> int {
+    pilot symbol_id = array_len(v4_driver_doc_names_handle(doc_id))
+    array_push(v4_driver_doc_names_handle(doc_id), name)
+    array_push(v4_driver_doc_kinds_handle(doc_id), kind)
+    array_push(v4_driver_doc_defs_handle(doc_id), def_id)
+    array_push(v4_driver_doc_hir_items_handle(doc_id), word_from_int(hir_item))
+    array_push(v4_driver_doc_spans_handle(doc_id), span)
+    array_push(v4_driver_doc_types_handle(doc_id), type_display)
+    give back symbol_id
+}
+
+task v4_document_symbol_count(doc_id: int) -> int {
+    give back array_len(v4_driver_doc_names_handle(doc_id))
+}
+
+task v4_document_symbol_name(doc_id: int, symbol_id: int) -> word {
+    give back array_get(v4_driver_doc_names_handle(doc_id), symbol_id)
+}
+
+task v4_document_symbol_kind(doc_id: int, symbol_id: int) -> word {
+    give back array_get(v4_driver_doc_kinds_handle(doc_id), symbol_id)
+}
+
+task v4_document_symbol_def(doc_id: int, symbol_id: int) -> word {
+    give back array_get(v4_driver_doc_defs_handle(doc_id), symbol_id)
+}
+
+task v4_document_symbol_hir_item(doc_id: int, symbol_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_doc_hir_items_handle(doc_id), symbol_id))
+}
+
+task v4_document_symbol_span(doc_id: int, symbol_id: int) -> word {
+    give back array_get(v4_driver_doc_spans_handle(doc_id), symbol_id)
+}
+
+task v4_document_symbol_type(doc_id: int, symbol_id: int) -> word {
+    give back array_get(v4_driver_doc_types_handle(doc_id), symbol_id)
+}
+
+task v4_document_symbols_summary(doc_id: int) -> word {
+    pilot summary = "document-symbols id=" + word_from_int(doc_id)
+    summary = summary + " count=" + word_from_int(v4_document_symbol_count(doc_id))
+    if v4_document_symbol_count(doc_id) > 0 {
+        summary = summary + " first=" + v4_document_symbol_name(doc_id, 0)
+        summary = summary + " first-kind=" + v4_document_symbol_kind(doc_id, 0)
+    }
+    give back summary
+}
+
+task v4_document_symbols_text_cached(path: word, text: word) -> int {
+    v4_driver_init()
+
+    pilot file_id = v4_source_set_text(path, text)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot key = v4_document_symbols_query_key(path)
+    pilot cached = v4_query_get(key, fingerprint)
+    if cached != "" {
+        give back word_to_int(cached)
+    }
+
+    pilot hir_id = v4_hir_text_cached(path, text)
+    pilot resolve_id = v4_resolve_text_cached(path, text)
+    pilot ty_id = v4_ty_text_cached(path, text)
+    pilot doc_id = v4_driver_document_symbols_new(path)
+    pilot symbol_id = 0
+    pilot symbol_count = v4_resolve_symbol_count(resolve_id)
+    repeat until symbol_id >= symbol_count {
+        pilot name = v4_resolve_symbol_name(resolve_id, symbol_id)
+        pilot kind = v4_resolve_symbol_kind(resolve_id, symbol_id)
+        pilot def_id = v4_resolve_symbol_def(resolve_id, symbol_id)
+        pilot hir_item = v4_resolve_symbol_hir_item(resolve_id, symbol_id)
+        pilot span = V4_NO_SPAN
+        if hir_item >= 0 {
+            span = v4_hir_item_span(hir_id, hir_item)
+        }
+        pilot type_display = v4_ty_unknown
+        pilot sig_id = v4_ty_lookup_signature(ty_id, def_id)
+        if sig_id >= 0 {
+            type_display = v4_ty_signature_display(ty_id, sig_id)
+        }
+        v4_document_symbols_add(doc_id, name, kind, def_id, hir_item, span, type_display)
+        symbol_id += 1
+    }
+
+    v4_query_store(key, fingerprint, word_from_int(doc_id))
+    v4_query_record_dep(key, "source:" + path)
+    v4_query_record_dep(key, v4_hir_query_key(path))
+    v4_query_record_dep(key, v4_resolve_query_key(path))
+    v4_query_record_dep(key, v4_ty_query_key(path))
+    give back doc_id
+}
+
+task v4_document_symbols_text(path: word, text: word) -> word {
+    pilot doc_id = v4_document_symbols_text_cached(path, text)
+    give back v4_document_symbols_summary(doc_id)
+}
+
+task v4_document_symbols_file(path: word) -> word {
+    pilot text = fs::read(path)
+    if text == "" {
+        pilot span = v4_span_new("0", 0, 0)
+        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
+        give back v4_diag_render(diag, "")
+    }
+    give back v4_document_symbols_text(path, text)
 }
 
 task v4_check_syntax_text(path: word, text: word) -> word {
