@@ -17,7 +17,7 @@ crates/
   freak_resolve/   file-local semantic index and duplicate diagnostics
   freak_ty/        item-level signature scaffold
   freak_mir/       task MIR bodies with CFG blocks, locals, places, rvalues
-  freak_borrowck/  Meiya borrow-check result scaffold over MIR bodies
+  freak_borrowck/  Meiya borrow-check paths and result scaffold over MIR bodies
   freak_query/     memoized query cache prototype
   freak_driver/    early driver facade over the V4 services
 ```

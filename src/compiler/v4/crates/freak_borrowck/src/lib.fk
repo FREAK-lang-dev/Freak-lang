@@ -9,6 +9,12 @@
 pilot v4_borrowck_clean = "clean"
 pilot v4_borrowck_blocked = "blocked"
 
+pilot v4_borrowck_path_write = "Write"
+pilot v4_borrowck_path_move = "Move"
+pilot v4_borrowck_path_loan = "Loan"
+pilot v4_borrowck_path_drop = "Drop"
+pilot v4_borrowck_path_return = "Return"
+
 pilot v4_borrowck_files = 0
 pilot v4_borrowck_mirs = 0
 pilot v4_borrowck_body_defs = 0
@@ -17,6 +23,10 @@ pilot v4_borrowck_statuses = 0
 pilot v4_borrowck_loan_counts = 0
 pilot v4_borrowck_move_counts = 0
 pilot v4_borrowck_drop_counts = 0
+pilot v4_borrowck_path_kinds = 0
+pilot v4_borrowck_path_texts = 0
+pilot v4_borrowck_path_stmt_ids = 0
+pilot v4_borrowck_path_block_ids = 0
 pilot v4_borrowck_diags = 0
 pilot v4_borrowck_ready = 0
 
@@ -30,6 +40,10 @@ task v4_borrowck_init() -> void {
         v4_borrowck_loan_counts = array_new()
         v4_borrowck_move_counts = array_new()
         v4_borrowck_drop_counts = array_new()
+        v4_borrowck_path_kinds = array_new()
+        v4_borrowck_path_texts = array_new()
+        v4_borrowck_path_stmt_ids = array_new()
+        v4_borrowck_path_block_ids = array_new()
         v4_borrowck_diags = array_new()
         v4_borrowck_ready = 1
     }
@@ -46,6 +60,10 @@ task v4_borrowck_file_new(file_id: int, mir_id: int) -> int {
     array_push(v4_borrowck_loan_counts, word_from_int(array_new()))
     array_push(v4_borrowck_move_counts, word_from_int(array_new()))
     array_push(v4_borrowck_drop_counts, word_from_int(array_new()))
+    array_push(v4_borrowck_path_kinds, word_from_int(array_new()))
+    array_push(v4_borrowck_path_texts, word_from_int(array_new()))
+    array_push(v4_borrowck_path_stmt_ids, word_from_int(array_new()))
+    array_push(v4_borrowck_path_block_ids, word_from_int(array_new()))
     array_push(v4_borrowck_diags, word_from_int(array_new()))
     give back borrow_id
 }
@@ -74,6 +92,22 @@ task v4_borrowck_drops_handle(borrow_id: int) -> int {
     give back word_to_int(array_get(v4_borrowck_drop_counts, borrow_id))
 }
 
+task v4_borrowck_path_kinds_index_handle(borrow_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_path_kinds, borrow_id))
+}
+
+task v4_borrowck_path_texts_index_handle(borrow_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_path_texts, borrow_id))
+}
+
+task v4_borrowck_path_stmt_ids_index_handle(borrow_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_path_stmt_ids, borrow_id))
+}
+
+task v4_borrowck_path_block_ids_index_handle(borrow_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_path_block_ids, borrow_id))
+}
+
 task v4_borrowck_diags_handle(borrow_id: int) -> int {
     give back word_to_int(array_get(v4_borrowck_diags, borrow_id))
 }
@@ -84,6 +118,22 @@ task v4_borrowck_result_count(borrow_id: int) -> int {
 
 task v4_borrowck_diag_count(borrow_id: int) -> int {
     give back array_len(v4_borrowck_diags_handle(borrow_id))
+}
+
+task v4_borrowck_result_path_kinds_handle(borrow_id: int, result_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_path_kinds_index_handle(borrow_id), result_id))
+}
+
+task v4_borrowck_result_path_texts_handle(borrow_id: int, result_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_path_texts_index_handle(borrow_id), result_id))
+}
+
+task v4_borrowck_result_path_stmt_ids_handle(borrow_id: int, result_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_path_stmt_ids_index_handle(borrow_id), result_id))
+}
+
+task v4_borrowck_result_path_block_ids_handle(borrow_id: int, result_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_path_block_ids_index_handle(borrow_id), result_id))
 }
 
 task v4_borrowck_result_def(borrow_id: int, result_id: int) -> word {
@@ -110,6 +160,26 @@ task v4_borrowck_result_drops(borrow_id: int, result_id: int) -> int {
     give back word_to_int(array_get(v4_borrowck_drops_handle(borrow_id), result_id))
 }
 
+task v4_borrowck_result_path_count(borrow_id: int, result_id: int) -> int {
+    give back array_len(v4_borrowck_result_path_kinds_handle(borrow_id, result_id))
+}
+
+task v4_borrowck_path_kind(borrow_id: int, result_id: int, path_id: int) -> word {
+    give back array_get(v4_borrowck_result_path_kinds_handle(borrow_id, result_id), path_id)
+}
+
+task v4_borrowck_path_text(borrow_id: int, result_id: int, path_id: int) -> word {
+    give back array_get(v4_borrowck_result_path_texts_handle(borrow_id, result_id), path_id)
+}
+
+task v4_borrowck_path_stmt(borrow_id: int, result_id: int, path_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_result_path_stmt_ids_handle(borrow_id, result_id), path_id))
+}
+
+task v4_borrowck_path_block(borrow_id: int, result_id: int, path_id: int) -> int {
+    give back word_to_int(array_get(v4_borrowck_result_path_block_ids_handle(borrow_id, result_id), path_id))
+}
+
 task v4_borrowck_diag(borrow_id: int, diag_id: int) -> word {
     give back array_get(v4_borrowck_diags_handle(borrow_id), diag_id)
 }
@@ -129,13 +199,36 @@ task v4_borrowck_copy_mir_diags(borrow_id: int, mir_id: int) -> void {
 
 task v4_borrowck_add_result(borrow_id: int, def_id: word, body_name: word, status: word, loans: int, moves: int, drops: int) -> int {
     pilot result_id = array_len(v4_borrowck_defs_handle(borrow_id))
+    pilot path_kinds_handle = array_new()
+    pilot path_texts_handle = array_new()
+    pilot path_stmt_ids_handle = array_new()
+    pilot path_block_ids_handle = array_new()
     array_push(v4_borrowck_defs_handle(borrow_id), def_id)
     array_push(v4_borrowck_names_handle(borrow_id), body_name)
     array_push(v4_borrowck_statuses_handle(borrow_id), status)
     array_push(v4_borrowck_loans_handle(borrow_id), word_from_int(loans))
     array_push(v4_borrowck_moves_handle(borrow_id), word_from_int(moves))
     array_push(v4_borrowck_drops_handle(borrow_id), word_from_int(drops))
+    array_push(v4_borrowck_path_kinds_index_handle(borrow_id), word_from_int(path_kinds_handle))
+    array_push(v4_borrowck_path_texts_index_handle(borrow_id), word_from_int(path_texts_handle))
+    array_push(v4_borrowck_path_stmt_ids_index_handle(borrow_id), word_from_int(path_stmt_ids_handle))
+    array_push(v4_borrowck_path_block_ids_index_handle(borrow_id), word_from_int(path_block_ids_handle))
     give back result_id
+}
+
+task v4_borrowck_set_result_counts(borrow_id: int, result_id: int, loans: int, moves: int, drops: int) -> void {
+    array_set(v4_borrowck_loans_handle(borrow_id), result_id, word_from_int(loans))
+    array_set(v4_borrowck_moves_handle(borrow_id), result_id, word_from_int(moves))
+    array_set(v4_borrowck_drops_handle(borrow_id), result_id, word_from_int(drops))
+}
+
+task v4_borrowck_add_path(borrow_id: int, result_id: int, path_kind: word, path_text: word, stmt_id: int, block_id: int) -> int {
+    pilot path_id = array_len(v4_borrowck_result_path_kinds_handle(borrow_id, result_id))
+    array_push(v4_borrowck_result_path_kinds_handle(borrow_id, result_id), path_kind)
+    array_push(v4_borrowck_result_path_texts_handle(borrow_id, result_id), path_text)
+    array_push(v4_borrowck_result_path_stmt_ids_handle(borrow_id, result_id), word_from_int(stmt_id))
+    array_push(v4_borrowck_result_path_block_ids_handle(borrow_id, result_id), word_from_int(block_id))
+    give back path_id
 }
 
 task v4_borrowck_rhs_starts_digit(rhs: word) -> bool {
@@ -214,6 +307,92 @@ task v4_borrowck_count_moves(mir_id: int, body_id: int) -> int {
     give back moves
 }
 
+task v4_borrowck_path_count_by_kind(borrow_id: int, result_id: int, path_kind: word) -> int {
+    pilot total = 0
+    pilot path_idx = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    repeat until path_idx >= path_count {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_idx) == path_kind {
+            total += 1
+        }
+        path_idx += 1
+    }
+    give back total
+}
+
+task v4_borrowck_path_count(borrow_id: int) -> int {
+    pilot total = 0
+    pilot result_idx = 0
+    pilot result_count = v4_borrowck_result_count(borrow_id)
+    repeat until result_idx >= result_count {
+        total = total + v4_borrowck_result_path_count(borrow_id, result_idx)
+        result_idx += 1
+    }
+    give back total
+}
+
+task v4_borrowck_add_place_path(borrow_id: int, result_id: int, mir_id: int, body_id: int, place_id: int, path_kind: word, stmt_id: int, block_id: int) -> void {
+    if place_id < 0 {
+        give back
+    }
+    v4_borrowck_add_path(borrow_id, result_id, path_kind, v4_mir_place_text(mir_id, body_id, place_id), stmt_id, block_id)
+}
+
+task v4_borrowck_collect_rvalue_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int, block_id: int, rvalue_id: int, path_kind: word) -> void {
+    if rvalue_id < 0 {
+        give back
+    }
+
+    pilot rvalue_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if rvalue_kind == v4_mir_rvalue_use_local {
+        v4_borrowck_add_path(borrow_id, result_id, path_kind, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+    } else if rvalue_kind == v4_mir_rvalue_binary {
+        v4_borrowck_collect_rvalue_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), path_kind)
+        v4_borrowck_collect_rvalue_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id), path_kind)
+    } else if rvalue_kind == v4_mir_rvalue_unknown {
+        pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
+        if v4_borrowck_rhs_needs_move(text) {
+            v4_borrowck_add_path(borrow_id, result_id, path_kind, text, stmt_id, block_id)
+        }
+    }
+}
+
+task v4_borrowck_collect_drop_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> void {
+    pilot local_idx = 0
+    pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+    repeat until local_idx >= local_count {
+        v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_drop, v4_mir_local_name(mir_id, body_id, local_idx), 0 - 1, 0 - 1)
+        local_idx += 1
+    }
+}
+
+task v4_borrowck_collect_stmt_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int) -> void {
+    pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+    pilot block_id = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+    pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+
+    if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
+        v4_borrowck_add_place_path(borrow_id, result_id, mir_id, body_id, place_id, v4_borrowck_path_write, stmt_id, block_id)
+        v4_borrowck_collect_rvalue_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id, v4_borrowck_path_move)
+    } else if stmt_kind == v4_mir_stmt_return {
+        v4_borrowck_add_place_path(borrow_id, result_id, mir_id, body_id, place_id, v4_borrowck_path_return, stmt_id, block_id)
+        v4_borrowck_collect_rvalue_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id, v4_borrowck_path_move)
+    } else if stmt_kind == v4_mir_stmt_branch or stmt_kind == v4_mir_stmt_loop or stmt_kind == v4_mir_stmt_expr {
+        v4_borrowck_collect_rvalue_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id, v4_borrowck_path_loan)
+    }
+}
+
+task v4_borrowck_collect_body_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> void {
+    pilot stmt_idx = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_idx >= stmt_count {
+        v4_borrowck_collect_stmt_paths(borrow_id, result_id, mir_id, body_id, stmt_idx)
+        stmt_idx += 1
+    }
+    v4_borrowck_collect_drop_paths(borrow_id, result_id, mir_id, body_id)
+}
+
 task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
     v4_borrowck_init()
     pilot borrow_id = v4_borrowck_file_new(file_id, mir_id)
@@ -225,15 +404,17 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         pilot def_id = v4_mir_body_def(mir_id, body_idx)
         pilot body_name = v4_mir_body_name(mir_id, body_idx)
         pilot block_count = v4_mir_body_block_count(mir_id, body_idx)
-        pilot local_count = v4_mir_body_local_count(mir_id, body_idx)
-        pilot move_count = v4_borrowck_count_moves(mir_id, body_idx)
-        pilot drop_count = local_count
         pilot status = v4_borrowck_clean
         if block_count == 0 {
             status = v4_borrowck_blocked
             v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, V4_NO_SPAN, "MIR body has no blocks", body_name))
         }
-        v4_borrowck_add_result(borrow_id, def_id, body_name, status, 0, move_count, drop_count)
+        pilot result_id = v4_borrowck_add_result(borrow_id, def_id, body_name, status, 0, 0, 0)
+        v4_borrowck_collect_body_paths(borrow_id, result_id, mir_id, body_idx)
+        pilot loan_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_loan)
+        pilot move_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_move)
+        pilot drop_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_drop)
+        v4_borrowck_set_result_counts(borrow_id, result_id, loan_count, move_count, drop_count)
         body_idx += 1
     }
 
@@ -255,6 +436,7 @@ task v4_borrowck_lookup_result(borrow_id: int, def_id: word) -> int {
 task v4_borrowck_summary(borrow_id: int) -> word {
     pilot summary = "borrowck-ok borrow=" + word_from_int(borrow_id)
     summary = summary + " results=" + word_from_int(v4_borrowck_result_count(borrow_id))
+    summary = summary + " paths=" + word_from_int(v4_borrowck_path_count(borrow_id))
     summary = summary + " diagnostics=" + word_from_int(v4_borrowck_diag_count(borrow_id))
     give back summary
 }

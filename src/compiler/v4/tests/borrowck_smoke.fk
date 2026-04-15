@@ -36,4 +36,7 @@ say "main-status=" + v4_borrowck_result_status(v4_borrow_smoke_check, v4_borrow_
 say "main-loans=" + word_from_int(v4_borrowck_result_loans(v4_borrow_smoke_check, v4_borrow_main_result))
 say "main-moves=" + word_from_int(v4_borrowck_result_moves(v4_borrow_smoke_check, v4_borrow_main_result))
 say "main-drops=" + word_from_int(v4_borrowck_result_drops(v4_borrow_smoke_check, v4_borrow_main_result))
+say "main-paths=" + word_from_int(v4_borrowck_result_path_count(v4_borrow_smoke_check, v4_borrow_main_result))
+say "path0-kind=" + v4_borrowck_path_kind(v4_borrow_smoke_check, v4_borrow_main_result, 0)
+say "path0-text=" + v4_borrowck_path_text(v4_borrow_smoke_check, v4_borrow_main_result, 0)
 say "result-count=" + word_from_int(v4_borrowck_result_count(v4_borrow_smoke_check))
