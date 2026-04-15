@@ -1,0 +1,36 @@
+-- V4 parser arena snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_parse_snapshot_source = "@nakige\n"
+v4_parse_snapshot_source = v4_parse_snapshot_source + "task heroine() -> int {\n"
+v4_parse_snapshot_source = v4_parse_snapshot_source + "    give back 1\n"
+v4_parse_snapshot_source = v4_parse_snapshot_source + "}\n"
+v4_parse_snapshot_source = v4_parse_snapshot_source + "task\n"
+v4_parse_snapshot_source = v4_parse_snapshot_source + "bad top level\n"
+
+pilot v4_parse_snapshot_tree = v4_parse_text_cached("parse-snapshot.fk", v4_parse_snapshot_source)
+say v4_parse_summary(v4_parse_snapshot_tree)
+say v4_parse_snapshot_summary()
+
+pilot v4_parse_snapshot_payload = v4_parse_snapshot()
+say v4_parse_snapshot_validate(v4_parse_snapshot_payload)
+say "parse-snapshot-bytes=" + word_from_int(v4_parse_snapshot_payload.length())
+say "parse-snapshot-escape=" + v4_parse_snapshot_escape("node|value%z\nspan")
+say "parse-snapshot-unescape=" + v4_parse_snapshot_unescape("node%7Cvalue%25z%0Aspan")
+say v4_parse_snapshot_tree_line(v4_parse_snapshot_tree)
+say v4_parse_snapshot_node_line(v4_parse_snapshot_tree, 0)
+say v4_parse_snapshot_diag_line(v4_parse_snapshot_tree, 0)
+say v4_parse_snapshot_restore(v4_parse_snapshot_payload)
+say v4_lsp_parse_snapshot_text()
+say v4_lsp_parse_snapshot_restore_text(v4_parse_snapshot_payload)
+say v4_lsp_handle_text_request("workspace/parseSnapshotRestore", "parse-snapshot.fk", v4_parse_snapshot_payload, 0)
+say v4_lsp_handle_request("workspace/parseSnapshotRestore", "parse-snapshot.fk", 0)
+
+pilot v4_parse_query_payload = v4_query_snapshot()
+say v4_query_snapshot_restore(v4_parse_query_payload)
+say v4_driver_confirm_restored_document_text("parse-snapshot.fk", v4_parse_snapshot_source)
+pilot v4_parse_file = v4_source_find("parse-snapshot.fk")
+pilot v4_parse_fingerprint = v4_source_fingerprint(v4_parse_file)
+pilot v4_parse_restored_tree = word_to_int(v4_query_get(v4_parse_query_key("parse-snapshot.fk"), v4_parse_fingerprint))
+say v4_parse_summary(v4_parse_restored_tree)
+say v4_driver_confirm_restored_document_text("parse-snapshot.fk", "task changed() => 7\n")
