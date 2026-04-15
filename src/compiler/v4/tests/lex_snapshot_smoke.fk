@@ -1,0 +1,31 @@
+-- V4 lexer arena snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_lex_snapshot_source = "pilot name = \"Miki|Kasumi\"\n"
+v4_lex_snapshot_source = v4_lex_snapshot_source + "pilot bad = 1 & 2\n"
+
+pilot v4_lex_snapshot_stream = v4_lex_text_cached("lex-snapshot.fk", v4_lex_snapshot_source)
+say v4_lex_summary(v4_lex_snapshot_stream)
+say v4_lex_snapshot_summary()
+
+pilot v4_lex_snapshot_payload = v4_lex_snapshot()
+say v4_lex_snapshot_validate(v4_lex_snapshot_payload)
+say "lex-snapshot-bytes=" + word_from_int(v4_lex_snapshot_payload.length())
+say "lex-snapshot-escape=" + v4_lex_snapshot_escape("a|b%z\nc")
+say "lex-snapshot-unescape=" + v4_lex_snapshot_unescape("a%7Cb%25z%0Ac")
+say v4_lex_snapshot_stream_line(v4_lex_snapshot_stream)
+say v4_lex_snapshot_token_line(v4_lex_snapshot_stream, 0)
+say v4_lex_snapshot_diag_line(v4_lex_snapshot_stream, 0)
+say v4_lex_snapshot_restore(v4_lex_snapshot_payload)
+say v4_lsp_lex_snapshot_text()
+say v4_lsp_lex_snapshot_restore_text(v4_lex_snapshot_payload)
+say v4_lsp_handle_text_request("workspace/lexSnapshotRestore", "lex-snapshot.fk", v4_lex_snapshot_payload, 0)
+
+pilot v4_lex_query_payload = v4_query_snapshot()
+say v4_query_snapshot_restore(v4_lex_query_payload)
+say v4_driver_confirm_restored_document_text("lex-snapshot.fk", v4_lex_snapshot_source)
+pilot v4_lex_file = v4_source_find("lex-snapshot.fk")
+pilot v4_lex_fingerprint = v4_source_fingerprint(v4_lex_file)
+pilot v4_lex_restored_stream = word_to_int(v4_query_get(v4_lex_query_key("lex-snapshot.fk"), v4_lex_fingerprint))
+say v4_lex_summary(v4_lex_restored_stream)
+say v4_driver_confirm_restored_document_text("lex-snapshot.fk", "pilot name = \"changed\"\n")

@@ -396,6 +396,14 @@ task v4_lsp_query_snapshot_confirm_text(path: word, text: word) -> word {
     give back v4_lsp_response_ok("workspace/querySnapshotConfirm", v4_driver_confirm_restored_document_text(path, text))
 }
 
+task v4_lsp_lex_snapshot_text() -> word {
+    give back v4_lsp_response_ok("workspace/lexSnapshot", v4_lex_snapshot())
+}
+
+task v4_lsp_lex_snapshot_restore_text(payload: word) -> word {
+    give back v4_lsp_response_ok("workspace/lexSnapshotRestore", v4_lex_snapshot_restore(payload))
+}
+
 task v4_lsp_hover_position_text(path: word, text: word, line: int, character_pos: int) -> word {
     pilot offset = v4_lsp_offset_from_position(text, line, character_pos)
     give back v4_lsp_hover_text(path, text, offset)
@@ -449,6 +457,8 @@ task v4_lsp_initialize_payload() -> word {
     out = out + "|workspace/querySnapshotImport"
     out = out + "|workspace/querySnapshotRestore"
     out = out + "|workspace/querySnapshotConfirm"
+    out = out + "|workspace/lexSnapshot"
+    out = out + "|workspace/lexSnapshotRestore"
     out = out + "|textDocument/didOpen"
     out = out + "|textDocument/didChange"
     give back out
@@ -504,6 +514,12 @@ task v4_lsp_handle_text_request(method: word, path: word, text: word, offset: in
     }
     if method == "workspace/querySnapshotConfirm" {
         give back v4_lsp_query_snapshot_confirm_text(path, text)
+    }
+    if method == "workspace/lexSnapshot" {
+        give back v4_lsp_lex_snapshot_text()
+    }
+    if method == "workspace/lexSnapshotRestore" {
+        give back v4_lsp_lex_snapshot_restore_text(text)
     }
     give back v4_lsp_response_error(method, 0 - 32601, "method not found")
 }
@@ -569,6 +585,12 @@ task v4_lsp_handle_request(method: word, path: word, offset: int) -> word {
     }
     if method == "workspace/querySnapshotConfirm" {
         give back v4_lsp_query_snapshot_confirm_document(path)
+    }
+    if method == "workspace/lexSnapshot" {
+        give back v4_lsp_lex_snapshot_text()
+    }
+    if method == "workspace/lexSnapshotRestore" {
+        give back v4_lsp_response_error(method, 0 - 32602, "method requires snapshot text")
     }
     if method == "textDocument/didOpen" or method == "textDocument/didChange" {
         give back v4_lsp_response_error(method, 0 - 32602, "method requires source text")

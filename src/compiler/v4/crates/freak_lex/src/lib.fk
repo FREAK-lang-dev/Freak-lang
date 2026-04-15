@@ -16,6 +16,7 @@ pilot v4_tok_bool = "bool"
 pilot v4_tok_symbol = "symbol"
 pilot v4_tok_trivia = "trivia"
 pilot v4_tok_unknown = "unknown"
+pilot v4_lex_snapshot_format = "freak-lex-snapshot-v1"
 
 pilot v4_lex_stream_files = 0
 pilot v4_lex_stream_types = 0
@@ -74,6 +75,30 @@ task v4_lex_cols_handle(stream_id: int) -> int {
 
 task v4_lex_diags_handle(stream_id: int) -> int {
     give back word_to_int(array_get(v4_lex_stream_diags, stream_id))
+}
+
+task v4_lex_stream_count() -> int {
+    v4_lex_init()
+    give back array_len(v4_lex_stream_files)
+}
+
+task v4_lex_stream_exists(stream_id: int) -> bool {
+    v4_lex_init()
+    if stream_id < 0 {
+        give back false
+    }
+    if stream_id >= array_len(v4_lex_stream_files) {
+        give back false
+    }
+    give back true
+}
+
+task v4_lex_stream_file(stream_id: int) -> int {
+    v4_lex_init()
+    if v4_lex_stream_exists(stream_id) == false {
+        give back 0 - 1
+    }
+    give back word_to_int(array_get(v4_lex_stream_files, stream_id))
 }
 
 task v4_lex_add_token(stream_id: int, tok_type: word, value: word, span: word, line_no: int, col_no: int) -> void {
@@ -365,3 +390,442 @@ task v4_lex_text(file_id: int, text: word) -> int {
     give back stream_id
 }
 
+task v4_lex_snapshot_escape(value: word) -> word {
+    pilot out = ""
+    pilot i = 0
+    repeat until i >= value.length() {
+        pilot ch = value.char_at(i)
+        if ch == "%" {
+            out = out + "%25"
+        } else if ch == "|" {
+            out = out + "%7C"
+        } else if ch == "\n" {
+            out = out + "%0A"
+        } else if ch == "\r" {
+            out = out + "%0D"
+        } else {
+            out = out + ch
+        }
+        i += 1
+    }
+    give back out
+}
+
+task v4_lex_snapshot_unescape(value: word) -> word {
+    pilot out = ""
+    pilot i = 0
+    repeat until i >= value.length() {
+        pilot ch = value.char_at(i)
+        if ch == "%" and i + 2 < value.length() {
+            pilot code = v4_slice(value, i, i + 3)
+            if code == "%25" {
+                out = out + "%"
+                i += 3
+            } else if code == "%7C" {
+                out = out + "|"
+                i += 3
+            } else if code == "%0A" {
+                out = out + "\n"
+                i += 3
+            } else if code == "%0D" {
+                out = out + "\r"
+                i += 3
+            } else {
+                out = out + ch
+                i += 1
+            }
+        } else {
+            out = out + ch
+            i += 1
+        }
+    }
+    give back out
+}
+
+task v4_lex_snapshot_line_count(payload: word) -> int {
+    if payload == "" {
+        give back 0
+    }
+    pilot count = 1
+    pilot i = 0
+    repeat until i >= payload.length() {
+        if payload.char_at(i) == "\n" {
+            count += 1
+        }
+        i += 1
+    }
+    give back count
+}
+
+task v4_lex_snapshot_line(payload: word, wanted: int) -> word {
+    if wanted < 0 {
+        give back ""
+    }
+    pilot line_id = 0
+    pilot start_pos = 0
+    pilot i = 0
+    repeat until i >= payload.length() {
+        if payload.char_at(i) == "\n" {
+            if line_id == wanted {
+                give back v4_slice(payload, start_pos, i)
+            }
+            line_id += 1
+            start_pos = i + 1
+        }
+        i += 1
+    }
+    if line_id == wanted {
+        give back v4_slice(payload, start_pos, payload.length())
+    }
+    give back ""
+}
+
+task v4_lex_snapshot_field_count(line: word) -> int {
+    if line == "" {
+        give back 0
+    }
+    pilot count = 1
+    pilot i = 0
+    repeat until i >= line.length() {
+        if line.char_at(i) == "|" {
+            count += 1
+        }
+        i += 1
+    }
+    give back count
+}
+
+task v4_lex_snapshot_field_raw(line: word, wanted: int) -> word {
+    if wanted < 0 {
+        give back ""
+    }
+    pilot field_id = 0
+    pilot start_pos = 0
+    pilot i = 0
+    repeat until i >= line.length() {
+        if line.char_at(i) == "|" {
+            if field_id == wanted {
+                give back v4_slice(line, start_pos, i)
+            }
+            field_id += 1
+            start_pos = i + 1
+        }
+        i += 1
+    }
+    if field_id == wanted {
+        give back v4_slice(line, start_pos, line.length())
+    }
+    give back ""
+}
+
+task v4_lex_snapshot_field(line: word, wanted: int) -> word {
+    give back v4_lex_snapshot_unescape(v4_lex_snapshot_field_raw(line, wanted))
+}
+
+task v4_lex_snapshot_key_value(line: word, wanted_key: word) -> word {
+    pilot field_id = 1
+    pilot field_count = v4_lex_snapshot_field_count(line)
+    repeat until field_id >= field_count {
+        pilot field = v4_lex_snapshot_field_raw(line, field_id)
+        pilot eq_pos = v4_index_of_from(field, "=", 0)
+        if eq_pos > 0 {
+            pilot key = v4_slice(field, 0, eq_pos)
+            if key == wanted_key {
+                give back v4_lex_snapshot_unescape(v4_slice(field, eq_pos + 1, field.length()))
+            }
+        }
+        field_id += 1
+    }
+    give back ""
+}
+
+task v4_lex_snapshot_token_total() -> int {
+    v4_lex_init()
+    pilot total = 0
+    pilot stream_id = 0
+    repeat until stream_id >= v4_lex_stream_count() {
+        total += v4_lex_token_count(stream_id)
+        stream_id += 1
+    }
+    give back total
+}
+
+task v4_lex_snapshot_diag_total() -> int {
+    v4_lex_init()
+    pilot total = 0
+    pilot stream_id = 0
+    repeat until stream_id >= v4_lex_stream_count() {
+        total += v4_lex_diag_count(stream_id)
+        stream_id += 1
+    }
+    give back total
+}
+
+task v4_lex_snapshot_summary() -> word {
+    pilot summary = "lex-snapshot"
+    summary = summary + " format=" + v4_lex_snapshot_format
+    summary = summary + " streams=" + word_from_int(v4_lex_stream_count())
+    summary = summary + " tokens=" + word_from_int(v4_lex_snapshot_token_total())
+    summary = summary + " diagnostics=" + word_from_int(v4_lex_snapshot_diag_total())
+    give back summary
+}
+
+task v4_lex_snapshot_header() -> word {
+    pilot out = "lex-snapshot"
+    out = out + "|format=" + v4_lex_snapshot_format
+    out = out + "|streams=" + word_from_int(v4_lex_stream_count())
+    out = out + "|tokens=" + word_from_int(v4_lex_snapshot_token_total())
+    out = out + "|diagnostics=" + word_from_int(v4_lex_snapshot_diag_total())
+    give back out
+}
+
+task v4_lex_snapshot_stream_line(stream_id: int) -> word {
+    pilot out = "stream"
+    out = out + "|" + word_from_int(stream_id)
+    out = out + "|" + word_from_int(v4_lex_stream_file(stream_id))
+    out = out + "|" + word_from_int(v4_lex_token_count(stream_id))
+    out = out + "|" + word_from_int(v4_lex_diag_count(stream_id))
+    give back out
+}
+
+task v4_lex_snapshot_token_line(stream_id: int, token_id: int) -> word {
+    pilot out = "token"
+    out = out + "|" + word_from_int(stream_id)
+    out = out + "|" + word_from_int(token_id)
+    out = out + "|" + v4_lex_snapshot_escape(v4_lex_token_type(stream_id, token_id))
+    out = out + "|" + v4_lex_snapshot_escape(v4_lex_token_value(stream_id, token_id))
+    out = out + "|" + v4_lex_snapshot_escape(v4_lex_token_span(stream_id, token_id))
+    out = out + "|" + word_from_int(v4_lex_token_line(stream_id, token_id))
+    out = out + "|" + word_from_int(v4_lex_token_col(stream_id, token_id))
+    give back out
+}
+
+task v4_lex_snapshot_diag_line(stream_id: int, diag_id: int) -> word {
+    pilot out = "diag"
+    out = out + "|" + word_from_int(stream_id)
+    out = out + "|" + word_from_int(diag_id)
+    out = out + "|" + v4_lex_snapshot_escape(v4_lex_diag(stream_id, diag_id))
+    give back out
+}
+
+task v4_lex_snapshot() -> word {
+    v4_lex_init()
+    pilot out = v4_lex_snapshot_header()
+    pilot stream_id = 0
+    repeat until stream_id >= v4_lex_stream_count() {
+        out = out + "\n" + v4_lex_snapshot_stream_line(stream_id)
+
+        pilot token_id = 0
+        pilot token_count = v4_lex_token_count(stream_id)
+        repeat until token_id >= token_count {
+            out = out + "\n" + v4_lex_snapshot_token_line(stream_id, token_id)
+            token_id += 1
+        }
+
+        pilot diag_id = 0
+        pilot diag_count = v4_lex_diag_count(stream_id)
+        repeat until diag_id >= diag_count {
+            out = out + "\n" + v4_lex_snapshot_diag_line(stream_id, diag_id)
+            diag_id += 1
+        }
+        stream_id += 1
+    }
+    out = out + "\nend|" + v4_lex_snapshot_format
+    give back out
+}
+
+task v4_lex_snapshot_record_expected_fields(kind: word) -> int {
+    if kind == "lex-snapshot" {
+        give back 5
+    }
+    if kind == "stream" {
+        give back 5
+    }
+    if kind == "token" {
+        give back 8
+    }
+    if kind == "diag" {
+        give back 4
+    }
+    if kind == "end" {
+        give back 2
+    }
+    give back 0
+}
+
+task v4_lex_snapshot_record_is_valid(line: word) -> bool {
+    pilot kind = v4_lex_snapshot_field_raw(line, 0)
+    pilot expected = v4_lex_snapshot_record_expected_fields(kind)
+    if expected == 0 {
+        give back false
+    }
+    if v4_lex_snapshot_field_count(line) < expected {
+        give back false
+    }
+    give back true
+}
+
+task v4_lex_snapshot_validate(payload: word) -> word {
+    pilot lines = v4_lex_snapshot_line_count(payload)
+    pilot streams = 0
+    pilot tokens = 0
+    pilot diagnostics = 0
+    pilot malformed = 0
+    pilot saw_header = 0
+    pilot saw_end = 0
+    pilot format = ""
+
+    pilot line_id = 0
+    repeat until line_id >= lines {
+        pilot line = v4_lex_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_lex_snapshot_field_raw(line, 0)
+            if v4_lex_snapshot_record_is_valid(line) == false {
+                malformed += 1
+            } else if kind == "lex-snapshot" {
+                saw_header += 1
+                format = v4_lex_snapshot_key_value(line, "format")
+                if format != v4_lex_snapshot_format {
+                    malformed += 1
+                }
+            } else if kind == "stream" {
+                streams += 1
+            } else if kind == "token" {
+                tokens += 1
+            } else if kind == "diag" {
+                diagnostics += 1
+            } else if kind == "end" {
+                saw_end += 1
+                if v4_lex_snapshot_field(line, 1) != v4_lex_snapshot_format {
+                    malformed += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+
+    pilot import_ok = 1
+    if saw_header != 1 {
+        import_ok = 0
+    }
+    if saw_end != 1 {
+        import_ok = 0
+    }
+    if malformed > 0 {
+        import_ok = 0
+    }
+
+    pilot out = "lex-snapshot-import"
+    out = out + " ok=" + word_from_int(import_ok)
+    out = out + " format=" + format
+    out = out + " lines=" + word_from_int(lines)
+    out = out + " streams=" + word_from_int(streams)
+    out = out + " tokens=" + word_from_int(tokens)
+    out = out + " diagnostics=" + word_from_int(diagnostics)
+    out = out + " malformed=" + word_from_int(malformed)
+    out = out + " headers=" + word_from_int(saw_header)
+    out = out + " ends=" + word_from_int(saw_end)
+    give back out
+}
+
+task v4_lex_restore_stream_slot(stream_id: int, file_id: int) -> int {
+    v4_lex_init()
+    repeat until array_len(v4_lex_stream_files) > stream_id {
+        array_push(v4_lex_stream_files, "0")
+        array_push(v4_lex_stream_types, word_from_int(array_new()))
+        array_push(v4_lex_stream_values, word_from_int(array_new()))
+        array_push(v4_lex_stream_spans, word_from_int(array_new()))
+        array_push(v4_lex_stream_lines, word_from_int(array_new()))
+        array_push(v4_lex_stream_cols, word_from_int(array_new()))
+        array_push(v4_lex_stream_diags, word_from_int(array_new()))
+    }
+
+    array_set(v4_lex_stream_files, stream_id, word_from_int(file_id))
+    array_set(v4_lex_stream_types, stream_id, word_from_int(array_new()))
+    array_set(v4_lex_stream_values, stream_id, word_from_int(array_new()))
+    array_set(v4_lex_stream_spans, stream_id, word_from_int(array_new()))
+    array_set(v4_lex_stream_lines, stream_id, word_from_int(array_new()))
+    array_set(v4_lex_stream_cols, stream_id, word_from_int(array_new()))
+    array_set(v4_lex_stream_diags, stream_id, word_from_int(array_new()))
+    give back stream_id
+}
+
+task v4_lex_snapshot_restore_stream_line(line: word) -> int {
+    if v4_lex_snapshot_record_is_valid(line) == false {
+        give back 0
+    }
+    if v4_lex_snapshot_field_raw(line, 0) != "stream" {
+        give back 0
+    }
+    pilot stream_id = word_to_int(v4_lex_snapshot_field_raw(line, 1))
+    pilot file_id = word_to_int(v4_lex_snapshot_field_raw(line, 2))
+    v4_lex_restore_stream_slot(stream_id, file_id)
+    give back 1
+}
+
+task v4_lex_snapshot_restore_token_line(line: word) -> int {
+    if v4_lex_snapshot_record_is_valid(line) == false {
+        give back 0
+    }
+    if v4_lex_snapshot_field_raw(line, 0) != "token" {
+        give back 0
+    }
+    pilot stream_id = word_to_int(v4_lex_snapshot_field_raw(line, 1))
+    pilot tok_type = v4_lex_snapshot_field(line, 3)
+    pilot value = v4_lex_snapshot_field(line, 4)
+    pilot span = v4_lex_snapshot_field(line, 5)
+    pilot line_no = word_to_int(v4_lex_snapshot_field_raw(line, 6))
+    pilot col_no = word_to_int(v4_lex_snapshot_field_raw(line, 7))
+    v4_lex_add_token(stream_id, tok_type, value, span, line_no, col_no)
+    give back 1
+}
+
+task v4_lex_snapshot_restore_diag_line(line: word) -> int {
+    if v4_lex_snapshot_record_is_valid(line) == false {
+        give back 0
+    }
+    if v4_lex_snapshot_field_raw(line, 0) != "diag" {
+        give back 0
+    }
+    pilot stream_id = word_to_int(v4_lex_snapshot_field_raw(line, 1))
+    array_push(v4_lex_diags_handle(stream_id), v4_lex_snapshot_field(line, 3))
+    give back 1
+}
+
+task v4_lex_snapshot_restore(payload: word) -> word {
+    pilot validation = v4_lex_snapshot_validate(payload)
+    if validation.starts_with("lex-snapshot-import ok=1") == false {
+        give back "lex-snapshot-restore ok=0 reason=validation-failed\n" + validation
+    }
+
+    pilot restored_streams = 0
+    pilot restored_tokens = 0
+    pilot restored_diagnostics = 0
+    pilot skipped_other = 0
+    pilot line_id = 0
+    pilot line_count = v4_lex_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_lex_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_lex_snapshot_field_raw(line, 0)
+            if kind == "stream" {
+                restored_streams += v4_lex_snapshot_restore_stream_line(line)
+            } else if kind == "token" {
+                restored_tokens += v4_lex_snapshot_restore_token_line(line)
+            } else if kind == "diag" {
+                restored_diagnostics += v4_lex_snapshot_restore_diag_line(line)
+            } else if kind != "lex-snapshot" and kind != "end" {
+                skipped_other += 1
+            }
+        }
+        line_id += 1
+    }
+
+    pilot out = "lex-snapshot-restore ok=1"
+    out = out + " streams=" + word_from_int(restored_streams)
+    out = out + " tokens=" + word_from_int(restored_tokens)
+    out = out + " diagnostics=" + word_from_int(restored_diagnostics)
+    out = out + " skipped-other=" + word_from_int(skipped_other)
+    out = out + " live-streams=" + word_from_int(v4_lex_stream_count())
+    give back out
+}
