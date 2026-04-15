@@ -1285,6 +1285,168 @@ task v4_driver_query_key_matches_path(path: word, key: word) -> bool {
     give back false
 }
 
+task v4_unit_invalidation_family_matches_path_key(path: word, family: word, key: word) -> bool {
+    if family == "syntax" { give back key == v4_check_syntax_query_key(path) }
+    if family == "lex" { give back key == v4_lex_query_key(path) }
+    if family == "parse" { give back key == v4_parse_query_key(path) }
+    if family == "hir" { give back key == v4_hir_query_key(path) }
+    if family == "resolve" { give back key == v4_resolve_query_key(path) }
+    if family == "ty" { give back key == v4_ty_query_key(path) }
+    if family == "mir" { give back key == v4_mir_query_key(path) }
+    if family == "borrowck" { give back key == v4_borrowck_query_key(path) }
+    if family == "diagnostics" { give back key == v4_diagnostics_query_key(path) }
+    if family == "semantic-at" { give back key.starts_with("semantic-at:" + path + ":") }
+    if family == "hover" { give back key.starts_with("hover:" + path + ":") }
+    if family == "definition-at" { give back key.starts_with("definition-at:" + path + ":") }
+    if family == "document-symbols" { give back key == v4_document_symbols_query_key(path) }
+    if family == "completion" { give back key.starts_with("completion:" + path + ":") }
+    if family == "core" {
+        if v4_unit_invalidation_family_matches_path_key(path, "syntax", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "lex", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "parse", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "hir", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "resolve", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "ty", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "mir", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "borrowck", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "diagnostics", key) { give back true }
+    }
+    if family == "editor" {
+        if v4_unit_invalidation_family_matches_path_key(path, "semantic-at", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "hover", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "definition-at", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "document-symbols", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "completion", key) { give back true }
+    }
+    if family == "all" { give back v4_driver_query_key_matches_path(path, key) }
+    give back false
+}
+
+task v4_unit_invalidation_family_matches_any_key(family: word, key: word) -> bool {
+    if family == "syntax" { give back key.starts_with("syntax:") }
+    if family == "lex" { give back key.starts_with("lex:") }
+    if family == "parse" { give back key.starts_with("parse:") }
+    if family == "hir" { give back key.starts_with("hir:") }
+    if family == "resolve" { give back key.starts_with("resolve:") }
+    if family == "ty" { give back key.starts_with("ty:") }
+    if family == "mir" { give back key.starts_with("mir:") }
+    if family == "borrowck" { give back key.starts_with("borrowck:") }
+    if family == "diagnostics" { give back key.starts_with("diagnostics:") }
+    if family == "semantic-at" { give back key.starts_with("semantic-at:") }
+    if family == "hover" { give back key.starts_with("hover:") }
+    if family == "definition-at" { give back key.starts_with("definition-at:") }
+    if family == "document-symbols" { give back key.starts_with("document-symbols:") }
+    if family == "completion" { give back key.starts_with("completion:") }
+    if family == "core" {
+        if v4_unit_invalidation_family_matches_any_key("syntax", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("lex", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("parse", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("hir", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("resolve", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("ty", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("mir", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("borrowck", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("diagnostics", key) { give back true }
+    }
+    if family == "editor" {
+        if v4_unit_invalidation_family_matches_any_key("semantic-at", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("hover", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("definition-at", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("document-symbols", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("completion", key) { give back true }
+    }
+    if family == "all" {
+        if v4_unit_invalidation_family_matches_any_key("core", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("editor", key) { give back true }
+    }
+    give back false
+}
+
+task v4_unit_invalidation_family_count(path: word, family: word) -> int {
+    pilot total = 0
+    pilot idx = 0
+    pilot count = v4_query_invalidated_count()
+    repeat until idx >= count {
+        pilot key = v4_query_invalidated_key(idx)
+        if v4_unit_invalidation_family_matches_path_key(path, family, key) {
+            total += 1
+        }
+        idx += 1
+    }
+    give back total
+}
+
+task v4_unit_invalidation_latest_generation(path: word) -> int {
+    pilot latest = 0
+    pilot idx = 0
+    pilot count = v4_query_invalidated_count()
+    repeat until idx >= count {
+        pilot key = v4_query_invalidated_key(idx)
+        if v4_unit_invalidation_family_matches_path_key(path, "all", key) {
+            latest = v4_query_invalidated_generation(idx)
+        }
+        idx += 1
+    }
+    give back latest
+}
+
+task v4_unit_invalidation_latest_reason(path: word) -> word {
+    pilot latest = ""
+    pilot idx = 0
+    pilot count = v4_query_invalidated_count()
+    repeat until idx >= count {
+        pilot key = v4_query_invalidated_key(idx)
+        if v4_unit_invalidation_family_matches_path_key(path, "all", key) {
+            latest = v4_query_invalidated_reason(idx)
+        }
+        idx += 1
+    }
+    give back latest
+}
+
+task v4_unit_invalidation_first_key(path: word) -> word {
+    pilot idx = 0
+    pilot count = v4_query_invalidated_count()
+    repeat until idx >= count {
+        pilot key = v4_query_invalidated_key(idx)
+        if v4_unit_invalidation_family_matches_path_key(path, "all", key) {
+            give back key
+        }
+        idx += 1
+    }
+    give back ""
+}
+
+task v4_unit_invalidation_report(path: word) -> word {
+    pilot out = "invalidation-contract"
+    out = out + "|path=" + v4_unit_snapshot_escape(path)
+    out = out + "|generation=" + word_from_int(v4_unit_invalidation_latest_generation(path))
+    out = out + "|reason=" + v4_unit_snapshot_escape(v4_unit_invalidation_latest_reason(path))
+    out = out + "|query-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "all"))
+    out = out + "|core-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "core"))
+    out = out + "|syntax-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "syntax"))
+    out = out + "|lex-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "lex"))
+    out = out + "|parse-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "parse"))
+    out = out + "|hir-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "hir"))
+    out = out + "|resolve-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "resolve"))
+    out = out + "|ty-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "ty"))
+    out = out + "|mir-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "mir"))
+    out = out + "|borrowck-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "borrowck"))
+    out = out + "|diagnostics-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "diagnostics"))
+    out = out + "|editor-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "editor"))
+    out = out + "|semantic-at-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "semantic-at"))
+    out = out + "|hover-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "hover"))
+    out = out + "|definition-at-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "definition-at"))
+    out = out + "|document-symbols-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "document-symbols"))
+    out = out + "|completion-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "completion"))
+    out = out + "|dirty=" + word_from_int(v4_query_dirty_count())
+    pilot first_key = v4_unit_invalidation_first_key(path)
+    if first_key != "" {
+        out = out + "|first=" + v4_unit_snapshot_escape(first_key)
+    }
+    give back out
+}
+
 task v4_driver_query_output_can_promote(path: word, key: word) -> int {
     if key == v4_check_syntax_query_key(path) {
         give back 1
@@ -2173,6 +2335,27 @@ task v4_unit_snapshot_query_new_invalidation_count(snapshot_before_query: word, 
     give back added
 }
 
+task v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query: word, snapshot_after_query: word, family: word) -> int {
+    pilot added = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(snapshot_after_query)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(snapshot_after_query, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "invalidation" {
+                if v4_unit_snapshot_payload_has_line(snapshot_before_query, line) == false {
+                    pilot key = v4_unit_snapshot_field(line, 2)
+                    if v4_unit_invalidation_family_matches_any_key(family, key) {
+                        added += 1
+                    }
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back added
+}
+
 task v4_unit_snapshot_query_invalidation_diff_details(snapshot_before_query: word, snapshot_after_query: word) -> word {
     pilot out = ""
     pilot line_id = 0
@@ -2374,6 +2557,22 @@ task v4_unit_snapshot_diff(snapshot_before_payload: word, snapshot_after_payload
     pilot snapshot_before_query = v4_unit_snapshot_section_payload(snapshot_before_payload, "query")
     pilot snapshot_after_query = v4_unit_snapshot_section_payload(snapshot_after_payload, "query")
     pilot query_invalidations_added = v4_unit_snapshot_query_new_invalidation_count(snapshot_before_query, snapshot_after_query)
+    pilot core_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "core")
+    pilot syntax_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "syntax")
+    pilot lex_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "lex")
+    pilot parse_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "parse")
+    pilot hir_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "hir")
+    pilot resolve_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "resolve")
+    pilot ty_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "ty")
+    pilot mir_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "mir")
+    pilot borrowck_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "borrowck")
+    pilot diagnostics_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "diagnostics")
+    pilot editor_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "editor")
+    pilot semantic_at_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "semantic-at")
+    pilot hover_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "hover")
+    pilot definition_at_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "definition-at")
+    pilot document_symbols_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "document-symbols")
+    pilot completion_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "completion")
     pilot query_entries_added = v4_unit_snapshot_query_entry_added_count(snapshot_before_query, snapshot_after_query)
     pilot query_entries_changed = v4_unit_snapshot_query_entry_changed_count(snapshot_before_query, snapshot_after_query)
     pilot query_entries_removed = v4_unit_snapshot_query_entry_removed_count(snapshot_before_query, snapshot_after_query)
@@ -2402,6 +2601,22 @@ task v4_unit_snapshot_diff(snapshot_before_payload: word, snapshot_after_payload
     out = out + "|sections-removed=" + word_from_int(sections_removed)
     out = out + "|sections-unchanged=" + word_from_int(sections_unchanged)
     out = out + "|query-invalidations-added=" + word_from_int(query_invalidations_added)
+    out = out + "|core-invalidations-added=" + word_from_int(core_invalidations_added)
+    out = out + "|syntax-invalidations-added=" + word_from_int(syntax_invalidations_added)
+    out = out + "|lex-invalidations-added=" + word_from_int(lex_invalidations_added)
+    out = out + "|parse-invalidations-added=" + word_from_int(parse_invalidations_added)
+    out = out + "|hir-invalidations-added=" + word_from_int(hir_invalidations_added)
+    out = out + "|resolve-invalidations-added=" + word_from_int(resolve_invalidations_added)
+    out = out + "|ty-invalidations-added=" + word_from_int(ty_invalidations_added)
+    out = out + "|mir-invalidations-added=" + word_from_int(mir_invalidations_added)
+    out = out + "|borrowck-invalidations-added=" + word_from_int(borrowck_invalidations_added)
+    out = out + "|diagnostics-invalidations-added=" + word_from_int(diagnostics_invalidations_added)
+    out = out + "|editor-invalidations-added=" + word_from_int(editor_invalidations_added)
+    out = out + "|semantic-at-invalidations-added=" + word_from_int(semantic_at_invalidations_added)
+    out = out + "|hover-invalidations-added=" + word_from_int(hover_invalidations_added)
+    out = out + "|definition-at-invalidations-added=" + word_from_int(definition_at_invalidations_added)
+    out = out + "|document-symbols-invalidations-added=" + word_from_int(document_symbols_invalidations_added)
+    out = out + "|completion-invalidations-added=" + word_from_int(completion_invalidations_added)
     out = out + "|query-entries-added=" + word_from_int(query_entries_added)
     out = out + "|query-entries-changed=" + word_from_int(query_entries_changed)
     out = out + "|query-entries-removed=" + word_from_int(query_entries_removed)
@@ -2604,6 +2819,22 @@ task v4_unit_snapshot_health_diff_line(diff_payload: word) -> word {
     out = out + "|sections-changed=" + v4_unit_snapshot_diff_header_value(diff_payload, "sections-changed")
     out = out + "|sections-removed=" + v4_unit_snapshot_diff_header_value(diff_payload, "sections-removed")
     out = out + "|query-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-invalidations-added")
+    out = out + "|core-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "core-invalidations-added")
+    out = out + "|syntax-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "syntax-invalidations-added")
+    out = out + "|lex-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "lex-invalidations-added")
+    out = out + "|parse-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "parse-invalidations-added")
+    out = out + "|hir-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "hir-invalidations-added")
+    out = out + "|resolve-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "resolve-invalidations-added")
+    out = out + "|ty-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "ty-invalidations-added")
+    out = out + "|mir-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "mir-invalidations-added")
+    out = out + "|borrowck-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "borrowck-invalidations-added")
+    out = out + "|diagnostics-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "diagnostics-invalidations-added")
+    out = out + "|editor-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "editor-invalidations-added")
+    out = out + "|semantic-at-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "semantic-at-invalidations-added")
+    out = out + "|hover-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "hover-invalidations-added")
+    out = out + "|definition-at-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "definition-at-invalidations-added")
+    out = out + "|document-symbols-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "document-symbols-invalidations-added")
+    out = out + "|completion-invalidations-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "completion-invalidations-added")
     out = out + "|query-entries-added=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-entries-added")
     out = out + "|query-entries-changed=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-entries-changed")
     out = out + "|query-entries-removed=" + v4_unit_snapshot_diff_header_value(diff_payload, "query-entries-removed")

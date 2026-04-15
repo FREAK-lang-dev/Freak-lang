@@ -11,11 +11,15 @@ say v4_lsp_handle_position_request("textDocument/completion", "invalidate.fk", 1
 say v4_lsp_handle_request("textDocument/documentSymbol", "invalidate.fk", 0)
 say v4_lsp_handle_request("textDocument/publishDiagnostics", "invalidate.fk", 0)
 say "generation-before=" + word_from_int(v4_query_generation())
+pilot v4_invalidation_before_snapshot = v4_unit_snapshot()
 
 pilot v4_invalidation_changed = "shape Pilot\n"
 v4_invalidation_changed = v4_invalidation_changed + "task main() => \"hi\"\n"
 say v4_lsp_handle_text_request("textDocument/didChange", "invalidate.fk", v4_invalidation_changed, 0)
 say v4_lsp_invalidation_summary("invalidate.fk")
+pilot v4_invalidation_after_snapshot = v4_unit_snapshot()
+pilot v4_invalidation_diff = v4_unit_snapshot_diff(v4_invalidation_before_snapshot, v4_invalidation_after_snapshot)
+say v4_unit_snapshot_health_diff_line(v4_invalidation_diff)
 say "generation-after=" + word_from_int(v4_query_generation())
 say "generation-reason=" + v4_query_generation_reason(v4_query_generation())
 say "invalidated-total=" + word_from_int(v4_query_invalidated_count())
