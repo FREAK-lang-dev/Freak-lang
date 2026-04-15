@@ -11,6 +11,20 @@ pilot FREAKC_V4_CODENAME = "00-Unit"
 
 pilot v4_driver_diag_paths = 0
 pilot v4_driver_diag_items = 0
+pilot v4_driver_sem_paths = 0
+pilot v4_driver_sem_offsets = 0
+pilot v4_driver_sem_token_ids = 0
+pilot v4_driver_sem_token_kinds = 0
+pilot v4_driver_sem_token_values = 0
+pilot v4_driver_sem_token_spans = 0
+pilot v4_driver_sem_hir_items = 0
+pilot v4_driver_sem_item_names = 0
+pilot v4_driver_sem_item_kinds = 0
+pilot v4_driver_sem_symbol_ids = 0
+pilot v4_driver_sem_names = 0
+pilot v4_driver_sem_kinds = 0
+pilot v4_driver_sem_defs = 0
+pilot v4_driver_sem_types = 0
 pilot v4_driver_ready = 0
 
 task v4_driver_init() -> void {
@@ -19,6 +33,20 @@ task v4_driver_init() -> void {
     if v4_driver_ready == 0 {
         v4_driver_diag_paths = array_new()
         v4_driver_diag_items = array_new()
+        v4_driver_sem_paths = array_new()
+        v4_driver_sem_offsets = array_new()
+        v4_driver_sem_token_ids = array_new()
+        v4_driver_sem_token_kinds = array_new()
+        v4_driver_sem_token_values = array_new()
+        v4_driver_sem_token_spans = array_new()
+        v4_driver_sem_hir_items = array_new()
+        v4_driver_sem_item_names = array_new()
+        v4_driver_sem_item_kinds = array_new()
+        v4_driver_sem_symbol_ids = array_new()
+        v4_driver_sem_names = array_new()
+        v4_driver_sem_kinds = array_new()
+        v4_driver_sem_defs = array_new()
+        v4_driver_sem_types = array_new()
         v4_driver_ready = 1
     }
 }
@@ -29,6 +57,10 @@ task v4_check_syntax_query_key(path: word) -> word {
 
 task v4_diagnostics_query_key(path: word) -> word {
     give back "diagnostics:" + path
+}
+
+task v4_semantic_at_query_key(path: word, offset: int) -> word {
+    give back "semantic-at:" + path + ":" + word_from_int(offset)
 }
 
 task v4_lex_query_key(path: word) -> word {
@@ -422,6 +454,223 @@ task v4_diagnostics_file(path: word) -> word {
         give back v4_diag_render(diag, "")
     }
     give back v4_diagnostics_text(path, text)
+}
+
+task v4_driver_token_at(stream_id: int, offset: int) -> int {
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        pilot token_type = v4_lex_token_type(stream_id, token_id)
+        if token_type != v4_tok_trivia and token_type != v4_tok_eof {
+            pilot span = v4_lex_token_span(stream_id, token_id)
+            if offset >= v4_span_start(span) and offset < v4_span_end(span) {
+                give back token_id
+            }
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_driver_hir_item_at(hir_id: int, offset: int) -> int {
+    pilot best_item = 0 - 1
+    pilot best_len = 0
+    pilot item_id = 0
+    pilot item_count = v4_hir_item_count(hir_id)
+    repeat until item_id >= item_count {
+        pilot span = v4_hir_item_span(hir_id, item_id)
+        if offset >= v4_span_start(span) and offset < v4_span_end(span) {
+            pilot span_len = v4_span_len(span)
+            if best_item < 0 or span_len < best_len {
+                best_item = item_id
+                best_len = span_len
+            }
+        }
+        item_id += 1
+    }
+    give back best_item
+}
+
+task v4_driver_ty_signature_for_hir_item(ty_id: int, hir_item: int) -> int {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_hir_item(ty_id, sig_id) == hir_item {
+            give back sig_id
+        }
+        sig_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_driver_semantic_fact_new(path: word, offset: int, token_id: int, token_kind: word, token_value: word, token_span: word, hir_item: int, item_name: word, item_kind: word, symbol_id: int, name: word, kind: word, def_id: word, type_display: word) -> int {
+    v4_driver_init()
+    pilot fact_id = array_len(v4_driver_sem_paths)
+    array_push(v4_driver_sem_paths, path)
+    array_push(v4_driver_sem_offsets, word_from_int(offset))
+    array_push(v4_driver_sem_token_ids, word_from_int(token_id))
+    array_push(v4_driver_sem_token_kinds, token_kind)
+    array_push(v4_driver_sem_token_values, token_value)
+    array_push(v4_driver_sem_token_spans, token_span)
+    array_push(v4_driver_sem_hir_items, word_from_int(hir_item))
+    array_push(v4_driver_sem_item_names, item_name)
+    array_push(v4_driver_sem_item_kinds, item_kind)
+    array_push(v4_driver_sem_symbol_ids, word_from_int(symbol_id))
+    array_push(v4_driver_sem_names, name)
+    array_push(v4_driver_sem_kinds, kind)
+    array_push(v4_driver_sem_defs, def_id)
+    array_push(v4_driver_sem_types, type_display)
+    give back fact_id
+}
+
+task v4_semantic_at_offset(fact_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_sem_offsets, fact_id))
+}
+
+task v4_semantic_at_token_id(fact_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_sem_token_ids, fact_id))
+}
+
+task v4_semantic_at_token_kind(fact_id: int) -> word {
+    give back array_get(v4_driver_sem_token_kinds, fact_id)
+}
+
+task v4_semantic_at_token_value(fact_id: int) -> word {
+    give back array_get(v4_driver_sem_token_values, fact_id)
+}
+
+task v4_semantic_at_token_span(fact_id: int) -> word {
+    give back array_get(v4_driver_sem_token_spans, fact_id)
+}
+
+task v4_semantic_at_hir_item(fact_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_sem_hir_items, fact_id))
+}
+
+task v4_semantic_at_item_name(fact_id: int) -> word {
+    give back array_get(v4_driver_sem_item_names, fact_id)
+}
+
+task v4_semantic_at_item_kind(fact_id: int) -> word {
+    give back array_get(v4_driver_sem_item_kinds, fact_id)
+}
+
+task v4_semantic_at_symbol_id(fact_id: int) -> int {
+    give back word_to_int(array_get(v4_driver_sem_symbol_ids, fact_id))
+}
+
+task v4_semantic_at_name(fact_id: int) -> word {
+    give back array_get(v4_driver_sem_names, fact_id)
+}
+
+task v4_semantic_at_kind(fact_id: int) -> word {
+    give back array_get(v4_driver_sem_kinds, fact_id)
+}
+
+task v4_semantic_at_def(fact_id: int) -> word {
+    give back array_get(v4_driver_sem_defs, fact_id)
+}
+
+task v4_semantic_at_type(fact_id: int) -> word {
+    give back array_get(v4_driver_sem_types, fact_id)
+}
+
+task v4_semantic_at_summary(fact_id: int) -> word {
+    pilot summary = "semantic-at id=" + word_from_int(fact_id)
+    summary = summary + " offset=" + word_from_int(v4_semantic_at_offset(fact_id))
+    summary = summary + " token=" + v4_semantic_at_token_value(fact_id)
+    summary = summary + " token-kind=" + v4_semantic_at_token_kind(fact_id)
+    summary = summary + " item=" + v4_semantic_at_item_name(fact_id)
+    summary = summary + " item-kind=" + v4_semantic_at_item_kind(fact_id)
+    summary = summary + " name=" + v4_semantic_at_name(fact_id)
+    summary = summary + " kind=" + v4_semantic_at_kind(fact_id)
+    summary = summary + " type=" + v4_semantic_at_type(fact_id)
+    give back summary
+}
+
+task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
+    v4_driver_init()
+
+    pilot file_id = v4_source_set_text(path, text)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot key = v4_semantic_at_query_key(path, offset)
+    pilot cached = v4_query_get(key, fingerprint)
+    if cached != "" {
+        give back word_to_int(cached)
+    }
+
+    pilot stream_id = v4_lex_text_cached(path, text)
+    pilot hir_id = v4_hir_text_cached(path, text)
+    pilot resolve_id = v4_resolve_text_cached(path, text)
+    pilot ty_id = v4_ty_text_cached(path, text)
+    pilot token_id = v4_driver_token_at(stream_id, offset)
+    pilot token_kind = ""
+    pilot token_value = ""
+    pilot token_span = V4_NO_SPAN
+    if token_id >= 0 {
+        token_kind = v4_lex_token_type(stream_id, token_id)
+        token_value = v4_lex_token_value(stream_id, token_id)
+        token_span = v4_lex_token_span(stream_id, token_id)
+    }
+
+    pilot hir_item = v4_driver_hir_item_at(hir_id, offset)
+    pilot item_name = ""
+    pilot item_kind = ""
+    if hir_item >= 0 {
+        item_name = v4_hir_item_name(hir_id, hir_item)
+        item_kind = v4_hir_item_kind(hir_id, hir_item)
+    }
+
+    pilot symbol_id = 0 - 1
+    if token_value != "" {
+        symbol_id = v4_resolve_lookup_any(resolve_id, token_value)
+    }
+
+    pilot name = token_value
+    pilot kind = token_kind
+    pilot def_id = ""
+    pilot type_display = v4_ty_unknown
+    if symbol_id >= 0 {
+        name = v4_resolve_symbol_name(resolve_id, symbol_id)
+        kind = v4_resolve_symbol_kind(resolve_id, symbol_id)
+        def_id = v4_resolve_symbol_def(resolve_id, symbol_id)
+        pilot sig_id = v4_ty_lookup_signature(ty_id, def_id)
+        if sig_id >= 0 {
+            type_display = v4_ty_signature_display(ty_id, sig_id)
+        }
+    } else if token_value == item_name and hir_item >= 0 {
+        name = item_name
+        kind = item_kind
+        def_id = v4_hir_item_def(hir_id, hir_item)
+        pilot item_sig_id = v4_driver_ty_signature_for_hir_item(ty_id, hir_item)
+        if item_sig_id >= 0 {
+            type_display = v4_ty_signature_display(ty_id, item_sig_id)
+        }
+    }
+
+    pilot fact_id = v4_driver_semantic_fact_new(path, offset, token_id, token_kind, token_value, token_span, hir_item, item_name, item_kind, symbol_id, name, kind, def_id, type_display)
+    v4_query_store(key, fingerprint, word_from_int(fact_id))
+    v4_query_record_dep(key, "source:" + path)
+    v4_query_record_dep(key, v4_lex_query_key(path))
+    v4_query_record_dep(key, v4_hir_query_key(path))
+    v4_query_record_dep(key, v4_resolve_query_key(path))
+    v4_query_record_dep(key, v4_ty_query_key(path))
+    give back fact_id
+}
+
+task v4_semantic_at_text(path: word, text: word, offset: int) -> word {
+    pilot fact_id = v4_semantic_at_text_cached(path, text, offset)
+    give back v4_semantic_at_summary(fact_id)
+}
+
+task v4_semantic_at_file(path: word, offset: int) -> word {
+    pilot text = fs::read(path)
+    if text == "" {
+        pilot span = v4_span_new("0", 0, 0)
+        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
+        give back v4_diag_render(diag, "")
+    }
+    give back v4_semantic_at_text(path, text, offset)
 }
 
 task v4_check_syntax_text(path: word, text: word) -> word {

@@ -1,0 +1,17 @@
+-- V4 position-indexed semantic query smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_sem_source = "task main() -> int {\n"
+v4_sem_source = v4_sem_source + "    give back 0\n"
+v4_sem_source = v4_sem_source + "}\n"
+
+pilot v4_sem_main_fact = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, 5)
+pilot v4_sem_body_fact = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, 24)
+
+say v4_semantic_at_summary(v4_sem_main_fact)
+say "main-name=" + v4_semantic_at_name(v4_sem_main_fact)
+say "main-kind=" + v4_semantic_at_kind(v4_sem_main_fact)
+say "main-type=" + v4_semantic_at_type(v4_sem_main_fact)
+say "body-token=" + v4_semantic_at_token_value(v4_sem_body_fact)
+say "body-item=" + v4_semantic_at_item_name(v4_sem_body_fact)
+say "body-item-kind=" + v4_semantic_at_item_kind(v4_sem_body_fact)
