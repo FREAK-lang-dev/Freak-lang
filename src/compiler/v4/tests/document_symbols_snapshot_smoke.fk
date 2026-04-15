@@ -1,0 +1,38 @@
+-- V4 document-symbols arena snapshot smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_doc_snapshot_source = "@protagonist\n"
+v4_doc_snapshot_source = v4_doc_snapshot_source + "task main() => \"hi\"\n"
+v4_doc_snapshot_source = v4_doc_snapshot_source + "shape Pilot\n"
+v4_doc_snapshot_source = v4_doc_snapshot_source + "doctrine Display\n"
+
+pilot v4_doc_snapshot_id = v4_document_symbols_text_cached("document-symbols-snapshot.fk", v4_doc_snapshot_source)
+say v4_document_symbols_summary(v4_doc_snapshot_id)
+say v4_document_symbols_snapshot_summary()
+
+pilot v4_doc_snapshot_payload = v4_document_symbols_snapshot()
+say v4_document_symbols_snapshot_validate(v4_doc_snapshot_payload)
+say "document-symbols-snapshot-bytes=" + word_from_int(v4_doc_snapshot_payload.length())
+say "document-symbols-snapshot-escape=" + v4_document_symbols_snapshot_escape("Pilot|Yuuko%0\nMeiya")
+say "document-symbols-snapshot-unescape=" + v4_document_symbols_snapshot_unescape("Pilot%7CYuuko%250%0AMeiya")
+say v4_document_symbols_snapshot_document_line(v4_doc_snapshot_id)
+say v4_document_symbols_snapshot_symbol_line(v4_doc_snapshot_id, 0)
+say v4_parse_snapshot_restore(v4_parse_snapshot())
+say v4_hir_snapshot_restore(v4_hir_snapshot())
+say v4_resolve_snapshot_restore(v4_resolve_snapshot())
+say v4_ty_snapshot_restore(v4_ty_snapshot())
+say v4_document_symbols_snapshot_restore(v4_doc_snapshot_payload)
+say v4_lsp_document_symbols_snapshot_text()
+say v4_lsp_document_symbols_snapshot_restore_text(v4_doc_snapshot_payload)
+say v4_lsp_handle_text_request("workspace/documentSymbolsSnapshotRestore", "document-symbols-snapshot.fk", v4_doc_snapshot_payload, 0)
+say v4_lsp_handle_request("workspace/documentSymbolsSnapshotRestore", "document-symbols-snapshot.fk", 0)
+
+pilot v4_doc_query_payload = v4_query_snapshot()
+say v4_query_snapshot_restore(v4_doc_query_payload)
+say v4_driver_confirm_restored_document_text("document-symbols-snapshot.fk", v4_doc_snapshot_source)
+pilot v4_doc_file = v4_source_find("document-symbols-snapshot.fk")
+pilot v4_doc_fingerprint = v4_source_fingerprint(v4_doc_file)
+pilot v4_doc_restored_id = word_to_int(v4_query_get(v4_document_symbols_query_key("document-symbols-snapshot.fk"), v4_doc_fingerprint))
+say v4_document_symbols_summary(v4_doc_restored_id)
+say "restored-symbol0=" + v4_document_symbol_name(v4_doc_restored_id, 0)
+say v4_driver_confirm_restored_document_text("document-symbols-snapshot.fk", "task changed() => 7\n")

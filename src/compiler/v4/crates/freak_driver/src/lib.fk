@@ -13,6 +13,7 @@ pilot v4_diagnostics_snapshot_format = "freak-diagnostics-snapshot-v1"
 pilot v4_semantic_snapshot_format = "freak-semantic-snapshot-v1"
 pilot v4_hover_snapshot_format = "freak-hover-snapshot-v1"
 pilot v4_definition_snapshot_format = "freak-definition-snapshot-v1"
+pilot v4_document_symbols_snapshot_format = "freak-document-symbols-snapshot-v1"
 
 pilot v4_driver_diag_paths = 0
 pilot v4_driver_diag_items = 0
@@ -399,6 +400,25 @@ task v4_driver_query_entry_can_promote(path: word, entry_id: int) -> int {
                                 give back 1
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+    if key == v4_document_symbols_query_key(path) {
+        pilot doc_id = word_to_int(v4_query_entry_output(entry_id))
+        if v4_document_symbols_exists(doc_id) {
+            if v4_document_symbols_path(doc_id) == path {
+                pilot fingerprint = v4_query_entry_input(entry_id)
+                pilot hir_entry = v4_query_find(v4_hir_query_key(path), fingerprint)
+                pilot resolve_entry = v4_query_find(v4_resolve_query_key(path), fingerprint)
+                pilot ty_entry = v4_query_find(v4_ty_query_key(path), fingerprint)
+                if hir_entry >= 0 and resolve_entry >= 0 and ty_entry >= 0 {
+                    pilot hir_id = word_to_int(v4_query_entry_output(hir_entry))
+                    pilot resolve_id = word_to_int(v4_query_entry_output(resolve_entry))
+                    pilot ty_id = word_to_int(v4_query_entry_output(ty_entry))
+                    if v4_hir_file_exists(hir_id) and v4_resolve_exists(resolve_id) and v4_ty_file_exists(ty_id) {
+                        give back 1
                     }
                 }
             }
@@ -1093,7 +1113,7 @@ task v4_unit_snapshot_key_value(line: word, wanted_key: word) -> word {
 }
 
 task v4_unit_snapshot_section_count() -> int {
-    give back 12
+    give back 13
 }
 
 task v4_unit_snapshot_summary() -> word {
@@ -1153,6 +1173,7 @@ task v4_unit_snapshot() -> word {
     out = out + "\n" + v4_unit_snapshot_section_line("semantic", v4_semantic_snapshot())
     out = out + "\n" + v4_unit_snapshot_section_line("hover", v4_hover_snapshot())
     out = out + "\n" + v4_unit_snapshot_section_line("definition", v4_definition_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line("document-symbols", v4_document_symbols_snapshot())
     out = out + "\n" + v4_unit_snapshot_section_line("query", v4_query_snapshot())
     out = out + "\nend|" + v4_unit_snapshot_format
     give back out
@@ -1304,6 +1325,8 @@ task v4_unit_snapshot_restore_named_section(payload: word, section_name: word) -
         v4_hover_snapshot_restore(section_payload)
     } else if section_name == "definition" {
         v4_definition_snapshot_restore(section_payload)
+    } else if section_name == "document-symbols" {
+        v4_document_symbols_snapshot_restore(section_payload)
     } else if section_name == "query" {
         v4_query_snapshot_restore(section_payload)
     } else {
@@ -1350,6 +1373,7 @@ task v4_unit_snapshot_restore(payload: word) -> word {
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "semantic")
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "hover")
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "definition")
+    restored_sections += v4_unit_snapshot_restore_named_section(payload, "document-symbols")
     restored_sections += v4_unit_snapshot_restore_named_section(payload, "query")
 
     pilot confirmed_sources = v4_unit_snapshot_confirm_sources(payload)
@@ -2576,6 +2600,29 @@ task v4_driver_document_symbols_new(path: word) -> int {
     give back doc_id
 }
 
+task v4_document_symbols_count() -> int {
+    v4_driver_init()
+    give back array_len(v4_driver_doc_paths)
+}
+
+task v4_document_symbols_exists(doc_id: int) -> bool {
+    v4_driver_init()
+    if doc_id < 0 {
+        give back false
+    }
+    if doc_id >= array_len(v4_driver_doc_paths) {
+        give back false
+    }
+    give back true
+}
+
+task v4_document_symbols_path(doc_id: int) -> word {
+    if v4_document_symbols_exists(doc_id) == false {
+        give back ""
+    }
+    give back array_get(v4_driver_doc_paths, doc_id)
+}
+
 task v4_driver_doc_names_handle(doc_id: int) -> int {
     give back word_to_int(array_get(v4_driver_doc_names, doc_id))
 }
@@ -2641,12 +2688,274 @@ task v4_document_symbol_type(doc_id: int, symbol_id: int) -> word {
 
 task v4_document_symbols_summary(doc_id: int) -> word {
     pilot summary = "document-symbols id=" + word_from_int(doc_id)
+    summary = summary + " path=" + v4_document_symbols_path(doc_id)
     summary = summary + " count=" + word_from_int(v4_document_symbol_count(doc_id))
     if v4_document_symbol_count(doc_id) > 0 {
         summary = summary + " first=" + v4_document_symbol_name(doc_id, 0)
         summary = summary + " first-kind=" + v4_document_symbol_kind(doc_id, 0)
     }
     give back summary
+}
+
+task v4_document_symbols_snapshot_escape(value: word) -> word {
+    give back v4_definition_snapshot_escape(value)
+}
+
+task v4_document_symbols_snapshot_unescape(value: word) -> word {
+    give back v4_definition_snapshot_unescape(value)
+}
+
+task v4_document_symbols_snapshot_line_count(payload: word) -> int {
+    give back v4_definition_snapshot_line_count(payload)
+}
+
+task v4_document_symbols_snapshot_line(payload: word, wanted: int) -> word {
+    give back v4_definition_snapshot_line(payload, wanted)
+}
+
+task v4_document_symbols_snapshot_field_count(line: word) -> int {
+    give back v4_definition_snapshot_field_count(line)
+}
+
+task v4_document_symbols_snapshot_field_raw(line: word, wanted: int) -> word {
+    give back v4_definition_snapshot_field_raw(line, wanted)
+}
+
+task v4_document_symbols_snapshot_field(line: word, wanted: int) -> word {
+    give back v4_definition_snapshot_field(line, wanted)
+}
+
+task v4_document_symbols_snapshot_key_value(line: word, wanted_key: word) -> word {
+    give back v4_definition_snapshot_key_value(line, wanted_key)
+}
+
+task v4_document_symbols_snapshot_symbol_total() -> int {
+    v4_driver_init()
+    pilot total = 0
+    pilot doc_id = 0
+    repeat until doc_id >= v4_document_symbols_count() {
+        total += v4_document_symbol_count(doc_id)
+        doc_id += 1
+    }
+    give back total
+}
+
+task v4_document_symbols_snapshot_summary() -> word {
+    pilot summary = "document-symbols-snapshot"
+    summary = summary + " format=" + v4_document_symbols_snapshot_format
+    summary = summary + " documents=" + word_from_int(v4_document_symbols_count())
+    summary = summary + " symbols=" + word_from_int(v4_document_symbols_snapshot_symbol_total())
+    give back summary
+}
+
+task v4_document_symbols_snapshot_header() -> word {
+    pilot out = "document-symbols-snapshot"
+    out = out + "|format=" + v4_document_symbols_snapshot_format
+    out = out + "|documents=" + word_from_int(v4_document_symbols_count())
+    out = out + "|symbols=" + word_from_int(v4_document_symbols_snapshot_symbol_total())
+    give back out
+}
+
+task v4_document_symbols_snapshot_document_line(doc_id: int) -> word {
+    pilot out = "document-symbols"
+    out = out + "|" + word_from_int(doc_id)
+    out = out + "|" + v4_document_symbols_snapshot_escape(v4_document_symbols_path(doc_id))
+    out = out + "|" + word_from_int(v4_document_symbol_count(doc_id))
+    give back out
+}
+
+task v4_document_symbols_snapshot_symbol_line(doc_id: int, symbol_id: int) -> word {
+    pilot out = "document-symbol"
+    out = out + "|" + word_from_int(doc_id)
+    out = out + "|" + word_from_int(symbol_id)
+    out = out + "|" + v4_document_symbols_snapshot_escape(v4_document_symbol_name(doc_id, symbol_id))
+    out = out + "|" + v4_document_symbols_snapshot_escape(v4_document_symbol_kind(doc_id, symbol_id))
+    out = out + "|" + v4_document_symbols_snapshot_escape(v4_document_symbol_def(doc_id, symbol_id))
+    out = out + "|" + word_from_int(v4_document_symbol_hir_item(doc_id, symbol_id))
+    out = out + "|" + v4_document_symbols_snapshot_escape(v4_document_symbol_span(doc_id, symbol_id))
+    out = out + "|" + v4_document_symbols_snapshot_escape(v4_document_symbol_type(doc_id, symbol_id))
+    give back out
+}
+
+task v4_document_symbols_snapshot() -> word {
+    v4_driver_init()
+    pilot out = v4_document_symbols_snapshot_header()
+    pilot doc_id = 0
+    pilot doc_count = v4_document_symbols_count()
+    repeat until doc_id >= doc_count {
+        out = out + "\n" + v4_document_symbols_snapshot_document_line(doc_id)
+        pilot symbol_id = 0
+        pilot symbol_count = v4_document_symbol_count(doc_id)
+        repeat until symbol_id >= symbol_count {
+            out = out + "\n" + v4_document_symbols_snapshot_symbol_line(doc_id, symbol_id)
+            symbol_id += 1
+        }
+        doc_id += 1
+    }
+    out = out + "\nend|" + v4_document_symbols_snapshot_format
+    give back out
+}
+
+task v4_document_symbols_snapshot_record_expected_fields(kind: word) -> int {
+    if kind == "document-symbols-snapshot" { give back 4 }
+    if kind == "document-symbols" { give back 4 }
+    if kind == "document-symbol" { give back 9 }
+    if kind == "end" { give back 2 }
+    give back 0
+}
+
+task v4_document_symbols_snapshot_record_is_valid(line: word) -> bool {
+    pilot kind = v4_document_symbols_snapshot_field_raw(line, 0)
+    pilot expected = v4_document_symbols_snapshot_record_expected_fields(kind)
+    if expected == 0 {
+        give back false
+    }
+    if v4_document_symbols_snapshot_field_count(line) < expected {
+        give back false
+    }
+    give back true
+}
+
+task v4_document_symbols_snapshot_validate(payload: word) -> word {
+    pilot lines = v4_document_symbols_snapshot_line_count(payload)
+    pilot documents = 0
+    pilot symbols = 0
+    pilot malformed = 0
+    pilot saw_header = 0
+    pilot saw_end = 0
+    pilot format = ""
+
+    pilot line_id = 0
+    repeat until line_id >= lines {
+        pilot line = v4_document_symbols_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_document_symbols_snapshot_field_raw(line, 0)
+            if v4_document_symbols_snapshot_record_is_valid(line) == false {
+                malformed += 1
+            } else if kind == "document-symbols-snapshot" {
+                saw_header += 1
+                format = v4_document_symbols_snapshot_key_value(line, "format")
+                if format != v4_document_symbols_snapshot_format {
+                    malformed += 1
+                }
+            } else if kind == "document-symbols" {
+                documents += 1
+            } else if kind == "document-symbol" {
+                symbols += 1
+            } else if kind == "end" {
+                saw_end += 1
+                if v4_document_symbols_snapshot_field(line, 1) != v4_document_symbols_snapshot_format {
+                    malformed += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+
+    pilot import_ok = 1
+    if saw_header != 1 { import_ok = 0 }
+    if saw_end != 1 { import_ok = 0 }
+    if malformed > 0 { import_ok = 0 }
+
+    pilot out = "document-symbols-snapshot-import"
+    out = out + " ok=" + word_from_int(import_ok)
+    out = out + " format=" + format
+    out = out + " lines=" + word_from_int(lines)
+    out = out + " documents=" + word_from_int(documents)
+    out = out + " symbols=" + word_from_int(symbols)
+    out = out + " malformed=" + word_from_int(malformed)
+    out = out + " headers=" + word_from_int(saw_header)
+    out = out + " ends=" + word_from_int(saw_end)
+    give back out
+}
+
+task v4_document_symbols_restore_document_slot(doc_id: int, path: word) -> int {
+    v4_driver_init()
+    repeat until array_len(v4_driver_doc_paths) > doc_id {
+        v4_driver_document_symbols_new("")
+    }
+
+    array_set(v4_driver_doc_paths, doc_id, path)
+    array_set(v4_driver_doc_names, doc_id, word_from_int(array_new()))
+    array_set(v4_driver_doc_kinds, doc_id, word_from_int(array_new()))
+    array_set(v4_driver_doc_defs, doc_id, word_from_int(array_new()))
+    array_set(v4_driver_doc_hir_items, doc_id, word_from_int(array_new()))
+    array_set(v4_driver_doc_spans, doc_id, word_from_int(array_new()))
+    array_set(v4_driver_doc_types, doc_id, word_from_int(array_new()))
+    give back 1
+}
+
+task v4_document_symbols_restore_symbol_slot(doc_id: int, symbol_id: int, name: word, kind: word, def_id: word, hir_item: int, span: word, type_display: word) -> int {
+    if v4_document_symbols_exists(doc_id) == false {
+        give back 0
+    }
+    repeat until v4_document_symbol_count(doc_id) > symbol_id {
+        v4_document_symbols_add(doc_id, "", "", "", 0 - 1, V4_NO_SPAN, v4_ty_unknown)
+    }
+
+    array_set(v4_driver_doc_names_handle(doc_id), symbol_id, name)
+    array_set(v4_driver_doc_kinds_handle(doc_id), symbol_id, kind)
+    array_set(v4_driver_doc_defs_handle(doc_id), symbol_id, def_id)
+    array_set(v4_driver_doc_hir_items_handle(doc_id), symbol_id, word_from_int(hir_item))
+    array_set(v4_driver_doc_spans_handle(doc_id), symbol_id, span)
+    array_set(v4_driver_doc_types_handle(doc_id), symbol_id, type_display)
+    give back 1
+}
+
+task v4_document_symbols_snapshot_restore_document_line(line: word) -> int {
+    if v4_document_symbols_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_document_symbols_snapshot_field_raw(line, 0) != "document-symbols" { give back 0 }
+    pilot doc_id = word_to_int(v4_document_symbols_snapshot_field_raw(line, 1))
+    pilot path = v4_document_symbols_snapshot_field(line, 2)
+    give back v4_document_symbols_restore_document_slot(doc_id, path)
+}
+
+task v4_document_symbols_snapshot_restore_symbol_line(line: word) -> int {
+    if v4_document_symbols_snapshot_record_is_valid(line) == false { give back 0 }
+    if v4_document_symbols_snapshot_field_raw(line, 0) != "document-symbol" { give back 0 }
+    pilot doc_id = word_to_int(v4_document_symbols_snapshot_field_raw(line, 1))
+    pilot symbol_id = word_to_int(v4_document_symbols_snapshot_field_raw(line, 2))
+    pilot name = v4_document_symbols_snapshot_field(line, 3)
+    pilot kind = v4_document_symbols_snapshot_field(line, 4)
+    pilot def_id = v4_document_symbols_snapshot_field(line, 5)
+    pilot hir_item = word_to_int(v4_document_symbols_snapshot_field_raw(line, 6))
+    pilot span = v4_document_symbols_snapshot_field(line, 7)
+    pilot type_display = v4_document_symbols_snapshot_field(line, 8)
+    give back v4_document_symbols_restore_symbol_slot(doc_id, symbol_id, name, kind, def_id, hir_item, span, type_display)
+}
+
+task v4_document_symbols_snapshot_restore(payload: word) -> word {
+    pilot validation = v4_document_symbols_snapshot_validate(payload)
+    if validation.starts_with("document-symbols-snapshot-import ok=1") == false {
+        give back "document-symbols-snapshot-restore ok=0 reason=validation-failed\n" + validation
+    }
+
+    pilot restored_documents = 0
+    pilot restored_symbols = 0
+    pilot skipped_other = 0
+    pilot line_id = 0
+    pilot line_count = v4_document_symbols_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_document_symbols_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_document_symbols_snapshot_field_raw(line, 0)
+            if kind == "document-symbols" {
+                restored_documents += v4_document_symbols_snapshot_restore_document_line(line)
+            } else if kind == "document-symbol" {
+                restored_symbols += v4_document_symbols_snapshot_restore_symbol_line(line)
+            } else if kind != "document-symbols-snapshot" and kind != "end" {
+                skipped_other += 1
+            }
+        }
+        line_id += 1
+    }
+
+    pilot out = "document-symbols-snapshot-restore ok=1"
+    out = out + " documents=" + word_from_int(restored_documents)
+    out = out + " symbols=" + word_from_int(restored_symbols)
+    out = out + " skipped-other=" + word_from_int(skipped_other)
+    out = out + " arena-documents=" + word_from_int(v4_document_symbols_count())
+    give back out
 }
 
 task v4_document_symbols_text_cached(path: word, text: word) -> int {
