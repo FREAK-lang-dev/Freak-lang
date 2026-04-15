@@ -2,6 +2,8 @@
 
 This directory is the implementation home for Project 00-Unit, the V4 compiler architecture described in `freakc-v4-00-unit-architecture.md`.
 
+Bootstrap status: complete for the executable 00-Unit architecture slice. This proves the modular, query-backed V4 shape and its tooling protocols; it is not yet a full V3 replacement.
+
 The first landing is intentionally small and isolated from the V3 compiler:
 
 ```text
