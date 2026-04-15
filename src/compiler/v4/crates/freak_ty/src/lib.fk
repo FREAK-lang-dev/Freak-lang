@@ -1,12 +1,19 @@
 -- ===================================================================
--- freak_ty - V4 type signature scaffold
+-- freak_ty - V4 type signature and primitive type helpers
 -- ===================================================================
 -- Depends on freak_span, freak_diag, freak_hir, and freak_resolve.
--- This first type layer does not infer expression bodies. It builds
--- item-level signatures from resolved HIR symbols so tools and later
--- inference passes can ask stable questions like signature_of(def).
+-- This first type layer builds item-level signatures and owns the
+-- primitive type vocabulary. MIR uses these helpers while lowering
+-- rvalues so the pipeline can start carrying concrete type facts
+-- without introducing a cyclic dependency.
 
 pilot v4_ty_unknown = "unknown"
+pilot v4_ty_int = "int"
+pilot v4_ty_num = "num"
+pilot v4_ty_word = "word"
+pilot v4_ty_bool = "bool"
+pilot v4_ty_void = "void"
+
 pilot v4_ty_task_sig = "task-signature"
 pilot v4_ty_shape_sig = "shape-signature"
 pilot v4_ty_doctrine_sig = "doctrine-signature"
@@ -128,6 +135,41 @@ task v4_ty_copy_resolve_diags(ty_id: int, resolve_id: int) -> void {
         v4_ty_add_diag(ty_id, v4_resolve_diag(resolve_id, diag_idx))
         diag_idx += 1
     }
+}
+
+task v4_ty_is_numeric(ty_name: word) -> bool {
+    give back ty_name == v4_ty_int or ty_name == v4_ty_num
+}
+
+task v4_ty_numeric_result(left_ty: word, right_ty: word) -> word {
+    if left_ty == v4_ty_unknown or right_ty == v4_ty_unknown {
+        give back v4_ty_unknown
+    }
+    if left_ty == v4_ty_num or right_ty == v4_ty_num {
+        if v4_ty_is_numeric(left_ty) and v4_ty_is_numeric(right_ty) {
+            give back v4_ty_num
+        }
+    }
+    if left_ty == v4_ty_int and right_ty == v4_ty_int {
+        give back v4_ty_int
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_binary_result(op: word, left_ty: word, right_ty: word) -> word {
+    if op == "Eq" or op == "Ne" or op == "Gt" or op == "Lt" or op == "Ge" or op == "Le" {
+        give back v4_ty_bool
+    }
+    if op == "Add" {
+        if left_ty == v4_ty_word and right_ty == v4_ty_word {
+            give back v4_ty_word
+        }
+        give back v4_ty_numeric_result(left_ty, right_ty)
+    }
+    if op == "Sub" or op == "Mul" or op == "Div" {
+        give back v4_ty_numeric_result(left_ty, right_ty)
+    }
+    give back v4_ty_unknown
 }
 
 task v4_ty_kind_for_symbol(symbol_kind: word) -> word {

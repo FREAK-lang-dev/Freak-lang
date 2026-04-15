@@ -15,5 +15,6 @@ pilot v4_ty_main_def = v4_resolve_def_for_name(v4_ty_smoke_resolve, "main")
 say v4_ty_summary(v4_ty_smoke_ty)
 say "main-def=" + v4_ty_main_def
 say "main-signature=" + v4_ty_signature_of(v4_ty_smoke_ty, v4_ty_main_def)
+say "binary-int=" + v4_ty_binary_result("Add", v4_ty_int, v4_ty_int)
+say "compare-bool=" + v4_ty_binary_result("Gt", v4_ty_int, v4_ty_int)
 say "signature-count=" + word_from_int(v4_ty_signature_count(v4_ty_smoke_ty))
-
