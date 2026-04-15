@@ -27,6 +27,24 @@ say "unit-document-symbols-section-bytes=" + word_from_int(v4_unit_snapshot_sect
 say "unit-completion-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "completion").length())
 say "unit-query-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "query").length())
 say "unit-query-section-validation=" + v4_unit_snapshot_section_validate("query", v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "query"))
+
+pilot v4_unit_snapshot_source_changed = "task main() -> int {\n"
+v4_unit_snapshot_source_changed = v4_unit_snapshot_source_changed + "    pilot name = \"Yuuko|Meiya|XM3\"\n"
+v4_unit_snapshot_source_changed = v4_unit_snapshot_source_changed + "    pilot good = name + \"!\"\n"
+v4_unit_snapshot_source_changed = v4_unit_snapshot_source_changed + "    give back 0\n"
+v4_unit_snapshot_source_changed = v4_unit_snapshot_source_changed + "}\n"
+
+say v4_lsp_handle_text_request("textDocument/didOpen", "unit-snapshot.fk", v4_unit_snapshot_source, 0)
+say v4_lsp_handle_text_request("textDocument/didChange", "unit-snapshot.fk", v4_unit_snapshot_source_changed, 0)
+say v4_check_syntax_text("unit-snapshot.fk", v4_unit_snapshot_source_changed)
+say v4_diagnostics_text("unit-snapshot.fk", v4_unit_snapshot_source_changed)
+pilot v4_unit_snapshot_payload_changed = v4_unit_snapshot()
+pilot v4_unit_snapshot_diff_payload = v4_unit_snapshot_diff_input(v4_unit_snapshot_payload, v4_unit_snapshot_payload_changed)
+say v4_unit_snapshot_diff(v4_unit_snapshot_payload, v4_unit_snapshot_payload_changed)
+say v4_lsp_unit_snapshot_diff_text(v4_unit_snapshot_diff_payload)
+say v4_lsp_handle_text_request("workspace/unitSnapshotDiff", "unit-snapshot.fk", v4_unit_snapshot_diff_payload, 0)
+say v4_lsp_handle_request("workspace/unitSnapshotDiff", "unit-snapshot.fk", 0)
+
 say "unit-escape=" + v4_unit_snapshot_escape("00|Unit%XM3\nMeiya")
 say "unit-unescape=" + v4_unit_snapshot_unescape("00%7CUnit%25XM3%0AMeiya")
 say v4_unit_snapshot_restore(v4_unit_snapshot_payload)
