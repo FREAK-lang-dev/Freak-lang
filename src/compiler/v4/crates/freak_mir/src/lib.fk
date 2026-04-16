@@ -1212,6 +1212,155 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
     give back after_block
 }
 
+task v4_mir_pattern_is_simple_local(pattern: word) -> bool {
+    if pattern == "" {
+        give back false
+    }
+    if v4_index_of_from(pattern, " ", 0) >= 0 { give back false }
+    if v4_index_of_from(pattern, "(", 0) >= 0 { give back false }
+    if v4_index_of_from(pattern, ")", 0) >= 0 { give back false }
+    if v4_index_of_from(pattern, ",", 0) >= 0 { give back false }
+    give back true
+}
+
+task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, for_token: int, stmt_end: int) -> int {
+    pilot open_token = v4_mir_find_token_value(stream_id, for_token, stmt_end, "{")
+    if open_token < 0 {
+        v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, for_token, stmt_end)
+        give back block_id
+    }
+
+    pilot each_token = v4_mir_skip_trivia(stream_id, for_token + 1)
+    if each_token >= open_token or v4_lex_token_value(stream_id, each_token) != "each" {
+        v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, for_token, stmt_end)
+        give back block_id
+    }
+
+    pilot in_token = v4_mir_find_token_value(stream_id, each_token + 1, open_token, "in")
+    if in_token < 0 {
+        v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, for_token, stmt_end)
+        give back block_id
+    }
+
+    pilot loop_pattern = v4_mir_expr_text(stream_id, each_token + 1, in_token)
+    pilot iterable_text = v4_mir_expr_text(stream_id, in_token + 1, open_token)
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, for_token, stmt_end)
+    pilot iterable_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, in_token + 1, open_token)
+    pilot loop_place = 0 - 1
+
+    if v4_mir_pattern_is_simple_local(loop_pattern) {
+        if v4_mir_find_local(mir_id, body_id, loop_pattern) < 0 {
+            v4_mir_add_local(mir_id, body_id, loop_pattern, v4_ty_unknown, stmt_span)
+        }
+        loop_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, loop_pattern, 0 - 1, loop_pattern, 0 - 1, stmt_span, v4_ty_unknown)
+    }
+
+    pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot loop_condition = "for each " + loop_pattern + " in " + iterable_text
+
+    v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, body_block, after_block, loop_condition))
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_loop, loop_pattern, iterable_text, stmt_span, loop_place, iterable_rvalue)
+    v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
+    v4_mir_set_body_block(mir_id, body_id, body_block, v4_mir_block_new_full(body_block, v4_mir_term_goto, block_id, 0 - 1, ""))
+
+    give back after_block
+}
+
+task v4_mir_assignment_operator(value: word) -> bool {
+    give back value == "=" or value == "+=" or value == "-=" or value == "*=" or value == "/=" or value == "%="
+}
+
+task v4_mir_condition_subject(stream_id: int, condition_start: int, condition_end: int) -> word {
+    pilot first = v4_mir_skip_trivia(stream_id, condition_start)
+    if first >= condition_end {
+        give back ""
+    }
+    give back v4_lex_token_value(stream_id, first)
+}
+
+task v4_mir_body_mutates_local(stream_id: int, open_token: int, close_token: int, local_name: word) -> bool {
+    if local_name == "" {
+        give back false
+    }
+
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_value(stream_id, idx) == local_name {
+            pilot op_token = v4_mir_next_nontrivia(stream_id, idx + 1, close_token)
+            if op_token < close_token and v4_mir_assignment_operator(v4_lex_token_value(stream_id, op_token)) {
+                give back true
+            }
+        }
+        idx += 1
+    }
+    give back false
+}
+
+task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, training_token: int, stmt_end: int) -> int {
+    pilot open_token = v4_mir_find_token_value(stream_id, training_token, stmt_end, "{")
+    if open_token < 0 {
+        v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, training_token, stmt_end)
+        give back block_id
+    }
+
+    pilot arc_token = v4_mir_skip_trivia(stream_id, training_token + 1)
+    if arc_token >= open_token or v4_lex_token_value(stream_id, arc_token) != "arc" {
+        v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, training_token, stmt_end)
+        give back block_id
+    }
+
+    pilot until_token = v4_mir_find_token_value(stream_id, arc_token + 1, open_token, "until")
+    pilot max_token = v4_mir_find_token_value(stream_id, arc_token + 1, open_token, "max")
+    pilot sessions_token = v4_mir_find_token_value(stream_id, arc_token + 1, open_token, "sessions")
+    if until_token < 0 or max_token < 0 or sessions_token < 0 or max_token <= until_token or sessions_token <= max_token {
+        v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, training_token, stmt_end)
+        give back block_id
+    }
+
+    pilot condition_start = until_token + 1
+    pilot condition_text = v4_mir_expr_text(stream_id, condition_start, max_token)
+    pilot max_text = v4_mir_expr_text(stream_id, max_token + 1, sessions_token)
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, training_token, stmt_end)
+    pilot condition_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, condition_start, max_token)
+    pilot max_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, max_token + 1, sessions_token)
+    pilot max_ty = v4_mir_rvalue_ty(mir_id, body_id, max_rvalue)
+    if v4_ty_is_known(max_ty) and not v4_ty_is_numeric(max_ty) {
+        v4_mir_add_type_error(mir_id, stmt_span, "training arc max sessions must be numeric", "got " + max_ty)
+    }
+    v4_mir_check_condition_type(mir_id, stmt_span, "training-arc", v4_mir_rvalue_ty(mir_id, body_id, condition_rvalue))
+
+    pilot close_token = v4_mir_find_matching_brace(stream_id, open_token, stmt_end)
+    pilot with_token = v4_mir_find_token_value(stream_id, sessions_token + 1, open_token, "with")
+    pilot has_growth = false
+    if with_token >= 0 {
+        pilot growth_token = v4_mir_skip_trivia(stream_id, with_token + 1)
+        if growth_token < open_token and v4_lex_token_value(stream_id, growth_token) == "growth" {
+            has_growth = true
+        }
+    }
+    if has_growth {
+        pilot growth_subject = v4_mir_condition_subject(stream_id, condition_start, max_token)
+        if v4_mir_body_mutates_local(stream_id, open_token, close_token, growth_subject) == false {
+            v4_mir_add_type_error(mir_id, stmt_span, "training arc with growth must mutate condition subject", "Yuuko found no progress for " + growth_subject)
+        }
+    }
+
+    pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot loop_condition = "training arc until " + condition_text + " max " + max_text
+    if has_growth {
+        loop_condition = loop_condition + " with growth"
+    }
+
+    v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, after_block, body_block, loop_condition))
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_loop, condition_text, "max " + max_text, stmt_span, 0 - 1, condition_rvalue)
+    v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
+    v4_mir_set_body_block(mir_id, body_id, body_block, v4_mir_block_new_full(body_block, v4_mir_term_goto, block_id, 0 - 1, ""))
+
+    give back after_block
+}
+
 task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, pilot_token: int, stmt_end: int) -> void {
     pilot name_token = v4_mir_skip_trivia(stream_id, pilot_token + 1)
     if name_token >= stmt_end {
@@ -1297,6 +1446,10 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
         give back v4_mir_lower_if_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "repeat" {
         give back v4_mir_lower_repeat_until_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+    } else if first_val == "for" {
+        give back v4_mir_lower_for_each_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+    } else if first_val == "training" {
+        give back v4_mir_lower_training_arc_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else {
         v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     }

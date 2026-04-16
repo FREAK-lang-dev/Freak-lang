@@ -1,0 +1,79 @@
+-- V4 MIR loop desugaring smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_loop_make_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot power = 1\n"
+    src = src + "    pilot squad = helper()\n"
+    src = src + "    for each item in squad {\n"
+    src = src + "        pilot seen = item\n"
+    src = src + "    }\n"
+    src = src + "    training arc until power >= 8 max 4 sessions with growth {\n"
+    src = src + "        power = power + 1\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    src = src + "task helper() => \"ok\"\n"
+    give back src
+}
+
+task v4_mir_loop_make_bad_growth_source() -> word {
+    pilot src = "task stuck() -> int {\n"
+    src = src + "    pilot power = 1\n"
+    src = src + "    training arc until power >= 8 max 4 sessions with growth {\n"
+    src = src + "        pilot mood = 1\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_loop_source = v4_mir_loop_make_source()
+pilot v4_mir_loop_stream = v4_lex_text(0, v4_mir_loop_source)
+pilot v4_mir_loop_tree = v4_parse_stream(0, v4_mir_loop_stream)
+pilot v4_mir_loop_hir = v4_hir_lower_tree(0, v4_mir_loop_tree)
+pilot v4_mir_loop_resolve = v4_resolve_lower_hir(0, v4_mir_loop_hir)
+pilot v4_mir_loop_ty = v4_ty_lower_resolve(0, v4_mir_loop_resolve)
+pilot v4_mir_loop_mir = v4_mir_lower_ty(0, v4_mir_loop_ty)
+pilot v4_mir_loop_main_def = v4_resolve_def_for_name(v4_mir_loop_resolve, "main")
+pilot v4_mir_loop_main_body = v4_mir_lookup_body(v4_mir_loop_mir, v4_mir_loop_main_def)
+pilot v4_mir_loop_for_stmt = 2
+pilot v4_mir_loop_training_stmt = 4
+pilot v4_mir_loop_for_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, 0)
+pilot v4_mir_loop_training_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, 2)
+
+say v4_lex_summary(v4_mir_loop_stream)
+say v4_parse_summary(v4_mir_loop_tree)
+say v4_hir_summary(v4_mir_loop_hir)
+say "hir-item0-kind=" + v4_hir_item_kind(v4_mir_loop_hir, 0)
+say "hir-item0-name=" + v4_hir_item_name(v4_mir_loop_hir, 0)
+say "hir-item0-span=" + v4_hir_item_span(v4_mir_loop_hir, 0)
+say "body-name=" + v4_mir_body_name(v4_mir_loop_mir, v4_mir_loop_main_body)
+say "body-sig=" + v4_mir_body_signature(v4_mir_loop_mir, v4_mir_loop_main_body)
+say v4_mir_summary(v4_mir_loop_mir)
+say "loop-body=" + word_from_int(v4_mir_loop_main_body)
+say "loop-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_loop_mir, v4_mir_loop_main_body))
+say "loop-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_loop_mir, v4_mir_loop_main_body))
+say "loop-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_loop_mir, v4_mir_loop_main_body))
+say "for-stmt-kind=" + v4_mir_stmt_kind(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_for_stmt)
+say "for-stmt-lhs=" + v4_mir_stmt_lhs(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_for_stmt)
+say "for-stmt-rhs=" + v4_mir_stmt_rhs(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_for_stmt)
+say "for-block-term=" + v4_mir_block_terminator(v4_mir_loop_for_block)
+say "for-block-cond=" + v4_mir_block_condition(v4_mir_loop_for_block)
+say "training-stmt-kind=" + v4_mir_stmt_kind(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_training_stmt)
+say "training-stmt-lhs=" + v4_mir_stmt_lhs(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_training_stmt)
+say "training-stmt-rhs=" + v4_mir_stmt_rhs(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_training_stmt)
+say "training-block-term=" + v4_mir_block_terminator(v4_mir_loop_training_block)
+say "training-block-cond=" + v4_mir_block_condition(v4_mir_loop_training_block)
+say "loop-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_loop_mir))
+
+pilot v4_mir_bad_growth_source = v4_mir_loop_make_bad_growth_source()
+pilot v4_mir_bad_growth_stream = v4_lex_text(1, v4_mir_bad_growth_source)
+pilot v4_mir_bad_growth_tree = v4_parse_stream(1, v4_mir_bad_growth_stream)
+pilot v4_mir_bad_growth_hir = v4_hir_lower_tree(1, v4_mir_bad_growth_tree)
+pilot v4_mir_bad_growth_resolve = v4_resolve_lower_hir(1, v4_mir_bad_growth_hir)
+pilot v4_mir_bad_growth_ty = v4_ty_lower_resolve(1, v4_mir_bad_growth_resolve)
+pilot v4_mir_bad_growth_mir = v4_mir_lower_ty(1, v4_mir_bad_growth_ty)
+
+say "bad-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_growth_mir))
+say "bad-growth-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_growth_mir, 0))

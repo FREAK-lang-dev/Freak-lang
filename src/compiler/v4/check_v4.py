@@ -75,6 +75,23 @@ EXECUTABLE_SMOKES = [
             "ok|workspace/unitSnapshotRestore",
         ],
     },
+    {
+        "name": "MIR loop desugaring",
+        "fixture": "mir_loop_desugar_smoke.fk",
+        "expect": [
+            "for-stmt-kind=Loop",
+            "for-stmt-lhs=item",
+            "for-stmt-rhs=squad",
+            "for-block-cond=for each item in squad",
+            "training-stmt-kind=Loop",
+            "training-stmt-lhs=power >= 8",
+            "training-stmt-rhs=max 4",
+            "training-block-cond=training arc until power >= 8 max 4 with growth",
+            "loop-diagnostics=0",
+            "bad-growth-diagnostics=1",
+            "bad-growth-message=training arc with growth must mutate condition subject",
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:
