@@ -105,6 +105,24 @@ EXECUTABLE_SMOKES = [
             "signature-count=5",
         ],
     },
+    {
+        "name": "MIR call return typing",
+        "fixture": "mir_call_return_smoke.fk",
+        "expect": [
+            "call-rvalue-kind=Call",
+            "call-rvalue-text=helper ( )",
+            "call-rvalue-op=helper",
+            "call-rvalue-ty=int",
+            "call-local-ty=int",
+            "return-rvalue-kind=UseLocal",
+            "return-rvalue-ty=int",
+            "return-place-ty=int",
+            "good-diagnostics=0",
+            "bad-return-diagnostics=1",
+            "bad-return-message=return type mismatch",
+            "bad-return-help=bad expects int but got word",
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:

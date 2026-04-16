@@ -1,0 +1,56 @@
+-- V4 MIR call and return typing smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_call_make_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot x = helper()\n"
+    src = src + "    give back x\n"
+    src = src + "}\n"
+    src = src + "task helper() -> int {\n"
+    src = src + "    give back 42\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_return_make_source() -> word {
+    pilot src = "task bad() -> int {\n"
+    src = src + "    give back \"nope\"\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_call_source = v4_mir_call_make_source()
+pilot v4_mir_call_stream = v4_lex_text(0, v4_mir_call_source)
+pilot v4_mir_call_tree = v4_parse_stream(0, v4_mir_call_stream)
+pilot v4_mir_call_hir = v4_hir_lower_tree(0, v4_mir_call_tree)
+pilot v4_mir_call_resolve = v4_resolve_lower_hir(0, v4_mir_call_hir)
+pilot v4_mir_call_ty = v4_ty_lower_resolve(0, v4_mir_call_resolve)
+pilot v4_mir_call_mir = v4_mir_lower_ty(0, v4_mir_call_ty)
+pilot v4_mir_call_main_def = v4_resolve_def_for_name(v4_mir_call_resolve, "main")
+pilot v4_mir_call_main_body = v4_mir_lookup_body(v4_mir_call_mir, v4_mir_call_main_def)
+pilot v4_mir_call_local_rvalue = v4_mir_stmt_rvalue(v4_mir_call_mir, v4_mir_call_main_body, 0)
+pilot v4_mir_call_return_rvalue = v4_mir_stmt_rvalue(v4_mir_call_mir, v4_mir_call_main_body, 1)
+pilot v4_mir_call_return_place = v4_mir_stmt_place(v4_mir_call_mir, v4_mir_call_main_body, 1)
+
+say v4_mir_summary(v4_mir_call_mir)
+say "call-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_call_mir, v4_mir_call_main_body, v4_mir_call_local_rvalue)
+say "call-rvalue-text=" + v4_mir_rvalue_text(v4_mir_call_mir, v4_mir_call_main_body, v4_mir_call_local_rvalue)
+say "call-rvalue-op=" + v4_mir_rvalue_op(v4_mir_call_mir, v4_mir_call_main_body, v4_mir_call_local_rvalue)
+say "call-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_call_mir, v4_mir_call_main_body, v4_mir_call_local_rvalue)
+say "call-local-ty=" + v4_mir_local_ty(v4_mir_call_mir, v4_mir_call_main_body, 0)
+say "return-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_call_mir, v4_mir_call_main_body, v4_mir_call_return_rvalue)
+say "return-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_call_mir, v4_mir_call_main_body, v4_mir_call_return_rvalue)
+say "return-place-ty=" + v4_mir_place_ty(v4_mir_call_mir, v4_mir_call_main_body, v4_mir_call_return_place)
+say "good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_call_mir))
+
+pilot v4_mir_bad_return_source = v4_mir_bad_return_make_source()
+pilot v4_mir_bad_return_stream = v4_lex_text(1, v4_mir_bad_return_source)
+pilot v4_mir_bad_return_tree = v4_parse_stream(1, v4_mir_bad_return_stream)
+pilot v4_mir_bad_return_hir = v4_hir_lower_tree(1, v4_mir_bad_return_tree)
+pilot v4_mir_bad_return_resolve = v4_resolve_lower_hir(1, v4_mir_bad_return_hir)
+pilot v4_mir_bad_return_ty = v4_ty_lower_resolve(1, v4_mir_bad_return_resolve)
+pilot v4_mir_bad_return_mir = v4_mir_lower_ty(1, v4_mir_bad_return_ty)
+
+say "bad-return-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_return_mir))
+say "bad-return-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_return_mir, 0))
+say "bad-return-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_return_mir, 0))
