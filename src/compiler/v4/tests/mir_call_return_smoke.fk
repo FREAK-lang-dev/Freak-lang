@@ -3,11 +3,11 @@
 
 task v4_mir_call_make_source() -> word {
     pilot src = "task main() -> int {\n"
-    src = src + "    pilot x = helper()\n"
+    src = src + "    pilot x = helper(7)\n"
     src = src + "    give back x\n"
     src = src + "}\n"
-    src = src + "task helper() -> int {\n"
-    src = src + "    give back 42\n"
+    src = src + "task helper(power: int) -> int {\n"
+    src = src + "    give back power\n"
     src = src + "}\n"
     give back src
 }
@@ -15,6 +15,26 @@ task v4_mir_call_make_source() -> word {
 task v4_mir_bad_return_make_source() -> word {
     pilot src = "task bad() -> int {\n"
     src = src + "    give back \"nope\"\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_arity_make_source() -> word {
+    pilot src = "task bad_arity() -> int {\n"
+    src = src + "    give back helper()\n"
+    src = src + "}\n"
+    src = src + "task helper(power: int) -> int {\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_arg_make_source() -> word {
+    pilot src = "task bad_arg() -> int {\n"
+    src = src + "    give back helper(\"nope\")\n"
+    src = src + "}\n"
+    src = src + "task helper(power: int) -> int {\n"
+    src = src + "    give back power\n"
     src = src + "}\n"
     give back src
 }
@@ -27,12 +47,17 @@ pilot v4_mir_call_resolve = v4_resolve_lower_hir(0, v4_mir_call_hir)
 pilot v4_mir_call_ty = v4_ty_lower_resolve(0, v4_mir_call_resolve)
 pilot v4_mir_call_mir = v4_mir_lower_ty(0, v4_mir_call_ty)
 pilot v4_mir_call_main_def = v4_resolve_def_for_name(v4_mir_call_resolve, "main")
+pilot v4_mir_call_helper_def = v4_resolve_def_for_name(v4_mir_call_resolve, "helper")
+pilot v4_mir_call_helper_sig = v4_ty_lookup_signature(v4_mir_call_ty, v4_mir_call_helper_def)
 pilot v4_mir_call_main_body = v4_mir_lookup_body(v4_mir_call_mir, v4_mir_call_main_def)
 pilot v4_mir_call_local_rvalue = v4_mir_stmt_rvalue(v4_mir_call_mir, v4_mir_call_main_body, 0)
 pilot v4_mir_call_return_rvalue = v4_mir_stmt_rvalue(v4_mir_call_mir, v4_mir_call_main_body, 1)
 pilot v4_mir_call_return_place = v4_mir_stmt_place(v4_mir_call_mir, v4_mir_call_main_body, 1)
 
 say v4_mir_summary(v4_mir_call_mir)
+say "helper-param-count=" + word_from_int(v4_ty_signature_param_count(v4_mir_call_ty, v4_mir_call_helper_sig))
+say "helper-param0-name=" + v4_ty_signature_param_name(v4_mir_call_ty, v4_mir_call_helper_sig, 0)
+say "helper-param0-type=" + v4_ty_signature_param_type(v4_mir_call_ty, v4_mir_call_helper_sig, 0)
 say "call-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_call_mir, v4_mir_call_main_body, v4_mir_call_local_rvalue)
 say "call-rvalue-text=" + v4_mir_rvalue_text(v4_mir_call_mir, v4_mir_call_main_body, v4_mir_call_local_rvalue)
 say "call-rvalue-op=" + v4_mir_rvalue_op(v4_mir_call_mir, v4_mir_call_main_body, v4_mir_call_local_rvalue)
@@ -54,3 +79,27 @@ pilot v4_mir_bad_return_mir = v4_mir_lower_ty(1, v4_mir_bad_return_ty)
 say "bad-return-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_return_mir))
 say "bad-return-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_return_mir, 0))
 say "bad-return-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_return_mir, 0))
+
+pilot v4_mir_bad_arity_source = v4_mir_bad_arity_make_source()
+pilot v4_mir_bad_arity_stream = v4_lex_text(2, v4_mir_bad_arity_source)
+pilot v4_mir_bad_arity_tree = v4_parse_stream(2, v4_mir_bad_arity_stream)
+pilot v4_mir_bad_arity_hir = v4_hir_lower_tree(2, v4_mir_bad_arity_tree)
+pilot v4_mir_bad_arity_resolve = v4_resolve_lower_hir(2, v4_mir_bad_arity_hir)
+pilot v4_mir_bad_arity_ty = v4_ty_lower_resolve(2, v4_mir_bad_arity_resolve)
+pilot v4_mir_bad_arity_mir = v4_mir_lower_ty(2, v4_mir_bad_arity_ty)
+
+say "bad-arity-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_arity_mir))
+say "bad-arity-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_arity_mir, 0))
+say "bad-arity-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_arity_mir, 0))
+
+pilot v4_mir_bad_arg_source = v4_mir_bad_arg_make_source()
+pilot v4_mir_bad_arg_stream = v4_lex_text(3, v4_mir_bad_arg_source)
+pilot v4_mir_bad_arg_tree = v4_parse_stream(3, v4_mir_bad_arg_stream)
+pilot v4_mir_bad_arg_hir = v4_hir_lower_tree(3, v4_mir_bad_arg_tree)
+pilot v4_mir_bad_arg_resolve = v4_resolve_lower_hir(3, v4_mir_bad_arg_hir)
+pilot v4_mir_bad_arg_ty = v4_ty_lower_resolve(3, v4_mir_bad_arg_resolve)
+pilot v4_mir_bad_arg_mir = v4_mir_lower_ty(3, v4_mir_bad_arg_ty)
+
+say "bad-arg-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_arg_mir))
+say "bad-arg-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_arg_mir, 0))
+say "bad-arg-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_arg_mir, 0))

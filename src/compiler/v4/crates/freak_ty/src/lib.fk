@@ -315,6 +315,262 @@ task v4_ty_type_text(stream_id: int, start_token: int, end_token: int) -> word {
     give back out
 }
 
+task v4_ty_signature_hir_id(ty_id: int) -> int {
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    if v4_resolve_exists(resolve_id) == false {
+        give back 0 - 1
+    }
+    pilot hir_id = v4_resolve_hir_id(resolve_id)
+    if v4_hir_file_exists(hir_id) == false {
+        give back 0 - 1
+    }
+    give back hir_id
+}
+
+task v4_ty_signature_stream_id(ty_id: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back 0 - 1
+    }
+    give back v4_parse_stream_id(tree_id)
+}
+
+task v4_ty_signature_item_start_token(ty_id: int, sig_id: int) -> int {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back 0 - 1
+    }
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_item < 0 {
+        give back 0 - 1
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
+    pilot item_span = v4_parse_node_span(tree_id, parse_node)
+    give back v4_ty_first_token_at_or_after(stream_id, v4_span_start(item_span))
+}
+
+task v4_ty_signature_item_end_token(ty_id: int, sig_id: int) -> int {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back 0 - 1
+    }
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_item < 0 {
+        give back 0 - 1
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
+    pilot item_span = v4_parse_node_span(tree_id, parse_node)
+    pilot end_token = v4_ty_first_token_at_or_after(stream_id, v4_span_end(item_span))
+    if end_token <= v4_ty_signature_item_start_token(ty_id, sig_id) {
+        end_token = v4_lex_token_count(stream_id)
+    }
+    give back end_token
+}
+
+task v4_ty_find_matching_paren(stream_id: int, open_token: int, end_token: int) -> int {
+    pilot idx = open_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if val == "(" {
+                depth += 1
+            } else if val == ")" {
+                depth -= 1
+                if depth == 0 {
+                    give back idx
+                }
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_signature_param_open_token(ty_id: int, sig_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    if stream_id < 0 {
+        give back 0 - 1
+    }
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    if start_token < 0 or end_token <= start_token {
+        give back 0 - 1
+    }
+    give back v4_ty_find_token_value(stream_id, start_token, end_token, "(")
+}
+
+task v4_ty_signature_param_close_token(ty_id: int, sig_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_signature_param_open_token(ty_id, sig_id)
+    if stream_id < 0 or open_token < 0 {
+        give back 0 - 1
+    }
+    give back v4_ty_find_matching_paren(stream_id, open_token, v4_ty_signature_item_end_token(ty_id, sig_id))
+}
+
+task v4_ty_depth_after_token(depth: int, val: word) -> int {
+    pilot next_depth = depth
+    if val == "(" or val == "[" or val == "{" or val == "<" {
+        next_depth += 1
+    } else if val == ")" or val == "]" or val == "}" or val == ">" {
+        if next_depth > 0 {
+            next_depth -= 1
+        }
+    }
+    give back next_depth
+}
+
+task v4_ty_signature_param_count(ty_id: int, sig_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_signature_param_open_token(ty_id, sig_id)
+    pilot close_token = v4_ty_signature_param_close_token(ty_id, sig_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back 0
+    }
+
+    pilot first = v4_ty_skip_trivia(stream_id, open_token + 1)
+    if first >= close_token {
+        give back 0
+    }
+
+    pilot count = 1
+    pilot depth = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if depth == 0 and val == "," {
+                count += 1
+            } else {
+                depth = v4_ty_depth_after_token(depth, val)
+            }
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_signature_param_segment_start(ty_id: int, sig_id: int, param_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_signature_param_open_token(ty_id, sig_id)
+    pilot close_token = v4_ty_signature_param_close_token(ty_id, sig_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token or param_id < 0 {
+        give back 0 - 1
+    }
+
+    pilot current = 0
+    pilot segment_start = v4_ty_skip_trivia(stream_id, open_token + 1)
+    pilot depth = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if depth == 0 and val == "," {
+                if current == param_id {
+                    give back segment_start
+                }
+                current += 1
+                segment_start = v4_ty_skip_trivia(stream_id, idx + 1)
+            } else {
+                depth = v4_ty_depth_after_token(depth, val)
+            }
+        }
+        idx += 1
+    }
+    if current == param_id and segment_start < close_token {
+        give back segment_start
+    }
+    give back 0 - 1
+}
+
+task v4_ty_signature_param_segment_end(ty_id: int, sig_id: int, param_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
+    pilot close_token = v4_ty_signature_param_close_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or close_token <= start_token {
+        give back 0 - 1
+    }
+
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= close_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if depth == 0 and val == "," {
+                give back idx
+            }
+            depth = v4_ty_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back close_token
+}
+
+task v4_ty_find_top_level_token(stream_id: int, start_token: int, end_token: int, wanted: word) -> int {
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if depth == 0 and val == wanted {
+                give back idx
+            }
+            depth = v4_ty_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_signature_param_name(ty_id: int, sig_id: int, param_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back ""
+    }
+    pilot first = v4_ty_skip_trivia(stream_id, start_token)
+    if first >= end_token {
+        give back ""
+    }
+    give back v4_lex_token_value(stream_id, first)
+}
+
+task v4_ty_signature_param_type(ty_id: int, sig_id: int, param_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back v4_ty_unknown
+    }
+
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back v4_ty_unknown
+    }
+    pilot type_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
+    pilot param_ty = v4_ty_type_text(stream_id, type_start, end_token)
+    if param_ty == "" {
+        give back v4_ty_unknown
+    }
+    give back param_ty
+}
+
 task v4_ty_return_type_end(stream_id: int, start_token: int, end_token: int) -> int {
     pilot idx = start_token
     pilot depth = 0
