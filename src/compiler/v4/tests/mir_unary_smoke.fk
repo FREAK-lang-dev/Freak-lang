@@ -1,0 +1,71 @@
+-- V4 MIR unary negation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_unary_make_source() -> word {
+    pilot src = "task calc(power: int) -> int {\n"
+    src = src + "    pilot x: int = -7\n"
+    src = src + "    pilot y: int = -power\n"
+    src = src + "    pilot z: int = 1 + -2\n"
+    src = src + "    give back y\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_unary_make_source() -> word {
+    pilot src = "task bad_unary() -> int {\n"
+    src = src + "    pilot x: int = -\"nope\"\n"
+    src = src + "    give back 1\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_unary_source = v4_mir_unary_make_source()
+pilot v4_mir_unary_stream = v4_lex_text(0, v4_mir_unary_source)
+pilot v4_mir_unary_tree = v4_parse_stream(0, v4_mir_unary_stream)
+pilot v4_mir_unary_hir = v4_hir_lower_tree(0, v4_mir_unary_tree)
+pilot v4_mir_unary_resolve = v4_resolve_lower_hir(0, v4_mir_unary_hir)
+pilot v4_mir_unary_ty = v4_ty_lower_resolve(0, v4_mir_unary_resolve)
+pilot v4_mir_unary_mir = v4_mir_lower_ty(0, v4_mir_unary_ty)
+pilot v4_mir_unary_calc_def = v4_resolve_def_for_name(v4_mir_unary_resolve, "calc")
+pilot v4_mir_unary_calc_body = v4_mir_lookup_body(v4_mir_unary_mir, v4_mir_unary_calc_def)
+pilot v4_mir_unary_literal_rvalue = v4_mir_stmt_rvalue(v4_mir_unary_mir, v4_mir_unary_calc_body, 0)
+pilot v4_mir_unary_literal_operand = v4_mir_rvalue_lhs(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_literal_rvalue)
+pilot v4_mir_unary_local_rvalue = v4_mir_stmt_rvalue(v4_mir_unary_mir, v4_mir_unary_calc_body, 1)
+pilot v4_mir_unary_local_operand = v4_mir_rvalue_lhs(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_local_rvalue)
+pilot v4_mir_unary_binary_rvalue = v4_mir_stmt_rvalue(v4_mir_unary_mir, v4_mir_unary_calc_body, 2)
+pilot v4_mir_unary_binary_rhs = v4_mir_rvalue_rhs(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_binary_rvalue)
+
+say v4_mir_summary(v4_mir_unary_mir)
+say "unary-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_unary_mir, v4_mir_unary_calc_body))
+say "unary-local0-name=" + v4_mir_local_name(v4_mir_unary_mir, v4_mir_unary_calc_body, 0)
+say "unary-local0-ty=" + v4_mir_local_ty(v4_mir_unary_mir, v4_mir_unary_calc_body, 0)
+say "unary-local1-name=" + v4_mir_local_name(v4_mir_unary_mir, v4_mir_unary_calc_body, 1)
+say "unary-local1-ty=" + v4_mir_local_ty(v4_mir_unary_mir, v4_mir_unary_calc_body, 1)
+say "unary-literal-kind=" + v4_mir_rvalue_kind(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_literal_rvalue)
+say "unary-literal-op=" + v4_mir_rvalue_op(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_literal_rvalue)
+say "unary-literal-ty=" + v4_mir_rvalue_ty(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_literal_rvalue)
+say "unary-literal-operand-kind=" + v4_mir_rvalue_kind(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_literal_operand)
+say "unary-literal-operand-ty=" + v4_mir_rvalue_ty(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_literal_operand)
+say "unary-local-kind=" + v4_mir_rvalue_kind(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_local_rvalue)
+say "unary-local-op=" + v4_mir_rvalue_op(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_local_rvalue)
+say "unary-local-ty=" + v4_mir_rvalue_ty(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_local_rvalue)
+say "unary-local-operand-kind=" + v4_mir_rvalue_kind(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_local_operand)
+say "unary-local-operand-ty=" + v4_mir_rvalue_ty(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_local_operand)
+say "unary-binary-kind=" + v4_mir_rvalue_kind(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_binary_rvalue)
+say "unary-binary-op=" + v4_mir_rvalue_op(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_binary_rvalue)
+say "unary-binary-ty=" + v4_mir_rvalue_ty(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_binary_rvalue)
+say "unary-binary-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_binary_rhs)
+say "unary-binary-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_unary_mir, v4_mir_unary_calc_body, v4_mir_unary_binary_rhs)
+say "unary-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_unary_mir))
+
+pilot v4_mir_bad_unary_source = v4_mir_bad_unary_make_source()
+pilot v4_mir_bad_unary_stream = v4_lex_text(1, v4_mir_bad_unary_source)
+pilot v4_mir_bad_unary_tree = v4_parse_stream(1, v4_mir_bad_unary_stream)
+pilot v4_mir_bad_unary_hir = v4_hir_lower_tree(1, v4_mir_bad_unary_tree)
+pilot v4_mir_bad_unary_resolve = v4_resolve_lower_hir(1, v4_mir_bad_unary_hir)
+pilot v4_mir_bad_unary_ty = v4_ty_lower_resolve(1, v4_mir_bad_unary_resolve)
+pilot v4_mir_bad_unary_mir = v4_mir_lower_ty(1, v4_mir_bad_unary_ty)
+
+say "bad-unary-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_unary_mir))
+say "bad-unary-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_unary_mir, 0))
+say "bad-unary-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_unary_mir, 0))

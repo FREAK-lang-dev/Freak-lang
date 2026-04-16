@@ -191,6 +191,28 @@ task v4_ty_numeric_result(left_ty: word, right_ty: word) -> word {
     give back v4_ty_unknown
 }
 
+task v4_ty_unary_valid(op: word, operand_ty: word) -> bool {
+    if not v4_ty_is_known(operand_ty) {
+        give back true
+    }
+    if op == "Neg" {
+        give back v4_ty_is_numeric(operand_ty)
+    }
+    give back true
+}
+
+task v4_ty_unary_result(op: word, operand_ty: word) -> word {
+    if not v4_ty_unary_valid(op, operand_ty) {
+        give back v4_ty_unknown
+    }
+    if op == "Neg" {
+        if v4_ty_is_numeric(operand_ty) {
+            give back operand_ty
+        }
+    }
+    give back v4_ty_unknown
+}
+
 task v4_ty_binary_valid(op: word, left_ty: word, right_ty: word) -> bool {
     if not v4_ty_is_known(left_ty) or not v4_ty_is_known(right_ty) {
         give back true
