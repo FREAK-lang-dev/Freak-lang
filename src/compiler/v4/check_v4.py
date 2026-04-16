@@ -420,6 +420,23 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "MIR field and index places",
+        "fixture": "mir_smoke.fk",
+        "expect": [
+            "main-stmts=13",
+            "main-locals=6",
+            "first-local=x",
+            "first-local-ty=int",
+            "stmt1-rvalue-kind=Binary",
+            "stmt1-rvalue-op=Add",
+            "stmt1-rvalue-ty=int",
+            "field-place-kind=Field",
+            "field-place-name=hp",
+            "index-place-kind=Index",
+            "body-count=2",
+        ],
+    },
+    {
         "name": "MIR snapshot and borrowck restore",
         "fixture": "mir_snapshot_smoke.fk",
         "expect": [
