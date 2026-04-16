@@ -1,0 +1,97 @@
+-- V4 MIR else-if lowering smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_else_if_find_branch_stmt(mir_id: int, body_id: int, condition: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_branch {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == condition {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_else_if_make_source() -> word {
+    pilot src = "task choose(power: int, ready: bool) -> int {\n"
+    src = src + "    if power > 10 {\n"
+    src = src + "        give back 1\n"
+    src = src + "    } else if ready {\n"
+    src = src + "        give back 2\n"
+    src = src + "    } else {\n"
+    src = src + "        give back 0\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_else_if_make_source() -> word {
+    pilot src = "task bad_choose(power: int) -> int {\n"
+    src = src + "    if power > 10 {\n"
+    src = src + "        give back 1\n"
+    src = src + "    } else if power {\n"
+    src = src + "        give back 2\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_else_if_source = v4_mir_else_if_make_source()
+pilot v4_mir_else_if_stream = v4_lex_text(0, v4_mir_else_if_source)
+pilot v4_mir_else_if_tree = v4_parse_stream(0, v4_mir_else_if_stream)
+pilot v4_mir_else_if_hir = v4_hir_lower_tree(0, v4_mir_else_if_tree)
+pilot v4_mir_else_if_resolve = v4_resolve_lower_hir(0, v4_mir_else_if_hir)
+pilot v4_mir_else_if_ty = v4_ty_lower_resolve(0, v4_mir_else_if_resolve)
+pilot v4_mir_else_if_mir = v4_mir_lower_ty(0, v4_mir_else_if_ty)
+pilot v4_mir_else_if_choose_def = v4_resolve_def_for_name(v4_mir_else_if_resolve, "choose")
+pilot v4_mir_else_if_choose_body = v4_mir_lookup_body(v4_mir_else_if_mir, v4_mir_else_if_choose_def)
+pilot v4_mir_else_if_outer_block = v4_mir_body_block(v4_mir_else_if_mir, v4_mir_else_if_choose_body, 0)
+pilot v4_mir_else_if_outer_after = v4_mir_body_block(v4_mir_else_if_mir, v4_mir_else_if_choose_body, 2)
+pilot v4_mir_else_if_nested_block = v4_mir_body_block(v4_mir_else_if_mir, v4_mir_else_if_choose_body, 3)
+pilot v4_mir_else_if_nested_after = v4_mir_body_block(v4_mir_else_if_mir, v4_mir_else_if_choose_body, 5)
+pilot v4_mir_else_if_final_else = v4_mir_body_block(v4_mir_else_if_mir, v4_mir_else_if_choose_body, 6)
+pilot v4_mir_else_if_outer_stmt = v4_mir_else_if_find_branch_stmt(v4_mir_else_if_mir, v4_mir_else_if_choose_body, "power > 10")
+pilot v4_mir_else_if_nested_stmt = v4_mir_else_if_find_branch_stmt(v4_mir_else_if_mir, v4_mir_else_if_choose_body, "ready")
+pilot v4_mir_else_if_outer_rvalue = v4_mir_stmt_rvalue(v4_mir_else_if_mir, v4_mir_else_if_choose_body, v4_mir_else_if_outer_stmt)
+pilot v4_mir_else_if_nested_rvalue = v4_mir_stmt_rvalue(v4_mir_else_if_mir, v4_mir_else_if_choose_body, v4_mir_else_if_nested_stmt)
+
+say v4_mir_summary(v4_mir_else_if_mir)
+say "else-if-body-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_else_if_mir, v4_mir_else_if_choose_body))
+say "else-if-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_else_if_mir, v4_mir_else_if_choose_body))
+say "else-if-outer-term=" + v4_mir_block_terminator(v4_mir_else_if_outer_block)
+say "else-if-outer-cond=" + v4_mir_block_condition(v4_mir_else_if_outer_block)
+say "else-if-outer-target=" + word_from_int(v4_mir_block_target(v4_mir_else_if_outer_block))
+say "else-if-outer-else=" + word_from_int(v4_mir_block_else_target(v4_mir_else_if_outer_block))
+say "else-if-outer-branch-kind=" + v4_mir_stmt_kind(v4_mir_else_if_mir, v4_mir_else_if_choose_body, v4_mir_else_if_outer_stmt)
+say "else-if-outer-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_else_if_mir, v4_mir_else_if_choose_body, v4_mir_else_if_outer_rvalue)
+say "else-if-outer-rvalue-op=" + v4_mir_rvalue_op(v4_mir_else_if_mir, v4_mir_else_if_choose_body, v4_mir_else_if_outer_rvalue)
+say "else-if-outer-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_else_if_mir, v4_mir_else_if_choose_body, v4_mir_else_if_outer_rvalue)
+say "else-if-nested-term=" + v4_mir_block_terminator(v4_mir_else_if_nested_block)
+say "else-if-nested-cond=" + v4_mir_block_condition(v4_mir_else_if_nested_block)
+say "else-if-nested-target=" + word_from_int(v4_mir_block_target(v4_mir_else_if_nested_block))
+say "else-if-nested-else=" + word_from_int(v4_mir_block_else_target(v4_mir_else_if_nested_block))
+say "else-if-nested-branch-kind=" + v4_mir_stmt_kind(v4_mir_else_if_mir, v4_mir_else_if_choose_body, v4_mir_else_if_nested_stmt)
+say "else-if-nested-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_else_if_mir, v4_mir_else_if_choose_body, v4_mir_else_if_nested_rvalue)
+say "else-if-nested-rvalue-op=" + v4_mir_rvalue_op(v4_mir_else_if_mir, v4_mir_else_if_choose_body, v4_mir_else_if_nested_rvalue)
+say "else-if-nested-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_else_if_mir, v4_mir_else_if_choose_body, v4_mir_else_if_nested_rvalue)
+say "else-if-nested-after-term=" + v4_mir_block_terminator(v4_mir_else_if_nested_after)
+say "else-if-nested-after-target=" + word_from_int(v4_mir_block_target(v4_mir_else_if_nested_after))
+say "else-if-outer-after-term=" + v4_mir_block_terminator(v4_mir_else_if_outer_after)
+say "else-if-final-else-term=" + v4_mir_block_terminator(v4_mir_else_if_final_else)
+say "else-if-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_else_if_mir))
+
+pilot v4_mir_bad_else_if_source = v4_mir_bad_else_if_make_source()
+pilot v4_mir_bad_else_if_stream = v4_lex_text(1, v4_mir_bad_else_if_source)
+pilot v4_mir_bad_else_if_tree = v4_parse_stream(1, v4_mir_bad_else_if_stream)
+pilot v4_mir_bad_else_if_hir = v4_hir_lower_tree(1, v4_mir_bad_else_if_tree)
+pilot v4_mir_bad_else_if_resolve = v4_resolve_lower_hir(1, v4_mir_bad_else_if_hir)
+pilot v4_mir_bad_else_if_ty = v4_ty_lower_resolve(1, v4_mir_bad_else_if_resolve)
+pilot v4_mir_bad_else_if_mir = v4_mir_lower_ty(1, v4_mir_bad_else_if_ty)
+
+say "bad-else-if-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_else_if_mir))
+say "bad-else-if-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_else_if_mir, 0))
+say "bad-else-if-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_else_if_mir, 0))

@@ -1418,11 +1418,18 @@ task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: i
     v4_mir_check_condition_type(mir_id, stmt_span, "if", v4_mir_rvalue_ty(mir_id, body_id, condition_rvalue))
 
     if else_token >= 0 {
-        pilot else_open = v4_mir_find_token_value(stream_id, else_token, stmt_end, "{")
-        if else_open >= 0 {
+        pilot else_head = v4_mir_skip_trivia(stream_id, else_token + 1)
+        if else_head < stmt_end and v4_lex_token_value(stream_id, else_head) == "if" {
             else_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-            v4_mir_lower_block_body(mir_id, body_id, else_block, stream_id, else_open, stmt_end)
-            v4_mir_set_body_block(mir_id, body_id, else_block, v4_mir_block_new_full(else_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+            pilot nested_after = v4_mir_lower_if_stmt(mir_id, body_id, else_block, stream_id, else_head, stmt_end)
+            v4_mir_set_body_block(mir_id, body_id, nested_after, v4_mir_block_new_full(nested_after, v4_mir_term_goto, after_block, 0 - 1, ""))
+        } else {
+            pilot else_open = v4_mir_find_token_value(stream_id, else_token, stmt_end, "{")
+            if else_open >= 0 {
+                else_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+                v4_mir_lower_block_body(mir_id, body_id, else_block, stream_id, else_open, stmt_end)
+                v4_mir_set_body_block(mir_id, body_id, else_block, v4_mir_block_new_full(else_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+            }
         }
     }
 
