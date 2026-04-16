@@ -132,6 +132,24 @@ EXECUTABLE_SMOKES = [
             "bad-arg-help=helper argument 1 expects int but got word",
         ],
     },
+    {
+        "name": "MIR local declaration typing",
+        "fixture": "mir_local_decl_smoke.fk",
+        "expect": [
+            "decl-local0-name=x",
+            "decl-local0-ty=int",
+            "decl-local0-rvalue-ty=int",
+            "decl-local0-place-ty=int",
+            "decl-local1-name=mood",
+            "decl-local1-ty=word",
+            "decl-local1-rvalue-ty=word",
+            "decl-local1-place-ty=word",
+            "decl-good-diagnostics=0",
+            "decl-bad-diagnostics=1",
+            "decl-bad-message=local declaration type mismatch",
+            "decl-bad-help=x expects int but got word",
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:

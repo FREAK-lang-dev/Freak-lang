@@ -1,0 +1,56 @@
+-- V4 MIR local declaration annotation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_local_decl_make_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot x: int = 7\n"
+    src = src + "    pilot mood: word = \"ok\"\n"
+    src = src + "    give back x\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_local_decl_make_source() -> word {
+    pilot src = "task bad() -> int {\n"
+    src = src + "    pilot x: int = \"nope\"\n"
+    src = src + "    give back 1\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_local_decl_source = v4_mir_local_decl_make_source()
+pilot v4_mir_local_decl_stream = v4_lex_text(0, v4_mir_local_decl_source)
+pilot v4_mir_local_decl_tree = v4_parse_stream(0, v4_mir_local_decl_stream)
+pilot v4_mir_local_decl_hir = v4_hir_lower_tree(0, v4_mir_local_decl_tree)
+pilot v4_mir_local_decl_resolve = v4_resolve_lower_hir(0, v4_mir_local_decl_hir)
+pilot v4_mir_local_decl_ty = v4_ty_lower_resolve(0, v4_mir_local_decl_resolve)
+pilot v4_mir_local_decl_mir = v4_mir_lower_ty(0, v4_mir_local_decl_ty)
+pilot v4_mir_local_decl_main_def = v4_resolve_def_for_name(v4_mir_local_decl_resolve, "main")
+pilot v4_mir_local_decl_main_body = v4_mir_lookup_body(v4_mir_local_decl_mir, v4_mir_local_decl_main_def)
+pilot v4_mir_local_decl_x_rvalue = v4_mir_stmt_rvalue(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, 0)
+pilot v4_mir_local_decl_x_place = v4_mir_stmt_place(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, 0)
+pilot v4_mir_local_decl_mood_rvalue = v4_mir_stmt_rvalue(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, 1)
+pilot v4_mir_local_decl_mood_place = v4_mir_stmt_place(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, 1)
+
+say v4_mir_summary(v4_mir_local_decl_mir)
+say "decl-local0-name=" + v4_mir_local_name(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, 0)
+say "decl-local0-ty=" + v4_mir_local_ty(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, 0)
+say "decl-local0-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, v4_mir_local_decl_x_rvalue)
+say "decl-local0-place-ty=" + v4_mir_place_ty(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, v4_mir_local_decl_x_place)
+say "decl-local1-name=" + v4_mir_local_name(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, 1)
+say "decl-local1-ty=" + v4_mir_local_ty(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, 1)
+say "decl-local1-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, v4_mir_local_decl_mood_rvalue)
+say "decl-local1-place-ty=" + v4_mir_place_ty(v4_mir_local_decl_mir, v4_mir_local_decl_main_body, v4_mir_local_decl_mood_place)
+say "decl-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_local_decl_mir))
+
+pilot v4_mir_bad_local_decl_source = v4_mir_bad_local_decl_make_source()
+pilot v4_mir_bad_local_decl_stream = v4_lex_text(1, v4_mir_bad_local_decl_source)
+pilot v4_mir_bad_local_decl_tree = v4_parse_stream(1, v4_mir_bad_local_decl_stream)
+pilot v4_mir_bad_local_decl_hir = v4_hir_lower_tree(1, v4_mir_bad_local_decl_tree)
+pilot v4_mir_bad_local_decl_resolve = v4_resolve_lower_hir(1, v4_mir_bad_local_decl_hir)
+pilot v4_mir_bad_local_decl_ty = v4_ty_lower_resolve(1, v4_mir_bad_local_decl_resolve)
+pilot v4_mir_bad_local_decl_mir = v4_mir_lower_ty(1, v4_mir_bad_local_decl_ty)
+
+say "decl-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_local_decl_mir))
+say "decl-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_local_decl_mir, 0))
+say "decl-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_local_decl_mir, 0))

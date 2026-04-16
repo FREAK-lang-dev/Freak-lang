@@ -1009,6 +1009,12 @@ task v4_mir_check_assignment_types(mir_id: int, stmt_span: word, place_ty: word,
     }
 }
 
+task v4_mir_check_local_decl_type(mir_id: int, stmt_span: word, local_name: word, declared_ty: word, inferred_ty: word) -> void {
+    if not v4_ty_types_compatible(declared_ty, inferred_ty) {
+        v4_mir_add_type_error(mir_id, stmt_span, "local declaration type mismatch", local_name + " expects " + declared_ty + " but got " + inferred_ty)
+    }
+}
+
 task v4_mir_signature_id_for_name(mir_id: int, callee_name: word) -> int {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot sig_idx = 0
@@ -1521,7 +1527,24 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
 
     pilot local_name = v4_lex_token_value(stream_id, name_token)
     pilot eq_token = v4_mir_find_token_value(stream_id, name_token + 1, stmt_end, "=")
-    pilot rhs_start = name_token + 1
+    pilot decl_end = stmt_end
+    if eq_token >= 0 {
+        decl_end = eq_token
+    }
+
+    pilot declared_ty = v4_ty_unknown
+    pilot colon_token = v4_mir_find_top_level_token(stream_id, name_token + 1, decl_end, ":")
+    if colon_token >= 0 {
+        pilot type_start = v4_mir_skip_trivia(stream_id, colon_token + 1)
+        if type_start < decl_end {
+            declared_ty = v4_ty_type_text(stream_id, type_start, decl_end)
+            if declared_ty == "" {
+                declared_ty = v4_ty_unknown
+            }
+        }
+    }
+
+    pilot rhs_start = decl_end
     if eq_token >= 0 {
         rhs_start = eq_token + 1
     }
@@ -1530,8 +1553,13 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     pilot rhs = v4_mir_expr_text(stream_id, rhs_start, stmt_end)
     pilot rvalue_id = v4_mir_lower_expr(mir_id, body_id, stream_id, rhs_start, stmt_end)
     pilot inferred_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
-    v4_mir_add_local(mir_id, body_id, local_name, inferred_ty, stmt_span)
-    pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, local_name, 0 - 1, local_name, 0 - 1, stmt_span, inferred_ty)
+    pilot local_ty = inferred_ty
+    if v4_ty_is_known(declared_ty) {
+        v4_mir_check_local_decl_type(mir_id, stmt_span, local_name, declared_ty, inferred_ty)
+        local_ty = declared_ty
+    }
+    v4_mir_add_local(mir_id, body_id, local_name, local_ty, stmt_span)
+    pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, local_name, 0 - 1, local_name, 0 - 1, stmt_span, local_ty)
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, local_name, rhs, stmt_span, place_id, rvalue_id)
 }
 
