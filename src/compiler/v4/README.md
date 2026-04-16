@@ -1,6 +1,8 @@
-# freakc_v4 Bootstrap Workspace
+# Maverick Bootstrap Workspace
 
-This directory is the implementation home for Project 00-Unit, the V4 compiler architecture described in `freakc-v4-00-unit-architecture.md`.
+Compiler name: **Maverick** | codename: **00-unit**
+
+This directory is the implementation home for Maverick (00-unit), the V4 compiler architecture described in `freakc-v4-00-unit-architecture.md`.
 
 Bootstrap status: complete for the executable 00-Unit architecture slice. This proves the modular, query-backed V4 shape and its tooling protocols; it is not yet a full V3 replacement.
 

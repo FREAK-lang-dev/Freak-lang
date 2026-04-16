@@ -420,6 +420,26 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "MIR snapshot and borrowck restore",
+        "fixture": "mir_snapshot_smoke.fk",
+        "expect": [
+            "mir-snapshot-bytes=",
+            "mir-snapshot-restore ok=1",
+            "ok|workspace/mirSnapshotRestore",
+            "borrowck-ok borrow=",
+            "error|workspace/mirSnapshotRestore|-32602|",
+        ],
+    },
+    {
+        "name": "Meiya borrow-check scaffold",
+        "fixture": "borrowck_smoke.fk",
+        "expect": [
+            "borrowck-ok borrow=0",
+            "main-status=clean",
+            "result-count=1",
+        ],
+    },
+    {
         "name": "MIR else-if lowering",
         "fixture": "mir_else_if_smoke.fk",
         "expect": [
@@ -645,14 +665,14 @@ def main() -> int:
     fixtures = fixture_paths()
     all_files = crates + fixtures + [V4_ROOT / "README.md"]
 
-    print("freakc_v4 checks")
+    print("Maverick (00-unit) checks")
     check_exists(crates)
     check_ascii(all_files)
     check_individual_parse(crates + fixtures)
     base_source = check_flattened_crates()
     check_fixture_transpile(base_source, fixtures)
     check_executable_smokes(base_source)
-    print("V4 checks passed")
+    print("Maverick checks passed")
     return 0
 
 
