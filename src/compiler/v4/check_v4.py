@@ -436,7 +436,10 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "borrowck-ok borrow=0",
             "main-status=clean",
-            "result-count=1",
+            "main-paths=25",
+            "path0-kind=Write",
+            "path0-text=x",
+            "result-count=2",
         ],
     },
     {

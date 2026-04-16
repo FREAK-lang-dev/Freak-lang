@@ -1,27 +1,31 @@
 -- V4 MIR smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-pilot v4_mir_smoke_source = "task main() -> int {\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    pilot x = 40\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    pilot y = x + 2\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    if y > 40 {\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "        pilot z = y\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    } else {\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "        pilot z = 0\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    }\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    repeat until y > 45 {\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "        y = y + 1\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    }\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    pilot ship = helper()\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    ship.hp = y\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    pilot items = helper()\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    items[0] = y\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    pilot w = helper()\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "    give back y\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "}\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "shape Pilot\n"
-v4_mir_smoke_source = v4_mir_smoke_source + "task helper() => \"ok\"\n"
+task v4_mir_smoke_make_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot x = 40\n"
+    src = src + "    pilot y = x + 2\n"
+    src = src + "    if y > 40 {\n"
+    src = src + "        pilot z = y\n"
+    src = src + "    } else {\n"
+    src = src + "        pilot z = 0\n"
+    src = src + "    }\n"
+    src = src + "    repeat until y > 45 {\n"
+    src = src + "        y = y + 1\n"
+    src = src + "    }\n"
+    src = src + "    pilot ship = helper()\n"
+    src = src + "    ship.hp = y\n"
+    src = src + "    pilot items = helper()\n"
+    src = src + "    items[0] = y\n"
+    src = src + "    pilot w = helper()\n"
+    src = src + "    give back y\n"
+    src = src + "}\n"
+    src = src + "shape Pilot\n"
+    src = src + "task helper() => \"ok\"\n"
+    give back src
+}
 
+pilot v4_mir_smoke_source = v4_mir_smoke_make_source()
 pilot v4_mir_smoke_stream = v4_lex_text(0, v4_mir_smoke_source)
 pilot v4_mir_smoke_tree = v4_parse_stream(0, v4_mir_smoke_stream)
 pilot v4_mir_smoke_hir = v4_hir_lower_tree(0, v4_mir_smoke_tree)
