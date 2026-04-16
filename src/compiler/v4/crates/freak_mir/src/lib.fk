@@ -1698,6 +1698,114 @@ task v4_mir_lower_return_stmt(mir_id: int, body_id: int, block_id: int, stream_i
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_return, "_return", rhs, stmt_span, place_id, rvalue_id)
 }
 
+task v4_mir_find_arrow_token(stream_id: int, start: int, end_token: int) -> int {
+    pilot idx = start
+    pilot depth = 0
+    repeat until idx >= end_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type != v4_tok_trivia {
+            if val == "(" or val == "[" {
+                depth += 1
+            } else if val == ")" or val == "]" {
+                if depth > 0 { depth -= 1 }
+            } else if val == "->" and depth == 0 {
+                give back idx
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_when_arm_body_end(stream_id: int, after_arrow: int, when_close: int) -> int {
+    pilot first = v4_mir_skip_trivia(stream_id, after_arrow)
+    if first >= when_close {
+        give back when_close
+    }
+    if v4_lex_token_value(stream_id, first) == "{" {
+        give back v4_mir_find_matching_brace(stream_id, first, when_close) + 1
+    }
+    pilot idx = after_arrow
+    pilot depth = 0
+    repeat until idx >= when_close {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type != v4_tok_trivia {
+            if val == "(" or val == "[" or val == "{" {
+                depth += 1
+            } else if val == ")" or val == "]" {
+                if depth > 0 { depth -= 1 }
+            } else if val == "}" {
+                if depth == 0 { give back idx }
+                depth -= 1
+            }
+        } else if val == "\n" {
+            if depth == 0 { give back idx }
+        }
+        idx += 1
+    }
+    give back when_close
+}
+
+task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, when_token: int, stmt_end: int) -> int {
+    pilot open_token = v4_mir_find_token_value(stream_id, when_token, stmt_end, "{")
+    if open_token < 0 {
+        v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, when_token, stmt_end)
+        give back block_id
+    }
+
+    pilot when_close = v4_mir_find_matching_brace(stream_id, open_token, stmt_end)
+    pilot scrutinee = v4_mir_expr_text(stream_id, when_token + 1, open_token)
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, when_token, stmt_end)
+    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot scrutinee_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, when_token + 1, open_token)
+    pilot scrutinee_ty = v4_mir_rvalue_ty(mir_id, body_id, scrutinee_rvalue)
+
+    pilot current_check = block_id
+    pilot idx = open_token + 1
+    repeat until idx >= when_close {
+        idx = v4_mir_skip_trivia(stream_id, idx)
+        if idx >= when_close {
+            give back after_block
+        }
+        pilot arrow = v4_mir_find_arrow_token(stream_id, idx, when_close)
+        if arrow < 0 {
+            give back after_block
+        }
+        pilot pattern = v4_mir_expr_text(stream_id, idx, arrow)
+        pilot arm_end = v4_mir_when_arm_body_end(stream_id, arrow + 1, when_close)
+        pilot arm_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+        if pattern == "_" {
+            v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_goto, arm_block, 0 - 1, ""))
+        } else {
+            pilot cond_text = scrutinee + " == " + pattern
+            pilot pattern_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, idx, arrow)
+            pilot cond_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, cond_text, "Eq", scrutinee_rvalue, pattern_rvalue, stmt_span, v4_ty_bool)
+            if v4_ty_is_known(scrutinee_ty) and v4_ty_is_known(v4_mir_rvalue_ty(mir_id, body_id, pattern_rvalue)) {
+                if not v4_ty_types_compatible(scrutinee_ty, v4_mir_rvalue_ty(mir_id, body_id, pattern_rvalue)) {
+                    v4_mir_add_type_error(mir_id, stmt_span, "when arm pattern type mismatch", "scrutinee is " + scrutinee_ty + " but pattern is " + v4_mir_rvalue_ty(mir_id, body_id, pattern_rvalue))
+                }
+            }
+            pilot next_check = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+            v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_if, arm_block, next_check, cond_text))
+            v4_mir_add_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
+            current_check = next_check
+        }
+        pilot first_body = v4_mir_skip_trivia(stream_id, arrow + 1)
+        if first_body < arm_end {
+            if v4_lex_token_value(stream_id, first_body) == "{" {
+                v4_mir_lower_block_body(mir_id, body_id, arm_block, stream_id, first_body, arm_end)
+            } else {
+                v4_mir_lower_statement(mir_id, body_id, arm_block, stream_id, first_body, arm_end)
+            }
+        }
+        v4_mir_set_body_block(mir_id, body_id, arm_block, v4_mir_block_new_full(arm_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+        idx = arm_end + 1
+    }
+    give back after_block
+}
+
 task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> void {
     pilot eq_token = v4_mir_find_assignment_operator_token(stream_id, stmt_start, stmt_end)
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, stmt_start, stmt_end)
@@ -1759,6 +1867,8 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
         give back v4_mir_lower_for_each_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "training" {
         give back v4_mir_lower_training_arc_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+    } else if first_val == "when" {
+        give back v4_mir_lower_when_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else {
         v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     }

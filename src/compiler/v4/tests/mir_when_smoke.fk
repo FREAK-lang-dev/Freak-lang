@@ -1,0 +1,83 @@
+-- V4 MIR when-statement lowering smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_when_make_source() -> word {
+    pilot src = "task grade(score: int) -> int {\n"
+    src = src + "    when score {\n"
+    src = src + "        100 -> give back 3\n"
+    src = src + "        90  -> give back 2\n"
+    src = src + "        _   -> give back 1\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_when_make_source() -> word {
+    pilot src = "task bad_grade(score: int) -> int {\n"
+    src = src + "    when score {\n"
+    src = src + "        true -> give back 1\n"
+    src = src + "        _    -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_when_find_branch_stmt(mir_id: int, body_id: int, condition: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_branch {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == condition {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_mir_when_source = v4_mir_when_make_source()
+pilot v4_mir_when_stream = v4_lex_text(0, v4_mir_when_source)
+pilot v4_mir_when_tree = v4_parse_stream(0, v4_mir_when_stream)
+pilot v4_mir_when_hir = v4_hir_lower_tree(0, v4_mir_when_tree)
+pilot v4_mir_when_resolve = v4_resolve_lower_hir(0, v4_mir_when_hir)
+pilot v4_mir_when_ty = v4_ty_lower_resolve(0, v4_mir_when_resolve)
+pilot v4_mir_when_mir = v4_mir_lower_ty(0, v4_mir_when_ty)
+pilot v4_mir_when_grade_def = v4_resolve_def_for_name(v4_mir_when_resolve, "grade")
+pilot v4_mir_when_grade_body = v4_mir_lookup_body(v4_mir_when_mir, v4_mir_when_grade_def)
+pilot v4_mir_when_arm0_stmt = v4_mir_when_find_branch_stmt(v4_mir_when_mir, v4_mir_when_grade_body, "score == 100")
+pilot v4_mir_when_arm1_stmt = v4_mir_when_find_branch_stmt(v4_mir_when_mir, v4_mir_when_grade_body, "score == 90")
+pilot v4_mir_when_arm0_rvalue = v4_mir_stmt_rvalue(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm0_stmt)
+pilot v4_mir_when_arm1_rvalue = v4_mir_stmt_rvalue(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm1_stmt)
+pilot v4_mir_when_entry_block = v4_mir_body_block(v4_mir_when_mir, v4_mir_when_grade_body, 0)
+
+say v4_mir_summary(v4_mir_when_mir)
+say "when-body-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_when_mir, v4_mir_when_grade_body))
+say "when-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_when_mir, v4_mir_when_grade_body))
+say "when-entry-term=" + v4_mir_block_terminator(v4_mir_when_entry_block)
+say "when-entry-cond=" + v4_mir_block_condition(v4_mir_when_entry_block)
+say "when-arm0-branch-kind=" + v4_mir_stmt_kind(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm0_stmt)
+say "when-arm0-branch-lhs=" + v4_mir_stmt_lhs(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm0_stmt)
+say "when-arm0-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm0_rvalue)
+say "when-arm0-rvalue-op=" + v4_mir_rvalue_op(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm0_rvalue)
+say "when-arm0-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm0_rvalue)
+say "when-arm1-branch-kind=" + v4_mir_stmt_kind(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm1_stmt)
+say "when-arm1-branch-lhs=" + v4_mir_stmt_lhs(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm1_stmt)
+say "when-arm1-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm1_rvalue)
+say "when-arm1-rvalue-op=" + v4_mir_rvalue_op(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm1_rvalue)
+say "when-arm1-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm1_rvalue)
+say "when-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_when_mir))
+
+pilot v4_mir_bad_when_source = v4_mir_bad_when_make_source()
+pilot v4_mir_bad_when_stream = v4_lex_text(1, v4_mir_bad_when_source)
+pilot v4_mir_bad_when_tree = v4_parse_stream(1, v4_mir_bad_when_stream)
+pilot v4_mir_bad_when_hir = v4_hir_lower_tree(1, v4_mir_bad_when_tree)
+pilot v4_mir_bad_when_resolve = v4_resolve_lower_hir(1, v4_mir_bad_when_hir)
+pilot v4_mir_bad_when_ty = v4_ty_lower_resolve(1, v4_mir_bad_when_resolve)
+pilot v4_mir_bad_when_mir = v4_mir_lower_ty(1, v4_mir_bad_when_ty)
+
+say "bad-when-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_when_mir))
+say "bad-when-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_when_mir, 0))
+say "bad-when-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_when_mir, 0))
