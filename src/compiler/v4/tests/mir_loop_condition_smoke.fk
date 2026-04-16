@@ -1,0 +1,145 @@
+-- V4 MIR typed loop-condition smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_loop_condition_find_loop_stmt(mir_id: int, body_id: int, wanted_lhs: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_loop {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted_lhs {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_loop_condition_make_source() -> word {
+    pilot src = "task calc(power: int, ready: bool) -> int {\n"
+    src = src + "    repeat until power > 4 and ready {\n"
+    src = src + "        power = power + 1\n"
+    src = src + "    }\n"
+    src = src + "    training arc until power >= 8 or ready max 4 sessions {\n"
+    src = src + "        power = power + 1\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_repeat_condition_make_source() -> word {
+    pilot src = "task bad_repeat(power: int) -> int {\n"
+    src = src + "    repeat until power {\n"
+    src = src + "        power = power + 1\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_training_condition_make_source() -> word {
+    pilot src = "task bad_training(power: int) -> int {\n"
+    src = src + "    training arc until power max 4 sessions {\n"
+    src = src + "        power = power + 1\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_training_max_make_source() -> word {
+    pilot src = "task bad_training_max(ready: bool) -> int {\n"
+    src = src + "    pilot power: int = 1\n"
+    src = src + "    training arc until ready max false sessions {\n"
+    src = src + "        power = power + 1\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_loop_condition_source = v4_mir_loop_condition_make_source()
+pilot v4_mir_loop_condition_stream = v4_lex_text(0, v4_mir_loop_condition_source)
+pilot v4_mir_loop_condition_tree = v4_parse_stream(0, v4_mir_loop_condition_stream)
+pilot v4_mir_loop_condition_hir = v4_hir_lower_tree(0, v4_mir_loop_condition_tree)
+pilot v4_mir_loop_condition_resolve = v4_resolve_lower_hir(0, v4_mir_loop_condition_hir)
+pilot v4_mir_loop_condition_ty = v4_ty_lower_resolve(0, v4_mir_loop_condition_resolve)
+pilot v4_mir_loop_condition_mir = v4_mir_lower_ty(0, v4_mir_loop_condition_ty)
+pilot v4_mir_loop_condition_calc_def = v4_resolve_def_for_name(v4_mir_loop_condition_resolve, "calc")
+pilot v4_mir_loop_condition_calc_body = v4_mir_lookup_body(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_def)
+pilot v4_mir_repeat_stmt = v4_mir_loop_condition_find_loop_stmt(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, "power > 4 and ready")
+pilot v4_mir_repeat_rvalue = v4_mir_stmt_rvalue(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_stmt)
+pilot v4_mir_repeat_lhs = v4_mir_rvalue_lhs(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_rvalue)
+pilot v4_mir_repeat_rhs = v4_mir_rvalue_rhs(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_rvalue)
+pilot v4_mir_training_stmt = v4_mir_loop_condition_find_loop_stmt(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, "power >= 8 or ready")
+pilot v4_mir_training_rvalue = v4_mir_stmt_rvalue(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_stmt)
+pilot v4_mir_training_lhs = v4_mir_rvalue_lhs(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_rvalue)
+pilot v4_mir_training_rhs = v4_mir_rvalue_rhs(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_rvalue)
+pilot v4_mir_repeat_block = v4_mir_body_block(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, 0)
+pilot v4_mir_training_block = v4_mir_body_block(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, 2)
+
+say v4_mir_summary(v4_mir_loop_condition_mir)
+say "loop-cond-body-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body))
+say "loop-cond-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body))
+say "repeat-block-term=" + v4_mir_block_terminator(v4_mir_repeat_block)
+say "repeat-block-cond=" + v4_mir_block_condition(v4_mir_repeat_block)
+say "repeat-stmt-kind=" + v4_mir_stmt_kind(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_stmt)
+say "repeat-stmt-lhs=" + v4_mir_stmt_lhs(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_stmt)
+say "repeat-stmt-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_rvalue)
+say "repeat-stmt-rvalue-op=" + v4_mir_rvalue_op(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_rvalue)
+say "repeat-stmt-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_rvalue)
+say "repeat-lhs-kind=" + v4_mir_rvalue_kind(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_lhs)
+say "repeat-lhs-op=" + v4_mir_rvalue_op(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_lhs)
+say "repeat-lhs-ty=" + v4_mir_rvalue_ty(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_lhs)
+say "repeat-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_rhs)
+say "repeat-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_rhs)
+say "training-cond-block-term=" + v4_mir_block_terminator(v4_mir_training_block)
+say "training-cond-block-cond=" + v4_mir_block_condition(v4_mir_training_block)
+say "training-cond-stmt-kind=" + v4_mir_stmt_kind(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_stmt)
+say "training-cond-stmt-lhs=" + v4_mir_stmt_lhs(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_stmt)
+say "training-cond-stmt-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_rvalue)
+say "training-cond-stmt-rvalue-op=" + v4_mir_rvalue_op(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_rvalue)
+say "training-cond-stmt-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_rvalue)
+say "training-cond-lhs-kind=" + v4_mir_rvalue_kind(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_lhs)
+say "training-cond-lhs-op=" + v4_mir_rvalue_op(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_lhs)
+say "training-cond-lhs-ty=" + v4_mir_rvalue_ty(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_lhs)
+say "training-cond-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_rhs)
+say "training-cond-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_rhs)
+say "loop-cond-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_loop_condition_mir))
+
+pilot v4_mir_bad_repeat_source = v4_mir_bad_repeat_condition_make_source()
+pilot v4_mir_bad_repeat_stream = v4_lex_text(1, v4_mir_bad_repeat_source)
+pilot v4_mir_bad_repeat_tree = v4_parse_stream(1, v4_mir_bad_repeat_stream)
+pilot v4_mir_bad_repeat_hir = v4_hir_lower_tree(1, v4_mir_bad_repeat_tree)
+pilot v4_mir_bad_repeat_resolve = v4_resolve_lower_hir(1, v4_mir_bad_repeat_hir)
+pilot v4_mir_bad_repeat_ty = v4_ty_lower_resolve(1, v4_mir_bad_repeat_resolve)
+pilot v4_mir_bad_repeat_mir = v4_mir_lower_ty(1, v4_mir_bad_repeat_ty)
+
+say "bad-repeat-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_repeat_mir))
+say "bad-repeat-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_repeat_mir, 0))
+say "bad-repeat-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_repeat_mir, 0))
+
+pilot v4_mir_bad_training_source = v4_mir_bad_training_condition_make_source()
+pilot v4_mir_bad_training_stream = v4_lex_text(2, v4_mir_bad_training_source)
+pilot v4_mir_bad_training_tree = v4_parse_stream(2, v4_mir_bad_training_stream)
+pilot v4_mir_bad_training_hir = v4_hir_lower_tree(2, v4_mir_bad_training_tree)
+pilot v4_mir_bad_training_resolve = v4_resolve_lower_hir(2, v4_mir_bad_training_hir)
+pilot v4_mir_bad_training_ty = v4_ty_lower_resolve(2, v4_mir_bad_training_resolve)
+pilot v4_mir_bad_training_mir = v4_mir_lower_ty(2, v4_mir_bad_training_ty)
+
+say "bad-training-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_training_mir))
+say "bad-training-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_training_mir, 0))
+say "bad-training-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_training_mir, 0))
+
+pilot v4_mir_bad_training_max_source = v4_mir_bad_training_max_make_source()
+pilot v4_mir_bad_training_max_stream = v4_lex_text(3, v4_mir_bad_training_max_source)
+pilot v4_mir_bad_training_max_tree = v4_parse_stream(3, v4_mir_bad_training_max_stream)
+pilot v4_mir_bad_training_max_hir = v4_hir_lower_tree(3, v4_mir_bad_training_max_tree)
+pilot v4_mir_bad_training_max_resolve = v4_resolve_lower_hir(3, v4_mir_bad_training_max_hir)
+pilot v4_mir_bad_training_max_ty = v4_ty_lower_resolve(3, v4_mir_bad_training_max_resolve)
+pilot v4_mir_bad_training_max_mir = v4_mir_lower_ty(3, v4_mir_bad_training_max_ty)
+
+say "bad-training-max-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_training_max_mir))
+say "bad-training-max-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_training_max_mir, 0))
+say "bad-training-max-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_training_max_mir, 0))
