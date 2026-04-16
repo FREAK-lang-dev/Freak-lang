@@ -180,8 +180,8 @@ EXECUTABLE_SMOKES = [
             "bad-param-assign-message=assignment type mismatch",
             "bad-param-assign-help=cannot assign word into int",
             "bad-local-update-diagnostics=1",
-            "bad-local-update-message=assignment type mismatch",
-            "bad-local-update-help=cannot assign word into int",
+            "bad-local-update-message=invalid binary operation",
+            "bad-local-update-help=Add between int and word",
         ],
     },
 ]

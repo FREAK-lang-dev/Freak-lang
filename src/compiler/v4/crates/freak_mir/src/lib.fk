@@ -1009,6 +1009,27 @@ task v4_mir_check_assignment_types(mir_id: int, stmt_span: word, place_ty: word,
     }
 }
 
+task v4_mir_compound_assignment_op_kind(op: word) -> word {
+    if op == "+=" { give back v4_mir_bin_add }
+    if op == "-=" { give back v4_mir_bin_sub }
+    if op == "*=" { give back v4_mir_bin_mul }
+    if op == "/=" { give back v4_mir_bin_div }
+    give back ""
+}
+
+task v4_mir_compound_assignment_result_ty(mir_id: int, stmt_span: word, op: word, place_ty: word, value_ty: word) -> word {
+    pilot op_kind = v4_mir_compound_assignment_op_kind(op)
+    if op_kind == "" {
+        give back value_ty
+    }
+
+    v4_mir_check_binary_types(mir_id, stmt_span, op_kind, place_ty, value_ty)
+    if v4_ty_binary_valid(op_kind, place_ty, value_ty) {
+        give back v4_ty_binary_result(op_kind, place_ty, value_ty)
+    }
+    give back v4_ty_unknown
+}
+
 task v4_mir_check_local_decl_type(mir_id: int, stmt_span: word, local_name: word, declared_ty: word, inferred_ty: word) -> void {
     if not v4_ty_types_compatible(declared_ty, inferred_ty) {
         v4_mir_add_type_error(mir_id, stmt_span, "local declaration type mismatch", local_name + " expects " + declared_ty + " but got " + inferred_ty)
@@ -1603,13 +1624,23 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
     if eq_token > stmt_start {
         pilot lhs = v4_mir_expr_text(stream_id, stmt_start, eq_token)
         pilot rhs = v4_mir_expr_text(stream_id, eq_token + 1, stmt_end)
+        pilot op_text = v4_lex_token_value(stream_id, eq_token)
         pilot place_id = v4_mir_lower_place(mir_id, body_id, stream_id, stmt_start, eq_token)
         pilot rvalue_id = v4_mir_lower_expr(mir_id, body_id, stream_id, eq_token + 1, stmt_end)
-        v4_mir_check_assignment_types(mir_id, stmt_span, v4_mir_place_ty(mir_id, body_id, place_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+        pilot place_ty = v4_mir_place_ty(mir_id, body_id, place_id)
+        pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+        if op_text == "=" {
+            v4_mir_check_assignment_types(mir_id, stmt_span, place_ty, value_ty)
+        } else {
+            pilot result_ty = v4_mir_compound_assignment_result_ty(mir_id, stmt_span, op_text, place_ty, value_ty)
+            if v4_ty_is_known(result_ty) {
+                v4_mir_check_assignment_types(mir_id, stmt_span, place_ty, result_ty)
+            }
+        }
         if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
             pilot local_id = v4_mir_find_local(mir_id, body_id, v4_mir_place_text(mir_id, body_id, place_id))
             if local_id >= 0 and v4_mir_local_ty(mir_id, body_id, local_id) == v4_ty_unknown {
-                v4_mir_set_local_ty(mir_id, body_id, local_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+                v4_mir_set_local_ty(mir_id, body_id, local_id, value_ty)
             }
         }
         v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_assign, lhs, rhs, stmt_span, place_id, rvalue_id)
