@@ -1230,6 +1230,13 @@ task v4_mir_lower_expr(mir_id: int, body_id: int, stream_id: int, start_token: i
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, "", "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
     }
 
+    if v4_lex_token_value(stream_id, first) == "(" and v4_lex_token_value(stream_id, last) == ")" {
+        pilot close_group = v4_mir_find_matching_paren(stream_id, first, last + 1)
+        if close_group == last {
+            give back v4_mir_lower_expr(mir_id, body_id, stream_id, first + 1, last)
+        }
+    }
+
     pilot tier = 1
     repeat until tier > 5 {
         pilot op_token = v4_mir_find_binary_op(stream_id, first, last + 1, tier)

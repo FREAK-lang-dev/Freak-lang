@@ -1,0 +1,76 @@
+-- V4 MIR parenthesized expression smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_grouping_make_source() -> word {
+    pilot src = "task calc(power: int, flag: bool) -> int {\n"
+    src = src + "    pilot x: int = (power + 1)\n"
+    src = src + "    pilot y: int = 2 * (power + 3)\n"
+    src = src + "    pilot z: bool = not (flag and false)\n"
+    src = src + "    give back y\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_grouping_make_source() -> word {
+    pilot src = "task bad_grouping() -> bool {\n"
+    src = src + "    pilot x: bool = (1 + \"nope\")\n"
+    src = src + "    give back true\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_grouping_source = v4_mir_grouping_make_source()
+pilot v4_mir_grouping_stream = v4_lex_text(0, v4_mir_grouping_source)
+pilot v4_mir_grouping_tree = v4_parse_stream(0, v4_mir_grouping_stream)
+pilot v4_mir_grouping_hir = v4_hir_lower_tree(0, v4_mir_grouping_tree)
+pilot v4_mir_grouping_resolve = v4_resolve_lower_hir(0, v4_mir_grouping_hir)
+pilot v4_mir_grouping_ty = v4_ty_lower_resolve(0, v4_mir_grouping_resolve)
+pilot v4_mir_grouping_mir = v4_mir_lower_ty(0, v4_mir_grouping_ty)
+pilot v4_mir_grouping_calc_def = v4_resolve_def_for_name(v4_mir_grouping_resolve, "calc")
+pilot v4_mir_grouping_calc_body = v4_mir_lookup_body(v4_mir_grouping_mir, v4_mir_grouping_calc_def)
+pilot v4_mir_grouping_sum_rvalue = v4_mir_stmt_rvalue(v4_mir_grouping_mir, v4_mir_grouping_calc_body, 0)
+pilot v4_mir_grouping_sum_lhs = v4_mir_rvalue_lhs(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_sum_rvalue)
+pilot v4_mir_grouping_sum_rhs = v4_mir_rvalue_rhs(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_sum_rvalue)
+pilot v4_mir_grouping_mul_rvalue = v4_mir_stmt_rvalue(v4_mir_grouping_mir, v4_mir_grouping_calc_body, 1)
+pilot v4_mir_grouping_mul_rhs = v4_mir_rvalue_rhs(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_mul_rvalue)
+pilot v4_mir_grouping_not_rvalue = v4_mir_stmt_rvalue(v4_mir_grouping_mir, v4_mir_grouping_calc_body, 2)
+pilot v4_mir_grouping_not_operand = v4_mir_rvalue_lhs(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_rvalue)
+
+say v4_mir_summary(v4_mir_grouping_mir)
+say "group-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_grouping_mir, v4_mir_grouping_calc_body))
+say "group-local0-name=" + v4_mir_local_name(v4_mir_grouping_mir, v4_mir_grouping_calc_body, 0)
+say "group-local0-ty=" + v4_mir_local_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, 0)
+say "group-local2-name=" + v4_mir_local_name(v4_mir_grouping_mir, v4_mir_grouping_calc_body, 2)
+say "group-local2-ty=" + v4_mir_local_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, 2)
+say "group-sum-kind=" + v4_mir_rvalue_kind(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_sum_rvalue)
+say "group-sum-op=" + v4_mir_rvalue_op(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_sum_rvalue)
+say "group-sum-ty=" + v4_mir_rvalue_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_sum_rvalue)
+say "group-sum-lhs-kind=" + v4_mir_rvalue_kind(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_sum_lhs)
+say "group-sum-lhs-ty=" + v4_mir_rvalue_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_sum_lhs)
+say "group-sum-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_sum_rhs)
+say "group-sum-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_sum_rhs)
+say "group-mul-kind=" + v4_mir_rvalue_kind(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_mul_rvalue)
+say "group-mul-op=" + v4_mir_rvalue_op(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_mul_rvalue)
+say "group-mul-ty=" + v4_mir_rvalue_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_mul_rvalue)
+say "group-mul-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_mul_rhs)
+say "group-mul-rhs-op=" + v4_mir_rvalue_op(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_mul_rhs)
+say "group-mul-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_mul_rhs)
+say "group-not-kind=" + v4_mir_rvalue_kind(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_rvalue)
+say "group-not-op=" + v4_mir_rvalue_op(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_rvalue)
+say "group-not-ty=" + v4_mir_rvalue_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_rvalue)
+say "group-not-operand-kind=" + v4_mir_rvalue_kind(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_operand)
+say "group-not-operand-op=" + v4_mir_rvalue_op(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_operand)
+say "group-not-operand-ty=" + v4_mir_rvalue_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_operand)
+say "group-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_grouping_mir))
+
+pilot v4_mir_bad_grouping_source = v4_mir_bad_grouping_make_source()
+pilot v4_mir_bad_grouping_stream = v4_lex_text(1, v4_mir_bad_grouping_source)
+pilot v4_mir_bad_grouping_tree = v4_parse_stream(1, v4_mir_bad_grouping_stream)
+pilot v4_mir_bad_grouping_hir = v4_hir_lower_tree(1, v4_mir_bad_grouping_tree)
+pilot v4_mir_bad_grouping_resolve = v4_resolve_lower_hir(1, v4_mir_bad_grouping_hir)
+pilot v4_mir_bad_grouping_ty = v4_ty_lower_resolve(1, v4_mir_bad_grouping_resolve)
+pilot v4_mir_bad_grouping_mir = v4_mir_lower_ty(1, v4_mir_bad_grouping_ty)
+
+say "bad-group-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_grouping_mir))
+say "bad-group-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_grouping_mir, 0))
+say "bad-group-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_grouping_mir, 0))
