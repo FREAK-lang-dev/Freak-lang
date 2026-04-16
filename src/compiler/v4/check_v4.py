@@ -352,6 +352,32 @@ EXECUTABLE_SMOKES = [
             "bad-group-help=Add between int and word",
         ],
     },
+    {
+        "name": "MIR typed if conditions",
+        "fixture": "mir_if_condition_smoke.fk",
+        "expect": [
+            "if-body-blocks=4",
+            "if-entry-term=If",
+            "if-entry-cond=power > 4 and ( ready or false )",
+            "if-entry-target=1",
+            "if-entry-else=3",
+            "if-branch-stmt-kind=Branch",
+            "if-branch-lhs=power > 4 and ( ready or false )",
+            "if-branch-rvalue-kind=Binary",
+            "if-branch-rvalue-op=And",
+            "if-branch-rvalue-ty=bool",
+            "if-branch-lhs-kind=Binary",
+            "if-branch-lhs-op=Gt",
+            "if-branch-lhs-ty=bool",
+            "if-branch-rhs-kind=Binary",
+            "if-branch-rhs-op=Or",
+            "if-branch-rhs-ty=bool",
+            "if-good-diagnostics=0",
+            "bad-if-diagnostics=1",
+            "bad-if-message=if condition must be bool",
+            "bad-if-help=got int",
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:

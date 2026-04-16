@@ -1,0 +1,83 @@
+-- V4 MIR typed if-condition smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_if_condition_find_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == wanted {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_if_condition_make_source() -> word {
+    pilot src = "task calc(power: int, ready: bool) -> int {\n"
+    src = src + "    if power > 4 and (ready or false) {\n"
+    src = src + "        give back power\n"
+    src = src + "    } else {\n"
+    src = src + "        give back 0\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_if_condition_make_source() -> word {
+    pilot src = "task bad_if(power: int) -> int {\n"
+    src = src + "    if power {\n"
+    src = src + "        give back 1\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_if_condition_source = v4_mir_if_condition_make_source()
+pilot v4_mir_if_condition_stream = v4_lex_text(0, v4_mir_if_condition_source)
+pilot v4_mir_if_condition_tree = v4_parse_stream(0, v4_mir_if_condition_stream)
+pilot v4_mir_if_condition_hir = v4_hir_lower_tree(0, v4_mir_if_condition_tree)
+pilot v4_mir_if_condition_resolve = v4_resolve_lower_hir(0, v4_mir_if_condition_hir)
+pilot v4_mir_if_condition_ty = v4_ty_lower_resolve(0, v4_mir_if_condition_resolve)
+pilot v4_mir_if_condition_mir = v4_mir_lower_ty(0, v4_mir_if_condition_ty)
+pilot v4_mir_if_condition_calc_def = v4_resolve_def_for_name(v4_mir_if_condition_resolve, "calc")
+pilot v4_mir_if_condition_calc_body = v4_mir_lookup_body(v4_mir_if_condition_mir, v4_mir_if_condition_calc_def)
+pilot v4_mir_if_condition_entry = v4_mir_body_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, 0)
+pilot v4_mir_if_condition_branch_stmt = v4_mir_if_condition_find_stmt(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_branch)
+pilot v4_mir_if_condition_branch_rvalue = v4_mir_stmt_rvalue(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_stmt)
+pilot v4_mir_if_condition_lhs = v4_mir_rvalue_lhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_rvalue)
+pilot v4_mir_if_condition_rhs = v4_mir_rvalue_rhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_rvalue)
+
+say v4_mir_summary(v4_mir_if_condition_mir)
+say "if-body-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body))
+say "if-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body))
+say "if-entry-term=" + v4_mir_block_terminator(v4_mir_if_condition_entry)
+say "if-entry-cond=" + v4_mir_block_condition(v4_mir_if_condition_entry)
+say "if-entry-target=" + word_from_int(v4_mir_block_target(v4_mir_if_condition_entry))
+say "if-entry-else=" + word_from_int(v4_mir_block_else_target(v4_mir_if_condition_entry))
+say "if-branch-stmt-kind=" + v4_mir_stmt_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_stmt)
+say "if-branch-lhs=" + v4_mir_stmt_lhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_stmt)
+say "if-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_stmt)
+say "if-branch-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_rvalue)
+say "if-branch-rvalue-op=" + v4_mir_rvalue_op(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_rvalue)
+say "if-branch-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_rvalue)
+say "if-branch-lhs-kind=" + v4_mir_rvalue_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_lhs)
+say "if-branch-lhs-op=" + v4_mir_rvalue_op(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_lhs)
+say "if-branch-lhs-ty=" + v4_mir_rvalue_ty(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_lhs)
+say "if-branch-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_rhs)
+say "if-branch-rhs-op=" + v4_mir_rvalue_op(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_rhs)
+say "if-branch-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_rhs)
+say "if-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_if_condition_mir))
+
+pilot v4_mir_bad_if_condition_source = v4_mir_bad_if_condition_make_source()
+pilot v4_mir_bad_if_condition_stream = v4_lex_text(1, v4_mir_bad_if_condition_source)
+pilot v4_mir_bad_if_condition_tree = v4_parse_stream(1, v4_mir_bad_if_condition_stream)
+pilot v4_mir_bad_if_condition_hir = v4_hir_lower_tree(1, v4_mir_bad_if_condition_tree)
+pilot v4_mir_bad_if_condition_resolve = v4_resolve_lower_hir(1, v4_mir_bad_if_condition_hir)
+pilot v4_mir_bad_if_condition_ty = v4_ty_lower_resolve(1, v4_mir_bad_if_condition_resolve)
+pilot v4_mir_bad_if_condition_mir = v4_mir_lower_ty(1, v4_mir_bad_if_condition_ty)
+
+say "bad-if-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_if_condition_mir))
+say "bad-if-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_if_condition_mir, 0))
+say "bad-if-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_if_condition_mir, 0))
