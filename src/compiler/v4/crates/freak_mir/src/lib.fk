@@ -36,6 +36,7 @@ pilot v4_mir_bin_add = "Add"
 pilot v4_mir_bin_sub = "Sub"
 pilot v4_mir_bin_mul = "Mul"
 pilot v4_mir_bin_div = "Div"
+pilot v4_mir_bin_mod = "Mod"
 pilot v4_mir_bin_gt = "Gt"
 pilot v4_mir_bin_lt = "Lt"
 pilot v4_mir_bin_ge = "Ge"
@@ -951,7 +952,7 @@ task v4_mir_binary_tier_matches(op: word, tier: int) -> bool {
         give back op == "+" or op == "-"
     }
     if tier == 3 {
-        give back op == "*" or op == "/"
+        give back op == "*" or op == "/" or op == "%"
     }
     give back false
 }
@@ -982,6 +983,7 @@ task v4_mir_operator_kind(op: word) -> word {
     if op == "-" { give back v4_mir_bin_sub }
     if op == "*" { give back v4_mir_bin_mul }
     if op == "/" { give back v4_mir_bin_div }
+    if op == "%" { give back v4_mir_bin_mod }
     if op == ">" { give back v4_mir_bin_gt }
     if op == "<" { give back v4_mir_bin_lt }
     if op == ">=" { give back v4_mir_bin_ge }
@@ -1014,6 +1016,7 @@ task v4_mir_compound_assignment_op_kind(op: word) -> word {
     if op == "-=" { give back v4_mir_bin_sub }
     if op == "*=" { give back v4_mir_bin_mul }
     if op == "/=" { give back v4_mir_bin_div }
+    if op == "%=" { give back v4_mir_bin_mod }
     give back ""
 }
 

@@ -207,7 +207,7 @@ task v4_ty_binary_valid(op: word, left_ty: word, right_ty: word) -> bool {
         }
         give back v4_ty_is_numeric(left_ty) and v4_ty_is_numeric(right_ty)
     }
-    if op == "Sub" or op == "Mul" or op == "Div" {
+    if op == "Sub" or op == "Mul" or op == "Div" or op == "Mod" {
         give back v4_ty_is_numeric(left_ty) and v4_ty_is_numeric(right_ty)
     }
     give back true
@@ -226,7 +226,7 @@ task v4_ty_binary_result(op: word, left_ty: word, right_ty: word) -> word {
         }
         give back v4_ty_numeric_result(left_ty, right_ty)
     }
-    if op == "Sub" or op == "Mul" or op == "Div" {
+    if op == "Sub" or op == "Mul" or op == "Div" or op == "Mod" {
         give back v4_ty_numeric_result(left_ty, right_ty)
     }
     give back v4_ty_unknown

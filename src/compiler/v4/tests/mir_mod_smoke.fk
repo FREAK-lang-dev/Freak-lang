@@ -1,0 +1,87 @@
+-- V4 MIR modulo operation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_mod_make_source() -> word {
+    pilot src = "task calc(power: int) -> int {\n"
+    src = src + "    pilot left: int = 9\n"
+    src = src + "    pilot result: int = left % 4\n"
+    src = src + "    result %= 2\n"
+    src = src + "    give back result\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_mod_make_source() -> word {
+    pilot src = "task bad_mod() -> int {\n"
+    src = src + "    pilot x: int = \"nope\" % 2\n"
+    src = src + "    give back 1\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_mod_update_make_source() -> word {
+    pilot src = "task bad_mod_update() -> int {\n"
+    src = src + "    pilot x: int = 1\n"
+    src = src + "    x %= \"nope\"\n"
+    src = src + "    give back x\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_mod_source = v4_mir_mod_make_source()
+pilot v4_mir_mod_stream = v4_lex_text(0, v4_mir_mod_source)
+pilot v4_mir_mod_tree = v4_parse_stream(0, v4_mir_mod_stream)
+pilot v4_mir_mod_hir = v4_hir_lower_tree(0, v4_mir_mod_tree)
+pilot v4_mir_mod_resolve = v4_resolve_lower_hir(0, v4_mir_mod_hir)
+pilot v4_mir_mod_ty = v4_ty_lower_resolve(0, v4_mir_mod_resolve)
+pilot v4_mir_mod_mir = v4_mir_lower_ty(0, v4_mir_mod_ty)
+pilot v4_mir_mod_calc_def = v4_resolve_def_for_name(v4_mir_mod_resolve, "calc")
+pilot v4_mir_mod_calc_body = v4_mir_lookup_body(v4_mir_mod_mir, v4_mir_mod_calc_def)
+pilot v4_mir_mod_binary_rvalue = v4_mir_stmt_rvalue(v4_mir_mod_mir, v4_mir_mod_calc_body, 1)
+pilot v4_mir_mod_update_place = v4_mir_stmt_place(v4_mir_mod_mir, v4_mir_mod_calc_body, 2)
+pilot v4_mir_mod_update_rvalue = v4_mir_stmt_rvalue(v4_mir_mod_mir, v4_mir_mod_calc_body, 2)
+
+say v4_mir_summary(v4_mir_mod_mir)
+say "mod-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_mod_mir, v4_mir_mod_calc_body))
+say "mod-local0-name=" + v4_mir_local_name(v4_mir_mod_mir, v4_mir_mod_calc_body, 0)
+say "mod-local0-ty=" + v4_mir_local_ty(v4_mir_mod_mir, v4_mir_mod_calc_body, 0)
+say "mod-local1-name=" + v4_mir_local_name(v4_mir_mod_mir, v4_mir_mod_calc_body, 1)
+say "mod-local1-ty=" + v4_mir_local_ty(v4_mir_mod_mir, v4_mir_mod_calc_body, 1)
+say "mod-local2-name=" + v4_mir_local_name(v4_mir_mod_mir, v4_mir_mod_calc_body, 2)
+say "mod-local2-ty=" + v4_mir_local_ty(v4_mir_mod_mir, v4_mir_mod_calc_body, 2)
+say "mod-binary-stmt-kind=" + v4_mir_stmt_kind(v4_mir_mod_mir, v4_mir_mod_calc_body, 1)
+say "mod-binary-lhs=" + v4_mir_stmt_lhs(v4_mir_mod_mir, v4_mir_mod_calc_body, 1)
+say "mod-binary-rhs=" + v4_mir_stmt_rhs(v4_mir_mod_mir, v4_mir_mod_calc_body, 1)
+say "mod-binary-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_mod_mir, v4_mir_mod_calc_body, v4_mir_mod_binary_rvalue)
+say "mod-binary-op=" + v4_mir_rvalue_op(v4_mir_mod_mir, v4_mir_mod_calc_body, v4_mir_mod_binary_rvalue)
+say "mod-binary-ty=" + v4_mir_rvalue_ty(v4_mir_mod_mir, v4_mir_mod_calc_body, v4_mir_mod_binary_rvalue)
+say "mod-update-stmt-kind=" + v4_mir_stmt_kind(v4_mir_mod_mir, v4_mir_mod_calc_body, 2)
+say "mod-update-lhs=" + v4_mir_stmt_lhs(v4_mir_mod_mir, v4_mir_mod_calc_body, 2)
+say "mod-update-rhs=" + v4_mir_stmt_rhs(v4_mir_mod_mir, v4_mir_mod_calc_body, 2)
+say "mod-update-place-ty=" + v4_mir_place_ty(v4_mir_mod_mir, v4_mir_mod_calc_body, v4_mir_mod_update_place)
+say "mod-update-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_mod_mir, v4_mir_mod_calc_body, v4_mir_mod_update_rvalue)
+say "mod-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_mod_mir))
+
+pilot v4_mir_bad_mod_source = v4_mir_bad_mod_make_source()
+pilot v4_mir_bad_mod_stream = v4_lex_text(1, v4_mir_bad_mod_source)
+pilot v4_mir_bad_mod_tree = v4_parse_stream(1, v4_mir_bad_mod_stream)
+pilot v4_mir_bad_mod_hir = v4_hir_lower_tree(1, v4_mir_bad_mod_tree)
+pilot v4_mir_bad_mod_resolve = v4_resolve_lower_hir(1, v4_mir_bad_mod_hir)
+pilot v4_mir_bad_mod_ty = v4_ty_lower_resolve(1, v4_mir_bad_mod_resolve)
+pilot v4_mir_bad_mod_mir = v4_mir_lower_ty(1, v4_mir_bad_mod_ty)
+
+say "bad-mod-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_mod_mir))
+say "bad-mod-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_mod_mir, 0))
+say "bad-mod-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_mod_mir, 0))
+
+pilot v4_mir_bad_mod_update_source = v4_mir_bad_mod_update_make_source()
+pilot v4_mir_bad_mod_update_stream = v4_lex_text(2, v4_mir_bad_mod_update_source)
+pilot v4_mir_bad_mod_update_tree = v4_parse_stream(2, v4_mir_bad_mod_update_stream)
+pilot v4_mir_bad_mod_update_hir = v4_hir_lower_tree(2, v4_mir_bad_mod_update_tree)
+pilot v4_mir_bad_mod_update_resolve = v4_resolve_lower_hir(2, v4_mir_bad_mod_update_hir)
+pilot v4_mir_bad_mod_update_ty = v4_ty_lower_resolve(2, v4_mir_bad_mod_update_resolve)
+pilot v4_mir_bad_mod_update_mir = v4_mir_lower_ty(2, v4_mir_bad_mod_update_ty)
+
+say "bad-mod-update-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_mod_update_mir))
+say "bad-mod-update-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_mod_update_mir, 0))
+say "bad-mod-update-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_mod_update_mir, 0))
