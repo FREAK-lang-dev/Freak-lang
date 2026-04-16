@@ -92,6 +92,19 @@ EXECUTABLE_SMOKES = [
             "bad-growth-message=training arc with growth must mutate condition subject",
         ],
     },
+    {
+        "name": "typed task signatures",
+        "fixture": "ty_smoke.fk",
+        "expect": [
+            "main-signature=task main(...) -> int",
+            "helper-signature=task helper(...) -> word",
+            "flag-signature=task flag(...) -> bool",
+            "main-return=int",
+            "helper-return=word",
+            "flag-return=bool",
+            "signature-count=5",
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:

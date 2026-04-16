@@ -1,20 +1,38 @@
 -- V4 type signature smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-pilot v4_ty_smoke_source = "task main() => \"hi\"\n"
-v4_ty_smoke_source = v4_ty_smoke_source + "shape Pilot\n"
-v4_ty_smoke_source = v4_ty_smoke_source + "doctrine Display\n"
+task v4_ty_smoke_make_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task helper() => \"hi\"\n"
+    src = src + "task flag() => true\n"
+    src = src + "shape Pilot\n"
+    src = src + "doctrine Display\n"
+    give back src
+}
 
+pilot v4_ty_smoke_source = v4_ty_smoke_make_source()
 pilot v4_ty_smoke_stream = v4_lex_text(0, v4_ty_smoke_source)
 pilot v4_ty_smoke_tree = v4_parse_stream(0, v4_ty_smoke_stream)
 pilot v4_ty_smoke_hir = v4_hir_lower_tree(0, v4_ty_smoke_tree)
 pilot v4_ty_smoke_resolve = v4_resolve_lower_hir(0, v4_ty_smoke_hir)
 pilot v4_ty_smoke_ty = v4_ty_lower_resolve(0, v4_ty_smoke_resolve)
 pilot v4_ty_main_def = v4_resolve_def_for_name(v4_ty_smoke_resolve, "main")
+pilot v4_ty_helper_def = v4_resolve_def_for_name(v4_ty_smoke_resolve, "helper")
+pilot v4_ty_flag_def = v4_resolve_def_for_name(v4_ty_smoke_resolve, "flag")
+pilot v4_ty_main_sig = v4_ty_lookup_signature(v4_ty_smoke_ty, v4_ty_main_def)
+pilot v4_ty_helper_sig = v4_ty_lookup_signature(v4_ty_smoke_ty, v4_ty_helper_def)
+pilot v4_ty_flag_sig = v4_ty_lookup_signature(v4_ty_smoke_ty, v4_ty_flag_def)
 
 say v4_ty_summary(v4_ty_smoke_ty)
 say "main-def=" + v4_ty_main_def
 say "main-signature=" + v4_ty_signature_of(v4_ty_smoke_ty, v4_ty_main_def)
+say "helper-signature=" + v4_ty_signature_of(v4_ty_smoke_ty, v4_ty_helper_def)
+say "flag-signature=" + v4_ty_signature_of(v4_ty_smoke_ty, v4_ty_flag_def)
+say "main-return=" + v4_ty_signature_return_type(v4_ty_smoke_ty, v4_ty_main_sig)
+say "helper-return=" + v4_ty_signature_return_type(v4_ty_smoke_ty, v4_ty_helper_sig)
+say "flag-return=" + v4_ty_signature_return_type(v4_ty_smoke_ty, v4_ty_flag_sig)
 say "binary-int=" + v4_ty_binary_result("Add", v4_ty_int, v4_ty_int)
 say "compare-bool=" + v4_ty_binary_result("Gt", v4_ty_int, v4_ty_int)
 say "signature-count=" + word_from_int(v4_ty_signature_count(v4_ty_smoke_ty))
