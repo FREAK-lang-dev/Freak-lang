@@ -34,6 +34,7 @@ pilot v4_mir_rvalue_call = "Call"
 pilot v4_mir_rvalue_unknown = "Unknown"
 
 pilot v4_mir_unary_neg = "Neg"
+pilot v4_mir_unary_not = "Not"
 
 pilot v4_mir_bin_add = "Add"
 pilot v4_mir_bin_sub = "Sub"
@@ -1024,6 +1025,12 @@ task v4_mir_operator_kind(op: word) -> word {
     give back op
 }
 
+task v4_mir_unary_op_kind(op: word) -> word {
+    if op == "-" { give back v4_mir_unary_neg }
+    if op == "not" or op == "!" { give back v4_mir_unary_not }
+    give back ""
+}
+
 task v4_mir_check_binary_types(mir_id: int, expr_span: word, op_kind: word, left_ty: word, right_ty: word) -> void {
     if not v4_ty_binary_valid(op_kind, left_ty, right_ty) {
         v4_mir_add_type_error(mir_id, expr_span, "invalid binary operation", op_kind + " between " + left_ty + " and " + right_ty)
@@ -1234,13 +1241,14 @@ task v4_mir_lower_expr(mir_id: int, body_id: int, stream_id: int, start_token: i
     pilot first_type = v4_lex_token_type(stream_id, first)
     pilot first_value = v4_lex_token_value(stream_id, first)
     pilot next_token = v4_mir_next_nontrivia(stream_id, first + 1, last + 1)
-    if first_value == "-" and first < last {
+    pilot unary_kind = v4_mir_unary_op_kind(first_value)
+    if unary_kind != "" and first < last {
         pilot operand_id = v4_mir_lower_expr(mir_id, body_id, stream_id, first + 1, last + 1)
         pilot operand_ty = v4_mir_rvalue_ty(mir_id, body_id, operand_id)
-        pilot result_ty = v4_ty_unary_result(v4_mir_unary_neg, operand_ty)
-        v4_mir_check_unary_type(mir_id, expr_span, v4_mir_unary_neg, operand_ty)
+        pilot result_ty = v4_ty_unary_result(unary_kind, operand_ty)
+        v4_mir_check_unary_type(mir_id, expr_span, unary_kind, operand_ty)
         pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_neg, operand_id, 0 - 1, expr_span, result_ty)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, unary_kind, operand_id, 0 - 1, expr_span, result_ty)
     }
     if first_type == v4_tok_int {
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_int)

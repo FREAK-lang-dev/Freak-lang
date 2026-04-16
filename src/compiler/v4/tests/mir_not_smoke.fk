@@ -1,0 +1,91 @@
+-- V4 MIR boolean unary not smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_not_make_source() -> word {
+    pilot src = "task calc(flag: bool) -> bool {\n"
+    src = src + "    pilot ready: bool = not flag\n"
+    src = src + "    pilot flipped: bool = !flag\n"
+    src = src + "    pilot literal: bool = not false\n"
+    src = src + "    give back ready\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_not_make_source() -> word {
+    pilot src = "task bad_not() -> bool {\n"
+    src = src + "    pilot x: bool = not 1\n"
+    src = src + "    give back true\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_bang_make_source() -> word {
+    pilot src = "task bad_bang() -> bool {\n"
+    src = src + "    pilot x: bool = !\"nope\"\n"
+    src = src + "    give back true\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_not_source = v4_mir_not_make_source()
+pilot v4_mir_not_stream = v4_lex_text(0, v4_mir_not_source)
+pilot v4_mir_not_tree = v4_parse_stream(0, v4_mir_not_stream)
+pilot v4_mir_not_hir = v4_hir_lower_tree(0, v4_mir_not_tree)
+pilot v4_mir_not_resolve = v4_resolve_lower_hir(0, v4_mir_not_hir)
+pilot v4_mir_not_ty = v4_ty_lower_resolve(0, v4_mir_not_resolve)
+pilot v4_mir_not_mir = v4_mir_lower_ty(0, v4_mir_not_ty)
+pilot v4_mir_not_calc_def = v4_resolve_def_for_name(v4_mir_not_resolve, "calc")
+pilot v4_mir_not_calc_body = v4_mir_lookup_body(v4_mir_not_mir, v4_mir_not_calc_def)
+pilot v4_mir_not_keyword_rvalue = v4_mir_stmt_rvalue(v4_mir_not_mir, v4_mir_not_calc_body, 0)
+pilot v4_mir_not_keyword_operand = v4_mir_rvalue_lhs(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_keyword_rvalue)
+pilot v4_mir_not_bang_rvalue = v4_mir_stmt_rvalue(v4_mir_not_mir, v4_mir_not_calc_body, 1)
+pilot v4_mir_not_bang_operand = v4_mir_rvalue_lhs(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_bang_rvalue)
+pilot v4_mir_not_literal_rvalue = v4_mir_stmt_rvalue(v4_mir_not_mir, v4_mir_not_calc_body, 2)
+pilot v4_mir_not_literal_operand = v4_mir_rvalue_lhs(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_literal_rvalue)
+
+say v4_mir_summary(v4_mir_not_mir)
+say "not-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_not_mir, v4_mir_not_calc_body))
+say "not-local0-name=" + v4_mir_local_name(v4_mir_not_mir, v4_mir_not_calc_body, 0)
+say "not-local0-ty=" + v4_mir_local_ty(v4_mir_not_mir, v4_mir_not_calc_body, 0)
+say "not-local1-name=" + v4_mir_local_name(v4_mir_not_mir, v4_mir_not_calc_body, 1)
+say "not-local1-ty=" + v4_mir_local_ty(v4_mir_not_mir, v4_mir_not_calc_body, 1)
+say "not-keyword-kind=" + v4_mir_rvalue_kind(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_keyword_rvalue)
+say "not-keyword-op=" + v4_mir_rvalue_op(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_keyword_rvalue)
+say "not-keyword-ty=" + v4_mir_rvalue_ty(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_keyword_rvalue)
+say "not-keyword-operand-kind=" + v4_mir_rvalue_kind(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_keyword_operand)
+say "not-keyword-operand-ty=" + v4_mir_rvalue_ty(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_keyword_operand)
+say "not-bang-kind=" + v4_mir_rvalue_kind(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_bang_rvalue)
+say "not-bang-op=" + v4_mir_rvalue_op(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_bang_rvalue)
+say "not-bang-ty=" + v4_mir_rvalue_ty(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_bang_rvalue)
+say "not-bang-operand-kind=" + v4_mir_rvalue_kind(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_bang_operand)
+say "not-bang-operand-ty=" + v4_mir_rvalue_ty(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_bang_operand)
+say "not-literal-kind=" + v4_mir_rvalue_kind(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_literal_rvalue)
+say "not-literal-op=" + v4_mir_rvalue_op(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_literal_rvalue)
+say "not-literal-ty=" + v4_mir_rvalue_ty(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_literal_rvalue)
+say "not-literal-operand-kind=" + v4_mir_rvalue_kind(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_literal_operand)
+say "not-literal-operand-ty=" + v4_mir_rvalue_ty(v4_mir_not_mir, v4_mir_not_calc_body, v4_mir_not_literal_operand)
+say "not-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_not_mir))
+
+pilot v4_mir_bad_not_source = v4_mir_bad_not_make_source()
+pilot v4_mir_bad_not_stream = v4_lex_text(1, v4_mir_bad_not_source)
+pilot v4_mir_bad_not_tree = v4_parse_stream(1, v4_mir_bad_not_stream)
+pilot v4_mir_bad_not_hir = v4_hir_lower_tree(1, v4_mir_bad_not_tree)
+pilot v4_mir_bad_not_resolve = v4_resolve_lower_hir(1, v4_mir_bad_not_hir)
+pilot v4_mir_bad_not_ty = v4_ty_lower_resolve(1, v4_mir_bad_not_resolve)
+pilot v4_mir_bad_not_mir = v4_mir_lower_ty(1, v4_mir_bad_not_ty)
+
+say "bad-not-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_not_mir))
+say "bad-not-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_not_mir, 0))
+say "bad-not-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_not_mir, 0))
+
+pilot v4_mir_bad_bang_source = v4_mir_bad_bang_make_source()
+pilot v4_mir_bad_bang_stream = v4_lex_text(2, v4_mir_bad_bang_source)
+pilot v4_mir_bad_bang_tree = v4_parse_stream(2, v4_mir_bad_bang_stream)
+pilot v4_mir_bad_bang_hir = v4_hir_lower_tree(2, v4_mir_bad_bang_tree)
+pilot v4_mir_bad_bang_resolve = v4_resolve_lower_hir(2, v4_mir_bad_bang_hir)
+pilot v4_mir_bad_bang_ty = v4_ty_lower_resolve(2, v4_mir_bad_bang_resolve)
+pilot v4_mir_bad_bang_mir = v4_mir_lower_ty(2, v4_mir_bad_bang_ty)
+
+say "bad-bang-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_bang_mir))
+say "bad-bang-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_bang_mir, 0))
+say "bad-bang-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_bang_mir, 0))
