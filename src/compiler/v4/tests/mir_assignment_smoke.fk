@@ -1,0 +1,85 @@
+-- V4 MIR typed assignment and update smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_assignment_make_source() -> word {
+    pilot src = "task update(power: int) -> int {\n"
+    src = src + "    power = 8\n"
+    src = src + "    pilot x: int = 1\n"
+    src = src + "    x += 2\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_param_assignment_make_source() -> word {
+    pilot src = "task bad_param(power: int) -> int {\n"
+    src = src + "    power = \"nope\"\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_local_update_make_source() -> word {
+    pilot src = "task bad_update() -> int {\n"
+    src = src + "    pilot x: int = 1\n"
+    src = src + "    x += \"nope\"\n"
+    src = src + "    give back x\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_assignment_source = v4_mir_assignment_make_source()
+pilot v4_mir_assignment_stream = v4_lex_text(0, v4_mir_assignment_source)
+pilot v4_mir_assignment_tree = v4_parse_stream(0, v4_mir_assignment_stream)
+pilot v4_mir_assignment_hir = v4_hir_lower_tree(0, v4_mir_assignment_tree)
+pilot v4_mir_assignment_resolve = v4_resolve_lower_hir(0, v4_mir_assignment_hir)
+pilot v4_mir_assignment_ty = v4_ty_lower_resolve(0, v4_mir_assignment_resolve)
+pilot v4_mir_assignment_mir = v4_mir_lower_ty(0, v4_mir_assignment_ty)
+pilot v4_mir_assignment_update_def = v4_resolve_def_for_name(v4_mir_assignment_resolve, "update")
+pilot v4_mir_assignment_update_body = v4_mir_lookup_body(v4_mir_assignment_mir, v4_mir_assignment_update_def)
+pilot v4_mir_assignment_param_place = v4_mir_stmt_place(v4_mir_assignment_mir, v4_mir_assignment_update_body, 0)
+pilot v4_mir_assignment_param_rvalue = v4_mir_stmt_rvalue(v4_mir_assignment_mir, v4_mir_assignment_update_body, 0)
+pilot v4_mir_assignment_compound_place = v4_mir_stmt_place(v4_mir_assignment_mir, v4_mir_assignment_update_body, 2)
+pilot v4_mir_assignment_compound_rvalue = v4_mir_stmt_rvalue(v4_mir_assignment_mir, v4_mir_assignment_update_body, 2)
+
+say v4_mir_summary(v4_mir_assignment_mir)
+say "assign-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_assignment_mir, v4_mir_assignment_update_body))
+say "assign-local0-name=" + v4_mir_local_name(v4_mir_assignment_mir, v4_mir_assignment_update_body, 0)
+say "assign-local0-ty=" + v4_mir_local_ty(v4_mir_assignment_mir, v4_mir_assignment_update_body, 0)
+say "assign-local1-name=" + v4_mir_local_name(v4_mir_assignment_mir, v4_mir_assignment_update_body, 1)
+say "assign-local1-ty=" + v4_mir_local_ty(v4_mir_assignment_mir, v4_mir_assignment_update_body, 1)
+say "assign-param-stmt-kind=" + v4_mir_stmt_kind(v4_mir_assignment_mir, v4_mir_assignment_update_body, 0)
+say "assign-param-lhs=" + v4_mir_stmt_lhs(v4_mir_assignment_mir, v4_mir_assignment_update_body, 0)
+say "assign-param-rhs=" + v4_mir_stmt_rhs(v4_mir_assignment_mir, v4_mir_assignment_update_body, 0)
+say "assign-param-place-ty=" + v4_mir_place_ty(v4_mir_assignment_mir, v4_mir_assignment_update_body, v4_mir_assignment_param_place)
+say "assign-param-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_assignment_mir, v4_mir_assignment_update_body, v4_mir_assignment_param_rvalue)
+say "assign-compound-stmt-kind=" + v4_mir_stmt_kind(v4_mir_assignment_mir, v4_mir_assignment_update_body, 2)
+say "assign-compound-lhs=" + v4_mir_stmt_lhs(v4_mir_assignment_mir, v4_mir_assignment_update_body, 2)
+say "assign-compound-rhs=" + v4_mir_stmt_rhs(v4_mir_assignment_mir, v4_mir_assignment_update_body, 2)
+say "assign-compound-place-ty=" + v4_mir_place_ty(v4_mir_assignment_mir, v4_mir_assignment_update_body, v4_mir_assignment_compound_place)
+say "assign-compound-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_assignment_mir, v4_mir_assignment_update_body, v4_mir_assignment_compound_rvalue)
+say "assign-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_assignment_mir))
+
+pilot v4_mir_bad_param_assignment_source = v4_mir_bad_param_assignment_make_source()
+pilot v4_mir_bad_param_assignment_stream = v4_lex_text(1, v4_mir_bad_param_assignment_source)
+pilot v4_mir_bad_param_assignment_tree = v4_parse_stream(1, v4_mir_bad_param_assignment_stream)
+pilot v4_mir_bad_param_assignment_hir = v4_hir_lower_tree(1, v4_mir_bad_param_assignment_tree)
+pilot v4_mir_bad_param_assignment_resolve = v4_resolve_lower_hir(1, v4_mir_bad_param_assignment_hir)
+pilot v4_mir_bad_param_assignment_ty = v4_ty_lower_resolve(1, v4_mir_bad_param_assignment_resolve)
+pilot v4_mir_bad_param_assignment_mir = v4_mir_lower_ty(1, v4_mir_bad_param_assignment_ty)
+
+say "bad-param-assign-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_param_assignment_mir))
+say "bad-param-assign-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_param_assignment_mir, 0))
+say "bad-param-assign-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_param_assignment_mir, 0))
+
+pilot v4_mir_bad_local_update_source = v4_mir_bad_local_update_make_source()
+pilot v4_mir_bad_local_update_stream = v4_lex_text(2, v4_mir_bad_local_update_source)
+pilot v4_mir_bad_local_update_tree = v4_parse_stream(2, v4_mir_bad_local_update_stream)
+pilot v4_mir_bad_local_update_hir = v4_hir_lower_tree(2, v4_mir_bad_local_update_tree)
+pilot v4_mir_bad_local_update_resolve = v4_resolve_lower_hir(2, v4_mir_bad_local_update_hir)
+pilot v4_mir_bad_local_update_ty = v4_ty_lower_resolve(2, v4_mir_bad_local_update_resolve)
+pilot v4_mir_bad_local_update_mir = v4_mir_lower_ty(2, v4_mir_bad_local_update_ty)
+
+say "bad-local-update-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_local_update_mir))
+say "bad-local-update-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_local_update_mir, 0))
+say "bad-local-update-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_local_update_mir, 0))

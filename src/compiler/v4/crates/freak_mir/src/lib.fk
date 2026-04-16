@@ -1429,6 +1429,22 @@ task v4_mir_assignment_operator(value: word) -> bool {
     give back value == "=" or value == "+=" or value == "-=" or value == "*=" or value == "/=" or value == "%="
 }
 
+task v4_mir_find_assignment_operator_token(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot idx = start_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if depth == 0 and v4_mir_assignment_operator(val) {
+                give back idx
+            }
+            depth = v4_mir_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
 task v4_mir_condition_subject(stream_id: int, condition_start: int, condition_end: int) -> word {
     pilot first = v4_mir_skip_trivia(stream_id, condition_start)
     if first >= condition_end {
@@ -1582,7 +1598,7 @@ task v4_mir_lower_return_stmt(mir_id: int, body_id: int, block_id: int, stream_i
 }
 
 task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> void {
-    pilot eq_token = v4_mir_find_token_value(stream_id, stmt_start, stmt_end, "=")
+    pilot eq_token = v4_mir_find_assignment_operator_token(stream_id, stmt_start, stmt_end)
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, stmt_start, stmt_end)
     if eq_token > stmt_start {
         pilot lhs = v4_mir_expr_text(stream_id, stmt_start, eq_token)
