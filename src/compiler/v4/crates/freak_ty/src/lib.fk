@@ -228,6 +228,9 @@ task v4_ty_binary_valid(op: word, left_ty: word, right_ty: word) -> bool {
     if op == "Eq" or op == "Ne" {
         give back v4_ty_types_compatible(left_ty, right_ty)
     }
+    if op == "And" or op == "Or" {
+        give back left_ty == v4_ty_bool and right_ty == v4_ty_bool
+    }
     if op == "Gt" or op == "Lt" or op == "Ge" or op == "Le" {
         give back v4_ty_is_numeric(left_ty) and v4_ty_is_numeric(right_ty)
     }
@@ -248,6 +251,9 @@ task v4_ty_binary_result(op: word, left_ty: word, right_ty: word) -> word {
         give back v4_ty_unknown
     }
     if op == "Eq" or op == "Ne" or op == "Gt" or op == "Lt" or op == "Ge" or op == "Le" {
+        give back v4_ty_bool
+    }
+    if op == "And" or op == "Or" {
         give back v4_ty_bool
     }
     if op == "Add" {

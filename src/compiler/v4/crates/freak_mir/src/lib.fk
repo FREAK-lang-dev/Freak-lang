@@ -47,6 +47,8 @@ pilot v4_mir_bin_ge = "Ge"
 pilot v4_mir_bin_le = "Le"
 pilot v4_mir_bin_eq = "Eq"
 pilot v4_mir_bin_ne = "Ne"
+pilot v4_mir_bin_and = "And"
+pilot v4_mir_bin_or = "Or"
 
 pilot v4_mir_place_local = "Local"
 pilot v4_mir_place_field = "Field"
@@ -978,12 +980,18 @@ task v4_mir_binary_candidate_has_left_operand(stream_id: int, start_token: int, 
 
 task v4_mir_binary_tier_matches(op: word, tier: int) -> bool {
     if tier == 1 {
-        give back op == "==" or op == "!=" or op == ">" or op == "<" or op == ">=" or op == "<="
+        give back op == "or"
     }
     if tier == 2 {
-        give back op == "+" or op == "-"
+        give back op == "and"
     }
     if tier == 3 {
+        give back op == "==" or op == "!=" or op == ">" or op == "<" or op == ">=" or op == "<="
+    }
+    if tier == 4 {
+        give back op == "+" or op == "-"
+    }
+    if tier == 5 {
         give back op == "*" or op == "/" or op == "%"
     }
     give back false
@@ -1022,6 +1030,8 @@ task v4_mir_operator_kind(op: word) -> word {
     if op == "<=" { give back v4_mir_bin_le }
     if op == "==" { give back v4_mir_bin_eq }
     if op == "!=" { give back v4_mir_bin_ne }
+    if op == "and" { give back v4_mir_bin_and }
+    if op == "or" { give back v4_mir_bin_or }
     give back op
 }
 
@@ -1221,7 +1231,7 @@ task v4_mir_lower_expr(mir_id: int, body_id: int, stream_id: int, start_token: i
     }
 
     pilot tier = 1
-    repeat until tier > 3 {
+    repeat until tier > 5 {
         pilot op_token = v4_mir_find_binary_op(stream_id, first, last + 1, tier)
         if op_token > first and op_token < last {
             pilot left_id = v4_mir_lower_expr(mir_id, body_id, stream_id, first, op_token)
