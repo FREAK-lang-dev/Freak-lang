@@ -1,0 +1,83 @@
+-- V4 MIR typed list literal smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_list_literal_good_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot squad = [1, 2, 3]\n"
+    src = src + "    pilot mix = [1, 2.5, 3]\n"
+    src = src + "    pilot nested = [[1, 2], [3, 4]]\n"
+    src = src + "    pilot second = squad[1]\n"
+    src = src + "    give back second\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_list_literal_bad_mixed_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot squad = [1, \"nope\"]\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_list_literal_bad_empty_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot squad = []\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_list_literal_stream = v4_lex_text(0, v4_mir_list_literal_good_source())
+pilot v4_mir_list_literal_tree = v4_parse_stream(0, v4_mir_list_literal_stream)
+pilot v4_mir_list_literal_hir = v4_hir_lower_tree(0, v4_mir_list_literal_tree)
+pilot v4_mir_list_literal_resolve = v4_resolve_lower_hir(0, v4_mir_list_literal_hir)
+pilot v4_mir_list_literal_ty = v4_ty_lower_resolve(0, v4_mir_list_literal_resolve)
+pilot v4_mir_list_literal_mir = v4_mir_lower_ty(0, v4_mir_list_literal_ty)
+pilot v4_mir_list_literal_main_def = v4_resolve_def_for_name(v4_mir_list_literal_resolve, "main")
+pilot v4_mir_list_literal_main_body = v4_mir_lookup_body(v4_mir_list_literal_mir, v4_mir_list_literal_main_def)
+pilot v4_mir_list_literal_squad_rvalue = v4_mir_stmt_rvalue(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 0)
+pilot v4_mir_list_literal_mix_rvalue = v4_mir_stmt_rvalue(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 1)
+pilot v4_mir_list_literal_nested_rvalue = v4_mir_stmt_rvalue(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 2)
+pilot v4_mir_list_literal_second_rvalue = v4_mir_stmt_rvalue(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 3)
+
+say v4_mir_summary(v4_mir_list_literal_mir)
+say "list-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_list_literal_mir, v4_mir_list_literal_main_body))
+say "list-local0-name=" + v4_mir_local_name(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 0)
+say "list-local0-ty=" + v4_mir_local_ty(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 0)
+say "list-local1-name=" + v4_mir_local_name(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 1)
+say "list-local1-ty=" + v4_mir_local_ty(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 1)
+say "list-local2-name=" + v4_mir_local_name(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 2)
+say "list-local2-ty=" + v4_mir_local_ty(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 2)
+say "list-local3-name=" + v4_mir_local_name(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 3)
+say "list-local3-ty=" + v4_mir_local_ty(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, 3)
+say "squad-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, v4_mir_list_literal_squad_rvalue)
+say "squad-rvalue-op=" + v4_mir_rvalue_op(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, v4_mir_list_literal_squad_rvalue)
+say "squad-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, v4_mir_list_literal_squad_rvalue)
+say "mix-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, v4_mir_list_literal_mix_rvalue)
+say "mix-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, v4_mir_list_literal_mix_rvalue)
+say "nested-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, v4_mir_list_literal_nested_rvalue)
+say "nested-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, v4_mir_list_literal_nested_rvalue)
+say "second-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, v4_mir_list_literal_second_rvalue)
+say "second-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_literal_mir, v4_mir_list_literal_main_body, v4_mir_list_literal_second_rvalue)
+say "list-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_list_literal_mir))
+
+pilot v4_mir_list_literal_bad_mixed_stream = v4_lex_text(1, v4_mir_list_literal_bad_mixed_source())
+pilot v4_mir_list_literal_bad_mixed_tree = v4_parse_stream(1, v4_mir_list_literal_bad_mixed_stream)
+pilot v4_mir_list_literal_bad_mixed_hir = v4_hir_lower_tree(1, v4_mir_list_literal_bad_mixed_tree)
+pilot v4_mir_list_literal_bad_mixed_resolve = v4_resolve_lower_hir(1, v4_mir_list_literal_bad_mixed_hir)
+pilot v4_mir_list_literal_bad_mixed_ty = v4_ty_lower_resolve(1, v4_mir_list_literal_bad_mixed_resolve)
+pilot v4_mir_list_literal_bad_mixed_mir = v4_mir_lower_ty(1, v4_mir_list_literal_bad_mixed_ty)
+
+say "list-bad-mixed-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_list_literal_bad_mixed_mir))
+say "list-bad-mixed-message=" + v4_diag_message(v4_mir_diag(v4_mir_list_literal_bad_mixed_mir, 0))
+say "list-bad-mixed-help=" + v4_diag_help(v4_mir_diag(v4_mir_list_literal_bad_mixed_mir, 0))
+
+pilot v4_mir_list_literal_bad_empty_stream = v4_lex_text(2, v4_mir_list_literal_bad_empty_source())
+pilot v4_mir_list_literal_bad_empty_tree = v4_parse_stream(2, v4_mir_list_literal_bad_empty_stream)
+pilot v4_mir_list_literal_bad_empty_hir = v4_hir_lower_tree(2, v4_mir_list_literal_bad_empty_tree)
+pilot v4_mir_list_literal_bad_empty_resolve = v4_resolve_lower_hir(2, v4_mir_list_literal_bad_empty_hir)
+pilot v4_mir_list_literal_bad_empty_ty = v4_ty_lower_resolve(2, v4_mir_list_literal_bad_empty_resolve)
+pilot v4_mir_list_literal_bad_empty_mir = v4_mir_lower_ty(2, v4_mir_list_literal_bad_empty_ty)
+
+say "list-bad-empty-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_list_literal_bad_empty_mir))
+say "list-bad-empty-message=" + v4_diag_message(v4_mir_diag(v4_mir_list_literal_bad_empty_mir, 0))
+say "list-bad-empty-help=" + v4_diag_help(v4_mir_diag(v4_mir_list_literal_bad_empty_mir, 0))

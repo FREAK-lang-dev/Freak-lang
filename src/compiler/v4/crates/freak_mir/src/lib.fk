@@ -30,6 +30,7 @@ pilot v4_mir_rvalue_use_local = "UseLocal"
 pilot v4_mir_rvalue_use_place = "UsePlace"
 pilot v4_mir_rvalue_use_symbol = "UseSymbol"
 pilot v4_mir_rvalue_construct = "Construct"
+pilot v4_mir_rvalue_list = "List"
 pilot v4_mir_rvalue_unary = "Unary"
 pilot v4_mir_rvalue_binary = "Binary"
 pilot v4_mir_rvalue_call = "Call"
@@ -1650,6 +1651,94 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
     }
 }
 
+task v4_mir_list_type(element_ty: word) -> word {
+    if not v4_ty_is_known(element_ty) {
+        give back v4_ty_unknown
+    }
+    give back "List<" + element_ty + ">"
+}
+
+task v4_mir_list_element_end(stream_id: int, start_token: int, close_token: int) -> int {
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= close_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type != v4_tok_trivia {
+            if depth == 0 and val == "," {
+                give back idx
+            }
+            depth = v4_mir_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back close_token
+}
+
+task v4_mir_list_merge_element_type(current_ty: word, next_ty: word) -> word {
+    if not v4_ty_is_known(current_ty) {
+        give back next_ty
+    }
+    if not v4_ty_is_known(next_ty) {
+        give back current_ty
+    }
+    if current_ty == next_ty {
+        give back current_ty
+    }
+    if v4_ty_is_numeric(current_ty) and v4_ty_is_numeric(next_ty) {
+        give back v4_ty_numeric_result(current_ty, next_ty)
+    }
+    give back current_ty
+}
+
+task v4_mir_check_list_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, close_token: int) -> word {
+    pilot element_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+    if element_start >= close_token {
+        v4_mir_add_type_error(mir_id, expr_span, "empty list literal needs type context", "write a typed destination like pilot squad: List<int> = []")
+        give back v4_ty_unknown
+    }
+
+    pilot element_ty = v4_ty_unknown
+    pilot element_idx = 0
+    repeat until element_start >= close_token {
+        pilot element_end = v4_mir_list_element_end(stream_id, element_start, close_token)
+        pilot element_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, element_start, element_end)
+        pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, element_rvalue)
+        element_idx += 1
+        if element_idx == 1 {
+            element_ty = actual_ty
+        } else if v4_ty_is_known(element_ty) and v4_ty_is_known(actual_ty) {
+            if element_ty == actual_ty {
+                -- keep inferred type
+            } else if v4_ty_is_numeric(element_ty) and v4_ty_is_numeric(actual_ty) {
+                element_ty = v4_ty_numeric_result(element_ty, actual_ty)
+            } else {
+                v4_mir_add_type_error(mir_id, expr_span, "list element drift", "element " + word_from_int(element_idx) + " wants " + element_ty + " but got " + actual_ty)
+            }
+        } else {
+            element_ty = v4_mir_list_merge_element_type(element_ty, actual_ty)
+        }
+        element_start = v4_mir_skip_trivia(stream_id, element_end + 1)
+    }
+
+    give back v4_mir_list_type(element_ty)
+}
+
+task v4_mir_try_lower_list_literal(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
+    if v4_lex_token_value(stream_id, first) != "[" or v4_lex_token_value(stream_id, last) != "]" {
+        give back 0 - 1
+    }
+
+    pilot open_token = v4_mir_find_open_index_token(stream_id, first, last)
+    if open_token != first {
+        give back 0 - 1
+    }
+
+    pilot result_ty = v4_mir_check_list_literal(mir_id, body_id, stream_id, expr_span, open_token, last)
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_list, expr_text, "List", 0 - 1, 0 - 1, expr_span, result_ty)
+}
+
 task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
     if v4_lex_token_value(stream_id, last) != "}" {
         give back 0 - 1
@@ -1736,6 +1825,11 @@ task v4_mir_lower_expr(mir_id: int, body_id: int, stream_id: int, start_token: i
     }
     if first_type == v4_tok_bool {
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_bool)
+    }
+
+    pilot list_rvalue = v4_mir_try_lower_list_literal(mir_id, body_id, stream_id, first, last, expr_span)
+    if list_rvalue >= 0 {
+        give back list_rvalue
     }
 
     pilot ctor_rvalue = v4_mir_try_lower_shape_ctor(mir_id, body_id, stream_id, first, last, expr_span)
