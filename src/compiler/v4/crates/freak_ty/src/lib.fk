@@ -417,6 +417,38 @@ task v4_ty_signature_item_end_token(ty_id: int, sig_id: int) -> int {
     give back end_token
 }
 
+task v4_ty_hir_item_start_token(hir_id: int, item_id: int) -> int {
+    if hir_id < 0 {
+        give back 0 - 1
+    }
+    if item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot parse_node = v4_hir_item_parse_node(hir_id, item_id)
+    pilot item_span = v4_parse_node_span(tree_id, parse_node)
+    give back v4_ty_first_token_at_or_after(stream_id, v4_span_start(item_span))
+}
+
+task v4_ty_hir_item_end_token(hir_id: int, item_id: int) -> int {
+    if hir_id < 0 {
+        give back 0 - 1
+    }
+    if item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot parse_node = v4_hir_item_parse_node(hir_id, item_id)
+    pilot item_span = v4_parse_node_span(tree_id, parse_node)
+    pilot end_token = v4_ty_first_token_at_or_after(stream_id, v4_span_end(item_span))
+    if end_token <= v4_ty_hir_item_start_token(hir_id, item_id) {
+        end_token = v4_lex_token_count(stream_id)
+    }
+    give back end_token
+}
+
 task v4_ty_find_matching_paren(stream_id: int, open_token: int, end_token: int) -> int {
     pilot idx = open_token
     pilot depth = 0
@@ -495,6 +527,10 @@ task v4_ty_signature_param_count(ty_id: int, sig_id: int) -> int {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot open_token = v4_ty_signature_param_open_token(ty_id, sig_id)
     pilot close_token = v4_ty_signature_param_close_token(ty_id, sig_id)
+    give back v4_ty_param_count_from_tokens(stream_id, open_token, close_token)
+}
+
+task v4_ty_param_count_from_tokens(stream_id: int, open_token: int, close_token: int) -> int {
     if stream_id < 0 or open_token < 0 or close_token <= open_token {
         give back 0
     }
@@ -525,6 +561,10 @@ task v4_ty_signature_param_segment_start(ty_id: int, sig_id: int, param_id: int)
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot open_token = v4_ty_signature_param_open_token(ty_id, sig_id)
     pilot close_token = v4_ty_signature_param_close_token(ty_id, sig_id)
+    give back v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
+}
+
+task v4_ty_param_segment_start_from_tokens(stream_id: int, open_token: int, close_token: int, param_id: int) -> int {
     if stream_id < 0 or open_token < 0 or close_token <= open_token or param_id < 0 {
         give back 0 - 1
     }
@@ -558,6 +598,10 @@ task v4_ty_signature_param_segment_end(ty_id: int, sig_id: int, param_id: int) -
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
     pilot close_token = v4_ty_signature_param_close_token(ty_id, sig_id)
+    give back v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
+}
+
+task v4_ty_param_segment_end_from_tokens(stream_id: int, start_token: int, close_token: int) -> int {
     if stream_id < 0 or start_token < 0 or close_token <= start_token {
         give back 0 - 1
     }
@@ -597,6 +641,10 @@ task v4_ty_signature_param_name(ty_id: int, sig_id: int, param_id: int) -> word 
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
     pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    give back v4_ty_param_name_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_param_name_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
     if stream_id < 0 or start_token < 0 or end_token <= start_token {
         give back ""
     }
@@ -611,6 +659,10 @@ task v4_ty_signature_param_type(ty_id: int, sig_id: int, param_id: int) -> word 
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
     pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    give back v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_param_type_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
     if stream_id < 0 or start_token < 0 or end_token <= start_token {
         give back v4_ty_unknown
     }
@@ -680,21 +732,7 @@ task v4_ty_infer_arrow_expr_return(stream_id: int, start_token: int, end_token: 
     give back v4_ty_unknown
 }
 
-task v4_ty_task_return_from_hir(hir_id: int, hir_item: int) -> word {
-    if hir_item < 0 {
-        give back v4_ty_unknown
-    }
-
-    pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
-    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
-    pilot item_span = v4_parse_node_span(tree_id, parse_node)
-    pilot start_token = v4_ty_first_token_at_or_after(stream_id, v4_span_start(item_span))
-    pilot end_token = v4_ty_first_token_at_or_after(stream_id, v4_span_end(item_span))
-    if end_token <= start_token {
-        end_token = v4_lex_token_count(stream_id)
-    }
-
+task v4_ty_task_return_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
     pilot return_arrow = v4_ty_find_token_value(stream_id, start_token, end_token, "->")
     if return_arrow >= 0 {
         pilot return_start = v4_ty_skip_trivia(stream_id, return_arrow + 1)
@@ -711,6 +749,344 @@ task v4_ty_task_return_from_hir(hir_id: int, hir_item: int) -> word {
     }
 
     give back v4_ty_unknown
+}
+
+task v4_ty_task_return_from_hir(hir_id: int, hir_item: int) -> word {
+    if hir_item < 0 {
+        give back v4_ty_unknown
+    }
+
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
+    pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
+    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_skip_item(stream_id: int, start_token: int, end_limit: int) -> int {
+    pilot idx = start_token
+    pilot depth = 0
+    pilot saw_body = false
+    pilot count = end_limit
+    if count > v4_lex_token_count(stream_id) {
+        count = v4_lex_token_count(stream_id)
+    }
+
+    repeat until idx >= count {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_eof {
+            give back idx
+        }
+
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia and val == "\n" and not saw_body and depth == 0 {
+            give back idx + 1
+        }
+
+        if tok_type != v4_tok_trivia {
+            if val == "{" {
+                depth += 1
+                saw_body = true
+            } else if val == "}" {
+                if depth > 0 {
+                    depth -= 1
+                }
+                if saw_body and depth == 0 {
+                    give back idx + 1
+                }
+            } else if val == "done" {
+                if saw_body and depth == 0 {
+                    give back idx + 1
+                }
+            } else if val == "=>" {
+                saw_body = true
+            }
+        }
+        idx += 1
+    }
+    give back idx
+}
+
+task v4_ty_impl_target_type_from_hir(ty_id: int, hir_item: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back ""
+    }
+    if v4_hir_item_kind(hir_id, hir_item) != v4_hir_impl {
+        give back ""
+    }
+
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
+    pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
+    pilot open_token = v4_ty_find_token_value(stream_id, start_token, end_token, "{")
+    if open_token < 0 {
+        give back ""
+    }
+
+    pilot for_token = v4_ty_find_top_level_token(stream_id, start_token + 1, open_token, "for")
+    if for_token >= 0 {
+        pilot type_start = v4_ty_skip_trivia(stream_id, for_token + 1)
+        give back v4_ty_type_text(stream_id, type_start, open_token)
+    }
+    pilot type_start = v4_ty_skip_trivia(stream_id, start_token + 1)
+    give back v4_ty_type_text(stream_id, type_start, open_token)
+}
+
+task v4_ty_impl_body_open_token_from_hir(ty_id: int, hir_item: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
+    pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
+    give back v4_ty_find_token_value(stream_id, start_token, end_token, "{")
+}
+
+task v4_ty_impl_body_close_token_from_hir(ty_id: int, hir_item: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot open_token = v4_ty_impl_body_open_token_from_hir(ty_id, hir_item)
+    if open_token < 0 {
+        give back 0 - 1
+    }
+    give back v4_ty_find_matching_brace(stream_id, open_token, v4_ty_hir_item_end_token(hir_id, hir_item))
+}
+
+task v4_ty_impl_method_count(ty_id: int, hir_item: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back 0
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot open_token = v4_ty_impl_body_open_token_from_hir(ty_id, hir_item)
+    pilot close_token = v4_ty_impl_body_close_token_from_hir(ty_id, hir_item)
+    if open_token < 0 or close_token <= open_token {
+        give back 0
+    }
+
+    pilot count = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        idx = v4_ty_skip_trivia(stream_id, idx)
+        if idx >= close_token {
+            give back count
+        }
+        if v4_lex_token_value(stream_id, idx) == "task" {
+            count += 1
+            idx = v4_ty_skip_item(stream_id, idx, close_token)
+        } else {
+            idx += 1
+        }
+    }
+    give back count
+}
+
+task v4_ty_impl_method_start_token(ty_id: int, hir_item: int, method_id: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or hir_item < 0 or method_id < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot open_token = v4_ty_impl_body_open_token_from_hir(ty_id, hir_item)
+    pilot close_token = v4_ty_impl_body_close_token_from_hir(ty_id, hir_item)
+    if open_token < 0 or close_token <= open_token {
+        give back 0 - 1
+    }
+
+    pilot current = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        idx = v4_ty_skip_trivia(stream_id, idx)
+        if idx >= close_token {
+            give back 0 - 1
+        }
+        if v4_lex_token_value(stream_id, idx) == "task" {
+            if current == method_id {
+                give back idx
+            }
+            current += 1
+            idx = v4_ty_skip_item(stream_id, idx, close_token)
+        } else {
+            idx += 1
+        }
+    }
+    give back 0 - 1
+}
+
+task v4_ty_impl_method_end_token(ty_id: int, hir_item: int, method_id: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_ty_impl_method_start_token(ty_id, hir_item, method_id)
+    pilot close_token = v4_ty_impl_body_close_token_from_hir(ty_id, hir_item)
+    if start_token < 0 or close_token <= start_token {
+        give back 0 - 1
+    }
+    give back v4_ty_skip_item(stream_id, start_token, close_token)
+}
+
+task v4_ty_impl_method_name(ty_id: int, hir_item: int, method_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back ""
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_ty_impl_method_start_token(ty_id, hir_item, method_id)
+    if start_token < 0 {
+        give back ""
+    }
+    pilot name_token = v4_ty_skip_trivia(stream_id, start_token + 1)
+    if name_token < 0 {
+        give back ""
+    }
+    give back v4_lex_token_value(stream_id, name_token)
+}
+
+task v4_ty_impl_method_param_open_token(ty_id: int, hir_item: int, method_id: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_ty_impl_method_start_token(ty_id, hir_item, method_id)
+    pilot end_token = v4_ty_impl_method_end_token(ty_id, hir_item, method_id)
+    if start_token < 0 or end_token <= start_token {
+        give back 0 - 1
+    }
+    give back v4_ty_find_token_value(stream_id, start_token, end_token, "(")
+}
+
+task v4_ty_impl_method_param_close_token(ty_id: int, hir_item: int, method_id: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot open_token = v4_ty_impl_method_param_open_token(ty_id, hir_item, method_id)
+    pilot end_token = v4_ty_impl_method_end_token(ty_id, hir_item, method_id)
+    if open_token < 0 or end_token <= open_token {
+        give back 0 - 1
+    }
+    give back v4_ty_find_matching_paren(stream_id, open_token, end_token)
+}
+
+task v4_ty_impl_method_param_count(ty_id: int, hir_item: int, method_id: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back 0
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    give back v4_ty_param_count_from_tokens(stream_id, v4_ty_impl_method_param_open_token(ty_id, hir_item, method_id), v4_ty_impl_method_param_close_token(ty_id, hir_item, method_id))
+}
+
+task v4_ty_impl_method_param_name(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back ""
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot open_token = v4_ty_impl_method_param_open_token(ty_id, hir_item, method_id)
+    pilot close_token = v4_ty_impl_method_param_close_token(ty_id, hir_item, method_id)
+    pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
+    pilot end_token = v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
+    give back v4_ty_param_name_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_impl_method_param_type(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back v4_ty_unknown
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot open_token = v4_ty_impl_method_param_open_token(ty_id, hir_item, method_id)
+    pilot close_token = v4_ty_impl_method_param_close_token(ty_id, hir_item, method_id)
+    pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
+    pilot end_token = v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
+    pilot param_name = v4_ty_param_name_from_tokens(stream_id, start_token, end_token)
+    if param_name == "self" {
+        give back v4_ty_impl_target_type_from_hir(ty_id, hir_item)
+    }
+    give back v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_impl_method_is_instance(ty_id: int, hir_item: int, method_id: int) -> bool {
+    if v4_ty_impl_method_param_count(ty_id, hir_item, method_id) <= 0 {
+        give back false
+    }
+    give back v4_ty_impl_method_param_name(ty_id, hir_item, method_id, 0) == "self"
+}
+
+task v4_ty_impl_method_explicit_param_count(ty_id: int, hir_item: int, method_id: int) -> int {
+    pilot count = v4_ty_impl_method_param_count(ty_id, hir_item, method_id)
+    if v4_ty_impl_method_is_instance(ty_id, hir_item, method_id) {
+        if count > 0 {
+            give back count - 1
+        }
+    }
+    give back count
+}
+
+task v4_ty_impl_method_explicit_param_name(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+    pilot shift = 0
+    if v4_ty_impl_method_is_instance(ty_id, hir_item, method_id) {
+        shift = 1
+    }
+    give back v4_ty_impl_method_param_name(ty_id, hir_item, method_id, param_id + shift)
+}
+
+task v4_ty_impl_method_explicit_param_type(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+    pilot shift = 0
+    if v4_ty_impl_method_is_instance(ty_id, hir_item, method_id) {
+        shift = 1
+    }
+    give back v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_id + shift)
+}
+
+task v4_ty_impl_method_return_type(ty_id: int, hir_item: int, method_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back v4_ty_unknown
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    give back v4_ty_task_return_from_tokens(stream_id, v4_ty_impl_method_start_token(ty_id, hir_item, method_id), v4_ty_impl_method_end_token(ty_id, hir_item, method_id))
+}
+
+task v4_ty_impl_method_def(ty_id: int, hir_item: int, method_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back ""
+    }
+    pilot owner_ty = v4_ty_impl_target_type_from_hir(ty_id, hir_item)
+    pilot method_name = v4_ty_impl_method_name(ty_id, hir_item, method_id)
+    pilot file_id = v4_hir_file_id(hir_id)
+    give back "file" + word_from_int(file_id) + "::Method::" + owner_ty + "." + method_name + "#" + word_from_int(hir_item) + ":" + word_from_int(method_id)
+}
+
+task v4_ty_impl_method_display(ty_id: int, hir_item: int, method_id: int) -> word {
+    pilot owner_ty = v4_ty_impl_target_type_from_hir(ty_id, hir_item)
+    pilot method_name = v4_ty_impl_method_name(ty_id, hir_item, method_id)
+    pilot return_ty = v4_ty_impl_method_return_type(ty_id, hir_item, method_id)
+    give back "task " + owner_ty + "::" + method_name + "(...) -> " + return_ty
 }
 
 task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, hir_id: int, hir_item: int) -> word {
