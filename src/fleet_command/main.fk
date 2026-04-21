@@ -42,6 +42,16 @@ pilot mouse_y = 0
 
 pilot rng_state = 1
 
+pilot country_britain = 0
+pilot country_germany = 1
+pilot country_usa = 2
+pilot country_japan = 3
+pilot country_france = 4
+pilot country_russia = 5
+
+pilot player_country = 0
+pilot enemy_country = 1
+
 pilot campaign_year = 1898
 pilot campaign_month = 1
 pilot treasury = 1100
@@ -147,6 +157,192 @@ task rand_step(max_exclusive: int) -> int {
     give back rng_state % max_exclusive
 }
 
+task country_name(country: int) -> word {
+    if country == country_britain { give back "Great Britain" }
+    if country == country_germany { give back "German Empire" }
+    if country == country_usa { give back "United States" }
+    if country == country_japan { give back "Empire of Japan" }
+    if country == country_france { give back "France" }
+    give back "Russian Empire"
+}
+
+task country_label(country: int) -> word {
+    if country == country_britain { give back "Britain" }
+    if country == country_germany { give back "Germany" }
+    if country == country_usa { give back "USA" }
+    if country == country_japan { give back "Japan" }
+    if country == country_france { give back "France" }
+    give back "Russia"
+}
+
+task country_doctrine(country: int) -> word {
+    if country == country_britain { give back "Doctrine: Trade shield and distant blockade." }
+    if country == country_germany { give back "Doctrine: Fleet in being and sudden concentration." }
+    if country == country_usa { give back "Doctrine: Industrial reserve and measured escalation." }
+    if country == country_japan { give back "Doctrine: Decisive battle in home waters." }
+    if country == country_france { give back "Doctrine: Cruiser war and Mediterranean pressure." }
+    give back "Doctrine: Scattered squadrons and hard weather."
+}
+
+task country_home_zone(country: int) -> word {
+    if country == country_britain { give back "North Sea" }
+    if country == country_germany { give back "Baltic Sea" }
+    if country == country_usa { give back "Central Pacific" }
+    if country == country_japan { give back "Sea of Japan" }
+    if country == country_france { give back "Western Mediterranean" }
+    give back "Vladivostok Approaches"
+}
+
+task country_rival(country: int) -> int {
+    if country == country_britain { give back country_germany }
+    if country == country_germany { give back country_britain }
+    if country == country_usa { give back country_japan }
+    if country == country_japan { give back country_usa }
+    if country == country_france { give back country_germany }
+    give back country_japan
+}
+
+task country_start_treasury(country: int) -> int {
+    if country == country_britain { give back 1320 }
+    if country == country_germany { give back 1180 }
+    if country == country_usa { give back 1260 }
+    if country == country_japan { give back 1140 }
+    if country == country_france { give back 1090 }
+    give back 1010
+}
+
+task country_income(country: int) -> int {
+    if country == country_britain { give back 230 }
+    if country == country_germany { give back 205 }
+    if country == country_usa { give back 220 }
+    if country == country_japan { give back 192 }
+    if country == country_france { give back 184 }
+    give back 176
+}
+
+task country_start_prestige(country: int) -> int {
+    if country == country_britain { give back 58 }
+    if country == country_germany { give back 54 }
+    if country == country_usa { give back 55 }
+    if country == country_japan { give back 56 }
+    if country == country_france { give back 50 }
+    give back 47
+}
+
+task country_start_dd(country: int) -> int {
+    if country == country_britain { give back 7 }
+    if country == country_germany { give back 5 }
+    if country == country_usa { give back 5 }
+    if country == country_japan { give back 5 }
+    if country == country_france { give back 4 }
+    give back 6
+}
+
+task country_start_ca(country: int) -> int {
+    if country == country_britain { give back 4 }
+    if country == country_germany { give back 3 }
+    if country == country_usa { give back 3 }
+    if country == country_japan { give back 4 }
+    if country == country_france { give back 3 }
+    give back 2
+}
+
+task country_start_bb(country: int) -> int {
+    if country == country_britain { give back 3 }
+    if country == country_germany { give back 2 }
+    if country == country_usa { give back 2 }
+    if country == country_japan { give back 2 }
+    if country == country_france { give back 2 }
+    give back 2
+}
+
+task country_battle_bias(country: int) -> int {
+    if country == country_britain { give back 2 }
+    if country == country_germany { give back 2 }
+    if country == country_usa { give back 1 }
+    if country == country_japan { give back 4 }
+    if country == country_france { give back 1 }
+    give back 0 - 1
+}
+
+task country_detection_bias(country: int) -> int {
+    if country == country_britain { give back 3 }
+    if country == country_germany { give back 1 }
+    if country == country_usa { give back 2 }
+    if country == country_japan { give back 2 }
+    if country == country_france { give back 1 }
+    give back 0
+}
+
+task rivalry_start_tension(a: int, b: int) -> int {
+    if (a == country_britain and b == country_germany) or (a == country_germany and b == country_britain) { give back 46 }
+    if (a == country_usa and b == country_japan) or (a == country_japan and b == country_usa) { give back 43 }
+    if (a == country_france and b == country_germany) or (a == country_germany and b == country_france) { give back 40 }
+    if (a == country_russia and b == country_japan) or (a == country_japan and b == country_russia) { give back 44 }
+    give back 36
+}
+
+task player_name() -> word {
+    give back country_name(player_country)
+}
+
+task enemy_name() -> word {
+    give back country_name(enemy_country)
+}
+
+task side_name(side: int) -> word {
+    if side == 0 { give back player_name() }
+    give back enemy_name()
+}
+
+task rivalry_zone_name(slot: int) -> word {
+    pilot a = player_country
+    pilot b = enemy_country
+    if (a == country_britain and b == country_germany) or (a == country_germany and b == country_britain) {
+        if slot == 0 { give back "North Sea" }
+        if slot == 1 { give back "Baltic Sea" }
+        if slot == 2 { give back "Atlantic Approaches" }
+        give back "Norwegian Sea"
+    }
+    if (a == country_usa and b == country_japan) or (a == country_japan and b == country_usa) {
+        if slot == 0 { give back "Central Pacific" }
+        if slot == 1 { give back "Philippine Sea" }
+        if slot == 2 { give back "Sea of Japan" }
+        give back "West Pacific"
+    }
+    if (a == country_france and b == country_germany) or (a == country_germany and b == country_france) {
+        if slot == 0 { give back "English Channel" }
+        if slot == 1 { give back "North Sea" }
+        if slot == 2 { give back "Atlantic Approaches" }
+        give back "Western Mediterranean"
+    }
+    if (a == country_russia and b == country_japan) or (a == country_japan and b == country_russia) {
+        if slot == 0 { give back "Sea of Japan" }
+        if slot == 1 { give back "Yellow Sea" }
+        if slot == 2 { give back "North Pacific" }
+        give back "Vladivostok Approaches"
+    }
+    if slot == 0 { give back "North Sea" }
+    if slot == 1 { give back "Atlantic Approaches" }
+    if slot == 2 { give back "Central Pacific" }
+    give back "West Pacific"
+}
+
+task zone_is_active(zone: word) -> bool {
+    pilot slot = 0
+    repeat until slot >= 4 {
+        if rivalry_zone_name(slot) == zone { give back true }
+        slot += 1
+    }
+    give back false
+}
+
+task select_country(country: int) -> void {
+    player_country = country
+    enemy_country = country_rival(country)
+    reset_campaign()
+}
+
 task ship_cost(kind: word) -> int {
     if kind == "Destroyer" { give back 120 }
     if kind == "Cruiser" { give back 260 }
@@ -204,21 +400,22 @@ task log_add(line: word) -> void {
 task reset_campaign() -> void {
     campaign_year = 1898
     campaign_month = 1
-    treasury = 1100
-    enemy_treasury = 1100
-    prestige = 50
-    enemy_prestige = 50
-    tension = 34
-    sea_control = 50
+    treasury = country_start_treasury(player_country)
+    enemy_treasury = country_start_treasury(enemy_country)
+    prestige = country_start_prestige(player_country)
+    enemy_prestige = country_start_prestige(enemy_country)
+    tension = rivalry_start_tension(player_country, enemy_country)
+    sea_control = 50 + country_detection_bias(player_country) - country_detection_bias(enemy_country)
+    sea_control = fleet_clamp_int(sea_control, 35, 65)
     posture = 1
     game_over = false
-    game_status = "Fleet ready."
-    player_dd = 4
-    player_ca = 2
-    player_bb = 1
-    enemy_dd = 4
-    enemy_ca = 2
-    enemy_bb = 1
+    game_status = player_name() + " fleet ready."
+    player_dd = country_start_dd(player_country)
+    player_ca = country_start_ca(player_country)
+    player_bb = country_start_bb(player_country)
+    enemy_dd = country_start_dd(enemy_country)
+    enemy_ca = country_start_ca(enemy_country)
+    enemy_bb = country_start_bb(enemy_country)
     build_sides = array_new()
     build_kinds = array_new()
     build_etas = array_new()
@@ -227,21 +424,21 @@ task reset_campaign() -> void {
     contact_zone = ""
     contact_strength = 0
     contact_quality = 0
-    log_add("1898 opens with a fragile balance at sea.")
-    log_add("Your bureau can build destroyers, cruisers, and battleships.")
-    log_add("Find contacts, protect commerce, and keep prestige alive.")
+    log_add("1898 opens with " + player_name() + " facing " + enemy_name() + ".")
+    log_add("Home waters: " + country_home_zone(player_country) + ". Rival base: " + country_home_zone(enemy_country) + ".")
+    log_add(country_doctrine(player_country))
 }
 
 task queue_build(side: int, kind: word) -> void {
     pilot cost = ship_cost(kind)
     if side == 0 {
         if treasury < cost {
-            game_status = "Treasury cannot support another " + kind + "."
+            game_status = player_name() + " cannot fund another " + kind + "."
             log_add("Treasury rejects a new " + kind + " order.")
             give back
         }
         treasury -= cost
-        log_add("Keel laid: " + kind + " for " + word_from_int(cost) + " funds.")
+        log_add(side_name(side) + " lays down a " + kind + " for " + word_from_int(cost) + " funds.")
     } else {
         if enemy_treasury < cost { give back }
         enemy_treasury -= cost
@@ -256,13 +453,13 @@ task complete_build(side: int, kind: word) -> void {
         if kind == "Destroyer" { player_dd += 1 }
         if kind == "Cruiser" { player_ca += 1 }
         if kind == "Battleship" { player_bb += 1 }
-        log_add(kind + " joins the fleet.")
+        log_add(player_name() + " commissions a new " + kind + ".")
     } else {
         if kind == "Destroyer" { enemy_dd += 1 }
         if kind == "Cruiser" { enemy_ca += 1 }
         if kind == "Battleship" { enemy_bb += 1 }
         if rand_step(100) < 45 {
-            log_add("Enemy yards commission another " + ship_short(kind) + ".")
+            log_add(enemy_name() + " commissions another " + ship_short(kind) + ".")
         }
     }
 }
@@ -294,8 +491,12 @@ task process_build_queue() -> void {
 task ai_take_turn() -> void {
     if enemy_treasury < 120 { give back }
     pilot choice = ""
-    if enemy_bb < player_bb and enemy_treasury >= ship_cost("Battleship") and tension >= 40 {
+    if enemy_country == country_japan and enemy_treasury >= ship_cost("Battleship") and tension >= 38 {
         choice = "Battleship"
+    } else if enemy_bb < player_bb and enemy_treasury >= ship_cost("Battleship") and tension >= 40 {
+        choice = "Battleship"
+    } else if enemy_country == country_britain and enemy_treasury >= ship_cost("Destroyer") and enemy_dd <= player_dd + 1 {
+        choice = "Destroyer"
     } else if enemy_dd < player_dd and enemy_treasury >= ship_cost("Destroyer") {
         choice = "Destroyer"
     } else if enemy_ca < player_ca and enemy_treasury >= ship_cost("Cruiser") {
@@ -317,28 +518,19 @@ task ai_take_turn() -> void {
     queue_build(1, choice)
 }
 
-task random_zone() -> word {
-    pilot roll = rand_step(5)
-    if roll == 0 { give back "Northern Approaches" }
-    if roll == 1 { give back "Western Trade Route" }
-    if roll == 2 { give back "Central Sea" }
-    if roll == 3 { give back "Island Passage" }
-    give back "Southern Screen"
-}
-
 task start_contact() -> void {
     contact_exists = true
-    contact_zone = random_zone()
-    contact_quality = 40 + rand_step(35) + posture * 8
-    contact_strength = enemy_total_power() / 2 + rand_step(enemy_total_power() / 2 + 7)
+    contact_zone = rivalry_zone_name(rand_step(4))
+    contact_quality = 38 + rand_step(35) + posture * 8 + country_detection_bias(player_country)
+    contact_strength = enemy_total_power() / 2 + rand_step(enemy_total_power() / 2 + 7) + country_battle_bias(enemy_country)
     if contact_strength < 8 { contact_strength = 8 }
-    game_status = "Enemy contact reported in " + contact_zone + "."
-    log_add("Scouts report enemy movement in " + contact_zone + ".")
+    game_status = enemy_name() + " contact reported in " + contact_zone + "."
+    log_add(player_name() + " scouts report " + enemy_name() + " movement in " + contact_zone + ".")
 }
 
 task maybe_start_contact() -> void {
     if contact_exists { give back }
-    pilot chance = 12 + tension / 3 + posture * 9 + sea_control / 12
+    pilot chance = 12 + tension / 3 + posture * 9 + sea_control / 12 + country_detection_bias(player_country) - country_detection_bias(enemy_country)
     chance = fleet_clamp_int(chance, 8, 88)
     if rand_step(100) < chance {
         start_contact()
@@ -418,18 +610,18 @@ task apply_enemy_losses(points: int) -> word {
 task evaluate_campaign() -> void {
     if prestige <= 0 {
         game_over = true
-        game_status = "Admiralty removes you from command."
-        log_add("Your command collapses under political fire.")
+        game_status = player_name() + " removes you from command."
+        log_add(player_name() + " turns against your command under political fire.")
     }
     if player_total_power() <= 0 and array_len(build_sides) == 0 {
         game_over = true
-        game_status = "The fleet is gone."
-        log_add("No hulls remain to contest the sea.")
+        game_status = player_name() + " loses the fleet."
+        log_add("No " + player_name() + " hulls remain to contest the sea.")
     }
     if enemy_total_power() <= 0 and enemy_treasury < 120 and array_len(build_sides) == 0 {
         game_over = true
-        game_status = "Enemy sea power breaks."
-        log_add("The enemy can no longer contest the theater.")
+        game_status = enemy_name() + " sea power breaks."
+        log_add(enemy_name() + " can no longer contest the theater.")
     }
 }
 
@@ -437,11 +629,11 @@ task engage_contact() -> void {
     if game_over { give back }
     if contact_exists == false {
         game_status = "No contact to engage."
-        log_add("Your squadrons sortie into empty water.")
+        log_add(player_name() + " squadrons sortie into empty water.")
         give back
     }
-    pilot player_power = player_total_power() + prestige / 5 + posture * 4 + rand_step(18)
-    pilot enemy_power = contact_strength + enemy_prestige / 5 + rand_step(18)
+    pilot player_power = player_total_power() + prestige / 5 + posture * 4 + country_battle_bias(player_country) + rand_step(18)
+    pilot enemy_power = contact_strength + enemy_prestige / 5 + country_battle_bias(enemy_country) + rand_step(18)
     pilot diff = player_power - enemy_power
     pilot enemy_loss_points = 0
     pilot player_loss_points = 0
@@ -450,15 +642,15 @@ task engage_contact() -> void {
         player_loss_points = 3 + rand_step(4)
         prestige += 4
         sea_control += 8
-        game_status = "Decisive victory at " + contact_zone + "."
-        log_add("A decisive action breaks the enemy line at " + contact_zone + ".")
+        game_status = player_name() + " wins decisively at " + contact_zone + "."
+        log_add("A decisive action breaks " + enemy_name() + " at " + contact_zone + ".")
     } else if diff >= 5 {
         enemy_loss_points = 8 + rand_step(6)
         player_loss_points = 4 + rand_step(5)
         prestige += 2
         sea_control += 4
-        game_status = "Your fleet holds the field."
-        log_add("The enemy withdraws after a sharp action.")
+        game_status = player_name() + " holds the field."
+        log_add(enemy_name() + " withdraws after a sharp action.")
     } else if diff >= 0 {
         enemy_loss_points = 5 + rand_step(5)
         player_loss_points = 5 + rand_step(5)
@@ -469,23 +661,23 @@ task engage_contact() -> void {
         player_loss_points = 7 + rand_step(6)
         prestige -= 2
         sea_control -= 4
-        game_status = "Enemy gains the measure of the battle."
-        log_add("Your line breaks contact under pressure.")
+        game_status = enemy_name() + " gains the measure of the battle."
+        log_add(player_name() + " breaks contact under pressure.")
     } else {
         enemy_loss_points = 2 + rand_step(3)
         player_loss_points = 12 + rand_step(8)
         prestige -= 5
         sea_control -= 8
-        game_status = "Defeat at " + contact_zone + "."
-        log_add("A brutal defeat shakes confidence across the theater.")
+        game_status = player_name() + " suffers defeat at " + contact_zone + "."
+        log_add("A brutal defeat shakes confidence across " + player_name() + ".")
     }
     sea_control = fleet_clamp_int(sea_control, 0, 100)
     prestige = fleet_clamp_int(prestige, 0, 100)
     enemy_prestige = fleet_clamp_int(enemy_prestige + rand_step(3) - 1, 0, 100)
     pilot enemy_report = apply_enemy_losses(enemy_loss_points)
     pilot player_report = apply_player_losses(player_loss_points)
-    log_add("Enemy losses: " + enemy_report)
-    log_add("Own losses: " + player_report)
+    log_add(enemy_name() + " losses: " + enemy_report)
+    log_add(player_name() + " losses: " + player_report)
     tension = fleet_clamp_int(tension + 6 + rand_step(8), 0, 100)
     contact_exists = false
     contact_zone = ""
@@ -497,14 +689,14 @@ task engage_contact() -> void {
 task fade_contact_on_advance() -> void {
     if contact_exists == false { give back }
     if rand_step(100) < 45 - posture * 8 {
-        log_add("Contact fades into rain squalls before the fleet can close.")
-        game_status = "The enemy slips away."
+        log_add(enemy_name() + " fades into rain squalls before the fleet can close.")
+        game_status = enemy_name() + " slips away."
     } else {
         pilot raid = 35 + rand_step(45)
         treasury -= raid
         if treasury < 0 { treasury = 0 }
         prestige = fleet_clamp_int(prestige - 1, 0, 100)
-        log_add("Enemy raiders hit commerce for " + word_from_int(raid) + " funds.")
+        log_add(enemy_name() + " raiders hit commerce for " + word_from_int(raid) + " funds.")
         game_status = "Missed interception costs the treasury."
     }
     contact_exists = false
@@ -522,10 +714,10 @@ task advance_month() -> void {
     if campaign_month > 12 {
         campaign_month = 1
         campaign_year += 1
-        log_add("A new year opens over the fleet.")
+        log_add("A new year opens in the naval race.")
     }
-    treasury += 180 + prestige / 3
-    enemy_treasury += 170 + enemy_prestige / 3
+    treasury += country_income(player_country) + prestige / 3
+    enemy_treasury += country_income(enemy_country) + enemy_prestige / 3
     tension = fleet_clamp_int(tension + rand_step(11) - 4, 0, 100)
     process_build_queue()
     ai_take_turn()
@@ -553,14 +745,62 @@ task draw_button(win: int, text: word, x: int, y: int, w: int, h: int, active: b
     draw_text(win, text, x + 10, y + 8, 13, fg)
 }
 
+task draw_zone_box(win: int, x: int, y: int, w: int, h: int, zone: word) -> void {
+    pilot fill = color_panel
+    pilot border = color_border
+    pilot fg = color_text
+    if zone_is_active(zone) {
+        fill = 1455682
+        border = color_route
+    }
+    if zone == country_home_zone(player_country) {
+        fill = color_player
+        border = color_player
+    }
+    if zone == country_home_zone(enemy_country) {
+        fill = color_enemy
+        border = color_enemy
+    }
+    if zone == contact_zone {
+        fill = color_contact
+        border = color_warning
+        fg = color_bg
+    }
+    draw_rect(win, x, y, w, h, fill)
+    draw_stroke(win, x, y, w, h, border)
+    draw_text(win, zone, x + 8, y + 10, 12, fg)
+    if zone == country_home_zone(player_country) {
+        draw_text(win, country_label(player_country), x + 8, y + 28, 11, 16777215)
+    } else if zone == country_home_zone(enemy_country) {
+        draw_text(win, country_label(enemy_country), x + 8, y + 28, 11, 16777215)
+    }
+}
+
+task draw_map_country(win: int, country: int, x: int, y: int) -> void {
+    pilot marker = color_muted
+    pilot label_color = color_muted
+    pilot radius = 7
+    if country == player_country {
+        marker = color_player
+        label_color = color_text
+        radius = 11
+    } else if country == enemy_country {
+        marker = color_enemy
+        label_color = color_text
+        radius = 11
+    }
+    draw_circle(win, x, y, radius, marker)
+    draw_text(win, country_label(country), x + 12, y - 4, 12, label_color)
+}
+
 task draw_top_bar(win: int) -> void {
     draw_rect(win, 0, 0, win_w, top_h, color_surface)
     draw_text_bold(win, "FLEET COMMAND", 18, 15, 24, color_gold)
-    draw_text(win, month_name(campaign_month) + " " + word_from_int(campaign_year), 260, 18, 16, color_text)
-    draw_text(win, "Treasury " + word_from_int(treasury), 470, 18, 16, color_text)
-    draw_text(win, "Prestige " + word_from_int(prestige), 650, 18, 16, color_text)
-    draw_text(win, "Tension " + word_from_int(tension), 810, 18, 16, color_text)
-    draw_text(win, "Sea Control " + word_from_int(sea_control), 970, 18, 16, color_text)
+    draw_text(win, player_name() + " vs " + enemy_name(), 242, 18, 16, color_text)
+    draw_text(win, month_name(campaign_month) + " " + word_from_int(campaign_year), 648, 18, 16, color_text)
+    draw_text(win, "Treasury " + word_from_int(treasury), 840, 18, 16, color_text)
+    draw_text(win, "Prestige " + word_from_int(prestige), 1016, 18, 16, color_text)
+    draw_text(win, "Tension " + word_from_int(tension), 1164, 18, 16, color_text)
     draw_button(win, "Reset Campaign", win_w - 170, 12, 150, 30, false, color_warning)
 }
 
@@ -573,34 +813,45 @@ task draw_left_panel(win: int) -> void {
     draw_text(win, "Status", 18, top_h + 46, 12, color_muted)
     draw_text(win, game_status, 18, top_h + 66, 13, color_text)
 
-    draw_text(win, "Fleet posture", 18, top_h + 108, 12, color_muted)
-    draw_button(win, "Reserve", 18, top_h + 128, 76, 30, posture == 0, color_player)
-    draw_button(win, "Patrol", 102, top_h + 128, 72, 30, posture == 1, color_player)
-    draw_button(win, "Aggressive", 182, top_h + 128, 90, 30, posture == 2, color_player)
+    draw_text(win, "Nation", 18, top_h + 104, 12, color_muted)
+    draw_button(win, "Britain", 18, top_h + 124, 74, 28, player_country == country_britain, color_gold)
+    draw_button(win, "Germany", 100, top_h + 124, 84, 28, player_country == country_germany, color_gold)
+    draw_button(win, "USA", 192, top_h + 124, 70, 28, player_country == country_usa, color_gold)
+    draw_button(win, "Japan", 18, top_h + 160, 74, 28, player_country == country_japan, color_gold)
+    draw_button(win, "France", 100, top_h + 160, 84, 28, player_country == country_france, color_gold)
+    draw_button(win, "Russia", 192, top_h + 160, 70, 28, player_country == country_russia, color_gold)
 
-    draw_text(win, "Own fleet", 18, top_h + 184, 12, color_muted)
-    draw_text(win, fleet_line(player_dd, player_ca, player_bb), 18, top_h + 204, 14, color_text)
-    draw_text(win, "Power " + word_from_int(player_total_power()), 18, top_h + 226, 13, color_player)
+    draw_text(win, "Home waters: " + country_home_zone(player_country), 18, top_h + 208, 12, color_text)
+    draw_text(win, "Rival: " + enemy_name(), 18, top_h + 228, 12, color_muted)
 
-    draw_text(win, "Enemy estimate", 18, top_h + 262, 12, color_muted)
-    draw_text(win, fleet_line(enemy_dd, enemy_ca, enemy_bb), 18, top_h + 282, 14, color_text)
-    draw_text(win, "Power " + word_from_int(enemy_total_power()), 18, top_h + 304, 13, color_enemy)
+    draw_text(win, "Fleet posture", 18, top_h + 266, 12, color_muted)
+    draw_button(win, "Reserve", 18, top_h + 286, 76, 30, posture == 0, color_player)
+    draw_button(win, "Patrol", 102, top_h + 286, 72, 30, posture == 1, color_player)
+    draw_button(win, "Aggressive", 182, top_h + 286, 90, 30, posture == 2, color_player)
 
-    draw_text(win, "Construction orders", 18, top_h + 340, 12, color_muted)
-    draw_button(win, "Build DD (120)", 18, top_h + 360, 118, 30, false, color_player)
-    draw_button(win, "Build CA (260)", 144, top_h + 360, 118, 30, false, color_player)
-    draw_button(win, "Build BB (520)", 18, top_h + 398, 118, 30, false, color_player)
-    draw_button(win, "Advance Month", 144, top_h + 398, 118, 30, false, color_gold)
-    draw_button(win, "Engage Contact", 18, top_h + 436, 244, 34, contact_exists, color_danger)
+    draw_text(win, country_label(player_country) + " fleet", 18, top_h + 342, 12, color_muted)
+    draw_text(win, fleet_line(player_dd, player_ca, player_bb), 18, top_h + 362, 14, color_text)
+    draw_text(win, "Power " + word_from_int(player_total_power()), 18, top_h + 384, 13, color_player)
 
-    draw_text(win, "Keyboard", 18, top_h + 500, 12, color_muted)
-    draw_text(win, "Space  - advance month", 18, top_h + 520, 13, color_text)
-    draw_text(win, "Enter  - engage contact", 18, top_h + 540, 13, color_text)
-    draw_text(win, "Escape - quit", 18, top_h + 560, 13, color_text)
+    draw_text(win, country_label(enemy_country) + " estimate", 18, top_h + 418, 12, color_muted)
+    draw_text(win, fleet_line(enemy_dd, enemy_ca, enemy_bb), 18, top_h + 438, 14, color_text)
+    draw_text(win, "Power " + word_from_int(enemy_total_power()), 18, top_h + 460, 13, color_enemy)
+
+    draw_text(win, "Construction orders", 18, top_h + 496, 12, color_muted)
+    draw_button(win, "Build DD (120)", 18, top_h + 516, 118, 30, false, color_player)
+    draw_button(win, "Build CA (260)", 144, top_h + 516, 118, 30, false, color_player)
+    draw_button(win, "Build BB (520)", 18, top_h + 554, 118, 30, false, color_player)
+    draw_button(win, "Advance Month", 144, top_h + 554, 118, 30, false, color_gold)
+    draw_button(win, "Engage Contact", 18, top_h + 592, 244, 34, contact_exists, color_danger)
+
+    draw_text(win, "Keyboard", 18, top_h + 642, 12, color_muted)
+    draw_text(win, "Space  advance month", 18, top_h + 662, 12, color_text)
+    draw_text(win, "Enter  engage contact", 18, top_h + 680, 12, color_text)
+    draw_text(win, "Escape quit", 18, top_h + 698, 12, color_text)
 
     if game_over {
-        draw_text_bold(win, "CAMPAIGN ENDED", 18, top_h + 612, 18, color_warning)
-        draw_text(win, game_status, 18, top_h + 638, 13, color_text)
+        draw_text_bold(win, "CAMPAIGN ENDED", 18, top_h + 730 - 72, 18, color_warning)
+        draw_text(win, game_status, 18, top_h + 730 - 46, 13, color_text)
     }
 }
 
@@ -612,68 +863,56 @@ task draw_theater(win: int) -> void {
     draw_rect(win, x, y, w, h, color_sea)
     draw_stroke(win, x, y, w, h, color_border)
 
-    pilot harbor_y = y + h / 2
-    pilot enemy_x = x + w - 110
-    pilot player_x = x + 110
-    pilot center_x = x + w / 2
-    pilot lane_top = y + 150
-    pilot lane_mid = y + h / 2
-    pilot lane_bot = y + h - 150
+    draw_text_bold(win, "WORLD THEATER", x + 18, y + 18, 18, color_gold)
+    draw_text(win, player_name() + " against " + enemy_name(), x + 18, y + 42, 13, color_text)
 
-    draw_line(win, player_x, lane_top, center_x, lane_mid, color_route, 2)
-    draw_line(win, player_x, lane_bot, center_x, lane_mid, color_route, 2)
-    draw_line(win, enemy_x, lane_top, center_x, lane_mid, color_route, 2)
-    draw_line(win, enemy_x, lane_bot, center_x, lane_mid, color_route, 2)
+    draw_rect(win, x + 18, y + 118, 120, 250, color_surface)
+    draw_rect(win, x + 212, y + 88, 150, 260, color_surface)
+    draw_rect(win, x + 454, y + 82, 182, 250, color_surface)
+    draw_rect(win, x + 430, y + 360, 196, 114, color_surface)
 
-    draw_circle(win, player_x, harbor_y, 42, color_player)
-    draw_circle(win, enemy_x, harbor_y, 42, color_enemy)
-    draw_text_bold(win, "HOME FLEET", player_x - 44, harbor_y - 66, 15, color_text)
-    draw_text_bold(win, "ENEMY BASE", enemy_x - 42, harbor_y - 66, 15, color_text)
+    draw_zone_box(win, x + 170, y + 92, 142, 42, "Norwegian Sea")
+    draw_zone_box(win, x + 218, y + 146, 122, 44, "North Sea")
+    draw_zone_box(win, x + 350, y + 146, 110, 44, "Baltic Sea")
+    draw_zone_box(win, x + 142, y + 204, 132, 38, "English Channel")
+    draw_zone_box(win, x + 70, y + 252, 184, 70, "Atlantic Approaches")
+    draw_zone_box(win, x + 232, y + 318, 192, 54, "Western Mediterranean")
+    draw_zone_box(win, x + 450, y + 112, 160, 54, "North Pacific")
+    draw_zone_box(win, x + 462, y + 170, 170, 40, "Vladivostok Approaches")
+    draw_zone_box(win, x + 548, y + 212, 112, 46, "Sea of Japan")
+    draw_zone_box(win, x + 500, y + 264, 120, 44, "Yellow Sea")
+    draw_zone_box(win, x + 358, y + 238, 160, 78, "Central Pacific")
+    draw_zone_box(win, x + 536, y + 318, 124, 72, "Philippine Sea")
+    draw_zone_box(win, x + 480, y + 414, 172, 76, "West Pacific")
 
-    draw_text(win, fleet_line(player_dd, player_ca, player_bb), player_x - 72, harbor_y + 58, 13, color_text)
-    draw_text(win, fleet_line(enemy_dd, enemy_ca, enemy_bb), enemy_x - 72, harbor_y + 58, 13, color_text)
+    draw_map_country(win, country_usa, x + 46, y + 274)
+    draw_map_country(win, country_britain, x + 198, y + 176)
+    draw_map_country(win, country_france, x + 238, y + 286)
+    draw_map_country(win, country_germany, x + 328, y + 188)
+    draw_map_country(win, country_russia, x + 472, y + 178)
+    draw_map_country(win, country_japan, x + 602, y + 236)
 
-    pilot player_bar = player_total_power() * 4
-    if player_bar > 240 { player_bar = 240 }
-    pilot enemy_bar = enemy_total_power() * 4
-    if enemy_bar > 240 { enemy_bar = 240 }
-
-    draw_text(win, "Sea control", center_x - 44, y + 28, 13, color_muted)
-    draw_rect(win, center_x - 140, y + 52, 280, 14, color_panel)
-    draw_rect(win, center_x - 140, y + 52, sea_control * 28 / 10, 14, color_accent)
-    draw_stroke(win, center_x - 140, y + 52, 280, 14, color_border)
-
-    draw_text(win, "Player striking power", x + 28, y + 92, 13, color_muted)
-    draw_rect(win, x + 28, y + 114, 248, 14, color_panel)
-    draw_rect(win, x + 28, y + 114, player_bar, 14, color_player)
-    draw_stroke(win, x + 28, y + 114, 248, 14, color_border)
-
-    draw_text(win, "Enemy striking power", x + w - 276, y + 92, 13, color_muted)
-    draw_rect(win, x + w - 276, y + 114, 248, 14, color_panel)
-    draw_rect(win, x + w - 276, y + 114, enemy_bar, 14, color_enemy)
-    draw_stroke(win, x + w - 276, y + 114, 248, 14, color_border)
+    draw_text(win, "Sea control", x + 18, y + h - 92, 12, color_muted)
+    draw_rect(win, x + 18, y + h - 72, 280, 14, color_panel)
+    draw_rect(win, x + 18, y + h - 72, sea_control * 28 / 10, 14, color_accent)
+    draw_stroke(win, x + 18, y + h - 72, 280, 14, color_border)
 
     if contact_exists {
-        draw_circle(win, center_x, lane_mid, 20, color_contact)
-        draw_circle(win, center_x, lane_mid, 10, color_danger)
-        draw_text_bold(win, "CONTACT", center_x - 34, lane_mid - 48, 16, color_warning)
-        draw_text(win, contact_zone, center_x - 64, lane_mid + 34, 14, color_text)
-        draw_text(win, "Enemy strength " + word_from_int(contact_strength), center_x - 72, lane_mid + 56, 13, color_text)
-        draw_text(win, "Quality " + word_from_int(contact_quality), center_x - 46, lane_mid + 78, 13, color_text)
+        draw_text_bold(win, "CONTACT REPORTED", x + 332, y + h - 92, 15, color_warning)
+        draw_text(win, contact_zone + " | enemy strength " + word_from_int(contact_strength) + " | quality " + word_from_int(contact_quality), x + 332, y + h - 68, 12, color_text)
     } else {
-        draw_text_bold(win, "OPEN WATER", center_x - 44, lane_mid - 10, 18, color_muted)
-        draw_text(win, "Advance the month or posture for a better contact chance.", center_x - 176, lane_mid + 18, 13, color_text)
+        draw_text_bold(win, "NO CONTACT", x + 332, y + h - 92, 15, color_muted)
+        draw_text(win, "Advance the month or change posture to force the naval race.", x + 332, y + h - 68, 12, color_text)
     }
-
-    draw_text(win, "Posture: " + posture_name(), x + 26, y + h - 44, 13, color_text)
-    draw_text(win, "Aggressive fleets find more fights, but they pay for them.", x + 26, y + h - 22, 12, color_muted)
+    draw_text(win, "Active theaters: " + rivalry_zone_name(0) + ", " + rivalry_zone_name(1), x + 18, y + h - 40, 12, color_text)
+    draw_text(win, rivalry_zone_name(2) + ", " + rivalry_zone_name(3), x + 18, y + h - 20, 12, color_text)
 }
 
 task draw_queue_item(win: int, y: int, side: int, kind: word, eta: int) -> void {
-    pilot side_text = "Player"
+    pilot side_text = country_label(player_country)
     pilot side_color = color_player
     if side == 1 {
-        side_text = "Enemy"
+        side_text = country_label(enemy_country)
         side_color = color_enemy
     }
     draw_text(win, side_text + " " + ship_short(kind) + "  eta " + word_from_int(eta), win_w - right_w + 18, y, 13, side_color)
@@ -690,8 +929,16 @@ task draw_right_panel(win: int) -> void {
     draw_rect(win, x, y, right_w, h, color_surface)
     draw_stroke(win, x, y, right_w, h, color_border)
 
-    draw_text_bold(win, "BUILD QUEUE", x + 18, y + 18, 16, color_gold)
-    pilot row_y = y + 48
+    draw_text_bold(win, "COUNTRY FILE", x + 18, y + 18, 16, color_gold)
+    draw_text(win, "Player: " + player_name(), x + 18, y + 48, 13, color_text)
+    draw_text(win, "Rival: " + enemy_name(), x + 18, y + 70, 13, color_text)
+    draw_text(win, "Home waters: " + country_home_zone(player_country), x + 18, y + 92, 12, color_text)
+    draw_text(win, "Rival base: " + country_home_zone(enemy_country), x + 18, y + 112, 12, color_text)
+    draw_text(win, country_doctrine(player_country), x + 18, y + 134, 11, color_muted)
+    draw_text(win, "Income " + word_from_int(country_income(player_country)) + " | Rival " + word_from_int(country_income(enemy_country)), x + 18, y + 156, 12, color_text)
+
+    draw_text_bold(win, "BUILD QUEUE", x + 18, y + 192, 16, color_gold)
+    pilot row_y = y + 222
     pilot total = array_len(build_sides)
     if total == 0 {
         draw_text(win, "No hulls under construction.", x + 18, row_y, 13, color_muted)
@@ -705,8 +952,8 @@ task draw_right_panel(win: int) -> void {
         }
     }
 
-    draw_text_bold(win, "WAR DIARY", x + 18, y + 250, 16, color_gold)
-    pilot log_y = y + 282
+    draw_text_bold(win, "WAR DIARY", x + 18, y + 346, 16, color_gold)
+    pilot log_y = y + 378
     pilot log_total = array_len(log_lines)
     pilot li = 0
     repeat until li >= log_total {
@@ -721,11 +968,11 @@ task draw_bottom_bar(win: int) -> void {
     draw_rect(win, 0, y, win_w, bottom_h, color_surface)
     draw_stroke(win, 0, y, win_w, bottom_h, color_border)
     draw_text_bold(win, "MISSION BOARD", 18, y + 16, 15, color_gold)
-    draw_text(win, "Goal: keep prestige above zero and break enemy sea power.", 18, y + 42, 13, color_text)
+    draw_text(win, "Goal: keep " + player_name() + " prestige above zero and break " + enemy_name() + " sea power.", 18, y + 42, 13, color_text)
     if contact_exists {
-        draw_text(win, "Current contact: " + contact_zone + " | enemy strength " + word_from_int(contact_strength), 18, y + 62, 13, color_warning)
+        draw_text(win, "Current contact: " + contact_zone + " | enemy strength " + word_from_int(contact_strength) + " | posture " + posture_name(), 18, y + 62, 13, color_warning)
     } else {
-        draw_text(win, "Current contact: none", 18, y + 62, 13, color_muted)
+        draw_text(win, "Current contact: none | posture " + posture_name() + " | rival " + enemy_name(), 18, y + 62, 13, color_muted)
     }
 }
 
@@ -734,15 +981,22 @@ task handle_click(x: int, y: int) -> void {
         reset_campaign()
         give back
     }
-    if hit_rect(x, y, 18, top_h + 128, 76, 30) { posture = 0; game_status = "Fleet held in reserve."; give back }
-    if hit_rect(x, y, 102, top_h + 128, 72, 30) { posture = 1; game_status = "Fleet sent on patrol."; give back }
-    if hit_rect(x, y, 182, top_h + 128, 90, 30) { posture = 2; game_status = "Fleet ordered forward aggressively."; give back }
+    if hit_rect(x, y, 18, top_h + 124, 74, 28) { select_country(country_britain); give back }
+    if hit_rect(x, y, 100, top_h + 124, 84, 28) { select_country(country_germany); give back }
+    if hit_rect(x, y, 192, top_h + 124, 70, 28) { select_country(country_usa); give back }
+    if hit_rect(x, y, 18, top_h + 160, 74, 28) { select_country(country_japan); give back }
+    if hit_rect(x, y, 100, top_h + 160, 84, 28) { select_country(country_france); give back }
+    if hit_rect(x, y, 192, top_h + 160, 70, 28) { select_country(country_russia); give back }
 
-    if hit_rect(x, y, 18, top_h + 360, 118, 30) { queue_build(0, "Destroyer"); give back }
-    if hit_rect(x, y, 144, top_h + 360, 118, 30) { queue_build(0, "Cruiser"); give back }
-    if hit_rect(x, y, 18, top_h + 398, 118, 30) { queue_build(0, "Battleship"); give back }
-    if hit_rect(x, y, 144, top_h + 398, 118, 30) { advance_month(); give back }
-    if hit_rect(x, y, 18, top_h + 436, 244, 34) { engage_contact(); give back }
+    if hit_rect(x, y, 18, top_h + 286, 76, 30) { posture = 0; game_status = player_name() + " fleet held in reserve."; give back }
+    if hit_rect(x, y, 102, top_h + 286, 72, 30) { posture = 1; game_status = player_name() + " fleet sent on patrol."; give back }
+    if hit_rect(x, y, 182, top_h + 286, 90, 30) { posture = 2; game_status = player_name() + " fleet ordered forward aggressively."; give back }
+
+    if hit_rect(x, y, 18, top_h + 516, 118, 30) { queue_build(0, "Destroyer"); give back }
+    if hit_rect(x, y, 144, top_h + 516, 118, 30) { queue_build(0, "Cruiser"); give back }
+    if hit_rect(x, y, 18, top_h + 554, 118, 30) { queue_build(0, "Battleship"); give back }
+    if hit_rect(x, y, 144, top_h + 554, 118, 30) { advance_month(); give back }
+    if hit_rect(x, y, 18, top_h + 592, 244, 34) { engage_contact(); give back }
 }
 
 @protagonist

@@ -354,6 +354,7 @@ def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path,
     cc = find_c_compiler()
     if not cc:
         return False, "No C compiler found (gcc/clang). Install one to compile."
+    cc_name = Path(cc).name.lower()
 
     runtime_c = runtime_dir / "freak_runtime.c"
     import sys
@@ -377,6 +378,10 @@ def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path,
             cmd.append(str(ui_backend))
             cmd.append(f"-I{runtime_dir / 'ui'}")
         if sys.platform == "win32":
+            if "gcc" in cc_name:
+                cmd.append("-mwindows")
+            else:
+                cmd.append("-Wl,/SUBSYSTEM:WINDOWS,/ENTRY:mainCRTStartup")
             cmd.extend(["-luser32", "-lgdi32"])
 
     # Platform-specific linker flags
