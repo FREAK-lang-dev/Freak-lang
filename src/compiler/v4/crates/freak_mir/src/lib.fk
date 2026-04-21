@@ -37,6 +37,7 @@ pilot v4_mir_rvalue_map = "Map"
 pilot v4_mir_rvalue_unary = "Unary"
 pilot v4_mir_rvalue_binary = "Binary"
 pilot v4_mir_rvalue_call = "Call"
+pilot v4_mir_rvalue_loop_item = "LoopItem"
 pilot v4_mir_rvalue_unknown = "Unknown"
 
 pilot v4_mir_unary_neg = "Neg"
@@ -2929,6 +2930,57 @@ task v4_mir_lower_destructure_assignment_pattern(mir_id: int, body_id: int, bloc
     v4_mir_add_type_error(mir_id, stmt_span, "destructure assignment target must be local", "use existing locals inside (a, b, ...) or [a, b, ...]")
 }
 
+task v4_mir_loop_pattern_kind(pattern: word) -> word {
+    if v4_mir_is_tuple_pattern(pattern) {
+        give back "tuple"
+    }
+    if v4_mir_is_bracket_pattern(pattern) {
+        give back "sequence"
+    }
+    give back ""
+}
+
+task v4_mir_lower_for_each_binding(mir_id: int, body_id: int, block_id: int, stmt_span: word, loop_pattern: word, iterable_text: word, iterable_ty: word) -> int {
+    loop_pattern = v4_mir_pattern_trim(loop_pattern)
+    if loop_pattern == "" {
+        v4_mir_add_type_error(mir_id, stmt_span, "unsupported local pattern", "use a single name, (a, b, ...), or [a, b, ...]")
+        give back 0 - 1
+    }
+
+    pilot element_ty = v4_ty_index_element_type(iterable_ty)
+    if v4_ty_is_known(iterable_ty) and not v4_ty_is_known(element_ty) {
+        v4_mir_add_type_error(mir_id, stmt_span, "for each needs iterable source", "got " + iterable_ty)
+    }
+
+    pilot temp_name = v4_mir_unique_local_name(mir_id, body_id, "_for_each_item")
+    pilot temp_id = v4_mir_add_local(mir_id, body_id, temp_name, element_ty, stmt_span)
+    pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_id, temp_name, 0 - 1, stmt_span, element_ty)
+    pilot item_text = "item of " + iterable_text
+    pilot item_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_loop_item, item_text, "LoopItem", 0 - 1, 0 - 1, stmt_span, element_ty)
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, temp_name, item_text, stmt_span, temp_place, item_rvalue)
+
+    if v4_mir_pattern_is_simple_local(loop_pattern) {
+        if v4_mir_find_local(mir_id, body_id, loop_pattern) >= 0 {
+            v4_mir_add_type_error(mir_id, stmt_span, "for each binding duplicate local", loop_pattern + " already exists in this body")
+            give back temp_place
+        }
+        pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, temp_place, stmt_span)
+        pilot local_id = v4_mir_add_local(mir_id, body_id, loop_pattern, element_ty, stmt_span)
+        pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, loop_pattern, local_id, loop_pattern, 0 - 1, stmt_span, element_ty)
+        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, loop_pattern, item_text, stmt_span, place_id, source_rvalue)
+        give back place_id
+    }
+
+    pilot pattern_kind = v4_mir_loop_pattern_kind(loop_pattern)
+    if pattern_kind != "" {
+        v4_mir_lower_destructure_pattern(mir_id, body_id, block_id, stmt_span, pattern_kind, loop_pattern, temp_place, element_ty)
+        give back temp_place
+    }
+
+    v4_mir_add_type_error(mir_id, stmt_span, "unsupported local pattern", "use a single name, (a, b, ...), or [a, b, ...]")
+    give back temp_place
+}
+
 task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, for_token: int, stmt_end: int) -> int {
     pilot open_token = v4_mir_find_token_value(stream_id, for_token, stmt_end, "{")
     if open_token < 0 {
@@ -2952,18 +3004,12 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
     pilot iterable_text = v4_mir_expr_text(stream_id, in_token + 1, open_token)
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, for_token, stmt_end)
     pilot iterable_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, in_token + 1, open_token)
-    pilot loop_place = 0 - 1
-
-    if v4_mir_pattern_is_simple_local(loop_pattern) {
-        if v4_mir_find_local(mir_id, body_id, loop_pattern) < 0 {
-            v4_mir_add_local(mir_id, body_id, loop_pattern, v4_ty_unknown, stmt_span)
-        }
-        loop_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, loop_pattern, 0 - 1, loop_pattern, 0 - 1, stmt_span, v4_ty_unknown)
-    }
+    pilot iterable_ty = v4_mir_rvalue_ty(mir_id, body_id, iterable_rvalue)
 
     pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot loop_condition = "for each " + loop_pattern + " in " + iterable_text
+    pilot loop_place = v4_mir_lower_for_each_binding(mir_id, body_id, body_block, stmt_span, loop_pattern, iterable_text, iterable_ty)
 
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, body_block, after_block, loop_condition))
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_loop, loop_pattern, iterable_text, stmt_span, loop_place, iterable_rvalue)

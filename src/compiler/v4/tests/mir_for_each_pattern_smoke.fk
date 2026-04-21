@@ -1,0 +1,196 @@
+-- V4 MIR for-each pattern binding smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_for_each_pattern_good_source() -> word {
+    pilot src = "task tuples() -> List<(int,word)> {\n"
+    src = src + "    give back [(7, \"ace\"), (9, \"beta\")]\n"
+    src = src + "}\n"
+    src = src + "task rows() -> List<List<int>> {\n"
+    src = src + "    give back [[1, 2], [3, 4]]\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot total = 0\n"
+    src = src + "    pilot pairs = tuples()\n"
+    src = src + "    pilot rowset = rows()\n"
+    src = src + "    for each (power, label) in pairs {\n"
+    src = src + "        total = total + power\n"
+    src = src + "    }\n"
+    src = src + "    for each [left, right] in rowset {\n"
+    src = src + "        total = total + right\n"
+    src = src + "    }\n"
+    src = src + "    give back total\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_for_each_pattern_bad_non_iterable_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    for each item in 7 {\n"
+    src = src + "        pilot seen = item\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_for_each_pattern_bad_tuple_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot squad = [1, 2]\n"
+    src = src + "    for each (left, right) in squad {\n"
+    src = src + "        pilot seen = left\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_for_each_pattern_bad_sequence_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot squad = [1, 2]\n"
+    src = src + "    for each [left, right] in squad {\n"
+    src = src + "        pilot seen = left\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_for_each_pattern_bad_duplicate_local_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot item = 0\n"
+    src = src + "    pilot squad = [1, 2]\n"
+    src = src + "    for each item in squad {\n"
+    src = src + "        pilot seen = item\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_for_each_pattern_bad_duplicate_pattern_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot squad = [(1, 2)]\n"
+    src = src + "    for each (left, left) in squad {\n"
+    src = src + "        pilot seen = left\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_for_each_pattern_stream = v4_lex_text(0, v4_mir_for_each_pattern_good_source())
+pilot v4_mir_for_each_pattern_tree = v4_parse_stream(0, v4_mir_for_each_pattern_stream)
+pilot v4_mir_for_each_pattern_hir = v4_hir_lower_tree(0, v4_mir_for_each_pattern_tree)
+pilot v4_mir_for_each_pattern_resolve = v4_resolve_lower_hir(0, v4_mir_for_each_pattern_hir)
+pilot v4_mir_for_each_pattern_ty = v4_ty_lower_resolve(0, v4_mir_for_each_pattern_resolve)
+pilot v4_mir_for_each_pattern_mir = v4_mir_lower_ty(0, v4_mir_for_each_pattern_ty)
+pilot v4_mir_for_each_pattern_main_def = v4_resolve_def_for_name(v4_mir_for_each_pattern_resolve, "main")
+pilot v4_mir_for_each_pattern_main_body = v4_mir_lookup_body(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_def)
+pilot v4_mir_for_each_pattern_first_item_rvalue = v4_mir_stmt_rvalue(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 3)
+pilot v4_mir_for_each_pattern_power_rvalue = v4_mir_stmt_rvalue(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 4)
+pilot v4_mir_for_each_pattern_label_rvalue = v4_mir_stmt_rvalue(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 5)
+pilot v4_mir_for_each_pattern_second_item_rvalue = v4_mir_stmt_rvalue(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 8)
+pilot v4_mir_for_each_pattern_right_rvalue = v4_mir_stmt_rvalue(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 10)
+pilot v4_mir_for_each_pattern_return_rvalue = v4_mir_stmt_rvalue(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 13)
+pilot v4_mir_for_each_pattern_power_place = v4_mir_rvalue_lhs(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_power_rvalue)
+pilot v4_mir_for_each_pattern_label_place = v4_mir_rvalue_lhs(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_label_rvalue)
+pilot v4_mir_for_each_pattern_right_place = v4_mir_rvalue_lhs(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_right_rvalue)
+pilot v4_mir_for_each_pattern_right_index = v4_mir_place_index(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_right_place)
+
+say v4_mir_summary(v4_mir_for_each_pattern_mir)
+say "for-each-pattern-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body))
+say "for-each-pattern-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body))
+say "for-each-pattern-local3-name=" + v4_mir_local_name(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 3)
+say "for-each-pattern-local3-ty=" + v4_mir_local_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 3)
+say "for-each-pattern-local4-name=" + v4_mir_local_name(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 4)
+say "for-each-pattern-local4-ty=" + v4_mir_local_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 4)
+say "for-each-pattern-local5-name=" + v4_mir_local_name(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 5)
+say "for-each-pattern-local5-ty=" + v4_mir_local_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 5)
+say "for-each-pattern-local6-name=" + v4_mir_local_name(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 6)
+say "for-each-pattern-local6-ty=" + v4_mir_local_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 6)
+say "for-each-pattern-local7-name=" + v4_mir_local_name(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 7)
+say "for-each-pattern-local7-ty=" + v4_mir_local_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 7)
+say "for-each-pattern-local8-name=" + v4_mir_local_name(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 8)
+say "for-each-pattern-local8-ty=" + v4_mir_local_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 8)
+say "for-each-pattern-stmt3-kind=" + v4_mir_stmt_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 3)
+say "for-each-pattern-stmt3-lhs=" + v4_mir_stmt_lhs(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 3)
+say "for-each-pattern-stmt6-kind=" + v4_mir_stmt_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 6)
+say "for-each-pattern-stmt6-lhs=" + v4_mir_stmt_lhs(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 6)
+say "for-each-pattern-stmt8-kind=" + v4_mir_stmt_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 8)
+say "for-each-pattern-stmt8-lhs=" + v4_mir_stmt_lhs(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 8)
+say "for-each-pattern-stmt11-kind=" + v4_mir_stmt_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 11)
+say "for-each-pattern-stmt11-lhs=" + v4_mir_stmt_lhs(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, 11)
+say "for-each-pattern-first-item-kind=" + v4_mir_rvalue_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_first_item_rvalue)
+say "for-each-pattern-first-item-op=" + v4_mir_rvalue_op(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_first_item_rvalue)
+say "for-each-pattern-first-item-ty=" + v4_mir_rvalue_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_first_item_rvalue)
+say "for-each-pattern-power-kind=" + v4_mir_rvalue_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_power_rvalue)
+say "for-each-pattern-power-ty=" + v4_mir_rvalue_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_power_rvalue)
+say "for-each-pattern-power-field=" + v4_mir_place_field(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_power_place)
+say "for-each-pattern-power-place-ty=" + v4_mir_place_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_power_place)
+say "for-each-pattern-label-kind=" + v4_mir_rvalue_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_label_rvalue)
+say "for-each-pattern-label-ty=" + v4_mir_rvalue_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_label_rvalue)
+say "for-each-pattern-label-field=" + v4_mir_place_field(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_label_place)
+say "for-each-pattern-label-place-ty=" + v4_mir_place_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_label_place)
+say "for-each-pattern-second-item-kind=" + v4_mir_rvalue_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_second_item_rvalue)
+say "for-each-pattern-second-item-op=" + v4_mir_rvalue_op(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_second_item_rvalue)
+say "for-each-pattern-second-item-ty=" + v4_mir_rvalue_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_second_item_rvalue)
+say "for-each-pattern-right-kind=" + v4_mir_rvalue_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_right_rvalue)
+say "for-each-pattern-right-ty=" + v4_mir_rvalue_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_right_rvalue)
+say "for-each-pattern-right-place-kind=" + v4_mir_place_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_right_place)
+say "for-each-pattern-right-place-ty=" + v4_mir_place_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_right_place)
+say "for-each-pattern-right-index-kind=" + v4_mir_rvalue_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_right_index)
+say "for-each-pattern-right-index-text=" + v4_mir_rvalue_text(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_right_index)
+say "for-each-pattern-right-index-ty=" + v4_mir_rvalue_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_right_index)
+say "for-each-pattern-return-kind=" + v4_mir_rvalue_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_return_rvalue)
+say "for-each-pattern-return-op=" + v4_mir_rvalue_op(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_return_rvalue)
+say "for-each-pattern-return-ty=" + v4_mir_rvalue_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_return_rvalue)
+
+pilot v4_mir_for_each_pattern_bad_non_iterable_stream = v4_lex_text(1, v4_mir_for_each_pattern_bad_non_iterable_source())
+pilot v4_mir_for_each_pattern_bad_non_iterable_tree = v4_parse_stream(1, v4_mir_for_each_pattern_bad_non_iterable_stream)
+pilot v4_mir_for_each_pattern_bad_non_iterable_hir = v4_hir_lower_tree(1, v4_mir_for_each_pattern_bad_non_iterable_tree)
+pilot v4_mir_for_each_pattern_bad_non_iterable_resolve = v4_resolve_lower_hir(1, v4_mir_for_each_pattern_bad_non_iterable_hir)
+pilot v4_mir_for_each_pattern_bad_non_iterable_ty = v4_ty_lower_resolve(1, v4_mir_for_each_pattern_bad_non_iterable_resolve)
+pilot v4_mir_for_each_pattern_bad_non_iterable_mir = v4_mir_lower_ty(1, v4_mir_for_each_pattern_bad_non_iterable_ty)
+
+say "for-each-pattern-bad-non-iterable-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_for_each_pattern_bad_non_iterable_mir))
+say "for-each-pattern-bad-non-iterable-message=" + v4_diag_message(v4_mir_diag(v4_mir_for_each_pattern_bad_non_iterable_mir, 0))
+say "for-each-pattern-bad-non-iterable-help=" + v4_diag_help(v4_mir_diag(v4_mir_for_each_pattern_bad_non_iterable_mir, 0))
+
+pilot v4_mir_for_each_pattern_bad_tuple_stream = v4_lex_text(2, v4_mir_for_each_pattern_bad_tuple_source())
+pilot v4_mir_for_each_pattern_bad_tuple_tree = v4_parse_stream(2, v4_mir_for_each_pattern_bad_tuple_stream)
+pilot v4_mir_for_each_pattern_bad_tuple_hir = v4_hir_lower_tree(2, v4_mir_for_each_pattern_bad_tuple_tree)
+pilot v4_mir_for_each_pattern_bad_tuple_resolve = v4_resolve_lower_hir(2, v4_mir_for_each_pattern_bad_tuple_hir)
+pilot v4_mir_for_each_pattern_bad_tuple_ty = v4_ty_lower_resolve(2, v4_mir_for_each_pattern_bad_tuple_resolve)
+pilot v4_mir_for_each_pattern_bad_tuple_mir = v4_mir_lower_ty(2, v4_mir_for_each_pattern_bad_tuple_ty)
+
+say "for-each-pattern-bad-tuple-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_for_each_pattern_bad_tuple_mir))
+say "for-each-pattern-bad-tuple-message=" + v4_diag_message(v4_mir_diag(v4_mir_for_each_pattern_bad_tuple_mir, 0))
+say "for-each-pattern-bad-tuple-help=" + v4_diag_help(v4_mir_diag(v4_mir_for_each_pattern_bad_tuple_mir, 0))
+
+pilot v4_mir_for_each_pattern_bad_sequence_stream = v4_lex_text(3, v4_mir_for_each_pattern_bad_sequence_source())
+pilot v4_mir_for_each_pattern_bad_sequence_tree = v4_parse_stream(3, v4_mir_for_each_pattern_bad_sequence_stream)
+pilot v4_mir_for_each_pattern_bad_sequence_hir = v4_hir_lower_tree(3, v4_mir_for_each_pattern_bad_sequence_tree)
+pilot v4_mir_for_each_pattern_bad_sequence_resolve = v4_resolve_lower_hir(3, v4_mir_for_each_pattern_bad_sequence_hir)
+pilot v4_mir_for_each_pattern_bad_sequence_ty = v4_ty_lower_resolve(3, v4_mir_for_each_pattern_bad_sequence_resolve)
+pilot v4_mir_for_each_pattern_bad_sequence_mir = v4_mir_lower_ty(3, v4_mir_for_each_pattern_bad_sequence_ty)
+
+say "for-each-pattern-bad-sequence-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_for_each_pattern_bad_sequence_mir))
+say "for-each-pattern-bad-sequence-message=" + v4_diag_message(v4_mir_diag(v4_mir_for_each_pattern_bad_sequence_mir, 0))
+say "for-each-pattern-bad-sequence-help=" + v4_diag_help(v4_mir_diag(v4_mir_for_each_pattern_bad_sequence_mir, 0))
+
+pilot v4_mir_for_each_pattern_bad_duplicate_local_stream = v4_lex_text(4, v4_mir_for_each_pattern_bad_duplicate_local_source())
+pilot v4_mir_for_each_pattern_bad_duplicate_local_tree = v4_parse_stream(4, v4_mir_for_each_pattern_bad_duplicate_local_stream)
+pilot v4_mir_for_each_pattern_bad_duplicate_local_hir = v4_hir_lower_tree(4, v4_mir_for_each_pattern_bad_duplicate_local_tree)
+pilot v4_mir_for_each_pattern_bad_duplicate_local_resolve = v4_resolve_lower_hir(4, v4_mir_for_each_pattern_bad_duplicate_local_hir)
+pilot v4_mir_for_each_pattern_bad_duplicate_local_ty = v4_ty_lower_resolve(4, v4_mir_for_each_pattern_bad_duplicate_local_resolve)
+pilot v4_mir_for_each_pattern_bad_duplicate_local_mir = v4_mir_lower_ty(4, v4_mir_for_each_pattern_bad_duplicate_local_ty)
+
+say "for-each-pattern-bad-duplicate-local-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_for_each_pattern_bad_duplicate_local_mir))
+say "for-each-pattern-bad-duplicate-local-message=" + v4_diag_message(v4_mir_diag(v4_mir_for_each_pattern_bad_duplicate_local_mir, 0))
+say "for-each-pattern-bad-duplicate-local-help=" + v4_diag_help(v4_mir_diag(v4_mir_for_each_pattern_bad_duplicate_local_mir, 0))
+
+pilot v4_mir_for_each_pattern_bad_duplicate_pattern_stream = v4_lex_text(5, v4_mir_for_each_pattern_bad_duplicate_pattern_source())
+pilot v4_mir_for_each_pattern_bad_duplicate_pattern_tree = v4_parse_stream(5, v4_mir_for_each_pattern_bad_duplicate_pattern_stream)
+pilot v4_mir_for_each_pattern_bad_duplicate_pattern_hir = v4_hir_lower_tree(5, v4_mir_for_each_pattern_bad_duplicate_pattern_tree)
+pilot v4_mir_for_each_pattern_bad_duplicate_pattern_resolve = v4_resolve_lower_hir(5, v4_mir_for_each_pattern_bad_duplicate_pattern_hir)
+pilot v4_mir_for_each_pattern_bad_duplicate_pattern_ty = v4_ty_lower_resolve(5, v4_mir_for_each_pattern_bad_duplicate_pattern_resolve)
+pilot v4_mir_for_each_pattern_bad_duplicate_pattern_mir = v4_mir_lower_ty(5, v4_mir_for_each_pattern_bad_duplicate_pattern_ty)
+
+say "for-each-pattern-bad-duplicate-pattern-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_for_each_pattern_bad_duplicate_pattern_mir))
+say "for-each-pattern-bad-duplicate-pattern-message=" + v4_diag_message(v4_mir_diag(v4_mir_for_each_pattern_bad_duplicate_pattern_mir, 0))
+say "for-each-pattern-bad-duplicate-pattern-help=" + v4_diag_help(v4_mir_diag(v4_mir_for_each_pattern_bad_duplicate_pattern_mir, 0))

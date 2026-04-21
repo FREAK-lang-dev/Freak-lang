@@ -13,7 +13,7 @@ task v4_mir_loop_make_source() -> word {
     src = src + "    }\n"
     src = src + "    give back power\n"
     src = src + "}\n"
-    src = src + "task helper() => \"ok\"\n"
+    src = src + "task helper() => [1, 2]\n"
     give back src
 }
 
@@ -37,8 +37,8 @@ pilot v4_mir_loop_ty = v4_ty_lower_resolve(0, v4_mir_loop_resolve)
 pilot v4_mir_loop_mir = v4_mir_lower_ty(0, v4_mir_loop_ty)
 pilot v4_mir_loop_main_def = v4_resolve_def_for_name(v4_mir_loop_resolve, "main")
 pilot v4_mir_loop_main_body = v4_mir_lookup_body(v4_mir_loop_mir, v4_mir_loop_main_def)
-pilot v4_mir_loop_for_stmt = 2
-pilot v4_mir_loop_training_stmt = 4
+pilot v4_mir_loop_for_stmt = 4
+pilot v4_mir_loop_training_stmt = 6
 pilot v4_mir_loop_for_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, 0)
 pilot v4_mir_loop_training_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, 2)
 
