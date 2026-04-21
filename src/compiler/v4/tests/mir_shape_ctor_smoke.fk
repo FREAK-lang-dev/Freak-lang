@@ -1,0 +1,154 @@
+-- V4 MIR shape constructor smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_shape_ctor_good_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "    callsign: word\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot ship = Pilot " + "{" + " callsign: \"Valkyrie-1\", hp: 7 " + "}\n"
+    src = src + "    pilot power = ship.hp\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_shape_ctor_bad_field_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "    callsign: word\n"
+    src = src + "}\n"
+    src = src + "task bad() -> Pilot {\n"
+    src = src + "    give back Pilot " + "{" + " hp: 7, speed: 9001, callsign: \"Valkyrie-1\" " + "}\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_shape_ctor_missing_field_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "    callsign: word\n"
+    src = src + "}\n"
+    src = src + "task bad() -> Pilot {\n"
+    src = src + "    give back Pilot " + "{" + " hp: 7 " + "}\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_shape_ctor_duplicate_field_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "    callsign: word\n"
+    src = src + "}\n"
+    src = src + "task bad() -> Pilot {\n"
+    src = src + "    give back Pilot " + "{" + " hp: 7, hp: 8, callsign: \"Valkyrie-1\" " + "}\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_shape_ctor_bad_type_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "    callsign: word\n"
+    src = src + "}\n"
+    src = src + "task bad() -> Pilot {\n"
+    src = src + "    give back Pilot " + "{" + " hp: \"broken\", callsign: \"Valkyrie-1\" " + "}\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_shape_ctor_unknown_shape_source() -> word {
+    pilot src = "task bad() -> int {\n"
+    src = src + "    pilot ghost = Ace " + "{" + " hp: 7 " + "}\n"
+    src = src + "    give back 1\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_shape_ctor_source = v4_mir_shape_ctor_good_source()
+pilot v4_mir_shape_ctor_stream = v4_lex_text(0, v4_mir_shape_ctor_source)
+pilot v4_mir_shape_ctor_tree = v4_parse_stream(0, v4_mir_shape_ctor_stream)
+pilot v4_mir_shape_ctor_hir = v4_hir_lower_tree(0, v4_mir_shape_ctor_tree)
+pilot v4_mir_shape_ctor_resolve = v4_resolve_lower_hir(0, v4_mir_shape_ctor_hir)
+pilot v4_mir_shape_ctor_ty = v4_ty_lower_resolve(0, v4_mir_shape_ctor_resolve)
+pilot v4_mir_shape_ctor_mir = v4_mir_lower_ty(0, v4_mir_shape_ctor_ty)
+pilot v4_mir_shape_ctor_main_def = v4_resolve_def_for_name(v4_mir_shape_ctor_resolve, "main")
+pilot v4_mir_shape_ctor_main_body = v4_mir_lookup_body(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_def)
+pilot v4_mir_shape_ctor_ship_rvalue = v4_mir_stmt_rvalue(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, 0)
+pilot v4_mir_shape_ctor_ship_place = v4_mir_stmt_place(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, 0)
+pilot v4_mir_shape_ctor_power_rvalue = v4_mir_stmt_rvalue(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, 1)
+pilot v4_mir_shape_ctor_power_place = v4_mir_stmt_place(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, 1)
+pilot v4_mir_shape_ctor_return_rvalue = v4_mir_stmt_rvalue(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, 2)
+
+say v4_mir_summary(v4_mir_shape_ctor_mir)
+say "shape-ctor-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body))
+say "shape-ctor-local0-name=" + v4_mir_local_name(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, 0)
+say "shape-ctor-local0-ty=" + v4_mir_local_ty(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, 0)
+say "shape-ctor-local1-name=" + v4_mir_local_name(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, 1)
+say "shape-ctor-local1-ty=" + v4_mir_local_ty(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, 1)
+say "shape-ctor-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, v4_mir_shape_ctor_ship_rvalue)
+say "shape-ctor-rvalue-op=" + v4_mir_rvalue_op(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, v4_mir_shape_ctor_ship_rvalue)
+say "shape-ctor-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, v4_mir_shape_ctor_ship_rvalue)
+say "shape-ctor-place-ty=" + v4_mir_place_ty(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, v4_mir_shape_ctor_ship_place)
+say "shape-ctor-power-kind=" + v4_mir_rvalue_kind(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, v4_mir_shape_ctor_power_rvalue)
+say "shape-ctor-power-ty=" + v4_mir_rvalue_ty(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, v4_mir_shape_ctor_power_rvalue)
+say "shape-ctor-power-place-ty=" + v4_mir_place_ty(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, v4_mir_shape_ctor_power_place)
+say "shape-ctor-return-kind=" + v4_mir_rvalue_kind(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, v4_mir_shape_ctor_return_rvalue)
+say "shape-ctor-return-ty=" + v4_mir_rvalue_ty(v4_mir_shape_ctor_mir, v4_mir_shape_ctor_main_body, v4_mir_shape_ctor_return_rvalue)
+say "shape-ctor-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_shape_ctor_mir))
+
+pilot v4_mir_shape_ctor_bad_field_stream = v4_lex_text(1, v4_mir_shape_ctor_bad_field_source())
+pilot v4_mir_shape_ctor_bad_field_tree = v4_parse_stream(1, v4_mir_shape_ctor_bad_field_stream)
+pilot v4_mir_shape_ctor_bad_field_hir = v4_hir_lower_tree(1, v4_mir_shape_ctor_bad_field_tree)
+pilot v4_mir_shape_ctor_bad_field_resolve = v4_resolve_lower_hir(1, v4_mir_shape_ctor_bad_field_hir)
+pilot v4_mir_shape_ctor_bad_field_ty = v4_ty_lower_resolve(1, v4_mir_shape_ctor_bad_field_resolve)
+pilot v4_mir_shape_ctor_bad_field_mir = v4_mir_lower_ty(1, v4_mir_shape_ctor_bad_field_ty)
+
+say "shape-ctor-bad-field-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_shape_ctor_bad_field_mir))
+say "shape-ctor-bad-field-message=" + v4_diag_message(v4_mir_diag(v4_mir_shape_ctor_bad_field_mir, 0))
+say "shape-ctor-bad-field-help=" + v4_diag_help(v4_mir_diag(v4_mir_shape_ctor_bad_field_mir, 0))
+
+pilot v4_mir_shape_ctor_missing_field_stream = v4_lex_text(2, v4_mir_shape_ctor_missing_field_source())
+pilot v4_mir_shape_ctor_missing_field_tree = v4_parse_stream(2, v4_mir_shape_ctor_missing_field_stream)
+pilot v4_mir_shape_ctor_missing_field_hir = v4_hir_lower_tree(2, v4_mir_shape_ctor_missing_field_tree)
+pilot v4_mir_shape_ctor_missing_field_resolve = v4_resolve_lower_hir(2, v4_mir_shape_ctor_missing_field_hir)
+pilot v4_mir_shape_ctor_missing_field_ty = v4_ty_lower_resolve(2, v4_mir_shape_ctor_missing_field_resolve)
+pilot v4_mir_shape_ctor_missing_field_mir = v4_mir_lower_ty(2, v4_mir_shape_ctor_missing_field_ty)
+
+say "shape-ctor-missing-field-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_shape_ctor_missing_field_mir))
+say "shape-ctor-missing-field-message=" + v4_diag_message(v4_mir_diag(v4_mir_shape_ctor_missing_field_mir, 0))
+say "shape-ctor-missing-field-help=" + v4_diag_help(v4_mir_diag(v4_mir_shape_ctor_missing_field_mir, 0))
+
+pilot v4_mir_shape_ctor_duplicate_field_stream = v4_lex_text(3, v4_mir_shape_ctor_duplicate_field_source())
+pilot v4_mir_shape_ctor_duplicate_field_tree = v4_parse_stream(3, v4_mir_shape_ctor_duplicate_field_stream)
+pilot v4_mir_shape_ctor_duplicate_field_hir = v4_hir_lower_tree(3, v4_mir_shape_ctor_duplicate_field_tree)
+pilot v4_mir_shape_ctor_duplicate_field_resolve = v4_resolve_lower_hir(3, v4_mir_shape_ctor_duplicate_field_hir)
+pilot v4_mir_shape_ctor_duplicate_field_ty = v4_ty_lower_resolve(3, v4_mir_shape_ctor_duplicate_field_resolve)
+pilot v4_mir_shape_ctor_duplicate_field_mir = v4_mir_lower_ty(3, v4_mir_shape_ctor_duplicate_field_ty)
+
+say "shape-ctor-duplicate-field-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_shape_ctor_duplicate_field_mir))
+say "shape-ctor-duplicate-field-message=" + v4_diag_message(v4_mir_diag(v4_mir_shape_ctor_duplicate_field_mir, 0))
+say "shape-ctor-duplicate-field-help=" + v4_diag_help(v4_mir_diag(v4_mir_shape_ctor_duplicate_field_mir, 0))
+
+pilot v4_mir_shape_ctor_bad_type_stream = v4_lex_text(4, v4_mir_shape_ctor_bad_type_source())
+pilot v4_mir_shape_ctor_bad_type_tree = v4_parse_stream(4, v4_mir_shape_ctor_bad_type_stream)
+pilot v4_mir_shape_ctor_bad_type_hir = v4_hir_lower_tree(4, v4_mir_shape_ctor_bad_type_tree)
+pilot v4_mir_shape_ctor_bad_type_resolve = v4_resolve_lower_hir(4, v4_mir_shape_ctor_bad_type_hir)
+pilot v4_mir_shape_ctor_bad_type_ty = v4_ty_lower_resolve(4, v4_mir_shape_ctor_bad_type_resolve)
+pilot v4_mir_shape_ctor_bad_type_mir = v4_mir_lower_ty(4, v4_mir_shape_ctor_bad_type_ty)
+
+say "shape-ctor-bad-type-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_shape_ctor_bad_type_mir))
+say "shape-ctor-bad-type-message=" + v4_diag_message(v4_mir_diag(v4_mir_shape_ctor_bad_type_mir, 0))
+say "shape-ctor-bad-type-help=" + v4_diag_help(v4_mir_diag(v4_mir_shape_ctor_bad_type_mir, 0))
+
+pilot v4_mir_shape_ctor_unknown_shape_stream = v4_lex_text(5, v4_mir_shape_ctor_unknown_shape_source())
+pilot v4_mir_shape_ctor_unknown_shape_tree = v4_parse_stream(5, v4_mir_shape_ctor_unknown_shape_stream)
+pilot v4_mir_shape_ctor_unknown_shape_hir = v4_hir_lower_tree(5, v4_mir_shape_ctor_unknown_shape_tree)
+pilot v4_mir_shape_ctor_unknown_shape_resolve = v4_resolve_lower_hir(5, v4_mir_shape_ctor_unknown_shape_hir)
+pilot v4_mir_shape_ctor_unknown_shape_ty = v4_ty_lower_resolve(5, v4_mir_shape_ctor_unknown_shape_resolve)
+pilot v4_mir_shape_ctor_unknown_shape_mir = v4_mir_lower_ty(5, v4_mir_shape_ctor_unknown_shape_ty)
+
+say "shape-ctor-unknown-shape-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_shape_ctor_unknown_shape_mir))
+say "shape-ctor-unknown-shape-message=" + v4_diag_message(v4_mir_diag(v4_mir_shape_ctor_unknown_shape_mir, 0))
+say "shape-ctor-unknown-shape-help=" + v4_diag_help(v4_mir_diag(v4_mir_shape_ctor_unknown_shape_mir, 0))
