@@ -1,0 +1,115 @@
+-- V4 MIR typed field and index access smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_place_make_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "    callsign: word\n"
+    src = src + "}\n"
+    src = src + "task main(ship: Pilot, items: List<int>) -> int {\n"
+    src = src + "    pilot hp = ship.hp\n"
+    src = src + "    pilot first = items[0]\n"
+    src = src + "    ship.hp = hp + first\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_field_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task bad(ship: Pilot) -> int {\n"
+    src = src + "    give back ship.speed\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_index_target_source() -> word {
+    pilot src = "task bad(power: int) -> int {\n"
+    src = src + "    give back power[0]\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_index_expr_source() -> word {
+    pilot src = "task bad(items: List<int>) -> int {\n"
+    src = src + "    give back items[\"zero\"]\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_place_source = v4_mir_place_make_source()
+pilot v4_mir_place_stream = v4_lex_text(0, v4_mir_place_source)
+pilot v4_mir_place_tree = v4_parse_stream(0, v4_mir_place_stream)
+pilot v4_mir_place_hir = v4_hir_lower_tree(0, v4_mir_place_tree)
+pilot v4_mir_place_resolve = v4_resolve_lower_hir(0, v4_mir_place_hir)
+pilot v4_mir_place_ty = v4_ty_lower_resolve(0, v4_mir_place_resolve)
+pilot v4_mir_place_mir = v4_mir_lower_ty(0, v4_mir_place_ty)
+pilot v4_mir_place_main_def = v4_resolve_def_for_name(v4_mir_place_resolve, "main")
+pilot v4_mir_place_shape_def = v4_resolve_def_for_name(v4_mir_place_resolve, "Pilot")
+pilot v4_mir_place_shape_sig = v4_ty_lookup_signature(v4_mir_place_ty, v4_mir_place_shape_def)
+pilot v4_mir_place_main_body = v4_mir_lookup_body(v4_mir_place_mir, v4_mir_place_main_def)
+pilot v4_mir_place_hp_rvalue = v4_mir_stmt_rvalue(v4_mir_place_mir, v4_mir_place_main_body, 0)
+pilot v4_mir_place_first_rvalue = v4_mir_stmt_rvalue(v4_mir_place_mir, v4_mir_place_main_body, 1)
+pilot v4_mir_place_assign_place = v4_mir_stmt_place(v4_mir_place_mir, v4_mir_place_main_body, 2)
+pilot v4_mir_place_assign_rvalue = v4_mir_stmt_rvalue(v4_mir_place_mir, v4_mir_place_main_body, 2)
+pilot v4_mir_place_return_rvalue = v4_mir_stmt_rvalue(v4_mir_place_mir, v4_mir_place_main_body, 3)
+
+say v4_mir_summary(v4_mir_place_mir)
+say "shape-field-count=" + word_from_int(v4_ty_shape_field_count(v4_mir_place_ty, v4_mir_place_shape_sig))
+say "shape-field0-name=" + v4_ty_shape_field_name(v4_mir_place_ty, v4_mir_place_shape_sig, 0)
+say "shape-field0-type=" + v4_ty_shape_field_type(v4_mir_place_ty, v4_mir_place_shape_sig, 0)
+say "shape-field1-name=" + v4_ty_shape_field_name(v4_mir_place_ty, v4_mir_place_shape_sig, 1)
+say "shape-field1-type=" + v4_ty_shape_field_type(v4_mir_place_ty, v4_mir_place_shape_sig, 1)
+say "place-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_place_mir, v4_mir_place_main_body))
+say "place-local0-name=" + v4_mir_local_name(v4_mir_place_mir, v4_mir_place_main_body, 0)
+say "place-local0-ty=" + v4_mir_local_ty(v4_mir_place_mir, v4_mir_place_main_body, 0)
+say "place-local1-name=" + v4_mir_local_name(v4_mir_place_mir, v4_mir_place_main_body, 1)
+say "place-local1-ty=" + v4_mir_local_ty(v4_mir_place_mir, v4_mir_place_main_body, 1)
+say "hp-read-kind=" + v4_mir_rvalue_kind(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_hp_rvalue)
+say "hp-read-ty=" + v4_mir_rvalue_ty(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_hp_rvalue)
+say "first-read-kind=" + v4_mir_rvalue_kind(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_first_rvalue)
+say "first-read-ty=" + v4_mir_rvalue_ty(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_first_rvalue)
+say "assign-place-kind=" + v4_mir_place_kind(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_assign_place)
+say "assign-place-field=" + v4_mir_place_field(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_assign_place)
+say "assign-place-ty=" + v4_mir_place_ty(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_assign_place)
+say "assign-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_assign_rvalue)
+say "assign-rvalue-op=" + v4_mir_rvalue_op(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_assign_rvalue)
+say "assign-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_assign_rvalue)
+say "return-place-kind=" + v4_mir_rvalue_kind(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_return_rvalue)
+say "return-place-ty=" + v4_mir_rvalue_ty(v4_mir_place_mir, v4_mir_place_main_body, v4_mir_place_return_rvalue)
+say "place-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_place_mir))
+
+pilot v4_mir_bad_field_stream = v4_lex_text(1, v4_mir_bad_field_source())
+pilot v4_mir_bad_field_tree = v4_parse_stream(1, v4_mir_bad_field_stream)
+pilot v4_mir_bad_field_hir = v4_hir_lower_tree(1, v4_mir_bad_field_tree)
+pilot v4_mir_bad_field_resolve = v4_resolve_lower_hir(1, v4_mir_bad_field_hir)
+pilot v4_mir_bad_field_ty = v4_ty_lower_resolve(1, v4_mir_bad_field_resolve)
+pilot v4_mir_bad_field_mir = v4_mir_lower_ty(1, v4_mir_bad_field_ty)
+
+say "bad-field-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_field_mir))
+say "bad-field-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_field_mir, 0))
+say "bad-field-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_field_mir, 0))
+
+pilot v4_mir_bad_index_target_stream = v4_lex_text(2, v4_mir_bad_index_target_source())
+pilot v4_mir_bad_index_target_tree = v4_parse_stream(2, v4_mir_bad_index_target_stream)
+pilot v4_mir_bad_index_target_hir = v4_hir_lower_tree(2, v4_mir_bad_index_target_tree)
+pilot v4_mir_bad_index_target_resolve = v4_resolve_lower_hir(2, v4_mir_bad_index_target_hir)
+pilot v4_mir_bad_index_target_ty = v4_ty_lower_resolve(2, v4_mir_bad_index_target_resolve)
+pilot v4_mir_bad_index_target_mir = v4_mir_lower_ty(2, v4_mir_bad_index_target_ty)
+
+say "bad-index-target-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_index_target_mir))
+say "bad-index-target-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_index_target_mir, 0))
+say "bad-index-target-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_index_target_mir, 0))
+
+pilot v4_mir_bad_index_expr_stream = v4_lex_text(3, v4_mir_bad_index_expr_source())
+pilot v4_mir_bad_index_expr_tree = v4_parse_stream(3, v4_mir_bad_index_expr_stream)
+pilot v4_mir_bad_index_expr_hir = v4_hir_lower_tree(3, v4_mir_bad_index_expr_tree)
+pilot v4_mir_bad_index_expr_resolve = v4_resolve_lower_hir(3, v4_mir_bad_index_expr_hir)
+pilot v4_mir_bad_index_expr_ty = v4_ty_lower_resolve(3, v4_mir_bad_index_expr_resolve)
+pilot v4_mir_bad_index_expr_mir = v4_mir_lower_ty(3, v4_mir_bad_index_expr_ty)
+
+say "bad-index-expr-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_index_expr_mir))
+say "bad-index-expr-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_index_expr_mir, 0))
+say "bad-index-expr-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_index_expr_mir, 0))

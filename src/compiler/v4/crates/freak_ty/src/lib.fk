@@ -437,6 +437,26 @@ task v4_ty_find_matching_paren(stream_id: int, open_token: int, end_token: int) 
     give back 0 - 1
 }
 
+task v4_ty_find_matching_brace(stream_id: int, open_token: int, end_token: int) -> int {
+    pilot idx = open_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if val == "{" {
+                depth += 1
+            } else if val == "}" {
+                depth -= 1
+                if depth == 0 {
+                    give back idx
+                }
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
 task v4_ty_signature_param_open_token(ty_id: int, sig_id: int) -> int {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     if stream_id < 0 {
@@ -713,6 +733,233 @@ task v4_ty_signature_return_type(ty_id: int, sig_id: int) -> word {
         }
         i += 1
     }
+    give back v4_ty_unknown
+}
+
+task v4_ty_shape_signature_id_for_name(ty_id: int, shape_name: word) -> int {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_shape_sig {
+            if v4_ty_signature_name(ty_id, sig_id) == shape_name {
+                give back sig_id
+            }
+        }
+        sig_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_shape_body_open_token(ty_id: int, sig_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_shape_sig {
+        give back 0 - 1
+    }
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back 0 - 1
+    }
+    give back v4_ty_find_token_value(stream_id, start_token, end_token, "{")
+}
+
+task v4_ty_shape_body_close_token(ty_id: int, sig_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_shape_body_open_token(ty_id, sig_id)
+    if stream_id < 0 or open_token < 0 {
+        give back 0 - 1
+    }
+    give back v4_ty_find_matching_brace(stream_id, open_token, v4_ty_signature_item_end_token(ty_id, sig_id))
+}
+
+task v4_ty_shape_field_count(ty_id: int, sig_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_shape_sig {
+        give back 0
+    }
+
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_shape_body_open_token(ty_id, sig_id)
+    pilot close_token = v4_ty_shape_body_close_token(ty_id, sig_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back 0
+    }
+
+    pilot count = 0
+    pilot in_field = false
+    pilot depth = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if val == "\n" and depth == 0 {
+                in_field = false
+            }
+        } else {
+            if depth == 0 and (val == "," or val == ";") {
+                in_field = false
+            } else {
+                if not in_field {
+                    count += 1
+                    in_field = true
+                }
+                depth = v4_ty_depth_after_token(depth, val)
+            }
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_shape_field_segment_start(ty_id: int, sig_id: int, field_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_shape_sig or field_id < 0 {
+        give back 0 - 1
+    }
+
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_shape_body_open_token(ty_id, sig_id)
+    pilot close_token = v4_ty_shape_body_close_token(ty_id, sig_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back 0 - 1
+    }
+
+    pilot current = 0
+    pilot segment_start = 0 - 1
+    pilot depth = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if val == "\n" and depth == 0 and segment_start >= 0 {
+                if current == field_id {
+                    give back segment_start
+                }
+                current += 1
+                segment_start = 0 - 1
+            }
+        } else {
+            if depth == 0 and (val == "," or val == ";") {
+                if segment_start >= 0 {
+                    if current == field_id {
+                        give back segment_start
+                    }
+                    current += 1
+                    segment_start = 0 - 1
+                }
+            } else {
+                if segment_start < 0 {
+                    segment_start = idx
+                }
+                depth = v4_ty_depth_after_token(depth, val)
+            }
+        }
+        idx += 1
+    }
+
+    if segment_start >= 0 and current == field_id {
+        give back segment_start
+    }
+    give back 0 - 1
+}
+
+task v4_ty_shape_field_segment_end(ty_id: int, sig_id: int, field_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_shape_field_segment_start(ty_id, sig_id, field_id)
+    pilot close_token = v4_ty_shape_body_close_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or close_token <= start_token {
+        give back 0 - 1
+    }
+
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= close_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if val == "\n" and depth == 0 {
+                give back idx
+            }
+        } else {
+            if depth == 0 and idx > start_token and (val == "," or val == ";") {
+                give back idx
+            }
+            depth = v4_ty_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back close_token
+}
+
+task v4_ty_shape_field_name(ty_id: int, sig_id: int, field_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_shape_field_segment_start(ty_id, sig_id, field_id)
+    pilot end_token = v4_ty_shape_field_segment_end(ty_id, sig_id, field_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back ""
+    }
+    pilot first = v4_ty_skip_trivia(stream_id, start_token)
+    if first >= end_token {
+        give back ""
+    }
+    give back v4_lex_token_value(stream_id, first)
+}
+
+task v4_ty_shape_field_type(ty_id: int, sig_id: int, field_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_shape_field_segment_start(ty_id, sig_id, field_id)
+    pilot end_token = v4_ty_shape_field_segment_end(ty_id, sig_id, field_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back v4_ty_unknown
+    }
+
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back v4_ty_unknown
+    }
+    pilot type_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
+    pilot field_ty = v4_ty_type_text(stream_id, type_start, end_token)
+    if field_ty == "" {
+        give back v4_ty_unknown
+    }
+    give back field_ty
+}
+
+task v4_ty_shape_field_type_for_name(ty_id: int, shape_name: word, field_name: word) -> word {
+    pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, shape_name)
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+
+    pilot field_id = 0
+    pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
+    repeat until field_id >= field_count {
+        if v4_ty_shape_field_name(ty_id, sig_id, field_id) == field_name {
+            give back v4_ty_shape_field_type(ty_id, sig_id, field_id)
+        }
+        field_id += 1
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_index_element_type(container_ty: word) -> word {
+    if container_ty.length() >= 6 {
+        if container_ty.char_at(0) == "L" and container_ty.char_at(1) == "i" and container_ty.char_at(2) == "s" and container_ty.char_at(3) == "t" and container_ty.char_at(4) == "<" and container_ty.char_at(container_ty.length() - 1) == ">" {
+            give back v4_slice(container_ty, 5, container_ty.length() - 1)
+        }
+    }
+
+    if container_ty.length() >= 3 and container_ty.char_at(0) == "[" {
+        pilot idx = 1
+        repeat until idx >= container_ty.length() {
+            pilot ch = container_ty.char_at(idx)
+            if ch == ";" or ch == "]" {
+                give back v4_slice(container_ty, 1, idx)
+            }
+            idx += 1
+        }
+    }
+
     give back v4_ty_unknown
 }
 

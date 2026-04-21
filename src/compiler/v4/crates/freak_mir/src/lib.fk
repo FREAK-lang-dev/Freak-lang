@@ -27,6 +27,7 @@ pilot v4_mir_rvalue_const_float = "ConstFloat"
 pilot v4_mir_rvalue_const_word = "ConstWord"
 pilot v4_mir_rvalue_const_bool = "ConstBool"
 pilot v4_mir_rvalue_use_local = "UseLocal"
+pilot v4_mir_rvalue_use_place = "UsePlace"
 pilot v4_mir_rvalue_use_symbol = "UseSymbol"
 pilot v4_mir_rvalue_unary = "Unary"
 pilot v4_mir_rvalue_binary = "Binary"
@@ -1294,6 +1295,11 @@ task v4_mir_lower_expr(mir_id: int, body_id: int, stream_id: int, start_token: i
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_symbol, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
     }
 
+    pilot place_id = v4_mir_lower_place(mir_id, body_id, stream_id, first, last + 1)
+    if v4_mir_place_kind(mir_id, body_id, place_id) != v4_mir_place_unknown {
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_place, expr_text, v4_mir_place_text(mir_id, body_id, place_id), place_id, 0 - 1, expr_span, v4_mir_place_ty(mir_id, body_id, place_id))
+    }
+
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
 }
 
@@ -1352,7 +1358,16 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
         if open_index > first {
             pilot base_place = v4_mir_lower_place(mir_id, body_id, stream_id, first, open_index)
             pilot index_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, open_index + 1, last)
-            give back v4_mir_add_place(mir_id, body_id, v4_mir_place_index, place_text, base_place, "", index_rvalue, place_span, v4_ty_unknown)
+            pilot base_ty = v4_mir_place_ty(mir_id, body_id, base_place)
+            pilot index_ty = v4_mir_rvalue_ty(mir_id, body_id, index_rvalue)
+            pilot element_ty = v4_ty_index_element_type(base_ty)
+            if v4_ty_is_known(base_ty) and not v4_ty_is_known(element_ty) {
+                v4_mir_add_type_error(mir_id, place_span, "index target not indexable", base_ty + " is not indexable")
+            }
+            if v4_ty_is_known(index_ty) and not v4_ty_is_numeric(index_ty) {
+                v4_mir_add_type_error(mir_id, place_span, "index expression must be numeric", "got " + index_ty)
+            }
+            give back v4_mir_add_place(mir_id, body_id, v4_mir_place_index, place_text, base_place, "", index_rvalue, place_span, element_ty)
         }
     }
 
@@ -1364,7 +1379,16 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
         if field_token <= last {
             field_name = v4_lex_token_value(stream_id, field_token)
         }
-        give back v4_mir_add_place(mir_id, body_id, v4_mir_place_field, place_text, base_place, field_name, 0 - 1, place_span, v4_ty_unknown)
+        pilot base_ty = v4_mir_place_ty(mir_id, body_id, base_place)
+        pilot field_ty = v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir_id), base_ty, field_name)
+        if v4_ty_is_known(base_ty) and not v4_ty_is_known(field_ty) {
+            if v4_ty_shape_signature_id_for_name(v4_mir_ty_id(mir_id), base_ty) >= 0 {
+                v4_mir_add_type_error(mir_id, place_span, "unknown field access", base_ty + " has no field " + field_name)
+            } else {
+                v4_mir_add_type_error(mir_id, place_span, "field access on non-shape type", base_ty + " has no fields")
+            }
+        }
+        give back v4_mir_add_place(mir_id, body_id, v4_mir_place_field, place_text, base_place, field_name, 0 - 1, place_span, field_ty)
     }
 
     if first == last {
