@@ -1,0 +1,159 @@
+-- V4 MIR tuple destructuring smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_tuple_destructure_good_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot pair = (7, \"ace\")\n"
+    src = src + "    pilot (left, label): (int,word) = pair\n"
+    src = src + "    pilot ((x, y), _) = ((1, 2), \"team\")\n"
+    src = src + "    give back left + y\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_tuple_destructure_bad_non_tuple_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot (left, label) = 7\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_tuple_destructure_bad_arity_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot (a, b, c) = (1, 2)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_tuple_destructure_bad_duplicate_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot (a, a) = (1, 2)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_tuple_destructure_bad_type_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot (left, label): (int,word) = (7, 9)\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_tuple_destructure_stream = v4_lex_text(0, v4_mir_tuple_destructure_good_source())
+pilot v4_mir_tuple_destructure_tree = v4_parse_stream(0, v4_mir_tuple_destructure_stream)
+pilot v4_mir_tuple_destructure_hir = v4_hir_lower_tree(0, v4_mir_tuple_destructure_tree)
+pilot v4_mir_tuple_destructure_resolve = v4_resolve_lower_hir(0, v4_mir_tuple_destructure_hir)
+pilot v4_mir_tuple_destructure_ty = v4_ty_lower_resolve(0, v4_mir_tuple_destructure_resolve)
+pilot v4_mir_tuple_destructure_mir = v4_mir_lower_ty(0, v4_mir_tuple_destructure_ty)
+pilot v4_mir_tuple_destructure_main_def = v4_resolve_def_for_name(v4_mir_tuple_destructure_resolve, "main")
+pilot v4_mir_tuple_destructure_main_body = v4_mir_lookup_body(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_def)
+pilot v4_mir_tuple_destructure_pair_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 0)
+pilot v4_mir_tuple_destructure_temp1_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 1)
+pilot v4_mir_tuple_destructure_left_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 2)
+pilot v4_mir_tuple_destructure_label_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 3)
+pilot v4_mir_tuple_destructure_temp2_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 4)
+pilot v4_mir_tuple_destructure_x_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 5)
+pilot v4_mir_tuple_destructure_y_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 6)
+pilot v4_mir_tuple_destructure_return_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 7)
+pilot v4_mir_tuple_destructure_left_place = v4_mir_rvalue_lhs(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_left_rvalue)
+pilot v4_mir_tuple_destructure_label_place = v4_mir_rvalue_lhs(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_label_rvalue)
+pilot v4_mir_tuple_destructure_x_place = v4_mir_rvalue_lhs(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_x_rvalue)
+pilot v4_mir_tuple_destructure_y_place = v4_mir_rvalue_lhs(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_y_rvalue)
+pilot v4_mir_tuple_destructure_x_base = v4_mir_place_base(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_x_place)
+pilot v4_mir_tuple_destructure_y_base = v4_mir_place_base(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_y_place)
+
+say v4_mir_summary(v4_mir_tuple_destructure_mir)
+say "tuple-destructure-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body))
+say "tuple-destructure-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body))
+say "tuple-destructure-local0-name=" + v4_mir_local_name(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 0)
+say "tuple-destructure-local0-ty=" + v4_mir_local_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 0)
+say "tuple-destructure-local1-name=" + v4_mir_local_name(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 1)
+say "tuple-destructure-local1-ty=" + v4_mir_local_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 1)
+say "tuple-destructure-local2-name=" + v4_mir_local_name(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 2)
+say "tuple-destructure-local2-ty=" + v4_mir_local_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 2)
+say "tuple-destructure-local3-name=" + v4_mir_local_name(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 3)
+say "tuple-destructure-local3-ty=" + v4_mir_local_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 3)
+say "tuple-destructure-local4-name=" + v4_mir_local_name(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 4)
+say "tuple-destructure-local4-ty=" + v4_mir_local_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 4)
+say "tuple-destructure-local5-name=" + v4_mir_local_name(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 5)
+say "tuple-destructure-local5-ty=" + v4_mir_local_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 5)
+say "tuple-destructure-local6-name=" + v4_mir_local_name(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 6)
+say "tuple-destructure-local6-ty=" + v4_mir_local_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 6)
+say "tuple-destructure-stmt1-kind=" + v4_mir_stmt_kind(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 1)
+say "tuple-destructure-stmt1-lhs=" + v4_mir_stmt_lhs(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 1)
+say "tuple-destructure-stmt4-kind=" + v4_mir_stmt_kind(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 4)
+say "tuple-destructure-stmt4-lhs=" + v4_mir_stmt_lhs(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, 4)
+say "tuple-destructure-pair-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_pair_rvalue)
+say "tuple-destructure-pair-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_pair_rvalue)
+say "tuple-destructure-temp1-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_temp1_rvalue)
+say "tuple-destructure-temp1-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_temp1_rvalue)
+say "tuple-destructure-left-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_left_rvalue)
+say "tuple-destructure-left-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_left_rvalue)
+say "tuple-destructure-left-place-field=" + v4_mir_place_field(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_left_place)
+say "tuple-destructure-left-place-ty=" + v4_mir_place_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_left_place)
+say "tuple-destructure-label-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_label_rvalue)
+say "tuple-destructure-label-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_label_rvalue)
+say "tuple-destructure-label-place-field=" + v4_mir_place_field(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_label_place)
+say "tuple-destructure-label-place-ty=" + v4_mir_place_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_label_place)
+say "tuple-destructure-temp2-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_temp2_rvalue)
+say "tuple-destructure-temp2-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_temp2_rvalue)
+say "tuple-destructure-x-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_x_rvalue)
+say "tuple-destructure-x-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_x_rvalue)
+say "tuple-destructure-x-place-field=" + v4_mir_place_field(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_x_place)
+say "tuple-destructure-x-place-ty=" + v4_mir_place_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_x_place)
+say "tuple-destructure-x-base-field=" + v4_mir_place_field(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_x_base)
+say "tuple-destructure-x-base-ty=" + v4_mir_place_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_x_base)
+say "tuple-destructure-y-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_y_rvalue)
+say "tuple-destructure-y-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_y_rvalue)
+say "tuple-destructure-y-place-field=" + v4_mir_place_field(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_y_place)
+say "tuple-destructure-y-place-ty=" + v4_mir_place_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_y_place)
+say "tuple-destructure-y-base-field=" + v4_mir_place_field(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_y_base)
+say "tuple-destructure-y-base-ty=" + v4_mir_place_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_y_base)
+say "tuple-destructure-return-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_return_rvalue)
+say "tuple-destructure-return-rvalue-op=" + v4_mir_rvalue_op(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_return_rvalue)
+say "tuple-destructure-return-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_destructure_mir, v4_mir_tuple_destructure_main_body, v4_mir_tuple_destructure_return_rvalue)
+say "tuple-destructure-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_tuple_destructure_mir))
+
+pilot v4_mir_tuple_destructure_bad_non_tuple_stream = v4_lex_text(1, v4_mir_tuple_destructure_bad_non_tuple_source())
+pilot v4_mir_tuple_destructure_bad_non_tuple_tree = v4_parse_stream(1, v4_mir_tuple_destructure_bad_non_tuple_stream)
+pilot v4_mir_tuple_destructure_bad_non_tuple_hir = v4_hir_lower_tree(1, v4_mir_tuple_destructure_bad_non_tuple_tree)
+pilot v4_mir_tuple_destructure_bad_non_tuple_resolve = v4_resolve_lower_hir(1, v4_mir_tuple_destructure_bad_non_tuple_hir)
+pilot v4_mir_tuple_destructure_bad_non_tuple_ty = v4_ty_lower_resolve(1, v4_mir_tuple_destructure_bad_non_tuple_resolve)
+pilot v4_mir_tuple_destructure_bad_non_tuple_mir = v4_mir_lower_ty(1, v4_mir_tuple_destructure_bad_non_tuple_ty)
+
+say "tuple-destructure-bad-non-tuple-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_tuple_destructure_bad_non_tuple_mir))
+say "tuple-destructure-bad-non-tuple-message=" + v4_diag_message(v4_mir_diag(v4_mir_tuple_destructure_bad_non_tuple_mir, 0))
+say "tuple-destructure-bad-non-tuple-help=" + v4_diag_help(v4_mir_diag(v4_mir_tuple_destructure_bad_non_tuple_mir, 0))
+
+pilot v4_mir_tuple_destructure_bad_arity_stream = v4_lex_text(2, v4_mir_tuple_destructure_bad_arity_source())
+pilot v4_mir_tuple_destructure_bad_arity_tree = v4_parse_stream(2, v4_mir_tuple_destructure_bad_arity_stream)
+pilot v4_mir_tuple_destructure_bad_arity_hir = v4_hir_lower_tree(2, v4_mir_tuple_destructure_bad_arity_tree)
+pilot v4_mir_tuple_destructure_bad_arity_resolve = v4_resolve_lower_hir(2, v4_mir_tuple_destructure_bad_arity_hir)
+pilot v4_mir_tuple_destructure_bad_arity_ty = v4_ty_lower_resolve(2, v4_mir_tuple_destructure_bad_arity_resolve)
+pilot v4_mir_tuple_destructure_bad_arity_mir = v4_mir_lower_ty(2, v4_mir_tuple_destructure_bad_arity_ty)
+
+say "tuple-destructure-bad-arity-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_tuple_destructure_bad_arity_mir))
+say "tuple-destructure-bad-arity-message=" + v4_diag_message(v4_mir_diag(v4_mir_tuple_destructure_bad_arity_mir, 0))
+say "tuple-destructure-bad-arity-help=" + v4_diag_help(v4_mir_diag(v4_mir_tuple_destructure_bad_arity_mir, 0))
+
+pilot v4_mir_tuple_destructure_bad_duplicate_stream = v4_lex_text(3, v4_mir_tuple_destructure_bad_duplicate_source())
+pilot v4_mir_tuple_destructure_bad_duplicate_tree = v4_parse_stream(3, v4_mir_tuple_destructure_bad_duplicate_stream)
+pilot v4_mir_tuple_destructure_bad_duplicate_hir = v4_hir_lower_tree(3, v4_mir_tuple_destructure_bad_duplicate_tree)
+pilot v4_mir_tuple_destructure_bad_duplicate_resolve = v4_resolve_lower_hir(3, v4_mir_tuple_destructure_bad_duplicate_hir)
+pilot v4_mir_tuple_destructure_bad_duplicate_ty = v4_ty_lower_resolve(3, v4_mir_tuple_destructure_bad_duplicate_resolve)
+pilot v4_mir_tuple_destructure_bad_duplicate_mir = v4_mir_lower_ty(3, v4_mir_tuple_destructure_bad_duplicate_ty)
+
+say "tuple-destructure-bad-duplicate-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_tuple_destructure_bad_duplicate_mir))
+say "tuple-destructure-bad-duplicate-message=" + v4_diag_message(v4_mir_diag(v4_mir_tuple_destructure_bad_duplicate_mir, 0))
+say "tuple-destructure-bad-duplicate-help=" + v4_diag_help(v4_mir_diag(v4_mir_tuple_destructure_bad_duplicate_mir, 0))
+
+pilot v4_mir_tuple_destructure_bad_type_stream = v4_lex_text(4, v4_mir_tuple_destructure_bad_type_source())
+pilot v4_mir_tuple_destructure_bad_type_tree = v4_parse_stream(4, v4_mir_tuple_destructure_bad_type_stream)
+pilot v4_mir_tuple_destructure_bad_type_hir = v4_hir_lower_tree(4, v4_mir_tuple_destructure_bad_type_tree)
+pilot v4_mir_tuple_destructure_bad_type_resolve = v4_resolve_lower_hir(4, v4_mir_tuple_destructure_bad_type_hir)
+pilot v4_mir_tuple_destructure_bad_type_ty = v4_ty_lower_resolve(4, v4_mir_tuple_destructure_bad_type_resolve)
+pilot v4_mir_tuple_destructure_bad_type_mir = v4_mir_lower_ty(4, v4_mir_tuple_destructure_bad_type_ty)
+
+say "tuple-destructure-bad-type-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_tuple_destructure_bad_type_mir))
+say "tuple-destructure-bad-type-message=" + v4_diag_message(v4_mir_diag(v4_mir_tuple_destructure_bad_type_mir, 0))
+say "tuple-destructure-bad-type-help=" + v4_diag_help(v4_mir_diag(v4_mir_tuple_destructure_bad_type_mir, 0))

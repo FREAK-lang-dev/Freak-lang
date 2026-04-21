@@ -2503,6 +2503,7 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
 }
 
 task v4_mir_pattern_is_simple_local(pattern: word) -> bool {
+    pattern = v4_mir_pattern_trim(pattern)
     if pattern == "" {
         give back false
     }
@@ -2511,6 +2512,182 @@ task v4_mir_pattern_is_simple_local(pattern: word) -> bool {
     if v4_index_of_from(pattern, ")", 0) >= 0 { give back false }
     if v4_index_of_from(pattern, ",", 0) >= 0 { give back false }
     give back true
+}
+
+task v4_mir_pattern_is_space(ch: word) -> bool {
+    give back ch == " " or ch == "\n" or ch == "\t" or ch == "\r"
+}
+
+task v4_mir_pattern_trim(pattern: word) -> word {
+    pilot start_pos = 0
+    pilot found_start = false
+    repeat until start_pos >= pattern.length() {
+        if not v4_mir_pattern_is_space(pattern.char_at(start_pos)) {
+            found_start = true
+            start_pos = pattern.length()
+        } else {
+            start_pos += 1
+        }
+    }
+
+    if found_start == false {
+        give back ""
+    }
+
+    pilot trim_start = 0
+    repeat until trim_start >= pattern.length() {
+        if not v4_mir_pattern_is_space(pattern.char_at(trim_start)) {
+            start_pos = trim_start
+            trim_start = pattern.length()
+        } else {
+            trim_start += 1
+        }
+    }
+
+    pilot end_pos = pattern.length()
+    repeat until end_pos <= start_pos {
+        if not v4_mir_pattern_is_space(pattern.char_at(end_pos - 1)) {
+            give back v4_slice(pattern, start_pos, end_pos)
+        }
+        end_pos -= 1
+    }
+    give back ""
+}
+
+task v4_mir_pattern_find_top_level_char(pattern: word, wanted: word, start_pos: int, end_pos: int) -> int {
+    pilot depth = 0
+    pilot idx = start_pos
+    repeat until idx >= end_pos {
+        pilot ch = pattern.char_at(idx)
+        if depth == 0 and ch == wanted {
+            give back idx
+        }
+        depth = v4_ty_type_depth_after_char(depth, ch)
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_is_tuple_pattern(pattern: word) -> bool {
+    pattern = v4_mir_pattern_trim(pattern)
+    if pattern.length() < 5 {
+        give back false
+    }
+    if pattern.char_at(0) != "(" or pattern.char_at(pattern.length() - 1) != ")" {
+        give back false
+    }
+    give back v4_mir_pattern_find_top_level_char(pattern, ",", 1, pattern.length() - 1) > 1
+}
+
+task v4_mir_tuple_pattern_slot_count(pattern: word) -> int {
+    pattern = v4_mir_pattern_trim(pattern)
+    if not v4_mir_is_tuple_pattern(pattern) {
+        give back 0
+    }
+
+    pilot count = 1
+    pilot depth = 0
+    pilot idx = 1
+    repeat until idx >= pattern.length() - 1 {
+        pilot ch = pattern.char_at(idx)
+        if depth == 0 and ch == "," {
+            count += 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_mir_tuple_pattern_slot(pattern: word, slot_id: int) -> word {
+    pattern = v4_mir_pattern_trim(pattern)
+    if not v4_mir_is_tuple_pattern(pattern) or slot_id < 0 {
+        give back ""
+    }
+
+    pilot current = 0
+    pilot segment_start = 1
+    pilot depth = 0
+    pilot idx = 1
+    repeat until idx >= pattern.length() - 1 {
+        pilot ch = pattern.char_at(idx)
+        if depth == 0 and ch == "," {
+            if current == slot_id {
+                give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
+            }
+            current += 1
+            segment_start = idx + 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+
+    if current == slot_id and segment_start < pattern.length() - 1 {
+        give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, pattern.length() - 1))
+    }
+    give back ""
+}
+
+task v4_mir_unique_local_name(mir_id: int, body_id: int, prefix: word) -> word {
+    pilot candidate = prefix
+    pilot suffix = 2
+    repeat until v4_mir_find_local(mir_id, body_id, candidate) < 0 {
+        candidate = prefix + word_from_int(suffix)
+        suffix += 1
+    }
+    give back candidate
+}
+
+task v4_mir_lower_destructure_pattern(mir_id: int, body_id: int, block_id: int, stmt_span: word, pattern: word, source_place: int, source_ty: word) -> void {
+    pattern = v4_mir_pattern_trim(pattern)
+    if pattern == "" or pattern == "_" {
+        give back
+    }
+
+    if v4_mir_pattern_is_simple_local(pattern) {
+        if v4_mir_find_local(mir_id, body_id, pattern) >= 0 {
+            v4_mir_add_type_error(mir_id, stmt_span, "tuple destructure duplicate binding", pattern + " already exists in this scope")
+            give back
+        }
+
+        pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
+        pilot local_id = v4_mir_add_local(mir_id, body_id, pattern, source_ty, stmt_span)
+        pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, pattern, local_id, pattern, 0 - 1, stmt_span, source_ty)
+        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, pattern, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, place_id, source_rvalue)
+        give back
+    }
+
+    if not v4_mir_is_tuple_pattern(pattern) {
+        v4_mir_add_type_error(mir_id, stmt_span, "unsupported local pattern", "use a single name or (a, b, ...)")
+        give back
+    }
+
+    if v4_ty_is_known(source_ty) and not v4_ty_is_tuple_type(source_ty) {
+        v4_mir_add_type_error(mir_id, stmt_span, "tuple destructure needs tuple source", "got " + source_ty)
+        give back
+    }
+
+    pilot pattern_slots = v4_mir_tuple_pattern_slot_count(pattern)
+    if v4_ty_is_tuple_type(source_ty) {
+        pilot source_slots = v4_ty_tuple_slot_count(source_ty)
+        if source_slots != pattern_slots {
+            v4_mir_add_type_error(mir_id, stmt_span, "tuple destructure arity mismatch", "pattern wants " + word_from_int(pattern_slots) + " slots but source has " + word_from_int(source_slots))
+        }
+    }
+
+    pilot slot_idx = 0
+    repeat until slot_idx >= pattern_slots {
+        pilot slot_name = word_from_int(slot_idx)
+        pilot slot_ty = v4_ty_unknown
+        if v4_ty_is_tuple_type(source_ty) {
+            slot_ty = v4_ty_tuple_slot_type(source_ty, slot_idx)
+        }
+        pilot slot_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + slot_name, source_place, slot_name, 0 - 1, stmt_span, slot_ty)
+        v4_mir_lower_destructure_pattern(mir_id, body_id, block_id, stmt_span, v4_mir_tuple_pattern_slot(pattern, slot_idx), slot_place, slot_ty)
+        slot_idx += 1
+    }
 }
 
 task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, for_token: int, stmt_end: int) -> int {
@@ -2668,21 +2845,22 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
 }
 
 task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, pilot_token: int, stmt_end: int) -> void {
-    pilot name_token = v4_mir_skip_trivia(stream_id, pilot_token + 1)
-    if name_token >= stmt_end {
+    pilot pattern_start = v4_mir_skip_trivia(stream_id, pilot_token + 1)
+    if pattern_start >= stmt_end {
         give back
     }
 
-    pilot local_name = v4_lex_token_value(stream_id, name_token)
-    pilot eq_token = v4_mir_find_token_value(stream_id, name_token + 1, stmt_end, "=")
+    pilot eq_token = v4_mir_find_assignment_operator_token(stream_id, pattern_start, stmt_end)
     pilot decl_end = stmt_end
     if eq_token >= 0 {
         decl_end = eq_token
     }
 
     pilot declared_ty = v4_ty_unknown
-    pilot colon_token = v4_mir_find_top_level_token(stream_id, name_token + 1, decl_end, ":")
+    pilot colon_token = v4_mir_find_top_level_token(stream_id, pattern_start, decl_end, ":")
+    pilot pattern_end = decl_end
     if colon_token >= 0 {
+        pattern_end = colon_token
         pilot type_start = v4_mir_skip_trivia(stream_id, colon_token + 1)
         if type_start < decl_end {
             declared_ty = v4_ty_type_text(stream_id, type_start, decl_end)
@@ -2691,6 +2869,8 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
             }
         }
     }
+
+    pilot pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, pattern_start, pattern_end))
 
     pilot rhs_start = decl_end
     if eq_token >= 0 {
@@ -2701,14 +2881,36 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     pilot rhs = v4_mir_expr_text(stream_id, rhs_start, stmt_end)
     pilot rvalue_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, rhs_start, stmt_end, declared_ty)
     pilot inferred_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
-    pilot local_ty = inferred_ty
-    if v4_ty_is_known(declared_ty) {
-        v4_mir_check_local_decl_type(mir_id, stmt_span, local_name, declared_ty, inferred_ty)
-        local_ty = declared_ty
+    if v4_mir_pattern_is_simple_local(pattern) {
+        pilot local_ty = inferred_ty
+        if v4_ty_is_known(declared_ty) {
+            v4_mir_check_local_decl_type(mir_id, stmt_span, pattern, declared_ty, inferred_ty)
+            local_ty = declared_ty
+        }
+        pilot local_id = v4_mir_add_local(mir_id, body_id, pattern, local_ty, stmt_span)
+        pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, pattern, local_id, pattern, 0 - 1, stmt_span, local_ty)
+        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, pattern, rhs, stmt_span, place_id, rvalue_id)
+        give back
     }
-    v4_mir_add_local(mir_id, body_id, local_name, local_ty, stmt_span)
-    pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, local_name, 0 - 1, local_name, 0 - 1, stmt_span, local_ty)
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, local_name, rhs, stmt_span, place_id, rvalue_id)
+
+    if v4_mir_is_tuple_pattern(pattern) {
+        pilot source_ty = inferred_ty
+        if v4_ty_is_known(declared_ty) {
+            if not v4_ty_types_compatible(declared_ty, inferred_ty) {
+                v4_mir_add_type_error(mir_id, stmt_span, "tuple destructure type mismatch", "pattern expects " + declared_ty + " but got " + inferred_ty)
+            }
+            source_ty = declared_ty
+        }
+
+        pilot temp_name = v4_mir_unique_local_name(mir_id, body_id, "_tuple_unpack")
+        pilot temp_id = v4_mir_add_local(mir_id, body_id, temp_name, source_ty, stmt_span)
+        pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_id, temp_name, 0 - 1, stmt_span, source_ty)
+        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, temp_name, rhs, stmt_span, temp_place, rvalue_id)
+        v4_mir_lower_destructure_pattern(mir_id, body_id, block_id, stmt_span, pattern, temp_place, source_ty)
+        give back
+    }
+
+    v4_mir_add_type_error(mir_id, stmt_span, "unsupported local pattern", "use a single name or (a, b, ...)")
 }
 
 task v4_mir_lower_return_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, give_token: int, stmt_end: int) -> void {
