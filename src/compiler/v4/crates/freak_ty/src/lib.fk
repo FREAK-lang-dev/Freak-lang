@@ -1318,13 +1318,42 @@ task v4_ty_shape_field_type_for_name(ty_id: int, shape_name: word, field_name: w
     give back v4_ty_unknown
 }
 
-task v4_ty_index_element_type(container_ty: word) -> word {
+task v4_ty_type_depth_after_char(depth: int, ch: word) -> int {
+    pilot next_depth = depth
+    if ch == "(" or ch == "[" or ch == "{" or ch == "<" {
+        next_depth += 1
+    } else if ch == ")" or ch == "]" or ch == "}" or ch == ">" {
+        if next_depth > 0 {
+            next_depth -= 1
+        }
+    }
+    give back next_depth
+}
+
+task v4_ty_find_top_level_type_char(type_text: word, wanted: word, start_pos: int, end_pos: int) -> int {
+    pilot depth = 0
+    pilot idx = start_pos
+    repeat until idx >= end_pos {
+        pilot ch = type_text.char_at(idx)
+        if depth == 0 and ch == wanted {
+            give back idx
+        }
+        depth = v4_ty_type_depth_after_char(depth, ch)
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_list_element_type(container_ty: word) -> word {
     if container_ty.length() >= 6 {
         if container_ty.char_at(0) == "L" and container_ty.char_at(1) == "i" and container_ty.char_at(2) == "s" and container_ty.char_at(3) == "t" and container_ty.char_at(4) == "<" and container_ty.char_at(container_ty.length() - 1) == ">" {
             give back v4_slice(container_ty, 5, container_ty.length() - 1)
         }
     }
+    give back v4_ty_unknown
+}
 
+task v4_ty_fixed_array_element_type(container_ty: word) -> word {
     if container_ty.length() >= 3 and container_ty.char_at(0) == "[" {
         pilot idx = 1
         repeat until idx >= container_ty.length() {
@@ -1334,6 +1363,54 @@ task v4_ty_index_element_type(container_ty: word) -> word {
             }
             idx += 1
         }
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_map_key_type(container_ty: word) -> word {
+    if container_ty.length() < 7 {
+        give back v4_ty_unknown
+    }
+    if container_ty.char_at(0) != "M" or container_ty.char_at(1) != "a" or container_ty.char_at(2) != "p" or container_ty.char_at(3) != "<" or container_ty.char_at(container_ty.length() - 1) != ">" {
+        give back v4_ty_unknown
+    }
+
+    pilot comma = v4_ty_find_top_level_type_char(container_ty, ",", 4, container_ty.length() - 1)
+    if comma <= 4 {
+        give back v4_ty_unknown
+    }
+    give back v4_slice(container_ty, 4, comma)
+}
+
+task v4_ty_map_value_type(container_ty: word) -> word {
+    if container_ty.length() < 7 {
+        give back v4_ty_unknown
+    }
+    if container_ty.char_at(0) != "M" or container_ty.char_at(1) != "a" or container_ty.char_at(2) != "p" or container_ty.char_at(3) != "<" or container_ty.char_at(container_ty.length() - 1) != ">" {
+        give back v4_ty_unknown
+    }
+
+    pilot comma = v4_ty_find_top_level_type_char(container_ty, ",", 4, container_ty.length() - 1)
+    if comma < 0 or comma + 1 >= container_ty.length() - 1 {
+        give back v4_ty_unknown
+    }
+    give back v4_slice(container_ty, comma + 1, container_ty.length() - 1)
+}
+
+task v4_ty_index_element_type(container_ty: word) -> word {
+    pilot list_element_ty = v4_ty_list_element_type(container_ty)
+    if v4_ty_is_known(list_element_ty) {
+        give back list_element_ty
+    }
+
+    pilot map_value_ty = v4_ty_map_value_type(container_ty)
+    if v4_ty_is_known(map_value_ty) {
+        give back map_value_ty
+    }
+
+    pilot array_element_ty = v4_ty_fixed_array_element_type(container_ty)
+    if v4_ty_is_known(array_element_ty) {
+        give back array_element_ty
     }
 
     give back v4_ty_unknown

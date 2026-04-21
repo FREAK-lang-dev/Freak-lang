@@ -1,0 +1,132 @@
+-- V4 MIR typed map access and mutation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_map_access_good_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot lookup = " + "{" + "\"alpha\": 3, \"beta\": 5" + "}\n"
+    src = src + "    pilot nested = " + "{" + "\"battle\": " + "{" + "\"front\": 7" + "}" + "}\n"
+    src = src + "    pilot alpha = lookup[\"alpha\"]\n"
+    src = src + "    pilot front = nested[\"battle\"][\"front\"]\n"
+    src = src + "    lookup[\"beta\"] = alpha + front\n"
+    src = src + "    give back lookup[\"beta\"]\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_map_access_bad_key_read_source() -> word {
+    pilot src = "task bad() -> int {\n"
+    src = src + "    pilot lookup = " + "{" + "\"alpha\": 3" + "}\n"
+    src = src + "    give back lookup[0]\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_map_access_bad_key_write_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot lookup = " + "{" + "\"alpha\": 3" + "}\n"
+    src = src + "    lookup[false] = 1\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_map_access_bad_value_write_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot lookup = " + "{" + "\"alpha\": 3" + "}\n"
+    src = src + "    lookup[\"alpha\"] = \"oops\"\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_map_access_stream = v4_lex_text(0, v4_mir_map_access_good_source())
+pilot v4_mir_map_access_tree = v4_parse_stream(0, v4_mir_map_access_stream)
+pilot v4_mir_map_access_hir = v4_hir_lower_tree(0, v4_mir_map_access_tree)
+pilot v4_mir_map_access_resolve = v4_resolve_lower_hir(0, v4_mir_map_access_hir)
+pilot v4_mir_map_access_ty = v4_ty_lower_resolve(0, v4_mir_map_access_resolve)
+pilot v4_mir_map_access_mir = v4_mir_lower_ty(0, v4_mir_map_access_ty)
+pilot v4_mir_map_access_main_def = v4_resolve_def_for_name(v4_mir_map_access_resolve, "main")
+pilot v4_mir_map_access_main_body = v4_mir_lookup_body(v4_mir_map_access_mir, v4_mir_map_access_main_def)
+pilot v4_mir_map_access_lookup_rvalue = v4_mir_stmt_rvalue(v4_mir_map_access_mir, v4_mir_map_access_main_body, 0)
+pilot v4_mir_map_access_nested_rvalue = v4_mir_stmt_rvalue(v4_mir_map_access_mir, v4_mir_map_access_main_body, 1)
+pilot v4_mir_map_access_alpha_rvalue = v4_mir_stmt_rvalue(v4_mir_map_access_mir, v4_mir_map_access_main_body, 2)
+pilot v4_mir_map_access_front_rvalue = v4_mir_stmt_rvalue(v4_mir_map_access_mir, v4_mir_map_access_main_body, 3)
+pilot v4_mir_map_access_assign_place = v4_mir_stmt_place(v4_mir_map_access_mir, v4_mir_map_access_main_body, 4)
+pilot v4_mir_map_access_assign_rvalue = v4_mir_stmt_rvalue(v4_mir_map_access_mir, v4_mir_map_access_main_body, 4)
+pilot v4_mir_map_access_return_rvalue = v4_mir_stmt_rvalue(v4_mir_map_access_mir, v4_mir_map_access_main_body, 5)
+pilot v4_mir_map_access_alpha_place = v4_mir_rvalue_lhs(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_alpha_rvalue)
+pilot v4_mir_map_access_front_place = v4_mir_rvalue_lhs(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_front_rvalue)
+pilot v4_mir_map_access_alpha_key = v4_mir_place_index(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_alpha_place)
+pilot v4_mir_map_access_front_key = v4_mir_place_index(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_front_place)
+pilot v4_mir_map_access_assign_key = v4_mir_place_index(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_assign_place)
+
+say v4_mir_summary(v4_mir_map_access_mir)
+say "map-access-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_map_access_mir, v4_mir_map_access_main_body))
+say "map-access-local0-name=" + v4_mir_local_name(v4_mir_map_access_mir, v4_mir_map_access_main_body, 0)
+say "map-access-local0-ty=" + v4_mir_local_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, 0)
+say "map-access-local1-name=" + v4_mir_local_name(v4_mir_map_access_mir, v4_mir_map_access_main_body, 1)
+say "map-access-local1-ty=" + v4_mir_local_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, 1)
+say "map-access-local2-name=" + v4_mir_local_name(v4_mir_map_access_mir, v4_mir_map_access_main_body, 2)
+say "map-access-local2-ty=" + v4_mir_local_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, 2)
+say "map-access-local3-name=" + v4_mir_local_name(v4_mir_map_access_mir, v4_mir_map_access_main_body, 3)
+say "map-access-local3-ty=" + v4_mir_local_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, 3)
+say "map-access-lookup-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_lookup_rvalue)
+say "map-access-lookup-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_lookup_rvalue)
+say "map-access-nested-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_nested_rvalue)
+say "map-access-nested-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_nested_rvalue)
+say "map-access-lookup-key-ty=" + v4_ty_map_key_type(v4_mir_local_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, 0))
+say "map-access-lookup-value-ty=" + v4_ty_map_value_type(v4_mir_local_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, 0))
+say "map-access-nested-value-ty=" + v4_ty_map_value_type(v4_mir_local_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, 1))
+say "map-access-alpha-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_alpha_rvalue)
+say "map-access-alpha-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_alpha_rvalue)
+say "map-access-alpha-place-kind=" + v4_mir_place_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_alpha_place)
+say "map-access-alpha-place-ty=" + v4_mir_place_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_alpha_place)
+say "map-access-alpha-key-kind=" + v4_mir_rvalue_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_alpha_key)
+say "map-access-alpha-key-ty=" + v4_mir_rvalue_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_alpha_key)
+say "map-access-front-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_front_rvalue)
+say "map-access-front-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_front_rvalue)
+say "map-access-front-place-kind=" + v4_mir_place_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_front_place)
+say "map-access-front-place-ty=" + v4_mir_place_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_front_place)
+say "map-access-front-key-kind=" + v4_mir_rvalue_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_front_key)
+say "map-access-front-key-ty=" + v4_mir_rvalue_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_front_key)
+say "map-access-assign-place-kind=" + v4_mir_place_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_assign_place)
+say "map-access-assign-place-ty=" + v4_mir_place_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_assign_place)
+say "map-access-assign-key-kind=" + v4_mir_rvalue_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_assign_key)
+say "map-access-assign-key-ty=" + v4_mir_rvalue_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_assign_key)
+say "map-access-assign-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_assign_rvalue)
+say "map-access-assign-rvalue-op=" + v4_mir_rvalue_op(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_assign_rvalue)
+say "map-access-assign-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_assign_rvalue)
+say "map-access-return-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_return_rvalue)
+say "map-access-return-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_map_access_mir, v4_mir_map_access_main_body, v4_mir_map_access_return_rvalue)
+say "map-access-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_map_access_mir))
+
+pilot v4_mir_map_access_bad_key_read_stream = v4_lex_text(1, v4_mir_map_access_bad_key_read_source())
+pilot v4_mir_map_access_bad_key_read_tree = v4_parse_stream(1, v4_mir_map_access_bad_key_read_stream)
+pilot v4_mir_map_access_bad_key_read_hir = v4_hir_lower_tree(1, v4_mir_map_access_bad_key_read_tree)
+pilot v4_mir_map_access_bad_key_read_resolve = v4_resolve_lower_hir(1, v4_mir_map_access_bad_key_read_hir)
+pilot v4_mir_map_access_bad_key_read_ty = v4_ty_lower_resolve(1, v4_mir_map_access_bad_key_read_resolve)
+pilot v4_mir_map_access_bad_key_read_mir = v4_mir_lower_ty(1, v4_mir_map_access_bad_key_read_ty)
+
+say "map-access-bad-key-read-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_map_access_bad_key_read_mir))
+say "map-access-bad-key-read-message=" + v4_diag_message(v4_mir_diag(v4_mir_map_access_bad_key_read_mir, 0))
+say "map-access-bad-key-read-help=" + v4_diag_help(v4_mir_diag(v4_mir_map_access_bad_key_read_mir, 0))
+
+pilot v4_mir_map_access_bad_key_write_stream = v4_lex_text(2, v4_mir_map_access_bad_key_write_source())
+pilot v4_mir_map_access_bad_key_write_tree = v4_parse_stream(2, v4_mir_map_access_bad_key_write_stream)
+pilot v4_mir_map_access_bad_key_write_hir = v4_hir_lower_tree(2, v4_mir_map_access_bad_key_write_tree)
+pilot v4_mir_map_access_bad_key_write_resolve = v4_resolve_lower_hir(2, v4_mir_map_access_bad_key_write_hir)
+pilot v4_mir_map_access_bad_key_write_ty = v4_ty_lower_resolve(2, v4_mir_map_access_bad_key_write_resolve)
+pilot v4_mir_map_access_bad_key_write_mir = v4_mir_lower_ty(2, v4_mir_map_access_bad_key_write_ty)
+
+say "map-access-bad-key-write-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_map_access_bad_key_write_mir))
+say "map-access-bad-key-write-message=" + v4_diag_message(v4_mir_diag(v4_mir_map_access_bad_key_write_mir, 0))
+say "map-access-bad-key-write-help=" + v4_diag_help(v4_mir_diag(v4_mir_map_access_bad_key_write_mir, 0))
+
+pilot v4_mir_map_access_bad_value_write_stream = v4_lex_text(3, v4_mir_map_access_bad_value_write_source())
+pilot v4_mir_map_access_bad_value_write_tree = v4_parse_stream(3, v4_mir_map_access_bad_value_write_stream)
+pilot v4_mir_map_access_bad_value_write_hir = v4_hir_lower_tree(3, v4_mir_map_access_bad_value_write_tree)
+pilot v4_mir_map_access_bad_value_write_resolve = v4_resolve_lower_hir(3, v4_mir_map_access_bad_value_write_hir)
+pilot v4_mir_map_access_bad_value_write_ty = v4_ty_lower_resolve(3, v4_mir_map_access_bad_value_write_resolve)
+pilot v4_mir_map_access_bad_value_write_mir = v4_mir_lower_ty(3, v4_mir_map_access_bad_value_write_ty)
+
+say "map-access-bad-value-write-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_map_access_bad_value_write_mir))
+say "map-access-bad-value-write-message=" + v4_diag_message(v4_mir_diag(v4_mir_map_access_bad_value_write_mir, 0))
+say "map-access-bad-value-write-help=" + v4_diag_help(v4_mir_diag(v4_mir_map_access_bad_value_write_mir, 0))

@@ -2089,11 +2089,18 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
             pilot base_ty = v4_mir_place_ty(mir_id, body_id, base_place)
             pilot index_ty = v4_mir_rvalue_ty(mir_id, body_id, index_rvalue)
             pilot element_ty = v4_ty_index_element_type(base_ty)
+            pilot map_key_ty = v4_ty_map_key_type(base_ty)
             if v4_ty_is_known(base_ty) and not v4_ty_is_known(element_ty) {
                 v4_mir_add_type_error(mir_id, place_span, "index target not indexable", base_ty + " is not indexable")
             }
-            if v4_ty_is_known(index_ty) and not v4_ty_is_numeric(index_ty) {
-                v4_mir_add_type_error(mir_id, place_span, "index expression must be numeric", "got " + index_ty)
+            if v4_ty_is_known(index_ty) {
+                if v4_ty_is_known(map_key_ty) {
+                    if not v4_ty_types_compatible(map_key_ty, index_ty) {
+                        v4_mir_add_type_error(mir_id, place_span, "map key type mismatch", base_ty + " wants key " + map_key_ty + " but got " + index_ty)
+                    }
+                } else if not v4_ty_is_numeric(index_ty) {
+                    v4_mir_add_type_error(mir_id, place_span, "index expression must be numeric", "got " + index_ty)
+                }
             }
             give back v4_mir_add_place(mir_id, body_id, v4_mir_place_index, place_text, base_place, "", index_rvalue, place_span, element_ty)
         }
