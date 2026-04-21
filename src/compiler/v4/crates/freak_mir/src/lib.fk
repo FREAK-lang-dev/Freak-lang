@@ -32,6 +32,7 @@ pilot v4_mir_rvalue_use_symbol = "UseSymbol"
 pilot v4_mir_rvalue_construct = "Construct"
 pilot v4_mir_rvalue_list = "List"
 pilot v4_mir_rvalue_tuple = "Tuple"
+pilot v4_mir_rvalue_map = "Map"
 pilot v4_mir_rvalue_unary = "Unary"
 pilot v4_mir_rvalue_binary = "Binary"
 pilot v4_mir_rvalue_call = "Call"
@@ -1676,7 +1677,7 @@ task v4_mir_list_element_end(stream_id: int, start_token: int, close_token: int)
     give back close_token
 }
 
-task v4_mir_list_merge_element_type(current_ty: word, next_ty: word) -> word {
+task v4_mir_merge_literal_type(current_ty: word, next_ty: word) -> word {
     if not v4_ty_is_known(current_ty) {
         give back next_ty
     }
@@ -1690,6 +1691,10 @@ task v4_mir_list_merge_element_type(current_ty: word, next_ty: word) -> word {
         give back v4_ty_numeric_result(current_ty, next_ty)
     }
     give back current_ty
+}
+
+task v4_mir_list_merge_element_type(current_ty: word, next_ty: word) -> word {
+    give back v4_mir_merge_literal_type(current_ty, next_ty)
 }
 
 task v4_mir_check_list_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, close_token: int) -> word {
@@ -1798,6 +1803,94 @@ task v4_mir_try_lower_tuple_literal(mir_id: int, body_id: int, stream_id: int, f
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_tuple, expr_text, "Tuple", 0 - 1, 0 - 1, expr_span, result_ty)
 }
 
+task v4_mir_map_type(key_ty: word, value_ty: word) -> word {
+    if not v4_ty_is_known(key_ty) or not v4_ty_is_known(value_ty) {
+        give back v4_ty_unknown
+    }
+    give back "Map<" + key_ty + "," + value_ty + ">"
+}
+
+task v4_mir_check_map_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, close_token: int) -> word {
+    pilot pair_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+    if pair_start >= close_token {
+        v4_mir_add_type_error(mir_id, expr_span, "empty map literal needs type context", "annotate the destination, for example pilot lookup: Map<word,int>")
+        give back v4_ty_unknown
+    }
+
+    pilot key_ty = v4_ty_unknown
+    pilot value_ty = v4_ty_unknown
+    pilot pair_idx = 0
+    pilot has_unknown = false
+    repeat until pair_start >= close_token {
+        pilot pair_end = v4_mir_list_element_end(stream_id, pair_start, close_token)
+        pilot colon_token = v4_mir_find_top_level_token(stream_id, pair_start, pair_end, ":")
+        pair_idx += 1
+        if colon_token < 0 {
+            v4_mir_add_type_error(mir_id, expr_span, "malformed map entry", "expected key: value inside map literal")
+            has_unknown = true
+        } else {
+            pilot key_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, pair_start, colon_token)
+            pilot value_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, colon_token + 1, pair_end)
+            pilot actual_key_ty = v4_mir_rvalue_ty(mir_id, body_id, key_rvalue)
+            pilot actual_value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
+
+            if pair_idx == 1 {
+                key_ty = actual_key_ty
+                value_ty = actual_value_ty
+            } else {
+                if v4_ty_is_known(key_ty) and v4_ty_is_known(actual_key_ty) {
+                    if key_ty == actual_key_ty {
+                        -- keep inferred key type
+                    } else if v4_ty_is_numeric(key_ty) and v4_ty_is_numeric(actual_key_ty) {
+                        key_ty = v4_ty_numeric_result(key_ty, actual_key_ty)
+                    } else {
+                        v4_mir_add_type_error(mir_id, expr_span, "map key drift", "entry " + word_from_int(pair_idx) + " wants key " + key_ty + " but got " + actual_key_ty)
+                    }
+                } else {
+                    key_ty = v4_mir_merge_literal_type(key_ty, actual_key_ty)
+                }
+
+                if v4_ty_is_known(value_ty) and v4_ty_is_known(actual_value_ty) {
+                    if value_ty == actual_value_ty {
+                        -- keep inferred value type
+                    } else if v4_ty_is_numeric(value_ty) and v4_ty_is_numeric(actual_value_ty) {
+                        value_ty = v4_ty_numeric_result(value_ty, actual_value_ty)
+                    } else {
+                        v4_mir_add_type_error(mir_id, expr_span, "map value drift", "entry " + word_from_int(pair_idx) + " wants value " + value_ty + " but got " + actual_value_ty)
+                    }
+                } else {
+                    value_ty = v4_mir_merge_literal_type(value_ty, actual_value_ty)
+                }
+            }
+
+            if not v4_ty_is_known(actual_key_ty) or not v4_ty_is_known(actual_value_ty) {
+                has_unknown = true
+            }
+        }
+        pair_start = v4_mir_skip_trivia(stream_id, pair_end + 1)
+    }
+
+    if has_unknown {
+        give back v4_ty_unknown
+    }
+    give back v4_mir_map_type(key_ty, value_ty)
+}
+
+task v4_mir_try_lower_map_literal(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
+    if v4_lex_token_value(stream_id, first) != "{" or v4_lex_token_value(stream_id, last) != "}" {
+        give back 0 - 1
+    }
+
+    pilot close_token = v4_mir_find_matching_brace(stream_id, first, last + 1)
+    if close_token != last {
+        give back 0 - 1
+    }
+
+    pilot result_ty = v4_mir_check_map_literal(mir_id, body_id, stream_id, expr_span, first, last)
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_map, expr_text, "Map", 0 - 1, 0 - 1, expr_span, result_ty)
+}
+
 task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
     if v4_lex_token_value(stream_id, last) != "}" {
         give back 0 - 1
@@ -1894,6 +1987,11 @@ task v4_mir_lower_expr(mir_id: int, body_id: int, stream_id: int, start_token: i
     pilot list_rvalue = v4_mir_try_lower_list_literal(mir_id, body_id, stream_id, first, last, expr_span)
     if list_rvalue >= 0 {
         give back list_rvalue
+    }
+
+    pilot map_rvalue = v4_mir_try_lower_map_literal(mir_id, body_id, stream_id, first, last, expr_span)
+    if map_rvalue >= 0 {
+        give back map_rvalue
     }
 
     pilot ctor_rvalue = v4_mir_try_lower_shape_ctor(mir_id, body_id, stream_id, first, last, expr_span)
