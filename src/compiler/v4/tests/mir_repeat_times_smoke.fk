@@ -1,0 +1,72 @@
+-- V4 MIR repeat-N-times lowering smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_repeat_times_make_source() -> word {
+    pilot src = "task countdown(n: int) -> int {\n"
+    src = src + "    pilot result = 0\n"
+    src = src + "    repeat n times {\n"
+    src = src + "        result = result + 1\n"
+    src = src + "    }\n"
+    src = src + "    give back result\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bad_repeat_times_make_source() -> word {
+    pilot src = "task bad_times(flag: bool) -> int {\n"
+    src = src + "    repeat flag times {\n"
+    src = src + "        flag = false\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_repeat_times_find_loop_stmt(mir_id: int, body_id: int) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_loop {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_mir_times_source = v4_mir_repeat_times_make_source()
+pilot v4_mir_times_stream = v4_lex_text(0, v4_mir_times_source)
+pilot v4_mir_times_tree = v4_parse_stream(0, v4_mir_times_stream)
+pilot v4_mir_times_hir = v4_hir_lower_tree(0, v4_mir_times_tree)
+pilot v4_mir_times_resolve = v4_resolve_lower_hir(0, v4_mir_times_hir)
+pilot v4_mir_times_ty = v4_ty_lower_resolve(0, v4_mir_times_resolve)
+pilot v4_mir_times_mir = v4_mir_lower_ty(0, v4_mir_times_ty)
+pilot v4_mir_times_def = v4_resolve_def_for_name(v4_mir_times_resolve, "countdown")
+pilot v4_mir_times_body = v4_mir_lookup_body(v4_mir_times_mir, v4_mir_times_def)
+pilot v4_mir_times_loop_stmt = v4_mir_repeat_times_find_loop_stmt(v4_mir_times_mir, v4_mir_times_body)
+pilot v4_mir_times_loop_rvalue = v4_mir_stmt_rvalue(v4_mir_times_mir, v4_mir_times_body, v4_mir_times_loop_stmt)
+pilot v4_mir_times_entry_block = v4_mir_body_block(v4_mir_times_mir, v4_mir_times_body, 0)
+
+say v4_mir_summary(v4_mir_times_mir)
+say "times-body-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_times_mir, v4_mir_times_body))
+say "times-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_times_mir, v4_mir_times_body))
+say "times-entry-term=" + v4_mir_block_terminator(v4_mir_times_entry_block)
+say "times-entry-cond=" + v4_mir_block_condition(v4_mir_times_entry_block)
+say "times-loop-stmt-kind=" + v4_mir_stmt_kind(v4_mir_times_mir, v4_mir_times_body, v4_mir_times_loop_stmt)
+say "times-loop-stmt-lhs=" + v4_mir_stmt_lhs(v4_mir_times_mir, v4_mir_times_body, v4_mir_times_loop_stmt)
+say "times-loop-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_times_mir, v4_mir_times_body, v4_mir_times_loop_rvalue)
+say "times-loop-rvalue-op=" + v4_mir_rvalue_op(v4_mir_times_mir, v4_mir_times_body, v4_mir_times_loop_rvalue)
+say "times-loop-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_times_mir, v4_mir_times_body, v4_mir_times_loop_rvalue)
+say "times-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_times_mir))
+
+pilot v4_mir_bad_times_source = v4_mir_bad_repeat_times_make_source()
+pilot v4_mir_bad_times_stream = v4_lex_text(1, v4_mir_bad_times_source)
+pilot v4_mir_bad_times_tree = v4_parse_stream(1, v4_mir_bad_times_stream)
+pilot v4_mir_bad_times_hir = v4_hir_lower_tree(1, v4_mir_bad_times_tree)
+pilot v4_mir_bad_times_resolve = v4_resolve_lower_hir(1, v4_mir_bad_times_hir)
+pilot v4_mir_bad_times_ty = v4_ty_lower_resolve(1, v4_mir_bad_times_resolve)
+pilot v4_mir_bad_times_mir = v4_mir_lower_ty(1, v4_mir_bad_times_ty)
+
+say "bad-times-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_times_mir))
+say "bad-times-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_times_mir, 0))
+say "bad-times-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_times_mir, 0))

@@ -1448,18 +1448,64 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
         give back block_id
     }
 
-    pilot until_token = v4_mir_skip_trivia(stream_id, repeat_token + 1)
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, repeat_token, stmt_end)
+    pilot next_kw = v4_mir_skip_trivia(stream_id, repeat_token + 1)
+    pilot times_token = v4_mir_find_token_value(stream_id, repeat_token + 1, open_token, "times")
+
+    if times_token >= 0 {
+        -- repeat N times { body }
+        pilot count_text = v4_mir_expr_text(stream_id, repeat_token + 1, times_token)
+        pilot count_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, repeat_token + 1, times_token)
+        pilot count_ty = v4_mir_rvalue_ty(mir_id, body_id, count_rvalue)
+        if v4_ty_is_known(count_ty) and count_ty != v4_ty_int {
+            v4_mir_add_type_error(mir_id, stmt_span, "repeat N times count must be int", "got " + count_ty)
+        }
+
+        -- Synthetic counter local: _repeat_i (pick unique name based on block count)
+        pilot counter_name = "_repeat_i"
+        if v4_mir_find_local(mir_id, body_id, counter_name) >= 0 {
+            counter_name = "_repeat_i2"
+        }
+        pilot counter_local = v4_mir_add_local(mir_id, body_id, counter_name, v4_ty_int, stmt_span)
+        pilot counter_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
+        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, counter_name, count_text, stmt_span, counter_place, count_rvalue)
+
+        -- Loop check: _repeat_i > 0
+        pilot zero_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "0", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+        pilot counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_name, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+        pilot check_cond_text = counter_name + " > 0"
+        pilot check_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, check_cond_text, "Gt", counter_use, zero_rvalue, stmt_span, v4_ty_bool)
+        pilot loop_lhs = "repeat " + count_text + " times"
+        pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+        pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+
+        v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, body_block, after_block, check_cond_text))
+        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_loop, loop_lhs, "body#" + word_from_int(body_block) + " exit#" + word_from_int(after_block), stmt_span, 0 - 1, check_rvalue)
+
+        -- Lower body
+        v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
+
+        -- Decrement counter in body block: _repeat_i = _repeat_i - 1
+        pilot dec_counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_name, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+        pilot one_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+        pilot dec_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, counter_name + " - 1", "Sub", dec_counter_use, one_rvalue, stmt_span, v4_ty_int)
+        pilot dec_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
+        v4_mir_add_stmt(mir_id, body_id, body_block, v4_mir_stmt_assign, counter_name, counter_name + " - 1", stmt_span, dec_place, dec_rvalue)
+        v4_mir_set_body_block(mir_id, body_id, body_block, v4_mir_block_new_full(body_block, v4_mir_term_goto, block_id, 0 - 1, ""))
+
+        give back after_block
+    }
+
     pilot condition_start = repeat_token + 1
-    if until_token < open_token {
-        if v4_lex_token_value(stream_id, until_token) == "until" {
-            condition_start = until_token + 1
+    if next_kw < open_token {
+        if v4_lex_token_value(stream_id, next_kw) == "until" {
+            condition_start = next_kw + 1
         }
     }
 
     pilot condition = v4_mir_expr_text(stream_id, condition_start, open_token)
     pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot stmt_span = v4_mir_span_from_tokens(stream_id, repeat_token, stmt_end)
     pilot condition_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, condition_start, open_token)
     v4_mir_check_condition_type(mir_id, stmt_span, "repeat-until", v4_mir_rvalue_ty(mir_id, body_id, condition_rvalue))
 

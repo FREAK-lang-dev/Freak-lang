@@ -420,6 +420,24 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "MIR repeat-N-times lowering",
+        "fixture": "mir_repeat_times_smoke.fk",
+        "expect": [
+            "times-body-blocks=3",
+            "times-entry-term=If",
+            "times-entry-cond=_repeat_i > 0",
+            "times-loop-stmt-kind=Loop",
+            "times-loop-stmt-lhs=repeat n times",
+            "times-loop-rvalue-kind=Binary",
+            "times-loop-rvalue-op=Gt",
+            "times-loop-rvalue-ty=bool",
+            "times-good-diagnostics=0",
+            "bad-times-diagnostics=1",
+            "bad-times-message=repeat N times count must be int",
+            "bad-times-help=got bool",
+        ],
+    },
+    {
         "name": "MIR when statement lowering",
         "fixture": "mir_when_smoke.fk",
         "expect": [
