@@ -6,6 +6,19 @@ This directory is the implementation home for Maverick (00-unit), the V4 compile
 
 Bootstrap status: complete for the executable 00-Unit architecture slice. This proves the modular, query-backed V4 shape and its tooling protocols; it is not yet a full V3 replacement.
 
+## Bootstrap Completion Marker
+
+The **Bootstrap V4** finish line is considered met when all of the following remain true in the tree:
+
+- `python src/compiler/v4/check_v4.py` passes from the repository root.
+- `freak_driver` stays limited to source orchestration, core query access, diagnostics, and restore accessors needed by snapshot restore.
+- `freak_editor` owns semantic-at, hover, definition, document-symbol, and completion fact storage plus their query APIs.
+- `freak_snapshot` owns snapshot formats, manifests, diffs, health reports, restore coordination, and invalidation contract reporting.
+- `freak_lsp` stays transport-facing and wraps compiler results as line-protocol `ok|...` or `error|...` envelopes.
+- `src/compiler/v4/tests` continues to exercise the bootstrap slice end to end, including query invalidation, LSP dispatch, unit snapshot restore/diff/health, and the current typed MIR lowering smoke set.
+
+Anything beyond this marker belongs to the next phase: richer language coverage, deeper Meiya borrow analysis, and backend/codegen integration. Do not push those concerns back into `freak_driver` to move faster; that is how the rewrite loop returns.
+
 The first landing is intentionally small and isolated from the V3 compiler:
 
 ```text
