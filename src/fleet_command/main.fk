@@ -13,22 +13,25 @@ pilot key_space = 39
 
 pilot mouse_left = 1
 
-pilot color_bg = 197379
-pilot color_surface = 855836
-pilot color_panel = 1185040
-pilot color_border = 3488325
-pilot color_text = 15790320
-pilot color_muted = 9473672
-pilot color_accent = 4244448
-pilot color_gold = 15123099
-pilot color_enemy = 13779547
-pilot color_player = 5025774
-pilot color_warning = 14518374
-pilot color_danger = 13845555
-pilot color_success = 6536541
-pilot color_sea = 1067066
-pilot color_route = 2771304
-pilot color_contact = 16030792
+pilot color_bg = 7566195
+pilot color_surface = 9538184
+pilot color_panel = 10790052
+pilot color_panel_2 = 11842740
+pilot color_border = 5526612
+pilot color_text = 15724274
+pilot color_muted = 9408399
+pilot color_accent = 4166200
+pilot color_gold = 12548928
+pilot color_enemy = 11812668
+pilot color_player = 3703236
+pilot color_warning = 13217079
+pilot color_danger = 12119276
+pilot color_success = 5743184
+pilot color_sea = 5347672
+pilot color_route = 7441634
+pilot color_contact = 14800632
+pilot color_land = 13224393
+pilot color_land_dark = 11119184
 
 pilot default_win_w = 1380
 pilot default_win_h = 860
@@ -51,6 +54,15 @@ pilot country_usa = 2
 pilot country_japan = 3
 pilot country_france = 4
 pilot country_russia = 5
+
+pilot screen_menu = 0
+pilot screen_campaign = 1
+pilot screen_designer = 2
+
+pilot current_screen = 0
+pilot designer_class = 2
+pilot designer_status = "Design board ready."
+pilot quit_requested = false
 
 pilot player_country = 0
 pilot enemy_country = 1
@@ -85,6 +97,21 @@ pilot contact_exists = false
 pilot contact_zone = ""
 pilot contact_strength = 0
 pilot contact_quality = 0
+
+pilot dd_tonnage = 900
+pilot dd_speed = 29
+pilot dd_guns = 4
+pilot dd_armor = 1
+
+pilot ca_tonnage = 9500
+pilot ca_speed = 23
+pilot ca_guns = 8
+pilot ca_armor = 5
+
+pilot bb_tonnage = 16000
+pilot bb_speed = 19
+pilot bb_guns = 4
+pilot bb_armor = 10
 
 task color_r(color: int) -> int {
     give back color / 65536
@@ -389,25 +416,200 @@ task zone_is_active(zone: word) -> bool {
 task select_country(country: int) -> void {
     player_country = country
     enemy_country = country_rival(country)
+    seed_designs_for_country(country)
     reset_campaign()
 }
 
+task design_class_name(class_id: int) -> word {
+    if class_id == 0 { give back "Destroyer" }
+    if class_id == 1 { give back "Cruiser" }
+    give back "Battleship"
+}
+
+task design_gun_factor(class_id: int) -> int {
+    if class_id == 0 { give back 90 }
+    if class_id == 1 { give back 260 }
+    give back 620
+}
+
+task design_tonnage_for_class(class_id: int) -> int {
+    if class_id == 0 { give back dd_tonnage }
+    if class_id == 1 { give back ca_tonnage }
+    give back bb_tonnage
+}
+
+task design_speed_for_class(class_id: int) -> int {
+    if class_id == 0 { give back dd_speed }
+    if class_id == 1 { give back ca_speed }
+    give back bb_speed
+}
+
+task design_guns_for_class(class_id: int) -> int {
+    if class_id == 0 { give back dd_guns }
+    if class_id == 1 { give back ca_guns }
+    give back bb_guns
+}
+
+task design_armor_for_class(class_id: int) -> int {
+    if class_id == 0 { give back dd_armor }
+    if class_id == 1 { give back ca_armor }
+    give back bb_armor
+}
+
+task design_class_from_kind(kind: word) -> int {
+    if kind == "Destroyer" { give back 0 }
+    if kind == "Cruiser" { give back 1 }
+    give back 2
+}
+
+task selected_design_name() -> word {
+    give back design_class_name(designer_class)
+}
+
+task current_design_tonnage() -> int {
+    give back design_tonnage_for_class(designer_class)
+}
+
+task current_design_speed() -> int {
+    give back design_speed_for_class(designer_class)
+}
+
+task current_design_guns() -> int {
+    give back design_guns_for_class(designer_class)
+}
+
+task current_design_armor() -> int {
+    give back design_armor_for_class(designer_class)
+}
+
+task design_weight_capacity(class_id: int) -> int {
+    give back design_tonnage_for_class(class_id) * 1000
+}
+
+task design_hull_weight(class_id: int) -> int {
+    give back design_tonnage_for_class(class_id) * 420
+}
+
+task design_machinery_weight(class_id: int) -> int {
+    give back design_speed_for_class(class_id) * design_tonnage_for_class(class_id) / 3
+}
+
+task design_gun_weight(class_id: int) -> int {
+    give back design_guns_for_class(class_id) * design_gun_factor(class_id)
+}
+
+task design_armor_weight(class_id: int) -> int {
+    give back design_armor_for_class(class_id) * design_tonnage_for_class(class_id) / 12
+}
+
+task design_weight_used(class_id: int) -> int {
+    give back design_hull_weight(class_id) + design_machinery_weight(class_id) + design_gun_weight(class_id) + design_armor_weight(class_id)
+}
+
+task design_weight_margin(class_id: int) -> int {
+    give back design_weight_capacity(class_id) - design_weight_used(class_id)
+}
+
+task design_cost_for_class(class_id: int) -> int {
+    pilot tonnage = design_tonnage_for_class(class_id)
+    pilot speed = design_speed_for_class(class_id)
+    pilot guns = design_guns_for_class(class_id)
+    pilot armor = design_armor_for_class(class_id)
+    pilot cost = tonnage / 48 + speed * 5 + guns * 24 + armor * 18
+    if class_id == 2 { cost += 160 }
+    if class_id == 1 { cost += 80 }
+    if design_weight_margin(class_id) < 0 {
+        cost += (0 - design_weight_margin(class_id)) / 280
+    }
+    give back cost
+}
+
+task design_eta_for_class(class_id: int) -> int {
+    pilot eta = 2 + design_tonnage_for_class(class_id) / 5000 + design_armor_for_class(class_id) / 4 + design_guns_for_class(class_id) / 4
+    if class_id == 2 and eta < 8 { eta = 8 }
+    if class_id == 1 and eta < 5 { eta = 5 }
+    if class_id == 0 and eta < 3 { eta = 3 }
+    give back eta
+}
+
+task design_power_for_class(class_id: int) -> int {
+    pilot power = design_guns_for_class(class_id) * 2 + design_armor_for_class(class_id) + design_speed_for_class(class_id) / 5 + design_tonnage_for_class(class_id) / 3200
+    if class_id == 2 { power += 4 }
+    if design_weight_margin(class_id) < 0 {
+        power -= 2 + (0 - design_weight_margin(class_id)) / 2500
+    }
+    if power < 1 { power = 1 }
+    give back power
+}
+
+task design_maintenance_for_class(class_id: int) -> int {
+    give back design_cost_for_class(class_id) / 11
+}
+
+task seed_designs_for_country(country: int) -> void {
+    if country == country_britain {
+        dd_tonnage = 980; dd_speed = 30; dd_guns = 4; dd_armor = 1
+        ca_tonnage = 10400; ca_speed = 24; ca_guns = 8; ca_armor = 5
+        bb_tonnage = 17500; bb_speed = 20; bb_guns = 4; bb_armor = 11
+    } else if country == country_germany {
+        dd_tonnage = 920; dd_speed = 29; dd_guns = 4; dd_armor = 2
+        ca_tonnage = 9600; ca_speed = 23; ca_guns = 8; ca_armor = 6
+        bb_tonnage = 16800; bb_speed = 19; bb_guns = 4; bb_armor = 12
+    } else if country == country_usa {
+        dd_tonnage = 900; dd_speed = 30; dd_guns = 4; dd_armor = 1
+        ca_tonnage = 9800; ca_speed = 24; ca_guns = 8; ca_armor = 5
+        bb_tonnage = 17000; bb_speed = 19; bb_guns = 4; bb_armor = 11
+    } else if country == country_japan {
+        dd_tonnage = 860; dd_speed = 31; dd_guns = 4; dd_armor = 1
+        ca_tonnage = 9200; ca_speed = 24; ca_guns = 8; ca_armor = 5
+        bb_tonnage = 15800; bb_speed = 20; bb_guns = 4; bb_armor = 10
+    } else if country == country_france {
+        dd_tonnage = 880; dd_speed = 29; dd_guns = 4; dd_armor = 1
+        ca_tonnage = 9000; ca_speed = 23; ca_guns = 7; ca_armor = 5
+        bb_tonnage = 15200; bb_speed = 18; bb_guns = 4; bb_armor = 10
+    } else {
+        dd_tonnage = 940; dd_speed = 28; dd_guns = 4; dd_armor = 1
+        ca_tonnage = 8800; ca_speed = 22; ca_guns = 7; ca_armor = 4
+        bb_tonnage = 14800; bb_speed = 18; bb_guns = 4; bb_armor = 10
+    }
+    designer_class = 2
+    designer_status = design_class_name(2) + " board seeded for " + country_label(country) + "."
+}
+
+task adjust_current_design(field_name: word, delta: int) -> void {
+    if designer_class == 0 {
+        if field_name == "tonnage" { dd_tonnage = fleet_clamp_int(dd_tonnage + delta * 40, 700, 2200) }
+        if field_name == "speed" { dd_speed = fleet_clamp_int(dd_speed + delta, 24, 38) }
+        if field_name == "guns" { dd_guns = fleet_clamp_int(dd_guns + delta, 2, 8) }
+        if field_name == "armor" { dd_armor = fleet_clamp_int(dd_armor + delta, 0, 4) }
+    } else if designer_class == 1 {
+        if field_name == "tonnage" { ca_tonnage = fleet_clamp_int(ca_tonnage + delta * 200, 6000, 18000) }
+        if field_name == "speed" { ca_speed = fleet_clamp_int(ca_speed + delta, 18, 32) }
+        if field_name == "guns" { ca_guns = fleet_clamp_int(ca_guns + delta, 4, 12) }
+        if field_name == "armor" { ca_armor = fleet_clamp_int(ca_armor + delta, 2, 10) }
+    } else {
+        if field_name == "tonnage" { bb_tonnage = fleet_clamp_int(bb_tonnage + delta * 300, 12000, 32000) }
+        if field_name == "speed" { bb_speed = fleet_clamp_int(bb_speed + delta, 16, 28) }
+        if field_name == "guns" { bb_guns = fleet_clamp_int(bb_guns + delta, 4, 10) }
+        if field_name == "armor" { bb_armor = fleet_clamp_int(bb_armor + delta, 6, 18) }
+    }
+    if design_weight_margin(designer_class) < 0 {
+        designer_status = selected_design_name() + " design is overweight."
+    } else {
+        designer_status = selected_design_name() + " design updated."
+    }
+}
+
 task ship_cost(kind: word) -> int {
-    if kind == "Destroyer" { give back 120 }
-    if kind == "Cruiser" { give back 260 }
-    give back 520
+    give back design_cost_for_class(design_class_from_kind(kind))
 }
 
 task ship_eta(kind: word) -> int {
-    if kind == "Destroyer" { give back 3 }
-    if kind == "Cruiser" { give back 5 }
-    give back 8
+    give back design_eta_for_class(design_class_from_kind(kind))
 }
 
 task ship_power(kind: word) -> int {
-    if kind == "Destroyer" { give back 2 }
-    if kind == "Cruiser" { give back 5 }
-    give back 10
+    give back design_power_for_class(design_class_from_kind(kind))
 }
 
 task ship_short(kind: word) -> word {
@@ -842,15 +1044,174 @@ task draw_map_country(win: int, country: int, x: int, y: int) -> void {
     draw_text(win, country_label(country), x + 12, y - 4, 12, label_color)
 }
 
+task map_px(x: int, w: int, permille: int) -> int {
+    give back x + w * permille / 1000
+}
+
+task map_py(y: int, h: int, permille: int) -> int {
+    give back y + h * permille / 1000
+}
+
+task draw_land_blob(win: int, x: int, y: int, w: int, h: int) -> void {
+    draw_rect(win, x, y, w, h, color_land)
+    draw_circle(win, x + w / 5, y + h / 4, h / 5, color_land)
+    draw_circle(win, x + w / 2, y + h / 3, h / 4, color_land)
+    draw_circle(win, x + w * 4 / 5, y + h / 2, h / 5, color_land)
+    draw_stroke(win, x, y, w, h, color_land_dark)
+}
+
+task draw_world_map_base(win: int, x: int, y: int, w: int, h: int) -> void {
+    draw_rect(win, x, y, w, h, color_sea)
+    draw_stroke(win, x, y, w, h, color_border)
+
+    draw_line(win, x, map_py(y, h, 333), x + w, map_py(y, h, 333), color_route, 1)
+    draw_line(win, x, map_py(y, h, 666), x + w, map_py(y, h, 666), color_route, 1)
+    draw_line(win, map_px(x, w, 250), y, map_px(x, w, 250), y + h, color_route, 1)
+    draw_line(win, map_px(x, w, 500), y, map_px(x, w, 500), y + h, color_route, 1)
+    draw_line(win, map_px(x, w, 750), y, map_px(x, w, 750), y + h, color_route, 1)
+
+    draw_land_blob(win, map_px(x, w, 35), map_py(y, h, 210), w * 130 / 1000, h * 200 / 1000)
+    draw_land_blob(win, map_px(x, w, 135), map_py(y, h, 500), w * 70 / 1000, h * 170 / 1000)
+    draw_land_blob(win, map_px(x, w, 390), map_py(y, h, 170), w * 80 / 1000, h * 85 / 1000)
+    draw_land_blob(win, map_px(x, w, 420), map_py(y, h, 315), w * 95 / 1000, h * 240 / 1000)
+    draw_land_blob(win, map_px(x, w, 500), map_py(y, h, 140), w * 270 / 1000, h * 255 / 1000)
+    draw_land_blob(win, map_px(x, w, 710), map_py(y, h, 610), w * 110 / 1000, h * 90 / 1000)
+}
+
+task draw_zone_marker(win: int, map_x0: int, map_y0: int, map_w: int, map_h: int, zone: word, px_pos: int, py_pos: int) -> void {
+    pilot dot_x = map_px(map_x0, map_w, px_pos)
+    pilot dot_y = map_py(map_y0, map_h, py_pos)
+    pilot dot_color = color_muted
+    if zone_is_active(zone) { dot_color = color_accent }
+    if zone == contact_zone { dot_color = color_contact }
+    draw_circle(win, dot_x, dot_y, 5, dot_color)
+    draw_text(win, zone, dot_x + 10, dot_y - 4, 11, color_text)
+}
+
+task draw_tab_button(win: int, text: word, x: int, y: int, w: int, active: bool) -> void {
+    draw_button(win, text, x, y, w, 28, active, color_accent)
+}
+
+task draw_main_menu(win: int) -> void {
+    draw_rect(win, 0, 0, win_w, win_h, color_bg)
+    pilot panel_x = win_w / 2 - 300
+    pilot panel_y = win_h / 2 - 230
+    draw_rect(win, panel_x, panel_y, 600, 460, color_surface)
+    draw_stroke(win, panel_x, panel_y, 600, 460, color_border)
+    draw_text_bold(win, "FLEET COMMAND", panel_x + 28, panel_y + 28, 28, color_gold)
+    draw_text(win, "A treaty-era naval command game in FREAK.", panel_x + 28, panel_y + 66, 15, color_text)
+
+    draw_text(win, "Nation", panel_x + 28, panel_y + 116, 12, color_muted)
+    draw_button(win, "Britain", panel_x + 28, panel_y + 136, 88, 30, player_country == country_britain, color_gold)
+    draw_button(win, "Germany", panel_x + 124, panel_y + 136, 96, 30, player_country == country_germany, color_gold)
+    draw_button(win, "USA", panel_x + 228, panel_y + 136, 76, 30, player_country == country_usa, color_gold)
+    draw_button(win, "Japan", panel_x + 312, panel_y + 136, 80, 30, player_country == country_japan, color_gold)
+    draw_button(win, "France", panel_x + 400, panel_y + 136, 86, 30, player_country == country_france, color_gold)
+    draw_button(win, "Russia", panel_x + 494, panel_y + 136, 78, 30, player_country == country_russia, color_gold)
+
+    draw_text(win, "Rival: " + enemy_name(), panel_x + 28, panel_y + 188, 13, color_text)
+    draw_text(win, country_doctrine(player_country), panel_x + 28, panel_y + 210, 12, color_muted)
+
+    draw_button(win, "New Campaign", panel_x + 28, panel_y + 270, 170, 36, false, color_player)
+    draw_button(win, "Ship Designer", panel_x + 208, panel_y + 270, 170, 36, false, color_accent)
+    draw_button(win, "Exit", panel_x + 388, panel_y + 270, 170, 36, false, color_warning)
+
+    draw_text(win, "Campaign features", panel_x + 28, panel_y + 334, 13, color_muted)
+    draw_text(win, "- selectable nations and rivalries", panel_x + 28, panel_y + 356, 12, color_text)
+    draw_text(win, "- world map campaign surface", panel_x + 28, panel_y + 376, 12, color_text)
+    draw_text(win, "- ship design math feeding cost, time, and strength", panel_x + 28, panel_y + 396, 12, color_text)
+    draw_text(win, "- click into the campaign or the design bureau", panel_x + 28, panel_y + 416, 12, color_text)
+}
+
+task draw_designer_screen(win: int) -> void {
+    draw_rect(win, 0, 0, win_w, win_h, color_bg)
+    draw_rect(win, 0, 0, win_w, top_h, color_surface)
+    draw_text_bold(win, "SHIP DESIGNER", 18, 15, 24, color_gold)
+    draw_tab_button(win, "Menu", win_w - 290, 14, 80, false)
+    draw_tab_button(win, "Campaign", win_w - 198, 14, 88, false)
+    draw_tab_button(win, "Designer", win_w - 98, 14, 84, true)
+
+    pilot left_x = 24
+    pilot left_y = top_h + 20
+    pilot left_h = win_h - top_h - 40
+    draw_rect(win, left_x, left_y, 310, left_h, color_surface)
+    draw_stroke(win, left_x, left_y, 310, left_h, color_border)
+    draw_text_bold(win, "BUREAU", left_x + 18, left_y + 18, 16, color_gold)
+    draw_text(win, "Country: " + player_name(), left_x + 18, left_y + 48, 13, color_text)
+    draw_text(win, designer_status, left_x + 18, left_y + 72, 12, color_muted)
+
+    draw_text(win, "Class", left_x + 18, left_y + 116, 12, color_muted)
+    draw_button(win, "Destroyer", left_x + 18, left_y + 136, 88, 30, designer_class == 0, color_player)
+    draw_button(win, "Cruiser", left_x + 114, left_y + 136, 80, 30, designer_class == 1, color_player)
+    draw_button(win, "Battleship", left_x + 202, left_y + 136, 90, 30, designer_class == 2, color_player)
+
+    draw_text(win, "Live campaign values", left_x + 18, left_y + 210, 12, color_muted)
+    draw_text(win, "Build cost " + word_from_int(design_cost_for_class(designer_class)), left_x + 18, left_y + 232, 13, color_text)
+    draw_text(win, "Build time " + word_from_int(design_eta_for_class(designer_class)) + " months", left_x + 18, left_y + 254, 13, color_text)
+    draw_text(win, "Combat rating " + word_from_int(design_power_for_class(designer_class)), left_x + 18, left_y + 276, 13, color_text)
+    draw_text(win, "Maintenance " + word_from_int(design_maintenance_for_class(designer_class)), left_x + 18, left_y + 298, 13, color_text)
+    draw_text(win, "Weight margin " + word_from_int(design_weight_margin(designer_class)), left_x + 18, left_y + 320, 13, color_text)
+
+    pilot center_x = 356
+    pilot center_w = win_w - 380
+    draw_rect(win, center_x, left_y, center_w, left_h, color_surface)
+    draw_stroke(win, center_x, left_y, center_w, left_h, color_border)
+    draw_text_bold(win, selected_design_name(), center_x + 22, left_y + 18, 18, color_gold)
+
+    pilot blueprint_y = left_y + 70
+    draw_rect(win, center_x + 22, blueprint_y, center_w - 44, 180, color_panel_2)
+    draw_stroke(win, center_x + 22, blueprint_y, center_w - 44, 180, color_border)
+    draw_line(win, center_x + 80, blueprint_y + 90, center_x + center_w - 90, blueprint_y + 90, color_route, 3)
+    draw_rect(win, center_x + 126, blueprint_y + 70, center_w - 250, 40, color_land_dark)
+    draw_rect(win, center_x + center_w - 180, blueprint_y + 76, 64, 28, color_land_dark)
+    draw_circle(win, center_x + 110, blueprint_y + 90, 20, color_land_dark)
+    draw_circle(win, center_x + center_w - 116, blueprint_y + 90, 15, color_land_dark)
+    draw_text(win, "Displacement " + word_from_int(current_design_tonnage()) + " tons", center_x + 38, blueprint_y + 144, 13, color_text)
+    draw_text(win, "Speed " + word_from_int(current_design_speed()) + " kn", center_x + 272, blueprint_y + 144, 13, color_text)
+    draw_text(win, "Guns " + word_from_int(current_design_guns()), center_x + 440, blueprint_y + 144, 13, color_text)
+    draw_text(win, "Armor " + word_from_int(current_design_armor()) + " in", center_x + 560, blueprint_y + 144, 13, color_text)
+
+    pilot row_x = center_x + 34
+    pilot row_y = blueprint_y + 238
+    draw_text(win, "Displacement", row_x, row_y, 13, color_muted)
+    draw_button(win, "-", row_x + 170, row_y - 8, 32, 28, false, color_warning)
+    draw_button(win, "+", row_x + 208, row_y - 8, 32, 28, false, color_success)
+    draw_text(win, word_from_int(current_design_tonnage()), row_x + 254, row_y, 13, color_text)
+
+    row_y += 46
+    draw_text(win, "Speed", row_x, row_y, 13, color_muted)
+    draw_button(win, "-", row_x + 170, row_y - 8, 32, 28, false, color_warning)
+    draw_button(win, "+", row_x + 208, row_y - 8, 32, 28, false, color_success)
+    draw_text(win, word_from_int(current_design_speed()), row_x + 254, row_y, 13, color_text)
+
+    row_y += 46
+    draw_text(win, "Guns", row_x, row_y, 13, color_muted)
+    draw_button(win, "-", row_x + 170, row_y - 8, 32, 28, false, color_warning)
+    draw_button(win, "+", row_x + 208, row_y - 8, 32, 28, false, color_success)
+    draw_text(win, word_from_int(current_design_guns()), row_x + 254, row_y, 13, color_text)
+
+    row_y += 46
+    draw_text(win, "Armor", row_x, row_y, 13, color_muted)
+    draw_button(win, "-", row_x + 170, row_y - 8, 32, 28, false, color_warning)
+    draw_button(win, "+", row_x + 208, row_y - 8, 32, 28, false, color_success)
+    draw_text(win, word_from_int(current_design_armor()), row_x + 254, row_y, 13, color_text)
+
+    draw_text(win, "Used weight " + word_from_int(design_weight_used(designer_class)), center_x + 400, blueprint_y + 240, 13, color_text)
+    draw_text(win, "Capacity " + word_from_int(design_weight_capacity(designer_class)), center_x + 400, blueprint_y + 264, 13, color_text)
+    draw_text(win, "Margin " + word_from_int(design_weight_margin(designer_class)), center_x + 400, blueprint_y + 288, 13, color_text)
+    draw_text(win, "Changes apply to future " + selected_design_name() + " builds immediately.", center_x + 400, blueprint_y + 334, 12, color_muted)
+}
+
 task draw_top_bar(win: int) -> void {
     draw_rect(win, 0, 0, win_w, top_h, color_surface)
     draw_text_bold(win, "FLEET COMMAND", 18, 15, 24, color_gold)
-    draw_text(win, player_name() + " vs " + enemy_name(), 242, 18, 16, color_text)
-    draw_text(win, month_name(campaign_month) + " " + word_from_int(campaign_year), 648, 18, 16, color_text)
-    draw_text(win, "Treasury " + word_from_int(treasury), 840, 18, 16, color_text)
-    draw_text(win, "Prestige " + word_from_int(prestige), 1016, 18, 16, color_text)
-    draw_text(win, "Tension " + word_from_int(tension), 1164, 18, 16, color_text)
-    draw_button(win, "Reset Campaign", win_w - 170, 12, 150, 30, false, color_warning)
+    draw_tab_button(win, "Menu", 252, 14, 74, false)
+    draw_tab_button(win, "Campaign", 336, 14, 92, true)
+    draw_tab_button(win, "Designer", 438, 14, 88, false)
+    draw_text(win, player_name() + " vs " + enemy_name(), 548, 18, 15, color_text)
+    draw_text(win, month_name(campaign_month) + " " + word_from_int(campaign_year), 820, 18, 15, color_text)
+    draw_text(win, "Treasury " + word_from_int(treasury), 1018, 18, 15, color_text)
+    draw_button(win, "Reset", win_w - 108, 14, 84, 28, false, color_warning)
 }
 
 task draw_left_panel(win: int) -> void {
@@ -909,52 +1270,53 @@ task draw_theater(win: int) -> void {
     pilot y = top_h
     pilot w = win_w - left_w - right_w
     pilot h = win_h - top_h - bottom_h
-    draw_rect(win, x, y, w, h, color_sea)
-    draw_stroke(win, x, y, w, h, color_border)
+    pilot map_x0 = x + 18
+    pilot map_y0 = y + 86
+    pilot map_w = w - 36
+    pilot map_h = h - 172
+    if map_h < 250 { map_h = 250 }
 
     draw_text_bold(win, "WORLD THEATER", x + 18, y + 18, 18, color_gold)
     draw_text(win, player_name() + " against " + enemy_name(), x + 18, y + 42, 13, color_text)
+    draw_text(win, "Operational map", x + w - 126, y + 18, 12, color_muted)
 
-    draw_rect(win, x + 18, y + 118, 120, 250, color_surface)
-    draw_rect(win, x + 212, y + 88, 150, 260, color_surface)
-    draw_rect(win, x + 454, y + 82, 182, 250, color_surface)
-    draw_rect(win, x + 430, y + 360, 196, 114, color_surface)
+    draw_world_map_base(win, map_x0, map_y0, map_w, map_h)
 
-    draw_zone_box(win, x + 170, y + 92, 142, 42, "Norwegian Sea")
-    draw_zone_box(win, x + 218, y + 146, 122, 44, "North Sea")
-    draw_zone_box(win, x + 350, y + 146, 110, 44, "Baltic Sea")
-    draw_zone_box(win, x + 142, y + 204, 132, 38, "English Channel")
-    draw_zone_box(win, x + 70, y + 252, 184, 70, "Atlantic Approaches")
-    draw_zone_box(win, x + 232, y + 318, 192, 54, "Western Mediterranean")
-    draw_zone_box(win, x + 450, y + 112, 160, 54, "North Pacific")
-    draw_zone_box(win, x + 462, y + 170, 170, 40, "Vladivostok Approaches")
-    draw_zone_box(win, x + 548, y + 212, 112, 46, "Sea of Japan")
-    draw_zone_box(win, x + 500, y + 264, 120, 44, "Yellow Sea")
-    draw_zone_box(win, x + 358, y + 238, 160, 78, "Central Pacific")
-    draw_zone_box(win, x + 536, y + 318, 124, 72, "Philippine Sea")
-    draw_zone_box(win, x + 480, y + 414, 172, 76, "West Pacific")
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "Norwegian Sea", 360, 180)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "North Sea", 392, 240)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "Baltic Sea", 470, 238)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "English Channel", 330, 300)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "Atlantic Approaches", 250, 430)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "Western Mediterranean", 415, 500)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "North Pacific", 706, 210)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "Vladivostok Approaches", 760, 280)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "Sea of Japan", 845, 346)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "Yellow Sea", 812, 418)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "Central Pacific", 600, 410)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "Philippine Sea", 860, 520)
+    draw_zone_marker(win, map_x0, map_y0, map_w, map_h, "West Pacific", 822, 648)
 
-    draw_map_country(win, country_usa, x + 46, y + 274)
-    draw_map_country(win, country_britain, x + 198, y + 176)
-    draw_map_country(win, country_france, x + 238, y + 286)
-    draw_map_country(win, country_germany, x + 328, y + 188)
-    draw_map_country(win, country_russia, x + 472, y + 178)
-    draw_map_country(win, country_japan, x + 602, y + 236)
+    draw_map_country(win, country_usa, map_px(map_x0, map_w, 132), map_py(map_y0, map_h, 382))
+    draw_map_country(win, country_britain, map_px(map_x0, map_w, 370), map_py(map_y0, map_h, 255))
+    draw_map_country(win, country_france, map_px(map_x0, map_w, 396), map_py(map_y0, map_h, 348))
+    draw_map_country(win, country_germany, map_px(map_x0, map_w, 452), map_py(map_y0, map_h, 258))
+    draw_map_country(win, country_russia, map_px(map_x0, map_w, 678), map_py(map_y0, map_h, 248))
+    draw_map_country(win, country_japan, map_px(map_x0, map_w, 846), map_py(map_y0, map_h, 355))
 
-    draw_text(win, "Sea control", x + 18, y + h - 92, 12, color_muted)
-    draw_rect(win, x + 18, y + h - 72, 280, 14, color_panel)
-    draw_rect(win, x + 18, y + h - 72, sea_control * 28 / 10, 14, color_accent)
-    draw_stroke(win, x + 18, y + h - 72, 280, 14, color_border)
+    draw_text(win, "Sea control", x + 18, y + h - 74, 12, color_muted)
+    draw_rect(win, x + 18, y + h - 54, 280, 14, color_panel)
+    draw_rect(win, x + 18, y + h - 54, sea_control * 28 / 10, 14, color_accent)
+    draw_stroke(win, x + 18, y + h - 54, 280, 14, color_border)
 
     if contact_exists {
-        draw_text_bold(win, "CONTACT REPORTED", x + 332, y + h - 92, 15, color_warning)
-        draw_text(win, contact_zone + " | enemy strength " + word_from_int(contact_strength) + " | quality " + word_from_int(contact_quality), x + 332, y + h - 68, 12, color_text)
+        draw_text_bold(win, "CONTACT REPORTED", x + 332, y + h - 74, 15, color_warning)
+        draw_text(win, contact_zone + " | enemy strength " + word_from_int(contact_strength) + " | quality " + word_from_int(contact_quality), x + 332, y + h - 50, 12, color_text)
     } else {
-        draw_text_bold(win, "NO CONTACT", x + 332, y + h - 92, 15, color_muted)
-        draw_text(win, "Advance the month or change posture to force the naval race.", x + 332, y + h - 68, 12, color_text)
+        draw_text_bold(win, "NO CONTACT", x + 332, y + h - 74, 15, color_muted)
+        draw_text(win, "Advance the month or change posture to force the naval race.", x + 332, y + h - 50, 12, color_text)
     }
-    draw_text(win, "Active theaters: " + rivalry_zone_name(0) + ", " + rivalry_zone_name(1), x + 18, y + h - 40, 12, color_text)
-    draw_text(win, rivalry_zone_name(2) + ", " + rivalry_zone_name(3), x + 18, y + h - 20, 12, color_text)
+    draw_text(win, "Active theaters: " + rivalry_zone_name(0) + ", " + rivalry_zone_name(1), x + 18, y + h - 24, 12, color_text)
+    draw_text(win, rivalry_zone_name(2) + ", " + rivalry_zone_name(3), x + 330, y + h - 24, 12, color_text)
 }
 
 task draw_queue_item(win: int, y: int, side: int, kind: word, eta: int) -> void {
@@ -1025,8 +1387,40 @@ task draw_bottom_bar(win: int) -> void {
     }
 }
 
-task handle_click(x: int, y: int) -> void {
-    if hit_rect(x, y, win_w - 170, 12, 150, 30) {
+task handle_menu_click(x: int, y: int) -> void {
+    pilot panel_x = win_w / 2 - 300
+    pilot panel_y = win_h / 2 - 230
+    if hit_rect(x, y, panel_x + 28, panel_y + 136, 88, 30) { select_country(country_britain); give back }
+    if hit_rect(x, y, panel_x + 124, panel_y + 136, 96, 30) { select_country(country_germany); give back }
+    if hit_rect(x, y, panel_x + 228, panel_y + 136, 76, 30) { select_country(country_usa); give back }
+    if hit_rect(x, y, panel_x + 312, panel_y + 136, 80, 30) { select_country(country_japan); give back }
+    if hit_rect(x, y, panel_x + 400, panel_y + 136, 86, 30) { select_country(country_france); give back }
+    if hit_rect(x, y, panel_x + 494, panel_y + 136, 78, 30) { select_country(country_russia); give back }
+    if hit_rect(x, y, panel_x + 28, panel_y + 270, 170, 36) {
+        reset_campaign()
+        current_screen = screen_campaign
+        give back
+    }
+    if hit_rect(x, y, panel_x + 208, panel_y + 270, 170, 36) {
+        current_screen = screen_designer
+        give back
+    }
+    if hit_rect(x, y, panel_x + 388, panel_y + 270, 170, 36) {
+        quit_requested = true
+        give back
+    }
+}
+
+task handle_campaign_click(x: int, y: int) -> void {
+    if hit_rect(x, y, 252, 14, 74, 28) {
+        current_screen = screen_menu
+        give back
+    }
+    if hit_rect(x, y, 438, 14, 88, 28) {
+        current_screen = screen_designer
+        give back
+    }
+    if hit_rect(x, y, win_w - 108, 14, 84, 28) {
         reset_campaign()
         give back
     }
@@ -1048,17 +1442,69 @@ task handle_click(x: int, y: int) -> void {
     if hit_rect(x, y, 18, top_h + 592, 244, 34) { engage_contact(); give back }
 }
 
+task handle_designer_click(x: int, y: int) -> void {
+    if hit_rect(x, y, win_w - 290, 14, 80, 28) {
+        current_screen = screen_menu
+        give back
+    }
+    if hit_rect(x, y, win_w - 198, 14, 88, 28) {
+        current_screen = screen_campaign
+        give back
+    }
+
+    pilot left_x = 24
+    pilot left_y = top_h + 20
+    if hit_rect(x, y, left_x + 18, left_y + 136, 88, 30) { designer_class = 0; designer_status = "Destroyer board active."; give back }
+    if hit_rect(x, y, left_x + 114, left_y + 136, 80, 30) { designer_class = 1; designer_status = "Cruiser board active."; give back }
+    if hit_rect(x, y, left_x + 202, left_y + 136, 90, 30) { designer_class = 2; designer_status = "Battleship board active."; give back }
+
+    pilot center_x = 356
+    pilot blueprint_y = left_y + 70
+    pilot row_x = center_x + 34
+    pilot row_y = blueprint_y + 238
+
+    if hit_rect(x, y, row_x + 170, row_y - 8, 32, 28) { adjust_current_design("tonnage", 0 - 1); give back }
+    if hit_rect(x, y, row_x + 208, row_y - 8, 32, 28) { adjust_current_design("tonnage", 1); give back }
+
+    row_y += 46
+    if hit_rect(x, y, row_x + 170, row_y - 8, 32, 28) { adjust_current_design("speed", 0 - 1); give back }
+    if hit_rect(x, y, row_x + 208, row_y - 8, 32, 28) { adjust_current_design("speed", 1); give back }
+
+    row_y += 46
+    if hit_rect(x, y, row_x + 170, row_y - 8, 32, 28) { adjust_current_design("guns", 0 - 1); give back }
+    if hit_rect(x, y, row_x + 208, row_y - 8, 32, 28) { adjust_current_design("guns", 1); give back }
+
+    row_y += 46
+    if hit_rect(x, y, row_x + 170, row_y - 8, 32, 28) { adjust_current_design("armor", 0 - 1); give back }
+    if hit_rect(x, y, row_x + 208, row_y - 8, 32, 28) { adjust_current_design("armor", 1); give back }
+}
+
+task handle_click(x: int, y: int) -> void {
+    if current_screen == screen_menu {
+        handle_menu_click(x, y)
+        give back
+    }
+    if current_screen == screen_designer {
+        handle_designer_click(x, y)
+        give back
+    }
+    handle_campaign_click(x, y)
+}
+
 @protagonist
 task main() {
     rng_state = 117
+    seed_designs_for_country(player_country)
     reset_campaign()
+    current_screen = screen_menu
+    quit_requested = false
 
     pilot win = ui::create_window("Fleet Command - FREAK prototype", default_win_w, default_win_h, 1)
     refresh_layout(win)
     pilot running = 1
 
     repeat 999999 times {
-        if running == 0 { give back }
+        if running == 0 or quit_requested { give back }
 
         pilot count = ui::poll_events(win)
         if count < 0 { running = 0 }
@@ -1074,11 +1520,18 @@ task main() {
             } else if kind == event_key and ui::event_pressed(i) == 1 {
                 pilot key = ui::event_key(i)
                 if key == key_escape {
-                    running = 0
-                } else if key == key_space {
+                    if current_screen == screen_menu {
+                        running = 0
+                    } else {
+                        current_screen = screen_menu
+                    }
+                } else if key == key_space and current_screen == screen_campaign {
                     advance_month()
-                } else if key == key_enter {
+                } else if key == key_enter and current_screen == screen_campaign {
                     engage_contact()
+                } else if key == key_enter and current_screen == screen_menu {
+                    reset_campaign()
+                    current_screen = screen_campaign
                 }
             } else if kind == event_mouse {
                 mouse_x = ui::event_mouse_x(i)
@@ -1092,12 +1545,18 @@ task main() {
 
         refresh_layout(win)
         ui::begin_frame(win)
-        draw_rect(win, 0, 0, win_w, win_h, color_bg)
-        draw_top_bar(win)
-        draw_left_panel(win)
-        draw_theater(win)
-        draw_right_panel(win)
-        draw_bottom_bar(win)
+        if current_screen == screen_menu {
+            draw_main_menu(win)
+        } else if current_screen == screen_designer {
+            draw_designer_screen(win)
+        } else {
+            draw_rect(win, 0, 0, win_w, win_h, color_bg)
+            draw_top_bar(win)
+            draw_left_panel(win)
+            draw_theater(win)
+            draw_right_panel(win)
+            draw_bottom_bar(win)
+        }
         ui::end_frame(win)
     }
 

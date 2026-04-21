@@ -15,9 +15,11 @@ This first slice is intentionally narrow:
 
 - Single-player.
 - Native desktop window.
+- Main menu, campaign screen, and ship-designer screen.
 - Fleet management for one player nation versus one AI opponent.
 - Selectable real-world nations: Britain, Germany, USA, Japan, France, Russia.
-- A simple world-theater map with named sea zones instead of an abstract arena.
+- A hand-drawn world-theater map with named sea zones instead of an abstract arena.
+- Ship design math that feeds live build cost, build time, maintenance, and combat rating.
 - Ship construction queue.
 - Monthly turn advancement.
 - Contact generation and battle resolution.
@@ -52,14 +54,15 @@ src\fleet_command\main.exe
 ## Controls
 
 - Mouse: click buttons
+- Mouse: use the main menu to start campaign or open the design bureau
 - Mouse: click nation buttons to restart as a different country
 - `Space`: advance month
 - `Enter`: engage current contact
-- `Escape`: quit
+- `Escape`: back to menu or quit from menu
 
 ## Current Feel
 
-The presentation is intentionally halfway between a command table and a COCKPIT testbed. It should stay readable and low-noise while still proving that FREAK can carry a native strategy UI that is more alive than a flat spreadsheet.
+The presentation now aims for a more normal strategy-game shell: flatter panels, quieter colors, a real menu, a campaign map, and a separate design bureau. It still needs deeper ship systems, but the structure is finally pointing in the right direction.
 
 ## Why It Lives Here For Now
 
