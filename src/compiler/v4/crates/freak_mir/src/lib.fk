@@ -2223,6 +2223,46 @@ task v4_mir_find_open_index_token(stream_id: int, start_token: int, close_token:
     give back 0 - 1
 }
 
+task v4_mir_tuple_slot_segment_end(slot_text: word, start_pos: int) -> int {
+    pilot pos = start_pos
+    repeat until pos >= slot_text.length() {
+        if slot_text.char_at(pos) == "." {
+            give back pos
+        }
+        pos += 1
+    }
+    give back slot_text.length()
+}
+
+task v4_mir_is_tuple_slot_chain(slot_text: word) -> bool {
+    if slot_text == "" {
+        give back false
+    }
+
+    pilot segment_start = 0
+    repeat until segment_start >= slot_text.length() {
+        pilot segment_end = v4_mir_tuple_slot_segment_end(slot_text, segment_start)
+        if segment_end <= segment_start {
+            give back false
+        }
+
+        pilot idx = segment_start
+        repeat until idx >= segment_end {
+            pilot ch = slot_text.char_at(idx)
+            if not v4_lex_is_digit(ch) {
+                give back false
+            }
+            idx += 1
+        }
+
+        if segment_end >= slot_text.length() {
+            give back true
+        }
+        segment_start = segment_end + 1
+    }
+    give back true
+}
+
 task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int) -> int {
     pilot first = v4_mir_skip_trivia(stream_id, start_token)
     pilot last = v4_mir_last_nontrivia_before(stream_id, end_token)
@@ -2266,12 +2306,47 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
             field_name = v4_lex_token_value(stream_id, field_token)
         }
         pilot base_ty = v4_mir_place_ty(mir_id, body_id, base_place)
-        pilot field_ty = v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir_id), base_ty, field_name)
-        if v4_ty_is_known(base_ty) and not v4_ty_is_known(field_ty) {
-            if v4_ty_shape_signature_id_for_name(v4_mir_ty_id(mir_id), base_ty) >= 0 {
-                v4_mir_add_type_error(mir_id, place_span, "unknown field access", base_ty + " has no field " + field_name)
+        pilot field_ty = v4_ty_unknown
+        if v4_ty_is_tuple_type(base_ty) {
+            if v4_mir_is_tuple_slot_chain(field_name) {
+                pilot current_place = base_place
+                pilot current_ty = base_ty
+                pilot current_text = v4_mir_place_text(mir_id, body_id, base_place)
+                pilot segment_start = 0
+                repeat until segment_start >= field_name.length() {
+                    pilot segment_end = v4_mir_tuple_slot_segment_end(field_name, segment_start)
+                    pilot slot_name = v4_slice(field_name, segment_start, segment_end)
+                    current_text = current_text + "." + slot_name
+
+                    pilot slot_ty = v4_ty_unknown
+                    if v4_ty_is_tuple_type(current_ty) {
+                        slot_ty = v4_ty_tuple_slot_type(current_ty, word_to_int(slot_name))
+                        if not v4_ty_is_known(slot_ty) {
+                            v4_mir_add_type_error(mir_id, place_span, "tuple slot out of range", current_ty + " has no slot " + slot_name)
+                        }
+                    } else if v4_ty_is_known(current_ty) {
+                        v4_mir_add_type_error(mir_id, place_span, "tuple slot access on non-tuple type", current_ty + " has no tuple slots")
+                    }
+
+                    current_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, current_text, current_place, slot_name, 0 - 1, place_span, slot_ty)
+                    current_ty = slot_ty
+                    field_ty = slot_ty
+                    segment_start = segment_end + 1
+                }
+                give back current_place
             } else {
-                v4_mir_add_type_error(mir_id, place_span, "field access on non-shape type", base_ty + " has no fields")
+                v4_mir_add_type_error(mir_id, place_span, "tuple slot must be int literal", "use .0, .1, ... on " + base_ty)
+            }
+        } else {
+            field_ty = v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir_id), base_ty, field_name)
+            if v4_ty_is_known(base_ty) and not v4_ty_is_known(field_ty) {
+                if v4_mir_is_tuple_slot_chain(field_name) {
+                    v4_mir_add_type_error(mir_id, place_span, "tuple slot access on non-tuple type", base_ty + " has no tuple slots")
+                } else if v4_ty_shape_signature_id_for_name(v4_mir_ty_id(mir_id), base_ty) >= 0 {
+                    v4_mir_add_type_error(mir_id, place_span, "unknown field access", base_ty + " has no field " + field_name)
+                } else {
+                    v4_mir_add_type_error(mir_id, place_span, "field access on non-shape type", base_ty + " has no fields")
+                }
             }
         }
         give back v4_mir_add_place(mir_id, body_id, v4_mir_place_field, place_text, base_place, field_name, 0 - 1, place_span, field_ty)

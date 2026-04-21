@@ -1,0 +1,139 @@
+-- V4 MIR typed tuple access smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_tuple_access_good_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot pair: (int,word) = (7, \"ace\")\n"
+    src = src + "    pilot left = pair.0\n"
+    src = src + "    pilot label = pair.1\n"
+    src = src + "    pilot nested: ((int,int),word) = ((1, 2), \"team\")\n"
+    src = src + "    pilot inner = nested.0.1\n"
+    src = src + "    pair.0 = left + 1\n"
+    src = src + "    give back inner\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_tuple_access_bad_range_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot pair = (7, \"ace\")\n"
+    src = src + "    pilot nope = pair.2\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_tuple_access_bad_non_tuple_source() -> word {
+    pilot src = "task bad(power: int) -> void {\n"
+    src = src + "    pilot nope = power.0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_tuple_access_bad_named_slot_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot pair = (7, \"ace\")\n"
+    src = src + "    pilot nope = pair.name\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_tuple_access_stream = v4_lex_text(0, v4_mir_tuple_access_good_source())
+pilot v4_mir_tuple_access_tree = v4_parse_stream(0, v4_mir_tuple_access_stream)
+pilot v4_mir_tuple_access_hir = v4_hir_lower_tree(0, v4_mir_tuple_access_tree)
+pilot v4_mir_tuple_access_resolve = v4_resolve_lower_hir(0, v4_mir_tuple_access_hir)
+pilot v4_mir_tuple_access_ty = v4_ty_lower_resolve(0, v4_mir_tuple_access_resolve)
+pilot v4_mir_tuple_access_mir = v4_mir_lower_ty(0, v4_mir_tuple_access_ty)
+pilot v4_mir_tuple_access_main_def = v4_resolve_def_for_name(v4_mir_tuple_access_resolve, "main")
+pilot v4_mir_tuple_access_main_body = v4_mir_lookup_body(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_def)
+pilot v4_mir_tuple_access_pair_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 0)
+pilot v4_mir_tuple_access_left_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 1)
+pilot v4_mir_tuple_access_label_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 2)
+pilot v4_mir_tuple_access_nested_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 3)
+pilot v4_mir_tuple_access_inner_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 4)
+pilot v4_mir_tuple_access_assign_place = v4_mir_stmt_place(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 5)
+pilot v4_mir_tuple_access_assign_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 5)
+pilot v4_mir_tuple_access_return_rvalue = v4_mir_stmt_rvalue(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 6)
+pilot v4_mir_tuple_access_left_place = v4_mir_rvalue_lhs(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_left_rvalue)
+pilot v4_mir_tuple_access_label_place = v4_mir_rvalue_lhs(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_label_rvalue)
+pilot v4_mir_tuple_access_inner_place = v4_mir_rvalue_lhs(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_inner_rvalue)
+pilot v4_mir_tuple_access_inner_base = v4_mir_place_base(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_inner_place)
+
+say v4_mir_summary(v4_mir_tuple_access_mir)
+say "tuple-access-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body))
+say "tuple-access-local0-name=" + v4_mir_local_name(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 0)
+say "tuple-access-local0-ty=" + v4_mir_local_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 0)
+say "tuple-access-local1-name=" + v4_mir_local_name(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 1)
+say "tuple-access-local1-ty=" + v4_mir_local_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 1)
+say "tuple-access-local2-name=" + v4_mir_local_name(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 2)
+say "tuple-access-local2-ty=" + v4_mir_local_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 2)
+say "tuple-access-local3-name=" + v4_mir_local_name(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 3)
+say "tuple-access-local3-ty=" + v4_mir_local_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 3)
+say "tuple-access-local4-name=" + v4_mir_local_name(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 4)
+say "tuple-access-local4-ty=" + v4_mir_local_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 4)
+say "pair-slot-count=" + word_from_int(v4_ty_tuple_slot_count(v4_mir_local_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 0)))
+say "pair-slot0-ty=" + v4_ty_tuple_slot_type(v4_mir_local_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 0), 0)
+say "pair-slot1-ty=" + v4_ty_tuple_slot_type(v4_mir_local_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 0), 1)
+say "nested-slot0-ty=" + v4_ty_tuple_slot_type(v4_mir_local_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 3), 0)
+say "nested-slot1-ty=" + v4_ty_tuple_slot_type(v4_mir_local_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, 3), 1)
+say "tuple-access-pair-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_pair_rvalue)
+say "tuple-access-pair-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_pair_rvalue)
+say "tuple-access-left-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_left_rvalue)
+say "tuple-access-left-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_left_rvalue)
+say "tuple-access-left-place-kind=" + v4_mir_place_kind(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_left_place)
+say "tuple-access-left-place-field=" + v4_mir_place_field(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_left_place)
+say "tuple-access-left-place-ty=" + v4_mir_place_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_left_place)
+say "tuple-access-label-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_label_rvalue)
+say "tuple-access-label-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_label_rvalue)
+say "tuple-access-label-place-field=" + v4_mir_place_field(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_label_place)
+say "tuple-access-label-place-ty=" + v4_mir_place_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_label_place)
+say "tuple-access-nested-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_nested_rvalue)
+say "tuple-access-nested-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_nested_rvalue)
+say "tuple-access-inner-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_inner_rvalue)
+say "tuple-access-inner-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_inner_rvalue)
+say "tuple-access-inner-place-field=" + v4_mir_place_field(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_inner_place)
+say "tuple-access-inner-place-ty=" + v4_mir_place_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_inner_place)
+say "tuple-access-inner-base-kind=" + v4_mir_place_kind(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_inner_base)
+say "tuple-access-inner-base-field=" + v4_mir_place_field(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_inner_base)
+say "tuple-access-inner-base-ty=" + v4_mir_place_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_inner_base)
+say "tuple-access-assign-place-kind=" + v4_mir_place_kind(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_assign_place)
+say "tuple-access-assign-place-field=" + v4_mir_place_field(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_assign_place)
+say "tuple-access-assign-place-ty=" + v4_mir_place_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_assign_place)
+say "tuple-access-assign-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_assign_rvalue)
+say "tuple-access-assign-rvalue-op=" + v4_mir_rvalue_op(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_assign_rvalue)
+say "tuple-access-assign-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_assign_rvalue)
+say "tuple-access-return-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_return_rvalue)
+say "tuple-access-return-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_tuple_access_mir, v4_mir_tuple_access_main_body, v4_mir_tuple_access_return_rvalue)
+say "tuple-access-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_tuple_access_mir))
+
+pilot v4_mir_tuple_access_bad_range_stream = v4_lex_text(1, v4_mir_tuple_access_bad_range_source())
+pilot v4_mir_tuple_access_bad_range_tree = v4_parse_stream(1, v4_mir_tuple_access_bad_range_stream)
+pilot v4_mir_tuple_access_bad_range_hir = v4_hir_lower_tree(1, v4_mir_tuple_access_bad_range_tree)
+pilot v4_mir_tuple_access_bad_range_resolve = v4_resolve_lower_hir(1, v4_mir_tuple_access_bad_range_hir)
+pilot v4_mir_tuple_access_bad_range_ty = v4_ty_lower_resolve(1, v4_mir_tuple_access_bad_range_resolve)
+pilot v4_mir_tuple_access_bad_range_mir = v4_mir_lower_ty(1, v4_mir_tuple_access_bad_range_ty)
+
+say "tuple-access-bad-range-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_tuple_access_bad_range_mir))
+say "tuple-access-bad-range-message=" + v4_diag_message(v4_mir_diag(v4_mir_tuple_access_bad_range_mir, 0))
+say "tuple-access-bad-range-help=" + v4_diag_help(v4_mir_diag(v4_mir_tuple_access_bad_range_mir, 0))
+
+pilot v4_mir_tuple_access_bad_non_tuple_stream = v4_lex_text(2, v4_mir_tuple_access_bad_non_tuple_source())
+pilot v4_mir_tuple_access_bad_non_tuple_tree = v4_parse_stream(2, v4_mir_tuple_access_bad_non_tuple_stream)
+pilot v4_mir_tuple_access_bad_non_tuple_hir = v4_hir_lower_tree(2, v4_mir_tuple_access_bad_non_tuple_tree)
+pilot v4_mir_tuple_access_bad_non_tuple_resolve = v4_resolve_lower_hir(2, v4_mir_tuple_access_bad_non_tuple_hir)
+pilot v4_mir_tuple_access_bad_non_tuple_ty = v4_ty_lower_resolve(2, v4_mir_tuple_access_bad_non_tuple_resolve)
+pilot v4_mir_tuple_access_bad_non_tuple_mir = v4_mir_lower_ty(2, v4_mir_tuple_access_bad_non_tuple_ty)
+
+say "tuple-access-bad-non-tuple-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_tuple_access_bad_non_tuple_mir))
+say "tuple-access-bad-non-tuple-message=" + v4_diag_message(v4_mir_diag(v4_mir_tuple_access_bad_non_tuple_mir, 0))
+say "tuple-access-bad-non-tuple-help=" + v4_diag_help(v4_mir_diag(v4_mir_tuple_access_bad_non_tuple_mir, 0))
+
+pilot v4_mir_tuple_access_bad_named_slot_stream = v4_lex_text(3, v4_mir_tuple_access_bad_named_slot_source())
+pilot v4_mir_tuple_access_bad_named_slot_tree = v4_parse_stream(3, v4_mir_tuple_access_bad_named_slot_stream)
+pilot v4_mir_tuple_access_bad_named_slot_hir = v4_hir_lower_tree(3, v4_mir_tuple_access_bad_named_slot_tree)
+pilot v4_mir_tuple_access_bad_named_slot_resolve = v4_resolve_lower_hir(3, v4_mir_tuple_access_bad_named_slot_hir)
+pilot v4_mir_tuple_access_bad_named_slot_ty = v4_ty_lower_resolve(3, v4_mir_tuple_access_bad_named_slot_resolve)
+pilot v4_mir_tuple_access_bad_named_slot_mir = v4_mir_lower_ty(3, v4_mir_tuple_access_bad_named_slot_ty)
+
+say "tuple-access-bad-named-slot-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_tuple_access_bad_named_slot_mir))
+say "tuple-access-bad-named-slot-message=" + v4_diag_message(v4_mir_diag(v4_mir_tuple_access_bad_named_slot_mir, 0))
+say "tuple-access-bad-named-slot-help=" + v4_diag_help(v4_mir_diag(v4_mir_tuple_access_bad_named_slot_mir, 0))

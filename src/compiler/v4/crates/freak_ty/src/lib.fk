@@ -1353,6 +1353,65 @@ task v4_ty_list_element_type(container_ty: word) -> word {
     give back v4_ty_unknown
 }
 
+task v4_ty_is_tuple_type(tuple_ty: word) -> bool {
+    if tuple_ty.length() < 5 {
+        give back false
+    }
+    if tuple_ty.char_at(0) != "(" or tuple_ty.char_at(tuple_ty.length() - 1) != ")" {
+        give back false
+    }
+    give back v4_ty_find_top_level_type_char(tuple_ty, ",", 1, tuple_ty.length() - 1) > 1
+}
+
+task v4_ty_tuple_slot_count(tuple_ty: word) -> int {
+    if not v4_ty_is_tuple_type(tuple_ty) {
+        give back 0
+    }
+
+    pilot count = 1
+    pilot depth = 0
+    pilot idx = 1
+    repeat until idx >= tuple_ty.length() - 1 {
+        pilot ch = tuple_ty.char_at(idx)
+        if depth == 0 and ch == "," {
+            count += 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_tuple_slot_type(tuple_ty: word, slot_id: int) -> word {
+    if not v4_ty_is_tuple_type(tuple_ty) or slot_id < 0 {
+        give back v4_ty_unknown
+    }
+
+    pilot current = 0
+    pilot segment_start = 1
+    pilot depth = 0
+    pilot idx = 1
+    repeat until idx >= tuple_ty.length() - 1 {
+        pilot ch = tuple_ty.char_at(idx)
+        if depth == 0 and ch == "," {
+            if current == slot_id {
+                give back v4_slice(tuple_ty, segment_start, idx)
+            }
+            current += 1
+            segment_start = idx + 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+
+    if current == slot_id and segment_start < tuple_ty.length() - 1 {
+        give back v4_slice(tuple_ty, segment_start, tuple_ty.length() - 1)
+    }
+    give back v4_ty_unknown
+}
+
 task v4_ty_fixed_array_separator(container_ty: word) -> int {
     if container_ty.length() < 4 {
         give back 0 - 1
