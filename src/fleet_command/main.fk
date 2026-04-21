@@ -5,6 +5,7 @@
 pilot event_quit = 1
 pilot event_key = 2
 pilot event_mouse = 4
+pilot event_resize = 6
 
 pilot key_enter = 37
 pilot key_escape = 38
@@ -29,6 +30,8 @@ pilot color_sea = 1067066
 pilot color_route = 2771304
 pilot color_contact = 16030792
 
+pilot default_win_w = 1380
+pilot default_win_h = 860
 pilot win_w = 1380
 pilot win_h = 860
 
@@ -127,6 +130,52 @@ task draw_circle(win: int, x: int, y: int, radius: int, color: int) -> void {
 
 task draw_line(win: int, x1: int, y1: int, x2: int, y2: int, color: int, thickness: int) -> void {
     ui::draw_line(win, x1, y1, x2, y2, color_r(color), color_g(color), color_b(color), 255, thickness)
+}
+
+task refresh_layout(win: int) -> void {
+    pilot current_w = ui::get_width(win)
+    pilot current_h = ui::get_height(win)
+    if current_w > 0 { win_w = current_w } else { win_w = default_win_w }
+    if current_h > 0 { win_h = current_h } else { win_h = default_win_h }
+
+    top_h = 56
+    bottom_h = 92
+
+    pilot max_left = win_w / 3
+    if max_left < 220 { max_left = 220 }
+    left_w = fleet_clamp_int(win_w / 5, 260, max_left)
+
+    pilot remaining = win_w - left_w
+    pilot max_right = remaining / 2
+    if max_right < 260 { max_right = 260 }
+    right_w = fleet_clamp_int(win_w / 4, 320, max_right)
+
+    pilot min_center = 340
+    if left_w + right_w + min_center > win_w {
+        right_w = win_w - left_w - min_center
+        if right_w < 260 {
+            right_w = 260
+            left_w = win_w - right_w - min_center
+            if left_w < 220 { left_w = 220 }
+        }
+    }
+
+    if left_w + right_w + min_center > win_w {
+        right_w = fleet_clamp_int(win_w / 3, 220, 320)
+        left_w = fleet_clamp_int(win_w / 4, 220, 300)
+    }
+
+    if left_w + right_w + min_center > win_w {
+        right_w = 220
+        left_w = 220
+    }
+
+    if win_h < 760 {
+        bottom_h = 78
+    }
+    if win_h < 700 {
+        bottom_h = 68
+    }
 }
 
 task posture_name() -> word {
@@ -1004,7 +1053,8 @@ task main() {
     rng_state = 117
     reset_campaign()
 
-    pilot win = ui::create_window("Fleet Command - FREAK prototype", win_w, win_h, 1)
+    pilot win = ui::create_window("Fleet Command - FREAK prototype", default_win_w, default_win_h, 1)
+    refresh_layout(win)
     pilot running = 1
 
     repeat 999999 times {
@@ -1012,12 +1062,15 @@ task main() {
 
         pilot count = ui::poll_events(win)
         if count < 0 { running = 0 }
+        refresh_layout(win)
 
         pilot i = 0
         repeat count times {
             pilot kind = ui::event_kind(i)
             if kind == event_quit {
                 running = 0
+            } else if kind == event_resize {
+                refresh_layout(win)
             } else if kind == event_key and ui::event_pressed(i) == 1 {
                 pilot key = ui::event_key(i)
                 if key == key_escape {
@@ -1037,6 +1090,7 @@ task main() {
             i += 1
         }
 
+        refresh_layout(win)
         ui::begin_frame(win)
         draw_rect(win, 0, 0, win_w, win_h, color_bg)
         draw_top_bar(win)
