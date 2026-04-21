@@ -1,0 +1,248 @@
+-- V4 MIR when-pattern lowering smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_when_pattern_good_source() -> word {
+    pilot src = "task pair_grade(pair: (int,int)) -> int {\n"
+    src = src + "    when pair {\n"
+    src = src + "        (7, bonus) -> give back bonus\n"
+    src = src + "        (9, power) -> give back power\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task row_grade(row: [int;2]) -> int {\n"
+    src = src + "    when row {\n"
+    src = src + "        [1, right] -> give back right\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_when_pattern_bad_tuple_source() -> word {
+    pilot src = "task bad(pair: int) -> int {\n"
+    src = src + "    when pair {\n"
+    src = src + "        (left, right) -> give back 1\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_when_pattern_bad_tuple_arity_source() -> word {
+    pilot src = "task bad(pair: (int,int)) -> int {\n"
+    src = src + "    when pair {\n"
+    src = src + "        (left, right, extra) -> give back 1\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_when_pattern_bad_sequence_source() -> word {
+    pilot src = "task bad(row: int) -> int {\n"
+    src = src + "    when row {\n"
+    src = src + "        [left, right] -> give back 1\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_when_pattern_bad_sequence_arity_source() -> word {
+    pilot src = "task bad(row: [int;2]) -> int {\n"
+    src = src + "    when row {\n"
+    src = src + "        [left, right, extra] -> give back 1\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_when_pattern_bad_duplicate_source() -> word {
+    pilot src = "task bad(pair: (int,int)) -> int {\n"
+    src = src + "    when pair {\n"
+    src = src + "        (7, left) -> give back 1\n"
+    src = src + "        (9, left) -> give back 2\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_when_pattern_bad_type_source() -> word {
+    pilot src = "task bad(pair: (int,int)) -> int {\n"
+    src = src + "    when pair {\n"
+    src = src + "        (true, bonus) -> give back 1\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_when_pattern_find_branch_stmt(mir_id: int, body_id: int, condition: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_branch {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == condition {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_when_pattern_find_local_stmt(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == local_name {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_mir_when_pattern_stream = v4_lex_text(0, v4_mir_when_pattern_good_source())
+pilot v4_mir_when_pattern_tree = v4_parse_stream(0, v4_mir_when_pattern_stream)
+pilot v4_mir_when_pattern_hir = v4_hir_lower_tree(0, v4_mir_when_pattern_tree)
+pilot v4_mir_when_pattern_resolve = v4_resolve_lower_hir(0, v4_mir_when_pattern_hir)
+pilot v4_mir_when_pattern_ty = v4_ty_lower_resolve(0, v4_mir_when_pattern_resolve)
+pilot v4_mir_when_pattern_mir = v4_mir_lower_ty(0, v4_mir_when_pattern_ty)
+
+pilot v4_mir_when_pattern_pair_def = v4_resolve_def_for_name(v4_mir_when_pattern_resolve, "pair_grade")
+pilot v4_mir_when_pattern_pair_body = v4_mir_lookup_body(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_def)
+pilot v4_mir_when_pattern_pair_arm0_stmt = v4_mir_when_pattern_find_branch_stmt(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, "pair.0 == 7")
+pilot v4_mir_when_pattern_pair_arm1_stmt = v4_mir_when_pattern_find_branch_stmt(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, "pair.0 == 9")
+pilot v4_mir_when_pattern_pair_arm0_rvalue = v4_mir_stmt_rvalue(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm0_stmt)
+pilot v4_mir_when_pattern_pair_arm1_rvalue = v4_mir_stmt_rvalue(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm1_stmt)
+pilot v4_mir_when_pattern_bonus_stmt = v4_mir_when_pattern_find_local_stmt(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, "bonus")
+pilot v4_mir_when_pattern_power_stmt = v4_mir_when_pattern_find_local_stmt(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, "power")
+pilot v4_mir_when_pattern_bonus_rvalue = v4_mir_stmt_rvalue(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_bonus_stmt)
+pilot v4_mir_when_pattern_power_rvalue = v4_mir_stmt_rvalue(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_power_stmt)
+pilot v4_mir_when_pattern_bonus_place = v4_mir_rvalue_lhs(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_bonus_rvalue)
+pilot v4_mir_when_pattern_power_place = v4_mir_rvalue_lhs(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_power_rvalue)
+
+pilot v4_mir_when_pattern_row_def = v4_resolve_def_for_name(v4_mir_when_pattern_resolve, "row_grade")
+pilot v4_mir_when_pattern_row_body = v4_mir_lookup_body(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_def)
+pilot v4_mir_when_pattern_row_arm_stmt = v4_mir_when_pattern_find_branch_stmt(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, "row[0] == 1")
+pilot v4_mir_when_pattern_row_arm_rvalue = v4_mir_stmt_rvalue(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_row_arm_stmt)
+pilot v4_mir_when_pattern_right_stmt = v4_mir_when_pattern_find_local_stmt(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, "right")
+pilot v4_mir_when_pattern_right_rvalue = v4_mir_stmt_rvalue(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_right_stmt)
+pilot v4_mir_when_pattern_right_place = v4_mir_rvalue_lhs(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_right_rvalue)
+pilot v4_mir_when_pattern_right_index = v4_mir_place_index(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_right_place)
+
+say v4_mir_summary(v4_mir_when_pattern_mir)
+say "when-pattern-pair-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body))
+say "when-pattern-pair-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body))
+say "when-pattern-pair-arm0-kind=" + v4_mir_stmt_kind(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm0_stmt)
+say "when-pattern-pair-arm0-lhs=" + v4_mir_stmt_lhs(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm0_stmt)
+say "when-pattern-pair-arm0-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm0_rvalue)
+say "when-pattern-pair-arm0-rvalue-op=" + v4_mir_rvalue_op(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm0_rvalue)
+say "when-pattern-pair-arm0-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm0_rvalue)
+say "when-pattern-pair-arm1-kind=" + v4_mir_stmt_kind(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm1_stmt)
+say "when-pattern-pair-arm1-lhs=" + v4_mir_stmt_lhs(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm1_stmt)
+say "when-pattern-pair-arm1-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm1_rvalue)
+say "when-pattern-pair-arm1-rvalue-op=" + v4_mir_rvalue_op(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm1_rvalue)
+say "when-pattern-pair-arm1-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_pair_arm1_rvalue)
+say "when-pattern-bonus-kind=" + v4_mir_rvalue_kind(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_bonus_rvalue)
+say "when-pattern-bonus-ty=" + v4_mir_rvalue_ty(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_bonus_rvalue)
+say "when-pattern-bonus-place-field=" + v4_mir_place_field(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_bonus_place)
+say "when-pattern-bonus-place-ty=" + v4_mir_place_ty(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_bonus_place)
+say "when-pattern-power-kind=" + v4_mir_rvalue_kind(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_power_rvalue)
+say "when-pattern-power-ty=" + v4_mir_rvalue_ty(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_power_rvalue)
+say "when-pattern-power-place-field=" + v4_mir_place_field(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_power_place)
+say "when-pattern-power-place-ty=" + v4_mir_place_ty(v4_mir_when_pattern_mir, v4_mir_when_pattern_pair_body, v4_mir_when_pattern_power_place)
+say "when-pattern-row-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body))
+say "when-pattern-row-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body))
+say "when-pattern-row-arm-kind=" + v4_mir_stmt_kind(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_row_arm_stmt)
+say "when-pattern-row-arm-lhs=" + v4_mir_stmt_lhs(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_row_arm_stmt)
+say "when-pattern-row-arm-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_row_arm_rvalue)
+say "when-pattern-row-arm-rvalue-op=" + v4_mir_rvalue_op(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_row_arm_rvalue)
+say "when-pattern-row-arm-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_row_arm_rvalue)
+say "when-pattern-right-kind=" + v4_mir_rvalue_kind(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_right_rvalue)
+say "when-pattern-right-ty=" + v4_mir_rvalue_ty(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_right_rvalue)
+say "when-pattern-right-place-kind=" + v4_mir_place_kind(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_right_place)
+say "when-pattern-right-place-ty=" + v4_mir_place_ty(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_right_place)
+say "when-pattern-right-index-kind=" + v4_mir_rvalue_kind(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_right_index)
+say "when-pattern-right-index-text=" + v4_mir_rvalue_text(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_right_index)
+say "when-pattern-right-index-ty=" + v4_mir_rvalue_ty(v4_mir_when_pattern_mir, v4_mir_when_pattern_row_body, v4_mir_when_pattern_right_index)
+say "when-pattern-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_when_pattern_mir))
+
+pilot v4_mir_when_pattern_bad_tuple_stream = v4_lex_text(1, v4_mir_when_pattern_bad_tuple_source())
+pilot v4_mir_when_pattern_bad_tuple_tree = v4_parse_stream(1, v4_mir_when_pattern_bad_tuple_stream)
+pilot v4_mir_when_pattern_bad_tuple_hir = v4_hir_lower_tree(1, v4_mir_when_pattern_bad_tuple_tree)
+pilot v4_mir_when_pattern_bad_tuple_resolve = v4_resolve_lower_hir(1, v4_mir_when_pattern_bad_tuple_hir)
+pilot v4_mir_when_pattern_bad_tuple_ty = v4_ty_lower_resolve(1, v4_mir_when_pattern_bad_tuple_resolve)
+pilot v4_mir_when_pattern_bad_tuple_mir = v4_mir_lower_ty(1, v4_mir_when_pattern_bad_tuple_ty)
+
+say "when-pattern-bad-tuple-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_when_pattern_bad_tuple_mir))
+say "when-pattern-bad-tuple-message=" + v4_diag_message(v4_mir_diag(v4_mir_when_pattern_bad_tuple_mir, 0))
+say "when-pattern-bad-tuple-help=" + v4_diag_help(v4_mir_diag(v4_mir_when_pattern_bad_tuple_mir, 0))
+
+pilot v4_mir_when_pattern_bad_tuple_arity_stream = v4_lex_text(2, v4_mir_when_pattern_bad_tuple_arity_source())
+pilot v4_mir_when_pattern_bad_tuple_arity_tree = v4_parse_stream(2, v4_mir_when_pattern_bad_tuple_arity_stream)
+pilot v4_mir_when_pattern_bad_tuple_arity_hir = v4_hir_lower_tree(2, v4_mir_when_pattern_bad_tuple_arity_tree)
+pilot v4_mir_when_pattern_bad_tuple_arity_resolve = v4_resolve_lower_hir(2, v4_mir_when_pattern_bad_tuple_arity_hir)
+pilot v4_mir_when_pattern_bad_tuple_arity_ty = v4_ty_lower_resolve(2, v4_mir_when_pattern_bad_tuple_arity_resolve)
+pilot v4_mir_when_pattern_bad_tuple_arity_mir = v4_mir_lower_ty(2, v4_mir_when_pattern_bad_tuple_arity_ty)
+
+say "when-pattern-bad-tuple-arity-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_when_pattern_bad_tuple_arity_mir))
+say "when-pattern-bad-tuple-arity-message=" + v4_diag_message(v4_mir_diag(v4_mir_when_pattern_bad_tuple_arity_mir, 0))
+say "when-pattern-bad-tuple-arity-help=" + v4_diag_help(v4_mir_diag(v4_mir_when_pattern_bad_tuple_arity_mir, 0))
+
+pilot v4_mir_when_pattern_bad_sequence_stream = v4_lex_text(3, v4_mir_when_pattern_bad_sequence_source())
+pilot v4_mir_when_pattern_bad_sequence_tree = v4_parse_stream(3, v4_mir_when_pattern_bad_sequence_stream)
+pilot v4_mir_when_pattern_bad_sequence_hir = v4_hir_lower_tree(3, v4_mir_when_pattern_bad_sequence_tree)
+pilot v4_mir_when_pattern_bad_sequence_resolve = v4_resolve_lower_hir(3, v4_mir_when_pattern_bad_sequence_hir)
+pilot v4_mir_when_pattern_bad_sequence_ty = v4_ty_lower_resolve(3, v4_mir_when_pattern_bad_sequence_resolve)
+pilot v4_mir_when_pattern_bad_sequence_mir = v4_mir_lower_ty(3, v4_mir_when_pattern_bad_sequence_ty)
+
+say "when-pattern-bad-sequence-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_when_pattern_bad_sequence_mir))
+say "when-pattern-bad-sequence-message=" + v4_diag_message(v4_mir_diag(v4_mir_when_pattern_bad_sequence_mir, 0))
+say "when-pattern-bad-sequence-help=" + v4_diag_help(v4_mir_diag(v4_mir_when_pattern_bad_sequence_mir, 0))
+
+pilot v4_mir_when_pattern_bad_sequence_arity_stream = v4_lex_text(4, v4_mir_when_pattern_bad_sequence_arity_source())
+pilot v4_mir_when_pattern_bad_sequence_arity_tree = v4_parse_stream(4, v4_mir_when_pattern_bad_sequence_arity_stream)
+pilot v4_mir_when_pattern_bad_sequence_arity_hir = v4_hir_lower_tree(4, v4_mir_when_pattern_bad_sequence_arity_tree)
+pilot v4_mir_when_pattern_bad_sequence_arity_resolve = v4_resolve_lower_hir(4, v4_mir_when_pattern_bad_sequence_arity_hir)
+pilot v4_mir_when_pattern_bad_sequence_arity_ty = v4_ty_lower_resolve(4, v4_mir_when_pattern_bad_sequence_arity_resolve)
+pilot v4_mir_when_pattern_bad_sequence_arity_mir = v4_mir_lower_ty(4, v4_mir_when_pattern_bad_sequence_arity_ty)
+
+say "when-pattern-bad-sequence-arity-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_when_pattern_bad_sequence_arity_mir))
+say "when-pattern-bad-sequence-arity-message=" + v4_diag_message(v4_mir_diag(v4_mir_when_pattern_bad_sequence_arity_mir, 0))
+say "when-pattern-bad-sequence-arity-help=" + v4_diag_help(v4_mir_diag(v4_mir_when_pattern_bad_sequence_arity_mir, 0))
+
+pilot v4_mir_when_pattern_bad_duplicate_stream = v4_lex_text(5, v4_mir_when_pattern_bad_duplicate_source())
+pilot v4_mir_when_pattern_bad_duplicate_tree = v4_parse_stream(5, v4_mir_when_pattern_bad_duplicate_stream)
+pilot v4_mir_when_pattern_bad_duplicate_hir = v4_hir_lower_tree(5, v4_mir_when_pattern_bad_duplicate_tree)
+pilot v4_mir_when_pattern_bad_duplicate_resolve = v4_resolve_lower_hir(5, v4_mir_when_pattern_bad_duplicate_hir)
+pilot v4_mir_when_pattern_bad_duplicate_ty = v4_ty_lower_resolve(5, v4_mir_when_pattern_bad_duplicate_resolve)
+pilot v4_mir_when_pattern_bad_duplicate_mir = v4_mir_lower_ty(5, v4_mir_when_pattern_bad_duplicate_ty)
+
+say "when-pattern-bad-duplicate-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_when_pattern_bad_duplicate_mir))
+say "when-pattern-bad-duplicate-message=" + v4_diag_message(v4_mir_diag(v4_mir_when_pattern_bad_duplicate_mir, 0))
+say "when-pattern-bad-duplicate-help=" + v4_diag_help(v4_mir_diag(v4_mir_when_pattern_bad_duplicate_mir, 0))
+
+pilot v4_mir_when_pattern_bad_type_stream = v4_lex_text(6, v4_mir_when_pattern_bad_type_source())
+pilot v4_mir_when_pattern_bad_type_tree = v4_parse_stream(6, v4_mir_when_pattern_bad_type_stream)
+pilot v4_mir_when_pattern_bad_type_hir = v4_hir_lower_tree(6, v4_mir_when_pattern_bad_type_tree)
+pilot v4_mir_when_pattern_bad_type_resolve = v4_resolve_lower_hir(6, v4_mir_when_pattern_bad_type_hir)
+pilot v4_mir_when_pattern_bad_type_ty = v4_ty_lower_resolve(6, v4_mir_when_pattern_bad_type_resolve)
+pilot v4_mir_when_pattern_bad_type_mir = v4_mir_lower_ty(6, v4_mir_when_pattern_bad_type_ty)
+
+say "when-pattern-bad-type-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_when_pattern_bad_type_mir))
+say "when-pattern-bad-type-message=" + v4_diag_message(v4_mir_diag(v4_mir_when_pattern_bad_type_mir, 0))
+say "when-pattern-bad-type-help=" + v4_diag_help(v4_mir_diag(v4_mir_when_pattern_bad_type_mir, 0))

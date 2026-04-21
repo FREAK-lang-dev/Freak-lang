@@ -3281,6 +3281,289 @@ task v4_mir_when_arm_body_end(stream_id: int, after_arrow: int, when_close: int)
     give back when_close
 }
 
+task v4_mir_when_pattern_is_bool_literal(pattern: word) -> bool {
+    give back pattern == "true" or pattern == "false" or pattern == "yes" or pattern == "no" or pattern == "hai" or pattern == "iie"
+}
+
+task v4_mir_when_pattern_bool_text(pattern: word) -> word {
+    if pattern == "false" or pattern == "no" or pattern == "iie" {
+        give back "false"
+    }
+    give back "true"
+}
+
+task v4_mir_when_pattern_is_string_literal(pattern: word) -> bool {
+    if pattern.length() < 2 {
+        give back false
+    }
+    give back pattern.char_at(0) == "\"" and pattern.char_at(pattern.length() - 1) == "\""
+}
+
+task v4_mir_when_pattern_is_numeric_literal(pattern: word) -> bool {
+    if pattern == "" {
+        give back false
+    }
+
+    pilot idx = 0
+    if pattern.char_at(0) == "-" {
+        if pattern.length() == 1 {
+            give back false
+        }
+        idx = 1
+    }
+
+    pilot saw_digit = false
+    pilot saw_dot = false
+    repeat until idx >= pattern.length() {
+        pilot ch = pattern.char_at(idx)
+        if v4_lex_is_digit(ch) {
+            saw_digit = true
+        } else if ch == "." and saw_dot == false {
+            saw_dot = true
+        } else {
+            give back false
+        }
+        idx += 1
+    }
+
+    if saw_digit == false {
+        give back false
+    }
+    if pattern.char_at(pattern.length() - 1) == "." {
+        give back false
+    }
+    give back true
+}
+
+task v4_mir_when_pattern_is_literal(pattern: word) -> bool {
+    pattern = v4_mir_pattern_trim(pattern)
+    if pattern == "_" {
+        give back false
+    }
+    if v4_mir_when_pattern_is_bool_literal(pattern) {
+        give back true
+    }
+    if v4_mir_when_pattern_is_string_literal(pattern) {
+        give back true
+    }
+    if v4_mir_when_pattern_is_numeric_literal(pattern) {
+        give back true
+    }
+    give back false
+}
+
+task v4_mir_when_pattern_true_rvalue(mir_id: int, body_id: int, stmt_span: word) -> int {
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, "true", "", 0 - 1, 0 - 1, stmt_span, v4_ty_bool)
+}
+
+task v4_mir_when_pattern_false_rvalue(mir_id: int, body_id: int, stmt_span: word) -> int {
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, "false", "", 0 - 1, 0 - 1, stmt_span, v4_ty_bool)
+}
+
+task v4_mir_when_pattern_literal_rvalue(mir_id: int, body_id: int, pattern: word, stmt_span: word) -> int {
+    pattern = v4_mir_pattern_trim(pattern)
+    if v4_mir_when_pattern_is_bool_literal(pattern) {
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, v4_mir_when_pattern_bool_text(pattern), "", 0 - 1, 0 - 1, stmt_span, v4_ty_bool)
+    }
+    if v4_mir_when_pattern_is_string_literal(pattern) {
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, pattern, "", 0 - 1, 0 - 1, stmt_span, v4_ty_word)
+    }
+    if v4_mir_when_pattern_is_numeric_literal(pattern) {
+        if v4_index_of_from(pattern, ".", 0) >= 0 {
+            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_float, pattern, "", 0 - 1, 0 - 1, stmt_span, v4_ty_num)
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, pattern, "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+    }
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, pattern, "", 0 - 1, 0 - 1, stmt_span, v4_ty_unknown)
+}
+
+task v4_mir_when_pattern_and_rvalue(mir_id: int, body_id: int, left_rvalue: int, right_rvalue: int, stmt_span: word) -> int {
+    if left_rvalue < 0 {
+        give back right_rvalue
+    }
+    if right_rvalue < 0 {
+        give back left_rvalue
+    }
+
+    if v4_mir_rvalue_kind(mir_id, body_id, left_rvalue) == v4_mir_rvalue_const_bool and v4_mir_rvalue_text(mir_id, body_id, left_rvalue) == "true" {
+        give back right_rvalue
+    }
+    if v4_mir_rvalue_kind(mir_id, body_id, right_rvalue) == v4_mir_rvalue_const_bool and v4_mir_rvalue_text(mir_id, body_id, right_rvalue) == "true" {
+        give back left_rvalue
+    }
+
+    pilot text = v4_mir_rvalue_text(mir_id, body_id, left_rvalue) + " and " + v4_mir_rvalue_text(mir_id, body_id, right_rvalue)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, text, v4_mir_bin_and, left_rvalue, right_rvalue, stmt_span, v4_ty_bool)
+}
+
+task v4_mir_lower_when_pattern_condition(mir_id: int, body_id: int, stmt_span: word, pattern: word, source_place: int, source_text: word, source_ty: word) -> int {
+    pattern = v4_mir_pattern_trim(pattern)
+    if pattern == "" or pattern == "_" {
+        give back v4_mir_when_pattern_true_rvalue(mir_id, body_id, stmt_span)
+    }
+
+    if v4_mir_when_pattern_is_literal(pattern) {
+        pilot pattern_rvalue = v4_mir_when_pattern_literal_rvalue(mir_id, body_id, pattern, stmt_span)
+        pilot pattern_ty = v4_mir_rvalue_ty(mir_id, body_id, pattern_rvalue)
+        if v4_ty_is_known(source_ty) and v4_ty_is_known(pattern_ty) {
+            if not v4_ty_types_compatible(source_ty, pattern_ty) {
+                v4_mir_add_type_error(mir_id, stmt_span, "when arm pattern type mismatch", "scrutinee is " + source_ty + " but pattern is " + pattern_ty)
+            }
+        }
+        pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, source_text + " == " + pattern, v4_mir_bin_eq, source_rvalue, pattern_rvalue, stmt_span, v4_ty_bool)
+    }
+
+    if v4_mir_is_tuple_pattern(pattern) {
+        if v4_ty_is_known(source_ty) and not v4_ty_is_tuple_type(source_ty) {
+            v4_mir_add_type_error(mir_id, stmt_span, "when tuple pattern needs tuple source", "got " + source_ty)
+            give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
+        }
+
+        pilot pattern_slots = v4_mir_tuple_pattern_slot_count(pattern)
+        if v4_ty_is_tuple_type(source_ty) {
+            pilot source_slots = v4_ty_tuple_slot_count(source_ty)
+            if source_slots != pattern_slots {
+                v4_mir_add_type_error(mir_id, stmt_span, "when tuple pattern arity mismatch", "pattern wants " + word_from_int(pattern_slots) + " slots but source has " + word_from_int(source_slots))
+            }
+        }
+
+        pilot cond_rvalue = v4_mir_when_pattern_true_rvalue(mir_id, body_id, stmt_span)
+        pilot slot_idx = 0
+        repeat until slot_idx >= pattern_slots {
+            pilot slot_name = word_from_int(slot_idx)
+            pilot slot_ty = v4_ty_unknown
+            if v4_ty_is_tuple_type(source_ty) {
+                slot_ty = v4_ty_tuple_slot_type(source_ty, slot_idx)
+            }
+            pilot slot_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + slot_name, source_place, slot_name, 0 - 1, stmt_span, slot_ty)
+            pilot slot_cond = v4_mir_lower_when_pattern_condition(mir_id, body_id, stmt_span, v4_mir_tuple_pattern_slot(pattern, slot_idx), slot_place, source_text + "." + slot_name, slot_ty)
+            cond_rvalue = v4_mir_when_pattern_and_rvalue(mir_id, body_id, cond_rvalue, slot_cond, stmt_span)
+            slot_idx += 1
+        }
+        give back cond_rvalue
+    }
+
+    if v4_mir_is_bracket_pattern(pattern) {
+        pilot source_is_sequence = false
+        if v4_ty_is_known(source_ty) == false or v4_ty_list_element_type(source_ty) != v4_ty_unknown or v4_ty_is_fixed_array_type(source_ty) {
+            source_is_sequence = true
+        }
+        if v4_ty_is_known(source_ty) and not source_is_sequence {
+            v4_mir_add_type_error(mir_id, stmt_span, "when sequence pattern needs list or array source", "got " + source_ty)
+            give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
+        }
+
+        pilot pattern_slots = v4_mir_bracket_pattern_slot_count(pattern)
+        if v4_ty_is_fixed_array_type(source_ty) {
+            pilot source_slots = word_to_int(v4_ty_fixed_array_length_text(source_ty))
+            if source_slots != pattern_slots {
+                v4_mir_add_type_error(mir_id, stmt_span, "when sequence pattern arity mismatch", "pattern wants " + word_from_int(pattern_slots) + " slots but source has " + word_from_int(source_slots))
+            }
+        }
+
+        pilot element_ty = v4_ty_unknown
+        if v4_ty_list_element_type(source_ty) != v4_ty_unknown {
+            element_ty = v4_ty_list_element_type(source_ty)
+        } else if v4_ty_is_fixed_array_type(source_ty) {
+            element_ty = v4_ty_fixed_array_element_type(source_ty)
+        }
+
+        pilot cond_rvalue = v4_mir_when_pattern_true_rvalue(mir_id, body_id, stmt_span)
+        pilot slot_idx = 0
+        repeat until slot_idx >= pattern_slots {
+            pilot slot_text = word_from_int(slot_idx)
+            pilot index_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, slot_text, "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+            pilot slot_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_index, v4_mir_place_text(mir_id, body_id, source_place) + "[" + slot_text + "]", source_place, "", index_rvalue, stmt_span, element_ty)
+            pilot slot_cond = v4_mir_lower_when_pattern_condition(mir_id, body_id, stmt_span, v4_mir_bracket_pattern_slot(pattern, slot_idx), slot_place, source_text + "[" + slot_text + "]", element_ty)
+            cond_rvalue = v4_mir_when_pattern_and_rvalue(mir_id, body_id, cond_rvalue, slot_cond, stmt_span)
+            slot_idx += 1
+        }
+        give back cond_rvalue
+    }
+
+    if v4_mir_pattern_is_simple_local(pattern) {
+        give back v4_mir_when_pattern_true_rvalue(mir_id, body_id, stmt_span)
+    }
+
+    v4_mir_add_type_error(mir_id, stmt_span, "unsupported when arm pattern", "use literals, _, names, (a, b, ...), or [a, b, ...]")
+    give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
+}
+
+task v4_mir_lower_when_pattern_bindings(mir_id: int, body_id: int, block_id: int, stmt_span: word, pattern: word, source_place: int, source_ty: word) -> void {
+    pattern = v4_mir_pattern_trim(pattern)
+    if pattern == "" or pattern == "_" {
+        give back
+    }
+
+    if v4_mir_when_pattern_is_literal(pattern) {
+        give back
+    }
+
+    if v4_mir_pattern_is_simple_local(pattern) {
+        if v4_mir_find_local(mir_id, body_id, pattern) >= 0 {
+            v4_mir_add_type_error(mir_id, stmt_span, "when arm duplicate binding", pattern + " already exists in this scope")
+            give back
+        }
+
+        pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
+        pilot local_id = v4_mir_add_local(mir_id, body_id, pattern, source_ty, stmt_span)
+        pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, pattern, local_id, pattern, 0 - 1, stmt_span, source_ty)
+        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, pattern, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, place_id, source_rvalue)
+        give back
+    }
+
+    if v4_mir_is_tuple_pattern(pattern) {
+        if v4_ty_is_known(source_ty) and not v4_ty_is_tuple_type(source_ty) {
+            give back
+        }
+
+        pilot pattern_slots = v4_mir_tuple_pattern_slot_count(pattern)
+        pilot slot_idx = 0
+        repeat until slot_idx >= pattern_slots {
+            pilot slot_name = word_from_int(slot_idx)
+            pilot slot_ty = v4_ty_unknown
+            if v4_ty_is_tuple_type(source_ty) {
+                slot_ty = v4_ty_tuple_slot_type(source_ty, slot_idx)
+            }
+            pilot slot_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + slot_name, source_place, slot_name, 0 - 1, stmt_span, slot_ty)
+            v4_mir_lower_when_pattern_bindings(mir_id, body_id, block_id, stmt_span, v4_mir_tuple_pattern_slot(pattern, slot_idx), slot_place, slot_ty)
+            slot_idx += 1
+        }
+        give back
+    }
+
+    if v4_mir_is_bracket_pattern(pattern) {
+        pilot source_is_sequence = false
+        if v4_ty_is_known(source_ty) == false or v4_ty_list_element_type(source_ty) != v4_ty_unknown or v4_ty_is_fixed_array_type(source_ty) {
+            source_is_sequence = true
+        }
+        if v4_ty_is_known(source_ty) and not source_is_sequence {
+            give back
+        }
+
+        pilot element_ty = v4_ty_unknown
+        if v4_ty_list_element_type(source_ty) != v4_ty_unknown {
+            element_ty = v4_ty_list_element_type(source_ty)
+        } else if v4_ty_is_fixed_array_type(source_ty) {
+            element_ty = v4_ty_fixed_array_element_type(source_ty)
+        }
+
+        pilot pattern_slots = v4_mir_bracket_pattern_slot_count(pattern)
+        pilot slot_idx = 0
+        repeat until slot_idx >= pattern_slots {
+            pilot slot_text = word_from_int(slot_idx)
+            pilot index_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, slot_text, "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+            pilot slot_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_index, v4_mir_place_text(mir_id, body_id, source_place) + "[" + slot_text + "]", source_place, "", index_rvalue, stmt_span, element_ty)
+            v4_mir_lower_when_pattern_bindings(mir_id, body_id, block_id, stmt_span, v4_mir_bracket_pattern_slot(pattern, slot_idx), slot_place, element_ty)
+            slot_idx += 1
+        }
+        give back
+    }
+
+    v4_mir_add_type_error(mir_id, stmt_span, "unsupported when arm pattern", "use literals, _, names, (a, b, ...), or [a, b, ...]")
+}
+
 task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, when_token: int, stmt_end: int) -> int {
     pilot open_token = v4_mir_find_token_value(stream_id, when_token, stmt_end, "{")
     if open_token < 0 {
@@ -3294,6 +3577,10 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
     pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot scrutinee_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, when_token + 1, open_token)
     pilot scrutinee_ty = v4_mir_rvalue_ty(mir_id, body_id, scrutinee_rvalue)
+    pilot subject_name = v4_mir_unique_local_name(mir_id, body_id, "_when_subject")
+    pilot subject_id = v4_mir_add_local(mir_id, body_id, subject_name, scrutinee_ty, stmt_span)
+    pilot subject_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, subject_name, subject_id, subject_name, 0 - 1, stmt_span, scrutinee_ty)
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, scrutinee, stmt_span, subject_place, scrutinee_rvalue)
 
     pilot current_check = block_id
     pilot idx = open_token + 1
@@ -3312,20 +3599,15 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
         if pattern == "_" {
             v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_goto, arm_block, 0 - 1, ""))
         } else {
-            pilot cond_text = scrutinee + " == " + pattern
-            pilot pattern_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, idx, arrow)
-            pilot cond_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, cond_text, "Eq", scrutinee_rvalue, pattern_rvalue, stmt_span, v4_ty_bool)
-            if v4_ty_is_known(scrutinee_ty) and v4_ty_is_known(v4_mir_rvalue_ty(mir_id, body_id, pattern_rvalue)) {
-                if not v4_ty_types_compatible(scrutinee_ty, v4_mir_rvalue_ty(mir_id, body_id, pattern_rvalue)) {
-                    v4_mir_add_type_error(mir_id, stmt_span, "when arm pattern type mismatch", "scrutinee is " + scrutinee_ty + " but pattern is " + v4_mir_rvalue_ty(mir_id, body_id, pattern_rvalue))
-                }
-            }
+            pilot cond_rvalue = v4_mir_lower_when_pattern_condition(mir_id, body_id, stmt_span, pattern, subject_place, scrutinee, scrutinee_ty)
+            pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
             pilot next_check = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
             v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_if, arm_block, next_check, cond_text))
             v4_mir_add_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
             current_check = next_check
         }
         pilot first_body = v4_mir_skip_trivia(stream_id, arrow + 1)
+        v4_mir_lower_when_pattern_bindings(mir_id, body_id, arm_block, stmt_span, pattern, subject_place, scrutinee_ty)
         if first_body < arm_end {
             if v4_lex_token_value(stream_id, first_body) == "{" {
                 v4_mir_lower_block_body(mir_id, body_id, arm_block, stream_id, first_body, arm_end)
