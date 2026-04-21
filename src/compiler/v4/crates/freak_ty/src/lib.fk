@@ -1353,18 +1353,34 @@ task v4_ty_list_element_type(container_ty: word) -> word {
     give back v4_ty_unknown
 }
 
+task v4_ty_fixed_array_separator(container_ty: word) -> int {
+    if container_ty.length() < 4 {
+        give back 0 - 1
+    }
+    if container_ty.char_at(0) != "[" or container_ty.char_at(container_ty.length() - 1) != "]" {
+        give back 0 - 1
+    }
+    give back v4_ty_find_top_level_type_char(container_ty, ";", 1, container_ty.length() - 1)
+}
+
+task v4_ty_is_fixed_array_type(container_ty: word) -> bool {
+    give back v4_ty_fixed_array_separator(container_ty) > 1
+}
+
 task v4_ty_fixed_array_element_type(container_ty: word) -> word {
-    if container_ty.length() >= 3 and container_ty.char_at(0) == "[" {
-        pilot idx = 1
-        repeat until idx >= container_ty.length() {
-            pilot ch = container_ty.char_at(idx)
-            if ch == ";" or ch == "]" {
-                give back v4_slice(container_ty, 1, idx)
-            }
-            idx += 1
-        }
+    pilot separator = v4_ty_fixed_array_separator(container_ty)
+    if separator > 1 {
+        give back v4_slice(container_ty, 1, separator)
     }
     give back v4_ty_unknown
+}
+
+task v4_ty_fixed_array_length_text(container_ty: word) -> word {
+    pilot separator = v4_ty_fixed_array_separator(container_ty)
+    if separator < 0 or separator + 1 >= container_ty.length() - 1 {
+        give back v4_ty_unknown
+    }
+    give back v4_slice(container_ty, separator + 1, container_ty.length() - 1)
 }
 
 task v4_ty_map_key_type(container_ty: word) -> word {

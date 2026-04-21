@@ -1,0 +1,191 @@
+-- V4 MIR fixed-array literal smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_array_literal_good_source() -> word {
+    pilot src = "task take(values: [int; 3]) -> int {\n"
+    src = src + "    give back values[1]\n"
+    src = src + "}\n"
+    src = src + "task make() -> [int; 2] {\n"
+    src = src + "    give back [4, 6]\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot trio: [int; 3] = [1, 2, 3]\n"
+    src = src + "    pilot levels: [num; 3] = [1, 2, 3]\n"
+    src = src + "    pilot zeros = [0; 4]\n"
+    src = src + "    pilot grid: [[num; 2]; 2] = [[0; 2]; 2]\n"
+    src = src + "    pilot echoed = take([7, 8, 9])\n"
+    src = src + "    pilot made = make()\n"
+    src = src + "    trio = [echoed, trio[0], trio[2]]\n"
+    src = src + "    pilot corner = grid[1][1]\n"
+    src = src + "    pilot second = made[1]\n"
+    src = src + "    give back trio[0] + second\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_array_literal_bad_length_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot trio: [int; 3] = [1, 2]\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_array_literal_bad_element_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot trio: [int; 2] = [1, \"oops\"]\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_array_literal_bad_repeat_type_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot zeros = [0; false]\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_array_literal_bad_repeat_const_source() -> word {
+    pilot src = "task bad(count: int) -> void {\n"
+    src = src + "    pilot zeros = [0; count]\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_array_literal_bad_repeat_negative_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot zeros = [0; -1]\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_array_literal_stream = v4_lex_text(0, v4_mir_array_literal_good_source())
+pilot v4_mir_array_literal_tree = v4_parse_stream(0, v4_mir_array_literal_stream)
+pilot v4_mir_array_literal_hir = v4_hir_lower_tree(0, v4_mir_array_literal_tree)
+pilot v4_mir_array_literal_resolve = v4_resolve_lower_hir(0, v4_mir_array_literal_hir)
+pilot v4_mir_array_literal_ty = v4_ty_lower_resolve(0, v4_mir_array_literal_resolve)
+pilot v4_mir_array_literal_mir = v4_mir_lower_ty(0, v4_mir_array_literal_ty)
+pilot v4_mir_array_literal_take_def = v4_resolve_def_for_name(v4_mir_array_literal_resolve, "take")
+pilot v4_mir_array_literal_make_def = v4_resolve_def_for_name(v4_mir_array_literal_resolve, "make")
+pilot v4_mir_array_literal_main_def = v4_resolve_def_for_name(v4_mir_array_literal_resolve, "main")
+pilot v4_mir_array_literal_take_body = v4_mir_lookup_body(v4_mir_array_literal_mir, v4_mir_array_literal_take_def)
+pilot v4_mir_array_literal_make_body = v4_mir_lookup_body(v4_mir_array_literal_mir, v4_mir_array_literal_make_def)
+pilot v4_mir_array_literal_main_body = v4_mir_lookup_body(v4_mir_array_literal_mir, v4_mir_array_literal_main_def)
+pilot v4_mir_array_literal_take_return = v4_mir_stmt_rvalue(v4_mir_array_literal_mir, v4_mir_array_literal_take_body, 0)
+pilot v4_mir_array_literal_make_return = v4_mir_stmt_rvalue(v4_mir_array_literal_mir, v4_mir_array_literal_make_body, 0)
+pilot v4_mir_array_literal_trio_rvalue = v4_mir_stmt_rvalue(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 0)
+pilot v4_mir_array_literal_levels_rvalue = v4_mir_stmt_rvalue(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 1)
+pilot v4_mir_array_literal_zeros_rvalue = v4_mir_stmt_rvalue(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 2)
+pilot v4_mir_array_literal_grid_rvalue = v4_mir_stmt_rvalue(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 3)
+pilot v4_mir_array_literal_made_rvalue = v4_mir_stmt_rvalue(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 5)
+pilot v4_mir_array_literal_assign_place = v4_mir_stmt_place(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 6)
+pilot v4_mir_array_literal_assign_rvalue = v4_mir_stmt_rvalue(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 6)
+pilot v4_mir_array_literal_corner_rvalue = v4_mir_stmt_rvalue(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 7)
+pilot v4_mir_array_literal_second_rvalue = v4_mir_stmt_rvalue(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 8)
+pilot v4_mir_array_literal_return_rvalue = v4_mir_stmt_rvalue(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 9)
+
+say v4_mir_summary(v4_mir_array_literal_mir)
+say "array-take-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_array_literal_mir, v4_mir_array_literal_take_body))
+say "array-take-local0-name=" + v4_mir_local_name(v4_mir_array_literal_mir, v4_mir_array_literal_take_body, 0)
+say "array-take-local0-ty=" + v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_take_body, 0)
+say "array-take-return-kind=" + v4_mir_rvalue_kind(v4_mir_array_literal_mir, v4_mir_array_literal_take_body, v4_mir_array_literal_take_return)
+say "array-take-return-ty=" + v4_mir_rvalue_ty(v4_mir_array_literal_mir, v4_mir_array_literal_take_body, v4_mir_array_literal_take_return)
+say "array-make-return-kind=" + v4_mir_rvalue_kind(v4_mir_array_literal_mir, v4_mir_array_literal_make_body, v4_mir_array_literal_make_return)
+say "array-make-return-ty=" + v4_mir_rvalue_ty(v4_mir_array_literal_mir, v4_mir_array_literal_make_body, v4_mir_array_literal_make_return)
+say "array-main-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_array_literal_mir, v4_mir_array_literal_main_body))
+say "array-main-local0-name=" + v4_mir_local_name(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 0)
+say "array-main-local0-ty=" + v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 0)
+say "array-main-local1-name=" + v4_mir_local_name(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 1)
+say "array-main-local1-ty=" + v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 1)
+say "array-main-local2-name=" + v4_mir_local_name(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 2)
+say "array-main-local2-ty=" + v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 2)
+say "array-main-local3-name=" + v4_mir_local_name(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 3)
+say "array-main-local3-ty=" + v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 3)
+say "array-main-local4-name=" + v4_mir_local_name(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 4)
+say "array-main-local4-ty=" + v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 4)
+say "array-main-local5-name=" + v4_mir_local_name(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 5)
+say "array-main-local5-ty=" + v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 5)
+say "array-main-local6-name=" + v4_mir_local_name(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 6)
+say "array-main-local6-ty=" + v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 6)
+say "array-main-local7-name=" + v4_mir_local_name(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 7)
+say "array-main-local7-ty=" + v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 7)
+say "array-trio-element-ty=" + v4_ty_fixed_array_element_type(v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 0))
+say "array-trio-length=" + v4_ty_fixed_array_length_text(v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 0))
+say "array-grid-element-ty=" + v4_ty_fixed_array_element_type(v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 3))
+say "array-grid-length=" + v4_ty_fixed_array_length_text(v4_mir_local_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, 3))
+say "array-trio-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_trio_rvalue)
+say "array-trio-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_trio_rvalue)
+say "array-levels-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_levels_rvalue)
+say "array-levels-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_levels_rvalue)
+say "array-zeros-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_zeros_rvalue)
+say "array-zeros-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_zeros_rvalue)
+say "array-grid-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_grid_rvalue)
+say "array-grid-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_grid_rvalue)
+say "array-made-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_made_rvalue)
+say "array-made-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_made_rvalue)
+say "array-assign-place-kind=" + v4_mir_place_kind(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_assign_place)
+say "array-assign-place-ty=" + v4_mir_place_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_assign_place)
+say "array-assign-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_assign_rvalue)
+say "array-assign-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_assign_rvalue)
+say "array-corner-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_corner_rvalue)
+say "array-corner-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_corner_rvalue)
+say "array-second-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_second_rvalue)
+say "array-second-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_second_rvalue)
+say "array-return-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_return_rvalue)
+say "array-return-rvalue-op=" + v4_mir_rvalue_op(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_return_rvalue)
+say "array-return-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_array_literal_mir, v4_mir_array_literal_main_body, v4_mir_array_literal_return_rvalue)
+say "array-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_array_literal_mir))
+
+pilot v4_mir_array_literal_bad_length_stream = v4_lex_text(1, v4_mir_array_literal_bad_length_source())
+pilot v4_mir_array_literal_bad_length_tree = v4_parse_stream(1, v4_mir_array_literal_bad_length_stream)
+pilot v4_mir_array_literal_bad_length_hir = v4_hir_lower_tree(1, v4_mir_array_literal_bad_length_tree)
+pilot v4_mir_array_literal_bad_length_resolve = v4_resolve_lower_hir(1, v4_mir_array_literal_bad_length_hir)
+pilot v4_mir_array_literal_bad_length_ty = v4_ty_lower_resolve(1, v4_mir_array_literal_bad_length_resolve)
+pilot v4_mir_array_literal_bad_length_mir = v4_mir_lower_ty(1, v4_mir_array_literal_bad_length_ty)
+
+say "array-bad-length-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_array_literal_bad_length_mir))
+say "array-bad-length-message=" + v4_diag_message(v4_mir_diag(v4_mir_array_literal_bad_length_mir, 0))
+say "array-bad-length-help=" + v4_diag_help(v4_mir_diag(v4_mir_array_literal_bad_length_mir, 0))
+
+pilot v4_mir_array_literal_bad_element_stream = v4_lex_text(2, v4_mir_array_literal_bad_element_source())
+pilot v4_mir_array_literal_bad_element_tree = v4_parse_stream(2, v4_mir_array_literal_bad_element_stream)
+pilot v4_mir_array_literal_bad_element_hir = v4_hir_lower_tree(2, v4_mir_array_literal_bad_element_tree)
+pilot v4_mir_array_literal_bad_element_resolve = v4_resolve_lower_hir(2, v4_mir_array_literal_bad_element_hir)
+pilot v4_mir_array_literal_bad_element_ty = v4_ty_lower_resolve(2, v4_mir_array_literal_bad_element_resolve)
+pilot v4_mir_array_literal_bad_element_mir = v4_mir_lower_ty(2, v4_mir_array_literal_bad_element_ty)
+
+say "array-bad-element-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_array_literal_bad_element_mir))
+say "array-bad-element-message=" + v4_diag_message(v4_mir_diag(v4_mir_array_literal_bad_element_mir, 0))
+say "array-bad-element-help=" + v4_diag_help(v4_mir_diag(v4_mir_array_literal_bad_element_mir, 0))
+
+pilot v4_mir_array_literal_bad_repeat_type_stream = v4_lex_text(3, v4_mir_array_literal_bad_repeat_type_source())
+pilot v4_mir_array_literal_bad_repeat_type_tree = v4_parse_stream(3, v4_mir_array_literal_bad_repeat_type_stream)
+pilot v4_mir_array_literal_bad_repeat_type_hir = v4_hir_lower_tree(3, v4_mir_array_literal_bad_repeat_type_tree)
+pilot v4_mir_array_literal_bad_repeat_type_resolve = v4_resolve_lower_hir(3, v4_mir_array_literal_bad_repeat_type_hir)
+pilot v4_mir_array_literal_bad_repeat_type_ty = v4_ty_lower_resolve(3, v4_mir_array_literal_bad_repeat_type_resolve)
+pilot v4_mir_array_literal_bad_repeat_type_mir = v4_mir_lower_ty(3, v4_mir_array_literal_bad_repeat_type_ty)
+
+say "array-bad-repeat-type-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_array_literal_bad_repeat_type_mir))
+say "array-bad-repeat-type-message=" + v4_diag_message(v4_mir_diag(v4_mir_array_literal_bad_repeat_type_mir, 0))
+say "array-bad-repeat-type-help=" + v4_diag_help(v4_mir_diag(v4_mir_array_literal_bad_repeat_type_mir, 0))
+
+pilot v4_mir_array_literal_bad_repeat_const_stream = v4_lex_text(4, v4_mir_array_literal_bad_repeat_const_source())
+pilot v4_mir_array_literal_bad_repeat_const_tree = v4_parse_stream(4, v4_mir_array_literal_bad_repeat_const_stream)
+pilot v4_mir_array_literal_bad_repeat_const_hir = v4_hir_lower_tree(4, v4_mir_array_literal_bad_repeat_const_tree)
+pilot v4_mir_array_literal_bad_repeat_const_resolve = v4_resolve_lower_hir(4, v4_mir_array_literal_bad_repeat_const_hir)
+pilot v4_mir_array_literal_bad_repeat_const_ty = v4_ty_lower_resolve(4, v4_mir_array_literal_bad_repeat_const_resolve)
+pilot v4_mir_array_literal_bad_repeat_const_mir = v4_mir_lower_ty(4, v4_mir_array_literal_bad_repeat_const_ty)
+
+say "array-bad-repeat-const-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_array_literal_bad_repeat_const_mir))
+say "array-bad-repeat-const-message=" + v4_diag_message(v4_mir_diag(v4_mir_array_literal_bad_repeat_const_mir, 0))
+say "array-bad-repeat-const-help=" + v4_diag_help(v4_mir_diag(v4_mir_array_literal_bad_repeat_const_mir, 0))
+
+pilot v4_mir_array_literal_bad_repeat_negative_stream = v4_lex_text(5, v4_mir_array_literal_bad_repeat_negative_source())
+pilot v4_mir_array_literal_bad_repeat_negative_tree = v4_parse_stream(5, v4_mir_array_literal_bad_repeat_negative_stream)
+pilot v4_mir_array_literal_bad_repeat_negative_hir = v4_hir_lower_tree(5, v4_mir_array_literal_bad_repeat_negative_tree)
+pilot v4_mir_array_literal_bad_repeat_negative_resolve = v4_resolve_lower_hir(5, v4_mir_array_literal_bad_repeat_negative_hir)
+pilot v4_mir_array_literal_bad_repeat_negative_ty = v4_ty_lower_resolve(5, v4_mir_array_literal_bad_repeat_negative_resolve)
+pilot v4_mir_array_literal_bad_repeat_negative_mir = v4_mir_lower_ty(5, v4_mir_array_literal_bad_repeat_negative_ty)
+
+say "array-bad-repeat-negative-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_array_literal_bad_repeat_negative_mir))
+say "array-bad-repeat-negative-message=" + v4_diag_message(v4_mir_diag(v4_mir_array_literal_bad_repeat_negative_mir, 0))
+say "array-bad-repeat-negative-help=" + v4_diag_help(v4_mir_diag(v4_mir_array_literal_bad_repeat_negative_mir, 0))
