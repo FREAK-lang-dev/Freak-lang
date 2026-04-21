@@ -1101,9 +1101,53 @@ task v4_mir_check_condition_type(mir_id: int, expr_span: word, context: word, co
     }
 }
 
-task v4_mir_check_assignment_types(mir_id: int, stmt_span: word, place_ty: word, value_ty: word) -> void {
+task v4_mir_assignment_target_context(mir_id: int, body_id: int, place_id: int) -> word {
+    if place_id < 0 {
+        give back ""
+    }
+
+    pilot place_kind = v4_mir_place_kind(mir_id, body_id, place_id)
+    if place_kind == v4_mir_place_field {
+        pilot field_name = v4_mir_place_field(mir_id, body_id, place_id)
+        pilot base_place = v4_mir_place_base(mir_id, body_id, place_id)
+        pilot base_ty = ""
+        if base_place >= 0 {
+            base_ty = v4_mir_place_ty(mir_id, body_id, base_place)
+        }
+        if base_ty != "" {
+            give back field_name + " on " + base_ty
+        }
+        give back field_name
+    }
+
+    if place_kind == v4_mir_place_index {
+        pilot base_place = v4_mir_place_base(mir_id, body_id, place_id)
+        if base_place >= 0 {
+            pilot base_ty = v4_mir_place_ty(mir_id, body_id, base_place)
+            if base_ty != "" {
+                give back "element of " + base_ty
+            }
+        }
+        give back "indexed element"
+    }
+
+    give back v4_mir_place_text(mir_id, body_id, place_id)
+}
+
+task v4_mir_check_assignment_types(mir_id: int, body_id: int, stmt_span: word, place_id: int, place_ty: word, value_ty: word) -> void {
     if not v4_ty_types_compatible(place_ty, value_ty) {
-        v4_mir_add_type_error(mir_id, stmt_span, "assignment type mismatch", "cannot assign " + value_ty + " into " + place_ty)
+        pilot place_kind = v4_mir_place_unknown
+        if place_id >= 0 {
+            place_kind = v4_mir_place_kind(mir_id, body_id, place_id)
+        }
+        pilot target = v4_mir_assignment_target_context(mir_id, body_id, place_id)
+        if place_kind == v4_mir_place_field {
+            v4_mir_add_type_error(mir_id, stmt_span, "field write type mismatch", target + " expects " + place_ty + " but got " + value_ty)
+        } else if place_kind == v4_mir_place_index {
+            v4_mir_add_type_error(mir_id, stmt_span, "indexed write type mismatch", target + " expects " + place_ty + " but got " + value_ty)
+        } else {
+            v4_mir_add_type_error(mir_id, stmt_span, "assignment type mismatch", "cannot assign " + value_ty + " into " + place_ty)
+        }
     }
 }
 
@@ -1116,10 +1160,23 @@ task v4_mir_compound_assignment_op_kind(op: word) -> word {
     give back ""
 }
 
+task v4_mir_compound_assignment_expr_op(op: word) -> word {
+    if op == "+=" { give back "+" }
+    if op == "-=" { give back "-" }
+    if op == "*=" { give back "*" }
+    if op == "/=" { give back "/" }
+    if op == "%=" { give back "%" }
+    give back op
+}
+
 task v4_mir_compound_assignment_result_ty(mir_id: int, stmt_span: word, op: word, place_ty: word, value_ty: word) -> word {
     pilot op_kind = v4_mir_compound_assignment_op_kind(op)
     if op_kind == "" {
         give back value_ty
+    }
+
+    if not v4_ty_is_known(place_ty) or not v4_ty_is_known(value_ty) {
+        give back v4_ty_unknown
     }
 
     v4_mir_check_binary_types(mir_id, stmt_span, op_kind, place_ty, value_ty)
@@ -1127,6 +1184,23 @@ task v4_mir_compound_assignment_result_ty(mir_id: int, stmt_span: word, op: word
         give back v4_ty_binary_result(op_kind, place_ty, value_ty)
     }
     give back v4_ty_unknown
+}
+
+task v4_mir_place_read_rvalue(mir_id: int, body_id: int, place_id: int, span: word) -> int {
+    if place_id < 0 {
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, "", "", 0 - 1, 0 - 1, span, v4_ty_unknown)
+    }
+
+    pilot place_kind = v4_mir_place_kind(mir_id, body_id, place_id)
+    pilot place_text = v4_mir_place_text(mir_id, body_id, place_id)
+    pilot place_ty = v4_mir_place_ty(mir_id, body_id, place_id)
+    if place_kind == v4_mir_place_local {
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, place_text, place_text, 0 - 1, 0 - 1, span, place_ty)
+    }
+    if place_kind == v4_mir_place_field or place_kind == v4_mir_place_index {
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_place, place_text, place_text, place_id, 0 - 1, span, place_ty)
+    }
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, place_text, "", 0 - 1, 0 - 1, span, v4_ty_unknown)
 }
 
 task v4_mir_check_local_decl_type(mir_id: int, stmt_span: word, local_name: word, declared_ty: word, inferred_ty: word) -> void {
@@ -2282,15 +2356,19 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
         pilot rhs = v4_mir_expr_text(stream_id, eq_token + 1, stmt_end)
         pilot op_text = v4_lex_token_value(stream_id, eq_token)
         pilot place_id = v4_mir_lower_place(mir_id, body_id, stream_id, stmt_start, eq_token)
-        pilot rvalue_id = v4_mir_lower_expr(mir_id, body_id, stream_id, eq_token + 1, stmt_end)
+        pilot value_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, eq_token + 1, stmt_end)
+        pilot rvalue_id = value_rvalue
         pilot place_ty = v4_mir_place_ty(mir_id, body_id, place_id)
-        pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+        pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
         if op_text == "=" {
-            v4_mir_check_assignment_types(mir_id, stmt_span, place_ty, value_ty)
+            v4_mir_check_assignment_types(mir_id, body_id, stmt_span, place_id, place_ty, value_ty)
         } else {
             pilot result_ty = v4_mir_compound_assignment_result_ty(mir_id, stmt_span, op_text, place_ty, value_ty)
             if v4_ty_is_known(result_ty) {
-                v4_mir_check_assignment_types(mir_id, stmt_span, place_ty, result_ty)
+                v4_mir_check_assignment_types(mir_id, body_id, stmt_span, place_id, place_ty, result_ty)
+                pilot left_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, place_id, stmt_span)
+                pilot binary_text = v4_mir_place_text(mir_id, body_id, place_id) + " " + v4_mir_compound_assignment_expr_op(op_text) + " " + rhs
+                rvalue_id = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, binary_text, v4_mir_compound_assignment_op_kind(op_text), left_rvalue, value_rvalue, stmt_span, result_ty)
             }
         }
         if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {

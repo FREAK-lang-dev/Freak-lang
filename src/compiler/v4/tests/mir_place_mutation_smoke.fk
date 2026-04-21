@@ -1,0 +1,164 @@
+-- V4 MIR typed field/index mutation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_place_mutation_good_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "    callsign: word\n"
+    src = src + "}\n"
+    src = src + "task main(ship: Pilot, items: List<int>) -> int {\n"
+    src = src + "    ship.hp += 2\n"
+    src = src + "    items[0] = ship.hp\n"
+    src = src + "    items[1] += ship.hp\n"
+    src = src + "    give back items[1]\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_place_mutation_bad_field_type_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task bad(ship: Pilot) -> void {\n"
+    src = src + "    ship.hp = \"broken\"\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_place_mutation_bad_index_type_source() -> word {
+    pilot src = "task bad(items: List<int>) -> void {\n"
+    src = src + "    items[0] = \"broken\"\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_place_mutation_bad_field_compound_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    callsign: word\n"
+    src = src + "}\n"
+    src = src + "task bad(ship: Pilot) -> void {\n"
+    src = src + "    ship.callsign += 1\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_place_mutation_bad_index_target_source() -> word {
+    pilot src = "task bad(power: int) -> void {\n"
+    src = src + "    power[0] += 1\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_place_mutation_bad_index_expr_source() -> word {
+    pilot src = "task bad(items: List<int>) -> void {\n"
+    src = src + "    items[\"zero\"] += 1\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_place_mutation_stream = v4_lex_text(0, v4_mir_place_mutation_good_source())
+pilot v4_mir_place_mutation_tree = v4_parse_stream(0, v4_mir_place_mutation_stream)
+pilot v4_mir_place_mutation_hir = v4_hir_lower_tree(0, v4_mir_place_mutation_tree)
+pilot v4_mir_place_mutation_resolve = v4_resolve_lower_hir(0, v4_mir_place_mutation_hir)
+pilot v4_mir_place_mutation_ty = v4_ty_lower_resolve(0, v4_mir_place_mutation_resolve)
+pilot v4_mir_place_mutation_mir = v4_mir_lower_ty(0, v4_mir_place_mutation_ty)
+pilot v4_mir_place_mutation_main_def = v4_resolve_def_for_name(v4_mir_place_mutation_resolve, "main")
+pilot v4_mir_place_mutation_main_body = v4_mir_lookup_body(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_def)
+pilot v4_mir_place_mutation_field_place = v4_mir_stmt_place(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, 0)
+pilot v4_mir_place_mutation_field_rvalue = v4_mir_stmt_rvalue(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, 0)
+pilot v4_mir_place_mutation_field_lhs = v4_mir_rvalue_lhs(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_rvalue)
+pilot v4_mir_place_mutation_field_rhs = v4_mir_rvalue_rhs(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_rvalue)
+pilot v4_mir_place_mutation_index_assign_place = v4_mir_stmt_place(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, 1)
+pilot v4_mir_place_mutation_index_assign_rvalue = v4_mir_stmt_rvalue(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, 1)
+pilot v4_mir_place_mutation_index_assign_index = v4_mir_place_index(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_assign_place)
+pilot v4_mir_place_mutation_index_update_place = v4_mir_stmt_place(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, 2)
+pilot v4_mir_place_mutation_index_update_rvalue = v4_mir_stmt_rvalue(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, 2)
+pilot v4_mir_place_mutation_index_update_lhs = v4_mir_rvalue_lhs(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_rvalue)
+pilot v4_mir_place_mutation_index_update_rhs = v4_mir_rvalue_rhs(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_rvalue)
+pilot v4_mir_place_mutation_index_update_index = v4_mir_place_index(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_place)
+
+say v4_mir_summary(v4_mir_place_mutation_mir)
+say "mutation-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body))
+say "mutation-field-place-kind=" + v4_mir_place_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_place)
+say "mutation-field-place-field=" + v4_mir_place_field(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_place)
+say "mutation-field-place-ty=" + v4_mir_place_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_place)
+say "mutation-field-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_rvalue)
+say "mutation-field-rvalue-op=" + v4_mir_rvalue_op(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_rvalue)
+say "mutation-field-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_rvalue)
+say "mutation-field-lhs-kind=" + v4_mir_rvalue_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_lhs)
+say "mutation-field-lhs-ty=" + v4_mir_rvalue_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_lhs)
+say "mutation-field-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_rhs)
+say "mutation-field-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_field_rhs)
+say "mutation-index-assign-place-kind=" + v4_mir_place_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_assign_place)
+say "mutation-index-assign-place-ty=" + v4_mir_place_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_assign_place)
+say "mutation-index-assign-index-kind=" + v4_mir_rvalue_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_assign_index)
+say "mutation-index-assign-index-ty=" + v4_mir_rvalue_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_assign_index)
+say "mutation-index-assign-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_assign_rvalue)
+say "mutation-index-assign-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_assign_rvalue)
+say "mutation-index-update-place-kind=" + v4_mir_place_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_place)
+say "mutation-index-update-place-ty=" + v4_mir_place_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_place)
+say "mutation-index-update-index-kind=" + v4_mir_rvalue_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_index)
+say "mutation-index-update-index-ty=" + v4_mir_rvalue_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_index)
+say "mutation-index-update-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_rvalue)
+say "mutation-index-update-rvalue-op=" + v4_mir_rvalue_op(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_rvalue)
+say "mutation-index-update-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_rvalue)
+say "mutation-index-update-lhs-kind=" + v4_mir_rvalue_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_lhs)
+say "mutation-index-update-lhs-ty=" + v4_mir_rvalue_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_lhs)
+say "mutation-index-update-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_rhs)
+say "mutation-index-update-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_place_mutation_mir, v4_mir_place_mutation_main_body, v4_mir_place_mutation_index_update_rhs)
+say "mutation-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_place_mutation_mir))
+
+pilot v4_mir_place_mutation_bad_field_type_stream = v4_lex_text(1, v4_mir_place_mutation_bad_field_type_source())
+pilot v4_mir_place_mutation_bad_field_type_tree = v4_parse_stream(1, v4_mir_place_mutation_bad_field_type_stream)
+pilot v4_mir_place_mutation_bad_field_type_hir = v4_hir_lower_tree(1, v4_mir_place_mutation_bad_field_type_tree)
+pilot v4_mir_place_mutation_bad_field_type_resolve = v4_resolve_lower_hir(1, v4_mir_place_mutation_bad_field_type_hir)
+pilot v4_mir_place_mutation_bad_field_type_ty = v4_ty_lower_resolve(1, v4_mir_place_mutation_bad_field_type_resolve)
+pilot v4_mir_place_mutation_bad_field_type_mir = v4_mir_lower_ty(1, v4_mir_place_mutation_bad_field_type_ty)
+
+say "mutation-bad-field-type-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_place_mutation_bad_field_type_mir))
+say "mutation-bad-field-type-message=" + v4_diag_message(v4_mir_diag(v4_mir_place_mutation_bad_field_type_mir, 0))
+say "mutation-bad-field-type-help=" + v4_diag_help(v4_mir_diag(v4_mir_place_mutation_bad_field_type_mir, 0))
+
+pilot v4_mir_place_mutation_bad_index_type_stream = v4_lex_text(2, v4_mir_place_mutation_bad_index_type_source())
+pilot v4_mir_place_mutation_bad_index_type_tree = v4_parse_stream(2, v4_mir_place_mutation_bad_index_type_stream)
+pilot v4_mir_place_mutation_bad_index_type_hir = v4_hir_lower_tree(2, v4_mir_place_mutation_bad_index_type_tree)
+pilot v4_mir_place_mutation_bad_index_type_resolve = v4_resolve_lower_hir(2, v4_mir_place_mutation_bad_index_type_hir)
+pilot v4_mir_place_mutation_bad_index_type_ty = v4_ty_lower_resolve(2, v4_mir_place_mutation_bad_index_type_resolve)
+pilot v4_mir_place_mutation_bad_index_type_mir = v4_mir_lower_ty(2, v4_mir_place_mutation_bad_index_type_ty)
+
+say "mutation-bad-index-type-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_place_mutation_bad_index_type_mir))
+say "mutation-bad-index-type-message=" + v4_diag_message(v4_mir_diag(v4_mir_place_mutation_bad_index_type_mir, 0))
+say "mutation-bad-index-type-help=" + v4_diag_help(v4_mir_diag(v4_mir_place_mutation_bad_index_type_mir, 0))
+
+pilot v4_mir_place_mutation_bad_field_compound_stream = v4_lex_text(3, v4_mir_place_mutation_bad_field_compound_source())
+pilot v4_mir_place_mutation_bad_field_compound_tree = v4_parse_stream(3, v4_mir_place_mutation_bad_field_compound_stream)
+pilot v4_mir_place_mutation_bad_field_compound_hir = v4_hir_lower_tree(3, v4_mir_place_mutation_bad_field_compound_tree)
+pilot v4_mir_place_mutation_bad_field_compound_resolve = v4_resolve_lower_hir(3, v4_mir_place_mutation_bad_field_compound_hir)
+pilot v4_mir_place_mutation_bad_field_compound_ty = v4_ty_lower_resolve(3, v4_mir_place_mutation_bad_field_compound_resolve)
+pilot v4_mir_place_mutation_bad_field_compound_mir = v4_mir_lower_ty(3, v4_mir_place_mutation_bad_field_compound_ty)
+
+say "mutation-bad-field-compound-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_place_mutation_bad_field_compound_mir))
+say "mutation-bad-field-compound-message=" + v4_diag_message(v4_mir_diag(v4_mir_place_mutation_bad_field_compound_mir, 0))
+say "mutation-bad-field-compound-help=" + v4_diag_help(v4_mir_diag(v4_mir_place_mutation_bad_field_compound_mir, 0))
+
+pilot v4_mir_place_mutation_bad_index_target_stream = v4_lex_text(4, v4_mir_place_mutation_bad_index_target_source())
+pilot v4_mir_place_mutation_bad_index_target_tree = v4_parse_stream(4, v4_mir_place_mutation_bad_index_target_stream)
+pilot v4_mir_place_mutation_bad_index_target_hir = v4_hir_lower_tree(4, v4_mir_place_mutation_bad_index_target_tree)
+pilot v4_mir_place_mutation_bad_index_target_resolve = v4_resolve_lower_hir(4, v4_mir_place_mutation_bad_index_target_hir)
+pilot v4_mir_place_mutation_bad_index_target_ty = v4_ty_lower_resolve(4, v4_mir_place_mutation_bad_index_target_resolve)
+pilot v4_mir_place_mutation_bad_index_target_mir = v4_mir_lower_ty(4, v4_mir_place_mutation_bad_index_target_ty)
+
+say "mutation-bad-index-target-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_place_mutation_bad_index_target_mir))
+say "mutation-bad-index-target-message=" + v4_diag_message(v4_mir_diag(v4_mir_place_mutation_bad_index_target_mir, 0))
+say "mutation-bad-index-target-help=" + v4_diag_help(v4_mir_diag(v4_mir_place_mutation_bad_index_target_mir, 0))
+
+pilot v4_mir_place_mutation_bad_index_expr_stream = v4_lex_text(5, v4_mir_place_mutation_bad_index_expr_source())
+pilot v4_mir_place_mutation_bad_index_expr_tree = v4_parse_stream(5, v4_mir_place_mutation_bad_index_expr_stream)
+pilot v4_mir_place_mutation_bad_index_expr_hir = v4_hir_lower_tree(5, v4_mir_place_mutation_bad_index_expr_tree)
+pilot v4_mir_place_mutation_bad_index_expr_resolve = v4_resolve_lower_hir(5, v4_mir_place_mutation_bad_index_expr_hir)
+pilot v4_mir_place_mutation_bad_index_expr_ty = v4_ty_lower_resolve(5, v4_mir_place_mutation_bad_index_expr_resolve)
+pilot v4_mir_place_mutation_bad_index_expr_mir = v4_mir_lower_ty(5, v4_mir_place_mutation_bad_index_expr_ty)
+
+say "mutation-bad-index-expr-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_place_mutation_bad_index_expr_mir))
+say "mutation-bad-index-expr-message=" + v4_diag_message(v4_mir_diag(v4_mir_place_mutation_bad_index_expr_mir, 0))
+say "mutation-bad-index-expr-help=" + v4_diag_help(v4_mir_diag(v4_mir_place_mutation_bad_index_expr_mir, 0))
