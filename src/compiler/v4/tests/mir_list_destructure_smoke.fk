@@ -1,0 +1,198 @@
+-- V4 MIR list and array destructuring smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_list_destructure_good_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot squad = [3, 5, 8]\n"
+    src = src + "    pilot [front, flank] = squad\n"
+    src = src + "    pilot board: [int;2] = [7, 9]\n"
+    src = src + "    pilot [left, right] = board\n"
+    src = src + "    pilot nested = [[1, 2], [3, 4]]\n"
+    src = src + "    pilot [[x, y], _] = nested\n"
+    src = src + "    give back front + right + y\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_list_destructure_bad_non_sequence_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot [left, right] = 7\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_list_destructure_bad_arity_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot board: [int;2] = [1, 2]\n"
+    src = src + "    pilot [a, b, c] = board\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_list_destructure_bad_duplicate_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot [a, a] = [1, 2]\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_list_destructure_bad_type_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot [left, right]: List<int> = (1, 2)\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_list_destructure_stream = v4_lex_text(0, v4_mir_list_destructure_good_source())
+pilot v4_mir_list_destructure_tree = v4_parse_stream(0, v4_mir_list_destructure_stream)
+pilot v4_mir_list_destructure_hir = v4_hir_lower_tree(0, v4_mir_list_destructure_tree)
+pilot v4_mir_list_destructure_resolve = v4_resolve_lower_hir(0, v4_mir_list_destructure_hir)
+pilot v4_mir_list_destructure_ty = v4_ty_lower_resolve(0, v4_mir_list_destructure_resolve)
+pilot v4_mir_list_destructure_mir = v4_mir_lower_ty(0, v4_mir_list_destructure_ty)
+pilot v4_mir_list_destructure_main_def = v4_resolve_def_for_name(v4_mir_list_destructure_resolve, "main")
+pilot v4_mir_list_destructure_main_body = v4_mir_lookup_body(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_def)
+pilot v4_mir_list_destructure_squad_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 0)
+pilot v4_mir_list_destructure_temp1_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 1)
+pilot v4_mir_list_destructure_front_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 2)
+pilot v4_mir_list_destructure_flank_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 3)
+pilot v4_mir_list_destructure_board_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 4)
+pilot v4_mir_list_destructure_temp2_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 5)
+pilot v4_mir_list_destructure_left_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 6)
+pilot v4_mir_list_destructure_right_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 7)
+pilot v4_mir_list_destructure_nested_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 8)
+pilot v4_mir_list_destructure_temp3_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 9)
+pilot v4_mir_list_destructure_x_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 10)
+pilot v4_mir_list_destructure_y_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 11)
+pilot v4_mir_list_destructure_return_rvalue = v4_mir_stmt_rvalue(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 12)
+pilot v4_mir_list_destructure_front_place = v4_mir_rvalue_lhs(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_front_rvalue)
+pilot v4_mir_list_destructure_right_place = v4_mir_rvalue_lhs(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_right_rvalue)
+pilot v4_mir_list_destructure_x_place = v4_mir_rvalue_lhs(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_rvalue)
+pilot v4_mir_list_destructure_y_place = v4_mir_rvalue_lhs(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_rvalue)
+pilot v4_mir_list_destructure_front_index = v4_mir_place_index(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_front_place)
+pilot v4_mir_list_destructure_right_index = v4_mir_place_index(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_right_place)
+pilot v4_mir_list_destructure_x_base = v4_mir_place_base(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_place)
+pilot v4_mir_list_destructure_y_base = v4_mir_place_base(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_place)
+pilot v4_mir_list_destructure_x_index = v4_mir_place_index(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_place)
+pilot v4_mir_list_destructure_y_index = v4_mir_place_index(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_place)
+pilot v4_mir_list_destructure_x_base_index = v4_mir_place_index(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_base)
+pilot v4_mir_list_destructure_y_base_index = v4_mir_place_index(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_base)
+
+say v4_mir_summary(v4_mir_list_destructure_mir)
+say "list-destructure-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body))
+say "list-destructure-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body))
+say "list-destructure-local0-name=" + v4_mir_local_name(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 0)
+say "list-destructure-local0-ty=" + v4_mir_local_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 0)
+say "list-destructure-local1-name=" + v4_mir_local_name(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 1)
+say "list-destructure-local1-ty=" + v4_mir_local_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 1)
+say "list-destructure-local2-name=" + v4_mir_local_name(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 2)
+say "list-destructure-local2-ty=" + v4_mir_local_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 2)
+say "list-destructure-local4-name=" + v4_mir_local_name(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 4)
+say "list-destructure-local4-ty=" + v4_mir_local_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 4)
+say "list-destructure-local5-name=" + v4_mir_local_name(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 5)
+say "list-destructure-local5-ty=" + v4_mir_local_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 5)
+say "list-destructure-local6-name=" + v4_mir_local_name(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 6)
+say "list-destructure-local6-ty=" + v4_mir_local_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 6)
+say "list-destructure-local8-name=" + v4_mir_local_name(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 8)
+say "list-destructure-local8-ty=" + v4_mir_local_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 8)
+say "list-destructure-local9-name=" + v4_mir_local_name(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 9)
+say "list-destructure-local9-ty=" + v4_mir_local_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 9)
+say "list-destructure-local10-name=" + v4_mir_local_name(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 10)
+say "list-destructure-local10-ty=" + v4_mir_local_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 10)
+say "list-destructure-local11-name=" + v4_mir_local_name(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 11)
+say "list-destructure-local11-ty=" + v4_mir_local_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 11)
+say "list-destructure-stmt1-kind=" + v4_mir_stmt_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 1)
+say "list-destructure-stmt1-lhs=" + v4_mir_stmt_lhs(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 1)
+say "list-destructure-stmt5-kind=" + v4_mir_stmt_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 5)
+say "list-destructure-stmt5-lhs=" + v4_mir_stmt_lhs(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 5)
+say "list-destructure-stmt9-kind=" + v4_mir_stmt_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 9)
+say "list-destructure-stmt9-lhs=" + v4_mir_stmt_lhs(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, 9)
+say "list-destructure-squad-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_squad_rvalue)
+say "list-destructure-squad-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_squad_rvalue)
+say "list-destructure-temp1-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_temp1_rvalue)
+say "list-destructure-temp1-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_temp1_rvalue)
+say "list-destructure-front-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_front_rvalue)
+say "list-destructure-front-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_front_rvalue)
+say "list-destructure-front-place-kind=" + v4_mir_place_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_front_place)
+say "list-destructure-front-place-ty=" + v4_mir_place_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_front_place)
+say "list-destructure-front-index-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_front_index)
+say "list-destructure-front-index-text=" + v4_mir_rvalue_text(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_front_index)
+say "list-destructure-front-index-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_front_index)
+say "list-destructure-board-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_board_rvalue)
+say "list-destructure-board-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_board_rvalue)
+say "list-destructure-temp2-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_temp2_rvalue)
+say "list-destructure-temp2-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_temp2_rvalue)
+say "list-destructure-right-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_right_rvalue)
+say "list-destructure-right-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_right_rvalue)
+say "list-destructure-right-place-kind=" + v4_mir_place_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_right_place)
+say "list-destructure-right-place-ty=" + v4_mir_place_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_right_place)
+say "list-destructure-right-index-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_right_index)
+say "list-destructure-right-index-text=" + v4_mir_rvalue_text(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_right_index)
+say "list-destructure-right-index-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_right_index)
+say "list-destructure-nested-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_nested_rvalue)
+say "list-destructure-nested-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_nested_rvalue)
+say "list-destructure-temp3-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_temp3_rvalue)
+say "list-destructure-temp3-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_temp3_rvalue)
+say "list-destructure-x-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_rvalue)
+say "list-destructure-x-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_rvalue)
+say "list-destructure-x-place-kind=" + v4_mir_place_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_place)
+say "list-destructure-x-place-ty=" + v4_mir_place_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_place)
+say "list-destructure-x-index-text=" + v4_mir_rvalue_text(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_index)
+say "list-destructure-x-base-kind=" + v4_mir_place_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_base)
+say "list-destructure-x-base-ty=" + v4_mir_place_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_base)
+say "list-destructure-x-base-index-text=" + v4_mir_rvalue_text(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_x_base_index)
+say "list-destructure-y-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_rvalue)
+say "list-destructure-y-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_rvalue)
+say "list-destructure-y-place-kind=" + v4_mir_place_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_place)
+say "list-destructure-y-place-ty=" + v4_mir_place_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_place)
+say "list-destructure-y-index-text=" + v4_mir_rvalue_text(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_index)
+say "list-destructure-y-base-kind=" + v4_mir_place_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_base)
+say "list-destructure-y-base-ty=" + v4_mir_place_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_base)
+say "list-destructure-y-base-index-text=" + v4_mir_rvalue_text(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_y_base_index)
+say "list-destructure-return-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_return_rvalue)
+say "list-destructure-return-rvalue-op=" + v4_mir_rvalue_op(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_return_rvalue)
+say "list-destructure-return-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_list_destructure_mir, v4_mir_list_destructure_main_body, v4_mir_list_destructure_return_rvalue)
+say "list-destructure-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_list_destructure_mir))
+
+pilot v4_mir_list_destructure_bad_non_sequence_stream = v4_lex_text(1, v4_mir_list_destructure_bad_non_sequence_source())
+pilot v4_mir_list_destructure_bad_non_sequence_tree = v4_parse_stream(1, v4_mir_list_destructure_bad_non_sequence_stream)
+pilot v4_mir_list_destructure_bad_non_sequence_hir = v4_hir_lower_tree(1, v4_mir_list_destructure_bad_non_sequence_tree)
+pilot v4_mir_list_destructure_bad_non_sequence_resolve = v4_resolve_lower_hir(1, v4_mir_list_destructure_bad_non_sequence_hir)
+pilot v4_mir_list_destructure_bad_non_sequence_ty = v4_ty_lower_resolve(1, v4_mir_list_destructure_bad_non_sequence_resolve)
+pilot v4_mir_list_destructure_bad_non_sequence_mir = v4_mir_lower_ty(1, v4_mir_list_destructure_bad_non_sequence_ty)
+
+say "list-destructure-bad-non-sequence-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_list_destructure_bad_non_sequence_mir))
+say "list-destructure-bad-non-sequence-message=" + v4_diag_message(v4_mir_diag(v4_mir_list_destructure_bad_non_sequence_mir, 0))
+say "list-destructure-bad-non-sequence-help=" + v4_diag_help(v4_mir_diag(v4_mir_list_destructure_bad_non_sequence_mir, 0))
+
+pilot v4_mir_list_destructure_bad_arity_stream = v4_lex_text(2, v4_mir_list_destructure_bad_arity_source())
+pilot v4_mir_list_destructure_bad_arity_tree = v4_parse_stream(2, v4_mir_list_destructure_bad_arity_stream)
+pilot v4_mir_list_destructure_bad_arity_hir = v4_hir_lower_tree(2, v4_mir_list_destructure_bad_arity_tree)
+pilot v4_mir_list_destructure_bad_arity_resolve = v4_resolve_lower_hir(2, v4_mir_list_destructure_bad_arity_hir)
+pilot v4_mir_list_destructure_bad_arity_ty = v4_ty_lower_resolve(2, v4_mir_list_destructure_bad_arity_resolve)
+pilot v4_mir_list_destructure_bad_arity_mir = v4_mir_lower_ty(2, v4_mir_list_destructure_bad_arity_ty)
+
+say "list-destructure-bad-arity-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_list_destructure_bad_arity_mir))
+say "list-destructure-bad-arity-message=" + v4_diag_message(v4_mir_diag(v4_mir_list_destructure_bad_arity_mir, 0))
+say "list-destructure-bad-arity-help=" + v4_diag_help(v4_mir_diag(v4_mir_list_destructure_bad_arity_mir, 0))
+
+pilot v4_mir_list_destructure_bad_duplicate_stream = v4_lex_text(3, v4_mir_list_destructure_bad_duplicate_source())
+pilot v4_mir_list_destructure_bad_duplicate_tree = v4_parse_stream(3, v4_mir_list_destructure_bad_duplicate_stream)
+pilot v4_mir_list_destructure_bad_duplicate_hir = v4_hir_lower_tree(3, v4_mir_list_destructure_bad_duplicate_tree)
+pilot v4_mir_list_destructure_bad_duplicate_resolve = v4_resolve_lower_hir(3, v4_mir_list_destructure_bad_duplicate_hir)
+pilot v4_mir_list_destructure_bad_duplicate_ty = v4_ty_lower_resolve(3, v4_mir_list_destructure_bad_duplicate_resolve)
+pilot v4_mir_list_destructure_bad_duplicate_mir = v4_mir_lower_ty(3, v4_mir_list_destructure_bad_duplicate_ty)
+
+say "list-destructure-bad-duplicate-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_list_destructure_bad_duplicate_mir))
+say "list-destructure-bad-duplicate-message=" + v4_diag_message(v4_mir_diag(v4_mir_list_destructure_bad_duplicate_mir, 0))
+say "list-destructure-bad-duplicate-help=" + v4_diag_help(v4_mir_diag(v4_mir_list_destructure_bad_duplicate_mir, 0))
+
+pilot v4_mir_list_destructure_bad_type_stream = v4_lex_text(4, v4_mir_list_destructure_bad_type_source())
+pilot v4_mir_list_destructure_bad_type_tree = v4_parse_stream(4, v4_mir_list_destructure_bad_type_stream)
+pilot v4_mir_list_destructure_bad_type_hir = v4_hir_lower_tree(4, v4_mir_list_destructure_bad_type_tree)
+pilot v4_mir_list_destructure_bad_type_resolve = v4_resolve_lower_hir(4, v4_mir_list_destructure_bad_type_hir)
+pilot v4_mir_list_destructure_bad_type_ty = v4_ty_lower_resolve(4, v4_mir_list_destructure_bad_type_resolve)
+pilot v4_mir_list_destructure_bad_type_mir = v4_mir_lower_ty(4, v4_mir_list_destructure_bad_type_ty)
+
+say "list-destructure-bad-type-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_list_destructure_bad_type_mir))
+say "list-destructure-bad-type-message=" + v4_diag_message(v4_mir_diag(v4_mir_list_destructure_bad_type_mir, 0))
+say "list-destructure-bad-type-help=" + v4_diag_help(v4_mir_diag(v4_mir_list_destructure_bad_type_mir, 0))
