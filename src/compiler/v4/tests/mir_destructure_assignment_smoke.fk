@@ -1,0 +1,245 @@
+-- V4 MIR destructuring assignment smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_destructure_assignment_good_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    pilot pair = (7, 9)\n"
+    src = src + "    pilot left = 0\n"
+    src = src + "    pilot right = 0\n"
+    src = src + "    (left, right) = pair\n"
+    src = src + "    pilot squad = [3, 5]\n"
+    src = src + "    pilot front = 0\n"
+    src = src + "    pilot flank = 0\n"
+    src = src + "    [front, flank] = squad\n"
+    src = src + "    pilot nested = ([1, 2], (3, 4))\n"
+    src = src + "    pilot x = 0\n"
+    src = src + "    pilot y = 0\n"
+    src = src + "    pilot a = 0\n"
+    src = src + "    pilot b = 0\n"
+    src = src + "    ([x, y], (a, b)) = nested\n"
+    src = src + "    give back left + flank + b\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_destructure_assignment_bad_non_tuple_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot left = 0\n"
+    src = src + "    pilot right = 0\n"
+    src = src + "    (left, right) = 7\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_destructure_assignment_bad_tuple_arity_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot pair = (1, 2)\n"
+    src = src + "    pilot left = 0\n"
+    src = src + "    pilot right = 0\n"
+    src = src + "    pilot extra = 0\n"
+    src = src + "    (left, right, extra) = pair\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_destructure_assignment_bad_non_sequence_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot front = 0\n"
+    src = src + "    pilot flank = 0\n"
+    src = src + "    [front, flank] = 7\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_destructure_assignment_bad_sequence_arity_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot board: [int;2] = [1, 2]\n"
+    src = src + "    pilot a = 0\n"
+    src = src + "    pilot b = 0\n"
+    src = src + "    pilot c = 0\n"
+    src = src + "    [a, b, c] = board\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_destructure_assignment_bad_missing_target_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot pair = (1, 2)\n"
+    src = src + "    pilot left = 0\n"
+    src = src + "    (left, ghost) = pair\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_destructure_assignment_bad_compound_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot pair = (1, 2)\n"
+    src = src + "    pilot left = 0\n"
+    src = src + "    pilot right = 0\n"
+    src = src + "    (left, right) += pair\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_destructure_assignment_bad_leaf_type_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot pair = (1, 2)\n"
+    src = src + "    pilot left = 0\n"
+    src = src + "    pilot label = \"ace\"\n"
+    src = src + "    (left, label) = pair\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_destructure_assignment_stream = v4_lex_text(0, v4_mir_destructure_assignment_good_source())
+pilot v4_mir_destructure_assignment_tree = v4_parse_stream(0, v4_mir_destructure_assignment_stream)
+pilot v4_mir_destructure_assignment_hir = v4_hir_lower_tree(0, v4_mir_destructure_assignment_tree)
+pilot v4_mir_destructure_assignment_resolve = v4_resolve_lower_hir(0, v4_mir_destructure_assignment_hir)
+pilot v4_mir_destructure_assignment_ty = v4_ty_lower_resolve(0, v4_mir_destructure_assignment_resolve)
+pilot v4_mir_destructure_assignment_mir = v4_mir_lower_ty(0, v4_mir_destructure_assignment_ty)
+pilot v4_mir_destructure_assignment_main_def = v4_resolve_def_for_name(v4_mir_destructure_assignment_resolve, "main")
+pilot v4_mir_destructure_assignment_main_body = v4_mir_lookup_body(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_def)
+pilot v4_mir_destructure_assignment_left_rvalue = v4_mir_stmt_rvalue(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 4)
+pilot v4_mir_destructure_assignment_right_rvalue = v4_mir_stmt_rvalue(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 5)
+pilot v4_mir_destructure_assignment_front_rvalue = v4_mir_stmt_rvalue(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 10)
+pilot v4_mir_destructure_assignment_flank_rvalue = v4_mir_stmt_rvalue(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 11)
+pilot v4_mir_destructure_assignment_x_rvalue = v4_mir_stmt_rvalue(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 18)
+pilot v4_mir_destructure_assignment_a_rvalue = v4_mir_stmt_rvalue(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 20)
+pilot v4_mir_destructure_assignment_return_rvalue = v4_mir_stmt_rvalue(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 22)
+pilot v4_mir_destructure_assignment_left_place = v4_mir_stmt_place(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 4)
+pilot v4_mir_destructure_assignment_right_place = v4_mir_stmt_place(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 5)
+pilot v4_mir_destructure_assignment_front_place = v4_mir_stmt_place(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 10)
+pilot v4_mir_destructure_assignment_flank_place = v4_mir_stmt_place(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 11)
+pilot v4_mir_destructure_assignment_x_place = v4_mir_stmt_place(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 18)
+pilot v4_mir_destructure_assignment_a_place = v4_mir_stmt_place(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 20)
+pilot v4_mir_destructure_assignment_left_source_place = v4_mir_rvalue_lhs(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_left_rvalue)
+pilot v4_mir_destructure_assignment_front_source_place = v4_mir_rvalue_lhs(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_front_rvalue)
+pilot v4_mir_destructure_assignment_a_source_place = v4_mir_rvalue_lhs(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_a_rvalue)
+pilot v4_mir_destructure_assignment_front_index = v4_mir_place_index(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_front_source_place)
+pilot v4_mir_destructure_assignment_a_base = v4_mir_place_base(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_a_source_place)
+
+say v4_mir_summary(v4_mir_destructure_assignment_mir)
+say "destructure-assign-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body))
+say "destructure-assign-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body))
+say "destructure-assign-local3-name=" + v4_mir_local_name(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 3)
+say "destructure-assign-local3-ty=" + v4_mir_local_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 3)
+say "destructure-assign-local7-name=" + v4_mir_local_name(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 7)
+say "destructure-assign-local7-ty=" + v4_mir_local_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 7)
+say "destructure-assign-local13-name=" + v4_mir_local_name(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 13)
+say "destructure-assign-local13-ty=" + v4_mir_local_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 13)
+say "destructure-assign-stmt3-kind=" + v4_mir_stmt_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 3)
+say "destructure-assign-stmt3-lhs=" + v4_mir_stmt_lhs(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 3)
+say "destructure-assign-stmt9-kind=" + v4_mir_stmt_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 9)
+say "destructure-assign-stmt9-lhs=" + v4_mir_stmt_lhs(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 9)
+say "destructure-assign-stmt17-kind=" + v4_mir_stmt_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 17)
+say "destructure-assign-stmt17-lhs=" + v4_mir_stmt_lhs(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, 17)
+say "destructure-assign-left-place-kind=" + v4_mir_place_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_left_place)
+say "destructure-assign-left-place-ty=" + v4_mir_place_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_left_place)
+say "destructure-assign-left-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_left_rvalue)
+say "destructure-assign-left-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_left_rvalue)
+say "destructure-assign-left-source-kind=" + v4_mir_place_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_left_source_place)
+say "destructure-assign-left-source-field=" + v4_mir_place_field(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_left_source_place)
+say "destructure-assign-left-source-ty=" + v4_mir_place_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_left_source_place)
+say "destructure-assign-right-place-kind=" + v4_mir_place_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_right_place)
+say "destructure-assign-right-place-ty=" + v4_mir_place_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_right_place)
+say "destructure-assign-right-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_right_rvalue)
+say "destructure-assign-right-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_right_rvalue)
+say "destructure-assign-front-place-kind=" + v4_mir_place_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_front_place)
+say "destructure-assign-front-place-ty=" + v4_mir_place_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_front_place)
+say "destructure-assign-front-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_front_rvalue)
+say "destructure-assign-front-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_front_rvalue)
+say "destructure-assign-front-source-kind=" + v4_mir_place_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_front_source_place)
+say "destructure-assign-front-source-ty=" + v4_mir_place_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_front_source_place)
+say "destructure-assign-front-index-kind=" + v4_mir_rvalue_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_front_index)
+say "destructure-assign-front-index-text=" + v4_mir_rvalue_text(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_front_index)
+say "destructure-assign-flank-place-kind=" + v4_mir_place_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_flank_place)
+say "destructure-assign-flank-place-ty=" + v4_mir_place_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_flank_place)
+say "destructure-assign-flank-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_flank_rvalue)
+say "destructure-assign-flank-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_flank_rvalue)
+say "destructure-assign-x-place-kind=" + v4_mir_place_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_x_place)
+say "destructure-assign-x-place-ty=" + v4_mir_place_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_x_place)
+say "destructure-assign-x-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_x_rvalue)
+say "destructure-assign-x-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_x_rvalue)
+say "destructure-assign-a-place-kind=" + v4_mir_place_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_a_place)
+say "destructure-assign-a-place-ty=" + v4_mir_place_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_a_place)
+say "destructure-assign-a-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_a_rvalue)
+say "destructure-assign-a-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_a_rvalue)
+say "destructure-assign-a-source-kind=" + v4_mir_place_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_a_source_place)
+say "destructure-assign-a-source-field=" + v4_mir_place_field(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_a_source_place)
+say "destructure-assign-a-source-ty=" + v4_mir_place_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_a_source_place)
+say "destructure-assign-a-base-field=" + v4_mir_place_field(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_a_base)
+say "destructure-assign-a-base-ty=" + v4_mir_place_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_a_base)
+say "destructure-assign-return-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_return_rvalue)
+say "destructure-assign-return-rvalue-op=" + v4_mir_rvalue_op(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_return_rvalue)
+say "destructure-assign-return-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_destructure_assignment_mir, v4_mir_destructure_assignment_main_body, v4_mir_destructure_assignment_return_rvalue)
+say "destructure-assign-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_destructure_assignment_mir))
+
+pilot v4_mir_destructure_assignment_bad_non_tuple_stream = v4_lex_text(1, v4_mir_destructure_assignment_bad_non_tuple_source())
+pilot v4_mir_destructure_assignment_bad_non_tuple_tree = v4_parse_stream(1, v4_mir_destructure_assignment_bad_non_tuple_stream)
+pilot v4_mir_destructure_assignment_bad_non_tuple_hir = v4_hir_lower_tree(1, v4_mir_destructure_assignment_bad_non_tuple_tree)
+pilot v4_mir_destructure_assignment_bad_non_tuple_resolve = v4_resolve_lower_hir(1, v4_mir_destructure_assignment_bad_non_tuple_hir)
+pilot v4_mir_destructure_assignment_bad_non_tuple_ty = v4_ty_lower_resolve(1, v4_mir_destructure_assignment_bad_non_tuple_resolve)
+pilot v4_mir_destructure_assignment_bad_non_tuple_mir = v4_mir_lower_ty(1, v4_mir_destructure_assignment_bad_non_tuple_ty)
+say "destructure-assign-bad-non-tuple-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_destructure_assignment_bad_non_tuple_mir))
+say "destructure-assign-bad-non-tuple-message=" + v4_diag_message(v4_mir_diag(v4_mir_destructure_assignment_bad_non_tuple_mir, 0))
+say "destructure-assign-bad-non-tuple-help=" + v4_diag_help(v4_mir_diag(v4_mir_destructure_assignment_bad_non_tuple_mir, 0))
+
+pilot v4_mir_destructure_assignment_bad_tuple_arity_stream = v4_lex_text(2, v4_mir_destructure_assignment_bad_tuple_arity_source())
+pilot v4_mir_destructure_assignment_bad_tuple_arity_tree = v4_parse_stream(2, v4_mir_destructure_assignment_bad_tuple_arity_stream)
+pilot v4_mir_destructure_assignment_bad_tuple_arity_hir = v4_hir_lower_tree(2, v4_mir_destructure_assignment_bad_tuple_arity_tree)
+pilot v4_mir_destructure_assignment_bad_tuple_arity_resolve = v4_resolve_lower_hir(2, v4_mir_destructure_assignment_bad_tuple_arity_hir)
+pilot v4_mir_destructure_assignment_bad_tuple_arity_ty = v4_ty_lower_resolve(2, v4_mir_destructure_assignment_bad_tuple_arity_resolve)
+pilot v4_mir_destructure_assignment_bad_tuple_arity_mir = v4_mir_lower_ty(2, v4_mir_destructure_assignment_bad_tuple_arity_ty)
+say "destructure-assign-bad-tuple-arity-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_destructure_assignment_bad_tuple_arity_mir))
+say "destructure-assign-bad-tuple-arity-message=" + v4_diag_message(v4_mir_diag(v4_mir_destructure_assignment_bad_tuple_arity_mir, 0))
+say "destructure-assign-bad-tuple-arity-help=" + v4_diag_help(v4_mir_diag(v4_mir_destructure_assignment_bad_tuple_arity_mir, 0))
+
+pilot v4_mir_destructure_assignment_bad_non_sequence_stream = v4_lex_text(3, v4_mir_destructure_assignment_bad_non_sequence_source())
+pilot v4_mir_destructure_assignment_bad_non_sequence_tree = v4_parse_stream(3, v4_mir_destructure_assignment_bad_non_sequence_stream)
+pilot v4_mir_destructure_assignment_bad_non_sequence_hir = v4_hir_lower_tree(3, v4_mir_destructure_assignment_bad_non_sequence_tree)
+pilot v4_mir_destructure_assignment_bad_non_sequence_resolve = v4_resolve_lower_hir(3, v4_mir_destructure_assignment_bad_non_sequence_hir)
+pilot v4_mir_destructure_assignment_bad_non_sequence_ty = v4_ty_lower_resolve(3, v4_mir_destructure_assignment_bad_non_sequence_resolve)
+pilot v4_mir_destructure_assignment_bad_non_sequence_mir = v4_mir_lower_ty(3, v4_mir_destructure_assignment_bad_non_sequence_ty)
+say "destructure-assign-bad-non-sequence-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_destructure_assignment_bad_non_sequence_mir))
+say "destructure-assign-bad-non-sequence-message=" + v4_diag_message(v4_mir_diag(v4_mir_destructure_assignment_bad_non_sequence_mir, 0))
+say "destructure-assign-bad-non-sequence-help=" + v4_diag_help(v4_mir_diag(v4_mir_destructure_assignment_bad_non_sequence_mir, 0))
+
+pilot v4_mir_destructure_assignment_bad_sequence_arity_stream = v4_lex_text(4, v4_mir_destructure_assignment_bad_sequence_arity_source())
+pilot v4_mir_destructure_assignment_bad_sequence_arity_tree = v4_parse_stream(4, v4_mir_destructure_assignment_bad_sequence_arity_stream)
+pilot v4_mir_destructure_assignment_bad_sequence_arity_hir = v4_hir_lower_tree(4, v4_mir_destructure_assignment_bad_sequence_arity_tree)
+pilot v4_mir_destructure_assignment_bad_sequence_arity_resolve = v4_resolve_lower_hir(4, v4_mir_destructure_assignment_bad_sequence_arity_hir)
+pilot v4_mir_destructure_assignment_bad_sequence_arity_ty = v4_ty_lower_resolve(4, v4_mir_destructure_assignment_bad_sequence_arity_resolve)
+pilot v4_mir_destructure_assignment_bad_sequence_arity_mir = v4_mir_lower_ty(4, v4_mir_destructure_assignment_bad_sequence_arity_ty)
+say "destructure-assign-bad-sequence-arity-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_destructure_assignment_bad_sequence_arity_mir))
+say "destructure-assign-bad-sequence-arity-message=" + v4_diag_message(v4_mir_diag(v4_mir_destructure_assignment_bad_sequence_arity_mir, 0))
+say "destructure-assign-bad-sequence-arity-help=" + v4_diag_help(v4_mir_diag(v4_mir_destructure_assignment_bad_sequence_arity_mir, 0))
+
+pilot v4_mir_destructure_assignment_bad_missing_target_stream = v4_lex_text(5, v4_mir_destructure_assignment_bad_missing_target_source())
+pilot v4_mir_destructure_assignment_bad_missing_target_tree = v4_parse_stream(5, v4_mir_destructure_assignment_bad_missing_target_stream)
+pilot v4_mir_destructure_assignment_bad_missing_target_hir = v4_hir_lower_tree(5, v4_mir_destructure_assignment_bad_missing_target_tree)
+pilot v4_mir_destructure_assignment_bad_missing_target_resolve = v4_resolve_lower_hir(5, v4_mir_destructure_assignment_bad_missing_target_hir)
+pilot v4_mir_destructure_assignment_bad_missing_target_ty = v4_ty_lower_resolve(5, v4_mir_destructure_assignment_bad_missing_target_resolve)
+pilot v4_mir_destructure_assignment_bad_missing_target_mir = v4_mir_lower_ty(5, v4_mir_destructure_assignment_bad_missing_target_ty)
+say "destructure-assign-bad-missing-target-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_destructure_assignment_bad_missing_target_mir))
+say "destructure-assign-bad-missing-target-message=" + v4_diag_message(v4_mir_diag(v4_mir_destructure_assignment_bad_missing_target_mir, 0))
+say "destructure-assign-bad-missing-target-help=" + v4_diag_help(v4_mir_diag(v4_mir_destructure_assignment_bad_missing_target_mir, 0))
+
+pilot v4_mir_destructure_assignment_bad_compound_stream = v4_lex_text(6, v4_mir_destructure_assignment_bad_compound_source())
+pilot v4_mir_destructure_assignment_bad_compound_tree = v4_parse_stream(6, v4_mir_destructure_assignment_bad_compound_stream)
+pilot v4_mir_destructure_assignment_bad_compound_hir = v4_hir_lower_tree(6, v4_mir_destructure_assignment_bad_compound_tree)
+pilot v4_mir_destructure_assignment_bad_compound_resolve = v4_resolve_lower_hir(6, v4_mir_destructure_assignment_bad_compound_hir)
+pilot v4_mir_destructure_assignment_bad_compound_ty = v4_ty_lower_resolve(6, v4_mir_destructure_assignment_bad_compound_resolve)
+pilot v4_mir_destructure_assignment_bad_compound_mir = v4_mir_lower_ty(6, v4_mir_destructure_assignment_bad_compound_ty)
+say "destructure-assign-bad-compound-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_destructure_assignment_bad_compound_mir))
+say "destructure-assign-bad-compound-message=" + v4_diag_message(v4_mir_diag(v4_mir_destructure_assignment_bad_compound_mir, 0))
+say "destructure-assign-bad-compound-help=" + v4_diag_help(v4_mir_diag(v4_mir_destructure_assignment_bad_compound_mir, 0))
+
+pilot v4_mir_destructure_assignment_bad_leaf_type_stream = v4_lex_text(7, v4_mir_destructure_assignment_bad_leaf_type_source())
+pilot v4_mir_destructure_assignment_bad_leaf_type_tree = v4_parse_stream(7, v4_mir_destructure_assignment_bad_leaf_type_stream)
+pilot v4_mir_destructure_assignment_bad_leaf_type_hir = v4_hir_lower_tree(7, v4_mir_destructure_assignment_bad_leaf_type_tree)
+pilot v4_mir_destructure_assignment_bad_leaf_type_resolve = v4_resolve_lower_hir(7, v4_mir_destructure_assignment_bad_leaf_type_hir)
+pilot v4_mir_destructure_assignment_bad_leaf_type_ty = v4_ty_lower_resolve(7, v4_mir_destructure_assignment_bad_leaf_type_resolve)
+pilot v4_mir_destructure_assignment_bad_leaf_type_mir = v4_mir_lower_ty(7, v4_mir_destructure_assignment_bad_leaf_type_ty)
+say "destructure-assign-bad-leaf-type-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_destructure_assignment_bad_leaf_type_mir))
+say "destructure-assign-bad-leaf-type-message=" + v4_diag_message(v4_mir_diag(v4_mir_destructure_assignment_bad_leaf_type_mir, 0))
+say "destructure-assign-bad-leaf-type-help=" + v4_diag_help(v4_mir_diag(v4_mir_destructure_assignment_bad_leaf_type_mir, 0))
