@@ -2106,6 +2106,112 @@ task v4_mir_route_case_rvalue(mir_id: int, body_id: int, display_text: word, rou
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_symbol, display_text, case_text, 0 - 1, 0 - 1, expr_span, route_name)
 }
 
+task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, expr_span: word, route_name: word, case_name: word, open_token: int, close_token: int) -> void {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if not v4_ty_is_route_type(ty_id, route_name) {
+        v4_mir_add_type_error(mir_id, expr_span, "unknown route constructor", route_name + " is not a known route")
+        give back
+    }
+    if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+        v4_mir_add_type_error(mir_id, expr_span, "unknown route case", route_name + " exposes no case " + case_name)
+        give back
+    }
+
+    pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
+    if field_count <= 0 {
+        v4_mir_add_type_error(mir_id, expr_span, "route case has no payload", route_name + "::" + case_name + " carries no fields")
+        give back
+    }
+
+    pilot seen_fields = ""
+    pilot field_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+    if field_start < close_token {
+        repeat until field_start >= close_token {
+            pilot field_end = v4_mir_shape_ctor_field_end(stream_id, field_start, close_token)
+            pilot name_token = v4_mir_skip_trivia(stream_id, field_start)
+            pilot field_name = ""
+            if name_token < field_end {
+                field_name = v4_lex_token_value(stream_id, name_token)
+            }
+            pilot colon_token = v4_mir_find_top_level_token(stream_id, field_start, field_end, ":")
+            if colon_token < 0 or field_name == "" {
+                v4_mir_add_type_error(mir_id, expr_span, "malformed route field", "expected field: value inside " + route_name + "::" + case_name)
+            } else {
+                if v4_mir_name_list_contains(seen_fields, field_name) {
+                    v4_mir_add_type_error(mir_id, expr_span, "duplicate route case field", field_name + " already set on " + route_name + "::" + case_name)
+                } else {
+                    seen_fields = v4_mir_name_list_add(seen_fields, field_name)
+                }
+
+                pilot expected_ty = v4_ty_route_case_field_type_for_name(ty_id, route_name, case_name, field_name)
+                if expected_ty == v4_ty_unknown {
+                    v4_mir_add_type_error(mir_id, expr_span, "unknown route case field", route_name + "::" + case_name + " has no field " + field_name)
+                } else {
+                    pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, expected_ty)
+                    pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
+                    if not v4_ty_types_compatible(expected_ty, actual_ty) {
+                        v4_mir_add_type_error(mir_id, expr_span, "route case field type mismatch", route_name + "::" + case_name + "." + field_name + " expects " + expected_ty + " but got " + actual_ty)
+                    }
+                }
+            }
+            field_start = v4_mir_skip_trivia(stream_id, field_end + 1)
+        }
+    }
+
+    pilot field_idx = 0
+    repeat until field_idx >= field_count {
+        pilot required_name = v4_ty_route_case_field_name(ty_id, route_name, case_name, field_idx)
+        if required_name != "" and not v4_mir_name_list_contains(seen_fields, required_name) {
+            v4_mir_add_type_error(mir_id, expr_span, "missing route case field", route_name + "::" + case_name + " requires field " + required_name)
+        }
+        field_idx += 1
+    }
+}
+
+task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
+    if v4_lex_token_value(stream_id, last) != "}" {
+        give back 0 - 1
+    }
+
+    pilot open_token = v4_mir_find_token_value(stream_id, first, last + 1, "{")
+    if open_token <= first or open_token > last {
+        give back 0 - 1
+    }
+
+    pilot close_token = v4_mir_find_matching_brace(stream_id, open_token, last + 1)
+    if close_token != last {
+        give back 0 - 1
+    }
+
+    pilot ctor_name = v4_mir_shape_ctor_name(stream_id, first, open_token)
+    if ctor_name == "" {
+        give back 0 - 1
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot route_name = v4_mir_path_left(ctor_name)
+    pilot case_name = v4_mir_path_right(ctor_name)
+    if route_name == "" {
+        if v4_ty_is_route_type(ty_id, expected_ty) {
+            route_name = expected_ty
+            case_name = ctor_name
+        } else {
+            give back 0 - 1
+        }
+    } else if case_name == "" {
+        v4_mir_add_type_error(mir_id, expr_span, "route constructor needs case name", "use " + route_name + "::CaseName")
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, v4_mir_expr_text(stream_id, first, last + 1), "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+    }
+
+    v4_mir_check_route_ctor_fields(mir_id, body_id, stream_id, expr_span, route_name, case_name, open_token, close_token)
+    pilot result_ty = route_name
+    if not v4_ty_is_route_type(ty_id, route_name) or not v4_ty_route_has_case(ty_id, route_name, case_name) {
+        result_ty = v4_ty_unknown
+    }
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_construct, expr_text, v4_mir_route_case_text(route_name, case_name), 0 - 1, 0 - 1, expr_span, result_ty)
+}
+
 task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
@@ -2124,6 +2230,10 @@ task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int,
             v4_mir_add_type_error(mir_id, expr_span, "unknown route case", route_name + " exposes no case " + case_name)
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
         }
+        if v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+            v4_mir_add_type_error(mir_id, expr_span, "route payload constructor needs fields", route_name + "::" + case_name + " expects named fields")
+            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+        }
         give back v4_mir_route_case_rvalue(mir_id, body_id, v4_mir_route_case_text(route_name, case_name), route_name, case_name, expr_span)
     }
 
@@ -2133,6 +2243,10 @@ task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int,
             give back 0 - 1
         }
         if v4_ty_route_has_case(ty_id, expected_ty, first_value) {
+            if v4_ty_route_case_has_payload(ty_id, expected_ty, first_value) {
+                v4_mir_add_type_error(mir_id, expr_span, "route payload constructor needs fields", expected_ty + "::" + first_value + " expects named fields")
+                give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+            }
             give back v4_mir_route_case_rvalue(mir_id, body_id, v4_mir_route_case_text(expected_ty, first_value), expected_ty, first_value, expr_span)
         }
     }
@@ -2215,6 +2329,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot map_rvalue = v4_mir_try_lower_map_literal(mir_id, body_id, stream_id, first, last, expr_span)
     if map_rvalue >= 0 {
         give back map_rvalue
+    }
+
+    pilot route_ctor_rvalue = v4_mir_try_lower_route_payload_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
+    if route_ctor_rvalue >= 0 {
+        give back route_ctor_rvalue
     }
 
     pilot ctor_rvalue = v4_mir_try_lower_shape_ctor(mir_id, body_id, stream_id, first, last, expr_span)
@@ -2778,6 +2897,112 @@ task v4_mir_bracket_pattern_slot(pattern: word, slot_id: int) -> word {
         give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, pattern.length() - 1))
     }
     give back ""
+}
+
+task v4_mir_named_brace_pattern_open(pattern: word) -> int {
+    pattern = v4_mir_pattern_trim(pattern)
+    if pattern.length() < 4 {
+        give back 0 - 1
+    }
+    if pattern.char_at(pattern.length() - 1) != "}" {
+        give back 0 - 1
+    }
+    give back v4_mir_pattern_find_top_level_char(pattern, "{", 0, pattern.length() - 1)
+}
+
+task v4_mir_is_named_brace_pattern(pattern: word) -> bool {
+    give back v4_mir_named_brace_pattern_open(pattern) > 0
+}
+
+task v4_mir_named_brace_pattern_head(pattern: word) -> word {
+    pattern = v4_mir_pattern_trim(pattern)
+    pilot open_pos = v4_mir_named_brace_pattern_open(pattern)
+    if open_pos <= 0 {
+        give back ""
+    }
+    give back v4_mir_pattern_trim(v4_slice(pattern, 0, open_pos))
+}
+
+task v4_mir_named_brace_pattern_field_count(pattern: word) -> int {
+    pattern = v4_mir_pattern_trim(pattern)
+    if not v4_mir_is_named_brace_pattern(pattern) {
+        give back 0
+    }
+
+    pilot open_pos = v4_mir_named_brace_pattern_open(pattern)
+    pilot inner = v4_mir_pattern_trim(v4_slice(pattern, open_pos + 1, pattern.length() - 1))
+    if inner == "" {
+        give back 0
+    }
+
+    pilot count = 1
+    pilot depth = 0
+    pilot idx = open_pos + 1
+    repeat until idx >= pattern.length() - 1 {
+        pilot ch = pattern.char_at(idx)
+        if depth == 0 and ch == "," {
+            count += 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_mir_named_brace_pattern_field(pattern: word, field_id: int) -> word {
+    pattern = v4_mir_pattern_trim(pattern)
+    if not v4_mir_is_named_brace_pattern(pattern) or field_id < 0 {
+        give back ""
+    }
+
+    pilot open_pos = v4_mir_named_brace_pattern_open(pattern)
+    pilot current = 0
+    pilot segment_start = open_pos + 1
+    pilot depth = 0
+    pilot idx = open_pos + 1
+    repeat until idx >= pattern.length() - 1 {
+        pilot ch = pattern.char_at(idx)
+        if depth == 0 and ch == "," {
+            if current == field_id {
+                give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
+            }
+            current += 1
+            segment_start = idx + 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+
+    if current == field_id and segment_start < pattern.length() - 1 {
+        give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, pattern.length() - 1))
+    }
+    give back ""
+}
+
+task v4_mir_named_brace_field_name(field_pattern: word) -> word {
+    field_pattern = v4_mir_pattern_trim(field_pattern)
+    if field_pattern == "" {
+        give back ""
+    }
+    pilot colon = v4_mir_pattern_find_top_level_char(field_pattern, ":", 0, field_pattern.length())
+    if colon < 0 {
+        give back field_pattern
+    }
+    give back v4_mir_pattern_trim(v4_slice(field_pattern, 0, colon))
+}
+
+task v4_mir_named_brace_field_pattern(field_pattern: word) -> word {
+    field_pattern = v4_mir_pattern_trim(field_pattern)
+    if field_pattern == "" {
+        give back ""
+    }
+    pilot colon = v4_mir_pattern_find_top_level_char(field_pattern, ":", 0, field_pattern.length())
+    if colon < 0 {
+        give back v4_mir_named_brace_field_name(field_pattern)
+    }
+    give back v4_mir_pattern_trim(v4_slice(field_pattern, colon + 1, field_pattern.length()))
 }
 
 task v4_mir_destructure_child_kind(pattern: word, fallback_kind: word) -> word {
@@ -3494,8 +3719,76 @@ task v4_mir_lower_when_pattern_condition(mir_id: int, body_id: int, stmt_span: w
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, source_text + " == " + pattern, v4_mir_bin_eq, source_rvalue, pattern_rvalue, stmt_span, v4_ty_bool)
     }
 
-    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
     pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot route_payload_head = v4_mir_named_brace_pattern_head(pattern)
+    pilot route_payload_scope = v4_mir_path_left(route_payload_head)
+    if route_payload_head != "" and (route_payload_scope != "" or v4_ty_is_route_type(ty_id, source_ty)) {
+        if v4_ty_is_known(source_ty) and not v4_ty_is_route_type(ty_id, source_ty) {
+            v4_mir_add_type_error(mir_id, stmt_span, "when route pattern needs route source", "got " + source_ty)
+            give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
+        }
+
+        pilot route_name = source_ty
+        pilot case_name = route_payload_head
+        pilot pattern_text = route_payload_head
+        if route_payload_scope != "" {
+            route_name = route_payload_scope
+            case_name = v4_mir_path_right(route_payload_head)
+            pattern_text = v4_mir_route_case_text(route_name, case_name)
+            if not v4_ty_is_route_type(ty_id, route_name) {
+                v4_mir_add_type_error(mir_id, stmt_span, "when route pattern lookup failed", route_name + " is not a known route")
+                give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
+            }
+            if v4_ty_is_known(source_ty) and v4_ty_is_route_type(ty_id, source_ty) and route_name != source_ty {
+                v4_mir_add_type_error(mir_id, stmt_span, "when route pattern belongs to different route", "scrutinee is " + source_ty + " but pattern names " + route_name)
+                give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
+            }
+        }
+
+        if route_name == "" or not v4_ty_is_route_type(ty_id, route_name) {
+            v4_mir_add_type_error(mir_id, stmt_span, "when route pattern needs route source", "got " + source_ty)
+            give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
+        }
+        if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+            v4_mir_add_type_error(mir_id, stmt_span, "when route case lookup failed", route_name + " exposes no case " + case_name)
+            give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
+        }
+        if not v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+            v4_mir_add_type_error(mir_id, stmt_span, "when route case has no payload", route_name + "::" + case_name + " carries no fields")
+            give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
+        }
+
+        pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
+        pilot tag_rvalue = v4_mir_route_case_rvalue(mir_id, body_id, pattern_text, route_name, case_name, stmt_span)
+        pilot cond_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, source_text + " == " + pattern_text, v4_mir_bin_eq, source_rvalue, tag_rvalue, stmt_span, v4_ty_bool)
+        pilot seen_fields = ""
+        pilot field_idx = 0
+        pilot field_count = v4_mir_named_brace_pattern_field_count(pattern)
+        repeat until field_idx >= field_count {
+            pilot field_segment = v4_mir_named_brace_pattern_field(pattern, field_idx)
+            pilot field_name = v4_mir_named_brace_field_name(field_segment)
+            pilot child_pattern = v4_mir_named_brace_field_pattern(field_segment)
+            if field_name == "" {
+                v4_mir_add_type_error(mir_id, stmt_span, "malformed route pattern field", "expected field or field: pattern inside " + route_name + "::" + case_name)
+            } else if v4_mir_name_list_contains(seen_fields, field_name) {
+                v4_mir_add_type_error(mir_id, stmt_span, "duplicate route pattern field", field_name + " already appears in " + route_name + "::" + case_name)
+            } else {
+                seen_fields = v4_mir_name_list_add(seen_fields, field_name)
+                pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_name, case_name, field_name)
+                if field_ty == v4_ty_unknown {
+                    v4_mir_add_type_error(mir_id, stmt_span, "unknown route pattern field", route_name + "::" + case_name + " has no field " + field_name)
+                } else {
+                    pilot field_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + field_name, source_place, field_name, 0 - 1, stmt_span, field_ty)
+                    pilot field_cond = v4_mir_lower_when_pattern_condition(mir_id, body_id, stmt_span, child_pattern, field_place, source_text + "." + field_name, field_ty)
+                    cond_rvalue = v4_mir_when_pattern_and_rvalue(mir_id, body_id, cond_rvalue, field_cond, stmt_span)
+                }
+            }
+            field_idx += 1
+        }
+        give back cond_rvalue
+    }
+
+    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
     if route_pattern_sep >= 0 or (v4_ty_is_route_type(ty_id, source_ty) and v4_ty_route_has_case(ty_id, source_ty, pattern)) {
         if v4_ty_is_known(source_ty) and not v4_ty_is_route_type(ty_id, source_ty) {
             v4_mir_add_type_error(mir_id, stmt_span, "when route pattern needs route source", "got " + source_ty)
@@ -3605,7 +3898,7 @@ task v4_mir_lower_when_pattern_condition(mir_id: int, body_id: int, stmt_span: w
         give back v4_mir_when_pattern_true_rvalue(mir_id, body_id, stmt_span)
     }
 
-    v4_mir_add_type_error(mir_id, stmt_span, "unsupported when arm pattern", "use literals, _, names, (a, b, ...), or [a, b, ...]")
+    v4_mir_add_type_error(mir_id, stmt_span, "unsupported when arm pattern", "use literals, _, names, Route::Case, route payload patterns, (a, b, ...), or [a, b, ...]")
     give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
 }
 
@@ -3619,8 +3912,47 @@ task v4_mir_lower_when_pattern_bindings(mir_id: int, body_id: int, block_id: int
         give back
     }
 
-    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
     pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot route_payload_head = v4_mir_named_brace_pattern_head(pattern)
+    pilot route_payload_scope = v4_mir_path_left(route_payload_head)
+    if route_payload_head != "" and (route_payload_scope != "" or v4_ty_is_route_type(ty_id, source_ty)) {
+        pilot route_name = source_ty
+        pilot case_name = route_payload_head
+        if route_payload_scope != "" {
+            route_name = route_payload_scope
+            case_name = v4_mir_path_right(route_payload_head)
+        }
+        if route_name == "" or not v4_ty_is_route_type(ty_id, route_name) {
+            give back
+        }
+        if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+            give back
+        }
+        if not v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+            give back
+        }
+
+        pilot seen_fields = ""
+        pilot field_idx = 0
+        pilot field_count = v4_mir_named_brace_pattern_field_count(pattern)
+        repeat until field_idx >= field_count {
+            pilot field_segment = v4_mir_named_brace_pattern_field(pattern, field_idx)
+            pilot field_name = v4_mir_named_brace_field_name(field_segment)
+            pilot child_pattern = v4_mir_named_brace_field_pattern(field_segment)
+            if field_name != "" and not v4_mir_name_list_contains(seen_fields, field_name) {
+                seen_fields = v4_mir_name_list_add(seen_fields, field_name)
+                pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_name, case_name, field_name)
+                if field_ty != v4_ty_unknown {
+                    pilot field_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + field_name, source_place, field_name, 0 - 1, stmt_span, field_ty)
+                    v4_mir_lower_when_pattern_bindings(mir_id, body_id, block_id, stmt_span, child_pattern, field_place, field_ty)
+                }
+            }
+            field_idx += 1
+        }
+        give back
+    }
+
+    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
     if route_pattern_sep >= 0 or (v4_ty_is_route_type(ty_id, source_ty) and v4_ty_route_has_case(ty_id, source_ty, pattern)) {
         give back
     }
@@ -3686,7 +4018,7 @@ task v4_mir_lower_when_pattern_bindings(mir_id: int, body_id: int, block_id: int
         give back
     }
 
-    v4_mir_add_type_error(mir_id, stmt_span, "unsupported when arm pattern", "use literals, _, names, (a, b, ...), or [a, b, ...]")
+    v4_mir_add_type_error(mir_id, stmt_span, "unsupported when arm pattern", "use literals, _, names, Route::Case, route payload patterns, (a, b, ...), or [a, b, ...]")
 }
 
 task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, when_token: int, stmt_end: int) -> int {

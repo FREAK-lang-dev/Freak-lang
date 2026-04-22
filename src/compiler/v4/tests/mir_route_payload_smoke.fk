@@ -1,0 +1,297 @@
+-- V4 MIR route payload constructor and pattern smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_route_payload_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_mir_route_payload_good_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_route_payload_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task make() -> Event {\n"
+    src = src + "    pilot event: Event = Key " + v4_mir_route_payload_braces(" code: 7, repeat: false ") + "\n"
+    src = src + "    give back event\n"
+    src = src + "}\n"
+    src = src + "task score(event: Event) -> int {\n"
+    src = src + "    when event {\n"
+    src = src + "        Key " + v4_mir_route_payload_braces(" code ") + " -> give back code\n"
+    src = src + "        Event::Key " + v4_mir_route_payload_braces(" code: 9, repeat: held ") + " -> give back 90\n"
+    src = src + "        Event::Closed -> give back 0\n"
+    src = src + "        _ -> give back -1\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_payload_bad_missing_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_route_payload_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "}\n"
+    src = src + "task bad() -> Event {\n"
+    src = src + "    give back Event::Key " + v4_mir_route_payload_braces(" code: 7 ") + "\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_payload_bad_unknown_field_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_route_payload_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "}\n"
+    src = src + "task bad() -> Event {\n"
+    src = src + "    give back Event::Key " + v4_mir_route_payload_braces(" code: 7, repeat: false, speed: 1 ") + "\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_payload_bad_type_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_route_payload_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "}\n"
+    src = src + "task bad() -> Event {\n"
+    src = src + "    give back Event::Key " + v4_mir_route_payload_braces(" code: false, repeat: false ") + "\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_payload_bad_fieldless_ctor_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_route_payload_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task bad() -> Event {\n"
+    src = src + "    give back Event::Closed " + v4_mir_route_payload_braces(" ") + "\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_payload_bad_bare_ctor_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_route_payload_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "}\n"
+    src = src + "task bad() -> Event {\n"
+    src = src + "    pilot event: Event = Key\n"
+    src = src + "    give back event\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_payload_bad_pattern_fieldless_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_route_payload_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task bad(event: Event) -> int {\n"
+    src = src + "    when event {\n"
+    src = src + "        Event::Closed " + v4_mir_route_payload_braces(" code ") + " -> give back 1\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_payload_bad_pattern_unknown_field_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_route_payload_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "}\n"
+    src = src + "task bad(event: Event) -> int {\n"
+    src = src + "    when event {\n"
+    src = src + "        Event::Key " + v4_mir_route_payload_braces(" speed ") + " -> give back 1\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_payload_bad_pattern_duplicate_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_route_payload_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "}\n"
+    src = src + "task bad(event: Event) -> int {\n"
+    src = src + "    when event {\n"
+    src = src + "        Event::Key " + v4_mir_route_payload_braces(" code, code ") + " -> give back 1\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_payload_find_branch_stmt(mir_id: int, body_id: int, condition: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_branch {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == condition {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_route_payload_find_local_stmt(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == local_name {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_mir_route_payload_stream = v4_lex_text(0, v4_mir_route_payload_good_source())
+pilot v4_mir_route_payload_tree = v4_parse_stream(0, v4_mir_route_payload_stream)
+pilot v4_mir_route_payload_hir = v4_hir_lower_tree(0, v4_mir_route_payload_tree)
+pilot v4_mir_route_payload_resolve = v4_resolve_lower_hir(0, v4_mir_route_payload_hir)
+pilot v4_mir_route_payload_ty = v4_ty_lower_resolve(0, v4_mir_route_payload_resolve)
+pilot v4_mir_route_payload_mir = v4_mir_lower_ty(0, v4_mir_route_payload_ty)
+
+pilot v4_mir_route_payload_sig = v4_ty_route_signature_id_for_name(v4_mir_route_payload_ty, "Event")
+
+pilot v4_mir_route_payload_make_def = v4_resolve_def_for_name(v4_mir_route_payload_resolve, "make")
+pilot v4_mir_route_payload_make_body = v4_mir_lookup_body(v4_mir_route_payload_mir, v4_mir_route_payload_make_def)
+pilot v4_mir_route_payload_event_stmt = v4_mir_route_payload_find_local_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_make_body, "event")
+pilot v4_mir_route_payload_event_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_make_body, v4_mir_route_payload_event_stmt)
+
+pilot v4_mir_route_payload_score_def = v4_resolve_def_for_name(v4_mir_route_payload_resolve, "score")
+pilot v4_mir_route_payload_score_body = v4_mir_lookup_body(v4_mir_route_payload_mir, v4_mir_route_payload_score_def)
+pilot v4_mir_route_payload_arm0_stmt = v4_mir_route_payload_find_branch_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "event == Key")
+pilot v4_mir_route_payload_arm1_stmt = v4_mir_route_payload_find_branch_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "event == Event::Key and event.code == 9")
+pilot v4_mir_route_payload_arm0_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_stmt)
+pilot v4_mir_route_payload_arm1_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_stmt)
+pilot v4_mir_route_payload_arm1_lhs = v4_mir_rvalue_lhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rvalue)
+pilot v4_mir_route_payload_arm1_rhs = v4_mir_rvalue_rhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rvalue)
+pilot v4_mir_route_payload_code_stmt = v4_mir_route_payload_find_local_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "code")
+pilot v4_mir_route_payload_held_stmt = v4_mir_route_payload_find_local_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "held")
+pilot v4_mir_route_payload_code_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_stmt)
+pilot v4_mir_route_payload_held_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_held_stmt)
+pilot v4_mir_route_payload_code_place = v4_mir_rvalue_lhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_rvalue)
+pilot v4_mir_route_payload_held_place = v4_mir_rvalue_lhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_held_rvalue)
+
+say v4_mir_summary(v4_mir_route_payload_mir)
+say "route-payload-sig-kind=" + v4_ty_signature_kind(v4_mir_route_payload_ty, v4_mir_route_payload_sig)
+say "route-payload-case-count=" + word_from_int(v4_ty_route_case_count(v4_mir_route_payload_ty, v4_mir_route_payload_sig))
+say "route-payload-case0-name=" + v4_ty_route_case_name(v4_mir_route_payload_ty, v4_mir_route_payload_sig, 0)
+say "route-payload-case0-fields=" + word_from_int(v4_ty_route_case_field_count(v4_mir_route_payload_ty, "Event", "Key"))
+say "route-payload-case0-field0-name=" + v4_ty_route_case_field_name(v4_mir_route_payload_ty, "Event", "Key", 0)
+say "route-payload-case0-field0-type=" + v4_ty_route_case_field_type(v4_mir_route_payload_ty, "Event", "Key", 0)
+say "route-payload-case0-field1-name=" + v4_ty_route_case_field_name(v4_mir_route_payload_ty, "Event", "Key", 1)
+say "route-payload-case0-field1-type=" + v4_ty_route_case_field_type(v4_mir_route_payload_ty, "Event", "Key", 1)
+say "route-payload-ctor-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_make_body, v4_mir_route_payload_event_rvalue)
+say "route-payload-ctor-op=" + v4_mir_rvalue_op(v4_mir_route_payload_mir, v4_mir_route_payload_make_body, v4_mir_route_payload_event_rvalue)
+say "route-payload-ctor-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_make_body, v4_mir_route_payload_event_rvalue)
+say "route-payload-arm0-kind=" + v4_mir_stmt_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_stmt)
+say "route-payload-arm0-lhs=" + v4_mir_stmt_lhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_stmt)
+say "route-payload-arm0-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rvalue)
+say "route-payload-arm0-rvalue-op=" + v4_mir_rvalue_op(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rvalue)
+say "route-payload-arm0-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rvalue)
+say "route-payload-arm1-kind=" + v4_mir_stmt_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_stmt)
+say "route-payload-arm1-lhs=" + v4_mir_stmt_lhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_stmt)
+say "route-payload-arm1-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rvalue)
+say "route-payload-arm1-rvalue-op=" + v4_mir_rvalue_op(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rvalue)
+say "route-payload-arm1-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rvalue)
+say "route-payload-arm1-left-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_lhs)
+say "route-payload-arm1-left-text=" + v4_mir_rvalue_text(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_lhs)
+say "route-payload-arm1-left-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_lhs)
+say "route-payload-arm1-right-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rhs)
+say "route-payload-arm1-right-text=" + v4_mir_rvalue_text(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rhs)
+say "route-payload-arm1-right-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rhs)
+say "route-payload-code-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_rvalue)
+say "route-payload-code-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_rvalue)
+say "route-payload-code-place-field=" + v4_mir_place_field(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_place)
+say "route-payload-code-place-ty=" + v4_mir_place_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_place)
+say "route-payload-held-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_held_rvalue)
+say "route-payload-held-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_held_rvalue)
+say "route-payload-held-place-field=" + v4_mir_place_field(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_held_place)
+say "route-payload-held-place-ty=" + v4_mir_place_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_held_place)
+say "route-payload-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_payload_mir))
+
+pilot v4_mir_route_payload_bad_missing_stream = v4_lex_text(1, v4_mir_route_payload_bad_missing_source())
+pilot v4_mir_route_payload_bad_missing_tree = v4_parse_stream(1, v4_mir_route_payload_bad_missing_stream)
+pilot v4_mir_route_payload_bad_missing_hir = v4_hir_lower_tree(1, v4_mir_route_payload_bad_missing_tree)
+pilot v4_mir_route_payload_bad_missing_resolve = v4_resolve_lower_hir(1, v4_mir_route_payload_bad_missing_hir)
+pilot v4_mir_route_payload_bad_missing_ty = v4_ty_lower_resolve(1, v4_mir_route_payload_bad_missing_resolve)
+pilot v4_mir_route_payload_bad_missing_mir = v4_mir_lower_ty(1, v4_mir_route_payload_bad_missing_ty)
+say "route-payload-bad-missing-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_payload_bad_missing_mir))
+say "route-payload-bad-missing-message=" + v4_diag_message(v4_mir_diag(v4_mir_route_payload_bad_missing_mir, 0))
+say "route-payload-bad-missing-help=" + v4_diag_help(v4_mir_diag(v4_mir_route_payload_bad_missing_mir, 0))
+
+pilot v4_mir_route_payload_bad_unknown_field_stream = v4_lex_text(2, v4_mir_route_payload_bad_unknown_field_source())
+pilot v4_mir_route_payload_bad_unknown_field_tree = v4_parse_stream(2, v4_mir_route_payload_bad_unknown_field_stream)
+pilot v4_mir_route_payload_bad_unknown_field_hir = v4_hir_lower_tree(2, v4_mir_route_payload_bad_unknown_field_tree)
+pilot v4_mir_route_payload_bad_unknown_field_resolve = v4_resolve_lower_hir(2, v4_mir_route_payload_bad_unknown_field_hir)
+pilot v4_mir_route_payload_bad_unknown_field_ty = v4_ty_lower_resolve(2, v4_mir_route_payload_bad_unknown_field_resolve)
+pilot v4_mir_route_payload_bad_unknown_field_mir = v4_mir_lower_ty(2, v4_mir_route_payload_bad_unknown_field_ty)
+say "route-payload-bad-unknown-field-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_payload_bad_unknown_field_mir))
+say "route-payload-bad-unknown-field-message=" + v4_diag_message(v4_mir_diag(v4_mir_route_payload_bad_unknown_field_mir, 0))
+say "route-payload-bad-unknown-field-help=" + v4_diag_help(v4_mir_diag(v4_mir_route_payload_bad_unknown_field_mir, 0))
+
+pilot v4_mir_route_payload_bad_type_stream = v4_lex_text(3, v4_mir_route_payload_bad_type_source())
+pilot v4_mir_route_payload_bad_type_tree = v4_parse_stream(3, v4_mir_route_payload_bad_type_stream)
+pilot v4_mir_route_payload_bad_type_hir = v4_hir_lower_tree(3, v4_mir_route_payload_bad_type_tree)
+pilot v4_mir_route_payload_bad_type_resolve = v4_resolve_lower_hir(3, v4_mir_route_payload_bad_type_hir)
+pilot v4_mir_route_payload_bad_type_ty = v4_ty_lower_resolve(3, v4_mir_route_payload_bad_type_resolve)
+pilot v4_mir_route_payload_bad_type_mir = v4_mir_lower_ty(3, v4_mir_route_payload_bad_type_ty)
+say "route-payload-bad-type-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_payload_bad_type_mir))
+say "route-payload-bad-type-message=" + v4_diag_message(v4_mir_diag(v4_mir_route_payload_bad_type_mir, 0))
+say "route-payload-bad-type-help=" + v4_diag_help(v4_mir_diag(v4_mir_route_payload_bad_type_mir, 0))
+
+pilot v4_mir_route_payload_bad_fieldless_ctor_stream = v4_lex_text(4, v4_mir_route_payload_bad_fieldless_ctor_source())
+pilot v4_mir_route_payload_bad_fieldless_ctor_tree = v4_parse_stream(4, v4_mir_route_payload_bad_fieldless_ctor_stream)
+pilot v4_mir_route_payload_bad_fieldless_ctor_hir = v4_hir_lower_tree(4, v4_mir_route_payload_bad_fieldless_ctor_tree)
+pilot v4_mir_route_payload_bad_fieldless_ctor_resolve = v4_resolve_lower_hir(4, v4_mir_route_payload_bad_fieldless_ctor_hir)
+pilot v4_mir_route_payload_bad_fieldless_ctor_ty = v4_ty_lower_resolve(4, v4_mir_route_payload_bad_fieldless_ctor_resolve)
+pilot v4_mir_route_payload_bad_fieldless_ctor_mir = v4_mir_lower_ty(4, v4_mir_route_payload_bad_fieldless_ctor_ty)
+say "route-payload-bad-fieldless-ctor-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_payload_bad_fieldless_ctor_mir))
+say "route-payload-bad-fieldless-ctor-message=" + v4_diag_message(v4_mir_diag(v4_mir_route_payload_bad_fieldless_ctor_mir, 0))
+say "route-payload-bad-fieldless-ctor-help=" + v4_diag_help(v4_mir_diag(v4_mir_route_payload_bad_fieldless_ctor_mir, 0))
+
+pilot v4_mir_route_payload_bad_bare_ctor_stream = v4_lex_text(5, v4_mir_route_payload_bad_bare_ctor_source())
+pilot v4_mir_route_payload_bad_bare_ctor_tree = v4_parse_stream(5, v4_mir_route_payload_bad_bare_ctor_stream)
+pilot v4_mir_route_payload_bad_bare_ctor_hir = v4_hir_lower_tree(5, v4_mir_route_payload_bad_bare_ctor_tree)
+pilot v4_mir_route_payload_bad_bare_ctor_resolve = v4_resolve_lower_hir(5, v4_mir_route_payload_bad_bare_ctor_hir)
+pilot v4_mir_route_payload_bad_bare_ctor_ty = v4_ty_lower_resolve(5, v4_mir_route_payload_bad_bare_ctor_resolve)
+pilot v4_mir_route_payload_bad_bare_ctor_mir = v4_mir_lower_ty(5, v4_mir_route_payload_bad_bare_ctor_ty)
+say "route-payload-bad-bare-ctor-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_payload_bad_bare_ctor_mir))
+say "route-payload-bad-bare-ctor-message=" + v4_diag_message(v4_mir_diag(v4_mir_route_payload_bad_bare_ctor_mir, 0))
+say "route-payload-bad-bare-ctor-help=" + v4_diag_help(v4_mir_diag(v4_mir_route_payload_bad_bare_ctor_mir, 0))
+
+pilot v4_mir_route_payload_bad_pattern_fieldless_stream = v4_lex_text(6, v4_mir_route_payload_bad_pattern_fieldless_source())
+pilot v4_mir_route_payload_bad_pattern_fieldless_tree = v4_parse_stream(6, v4_mir_route_payload_bad_pattern_fieldless_stream)
+pilot v4_mir_route_payload_bad_pattern_fieldless_hir = v4_hir_lower_tree(6, v4_mir_route_payload_bad_pattern_fieldless_tree)
+pilot v4_mir_route_payload_bad_pattern_fieldless_resolve = v4_resolve_lower_hir(6, v4_mir_route_payload_bad_pattern_fieldless_hir)
+pilot v4_mir_route_payload_bad_pattern_fieldless_ty = v4_ty_lower_resolve(6, v4_mir_route_payload_bad_pattern_fieldless_resolve)
+pilot v4_mir_route_payload_bad_pattern_fieldless_mir = v4_mir_lower_ty(6, v4_mir_route_payload_bad_pattern_fieldless_ty)
+say "route-payload-bad-pattern-fieldless-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_payload_bad_pattern_fieldless_mir))
+say "route-payload-bad-pattern-fieldless-message=" + v4_diag_message(v4_mir_diag(v4_mir_route_payload_bad_pattern_fieldless_mir, 0))
+say "route-payload-bad-pattern-fieldless-help=" + v4_diag_help(v4_mir_diag(v4_mir_route_payload_bad_pattern_fieldless_mir, 0))
+
+pilot v4_mir_route_payload_bad_pattern_unknown_field_stream = v4_lex_text(7, v4_mir_route_payload_bad_pattern_unknown_field_source())
+pilot v4_mir_route_payload_bad_pattern_unknown_field_tree = v4_parse_stream(7, v4_mir_route_payload_bad_pattern_unknown_field_stream)
+pilot v4_mir_route_payload_bad_pattern_unknown_field_hir = v4_hir_lower_tree(7, v4_mir_route_payload_bad_pattern_unknown_field_tree)
+pilot v4_mir_route_payload_bad_pattern_unknown_field_resolve = v4_resolve_lower_hir(7, v4_mir_route_payload_bad_pattern_unknown_field_hir)
+pilot v4_mir_route_payload_bad_pattern_unknown_field_ty = v4_ty_lower_resolve(7, v4_mir_route_payload_bad_pattern_unknown_field_resolve)
+pilot v4_mir_route_payload_bad_pattern_unknown_field_mir = v4_mir_lower_ty(7, v4_mir_route_payload_bad_pattern_unknown_field_ty)
+say "route-payload-bad-pattern-unknown-field-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_payload_bad_pattern_unknown_field_mir))
+say "route-payload-bad-pattern-unknown-field-message=" + v4_diag_message(v4_mir_diag(v4_mir_route_payload_bad_pattern_unknown_field_mir, 0))
+say "route-payload-bad-pattern-unknown-field-help=" + v4_diag_help(v4_mir_diag(v4_mir_route_payload_bad_pattern_unknown_field_mir, 0))
+
+pilot v4_mir_route_payload_bad_pattern_duplicate_stream = v4_lex_text(8, v4_mir_route_payload_bad_pattern_duplicate_source())
+pilot v4_mir_route_payload_bad_pattern_duplicate_tree = v4_parse_stream(8, v4_mir_route_payload_bad_pattern_duplicate_stream)
+pilot v4_mir_route_payload_bad_pattern_duplicate_hir = v4_hir_lower_tree(8, v4_mir_route_payload_bad_pattern_duplicate_tree)
+pilot v4_mir_route_payload_bad_pattern_duplicate_resolve = v4_resolve_lower_hir(8, v4_mir_route_payload_bad_pattern_duplicate_hir)
+pilot v4_mir_route_payload_bad_pattern_duplicate_ty = v4_ty_lower_resolve(8, v4_mir_route_payload_bad_pattern_duplicate_resolve)
+pilot v4_mir_route_payload_bad_pattern_duplicate_mir = v4_mir_lower_ty(8, v4_mir_route_payload_bad_pattern_duplicate_ty)
+say "route-payload-bad-pattern-duplicate-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_payload_bad_pattern_duplicate_mir))
+say "route-payload-bad-pattern-duplicate-message=" + v4_diag_message(v4_mir_diag(v4_mir_route_payload_bad_pattern_duplicate_mir, 0))
+say "route-payload-bad-pattern-duplicate-help=" + v4_diag_help(v4_mir_diag(v4_mir_route_payload_bad_pattern_duplicate_mir, 0))

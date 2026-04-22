@@ -1332,6 +1332,233 @@ task v4_ty_route_has_case(ty_id: int, route_name: word, case_name: word) -> bool
     give back v4_ty_route_case_id_for_name(ty_id, route_name, case_name) >= 0
 }
 
+task v4_ty_route_case_payload_open_token(ty_id: int, sig_id: int, case_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig or case_id < 0 {
+        give back 0 - 1
+    }
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_route_case_segment_start(ty_id, sig_id, case_id)
+    pilot end_token = v4_ty_route_case_segment_end(ty_id, sig_id, case_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back 0 - 1
+    }
+
+    pilot name_token = v4_ty_skip_trivia(stream_id, start_token)
+    if name_token >= end_token {
+        give back 0 - 1
+    }
+    give back v4_ty_find_top_level_token(stream_id, name_token + 1, end_token, "{")
+}
+
+task v4_ty_route_case_payload_close_token(ty_id: int, sig_id: int, case_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_route_case_payload_open_token(ty_id, sig_id, case_id)
+    if stream_id < 0 or open_token < 0 {
+        give back 0 - 1
+    }
+    give back v4_ty_find_matching_brace(stream_id, open_token, v4_ty_route_case_segment_end(ty_id, sig_id, case_id))
+}
+
+task v4_ty_route_case_has_payload(ty_id: int, route_name: word, case_name: word) -> bool {
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    if sig_id < 0 {
+        give back false
+    }
+    pilot case_id = v4_ty_route_case_id_for_name(ty_id, route_name, case_name)
+    if case_id < 0 {
+        give back false
+    }
+    give back v4_ty_route_case_payload_open_token(ty_id, sig_id, case_id) >= 0
+}
+
+task v4_ty_route_case_field_count(ty_id: int, route_name: word, case_name: word) -> int {
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    if sig_id < 0 {
+        give back 0
+    }
+    pilot case_id = v4_ty_route_case_id_for_name(ty_id, route_name, case_name)
+    if case_id < 0 {
+        give back 0
+    }
+
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_route_case_payload_open_token(ty_id, sig_id, case_id)
+    pilot close_token = v4_ty_route_case_payload_close_token(ty_id, sig_id, case_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back 0
+    }
+
+    pilot count = 0
+    pilot in_field = false
+    pilot depth = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if val == "\n" and depth == 0 {
+                in_field = false
+            }
+        } else {
+            if depth == 0 and (val == "," or val == ";") {
+                in_field = false
+            } else {
+                if not in_field {
+                    count += 1
+                    in_field = true
+                }
+                depth = v4_ty_depth_after_token(depth, val)
+            }
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_route_case_field_segment_start(ty_id: int, route_name: word, case_name: word, field_id: int) -> int {
+    if field_id < 0 {
+        give back 0 - 1
+    }
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    if sig_id < 0 {
+        give back 0 - 1
+    }
+    pilot case_id = v4_ty_route_case_id_for_name(ty_id, route_name, case_name)
+    if case_id < 0 {
+        give back 0 - 1
+    }
+
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_route_case_payload_open_token(ty_id, sig_id, case_id)
+    pilot close_token = v4_ty_route_case_payload_close_token(ty_id, sig_id, case_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back 0 - 1
+    }
+
+    pilot current = 0
+    pilot segment_start = 0 - 1
+    pilot depth = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if val == "\n" and depth == 0 and segment_start >= 0 {
+                if current == field_id {
+                    give back segment_start
+                }
+                current += 1
+                segment_start = 0 - 1
+            }
+        } else {
+            if depth == 0 and (val == "," or val == ";") {
+                if segment_start >= 0 {
+                    if current == field_id {
+                        give back segment_start
+                    }
+                    current += 1
+                    segment_start = 0 - 1
+                }
+            } else {
+                if segment_start < 0 {
+                    segment_start = idx
+                }
+                depth = v4_ty_depth_after_token(depth, val)
+            }
+        }
+        idx += 1
+    }
+
+    if segment_start >= 0 and current == field_id {
+        give back segment_start
+    }
+    give back 0 - 1
+}
+
+task v4_ty_route_case_field_segment_end(ty_id: int, route_name: word, case_name: word, field_id: int) -> int {
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    if sig_id < 0 {
+        give back 0 - 1
+    }
+    pilot case_id = v4_ty_route_case_id_for_name(ty_id, route_name, case_name)
+    if case_id < 0 {
+        give back 0 - 1
+    }
+
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_route_case_field_segment_start(ty_id, route_name, case_name, field_id)
+    pilot close_token = v4_ty_route_case_payload_close_token(ty_id, sig_id, case_id)
+    if stream_id < 0 or start_token < 0 or close_token <= start_token {
+        give back 0 - 1
+    }
+
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= close_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if val == "\n" and depth == 0 {
+                give back idx
+            }
+        } else {
+            if depth == 0 and idx > start_token and (val == "," or val == ";") {
+                give back idx
+            }
+            depth = v4_ty_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back close_token
+}
+
+task v4_ty_route_case_field_name(ty_id: int, route_name: word, case_name: word, field_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_route_case_field_segment_start(ty_id, route_name, case_name, field_id)
+    pilot end_token = v4_ty_route_case_field_segment_end(ty_id, route_name, case_name, field_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back ""
+    }
+
+    pilot first = v4_ty_skip_trivia(stream_id, start_token)
+    if first >= end_token {
+        give back ""
+    }
+    give back v4_lex_token_value(stream_id, first)
+}
+
+task v4_ty_route_case_field_type(ty_id: int, route_name: word, case_name: word, field_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_route_case_field_segment_start(ty_id, route_name, case_name, field_id)
+    pilot end_token = v4_ty_route_case_field_segment_end(ty_id, route_name, case_name, field_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back v4_ty_unknown
+    }
+
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back v4_ty_unknown
+    }
+    pilot type_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
+    pilot field_ty = v4_ty_type_text(stream_id, type_start, end_token)
+    if field_ty == "" {
+        give back v4_ty_unknown
+    }
+    give back field_ty
+}
+
+task v4_ty_route_case_field_type_for_name(ty_id: int, route_name: word, case_name: word, field_name: word) -> word {
+    pilot field_id = 0
+    pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
+    repeat until field_id >= field_count {
+        if v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) == field_name {
+            give back v4_ty_route_case_field_type(ty_id, route_name, case_name, field_id)
+        }
+        field_id += 1
+    }
+    give back v4_ty_unknown
+}
+
 task v4_ty_shape_body_open_token(ty_id: int, sig_id: int) -> int {
     if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_shape_sig {
         give back 0 - 1
