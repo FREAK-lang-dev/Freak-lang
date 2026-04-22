@@ -723,6 +723,24 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "MIR refutable route patterns outside checked contexts",
+        "fixture": "mir_refutable_pattern_smoke.fk",
+        "expect": [
+            "refutable-pattern-bad-local-diagnostics=1",
+            "refutable-pattern-bad-local-message=refutable local pattern",
+            "refutable-pattern-bad-local-help=route patterns can fail at runtime; use when to handle every case",
+            "refutable-pattern-bad-local-nested-diagnostics=1",
+            "refutable-pattern-bad-local-nested-message=refutable local pattern",
+            "refutable-pattern-bad-local-nested-help=route patterns can fail at runtime; use when to handle every case",
+            "refutable-pattern-bad-assign-diagnostics=1",
+            "refutable-pattern-bad-assign-message=refutable destructure assignment pattern",
+            "refutable-pattern-bad-assign-help=route patterns can fail at runtime; use when to handle every case",
+            "refutable-pattern-bad-assign-nested-diagnostics=1",
+            "refutable-pattern-bad-assign-nested-message=refutable destructure assignment pattern",
+            "refutable-pattern-bad-assign-nested-help=route patterns can fail at runtime; use when to handle every case",
+        ],
+    },
+    {
         "name": "MIR field and index places",
         "fixture": "mir_smoke.fk",
         "expect": [

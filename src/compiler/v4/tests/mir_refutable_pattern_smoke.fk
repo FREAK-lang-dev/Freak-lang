@@ -1,0 +1,94 @@
+-- V4 MIR refutable pattern diagnostics outside checked contexts.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_refutable_pattern_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_mir_refutable_pattern_bad_local_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_refutable_pattern_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task bad(event: Event) -> void {\n"
+    src = src + "    pilot Event::Key " + v4_mir_refutable_pattern_braces(" code, repeat ") + " = event\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_refutable_pattern_bad_local_nested_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_refutable_pattern_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task bad(pair: (Event,int)) -> void {\n"
+    src = src + "    pilot (Event::Key " + v4_mir_refutable_pattern_braces(" code ") + ", score) = pair\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_refutable_pattern_bad_assign_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_refutable_pattern_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task bad(event: Event) -> void {\n"
+    src = src + "    pilot code = 0\n"
+    src = src + "    pilot repeat = false\n"
+    src = src + "    Event::Key " + v4_mir_refutable_pattern_braces(" code, repeat ") + " = event\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_refutable_pattern_bad_assign_nested_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_refutable_pattern_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task bad(pair: (Event,int)) -> void {\n"
+    src = src + "    pilot code = 0\n"
+    src = src + "    pilot score = 0\n"
+    src = src + "    (Event::Key " + v4_mir_refutable_pattern_braces(" code ") + ", score) = pair\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_refutable_pattern_bad_local_stream = v4_lex_text(0, v4_mir_refutable_pattern_bad_local_source())
+pilot v4_mir_refutable_pattern_bad_local_tree = v4_parse_stream(0, v4_mir_refutable_pattern_bad_local_stream)
+pilot v4_mir_refutable_pattern_bad_local_hir = v4_hir_lower_tree(0, v4_mir_refutable_pattern_bad_local_tree)
+pilot v4_mir_refutable_pattern_bad_local_resolve = v4_resolve_lower_hir(0, v4_mir_refutable_pattern_bad_local_hir)
+pilot v4_mir_refutable_pattern_bad_local_ty = v4_ty_lower_resolve(0, v4_mir_refutable_pattern_bad_local_resolve)
+pilot v4_mir_refutable_pattern_bad_local_mir = v4_mir_lower_ty(0, v4_mir_refutable_pattern_bad_local_ty)
+say "refutable-pattern-bad-local-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_refutable_pattern_bad_local_mir))
+say "refutable-pattern-bad-local-message=" + v4_diag_message(v4_mir_diag(v4_mir_refutable_pattern_bad_local_mir, 0))
+say "refutable-pattern-bad-local-help=" + v4_diag_help(v4_mir_diag(v4_mir_refutable_pattern_bad_local_mir, 0))
+
+pilot v4_mir_refutable_pattern_bad_local_nested_stream = v4_lex_text(1, v4_mir_refutable_pattern_bad_local_nested_source())
+pilot v4_mir_refutable_pattern_bad_local_nested_tree = v4_parse_stream(1, v4_mir_refutable_pattern_bad_local_nested_stream)
+pilot v4_mir_refutable_pattern_bad_local_nested_hir = v4_hir_lower_tree(1, v4_mir_refutable_pattern_bad_local_nested_tree)
+pilot v4_mir_refutable_pattern_bad_local_nested_resolve = v4_resolve_lower_hir(1, v4_mir_refutable_pattern_bad_local_nested_hir)
+pilot v4_mir_refutable_pattern_bad_local_nested_ty = v4_ty_lower_resolve(1, v4_mir_refutable_pattern_bad_local_nested_resolve)
+pilot v4_mir_refutable_pattern_bad_local_nested_mir = v4_mir_lower_ty(1, v4_mir_refutable_pattern_bad_local_nested_ty)
+say "refutable-pattern-bad-local-nested-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_refutable_pattern_bad_local_nested_mir))
+say "refutable-pattern-bad-local-nested-message=" + v4_diag_message(v4_mir_diag(v4_mir_refutable_pattern_bad_local_nested_mir, 0))
+say "refutable-pattern-bad-local-nested-help=" + v4_diag_help(v4_mir_diag(v4_mir_refutable_pattern_bad_local_nested_mir, 0))
+
+pilot v4_mir_refutable_pattern_bad_assign_stream = v4_lex_text(2, v4_mir_refutable_pattern_bad_assign_source())
+pilot v4_mir_refutable_pattern_bad_assign_tree = v4_parse_stream(2, v4_mir_refutable_pattern_bad_assign_stream)
+pilot v4_mir_refutable_pattern_bad_assign_hir = v4_hir_lower_tree(2, v4_mir_refutable_pattern_bad_assign_tree)
+pilot v4_mir_refutable_pattern_bad_assign_resolve = v4_resolve_lower_hir(2, v4_mir_refutable_pattern_bad_assign_hir)
+pilot v4_mir_refutable_pattern_bad_assign_ty = v4_ty_lower_resolve(2, v4_mir_refutable_pattern_bad_assign_resolve)
+pilot v4_mir_refutable_pattern_bad_assign_mir = v4_mir_lower_ty(2, v4_mir_refutable_pattern_bad_assign_ty)
+say "refutable-pattern-bad-assign-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_refutable_pattern_bad_assign_mir))
+say "refutable-pattern-bad-assign-message=" + v4_diag_message(v4_mir_diag(v4_mir_refutable_pattern_bad_assign_mir, 0))
+say "refutable-pattern-bad-assign-help=" + v4_diag_help(v4_mir_diag(v4_mir_refutable_pattern_bad_assign_mir, 0))
+
+pilot v4_mir_refutable_pattern_bad_assign_nested_stream = v4_lex_text(3, v4_mir_refutable_pattern_bad_assign_nested_source())
+pilot v4_mir_refutable_pattern_bad_assign_nested_tree = v4_parse_stream(3, v4_mir_refutable_pattern_bad_assign_nested_stream)
+pilot v4_mir_refutable_pattern_bad_assign_nested_hir = v4_hir_lower_tree(3, v4_mir_refutable_pattern_bad_assign_nested_tree)
+pilot v4_mir_refutable_pattern_bad_assign_nested_resolve = v4_resolve_lower_hir(3, v4_mir_refutable_pattern_bad_assign_nested_hir)
+pilot v4_mir_refutable_pattern_bad_assign_nested_ty = v4_ty_lower_resolve(3, v4_mir_refutable_pattern_bad_assign_nested_resolve)
+pilot v4_mir_refutable_pattern_bad_assign_nested_mir = v4_mir_lower_ty(3, v4_mir_refutable_pattern_bad_assign_nested_ty)
+say "refutable-pattern-bad-assign-nested-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_refutable_pattern_bad_assign_nested_mir))
+say "refutable-pattern-bad-assign-nested-message=" + v4_diag_message(v4_mir_diag(v4_mir_refutable_pattern_bad_assign_nested_mir, 0))
+say "refutable-pattern-bad-assign-nested-help=" + v4_diag_help(v4_mir_diag(v4_mir_refutable_pattern_bad_assign_nested_mir, 0))

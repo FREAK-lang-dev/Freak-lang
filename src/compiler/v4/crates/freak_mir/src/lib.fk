@@ -3005,12 +3005,34 @@ task v4_mir_named_brace_field_pattern(field_pattern: word) -> word {
     give back v4_mir_pattern_trim(v4_slice(field_pattern, colon + 1, field_pattern.length()))
 }
 
-task v4_mir_destructure_child_kind(pattern: word, fallback_kind: word) -> word {
+task v4_mir_is_route_destructure_pattern(pattern: word) -> bool {
+    pattern = v4_mir_pattern_trim(pattern)
+    if pattern == "" {
+        give back false
+    }
+    if v4_mir_named_brace_pattern_head(pattern) != "" {
+        give back true
+    }
+    give back v4_mir_path_scope_separator(pattern) >= 0
+}
+
+task v4_mir_destructure_pattern_kind(pattern: word) -> word {
     if v4_mir_is_tuple_pattern(pattern) {
         give back "tuple"
     }
     if v4_mir_is_bracket_pattern(pattern) {
         give back "sequence"
+    }
+    if v4_mir_is_route_destructure_pattern(pattern) {
+        give back "route"
+    }
+    give back ""
+}
+
+task v4_mir_destructure_child_kind(pattern: word, fallback_kind: word) -> word {
+    pilot kind = v4_mir_destructure_pattern_kind(pattern)
+    if kind != "" {
+        give back kind
     }
     give back fallback_kind
 }
@@ -3045,6 +3067,11 @@ task v4_mir_lower_destructure_pattern(mir_id: int, body_id: int, block_id: int, 
         pilot local_id = v4_mir_add_local(mir_id, body_id, pattern, source_ty, stmt_span)
         pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, pattern, local_id, pattern, 0 - 1, stmt_span, source_ty)
         v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, pattern, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, place_id, source_rvalue)
+        give back
+    }
+
+    if pattern_kind == "route" {
+        v4_mir_add_type_error(mir_id, stmt_span, "refutable local pattern", "route patterns can fail at runtime; use when to handle every case")
         give back
     }
 
@@ -3151,6 +3178,11 @@ task v4_mir_lower_destructure_assignment_pattern(mir_id: int, body_id: int, bloc
         pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
         v4_mir_check_assignment_types(mir_id, body_id, stmt_span, target_place, target_ty, source_ty)
         v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_assign, pattern, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, target_place, source_rvalue)
+        give back
+    }
+
+    if pattern_kind == "route" {
+        v4_mir_add_type_error(mir_id, stmt_span, "refutable destructure assignment pattern", "route patterns can fail at runtime; use when to handle every case")
         give back
     }
 
@@ -3483,16 +3515,11 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         give back
     }
 
-    pilot destructure_kind = ""
-    if v4_mir_is_tuple_pattern(pattern) {
-        destructure_kind = "tuple"
-    } else if v4_mir_is_bracket_pattern(pattern) {
-        destructure_kind = "sequence"
-    }
+    pilot destructure_kind = v4_mir_destructure_pattern_kind(pattern)
 
     if destructure_kind != "" {
         pilot source_ty = inferred_ty
-        if v4_ty_is_known(declared_ty) {
+        if destructure_kind != "route" and v4_ty_is_known(declared_ty) {
             if not v4_ty_types_compatible(declared_ty, inferred_ty) {
                 pilot mismatch_message = "tuple destructure type mismatch"
                 if destructure_kind == "sequence" {
@@ -3501,6 +3528,11 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
                 v4_mir_add_type_error(mir_id, stmt_span, mismatch_message, "pattern expects " + declared_ty + " but got " + inferred_ty)
             }
             source_ty = declared_ty
+        }
+
+        if destructure_kind == "route" {
+            v4_mir_add_type_error(mir_id, stmt_span, "refutable local pattern", "route patterns can fail at runtime; use when to handle every case")
+            give back
         }
 
         pilot temp_prefix = "_tuple_unpack"
@@ -4361,15 +4393,15 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
         pilot lhs = v4_mir_expr_text(stream_id, stmt_start, eq_token)
         pilot rhs = v4_mir_expr_text(stream_id, eq_token + 1, stmt_end)
         pilot op_text = v4_lex_token_value(stream_id, eq_token)
-        pilot pattern_kind = ""
-        if v4_mir_is_tuple_pattern(lhs) {
-            pattern_kind = "tuple"
-        } else if v4_mir_is_bracket_pattern(lhs) {
-            pattern_kind = "sequence"
-        }
+        pilot pattern_kind = v4_mir_destructure_pattern_kind(lhs)
         if pattern_kind != "" {
             if op_text != "=" {
                 v4_mir_add_type_error(mir_id, stmt_span, "destructure assignment only supports =", "use = with tuple or sequence patterns")
+                give back
+            }
+
+            if pattern_kind == "route" {
+                v4_mir_add_type_error(mir_id, stmt_span, "refutable destructure assignment pattern", "route patterns can fail at runtime; use when to handle every case")
                 give back
             }
 
