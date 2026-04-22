@@ -1,0 +1,153 @@
+-- V4 MIR route exhaustiveness and unreachable-arm smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_route_exhaustive_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_mir_route_exhaustive_good_source() -> word {
+    pilot src = "route Outcome {\n"
+    src = src + "    Victory / Defeat / Retreat\n"
+    src = src + "}\n"
+    src = src + "task score(outcome: Outcome) -> int {\n"
+    src = src + "    when outcome {\n"
+    src = src + "        Victory -> give back 3\n"
+    src = src + "        Outcome::Defeat -> give back 1\n"
+    src = src + "        Retreat -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back -1\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_exhaustive_payload_good_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_route_exhaustive_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task score(event: Event) -> int {\n"
+    src = src + "    when event {\n"
+    src = src + "        Key " + v4_mir_route_exhaustive_braces(" code ") + " -> give back code\n"
+    src = src + "        Closed -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back -1\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_exhaustive_missing_source() -> word {
+    pilot src = "route Outcome {\n"
+    src = src + "    Victory / Defeat / Retreat\n"
+    src = src + "}\n"
+    src = src + "task score(outcome: Outcome) -> int {\n"
+    src = src + "    when outcome {\n"
+    src = src + "        Victory -> give back 3\n"
+    src = src + "        Outcome::Defeat -> give back 1\n"
+    src = src + "    }\n"
+    src = src + "    give back -1\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_exhaustive_duplicate_source() -> word {
+    pilot src = "route Outcome {\n"
+    src = src + "    Victory / Defeat / Retreat\n"
+    src = src + "}\n"
+    src = src + "task score(outcome: Outcome) -> int {\n"
+    src = src + "    when outcome {\n"
+    src = src + "        Victory -> give back 3\n"
+    src = src + "        Outcome::Victory -> give back 1\n"
+    src = src + "        Retreat -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back -1\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_exhaustive_after_wildcard_source() -> word {
+    pilot src = "route Outcome {\n"
+    src = src + "    Victory / Defeat\n"
+    src = src + "}\n"
+    src = src + "task score(outcome: Outcome) -> int {\n"
+    src = src + "    when outcome {\n"
+    src = src + "        _ -> give back 0\n"
+    src = src + "        Victory -> give back 1\n"
+    src = src + "    }\n"
+    src = src + "    give back -1\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_route_exhaustive_payload_duplicate_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_route_exhaustive_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task score(event: Event) -> int {\n"
+    src = src + "    when event {\n"
+    src = src + "        Key " + v4_mir_route_exhaustive_braces(" code ") + " -> give back code\n"
+    src = src + "        Event::Key " + v4_mir_route_exhaustive_braces(" code: 9 ") + " -> give back 9\n"
+    src = src + "        Closed -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back -1\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_route_exhaustive_good_stream = v4_lex_text(0, v4_mir_route_exhaustive_good_source())
+pilot v4_mir_route_exhaustive_good_tree = v4_parse_stream(0, v4_mir_route_exhaustive_good_stream)
+pilot v4_mir_route_exhaustive_good_hir = v4_hir_lower_tree(0, v4_mir_route_exhaustive_good_tree)
+pilot v4_mir_route_exhaustive_good_resolve = v4_resolve_lower_hir(0, v4_mir_route_exhaustive_good_hir)
+pilot v4_mir_route_exhaustive_good_ty = v4_ty_lower_resolve(0, v4_mir_route_exhaustive_good_resolve)
+pilot v4_mir_route_exhaustive_good_mir = v4_mir_lower_ty(0, v4_mir_route_exhaustive_good_ty)
+say "route-exhaustive-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_exhaustive_good_mir))
+
+pilot v4_mir_route_exhaustive_payload_good_stream = v4_lex_text(1, v4_mir_route_exhaustive_payload_good_source())
+pilot v4_mir_route_exhaustive_payload_good_tree = v4_parse_stream(1, v4_mir_route_exhaustive_payload_good_stream)
+pilot v4_mir_route_exhaustive_payload_good_hir = v4_hir_lower_tree(1, v4_mir_route_exhaustive_payload_good_tree)
+pilot v4_mir_route_exhaustive_payload_good_resolve = v4_resolve_lower_hir(1, v4_mir_route_exhaustive_payload_good_hir)
+pilot v4_mir_route_exhaustive_payload_good_ty = v4_ty_lower_resolve(1, v4_mir_route_exhaustive_payload_good_resolve)
+pilot v4_mir_route_exhaustive_payload_good_mir = v4_mir_lower_ty(1, v4_mir_route_exhaustive_payload_good_ty)
+say "route-exhaustive-payload-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_exhaustive_payload_good_mir))
+
+pilot v4_mir_route_exhaustive_missing_stream = v4_lex_text(2, v4_mir_route_exhaustive_missing_source())
+pilot v4_mir_route_exhaustive_missing_tree = v4_parse_stream(2, v4_mir_route_exhaustive_missing_stream)
+pilot v4_mir_route_exhaustive_missing_hir = v4_hir_lower_tree(2, v4_mir_route_exhaustive_missing_tree)
+pilot v4_mir_route_exhaustive_missing_resolve = v4_resolve_lower_hir(2, v4_mir_route_exhaustive_missing_hir)
+pilot v4_mir_route_exhaustive_missing_ty = v4_ty_lower_resolve(2, v4_mir_route_exhaustive_missing_resolve)
+pilot v4_mir_route_exhaustive_missing_mir = v4_mir_lower_ty(2, v4_mir_route_exhaustive_missing_ty)
+say "route-exhaustive-missing-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_exhaustive_missing_mir))
+say "route-exhaustive-missing-message=" + v4_diag_message(v4_mir_diag(v4_mir_route_exhaustive_missing_mir, 0))
+say "route-exhaustive-missing-help=" + v4_diag_help(v4_mir_diag(v4_mir_route_exhaustive_missing_mir, 0))
+
+pilot v4_mir_route_exhaustive_duplicate_stream = v4_lex_text(3, v4_mir_route_exhaustive_duplicate_source())
+pilot v4_mir_route_exhaustive_duplicate_tree = v4_parse_stream(3, v4_mir_route_exhaustive_duplicate_stream)
+pilot v4_mir_route_exhaustive_duplicate_hir = v4_hir_lower_tree(3, v4_mir_route_exhaustive_duplicate_tree)
+pilot v4_mir_route_exhaustive_duplicate_resolve = v4_resolve_lower_hir(3, v4_mir_route_exhaustive_duplicate_hir)
+pilot v4_mir_route_exhaustive_duplicate_ty = v4_ty_lower_resolve(3, v4_mir_route_exhaustive_duplicate_resolve)
+pilot v4_mir_route_exhaustive_duplicate_mir = v4_mir_lower_ty(3, v4_mir_route_exhaustive_duplicate_ty)
+say "route-exhaustive-duplicate-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_exhaustive_duplicate_mir))
+say "route-exhaustive-duplicate-message0=" + v4_diag_message(v4_mir_diag(v4_mir_route_exhaustive_duplicate_mir, 0))
+say "route-exhaustive-duplicate-help0=" + v4_diag_help(v4_mir_diag(v4_mir_route_exhaustive_duplicate_mir, 0))
+say "route-exhaustive-duplicate-message1=" + v4_diag_message(v4_mir_diag(v4_mir_route_exhaustive_duplicate_mir, 1))
+say "route-exhaustive-duplicate-help1=" + v4_diag_help(v4_mir_diag(v4_mir_route_exhaustive_duplicate_mir, 1))
+
+pilot v4_mir_route_exhaustive_after_wildcard_stream = v4_lex_text(4, v4_mir_route_exhaustive_after_wildcard_source())
+pilot v4_mir_route_exhaustive_after_wildcard_tree = v4_parse_stream(4, v4_mir_route_exhaustive_after_wildcard_stream)
+pilot v4_mir_route_exhaustive_after_wildcard_hir = v4_hir_lower_tree(4, v4_mir_route_exhaustive_after_wildcard_tree)
+pilot v4_mir_route_exhaustive_after_wildcard_resolve = v4_resolve_lower_hir(4, v4_mir_route_exhaustive_after_wildcard_hir)
+pilot v4_mir_route_exhaustive_after_wildcard_ty = v4_ty_lower_resolve(4, v4_mir_route_exhaustive_after_wildcard_resolve)
+pilot v4_mir_route_exhaustive_after_wildcard_mir = v4_mir_lower_ty(4, v4_mir_route_exhaustive_after_wildcard_ty)
+say "route-exhaustive-after-wildcard-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_exhaustive_after_wildcard_mir))
+say "route-exhaustive-after-wildcard-message=" + v4_diag_message(v4_mir_diag(v4_mir_route_exhaustive_after_wildcard_mir, 0))
+say "route-exhaustive-after-wildcard-help=" + v4_diag_help(v4_mir_diag(v4_mir_route_exhaustive_after_wildcard_mir, 0))
+
+pilot v4_mir_route_exhaustive_payload_duplicate_stream = v4_lex_text(5, v4_mir_route_exhaustive_payload_duplicate_source())
+pilot v4_mir_route_exhaustive_payload_duplicate_tree = v4_parse_stream(5, v4_mir_route_exhaustive_payload_duplicate_stream)
+pilot v4_mir_route_exhaustive_payload_duplicate_hir = v4_hir_lower_tree(5, v4_mir_route_exhaustive_payload_duplicate_tree)
+pilot v4_mir_route_exhaustive_payload_duplicate_resolve = v4_resolve_lower_hir(5, v4_mir_route_exhaustive_payload_duplicate_hir)
+pilot v4_mir_route_exhaustive_payload_duplicate_ty = v4_ty_lower_resolve(5, v4_mir_route_exhaustive_payload_duplicate_resolve)
+pilot v4_mir_route_exhaustive_payload_duplicate_mir = v4_mir_lower_ty(5, v4_mir_route_exhaustive_payload_duplicate_ty)
+say "route-exhaustive-payload-duplicate-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_route_exhaustive_payload_duplicate_mir))
+say "route-exhaustive-payload-duplicate-message=" + v4_diag_message(v4_mir_diag(v4_mir_route_exhaustive_payload_duplicate_mir, 0))
+say "route-exhaustive-payload-duplicate-help=" + v4_diag_help(v4_mir_diag(v4_mir_route_exhaustive_payload_duplicate_mir, 0))

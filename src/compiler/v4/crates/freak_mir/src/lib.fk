@@ -4021,6 +4021,226 @@ task v4_mir_lower_when_pattern_bindings(mir_id: int, body_id: int, block_id: int
     v4_mir_add_type_error(mir_id, stmt_span, "unsupported when arm pattern", "use literals, _, names, Route::Case, route payload patterns, (a, b, ...), or [a, b, ...]")
 }
 
+task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: word) -> bool {
+    pattern = v4_mir_pattern_trim(pattern)
+    if pattern == "" or pattern == "_" {
+        give back true
+    }
+    if v4_mir_when_pattern_is_literal(pattern) {
+        give back false
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot route_payload_head = v4_mir_named_brace_pattern_head(pattern)
+    pilot route_payload_scope = v4_mir_path_left(route_payload_head)
+    if route_payload_head != "" and (route_payload_scope != "" or v4_ty_is_route_type(ty_id, source_ty)) {
+        pilot route_name = source_ty
+        pilot case_name = route_payload_head
+        if route_payload_scope != "" {
+            route_name = route_payload_scope
+            case_name = v4_mir_path_right(route_payload_head)
+        }
+        if route_name == "" or not v4_ty_is_route_type(ty_id, route_name) {
+            give back false
+        }
+        if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+            give back false
+        }
+        if not v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+            give back false
+        }
+
+        pilot seen_fields = ""
+        pilot field_idx = 0
+        pilot field_count = v4_mir_named_brace_pattern_field_count(pattern)
+        repeat until field_idx >= field_count {
+            pilot field_segment = v4_mir_named_brace_pattern_field(pattern, field_idx)
+            pilot field_name = v4_mir_named_brace_field_name(field_segment)
+            pilot child_pattern = v4_mir_named_brace_field_pattern(field_segment)
+            if field_name == "" or v4_mir_name_list_contains(seen_fields, field_name) {
+                give back false
+            }
+            seen_fields = v4_mir_name_list_add(seen_fields, field_name)
+            pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_name, case_name, field_name)
+            if field_ty == v4_ty_unknown {
+                give back false
+            }
+            if not v4_mir_when_pattern_is_irrefutable(mir_id, child_pattern, field_ty) {
+                give back false
+            }
+            field_idx += 1
+        }
+        give back true
+    }
+
+    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
+    if route_pattern_sep >= 0 or (v4_ty_is_route_type(ty_id, source_ty) and v4_ty_route_has_case(ty_id, source_ty, pattern)) {
+        pilot route_name = source_ty
+        pilot case_name = pattern
+        if route_pattern_sep >= 0 {
+            route_name = v4_mir_path_left(pattern)
+            case_name = v4_mir_path_right(pattern)
+        }
+        give back route_name != "" and route_name == source_ty and v4_ty_route_has_case(ty_id, route_name, case_name)
+    }
+
+    if v4_mir_pattern_is_simple_local(pattern) {
+        give back true
+    }
+
+    if v4_mir_is_tuple_pattern(pattern) {
+        if not v4_ty_is_tuple_type(source_ty) {
+            give back false
+        }
+        if v4_mir_tuple_pattern_slot_count(pattern) != v4_ty_tuple_slot_count(source_ty) {
+            give back false
+        }
+        pilot slot_idx = 0
+        pilot slot_count = v4_mir_tuple_pattern_slot_count(pattern)
+        repeat until slot_idx >= slot_count {
+            if not v4_mir_when_pattern_is_irrefutable(mir_id, v4_mir_tuple_pattern_slot(pattern, slot_idx), v4_ty_tuple_slot_type(source_ty, slot_idx)) {
+                give back false
+            }
+            slot_idx += 1
+        }
+        give back true
+    }
+
+    if v4_mir_is_bracket_pattern(pattern) {
+        if not v4_ty_is_fixed_array_type(source_ty) {
+            give back false
+        }
+        pilot slot_count = v4_mir_bracket_pattern_slot_count(pattern)
+        pilot length_text = v4_ty_fixed_array_length_text(source_ty)
+        if length_text != word_from_int(slot_count) {
+            give back false
+        }
+        pilot element_ty = v4_ty_fixed_array_element_type(source_ty)
+        pilot slot_idx = 0
+        repeat until slot_idx >= slot_count {
+            if not v4_mir_when_pattern_is_irrefutable(mir_id, v4_mir_bracket_pattern_slot(pattern, slot_idx), element_ty) {
+                give back false
+            }
+            slot_idx += 1
+        }
+        give back true
+    }
+
+    give back false
+}
+
+task v4_mir_when_pattern_route_case(mir_id: int, pattern: word, source_ty: word) -> word {
+    pattern = v4_mir_pattern_trim(pattern)
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if not v4_ty_is_route_type(ty_id, source_ty) {
+        give back ""
+    }
+
+    pilot route_payload_head = v4_mir_named_brace_pattern_head(pattern)
+    pilot route_payload_scope = v4_mir_path_left(route_payload_head)
+    if route_payload_head != "" and (route_payload_scope != "" or v4_ty_route_has_case(ty_id, source_ty, route_payload_head)) {
+        pilot route_name = source_ty
+        pilot case_name = route_payload_head
+        if route_payload_scope != "" {
+            route_name = route_payload_scope
+            case_name = v4_mir_path_right(route_payload_head)
+        }
+        if route_name != source_ty {
+            give back ""
+        }
+        if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+            give back ""
+        }
+        if not v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+            give back ""
+        }
+        give back case_name
+    }
+
+    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
+    if route_pattern_sep >= 0 or v4_ty_route_has_case(ty_id, source_ty, pattern) {
+        pilot route_name = source_ty
+        pilot case_name = pattern
+        if route_pattern_sep >= 0 {
+            route_name = v4_mir_path_left(pattern)
+            case_name = v4_mir_path_right(pattern)
+        }
+        if route_name == source_ty and v4_ty_route_has_case(ty_id, route_name, case_name) {
+            give back case_name
+        }
+    }
+    give back ""
+}
+
+task v4_mir_when_pattern_full_route_case(mir_id: int, pattern: word, source_ty: word) -> word {
+    pilot case_name = v4_mir_when_pattern_route_case(mir_id, pattern, source_ty)
+    if case_name == "" {
+        give back ""
+    }
+    if v4_mir_when_pattern_is_irrefutable(mir_id, pattern, source_ty) {
+        give back case_name
+    }
+    give back ""
+}
+
+task v4_mir_route_covered_case_count(mir_id: int, route_name: word, covered_cases: word) -> int {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    if sig_id < 0 {
+        give back 0
+    }
+
+    pilot covered = 0
+    pilot case_idx = 0
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    repeat until case_idx >= case_count {
+        pilot case_name = v4_ty_route_case_name(ty_id, sig_id, case_idx)
+        if v4_mir_name_list_contains(covered_cases, case_name) {
+            covered += 1
+        }
+        case_idx += 1
+    }
+    give back covered
+}
+
+task v4_mir_route_all_cases_covered(mir_id: int, route_name: word, covered_cases: word) -> bool {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    if sig_id < 0 {
+        give back false
+    }
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    if case_count <= 0 {
+        give back false
+    }
+    give back v4_mir_route_covered_case_count(mir_id, route_name, covered_cases) >= case_count
+}
+
+task v4_mir_route_missing_cases_text(mir_id: int, route_name: word, covered_cases: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    if sig_id < 0 {
+        give back ""
+    }
+
+    pilot missing = ""
+    pilot case_idx = 0
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    repeat until case_idx >= case_count {
+        pilot case_name = v4_ty_route_case_name(ty_id, sig_id, case_idx)
+        if not v4_mir_name_list_contains(covered_cases, case_name) {
+            pilot case_text = v4_mir_route_case_text(route_name, case_name)
+            if missing == "" {
+                missing = case_text
+            } else {
+                missing = missing + ", " + case_text
+            }
+        }
+        case_idx += 1
+    }
+    give back missing
+}
+
 task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, when_token: int, stmt_end: int) -> int {
     pilot open_token = v4_mir_find_token_value(stream_id, when_token, stmt_end, "{")
     if open_token < 0 {
@@ -4039,41 +4259,97 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
     pilot subject_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, subject_name, subject_id, subject_name, 0 - 1, stmt_span, scrutinee_ty)
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, scrutinee, stmt_span, subject_place, scrutinee_rvalue)
 
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot route_when = v4_ty_is_route_type(ty_id, scrutinee_ty)
+    pilot route_covered_cases = ""
     pilot current_check = block_id
+    pilot current_check_live = true
     pilot idx = open_token + 1
     repeat until idx >= when_close {
         idx = v4_mir_skip_trivia(stream_id, idx)
         if idx >= when_close {
-            give back after_block
+            idx = when_close
         }
         pilot arrow = v4_mir_find_arrow_token(stream_id, idx, when_close)
         if arrow < 0 {
-            give back after_block
+            idx = when_close
         }
-        pilot pattern = v4_mir_expr_text(stream_id, idx, arrow)
-        pilot arm_end = v4_mir_when_arm_body_end(stream_id, arrow + 1, when_close)
-        pilot arm_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-        if pattern == "_" {
-            v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_goto, arm_block, 0 - 1, ""))
-        } else {
-            pilot cond_rvalue = v4_mir_lower_when_pattern_condition(mir_id, body_id, stmt_span, pattern, subject_place, scrutinee, scrutinee_ty)
-            pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
-            pilot next_check = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-            v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_if, arm_block, next_check, cond_text))
-            v4_mir_add_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
-            current_check = next_check
-        }
-        pilot first_body = v4_mir_skip_trivia(stream_id, arrow + 1)
-        v4_mir_lower_when_pattern_bindings(mir_id, body_id, arm_block, stmt_span, pattern, subject_place, scrutinee_ty)
-        if first_body < arm_end {
-            if v4_lex_token_value(stream_id, first_body) == "{" {
-                v4_mir_lower_block_body(mir_id, body_id, arm_block, stream_id, first_body, arm_end)
-            } else {
-                v4_mir_lower_statement(mir_id, body_id, arm_block, stream_id, first_body, arm_end)
+        if idx < when_close {
+            pilot pattern = v4_mir_expr_text(stream_id, idx, arrow)
+            pilot arm_end = v4_mir_when_arm_body_end(stream_id, arrow + 1, when_close)
+            pilot arm_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
+            pilot pattern_route_case = ""
+            pilot pattern_full_route_case = ""
+            if route_when {
+                pattern_route_case = v4_mir_when_pattern_route_case(mir_id, pattern, scrutinee_ty)
+                pattern_full_route_case = v4_mir_when_pattern_full_route_case(mir_id, pattern, scrutinee_ty)
             }
+            pilot pattern_irrefutable = v4_mir_when_pattern_is_irrefutable(mir_id, pattern, scrutinee_ty)
+            pilot pattern_catch_all = false
+            if pattern_irrefutable and pattern_full_route_case == "" {
+                pattern_catch_all = true
+            }
+            pilot route_all_covered = false
+            if route_when {
+                route_all_covered = v4_mir_route_all_cases_covered(mir_id, scrutinee_ty, route_covered_cases)
+            }
+            pilot arm_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+            pilot arm_unreachable = false
+            pilot arm_help = ""
+            if not current_check_live {
+                arm_unreachable = true
+                if route_when {
+                    arm_help = "earlier arms already cover every " + scrutinee_ty + " case"
+                } else {
+                    arm_help = "an earlier arm already matches every remaining value"
+                }
+            } else if route_when and route_all_covered {
+                arm_unreachable = true
+                arm_help = "earlier arms already cover every " + scrutinee_ty + " case"
+            } else if route_when and pattern_route_case != "" and v4_mir_name_list_contains(route_covered_cases, pattern_route_case) {
+                arm_unreachable = true
+                arm_help = v4_mir_route_case_text(scrutinee_ty, pattern_route_case) + " was already covered by an earlier arm"
+            }
+            if arm_unreachable {
+                v4_mir_add_type_error(mir_id, arm_span, "unreachable when arm", arm_help)
+            } else if pattern_catch_all {
+                v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_goto, arm_block, 0 - 1, ""))
+                current_check_live = false
+            } else {
+                pilot cond_rvalue = v4_mir_lower_when_pattern_condition(mir_id, body_id, stmt_span, pattern, subject_place, scrutinee, scrutinee_ty)
+                pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
+                pilot next_check = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+                v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_if, arm_block, next_check, cond_text))
+                v4_mir_add_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
+                current_check = next_check
+            }
+            pilot first_body = v4_mir_skip_trivia(stream_id, arrow + 1)
+            v4_mir_lower_when_pattern_bindings(mir_id, body_id, arm_block, stmt_span, pattern, subject_place, scrutinee_ty)
+            if first_body < arm_end {
+                if v4_lex_token_value(stream_id, first_body) == "{" {
+                    v4_mir_lower_block_body(mir_id, body_id, arm_block, stream_id, first_body, arm_end)
+                } else {
+                    v4_mir_lower_statement(mir_id, body_id, arm_block, stream_id, first_body, arm_end)
+                }
+            }
+            v4_mir_set_body_block(mir_id, body_id, arm_block, v4_mir_block_new_full(arm_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+            if not arm_unreachable and route_when and pattern_full_route_case != "" {
+                route_covered_cases = v4_mir_name_list_add(route_covered_cases, pattern_full_route_case)
+                if v4_mir_route_all_cases_covered(mir_id, scrutinee_ty, route_covered_cases) {
+                    current_check_live = false
+                }
+            }
+            idx = arm_end + 1
         }
-        v4_mir_set_body_block(mir_id, body_id, arm_block, v4_mir_block_new_full(arm_block, v4_mir_term_goto, after_block, 0 - 1, ""))
-        idx = arm_end + 1
+    }
+    if current_check_live {
+        v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_goto, after_block, 0 - 1, ""))
+    }
+    if route_when and current_check_live {
+        pilot missing_cases = v4_mir_route_missing_cases_text(mir_id, scrutinee_ty, route_covered_cases)
+        if missing_cases != "" {
+            v4_mir_add_type_error(mir_id, stmt_span, "non-exhaustive route when", "missing " + missing_cases)
+        }
     }
     give back after_block
 }

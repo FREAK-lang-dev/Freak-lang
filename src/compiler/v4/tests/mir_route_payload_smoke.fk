@@ -16,10 +16,9 @@ task v4_mir_route_payload_good_source() -> word {
     src = src + "}\n"
     src = src + "task score(event: Event) -> int {\n"
     src = src + "    when event {\n"
-    src = src + "        Key " + v4_mir_route_payload_braces(" code ") + " -> give back code\n"
     src = src + "        Event::Key " + v4_mir_route_payload_braces(" code: 9, repeat: held ") + " -> give back 90\n"
+    src = src + "        Key " + v4_mir_route_payload_braces(" code ") + " -> give back code\n"
     src = src + "        Event::Closed -> give back 0\n"
-    src = src + "        _ -> give back -1\n"
     src = src + "    }\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
@@ -165,12 +164,12 @@ pilot v4_mir_route_payload_event_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payloa
 
 pilot v4_mir_route_payload_score_def = v4_resolve_def_for_name(v4_mir_route_payload_resolve, "score")
 pilot v4_mir_route_payload_score_body = v4_mir_lookup_body(v4_mir_route_payload_mir, v4_mir_route_payload_score_def)
-pilot v4_mir_route_payload_arm0_stmt = v4_mir_route_payload_find_branch_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "event == Key")
-pilot v4_mir_route_payload_arm1_stmt = v4_mir_route_payload_find_branch_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "event == Event::Key and event.code == 9")
+pilot v4_mir_route_payload_arm0_stmt = v4_mir_route_payload_find_branch_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "event == Event::Key and event.code == 9")
+pilot v4_mir_route_payload_arm1_stmt = v4_mir_route_payload_find_branch_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "event == Key")
 pilot v4_mir_route_payload_arm0_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_stmt)
 pilot v4_mir_route_payload_arm1_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_stmt)
-pilot v4_mir_route_payload_arm1_lhs = v4_mir_rvalue_lhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rvalue)
-pilot v4_mir_route_payload_arm1_rhs = v4_mir_rvalue_rhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rvalue)
+pilot v4_mir_route_payload_arm0_lhs = v4_mir_rvalue_lhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rvalue)
+pilot v4_mir_route_payload_arm0_rhs = v4_mir_rvalue_rhs(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rvalue)
 pilot v4_mir_route_payload_code_stmt = v4_mir_route_payload_find_local_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "code")
 pilot v4_mir_route_payload_held_stmt = v4_mir_route_payload_find_local_stmt(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, "held")
 pilot v4_mir_route_payload_code_rvalue = v4_mir_stmt_rvalue(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_stmt)
@@ -200,12 +199,12 @@ say "route-payload-arm1-lhs=" + v4_mir_stmt_lhs(v4_mir_route_payload_mir, v4_mir
 say "route-payload-arm1-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rvalue)
 say "route-payload-arm1-rvalue-op=" + v4_mir_rvalue_op(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rvalue)
 say "route-payload-arm1-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rvalue)
-say "route-payload-arm1-left-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_lhs)
-say "route-payload-arm1-left-text=" + v4_mir_rvalue_text(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_lhs)
-say "route-payload-arm1-left-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_lhs)
-say "route-payload-arm1-right-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rhs)
-say "route-payload-arm1-right-text=" + v4_mir_rvalue_text(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rhs)
-say "route-payload-arm1-right-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm1_rhs)
+say "route-payload-arm0-left-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_lhs)
+say "route-payload-arm0-left-text=" + v4_mir_rvalue_text(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_lhs)
+say "route-payload-arm0-left-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_lhs)
+say "route-payload-arm0-right-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rhs)
+say "route-payload-arm0-right-text=" + v4_mir_rvalue_text(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rhs)
+say "route-payload-arm0-right-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_arm0_rhs)
 say "route-payload-code-kind=" + v4_mir_rvalue_kind(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_rvalue)
 say "route-payload-code-ty=" + v4_mir_rvalue_ty(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_rvalue)
 say "route-payload-code-place-field=" + v4_mir_place_field(v4_mir_route_payload_mir, v4_mir_route_payload_score_body, v4_mir_route_payload_code_place)
