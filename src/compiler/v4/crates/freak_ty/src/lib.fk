@@ -17,6 +17,7 @@ pilot v4_ty_void = "void"
 
 pilot v4_ty_task_sig = "task-signature"
 pilot v4_ty_shape_sig = "shape-signature"
+pilot v4_ty_route_sig = "route-signature"
 pilot v4_ty_doctrine_sig = "doctrine-signature"
 pilot v4_ty_extern_sig = "extern-signature"
 pilot v4_ty_import_sig = "import-signature"
@@ -271,6 +272,7 @@ task v4_ty_binary_result(op: word, left_ty: word, right_ty: word) -> word {
 task v4_ty_kind_for_symbol(symbol_kind: word) -> word {
     if symbol_kind == v4_hir_task { give back v4_ty_task_sig }
     if symbol_kind == v4_hir_shape { give back v4_ty_shape_sig }
+    if symbol_kind == v4_hir_route { give back v4_ty_route_sig }
     if symbol_kind == v4_hir_doctrine { give back v4_ty_doctrine_sig }
     if symbol_kind == v4_hir_extern { give back v4_ty_extern_sig }
     if symbol_kind == v4_hir_import { give back v4_ty_import_sig }
@@ -285,6 +287,9 @@ task v4_ty_display_for_symbol(symbol_kind: word, symbol_name: word) -> word {
     }
     if symbol_kind == v4_hir_shape {
         give back "shape " + symbol_name
+    }
+    if symbol_kind == v4_hir_route {
+        give back "route " + symbol_name
     }
     if symbol_kind == v4_hir_doctrine {
         give back "doctrine " + symbol_name
@@ -1093,6 +1098,9 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, hir_id: in
     if symbol_kind == v4_hir_task {
         give back "task " + symbol_name + "(...) -> " + v4_ty_task_return_from_hir(hir_id, hir_item)
     }
+    if symbol_kind == v4_hir_route {
+        give back "route " + symbol_name
+    }
     give back v4_ty_display_for_symbol(symbol_kind, symbol_name)
 }
 
@@ -1124,6 +1132,204 @@ task v4_ty_shape_signature_id_for_name(ty_id: int, shape_name: word) -> int {
         sig_id += 1
     }
     give back 0 - 1
+}
+
+task v4_ty_route_signature_id_for_name(ty_id: int, route_name: word) -> int {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_route_sig {
+            if v4_ty_signature_name(ty_id, sig_id) == route_name {
+                give back sig_id
+            }
+        }
+        sig_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_is_route_type(ty_id: int, route_name: word) -> bool {
+    give back v4_ty_route_signature_id_for_name(ty_id, route_name) >= 0
+}
+
+task v4_ty_route_body_open_token(ty_id: int, sig_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back 0 - 1
+    }
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back 0 - 1
+    }
+    give back v4_ty_find_token_value(stream_id, start_token, end_token, "{")
+}
+
+task v4_ty_route_body_close_token(ty_id: int, sig_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_route_body_open_token(ty_id, sig_id)
+    if stream_id < 0 or open_token < 0 {
+        give back 0 - 1
+    }
+    give back v4_ty_find_matching_brace(stream_id, open_token, v4_ty_signature_item_end_token(ty_id, sig_id))
+}
+
+task v4_ty_route_is_case_separator(val: word) -> bool {
+    give back val == "," or val == ";" or val == "/"
+}
+
+task v4_ty_route_case_count(ty_id: int, sig_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back 0
+    }
+
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_route_body_open_token(ty_id, sig_id)
+    pilot close_token = v4_ty_route_body_close_token(ty_id, sig_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back 0
+    }
+
+    pilot count = 0
+    pilot in_case = false
+    pilot depth = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if val == "\n" and depth == 0 {
+                in_case = false
+            }
+        } else {
+            if depth == 0 and v4_ty_route_is_case_separator(val) {
+                in_case = false
+            } else {
+                if not in_case {
+                    count += 1
+                    in_case = true
+                }
+                depth = v4_ty_depth_after_token(depth, val)
+            }
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_route_case_segment_start(ty_id: int, sig_id: int, case_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig or case_id < 0 {
+        give back 0 - 1
+    }
+
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_route_body_open_token(ty_id, sig_id)
+    pilot close_token = v4_ty_route_body_close_token(ty_id, sig_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back 0 - 1
+    }
+
+    pilot current = 0
+    pilot segment_start = 0 - 1
+    pilot depth = 0
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if val == "\n" and depth == 0 and segment_start >= 0 {
+                if current == case_id {
+                    give back segment_start
+                }
+                current += 1
+                segment_start = 0 - 1
+            }
+        } else {
+            if depth == 0 and v4_ty_route_is_case_separator(val) {
+                if segment_start >= 0 {
+                    if current == case_id {
+                        give back segment_start
+                    }
+                    current += 1
+                    segment_start = 0 - 1
+                }
+            } else {
+                if segment_start < 0 {
+                    segment_start = idx
+                }
+                depth = v4_ty_depth_after_token(depth, val)
+            }
+        }
+        idx += 1
+    }
+
+    if segment_start >= 0 and current == case_id {
+        give back segment_start
+    }
+    give back 0 - 1
+}
+
+task v4_ty_route_case_segment_end(ty_id: int, sig_id: int, case_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_route_case_segment_start(ty_id, sig_id, case_id)
+    pilot close_token = v4_ty_route_body_close_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or close_token <= start_token {
+        give back 0 - 1
+    }
+
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= close_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if val == "\n" and depth == 0 {
+                give back idx
+            }
+        } else {
+            if depth == 0 and idx > start_token and v4_ty_route_is_case_separator(val) {
+                give back idx
+            }
+            depth = v4_ty_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back close_token
+}
+
+task v4_ty_route_case_name(ty_id: int, sig_id: int, case_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_route_case_segment_start(ty_id, sig_id, case_id)
+    pilot end_token = v4_ty_route_case_segment_end(ty_id, sig_id, case_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back ""
+    }
+    pilot first = v4_ty_skip_trivia(stream_id, start_token)
+    if first >= end_token {
+        give back ""
+    }
+    give back v4_lex_token_value(stream_id, first)
+}
+
+task v4_ty_route_case_id_for_name(ty_id: int, route_name: word, case_name: word) -> int {
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    if sig_id < 0 {
+        give back 0 - 1
+    }
+
+    pilot case_id = 0
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    repeat until case_id >= case_count {
+        if v4_ty_route_case_name(ty_id, sig_id, case_id) == case_name {
+            give back case_id
+        }
+        case_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_route_has_case(ty_id: int, route_name: word, case_name: word) -> bool {
+    give back v4_ty_route_case_id_for_name(ty_id, route_name, case_name) >= 0
 }
 
 task v4_ty_shape_body_open_token(ty_id: int, sig_id: int) -> int {

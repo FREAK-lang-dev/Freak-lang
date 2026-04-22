@@ -8,6 +8,7 @@
 
 pilot v4_hir_task = "Task"
 pilot v4_hir_shape = "Shape"
+pilot v4_hir_route = "Route"
 pilot v4_hir_impl = "Impl"
 pilot v4_hir_doctrine = "Doctrine"
 pilot v4_hir_import = "Import"
@@ -161,6 +162,7 @@ task v4_hir_diag(hir_id: int, diag_id: int) -> word {
 task v4_hir_kind_from_parse(parse_kind: word) -> word {
     if parse_kind == v4_node_task { give back v4_hir_task }
     if parse_kind == v4_node_shape { give back v4_hir_shape }
+    if parse_kind == v4_node_route { give back v4_hir_route }
     if parse_kind == v4_node_impl { give back v4_hir_impl }
     if parse_kind == v4_node_doctrine { give back v4_hir_doctrine }
     if parse_kind == v4_node_use { give back v4_hir_import }
