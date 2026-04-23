@@ -1786,6 +1786,64 @@ task v4_ty_list_element_type(container_ty: word) -> word {
     give back v4_ty_unknown
 }
 
+task v4_ty_is_maybe_type(container_ty: word) -> bool {
+    if container_ty.length() < 8 {
+        give back false
+    }
+    if container_ty.char_at(0) != "m" or container_ty.char_at(1) != "a" or container_ty.char_at(2) != "y" or container_ty.char_at(3) != "b" or container_ty.char_at(4) != "e" or container_ty.char_at(5) != "<" or container_ty.char_at(container_ty.length() - 1) != ">" {
+        give back false
+    }
+    give back true
+}
+
+task v4_ty_maybe_value_type(container_ty: word) -> word {
+    if v4_ty_is_maybe_type(container_ty) {
+        give back v4_slice(container_ty, 6, container_ty.length() - 1)
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_is_result_type(container_ty: word) -> bool {
+    if container_ty.length() < 11 {
+        give back false
+    }
+    if container_ty.char_at(0) != "r" or container_ty.char_at(1) != "e" or container_ty.char_at(2) != "s" or container_ty.char_at(3) != "u" or container_ty.char_at(4) != "l" or container_ty.char_at(5) != "t" or container_ty.char_at(6) != "<" or container_ty.char_at(container_ty.length() - 1) != ">" {
+        give back false
+    }
+    pilot comma = v4_ty_find_top_level_type_char(container_ty, ",", 7, container_ty.length() - 1)
+    give back comma > 7
+}
+
+task v4_ty_result_ok_type(container_ty: word) -> word {
+    if not v4_ty_is_result_type(container_ty) {
+        give back v4_ty_unknown
+    }
+    pilot comma = v4_ty_find_top_level_type_char(container_ty, ",", 7, container_ty.length() - 1)
+    if comma <= 7 {
+        give back v4_ty_unknown
+    }
+    give back v4_slice(container_ty, 7, comma)
+}
+
+task v4_ty_result_err_type(container_ty: word) -> word {
+    if not v4_ty_is_result_type(container_ty) {
+        give back v4_ty_unknown
+    }
+    pilot comma = v4_ty_find_top_level_type_char(container_ty, ",", 7, container_ty.length() - 1)
+    if comma < 0 or comma + 1 >= container_ty.length() - 1 {
+        give back v4_ty_unknown
+    }
+    give back v4_slice(container_ty, comma + 1, container_ty.length() - 1)
+}
+
+task v4_ty_maybe_type(inner_ty: word) -> word {
+    give back "maybe<" + inner_ty + ">"
+}
+
+task v4_ty_result_type(ok_ty: word, err_ty: word) -> word {
+    give back "result<" + ok_ty + "," + err_ty + ">"
+}
+
 task v4_ty_is_tuple_type(tuple_ty: word) -> bool {
     if tuple_ty.length() < 5 {
         give back false

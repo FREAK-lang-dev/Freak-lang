@@ -38,6 +38,11 @@ pilot v4_mir_rvalue_unary = "Unary"
 pilot v4_mir_rvalue_binary = "Binary"
 pilot v4_mir_rvalue_call = "Call"
 pilot v4_mir_rvalue_loop_item = "LoopItem"
+pilot v4_mir_rvalue_some = "Some"
+pilot v4_mir_rvalue_nobody = "Nobody"
+pilot v4_mir_rvalue_ok = "Ok"
+pilot v4_mir_rvalue_err = "Err"
+pilot v4_mir_rvalue_check = "Check"
 pilot v4_mir_rvalue_unknown = "Unknown"
 
 pilot v4_mir_unary_neg = "Neg"
@@ -2253,6 +2258,81 @@ task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int,
     give back 0 - 1
 }
 
+task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
+    pilot first_value = v4_lex_token_value(stream_id, first)
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+
+    if first == last and first_value == "nobody" {
+        pilot result_ty = v4_ty_maybe_type(v4_ty_unknown)
+        if v4_ty_is_maybe_type(expected_ty) {
+            result_ty = expected_ty
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_nobody, expr_text, "Nobody", 0 - 1, 0 - 1, expr_span, result_ty)
+    }
+
+    pilot next_token = v4_mir_next_nontrivia(stream_id, first + 1, last + 1)
+    if next_token > last or v4_lex_token_value(stream_id, next_token) != "(" or (first_value != "some" and first_value != "ok" and first_value != "err") {
+        give back 0 - 1
+    }
+
+    pilot close_token = v4_mir_find_matching_paren(stream_id, next_token, last + 1)
+    if close_token != last {
+        give back 0 - 1
+    }
+
+    if first_value == "some" {
+        pilot payload_expected = v4_ty_unknown
+        pilot result_ty = v4_ty_unknown
+        if v4_ty_is_maybe_type(expected_ty) {
+            payload_expected = v4_ty_maybe_value_type(expected_ty)
+            result_ty = expected_ty
+        }
+        pilot payload_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, next_token + 1, close_token, payload_expected)
+        pilot payload_ty = v4_mir_rvalue_ty(mir_id, body_id, payload_id)
+        if v4_ty_is_known(payload_expected) and not v4_ty_types_compatible(payload_expected, payload_ty) {
+            v4_mir_add_type_error(mir_id, expr_span, "some payload type mismatch", "some expects " + payload_expected + " but got " + payload_ty)
+        }
+        if not v4_ty_is_known(result_ty) {
+            result_ty = v4_ty_maybe_type(payload_ty)
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_some, expr_text, "Some", payload_id, 0 - 1, expr_span, result_ty)
+    }
+
+    if first_value == "ok" {
+        pilot ok_expected = v4_ty_unknown
+        pilot result_ty = v4_ty_unknown
+        if v4_ty_is_result_type(expected_ty) {
+            ok_expected = v4_ty_result_ok_type(expected_ty)
+            result_ty = expected_ty
+        }
+        pilot payload_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, next_token + 1, close_token, ok_expected)
+        pilot payload_ty = v4_mir_rvalue_ty(mir_id, body_id, payload_id)
+        if v4_ty_is_known(ok_expected) and not v4_ty_types_compatible(ok_expected, payload_ty) {
+            v4_mir_add_type_error(mir_id, expr_span, "ok payload type mismatch", "ok expects " + ok_expected + " but got " + payload_ty)
+        }
+        if not v4_ty_is_known(result_ty) {
+            result_ty = v4_ty_result_type(payload_ty, v4_ty_unknown)
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_ok, expr_text, "Ok", payload_id, 0 - 1, expr_span, result_ty)
+    }
+
+    pilot err_expected = v4_ty_unknown
+    pilot result_ty = v4_ty_unknown
+    if v4_ty_is_result_type(expected_ty) {
+        err_expected = v4_ty_result_err_type(expected_ty)
+        result_ty = expected_ty
+    }
+    pilot payload_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, next_token + 1, close_token, err_expected)
+    pilot payload_ty = v4_mir_rvalue_ty(mir_id, body_id, payload_id)
+    if v4_ty_is_known(err_expected) and not v4_ty_types_compatible(err_expected, payload_ty) {
+        v4_mir_add_type_error(mir_id, expr_span, "err payload type mismatch", "err expects " + err_expected + " but got " + payload_ty)
+    }
+    if not v4_ty_is_known(result_ty) {
+        result_ty = v4_ty_result_type(v4_ty_unknown, payload_ty)
+    }
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_err, expr_text, "Err", payload_id, 0 - 1, expr_span, result_ty)
+}
+
 task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, expected_ty: word) -> int {
     pilot first = v4_mir_skip_trivia(stream_id, start_token)
     pilot last = v4_mir_last_nontrivia_before(stream_id, end_token)
@@ -2329,6 +2409,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot map_rvalue = v4_mir_try_lower_map_literal(mir_id, body_id, stream_id, first, last, expr_span)
     if map_rvalue >= 0 {
         give back map_rvalue
+    }
+
+    pilot maybe_result_rvalue = v4_mir_try_lower_maybe_result_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
+    if maybe_result_rvalue >= 0 {
+        give back maybe_result_rvalue
     }
 
     pilot route_ctor_rvalue = v4_mir_try_lower_route_payload_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
@@ -4273,6 +4358,260 @@ task v4_mir_route_missing_cases_text(mir_id: int, route_name: word, covered_case
     give back missing
 }
 
+task v4_mir_lower_arm_body(mir_id: int, body_id: int, block_id: int, stream_id: int, arrow_token: int, arm_end: int) -> void {
+    pilot first_body = v4_mir_skip_trivia(stream_id, arrow_token + 1)
+    if first_body < arm_end {
+        if v4_lex_token_value(stream_id, first_body) == "{" {
+            v4_mir_lower_block_body(mir_id, body_id, block_id, stream_id, first_body, arm_end)
+        } else {
+            v4_mir_lower_statement(mir_id, body_id, block_id, stream_id, first_body, arm_end)
+        }
+    }
+}
+
+task v4_mir_check_condition_rvalue(mir_id: int, body_id: int, stmt_span: word, op: word, source_place: int, source_text: word) -> int {
+    pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_check, "check " + source_text + " " + op, op, source_rvalue, 0 - 1, stmt_span, v4_ty_bool)
+}
+
+task v4_mir_lower_checked_binding(mir_id: int, body_id: int, block_id: int, stmt_span: word, local_name: word, source_place: int, source_ty: word, duplicate_message: word) -> void {
+    local_name = v4_mir_pattern_trim(local_name)
+    if local_name == "" or local_name == "_" {
+        give back
+    }
+    if v4_mir_find_local(mir_id, body_id, local_name) >= 0 {
+        v4_mir_add_type_error(mir_id, stmt_span, duplicate_message, local_name + " already exists in this scope")
+        give back
+    }
+    pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
+    pilot local_id = v4_mir_add_local(mir_id, body_id, local_name, source_ty, stmt_span)
+    pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, local_name, local_id, local_name, 0 - 1, stmt_span, source_ty)
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, local_name, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, place_id, source_rvalue)
+}
+
+task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, check_token: int, stmt_end: int) -> int {
+    pilot open_token = v4_mir_find_token_value(stream_id, check_token, stmt_end, "{")
+    if open_token < 0 {
+        v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, check_token, stmt_end)
+        give back block_id
+    }
+
+    pilot check_close = v4_mir_find_matching_brace(stream_id, open_token, stmt_end)
+    pilot subject_text = v4_mir_expr_text(stream_id, check_token + 1, open_token)
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, check_token, stmt_end)
+    pilot subject_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, check_token + 1, open_token)
+    pilot subject_ty = v4_mir_rvalue_ty(mir_id, body_id, subject_rvalue)
+    if v4_ty_is_known(subject_ty) and not v4_ty_is_maybe_type(subject_ty) {
+        v4_mir_add_type_error(mir_id, stmt_span, "check needs maybe source", "got " + subject_ty)
+    }
+
+    pilot subject_name = v4_mir_unique_local_name(mir_id, body_id, "_check_subject")
+    pilot subject_id = v4_mir_add_local(mir_id, body_id, subject_name, subject_ty, stmt_span)
+    pilot subject_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, subject_name, subject_id, subject_name, 0 - 1, stmt_span, subject_ty)
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, subject_text, stmt_span, subject_place, subject_rvalue)
+
+    pilot got_arrow = 0 - 1
+    pilot got_end = 0 - 1
+    pilot got_name = ""
+    pilot nobody_arrow = 0 - 1
+    pilot nobody_end = 0 - 1
+    pilot idx = open_token + 1
+    repeat until idx >= check_close {
+        idx = v4_mir_skip_trivia(stream_id, idx)
+        if idx >= check_close {
+            idx = check_close
+        }
+        pilot arrow = v4_mir_find_arrow_token(stream_id, idx, check_close)
+        if arrow < 0 {
+            idx = check_close
+        } else {
+            pilot arm_end = v4_mir_when_arm_body_end(stream_id, arrow + 1, check_close)
+            pilot arm_first = v4_mir_skip_trivia(stream_id, idx)
+            pilot arm_head = ""
+            if arm_first < arrow {
+                arm_head = v4_lex_token_value(stream_id, arm_first)
+            }
+            if arm_head == "got" {
+                if got_arrow >= 0 {
+                    v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe duplicate got arm", "got already appears in this check")
+                } else {
+                    got_name = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, arm_first + 1, arrow))
+                    if got_name == "" or (got_name != "_" and not v4_mir_pattern_is_simple_local(got_name)) {
+                        v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe arm malformed", "use got name -> ...")
+                    } else {
+                        got_arrow = arrow
+                        got_end = arm_end
+                    }
+                }
+            } else if arm_head == "nobody" {
+                if nobody_arrow >= 0 {
+                    v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe duplicate nobody arm", "nobody already appears in this check")
+                } else {
+                    nobody_arrow = arrow
+                    nobody_end = arm_end
+                }
+            } else {
+                v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe arm malformed", "use got name -> ... or nobody -> ...")
+            }
+            idx = arm_end + 1
+        }
+    }
+
+    if got_arrow < 0 {
+        v4_mir_add_type_error(mir_id, stmt_span, "check maybe missing got arm", "add got name -> ...")
+    }
+    if nobody_arrow < 0 {
+        v4_mir_add_type_error(mir_id, stmt_span, "check maybe missing nobody arm", "add nobody -> ...")
+    }
+
+    pilot got_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot nobody_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot cond_rvalue = v4_mir_check_condition_rvalue(mir_id, body_id, stmt_span, "HasSome", subject_place, subject_text)
+    pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
+    v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, got_block, nobody_block, cond_text))
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "got#" + word_from_int(got_block) + " nobody#" + word_from_int(nobody_block), stmt_span, 0 - 1, cond_rvalue)
+
+    if got_arrow >= 0 {
+        pilot value_ty = v4_ty_maybe_value_type(subject_ty)
+        pilot value_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".some", subject_place, "some", 0 - 1, stmt_span, value_ty)
+        v4_mir_lower_checked_binding(mir_id, body_id, got_block, stmt_span, got_name, value_place, value_ty, "check maybe binding duplicate local")
+        v4_mir_lower_arm_body(mir_id, body_id, got_block, stream_id, got_arrow, got_end)
+    }
+    v4_mir_set_body_block(mir_id, body_id, got_block, v4_mir_block_new_full(got_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+
+    if nobody_arrow >= 0 {
+        v4_mir_lower_arm_body(mir_id, body_id, nobody_block, stream_id, nobody_arrow, nobody_end)
+    }
+    v4_mir_set_body_block(mir_id, body_id, nobody_block, v4_mir_block_new_full(nobody_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+    give back after_block
+}
+
+task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, check_token: int, stmt_end: int) -> int {
+    pilot result_token = v4_mir_skip_trivia(stream_id, check_token + 1)
+    pilot open_token = v4_mir_find_token_value(stream_id, result_token, stmt_end, "{")
+    if result_token >= stmt_end or v4_lex_token_value(stream_id, result_token) != "result" or open_token < 0 {
+        v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, check_token, stmt_end)
+        give back block_id
+    }
+
+    pilot check_close = v4_mir_find_matching_brace(stream_id, open_token, stmt_end)
+    pilot subject_text = v4_mir_expr_text(stream_id, result_token + 1, open_token)
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, check_token, stmt_end)
+    pilot subject_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, result_token + 1, open_token)
+    pilot subject_ty = v4_mir_rvalue_ty(mir_id, body_id, subject_rvalue)
+    if v4_ty_is_known(subject_ty) and not v4_ty_is_result_type(subject_ty) {
+        v4_mir_add_type_error(mir_id, stmt_span, "check result needs result source", "got " + subject_ty)
+    }
+
+    pilot subject_name = v4_mir_unique_local_name(mir_id, body_id, "_check_result_subject")
+    pilot subject_id = v4_mir_add_local(mir_id, body_id, subject_name, subject_ty, stmt_span)
+    pilot subject_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, subject_name, subject_id, subject_name, 0 - 1, stmt_span, subject_ty)
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, subject_text, stmt_span, subject_place, subject_rvalue)
+
+    pilot ok_arrow = 0 - 1
+    pilot ok_end = 0 - 1
+    pilot ok_name = ""
+    pilot err_arrow = 0 - 1
+    pilot err_end = 0 - 1
+    pilot err_name = ""
+    pilot idx = open_token + 1
+    repeat until idx >= check_close {
+        idx = v4_mir_skip_trivia(stream_id, idx)
+        if idx >= check_close {
+            idx = check_close
+        }
+        pilot arrow = v4_mir_find_arrow_token(stream_id, idx, check_close)
+        if arrow < 0 {
+            idx = check_close
+        } else {
+            pilot arm_end = v4_mir_when_arm_body_end(stream_id, arrow + 1, check_close)
+            pilot arm_first = v4_mir_skip_trivia(stream_id, idx)
+            pilot arm_head = ""
+            if arm_first < arrow {
+                arm_head = v4_lex_token_value(stream_id, arm_first)
+            }
+            pilot head_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
+            pilot head_last = v4_mir_last_nontrivia_before(stream_id, arrow)
+            pilot bind_name = ""
+            pilot malformed = false
+            if arm_head == "ok" or arm_head == "err" {
+                pilot open_paren = v4_mir_skip_trivia(stream_id, arm_first + 1)
+                if open_paren >= arrow or v4_lex_token_value(stream_id, open_paren) != "(" {
+                    malformed = true
+                } else {
+                    pilot close_paren = v4_mir_find_matching_paren(stream_id, open_paren, arrow)
+                    if close_paren != head_last {
+                        malformed = true
+                    } else {
+                        bind_name = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, open_paren + 1, close_paren))
+                        if bind_name == "" or (bind_name != "_" and not v4_mir_pattern_is_simple_local(bind_name)) {
+                            malformed = true
+                        }
+                    }
+                }
+            }
+
+            if arm_head == "ok" {
+                if ok_arrow >= 0 {
+                    v4_mir_add_type_error(mir_id, head_span, "check result duplicate ok arm", "ok already appears in this check result")
+                } else if malformed {
+                    v4_mir_add_type_error(mir_id, head_span, "check result arm malformed", "use ok(name) -> ...")
+                } else {
+                    ok_arrow = arrow
+                    ok_end = arm_end
+                    ok_name = bind_name
+                }
+            } else if arm_head == "err" {
+                if err_arrow >= 0 {
+                    v4_mir_add_type_error(mir_id, head_span, "check result duplicate err arm", "err already appears in this check result")
+                } else if malformed {
+                    v4_mir_add_type_error(mir_id, head_span, "check result arm malformed", "use err(name) -> ...")
+                } else {
+                    err_arrow = arrow
+                    err_end = arm_end
+                    err_name = bind_name
+                }
+            } else {
+                v4_mir_add_type_error(mir_id, head_span, "check result arm malformed", "use ok(name) -> ... or err(name) -> ...")
+            }
+            idx = arm_end + 1
+        }
+    }
+
+    if ok_arrow < 0 {
+        v4_mir_add_type_error(mir_id, stmt_span, "check result missing ok arm", "add ok(name) -> ...")
+    }
+    if err_arrow < 0 {
+        v4_mir_add_type_error(mir_id, stmt_span, "check result missing err arm", "add err(name) -> ...")
+    }
+
+    pilot ok_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot err_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot cond_rvalue = v4_mir_check_condition_rvalue(mir_id, body_id, stmt_span, "IsOk", subject_place, subject_text)
+    pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
+    v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, ok_block, err_block, cond_text))
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "ok#" + word_from_int(ok_block) + " err#" + word_from_int(err_block), stmt_span, 0 - 1, cond_rvalue)
+
+    if ok_arrow >= 0 {
+        pilot ok_ty = v4_ty_result_ok_type(subject_ty)
+        pilot ok_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".ok", subject_place, "ok", 0 - 1, stmt_span, ok_ty)
+        v4_mir_lower_checked_binding(mir_id, body_id, ok_block, stmt_span, ok_name, ok_place, ok_ty, "check result binding duplicate local")
+        v4_mir_lower_arm_body(mir_id, body_id, ok_block, stream_id, ok_arrow, ok_end)
+    }
+    v4_mir_set_body_block(mir_id, body_id, ok_block, v4_mir_block_new_full(ok_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+
+    if err_arrow >= 0 {
+        pilot err_ty = v4_ty_result_err_type(subject_ty)
+        pilot err_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".err", subject_place, "err", 0 - 1, stmt_span, err_ty)
+        v4_mir_lower_checked_binding(mir_id, body_id, err_block, stmt_span, err_name, err_place, err_ty, "check result binding duplicate local")
+        v4_mir_lower_arm_body(mir_id, body_id, err_block, stream_id, err_arrow, err_end)
+    }
+    v4_mir_set_body_block(mir_id, body_id, err_block, v4_mir_block_new_full(err_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+    give back after_block
+}
+
 task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, when_token: int, stmt_end: int) -> int {
     pilot open_token = v4_mir_find_token_value(stream_id, when_token, stmt_end, "{")
     if open_token < 0 {
@@ -4355,15 +4694,8 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
                 v4_mir_add_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
                 current_check = next_check
             }
-            pilot first_body = v4_mir_skip_trivia(stream_id, arrow + 1)
             v4_mir_lower_when_pattern_bindings(mir_id, body_id, arm_block, stmt_span, pattern, subject_place, scrutinee_ty)
-            if first_body < arm_end {
-                if v4_lex_token_value(stream_id, first_body) == "{" {
-                    v4_mir_lower_block_body(mir_id, body_id, arm_block, stream_id, first_body, arm_end)
-                } else {
-                    v4_mir_lower_statement(mir_id, body_id, arm_block, stream_id, first_body, arm_end)
-                }
-            }
+            v4_mir_lower_arm_body(mir_id, body_id, arm_block, stream_id, arrow, arm_end)
             v4_mir_set_body_block(mir_id, body_id, arm_block, v4_mir_block_new_full(arm_block, v4_mir_term_goto, after_block, 0 - 1, ""))
             if not arm_unreachable and route_when and pattern_full_route_case != "" {
                 route_covered_cases = v4_mir_name_list_add(route_covered_cases, pattern_full_route_case)
@@ -4468,6 +4800,12 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
         }
     } else if first_val == "give" {
         v4_mir_lower_return_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+    } else if first_val == "check" {
+        pilot next_token = v4_mir_skip_trivia(stream_id, first + 1)
+        if next_token < stmt_end and v4_lex_token_value(stream_id, next_token) == "result" {
+            give back v4_mir_lower_check_result_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+        }
+        give back v4_mir_lower_check_maybe_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "if" {
         give back v4_mir_lower_if_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "repeat" {

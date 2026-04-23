@@ -1,0 +1,213 @@
+-- V4 MIR maybe/result constructor and check-statement smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_check_find_stmt(mir_id: int, body_id: int, kind: word, lhs: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == kind and v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == lhs {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_check_maybe_good_source() -> word {
+    pilot src = "task maybe_good() -> int {\n"
+    src = src + "    pilot value: maybe<int> = some(7)\n"
+    src = src + "    pilot empty: maybe<int> = nobody\n"
+    src = src + "    check value {\n"
+    src = src + "        got x -> give back x + 1\n"
+    src = src + "        nobody -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_check_result_good_source() -> word {
+    pilot src = "task result_good() -> int {\n"
+    src = src + "    pilot parsed: result<int,word> = ok(9)\n"
+    src = src + "    pilot failed: result<int,word> = err(\"bad\")\n"
+    src = src + "    check result parsed {\n"
+    src = src + "        ok(n) -> give back n\n"
+    src = src + "        err(e) -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_check_bad_maybe_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot value = 7\n"
+    src = src + "    check value {\n"
+    src = src + "        got x -> say x\n"
+    src = src + "        nobody -> say \"none\"\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_check_bad_maybe_missing_arm_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot value: maybe<int> = some(7)\n"
+    src = src + "    check value {\n"
+    src = src + "        got x -> say x\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_check_bad_some_payload_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot value: maybe<int> = some(\"bad\")\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_check_bad_result_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot value = 7\n"
+    src = src + "    check result value {\n"
+    src = src + "        ok(x) -> say x\n"
+    src = src + "        err(e) -> say e\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_check_bad_result_missing_arm_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot parsed: result<int,word> = ok(9)\n"
+    src = src + "    check result parsed {\n"
+    src = src + "        ok(x) -> say x\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_check_bad_ok_payload_source() -> word {
+    pilot src = "task bad() -> void {\n"
+    src = src + "    pilot parsed: result<int,word> = ok(\"no\")\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_check_maybe_stream = v4_lex_text(0, v4_mir_check_maybe_good_source())
+pilot v4_mir_check_maybe_tree = v4_parse_stream(0, v4_mir_check_maybe_stream)
+pilot v4_mir_check_maybe_hir = v4_hir_lower_tree(0, v4_mir_check_maybe_tree)
+pilot v4_mir_check_maybe_resolve = v4_resolve_lower_hir(0, v4_mir_check_maybe_hir)
+pilot v4_mir_check_maybe_ty = v4_ty_lower_resolve(0, v4_mir_check_maybe_resolve)
+pilot v4_mir_check_maybe_mir = v4_mir_lower_ty(0, v4_mir_check_maybe_ty)
+pilot v4_mir_check_maybe_def = v4_resolve_def_for_name(v4_mir_check_maybe_resolve, "maybe_good")
+pilot v4_mir_check_maybe_body = v4_mir_lookup_body(v4_mir_check_maybe_mir, v4_mir_check_maybe_def)
+pilot v4_mir_check_maybe_value_stmt = v4_mir_check_find_stmt(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_stmt_local, "value")
+pilot v4_mir_check_maybe_empty_stmt = v4_mir_check_find_stmt(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_stmt_local, "empty")
+pilot v4_mir_check_maybe_branch_stmt = v4_mir_check_find_stmt(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_stmt_branch, "check value HasSome")
+pilot v4_mir_check_maybe_x_stmt = v4_mir_check_find_stmt(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_stmt_local, "x")
+pilot v4_mir_check_maybe_value_rvalue = v4_mir_stmt_rvalue(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_value_stmt)
+pilot v4_mir_check_maybe_empty_rvalue = v4_mir_stmt_rvalue(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_empty_stmt)
+pilot v4_mir_check_maybe_branch_rvalue = v4_mir_stmt_rvalue(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_branch_stmt)
+pilot v4_mir_check_maybe_x_rvalue = v4_mir_stmt_rvalue(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_x_stmt)
+pilot v4_mir_check_maybe_x_source = v4_mir_rvalue_lhs(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_x_rvalue)
+say "check-maybe-value-kind=" + v4_mir_rvalue_kind(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_value_rvalue)
+say "check-maybe-value-op=" + v4_mir_rvalue_op(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_value_rvalue)
+say "check-maybe-value-ty=" + v4_mir_rvalue_ty(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_value_rvalue)
+say "check-maybe-empty-kind=" + v4_mir_rvalue_kind(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_empty_rvalue)
+say "check-maybe-empty-ty=" + v4_mir_rvalue_ty(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_empty_rvalue)
+say "check-maybe-branch-kind=" + v4_mir_rvalue_kind(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_branch_rvalue)
+say "check-maybe-branch-op=" + v4_mir_rvalue_op(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_branch_rvalue)
+say "check-maybe-branch-ty=" + v4_mir_rvalue_ty(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_branch_rvalue)
+say "check-maybe-x-kind=" + v4_mir_rvalue_kind(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_x_rvalue)
+say "check-maybe-x-ty=" + v4_mir_rvalue_ty(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_x_rvalue)
+say "check-maybe-x-source-field=" + v4_mir_place_field(v4_mir_check_maybe_mir, v4_mir_check_maybe_body, v4_mir_check_maybe_x_source)
+say "check-maybe-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_maybe_mir))
+
+pilot v4_mir_check_result_stream = v4_lex_text(1, v4_mir_check_result_good_source())
+pilot v4_mir_check_result_tree = v4_parse_stream(1, v4_mir_check_result_stream)
+pilot v4_mir_check_result_hir = v4_hir_lower_tree(1, v4_mir_check_result_tree)
+pilot v4_mir_check_result_resolve = v4_resolve_lower_hir(1, v4_mir_check_result_hir)
+pilot v4_mir_check_result_ty = v4_ty_lower_resolve(1, v4_mir_check_result_resolve)
+pilot v4_mir_check_result_mir = v4_mir_lower_ty(1, v4_mir_check_result_ty)
+pilot v4_mir_check_result_def = v4_resolve_def_for_name(v4_mir_check_result_resolve, "result_good")
+pilot v4_mir_check_result_body = v4_mir_lookup_body(v4_mir_check_result_mir, v4_mir_check_result_def)
+pilot v4_mir_check_result_parsed_stmt = v4_mir_check_find_stmt(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_stmt_local, "parsed")
+pilot v4_mir_check_result_failed_stmt = v4_mir_check_find_stmt(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_stmt_local, "failed")
+pilot v4_mir_check_result_branch_stmt = v4_mir_check_find_stmt(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_stmt_branch, "check parsed IsOk")
+pilot v4_mir_check_result_n_stmt = v4_mir_check_find_stmt(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_stmt_local, "n")
+pilot v4_mir_check_result_parsed_rvalue = v4_mir_stmt_rvalue(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_parsed_stmt)
+pilot v4_mir_check_result_failed_rvalue = v4_mir_stmt_rvalue(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_failed_stmt)
+pilot v4_mir_check_result_branch_rvalue = v4_mir_stmt_rvalue(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_branch_stmt)
+pilot v4_mir_check_result_n_rvalue = v4_mir_stmt_rvalue(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_stmt)
+pilot v4_mir_check_result_n_source = v4_mir_rvalue_lhs(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_rvalue)
+say "check-result-ok-kind=" + v4_mir_rvalue_kind(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_parsed_rvalue)
+say "check-result-ok-op=" + v4_mir_rvalue_op(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_parsed_rvalue)
+say "check-result-ok-ty=" + v4_mir_rvalue_ty(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_parsed_rvalue)
+say "check-result-err-kind=" + v4_mir_rvalue_kind(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_failed_rvalue)
+say "check-result-err-ty=" + v4_mir_rvalue_ty(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_failed_rvalue)
+say "check-result-branch-kind=" + v4_mir_rvalue_kind(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_branch_rvalue)
+say "check-result-branch-op=" + v4_mir_rvalue_op(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_branch_rvalue)
+say "check-result-branch-ty=" + v4_mir_rvalue_ty(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_branch_rvalue)
+say "check-result-n-kind=" + v4_mir_rvalue_kind(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_rvalue)
+say "check-result-n-ty=" + v4_mir_rvalue_ty(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_rvalue)
+say "check-result-n-source-field=" + v4_mir_place_field(v4_mir_check_result_mir, v4_mir_check_result_body, v4_mir_check_result_n_source)
+say "check-result-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_result_mir))
+
+pilot v4_mir_check_bad_maybe_stream = v4_lex_text(2, v4_mir_check_bad_maybe_source())
+pilot v4_mir_check_bad_maybe_tree = v4_parse_stream(2, v4_mir_check_bad_maybe_stream)
+pilot v4_mir_check_bad_maybe_hir = v4_hir_lower_tree(2, v4_mir_check_bad_maybe_tree)
+pilot v4_mir_check_bad_maybe_resolve = v4_resolve_lower_hir(2, v4_mir_check_bad_maybe_hir)
+pilot v4_mir_check_bad_maybe_ty = v4_ty_lower_resolve(2, v4_mir_check_bad_maybe_resolve)
+pilot v4_mir_check_bad_maybe_mir = v4_mir_lower_ty(2, v4_mir_check_bad_maybe_ty)
+say "check-maybe-bad-source-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_bad_maybe_mir))
+say "check-maybe-bad-source-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_maybe_mir, 0))
+say "check-maybe-bad-source-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_bad_maybe_mir, 0))
+
+pilot v4_mir_check_bad_maybe_missing_stream = v4_lex_text(3, v4_mir_check_bad_maybe_missing_arm_source())
+pilot v4_mir_check_bad_maybe_missing_tree = v4_parse_stream(3, v4_mir_check_bad_maybe_missing_stream)
+pilot v4_mir_check_bad_maybe_missing_hir = v4_hir_lower_tree(3, v4_mir_check_bad_maybe_missing_tree)
+pilot v4_mir_check_bad_maybe_missing_resolve = v4_resolve_lower_hir(3, v4_mir_check_bad_maybe_missing_hir)
+pilot v4_mir_check_bad_maybe_missing_ty = v4_ty_lower_resolve(3, v4_mir_check_bad_maybe_missing_resolve)
+pilot v4_mir_check_bad_maybe_missing_mir = v4_mir_lower_ty(3, v4_mir_check_bad_maybe_missing_ty)
+say "check-maybe-missing-arm-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_bad_maybe_missing_mir))
+say "check-maybe-missing-arm-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_maybe_missing_mir, 0))
+say "check-maybe-missing-arm-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_bad_maybe_missing_mir, 0))
+
+pilot v4_mir_check_bad_some_stream = v4_lex_text(4, v4_mir_check_bad_some_payload_source())
+pilot v4_mir_check_bad_some_tree = v4_parse_stream(4, v4_mir_check_bad_some_stream)
+pilot v4_mir_check_bad_some_hir = v4_hir_lower_tree(4, v4_mir_check_bad_some_tree)
+pilot v4_mir_check_bad_some_resolve = v4_resolve_lower_hir(4, v4_mir_check_bad_some_hir)
+pilot v4_mir_check_bad_some_ty = v4_ty_lower_resolve(4, v4_mir_check_bad_some_resolve)
+pilot v4_mir_check_bad_some_mir = v4_mir_lower_ty(4, v4_mir_check_bad_some_ty)
+say "check-some-bad-payload-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_bad_some_mir))
+say "check-some-bad-payload-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_some_mir, 0))
+say "check-some-bad-payload-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_bad_some_mir, 0))
+
+pilot v4_mir_check_bad_result_stream = v4_lex_text(5, v4_mir_check_bad_result_source())
+pilot v4_mir_check_bad_result_tree = v4_parse_stream(5, v4_mir_check_bad_result_stream)
+pilot v4_mir_check_bad_result_hir = v4_hir_lower_tree(5, v4_mir_check_bad_result_tree)
+pilot v4_mir_check_bad_result_resolve = v4_resolve_lower_hir(5, v4_mir_check_bad_result_hir)
+pilot v4_mir_check_bad_result_ty = v4_ty_lower_resolve(5, v4_mir_check_bad_result_resolve)
+pilot v4_mir_check_bad_result_mir = v4_mir_lower_ty(5, v4_mir_check_bad_result_ty)
+say "check-result-bad-source-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_bad_result_mir))
+say "check-result-bad-source-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_result_mir, 0))
+say "check-result-bad-source-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_bad_result_mir, 0))
+
+pilot v4_mir_check_bad_result_missing_stream = v4_lex_text(6, v4_mir_check_bad_result_missing_arm_source())
+pilot v4_mir_check_bad_result_missing_tree = v4_parse_stream(6, v4_mir_check_bad_result_missing_stream)
+pilot v4_mir_check_bad_result_missing_hir = v4_hir_lower_tree(6, v4_mir_check_bad_result_missing_tree)
+pilot v4_mir_check_bad_result_missing_resolve = v4_resolve_lower_hir(6, v4_mir_check_bad_result_missing_hir)
+pilot v4_mir_check_bad_result_missing_ty = v4_ty_lower_resolve(6, v4_mir_check_bad_result_missing_resolve)
+pilot v4_mir_check_bad_result_missing_mir = v4_mir_lower_ty(6, v4_mir_check_bad_result_missing_ty)
+say "check-result-missing-arm-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_bad_result_missing_mir))
+say "check-result-missing-arm-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_result_missing_mir, 0))
+say "check-result-missing-arm-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_bad_result_missing_mir, 0))
+
+pilot v4_mir_check_bad_ok_stream = v4_lex_text(7, v4_mir_check_bad_ok_payload_source())
+pilot v4_mir_check_bad_ok_tree = v4_parse_stream(7, v4_mir_check_bad_ok_stream)
+pilot v4_mir_check_bad_ok_hir = v4_hir_lower_tree(7, v4_mir_check_bad_ok_tree)
+pilot v4_mir_check_bad_ok_resolve = v4_resolve_lower_hir(7, v4_mir_check_bad_ok_hir)
+pilot v4_mir_check_bad_ok_ty = v4_ty_lower_resolve(7, v4_mir_check_bad_ok_resolve)
+pilot v4_mir_check_bad_ok_mir = v4_mir_lower_ty(7, v4_mir_check_bad_ok_ty)
+say "check-ok-bad-payload-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_bad_ok_mir))
+say "check-ok-bad-payload-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_ok_mir, 0))
+say "check-ok-bad-payload-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_bad_ok_mir, 0))
