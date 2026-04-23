@@ -34,6 +34,21 @@ task v4_mir_try_or_else_good_source() -> word {
     src = src + "    pilot n = parsed?\n"
     src = src + "    give back ok(n)\n"
     src = src + "}\n"
+    src = src + "task return_try() -> maybe<int> {\n"
+    src = src + "    pilot value: maybe<int> = some(3)\n"
+    src = src + "    give back some(value?)\n"
+    src = src + "}\n"
+    src = src + "task multi_try() -> maybe<int> {\n"
+    src = src + "    pilot a: maybe<int> = some(1)\n"
+    src = src + "    pilot b: maybe<int> = some(2)\n"
+    src = src + "    pilot total = (a?) + (b?)\n"
+    src = src + "    give back some(total)\n"
+    src = src + "}\n"
+    src = src + "task nested_try() -> maybe<int> {\n"
+    src = src + "    pilot wrapped: maybe<maybe<int>> = some(some(5))\n"
+    src = src + "    pilot final = wrapped??\n"
+    src = src + "    give back some(final)\n"
+    src = src + "}\n"
     src = src + "task fallback() -> int {\n"
     src = src + "    pilot value: maybe<int> = some(7)\n"
     src = src + "    pilot from_maybe = value or else 1\n"
@@ -131,6 +146,35 @@ say "try-result-continue-block=" + word_from_int(v4_mir_try_or_else_result_conti
 say "try-result-propagate-block=" + word_from_int(v4_mir_try_or_else_result_propagate)
 say "try-result-propagate-term=" + v4_mir_block_terminator(v4_mir_body_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_try_or_else_result_propagate))
 say "try-result-propagate-rhs=" + v4_mir_stmt_rhs(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_try_or_else_result_propagate_stmt)
+
+pilot v4_mir_try_or_else_return_def = v4_resolve_def_for_name(v4_mir_try_or_else_good_resolve, "return_try")
+pilot v4_mir_try_or_else_return_body = v4_mir_lookup_body(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_return_def)
+pilot v4_mir_try_or_else_return_entry = v4_mir_body_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_return_body, 0)
+pilot v4_mir_try_or_else_return_continue = v4_mir_block_target(v4_mir_try_or_else_return_entry)
+pilot v4_mir_try_or_else_return_propagate = v4_mir_block_else_target(v4_mir_try_or_else_return_entry)
+pilot v4_mir_try_or_else_return_stmt = v4_mir_try_or_else_find_stmt_in_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_return_body, v4_mir_stmt_return, v4_mir_try_or_else_return_continue)
+say "try-return-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_return_body))
+say "try-return-entry-term=" + v4_mir_block_terminator(v4_mir_try_or_else_return_entry)
+say "try-return-entry-cond=" + v4_mir_block_condition(v4_mir_try_or_else_return_entry)
+say "try-return-continue-block=" + word_from_int(v4_mir_try_or_else_return_continue)
+say "try-return-propagate-block=" + word_from_int(v4_mir_try_or_else_return_propagate)
+say "try-return-rhs=" + v4_mir_stmt_rhs(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_return_body, v4_mir_try_or_else_return_stmt)
+
+pilot v4_mir_try_or_else_multi_def = v4_resolve_def_for_name(v4_mir_try_or_else_good_resolve, "multi_try")
+pilot v4_mir_try_or_else_multi_body = v4_mir_lookup_body(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_multi_def)
+pilot v4_mir_try_or_else_multi_entry = v4_mir_body_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_multi_body, 0)
+pilot v4_mir_try_or_else_multi_second = v4_mir_body_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_multi_body, v4_mir_block_target(v4_mir_try_or_else_multi_entry))
+say "try-multi-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_multi_body))
+say "try-multi-entry-cond=" + v4_mir_block_condition(v4_mir_try_or_else_multi_entry)
+say "try-multi-second-cond=" + v4_mir_block_condition(v4_mir_try_or_else_multi_second)
+
+pilot v4_mir_try_or_else_nested_def = v4_resolve_def_for_name(v4_mir_try_or_else_good_resolve, "nested_try")
+pilot v4_mir_try_or_else_nested_body = v4_mir_lookup_body(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_nested_def)
+pilot v4_mir_try_or_else_nested_entry = v4_mir_body_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_nested_body, 0)
+pilot v4_mir_try_or_else_nested_second = v4_mir_body_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_nested_body, v4_mir_block_target(v4_mir_try_or_else_nested_entry))
+say "try-nested-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_nested_body))
+say "try-nested-entry-cond=" + v4_mir_block_condition(v4_mir_try_or_else_nested_entry)
+say "try-nested-second-cond=" + v4_mir_block_condition(v4_mir_try_or_else_nested_second)
 
 pilot v4_mir_try_or_else_fallback_def = v4_resolve_def_for_name(v4_mir_try_or_else_good_resolve, "fallback")
 pilot v4_mir_try_or_else_fallback_body = v4_mir_lookup_body(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_def)
