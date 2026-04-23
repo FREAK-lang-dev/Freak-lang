@@ -719,6 +719,156 @@ task v4_mir_validate_body_return_coverage(mir_id: int, body_id: int, item_span: 
     }
 }
 
+task v4_mir_body_stmt_count_for_block(mir_id: int, body_id: int, block_id: int) -> int {
+    pilot total = 0
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
+            total += 1
+        }
+        stmt_id += 1
+    }
+    give back total
+}
+
+task v4_mir_body_stmt_kind_count_for_block(mir_id: int, body_id: int, block_id: int, wanted_kind: word) -> int {
+    pilot total = 0
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id and v4_mir_stmt_kind(mir_id, body_id, stmt_id) == wanted_kind {
+            total += 1
+        }
+        stmt_id += 1
+    }
+    give back total
+}
+
+task v4_mir_body_block_has_stmt_after_return(mir_id: int, body_id: int, block_id: int) -> bool {
+    pilot saw_return = false
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
+            if saw_return {
+                give back true
+            }
+            if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+                saw_return = true
+            }
+        }
+        stmt_id += 1
+    }
+    give back false
+}
+
+task v4_mir_body_block_predecessor_count(mir_id: int, body_id: int, wanted_block: int) -> int {
+    pilot total = 0
+    pilot block_id = 0
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    repeat until block_id >= block_count {
+        pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+        pilot terminator = v4_mir_block_terminator(block_record)
+        if terminator == v4_mir_term_goto {
+            if v4_mir_block_target(block_record) == wanted_block {
+                total += 1
+            }
+        } else if terminator == v4_mir_term_if {
+            if v4_mir_block_target(block_record) == wanted_block {
+                total += 1
+            }
+            if v4_mir_block_else_target(block_record) == wanted_block {
+                total += 1
+            }
+        }
+        block_id += 1
+    }
+    give back total
+}
+
+task v4_mir_block_target_is_valid(mir_id: int, body_id: int, target: int) -> bool {
+    give back target >= 0 and target < v4_mir_body_block_count(mir_id, body_id)
+}
+
+task v4_mir_validate_body_cfg(mir_id: int, body_id: int, item_span: word) -> void {
+    pilot body_name = v4_mir_body_name(mir_id, body_id)
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    pilot place_count = v4_mir_body_place_count(mir_id, body_id)
+    pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
+
+    pilot stmt_id = 0
+    repeat until stmt_id >= stmt_count {
+        pilot stmt_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+        if stmt_block < 0 or stmt_block >= block_count {
+            v4_mir_add_type_error(mir_id, item_span, "mir cfg stmt block out of range", body_name + " statement " + word_from_int(stmt_id) + " points at missing block " + word_from_int(stmt_block))
+        }
+
+        pilot stmt_place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+        if stmt_place >= place_count {
+            v4_mir_add_type_error(mir_id, item_span, "mir cfg stmt place out of range", body_name + " statement " + word_from_int(stmt_id) + " points at missing place " + word_from_int(stmt_place))
+        }
+
+        pilot stmt_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+        if stmt_rvalue >= rvalue_count {
+            v4_mir_add_type_error(mir_id, item_span, "mir cfg stmt rvalue out of range", body_name + " statement " + word_from_int(stmt_id) + " points at missing rvalue " + word_from_int(stmt_rvalue))
+        }
+        stmt_id += 1
+    }
+
+    pilot block_id = 0
+    repeat until block_id >= block_count {
+        pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+        pilot record_id = v4_mir_block_id(block_record)
+        pilot terminator = v4_mir_block_terminator(block_record)
+        pilot stmt_in_block = v4_mir_body_stmt_count_for_block(mir_id, body_id, block_id)
+        pilot return_count = v4_mir_body_stmt_kind_count_for_block(mir_id, body_id, block_id, v4_mir_stmt_return)
+        pilot branch_count = v4_mir_body_stmt_kind_count_for_block(mir_id, body_id, block_id, v4_mir_stmt_branch)
+        pilot loop_count = v4_mir_body_stmt_kind_count_for_block(mir_id, body_id, block_id, v4_mir_stmt_loop)
+
+        if record_id != block_id {
+            v4_mir_add_type_error(mir_id, item_span, "mir cfg block id drift", body_name + " stores block " + word_from_int(record_id) + " in slot " + word_from_int(block_id))
+        }
+
+        if terminator == v4_mir_term_goto {
+            if not v4_mir_block_target_is_valid(mir_id, body_id, v4_mir_block_target(block_record)) {
+                v4_mir_add_type_error(mir_id, item_span, "mir cfg invalid goto target", body_name + " block " + word_from_int(block_id) + " jumps to missing block " + word_from_int(v4_mir_block_target(block_record)))
+            }
+        } else if terminator == v4_mir_term_if {
+            if not v4_mir_block_target_is_valid(mir_id, body_id, v4_mir_block_target(block_record)) {
+                v4_mir_add_type_error(mir_id, item_span, "mir cfg invalid if target", body_name + " block " + word_from_int(block_id) + " branches to missing block " + word_from_int(v4_mir_block_target(block_record)))
+            }
+            if not v4_mir_block_target_is_valid(mir_id, body_id, v4_mir_block_else_target(block_record)) {
+                v4_mir_add_type_error(mir_id, item_span, "mir cfg invalid else target", body_name + " block " + word_from_int(block_id) + " falls through to missing block " + word_from_int(v4_mir_block_else_target(block_record)))
+            }
+            if branch_count + loop_count == 0 {
+                v4_mir_add_type_error(mir_id, item_span, "mir cfg if terminator missing control stmt", body_name + " block " + word_from_int(block_id) + " ends with If but records no branch or loop statement")
+            }
+        } else if terminator != v4_mir_term_return and terminator != v4_mir_term_unreachable {
+            v4_mir_add_type_error(mir_id, item_span, "mir cfg unknown terminator", body_name + " block " + word_from_int(block_id) + " uses unsupported terminator " + terminator)
+        }
+
+        if return_count > 0 and terminator != v4_mir_term_return {
+            v4_mir_add_type_error(mir_id, item_span, "mir cfg return terminator mismatch", body_name + " block " + word_from_int(block_id) + " contains return value statements but ends with " + terminator)
+        }
+        if branch_count + loop_count > 0 and terminator != v4_mir_term_if {
+            v4_mir_add_type_error(mir_id, item_span, "mir cfg branch terminator mismatch", body_name + " block " + word_from_int(block_id) + " contains branch or loop statements but ends with " + terminator)
+        }
+        if v4_mir_body_block_has_stmt_after_return(mir_id, body_id, block_id) {
+            v4_mir_add_type_error(mir_id, item_span, "mir cfg statement after return", body_name + " block " + word_from_int(block_id) + " keeps lowering statements after a return")
+        }
+
+        if block_id != 0 {
+            pilot preds = v4_mir_body_block_predecessor_count(mir_id, body_id, block_id)
+            if preds == 0 and (stmt_in_block > 0 or terminator == v4_mir_term_goto or terminator == v4_mir_term_if) {
+                v4_mir_add_type_error(mir_id, item_span, "mir cfg unreachable live block", body_name + " block " + word_from_int(block_id) + " has no predecessors but still carries live statements or control flow")
+            }
+        }
+        block_id += 1
+    }
+}
+
 task v4_mir_rvalue_can_contain_child_tries(kind: word) -> bool {
     give back kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_try
 }
@@ -5161,6 +5311,7 @@ task v4_mir_lower_task_body_token_range(mir_id: int, body_id: int, stream_id: in
     } else if body_marker == "=>" {
         pilot body_tail = v4_mir_lower_arrow_body(mir_id, body_id, 0, stream_id, body_token, end_token)
     }
+    v4_mir_validate_body_cfg(mir_id, body_id, item_span)
     v4_mir_validate_body_return_coverage(mir_id, body_id, item_span)
 }
 

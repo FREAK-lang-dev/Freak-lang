@@ -1,0 +1,59 @@
+-- V4 MIR structural CFG verifier smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_cfg_good_source() -> word {
+    pilot src = "task good() -> int {\n"
+    src = src + "    give back 1\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_cfg_good_stream = v4_lex_text(0, v4_mir_cfg_good_source())
+pilot v4_mir_cfg_good_tree = v4_parse_stream(0, v4_mir_cfg_good_stream)
+pilot v4_mir_cfg_good_hir = v4_hir_lower_tree(0, v4_mir_cfg_good_tree)
+pilot v4_mir_cfg_good_resolve = v4_resolve_lower_hir(0, v4_mir_cfg_good_hir)
+pilot v4_mir_cfg_good_ty = v4_ty_lower_resolve(0, v4_mir_cfg_good_resolve)
+pilot v4_mir_cfg_good_mir = v4_mir_lower_ty(0, v4_mir_cfg_good_ty)
+say "cfg-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_cfg_good_mir))
+
+pilot v4_mir_cfg_edge_mir = v4_mir_file_new(100, 0)
+pilot v4_mir_cfg_edge_body = v4_mir_add_body(v4_mir_cfg_edge_mir, "edge", "edge", "task edge() -> void")
+pilot v4_mir_cfg_edge_then = v4_mir_add_block(v4_mir_cfg_edge_mir, v4_mir_cfg_edge_body, v4_mir_term_unreachable, 0 - 1, 0 - 1, "")
+pilot v4_mir_cfg_edge_cond = v4_mir_add_rvalue(v4_mir_cfg_edge_mir, v4_mir_cfg_edge_body, v4_mir_rvalue_const_bool, "true", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_bool)
+v4_mir_add_stmt(v4_mir_cfg_edge_mir, v4_mir_cfg_edge_body, 0, v4_mir_stmt_branch, "broken", "then#1 else#7", V4_NO_SPAN, 0 - 1, v4_mir_cfg_edge_cond)
+v4_mir_set_body_block(v4_mir_cfg_edge_mir, v4_mir_cfg_edge_body, 0, v4_mir_block_new_full(0, v4_mir_term_if, v4_mir_cfg_edge_then, 7, "broken"))
+v4_mir_validate_body_cfg(v4_mir_cfg_edge_mir, v4_mir_cfg_edge_body, V4_NO_SPAN)
+say "cfg-edge-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_cfg_edge_mir))
+say "cfg-edge-message=" + v4_diag_message(v4_mir_diag(v4_mir_cfg_edge_mir, 0))
+say "cfg-edge-help=" + v4_diag_help(v4_mir_diag(v4_mir_cfg_edge_mir, 0))
+
+pilot v4_mir_cfg_stmt_mir = v4_mir_file_new(101, 0)
+pilot v4_mir_cfg_stmt_body = v4_mir_add_body(v4_mir_cfg_stmt_mir, "stmt", "stmt", "task stmt() -> void")
+pilot v4_mir_cfg_stmt_rvalue = v4_mir_add_rvalue(v4_mir_cfg_stmt_mir, v4_mir_cfg_stmt_body, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_int)
+v4_mir_add_stmt(v4_mir_cfg_stmt_mir, v4_mir_cfg_stmt_body, 9, v4_mir_stmt_expr, "", "1", V4_NO_SPAN, 0 - 1, v4_mir_cfg_stmt_rvalue)
+v4_mir_validate_body_cfg(v4_mir_cfg_stmt_mir, v4_mir_cfg_stmt_body, V4_NO_SPAN)
+say "cfg-stmt-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_cfg_stmt_mir))
+say "cfg-stmt-message=" + v4_diag_message(v4_mir_diag(v4_mir_cfg_stmt_mir, 0))
+say "cfg-stmt-help=" + v4_diag_help(v4_mir_diag(v4_mir_cfg_stmt_mir, 0))
+
+pilot v4_mir_cfg_return_mir = v4_mir_file_new(102, 0)
+pilot v4_mir_cfg_return_body = v4_mir_add_body(v4_mir_cfg_return_mir, "returner", "returner", "task returner() -> int")
+pilot v4_mir_cfg_return_after = v4_mir_add_block(v4_mir_cfg_return_mir, v4_mir_cfg_return_body, v4_mir_term_unreachable, 0 - 1, 0 - 1, "")
+pilot v4_mir_cfg_return_rvalue = v4_mir_add_rvalue(v4_mir_cfg_return_mir, v4_mir_cfg_return_body, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_int)
+pilot v4_mir_cfg_return_place = v4_mir_add_place(v4_mir_cfg_return_mir, v4_mir_cfg_return_body, v4_mir_place_return, "_return", 0 - 1, "_return", 0 - 1, V4_NO_SPAN, v4_ty_int)
+v4_mir_add_stmt(v4_mir_cfg_return_mir, v4_mir_cfg_return_body, 0, v4_mir_stmt_return, "_return", "1", V4_NO_SPAN, v4_mir_cfg_return_place, v4_mir_cfg_return_rvalue)
+v4_mir_set_body_block(v4_mir_cfg_return_mir, v4_mir_cfg_return_body, 0, v4_mir_block_new_full(0, v4_mir_term_goto, v4_mir_cfg_return_after, 0 - 1, ""))
+v4_mir_validate_body_cfg(v4_mir_cfg_return_mir, v4_mir_cfg_return_body, V4_NO_SPAN)
+say "cfg-return-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_cfg_return_mir))
+say "cfg-return-message=" + v4_diag_message(v4_mir_diag(v4_mir_cfg_return_mir, 0))
+say "cfg-return-help=" + v4_diag_help(v4_mir_diag(v4_mir_cfg_return_mir, 0))
+
+pilot v4_mir_cfg_unreachable_mir = v4_mir_file_new(103, 0)
+pilot v4_mir_cfg_unreachable_body = v4_mir_add_body(v4_mir_cfg_unreachable_mir, "tail", "tail", "task tail() -> void")
+pilot v4_mir_cfg_unreachable_block = v4_mir_add_block(v4_mir_cfg_unreachable_mir, v4_mir_cfg_unreachable_body, v4_mir_term_goto, 0, 0 - 1, "")
+pilot v4_mir_cfg_unreachable_rvalue = v4_mir_add_rvalue(v4_mir_cfg_unreachable_mir, v4_mir_cfg_unreachable_body, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_int)
+v4_mir_add_stmt(v4_mir_cfg_unreachable_mir, v4_mir_cfg_unreachable_body, v4_mir_cfg_unreachable_block, v4_mir_stmt_expr, "", "1", V4_NO_SPAN, 0 - 1, v4_mir_cfg_unreachable_rvalue)
+v4_mir_validate_body_cfg(v4_mir_cfg_unreachable_mir, v4_mir_cfg_unreachable_body, V4_NO_SPAN)
+say "cfg-unreachable-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_cfg_unreachable_mir))
+say "cfg-unreachable-message=" + v4_diag_message(v4_mir_diag(v4_mir_cfg_unreachable_mir, 0))
+say "cfg-unreachable-help=" + v4_diag_help(v4_mir_diag(v4_mir_cfg_unreachable_mir, 0))

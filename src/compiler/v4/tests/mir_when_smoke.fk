@@ -69,6 +69,8 @@ say "when-arm1-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_when_mir, v4_mir_when_g
 say "when-arm1-rvalue-op=" + v4_mir_rvalue_op(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm1_rvalue)
 say "when-arm1-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_when_mir, v4_mir_when_grade_body, v4_mir_when_arm1_rvalue)
 say "when-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_when_mir))
+say "when-good-message=" + v4_diag_message(v4_mir_diag(v4_mir_when_mir, 0))
+say "when-good-help=" + v4_diag_help(v4_mir_diag(v4_mir_when_mir, 0))
 
 pilot v4_mir_bad_when_source = v4_mir_bad_when_make_source()
 pilot v4_mir_bad_when_stream = v4_lex_text(1, v4_mir_bad_when_source)
