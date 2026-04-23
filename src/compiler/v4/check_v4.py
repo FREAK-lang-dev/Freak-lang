@@ -312,6 +312,22 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "MIR return coverage diagnostics",
+        "fixture": "mir_return_coverage_smoke.fk",
+        "expect": [
+            "return-coverage-good-diagnostics=0",
+            "return-coverage-missing-diagnostics=1",
+            "return-coverage-missing-message=missing return",
+            "return-coverage-missing-help=missing must give back int on every route",
+            "return-coverage-partial-diagnostics=1",
+            "return-coverage-partial-message=missing return",
+            "return-coverage-partial-help=partial must give back int on every route",
+            "return-coverage-loop-diagnostics=1",
+            "return-coverage-loop-message=missing return",
+            "return-coverage-loop-help=loop_only must give back int on every route",
+        ],
+    },
+    {
         "name": "MIR local declaration typing",
         "fixture": "mir_local_decl_smoke.fk",
         "expect": [

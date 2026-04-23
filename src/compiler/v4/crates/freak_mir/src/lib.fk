@@ -671,6 +671,54 @@ task v4_mir_seal_block_goto_if_live(mir_id: int, body_id: int, block_id: int, ta
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_goto, target, 0 - 1, ""))
 }
 
+task v4_mir_block_can_fallthrough_without_return_seen(mir_id: int, body_id: int, block_id: int, seen: word) -> bool {
+    if block_id < 0 {
+        give back false
+    }
+    if block_id >= v4_mir_body_block_count(mir_id, body_id) {
+        give back false
+    }
+
+    pilot block_key = word_from_int(block_id)
+    if v4_mir_name_list_contains(seen, block_key) {
+        give back false
+    }
+    seen = v4_mir_name_list_add(seen, block_key)
+
+    pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+    pilot terminator = v4_mir_block_terminator(block_record)
+    if terminator == v4_mir_term_return {
+        give back not v4_mir_block_has_return_stmt(mir_id, body_id, block_id)
+    }
+    if terminator == v4_mir_term_unreachable {
+        give back false
+    }
+    if terminator == v4_mir_term_goto {
+        give back v4_mir_block_can_fallthrough_without_return_seen(mir_id, body_id, v4_mir_block_target(block_record), seen)
+    }
+    if terminator == v4_mir_term_if {
+        if v4_mir_block_can_fallthrough_without_return_seen(mir_id, body_id, v4_mir_block_target(block_record), seen) {
+            give back true
+        }
+        give back v4_mir_block_can_fallthrough_without_return_seen(mir_id, body_id, v4_mir_block_else_target(block_record), seen)
+    }
+    give back false
+}
+
+task v4_mir_body_can_fallthrough_without_return(mir_id: int, body_id: int) -> bool {
+    give back v4_mir_block_can_fallthrough_without_return_seen(mir_id, body_id, 0, "")
+}
+
+task v4_mir_validate_body_return_coverage(mir_id: int, body_id: int, item_span: word) -> void {
+    pilot expected_ty = v4_mir_expected_return_type(mir_id, body_id)
+    if expected_ty == v4_ty_unknown or expected_ty == v4_ty_void {
+        give back
+    }
+    if v4_mir_body_can_fallthrough_without_return(mir_id, body_id) {
+        v4_mir_add_type_error(mir_id, item_span, "missing return", v4_mir_body_name(mir_id, body_id) + " must give back " + expected_ty + " on every route")
+    }
+}
+
 task v4_mir_find_local(mir_id: int, body_id: int, local_name: word) -> int {
     pilot local_idx = 0
     pilot local_count = v4_mir_body_local_count(mir_id, body_id)
@@ -4841,6 +4889,7 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
                 route_covered_cases = v4_mir_name_list_add(route_covered_cases, pattern_full_route_case)
                 if v4_mir_route_all_cases_covered(mir_id, scrutinee_ty, route_covered_cases) {
                     current_check_live = false
+                    v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_unreachable, 0 - 1, 0 - 1, "exhaustive route when"))
                 }
             }
             idx = arm_end + 1
@@ -5009,6 +5058,7 @@ task v4_mir_lower_task_body_token_range(mir_id: int, body_id: int, stream_id: in
     } else if body_marker == "=>" {
         v4_mir_lower_arrow_body(mir_id, body_id, 0, stream_id, body_token, end_token)
     }
+    v4_mir_validate_body_return_coverage(mir_id, body_id, item_span)
 }
 
 task v4_mir_lower_task_body_tokens(mir_id: int, body_id: int, stream_id: int, item_span: word) -> void {
