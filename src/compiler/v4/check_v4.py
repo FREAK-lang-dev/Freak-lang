@@ -1582,6 +1582,22 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "Meiya composite rvalue paths",
+        "fixture": "borrowck_rvalue_paths_smoke.fk",
+        "expect": [
+            "rvalue-paths-status=clean",
+            "rvalue-paths-total=13",
+            "rvalue-paths-moves=4",
+            "rvalue-paths-drops=4",
+            "rvalue-paths-value-move=1",
+            "rvalue-paths-fallback-move=1",
+            "rvalue-paths-x-move=1",
+            "rvalue-paths-y-move=1",
+            "rvalue-paths-return=1",
+            "rvalue-paths-diagnostics=0",
+        ],
+    },
+    {
         "name": "MIR else-if lowering",
         "fixture": "mir_else_if_smoke.fk",
         "expect": [

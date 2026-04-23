@@ -1,0 +1,49 @@
+-- V4 borrow checker composite-rvalue path smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_borrowck_rvalue_paths_count(borrow_id: int, result_id: int, kind: word, text: word) -> int {
+    pilot total = 0
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == kind {
+            if v4_borrowck_path_text(borrow_id, result_id, path_id) == text {
+                total += 1
+            }
+        }
+        path_id += 1
+    }
+    give back total
+}
+
+task v4_borrowck_rvalue_paths_source() -> word {
+    pilot src = "task flow() -> maybe<int> {\n"
+    src = src + "    pilot value: maybe<int> = some(7)\n"
+    src = src + "    pilot x = value?\n"
+    src = src + "    pilot fallback: maybe<int> = nobody\n"
+    src = src + "    pilot y = fallback or else x\n"
+    src = src + "    give back some(y)\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_borrowck_rvalue_paths_stream = v4_lex_text(0, v4_borrowck_rvalue_paths_source())
+pilot v4_borrowck_rvalue_paths_tree = v4_parse_stream(0, v4_borrowck_rvalue_paths_stream)
+pilot v4_borrowck_rvalue_paths_hir = v4_hir_lower_tree(0, v4_borrowck_rvalue_paths_tree)
+pilot v4_borrowck_rvalue_paths_resolve = v4_resolve_lower_hir(0, v4_borrowck_rvalue_paths_hir)
+pilot v4_borrowck_rvalue_paths_ty = v4_ty_lower_resolve(0, v4_borrowck_rvalue_paths_resolve)
+pilot v4_borrowck_rvalue_paths_mir = v4_mir_lower_ty(0, v4_borrowck_rvalue_paths_ty)
+pilot v4_borrowck_rvalue_paths_check = v4_borrowck_check_mir(0, v4_borrowck_rvalue_paths_mir)
+pilot v4_borrowck_rvalue_paths_def = v4_resolve_def_for_name(v4_borrowck_rvalue_paths_resolve, "flow")
+pilot v4_borrowck_rvalue_paths_result = v4_borrowck_lookup_result(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_def)
+
+say v4_borrowck_summary(v4_borrowck_rvalue_paths_check)
+say "rvalue-paths-status=" + v4_borrowck_result_status(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result)
+say "rvalue-paths-total=" + word_from_int(v4_borrowck_result_path_count(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result))
+say "rvalue-paths-moves=" + word_from_int(v4_borrowck_result_moves(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result))
+say "rvalue-paths-drops=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result))
+say "rvalue-paths-value-move=" + word_from_int(v4_borrowck_rvalue_paths_count(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result, v4_borrowck_path_move, "value"))
+say "rvalue-paths-fallback-move=" + word_from_int(v4_borrowck_rvalue_paths_count(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result, v4_borrowck_path_move, "fallback"))
+say "rvalue-paths-x-move=" + word_from_int(v4_borrowck_rvalue_paths_count(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result, v4_borrowck_path_move, "x"))
+say "rvalue-paths-y-move=" + word_from_int(v4_borrowck_rvalue_paths_count(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result, v4_borrowck_path_move, "y"))
+say "rvalue-paths-return=" + word_from_int(v4_borrowck_rvalue_paths_count(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result, v4_borrowck_path_return, "_return"))
+say "rvalue-paths-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_borrowck_rvalue_paths_check))
