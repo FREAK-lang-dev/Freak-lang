@@ -41,6 +41,7 @@ say "rvalue-paths-status=" + v4_borrowck_result_status(v4_borrowck_rvalue_paths_
 say "rvalue-paths-total=" + word_from_int(v4_borrowck_result_path_count(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result))
 say "rvalue-paths-moves=" + word_from_int(v4_borrowck_result_moves(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result))
 say "rvalue-paths-drops=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result))
+say "rvalue-paths-value-loan=" + word_from_int(v4_borrowck_rvalue_paths_count(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result, v4_borrowck_path_loan, "value"))
 say "rvalue-paths-value-move=" + word_from_int(v4_borrowck_rvalue_paths_count(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result, v4_borrowck_path_move, "value"))
 say "rvalue-paths-fallback-move=" + word_from_int(v4_borrowck_rvalue_paths_count(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result, v4_borrowck_path_move, "fallback"))
 say "rvalue-paths-x-move=" + word_from_int(v4_borrowck_rvalue_paths_count(v4_borrowck_rvalue_paths_check, v4_borrowck_rvalue_paths_result, v4_borrowck_path_move, "x"))

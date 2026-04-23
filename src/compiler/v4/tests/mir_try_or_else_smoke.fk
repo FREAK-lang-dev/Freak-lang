@@ -12,6 +12,17 @@ task v4_mir_try_or_else_find_stmt(mir_id: int, body_id: int, kind: word, lhs: wo
     give back 0 - 1
 }
 
+task v4_mir_try_or_else_find_stmt_in_block(mir_id: int, body_id: int, kind: word, block_id: int) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == kind and v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
 task v4_mir_try_or_else_good_source() -> word {
     pilot src = "task maybe_try() -> maybe<int> {\n"
     src = src + "    pilot value: maybe<int> = some(7)\n"
@@ -90,6 +101,17 @@ pilot v4_mir_try_or_else_x_rvalue = v4_mir_stmt_rvalue(v4_mir_try_or_else_good_m
 say "try-maybe-kind=" + v4_mir_rvalue_kind(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, v4_mir_try_or_else_x_rvalue)
 say "try-maybe-op=" + v4_mir_rvalue_op(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, v4_mir_try_or_else_x_rvalue)
 say "try-maybe-ty=" + v4_mir_rvalue_ty(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, v4_mir_try_or_else_x_rvalue)
+pilot v4_mir_try_or_else_maybe_entry = v4_mir_body_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, 0)
+pilot v4_mir_try_or_else_maybe_continue = v4_mir_block_target(v4_mir_try_or_else_maybe_entry)
+pilot v4_mir_try_or_else_maybe_propagate = v4_mir_block_else_target(v4_mir_try_or_else_maybe_entry)
+pilot v4_mir_try_or_else_maybe_propagate_stmt = v4_mir_try_or_else_find_stmt_in_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, v4_mir_stmt_return, v4_mir_try_or_else_maybe_propagate)
+say "try-maybe-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body))
+say "try-maybe-entry-term=" + v4_mir_block_terminator(v4_mir_try_or_else_maybe_entry)
+say "try-maybe-entry-cond=" + v4_mir_block_condition(v4_mir_try_or_else_maybe_entry)
+say "try-maybe-continue-block=" + word_from_int(v4_mir_try_or_else_maybe_continue)
+say "try-maybe-propagate-block=" + word_from_int(v4_mir_try_or_else_maybe_propagate)
+say "try-maybe-propagate-term=" + v4_mir_block_terminator(v4_mir_body_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, v4_mir_try_or_else_maybe_propagate))
+say "try-maybe-propagate-rhs=" + v4_mir_stmt_rhs(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, v4_mir_try_or_else_maybe_propagate_stmt)
 
 pilot v4_mir_try_or_else_result_def = v4_resolve_def_for_name(v4_mir_try_or_else_good_resolve, "result_try")
 pilot v4_mir_try_or_else_result_body = v4_mir_lookup_body(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_def)
@@ -98,6 +120,17 @@ pilot v4_mir_try_or_else_n_rvalue = v4_mir_stmt_rvalue(v4_mir_try_or_else_good_m
 say "try-result-kind=" + v4_mir_rvalue_kind(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_try_or_else_n_rvalue)
 say "try-result-op=" + v4_mir_rvalue_op(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_try_or_else_n_rvalue)
 say "try-result-ty=" + v4_mir_rvalue_ty(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_try_or_else_n_rvalue)
+pilot v4_mir_try_or_else_result_entry = v4_mir_body_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, 0)
+pilot v4_mir_try_or_else_result_continue = v4_mir_block_target(v4_mir_try_or_else_result_entry)
+pilot v4_mir_try_or_else_result_propagate = v4_mir_block_else_target(v4_mir_try_or_else_result_entry)
+pilot v4_mir_try_or_else_result_propagate_stmt = v4_mir_try_or_else_find_stmt_in_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_stmt_return, v4_mir_try_or_else_result_propagate)
+say "try-result-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body))
+say "try-result-entry-term=" + v4_mir_block_terminator(v4_mir_try_or_else_result_entry)
+say "try-result-entry-cond=" + v4_mir_block_condition(v4_mir_try_or_else_result_entry)
+say "try-result-continue-block=" + word_from_int(v4_mir_try_or_else_result_continue)
+say "try-result-propagate-block=" + word_from_int(v4_mir_try_or_else_result_propagate)
+say "try-result-propagate-term=" + v4_mir_block_terminator(v4_mir_body_block(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_try_or_else_result_propagate))
+say "try-result-propagate-rhs=" + v4_mir_stmt_rhs(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_try_or_else_result_propagate_stmt)
 
 pilot v4_mir_try_or_else_fallback_def = v4_resolve_def_for_name(v4_mir_try_or_else_good_resolve, "fallback")
 pilot v4_mir_try_or_else_fallback_body = v4_mir_lookup_body(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_def)
