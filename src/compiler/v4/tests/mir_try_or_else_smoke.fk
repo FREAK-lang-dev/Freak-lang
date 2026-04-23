@@ -1,0 +1,164 @@
+-- V4 MIR ? propagation and or else fallback smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_try_or_else_find_stmt(mir_id: int, body_id: int, kind: word, lhs: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == kind and v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == lhs {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_try_or_else_good_source() -> word {
+    pilot src = "task maybe_try() -> maybe<int> {\n"
+    src = src + "    pilot value: maybe<int> = some(7)\n"
+    src = src + "    pilot x = value?\n"
+    src = src + "    give back some(x)\n"
+    src = src + "}\n"
+    src = src + "task result_try() -> result<int,word> {\n"
+    src = src + "    pilot parsed: result<int,word> = ok(9)\n"
+    src = src + "    pilot n = parsed?\n"
+    src = src + "    give back ok(n)\n"
+    src = src + "}\n"
+    src = src + "task fallback() -> int {\n"
+    src = src + "    pilot value: maybe<int> = some(7)\n"
+    src = src + "    pilot from_maybe = value or else 1\n"
+    src = src + "    pilot parsed: result<int,word> = err(\"bad\")\n"
+    src = src + "    pilot from_result = parsed or else 2\n"
+    src = src + "    give back from_maybe + from_result\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_try_or_else_bad_try_source() -> word {
+    pilot src = "task bad() -> maybe<int> {\n"
+    src = src + "    pilot x = 7?\n"
+    src = src + "    give back some(x)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_try_or_else_bad_maybe_return_source() -> word {
+    pilot src = "task bad() -> int {\n"
+    src = src + "    pilot value: maybe<int> = some(7)\n"
+    src = src + "    pilot x = value?\n"
+    src = src + "    give back x\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_try_or_else_bad_result_error_source() -> word {
+    pilot src = "task bad() -> result<int,int> {\n"
+    src = src + "    pilot parsed: result<int,word> = err(\"bad\")\n"
+    src = src + "    pilot x = parsed?\n"
+    src = src + "    give back ok(x)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_try_or_else_bad_or_else_source() -> word {
+    pilot src = "task bad() -> int {\n"
+    src = src + "    pilot x = 7 or else 0\n"
+    src = src + "    give back x\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_try_or_else_bad_fallback_source() -> word {
+    pilot src = "task bad() -> int {\n"
+    src = src + "    pilot value: maybe<int> = some(7)\n"
+    src = src + "    pilot x = value or else \"bad\"\n"
+    src = src + "    give back x\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_try_or_else_good_stream = v4_lex_text(0, v4_mir_try_or_else_good_source())
+pilot v4_mir_try_or_else_good_tree = v4_parse_stream(0, v4_mir_try_or_else_good_stream)
+pilot v4_mir_try_or_else_good_hir = v4_hir_lower_tree(0, v4_mir_try_or_else_good_tree)
+pilot v4_mir_try_or_else_good_resolve = v4_resolve_lower_hir(0, v4_mir_try_or_else_good_hir)
+pilot v4_mir_try_or_else_good_ty = v4_ty_lower_resolve(0, v4_mir_try_or_else_good_resolve)
+pilot v4_mir_try_or_else_good_mir = v4_mir_lower_ty(0, v4_mir_try_or_else_good_ty)
+
+pilot v4_mir_try_or_else_maybe_def = v4_resolve_def_for_name(v4_mir_try_or_else_good_resolve, "maybe_try")
+pilot v4_mir_try_or_else_maybe_body = v4_mir_lookup_body(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_def)
+pilot v4_mir_try_or_else_x_stmt = v4_mir_try_or_else_find_stmt(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, v4_mir_stmt_local, "x")
+pilot v4_mir_try_or_else_x_rvalue = v4_mir_stmt_rvalue(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, v4_mir_try_or_else_x_stmt)
+say "try-maybe-kind=" + v4_mir_rvalue_kind(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, v4_mir_try_or_else_x_rvalue)
+say "try-maybe-op=" + v4_mir_rvalue_op(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, v4_mir_try_or_else_x_rvalue)
+say "try-maybe-ty=" + v4_mir_rvalue_ty(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_maybe_body, v4_mir_try_or_else_x_rvalue)
+
+pilot v4_mir_try_or_else_result_def = v4_resolve_def_for_name(v4_mir_try_or_else_good_resolve, "result_try")
+pilot v4_mir_try_or_else_result_body = v4_mir_lookup_body(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_def)
+pilot v4_mir_try_or_else_n_stmt = v4_mir_try_or_else_find_stmt(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_stmt_local, "n")
+pilot v4_mir_try_or_else_n_rvalue = v4_mir_stmt_rvalue(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_try_or_else_n_stmt)
+say "try-result-kind=" + v4_mir_rvalue_kind(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_try_or_else_n_rvalue)
+say "try-result-op=" + v4_mir_rvalue_op(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_try_or_else_n_rvalue)
+say "try-result-ty=" + v4_mir_rvalue_ty(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_result_body, v4_mir_try_or_else_n_rvalue)
+
+pilot v4_mir_try_or_else_fallback_def = v4_resolve_def_for_name(v4_mir_try_or_else_good_resolve, "fallback")
+pilot v4_mir_try_or_else_fallback_body = v4_mir_lookup_body(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_def)
+pilot v4_mir_try_or_else_maybe_stmt = v4_mir_try_or_else_find_stmt(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_body, v4_mir_stmt_local, "from_maybe")
+pilot v4_mir_try_or_else_result_stmt = v4_mir_try_or_else_find_stmt(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_body, v4_mir_stmt_local, "from_result")
+pilot v4_mir_try_or_else_maybe_rvalue = v4_mir_stmt_rvalue(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_body, v4_mir_try_or_else_maybe_stmt)
+pilot v4_mir_try_or_else_result_rvalue = v4_mir_stmt_rvalue(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_body, v4_mir_try_or_else_result_stmt)
+say "or-else-maybe-kind=" + v4_mir_rvalue_kind(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_body, v4_mir_try_or_else_maybe_rvalue)
+say "or-else-maybe-op=" + v4_mir_rvalue_op(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_body, v4_mir_try_or_else_maybe_rvalue)
+say "or-else-maybe-ty=" + v4_mir_rvalue_ty(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_body, v4_mir_try_or_else_maybe_rvalue)
+say "or-else-result-kind=" + v4_mir_rvalue_kind(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_body, v4_mir_try_or_else_result_rvalue)
+say "or-else-result-op=" + v4_mir_rvalue_op(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_body, v4_mir_try_or_else_result_rvalue)
+say "or-else-result-ty=" + v4_mir_rvalue_ty(v4_mir_try_or_else_good_mir, v4_mir_try_or_else_fallback_body, v4_mir_try_or_else_result_rvalue)
+say "try-or-else-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_try_or_else_good_mir))
+
+pilot v4_mir_try_or_else_bad_try_stream = v4_lex_text(1, v4_mir_try_or_else_bad_try_source())
+pilot v4_mir_try_or_else_bad_try_tree = v4_parse_stream(1, v4_mir_try_or_else_bad_try_stream)
+pilot v4_mir_try_or_else_bad_try_hir = v4_hir_lower_tree(1, v4_mir_try_or_else_bad_try_tree)
+pilot v4_mir_try_or_else_bad_try_resolve = v4_resolve_lower_hir(1, v4_mir_try_or_else_bad_try_hir)
+pilot v4_mir_try_or_else_bad_try_ty = v4_ty_lower_resolve(1, v4_mir_try_or_else_bad_try_resolve)
+pilot v4_mir_try_or_else_bad_try_mir = v4_mir_lower_ty(1, v4_mir_try_or_else_bad_try_ty)
+say "try-bad-source-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_try_or_else_bad_try_mir))
+say "try-bad-source-message=" + v4_diag_message(v4_mir_diag(v4_mir_try_or_else_bad_try_mir, 0))
+say "try-bad-source-help=" + v4_diag_help(v4_mir_diag(v4_mir_try_or_else_bad_try_mir, 0))
+
+pilot v4_mir_try_or_else_bad_maybe_return_stream = v4_lex_text(2, v4_mir_try_or_else_bad_maybe_return_source())
+pilot v4_mir_try_or_else_bad_maybe_return_tree = v4_parse_stream(2, v4_mir_try_or_else_bad_maybe_return_stream)
+pilot v4_mir_try_or_else_bad_maybe_return_hir = v4_hir_lower_tree(2, v4_mir_try_or_else_bad_maybe_return_tree)
+pilot v4_mir_try_or_else_bad_maybe_return_resolve = v4_resolve_lower_hir(2, v4_mir_try_or_else_bad_maybe_return_hir)
+pilot v4_mir_try_or_else_bad_maybe_return_ty = v4_ty_lower_resolve(2, v4_mir_try_or_else_bad_maybe_return_resolve)
+pilot v4_mir_try_or_else_bad_maybe_return_mir = v4_mir_lower_ty(2, v4_mir_try_or_else_bad_maybe_return_ty)
+say "try-bad-maybe-return-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_try_or_else_bad_maybe_return_mir))
+say "try-bad-maybe-return-message=" + v4_diag_message(v4_mir_diag(v4_mir_try_or_else_bad_maybe_return_mir, 0))
+say "try-bad-maybe-return-help=" + v4_diag_help(v4_mir_diag(v4_mir_try_or_else_bad_maybe_return_mir, 0))
+
+pilot v4_mir_try_or_else_bad_result_error_stream = v4_lex_text(3, v4_mir_try_or_else_bad_result_error_source())
+pilot v4_mir_try_or_else_bad_result_error_tree = v4_parse_stream(3, v4_mir_try_or_else_bad_result_error_stream)
+pilot v4_mir_try_or_else_bad_result_error_hir = v4_hir_lower_tree(3, v4_mir_try_or_else_bad_result_error_tree)
+pilot v4_mir_try_or_else_bad_result_error_resolve = v4_resolve_lower_hir(3, v4_mir_try_or_else_bad_result_error_hir)
+pilot v4_mir_try_or_else_bad_result_error_ty = v4_ty_lower_resolve(3, v4_mir_try_or_else_bad_result_error_resolve)
+pilot v4_mir_try_or_else_bad_result_error_mir = v4_mir_lower_ty(3, v4_mir_try_or_else_bad_result_error_ty)
+say "try-bad-result-error-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_try_or_else_bad_result_error_mir))
+say "try-bad-result-error-message=" + v4_diag_message(v4_mir_diag(v4_mir_try_or_else_bad_result_error_mir, 0))
+say "try-bad-result-error-help=" + v4_diag_help(v4_mir_diag(v4_mir_try_or_else_bad_result_error_mir, 0))
+
+pilot v4_mir_try_or_else_bad_or_else_stream = v4_lex_text(4, v4_mir_try_or_else_bad_or_else_source())
+pilot v4_mir_try_or_else_bad_or_else_tree = v4_parse_stream(4, v4_mir_try_or_else_bad_or_else_stream)
+pilot v4_mir_try_or_else_bad_or_else_hir = v4_hir_lower_tree(4, v4_mir_try_or_else_bad_or_else_tree)
+pilot v4_mir_try_or_else_bad_or_else_resolve = v4_resolve_lower_hir(4, v4_mir_try_or_else_bad_or_else_hir)
+pilot v4_mir_try_or_else_bad_or_else_ty = v4_ty_lower_resolve(4, v4_mir_try_or_else_bad_or_else_resolve)
+pilot v4_mir_try_or_else_bad_or_else_mir = v4_mir_lower_ty(4, v4_mir_try_or_else_bad_or_else_ty)
+say "or-else-bad-source-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_try_or_else_bad_or_else_mir))
+say "or-else-bad-source-message=" + v4_diag_message(v4_mir_diag(v4_mir_try_or_else_bad_or_else_mir, 0))
+say "or-else-bad-source-help=" + v4_diag_help(v4_mir_diag(v4_mir_try_or_else_bad_or_else_mir, 0))
+
+pilot v4_mir_try_or_else_bad_fallback_stream = v4_lex_text(5, v4_mir_try_or_else_bad_fallback_source())
+pilot v4_mir_try_or_else_bad_fallback_tree = v4_parse_stream(5, v4_mir_try_or_else_bad_fallback_stream)
+pilot v4_mir_try_or_else_bad_fallback_hir = v4_hir_lower_tree(5, v4_mir_try_or_else_bad_fallback_tree)
+pilot v4_mir_try_or_else_bad_fallback_resolve = v4_resolve_lower_hir(5, v4_mir_try_or_else_bad_fallback_hir)
+pilot v4_mir_try_or_else_bad_fallback_ty = v4_ty_lower_resolve(5, v4_mir_try_or_else_bad_fallback_resolve)
+pilot v4_mir_try_or_else_bad_fallback_mir = v4_mir_lower_ty(5, v4_mir_try_or_else_bad_fallback_ty)
+say "or-else-bad-fallback-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_try_or_else_bad_fallback_mir))
+say "or-else-bad-fallback-message=" + v4_diag_message(v4_mir_diag(v4_mir_try_or_else_bad_fallback_mir, 0))
+say "or-else-bad-fallback-help=" + v4_diag_help(v4_mir_diag(v4_mir_try_or_else_bad_fallback_mir, 0))

@@ -43,6 +43,8 @@ pilot v4_mir_rvalue_nobody = "Nobody"
 pilot v4_mir_rvalue_ok = "Ok"
 pilot v4_mir_rvalue_err = "Err"
 pilot v4_mir_rvalue_check = "Check"
+pilot v4_mir_rvalue_or_else = "OrElse"
+pilot v4_mir_rvalue_try = "Try"
 pilot v4_mir_rvalue_unknown = "Unknown"
 
 pilot v4_mir_unary_neg = "Neg"
@@ -1019,6 +1021,9 @@ task v4_mir_token_can_end_expr(stream_id: int, token_id: int) -> bool {
     if tok_type == v4_tok_ident or tok_type == v4_tok_int or tok_type == v4_tok_float or tok_type == v4_tok_string or tok_type == v4_tok_bool {
         give back true
     }
+    if val == "?" or val == "nobody" {
+        give back true
+    }
     give back val == ")" or val == "]"
 }
 
@@ -1063,6 +1068,30 @@ task v4_mir_find_binary_op(stream_id: int, start_token: int, end_token: int, tie
                 }
             } else if depth == 0 and v4_mir_binary_tier_matches(val, tier) and v4_mir_binary_candidate_has_left_operand(stream_id, start_token, idx) {
                 give back idx
+            }
+        }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_find_or_else_op(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot idx = end_token - 1
+    pilot depth = 0
+    repeat until idx < start_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if val == ")" or val == "]" or val == "}" {
+                depth += 1
+            } else if val == "(" or val == "[" or val == "{" {
+                if depth > 0 {
+                    depth -= 1
+                }
+            } else if depth == 0 and val == "else" {
+                pilot maybe_or = v4_mir_prev_nontrivia(stream_id, idx - 1, start_token)
+                if maybe_or >= start_token and v4_lex_token_value(stream_id, maybe_or) == "or" and v4_mir_binary_candidate_has_left_operand(stream_id, start_token, maybe_or) {
+                    give back maybe_or
+                }
             }
         }
         idx -= 1
@@ -2333,12 +2362,96 @@ task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: in
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_err, expr_text, "Err", payload_id, 0 - 1, expr_span, result_ty)
 }
 
+task v4_mir_try_lower_try_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
+    if v4_lex_token_value(stream_id, last) != "?" {
+        give back 0 - 1
+    }
+    if first >= last {
+        give back 0 - 1
+    }
+
+    pilot source_id = v4_mir_lower_expr(mir_id, body_id, stream_id, first, last)
+    pilot source_ty = v4_mir_rvalue_ty(mir_id, body_id, source_id)
+    pilot result_ty = v4_ty_unknown
+    pilot return_ty = v4_mir_expected_return_type(mir_id, body_id)
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    pilot op_text = "Try"
+
+    if v4_ty_is_maybe_type(source_ty) {
+        result_ty = v4_ty_maybe_value_type(source_ty)
+        op_text = "TryMaybe"
+        if v4_ty_is_known(return_ty) and not v4_ty_is_maybe_type(return_ty) {
+            v4_mir_add_type_error(mir_id, expr_span, "? maybe propagation needs maybe return", "task returns " + return_ty)
+        }
+    } else if v4_ty_is_result_type(source_ty) {
+        result_ty = v4_ty_result_ok_type(source_ty)
+        op_text = "TryResult"
+        if v4_ty_is_known(return_ty) and not v4_ty_is_result_type(return_ty) {
+            v4_mir_add_type_error(mir_id, expr_span, "? result propagation needs result return", "task returns " + return_ty)
+        } else if v4_ty_is_result_type(return_ty) {
+            pilot source_err_ty = v4_ty_result_err_type(source_ty)
+            pilot return_err_ty = v4_ty_result_err_type(return_ty)
+            if not v4_ty_types_compatible(return_err_ty, source_err_ty) {
+                v4_mir_add_type_error(mir_id, expr_span, "? result error type mismatch", "source error " + source_err_ty + " cannot propagate into " + return_err_ty)
+            }
+        }
+    } else if v4_ty_is_known(source_ty) {
+        v4_mir_add_type_error(mir_id, expr_span, "? needs maybe or result source", "got " + source_ty)
+    }
+
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_try, expr_text, op_text, source_id, 0 - 1, expr_span, result_ty)
+}
+
+task v4_mir_try_lower_or_else_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
+    pilot or_token = v4_mir_find_or_else_op(stream_id, first, last + 1)
+    if or_token <= first or or_token >= last {
+        give back 0 - 1
+    }
+    pilot else_token = v4_mir_next_nontrivia(stream_id, or_token + 1, last + 1)
+    if else_token > last or v4_lex_token_value(stream_id, else_token) != "else" {
+        give back 0 - 1
+    }
+
+    pilot source_id = v4_mir_lower_expr(mir_id, body_id, stream_id, first, or_token)
+    pilot source_ty = v4_mir_rvalue_ty(mir_id, body_id, source_id)
+    pilot payload_ty = v4_ty_unknown
+    if v4_ty_is_maybe_type(source_ty) {
+        payload_ty = v4_ty_maybe_value_type(source_ty)
+    } else if v4_ty_is_result_type(source_ty) {
+        payload_ty = v4_ty_result_ok_type(source_ty)
+    } else if v4_ty_is_known(source_ty) {
+        v4_mir_add_type_error(mir_id, expr_span, "or else needs maybe or result source", "got " + source_ty)
+    }
+
+    pilot fallback_expected = payload_ty
+    if not v4_ty_is_known(fallback_expected) {
+        fallback_expected = expected_ty
+    }
+    pilot fallback_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, else_token + 1, last + 1, fallback_expected)
+    pilot fallback_ty = v4_mir_rvalue_ty(mir_id, body_id, fallback_id)
+    pilot result_ty = payload_ty
+    if not v4_ty_is_known(result_ty) {
+        result_ty = fallback_ty
+    }
+    if v4_ty_is_known(payload_ty) and not v4_ty_types_compatible(payload_ty, fallback_ty) {
+        v4_mir_add_type_error(mir_id, expr_span, "or else fallback type mismatch", "fallback expects " + payload_ty + " but got " + fallback_ty)
+    }
+
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_or_else, expr_text, "OrElse", source_id, fallback_id, expr_span, result_ty)
+}
+
 task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, expected_ty: word) -> int {
     pilot first = v4_mir_skip_trivia(stream_id, start_token)
     pilot last = v4_mir_last_nontrivia_before(stream_id, end_token)
     pilot expr_span = v4_mir_span_from_tokens(stream_id, start_token, end_token)
     if first >= end_token or last < first {
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, "", "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+    }
+
+    pilot try_rvalue = v4_mir_try_lower_try_expr(mir_id, body_id, stream_id, first, last, expr_span)
+    if try_rvalue >= 0 {
+        give back try_rvalue
     }
 
     pilot tuple_rvalue = v4_mir_try_lower_tuple_literal(mir_id, body_id, stream_id, first, last, expr_span)
@@ -2351,6 +2464,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         if close_group == last {
             give back v4_mir_lower_expr_expected(mir_id, body_id, stream_id, first + 1, last, expected_ty)
         }
+    }
+
+    pilot or_else_rvalue = v4_mir_try_lower_or_else_expr(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
+    if or_else_rvalue >= 0 {
+        give back or_else_rvalue
     }
 
     pilot tier = 1
