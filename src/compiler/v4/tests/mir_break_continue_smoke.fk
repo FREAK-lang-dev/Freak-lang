@@ -1,0 +1,117 @@
+-- V4 MIR break/continue lowering smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_break_continue_good_source() -> word {
+    pilot src = "task countdown(flag: bool, stop: bool) -> int {\n"
+    src = src + "    pilot score = 0\n"
+    src = src + "    repeat 3 times {\n"
+    src = src + "        if stop {\n"
+    src = src + "            break\n"
+    src = src + "        }\n"
+    src = src + "        if flag {\n"
+    src = src + "            continue\n"
+    src = src + "        }\n"
+    src = src + "        score += 1\n"
+    src = src + "    }\n"
+    src = src + "    give back score\n"
+    src = src + "}\n"
+    src = src + "task sortie(power: int, stop: bool) -> int {\n"
+    src = src + "    training arc until power >= 8 max 4 sessions {\n"
+    src = src + "        if stop {\n"
+    src = src + "            break\n"
+    src = src + "        }\n"
+    src = src + "        power += 1\n"
+    src = src + "        continue\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_break_continue_bad_source() -> word {
+    pilot src = "task broken() -> int {\n"
+    src = src + "    break\n"
+    src = src + "    continue\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_find_stmt_kind(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == wanted {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_find_stmt_kind_in_block(mir_id: int, body_id: int, block_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
+            if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_mir_break_continue_stream = v4_lex_text(0, v4_mir_break_continue_good_source())
+pilot v4_mir_break_continue_tree = v4_parse_stream(0, v4_mir_break_continue_stream)
+pilot v4_mir_break_continue_hir = v4_hir_lower_tree(0, v4_mir_break_continue_tree)
+pilot v4_mir_break_continue_resolve = v4_resolve_lower_hir(0, v4_mir_break_continue_hir)
+pilot v4_mir_break_continue_ty = v4_ty_lower_resolve(0, v4_mir_break_continue_resolve)
+pilot v4_mir_break_continue_mir = v4_mir_lower_ty(0, v4_mir_break_continue_ty)
+
+pilot v4_mir_countdown_def = v4_resolve_def_for_name(v4_mir_break_continue_resolve, "countdown")
+pilot v4_mir_countdown_body = v4_mir_lookup_body(v4_mir_break_continue_mir, v4_mir_countdown_def)
+pilot v4_mir_countdown_break_stmt = v4_mir_find_stmt_kind(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_stmt_break)
+pilot v4_mir_countdown_continue_stmt = v4_mir_find_stmt_kind(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_stmt_continue)
+pilot v4_mir_countdown_break_block = v4_mir_stmt_block(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_break_stmt)
+pilot v4_mir_countdown_continue_block = v4_mir_stmt_block(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_continue_stmt)
+pilot v4_mir_countdown_break_target = v4_mir_block_target(v4_mir_body_block(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_break_block))
+pilot v4_mir_countdown_continue_target = v4_mir_block_target(v4_mir_body_block(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_continue_block))
+pilot v4_mir_countdown_continue_assign = v4_mir_find_stmt_kind_in_block(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_continue_target, v4_mir_stmt_assign)
+
+pilot v4_mir_sortie_def = v4_resolve_def_for_name(v4_mir_break_continue_resolve, "sortie")
+pilot v4_mir_sortie_body = v4_mir_lookup_body(v4_mir_break_continue_mir, v4_mir_sortie_def)
+pilot v4_mir_sortie_break_stmt = v4_mir_find_stmt_kind(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_stmt_break)
+pilot v4_mir_sortie_continue_stmt = v4_mir_find_stmt_kind(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_stmt_continue)
+pilot v4_mir_sortie_break_block = v4_mir_stmt_block(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_break_stmt)
+pilot v4_mir_sortie_continue_block = v4_mir_stmt_block(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_continue_stmt)
+pilot v4_mir_sortie_break_target = v4_mir_block_target(v4_mir_body_block(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_break_block))
+pilot v4_mir_sortie_continue_target = v4_mir_block_target(v4_mir_body_block(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_continue_block))
+
+say "break-continue-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_break_continue_mir))
+say "break-continue-countdown-break-kind=" + v4_mir_stmt_kind(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_break_stmt)
+say "break-continue-countdown-break-target=" + word_from_int(v4_mir_countdown_break_target)
+say "break-continue-countdown-continue-kind=" + v4_mir_stmt_kind(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_continue_stmt)
+say "break-continue-countdown-continue-target=" + word_from_int(v4_mir_countdown_continue_target)
+say "break-continue-countdown-continue-epilogue-term=" + v4_mir_block_terminator(v4_mir_body_block(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_continue_target))
+say "break-continue-countdown-continue-epilogue-target=" + word_from_int(v4_mir_block_target(v4_mir_body_block(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_continue_target)))
+say "break-continue-countdown-continue-epilogue-kind=" + v4_mir_stmt_kind(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_continue_assign)
+say "break-continue-countdown-continue-epilogue-rhs=" + v4_mir_stmt_rhs(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_continue_assign)
+say "break-continue-sortie-break-kind=" + v4_mir_stmt_kind(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_break_stmt)
+say "break-continue-sortie-break-target=" + word_from_int(v4_mir_sortie_break_target)
+say "break-continue-sortie-continue-kind=" + v4_mir_stmt_kind(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_continue_stmt)
+say "break-continue-sortie-continue-target=" + word_from_int(v4_mir_sortie_continue_target)
+
+pilot v4_mir_break_continue_bad_stream = v4_lex_text(1, v4_mir_break_continue_bad_source())
+pilot v4_mir_break_continue_bad_tree = v4_parse_stream(1, v4_mir_break_continue_bad_stream)
+pilot v4_mir_break_continue_bad_hir = v4_hir_lower_tree(1, v4_mir_break_continue_bad_tree)
+pilot v4_mir_break_continue_bad_resolve = v4_resolve_lower_hir(1, v4_mir_break_continue_bad_hir)
+pilot v4_mir_break_continue_bad_ty = v4_ty_lower_resolve(1, v4_mir_break_continue_bad_resolve)
+pilot v4_mir_break_continue_bad_mir = v4_mir_lower_ty(1, v4_mir_break_continue_bad_ty)
+
+say "break-continue-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_break_continue_bad_mir))
+say "break-continue-bad-message0=" + v4_diag_message(v4_mir_diag(v4_mir_break_continue_bad_mir, 0))
+say "break-continue-bad-help0=" + v4_diag_help(v4_mir_diag(v4_mir_break_continue_bad_mir, 0))
+say "break-continue-bad-message1=" + v4_diag_message(v4_mir_diag(v4_mir_break_continue_bad_mir, 1))
+say "break-continue-bad-help1=" + v4_diag_help(v4_mir_diag(v4_mir_break_continue_bad_mir, 1))
