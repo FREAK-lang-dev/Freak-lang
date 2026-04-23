@@ -649,6 +649,28 @@ task v4_mir_add_block(mir_id: int, body_id: int, terminator: word, target: int, 
     give back block_id
 }
 
+task v4_mir_block_has_return_stmt(mir_id: int, body_id: int, block_id: int) -> bool {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
+            if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+                give back true
+            }
+        }
+        stmt_id += 1
+    }
+    give back false
+}
+
+task v4_mir_seal_block_goto_if_live(mir_id: int, body_id: int, block_id: int, target: int) -> void {
+    if v4_mir_block_has_return_stmt(mir_id, body_id, block_id) {
+        v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_return, 0 - 1, 0 - 1, ""))
+        give back
+    }
+    v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_goto, target, 0 - 1, ""))
+}
+
 task v4_mir_find_local(mir_id: int, body_id: int, local_name: word) -> int {
     pilot local_idx = 0
     pilot local_count = v4_mir_body_local_count(mir_id, body_id)
@@ -2810,13 +2832,13 @@ task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: i
         if else_head < stmt_end and v4_lex_token_value(stream_id, else_head) == "if" {
             else_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
             pilot nested_after = v4_mir_lower_if_stmt(mir_id, body_id, else_block, stream_id, else_head, stmt_end)
-            v4_mir_set_body_block(mir_id, body_id, nested_after, v4_mir_block_new_full(nested_after, v4_mir_term_goto, after_block, 0 - 1, ""))
+            v4_mir_seal_block_goto_if_live(mir_id, body_id, nested_after, after_block)
         } else {
             pilot else_open = v4_mir_find_token_value(stream_id, else_token, stmt_end, "{")
             if else_open >= 0 {
                 else_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
                 v4_mir_lower_block_body(mir_id, body_id, else_block, stream_id, else_open, stmt_end)
-                v4_mir_set_body_block(mir_id, body_id, else_block, v4_mir_block_new_full(else_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+                v4_mir_seal_block_goto_if_live(mir_id, body_id, else_block, after_block)
             }
         }
     }
@@ -2824,7 +2846,7 @@ task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: i
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, then_block, else_block, condition))
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, condition, "then#" + word_from_int(then_block) + " else#" + word_from_int(else_block), stmt_span, 0 - 1, condition_rvalue)
     v4_mir_lower_block_body(mir_id, body_id, then_block, stream_id, open_token, then_close + 1)
-    v4_mir_set_body_block(mir_id, body_id, then_block, v4_mir_block_new_full(then_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, then_block, after_block)
 
     give back after_block
 }
@@ -2879,7 +2901,7 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
         pilot dec_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, counter_name + " - 1", "Sub", dec_counter_use, one_rvalue, stmt_span, v4_ty_int)
         pilot dec_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
         v4_mir_add_stmt(mir_id, body_id, body_block, v4_mir_stmt_assign, counter_name, counter_name + " - 1", stmt_span, dec_place, dec_rvalue)
-        v4_mir_set_body_block(mir_id, body_id, body_block, v4_mir_block_new_full(body_block, v4_mir_term_goto, block_id, 0 - 1, ""))
+        v4_mir_seal_block_goto_if_live(mir_id, body_id, body_block, block_id)
 
         give back after_block
     }
@@ -2900,7 +2922,7 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, after_block, body_block, "until " + condition))
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_loop, condition, "body#" + word_from_int(body_block) + " exit#" + word_from_int(after_block), stmt_span, 0 - 1, condition_rvalue)
     v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
-    v4_mir_set_body_block(mir_id, body_id, body_block, v4_mir_block_new_full(body_block, v4_mir_term_goto, block_id, 0 - 1, ""))
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_block, block_id)
 
     give back after_block
 }
@@ -3554,7 +3576,7 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, body_block, after_block, loop_condition))
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_loop, loop_pattern, iterable_text, stmt_span, loop_place, iterable_rvalue)
     v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
-    v4_mir_set_body_block(mir_id, body_id, body_block, v4_mir_block_new_full(body_block, v4_mir_term_goto, block_id, 0 - 1, ""))
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_block, block_id)
 
     give back after_block
 }
@@ -3664,7 +3686,7 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, after_block, body_block, loop_condition))
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_loop, condition_text, "max " + max_text, stmt_span, 0 - 1, condition_rvalue)
     v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
-    v4_mir_set_body_block(mir_id, body_id, body_block, v4_mir_block_new_full(body_block, v4_mir_term_goto, block_id, 0 - 1, ""))
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_block, block_id)
 
     give back after_block
 }
@@ -4596,12 +4618,12 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
         v4_mir_lower_checked_binding(mir_id, body_id, got_block, stmt_span, got_name, value_place, value_ty, "check maybe binding duplicate local")
         v4_mir_lower_arm_body(mir_id, body_id, got_block, stream_id, got_arrow, got_end)
     }
-    v4_mir_set_body_block(mir_id, body_id, got_block, v4_mir_block_new_full(got_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, got_block, after_block)
 
     if nobody_arrow >= 0 {
         v4_mir_lower_arm_body(mir_id, body_id, nobody_block, stream_id, nobody_arrow, nobody_end)
     }
-    v4_mir_set_body_block(mir_id, body_id, nobody_block, v4_mir_block_new_full(nobody_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, nobody_block, after_block)
     give back after_block
 }
 
@@ -4718,7 +4740,7 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
         v4_mir_lower_checked_binding(mir_id, body_id, ok_block, stmt_span, ok_name, ok_place, ok_ty, "check result binding duplicate local")
         v4_mir_lower_arm_body(mir_id, body_id, ok_block, stream_id, ok_arrow, ok_end)
     }
-    v4_mir_set_body_block(mir_id, body_id, ok_block, v4_mir_block_new_full(ok_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, ok_block, after_block)
 
     if err_arrow >= 0 {
         pilot err_ty = v4_ty_result_err_type(subject_ty)
@@ -4726,7 +4748,7 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
         v4_mir_lower_checked_binding(mir_id, body_id, err_block, stmt_span, err_name, err_place, err_ty, "check result binding duplicate local")
         v4_mir_lower_arm_body(mir_id, body_id, err_block, stream_id, err_arrow, err_end)
     }
-    v4_mir_set_body_block(mir_id, body_id, err_block, v4_mir_block_new_full(err_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, err_block, after_block)
     give back after_block
 }
 
@@ -4814,7 +4836,7 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
             }
             v4_mir_lower_when_pattern_bindings(mir_id, body_id, arm_block, stmt_span, pattern, subject_place, scrutinee_ty)
             v4_mir_lower_arm_body(mir_id, body_id, arm_block, stream_id, arrow, arm_end)
-            v4_mir_set_body_block(mir_id, body_id, arm_block, v4_mir_block_new_full(arm_block, v4_mir_term_goto, after_block, 0 - 1, ""))
+            v4_mir_seal_block_goto_if_live(mir_id, body_id, arm_block, after_block)
             if not arm_unreachable and route_when and pattern_full_route_case != "" {
                 route_covered_cases = v4_mir_name_list_add(route_covered_cases, pattern_full_route_case)
                 if v4_mir_route_all_cases_covered(mir_id, scrutinee_ty, route_covered_cases) {
@@ -4951,6 +4973,9 @@ task v4_mir_lower_block_body(mir_id: int, body_id: int, block_id: int, stream_id
         }
         pilot stmt_end = v4_mir_statement_end(stream_id, idx, close_token)
         current_block = v4_mir_lower_statement(mir_id, body_id, current_block, stream_id, idx, stmt_end)
+        if v4_mir_block_has_return_stmt(mir_id, body_id, current_block) {
+            give back
+        }
         if stmt_end <= idx {
             idx += 1
         } else {

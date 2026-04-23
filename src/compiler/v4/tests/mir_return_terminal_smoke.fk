@@ -1,0 +1,90 @@
+-- V4 MIR terminal-return CFG smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_return_terminal_stmt_count_in_block(mir_id: int, body_id: int, block_id: int) -> int {
+    pilot total = 0
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
+            total += 1
+        }
+        stmt_id += 1
+    }
+    give back total
+}
+
+task v4_mir_return_terminal_source() -> word {
+    pilot src = "task branch(power: int) -> int {\n"
+    src = src + "    if power > 0 {\n"
+    src = src + "        give back 1\n"
+    src = src + "    } else {\n"
+    src = src + "        give back 2\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task mixed(power: int) -> int {\n"
+    src = src + "    if power > 0 {\n"
+    src = src + "        pilot x = power\n"
+    src = src + "    } else {\n"
+    src = src + "        give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 9\n"
+    src = src + "}\n"
+    src = src + "task loop_stop(power: int) -> int {\n"
+    src = src + "    repeat until power > 0 {\n"
+    src = src + "        give back 1\n"
+    src = src + "    }\n"
+    src = src + "    give back 2\n"
+    src = src + "}\n"
+    src = src + "task dead() -> int {\n"
+    src = src + "    give back 1\n"
+    src = src + "    pilot never = 2\n"
+    src = src + "    give back never\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_return_terminal_stream = v4_lex_text(0, v4_mir_return_terminal_source())
+pilot v4_mir_return_terminal_tree = v4_parse_stream(0, v4_mir_return_terminal_stream)
+pilot v4_mir_return_terminal_hir = v4_hir_lower_tree(0, v4_mir_return_terminal_tree)
+pilot v4_mir_return_terminal_resolve = v4_resolve_lower_hir(0, v4_mir_return_terminal_hir)
+pilot v4_mir_return_terminal_ty = v4_ty_lower_resolve(0, v4_mir_return_terminal_resolve)
+pilot v4_mir_return_terminal_mir = v4_mir_lower_ty(0, v4_mir_return_terminal_ty)
+
+pilot v4_mir_return_branch_def = v4_resolve_def_for_name(v4_mir_return_terminal_resolve, "branch")
+pilot v4_mir_return_branch_body = v4_mir_lookup_body(v4_mir_return_terminal_mir, v4_mir_return_branch_def)
+pilot v4_mir_return_branch_then = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_branch_body, 1)
+pilot v4_mir_return_branch_after = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_branch_body, 2)
+pilot v4_mir_return_branch_else = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_branch_body, 3)
+say "return-branch-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_return_terminal_mir, v4_mir_return_branch_body))
+say "return-branch-then-term=" + v4_mir_block_terminator(v4_mir_return_branch_then)
+say "return-branch-then-target=" + word_from_int(v4_mir_block_target(v4_mir_return_branch_then))
+say "return-branch-after-term=" + v4_mir_block_terminator(v4_mir_return_branch_after)
+say "return-branch-else-term=" + v4_mir_block_terminator(v4_mir_return_branch_else)
+say "return-branch-else-target=" + word_from_int(v4_mir_block_target(v4_mir_return_branch_else))
+
+pilot v4_mir_return_mixed_def = v4_resolve_def_for_name(v4_mir_return_terminal_resolve, "mixed")
+pilot v4_mir_return_mixed_body = v4_mir_lookup_body(v4_mir_return_terminal_mir, v4_mir_return_mixed_def)
+pilot v4_mir_return_mixed_then = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_mixed_body, 1)
+pilot v4_mir_return_mixed_after = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_mixed_body, 2)
+pilot v4_mir_return_mixed_else = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_mixed_body, 3)
+say "return-mixed-then-term=" + v4_mir_block_terminator(v4_mir_return_mixed_then)
+say "return-mixed-then-target=" + word_from_int(v4_mir_block_target(v4_mir_return_mixed_then))
+say "return-mixed-after-term=" + v4_mir_block_terminator(v4_mir_return_mixed_after)
+say "return-mixed-after-stmts=" + word_from_int(v4_mir_return_terminal_stmt_count_in_block(v4_mir_return_terminal_mir, v4_mir_return_mixed_body, 2))
+say "return-mixed-else-term=" + v4_mir_block_terminator(v4_mir_return_mixed_else)
+
+pilot v4_mir_return_loop_def = v4_resolve_def_for_name(v4_mir_return_terminal_resolve, "loop_stop")
+pilot v4_mir_return_loop_body = v4_mir_lookup_body(v4_mir_return_terminal_mir, v4_mir_return_loop_def)
+pilot v4_mir_return_loop_entry = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_loop_body, 0)
+pilot v4_mir_return_loop_body_block = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_loop_body, 1)
+pilot v4_mir_return_loop_after = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_loop_body, 2)
+say "return-loop-entry-term=" + v4_mir_block_terminator(v4_mir_return_loop_entry)
+say "return-loop-body-term=" + v4_mir_block_terminator(v4_mir_return_loop_body_block)
+say "return-loop-body-target=" + word_from_int(v4_mir_block_target(v4_mir_return_loop_body_block))
+say "return-loop-after-term=" + v4_mir_block_terminator(v4_mir_return_loop_after)
+
+pilot v4_mir_return_dead_def = v4_resolve_def_for_name(v4_mir_return_terminal_resolve, "dead")
+pilot v4_mir_return_dead_body = v4_mir_lookup_body(v4_mir_return_terminal_mir, v4_mir_return_dead_def)
+say "return-dead-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_return_terminal_mir, v4_mir_return_dead_body))
+say "return-dead-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_return_terminal_mir, v4_mir_return_dead_body))
+say "return-terminal-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_return_terminal_mir))
