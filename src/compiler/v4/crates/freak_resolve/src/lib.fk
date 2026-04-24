@@ -173,6 +173,33 @@ task v4_resolve_lookup_any(resolve_id: int, lookup_name: word) -> int {
     give back 0 - 1
 }
 
+task v4_resolve_path_scope_separator(path: word) -> int {
+    pilot idx = 0
+    repeat until idx + 1 >= path.length() {
+        if path.char_at(idx) == ":" and path.char_at(idx + 1) == ":" {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_resolve_path_left(path: word) -> word {
+    pilot sep = v4_resolve_path_scope_separator(path)
+    if sep < 0 {
+        give back ""
+    }
+    give back v4_slice(path, 0, sep)
+}
+
+task v4_resolve_path_right(path: word) -> word {
+    pilot sep = v4_resolve_path_scope_separator(path)
+    if sep < 0 or sep + 2 > path.length() {
+        give back ""
+    }
+    give back v4_slice(path, sep + 2, path.length())
+}
+
 task v4_resolve_add_symbol(resolve_id: int, item_name: word, item_kind: word, def_id: word, hir_item: int) -> int {
     pilot symbol_id = array_len(v4_resolve_defs_handle(resolve_id))
     array_push(v4_resolve_names_handle(resolve_id), item_name)
@@ -218,6 +245,60 @@ task v4_resolve_def_for_name(resolve_id: int, lookup_name: word) -> word {
         give back ""
     }
     give back v4_resolve_symbol_def(resolve_id, symbol_id)
+}
+
+task v4_resolve_import_path(resolve_id: int, symbol_id: int) -> word {
+    if symbol_id < 0 or symbol_id >= v4_resolve_symbol_count(resolve_id) {
+        give back ""
+    }
+    if v4_resolve_symbol_kind(resolve_id, symbol_id) != v4_hir_import {
+        give back ""
+    }
+    pilot hir_id = v4_resolve_hir_id(resolve_id)
+    if v4_hir_file_exists(hir_id) == false {
+        give back ""
+    }
+    give back v4_hir_import_path(hir_id, v4_resolve_symbol_hir_item(resolve_id, symbol_id))
+}
+
+task v4_resolve_import_alias(resolve_id: int, symbol_id: int) -> word {
+    if symbol_id < 0 or symbol_id >= v4_resolve_symbol_count(resolve_id) {
+        give back ""
+    }
+    if v4_resolve_symbol_kind(resolve_id, symbol_id) != v4_hir_import {
+        give back ""
+    }
+    pilot hir_id = v4_resolve_hir_id(resolve_id)
+    if v4_hir_file_exists(hir_id) == false {
+        give back ""
+    }
+    give back v4_hir_import_alias(hir_id, v4_resolve_symbol_hir_item(resolve_id, symbol_id))
+}
+
+task v4_resolve_expand_import_name(resolve_id: int, lookup_name: word) -> word {
+    if lookup_name == "" {
+        give back ""
+    }
+    pilot import_symbol = v4_resolve_lookup_symbol(resolve_id, lookup_name, v4_hir_import)
+    if import_symbol >= 0 {
+        pilot import_path = v4_resolve_import_path(resolve_id, import_symbol)
+        if import_path != "" {
+            give back import_path
+        }
+    }
+
+    pilot left = v4_resolve_path_left(lookup_name)
+    pilot right = v4_resolve_path_right(lookup_name)
+    if left != "" and right != "" {
+        pilot prefix_symbol = v4_resolve_lookup_symbol(resolve_id, left, v4_hir_import)
+        if prefix_symbol >= 0 {
+            pilot prefix_path = v4_resolve_import_path(resolve_id, prefix_symbol)
+            if prefix_path != "" {
+                give back prefix_path + "::" + right
+            }
+        }
+    }
+    give back lookup_name
 }
 
 task v4_resolve_summary(resolve_id: int) -> word {

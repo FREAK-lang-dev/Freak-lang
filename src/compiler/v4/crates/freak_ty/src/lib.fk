@@ -1822,6 +1822,16 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, hir_id: in
     if symbol_kind == v4_hir_doctrine {
         give back "doctrine " + symbol_name + generic_text
     }
+    if symbol_kind == v4_hir_import {
+        pilot import_path = v4_hir_import_path(hir_id, hir_item)
+        pilot import_alias = v4_hir_import_alias(hir_id, hir_item)
+        if import_path != "" {
+            if import_alias != "" {
+                give back "use " + import_path + " as " + import_alias
+            }
+            give back "use " + import_path
+        }
+    }
     give back v4_ty_display_for_symbol(symbol_kind, symbol_name)
 }
 

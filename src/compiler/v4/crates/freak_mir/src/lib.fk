@@ -1720,7 +1720,7 @@ task v4_mir_check_local_decl_type(mir_id: int, stmt_span: word, local_name: word
     }
 }
 
-task v4_mir_signature_id_for_name(mir_id: int, callee_name: word) -> int {
+task v4_mir_signature_id_for_exact_name(mir_id: int, callee_name: word) -> int {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot sig_idx = 0
     pilot sig_count = v4_ty_signature_count(ty_id)
@@ -1734,6 +1734,29 @@ task v4_mir_signature_id_for_name(mir_id: int, callee_name: word) -> int {
         sig_idx += 1
     }
     give back 0 - 1
+}
+
+task v4_mir_resolved_callee_name(mir_id: int, callee_name: word) -> word {
+    if v4_mir_signature_id_for_exact_name(mir_id, callee_name) >= 0 {
+        give back callee_name
+    }
+    pilot resolve_id = v4_ty_resolve_id(v4_mir_ty_id(mir_id))
+    if v4_resolve_exists(resolve_id) == false {
+        give back callee_name
+    }
+    pilot expanded = v4_resolve_expand_import_name(resolve_id, callee_name)
+    if expanded != "" {
+        give back expanded
+    }
+    give back callee_name
+}
+
+task v4_mir_signature_id_for_name(mir_id: int, callee_name: word) -> int {
+    pilot sig_id = v4_mir_signature_id_for_exact_name(mir_id, callee_name)
+    if sig_id >= 0 {
+        give back sig_id
+    }
+    give back v4_mir_signature_id_for_exact_name(mir_id, v4_mir_resolved_callee_name(mir_id, callee_name))
 }
 
 task v4_mir_signature_return_type_for_id(mir_id: int, sig_id: int) -> word {
@@ -2403,7 +2426,37 @@ task v4_mir_shape_ctor_name(stream_id: int, start_token: int, open_token: int) -
     if end_name < start_token {
         give back ""
     }
-    give back v4_mir_expr_text(stream_id, start_token, end_name + 1)
+    give back v4_ty_type_text(stream_id, start_token, end_name + 1)
+}
+
+task v4_mir_try_lower_named_call(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
+    if v4_lex_token_value(stream_id, last) != ")" {
+        give back 0 - 1
+    }
+
+    pilot open_token = v4_mir_find_open_paren_token(stream_id, first, last)
+    if open_token <= first or open_token > last {
+        give back 0 - 1
+    }
+
+    pilot callee_name = v4_mir_shape_ctor_name(stream_id, first, open_token)
+    if callee_name == "" {
+        give back 0 - 1
+    }
+
+    pilot sig_id = v4_mir_signature_id_for_name(mir_id, callee_name)
+    if sig_id < 0 {
+        give back 0 - 1
+    }
+
+    pilot target_name = v4_mir_resolved_callee_name(mir_id, callee_name)
+    pilot generic_env = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, callee_name, sig_id, open_token, last)
+    pilot return_ty = v4_mir_signature_return_type_for_id(mir_id, sig_id)
+    if sig_id >= 0 {
+        return_ty = v4_ty_signature_return_type_for_env(v4_mir_ty_id(mir_id), sig_id, generic_env)
+    }
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, target_name, 0 - 1, 0 - 1, expr_span, return_ty)
 }
 
 task v4_mir_shape_ctor_field_end(stream_id: int, start_token: int, close_token: int) -> int {
@@ -3416,6 +3469,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot ctor_rvalue = v4_mir_try_lower_shape_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
     if ctor_rvalue >= 0 {
         give back ctor_rvalue
+    }
+
+    pilot named_call_rvalue = v4_mir_try_lower_named_call(mir_id, body_id, stream_id, first, last, expr_span)
+    if named_call_rvalue >= 0 {
+        give back named_call_rvalue
     }
 
     pilot instance_method_rvalue = v4_mir_try_lower_instance_method_call(mir_id, body_id, stream_id, first, last, expr_span)

@@ -1,0 +1,84 @@
+-- V4 module-style path names and import expansion smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_module_import_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_module_import_make_source() -> word {
+    pilot src = "task util::math::double(value: int) -> int {\n"
+    src = src + "    give back value + value\n"
+    src = src + "}\n"
+    src = src + "task util::math::triple(value: int) -> int {\n"
+    src = src + "    give back value + value + value\n"
+    src = src + "}\n"
+    src = src + "use util::math\n"
+    src = src + "use util::math::double\n"
+    src = src + "use util::math::triple as boost\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot a = double(2)\n"
+    src = src + "    pilot b = boost(3)\n"
+    src = src + "    pilot c = math::double(4)\n"
+    src = src + "    pilot d = util::math::triple(5)\n"
+    src = src + "    give back a + b + c + d\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_module_import_source = v4_module_import_make_source()
+
+pilot v4_module_import_stream = v4_lex_text(0, v4_module_import_source)
+pilot v4_module_import_tree = v4_parse_stream(0, v4_module_import_stream)
+pilot v4_module_import_hir = v4_hir_lower_tree(0, v4_module_import_tree)
+pilot v4_module_import_resolve = v4_resolve_lower_hir(0, v4_module_import_hir)
+pilot v4_module_import_ty = v4_ty_lower_resolve(0, v4_module_import_resolve)
+pilot v4_module_import_mir = v4_mir_lower_ty(0, v4_module_import_ty)
+
+pilot v4_module_import_main_def = v4_resolve_def_for_name(v4_module_import_resolve, "main")
+pilot v4_module_import_main_body = v4_mir_lookup_body(v4_module_import_mir, v4_module_import_main_def)
+pilot v4_module_import_a_stmt = v4_module_import_find_local_stmt(v4_module_import_mir, v4_module_import_main_body, "a")
+pilot v4_module_import_b_stmt = v4_module_import_find_local_stmt(v4_module_import_mir, v4_module_import_main_body, "b")
+pilot v4_module_import_c_stmt = v4_module_import_find_local_stmt(v4_module_import_mir, v4_module_import_main_body, "c")
+pilot v4_module_import_d_stmt = v4_module_import_find_local_stmt(v4_module_import_mir, v4_module_import_main_body, "d")
+
+say v4_hir_summary(v4_module_import_hir)
+say "module-item-count=" + word_from_int(v4_hir_item_count(v4_module_import_hir))
+say "module-first-item-kind=" + v4_hir_item_kind(v4_module_import_hir, 0)
+say "module-first-item-name=" + v4_hir_item_name(v4_module_import_hir, 0)
+say "module-import0-binding=" + v4_hir_item_name(v4_module_import_hir, 2)
+say "module-import0-path=" + v4_hir_import_path(v4_module_import_hir, 2)
+say "module-import0-alias=" + v4_hir_import_alias(v4_module_import_hir, 2)
+say "module-import1-binding=" + v4_hir_item_name(v4_module_import_hir, 3)
+say "module-import1-path=" + v4_hir_import_path(v4_module_import_hir, 3)
+say "module-import1-alias=" + v4_hir_import_alias(v4_module_import_hir, 3)
+say "module-import2-binding=" + v4_hir_item_name(v4_module_import_hir, 4)
+say "module-import2-path=" + v4_hir_import_path(v4_module_import_hir, 4)
+say "module-import2-alias=" + v4_hir_import_alias(v4_module_import_hir, 4)
+
+say v4_resolve_summary(v4_module_import_resolve)
+say "module-symbol-count=" + word_from_int(v4_resolve_symbol_count(v4_module_import_resolve))
+say "module-expand-double=" + v4_resolve_expand_import_name(v4_module_import_resolve, "double")
+say "module-expand-boost=" + v4_resolve_expand_import_name(v4_module_import_resolve, "boost")
+say "module-expand-module-call=" + v4_resolve_expand_import_name(v4_module_import_resolve, "math::double")
+
+say v4_ty_summary(v4_module_import_ty)
+say "module-ty-task-display=" + v4_ty_signature_of(v4_module_import_ty, v4_resolve_def_for_name(v4_module_import_resolve, "util::math::double"))
+say "module-ty-import-display=" + v4_ty_signature_of(v4_module_import_ty, v4_resolve_def_for_name(v4_module_import_resolve, "boost"))
+
+say v4_mir_summary(v4_module_import_mir)
+say "module-call-a-op=" + v4_mir_rvalue_op(v4_module_import_mir, v4_module_import_main_body, v4_mir_stmt_rvalue(v4_module_import_mir, v4_module_import_main_body, v4_module_import_a_stmt))
+say "module-call-a-ty=" + v4_mir_rvalue_ty(v4_module_import_mir, v4_module_import_main_body, v4_mir_stmt_rvalue(v4_module_import_mir, v4_module_import_main_body, v4_module_import_a_stmt))
+say "module-call-b-op=" + v4_mir_rvalue_op(v4_module_import_mir, v4_module_import_main_body, v4_mir_stmt_rvalue(v4_module_import_mir, v4_module_import_main_body, v4_module_import_b_stmt))
+say "module-call-c-op=" + v4_mir_rvalue_op(v4_module_import_mir, v4_module_import_main_body, v4_mir_stmt_rvalue(v4_module_import_mir, v4_module_import_main_body, v4_module_import_c_stmt))
+say "module-call-d-op=" + v4_mir_rvalue_op(v4_module_import_mir, v4_module_import_main_body, v4_mir_stmt_rvalue(v4_module_import_mir, v4_module_import_main_body, v4_module_import_d_stmt))
+say "module-import-diagnostics=" + word_from_int(v4_mir_diag_count(v4_module_import_mir))

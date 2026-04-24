@@ -205,6 +205,203 @@ task v4_parse_make_span(stream_id: int, start_token: int, end_token: int) -> wor
     give back v4_span_new(v4_span_file(first_span), v4_span_start(first_span), v4_span_end(last_span))
 }
 
+task v4_parse_first_token_at_or_after(stream_id: int, offset: int) -> int {
+    pilot token_idx = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_idx >= token_count {
+        pilot token_span = v4_lex_token_span(stream_id, token_idx)
+        if v4_span_end(token_span) > offset {
+            give back token_idx
+        }
+        token_idx += 1
+    }
+    give back token_count
+}
+
+task v4_parse_node_start_token(tree_id: int, node_id: int) -> int {
+    if v4_parse_tree_exists(tree_id) == false {
+        give back 0 - 1
+    }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot node_span = v4_parse_node_span(tree_id, node_id)
+    give back v4_parse_first_token_at_or_after(stream_id, v4_span_start(node_span))
+}
+
+task v4_parse_node_end_token(tree_id: int, node_id: int) -> int {
+    if v4_parse_tree_exists(tree_id) == false {
+        give back 0 - 1
+    }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot node_span = v4_parse_node_span(tree_id, node_id)
+    pilot end_token = v4_parse_first_token_at_or_after(stream_id, v4_span_end(node_span))
+    if end_token <= v4_parse_node_start_token(tree_id, node_id) {
+        end_token = v4_lex_token_count(stream_id)
+    }
+    give back end_token
+}
+
+task v4_parse_text(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot out = ""
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            out = out + v4_lex_token_value(stream_id, idx)
+        }
+        idx += 1
+    }
+    give back out
+}
+
+task v4_parse_path_last_scope_separator(path: word) -> int {
+    pilot idx = 0
+    pilot last = 0 - 1
+    repeat until idx + 1 >= path.length() {
+        if path.char_at(idx) == ":" and path.char_at(idx + 1) == ":" {
+            last = idx
+            idx += 2
+        } else {
+            idx += 1
+        }
+    }
+    give back last
+}
+
+task v4_parse_path_leaf(path: word) -> word {
+    pilot sep = v4_parse_path_last_scope_separator(path)
+    if sep < 0 or sep + 2 > path.length() {
+        give back path
+    }
+    give back v4_slice(path, sep + 2, path.length())
+}
+
+task v4_parse_item_name_text(stream_id: int, start_token: int, end_token: int, keyword: word) -> word {
+    pilot first = v4_parse_skip_trivia(stream_id, start_token)
+    if first >= end_token {
+        give back ""
+    }
+
+    pilot idx = first
+    pilot last_name = 0 - 1
+    repeat until idx >= end_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type != v4_tok_trivia {
+            if keyword == "impl" and val == "for" {
+                idx = end_token
+            }
+            if val == "<" or val == "(" or val == "{" or val == "=>" or val == "done" {
+                idx = end_token
+            }
+            if idx >= end_token {
+                -- name boundary reached
+            } else if tok_type == v4_tok_ident or tok_type == v4_tok_keyword {
+                last_name = idx
+            } else if val == "::" {
+                -- keep walking the path
+            } else {
+                if last_name >= first {
+                    idx = end_token
+                } else {
+                    give back ""
+                }
+            }
+        }
+        idx += 1
+    }
+    if last_name < first {
+        give back ""
+    }
+    give back v4_parse_text(stream_id, first, last_name + 1)
+}
+
+task v4_parse_use_as_token(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            if v4_lex_token_value(stream_id, idx) == "as" {
+                give back idx
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_parse_use_path_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot first = v4_parse_skip_trivia(stream_id, start_token)
+    if first >= end_token {
+        give back ""
+    }
+    pilot as_token = v4_parse_use_as_token(stream_id, first, end_token)
+    if as_token >= 0 {
+        give back v4_parse_text(stream_id, first, as_token)
+    }
+    give back v4_parse_text(stream_id, first, end_token)
+}
+
+task v4_parse_use_alias_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot as_token = v4_parse_use_as_token(stream_id, start_token, end_token)
+    if as_token < 0 {
+        give back ""
+    }
+    pilot alias_token = v4_parse_skip_trivia(stream_id, as_token + 1)
+    if alias_token >= end_token {
+        give back ""
+    }
+    pilot alias_type = v4_lex_token_type(stream_id, alias_token)
+    if alias_type == v4_tok_ident or alias_type == v4_tok_keyword {
+        give back v4_lex_token_value(stream_id, alias_token)
+    }
+    give back ""
+}
+
+task v4_parse_use_binding_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot alias = v4_parse_use_alias_from_tokens(stream_id, start_token, end_token)
+    if alias != "" {
+        give back alias
+    }
+    give back v4_parse_path_leaf(v4_parse_use_path_from_tokens(stream_id, start_token, end_token))
+}
+
+task v4_parse_import_path(tree_id: int, node_id: int) -> word {
+    if v4_parse_node_kind(tree_id, node_id) != v4_node_use {
+        give back ""
+    }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_parse_node_start_token(tree_id, node_id)
+    pilot end_token = v4_parse_node_end_token(tree_id, node_id)
+    if start_token < 0 or end_token <= start_token {
+        give back ""
+    }
+    give back v4_parse_use_path_from_tokens(stream_id, start_token + 1, end_token)
+}
+
+task v4_parse_import_alias(tree_id: int, node_id: int) -> word {
+    if v4_parse_node_kind(tree_id, node_id) != v4_node_use {
+        give back ""
+    }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_parse_node_start_token(tree_id, node_id)
+    pilot end_token = v4_parse_node_end_token(tree_id, node_id)
+    if start_token < 0 or end_token <= start_token {
+        give back ""
+    }
+    give back v4_parse_use_alias_from_tokens(stream_id, start_token + 1, end_token)
+}
+
+task v4_parse_import_binding(tree_id: int, node_id: int) -> word {
+    if v4_parse_node_kind(tree_id, node_id) != v4_node_use {
+        give back ""
+    }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_parse_node_start_token(tree_id, node_id)
+    pilot end_token = v4_parse_node_end_token(tree_id, node_id)
+    if start_token < 0 or end_token <= start_token {
+        give back ""
+    }
+    give back v4_parse_use_binding_from_tokens(stream_id, start_token + 1, end_token)
+}
+
 task v4_parse_item_has_body(stream_id: int, start_token: int, end_token: int) -> bool {
     pilot idx = start_token
     repeat until idx >= end_token {
@@ -284,18 +481,9 @@ task v4_parse_parse_top_item(tree_id: int, stream_id: int, token_id: int, root_i
     pilot name_value = ""
 
     if v4_parse_keyword_requires_name(keyword) {
-        pilot name_token = v4_parse_skip_trivia(stream_id, token_id + 1)
-        if name_token < v4_lex_token_count(stream_id) {
-            pilot name_type = v4_lex_token_type(stream_id, name_token)
-            if name_type == v4_tok_ident or name_type == v4_tok_keyword {
-                name_value = v4_lex_token_value(stream_id, name_token)
-            }
-        }
+        name_value = v4_parse_item_name_text(stream_id, token_id + 1, end_token, keyword)
     } else if keyword == "use" {
-        pilot use_token = v4_parse_skip_trivia(stream_id, token_id + 1)
-        if use_token < v4_lex_token_count(stream_id) {
-            name_value = v4_lex_token_value(stream_id, use_token)
-        }
+        name_value = v4_parse_use_binding_from_tokens(stream_id, token_id + 1, end_token)
     } else if keyword == "extern" {
         name_value = "extern"
     }
@@ -304,6 +492,17 @@ task v4_parse_parse_top_item(tree_id: int, stream_id: int, token_id: int, root_i
 
     if v4_parse_keyword_requires_name(keyword) and name_value == "" {
         v4_parse_add_incomplete(tree_id, item_node, item_span, "expected name after " + keyword)
+    }
+
+    if keyword == "use" {
+        if v4_parse_use_path_from_tokens(stream_id, token_id + 1, end_token) == "" {
+            v4_parse_add_incomplete(tree_id, item_node, item_span, "expected import path after use")
+        }
+        if v4_parse_use_as_token(stream_id, token_id + 1, end_token) >= 0 {
+            if v4_parse_use_alias_from_tokens(stream_id, token_id + 1, end_token) == "" {
+                v4_parse_add_incomplete(tree_id, item_node, item_span, "expected alias name after as")
+            }
+        }
     }
 
     if v4_parse_keyword_requires_body(keyword) {
