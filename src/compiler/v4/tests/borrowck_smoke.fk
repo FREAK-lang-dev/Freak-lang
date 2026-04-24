@@ -38,6 +38,7 @@ pilot v4_borrow_main_result = v4_borrowck_lookup_result(v4_borrow_smoke_check, v
 say v4_borrowck_summary(v4_borrow_smoke_check)
 say "main-status=" + v4_borrowck_result_status(v4_borrow_smoke_check, v4_borrow_main_result)
 say "main-loans=" + word_from_int(v4_borrowck_result_loans(v4_borrow_smoke_check, v4_borrow_main_result))
+say "main-copies=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrow_smoke_check, v4_borrow_main_result, v4_borrowck_path_copy))
 say "main-moves=" + word_from_int(v4_borrowck_result_moves(v4_borrow_smoke_check, v4_borrow_main_result))
 say "main-drops=" + word_from_int(v4_borrowck_result_drops(v4_borrow_smoke_check, v4_borrow_main_result))
 say "main-paths=" + word_from_int(v4_borrowck_result_path_count(v4_borrow_smoke_check, v4_borrow_main_result))
