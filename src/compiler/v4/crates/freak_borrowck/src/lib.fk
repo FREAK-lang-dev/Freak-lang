@@ -465,6 +465,13 @@ task v4_borrowck_mutable_conflict_help(loan_text: word, loan_stmt: int, block_id
     give back out
 }
 
+task v4_borrowck_mutable_conflict_message(loan_block: int, write_block: int) -> word {
+    if loan_block == write_block {
+        give back "Meiya refuses this rewrite while the value is borrowed"
+    }
+    give back "Meiya tracks this loan into a later block"
+}
+
 task v4_borrowck_cross_block_conflict_help(loan_text: word, loan_stmt: int, loan_block: int, write_text: word, write_stmt: int, write_block: int) -> word {
     pilot loan_canon = v4_borrowck_path_canon(loan_text)
     pilot write_canon = v4_borrowck_path_canon(write_text)
@@ -543,6 +550,13 @@ task v4_borrowck_partial_move_conflict_help(move_text: word, move_stmt: int, use
     give back out
 }
 
+task v4_borrowck_partial_move_conflict_message(move_block: int, use_block: int) -> word {
+    if move_block == use_block {
+        give back "Meiya remembers the field you already moved"
+    }
+    give back "Meiya carries that partial move across the CFG"
+}
+
 task v4_borrowck_cross_block_partial_move_help(move_text: word, move_stmt: int, move_block: int, use_text: word, use_stmt: int, use_block: int) -> word {
     pilot move_canon = v4_borrowck_path_canon(move_text)
     pilot use_canon = v4_borrowck_path_canon(use_text)
@@ -573,6 +587,42 @@ task v4_borrowck_move_repaired_before_use(borrow_id: int, result_id: int, move_s
         path_idx += 1
     }
     give back false
+}
+
+task v4_borrowck_is_no_span(span: word) -> bool {
+    give back v4_span_start(span) == 0 and v4_span_end(span) == 0
+}
+
+task v4_borrowck_write_diag_span(mir_id: int, body_id: int, stmt_id: int) -> word {
+    if stmt_id < 0 {
+        give back V4_NO_SPAN
+    }
+    pilot stmt_span = v4_mir_stmt_span(mir_id, body_id, stmt_id)
+    pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+    if place_id < 0 {
+        give back stmt_span
+    }
+    pilot place_span = v4_mir_place_span(mir_id, body_id, place_id)
+    if v4_borrowck_is_no_span(place_span) {
+        give back stmt_span
+    }
+    give back place_span
+}
+
+task v4_borrowck_use_diag_span(mir_id: int, body_id: int, stmt_id: int) -> word {
+    if stmt_id < 0 {
+        give back V4_NO_SPAN
+    }
+    pilot stmt_span = v4_mir_stmt_span(mir_id, body_id, stmt_id)
+    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+    if rvalue_id < 0 {
+        give back stmt_span
+    }
+    pilot rvalue_span = v4_mir_rvalue_span(mir_id, body_id, rvalue_id)
+    if v4_borrowck_is_no_span(rvalue_span) {
+        give back stmt_span
+    }
+    give back rvalue_span
 }
 
 task v4_borrowck_add_place_path(borrow_id: int, result_id: int, mir_id: int, body_id: int, place_id: int, path_kind: word, stmt_id: int, block_id: int) -> void {
@@ -697,8 +747,9 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
                         }
                     }
                     if loan_conflicts {
-                        pilot stmt_span = v4_mir_stmt_span(mir_id, body_id, write_stmt)
-                        v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, stmt_span, "mutable borrow conflict", help))
+                        pilot stmt_span = v4_borrowck_write_diag_span(mir_id, body_id, write_stmt)
+                        pilot message = v4_borrowck_mutable_conflict_message(loan_block, write_block)
+                        v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, stmt_span, message, help))
                         v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
                         conflicts += 1
                         loan_idx = path_count
@@ -747,8 +798,9 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                         }
                     }
                     if move_conflicts {
-                        pilot stmt_span = v4_mir_stmt_span(mir_id, body_id, use_stmt)
-                        v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, stmt_span, "partial move conflict", help))
+                        pilot stmt_span = v4_borrowck_use_diag_span(mir_id, body_id, use_stmt)
+                        pilot message = v4_borrowck_partial_move_conflict_message(move_block, use_block)
+                        v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, stmt_span, message, help))
                         v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
                         conflicts += 1
                         use_idx = path_count

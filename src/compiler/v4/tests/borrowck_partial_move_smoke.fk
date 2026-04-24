@@ -1,6 +1,21 @@
 -- V4 Meiya partial move tracking smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_borrowck_partial_move_escape_render(text: word) -> word {
+    pilot out = ""
+    pilot idx = 0
+    repeat until idx >= text.length() {
+        pilot ch = text.char_at(idx)
+        if ch == "\n" {
+            out = out + "\\n"
+        } else {
+            out = out + ch
+        }
+        idx += 1
+    }
+    give back out
+}
+
 task v4_borrowck_partial_move_source() -> word {
     pilot src = "shape Pilot {\n"
     src = src + "    hp: int\n"
@@ -25,7 +40,8 @@ task v4_borrowck_partial_move_source() -> word {
     give back src
 }
 
-pilot v4_borrowck_partial_move_stream = v4_lex_text(0, v4_borrowck_partial_move_source())
+pilot v4_borrowck_partial_move_src = v4_borrowck_partial_move_source()
+pilot v4_borrowck_partial_move_stream = v4_lex_text(0, v4_borrowck_partial_move_src)
 pilot v4_borrowck_partial_move_tree = v4_parse_stream(0, v4_borrowck_partial_move_stream)
 pilot v4_borrowck_partial_move_hir = v4_hir_lower_tree(0, v4_borrowck_partial_move_tree)
 pilot v4_borrowck_partial_move_resolve = v4_resolve_lower_hir(0, v4_borrowck_partial_move_hir)
@@ -38,11 +54,15 @@ pilot v4_borrowck_partial_move_repaired_def = v4_resolve_def_for_name(v4_borrowc
 pilot v4_borrowck_partial_move_conflict_result = v4_borrowck_lookup_result(v4_borrowck_partial_move_check, v4_borrowck_partial_move_conflict_def)
 pilot v4_borrowck_partial_move_clean_result = v4_borrowck_lookup_result(v4_borrowck_partial_move_check, v4_borrowck_partial_move_clean_def)
 pilot v4_borrowck_partial_move_repaired_result = v4_borrowck_lookup_result(v4_borrowck_partial_move_check, v4_borrowck_partial_move_repaired_def)
+pilot v4_borrowck_partial_move_diag = v4_borrowck_diag(v4_borrowck_partial_move_check, 0)
+pilot v4_borrowck_partial_move_span = v4_diag_span(v4_borrowck_partial_move_diag)
 
 say v4_borrowck_summary(v4_borrowck_partial_move_check)
 say "partial-move-conflict-status=" + v4_borrowck_result_status(v4_borrowck_partial_move_check, v4_borrowck_partial_move_conflict_result)
 say "partial-move-clean-status=" + v4_borrowck_result_status(v4_borrowck_partial_move_check, v4_borrowck_partial_move_clean_result)
 say "partial-move-repaired-status=" + v4_borrowck_result_status(v4_borrowck_partial_move_check, v4_borrowck_partial_move_repaired_result)
 say "partial-move-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_borrowck_partial_move_check))
-say "partial-move-message=" + v4_diag_message(v4_borrowck_diag(v4_borrowck_partial_move_check, 0))
-say "partial-move-help=" + v4_diag_help(v4_borrowck_diag(v4_borrowck_partial_move_check, 0))
+say "partial-move-message=" + v4_diag_message(v4_borrowck_partial_move_diag)
+say "partial-move-help=" + v4_diag_help(v4_borrowck_partial_move_diag)
+say "partial-move-where=" + v4_line_col(v4_borrowck_partial_move_src, v4_span_start(v4_borrowck_partial_move_span))
+say "partial-move-render=" + v4_borrowck_partial_move_escape_render(v4_diag_render(v4_borrowck_partial_move_diag, v4_borrowck_partial_move_src))
