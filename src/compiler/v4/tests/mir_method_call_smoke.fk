@@ -19,11 +19,24 @@ task v4_mir_method_prelude() -> word {
 
 task v4_mir_method_good_source() -> word {
     pilot src = v4_mir_method_prelude()
-    src = src + "task main() -> int {\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "impl Box<T> {\n"
+    src = src + "    task take(self) -> T {\n"
+    src = src + "        give back self.value\n"
+    src = src + "    }\n"
+    src = src + "    task echo(self, value: T) -> T {\n"
+    src = src + "        give back value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main(box: Box<int>) -> int {\n"
     src = src + "    pilot ship = Pilot " + "{" + " hp: 7, callsign: \"Shirogane\" " + "}\n"
     src = src + "    pilot boosted = ship.boost(2)\n"
     src = src + "    pilot ace = Pilot::ace(\"Valkyrie-1\")\n"
-    src = src + "    give back boosted + ace.hp\n"
+    src = src + "    pilot taken = box.take()\n"
+    src = src + "    pilot echoed = box.echo(5)\n"
+    src = src + "    give back boosted + ace.hp + taken + echoed\n"
     src = src + "}\n"
     give back src
 }
@@ -80,6 +93,22 @@ task v4_mir_method_bad_static_missing_source() -> word {
     give back src
 }
 
+task v4_mir_method_bad_generic_arg_source() -> word {
+    pilot src = v4_mir_method_prelude()
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "impl Box<T> {\n"
+    src = src + "    task echo(self, value: T) -> T {\n"
+    src = src + "        give back value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task bad(box: Box<int>) -> void {\n"
+    src = src + "    pilot echoed = box.echo(\"nope\")\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_mir_method_find_impl_item(hir_id: int, ty_id: int, owner_ty: word) -> int {
     pilot hir_item = 0
     pilot hir_count = v4_hir_item_count(hir_id)
@@ -128,11 +157,18 @@ pilot v4_mir_method_main_body = v4_mir_lookup_body(v4_mir_method_good_mir, v4_mi
 pilot v4_mir_method_impl_item = v4_mir_method_find_impl_item(v4_mir_method_good_hir, v4_mir_method_good_ty, "Pilot")
 pilot v4_mir_method_boost_body = v4_mir_method_lookup_body(v4_mir_method_good_mir, v4_mir_method_good_ty, v4_mir_method_impl_item, "boost")
 pilot v4_mir_method_ace_body = v4_mir_method_lookup_body(v4_mir_method_good_mir, v4_mir_method_good_ty, v4_mir_method_impl_item, "ace")
+pilot v4_mir_method_box_impl_item = v4_mir_method_find_impl_item(v4_mir_method_good_hir, v4_mir_method_good_ty, "Box<T>")
+pilot v4_mir_method_take_body = v4_mir_method_lookup_body(v4_mir_method_good_mir, v4_mir_method_good_ty, v4_mir_method_box_impl_item, "take")
+pilot v4_mir_method_echo_body = v4_mir_method_lookup_body(v4_mir_method_good_mir, v4_mir_method_good_ty, v4_mir_method_box_impl_item, "echo")
 pilot v4_mir_method_boost_return = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_boost_body, 0)
 pilot v4_mir_method_boost_lhs = v4_mir_rvalue_lhs(v4_mir_method_good_mir, v4_mir_method_boost_body, v4_mir_method_boost_return)
 pilot v4_mir_method_ace_return = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_ace_body, 0)
 pilot v4_mir_method_instance_call = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_main_body, 1)
 pilot v4_mir_method_associated_call = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_main_body, 2)
+pilot v4_mir_method_take_return = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_take_body, 0)
+pilot v4_mir_method_echo_return = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_echo_body, 0)
+pilot v4_mir_method_generic_take_call = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_main_body, 3)
+pilot v4_mir_method_generic_echo_call = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_main_body, 4)
 
 pilot v4_mir_method_boost_found = "no"
 if v4_mir_method_boost_body >= 0 {
@@ -162,17 +198,41 @@ say "ace-local0-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method
 say "ace-local0-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_ace_body, 0)
 say "ace-return-kind=" + v4_mir_rvalue_kind(v4_mir_method_good_mir, v4_mir_method_ace_body, v4_mir_method_ace_return)
 say "ace-return-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_ace_body, v4_mir_method_ace_return)
+say "take-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_method_good_mir, v4_mir_method_take_body))
+say "take-local0-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_take_body, 0)
+say "take-local0-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_take_body, 0)
+say "take-return-kind=" + v4_mir_rvalue_kind(v4_mir_method_good_mir, v4_mir_method_take_body, v4_mir_method_take_return)
+say "take-return-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_take_body, v4_mir_method_take_return)
+say "echo-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_method_good_mir, v4_mir_method_echo_body))
+say "echo-local0-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_echo_body, 0)
+say "echo-local0-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_echo_body, 0)
+say "echo-local1-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_echo_body, 1)
+say "echo-local1-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_echo_body, 1)
+say "echo-return-kind=" + v4_mir_rvalue_kind(v4_mir_method_good_mir, v4_mir_method_echo_body, v4_mir_method_echo_return)
+say "echo-return-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_echo_body, v4_mir_method_echo_return)
 say "method-main-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_method_good_mir, v4_mir_method_main_body))
-say "method-main-local1-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_main_body, 1)
-say "method-main-local1-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_main_body, 1)
+say "method-main-local0-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_main_body, 0)
+say "method-main-local0-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_main_body, 0)
 say "method-main-local2-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_main_body, 2)
 say "method-main-local2-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_main_body, 2)
+say "method-main-local3-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_main_body, 3)
+say "method-main-local3-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_main_body, 3)
+say "method-main-local4-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_main_body, 4)
+say "method-main-local4-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_main_body, 4)
+say "method-main-local5-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_main_body, 5)
+say "method-main-local5-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_main_body, 5)
 say "instance-call-kind=" + v4_mir_rvalue_kind(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_instance_call)
 say "instance-call-op=" + v4_mir_rvalue_op(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_instance_call)
 say "instance-call-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_instance_call)
 say "associated-call-kind=" + v4_mir_rvalue_kind(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_associated_call)
 say "associated-call-op=" + v4_mir_rvalue_op(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_associated_call)
 say "associated-call-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_associated_call)
+say "generic-take-call-kind=" + v4_mir_rvalue_kind(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_generic_take_call)
+say "generic-take-call-op=" + v4_mir_rvalue_op(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_generic_take_call)
+say "generic-take-call-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_generic_take_call)
+say "generic-echo-call-kind=" + v4_mir_rvalue_kind(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_generic_echo_call)
+say "generic-echo-call-op=" + v4_mir_rvalue_op(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_generic_echo_call)
+say "generic-echo-call-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_generic_echo_call)
 say "method-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_good_mir))
 
 pilot v4_mir_method_bad_receiver_static_stream = v4_lex_text(1, v4_mir_method_bad_receiver_static_source())
@@ -240,3 +300,14 @@ pilot v4_mir_method_bad_static_missing_mir = v4_mir_lower_ty(6, v4_mir_method_ba
 say "bad-static-missing-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_bad_static_missing_mir))
 say "bad-static-missing-message=" + v4_diag_message(v4_mir_diag(v4_mir_method_bad_static_missing_mir, 0))
 say "bad-static-missing-help=" + v4_diag_help(v4_mir_diag(v4_mir_method_bad_static_missing_mir, 0))
+
+pilot v4_mir_method_bad_generic_arg_stream = v4_lex_text(7, v4_mir_method_bad_generic_arg_source())
+pilot v4_mir_method_bad_generic_arg_tree = v4_parse_stream(7, v4_mir_method_bad_generic_arg_stream)
+pilot v4_mir_method_bad_generic_arg_hir = v4_hir_lower_tree(7, v4_mir_method_bad_generic_arg_tree)
+pilot v4_mir_method_bad_generic_arg_resolve = v4_resolve_lower_hir(7, v4_mir_method_bad_generic_arg_hir)
+pilot v4_mir_method_bad_generic_arg_ty = v4_ty_lower_resolve(7, v4_mir_method_bad_generic_arg_resolve)
+pilot v4_mir_method_bad_generic_arg_mir = v4_mir_lower_ty(7, v4_mir_method_bad_generic_arg_ty)
+
+say "bad-generic-arg-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_bad_generic_arg_mir))
+say "bad-generic-arg-message=" + v4_diag_message(v4_mir_diag(v4_mir_method_bad_generic_arg_mir, 0))
+say "bad-generic-arg-help=" + v4_diag_help(v4_mir_diag(v4_mir_method_bad_generic_arg_mir, 0))

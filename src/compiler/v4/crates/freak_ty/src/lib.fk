@@ -195,6 +195,31 @@ task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
     give back false
 }
 
+task v4_ty_is_declared_simple_type_name(ty_id: int, type_name: word) -> bool {
+    if type_name == "" or type_name == v4_ty_unknown {
+        give back false
+    }
+    if type_name == v4_ty_int or type_name == v4_ty_num or type_name == v4_ty_word or type_name == v4_ty_bool or type_name == v4_ty_void {
+        give back true
+    }
+    if type_name == "uint" or type_name == "tiny" or type_name == "float" or type_name == "float32" or type_name == "char" or type_name == "big" {
+        give back true
+    }
+    if type_name == "maybe" or type_name == "result" or type_name == "List" or type_name == "Map" or type_name == "Set" or type_name == "Lineup" {
+        give back true
+    }
+
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_name(ty_id, sig_id) == type_name {
+            give back true
+        }
+        sig_id += 1
+    }
+    give back false
+}
+
 task v4_ty_numeric_result(left_ty: word, right_ty: word) -> word {
     if left_ty == v4_ty_unknown or right_ty == v4_ty_unknown {
         give back v4_ty_unknown
@@ -1379,6 +1404,93 @@ task v4_ty_impl_method_explicit_param_type(ty_id: int, hir_item: int, method_id:
     give back v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_id + shift)
 }
 
+task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word, env: word) -> word {
+    if env == v4_ty_generic_env_fail {
+        give back env
+    }
+    if pattern_ty == "" or pattern_ty == v4_ty_unknown or not v4_ty_is_known(actual_ty) {
+        give back v4_ty_generic_env_fail
+    }
+    if pattern_ty == actual_ty {
+        give back env
+    }
+    if v4_ty_is_numeric(pattern_ty) and v4_ty_is_numeric(actual_ty) {
+        give back env
+    }
+    if v4_ty_is_generic_instance_type(pattern_ty) and v4_ty_is_generic_instance_type(actual_ty) {
+        if v4_ty_generic_base_name(pattern_ty) != v4_ty_generic_base_name(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        if v4_ty_generic_arg_count(pattern_ty) != v4_ty_generic_arg_count(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        pilot next_env = env
+        pilot arg_idx = 0
+        pilot arg_count = v4_ty_generic_arg_count(pattern_ty)
+        repeat until arg_idx >= arg_count {
+            next_env = v4_ty_match_type_pattern_env(ty_id, v4_ty_generic_arg(pattern_ty, arg_idx), v4_ty_generic_arg(actual_ty, arg_idx), next_env)
+            if next_env == v4_ty_generic_env_fail {
+                give back next_env
+            }
+            arg_idx += 1
+        }
+        give back next_env
+    }
+    if v4_ty_is_tuple_type(pattern_ty) and v4_ty_is_tuple_type(actual_ty) {
+        if v4_ty_tuple_slot_count(pattern_ty) != v4_ty_tuple_slot_count(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        pilot next_env = env
+        pilot slot_idx = 0
+        pilot slot_count = v4_ty_tuple_slot_count(pattern_ty)
+        repeat until slot_idx >= slot_count {
+            next_env = v4_ty_match_type_pattern_env(ty_id, v4_ty_tuple_slot_type(pattern_ty, slot_idx), v4_ty_tuple_slot_type(actual_ty, slot_idx), next_env)
+            if next_env == v4_ty_generic_env_fail {
+                give back next_env
+            }
+            slot_idx += 1
+        }
+        give back next_env
+    }
+    if v4_ty_is_fixed_array_type(pattern_ty) and v4_ty_is_fixed_array_type(actual_ty) {
+        if v4_ty_fixed_array_length_text(pattern_ty) != v4_ty_fixed_array_length_text(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        give back v4_ty_match_type_pattern_env(ty_id, v4_ty_fixed_array_element_type(pattern_ty), v4_ty_fixed_array_element_type(actual_ty), env)
+    }
+    if not v4_ty_is_declared_simple_type_name(ty_id, pattern_ty) {
+        give back v4_ty_generic_env_bind(env, pattern_ty, actual_ty)
+    }
+    if v4_ty_types_compatible(pattern_ty, actual_ty) {
+        give back env
+    }
+    give back v4_ty_generic_env_fail
+}
+
+task v4_ty_impl_generic_env_for_owner(ty_id: int, hir_item: int, owner_ty: word) -> word {
+    give back v4_ty_match_type_pattern_env(ty_id, v4_ty_impl_target_type_from_hir(ty_id, hir_item), owner_ty, "")
+}
+
+task v4_ty_impl_matches_owner(ty_id: int, hir_item: int, owner_ty: word) -> bool {
+    give back v4_ty_impl_generic_env_for_owner(ty_id, hir_item, owner_ty) != v4_ty_generic_env_fail
+}
+
+task v4_ty_apply_impl_generics(ty_id: int, hir_item: int, owner_ty: word, member_ty: word) -> word {
+    pilot env = v4_ty_impl_generic_env_for_owner(ty_id, hir_item, owner_ty)
+    if env == v4_ty_generic_env_fail {
+        give back member_ty
+    }
+    give back v4_ty_apply_generic_env(member_ty, env)
+}
+
+task v4_ty_impl_method_param_type_for_owner(ty_id: int, hir_item: int, method_id: int, param_id: int, owner_ty: word) -> word {
+    give back v4_ty_apply_impl_generics(ty_id, hir_item, owner_ty, v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_id))
+}
+
+task v4_ty_impl_method_explicit_param_type_for_owner(ty_id: int, hir_item: int, method_id: int, param_id: int, owner_ty: word) -> word {
+    give back v4_ty_apply_impl_generics(ty_id, hir_item, owner_ty, v4_ty_impl_method_explicit_param_type(ty_id, hir_item, method_id, param_id))
+}
+
 task v4_ty_impl_method_return_type(ty_id: int, hir_item: int, method_id: int) -> word {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 {
@@ -1387,6 +1499,10 @@ task v4_ty_impl_method_return_type(ty_id: int, hir_item: int, method_id: int) ->
     pilot tree_id = v4_hir_tree_id(hir_id)
     pilot stream_id = v4_parse_stream_id(tree_id)
     give back v4_ty_task_return_from_tokens(stream_id, v4_ty_impl_method_start_token(ty_id, hir_item, method_id), v4_ty_impl_method_end_token(ty_id, hir_item, method_id))
+}
+
+task v4_ty_impl_method_return_type_for_owner(ty_id: int, hir_item: int, method_id: int, owner_ty: word) -> word {
+    give back v4_ty_apply_impl_generics(ty_id, hir_item, owner_ty, v4_ty_impl_method_return_type(ty_id, hir_item, method_id))
 }
 
 task v4_ty_impl_method_def(ty_id: int, hir_item: int, method_id: int) -> word {
@@ -1652,7 +1768,7 @@ task v4_ty_type_satisfies_doctrine(ty_id: int, actual_ty: word, doctrine_name: w
                 impl_doctrine = v4_ty_generic_base_name(impl_doctrine)
             }
             if impl_doctrine == wanted_doctrine {
-                if v4_ty_impl_target_type_from_hir(ty_id, hir_item) == actual_ty {
+                if v4_ty_impl_matches_owner(ty_id, hir_item, actual_ty) {
                     give back true
                 }
             }
