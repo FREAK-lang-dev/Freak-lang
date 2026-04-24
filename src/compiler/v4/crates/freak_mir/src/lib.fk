@@ -1736,6 +1736,10 @@ task v4_mir_expected_return_type(mir_id: int, body_id: int) -> word {
     give back v4_ty_signature_return_type(v4_mir_ty_id(mir_id), sig_id)
 }
 
+task v4_mir_body_signature_id(mir_id: int, body_id: int) -> int {
+    give back v4_ty_lookup_signature(v4_mir_ty_id(mir_id), v4_mir_body_def(mir_id, body_id))
+}
+
 task v4_mir_check_return_type(mir_id: int, body_id: int, stmt_span: word, actual_ty: word) -> void {
     pilot expected_ty = v4_mir_expected_return_type(mir_id, body_id)
     if not v4_ty_types_compatible(expected_ty, actual_ty) {
@@ -1797,6 +1801,32 @@ task v4_mir_call_arg_end(stream_id: int, start_token: int, close_token: int) -> 
     give back close_token
 }
 
+task v4_mir_check_call_generic_bounds(mir_id: int, expr_span: word, callee_name: word, sig_id: int, generic_env: word) -> void {
+    if sig_id < 0 or generic_env == "" or generic_env == v4_ty_generic_env_fail {
+        give back
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot generic_idx = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_idx >= generic_count {
+        pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_idx)
+        pilot actual_ty = v4_ty_generic_env_lookup(generic_env, generic_name)
+        if actual_ty != "" {
+            pilot bound_idx = 0
+            pilot bound_count = v4_ty_signature_generic_bound_count(ty_id, sig_id, generic_idx)
+            repeat until bound_idx >= bound_count {
+                pilot bound_name = v4_ty_signature_generic_bound_name(ty_id, sig_id, generic_idx, bound_idx)
+                if not v4_ty_type_satisfies_doctrine(ty_id, actual_ty, bound_name) {
+                    v4_mir_add_type_error(mir_id, expr_span, "generic bound mismatch", callee_name + " requires " + generic_name + ": " + bound_name + " but got " + actual_ty)
+                }
+                bound_idx += 1
+            }
+        }
+        generic_idx += 1
+    }
+}
+
 task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, callee_name: word, sig_id: int, open_token: int, close_token: int) -> word {
     if sig_id < 0 or open_token < 0 or close_token <= open_token {
         give back ""
@@ -1830,6 +1860,7 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
         arg_idx += 1
         arg_start = v4_mir_skip_trivia(stream_id, arg_end + 1)
     }
+    v4_mir_check_call_generic_bounds(mir_id, expr_span, callee_name, sig_id, generic_env)
     give back generic_env
 }
 
@@ -1864,6 +1895,37 @@ task v4_mir_method_ref_method_id(method_ref: word) -> int {
     give back word_to_int(method_ref.substring(pipe + 1, method_ref.length()))
 }
 
+task v4_mir_bound_method_ref(sig_id: int, method_id: int) -> word {
+    give back word_from_int(sig_id) + "|" + word_from_int(method_id)
+}
+
+task v4_mir_bound_method_ref_pipe(method_ref: word) -> int {
+    pilot idx = 0
+    repeat until idx >= method_ref.length() {
+        if method_ref.char_at(idx) == "|" {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_bound_method_ref_sig_id(method_ref: word) -> int {
+    pilot pipe = v4_mir_bound_method_ref_pipe(method_ref)
+    if pipe < 0 {
+        give back 0 - 1
+    }
+    give back word_to_int(method_ref.substring(0, pipe))
+}
+
+task v4_mir_bound_method_ref_method_id(method_ref: word) -> int {
+    pilot pipe = v4_mir_bound_method_ref_pipe(method_ref)
+    if pipe < 0 {
+        give back 0 - 1
+    }
+    give back word_to_int(method_ref.substring(pipe + 1, method_ref.length()))
+}
+
 task v4_mir_find_method_ref(mir_id: int, owner_ty: word, method_name: word, want_instance: bool) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot resolve_id = v4_ty_resolve_id(ty_id)
@@ -1890,6 +1952,39 @@ task v4_mir_find_method_ref(mir_id: int, owner_ty: word, method_name: word, want
             }
         }
         hir_item += 1
+    }
+    give back ""
+}
+
+task v4_mir_find_bound_method_ref(mir_id: int, body_id: int, owner_ty: word, method_name: word, want_instance: bool) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id < 0 {
+        give back ""
+    }
+    pilot generic_id = v4_ty_signature_generic_id_for_name(ty_id, sig_id, owner_ty)
+    if generic_id < 0 {
+        give back ""
+    }
+
+    pilot bound_idx = 0
+    pilot bound_count = v4_ty_signature_generic_bound_count(ty_id, sig_id, generic_id)
+    repeat until bound_idx >= bound_count {
+        pilot doctrine_name = v4_ty_signature_generic_bound_name(ty_id, sig_id, generic_id, bound_idx)
+        pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(ty_id, doctrine_name)
+        if doctrine_sig >= 0 {
+            pilot method_id = 0
+            pilot method_count = v4_ty_doctrine_method_count(ty_id, doctrine_sig)
+            repeat until method_id >= method_count {
+                if v4_ty_doctrine_method_name(ty_id, doctrine_sig, method_id) == method_name {
+                    if v4_ty_doctrine_method_is_instance(ty_id, doctrine_sig, method_id) == want_instance {
+                        give back v4_mir_bound_method_ref(doctrine_sig, method_id)
+                    }
+                }
+                method_id += 1
+            }
+        }
+        bound_idx += 1
     }
     give back ""
 }
@@ -1930,6 +2025,14 @@ task v4_mir_method_return_type(mir_id: int, method_ref: word) -> word {
     give back v4_ty_impl_method_return_type(ty_id, v4_mir_method_ref_hir_item(method_ref), v4_mir_method_ref_method_id(method_ref))
 }
 
+task v4_mir_bound_method_return_type(mir_id: int, owner_ty: word, method_ref: word) -> word {
+    if method_ref == "" {
+        give back v4_ty_unknown
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    give back v4_ty_doctrine_method_return_type_for_self(ty_id, v4_mir_bound_method_ref_sig_id(method_ref), v4_mir_bound_method_ref_method_id(method_ref), owner_ty)
+}
+
 task v4_mir_check_method_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, owner_ty: word, method_name: word, method_ref: word, open_token: int, close_token: int, call_glyph: word) -> void {
     if method_ref == "" or open_token < 0 or close_token <= open_token {
         give back
@@ -1964,6 +2067,47 @@ task v4_mir_check_method_args(mir_id: int, body_id: int, stream_id: int, expr_sp
     }
 }
 
+task v4_mir_check_bound_method_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, owner_ty: word, method_name: word, method_ref: word, open_token: int, close_token: int, call_glyph: word) -> void {
+    if method_ref == "" or open_token < 0 or close_token <= open_token {
+        give back
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot doctrine_sig = v4_mir_bound_method_ref_sig_id(method_ref)
+    pilot method_id = v4_mir_bound_method_ref_method_id(method_ref)
+    pilot expected_count = v4_ty_doctrine_method_explicit_param_count(ty_id, doctrine_sig, method_id)
+    pilot actual_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    pilot label = owner_ty + call_glyph + method_name
+    if expected_count != actual_count {
+        v4_mir_add_type_error(mir_id, expr_span, "method call arity drift", label + " takes " + word_from_int(expected_count) + " explicit arguments but got " + word_from_int(actual_count))
+    }
+
+    pilot body_sig = v4_mir_body_signature_id(mir_id, body_id)
+    pilot arg_idx = 0
+    pilot arg_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+    repeat until arg_idx >= actual_count {
+        pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
+        if arg_idx < expected_count {
+            pilot expected_ty = v4_ty_doctrine_method_explicit_param_type_for_self(ty_id, doctrine_sig, method_id, arg_idx, owner_ty)
+            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, arg_start, arg_end, expected_ty)
+            pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+            pilot types_ok = false
+            if body_sig >= 0 {
+                types_ok = v4_ty_types_compatible_in_signature(ty_id, body_sig, expected_ty, actual_ty)
+            } else {
+                types_ok = v4_ty_types_compatible(expected_ty, actual_ty)
+            }
+            if not types_ok {
+                v4_mir_add_type_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived")
+            }
+        } else {
+            pilot arg_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, arg_start, arg_end)
+        }
+        arg_idx += 1
+        arg_start = v4_mir_skip_trivia(stream_id, arg_end + 1)
+    }
+}
+
 task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
     if v4_lex_token_value(stream_id, last) != ")" {
         give back 0 - 1
@@ -1988,13 +2132,19 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
     pilot method_name = v4_lex_token_value(stream_id, method_token)
     pilot method_ref = v4_mir_find_method_ref(mir_id, receiver_ty, method_name, true)
+    pilot bound_method_ref = ""
     pilot any_ref = ""
     if method_ref == "" {
-        any_ref = v4_mir_find_any_method_ref(mir_id, receiver_ty, method_name)
-        if any_ref != "" {
-            v4_mir_add_type_error(mir_id, expr_span, "method wants associated syntax", receiver_ty + "::" + method_name + " is static; call it with :: instead of a receiver")
+        bound_method_ref = v4_mir_find_bound_method_ref(mir_id, body_id, receiver_ty, method_name, true)
+        if bound_method_ref != "" {
+            v4_mir_check_bound_method_args(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, bound_method_ref, open_token, last, ".")
         } else {
-            v4_mir_add_type_error(mir_id, expr_span, "receiver has no matching method", receiver_ty + " offers no method " + method_name)
+            any_ref = v4_mir_find_any_method_ref(mir_id, receiver_ty, method_name)
+            if any_ref != "" {
+                v4_mir_add_type_error(mir_id, expr_span, "method wants associated syntax", receiver_ty + "::" + method_name + " is static; call it with :: instead of a receiver")
+            } else {
+                v4_mir_add_type_error(mir_id, expr_span, "receiver has no matching method", receiver_ty + " offers no method " + method_name)
+            }
         }
     } else {
         v4_mir_check_method_args(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, method_ref, open_token, last, ".")
@@ -2002,6 +2152,9 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
 
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     pilot result_ty = v4_mir_method_return_type(mir_id, method_ref)
+    if method_ref == "" and bound_method_ref != "" {
+        result_ty = v4_mir_bound_method_return_type(mir_id, receiver_ty, bound_method_ref)
+    }
     if method_ref == "" and any_ref != "" {
         result_ty = v4_mir_method_return_type(mir_id, any_ref)
     }

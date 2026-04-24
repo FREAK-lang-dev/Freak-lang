@@ -32,6 +32,14 @@ task v4_ty_generics_make_source() -> word {
     src = src + "doctrine Displayable<T> {\n"
     src = src + "    task display(self) -> word\n"
     src = src + "}\n"
+    src = src + "shape Idol {\n"
+    src = src + "    name: word\n"
+    src = src + "}\n"
+    src = src + "impl Displayable for Idol {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back self.name\n"
+    src = src + "    }\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -91,6 +99,11 @@ say "option-is-route=" + v4_ty_generics_bool_text(v4_ty_is_route_type(v4_ty_gene
 say "option-some-value-type=" + v4_ty_route_case_field_type_for_name(v4_ty_generics_ty, "Option<word>", "Some", "value")
 say "displayable-signature=" + v4_ty_signature_of(v4_ty_generics_ty, v4_ty_displayable_def)
 say "displayable-generic0-name=" + v4_ty_signature_generic_name(v4_ty_generics_ty, v4_ty_displayable_sig, 0)
+say "displayable-method-count=" + word_from_int(v4_ty_doctrine_method_count(v4_ty_generics_ty, v4_ty_displayable_sig))
+say "displayable-method0-name=" + v4_ty_doctrine_method_name(v4_ty_generics_ty, v4_ty_displayable_sig, 0)
+say "displayable-method0-return=" + v4_ty_doctrine_method_return_type(v4_ty_generics_ty, v4_ty_displayable_sig, 0)
+say "idol-displayable=" + v4_ty_generics_bool_text(v4_ty_type_satisfies_doctrine(v4_ty_generics_ty, "Idol", "Displayable"))
+say "pair-displayable=" + v4_ty_generics_bool_text(v4_ty_type_satisfies_doctrine(v4_ty_generics_ty, "Pair<word,int>", "Displayable"))
 say "generic-instance-base=" + v4_ty_generic_base_name(v4_ty_generic_instance)
 say "generic-instance-args=" + word_from_int(v4_ty_generic_arg_count(v4_ty_generic_instance))
 say "generic-instance-arg0=" + v4_ty_generic_arg(v4_ty_generic_instance, 0)
