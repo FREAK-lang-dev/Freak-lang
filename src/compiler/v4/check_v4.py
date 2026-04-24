@@ -1704,6 +1704,17 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "Meiya mutable borrow exclusivity",
+        "fixture": "borrowck_mut_exclusive_smoke.fk",
+        "expect": [
+            "mut-excl-conflict-status=blocked",
+            "mut-excl-clean-status=clean",
+            "mut-excl-diagnostics=1",
+            "mut-excl-message=mutable borrow conflict",
+            "mut-excl-help=ship stays on loan in block 0 from statement 0, so statement 1 cannot rewrite ship.hp yet",
+        ],
+    },
+    {
         "name": "MIR else-if lowering",
         "fixture": "mir_else_if_smoke.fk",
         "expect": [

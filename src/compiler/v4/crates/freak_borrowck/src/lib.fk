@@ -254,6 +254,10 @@ task v4_borrowck_set_result_counts(borrow_id: int, result_id: int, loans: int, m
     array_set(v4_borrowck_drops_handle(borrow_id), result_id, word_from_int(drops))
 }
 
+task v4_borrowck_set_result_status(borrow_id: int, result_id: int, status: word) -> void {
+    array_set(v4_borrowck_statuses_handle(borrow_id), result_id, status)
+}
+
 task v4_borrowck_add_path(borrow_id: int, result_id: int, path_kind: word, path_text: word, stmt_id: int, block_id: int) -> int {
     pilot path_id = array_len(v4_borrowck_result_path_kinds_handle(borrow_id, result_id))
     array_push(v4_borrowck_result_path_kinds_handle(borrow_id, result_id), path_kind)
@@ -403,6 +407,64 @@ task v4_borrowck_path_count(borrow_id: int) -> int {
     give back total
 }
 
+task v4_borrowck_path_canon(path_text: word) -> word {
+    if path_text == "" {
+        give back ""
+    }
+    pilot out = ""
+    pilot idx = 0
+    repeat until idx >= path_text.length() {
+        pilot ch = path_text.char_at(idx)
+        if ch != " " and ch != "\t" and ch != "\r" and ch != "\n" {
+            out = out + ch
+        }
+        idx += 1
+    }
+    give back out
+}
+
+task v4_borrowck_path_prefix_conflicts(prefix: word, path_text: word) -> bool {
+    if prefix == "" or path_text == "" {
+        give back false
+    }
+    if prefix.length() >= path_text.length() {
+        give back false
+    }
+    if v4_slice(path_text, 0, prefix.length()) != prefix {
+        give back false
+    }
+    pilot next = path_text.char_at(prefix.length())
+    give back next == "." or next == "["
+}
+
+task v4_borrowck_paths_overlap(left: word, right: word) -> bool {
+    pilot left_canon = v4_borrowck_path_canon(left)
+    pilot right_canon = v4_borrowck_path_canon(right)
+    if left_canon == "" or right_canon == "" {
+        give back false
+    }
+    if left_canon == right_canon {
+        give back true
+    }
+    if v4_borrowck_path_prefix_conflicts(left_canon, right_canon) {
+        give back true
+    }
+    if v4_borrowck_path_prefix_conflicts(right_canon, left_canon) {
+        give back true
+    }
+    give back false
+}
+
+task v4_borrowck_mutable_conflict_help(loan_text: word, loan_stmt: int, block_id: int, write_text: word, write_stmt: int) -> word {
+    pilot loan_canon = v4_borrowck_path_canon(loan_text)
+    pilot write_canon = v4_borrowck_path_canon(write_text)
+    pilot out = loan_canon + " stays on loan in block " + word_from_int(block_id)
+    out = out + " from statement " + word_from_int(loan_stmt)
+    out = out + ", so statement " + word_from_int(write_stmt)
+    out = out + " cannot rewrite " + write_canon + " yet"
+    give back out
+}
+
 task v4_borrowck_add_place_path(borrow_id: int, result_id: int, mir_id: int, body_id: int, place_id: int, path_kind: word, stmt_id: int, block_id: int) -> void {
     if place_id < 0 {
         give back
@@ -492,6 +554,40 @@ task v4_borrowck_collect_body_paths(borrow_id: int, result_id: int, mir_id: int,
     v4_borrowck_collect_drop_paths(borrow_id, result_id, mir_id, body_id)
 }
 
+task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
+    pilot conflicts = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    pilot write_idx = 0
+    repeat until write_idx >= path_count {
+        if v4_borrowck_path_kind(borrow_id, result_id, write_idx) == v4_borrowck_path_write {
+            pilot write_stmt = v4_borrowck_path_stmt(borrow_id, result_id, write_idx)
+            pilot write_block = v4_borrowck_path_block(borrow_id, result_id, write_idx)
+            pilot write_text = v4_borrowck_path_text(borrow_id, result_id, write_idx)
+            pilot loan_idx = 0
+            repeat until loan_idx >= path_count {
+                if v4_borrowck_path_kind(borrow_id, result_id, loan_idx) == v4_borrowck_path_loan {
+                    pilot loan_stmt = v4_borrowck_path_stmt(borrow_id, result_id, loan_idx)
+                    pilot loan_block = v4_borrowck_path_block(borrow_id, result_id, loan_idx)
+                    pilot loan_text = v4_borrowck_path_text(borrow_id, result_id, loan_idx)
+                    if loan_block == write_block and loan_stmt >= 0 and write_stmt >= 0 and loan_stmt < write_stmt {
+                        if v4_borrowck_paths_overlap(loan_text, write_text) {
+                            pilot stmt_span = v4_mir_stmt_span(mir_id, body_id, write_stmt)
+                            pilot help = v4_borrowck_mutable_conflict_help(loan_text, loan_stmt, write_block, write_text, write_stmt)
+                            v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, stmt_span, "mutable borrow conflict", help))
+                            v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                            conflicts += 1
+                            loan_idx = path_count
+                        }
+                    }
+                }
+                loan_idx += 1
+            }
+        }
+        write_idx += 1
+    }
+    give back conflicts
+}
+
 task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
     v4_borrowck_init()
     pilot borrow_id = v4_borrowck_file_new(file_id, mir_id)
@@ -510,6 +606,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         }
         pilot result_id = v4_borrowck_add_result(borrow_id, def_id, body_name, status, 0, 0, 0)
         v4_borrowck_collect_body_paths(borrow_id, result_id, mir_id, body_idx)
+        v4_borrowck_check_mutable_exclusivity(borrow_id, result_id, mir_id, body_idx)
         pilot loan_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_loan)
         pilot move_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_move)
         pilot drop_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_drop)

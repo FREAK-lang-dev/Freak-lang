@@ -1,0 +1,38 @@
+-- V4 Meiya mutable exclusivity smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_borrowck_mut_exclusive_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task conflict(ship: Pilot) -> int {\n"
+    src = src + "    ship\n"
+    src = src + "    ship.hp = 7\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task clean(ship: Pilot) -> int {\n"
+    src = src + "    pilot seen = ship.hp\n"
+    src = src + "    ship.hp = seen + 1\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_borrowck_mut_exclusive_stream = v4_lex_text(0, v4_borrowck_mut_exclusive_source())
+pilot v4_borrowck_mut_exclusive_tree = v4_parse_stream(0, v4_borrowck_mut_exclusive_stream)
+pilot v4_borrowck_mut_exclusive_hir = v4_hir_lower_tree(0, v4_borrowck_mut_exclusive_tree)
+pilot v4_borrowck_mut_exclusive_resolve = v4_resolve_lower_hir(0, v4_borrowck_mut_exclusive_hir)
+pilot v4_borrowck_mut_exclusive_ty = v4_ty_lower_resolve(0, v4_borrowck_mut_exclusive_resolve)
+pilot v4_borrowck_mut_exclusive_mir = v4_mir_lower_ty(0, v4_borrowck_mut_exclusive_ty)
+pilot v4_borrowck_mut_exclusive_check = v4_borrowck_check_mir(0, v4_borrowck_mut_exclusive_mir)
+pilot v4_borrowck_mut_exclusive_conflict_def = v4_resolve_def_for_name(v4_borrowck_mut_exclusive_resolve, "conflict")
+pilot v4_borrowck_mut_exclusive_clean_def = v4_resolve_def_for_name(v4_borrowck_mut_exclusive_resolve, "clean")
+pilot v4_borrowck_mut_exclusive_conflict_result = v4_borrowck_lookup_result(v4_borrowck_mut_exclusive_check, v4_borrowck_mut_exclusive_conflict_def)
+pilot v4_borrowck_mut_exclusive_clean_result = v4_borrowck_lookup_result(v4_borrowck_mut_exclusive_check, v4_borrowck_mut_exclusive_clean_def)
+
+say v4_borrowck_summary(v4_borrowck_mut_exclusive_check)
+say "mut-excl-conflict-status=" + v4_borrowck_result_status(v4_borrowck_mut_exclusive_check, v4_borrowck_mut_exclusive_conflict_result)
+say "mut-excl-clean-status=" + v4_borrowck_result_status(v4_borrowck_mut_exclusive_check, v4_borrowck_mut_exclusive_clean_result)
+say "mut-excl-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_borrowck_mut_exclusive_check))
+say "mut-excl-message=" + v4_diag_message(v4_borrowck_diag(v4_borrowck_mut_exclusive_check, 0))
+say "mut-excl-help=" + v4_diag_help(v4_borrowck_diag(v4_borrowck_mut_exclusive_check, 0))
