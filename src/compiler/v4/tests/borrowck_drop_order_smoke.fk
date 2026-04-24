@@ -1,0 +1,44 @@
+-- V4 Meiya drop order smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_borrowck_drop_order_nth_drop_text(borrow_id: int, result_id: int, wanted: int) -> word {
+    pilot seen = 0
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_drop {
+            if seen == wanted {
+                give back v4_borrowck_path_text(borrow_id, result_id, path_id)
+            }
+            seen += 1
+        }
+        path_id += 1
+    }
+    give back ""
+}
+
+task v4_borrowck_drop_order_source() -> word {
+    pilot src = "task order(a: word, b: word) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    pilot y = \"y\"\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_borrowck_drop_order_stream = v4_lex_text(0, v4_borrowck_drop_order_source())
+pilot v4_borrowck_drop_order_tree = v4_parse_stream(0, v4_borrowck_drop_order_stream)
+pilot v4_borrowck_drop_order_hir = v4_hir_lower_tree(0, v4_borrowck_drop_order_tree)
+pilot v4_borrowck_drop_order_resolve = v4_resolve_lower_hir(0, v4_borrowck_drop_order_hir)
+pilot v4_borrowck_drop_order_ty = v4_ty_lower_resolve(0, v4_borrowck_drop_order_resolve)
+pilot v4_borrowck_drop_order_mir = v4_mir_lower_ty(0, v4_borrowck_drop_order_ty)
+pilot v4_borrowck_drop_order_check = v4_borrowck_check_mir(0, v4_borrowck_drop_order_mir)
+pilot v4_borrowck_drop_order_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "order")
+pilot v4_borrowck_drop_order_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_def)
+
+say v4_borrowck_summary(v4_borrowck_drop_order_check)
+say "drop-order-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result)
+say "drop-order-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result))
+say "drop-order-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result, 0)
+say "drop-order-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result, 1)
+say "drop-order-2=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result, 2)
+say "drop-order-3=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result, 3)

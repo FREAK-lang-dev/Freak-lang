@@ -1726,6 +1726,30 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "Meiya partial move tracking",
+        "fixture": "borrowck_partial_move_smoke.fk",
+        "expect": [
+            "partial-move-conflict-status=blocked",
+            "partial-move-clean-status=clean",
+            "partial-move-repaired-status=clean",
+            "partial-move-diagnostics=1",
+            "partial-move-message=partial move conflict",
+            "partial-move-help=ship.callsign was moved at statement 0, so statement 1 cannot use ship yet",
+        ],
+    },
+    {
+        "name": "Meiya drop order",
+        "fixture": "borrowck_drop_order_smoke.fk",
+        "expect": [
+            "drop-order-status=clean",
+            "drop-order-count=4",
+            "drop-order-0=y",
+            "drop-order-1=x",
+            "drop-order-2=b",
+            "drop-order-3=a",
+        ],
+    },
+    {
         "name": "MIR else-if lowering",
         "fixture": "mir_else_if_smoke.fk",
         "expect": [
