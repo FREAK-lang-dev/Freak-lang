@@ -1,0 +1,60 @@
+-- V4 generic signature foundation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_ty_generics_make_source() -> word {
+    pilot src = "task first<T>(list: List<T>) -> maybe<T> {\n"
+    src = src + "    give back nobody\n"
+    src = src + "}\n"
+    src = src + "task log_sorted<T: Comparable + Displayable>(items: List<T>) -> void {\n"
+    src = src + "}\n"
+    src = src + "shape Pair<A, B> {\n"
+    src = src + "}\n"
+    src = src + "route Option<T> {\n"
+    src = src + "}\n"
+    src = src + "doctrine Displayable<T> {\n"
+    src = src + "    task display(self) -> word\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_ty_generics_source = v4_ty_generics_make_source()
+pilot v4_ty_generics_stream = v4_lex_text(0, v4_ty_generics_source)
+pilot v4_ty_generics_tree = v4_parse_stream(0, v4_ty_generics_stream)
+pilot v4_ty_generics_hir = v4_hir_lower_tree(0, v4_ty_generics_tree)
+pilot v4_ty_generics_resolve = v4_resolve_lower_hir(0, v4_ty_generics_hir)
+pilot v4_ty_generics_ty = v4_ty_lower_resolve(0, v4_ty_generics_resolve)
+
+pilot v4_ty_first_def = v4_resolve_def_for_name(v4_ty_generics_resolve, "first")
+pilot v4_ty_log_sorted_def = v4_resolve_def_for_name(v4_ty_generics_resolve, "log_sorted")
+pilot v4_ty_pair_def = v4_resolve_def_for_name(v4_ty_generics_resolve, "Pair")
+pilot v4_ty_option_def = v4_resolve_def_for_name(v4_ty_generics_resolve, "Option")
+pilot v4_ty_displayable_def = v4_resolve_def_for_name(v4_ty_generics_resolve, "Displayable")
+
+pilot v4_ty_first_sig = v4_ty_lookup_signature(v4_ty_generics_ty, v4_ty_first_def)
+pilot v4_ty_log_sorted_sig = v4_ty_lookup_signature(v4_ty_generics_ty, v4_ty_log_sorted_def)
+pilot v4_ty_pair_sig = v4_ty_lookup_signature(v4_ty_generics_ty, v4_ty_pair_def)
+pilot v4_ty_option_sig = v4_ty_lookup_signature(v4_ty_generics_ty, v4_ty_option_def)
+pilot v4_ty_displayable_sig = v4_ty_lookup_signature(v4_ty_generics_ty, v4_ty_displayable_def)
+
+pilot v4_ty_generic_instance = "Pair<word,maybe<List<int>>>"
+
+say v4_ty_summary(v4_ty_generics_ty)
+say "first-signature=" + v4_ty_signature_of(v4_ty_generics_ty, v4_ty_first_def)
+say "first-return=" + v4_ty_signature_return_type(v4_ty_generics_ty, v4_ty_first_sig)
+say "first-generic-count=" + word_from_int(v4_ty_signature_generic_count(v4_ty_generics_ty, v4_ty_first_sig))
+say "first-generic0-name=" + v4_ty_signature_generic_name(v4_ty_generics_ty, v4_ty_first_sig, 0)
+say "first-generic0-bounds=" + v4_ty_signature_generic_bounds(v4_ty_generics_ty, v4_ty_first_sig, 0)
+say "log-sorted-signature=" + v4_ty_signature_of(v4_ty_generics_ty, v4_ty_log_sorted_def)
+say "log-sorted-generic0-bounds=" + v4_ty_signature_generic_bounds(v4_ty_generics_ty, v4_ty_log_sorted_sig, 0)
+say "pair-signature=" + v4_ty_signature_of(v4_ty_generics_ty, v4_ty_pair_def)
+say "pair-generic-count=" + word_from_int(v4_ty_signature_generic_count(v4_ty_generics_ty, v4_ty_pair_sig))
+say "pair-generic0-name=" + v4_ty_signature_generic_name(v4_ty_generics_ty, v4_ty_pair_sig, 0)
+say "pair-generic1-name=" + v4_ty_signature_generic_name(v4_ty_generics_ty, v4_ty_pair_sig, 1)
+say "option-signature=" + v4_ty_signature_of(v4_ty_generics_ty, v4_ty_option_def)
+say "option-generic0-name=" + v4_ty_signature_generic_name(v4_ty_generics_ty, v4_ty_option_sig, 0)
+say "displayable-signature=" + v4_ty_signature_of(v4_ty_generics_ty, v4_ty_displayable_def)
+say "displayable-generic0-name=" + v4_ty_signature_generic_name(v4_ty_generics_ty, v4_ty_displayable_sig, 0)
+say "generic-instance-base=" + v4_ty_generic_base_name(v4_ty_generic_instance)
+say "generic-instance-args=" + word_from_int(v4_ty_generic_arg_count(v4_ty_generic_instance))
+say "generic-instance-arg0=" + v4_ty_generic_arg(v4_ty_generic_instance, 0)
+say "generic-instance-arg1=" + v4_ty_generic_arg(v4_ty_generic_instance, 1)

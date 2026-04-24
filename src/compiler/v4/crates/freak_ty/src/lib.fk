@@ -494,6 +494,26 @@ task v4_ty_find_matching_brace(stream_id: int, open_token: int, end_token: int) 
     give back 0 - 1
 }
 
+task v4_ty_find_matching_angle(stream_id: int, open_token: int, end_token: int) -> int {
+    pilot idx = open_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if val == "<" {
+                depth += 1
+            } else if val == ">" {
+                depth -= 1
+                if depth == 0 {
+                    give back idx
+                }
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
 task v4_ty_signature_param_open_token(ty_id: int, sig_id: int) -> int {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     if stream_id < 0 {
@@ -526,6 +546,105 @@ task v4_ty_depth_after_token(depth: int, val: word) -> int {
         }
     }
     give back next_depth
+}
+
+task v4_ty_item_name_token_from_tokens(stream_id: int, start_token: int, end_token: int) -> int {
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back 0 - 1
+    }
+    pilot name_token = v4_ty_skip_trivia(stream_id, start_token + 1)
+    if name_token >= end_token {
+        give back 0 - 1
+    }
+    give back name_token
+}
+
+task v4_ty_item_header_end_token_from_tokens(stream_id: int, start_token: int, end_token: int) -> int {
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back 0 - 1
+    }
+
+    pilot idx = start_token + 1
+    pilot depth = 0
+    repeat until idx >= end_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if val == "\n" and depth == 0 {
+                give back idx
+            }
+        } else {
+            if depth == 0 and (val == "(" or val == "{" or val == "=>" or val == "->") {
+                give back idx
+            }
+            depth = v4_ty_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back end_token
+}
+
+task v4_ty_item_generic_open_token_from_tokens(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot name_token = v4_ty_item_name_token_from_tokens(stream_id, start_token, end_token)
+    pilot header_end = v4_ty_item_header_end_token_from_tokens(stream_id, start_token, end_token)
+    if name_token < 0 or header_end <= name_token {
+        give back 0 - 1
+    }
+    give back v4_ty_find_top_level_token(stream_id, name_token + 1, header_end, "<")
+}
+
+task v4_ty_item_generic_close_token_from_tokens(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot open_token = v4_ty_item_generic_open_token_from_tokens(stream_id, start_token, end_token)
+    if open_token < 0 {
+        give back 0 - 1
+    }
+    give back v4_ty_find_matching_angle(stream_id, open_token, v4_ty_item_header_end_token_from_tokens(stream_id, start_token, end_token))
+}
+
+task v4_ty_item_generic_text_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot open_token = v4_ty_item_generic_open_token_from_tokens(stream_id, start_token, end_token)
+    pilot close_token = v4_ty_item_generic_close_token_from_tokens(stream_id, start_token, end_token)
+    if open_token < 0 or close_token <= open_token {
+        give back ""
+    }
+    give back v4_ty_type_text(stream_id, open_token, close_token + 1)
+}
+
+task v4_ty_hir_item_generic_text(hir_id: int, item_id: int) -> word {
+    if hir_id < 0 or item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
+        give back ""
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    give back v4_ty_item_generic_text_from_tokens(stream_id, v4_ty_hir_item_start_token(hir_id, item_id), v4_ty_hir_item_end_token(hir_id, item_id))
+}
+
+task v4_ty_signature_generic_open_token(ty_id: int, sig_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    give back v4_ty_item_generic_open_token_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_signature_generic_close_token(ty_id: int, sig_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    give back v4_ty_item_generic_close_token_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_signature_generic_text(ty_id: int, sig_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    give back v4_ty_item_generic_text_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_signature_generic_count(ty_id: int, sig_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_signature_generic_open_token(ty_id, sig_id)
+    pilot close_token = v4_ty_signature_generic_close_token(ty_id, sig_id)
+    give back v4_ty_param_count_from_tokens(stream_id, open_token, close_token)
 }
 
 task v4_ty_signature_param_count(ty_id: int, sig_id: int) -> int {
@@ -640,6 +759,60 @@ task v4_ty_find_top_level_token(stream_id: int, start_token: int, end_token: int
         idx += 1
     }
     give back 0 - 1
+}
+
+task v4_ty_signature_generic_segment_start(ty_id: int, sig_id: int, generic_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_signature_generic_open_token(ty_id, sig_id)
+    pilot close_token = v4_ty_signature_generic_close_token(ty_id, sig_id)
+    give back v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, generic_id)
+}
+
+task v4_ty_signature_generic_segment_end(ty_id: int, sig_id: int, generic_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
+    pilot close_token = v4_ty_signature_generic_close_token(ty_id, sig_id)
+    give back v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
+}
+
+task v4_ty_generic_name_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back ""
+    }
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back v4_ty_type_text(stream_id, start_token, end_token)
+    }
+    give back v4_ty_type_text(stream_id, start_token, colon_token)
+}
+
+task v4_ty_generic_bounds_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back ""
+    }
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back ""
+    }
+    pilot bound_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
+    if bound_start >= end_token {
+        give back ""
+    }
+    give back v4_ty_type_text(stream_id, bound_start, end_token)
+}
+
+task v4_ty_signature_generic_name(ty_id: int, sig_id: int, generic_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
+    pilot end_token = v4_ty_signature_generic_segment_end(ty_id, sig_id, generic_id)
+    give back v4_ty_generic_name_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_signature_generic_bounds(ty_id: int, sig_id: int, generic_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
+    pilot end_token = v4_ty_signature_generic_segment_end(ty_id, sig_id, generic_id)
+    give back v4_ty_generic_bounds_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_signature_param_name(ty_id: int, sig_id: int, param_id: int) -> word {
@@ -1095,11 +1268,18 @@ task v4_ty_impl_method_display(ty_id: int, hir_item: int, method_id: int) -> wor
 }
 
 task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, hir_id: int, hir_item: int) -> word {
+    pilot generic_text = v4_ty_hir_item_generic_text(hir_id, hir_item)
     if symbol_kind == v4_hir_task {
-        give back "task " + symbol_name + "(...) -> " + v4_ty_task_return_from_hir(hir_id, hir_item)
+        give back "task " + symbol_name + generic_text + "(...) -> " + v4_ty_task_return_from_hir(hir_id, hir_item)
+    }
+    if symbol_kind == v4_hir_shape {
+        give back "shape " + symbol_name + generic_text
     }
     if symbol_kind == v4_hir_route {
-        give back "route " + symbol_name
+        give back "route " + symbol_name + generic_text
+    }
+    if symbol_kind == v4_hir_doctrine {
+        give back "doctrine " + symbol_name + generic_text
     }
     give back v4_ty_display_for_symbol(symbol_kind, symbol_name)
 }
@@ -1775,6 +1955,81 @@ task v4_ty_find_top_level_type_char(type_text: word, wanted: word, start_pos: in
         idx += 1
     }
     give back 0 - 1
+}
+
+task v4_ty_is_generic_instance_type(type_text: word) -> bool {
+    if type_text.length() < 4 {
+        give back false
+    }
+    if type_text.char_at(type_text.length() - 1) != ">" {
+        give back false
+    }
+    give back v4_ty_find_top_level_type_char(type_text, "<", 0, type_text.length() - 1) > 0
+}
+
+task v4_ty_generic_base_name(type_text: word) -> word {
+    pilot open_pos = v4_ty_find_top_level_type_char(type_text, "<", 0, type_text.length() - 1)
+    if open_pos <= 0 or type_text.char_at(type_text.length() - 1) != ">" {
+        give back v4_ty_unknown
+    }
+    give back v4_slice(type_text, 0, open_pos)
+}
+
+task v4_ty_generic_arg_count(type_text: word) -> int {
+    pilot open_pos = v4_ty_find_top_level_type_char(type_text, "<", 0, type_text.length() - 1)
+    if open_pos <= 0 or type_text.char_at(type_text.length() - 1) != ">" {
+        give back 0
+    }
+    if open_pos + 1 >= type_text.length() - 1 {
+        give back 0
+    }
+
+    pilot count = 1
+    pilot depth = 0
+    pilot idx = open_pos + 1
+    repeat until idx >= type_text.length() - 1 {
+        pilot ch = type_text.char_at(idx)
+        if depth == 0 and ch == "," {
+            count += 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_generic_arg(type_text: word, arg_id: int) -> word {
+    pilot open_pos = v4_ty_find_top_level_type_char(type_text, "<", 0, type_text.length() - 1)
+    if open_pos <= 0 or type_text.char_at(type_text.length() - 1) != ">" or arg_id < 0 {
+        give back v4_ty_unknown
+    }
+    if open_pos + 1 >= type_text.length() - 1 {
+        give back v4_ty_unknown
+    }
+
+    pilot current = 0
+    pilot segment_start = open_pos + 1
+    pilot depth = 0
+    pilot idx = open_pos + 1
+    repeat until idx >= type_text.length() - 1 {
+        pilot ch = type_text.char_at(idx)
+        if depth == 0 and ch == "," {
+            if current == arg_id {
+                give back v4_slice(type_text, segment_start, idx)
+            }
+            current += 1
+            segment_start = idx + 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+
+    if current == arg_id and segment_start < type_text.length() - 1 {
+        give back v4_slice(type_text, segment_start, type_text.length() - 1)
+    }
+    give back v4_ty_unknown
 }
 
 task v4_ty_list_element_type(container_ty: word) -> word {
