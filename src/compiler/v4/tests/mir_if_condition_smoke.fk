@@ -1,12 +1,16 @@
 -- V4 MIR typed if-condition smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-task v4_mir_if_condition_find_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+task v4_mir_if_condition_find_nth_stmt_with_lhs(mir_id: int, body_id: int, wanted_kind: word, wanted_lhs: word, wanted_ordinal: int) -> int {
     pilot stmt_id = 0
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    pilot seen = 0
     repeat until stmt_id >= stmt_count {
-        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == wanted {
-            give back stmt_id
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == wanted_kind and v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted_lhs {
+            seen += 1
+            if seen == wanted_ordinal {
+                give back stmt_id
+            }
         }
         stmt_id += 1
     }
@@ -43,31 +47,41 @@ pilot v4_mir_if_condition_ty = v4_ty_lower_resolve(0, v4_mir_if_condition_resolv
 pilot v4_mir_if_condition_mir = v4_mir_lower_ty(0, v4_mir_if_condition_ty)
 pilot v4_mir_if_condition_calc_def = v4_resolve_def_for_name(v4_mir_if_condition_resolve, "calc")
 pilot v4_mir_if_condition_calc_body = v4_mir_lookup_body(v4_mir_if_condition_mir, v4_mir_if_condition_calc_def)
-pilot v4_mir_if_condition_entry = v4_mir_body_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, 0)
-pilot v4_mir_if_condition_branch_stmt = v4_mir_if_condition_find_stmt(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_branch)
-pilot v4_mir_if_condition_branch_rvalue = v4_mir_stmt_rvalue(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_stmt)
-pilot v4_mir_if_condition_lhs = v4_mir_rvalue_lhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_rvalue)
-pilot v4_mir_if_condition_rhs = v4_mir_rvalue_rhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_rvalue)
+
+pilot v4_mir_if_left_branch = v4_mir_if_condition_find_nth_stmt_with_lhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_branch, "power > 4", 1)
+pilot v4_mir_if_right_branch = v4_mir_if_condition_find_nth_stmt_with_lhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_branch, "ready", 1)
+pilot v4_mir_if_final_branch = v4_mir_if_condition_find_nth_stmt_with_lhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_branch, "power > 4 and ( ready or false )", 1)
+
+pilot v4_mir_if_left_block = v4_mir_body_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_left_branch))
+pilot v4_mir_if_right_block = v4_mir_body_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_right_branch))
+pilot v4_mir_if_final_block = v4_mir_body_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_branch))
+pilot v4_mir_if_final_rvalue = v4_mir_stmt_rvalue(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_branch)
 
 say v4_mir_summary(v4_mir_if_condition_mir)
 say "if-body-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body))
 say "if-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body))
-say "if-entry-term=" + v4_mir_block_terminator(v4_mir_if_condition_entry)
-say "if-entry-cond=" + v4_mir_block_condition(v4_mir_if_condition_entry)
-say "if-entry-target=" + word_from_int(v4_mir_block_target(v4_mir_if_condition_entry))
-say "if-entry-else=" + word_from_int(v4_mir_block_else_target(v4_mir_if_condition_entry))
-say "if-branch-stmt-kind=" + v4_mir_stmt_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_stmt)
-say "if-branch-lhs=" + v4_mir_stmt_lhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_stmt)
-say "if-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_stmt)
-say "if-branch-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_rvalue)
-say "if-branch-rvalue-op=" + v4_mir_rvalue_op(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_rvalue)
-say "if-branch-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_branch_rvalue)
-say "if-branch-lhs-kind=" + v4_mir_rvalue_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_lhs)
-say "if-branch-lhs-op=" + v4_mir_rvalue_op(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_lhs)
-say "if-branch-lhs-ty=" + v4_mir_rvalue_ty(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_lhs)
-say "if-branch-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_rhs)
-say "if-branch-rhs-op=" + v4_mir_rvalue_op(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_rhs)
-say "if-branch-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_condition_rhs)
+say "if-left-branch-block=" + word_from_int(v4_mir_stmt_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_left_branch))
+say "if-left-branch-cond=" + v4_mir_block_condition(v4_mir_if_left_block)
+say "if-left-branch-target=" + word_from_int(v4_mir_block_target(v4_mir_if_left_block))
+say "if-left-branch-else=" + word_from_int(v4_mir_block_else_target(v4_mir_if_left_block))
+say "if-left-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_left_branch)
+say "if-left-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_rvalue(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_left_branch))
+say "if-left-rvalue-op=" + v4_mir_rvalue_op(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_rvalue(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_left_branch))
+say "if-right-branch-block=" + word_from_int(v4_mir_stmt_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_right_branch))
+say "if-right-branch-cond=" + v4_mir_block_condition(v4_mir_if_right_block)
+say "if-right-branch-target=" + word_from_int(v4_mir_block_target(v4_mir_if_right_block))
+say "if-right-branch-else=" + word_from_int(v4_mir_block_else_target(v4_mir_if_right_block))
+say "if-right-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_right_branch)
+say "if-right-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_rvalue(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_right_branch))
+say "if-right-rvalue-op=" + v4_mir_rvalue_op(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_rvalue(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_right_branch))
+say "if-final-branch-block=" + word_from_int(v4_mir_stmt_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_branch))
+say "if-final-branch-cond=" + v4_mir_block_condition(v4_mir_if_final_block)
+say "if-final-branch-target=" + word_from_int(v4_mir_block_target(v4_mir_if_final_block))
+say "if-final-branch-else=" + word_from_int(v4_mir_block_else_target(v4_mir_if_final_block))
+say "if-final-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_branch)
+say "if-final-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_rvalue)
+say "if-final-rvalue-op=" + v4_mir_rvalue_op(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_rvalue)
+say "if-final-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_rvalue)
 say "if-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_if_condition_mir))
 
 pilot v4_mir_bad_if_condition_source = v4_mir_bad_if_condition_make_source()

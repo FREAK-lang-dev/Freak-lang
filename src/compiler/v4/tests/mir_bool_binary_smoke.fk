@@ -1,5 +1,21 @@
--- V4 MIR boolean binary operator smoke fixture.
+-- V4 MIR boolean short-circuit smoke fixture.
 -- Verification prepends the V4 crates before this file.
+
+task v4_mir_bool_binary_find_nth_stmt_with_lhs(mir_id: int, body_id: int, wanted_kind: word, wanted_lhs: word, wanted_ordinal: int) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    pilot seen = 0
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == wanted_kind and v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted_lhs {
+            seen += 1
+            if seen == wanted_ordinal {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
 
 task v4_mir_bool_binary_make_source() -> word {
     pilot src = "task calc(left: bool, right: bool, power: int) -> bool {\n"
@@ -36,44 +52,59 @@ pilot v4_mir_bool_binary_ty = v4_ty_lower_resolve(0, v4_mir_bool_binary_resolve)
 pilot v4_mir_bool_binary_mir = v4_mir_lower_ty(0, v4_mir_bool_binary_ty)
 pilot v4_mir_bool_binary_calc_def = v4_resolve_def_for_name(v4_mir_bool_binary_resolve, "calc")
 pilot v4_mir_bool_binary_calc_body = v4_mir_lookup_body(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_def)
-pilot v4_mir_bool_binary_and_rvalue = v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 0)
-pilot v4_mir_bool_binary_and_lhs = v4_mir_rvalue_lhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_and_rvalue)
-pilot v4_mir_bool_binary_and_rhs = v4_mir_rvalue_rhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_and_rvalue)
-pilot v4_mir_bool_binary_or_rvalue = v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 1)
-pilot v4_mir_bool_binary_or_lhs = v4_mir_rvalue_lhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_or_rvalue)
-pilot v4_mir_bool_binary_or_rhs = v4_mir_rvalue_rhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_or_rvalue)
-pilot v4_mir_bool_binary_guard_rvalue = v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 2)
-pilot v4_mir_bool_binary_guard_lhs = v4_mir_rvalue_lhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_rvalue)
-pilot v4_mir_bool_binary_guard_rhs = v4_mir_rvalue_rhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_rvalue)
+
+pilot v4_mir_bool_binary_both_stmt = v4_mir_bool_binary_find_nth_stmt_with_lhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_local, "both", 1)
+pilot v4_mir_bool_binary_either_stmt = v4_mir_bool_binary_find_nth_stmt_with_lhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_local, "either", 1)
+pilot v4_mir_bool_binary_guarded_stmt = v4_mir_bool_binary_find_nth_stmt_with_lhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_local, "guarded", 1)
+pilot v4_mir_bool_binary_left_and_branch = v4_mir_bool_binary_find_nth_stmt_with_lhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_branch, "left", 1)
+pilot v4_mir_bool_binary_left_or_branch = v4_mir_bool_binary_find_nth_stmt_with_lhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_branch, "left", 2)
+pilot v4_mir_bool_binary_guard_branch = v4_mir_bool_binary_find_nth_stmt_with_lhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_branch, "power > 4", 1)
+
+pilot v4_mir_bool_binary_both_rvalue = v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_both_stmt)
+pilot v4_mir_bool_binary_either_rvalue = v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_either_stmt)
+pilot v4_mir_bool_binary_guarded_rvalue = v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guarded_stmt)
+
+pilot v4_mir_bool_binary_left_and_block = v4_mir_body_block(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_block(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_left_and_branch))
+pilot v4_mir_bool_binary_left_or_block = v4_mir_body_block(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_block(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_left_or_branch))
+pilot v4_mir_bool_binary_guard_block = v4_mir_body_block(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_block(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_branch))
 
 say v4_mir_summary(v4_mir_bool_binary_mir)
+say "bool-binary-body-blocks=" + word_from_int(v4_mir_body_block_count(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body))
+say "bool-binary-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body))
 say "bool-binary-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body))
 say "bool-binary-local0-name=" + v4_mir_local_name(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 0)
 say "bool-binary-local0-ty=" + v4_mir_local_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 0)
 say "bool-binary-local3-name=" + v4_mir_local_name(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 3)
 say "bool-binary-local3-ty=" + v4_mir_local_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 3)
-say "bool-binary-and-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_and_rvalue)
-say "bool-binary-and-op=" + v4_mir_rvalue_op(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_and_rvalue)
-say "bool-binary-and-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_and_rvalue)
-say "bool-binary-and-lhs-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_and_lhs)
-say "bool-binary-and-lhs-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_and_lhs)
-say "bool-binary-and-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_and_rhs)
-say "bool-binary-and-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_and_rhs)
-say "bool-binary-or-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_or_rvalue)
-say "bool-binary-or-op=" + v4_mir_rvalue_op(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_or_rvalue)
-say "bool-binary-or-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_or_rvalue)
-say "bool-binary-or-lhs-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_or_lhs)
-say "bool-binary-or-lhs-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_or_lhs)
-say "bool-binary-or-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_or_rhs)
-say "bool-binary-or-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_or_rhs)
-say "bool-binary-guard-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_rvalue)
-say "bool-binary-guard-op=" + v4_mir_rvalue_op(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_rvalue)
-say "bool-binary-guard-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_rvalue)
-say "bool-binary-guard-lhs-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_lhs)
-say "bool-binary-guard-lhs-op=" + v4_mir_rvalue_op(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_lhs)
-say "bool-binary-guard-lhs-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_lhs)
-say "bool-binary-guard-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_rhs)
-say "bool-binary-guard-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_rhs)
+say "bool-binary-local4-name=" + v4_mir_local_name(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 4)
+say "bool-binary-local5-name=" + v4_mir_local_name(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 5)
+say "bool-binary-local6-name=" + v4_mir_local_name(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 6)
+say "bool-binary-local7-name=" + v4_mir_local_name(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 7)
+say "bool-binary-local8-name=" + v4_mir_local_name(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, 8)
+say "bool-binary-both-block=" + word_from_int(v4_mir_stmt_block(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_both_stmt))
+say "bool-binary-both-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_both_rvalue)
+say "bool-binary-both-op=" + v4_mir_rvalue_op(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_both_rvalue)
+say "bool-binary-both-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_both_rvalue)
+say "bool-binary-either-block=" + word_from_int(v4_mir_stmt_block(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_either_stmt))
+say "bool-binary-either-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_either_rvalue)
+say "bool-binary-either-op=" + v4_mir_rvalue_op(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_either_rvalue)
+say "bool-binary-either-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_either_rvalue)
+say "bool-binary-guarded-block=" + word_from_int(v4_mir_stmt_block(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guarded_stmt))
+say "bool-binary-guarded-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guarded_rvalue)
+say "bool-binary-guarded-op=" + v4_mir_rvalue_op(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guarded_rvalue)
+say "bool-binary-guarded-ty=" + v4_mir_rvalue_ty(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guarded_rvalue)
+say "bool-binary-left-and-block-cond=" + v4_mir_block_condition(v4_mir_bool_binary_left_and_block)
+say "bool-binary-left-and-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_left_and_branch)
+say "bool-binary-left-and-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_left_and_branch))
+say "bool-binary-left-and-rvalue-op=" + v4_mir_rvalue_op(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_left_and_branch))
+say "bool-binary-left-or-block-cond=" + v4_mir_block_condition(v4_mir_bool_binary_left_or_block)
+say "bool-binary-left-or-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_left_or_branch)
+say "bool-binary-left-or-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_left_or_branch))
+say "bool-binary-left-or-rvalue-op=" + v4_mir_rvalue_op(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_left_or_branch))
+say "bool-binary-guard-branch-cond=" + v4_mir_block_condition(v4_mir_bool_binary_guard_block)
+say "bool-binary-guard-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_branch)
+say "bool-binary-guard-branch-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_branch))
+say "bool-binary-guard-branch-rvalue-op=" + v4_mir_rvalue_op(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_stmt_rvalue(v4_mir_bool_binary_mir, v4_mir_bool_binary_calc_body, v4_mir_bool_binary_guard_branch))
 say "bool-binary-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bool_binary_mir))
 
 pilot v4_mir_bad_and_source = v4_mir_bad_and_make_source()
