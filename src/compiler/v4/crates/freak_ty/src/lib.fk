@@ -382,6 +382,137 @@ task v4_ty_display_for_symbol(symbol_kind: word, symbol_name: word) -> word {
     give back "unknown " + symbol_name
 }
 
+task v4_ty_signature_attribute_count(ty_id: int, sig_id: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back 0
+    }
+    give back v4_hir_item_attribute_count(hir_id, hir_item)
+}
+
+task v4_ty_signature_attribute_name(ty_id: int, sig_id: int, attr_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back ""
+    }
+    give back v4_hir_item_attribute_name(hir_id, hir_item, attr_id)
+}
+
+task v4_ty_signature_attribute_arg(ty_id: int, sig_id: int, attr_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back ""
+    }
+    give back v4_hir_item_attribute_arg(hir_id, hir_item, attr_id)
+}
+
+task v4_ty_signature_has_attribute(ty_id: int, sig_id: int, wanted_name: word) -> bool {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back false
+    }
+    give back v4_hir_item_has_attribute(hir_id, hir_item, wanted_name)
+}
+
+task v4_ty_signature_attribute_arg_for_name(ty_id: int, sig_id: int, wanted_name: word) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back ""
+    }
+    give back v4_hir_item_attribute_arg_for_name(hir_id, hir_item, wanted_name)
+}
+
+task v4_ty_signature_layout(ty_id: int, sig_id: int) -> word {
+    give back v4_ty_signature_attribute_arg_for_name(ty_id, sig_id, "layout")
+}
+
+task v4_ty_extern_abi(ty_id: int, sig_id: int) -> word {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back ""
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back ""
+    }
+    give back v4_hir_extern_abi(hir_id, hir_item)
+}
+
+task v4_ty_extern_member_count(ty_id: int, sig_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back 0
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back 0
+    }
+    give back v4_hir_extern_member_count(hir_id, hir_item)
+}
+
+task v4_ty_extern_member_name(ty_id: int, sig_id: int, member_id: int) -> word {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back ""
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back ""
+    }
+    give back v4_hir_extern_member_name(hir_id, hir_item, member_id)
+}
+
+task v4_ty_extern_member_start_token(ty_id: int, sig_id: int, member_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back 0 - 1
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
+    give back v4_parse_extern_member_start_token(tree_id, parse_node, member_id)
+}
+
+task v4_ty_extern_member_end_token(ty_id: int, sig_id: int, member_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back 0 - 1
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
+    give back v4_parse_extern_member_end_token(tree_id, parse_node, member_id)
+}
+
+task v4_ty_extern_member_return_type(ty_id: int, sig_id: int, member_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_extern_member_start_token(ty_id, sig_id, member_id)
+    pilot end_token = v4_ty_extern_member_end_token(ty_id, sig_id, member_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_extern_member_display(ty_id: int, sig_id: int, member_id: int) -> word {
+    pilot member_name = v4_ty_extern_member_name(ty_id, sig_id, member_id)
+    if member_name == "" {
+        give back ""
+    }
+    give back "task " + member_name + "(...) -> " + v4_ty_extern_member_return_type(ty_id, sig_id, member_id)
+}
+
 task v4_ty_first_token_at_or_after(stream_id: int, offset: int) -> int {
     pilot idx = 0
     pilot count = v4_lex_token_count(stream_id)
@@ -1822,6 +1953,13 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, hir_id: in
     if symbol_kind == v4_hir_doctrine {
         give back "doctrine " + symbol_name + generic_text
     }
+    if symbol_kind == v4_hir_extern {
+        pilot extern_abi = v4_hir_extern_abi(hir_id, hir_item)
+        if extern_abi != "" {
+            give back "extern [" + extern_abi + "]"
+        }
+        give back "extern"
+    }
     if symbol_kind == v4_hir_import {
         pilot import_path = v4_hir_import_path(hir_id, hir_item)
         pilot import_alias = v4_hir_import_alias(hir_id, hir_item)
@@ -1831,6 +1969,13 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, hir_id: in
             }
             give back "use " + import_path
         }
+    }
+    if symbol_kind == v4_hir_attribute {
+        pilot attr_arg = v4_hir_attribute_arg(hir_id, hir_item)
+        if attr_arg != "" {
+            give back "@" + symbol_name + "(" + attr_arg + ")"
+        }
+        give back "@" + symbol_name
     }
     give back v4_ty_display_for_symbol(symbol_kind, symbol_name)
 }

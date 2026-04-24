@@ -200,6 +200,126 @@ task v4_hir_import_binding(hir_id: int, item_id: int) -> word {
     give back v4_parse_import_binding(tree_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
+task v4_hir_attribute_arg(hir_id: int, item_id: int) -> word {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_attribute {
+        give back ""
+    }
+    pilot tree_id = v4_hir_item_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back ""
+    }
+    give back v4_parse_attribute_arg_text(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+}
+
+task v4_hir_item_attribute_start(hir_id: int, item_id: int) -> int {
+    if item_id <= 0 {
+        give back item_id
+    }
+    pilot idx = item_id - 1
+    repeat until idx < 0 or v4_hir_item_kind(hir_id, idx) != v4_hir_attribute {
+        idx -= 1
+    }
+    give back idx + 1
+}
+
+task v4_hir_item_attribute_count(hir_id: int, item_id: int) -> int {
+    if item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
+        give back 0
+    }
+    if v4_hir_item_kind(hir_id, item_id) == v4_hir_attribute {
+        give back 0
+    }
+    pilot start = v4_hir_item_attribute_start(hir_id, item_id)
+    if start < 0 or start >= item_id {
+        give back 0
+    }
+    give back item_id - start
+}
+
+task v4_hir_item_attribute_item(hir_id: int, item_id: int, attr_id: int) -> int {
+    if attr_id < 0 {
+        give back 0 - 1
+    }
+    pilot count = v4_hir_item_attribute_count(hir_id, item_id)
+    if attr_id >= count {
+        give back 0 - 1
+    }
+    give back v4_hir_item_attribute_start(hir_id, item_id) + attr_id
+}
+
+task v4_hir_item_attribute_name(hir_id: int, item_id: int, attr_id: int) -> word {
+    pilot attr_item = v4_hir_item_attribute_item(hir_id, item_id, attr_id)
+    if attr_item < 0 {
+        give back ""
+    }
+    give back v4_hir_item_name(hir_id, attr_item)
+}
+
+task v4_hir_item_attribute_arg(hir_id: int, item_id: int, attr_id: int) -> word {
+    pilot attr_item = v4_hir_item_attribute_item(hir_id, item_id, attr_id)
+    if attr_item < 0 {
+        give back ""
+    }
+    give back v4_hir_attribute_arg(hir_id, attr_item)
+}
+
+task v4_hir_item_has_attribute(hir_id: int, item_id: int, wanted_name: word) -> bool {
+    pilot attr_idx = 0
+    pilot attr_count = v4_hir_item_attribute_count(hir_id, item_id)
+    repeat until attr_idx >= attr_count {
+        if v4_hir_item_attribute_name(hir_id, item_id, attr_idx) == wanted_name {
+            give back true
+        }
+        attr_idx += 1
+    }
+    give back false
+}
+
+task v4_hir_item_attribute_arg_for_name(hir_id: int, item_id: int, wanted_name: word) -> word {
+    pilot attr_idx = 0
+    pilot attr_count = v4_hir_item_attribute_count(hir_id, item_id)
+    repeat until attr_idx >= attr_count {
+        if v4_hir_item_attribute_name(hir_id, item_id, attr_idx) == wanted_name {
+            give back v4_hir_item_attribute_arg(hir_id, item_id, attr_idx)
+        }
+        attr_idx += 1
+    }
+    give back ""
+}
+
+task v4_hir_extern_abi(hir_id: int, item_id: int) -> word {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
+        give back ""
+    }
+    pilot tree_id = v4_hir_item_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back ""
+    }
+    give back v4_parse_extern_abi(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+}
+
+task v4_hir_extern_member_count(hir_id: int, item_id: int) -> int {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
+        give back 0
+    }
+    pilot tree_id = v4_hir_item_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back 0
+    }
+    give back v4_parse_extern_member_count(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+}
+
+task v4_hir_extern_member_name(hir_id: int, item_id: int, member_id: int) -> word {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
+        give back ""
+    }
+    pilot tree_id = v4_hir_item_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back ""
+    }
+    give back v4_parse_extern_member_name(tree_id, v4_hir_item_parse_node(hir_id, item_id), member_id)
+}
+
 task v4_hir_diag(hir_id: int, diag_id: int) -> word {
     give back array_get(v4_hir_diags_handle(hir_id), diag_id)
 }

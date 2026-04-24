@@ -1,0 +1,58 @@
+-- V4 extern ABI and @layout(C) smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_extern_layout_make_source() -> word {
+    pilot src = "@layout(C)\n"
+    src = src + "shape Vec2 {\n"
+    src = src + "    x: num\n"
+    src = src + "    y: num\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task puts(text: word) -> int\n"
+    src = src + "    task clock() -> int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_extern_layout_source = v4_extern_layout_make_source()
+pilot v4_extern_layout_stream = v4_lex_text(0, v4_extern_layout_source)
+pilot v4_extern_layout_tree = v4_parse_stream(0, v4_extern_layout_stream)
+pilot v4_extern_layout_hir = v4_hir_lower_tree(0, v4_extern_layout_tree)
+pilot v4_extern_layout_resolve = v4_resolve_lower_hir(0, v4_extern_layout_hir)
+pilot v4_extern_layout_ty = v4_ty_lower_resolve(0, v4_extern_layout_resolve)
+
+pilot v4_extern_layout_attr_def = v4_resolve_def_for_name(v4_extern_layout_resolve, "layout")
+pilot v4_extern_layout_shape_def = v4_resolve_def_for_name(v4_extern_layout_resolve, "Vec2")
+pilot v4_extern_layout_extern_def = v4_resolve_def_for_name(v4_extern_layout_resolve, "extern")
+pilot v4_extern_layout_shape_sig = v4_ty_lookup_signature(v4_extern_layout_ty, v4_extern_layout_shape_def)
+pilot v4_extern_layout_extern_sig = v4_ty_lookup_signature(v4_extern_layout_ty, v4_extern_layout_extern_def)
+
+say v4_hir_summary(v4_extern_layout_hir)
+say "extern-layout-item-count=" + word_from_int(v4_hir_item_count(v4_extern_layout_hir))
+say "extern-layout-shape-attr-count=" + word_from_int(v4_hir_item_attribute_count(v4_extern_layout_hir, 1))
+say "extern-layout-shape-attr0-name=" + v4_hir_item_attribute_name(v4_extern_layout_hir, 1, 0)
+say "extern-layout-shape-attr0-arg=" + v4_hir_item_attribute_arg(v4_extern_layout_hir, 1, 0)
+say "extern-layout-shape-layout=" + v4_hir_item_attribute_arg_for_name(v4_extern_layout_hir, 1, "layout")
+say "extern-layout-extern-abi=" + v4_hir_extern_abi(v4_extern_layout_hir, 2)
+say "extern-layout-extern-members=" + word_from_int(v4_hir_extern_member_count(v4_extern_layout_hir, 2))
+say "extern-layout-member0-name=" + v4_hir_extern_member_name(v4_extern_layout_hir, 2, 0)
+say "extern-layout-member1-name=" + v4_hir_extern_member_name(v4_extern_layout_hir, 2, 1)
+
+say v4_resolve_summary(v4_extern_layout_resolve)
+say "extern-layout-symbol-count=" + word_from_int(v4_resolve_symbol_count(v4_extern_layout_resolve))
+
+say v4_ty_summary(v4_extern_layout_ty)
+say "extern-layout-attr-display=" + v4_ty_signature_of(v4_extern_layout_ty, v4_extern_layout_attr_def)
+say "extern-layout-shape-display=" + v4_ty_signature_of(v4_extern_layout_ty, v4_extern_layout_shape_def)
+say "extern-layout-shape-sig-attr-count=" + word_from_int(v4_ty_signature_attribute_count(v4_extern_layout_ty, v4_extern_layout_shape_sig))
+say "extern-layout-shape-sig-attr0-name=" + v4_ty_signature_attribute_name(v4_extern_layout_ty, v4_extern_layout_shape_sig, 0)
+say "extern-layout-shape-sig-attr0-arg=" + v4_ty_signature_attribute_arg(v4_extern_layout_ty, v4_extern_layout_shape_sig, 0)
+say "extern-layout-shape-layout-ty=" + v4_ty_signature_layout(v4_extern_layout_ty, v4_extern_layout_shape_sig)
+say "extern-layout-extern-display=" + v4_ty_signature_of(v4_extern_layout_ty, v4_extern_layout_extern_def)
+say "extern-layout-extern-abi-ty=" + v4_ty_extern_abi(v4_extern_layout_ty, v4_extern_layout_extern_sig)
+say "extern-layout-extern-member0=" + v4_ty_extern_member_display(v4_extern_layout_ty, v4_extern_layout_extern_sig, 0)
+say "extern-layout-extern-member1=" + v4_ty_extern_member_display(v4_extern_layout_ty, v4_extern_layout_extern_sig, 1)
+say "extern-layout-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_extern_layout_ty))

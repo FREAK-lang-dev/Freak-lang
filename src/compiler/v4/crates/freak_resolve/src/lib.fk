@@ -144,6 +144,13 @@ task v4_resolve_is_indexable_kind(item_kind: word) -> bool {
     give back v4_resolve_is_definition_kind(item_kind)
 }
 
+task v4_resolve_requires_unique_name(item_kind: word) -> bool {
+    if item_kind == v4_hir_extern {
+        give back false
+    }
+    give back v4_resolve_is_definition_kind(item_kind)
+}
+
 task v4_resolve_lookup_symbol(resolve_id: int, lookup_name: word, lookup_kind: word) -> int {
     pilot idx = 0
     pilot count = v4_resolve_symbol_count(resolve_id)
@@ -223,7 +230,7 @@ task v4_resolve_lower_hir(file_id: int, hir_id: int) -> int {
 
         if v4_resolve_is_indexable_kind(item_kind) {
             if item_name != "" {
-                if v4_resolve_is_definition_kind(item_kind) {
+                if v4_resolve_requires_unique_name(item_kind) {
                     pilot existing = v4_resolve_lookup_symbol(resolve_id, item_name, item_kind)
                     if existing >= 0 {
                         pilot span = v4_hir_item_span(hir_id, item_idx)
