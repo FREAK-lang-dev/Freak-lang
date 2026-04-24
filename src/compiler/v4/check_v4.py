@@ -1676,6 +1676,28 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "MIR generic constructors",
+        "fixture": "mir_generic_ctor_smoke.fk",
+        "expect": [
+            "generic-shape-local-ty=Box<int>",
+            "generic-shape-rvalue-ty=Box<int>",
+            "generic-shape-rvalue-op=Box",
+            "generic-shape-expected-return-ty=Box<int>",
+            "generic-route-local-ty=Option<int>",
+            "generic-route-rvalue-ty=Option<int>",
+            "generic-route-rvalue-op=Option::Some",
+            "generic-route-expected-local-ty=Option<int>",
+            "generic-route-expected-rvalue-ty=Option<int>",
+            "generic-ctor-good-diagnostics=0",
+            "generic-shape-bad-diagnostics=1",
+            "generic-shape-bad-message=generic shape constructor needs type context",
+            "generic-shape-bad-help=Empty has type parameters; write Empty<int> { ... } or use an expected Empty<int>",
+            "generic-route-bad-diagnostics=1",
+            "generic-route-bad-message=generic route case needs type context",
+            "generic-route-bad-help=Option has type parameters; write Option<int>::None or use an expected Option<int>",
+        ],
+    },
+    {
         "name": "MIR impl and associated method calls",
         "fixture": "mir_method_call_smoke.fk",
         "expect": [

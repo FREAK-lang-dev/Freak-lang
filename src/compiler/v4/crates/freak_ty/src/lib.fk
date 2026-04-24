@@ -2277,14 +2277,22 @@ task v4_ty_route_case_field_type(ty_id: int, route_name: word, case_name: word, 
     give back v4_ty_apply_signature_generics(ty_id, sig_id, route_name, field_ty)
 }
 
-task v4_ty_route_case_field_type_for_name(ty_id: int, route_name: word, case_name: word, field_name: word) -> word {
+task v4_ty_route_case_field_id_for_name(ty_id: int, route_name: word, case_name: word, field_name: word) -> int {
     pilot field_id = 0
     pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
     repeat until field_id >= field_count {
         if v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) == field_name {
-            give back v4_ty_route_case_field_type(ty_id, route_name, case_name, field_id)
+            give back field_id
         }
         field_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_route_case_field_type_for_name(ty_id: int, route_name: word, case_name: word, field_name: word) -> word {
+    pilot field_id = v4_ty_route_case_field_id_for_name(ty_id, route_name, case_name, field_name)
+    if field_id >= 0 {
+        give back v4_ty_route_case_field_type(ty_id, route_name, case_name, field_id)
     }
     give back v4_ty_unknown
 }
@@ -2464,19 +2472,32 @@ task v4_ty_shape_field_type(ty_id: int, sig_id: int, field_id: int) -> word {
     give back field_ty
 }
 
-task v4_ty_shape_field_type_for_name(ty_id: int, shape_name: word, field_name: word) -> word {
+task v4_ty_shape_field_id_for_name(ty_id: int, shape_name: word, field_name: word) -> int {
     pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, shape_name)
     if sig_id < 0 {
-        give back v4_ty_unknown
+        give back 0 - 1
     }
 
     pilot field_id = 0
     pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
     repeat until field_id >= field_count {
         if v4_ty_shape_field_name(ty_id, sig_id, field_id) == field_name {
-            give back v4_ty_apply_signature_generics(ty_id, sig_id, shape_name, v4_ty_shape_field_type(ty_id, sig_id, field_id))
+            give back field_id
         }
         field_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_shape_field_type_for_name(ty_id: int, shape_name: word, field_name: word) -> word {
+    pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, shape_name)
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+
+    pilot field_id = v4_ty_shape_field_id_for_name(ty_id, shape_name, field_name)
+    if field_id >= 0 {
+        give back v4_ty_apply_signature_generics(ty_id, sig_id, shape_name, v4_ty_shape_field_type(ty_id, sig_id, field_id))
     }
     give back v4_ty_unknown
 }
@@ -2729,6 +2750,41 @@ task v4_ty_apply_generic_env(type_text: word, env: word) -> word {
     give back type_text
 }
 
+task v4_ty_type_mentions_signature_generics(ty_id: int, sig_id: int, type_text: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back false
+    }
+    if v4_ty_signature_declares_generic_name(ty_id, sig_id, type_text) {
+        give back true
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot arg_idx = 0
+        pilot arg_count = v4_ty_generic_arg_count(type_text)
+        repeat until arg_idx >= arg_count {
+            if v4_ty_type_mentions_signature_generics(ty_id, sig_id, v4_ty_generic_arg(type_text, arg_idx)) {
+                give back true
+            }
+            arg_idx += 1
+        }
+        give back false
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_idx = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_idx >= slot_count {
+            if v4_ty_type_mentions_signature_generics(ty_id, sig_id, v4_ty_tuple_slot_type(type_text, slot_idx)) {
+                give back true
+            }
+            slot_idx += 1
+        }
+        give back false
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_type_mentions_signature_generics(ty_id, sig_id, v4_ty_fixed_array_element_type(type_text))
+    }
+    give back false
+}
+
 task v4_ty_signature_generic_env_for_instance(ty_id: int, sig_id: int, instance_ty: word) -> word {
     if not v4_ty_is_generic_instance_type(instance_ty) {
         give back ""
@@ -2748,6 +2804,42 @@ task v4_ty_signature_generic_env_for_instance(ty_id: int, sig_id: int, instance_
         generic_idx += 1
     }
     give back env
+}
+
+task v4_ty_signature_generic_env_complete(ty_id: int, sig_id: int, env: word) -> bool {
+    pilot generic_idx = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_idx >= generic_count {
+        if v4_ty_generic_env_lookup(env, v4_ty_signature_generic_name(ty_id, sig_id, generic_idx)) == "" {
+            give back false
+        }
+        generic_idx += 1
+    }
+    give back true
+}
+
+task v4_ty_signature_instance_type_for_env(ty_id: int, sig_id: int, env: word) -> word {
+    pilot name = v4_ty_signature_name(ty_id, sig_id)
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    if generic_count <= 0 {
+        give back name
+    }
+
+    pilot out = name + "<"
+    pilot generic_idx = 0
+    repeat until generic_idx >= generic_count {
+        if generic_idx > 0 {
+            out = out + ","
+        }
+        pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_idx)
+        pilot actual_ty = v4_ty_generic_env_lookup(env, generic_name)
+        if actual_ty == "" {
+            actual_ty = generic_name
+        }
+        out = out + actual_ty
+        generic_idx += 1
+    }
+    give back out + ">"
 }
 
 task v4_ty_apply_signature_generics(ty_id: int, sig_id: int, instance_ty: word, member_ty: word) -> word {

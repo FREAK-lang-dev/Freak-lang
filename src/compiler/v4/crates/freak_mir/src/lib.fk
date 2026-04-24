@@ -2423,12 +2423,33 @@ task v4_mir_shape_ctor_field_end(stream_id: int, start_token: int, close_token: 
     give back close_token
 }
 
-task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, expr_span: word, shape_name: word, sig_id: int, open_token: int, close_token: int) -> void {
+task v4_mir_signature_seed_instance_type(ty_id: int, sig_id: int, ctor_ty: word, expected_ty: word) -> word {
+    if sig_id < 0 {
+        give back ctor_ty
+    }
+    if v4_ty_is_generic_instance_type(ctor_ty) {
+        give back ctor_ty
+    }
+    if v4_ty_is_generic_instance_type(expected_ty) {
+        if v4_ty_generic_base_name(expected_ty) == v4_ty_signature_name(ty_id, sig_id) {
+            give back expected_ty
+        }
+    }
+    give back ctor_ty
+}
+
+task v4_mir_generic_ctor_context_help(base_name: word, ctor_suffix: word) -> word {
+    give back base_name + " has type parameters; write " + base_name + "<int>" + ctor_suffix + " or use an expected " + base_name + "<int>"
+}
+
+task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, expr_span: word, shape_name: word, sig_id: int, open_token: int, close_token: int, seed_env: word) -> word {
     if sig_id < 0 {
         v4_mir_add_type_error(mir_id, expr_span, "unknown shape constructor", shape_name + " is not a known shape")
-        give back
+        give back seed_env
     }
 
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot env = seed_env
     pilot seen_fields = ""
     pilot field_start = v4_mir_skip_trivia(stream_id, open_token + 1)
     if field_start < close_token {
@@ -2449,14 +2470,26 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                     seen_fields = v4_mir_name_list_add(seen_fields, field_name)
                 }
 
-                pilot expected_ty = v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir_id), shape_name, field_name)
-                if expected_ty == v4_ty_unknown {
+                pilot field_id = v4_ty_shape_field_id_for_name(ty_id, shape_name, field_name)
+                if field_id < 0 {
                     v4_mir_add_type_error(mir_id, expr_span, "unknown shape field", shape_name + " has no field " + field_name)
                 } else {
-                    pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, expected_ty)
+                    pilot raw_expected_ty = v4_ty_shape_field_type(ty_id, sig_id, field_id)
+                    pilot expected_ty = v4_ty_apply_generic_env(raw_expected_ty, env)
+                    pilot lower_expected_ty = expected_ty
+                    if v4_ty_type_mentions_signature_generics(ty_id, sig_id, lower_expected_ty) {
+                        lower_expected_ty = v4_ty_unknown
+                    }
+                    pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, lower_expected_ty)
                     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
-                    if not v4_ty_types_compatible(expected_ty, actual_ty) {
+                    pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
+                    if next_env == v4_ty_generic_env_fail {
+                        if expected_ty == "" {
+                            expected_ty = raw_expected_ty
+                        }
                         v4_mir_add_type_error(mir_id, expr_span, "shape field type mismatch", shape_name + "." + field_name + " expects " + expected_ty + " but got " + actual_ty)
+                    } else {
+                        env = next_env
                     }
                 }
             }
@@ -2473,6 +2506,7 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
         }
         field_idx += 1
     }
+    give back env
 }
 
 task v4_mir_fixed_array_type(element_ty: word, length_text: word) -> word {
@@ -2850,7 +2884,7 @@ task v4_mir_try_lower_map_literal(mir_id: int, body_id: int, stream_id: int, fir
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_map, expr_text, "Map", 0 - 1, 0 - 1, expr_span, result_ty)
 }
 
-task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
+task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
     if v4_lex_token_value(stream_id, last) != "}" {
         give back 0 - 1
     }
@@ -2870,12 +2904,24 @@ task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, firs
         give back 0 - 1
     }
 
-    pilot sig_id = v4_ty_shape_signature_id_for_name(v4_mir_ty_id(mir_id), shape_name)
-    v4_mir_check_shape_ctor_fields(mir_id, body_id, stream_id, expr_span, shape_name, sig_id, open_token, close_token)
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, shape_name)
+    pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, shape_name, expected_ty)
+    pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, seed_instance_ty)
+    env = v4_mir_check_shape_ctor_fields(mir_id, body_id, stream_id, expr_span, shape_name, sig_id, open_token, close_token, env)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     pilot result_ty = shape_name
     if sig_id < 0 {
         result_ty = v4_ty_unknown
+    } else if v4_ty_signature_generic_count(ty_id, sig_id) > 0 {
+        if v4_ty_signature_generic_env_complete(ty_id, sig_id, env) {
+            result_ty = v4_ty_signature_instance_type_for_env(ty_id, sig_id, env)
+        } else if v4_ty_is_generic_instance_type(seed_instance_ty) {
+            result_ty = seed_instance_ty
+        } else {
+            v4_mir_add_type_error(mir_id, expr_span, "generic shape constructor needs type context", v4_mir_generic_ctor_context_help(v4_ty_signature_name(ty_id, sig_id), " " + "{" + " ... " + "}"))
+            result_ty = v4_ty_unknown
+        }
     }
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_construct, expr_text, shape_name, 0 - 1, 0 - 1, expr_span, result_ty)
 }
@@ -2922,23 +2968,26 @@ task v4_mir_route_case_rvalue(mir_id: int, body_id: int, display_text: word, rou
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_symbol, display_text, case_text, 0 - 1, 0 - 1, expr_span, route_name)
 }
 
-task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, expr_span: word, route_name: word, case_name: word, open_token: int, close_token: int) -> void {
+task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, expr_span: word, route_name: word, case_name: word, open_token: int, close_token: int, seed_env: word) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
     if not v4_ty_is_route_type(ty_id, route_name) {
         v4_mir_add_type_error(mir_id, expr_span, "unknown route constructor", route_name + " is not a known route")
-        give back
+        give back seed_env
     }
     if not v4_ty_route_has_case(ty_id, route_name, case_name) {
         v4_mir_add_type_error(mir_id, expr_span, "unknown route case", route_name + " exposes no case " + case_name)
-        give back
+        give back seed_env
     }
 
     pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
     if field_count <= 0 {
         v4_mir_add_type_error(mir_id, expr_span, "route case has no payload", route_name + "::" + case_name + " carries no fields")
-        give back
+        give back seed_env
     }
 
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    pilot route_sig_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot env = seed_env
     pilot seen_fields = ""
     pilot field_start = v4_mir_skip_trivia(stream_id, open_token + 1)
     if field_start < close_token {
@@ -2959,14 +3008,26 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                     seen_fields = v4_mir_name_list_add(seen_fields, field_name)
                 }
 
-                pilot expected_ty = v4_ty_route_case_field_type_for_name(ty_id, route_name, case_name, field_name)
-                if expected_ty == v4_ty_unknown {
+                pilot field_id = v4_ty_route_case_field_id_for_name(ty_id, route_name, case_name, field_name)
+                if field_id < 0 {
                     v4_mir_add_type_error(mir_id, expr_span, "unknown route case field", route_name + "::" + case_name + " has no field " + field_name)
                 } else {
-                    pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, expected_ty)
+                    pilot raw_expected_ty = v4_ty_route_case_field_type(ty_id, route_sig_name, case_name, field_id)
+                    pilot expected_ty = v4_ty_apply_generic_env(raw_expected_ty, env)
+                    pilot lower_expected_ty = expected_ty
+                    if v4_ty_type_mentions_signature_generics(ty_id, sig_id, lower_expected_ty) {
+                        lower_expected_ty = v4_ty_unknown
+                    }
+                    pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, lower_expected_ty)
                     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
-                    if not v4_ty_types_compatible(expected_ty, actual_ty) {
+                    pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
+                    if next_env == v4_ty_generic_env_fail {
+                        if expected_ty == "" {
+                            expected_ty = raw_expected_ty
+                        }
                         v4_mir_add_type_error(mir_id, expr_span, "route case field type mismatch", route_name + "::" + case_name + "." + field_name + " expects " + expected_ty + " but got " + actual_ty)
+                    } else {
+                        env = next_env
                     }
                 }
             }
@@ -2982,6 +3043,7 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
         }
         field_idx += 1
     }
+    give back env
 }
 
 task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
@@ -3019,10 +3081,22 @@ task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: i
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, v4_mir_expr_text(stream_id, first, last + 1), "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
     }
 
-    v4_mir_check_route_ctor_fields(mir_id, body_id, stream_id, expr_span, route_name, case_name, open_token, close_token)
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, route_name, expected_ty)
+    pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, seed_instance_ty)
+    env = v4_mir_check_route_ctor_fields(mir_id, body_id, stream_id, expr_span, route_name, case_name, open_token, close_token, env)
     pilot result_ty = route_name
     if not v4_ty_is_route_type(ty_id, route_name) or not v4_ty_route_has_case(ty_id, route_name, case_name) {
         result_ty = v4_ty_unknown
+    } else if sig_id >= 0 and v4_ty_signature_generic_count(ty_id, sig_id) > 0 {
+        if v4_ty_signature_generic_env_complete(ty_id, sig_id, env) {
+            result_ty = v4_ty_signature_instance_type_for_env(ty_id, sig_id, env)
+        } else if v4_ty_is_generic_instance_type(seed_instance_ty) {
+            result_ty = seed_instance_ty
+        } else {
+            v4_mir_add_type_error(mir_id, expr_span, "generic route constructor needs type context", v4_mir_generic_ctor_context_help(v4_ty_signature_name(ty_id, sig_id), "::" + case_name + " " + "{" + " ... " + "}"))
+            result_ty = v4_ty_unknown
+        }
     }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_construct, expr_text, v4_mir_route_case_text(route_name, case_name), 0 - 1, 0 - 1, expr_span, result_ty)
@@ -3049,6 +3123,16 @@ task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int,
         if v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
             v4_mir_add_type_error(mir_id, expr_span, "route payload constructor needs fields", route_name + "::" + case_name + " expects named fields")
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+        }
+        pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+        if sig_id >= 0 and v4_ty_signature_generic_count(ty_id, sig_id) > 0 {
+            pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, route_name, expected_ty)
+            if v4_ty_is_generic_instance_type(seed_instance_ty) {
+                route_name = seed_instance_ty
+            } else {
+                v4_mir_add_type_error(mir_id, expr_span, "generic route case needs type context", v4_mir_generic_ctor_context_help(v4_ty_signature_name(ty_id, sig_id), "::" + case_name))
+                give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+            }
         }
         give back v4_mir_route_case_rvalue(mir_id, body_id, v4_mir_route_case_text(route_name, case_name), route_name, case_name, expr_span)
     }
@@ -3329,7 +3413,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back route_ctor_rvalue
     }
 
-    pilot ctor_rvalue = v4_mir_try_lower_shape_ctor(mir_id, body_id, stream_id, first, last, expr_span)
+    pilot ctor_rvalue = v4_mir_try_lower_shape_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
     if ctor_rvalue >= 0 {
         give back ctor_rvalue
     }

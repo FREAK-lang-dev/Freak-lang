@@ -1,0 +1,140 @@
+-- V4 MIR generic shape and route constructor inference smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_generic_ctor_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_mir_generic_ctor_good_source() -> word {
+    pilot src = "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "route Option<T> {\n"
+    src = src + "    Some " + v4_mir_generic_ctor_braces(" value: T ") + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "task shape_infer() -> int {\n"
+    src = src + "    pilot box = Box " + v4_mir_generic_ctor_braces(" value: 7 ") + "\n"
+    src = src + "    give back box.value\n"
+    src = src + "}\n"
+    src = src + "task shape_expected() -> Box<int> {\n"
+    src = src + "    give back Box " + v4_mir_generic_ctor_braces(" value: 9 ") + "\n"
+    src = src + "}\n"
+    src = src + "task route_infer() -> Option<int> {\n"
+    src = src + "    pilot some = Option::Some " + v4_mir_generic_ctor_braces(" value: 11 ") + "\n"
+    src = src + "    give back some\n"
+    src = src + "}\n"
+    src = src + "task route_expected() -> Option<int> {\n"
+    src = src + "    pilot empty: Option<int> = Option::None\n"
+    src = src + "    give back empty\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_generic_ctor_bad_shape_source() -> word {
+    pilot src = "shape Empty<T> {\n"
+    src = src + "}\n"
+    src = src + "task bad() -> void {\n"
+    src = src + "    pilot ghost = Empty " + v4_mir_generic_ctor_braces(" ") + "\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_generic_ctor_bad_route_source() -> word {
+    pilot src = "route Option<T> {\n"
+    src = src + "    Some " + v4_mir_generic_ctor_braces(" value: T ") + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "task bad() -> void {\n"
+    src = src + "    pilot ghost = Option::None\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_generic_ctor_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_generic_ctor_find_return_stmt(mir_id: int, body_id: int) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_mir_generic_ctor_good_stream = v4_lex_text(0, v4_mir_generic_ctor_good_source())
+pilot v4_mir_generic_ctor_good_tree = v4_parse_stream(0, v4_mir_generic_ctor_good_stream)
+pilot v4_mir_generic_ctor_good_hir = v4_hir_lower_tree(0, v4_mir_generic_ctor_good_tree)
+pilot v4_mir_generic_ctor_good_resolve = v4_resolve_lower_hir(0, v4_mir_generic_ctor_good_hir)
+pilot v4_mir_generic_ctor_good_ty = v4_ty_lower_resolve(0, v4_mir_generic_ctor_good_resolve)
+pilot v4_mir_generic_ctor_good_mir = v4_mir_lower_ty(0, v4_mir_generic_ctor_good_ty)
+
+pilot v4_mir_generic_ctor_shape_infer_def = v4_resolve_def_for_name(v4_mir_generic_ctor_good_resolve, "shape_infer")
+pilot v4_mir_generic_ctor_shape_infer_body = v4_mir_lookup_body(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_infer_def)
+pilot v4_mir_generic_ctor_shape_infer_stmt = v4_mir_generic_ctor_find_local_stmt(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_infer_body, "box")
+pilot v4_mir_generic_ctor_shape_infer_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_infer_body, v4_mir_generic_ctor_shape_infer_stmt)
+pilot v4_mir_generic_ctor_shape_infer_place = v4_mir_stmt_place(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_infer_body, v4_mir_generic_ctor_shape_infer_stmt)
+
+pilot v4_mir_generic_ctor_shape_expected_def = v4_resolve_def_for_name(v4_mir_generic_ctor_good_resolve, "shape_expected")
+pilot v4_mir_generic_ctor_shape_expected_body = v4_mir_lookup_body(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_expected_def)
+pilot v4_mir_generic_ctor_shape_expected_stmt = v4_mir_generic_ctor_find_return_stmt(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_expected_body)
+pilot v4_mir_generic_ctor_shape_expected_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_expected_body, v4_mir_generic_ctor_shape_expected_stmt)
+
+pilot v4_mir_generic_ctor_route_infer_def = v4_resolve_def_for_name(v4_mir_generic_ctor_good_resolve, "route_infer")
+pilot v4_mir_generic_ctor_route_infer_body = v4_mir_lookup_body(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_def)
+pilot v4_mir_generic_ctor_route_infer_stmt = v4_mir_generic_ctor_find_local_stmt(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_body, "some")
+pilot v4_mir_generic_ctor_route_infer_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_body, v4_mir_generic_ctor_route_infer_stmt)
+pilot v4_mir_generic_ctor_route_infer_place = v4_mir_stmt_place(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_body, v4_mir_generic_ctor_route_infer_stmt)
+
+pilot v4_mir_generic_ctor_route_expected_def = v4_resolve_def_for_name(v4_mir_generic_ctor_good_resolve, "route_expected")
+pilot v4_mir_generic_ctor_route_expected_body = v4_mir_lookup_body(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_expected_def)
+pilot v4_mir_generic_ctor_route_expected_stmt = v4_mir_generic_ctor_find_local_stmt(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_expected_body, "empty")
+pilot v4_mir_generic_ctor_route_expected_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_expected_body, v4_mir_generic_ctor_route_expected_stmt)
+pilot v4_mir_generic_ctor_route_expected_place = v4_mir_stmt_place(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_expected_body, v4_mir_generic_ctor_route_expected_stmt)
+
+say v4_mir_summary(v4_mir_generic_ctor_good_mir)
+say "generic-shape-local-ty=" + v4_mir_place_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_infer_body, v4_mir_generic_ctor_shape_infer_place)
+say "generic-shape-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_infer_body, v4_mir_generic_ctor_shape_infer_rvalue)
+say "generic-shape-rvalue-op=" + v4_mir_rvalue_op(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_infer_body, v4_mir_generic_ctor_shape_infer_rvalue)
+say "generic-shape-expected-return-ty=" + v4_mir_rvalue_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_expected_body, v4_mir_generic_ctor_shape_expected_rvalue)
+say "generic-route-local-ty=" + v4_mir_place_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_body, v4_mir_generic_ctor_route_infer_place)
+say "generic-route-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_body, v4_mir_generic_ctor_route_infer_rvalue)
+say "generic-route-rvalue-op=" + v4_mir_rvalue_op(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_body, v4_mir_generic_ctor_route_infer_rvalue)
+say "generic-route-expected-local-ty=" + v4_mir_place_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_expected_body, v4_mir_generic_ctor_route_expected_place)
+say "generic-route-expected-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_expected_body, v4_mir_generic_ctor_route_expected_rvalue)
+say "generic-ctor-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_ctor_good_mir))
+
+pilot v4_mir_generic_ctor_bad_shape_stream = v4_lex_text(1, v4_mir_generic_ctor_bad_shape_source())
+pilot v4_mir_generic_ctor_bad_shape_tree = v4_parse_stream(1, v4_mir_generic_ctor_bad_shape_stream)
+pilot v4_mir_generic_ctor_bad_shape_hir = v4_hir_lower_tree(1, v4_mir_generic_ctor_bad_shape_tree)
+pilot v4_mir_generic_ctor_bad_shape_resolve = v4_resolve_lower_hir(1, v4_mir_generic_ctor_bad_shape_hir)
+pilot v4_mir_generic_ctor_bad_shape_ty = v4_ty_lower_resolve(1, v4_mir_generic_ctor_bad_shape_resolve)
+pilot v4_mir_generic_ctor_bad_shape_mir = v4_mir_lower_ty(1, v4_mir_generic_ctor_bad_shape_ty)
+say "generic-shape-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_ctor_bad_shape_mir))
+say "generic-shape-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_ctor_bad_shape_mir, 0))
+say "generic-shape-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_ctor_bad_shape_mir, 0))
+
+pilot v4_mir_generic_ctor_bad_route_stream = v4_lex_text(2, v4_mir_generic_ctor_bad_route_source())
+pilot v4_mir_generic_ctor_bad_route_tree = v4_parse_stream(2, v4_mir_generic_ctor_bad_route_stream)
+pilot v4_mir_generic_ctor_bad_route_hir = v4_hir_lower_tree(2, v4_mir_generic_ctor_bad_route_tree)
+pilot v4_mir_generic_ctor_bad_route_resolve = v4_resolve_lower_hir(2, v4_mir_generic_ctor_bad_route_hir)
+pilot v4_mir_generic_ctor_bad_route_ty = v4_ty_lower_resolve(2, v4_mir_generic_ctor_bad_route_resolve)
+pilot v4_mir_generic_ctor_bad_route_mir = v4_mir_lower_ty(2, v4_mir_generic_ctor_bad_route_ty)
+say "generic-route-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_ctor_bad_route_mir))
+say "generic-route-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_ctor_bad_route_mir, 0))
+say "generic-route-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_ctor_bad_route_mir, 0))
