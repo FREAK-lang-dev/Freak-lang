@@ -1715,6 +1715,17 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "Meiya cross-block loan ranges",
+        "fixture": "borrowck_loan_range_smoke.fk",
+        "expect": [
+            "loan-range-conflict-status=blocked",
+            "loan-range-clean-status=clean",
+            "loan-range-diagnostics=1",
+            "loan-range-message=mutable borrow conflict",
+            "loan-range-help=ship stays on loan from block 1 into block 2 after statement 1, so statement 2 cannot rewrite ship.hp yet",
+        ],
+    },
+    {
         "name": "MIR else-if lowering",
         "fixture": "mir_else_if_smoke.fk",
         "expect": [

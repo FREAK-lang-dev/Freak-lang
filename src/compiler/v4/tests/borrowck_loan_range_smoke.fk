@@ -1,0 +1,58 @@
+-- V4 Meiya cross-block loan lifetime smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_borrowck_loan_range_find_first_block(borrow_id: int, result_id: int, kind: word) -> int {
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == kind {
+            give back v4_borrowck_path_block(borrow_id, result_id, path_id)
+        }
+        path_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_borrowck_loan_range_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task conflict(ready: bool, ship: Pilot) -> int {\n"
+    src = src + "    if ready {\n"
+    src = src + "        ship\n"
+    src = src + "    }\n"
+    src = src + "    ship.hp = 7\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task clean(ready: bool, ship: Pilot) -> int {\n"
+    src = src + "    if ready {\n"
+    src = src + "        ship\n"
+    src = src + "    } else {\n"
+    src = src + "        ship.hp = 7\n"
+    src = src + "    }\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_borrowck_loan_range_stream = v4_lex_text(0, v4_borrowck_loan_range_source())
+pilot v4_borrowck_loan_range_tree = v4_parse_stream(0, v4_borrowck_loan_range_stream)
+pilot v4_borrowck_loan_range_hir = v4_hir_lower_tree(0, v4_borrowck_loan_range_tree)
+pilot v4_borrowck_loan_range_resolve = v4_resolve_lower_hir(0, v4_borrowck_loan_range_hir)
+pilot v4_borrowck_loan_range_ty = v4_ty_lower_resolve(0, v4_borrowck_loan_range_resolve)
+pilot v4_borrowck_loan_range_mir = v4_mir_lower_ty(0, v4_borrowck_loan_range_ty)
+pilot v4_borrowck_loan_range_check = v4_borrowck_check_mir(0, v4_borrowck_loan_range_mir)
+pilot v4_borrowck_loan_range_conflict_def = v4_resolve_def_for_name(v4_borrowck_loan_range_resolve, "conflict")
+pilot v4_borrowck_loan_range_clean_def = v4_resolve_def_for_name(v4_borrowck_loan_range_resolve, "clean")
+pilot v4_borrowck_loan_range_conflict_result = v4_borrowck_lookup_result(v4_borrowck_loan_range_check, v4_borrowck_loan_range_conflict_def)
+pilot v4_borrowck_loan_range_clean_result = v4_borrowck_lookup_result(v4_borrowck_loan_range_check, v4_borrowck_loan_range_clean_def)
+pilot v4_borrowck_loan_range_conflict_loan_block = v4_borrowck_loan_range_find_first_block(v4_borrowck_loan_range_check, v4_borrowck_loan_range_conflict_result, v4_borrowck_path_loan)
+pilot v4_borrowck_loan_range_conflict_write_block = v4_borrowck_loan_range_find_first_block(v4_borrowck_loan_range_check, v4_borrowck_loan_range_conflict_result, v4_borrowck_path_write)
+
+say v4_borrowck_summary(v4_borrowck_loan_range_check)
+say "loan-range-conflict-status=" + v4_borrowck_result_status(v4_borrowck_loan_range_check, v4_borrowck_loan_range_conflict_result)
+say "loan-range-clean-status=" + v4_borrowck_result_status(v4_borrowck_loan_range_check, v4_borrowck_loan_range_clean_result)
+say "loan-range-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_borrowck_loan_range_check))
+say "loan-range-loan-block=" + word_from_int(v4_borrowck_loan_range_conflict_loan_block)
+say "loan-range-write-block=" + word_from_int(v4_borrowck_loan_range_conflict_write_block)
+say "loan-range-message=" + v4_diag_message(v4_borrowck_diag(v4_borrowck_loan_range_check, 0))
+say "loan-range-help=" + v4_diag_help(v4_borrowck_diag(v4_borrowck_loan_range_check, 0))
