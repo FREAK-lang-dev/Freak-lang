@@ -1572,15 +1572,41 @@ task v4_mir_unary_op_kind(op: word) -> word {
 }
 
 task v4_mir_check_binary_types(mir_id: int, expr_span: word, op_kind: word, left_ty: word, right_ty: word) -> void {
-    if not v4_ty_binary_valid(op_kind, left_ty, right_ty) {
-        v4_mir_add_type_error(mir_id, expr_span, "invalid binary operation", op_kind + " between " + left_ty + " and " + right_ty)
+    if v4_ty_binary_valid(op_kind, left_ty, right_ty) {
+        give back
     }
+    if not v4_ty_is_known(left_ty) or not v4_ty_is_known(right_ty) {
+        give back
+    }
+
+    pilot method_ref = v4_mir_binary_operator_overload_ref(mir_id, left_ty, op_kind)
+    if method_ref != "" {
+        pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
+        pilot method_id = v4_mir_method_ref_method_id(method_ref)
+        if v4_ty_impl_method_explicit_param_count(v4_mir_ty_id(mir_id), hir_item, method_id) == 1 {
+            pilot expected_ty = v4_ty_impl_method_explicit_param_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, 0, left_ty)
+            if not v4_ty_types_compatible(expected_ty, right_ty) {
+                pilot method_name = v4_ty_impl_method_name(v4_mir_ty_id(mir_id), hir_item, method_id)
+                v4_mir_add_type_error(mir_id, expr_span, "operator overload argument drift", left_ty + "." + method_name + " expects " + expected_ty + " but got " + right_ty)
+                give back
+            }
+            give back
+        }
+    }
+    v4_mir_add_type_error(mir_id, expr_span, "invalid binary operation", v4_mir_operator_display(op_kind) + " between " + left_ty + " and " + right_ty)
 }
 
 task v4_mir_check_unary_type(mir_id: int, expr_span: word, op_kind: word, operand_ty: word) -> void {
-    if not v4_ty_unary_valid(op_kind, operand_ty) {
-        v4_mir_add_type_error(mir_id, expr_span, "invalid unary operation", op_kind + " on " + operand_ty)
+    if v4_ty_unary_valid(op_kind, operand_ty) {
+        give back
     }
+    if not v4_ty_is_known(operand_ty) {
+        give back
+    }
+    if v4_mir_unary_operator_overload_ref(mir_id, operand_ty, op_kind) != "" {
+        give back
+    }
+    v4_mir_add_type_error(mir_id, expr_span, "invalid unary operation", v4_mir_operator_display(op_kind) + " on " + operand_ty)
 }
 
 task v4_mir_check_condition_type(mir_id: int, expr_span: word, context: word, condition_ty: word) -> void {
@@ -1668,10 +1694,7 @@ task v4_mir_compound_assignment_result_ty(mir_id: int, stmt_span: word, op: word
     }
 
     v4_mir_check_binary_types(mir_id, stmt_span, op_kind, place_ty, value_ty)
-    if v4_ty_binary_valid(op_kind, place_ty, value_ty) {
-        give back v4_ty_binary_result(op_kind, place_ty, value_ty)
-    }
-    give back v4_ty_unknown
+    give back v4_mir_binary_result_type(mir_id, op_kind, place_ty, value_ty)
 }
 
 task v4_mir_place_read_rvalue(mir_id: int, body_id: int, place_id: int, span: word) -> int {
@@ -2017,6 +2040,45 @@ task v4_mir_find_any_method_ref(mir_id: int, owner_ty: word, method_name: word) 
     give back ""
 }
 
+task v4_mir_find_doctrine_impl_method_ref(mir_id: int, owner_ty: word, doctrine_name: word, method_name: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    pilot hir_id = v4_resolve_hir_id(resolve_id)
+    if hir_id < 0 {
+        give back ""
+    }
+
+    pilot wanted_doctrine = doctrine_name
+    if v4_ty_is_generic_instance_type(wanted_doctrine) {
+        wanted_doctrine = v4_ty_generic_base_name(wanted_doctrine)
+    }
+
+    pilot hir_item = 0
+    pilot hir_count = v4_hir_item_count(hir_id)
+    repeat until hir_item >= hir_count {
+        if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl {
+            pilot impl_doctrine = v4_ty_impl_doctrine_name_from_hir(v4_mir_ty_id(mir_id), hir_item)
+            if v4_ty_is_generic_instance_type(impl_doctrine) {
+                impl_doctrine = v4_ty_generic_base_name(impl_doctrine)
+            }
+            if impl_doctrine == wanted_doctrine and v4_ty_impl_matches_owner(v4_mir_ty_id(mir_id), hir_item, owner_ty) {
+                pilot method_id = 0
+                pilot method_count = v4_ty_impl_method_count(v4_mir_ty_id(mir_id), hir_item)
+                repeat until method_id >= method_count {
+                    if v4_ty_impl_method_name(v4_mir_ty_id(mir_id), hir_item, method_id) == method_name {
+                        if v4_ty_impl_method_is_instance(v4_mir_ty_id(mir_id), hir_item, method_id) {
+                            give back v4_mir_method_ref(hir_item, method_id)
+                        }
+                    }
+                    method_id += 1
+                }
+            }
+        }
+        hir_item += 1
+    }
+    give back ""
+}
+
 task v4_mir_method_return_type(mir_id: int, owner_ty: word, method_ref: word) -> word {
     if method_ref == "" {
         give back v4_ty_unknown
@@ -2031,6 +2093,119 @@ task v4_mir_bound_method_return_type(mir_id: int, owner_ty: word, method_ref: wo
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
     give back v4_ty_doctrine_method_return_type_for_self(ty_id, v4_mir_bound_method_ref_sig_id(method_ref), v4_mir_bound_method_ref_method_id(method_ref), owner_ty)
+}
+
+task v4_mir_operator_display(op_kind: word) -> word {
+    if op_kind == v4_mir_bin_add { give back "+" }
+    if op_kind == v4_mir_bin_sub { give back "-" }
+    if op_kind == v4_mir_bin_mul { give back "*" }
+    if op_kind == v4_mir_bin_div { give back "/" }
+    if op_kind == v4_mir_bin_mod { give back "%" }
+    if op_kind == v4_mir_bin_eq { give back "==" }
+    if op_kind == v4_mir_bin_ne { give back "!=" }
+    if op_kind == v4_mir_unary_neg { give back "-" }
+    if op_kind == v4_mir_unary_not { give back "not" }
+    give back op_kind
+}
+
+task v4_mir_binary_operator_overload_ref(mir_id: int, left_ty: word, op_kind: word) -> word {
+    pilot doctrine_name = v4_ty_binary_operator_doctrine(op_kind)
+    pilot method_name = v4_ty_binary_operator_method(op_kind)
+    if doctrine_name == "" or method_name == "" {
+        give back ""
+    }
+    give back v4_mir_find_doctrine_impl_method_ref(mir_id, left_ty, doctrine_name, method_name)
+}
+
+task v4_mir_unary_operator_overload_ref(mir_id: int, operand_ty: word, op_kind: word) -> word {
+    pilot doctrine_name = v4_ty_unary_operator_doctrine(op_kind)
+    pilot method_name = v4_ty_unary_operator_method(op_kind)
+    if doctrine_name == "" or method_name == "" {
+        give back ""
+    }
+    give back v4_mir_find_doctrine_impl_method_ref(mir_id, operand_ty, doctrine_name, method_name)
+}
+
+task v4_mir_binary_result_type(mir_id: int, op_kind: word, left_ty: word, right_ty: word) -> word {
+    if v4_ty_is_known(left_ty) and v4_ty_is_known(right_ty) {
+        pilot method_ref = v4_mir_binary_operator_overload_ref(mir_id, left_ty, op_kind)
+        if method_ref != "" {
+            pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
+            pilot method_id = v4_mir_method_ref_method_id(method_ref)
+            if v4_ty_impl_method_explicit_param_count(v4_mir_ty_id(mir_id), hir_item, method_id) == 1 {
+                pilot expected_ty = v4_ty_impl_method_explicit_param_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, 0, left_ty)
+                if v4_ty_types_compatible(expected_ty, right_ty) {
+                    give back v4_ty_impl_method_return_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, left_ty)
+                }
+            }
+        }
+    }
+    give back v4_ty_binary_result(op_kind, left_ty, right_ty)
+}
+
+task v4_mir_unary_result_type(mir_id: int, op_kind: word, operand_ty: word) -> word {
+    if v4_ty_is_known(operand_ty) {
+        pilot method_ref = v4_mir_unary_operator_overload_ref(mir_id, operand_ty, op_kind)
+        if method_ref != "" {
+            pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
+            pilot method_id = v4_mir_method_ref_method_id(method_ref)
+            if v4_ty_impl_method_explicit_param_count(v4_mir_ty_id(mir_id), hir_item, method_id) == 0 {
+                give back v4_ty_impl_method_return_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, operand_ty)
+            }
+        }
+    }
+    give back v4_ty_unary_result(op_kind, operand_ty)
+}
+
+task v4_mir_try_lower_binary_operator_overload(mir_id: int, body_id: int, left_id: int, right_id: int, expr_text: word, expr_span: word, op_kind: word, left_ty: word, right_ty: word) -> int {
+    if not v4_ty_is_known(left_ty) or not v4_ty_is_known(right_ty) {
+        give back 0 - 1
+    }
+
+    pilot method_ref = v4_mir_binary_operator_overload_ref(mir_id, left_ty, op_kind)
+    if method_ref == "" {
+        give back 0 - 1
+    }
+
+    pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
+    pilot method_id = v4_mir_method_ref_method_id(method_ref)
+    if v4_ty_impl_method_explicit_param_count(v4_mir_ty_id(mir_id), hir_item, method_id) != 1 {
+        give back 0 - 1
+    }
+
+    pilot expected_ty = v4_ty_impl_method_explicit_param_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, 0, left_ty)
+    if not v4_ty_types_compatible(expected_ty, right_ty) {
+        give back 0 - 1
+    }
+
+    pilot method_name = v4_ty_impl_method_name(v4_mir_ty_id(mir_id), hir_item, method_id)
+    pilot result_ty = v4_ty_impl_method_return_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, left_ty)
+    pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, left_ty + "." + method_name, left_id, right_id, expr_span, result_ty)
+    if op_kind == v4_mir_bin_ne {
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_not, call_rvalue, 0 - 1, expr_span, v4_ty_bool)
+    }
+    give back call_rvalue
+}
+
+task v4_mir_try_lower_unary_operator_overload(mir_id: int, body_id: int, operand_id: int, expr_text: word, expr_span: word, op_kind: word, operand_ty: word) -> int {
+    if not v4_ty_is_known(operand_ty) {
+        give back 0 - 1
+    }
+
+    pilot method_ref = v4_mir_unary_operator_overload_ref(mir_id, operand_ty, op_kind)
+    if method_ref == "" {
+        give back 0 - 1
+    }
+
+    pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
+    pilot method_id = v4_mir_method_ref_method_id(method_ref)
+    if v4_ty_impl_method_explicit_param_count(v4_mir_ty_id(mir_id), hir_item, method_id) != 0 {
+        give back 0 - 1
+    }
+
+    pilot method_name = v4_ty_impl_method_name(v4_mir_ty_id(mir_id), hir_item, method_id)
+    pilot result_ty = v4_ty_impl_method_return_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, operand_ty)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, operand_ty + "." + method_name, operand_id, 0 - 1, expr_span, result_ty)
 }
 
 task v4_mir_check_method_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, owner_ty: word, method_name: word, method_ref: word, open_token: int, close_token: int, call_glyph: word) -> void {
@@ -3088,9 +3263,13 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
             pilot op_kind = v4_mir_operator_kind(op_text)
             pilot left_ty = v4_mir_rvalue_ty(mir_id, body_id, left_id)
             pilot right_ty = v4_mir_rvalue_ty(mir_id, body_id, right_id)
-            pilot result_ty = v4_ty_binary_result(op_kind, left_ty, right_ty)
+            pilot result_ty = v4_mir_binary_result_type(mir_id, op_kind, left_ty, right_ty)
             v4_mir_check_binary_types(mir_id, expr_span, op_kind, left_ty, right_ty)
             pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+            pilot overload_rvalue = v4_mir_try_lower_binary_operator_overload(mir_id, body_id, left_id, right_id, expr_text, expr_span, op_kind, left_ty, right_ty)
+            if overload_rvalue >= 0 {
+                give back overload_rvalue
+            }
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, expr_text, op_kind, left_id, right_id, expr_span, result_ty)
         }
         tier += 1
@@ -3103,9 +3282,13 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     if unary_kind != "" and first < last {
         pilot operand_id = v4_mir_lower_expr(mir_id, body_id, stream_id, first + 1, last + 1)
         pilot operand_ty = v4_mir_rvalue_ty(mir_id, body_id, operand_id)
-        pilot result_ty = v4_ty_unary_result(unary_kind, operand_ty)
+        pilot result_ty = v4_mir_unary_result_type(mir_id, unary_kind, operand_ty)
         v4_mir_check_unary_type(mir_id, expr_span, unary_kind, operand_ty)
         pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+        pilot overload_rvalue = v4_mir_try_lower_unary_operator_overload(mir_id, body_id, operand_id, expr_text, expr_span, unary_kind, operand_ty)
+        if overload_rvalue >= 0 {
+            give back overload_rvalue
+        }
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, unary_kind, operand_id, 0 - 1, expr_span, result_ty)
     }
     if first_type == v4_tok_int {
@@ -5537,7 +5720,12 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
                 v4_mir_check_assignment_types(mir_id, body_id, stmt_span, place_id, place_ty, result_ty)
                 pilot left_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, place_id, stmt_span)
                 pilot binary_text = v4_mir_place_text(mir_id, body_id, place_id) + " " + v4_mir_compound_assignment_expr_op(op_text) + " " + rhs
-                rvalue_id = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, binary_text, v4_mir_compound_assignment_op_kind(op_text), left_rvalue, value_rvalue, stmt_span, result_ty)
+                pilot overload_rvalue = v4_mir_try_lower_binary_operator_overload(mir_id, body_id, left_rvalue, value_rvalue, binary_text, stmt_span, v4_mir_compound_assignment_op_kind(op_text), place_ty, value_ty)
+                if overload_rvalue >= 0 {
+                    rvalue_id = overload_rvalue
+                } else {
+                    rvalue_id = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, binary_text, v4_mir_compound_assignment_op_kind(op_text), left_rvalue, value_rvalue, stmt_span, result_ty)
+                }
             }
         }
         if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {

@@ -1,0 +1,124 @@
+-- V4 MIR operator overload smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_operator_overload_good_source() -> word {
+    pilot src = "shape Vector2 " + "{" + "\n"
+    src = src + "    x: int\n"
+    src = src + "    y: int\n"
+    src = src + "}" + "\n"
+    src = src + "shape Wrapper<T> " + "{" + "\n"
+    src = src + "    value: T\n"
+    src = src + "}" + "\n"
+    src = src + "doctrine Add " + "{" + " task add(self, other: Self) -> Self " + "}" + "\n"
+    src = src + "doctrine Eq " + "{" + " task equals(self, other: Self) -> bool " + "}" + "\n"
+    src = src + "doctrine Neg " + "{" + " task neg(self) -> Self " + "}" + "\n"
+    src = src + "impl Add for Vector2 " + "{" + "\n"
+    src = src + "    task add(self, other: Vector2) -> Vector2 " + "{" + "\n"
+    src = src + "        give back self\n"
+    src = src + "    }" + "\n"
+    src = src + "}" + "\n"
+    src = src + "impl Eq for Vector2 " + "{" + "\n"
+    src = src + "    task equals(self, other: Vector2) -> bool " + "{" + "\n"
+    src = src + "        give back true\n"
+    src = src + "    }" + "\n"
+    src = src + "}" + "\n"
+    src = src + "impl Neg for Vector2 " + "{" + "\n"
+    src = src + "    task neg(self) -> Vector2 " + "{" + "\n"
+    src = src + "        give back self\n"
+    src = src + "    }" + "\n"
+    src = src + "}" + "\n"
+    src = src + "impl Add for Wrapper<T> " + "{" + "\n"
+    src = src + "    task add(self, other: Wrapper<T>) -> Wrapper<T> " + "{" + "\n"
+    src = src + "        give back self\n"
+    src = src + "    }" + "\n"
+    src = src + "}" + "\n"
+    src = src + "task main(left: Vector2, right: Vector2, gx: Wrapper<int>, gy: Wrapper<int>) -> int " + "{" + "\n"
+    src = src + "    pilot sum = left + right\n"
+    src = src + "    pilot same = left == right\n"
+    src = src + "    pilot nope = left != right\n"
+    src = src + "    pilot flipped = -left\n"
+    src = src + "    pilot mixed = gx + gy\n"
+    src = src + "    gx += gy\n"
+    src = src + "    give back 0\n"
+    src = src + "}" + "\n"
+    give back src
+}
+
+task v4_mir_operator_overload_bad_source() -> word {
+    pilot src = "shape Vector2 " + "{" + "\n"
+    src = src + "    x: int\n"
+    src = src + "    y: int\n"
+    src = src + "}" + "\n"
+    src = src + "doctrine Add " + "{" + " task add(self, other: Self) -> Self " + "}" + "\n"
+    src = src + "impl Add for Vector2 " + "{" + "\n"
+    src = src + "    task add(self, other: Vector2) -> Vector2 " + "{" + "\n"
+    src = src + "        give back self\n"
+    src = src + "    }" + "\n"
+    src = src + "}" + "\n"
+    src = src + "task bad(left: Vector2) -> void " + "{" + "\n"
+    src = src + "    pilot broken = left + \"oops\"\n"
+    src = src + "}" + "\n"
+    give back src
+}
+
+pilot v4_mir_operator_overload_source = v4_mir_operator_overload_good_source()
+pilot v4_mir_operator_overload_stream = v4_lex_text(0, v4_mir_operator_overload_source)
+pilot v4_mir_operator_overload_tree = v4_parse_stream(0, v4_mir_operator_overload_stream)
+pilot v4_mir_operator_overload_hir = v4_hir_lower_tree(0, v4_mir_operator_overload_tree)
+pilot v4_mir_operator_overload_resolve = v4_resolve_lower_hir(0, v4_mir_operator_overload_hir)
+pilot v4_mir_operator_overload_ty = v4_ty_lower_resolve(0, v4_mir_operator_overload_resolve)
+pilot v4_mir_operator_overload_mir = v4_mir_lower_ty(0, v4_mir_operator_overload_ty)
+pilot v4_mir_operator_overload_main_def = v4_resolve_def_for_name(v4_mir_operator_overload_resolve, "main")
+pilot v4_mir_operator_overload_main_body = v4_mir_lookup_body(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_def)
+pilot v4_mir_operator_overload_sum_rvalue = v4_mir_stmt_rvalue(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 0)
+pilot v4_mir_operator_overload_same_rvalue = v4_mir_stmt_rvalue(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 1)
+pilot v4_mir_operator_overload_nope_rvalue = v4_mir_stmt_rvalue(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 2)
+pilot v4_mir_operator_overload_flipped_rvalue = v4_mir_stmt_rvalue(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 3)
+pilot v4_mir_operator_overload_mixed_rvalue = v4_mir_stmt_rvalue(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 4)
+pilot v4_mir_operator_overload_assign_rvalue = v4_mir_stmt_rvalue(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 5)
+pilot v4_mir_operator_overload_nope_inner = v4_mir_rvalue_lhs(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_nope_rvalue)
+
+say v4_mir_summary(v4_mir_operator_overload_mir)
+say "operator-main-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body))
+say "operator-local4-name=" + v4_mir_local_name(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 4)
+say "operator-local4-ty=" + v4_mir_local_ty(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 4)
+say "operator-local5-name=" + v4_mir_local_name(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 5)
+say "operator-local5-ty=" + v4_mir_local_ty(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 5)
+say "operator-local6-name=" + v4_mir_local_name(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 6)
+say "operator-local6-ty=" + v4_mir_local_ty(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 6)
+say "operator-local7-name=" + v4_mir_local_name(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 7)
+say "operator-local7-ty=" + v4_mir_local_ty(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 7)
+say "operator-local8-name=" + v4_mir_local_name(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 8)
+say "operator-local8-ty=" + v4_mir_local_ty(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, 8)
+say "operator-sum-kind=" + v4_mir_rvalue_kind(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_sum_rvalue)
+say "operator-sum-op=" + v4_mir_rvalue_op(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_sum_rvalue)
+say "operator-sum-ty=" + v4_mir_rvalue_ty(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_sum_rvalue)
+say "operator-same-kind=" + v4_mir_rvalue_kind(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_same_rvalue)
+say "operator-same-op=" + v4_mir_rvalue_op(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_same_rvalue)
+say "operator-same-ty=" + v4_mir_rvalue_ty(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_same_rvalue)
+say "operator-nope-kind=" + v4_mir_rvalue_kind(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_nope_rvalue)
+say "operator-nope-op=" + v4_mir_rvalue_op(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_nope_rvalue)
+say "operator-nope-ty=" + v4_mir_rvalue_ty(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_nope_rvalue)
+say "operator-nope-inner-kind=" + v4_mir_rvalue_kind(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_nope_inner)
+say "operator-nope-inner-op=" + v4_mir_rvalue_op(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_nope_inner)
+say "operator-flipped-kind=" + v4_mir_rvalue_kind(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_flipped_rvalue)
+say "operator-flipped-op=" + v4_mir_rvalue_op(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_flipped_rvalue)
+say "operator-flipped-ty=" + v4_mir_rvalue_ty(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_flipped_rvalue)
+say "operator-mixed-kind=" + v4_mir_rvalue_kind(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_mixed_rvalue)
+say "operator-mixed-op=" + v4_mir_rvalue_op(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_mixed_rvalue)
+say "operator-mixed-ty=" + v4_mir_rvalue_ty(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_mixed_rvalue)
+say "operator-assign-kind=" + v4_mir_rvalue_kind(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_assign_rvalue)
+say "operator-assign-op=" + v4_mir_rvalue_op(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_assign_rvalue)
+say "operator-assign-ty=" + v4_mir_rvalue_ty(v4_mir_operator_overload_mir, v4_mir_operator_overload_main_body, v4_mir_operator_overload_assign_rvalue)
+say "operator-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_operator_overload_mir))
+
+pilot v4_mir_operator_overload_bad_stream = v4_lex_text(1, v4_mir_operator_overload_bad_source())
+pilot v4_mir_operator_overload_bad_tree = v4_parse_stream(1, v4_mir_operator_overload_bad_stream)
+pilot v4_mir_operator_overload_bad_hir = v4_hir_lower_tree(1, v4_mir_operator_overload_bad_tree)
+pilot v4_mir_operator_overload_bad_resolve = v4_resolve_lower_hir(1, v4_mir_operator_overload_bad_hir)
+pilot v4_mir_operator_overload_bad_ty = v4_ty_lower_resolve(1, v4_mir_operator_overload_bad_resolve)
+pilot v4_mir_operator_overload_bad_mir = v4_mir_lower_ty(1, v4_mir_operator_overload_bad_ty)
+
+say "operator-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_operator_overload_bad_mir))
+say "operator-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_operator_overload_bad_mir, 0))
+say "operator-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_operator_overload_bad_mir, 0))

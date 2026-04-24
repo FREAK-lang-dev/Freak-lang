@@ -265,6 +265,36 @@ task v4_ty_unary_result(op: word, operand_ty: word) -> word {
     give back v4_ty_unknown
 }
 
+task v4_ty_binary_operator_doctrine(op: word) -> word {
+    if op == "Add" { give back "Add" }
+    if op == "Sub" { give back "Sub" }
+    if op == "Mul" { give back "Mul" }
+    if op == "Div" { give back "Div" }
+    if op == "Mod" { give back "Rem" }
+    if op == "Eq" or op == "Ne" { give back "Eq" }
+    give back ""
+}
+
+task v4_ty_binary_operator_method(op: word) -> word {
+    if op == "Add" { give back "add" }
+    if op == "Sub" { give back "sub" }
+    if op == "Mul" { give back "mul" }
+    if op == "Div" { give back "div" }
+    if op == "Mod" { give back "rem" }
+    if op == "Eq" or op == "Ne" { give back "equals" }
+    give back ""
+}
+
+task v4_ty_unary_operator_doctrine(op: word) -> word {
+    if op == "Neg" { give back "Neg" }
+    give back ""
+}
+
+task v4_ty_unary_operator_method(op: word) -> word {
+    if op == "Neg" { give back "neg" }
+    give back ""
+}
+
 task v4_ty_binary_valid(op: word, left_ty: word, right_ty: word) -> bool {
     if not v4_ty_is_known(left_ty) or not v4_ty_is_known(right_ty) {
         give back true
