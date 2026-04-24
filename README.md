@@ -6,7 +6,7 @@
 and not enough sleep, but somehow it compiles.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-pink?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/v0.9.0-Alternative--4-red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
+[![Version](https://img.shields.io/badge/v0.13.2-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/FREAK-lang-dev/Freak-lang/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/FREAK-lang-dev/Freak-lang/actions)
 [![Status](https://img.shields.io/badge/status-self--hosting-brightgreen?style=flat-square)](#)
 [![Vibes](https://img.shields.io/badge/vibes-MONO__NO__AWARE-blueviolet?style=flat-square)](#)
@@ -48,6 +48,8 @@ That's it. That's the whole vibe.
 - **`fixed pilot`** — immutable binding. The pilot cannot be reassigned.
 - **`trust-me`** — unsafe blocks. You asked for this.
 - **`training arc`** — loops guaranteed to terminate (with a session cap).
+- **`eventually`** — deferred execution. Runs when the mission ends.
+- **`isekai`** — fresh isolated scope. What happens in another world stays there.
 
 ### The Type System
 
@@ -57,10 +59,49 @@ That's it. That's the whole vibe.
 | `word` | UTF-8 string. Fat pointer. Knows its own length. |
 | `big` | Arbitrary precision integer. Never overflows. Ever. |
 | `maybe<T>` | Optional. `some(42)` or `nobody`. |
-| `result<T, E>` | Success or failure. `ok(val)` or `err("message")`. |
+| `result<T, E>` | Success or failure. `ok(val) or err("message")`. |
 | `mood` | Emotional state enum. `.chill` `.focused` `.hype` `.mono_no_aware` |
 | `prob[lo..hi]` | A value constrained to a probability range. Yes, really. |
 | `power<N>` | A number that must be ≥ N. The compiler enforces it. |
+
+### The Anime Layer
+
+FREAK understands the narrative weight of your code.
+
+- **`foreshadow / payoff`** — If you foreshadow a variable, you **must** payoff that promise before the scope ends. The compiler is your editor.
+- **`knowing this will hurt / sadly`** — Required prefixes to call tasks marked as `@nakige` (tragedy). You must acknowledge the pain.
+- **`for science,`** — Required prefix to call `@experiment` tasks. Every call is logged to the research archives.
+- **`deus_ex_machina`** — Bypasses all safety, borrow rules, and probability. Requires a dramatic monologue of at least 20 words. Don't use it more than 3 times or Yuuko will be disappointed.
+
+```fk
+@nakige
+task sacrifice(p: &pilot) { ... }
+
+-- Error: must acknowledge the tragedy
+sacrifice(sumika) 
+
+-- Success
+sadly sacrifice(sumika)
+
+foreshadow pilot victory = false
+...
+payoff victory -- promise kept
+```
+
+---
+
+## The Audit System
+
+FREAK isn't just about compiling; it's about accountability. The `audit` command suite lets you inspect the narrative integrity of your codebase.
+
+```bash
+freakc audit-trust      # List every 'trust me' block and its honor level
+freakc audit-science    # List every 'for science,' call site
+freakc audit-miracles   # Find every 'deus_ex_machina' (warns if > 3)
+freakc foreshadow-audit # Find any narrative promises you haven't kept
+```
+
+---
 
 ### The Mood System
 
@@ -402,6 +443,8 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 | Cross-compilation | ✅ Complete |
 | One-command install (Linux/macOS/Windows) | ✅ Complete |
 | CI/CD with 4-platform releases | ✅ Complete |
+| `std::process`, `std::thread`, `std::bytes` | ✅ Complete |
+| muvluv package (Official) | ✅ Complete |
 | COCKPIT UI framework | 🚧 In progress |
 | HFML (markup language) | 📐 Planned |
 

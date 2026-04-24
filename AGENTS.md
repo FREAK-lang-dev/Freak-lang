@@ -28,8 +28,14 @@ The cost of committing too often is zero. The cost of losing work because you fo
 Key facts:
 - Files use the `.fk` extension
 - The authoritative spec is `freak-full-bible.md` — if code disagrees with the bible, **the bible wins**
-- Version name: **Alternative-4 Edition** — current release **v0.13.0 "Shiranui"**
+- Version name: **Alternative-4 Edition** — current release **v0.13.2 "Shiranui"**
 - The self-hosting compiler (`freakc_self.exe`) is a major credibility milestone and should be prominently featured in public materials
+
+---
+
+## Task Log
+
+- **2026-04-24**: Updated project version to v0.13.2 across documentation (README.md, AGENTS.md, CLAUDE.md) and packaging manifests.
 
 ---
 
@@ -576,14 +582,14 @@ Test files in `tests/` directory. Run with `python -m freakc test` or `freak tes
 
 The version is hardcoded in **two files** that must be updated together before tagging a release:
 
-- `src/cli/version.fk` → `pilot CLI_VERSION = "0.13.0"` and `CLI_CODENAME = "Shiranui"` (shown by `freak version`)
-- `src/compiler/v3/globals.fk` → `pilot FREAKC_VERSION = "0.13.0"` and `FREAKC_CODENAME = "Shiranui"` (shown by `freakc_v3 --version`)
+- `src/cli/version.fk` → `pilot CLI_VERSION = "0.13.2"` and `CLI_CODENAME = "Shiranui"` (shown by `freak version`)
+- `src/compiler/v3/globals.fk` → `pilot FREAKC_VERSION = "0.13.2"` and `FREAKC_CODENAME = "Shiranui"` (shown by `freakc_v3 --version`)
 
 If you forget, the installed binary will report the old version even though the release tag is newer. This has happened before (v0.10.0 shipped reporting 0.9.0).
 
 ### LLVM Backend Progress (V3 — current default)
 
-The V3 LLVM IR backend (`src/compiler/v3/emit_llvm.fk`) is the **default** backend as of v0.13.0. The pipeline is:
+The V3 LLVM IR backend (`src/compiler/v3/emit_llvm.fk`) is the **default** backend as of v0.13.2. The pipeline is:
 
 ```
 .fk source → V3 compiler (freakc_v3.exe) → .ll → clang/lld → native binary
