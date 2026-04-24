@@ -1,15 +1,33 @@
 -- V4 generic signature foundation smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_ty_generics_bool_text(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_ty_generics_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
 task v4_ty_generics_make_source() -> word {
     pilot src = "task first<T>(list: List<T>) -> maybe<T> {\n"
     src = src + "    give back nobody\n"
     src = src + "}\n"
     src = src + "task log_sorted<T: Comparable + Displayable>(items: List<T>) -> void {\n"
     src = src + "}\n"
+    src = src + "task duo<T>(left: T, right: T) -> T {\n"
+    src = src + "    give back left\n"
+    src = src + "}\n"
     src = src + "shape Pair<A, B> {\n"
+    src = src + "    first: A\n"
+    src = src + "    second: B\n"
     src = src + "}\n"
     src = src + "route Option<T> {\n"
+    src = src + "    Some " + v4_ty_generics_braces(" value: T ") + "\n"
+    src = src + "    None\n"
     src = src + "}\n"
     src = src + "doctrine Displayable<T> {\n"
     src = src + "    task display(self) -> word\n"
@@ -26,17 +44,24 @@ pilot v4_ty_generics_ty = v4_ty_lower_resolve(0, v4_ty_generics_resolve)
 
 pilot v4_ty_first_def = v4_resolve_def_for_name(v4_ty_generics_resolve, "first")
 pilot v4_ty_log_sorted_def = v4_resolve_def_for_name(v4_ty_generics_resolve, "log_sorted")
+pilot v4_ty_duo_def = v4_resolve_def_for_name(v4_ty_generics_resolve, "duo")
 pilot v4_ty_pair_def = v4_resolve_def_for_name(v4_ty_generics_resolve, "Pair")
 pilot v4_ty_option_def = v4_resolve_def_for_name(v4_ty_generics_resolve, "Option")
 pilot v4_ty_displayable_def = v4_resolve_def_for_name(v4_ty_generics_resolve, "Displayable")
 
 pilot v4_ty_first_sig = v4_ty_lookup_signature(v4_ty_generics_ty, v4_ty_first_def)
 pilot v4_ty_log_sorted_sig = v4_ty_lookup_signature(v4_ty_generics_ty, v4_ty_log_sorted_def)
+pilot v4_ty_duo_sig = v4_ty_lookup_signature(v4_ty_generics_ty, v4_ty_duo_def)
 pilot v4_ty_pair_sig = v4_ty_lookup_signature(v4_ty_generics_ty, v4_ty_pair_def)
 pilot v4_ty_option_sig = v4_ty_lookup_signature(v4_ty_generics_ty, v4_ty_option_def)
 pilot v4_ty_displayable_sig = v4_ty_lookup_signature(v4_ty_generics_ty, v4_ty_displayable_def)
 
 pilot v4_ty_generic_instance = "Pair<word,maybe<List<int>>>"
+pilot v4_ty_first_env = v4_ty_match_signature_type_env(v4_ty_generics_ty, v4_ty_first_sig, v4_ty_signature_param_type(v4_ty_generics_ty, v4_ty_first_sig, 0), "List<int>", "")
+pilot v4_ty_duo_ok_env = v4_ty_match_signature_type_env(v4_ty_generics_ty, v4_ty_duo_sig, v4_ty_signature_param_type(v4_ty_generics_ty, v4_ty_duo_sig, 0), "int", "")
+v4_ty_duo_ok_env = v4_ty_match_signature_type_env(v4_ty_generics_ty, v4_ty_duo_sig, v4_ty_signature_param_type(v4_ty_generics_ty, v4_ty_duo_sig, 1), "int", v4_ty_duo_ok_env)
+pilot v4_ty_duo_bad_env = v4_ty_match_signature_type_env(v4_ty_generics_ty, v4_ty_duo_sig, v4_ty_signature_param_type(v4_ty_generics_ty, v4_ty_duo_sig, 0), "int", "")
+v4_ty_duo_bad_env = v4_ty_match_signature_type_env(v4_ty_generics_ty, v4_ty_duo_sig, v4_ty_signature_param_type(v4_ty_generics_ty, v4_ty_duo_sig, 1), "word", v4_ty_duo_bad_env)
 
 say v4_ty_summary(v4_ty_generics_ty)
 say "first-signature=" + v4_ty_signature_of(v4_ty_generics_ty, v4_ty_first_def)
@@ -44,14 +69,26 @@ say "first-return=" + v4_ty_signature_return_type(v4_ty_generics_ty, v4_ty_first
 say "first-generic-count=" + word_from_int(v4_ty_signature_generic_count(v4_ty_generics_ty, v4_ty_first_sig))
 say "first-generic0-name=" + v4_ty_signature_generic_name(v4_ty_generics_ty, v4_ty_first_sig, 0)
 say "first-generic0-bounds=" + v4_ty_signature_generic_bounds(v4_ty_generics_ty, v4_ty_first_sig, 0)
+say "first-call-compatible=" + v4_ty_generics_bool_text(v4_ty_types_compatible_in_signature(v4_ty_generics_ty, v4_ty_first_sig, "List<T>", "List<int>"))
+say "first-call-return=" + v4_ty_signature_return_type_for_env(v4_ty_generics_ty, v4_ty_first_sig, v4_ty_first_env)
 say "log-sorted-signature=" + v4_ty_signature_of(v4_ty_generics_ty, v4_ty_log_sorted_def)
 say "log-sorted-generic0-bounds=" + v4_ty_signature_generic_bounds(v4_ty_generics_ty, v4_ty_log_sorted_sig, 0)
+say "log-sorted-bound-count=" + word_from_int(v4_ty_signature_generic_bound_count(v4_ty_generics_ty, v4_ty_log_sorted_sig, 0))
+say "log-sorted-bound0=" + v4_ty_signature_generic_bound_name(v4_ty_generics_ty, v4_ty_log_sorted_sig, 0, 0)
+say "log-sorted-bound1=" + v4_ty_signature_generic_bound_name(v4_ty_generics_ty, v4_ty_log_sorted_sig, 0, 1)
+say "duo-same-call=" + v4_ty_generics_bool_text(v4_ty_duo_ok_env != v4_ty_generic_env_fail)
+say "duo-same-return=" + v4_ty_signature_return_type_for_env(v4_ty_generics_ty, v4_ty_duo_sig, v4_ty_duo_ok_env)
+say "duo-mixed-call=" + v4_ty_generics_bool_text(v4_ty_duo_bad_env != v4_ty_generic_env_fail)
 say "pair-signature=" + v4_ty_signature_of(v4_ty_generics_ty, v4_ty_pair_def)
 say "pair-generic-count=" + word_from_int(v4_ty_signature_generic_count(v4_ty_generics_ty, v4_ty_pair_sig))
 say "pair-generic0-name=" + v4_ty_signature_generic_name(v4_ty_generics_ty, v4_ty_pair_sig, 0)
 say "pair-generic1-name=" + v4_ty_signature_generic_name(v4_ty_generics_ty, v4_ty_pair_sig, 1)
+say "pair-field-first=" + v4_ty_shape_field_type_for_name(v4_ty_generics_ty, "Pair<word,int>", "first")
+say "pair-field-second=" + v4_ty_shape_field_type_for_name(v4_ty_generics_ty, "Pair<word,int>", "second")
 say "option-signature=" + v4_ty_signature_of(v4_ty_generics_ty, v4_ty_option_def)
 say "option-generic0-name=" + v4_ty_signature_generic_name(v4_ty_generics_ty, v4_ty_option_sig, 0)
+say "option-is-route=" + v4_ty_generics_bool_text(v4_ty_is_route_type(v4_ty_generics_ty, "Option<word>"))
+say "option-some-value-type=" + v4_ty_route_case_field_type_for_name(v4_ty_generics_ty, "Option<word>", "Some", "value")
 say "displayable-signature=" + v4_ty_signature_of(v4_ty_generics_ty, v4_ty_displayable_def)
 say "displayable-generic0-name=" + v4_ty_signature_generic_name(v4_ty_generics_ty, v4_ty_displayable_sig, 0)
 say "generic-instance-base=" + v4_ty_generic_base_name(v4_ty_generic_instance)

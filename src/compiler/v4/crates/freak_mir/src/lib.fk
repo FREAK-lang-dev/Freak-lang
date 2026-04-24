@@ -1797,9 +1797,9 @@ task v4_mir_call_arg_end(stream_id: int, start_token: int, close_token: int) -> 
     give back close_token
 }
 
-task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, callee_name: word, sig_id: int, open_token: int, close_token: int) -> void {
+task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, callee_name: word, sig_id: int, open_token: int, close_token: int) -> word {
     if sig_id < 0 or open_token < 0 or close_token <= open_token {
-        give back
+        give back ""
     }
 
     pilot ty_id = v4_mir_ty_id(mir_id)
@@ -1809,6 +1809,7 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
         v4_mir_add_type_error(mir_id, expr_span, "call arity mismatch", callee_name + " expects " + word_from_int(expected_count) + " arguments but got " + word_from_int(actual_count))
     }
 
+    pilot generic_env = ""
     pilot arg_idx = 0
     pilot arg_start = v4_mir_skip_trivia(stream_id, open_token + 1)
     repeat until arg_idx >= actual_count {
@@ -1817,8 +1818,11 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
             pilot expected_ty = v4_ty_signature_param_type(ty_id, sig_id, arg_idx)
             pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, arg_start, arg_end, expected_ty)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
-            if not v4_ty_types_compatible(expected_ty, actual_ty) {
+            pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_ty, generic_env)
+            if next_env == v4_ty_generic_env_fail {
                 v4_mir_add_type_error(mir_id, expr_span, "call argument type mismatch", callee_name + " argument " + word_from_int(arg_idx + 1) + " expects " + expected_ty + " but got " + actual_ty)
+            } else {
+                generic_env = next_env
             }
         } else {
             pilot arg_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, arg_start, arg_end)
@@ -1826,6 +1830,7 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
         arg_idx += 1
         arg_start = v4_mir_skip_trivia(stream_id, arg_end + 1)
     }
+    give back generic_env
 }
 
 task v4_mir_method_ref(hir_item: int, method_id: int) -> word {
@@ -3012,8 +3017,12 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     if next_token <= last and v4_lex_token_value(stream_id, next_token) == "(" {
         pilot close_token = v4_mir_find_matching_paren(stream_id, next_token, last + 1)
         pilot sig_id = v4_mir_signature_id_for_name(mir_id, first_value)
-        v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, first_value, sig_id, next_token, close_token)
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, first_value, 0 - 1, 0 - 1, expr_span, v4_mir_signature_return_type_for_id(mir_id, sig_id))
+        pilot generic_env = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, first_value, sig_id, next_token, close_token)
+        pilot return_ty = v4_mir_signature_return_type_for_id(mir_id, sig_id)
+        if sig_id >= 0 {
+            return_ty = v4_ty_signature_return_type_for_env(v4_mir_ty_id(mir_id), sig_id, generic_env)
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, first_value, 0 - 1, 0 - 1, expr_span, return_ty)
     }
     if first == last {
         if v4_mir_find_local(mir_id, body_id, first_value) >= 0 {

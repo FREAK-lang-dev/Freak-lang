@@ -24,6 +24,7 @@ pilot v4_ty_import_sig = "import-signature"
 pilot v4_ty_attribute_sig = "attribute-signature"
 pilot v4_ty_error_sig = "error-signature"
 pilot v4_ty_snapshot_format = "freak-ty-snapshot-v1"
+pilot v4_ty_generic_env_fail = "#fail"
 
 pilot v4_ty_files = 0
 pilot v4_ty_resolves = 0
@@ -172,6 +173,23 @@ task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
         give back true
     }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
+        give back true
+    }
+    if v4_ty_is_generic_instance_type(expected_ty) and v4_ty_is_generic_instance_type(actual_ty) {
+        if v4_ty_generic_base_name(expected_ty) != v4_ty_generic_base_name(actual_ty) {
+            give back false
+        }
+        if v4_ty_generic_arg_count(expected_ty) != v4_ty_generic_arg_count(actual_ty) {
+            give back false
+        }
+        pilot arg_idx = 0
+        pilot arg_count = v4_ty_generic_arg_count(expected_ty)
+        repeat until arg_idx >= arg_count {
+            if not v4_ty_types_compatible(v4_ty_generic_arg(expected_ty, arg_idx), v4_ty_generic_arg(actual_ty, arg_idx)) {
+                give back false
+            }
+            arg_idx += 1
+        }
         give back true
     }
     give back false
@@ -815,6 +833,87 @@ task v4_ty_signature_generic_bounds(ty_id: int, sig_id: int, generic_id: int) ->
     give back v4_ty_generic_bounds_from_tokens(stream_id, start_token, end_token)
 }
 
+task v4_ty_generic_bound_count(bounds_text: word) -> int {
+    if bounds_text == "" {
+        give back 0
+    }
+
+    pilot count = 1
+    pilot depth = 0
+    pilot idx = 0
+    repeat until idx >= bounds_text.length() {
+        pilot ch = bounds_text.char_at(idx)
+        if depth == 0 and ch == "+" {
+            count += 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_generic_bound_name(bounds_text: word, bound_id: int) -> word {
+    if bounds_text == "" or bound_id < 0 {
+        give back ""
+    }
+
+    pilot current = 0
+    pilot segment_start = 0
+    pilot depth = 0
+    pilot idx = 0
+    repeat until idx >= bounds_text.length() {
+        pilot ch = bounds_text.char_at(idx)
+        if depth == 0 and ch == "+" {
+            if current == bound_id {
+                give back v4_slice(bounds_text, segment_start, idx)
+            }
+            current += 1
+            segment_start = idx + 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+
+    if current == bound_id and segment_start < bounds_text.length() {
+        give back v4_slice(bounds_text, segment_start, bounds_text.length())
+    }
+    give back ""
+}
+
+task v4_ty_signature_generic_bound_count(ty_id: int, sig_id: int, generic_id: int) -> int {
+    give back v4_ty_generic_bound_count(v4_ty_signature_generic_bounds(ty_id, sig_id, generic_id))
+}
+
+task v4_ty_signature_generic_bound_name(ty_id: int, sig_id: int, generic_id: int, bound_id: int) -> word {
+    give back v4_ty_generic_bound_name(v4_ty_signature_generic_bounds(ty_id, sig_id, generic_id), bound_id)
+}
+
+task v4_ty_signature_generic_has_bound(ty_id: int, sig_id: int, generic_id: int, wanted_bound: word) -> bool {
+    pilot bound_idx = 0
+    pilot bound_count = v4_ty_signature_generic_bound_count(ty_id, sig_id, generic_id)
+    repeat until bound_idx >= bound_count {
+        if v4_ty_signature_generic_bound_name(ty_id, sig_id, generic_id, bound_idx) == wanted_bound {
+            give back true
+        }
+        bound_idx += 1
+    }
+    give back false
+}
+
+task v4_ty_signature_declares_generic_name(ty_id: int, sig_id: int, type_name: word) -> bool {
+    pilot generic_idx = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_idx >= generic_count {
+        if v4_ty_signature_generic_name(ty_id, sig_id, generic_idx) == type_name {
+            give back true
+        }
+        generic_idx += 1
+    }
+    give back false
+}
+
 task v4_ty_signature_param_name(ty_id: int, sig_id: int, param_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
@@ -1301,11 +1400,15 @@ task v4_ty_signature_return_type(ty_id: int, sig_id: int) -> word {
 }
 
 task v4_ty_shape_signature_id_for_name(ty_id: int, shape_name: word) -> int {
+    pilot lookup_name = shape_name
+    if v4_ty_is_generic_instance_type(lookup_name) {
+        lookup_name = v4_ty_generic_base_name(lookup_name)
+    }
     pilot sig_id = 0
     pilot sig_count = v4_ty_signature_count(ty_id)
     repeat until sig_id >= sig_count {
         if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_shape_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == shape_name {
+            if v4_ty_signature_name(ty_id, sig_id) == lookup_name {
                 give back sig_id
             }
         }
@@ -1315,11 +1418,15 @@ task v4_ty_shape_signature_id_for_name(ty_id: int, shape_name: word) -> int {
 }
 
 task v4_ty_route_signature_id_for_name(ty_id: int, route_name: word) -> int {
+    pilot lookup_name = route_name
+    if v4_ty_is_generic_instance_type(lookup_name) {
+        lookup_name = v4_ty_generic_base_name(lookup_name)
+    }
     pilot sig_id = 0
     pilot sig_count = v4_ty_signature_count(ty_id)
     repeat until sig_id >= sig_count {
         if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_route_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == route_name {
+            if v4_ty_signature_name(ty_id, sig_id) == lookup_name {
                 give back sig_id
             }
         }
@@ -1708,6 +1815,7 @@ task v4_ty_route_case_field_name(ty_id: int, route_name: word, case_name: word, 
 }
 
 task v4_ty_route_case_field_type(ty_id: int, route_name: word, case_name: word, field_id: int) -> word {
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_route_case_field_segment_start(ty_id, route_name, case_name, field_id)
     pilot end_token = v4_ty_route_case_field_segment_end(ty_id, route_name, case_name, field_id)
@@ -1724,7 +1832,7 @@ task v4_ty_route_case_field_type(ty_id: int, route_name: word, case_name: word, 
     if field_ty == "" {
         give back v4_ty_unknown
     }
-    give back field_ty
+    give back v4_ty_apply_signature_generics(ty_id, sig_id, route_name, field_ty)
 }
 
 task v4_ty_route_case_field_type_for_name(ty_id: int, route_name: word, case_name: word, field_name: word) -> word {
@@ -1924,7 +2032,7 @@ task v4_ty_shape_field_type_for_name(ty_id: int, shape_name: word, field_name: w
     pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
     repeat until field_id >= field_count {
         if v4_ty_shape_field_name(ty_id, sig_id, field_id) == field_name {
-            give back v4_ty_shape_field_type(ty_id, sig_id, field_id)
+            give back v4_ty_apply_signature_generics(ty_id, sig_id, shape_name, v4_ty_shape_field_type(ty_id, sig_id, field_id))
         }
         field_id += 1
     }
@@ -2030,6 +2138,182 @@ task v4_ty_generic_arg(type_text: word, arg_id: int) -> word {
         give back v4_slice(type_text, segment_start, type_text.length() - 1)
     }
     give back v4_ty_unknown
+}
+
+task v4_ty_generic_env_lookup(env: word, name: word) -> word {
+    if env == "" or name == "" {
+        give back ""
+    }
+
+    pilot segment_start = 0
+    repeat until segment_start >= env.length() {
+        pilot segment_end = v4_ty_find_top_level_type_char(env, "|", segment_start, env.length())
+        if segment_end < 0 {
+            segment_end = env.length()
+        }
+        pilot eq_pos = v4_ty_find_top_level_type_char(env, "=", segment_start, segment_end)
+        if eq_pos > segment_start {
+            if v4_slice(env, segment_start, eq_pos) == name {
+                give back v4_slice(env, eq_pos + 1, segment_end)
+            }
+        }
+        segment_start = segment_end + 1
+    }
+    give back ""
+}
+
+task v4_ty_generic_env_bind(env: word, name: word, actual_ty: word) -> word {
+    pilot existing = v4_ty_generic_env_lookup(env, name)
+    if existing != "" {
+        if existing == actual_ty {
+            give back env
+        }
+        give back v4_ty_generic_env_fail
+    }
+
+    if env == "" {
+        give back name + "=" + actual_ty
+    }
+    give back env + "|" + name + "=" + actual_ty
+}
+
+task v4_ty_match_signature_type_env(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word, env: word) -> word {
+    if env == v4_ty_generic_env_fail {
+        give back env
+    }
+    if not v4_ty_is_known(expected_ty) or not v4_ty_is_known(actual_ty) {
+        give back env
+    }
+    if expected_ty == actual_ty {
+        give back env
+    }
+    if v4_ty_signature_declares_generic_name(ty_id, sig_id, expected_ty) {
+        give back v4_ty_generic_env_bind(env, expected_ty, actual_ty)
+    }
+    if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
+        give back env
+    }
+    if v4_ty_is_generic_instance_type(expected_ty) and v4_ty_is_generic_instance_type(actual_ty) {
+        if v4_ty_generic_base_name(expected_ty) != v4_ty_generic_base_name(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        if v4_ty_generic_arg_count(expected_ty) != v4_ty_generic_arg_count(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        pilot next_env = env
+        pilot arg_idx = 0
+        pilot arg_count = v4_ty_generic_arg_count(expected_ty)
+        repeat until arg_idx >= arg_count {
+            next_env = v4_ty_match_signature_type_env(ty_id, sig_id, v4_ty_generic_arg(expected_ty, arg_idx), v4_ty_generic_arg(actual_ty, arg_idx), next_env)
+            if next_env == v4_ty_generic_env_fail {
+                give back next_env
+            }
+            arg_idx += 1
+        }
+        give back next_env
+    }
+    if v4_ty_is_tuple_type(expected_ty) and v4_ty_is_tuple_type(actual_ty) {
+        if v4_ty_tuple_slot_count(expected_ty) != v4_ty_tuple_slot_count(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        pilot next_env = env
+        pilot slot_idx = 0
+        pilot slot_count = v4_ty_tuple_slot_count(expected_ty)
+        repeat until slot_idx >= slot_count {
+            next_env = v4_ty_match_signature_type_env(ty_id, sig_id, v4_ty_tuple_slot_type(expected_ty, slot_idx), v4_ty_tuple_slot_type(actual_ty, slot_idx), next_env)
+            if next_env == v4_ty_generic_env_fail {
+                give back next_env
+            }
+            slot_idx += 1
+        }
+        give back next_env
+    }
+    if v4_ty_is_fixed_array_type(expected_ty) and v4_ty_is_fixed_array_type(actual_ty) {
+        if v4_ty_fixed_array_length_text(expected_ty) != v4_ty_fixed_array_length_text(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        give back v4_ty_match_signature_type_env(ty_id, sig_id, v4_ty_fixed_array_element_type(expected_ty), v4_ty_fixed_array_element_type(actual_ty), env)
+    }
+    if v4_ty_types_compatible(expected_ty, actual_ty) {
+        give back env
+    }
+    give back v4_ty_generic_env_fail
+}
+
+task v4_ty_types_compatible_in_signature(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word) -> bool {
+    give back v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_ty, "") != v4_ty_generic_env_fail
+}
+
+task v4_ty_apply_generic_env(type_text: word, env: word) -> word {
+    if env == "" or env == v4_ty_generic_env_fail or type_text == "" or type_text == v4_ty_unknown {
+        give back type_text
+    }
+
+    pilot mapped = v4_ty_generic_env_lookup(env, type_text)
+    if mapped != "" {
+        give back mapped
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot out = v4_ty_generic_base_name(type_text) + "<"
+        pilot arg_idx = 0
+        pilot arg_count = v4_ty_generic_arg_count(type_text)
+        repeat until arg_idx >= arg_count {
+            if arg_idx > 0 {
+                out = out + ","
+            }
+            out = out + v4_ty_apply_generic_env(v4_ty_generic_arg(type_text, arg_idx), env)
+            arg_idx += 1
+        }
+        out = out + ">"
+        give back out
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot out = "("
+        pilot slot_idx = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_idx >= slot_count {
+            if slot_idx > 0 {
+                out = out + ","
+            }
+            out = out + v4_ty_apply_generic_env(v4_ty_tuple_slot_type(type_text, slot_idx), env)
+            slot_idx += 1
+        }
+        out = out + ")"
+        give back out
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back "[" + v4_ty_apply_generic_env(v4_ty_fixed_array_element_type(type_text), env) + ";" + v4_ty_fixed_array_length_text(type_text) + "]"
+    }
+    give back type_text
+}
+
+task v4_ty_signature_generic_env_for_instance(ty_id: int, sig_id: int, instance_ty: word) -> word {
+    if not v4_ty_is_generic_instance_type(instance_ty) {
+        give back ""
+    }
+    if v4_ty_signature_generic_count(ty_id, sig_id) != v4_ty_generic_arg_count(instance_ty) {
+        give back ""
+    }
+
+    pilot env = ""
+    pilot generic_idx = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_idx >= generic_count {
+        env = v4_ty_generic_env_bind(env, v4_ty_signature_generic_name(ty_id, sig_id, generic_idx), v4_ty_generic_arg(instance_ty, generic_idx))
+        if env == v4_ty_generic_env_fail {
+            give back ""
+        }
+        generic_idx += 1
+    }
+    give back env
+}
+
+task v4_ty_apply_signature_generics(ty_id: int, sig_id: int, instance_ty: word, member_ty: word) -> word {
+    give back v4_ty_apply_generic_env(member_ty, v4_ty_signature_generic_env_for_instance(ty_id, sig_id, instance_ty))
+}
+
+task v4_ty_signature_return_type_for_env(ty_id: int, sig_id: int, env: word) -> word {
+    give back v4_ty_apply_generic_env(v4_ty_signature_return_type(ty_id, sig_id), env)
 }
 
 task v4_ty_list_element_type(container_ty: word) -> word {

@@ -1,0 +1,52 @@
+-- V4 MIR generic call typing smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_generic_call_good_source() -> word {
+    pilot src = "task first<T>(items: List<T>) -> maybe<T> {\n"
+    src = src + "    give back nobody\n"
+    src = src + "}\n"
+    src = src + "task main(items: List<int>) -> maybe<int> {\n"
+    src = src + "    give back first(items)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_generic_call_bad_source() -> word {
+    pilot src = "task duo<T>(left: T, right: T) -> T {\n"
+    src = src + "    give back left\n"
+    src = src + "}\n"
+    src = src + "task bad() -> int {\n"
+    src = src + "    give back duo(1, \"nope\")\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_generic_good_text = v4_mir_generic_call_good_source()
+pilot v4_mir_generic_good_stream = v4_lex_text(0, v4_mir_generic_good_text)
+pilot v4_mir_generic_good_tree = v4_parse_stream(0, v4_mir_generic_good_stream)
+pilot v4_mir_generic_good_hir = v4_hir_lower_tree(0, v4_mir_generic_good_tree)
+pilot v4_mir_generic_good_resolve = v4_resolve_lower_hir(0, v4_mir_generic_good_hir)
+pilot v4_mir_generic_good_ty = v4_ty_lower_resolve(0, v4_mir_generic_good_resolve)
+pilot v4_mir_generic_good_mir = v4_mir_lower_ty(0, v4_mir_generic_good_ty)
+pilot v4_mir_generic_good_main_def = v4_resolve_def_for_name(v4_mir_generic_good_resolve, "main")
+pilot v4_mir_generic_good_main_body = v4_mir_lookup_body(v4_mir_generic_good_mir, v4_mir_generic_good_main_def)
+pilot v4_mir_generic_good_return_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_good_mir, v4_mir_generic_good_main_body, 0)
+pilot v4_mir_generic_good_return_place = v4_mir_stmt_place(v4_mir_generic_good_mir, v4_mir_generic_good_main_body, 0)
+
+say v4_mir_summary(v4_mir_generic_good_mir)
+say "generic-good-return-kind=" + v4_mir_rvalue_kind(v4_mir_generic_good_mir, v4_mir_generic_good_main_body, v4_mir_generic_good_return_rvalue)
+say "generic-good-return-ty=" + v4_mir_rvalue_ty(v4_mir_generic_good_mir, v4_mir_generic_good_main_body, v4_mir_generic_good_return_rvalue)
+say "generic-good-place-ty=" + v4_mir_place_ty(v4_mir_generic_good_mir, v4_mir_generic_good_main_body, v4_mir_generic_good_return_place)
+say "generic-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_good_mir))
+
+pilot v4_mir_generic_bad_text = v4_mir_generic_call_bad_source()
+pilot v4_mir_generic_bad_stream = v4_lex_text(1, v4_mir_generic_bad_text)
+pilot v4_mir_generic_bad_tree = v4_parse_stream(1, v4_mir_generic_bad_stream)
+pilot v4_mir_generic_bad_hir = v4_hir_lower_tree(1, v4_mir_generic_bad_tree)
+pilot v4_mir_generic_bad_resolve = v4_resolve_lower_hir(1, v4_mir_generic_bad_hir)
+pilot v4_mir_generic_bad_ty = v4_ty_lower_resolve(1, v4_mir_generic_bad_resolve)
+pilot v4_mir_generic_bad_mir = v4_mir_lower_ty(1, v4_mir_generic_bad_ty)
+
+say "generic-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_bad_mir))
+say "generic-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_bad_mir, 0))
+say "generic-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_bad_mir, 0))
