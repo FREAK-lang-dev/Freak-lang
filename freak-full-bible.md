@@ -487,7 +487,7 @@ Module-level constants are immutable compile-time bindings declared with
 ```
 fixed pilot MAX_WIDGETS: uint = 4096u
 fixed pilot SORTIE_NAME: word = "Sortie"
-launch fixed pilot VERSION: word = "0.13.0"
+launch fixed pilot VERSION: word = "0.13.2"
 ```
 
 Rules:

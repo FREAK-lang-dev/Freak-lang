@@ -195,196 +195,32 @@
 ---
 
 ## PHASE 9 — Hangar Package Manager (v1)
+*Basic dependency management for the Sortie toolchain*
 
-- [ ] `hangar.toml` parsing (use `tomllib`, built-in since Python 3.11)
-- [ ] `freak hangar init` — project skeleton + hangar.toml
-- [ ] `freak hangar install` — download deps to `hangar_cache/`
-- [ ] `freak hangar add [package]` — add dep + update hangar.toml
-- [ ] Basic registry: GitHub releases is fine for v1
-- [ ] Resolve `use muvluv::{}` imports to downloaded files
+- [x] `hangar.toml` parsing (using `tomllib`)
+- [x] `freak hangar init` — project skeleton + hangar.toml
+- [x] `freak hangar install` — download deps to `hangar_cache/`
+- [x] `freak hangar add [package]` — add dep + update hangar.toml
+- [x] Basic registry: GitHub releases integration
+- [x] Resolve `use muvluv::{}` imports to downloaded files
 
 ---
 
 ## PHASE 10 — muvluv Package (Official)
 *The flagship Hangar package. You maintain this.*
 
-- [ ] `Eishi` type: name, power, status, callsign
-- [ ] `BETA::Tier` enum: Soldier → Grappler → Destroyer → Tank → Laser → Fort → BRAIN
-- [ ] `Tier::required_power()` method
-- [ ] `TSF` type: model, variant, mounted_weapon, os_version
-- [ ] `COSMO` module: request_strike() (stub — prints confirmation)
-- [ ] `YuukoLab` helpers for @experiment scaffolding
-- [ ] Write the BETA early warning system as the showcase example
-- [ ] Publish to Hangar registry
+- [x] `Eishi` type: name, power, status, callsign
+- [x] `BETA::Tier` enum: Soldier → Grappler → Destroyer → Tank → Laser → Fort → BRAIN
+- [x] `Tier::required_power()` method
+- [x] `TSF` type: model, variant, mounted_weapon, os_version
+- [x] `COSMO` module: request_strike() (stub — prints confirmation)
+- [x] `YuukoLab` helpers for @experiment scaffolding
+- [x] Write the BETA early warning system as the showcase example
+- [x] Publish to Hangar registry
 
 ---
 
 ## MILESTONES
-
-```
-[x] M1  — hello.fk compiles and runs              (Phase 0-3)
-[x] M2  — variables, tasks, if/when/loops all work (Phase 5 partial)
-[x] M3  — closures and pipes work
-[x] M4  — maybe<T> and result<T,E> fully work
-[x] M5  — type checker catching real errors        (Phase 6)
-[x] M6  — `freak run` CLI works end-to-end         (Phase 7)
-[x] M7  — Audit commands (freak audit-science/trust/miracles/foreshadow-audit)
-[x] M8  — muvluv installable via Hangar            (Phase 9-10)
-[x] M9  — BETA early warning system runs in FREAK
-[x] M10 — GitHub repo public, README written       ← tell people
-```
-
----
-
-## QUICK TIPS
-
-**How to use Opus when building:**
-Paste `freak-lite-bible.md` into the context window first.
-Then ask for one phase at a time. e.g.:
-- *"Write the Python Lexer class for FREAK based on Section 6 of this spec"*
-- *"Write the C emitter for closures based on Section 2.6 of this spec"*
-
-**The one rule:**
-Get M1 working before doing anything else.
-A running Hello World beats a perfect unfinished type checker every time.
-
----
-
-## PHASE 11 — std::process
-*Run and manage external processes*
-
-- [x] `process::run(cmd: word, args: List<word>) -> result<Output, word>`
-  — run a command, wait for it, return stdout/stderr/exit code
-- [x] `process::spawn(cmd: word, args: List<word>) -> result<Process, word>`
-  — launch without waiting (background process)
-- [x] `process::pid() -> uint` — current process ID
-- [x] `process::exit(code: int)` — terminate with exit code
-- [x] `Process` shape: `.pid`, `.wait() -> result<int, word>`, `.kill() -> result<void, word>`
-- [x] `Output` shape: `.out: word`, `.err: word`, `.exit_code: int`, `.success: bool`
-- [x] `process::env_var(name: word) -> maybe<word>` — read environment variable
-- [x] `process::set_env(name: word, val: word)` — set environment variable
-- [x] `process::args() -> List<word>` — command line arguments passed to this program
-
----
-
-## PHASE 12 — std::thread
-*Raw thread control beyond the Squadron model*
-*Squadron (sorties/formation) is for structured concurrency.*
-*std::thread is for when you need direct control.*
-
-- [x] `thread::spawn(f: OneShot) -> ThreadHandle` — create a raw OS thread
-- [x] `thread::current_id() -> uint` — ID of the calling thread
-- [ ] `thread::sleep(d: Duration)` — already in std::time, re-export here
-- [x] `thread::yield()` — hint to scheduler to switch threads (`freak_thread_yield_now`)
-- [x] `ThreadHandle` shape:
-  - `.join() -> result<void, word>` — wait for thread to finish
-  - `.id() -> uint`
-  - `.is_finished() -> bool`
-- [x] `thread::available_parallelism() -> uint` — number of logical CPU cores
-- [x] Atomic types for lock-free shared state:
-  - `Atomic<int>` with `.load()`, `.store(val)`, `.fetch_add(n)`, `.compare_swap(old, new)`
-  - `Atomic<bool>` with `.load()`, `.store(val)`, `.flip()`
-- [x] Note: for most concurrency use Squadron model — std::thread is the escape hatch
-
----
-
-## PHASE 13 — std::bytes
-*ByteBuffer type for binary I/O*
-
-- [x] `ByteBuffer` shape — growable buffer with read/write cursor
-- [x] `ByteBuffer::new() -> ByteBuffer`
-- [x] `ByteBuffer::from(data: List<tiny>) -> ByteBuffer`
-- [x] `.write_byte(b: tiny)` — append one byte
-- [x] `.write_int(n: int)` — append 8 bytes little-endian
-- [x] `.write_int_be(n: int)` — big-endian
-- [x] `.write_word(s: word)` — append UTF-8 bytes (no null terminator)
-- [x] `.write_bytes(data: List<tiny>)` — append raw bytes
-- [x] `.read_byte() -> maybe<tiny>` — read one byte, advance cursor
-- [x] `.read_int() -> maybe<int>` — read 8 bytes little-endian
-- [x] `.read_word(len: uint) -> maybe<word>` — read N bytes as UTF-8 word
-- [x] `.seek(pos: uint)` — move read cursor to position
-- [x] `.position() -> uint` — current read cursor position
-- [x] `.length() -> uint` — total bytes written
-- [x] `.to_list() -> List<tiny>` — export as raw byte list
-- [x] `.to_word() -> result<word, word>` — interpret bytes as UTF-8 string
-- [x] Useful for: file formats, network packets, binary protocols
-
----
-
-## PHASE 14 — Operator Overloading via Doctrines
-*Properly spec and implement operator overloading*
-
-- [x] Define built-in operator doctrines:
-  ```
-  doctrine Add    { task add(self, other: Self) -> Self }
-  doctrine Sub    { task sub(self, other: Self) -> Self }
-  doctrine Mul    { task mul(self, other: Self) -> Self }
-  doctrine Div    { task div(self, other: Self) -> Self }
-  doctrine Neg    { task neg(self) -> Self }              -- unary -
-  doctrine Eq     { task equals(self, other: Self) -> bool }
-  doctrine Ord    { task compare(self, other: Self) -> Order }
-  doctrine Index  { task index(self, i: uint) -> T }      -- x[i]
-  doctrine IndexMut { task index_mut(self, i: uint) -> lend mut T }
-  ```
-- [x] Emitter tracks `impl Doctrine for Type` blocks in `impl_doctrines` dict
-- [x] Emitter: `a + b` → `TypeName_add(&a, b)` when left type implements `Add`
-- [x] Emitter: `a - b` → `TypeName_sub(&a, b)` when left type implements `Sub`
-- [x] Emitter: `a * b` → `TypeName_mul(&a, b)` when left type implements `Mul`
-- [x] Emitter: `a == b` → `TypeName_equals(&a, b)` when type implements `Eq`
-- [x] Emitter: `-a` → `TypeName_neg(&a)` when type implements `Neg`
-- [x] Type inference for overloaded operator results uses method return type
-- [x] Example — Vector type working in `tests/operator_overload.fk`:
-  ```
-  shape Vector2 { x: num, y: num }
-  impl Add for Vector2 {
-      task add(self, other: Vector2) -> Vector2 {
-          give back Vector2 { x: self.x + other.x, y: self.y + other.y }
-      }
-  }
-  pilot v = Vector2 { x: 1.0, y: 2.0 } + Vector2 { x: 3.0, y: 4.0 }
-  ```
-- [x] `word` implements Add (concatenation): `"Hello" + " World"` → `freak_word_concat`
-- [x] `Ord` doctrine (compare returning Order enum) — deferred to future phase
-- [x] `Index` / `IndexMut` doctrines — deferred to future phase
-
----
-
-## PHASE 15 — Hangar Community Packages (Seed these yourself or wait for community)
-*These don't ship with the compiler. They live in the Hangar registry.*
-*Mark as official (freak- prefix, core team maintained) or community.*
-
-- [ ] `freak-http` — HTTP client and server (official, maintain yourself)
-  - `http::get(url)`, `http::post(url, body)` returning `promise<result<Response, word>>`
-  - `http::serve(port, handler)` basic server
-- [ ] `freak-json` — JSON parse and emit (official)
-  - `json::parse(s: word) -> result<JsonValue, word>`
-  - `json::emit(v: JsonValue) -> word`
-  - `JsonValue` enum: Null / Bool / Num / Str / List / Object
-- [ ] `freak-win32` — Windows API bindings (community)
-  - Wraps common Win32 calls via `trust me` blocks
-  - Window creation, message loop, GDI basics
-- [ ] `freak-ui` — cross-platform UI (community, big project)
-  - Probably wraps a C UI library (e.g. libui or nuklear)
-- [ ] `freak-zip` — zip file reading and writing (community)
-  - `zip::read(path) -> result<ZipArchive, word>`
-  - `zip::write(path, entries) -> result<void, word>`
-- [ ] `freak-image` — image loading and pixel manipulation (community)
-  - Load PNG/JPEG/BMP into a `Bitmap` shape
-  - `Bitmap` shape: width, height, pixels: List<Pixel>
-  - `Pixel` shape: r, g, b, a as tiny
-  - Save back to file
-- [ ] `freak-regex` — regular expressions (community)
-  - `regex::match(pattern: word, input: word) -> maybe<Match>`
-  - `regex::find_all(pattern, input) -> List<Match>`
-- [ ] `freak-sqlite` — SQLite database (community)
-  - `sqlite::open(path) -> result<Database, word>`
-  - `db.query(sql, params) -> result<List<Row>, word>`
-- [ ] `freak-tls` — TLS/HTTPS (community, wraps OpenSSL or mbedTLS)
-- [ ] `freak-datetime` — timezones, date arithmetic (community)
-
----
-
-## UPDATED MILESTONES
 
 ```
 [x] M1  — hello.fk compiles and runs              (Phase 0-3)
@@ -405,15 +241,14 @@ A running Hello World beats a perfect unfinished type checker every time.
 [x] M16 — std::fs, std::math, std::time integrated in v2 compiler
 [x] M17 — LLVM IR backend core complete (LB1-LB4: hello, types, control flow, shapes, impl)
 [x] M18 — CI/CD: GitHub Actions on Linux/macOS/Windows, auto-release on tag push
-[x] M19 — Distribution: install.sh, install.ps1, hangar install freak, v0.8.0 released
-```
+[x] M19 — Distribution: install.sh, install.ps1, hangar install freak, v0.9.0 released
 
 ---
 
 ## PHASE 16 — LLVM IR Backend (v2 self-hosting compiler)
 *Emit LLVM IR from the self-hosting compiler written in FREAK*
 
-- [x] LLVM IR emitter framework (`src/compiler/backend/llvm.fk`, ~1450 lines)
+- [x] LLVM IR emitter framework (`src/compiler/backend/llvm.fk`)
 - [x] Variables (int, word, bool, num) → alloca/store/load
 - [x] Functions with proper void/i64 return types
 - [x] String interpolation with type-aware formatting
@@ -427,10 +262,10 @@ A running Hello World beats a perfect unfinished type checker every time.
 - [x] Eventually (defer) blocks
 - [x] Boolean logic (and/or/not)
 - [x] Comparisons (==, !=, <, >, <=, >=)
+- [x] Cross-compilation targets (`--target`)
 - [ ] Runtime intrinsics (replace freak_runtime.c calls with IR)
 - [ ] JIT mode via OrcJIT
 - [ ] Optimization levels (--opt=0/1/2/3)
-- [ ] Cross-compilation targets
 - [ ] DWARF debug info
 
 ---
@@ -439,7 +274,7 @@ A running Hello World beats a perfect unfinished type checker every time.
 
 - [x] GitHub Actions CI on Linux/macOS/Windows
 - [x] Release workflow: 4-platform binary matrix on tag push
-- [x] v0.8.0 released with downloadable binaries + SHA256SUMS
+- [x] v0.9.0 released with downloadable binaries
 - [x] `install.sh` — Linux/macOS curl installer
 - [x] `install.ps1` — Windows PowerShell installer
 - [x] `hangar install freak` / `hangar upgrade freak` — toolchain bootstrap

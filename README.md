@@ -95,10 +95,10 @@ payoff victory -- promise kept
 FREAK isn't just about compiling; it's about accountability. The `audit` command suite lets you inspect the narrative integrity of your codebase.
 
 ```bash
-freakc audit-trust      # List every 'trust me' block and its honor level
-freakc audit-science    # List every 'for science,' call site
-freakc audit-miracles   # Find every 'deus_ex_machina' (warns if > 3)
-freakc foreshadow-audit # Find any narrative promises you haven't kept
+freak audit-trust      # List every 'trust me' block and its honor level
+freak audit-science    # List every 'for science,' call site
+freak audit-miracles   # Find every 'deus_ex_machina' (warns if > 3)
+freak foreshadow-audit # Find any narrative promises you haven't kept
 ```
 
 ---
@@ -158,7 +158,7 @@ curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/inst
 irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
 ```
 
-This downloads the latest `freakc` binary and runtime to `~/.freak` (or `%APPDATA%\freak` on Windows) and adds it to your PATH. Open a new terminal and you're ready.
+This downloads the latest `freak` binary and runtime to `~/.freak` (or `%APPDATA%\freak` on Windows) and adds it to your PATH. Open a new terminal and you're ready.
 
 > **Requires:** [Clang](https://releases.llvm.org/) for native compilation. Most systems have it already — run `clang --version` to check.
 
@@ -175,13 +175,13 @@ say "Your mission has begun."
 Compile and run:
 
 ```bash
-freakc run hello.fk
+freak run hello.fk
 ```
 
 Or build separately:
 
 ```bash
-freakc build hello.fk
+freak build hello.fk
 ./hello
 ```
 
@@ -199,17 +199,17 @@ Hangar is FREAK's package manager. Projects have a `hangar.toml`. Dependencies c
 
 ```bash
 # Initialize a new project
-freakc hangar init my-project
+freak hangar init my-project
 cd my-project
 
 # Add a dependency
-freakc hangar add cockpit https://github.com/FREAK-lang-dev/Freak-lang
+freak hangar add cockpit https://github.com/FREAK-lang-dev/Freak-lang
 
 # Install all dependencies
-freakc hangar install
+freak hangar install
 
 # Remove a package
-freakc hangar remove cockpit
+freak hangar remove cockpit
 ```
 
 `hangar.toml` looks like this:
@@ -438,7 +438,7 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 | Self-hosting compiler | ✅ Complete |
 | LLVM IR backend | ✅ Complete |
 | C backend | ✅ Complete |
-| Native CLI (`freakc build/run/check`) | ✅ Complete |
+| Native CLI (`freak build/run/check`) | ✅ Complete |
 | Hangar package manager | ✅ Complete |
 | Cross-compilation | ✅ Complete |
 | One-command install (Linux/macOS/Windows) | ✅ Complete |
