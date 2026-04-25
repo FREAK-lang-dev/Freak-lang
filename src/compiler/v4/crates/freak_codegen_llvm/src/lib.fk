@@ -24,6 +24,9 @@ pilot v4_codegen_llvm_call_ccs = 0
 pilot v4_codegen_llvm_call_returns = 0
 pilot v4_codegen_llvm_call_exprs = 0
 pilot v4_codegen_llvm_call_lines = 0
+pilot v4_codegen_llvm_body_names = 0
+pilot v4_codegen_llvm_body_symbols = 0
+pilot v4_codegen_llvm_body_lines = 0
 pilot v4_codegen_llvm_diags = 0
 pilot v4_codegen_llvm_ready = 0
 
@@ -46,6 +49,9 @@ task v4_codegen_llvm_init() -> void {
         v4_codegen_llvm_call_returns = array_new()
         v4_codegen_llvm_call_exprs = array_new()
         v4_codegen_llvm_call_lines = array_new()
+        v4_codegen_llvm_body_names = array_new()
+        v4_codegen_llvm_body_symbols = array_new()
+        v4_codegen_llvm_body_lines = array_new()
         v4_codegen_llvm_diags = array_new()
         v4_codegen_llvm_ready = 1
     }
@@ -71,6 +77,9 @@ task v4_codegen_llvm_file_new(file_id: int, mir_id: int) -> int {
     array_push(v4_codegen_llvm_call_returns, word_from_int(array_new()))
     array_push(v4_codegen_llvm_call_exprs, word_from_int(array_new()))
     array_push(v4_codegen_llvm_call_lines, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_body_names, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_body_symbols, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_body_lines, word_from_int(array_new()))
     array_push(v4_codegen_llvm_diags, word_from_int(array_new()))
     give back codegen_id
 }
@@ -135,6 +144,18 @@ task v4_codegen_llvm_call_lines_handle(codegen_id: int) -> int {
     give back word_to_int(array_get(v4_codegen_llvm_call_lines, codegen_id))
 }
 
+task v4_codegen_llvm_body_names_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_body_names, codegen_id))
+}
+
+task v4_codegen_llvm_body_symbols_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_body_symbols, codegen_id))
+}
+
+task v4_codegen_llvm_body_lines_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_body_lines, codegen_id))
+}
+
 task v4_codegen_llvm_diags_handle(codegen_id: int) -> int {
     give back word_to_int(array_get(v4_codegen_llvm_diags, codegen_id))
 }
@@ -145,6 +166,10 @@ task v4_codegen_llvm_decl_count(codegen_id: int) -> int {
 
 task v4_codegen_llvm_call_count(codegen_id: int) -> int {
     give back array_len(v4_codegen_llvm_call_names_handle(codegen_id))
+}
+
+task v4_codegen_llvm_body_count(codegen_id: int) -> int {
+    give back array_len(v4_codegen_llvm_body_names_handle(codegen_id))
 }
 
 task v4_codegen_llvm_diag_count(codegen_id: int) -> int {
@@ -211,6 +236,18 @@ task v4_codegen_llvm_call_line(codegen_id: int, call_id: int) -> word {
     give back array_get(v4_codegen_llvm_call_lines_handle(codegen_id), call_id)
 }
 
+task v4_codegen_llvm_body_name(codegen_id: int, body_id: int) -> word {
+    give back array_get(v4_codegen_llvm_body_names_handle(codegen_id), body_id)
+}
+
+task v4_codegen_llvm_body_symbol(codegen_id: int, body_id: int) -> word {
+    give back array_get(v4_codegen_llvm_body_symbols_handle(codegen_id), body_id)
+}
+
+task v4_codegen_llvm_body_line(codegen_id: int, body_id: int) -> word {
+    give back array_get(v4_codegen_llvm_body_lines_handle(codegen_id), body_id)
+}
+
 task v4_codegen_llvm_diag(codegen_id: int, diag_id: int) -> word {
     give back array_get(v4_codegen_llvm_diags_handle(codegen_id), diag_id)
 }
@@ -238,6 +275,12 @@ task v4_codegen_llvm_add_call(codegen_id: int, body_name: word, callee_name: wor
     array_push(v4_codegen_llvm_call_returns_handle(codegen_id), return_ty)
     array_push(v4_codegen_llvm_call_exprs_handle(codegen_id), expr_text)
     array_push(v4_codegen_llvm_call_lines_handle(codegen_id), line)
+}
+
+task v4_codegen_llvm_add_body(codegen_id: int, body_name: word, symbol: word, line: word) -> void {
+    array_push(v4_codegen_llvm_body_names_handle(codegen_id), body_name)
+    array_push(v4_codegen_llvm_body_symbols_handle(codegen_id), symbol)
+    array_push(v4_codegen_llvm_body_lines_handle(codegen_id), line)
 }
 
 task v4_codegen_llvm_starts_with(text: word, prefix: word) -> bool {
@@ -413,6 +456,26 @@ task v4_codegen_llvm_signature_params(ty_id: int, sig_id: int) -> word {
     give back out
 }
 
+task v4_codegen_llvm_signature_named_params(ty_id: int, sig_id: int) -> word {
+    pilot count = v4_ty_signature_param_count(ty_id, sig_id)
+    if count <= 0 {
+        give back ""
+    }
+
+    pilot out = ""
+    pilot param_idx = 0
+    repeat until param_idx >= count {
+        if param_idx > 0 {
+            out = out + ", "
+        }
+        pilot param_ty = v4_codegen_llvm_type(v4_ty_signature_param_type(ty_id, sig_id, param_idx))
+        pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_idx)
+        out = out + param_ty + " %" + v4_codegen_llvm_mangle_name(param_name)
+        param_idx += 1
+    }
+    give back out
+}
+
 task v4_codegen_llvm_signature_is_callable(ty_id: int, sig_id: int) -> bool {
     pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
     if sig_kind == v4_ty_task_sig {
@@ -466,6 +529,133 @@ task v4_codegen_llvm_rvalue_operand(mir_id: int, body_id: int, rvalue_id: int) -
         give back operand_ty + " " + v4_codegen_llvm_symbol(text)
     }
     give back operand_ty + " " + v4_codegen_llvm_temp_value(body_id, rvalue_id)
+}
+
+task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if rvalue_id < 0 {
+        give back "undef"
+    }
+
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word {
+        give back text
+    }
+    if kind == v4_mir_rvalue_use_local {
+        give back "%" + v4_codegen_llvm_mangle_name(text)
+    }
+    if kind == v4_mir_rvalue_use_place {
+        give back "%" + v4_codegen_llvm_mangle_name(v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
+    }
+    if kind == v4_mir_rvalue_use_symbol {
+        give back v4_codegen_llvm_symbol(text)
+    }
+    give back v4_codegen_llvm_temp_value(body_id, rvalue_id)
+}
+
+task v4_codegen_llvm_rvalue_needs_instruction(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if rvalue_id < 0 {
+        give back false
+    }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    give back kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_call
+}
+
+task v4_codegen_llvm_binary_opcode(op: word, llvm_ty: word) -> word {
+    if op == v4_mir_bin_add {
+        if llvm_ty == "double" or llvm_ty == "float" { give back "fadd" }
+        give back "add"
+    }
+    if op == v4_mir_bin_sub {
+        if llvm_ty == "double" or llvm_ty == "float" { give back "fsub" }
+        give back "sub"
+    }
+    if op == v4_mir_bin_mul {
+        if llvm_ty == "double" or llvm_ty == "float" { give back "fmul" }
+        give back "mul"
+    }
+    if op == v4_mir_bin_div {
+        if llvm_ty == "double" or llvm_ty == "float" { give back "fdiv" }
+        give back "sdiv"
+    }
+    if op == v4_mir_bin_mod { give back "srem" }
+    if op == v4_mir_bin_gt { give back "icmp sgt" }
+    if op == v4_mir_bin_lt { give back "icmp slt" }
+    if op == v4_mir_bin_ge { give back "icmp sge" }
+    if op == v4_mir_bin_le { give back "icmp sle" }
+    if op == v4_mir_bin_eq { give back "icmp eq" }
+    if op == v4_mir_bin_ne { give back "icmp ne" }
+    if op == v4_mir_bin_and { give back "and" }
+    if op == v4_mir_bin_or { give back "or" }
+    give back "add"
+}
+
+task v4_codegen_llvm_call_instruction(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
+    pilot call_name = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    pilot call_abi = v4_mir_rvalue_abi(mir_id, body_id, rvalue_id)
+    pilot call_cc = v4_codegen_llvm_calling_convention(call_abi)
+    pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+    pilot call_symbol = v4_codegen_llvm_symbol(call_name)
+    pilot call_args = v4_codegen_llvm_call_args(mir_id, body_id, rvalue_id)
+    pilot call_text = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")"
+    if target == "" or call_return == "void" {
+        give back call_text
+    }
+    give back target + " = " + call_text
+}
+
+task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
+    if rvalue_id < 0 {
+        give back ""
+    }
+
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_call {
+        give back v4_codegen_llvm_call_instruction(mir_id, body_id, rvalue_id, target)
+    }
+    if kind == v4_mir_rvalue_binary {
+        pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+        pilot llvm_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, lhs))
+        pilot op = v4_codegen_llvm_binary_opcode(v4_mir_rvalue_op(mir_id, body_id, rvalue_id), llvm_ty)
+        give back target + " = " + op + " " + llvm_ty + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, lhs) + ", " + v4_codegen_llvm_rvalue_value(mir_id, body_id, rhs)
+    }
+    if kind == v4_mir_rvalue_unary {
+        pilot operand = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        pilot operand_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, operand))
+        if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_not {
+            give back target + " = xor i1 " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ", true"
+        }
+        if operand_ty == "double" or operand_ty == "float" {
+            give back target + " = fsub " + operand_ty + " 0.0, " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand)
+        }
+        give back target + " = sub " + operand_ty + " 0, " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand)
+    }
+    give back ""
+}
+
+task v4_codegen_llvm_rvalue_tree_lines(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
+    if rvalue_id < 0 {
+        give back ""
+    }
+
+    pilot out = ""
+    pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+    if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, lhs) {
+        out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, lhs, v4_codegen_llvm_temp_value(body_id, lhs))
+    }
+    if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rhs) {
+        out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rhs, v4_codegen_llvm_temp_value(body_id, rhs))
+    }
+
+    if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rvalue_id) {
+        pilot line = v4_codegen_llvm_rvalue_instruction(mir_id, body_id, rvalue_id, target)
+        if line != "" {
+            out = out + "  " + line + "\n"
+        }
+    }
+    give back out
 }
 
 task v4_codegen_llvm_call_args(mir_id: int, body_id: int, rvalue_id: int) -> word {
@@ -541,6 +731,121 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
     }
 }
 
+task v4_codegen_llvm_body_header(mir_id: int, body_id: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot body_name = v4_mir_body_name(mir_id, body_id)
+    if sig_id < 0 {
+        give back "define ccc ptr " + v4_codegen_llvm_symbol(body_name) + "()"
+    }
+
+    pilot abi = v4_ty_signature_call_abi(ty_id, sig_id)
+    pilot cc = v4_codegen_llvm_calling_convention(abi)
+    pilot return_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_id))
+    pilot params = v4_codegen_llvm_signature_named_params(ty_id, sig_id)
+    give back "define " + cc + " " + return_ty + " " + v4_codegen_llvm_symbol(body_name) + "(" + params + ")"
+}
+
+task v4_codegen_llvm_default_return_line(return_ty: word) -> word {
+    if return_ty == "void" {
+        give back "  ret void\n"
+    }
+    if return_ty == "i1" {
+        give back "  ret i1 false\n"
+    }
+    if return_ty == "i8" or return_ty == "i32" or return_ty == "i64" {
+        give back "  ret " + return_ty + " 0\n"
+    }
+    if return_ty == "double" or return_ty == "float" {
+        give back "  ret " + return_ty + " 0.0\n"
+    }
+    give back "  ret " + return_ty + " zeroinitializer\n"
+}
+
+task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word {
+    pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+    if kind == v4_mir_stmt_return {
+        pilot out = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
+        pilot ret_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+        out = out + "  ret " + ret_ty + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id) + "\n"
+        give back out
+    }
+    if kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign {
+        pilot target_name = v4_mir_stmt_lhs(mir_id, body_id, stmt_id)
+        pilot target = "%" + v4_codegen_llvm_mangle_name(target_name)
+        if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rvalue_id) {
+            give back v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, target)
+        }
+    }
+    if kind == v4_mir_stmt_expr {
+        if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rvalue_id) {
+            give back v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
+        }
+    }
+    give back ""
+}
+
+task v4_codegen_llvm_block_terminator_line(mir_id: int, body_id: int, block_id: int) -> word {
+    if v4_mir_block_has_terminal_stmt(mir_id, body_id, block_id) {
+        give back ""
+    }
+
+    pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+    pilot term = v4_mir_block_terminator(block_record)
+    if term == v4_mir_term_goto {
+        give back "  br label %bb" + word_from_int(v4_mir_block_target(block_record)) + "\n"
+    }
+    if term == v4_mir_term_if {
+        give back "  br i1 %" + v4_codegen_llvm_mangle_name(v4_mir_block_condition(block_record)) + ", label %bb" + word_from_int(v4_mir_block_target(block_record)) + ", label %bb" + word_from_int(v4_mir_block_else_target(block_record)) + "\n"
+    }
+    if term == v4_mir_term_unreachable {
+        give back "  unreachable\n"
+    }
+    if term == v4_mir_term_return {
+        pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+        pilot return_ty = "void"
+        if sig_id >= 0 {
+            return_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(v4_mir_ty_id(mir_id), sig_id))
+        }
+        give back v4_codegen_llvm_default_return_line(return_ty)
+    }
+    give back ""
+}
+
+task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
+    pilot out = v4_codegen_llvm_body_header(mir_id, body_id) + " {\n"
+    pilot block_id = 0
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    repeat until block_id >= block_count {
+        out = out + "bb" + word_from_int(block_id) + ":\n"
+        pilot stmt_id = 0
+        pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+        repeat until stmt_id >= stmt_count {
+            if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
+                out = out + v4_codegen_llvm_stmt_lines(mir_id, body_id, stmt_id)
+            }
+            stmt_id += 1
+        }
+        out = out + v4_codegen_llvm_block_terminator_line(mir_id, body_id, block_id)
+        block_id += 1
+    }
+    out = out + "}"
+    give back out
+}
+
+task v4_codegen_llvm_lower_bodies(codegen_id: int, mir_id: int) -> void {
+    pilot body_id = 0
+    pilot body_count = v4_mir_body_count(mir_id)
+    repeat until body_id >= body_count {
+        pilot body_name = v4_mir_body_name(mir_id, body_id)
+        pilot body_symbol = v4_codegen_llvm_symbol(body_name)
+        pilot body_line = v4_codegen_llvm_body_line_from_mir(mir_id, body_id)
+        v4_codegen_llvm_add_body(codegen_id, body_name, body_symbol, body_line)
+        body_id += 1
+    }
+}
+
 task v4_codegen_llvm_lower_mir(file_id: int, mir_id: int) -> int {
     v4_codegen_llvm_init()
     pilot codegen_id = v4_codegen_llvm_file_new(file_id, mir_id)
@@ -552,6 +857,7 @@ task v4_codegen_llvm_lower_mir(file_id: int, mir_id: int) -> int {
     pilot ty_id = v4_mir_ty_id(mir_id)
     v4_codegen_llvm_lower_signatures(codegen_id, mir_id, ty_id)
     v4_codegen_llvm_lower_calls(codegen_id, mir_id)
+    v4_codegen_llvm_lower_bodies(codegen_id, mir_id)
     give back codegen_id
 }
 
@@ -579,10 +885,23 @@ task v4_codegen_llvm_find_call(codegen_id: int, body_name: word, callee_name: wo
     give back 0 - 1
 }
 
+task v4_codegen_llvm_find_body(codegen_id: int, body_name: word) -> int {
+    pilot body_idx = 0
+    pilot body_count = v4_codegen_llvm_body_count(codegen_id)
+    repeat until body_idx >= body_count {
+        if v4_codegen_llvm_body_name(codegen_id, body_idx) == body_name {
+            give back body_idx
+        }
+        body_idx += 1
+    }
+    give back 0 - 1
+}
+
 task v4_codegen_llvm_summary(codegen_id: int) -> word {
     pilot out = "codegen-llvm"
     out = out + " declarations=" + word_from_int(v4_codegen_llvm_decl_count(codegen_id))
     out = out + " calls=" + word_from_int(v4_codegen_llvm_call_count(codegen_id))
+    out = out + " bodies=" + word_from_int(v4_codegen_llvm_body_count(codegen_id))
     out = out + " diagnostics=" + word_from_int(v4_codegen_llvm_diag_count(codegen_id))
     give back out
 }
