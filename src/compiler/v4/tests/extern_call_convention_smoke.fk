@@ -1,0 +1,71 @@
+-- V4 explicit calling convention smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_callconv_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_callconv_source() -> word {
+    pilot src = "extern [stdcall] {\n"
+    src = src + "    task win_tick(seed: int) -> int\n"
+    src = src + "}\n"
+    src = src + "extern [cdecl] {\n"
+    src = src + "    task c_tick(seed: int) -> int\n"
+    src = src + "}\n"
+    src = src + "extern [system] {\n"
+    src = src + "    task host_tick(seed: int) -> int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot a = win_tick(1)\n"
+    src = src + "    pilot b = c_tick(2)\n"
+    src = src + "    pilot c = host_tick(3)\n"
+    src = src + "    give back a + b + c\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_callconv_src = v4_callconv_source()
+pilot v4_callconv_stream = v4_lex_text(0, v4_callconv_src)
+pilot v4_callconv_tree = v4_parse_stream(0, v4_callconv_stream)
+pilot v4_callconv_hir = v4_hir_lower_tree(0, v4_callconv_tree)
+pilot v4_callconv_resolve = v4_resolve_lower_hir(0, v4_callconv_hir)
+pilot v4_callconv_ty = v4_ty_lower_resolve(0, v4_callconv_resolve)
+pilot v4_callconv_mir = v4_mir_lower_ty(0, v4_callconv_ty)
+
+pilot v4_callconv_main_def = v4_resolve_def_for_name(v4_callconv_resolve, "main")
+pilot v4_callconv_win_def = v4_resolve_def_for_name(v4_callconv_resolve, "win_tick")
+pilot v4_callconv_c_def = v4_resolve_def_for_name(v4_callconv_resolve, "c_tick")
+pilot v4_callconv_host_def = v4_resolve_def_for_name(v4_callconv_resolve, "host_tick")
+pilot v4_callconv_main_body = v4_mir_lookup_body(v4_callconv_mir, v4_callconv_main_def)
+pilot v4_callconv_win_sig = v4_ty_lookup_signature(v4_callconv_ty, v4_callconv_win_def)
+pilot v4_callconv_c_sig = v4_ty_lookup_signature(v4_callconv_ty, v4_callconv_c_def)
+pilot v4_callconv_host_sig = v4_ty_lookup_signature(v4_callconv_ty, v4_callconv_host_def)
+
+pilot v4_callconv_a_stmt = v4_callconv_find_local_stmt(v4_callconv_mir, v4_callconv_main_body, "a")
+pilot v4_callconv_b_stmt = v4_callconv_find_local_stmt(v4_callconv_mir, v4_callconv_main_body, "b")
+pilot v4_callconv_c_stmt = v4_callconv_find_local_stmt(v4_callconv_mir, v4_callconv_main_body, "c")
+pilot v4_callconv_a_rvalue = v4_mir_stmt_rvalue(v4_callconv_mir, v4_callconv_main_body, v4_callconv_a_stmt)
+pilot v4_callconv_b_rvalue = v4_mir_stmt_rvalue(v4_callconv_mir, v4_callconv_main_body, v4_callconv_b_stmt)
+pilot v4_callconv_c_rvalue = v4_mir_stmt_rvalue(v4_callconv_mir, v4_callconv_main_body, v4_callconv_c_stmt)
+
+say "callconv-win-abi=" + v4_ty_signature_call_abi(v4_callconv_ty, v4_callconv_win_sig)
+say "callconv-cdecl-abi=" + v4_ty_signature_call_abi(v4_callconv_ty, v4_callconv_c_sig)
+say "callconv-system-abi=" + v4_ty_signature_call_abi(v4_callconv_ty, v4_callconv_host_sig)
+say "callconv-a-kind=" + v4_mir_rvalue_kind(v4_callconv_mir, v4_callconv_main_body, v4_callconv_a_rvalue)
+say "callconv-a-op=" + v4_mir_rvalue_op(v4_callconv_mir, v4_callconv_main_body, v4_callconv_a_rvalue)
+say "callconv-a-abi=" + v4_mir_rvalue_abi(v4_callconv_mir, v4_callconv_main_body, v4_callconv_a_rvalue)
+say "callconv-b-op=" + v4_mir_rvalue_op(v4_callconv_mir, v4_callconv_main_body, v4_callconv_b_rvalue)
+say "callconv-b-abi=" + v4_mir_rvalue_abi(v4_callconv_mir, v4_callconv_main_body, v4_callconv_b_rvalue)
+say "callconv-c-op=" + v4_mir_rvalue_op(v4_callconv_mir, v4_callconv_main_body, v4_callconv_c_rvalue)
+say "callconv-c-abi=" + v4_mir_rvalue_abi(v4_callconv_mir, v4_callconv_main_body, v4_callconv_c_rvalue)
+say "callconv-diagnostics=" + word_from_int(v4_mir_diag_count(v4_callconv_mir))

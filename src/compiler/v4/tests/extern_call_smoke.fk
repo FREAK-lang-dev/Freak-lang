@@ -80,6 +80,7 @@ say "extern-call-puts-body=" + word_from_int(v4_extern_call_puts_body)
 say "extern-call-rvalue-kind=" + v4_mir_rvalue_kind(v4_extern_call_mir, v4_extern_call_main_body, v4_extern_call_code_rvalue)
 say "extern-call-rvalue-op=" + v4_mir_rvalue_op(v4_extern_call_mir, v4_extern_call_main_body, v4_extern_call_code_rvalue)
 say "extern-call-rvalue-ty=" + v4_mir_rvalue_ty(v4_extern_call_mir, v4_extern_call_main_body, v4_extern_call_code_rvalue)
+say "extern-call-rvalue-abi=" + v4_mir_rvalue_abi(v4_extern_call_mir, v4_extern_call_main_body, v4_extern_call_code_rvalue)
 say "extern-call-diagnostics=" + word_from_int(v4_mir_diag_count(v4_extern_call_mir))
 
 pilot v4_extern_call_bad_arity = v4_extern_call_bad_arity_source()

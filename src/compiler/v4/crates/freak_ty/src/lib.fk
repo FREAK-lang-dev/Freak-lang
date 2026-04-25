@@ -431,6 +431,40 @@ task v4_ty_signature_layout(ty_id: int, sig_id: int) -> word {
     give back v4_ty_signature_attribute_arg_for_name(ty_id, sig_id, "layout")
 }
 
+task v4_ty_normalize_call_abi(abi: word) -> word {
+    if abi == "" {
+        give back ""
+    }
+    if abi == "C" or abi == "c" {
+        give back "C"
+    }
+    if abi == "cdecl" or abi == "CDECL" {
+        give back "cdecl"
+    }
+    if abi == "stdcall" or abi == "STDCALL" {
+        give back "stdcall"
+    }
+    if abi == "fastcall" or abi == "FASTCALL" {
+        give back "fastcall"
+    }
+    if abi == "thiscall" or abi == "THISCALL" {
+        give back "thiscall"
+    }
+    if abi == "vectorcall" or abi == "VECTORCALL" {
+        give back "vectorcall"
+    }
+    if abi == "win64" or abi == "WIN64" {
+        give back "win64"
+    }
+    if abi == "sysv64" or abi == "SYSV64" {
+        give back "sysv64"
+    }
+    if abi == "system" or abi == "SYSTEM" {
+        give back "system"
+    }
+    give back abi
+}
+
 task v4_ty_extern_abi(ty_id: int, sig_id: int) -> word {
     if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
         give back ""
@@ -440,7 +474,7 @@ task v4_ty_extern_abi(ty_id: int, sig_id: int) -> word {
     if hir_id < 0 or hir_item < 0 {
         give back ""
     }
-    give back v4_hir_extern_abi(hir_id, hir_item)
+    give back v4_ty_normalize_call_abi(v4_hir_extern_abi(hir_id, hir_item))
 }
 
 task v4_ty_extern_member_count(ty_id: int, sig_id: int) -> int {
@@ -530,10 +564,10 @@ task v4_ty_signature_call_abi(ty_id: int, sig_id: int) -> word {
         give back ""
     }
     if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_extern_sig {
-        give back v4_hir_extern_abi(hir_id, hir_item)
+        give back v4_ty_normalize_call_abi(v4_hir_extern_abi(hir_id, hir_item))
     }
     if v4_ty_signature_extern_member_id(ty_id, sig_id) >= 0 {
-        give back v4_hir_extern_abi(hir_id, hir_item)
+        give back v4_ty_normalize_call_abi(v4_hir_extern_abi(hir_id, hir_item))
     }
     give back ""
 }
@@ -1996,7 +2030,7 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, symbol_def
         give back "doctrine " + symbol_name + generic_text
     }
     if symbol_kind == v4_hir_extern {
-        pilot extern_abi = v4_hir_extern_abi(hir_id, hir_item)
+        pilot extern_abi = v4_ty_normalize_call_abi(v4_hir_extern_abi(hir_id, hir_item))
         if extern_abi != "" {
             give back "extern [" + extern_abi + "]"
         }
