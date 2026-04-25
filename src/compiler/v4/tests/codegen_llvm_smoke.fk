@@ -1,0 +1,86 @@
+-- V4 LLVM codegen boundary smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_codegen_llvm_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task puts(text: word) -> int\n"
+    src = src + "}\n"
+    src = src + "extern [stdcall] {\n"
+    src = src + "    task win_tick(seed: int) -> int\n"
+    src = src + "}\n"
+    src = src + "extern [system] {\n"
+    src = src + "    task host_tick(seed: int) -> int\n"
+    src = src + "}\n"
+    src = src + "task util::math::double(value: int) -> int {\n"
+    src = src + "    give back value + value\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot a = puts(\"hello\")\n"
+    src = src + "    pilot b = win_tick(1)\n"
+    src = src + "    pilot c = host_tick(2)\n"
+    src = src + "    pilot d = util::math::double(4)\n"
+    src = src + "    give back a + b + c + d\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_codegen_llvm_src = v4_codegen_llvm_source()
+pilot v4_codegen_llvm_stream = v4_lex_text(0, v4_codegen_llvm_src)
+pilot v4_codegen_llvm_tree = v4_parse_stream(0, v4_codegen_llvm_stream)
+pilot v4_codegen_llvm_hir = v4_hir_lower_tree(0, v4_codegen_llvm_tree)
+pilot v4_codegen_llvm_resolve = v4_resolve_lower_hir(0, v4_codegen_llvm_hir)
+pilot v4_codegen_llvm_ty = v4_ty_lower_resolve(0, v4_codegen_llvm_resolve)
+pilot v4_codegen_llvm_mir = v4_mir_lower_ty(0, v4_codegen_llvm_ty)
+pilot v4_codegen_llvm_ir = v4_codegen_llvm_lower_mir(0, v4_codegen_llvm_mir)
+
+pilot v4_codegen_llvm_puts_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "puts")
+pilot v4_codegen_llvm_win_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "win_tick")
+pilot v4_codegen_llvm_host_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "host_tick")
+pilot v4_codegen_llvm_double_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "util::math::double")
+pilot v4_codegen_llvm_main_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "main")
+
+pilot v4_codegen_llvm_puts_call = v4_codegen_llvm_find_call(v4_codegen_llvm_ir, "main", "puts")
+pilot v4_codegen_llvm_win_call = v4_codegen_llvm_find_call(v4_codegen_llvm_ir, "main", "win_tick")
+pilot v4_codegen_llvm_host_call = v4_codegen_llvm_find_call(v4_codegen_llvm_ir, "main", "host_tick")
+pilot v4_codegen_llvm_double_call = v4_codegen_llvm_find_call(v4_codegen_llvm_ir, "main", "util::math::double")
+
+say v4_codegen_llvm_summary(v4_codegen_llvm_ir)
+say "codegen-llvm-decl-count=" + word_from_int(v4_codegen_llvm_decl_count(v4_codegen_llvm_ir))
+say "codegen-llvm-call-count=" + word_from_int(v4_codegen_llvm_call_count(v4_codegen_llvm_ir))
+say "codegen-llvm-diag-count=" + word_from_int(v4_codegen_llvm_diag_count(v4_codegen_llvm_ir))
+
+say "codegen-llvm-puts-symbol=" + v4_codegen_llvm_decl_symbol(v4_codegen_llvm_ir, v4_codegen_llvm_puts_decl)
+say "codegen-llvm-puts-abi=" + v4_codegen_llvm_decl_abi(v4_codegen_llvm_ir, v4_codegen_llvm_puts_decl)
+say "codegen-llvm-puts-cc=" + v4_codegen_llvm_decl_cc(v4_codegen_llvm_ir, v4_codegen_llvm_puts_decl)
+say "codegen-llvm-puts-return=" + v4_codegen_llvm_decl_return(v4_codegen_llvm_ir, v4_codegen_llvm_puts_decl)
+say "codegen-llvm-puts-params=" + v4_codegen_llvm_decl_params(v4_codegen_llvm_ir, v4_codegen_llvm_puts_decl)
+say "codegen-llvm-puts-line=" + v4_codegen_llvm_decl_line(v4_codegen_llvm_ir, v4_codegen_llvm_puts_decl)
+
+say "codegen-llvm-win-abi=" + v4_codegen_llvm_decl_abi(v4_codegen_llvm_ir, v4_codegen_llvm_win_decl)
+say "codegen-llvm-win-cc=" + v4_codegen_llvm_decl_cc(v4_codegen_llvm_ir, v4_codegen_llvm_win_decl)
+say "codegen-llvm-win-line=" + v4_codegen_llvm_decl_line(v4_codegen_llvm_ir, v4_codegen_llvm_win_decl)
+
+say "codegen-llvm-host-abi=" + v4_codegen_llvm_decl_abi(v4_codegen_llvm_ir, v4_codegen_llvm_host_decl)
+say "codegen-llvm-host-cc=" + v4_codegen_llvm_decl_cc(v4_codegen_llvm_ir, v4_codegen_llvm_host_decl)
+say "codegen-llvm-host-line=" + v4_codegen_llvm_decl_line(v4_codegen_llvm_ir, v4_codegen_llvm_host_decl)
+
+say "codegen-llvm-double-symbol=" + v4_codegen_llvm_decl_symbol(v4_codegen_llvm_ir, v4_codegen_llvm_double_decl)
+say "codegen-llvm-double-line=" + v4_codegen_llvm_decl_line(v4_codegen_llvm_ir, v4_codegen_llvm_double_decl)
+say "codegen-llvm-main-line=" + v4_codegen_llvm_decl_line(v4_codegen_llvm_ir, v4_codegen_llvm_main_decl)
+
+say "codegen-llvm-call-puts-symbol=" + v4_codegen_llvm_call_symbol(v4_codegen_llvm_ir, v4_codegen_llvm_puts_call)
+say "codegen-llvm-call-puts-abi=" + v4_codegen_llvm_call_abi(v4_codegen_llvm_ir, v4_codegen_llvm_puts_call)
+say "codegen-llvm-call-puts-cc=" + v4_codegen_llvm_call_cc(v4_codegen_llvm_ir, v4_codegen_llvm_puts_call)
+say "codegen-llvm-call-puts-return=" + v4_codegen_llvm_call_return(v4_codegen_llvm_ir, v4_codegen_llvm_puts_call)
+say "codegen-llvm-call-puts-line=" + v4_codegen_llvm_call_line(v4_codegen_llvm_ir, v4_codegen_llvm_puts_call)
+
+say "codegen-llvm-call-win-abi=" + v4_codegen_llvm_call_abi(v4_codegen_llvm_ir, v4_codegen_llvm_win_call)
+say "codegen-llvm-call-win-cc=" + v4_codegen_llvm_call_cc(v4_codegen_llvm_ir, v4_codegen_llvm_win_call)
+say "codegen-llvm-call-win-line=" + v4_codegen_llvm_call_line(v4_codegen_llvm_ir, v4_codegen_llvm_win_call)
+
+say "codegen-llvm-call-host-abi=" + v4_codegen_llvm_call_abi(v4_codegen_llvm_ir, v4_codegen_llvm_host_call)
+say "codegen-llvm-call-host-cc=" + v4_codegen_llvm_call_cc(v4_codegen_llvm_ir, v4_codegen_llvm_host_call)
+say "codegen-llvm-call-host-line=" + v4_codegen_llvm_call_line(v4_codegen_llvm_ir, v4_codegen_llvm_host_call)
+
+say "codegen-llvm-call-double-symbol=" + v4_codegen_llvm_call_symbol(v4_codegen_llvm_ir, v4_codegen_llvm_double_call)
+say "codegen-llvm-call-double-line=" + v4_codegen_llvm_call_line(v4_codegen_llvm_ir, v4_codegen_llvm_double_call)

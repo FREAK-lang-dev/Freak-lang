@@ -1,0 +1,530 @@
+-- ===================================================================
+-- freak_codegen_llvm - early V4 LLVM declaration and call-plan lowering
+-- ===================================================================
+-- Depends on freak_ty, freak_mir, and freak_borrowck.
+-- This slice gives V4 a real backend-facing boundary: MIR and TY own
+-- semantic facts, while codegen translates those facts into LLVM-facing
+-- declarations and call plans without teaching the rest of the compiler
+-- target spellings.
+
+pilot v4_codegen_llvm_files = 0
+pilot v4_codegen_llvm_mirs = 0
+pilot v4_codegen_llvm_decl_names = 0
+pilot v4_codegen_llvm_decl_symbols = 0
+pilot v4_codegen_llvm_decl_abis = 0
+pilot v4_codegen_llvm_decl_ccs = 0
+pilot v4_codegen_llvm_decl_returns = 0
+pilot v4_codegen_llvm_decl_params = 0
+pilot v4_codegen_llvm_decl_lines = 0
+pilot v4_codegen_llvm_call_bodies = 0
+pilot v4_codegen_llvm_call_names = 0
+pilot v4_codegen_llvm_call_symbols = 0
+pilot v4_codegen_llvm_call_abis = 0
+pilot v4_codegen_llvm_call_ccs = 0
+pilot v4_codegen_llvm_call_returns = 0
+pilot v4_codegen_llvm_call_exprs = 0
+pilot v4_codegen_llvm_call_lines = 0
+pilot v4_codegen_llvm_diags = 0
+pilot v4_codegen_llvm_ready = 0
+
+task v4_codegen_llvm_init() -> void {
+    if v4_codegen_llvm_ready == 0 {
+        v4_codegen_llvm_files = array_new()
+        v4_codegen_llvm_mirs = array_new()
+        v4_codegen_llvm_decl_names = array_new()
+        v4_codegen_llvm_decl_symbols = array_new()
+        v4_codegen_llvm_decl_abis = array_new()
+        v4_codegen_llvm_decl_ccs = array_new()
+        v4_codegen_llvm_decl_returns = array_new()
+        v4_codegen_llvm_decl_params = array_new()
+        v4_codegen_llvm_decl_lines = array_new()
+        v4_codegen_llvm_call_bodies = array_new()
+        v4_codegen_llvm_call_names = array_new()
+        v4_codegen_llvm_call_symbols = array_new()
+        v4_codegen_llvm_call_abis = array_new()
+        v4_codegen_llvm_call_ccs = array_new()
+        v4_codegen_llvm_call_returns = array_new()
+        v4_codegen_llvm_call_exprs = array_new()
+        v4_codegen_llvm_call_lines = array_new()
+        v4_codegen_llvm_diags = array_new()
+        v4_codegen_llvm_ready = 1
+    }
+}
+
+task v4_codegen_llvm_file_new(file_id: int, mir_id: int) -> int {
+    v4_codegen_llvm_init()
+    pilot codegen_id = array_len(v4_codegen_llvm_files)
+    array_push(v4_codegen_llvm_files, word_from_int(file_id))
+    array_push(v4_codegen_llvm_mirs, word_from_int(mir_id))
+    array_push(v4_codegen_llvm_decl_names, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_decl_symbols, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_decl_abis, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_decl_ccs, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_decl_returns, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_decl_params, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_decl_lines, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_call_bodies, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_call_names, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_call_symbols, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_call_abis, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_call_ccs, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_call_returns, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_call_exprs, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_call_lines, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_diags, word_from_int(array_new()))
+    give back codegen_id
+}
+
+task v4_codegen_llvm_decl_names_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_decl_names, codegen_id))
+}
+
+task v4_codegen_llvm_decl_symbols_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_decl_symbols, codegen_id))
+}
+
+task v4_codegen_llvm_decl_abis_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_decl_abis, codegen_id))
+}
+
+task v4_codegen_llvm_decl_ccs_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_decl_ccs, codegen_id))
+}
+
+task v4_codegen_llvm_decl_returns_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_decl_returns, codegen_id))
+}
+
+task v4_codegen_llvm_decl_params_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_decl_params, codegen_id))
+}
+
+task v4_codegen_llvm_decl_lines_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_decl_lines, codegen_id))
+}
+
+task v4_codegen_llvm_call_bodies_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_call_bodies, codegen_id))
+}
+
+task v4_codegen_llvm_call_names_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_call_names, codegen_id))
+}
+
+task v4_codegen_llvm_call_symbols_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_call_symbols, codegen_id))
+}
+
+task v4_codegen_llvm_call_abis_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_call_abis, codegen_id))
+}
+
+task v4_codegen_llvm_call_ccs_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_call_ccs, codegen_id))
+}
+
+task v4_codegen_llvm_call_returns_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_call_returns, codegen_id))
+}
+
+task v4_codegen_llvm_call_exprs_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_call_exprs, codegen_id))
+}
+
+task v4_codegen_llvm_call_lines_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_call_lines, codegen_id))
+}
+
+task v4_codegen_llvm_diags_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_diags, codegen_id))
+}
+
+task v4_codegen_llvm_decl_count(codegen_id: int) -> int {
+    give back array_len(v4_codegen_llvm_decl_names_handle(codegen_id))
+}
+
+task v4_codegen_llvm_call_count(codegen_id: int) -> int {
+    give back array_len(v4_codegen_llvm_call_names_handle(codegen_id))
+}
+
+task v4_codegen_llvm_diag_count(codegen_id: int) -> int {
+    give back array_len(v4_codegen_llvm_diags_handle(codegen_id))
+}
+
+task v4_codegen_llvm_decl_name(codegen_id: int, decl_id: int) -> word {
+    give back array_get(v4_codegen_llvm_decl_names_handle(codegen_id), decl_id)
+}
+
+task v4_codegen_llvm_decl_symbol(codegen_id: int, decl_id: int) -> word {
+    give back array_get(v4_codegen_llvm_decl_symbols_handle(codegen_id), decl_id)
+}
+
+task v4_codegen_llvm_decl_abi(codegen_id: int, decl_id: int) -> word {
+    give back array_get(v4_codegen_llvm_decl_abis_handle(codegen_id), decl_id)
+}
+
+task v4_codegen_llvm_decl_cc(codegen_id: int, decl_id: int) -> word {
+    give back array_get(v4_codegen_llvm_decl_ccs_handle(codegen_id), decl_id)
+}
+
+task v4_codegen_llvm_decl_return(codegen_id: int, decl_id: int) -> word {
+    give back array_get(v4_codegen_llvm_decl_returns_handle(codegen_id), decl_id)
+}
+
+task v4_codegen_llvm_decl_params(codegen_id: int, decl_id: int) -> word {
+    give back array_get(v4_codegen_llvm_decl_params_handle(codegen_id), decl_id)
+}
+
+task v4_codegen_llvm_decl_line(codegen_id: int, decl_id: int) -> word {
+    give back array_get(v4_codegen_llvm_decl_lines_handle(codegen_id), decl_id)
+}
+
+task v4_codegen_llvm_call_body(codegen_id: int, call_id: int) -> word {
+    give back array_get(v4_codegen_llvm_call_bodies_handle(codegen_id), call_id)
+}
+
+task v4_codegen_llvm_call_name(codegen_id: int, call_id: int) -> word {
+    give back array_get(v4_codegen_llvm_call_names_handle(codegen_id), call_id)
+}
+
+task v4_codegen_llvm_call_symbol(codegen_id: int, call_id: int) -> word {
+    give back array_get(v4_codegen_llvm_call_symbols_handle(codegen_id), call_id)
+}
+
+task v4_codegen_llvm_call_abi(codegen_id: int, call_id: int) -> word {
+    give back array_get(v4_codegen_llvm_call_abis_handle(codegen_id), call_id)
+}
+
+task v4_codegen_llvm_call_cc(codegen_id: int, call_id: int) -> word {
+    give back array_get(v4_codegen_llvm_call_ccs_handle(codegen_id), call_id)
+}
+
+task v4_codegen_llvm_call_return(codegen_id: int, call_id: int) -> word {
+    give back array_get(v4_codegen_llvm_call_returns_handle(codegen_id), call_id)
+}
+
+task v4_codegen_llvm_call_expr(codegen_id: int, call_id: int) -> word {
+    give back array_get(v4_codegen_llvm_call_exprs_handle(codegen_id), call_id)
+}
+
+task v4_codegen_llvm_call_line(codegen_id: int, call_id: int) -> word {
+    give back array_get(v4_codegen_llvm_call_lines_handle(codegen_id), call_id)
+}
+
+task v4_codegen_llvm_diag(codegen_id: int, diag_id: int) -> word {
+    give back array_get(v4_codegen_llvm_diags_handle(codegen_id), diag_id)
+}
+
+task v4_codegen_llvm_add_diag(codegen_id: int, diag: word) -> void {
+    array_push(v4_codegen_llvm_diags_handle(codegen_id), diag)
+}
+
+task v4_codegen_llvm_add_decl(codegen_id: int, name: word, symbol: word, abi: word, cc: word, return_ty: word, params: word, line: word) -> void {
+    array_push(v4_codegen_llvm_decl_names_handle(codegen_id), name)
+    array_push(v4_codegen_llvm_decl_symbols_handle(codegen_id), symbol)
+    array_push(v4_codegen_llvm_decl_abis_handle(codegen_id), abi)
+    array_push(v4_codegen_llvm_decl_ccs_handle(codegen_id), cc)
+    array_push(v4_codegen_llvm_decl_returns_handle(codegen_id), return_ty)
+    array_push(v4_codegen_llvm_decl_params_handle(codegen_id), params)
+    array_push(v4_codegen_llvm_decl_lines_handle(codegen_id), line)
+}
+
+task v4_codegen_llvm_add_call(codegen_id: int, body_name: word, callee_name: word, symbol: word, abi: word, cc: word, return_ty: word, expr_text: word, line: word) -> void {
+    array_push(v4_codegen_llvm_call_bodies_handle(codegen_id), body_name)
+    array_push(v4_codegen_llvm_call_names_handle(codegen_id), callee_name)
+    array_push(v4_codegen_llvm_call_symbols_handle(codegen_id), symbol)
+    array_push(v4_codegen_llvm_call_abis_handle(codegen_id), abi)
+    array_push(v4_codegen_llvm_call_ccs_handle(codegen_id), cc)
+    array_push(v4_codegen_llvm_call_returns_handle(codegen_id), return_ty)
+    array_push(v4_codegen_llvm_call_exprs_handle(codegen_id), expr_text)
+    array_push(v4_codegen_llvm_call_lines_handle(codegen_id), line)
+}
+
+task v4_codegen_llvm_starts_with(text: word, prefix: word) -> bool {
+    if prefix.length() > text.length() {
+        give back false
+    }
+    pilot idx = 0
+    repeat until idx >= prefix.length() {
+        if text.char_at(idx) != prefix.char_at(idx) {
+            give back false
+        }
+        idx += 1
+    }
+    give back true
+}
+
+task v4_codegen_llvm_is_symbol_char(ch: word) -> bool {
+    if ch == "_" { give back true }
+    if ch == "0" or ch == "1" or ch == "2" or ch == "3" or ch == "4" { give back true }
+    if ch == "5" or ch == "6" or ch == "7" or ch == "8" or ch == "9" { give back true }
+    if ch == "a" or ch == "b" or ch == "c" or ch == "d" or ch == "e" { give back true }
+    if ch == "f" or ch == "g" or ch == "h" or ch == "i" or ch == "j" { give back true }
+    if ch == "k" or ch == "l" or ch == "m" or ch == "n" or ch == "o" { give back true }
+    if ch == "p" or ch == "q" or ch == "r" or ch == "s" or ch == "t" { give back true }
+    if ch == "u" or ch == "v" or ch == "w" or ch == "x" or ch == "y" or ch == "z" { give back true }
+    if ch == "A" or ch == "B" or ch == "C" or ch == "D" or ch == "E" { give back true }
+    if ch == "F" or ch == "G" or ch == "H" or ch == "I" or ch == "J" { give back true }
+    if ch == "K" or ch == "L" or ch == "M" or ch == "N" or ch == "O" { give back true }
+    if ch == "P" or ch == "Q" or ch == "R" or ch == "S" or ch == "T" { give back true }
+    if ch == "U" or ch == "V" or ch == "W" or ch == "X" or ch == "Y" or ch == "Z" { give back true }
+    give back false
+}
+
+task v4_codegen_llvm_mangle_name(name: word) -> word {
+    if name == "" {
+        give back "anon"
+    }
+
+    pilot out = ""
+    pilot idx = 0
+    pilot last_was_sep = false
+    repeat until idx >= name.length() {
+        pilot ch = name.char_at(idx)
+        if v4_codegen_llvm_is_symbol_char(ch) {
+            out = out + ch
+            last_was_sep = false
+        } else {
+            if out == "" or last_was_sep == false {
+                out = out + "_"
+            }
+            last_was_sep = true
+        }
+        idx += 1
+    }
+
+    if out == "" {
+        give back "anon"
+    }
+    if out.length() > 1 and out.char_at(out.length() - 1) == "_" {
+        give back v4_slice(out, 0, out.length() - 1)
+    }
+    give back out
+}
+
+task v4_codegen_llvm_symbol(name: word) -> word {
+    give back "@" + v4_codegen_llvm_mangle_name(name)
+}
+
+task v4_codegen_llvm_calling_convention(abi: word) -> word {
+    if abi == "" or abi == "C" or abi == "cdecl" or abi == "system" {
+        give back "ccc"
+    }
+    if abi == "stdcall" {
+        give back "x86_stdcallcc"
+    }
+    if abi == "fastcall" {
+        give back "x86_fastcallcc"
+    }
+    if abi == "thiscall" {
+        give back "x86_thiscallcc"
+    }
+    if abi == "vectorcall" {
+        give back "x86_vectorcallcc"
+    }
+    if abi == "win64" {
+        give back "win64cc"
+    }
+    if abi == "sysv64" {
+        give back "x86_64_sysvcc"
+    }
+    give back "ccc"
+}
+
+task v4_codegen_llvm_type(ty_name: word) -> word {
+    if ty_name == "" or ty_name == v4_ty_unknown {
+        give back "ptr"
+    }
+    if ty_name == v4_ty_void {
+        give back "void"
+    }
+    if ty_name == v4_ty_bool {
+        give back "i1"
+    }
+    if ty_name == v4_ty_int or ty_name == "uint" {
+        give back "i64"
+    }
+    if ty_name == "tiny" {
+        give back "i8"
+    }
+    if ty_name == v4_ty_num or ty_name == "float" {
+        give back "double"
+    }
+    if ty_name == "float32" {
+        give back "float"
+    }
+    if ty_name == "char" {
+        give back "i32"
+    }
+    if ty_name == v4_ty_word {
+        give back "%freak_word"
+    }
+    if ty_name == "big" {
+        give back "%freak_bigint"
+    }
+
+    if v4_ty_is_generic_instance_type(ty_name) {
+        pilot base = v4_ty_generic_base_name(ty_name)
+        if base == "maybe" and v4_ty_generic_arg_count(ty_name) >= 1 {
+            give back "%freak_maybe_" + v4_codegen_llvm_mangle_name(v4_ty_generic_arg(ty_name, 0))
+        }
+        if base == "result" and v4_ty_generic_arg_count(ty_name) >= 2 {
+            give back "%freak_result_" + v4_codegen_llvm_mangle_name(v4_ty_generic_arg(ty_name, 0)) + "_" + v4_codegen_llvm_mangle_name(v4_ty_generic_arg(ty_name, 1))
+        }
+        if base == "List" and v4_ty_generic_arg_count(ty_name) >= 1 {
+            give back "%freak_list_" + v4_codegen_llvm_mangle_name(v4_ty_generic_arg(ty_name, 0))
+        }
+        if base == "Map" and v4_ty_generic_arg_count(ty_name) >= 2 {
+            give back "%freak_map_" + v4_codegen_llvm_mangle_name(v4_ty_generic_arg(ty_name, 0)) + "_" + v4_codegen_llvm_mangle_name(v4_ty_generic_arg(ty_name, 1))
+        }
+        if base == "Set" and v4_ty_generic_arg_count(ty_name) >= 1 {
+            give back "%freak_set_" + v4_codegen_llvm_mangle_name(v4_ty_generic_arg(ty_name, 0))
+        }
+        if base == "Lineup" and v4_ty_generic_arg_count(ty_name) >= 1 {
+            give back "%freak_lineup_" + v4_codegen_llvm_mangle_name(v4_ty_generic_arg(ty_name, 0))
+        }
+        give back "%" + v4_codegen_llvm_mangle_name(ty_name)
+    }
+
+    if ty_name.length() > 0 and ty_name.char_at(0) == "(" {
+        give back "ptr"
+    }
+    if ty_name.length() > 0 and ty_name.char_at(0) == "[" {
+        give back "ptr"
+    }
+    give back "%" + v4_codegen_llvm_mangle_name(ty_name)
+}
+
+task v4_codegen_llvm_signature_params(ty_id: int, sig_id: int) -> word {
+    pilot count = v4_ty_signature_param_count(ty_id, sig_id)
+    if count <= 0 {
+        give back ""
+    }
+
+    pilot out = ""
+    pilot param_idx = 0
+    repeat until param_idx >= count {
+        if param_idx > 0 {
+            out = out + ", "
+        }
+        out = out + v4_codegen_llvm_type(v4_ty_signature_param_type(ty_id, sig_id, param_idx))
+        param_idx += 1
+    }
+    give back out
+}
+
+task v4_codegen_llvm_signature_is_callable(ty_id: int, sig_id: int) -> bool {
+    pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
+    if sig_kind == v4_ty_task_sig {
+        give back true
+    }
+    if sig_kind == v4_ty_extern_sig {
+        give back v4_codegen_llvm_starts_with(v4_ty_signature_display(ty_id, sig_id), "task ")
+    }
+    give back false
+}
+
+task v4_codegen_llvm_signature_line(mir_id: int, ty_id: int, sig_id: int) -> word {
+    pilot line_kind = "declare"
+    if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_task_sig {
+        pilot body_id = v4_mir_lookup_body(mir_id, v4_ty_signature_def(ty_id, sig_id))
+        if body_id >= 0 {
+            line_kind = "define"
+        }
+    }
+
+    pilot abi = v4_ty_signature_call_abi(ty_id, sig_id)
+    pilot cc = v4_codegen_llvm_calling_convention(abi)
+    pilot return_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_id))
+    pilot params = v4_codegen_llvm_signature_params(ty_id, sig_id)
+    pilot symbol = v4_codegen_llvm_symbol(v4_ty_signature_name(ty_id, sig_id))
+    give back line_kind + " " + cc + " " + return_ty + " " + symbol + "(" + params + ")"
+}
+
+task v4_codegen_llvm_lower_signatures(codegen_id: int, mir_id: int, ty_id: int) -> void {
+    pilot sig_idx = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_idx >= sig_count {
+        if v4_codegen_llvm_signature_is_callable(ty_id, sig_idx) {
+            pilot sig_name = v4_ty_signature_name(ty_id, sig_idx)
+            pilot sig_abi = v4_ty_signature_call_abi(ty_id, sig_idx)
+            pilot sig_cc = v4_codegen_llvm_calling_convention(sig_abi)
+            pilot sig_return = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_idx))
+            pilot sig_params = v4_codegen_llvm_signature_params(ty_id, sig_idx)
+            pilot sig_symbol = v4_codegen_llvm_symbol(sig_name)
+            pilot sig_line = v4_codegen_llvm_signature_line(mir_id, ty_id, sig_idx)
+            v4_codegen_llvm_add_decl(codegen_id, sig_name, sig_symbol, sig_abi, sig_cc, sig_return, sig_params, sig_line)
+        }
+        sig_idx += 1
+    }
+}
+
+task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
+    pilot body_idx = 0
+    pilot body_count = v4_mir_body_count(mir_id)
+    repeat until body_idx >= body_count {
+        pilot body_name = v4_mir_body_name(mir_id, body_idx)
+        pilot rvalue_idx = 0
+        pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_idx)
+        repeat until rvalue_idx >= rvalue_count {
+            if v4_mir_rvalue_kind(mir_id, body_idx, rvalue_idx) == v4_mir_rvalue_call {
+                pilot call_name = v4_mir_rvalue_op(mir_id, body_idx, rvalue_idx)
+                pilot call_abi = v4_mir_rvalue_abi(mir_id, body_idx, rvalue_idx)
+                pilot call_cc = v4_codegen_llvm_calling_convention(call_abi)
+                pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_idx, rvalue_idx))
+                pilot call_symbol = v4_codegen_llvm_symbol(call_name)
+                pilot call_expr = v4_mir_rvalue_text(mir_id, body_idx, rvalue_idx)
+                pilot call_line = "call " + call_cc + " " + call_return + " " + call_symbol
+                v4_codegen_llvm_add_call(codegen_id, body_name, call_name, call_symbol, call_abi, call_cc, call_return, call_expr, call_line)
+            }
+            rvalue_idx += 1
+        }
+        body_idx += 1
+    }
+}
+
+task v4_codegen_llvm_lower_mir(file_id: int, mir_id: int) -> int {
+    v4_codegen_llvm_init()
+    pilot codegen_id = v4_codegen_llvm_file_new(file_id, mir_id)
+    if v4_mir_file_exists(mir_id) == false {
+        v4_codegen_llvm_add_diag(codegen_id, "missing mir for llvm lowering")
+        give back codegen_id
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    v4_codegen_llvm_lower_signatures(codegen_id, mir_id, ty_id)
+    v4_codegen_llvm_lower_calls(codegen_id, mir_id)
+    give back codegen_id
+}
+
+task v4_codegen_llvm_find_decl(codegen_id: int, name: word) -> int {
+    pilot decl_idx = 0
+    pilot decl_count = v4_codegen_llvm_decl_count(codegen_id)
+    repeat until decl_idx >= decl_count {
+        if v4_codegen_llvm_decl_name(codegen_id, decl_idx) == name {
+            give back decl_idx
+        }
+        decl_idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_codegen_llvm_find_call(codegen_id: int, body_name: word, callee_name: word) -> int {
+    pilot call_idx = 0
+    pilot call_count = v4_codegen_llvm_call_count(codegen_id)
+    repeat until call_idx >= call_count {
+        if v4_codegen_llvm_call_body(codegen_id, call_idx) == body_name and v4_codegen_llvm_call_name(codegen_id, call_idx) == callee_name {
+            give back call_idx
+        }
+        call_idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_codegen_llvm_summary(codegen_id: int) -> word {
+    pilot out = "codegen-llvm"
+    out = out + " declarations=" + word_from_int(v4_codegen_llvm_decl_count(codegen_id))
+    out = out + " calls=" + word_from_int(v4_codegen_llvm_call_count(codegen_id))
+    out = out + " diagnostics=" + word_from_int(v4_codegen_llvm_diag_count(codegen_id))
+    give back out
+}
