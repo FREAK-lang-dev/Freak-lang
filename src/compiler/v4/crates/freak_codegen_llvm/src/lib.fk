@@ -441,6 +441,63 @@ task v4_codegen_llvm_signature_line(mir_id: int, ty_id: int, sig_id: int) -> wor
     give back line_kind + " " + cc + " " + return_ty + " " + symbol + "(" + params + ")"
 }
 
+task v4_codegen_llvm_temp_value(body_id: int, rvalue_id: int) -> word {
+    give back "%rv" + word_from_int(body_id) + "_" + word_from_int(rvalue_id)
+}
+
+task v4_codegen_llvm_rvalue_operand(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if rvalue_id < 0 {
+        give back ""
+    }
+
+    pilot operand_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word {
+        give back operand_ty + " " + text
+    }
+    if kind == v4_mir_rvalue_use_local {
+        give back operand_ty + " %" + v4_codegen_llvm_mangle_name(text)
+    }
+    if kind == v4_mir_rvalue_use_place {
+        give back operand_ty + " %" + v4_codegen_llvm_mangle_name(v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
+    }
+    if kind == v4_mir_rvalue_use_symbol {
+        give back operand_ty + " " + v4_codegen_llvm_symbol(text)
+    }
+    give back operand_ty + " " + v4_codegen_llvm_temp_value(body_id, rvalue_id)
+}
+
+task v4_codegen_llvm_call_args(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+    if arg_count <= 0 {
+        pilot fallback = ""
+        pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+        if lhs >= 0 {
+            fallback = v4_codegen_llvm_rvalue_operand(mir_id, body_id, lhs)
+        }
+        if rhs >= 0 {
+            if fallback != "" {
+                fallback = fallback + ", "
+            }
+            fallback = fallback + v4_codegen_llvm_rvalue_operand(mir_id, body_id, rhs)
+        }
+        give back fallback
+    }
+
+    pilot out = ""
+    pilot arg_idx = 0
+    repeat until arg_idx >= arg_count {
+        if arg_idx > 0 {
+            out = out + ", "
+        }
+        out = out + v4_codegen_llvm_rvalue_operand(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_idx))
+        arg_idx += 1
+    }
+    give back out
+}
+
 task v4_codegen_llvm_lower_signatures(codegen_id: int, mir_id: int, ty_id: int) -> void {
     pilot sig_idx = 0
     pilot sig_count = v4_ty_signature_count(ty_id)
@@ -474,7 +531,8 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                 pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_idx, rvalue_idx))
                 pilot call_symbol = v4_codegen_llvm_symbol(call_name)
                 pilot call_expr = v4_mir_rvalue_text(mir_id, body_idx, rvalue_idx)
-                pilot call_line = "call " + call_cc + " " + call_return + " " + call_symbol
+                pilot call_args = v4_codegen_llvm_call_args(mir_id, body_idx, rvalue_idx)
+                pilot call_line = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")"
                 v4_codegen_llvm_add_call(codegen_id, body_name, call_name, call_symbol, call_abi, call_cc, call_return, call_expr, call_line)
             }
             rvalue_idx += 1
