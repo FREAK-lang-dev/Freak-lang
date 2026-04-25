@@ -198,3 +198,15 @@ python src/compiler/v4/check_v4.py
 ```
 
 The harness verifies crate existence/order, ASCII source, individual parser acceptance, flattened-crate type checking, and transpilation of every `src/compiler/v4/tests/*.fk` smoke fixture.
+
+For faster local iteration, the harness also supports:
+
+```powershell
+python src/compiler/v4/check_v4.py --fast
+python src/compiler/v4/check_v4.py --smoke "query invalidation"
+python src/compiler/v4/check_v4.py --smoke extern --smoke module
+```
+
+- `--fast` keeps the full front-end and fixture-transpile coverage, but skips runtime executable smokes.
+- `--smoke` narrows execution to matching runtime smokes by name, fixture file, or fixture stem.
+- Full mode still remains the bootstrap gate; the harness now reuses runtime smoke transpiles and skips unchanged `clang` rebuilds when the generated C and runtime shim are identical.

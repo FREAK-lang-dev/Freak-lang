@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-import sys
+import argparse
+import hashlib
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -2062,6 +2064,21 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def write_text_if_changed(path: Path, text: str) -> bool:
+    if path.exists() and read_text(path) == text:
+        return False
+    path.write_text(text, encoding="utf-8")
+    return True
+
+
+def hash_text(*parts: str) -> str:
+    digest = hashlib.sha256()
+    for part in parts:
+        digest.update(part.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def crate_path(name: str) -> Path:
     return CRATES_ROOT / name / "src" / "lib.fk"
 
@@ -2123,18 +2140,6 @@ def flattened_crates() -> str:
     return "\n".join(out)
 
 
-def check_typecheck(source: str, label: str) -> None:
-    program = parse_source(source, label)
-    diagnostics = TypeChecker().check(program)
-    if diagnostics:
-        print(f"typecheck failed: {label}")
-        for diag in diagnostics[:80]:
-            print(diag)
-        if len(diagnostics) > 80:
-            print(f"... {len(diagnostics) - 80} more diagnostics")
-        raise SystemExit(1)
-
-
 def check_flattened_crates() -> str:
     source = flattened_crates()
     program = parse_source(source, "flattened V4 crates")
@@ -2150,23 +2155,114 @@ def check_flattened_crates() -> str:
     return source
 
 
-def check_fixture_transpile(base_source: str, fixtures: list[Path]) -> None:
+def fixture_source(base_source: str, fixture: Path) -> str:
+    return base_source + "\n\n-- fixture\n" + read_text(fixture)
+
+
+def transpile_fixture(base_source: str, fixture: Path) -> tuple[str, bool]:
+    label = rel(fixture)
+    source = fixture_source(base_source, fixture)
+    c_source, diagnostics, uses_ui = transpile(source, fixture.with_suffix(".flat.fk"))
+    if diagnostics:
+        print(f"transpile failed: {label}")
+        for diag in diagnostics[:40]:
+            print(diag)
+        if len(diagnostics) > 40:
+            print(f"... {len(diagnostics) - 40} more diagnostics")
+        raise SystemExit(1)
+    if c_source is None:
+        print(f"transpile failed: {label}")
+        print("transpile returned no C source")
+        raise SystemExit(1)
+    return c_source, uses_ui
+
+
+def check_fixture_transpile(base_source: str, fixtures: list[Path]) -> dict[Path, tuple[str, bool]]:
+    artifacts: dict[Path, tuple[str, bool]] = {}
     for fixture in fixtures:
         label = rel(fixture)
-        source = base_source + "\n\n-- fixture\n" + read_text(fixture)
-        check_typecheck(source, label)
-        c_source, diagnostics, uses_ui = transpile(source, fixture.with_suffix(".flat.fk"))
-        if diagnostics:
-            print(f"transpile failed: {label}")
-            for diag in diagnostics[:40]:
-                print(diag)
-            if len(diagnostics) > 40:
-                print(f"... {len(diagnostics) - 40} more diagnostics")
-            raise SystemExit(1)
+        c_source, uses_ui = transpile_fixture(base_source, fixture)
+        artifacts[fixture] = (c_source, uses_ui)
         print(f"fixture transpile: {label} c_bytes={len(c_source)} uses_ui={uses_ui}")
+    return artifacts
 
 
-def check_executable_smokes(base_source: str) -> None:
+def compile_runtime_smoke(
+    clang: str,
+    include_arg: str,
+    runtime_smoke_c: Path,
+    runtime_source: str,
+    fixture: Path,
+    c_source: str,
+) -> tuple[Path, bool]:
+    suffix = ".exe" if sys.platform.startswith("win") else ""
+    c_path = RUNTIME_BUILD_ROOT / f"{fixture.stem}.fk.c"
+    exe_path = RUNTIME_BUILD_ROOT / f"{fixture.stem}{suffix}"
+    stamp_path = RUNTIME_BUILD_ROOT / f"{fixture.stem}.compile.sha256"
+    compile_key = hash_text(
+        "v4-runtime-smoke-v1",
+        clang,
+        include_arg,
+        runtime_source,
+        c_source,
+    )
+
+    write_text_if_changed(c_path, c_source)
+    if exe_path.exists() and stamp_path.exists() and read_text(stamp_path).strip() == compile_key:
+        return exe_path, False
+
+    compile_cmd = [
+        clang,
+        "-o",
+        str(exe_path),
+        str(c_path),
+        str(runtime_smoke_c),
+        include_arg,
+        "-w",
+        "-O0",
+    ]
+    compiled = subprocess.run(compile_cmd, cwd=ROOT, text=True, capture_output=True)
+    if compiled.returncode != 0:
+        print(f"runtime compile failed: {rel(fixture)}")
+        print(compiled.stdout)
+        print(compiled.stderr)
+        raise SystemExit(1)
+
+    stamp_path.write_text(compile_key, encoding="utf-8")
+    return exe_path, True
+
+
+def select_smokes(filters: list[str]) -> list[dict[str, object]]:
+    if not filters:
+        return EXECUTABLE_SMOKES
+
+    lowered = [item.lower() for item in filters]
+    selected: list[dict[str, object]] = []
+    for smoke in EXECUTABLE_SMOKES:
+        haystacks = [
+            smoke["name"],
+            smoke["fixture"],
+            Path(smoke["fixture"]).stem,
+        ]
+        if any(needle in haystack.lower() for needle in lowered for haystack in haystacks):
+            selected.append(smoke)
+
+    if selected:
+        return selected
+
+    print("runtime smoke failed: no smoke matched filters")
+    for needle in filters:
+        print(f"filter: {needle}")
+    for smoke in EXECUTABLE_SMOKES:
+        print(f"available smoke: {smoke['name']} fixture={smoke['fixture']}")
+    raise SystemExit(1)
+
+
+def check_executable_smokes(
+    base_source: str,
+    smokes: list[dict[str, object]],
+    fixture_artifacts: dict[Path, tuple[str, bool]],
+) -> None:
     clang = shutil.which("clang")
     if clang is None:
         print("runtime smoke failed: clang not found")
@@ -2177,47 +2273,29 @@ def check_executable_smokes(base_source: str) -> None:
     runtime_smoke_c = RUNTIME_BUILD_ROOT / "freak_runtime_v4_smoke.c"
     runtime_source = read_text(runtime_c)
     runtime_source = runtime_source.replace("#define FREAK_MAX_ARRAYS 256", "#define FREAK_MAX_ARRAYS 8192")
-    runtime_smoke_c.write_text(runtime_source, encoding="utf-8")
+    write_text_if_changed(runtime_smoke_c, runtime_source)
     include_arg = f"-I{RUNTIME_ROOT}"
-    suffix = ".exe" if sys.platform.startswith("win") else ""
 
-    for smoke in EXECUTABLE_SMOKES:
-        fixture = TESTS_ROOT / smoke["fixture"]
+    for smoke in smokes:
+        fixture = TESTS_ROOT / str(smoke["fixture"])
         label = rel(fixture)
-        source = base_source + "\n\n-- executable fixture\n" + read_text(fixture)
-        c_source, diagnostics, uses_ui = transpile(source, fixture.with_suffix(".runtime.flat.fk"))
-        if diagnostics:
-            print(f"runtime transpile failed: {label}")
-            for diag in diagnostics[:40]:
-                print(diag)
-            if len(diagnostics) > 40:
-                print(f"... {len(diagnostics) - 40} more diagnostics")
-            raise SystemExit(1)
+        artifact = fixture_artifacts.get(fixture)
+        if artifact is None:
+            artifact = transpile_fixture(base_source, fixture)
+            fixture_artifacts[fixture] = artifact
+        c_source, uses_ui = artifact
         if uses_ui:
             print(f"runtime smoke failed: {label} unexpectedly requires UI")
             raise SystemExit(1)
 
-        c_path = RUNTIME_BUILD_ROOT / f"{fixture.stem}.fk.c"
-        exe_path = RUNTIME_BUILD_ROOT / f"{fixture.stem}{suffix}"
-        c_path.write_text(c_source, encoding="utf-8")
-
-        compile_cmd = [
+        exe_path, compiled = compile_runtime_smoke(
             clang,
-            "-o",
-            str(exe_path),
-            str(c_path),
-            str(runtime_smoke_c),
             include_arg,
-            "-w",
-            "-O0",
-        ]
-        compiled = subprocess.run(compile_cmd, cwd=ROOT, text=True, capture_output=True)
-        if compiled.returncode != 0:
-            print(f"runtime compile failed: {label}")
-            print(compiled.stdout)
-            print(compiled.stderr)
-            raise SystemExit(1)
-
+            runtime_smoke_c,
+            runtime_source,
+            fixture,
+            c_source,
+        )
         executed = subprocess.run([str(exe_path)], cwd=ROOT, text=True, capture_output=True, timeout=60)
         output = executed.stdout + executed.stderr
         if executed.returncode != 0:
@@ -2233,21 +2311,54 @@ def check_executable_smokes(base_source: str) -> None:
             print(output[:4000])
             raise SystemExit(1)
 
-        print(f"runtime smoke: {smoke['name']} fixture={label} output_bytes={len(output)}")
+        compile_mode = "clang" if compiled else "cache"
+        print(
+            f"runtime smoke: {smoke['name']} fixture={label} "
+            f"compile={compile_mode} output_bytes={len(output)}"
+        )
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run Maverick (00-unit) V4 bootstrap checks.")
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="skip executable runtime smokes and stop after fixture transpiles",
+    )
+    parser.add_argument(
+        "--smoke",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="run only matching executable smoke fixtures by name or fixture stem",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     crates = crate_paths()
     fixtures = fixture_paths()
     all_files = crates + fixtures + [V4_ROOT / "README.md"]
+    selected_smokes = select_smokes(args.smoke)
+    selected_fixture_set = {TESTS_ROOT / str(smoke["fixture"]) for smoke in selected_smokes}
+    transpile_targets = fixtures if not args.smoke else [fixture for fixture in fixtures if fixture in selected_fixture_set]
 
     print("Maverick (00-unit) checks")
     check_exists(crates)
     check_ascii(all_files)
     check_individual_parse(crates + fixtures)
     base_source = check_flattened_crates()
-    check_fixture_transpile(base_source, fixtures)
-    check_executable_smokes(base_source)
+    if args.fast and args.smoke:
+        print(f"mode: fast smoke filters={len(args.smoke)} fixtures={len(transpile_targets)}")
+    elif args.fast:
+        print("mode: fast")
+    elif args.smoke:
+        print(f"mode: targeted smokes={len(selected_smokes)}")
+
+    fixture_artifacts = check_fixture_transpile(base_source, transpile_targets)
+    if not args.fast:
+        check_executable_smokes(base_source, selected_smokes, fixture_artifacts)
     print("Maverick checks passed")
     return 0
 
