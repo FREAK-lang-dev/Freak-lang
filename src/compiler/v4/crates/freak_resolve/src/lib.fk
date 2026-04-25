@@ -7,6 +7,7 @@
 -- future LSP hover and type inference queries.
 
 pilot v4_resolve_snapshot_format = "freak-resolve-snapshot-v1"
+pilot v4_resolve_extern_member_marker = "::extern-member#"
 
 pilot v4_resolve_files = 0
 pilot v4_resolve_hirs = 0
@@ -216,6 +217,39 @@ task v4_resolve_add_symbol(resolve_id: int, item_name: word, item_kind: word, de
     give back symbol_id
 }
 
+task v4_resolve_extern_member_def(extern_def: word, member_id: int) -> word {
+    give back extern_def + v4_resolve_extern_member_marker + word_from_int(member_id)
+}
+
+task v4_resolve_extern_member_marker_index(def_id: word) -> int {
+    pilot marker_len = v4_resolve_extern_member_marker.length()
+    pilot def_len = def_id.length()
+    pilot idx = 0
+    repeat until idx + marker_len > def_len {
+        if v4_slice(def_id, idx, idx + marker_len) == v4_resolve_extern_member_marker {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_resolve_is_extern_member_def(def_id: word) -> bool {
+    give back v4_resolve_extern_member_marker_index(def_id) >= 0
+}
+
+task v4_resolve_extern_member_id_from_def(def_id: word) -> int {
+    pilot marker = v4_resolve_extern_member_marker_index(def_id)
+    if marker < 0 {
+        give back 0 - 1
+    }
+    pilot start = marker + v4_resolve_extern_member_marker.length()
+    if start >= def_id.length() {
+        give back 0 - 1
+    }
+    give back word_to_int(def_id.substring(start, def_id.length()))
+}
+
 task v4_resolve_lower_hir(file_id: int, hir_id: int) -> int {
     v4_resolve_init()
     pilot resolve_id = v4_resolve_new(file_id, hir_id)
@@ -238,6 +272,23 @@ task v4_resolve_lower_hir(file_id: int, hir_id: int) -> int {
                     }
                 }
                 v4_resolve_add_symbol(resolve_id, item_name, item_kind, item_def, item_idx)
+            }
+        }
+
+        if item_kind == v4_hir_extern {
+            pilot member_idx = 0
+            pilot member_count = v4_hir_extern_member_count(hir_id, item_idx)
+            repeat until member_idx >= member_count {
+                pilot member_name = v4_hir_extern_member_name(hir_id, item_idx, member_idx)
+                if member_name != "" {
+                    pilot existing_task = v4_resolve_lookup_symbol(resolve_id, member_name, v4_hir_task)
+                    if existing_task >= 0 {
+                        pilot span = v4_hir_item_span(hir_id, item_idx)
+                        v4_resolve_add_diag(resolve_id, v4_diag_new(v4_diag_error, span, "duplicate definition", member_name))
+                    }
+                    v4_resolve_add_symbol(resolve_id, member_name, v4_hir_task, v4_resolve_extern_member_def(item_def, member_idx), item_idx)
+                }
+                member_idx += 1
             }
         }
         item_idx += 1

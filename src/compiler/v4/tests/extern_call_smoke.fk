@@ -1,0 +1,107 @@
+-- V4 extern member call typing smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_extern_call_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_extern_call_good_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task puts(text: word) -> int\n"
+    src = src + "    task strlen(text: word) -> int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot code = puts(\"hello\")\n"
+    src = src + "    give back code\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_call_bad_arity_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task puts(text: word) -> int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back puts()\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_call_bad_arg_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task puts(text: word) -> int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back puts(7)\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_extern_call_source = v4_extern_call_good_source()
+pilot v4_extern_call_stream = v4_lex_text(0, v4_extern_call_source)
+pilot v4_extern_call_tree = v4_parse_stream(0, v4_extern_call_stream)
+pilot v4_extern_call_hir = v4_hir_lower_tree(0, v4_extern_call_tree)
+pilot v4_extern_call_resolve = v4_resolve_lower_hir(0, v4_extern_call_hir)
+pilot v4_extern_call_ty = v4_ty_lower_resolve(0, v4_extern_call_resolve)
+pilot v4_extern_call_mir = v4_mir_lower_ty(0, v4_extern_call_ty)
+
+pilot v4_extern_call_main_def = v4_resolve_def_for_name(v4_extern_call_resolve, "main")
+pilot v4_extern_call_puts_def = v4_resolve_def_for_name(v4_extern_call_resolve, "puts")
+pilot v4_extern_call_block_def = v4_resolve_def_for_name(v4_extern_call_resolve, "extern")
+pilot v4_extern_call_puts_sig = v4_ty_lookup_signature(v4_extern_call_ty, v4_extern_call_puts_def)
+pilot v4_extern_call_main_body = v4_mir_lookup_body(v4_extern_call_mir, v4_extern_call_main_def)
+pilot v4_extern_call_puts_body = v4_mir_lookup_body(v4_extern_call_mir, v4_extern_call_puts_def)
+pilot v4_extern_call_code_stmt = v4_extern_call_find_local_stmt(v4_extern_call_mir, v4_extern_call_main_body, "code")
+pilot v4_extern_call_code_rvalue = v4_mir_stmt_rvalue(v4_extern_call_mir, v4_extern_call_main_body, v4_extern_call_code_stmt)
+
+say v4_resolve_summary(v4_extern_call_resolve)
+say "extern-call-symbol-count=" + word_from_int(v4_resolve_symbol_count(v4_extern_call_resolve))
+say "extern-call-block-display=" + v4_ty_signature_of(v4_extern_call_ty, v4_extern_call_block_def)
+say "extern-call-puts-display=" + v4_ty_signature_of(v4_extern_call_ty, v4_extern_call_puts_def)
+say "extern-call-puts-param-count=" + word_from_int(v4_ty_signature_param_count(v4_extern_call_ty, v4_extern_call_puts_sig))
+say "extern-call-puts-param0-name=" + v4_ty_signature_param_name(v4_extern_call_ty, v4_extern_call_puts_sig, 0)
+say "extern-call-puts-param0-type=" + v4_ty_signature_param_type(v4_extern_call_ty, v4_extern_call_puts_sig, 0)
+say "extern-call-puts-return=" + v4_ty_signature_return_type(v4_extern_call_ty, v4_extern_call_puts_sig)
+say "extern-call-puts-abi=" + v4_ty_signature_call_abi(v4_extern_call_ty, v4_extern_call_puts_sig)
+
+say v4_mir_summary(v4_extern_call_mir)
+say "extern-call-main-body=" + word_from_int(v4_extern_call_main_body)
+say "extern-call-puts-body=" + word_from_int(v4_extern_call_puts_body)
+say "extern-call-rvalue-kind=" + v4_mir_rvalue_kind(v4_extern_call_mir, v4_extern_call_main_body, v4_extern_call_code_rvalue)
+say "extern-call-rvalue-op=" + v4_mir_rvalue_op(v4_extern_call_mir, v4_extern_call_main_body, v4_extern_call_code_rvalue)
+say "extern-call-rvalue-ty=" + v4_mir_rvalue_ty(v4_extern_call_mir, v4_extern_call_main_body, v4_extern_call_code_rvalue)
+say "extern-call-diagnostics=" + word_from_int(v4_mir_diag_count(v4_extern_call_mir))
+
+pilot v4_extern_call_bad_arity = v4_extern_call_bad_arity_source()
+pilot v4_extern_call_bad_arity_stream = v4_lex_text(1, v4_extern_call_bad_arity)
+pilot v4_extern_call_bad_arity_tree = v4_parse_stream(1, v4_extern_call_bad_arity_stream)
+pilot v4_extern_call_bad_arity_hir = v4_hir_lower_tree(1, v4_extern_call_bad_arity_tree)
+pilot v4_extern_call_bad_arity_resolve = v4_resolve_lower_hir(1, v4_extern_call_bad_arity_hir)
+pilot v4_extern_call_bad_arity_ty = v4_ty_lower_resolve(1, v4_extern_call_bad_arity_resolve)
+pilot v4_extern_call_bad_arity_mir = v4_mir_lower_ty(1, v4_extern_call_bad_arity_ty)
+
+say "extern-call-bad-arity-diagnostics=" + word_from_int(v4_mir_diag_count(v4_extern_call_bad_arity_mir))
+say "extern-call-bad-arity-message=" + v4_diag_message(v4_mir_diag(v4_extern_call_bad_arity_mir, 0))
+say "extern-call-bad-arity-help=" + v4_diag_help(v4_mir_diag(v4_extern_call_bad_arity_mir, 0))
+
+pilot v4_extern_call_bad_arg = v4_extern_call_bad_arg_source()
+pilot v4_extern_call_bad_arg_stream = v4_lex_text(2, v4_extern_call_bad_arg)
+pilot v4_extern_call_bad_arg_tree = v4_parse_stream(2, v4_extern_call_bad_arg_stream)
+pilot v4_extern_call_bad_arg_hir = v4_hir_lower_tree(2, v4_extern_call_bad_arg_tree)
+pilot v4_extern_call_bad_arg_resolve = v4_resolve_lower_hir(2, v4_extern_call_bad_arg_hir)
+pilot v4_extern_call_bad_arg_ty = v4_ty_lower_resolve(2, v4_extern_call_bad_arg_resolve)
+pilot v4_extern_call_bad_arg_mir = v4_mir_lower_ty(2, v4_extern_call_bad_arg_ty)
+
+say "extern-call-bad-arg-diagnostics=" + word_from_int(v4_mir_diag_count(v4_extern_call_bad_arg_mir))
+say "extern-call-bad-arg-message=" + v4_diag_message(v4_mir_diag(v4_extern_call_bad_arg_mir, 0))
+say "extern-call-bad-arg-help=" + v4_diag_help(v4_mir_diag(v4_extern_call_bad_arg_mir, 0))

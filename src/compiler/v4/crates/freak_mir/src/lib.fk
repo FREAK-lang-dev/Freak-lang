@@ -6037,7 +6037,7 @@ task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {
     pilot sig_count = v4_ty_signature_count(ty_id)
     repeat until sig_idx >= sig_count {
         pilot sig_kind = v4_ty_signature_kind(ty_id, sig_idx)
-        if sig_kind == v4_ty_task_sig {
+        if sig_kind == v4_ty_task_sig and v4_ty_signature_extern_member_id(ty_id, sig_idx) < 0 {
             pilot def_id = v4_ty_signature_def(ty_id, sig_idx)
             pilot body_name = v4_ty_signature_name(ty_id, sig_idx)
             pilot sig_display = v4_ty_signature_display(ty_id, sig_idx)
