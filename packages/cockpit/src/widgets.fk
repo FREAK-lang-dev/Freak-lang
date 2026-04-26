@@ -15,50 +15,58 @@ use std::ui::{Canvas, Rect, Vec2, Color, Font, Event, mouse_left, event_mouse, e
 -- ================================================================
 
 -- Label styles
-fixed pilot label_normal     = 0
-fixed pilot label_heading    = 1
-fixed pilot label_subheading = 2
-fixed pilot label_display    = 3
-fixed pilot label_mono       = 4
-fixed pilot label_muted      = 5
+pilot label_normal     = 0
+pilot label_heading    = 1
+pilot label_subheading = 2
+pilot label_display    = 3
+pilot label_mono       = 4
+pilot label_muted      = 5
 
 -- Button styles
-fixed pilot btn_normal   = 0
-fixed pilot btn_primary  = 1
-fixed pilot btn_danger   = 2
-fixed pilot btn_operator = 3
-fixed pilot btn_equals   = 4
-fixed pilot btn_ghost    = 5
+pilot btn_normal   = 0
+pilot btn_primary  = 1
+pilot btn_danger   = 2
+pilot btn_operator = 3
+pilot btn_equals   = 4
+pilot btn_ghost    = 5
 
 -- ================================================================
 --  Label — display text, no interaction
 -- ================================================================
 
--- Measure text width (approximate: ~7px per char at size 14)
+-- Measure rendered text width via the platform (Win32 GetTextExtentPoint32).
+-- Returns 0 before the window is open — measurement requires a live HDC.
 task measure_text_width(text: word, font_size: int) -> int {
-    pilot char_width = font_size * 6 / 10
-    if char_width < 1 { char_width = 7 }
-    give back text.len() * char_width + 4
+    give back ui::measure_text(text, font_size, 0, 0)
+}
+
+-- Style-aware variant for bold/italic widgets (selected tabs, headings).
+task measure_text_styled(text: word, font_size: int, bold: bool, italic: bool) -> int {
+    pilot b = 0
+    if bold { b = 1 }
+    pilot i = 0
+    if italic { i = 1 }
+    give back ui::measure_text(text, font_size, b, i)
 }
 
 task label_sized(canvas: Canvas, text: word, rect: Rect, style: int,
                  text_color: Color, muted_color: Color, font_size: int) -> void {
     pilot color = text_color
     pilot size = font_size
-    pilot bold = 0
-    pilot italic = 0
+    pilot bold = false
+    pilot italic = false
 
     if style == label_heading {
         size = 24
-        bold = 1
+        bold = true
     }
     if style == label_subheading {
         size = 18
-        bold = 1
+        bold = true
     }
     if style == label_display {
         size = 36
-        bold = 1
+        bold = true
     }
     if style == label_mono {
         size = 13
@@ -67,7 +75,7 @@ task label_sized(canvas: Canvas, text: word, rect: Rect, style: int,
         color = muted_color
     }
 
-    canvas.draw_text(text, rect.x, rect.y, Font { size: size, bold: bold, italic: italic }, color)
+    canvas.draw_text(text, rect.x.to_int(), rect.y.to_int(), Font { size: size, bold: bold, italic: italic }, color)
 }
 
 -- Get height for a label style
@@ -88,7 +96,7 @@ shape ButtonResult {
 }
 
 task button_check(rect: Rect, mouse_x: int, mouse_y: int, mouse_down: bool, mouse_clicked: bool) -> ButtonResult {
-    pilot hovered = rect.contains(mouse_x, mouse_y)
+    pilot hovered = rect.contains(mouse_x.to_num(), mouse_y.to_num())
     pilot clicked = hovered and mouse_clicked
     give back ButtonResult { clicked: clicked, hovered: hovered }
 }
@@ -156,8 +164,8 @@ task button_draw(canvas: Canvas, text: word, rect: Rect, style: int, hovered: bo
 
     -- Draw text centered
     pilot text_w = measure_text_width(text, font_size)
-    pilot text_x = rect.x + (rect.w - text_w) / 2
-    pilot text_y = rect.y + (rect.h - font_size) / 2
+    pilot text_x = (rect.x + (rect.w - text_w.to_num()) / 2.0).to_int()
+    pilot text_y = (rect.y + (rect.h - font_size.to_num()) / 2.0).to_int()
     canvas.draw_text(text, text_x, text_y, Font { size: font_size, bold: false, italic: false }, fg)
 }
 
@@ -192,10 +200,10 @@ task input_draw(canvas: Canvas, value: word, rect: Rect, placeholder: word,
     canvas.stroke_rect(rect, border_color, 1)
 
     -- Text or placeholder
-    pilot text_x = rect.x + 8
-    pilot text_y = rect.y + (rect.h - font_size) / 2
+    pilot text_x = (rect.x + 8.0).to_int()
+    pilot text_y = (rect.y + (rect.h - font_size.to_num()) / 2.0).to_int()
 
-    if value.len() == 0 {
+    if value.length() == 0 {
         canvas.draw_text(placeholder, text_x, text_y,
             Font { size: font_size, bold: false, italic: false }, theme_muted)
     } else {
@@ -206,7 +214,7 @@ task input_draw(canvas: Canvas, value: word, rect: Rect, placeholder: word,
     -- Cursor (blinking would need frame counter, for now always show when focused)
     if focused {
         pilot cursor_x = text_x + measure_text_width(value.substring(0, cursor_pos), font_size)
-        canvas.fill_rect(Rect { x: cursor_x, y: rect.y + 4, w: 2, h: rect.h - 8 }, theme_accent)
+        canvas.fill_rect(Rect { x: cursor_x.to_num(), y: rect.y + 4.0, w: 2.0, h: rect.h - 8.0 }, theme_accent)
     }
 }
 
@@ -221,7 +229,7 @@ task input_draw(canvas: Canvas, value: word, rect: Rect, placeholder: word,
 -- ================================================================
 
 task separator_draw(canvas: Canvas, rect: Rect, color: Color) -> void {
-    pilot y = rect.y + rect.h / 2
+    pilot y = rect.y + rect.h / 2.0
     canvas.draw_line(
         Vec2 { x: rect.x, y: y },
         Vec2 { x: rect.x + rect.w, y: y },
@@ -233,7 +241,7 @@ task separator_draw(canvas: Canvas, rect: Rect, color: Color) -> void {
 --  Dropdown — draw helpers
 -- ================================================================
 
-task dropdown_draw(canvas: Canvas, items: List<word>, selected: int, rect: Rect,
+task dropdown_draw(canvas: Canvas, items: Squad, selected: int, rect: Rect,
                    is_open: bool, hover_index: int,
                    theme_surface: Color, theme_bg2: Color, theme_border: Color,
                    theme_accent: Color, theme_text: Color, theme_muted: Color,
@@ -243,10 +251,10 @@ task dropdown_draw(canvas: Canvas, items: List<word>, selected: int, rect: Rect,
     canvas.stroke_rect(rect, theme_border, 1)
 
     -- Selected text
-    pilot text_x = rect.x + 8
-    pilot text_y = rect.y + (rect.h - font_size) / 2
-    if selected >= 0 and selected < items.len() {
-        canvas.draw_text(items[selected], text_x, text_y,
+    pilot text_x = (rect.x + 8.0).to_int()
+    pilot text_y = (rect.y + (rect.h - font_size.to_num()) / 2.0).to_int()
+    if selected >= 0 and selected < items.size() {
+        canvas.draw_text(items.get(selected), text_x, text_y,
             Font { size: font_size, bold: false, italic: false }, theme_text)
     } else {
         canvas.draw_text("(none)", text_x, text_y,
@@ -254,14 +262,14 @@ task dropdown_draw(canvas: Canvas, items: List<word>, selected: int, rect: Rect,
     }
 
     -- Down arrow indicator
-    pilot arrow_x = rect.x + rect.w - 20
+    pilot arrow_x = (rect.x + rect.w - 20.0).to_int()
     canvas.draw_text("v", arrow_x, text_y,
         Font { size: font_size, bold: false, italic: false }, theme_muted)
 
     -- If open, draw the option list overlay
     if is_open {
         pilot list_y = rect.y + rect.h
-        pilot list_h = items.len() * item_h
+        pilot list_h = (items.size() * item_h).to_num()
 
         -- Background
         pilot list_rect = Rect { x: rect.x, y: list_y, w: rect.w, h: list_h }
@@ -270,18 +278,18 @@ task dropdown_draw(canvas: Canvas, items: List<word>, selected: int, rect: Rect,
 
         -- Items
         pilot i = 0
-        repeat items.len() times {
-            pilot iy = list_y + i * item_h
-            pilot item_rect = Rect { x: rect.x, y: iy, w: rect.w, h: item_h }
+        repeat items.size() times {
+            pilot iy = list_y + (i * item_h).to_num()
+            pilot item_rect = Rect { x: rect.x, y: iy, w: rect.w, h: item_h.to_num() }
 
             -- Highlight hovered item
             if i == hover_index {
                 canvas.fill_rect(item_rect, theme_accent)
-                canvas.draw_text(items[i], rect.x + 8, iy + (item_h - font_size) / 2,
+                canvas.draw_text(items.get(i), (rect.x + 8.0).to_int(), (iy + (item_h - font_size).to_num() / 2.0).to_int(),
                     Font { size: font_size, bold: false, italic: false },
                     Color::rgb(255, 255, 255))
             } else {
-                canvas.draw_text(items[i], rect.x + 8, iy + (item_h - font_size) / 2,
+                canvas.draw_text(items.get(i), (rect.x + 8.0).to_int(), (iy + (item_h - font_size).to_num() / 2.0).to_int(),
                     Font { size: font_size, bold: false, italic: false }, theme_text)
             }
             i = i + 1
@@ -293,7 +301,7 @@ task dropdown_draw(canvas: Canvas, items: List<word>, selected: int, rect: Rect,
 --  Tabs — draw helpers
 -- ================================================================
 
-task tabs_draw(canvas: Canvas, names: List<word>, selected: int, rect: Rect,
+task tabs_draw(canvas: Canvas, names: Squad, selected: int, rect: Rect,
                hover_index: int,
                theme_surface: Color, theme_bg: Color, theme_border: Color,
                theme_accent: Color, theme_text: Color, theme_muted: Color,
@@ -302,17 +310,17 @@ task tabs_draw(canvas: Canvas, names: List<word>, selected: int, rect: Rect,
     canvas.fill_rect(rect, theme_bg)
 
     -- Draw each tab
-    pilot tab_w = rect.w / names.len()
+    pilot tab_w = rect.w / names.size().to_num()
     pilot i = 0
-    repeat names.len() times {
-        pilot tx = rect.x + i * tab_w
+    repeat names.size() times {
+        pilot tx = rect.x + i.to_num() * tab_w
         pilot tab_rect = Rect { x: tx, y: rect.y, w: tab_w, h: rect.h }
 
         -- Selected tab highlight
         if i == selected {
             canvas.fill_rect(tab_rect, theme_surface)
             -- Accent underline
-            pilot underline = Rect { x: tx, y: rect.y + rect.h - 3, w: tab_w, h: 3 }
+            pilot underline = Rect { x: tx, y: rect.y + rect.h - 3.0, w: tab_w, h: 3.0 }
             canvas.fill_rect(underline, theme_accent)
         }
 
@@ -326,20 +334,20 @@ task tabs_draw(canvas: Canvas, names: List<word>, selected: int, rect: Rect,
             canvas.fill_rect(tab_rect, hover_bg)
         }
 
-        -- Tab text
-        pilot text_w = measure_text_width(names[i], font_size)
-        pilot text_x = tx + (tab_w - text_w) / 2
-        pilot text_y = rect.y + (rect.h - font_size) / 2
+        -- Tab text (selected tab is rendered bold; measure to match)
+        pilot text_w = measure_text_styled(names.get(i), font_size, i == selected, false).to_num()
+        pilot text_x = (tx + (tab_w - text_w) / 2.0).to_int()
+        pilot text_y = (rect.y + (rect.h - font_size.to_num()) / 2.0).to_int()
         pilot text_color = theme_muted
         if i == selected { text_color = theme_text }
-        canvas.draw_text(names[i], text_x, text_y,
+        canvas.draw_text(names.get(i), text_x, text_y,
             Font { size: font_size, bold: i == selected, italic: false }, text_color)
 
         i = i + 1
     }
 
     -- Bottom border
-    pilot bottom = Rect { x: rect.x, y: rect.y + rect.h - 1, w: rect.w, h: 1 }
+    pilot bottom = Rect { x: rect.x, y: rect.y + rect.h - 1.0, w: rect.w, h: 1.0 }
     canvas.fill_rect(bottom, theme_border)
 }
 
@@ -364,10 +372,10 @@ task progress_draw(canvas: Canvas, value: num, rect: Rect, label: word,
     }
 
     -- Label centered
-    if label.len() > 0 {
-        pilot text_w = measure_text_width(label, font_size)
-        pilot text_x = rect.x + (rect.w - text_w) / 2
-        pilot text_y = rect.y + (rect.h - font_size) / 2
+    if label.length() > 0 {
+        pilot text_w = measure_text_width(label, font_size).to_num()
+        pilot text_x = (rect.x + (rect.w - text_w) / 2.0).to_int()
+        pilot text_y = (rect.y + (rect.h - font_size.to_num()) / 2.0).to_int()
         canvas.draw_text(label, text_x, text_y,
             Font { size: font_size, bold: false, italic: false }, theme_text)
     }
@@ -388,7 +396,7 @@ task tooltip_draw(canvas: Canvas, text: word, anchor_x: int, anchor_y: int,
     pilot tx = anchor_x
     pilot ty = anchor_y - text_h - 4
 
-    pilot bg_rect = Rect { x: tx, y: ty, w: text_w, h: text_h }
+    pilot bg_rect = Rect { x: tx.to_num(), y: ty.to_num(), w: text_w.to_num(), h: text_h.to_num() }
     canvas.fill_rect(bg_rect, theme_surface)
     canvas.stroke_rect(bg_rect, theme_border, 1)
     canvas.draw_text(text, tx + pad, ty + pad,
@@ -403,13 +411,13 @@ task modal_overlay_draw(canvas: Canvas, win_w: int, win_h: int,
                         panel_w: int, panel_h: int,
                         theme_bg: Color, theme_surface: Color, theme_border: Color) -> Rect {
     -- Darken background
-    pilot overlay = Rect { x: 0, y: 0, w: win_w, h: win_h }
+    pilot overlay = Rect { x: 0.0, y: 0.0, w: win_w.to_num(), h: win_h.to_num() }
     canvas.fill_rect(overlay, Color::rgba(0, 0, 0, 160))
 
     -- Centered panel
-    pilot px = (win_w - panel_w) / 2
-    pilot py = (win_h - panel_h) / 2
-    pilot panel = Rect { x: px, y: py, w: panel_w, h: panel_h }
+    pilot px = (win_w - panel_w).to_num() / 2.0
+    pilot py = (win_h - panel_h).to_num() / 2.0
+    pilot panel = Rect { x: px, y: py, w: panel_w.to_num(), h: panel_h.to_num() }
     canvas.fill_rect(panel, theme_surface)
     canvas.stroke_rect(panel, theme_border, 1)
 

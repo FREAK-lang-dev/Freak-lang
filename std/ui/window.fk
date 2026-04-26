@@ -88,6 +88,27 @@ impl Font {
     task display() -> Font {
         give back Font { size: 36, bold: true, italic: false }
     }
+
+    -- Measure rendered text. Returns Vec2 { x: pixel width, y: line height }.
+    -- Width is from the platform (Win32 GetTextExtentPoint32). Height is
+    -- the font size — close enough for single-line layout; multi-line text
+    -- should compute its own line spacing.
+    task measure(self, text: word) -> Vec2 {
+        pilot b = 0
+        if self.bold { b = 1 }
+        pilot i = 0
+        if self.italic { i = 1 }
+        pilot w = ui::measure_text(text, self.size, b, i)
+        give back Vec2 { x: w.to_num(), y: self.size.to_num() }
+    }
+
+    task measure_width(self, text: word) -> int {
+        pilot b = 0
+        if self.bold { b = 1 }
+        pilot i = 0
+        if self.italic { i = 1 }
+        give back ui::measure_text(text, self.size, b, i)
+    }
 }
 
 -- ================================================================
@@ -95,58 +116,58 @@ impl Font {
 -- ================================================================
 
 -- Event kind constants (match C defines)
-fixed pilot event_none   = 0
-fixed pilot event_quit   = 1
-fixed pilot event_key    = 2
-fixed pilot event_char   = 3
-fixed pilot event_mouse  = 4
-fixed pilot event_scroll = 5
-fixed pilot event_resize = 6
-fixed pilot event_focus  = 7
+pilot event_none   = 0
+pilot event_quit   = 1
+pilot event_key    = 2
+pilot event_char   = 3
+pilot event_mouse  = 4
+pilot event_scroll = 5
+pilot event_resize = 6
+pilot event_focus  = 7
 
 -- Key constants (match C defines)
-fixed pilot key_a = 1
-fixed pilot key_b = 2
-fixed pilot key_c = 3
-fixed pilot key_d = 4
-fixed pilot key_e = 5
-fixed pilot key_f = 6
-fixed pilot key_g = 7
-fixed pilot key_h = 8
-fixed pilot key_i = 9
-fixed pilot key_j = 10
-fixed pilot key_k = 11
-fixed pilot key_l = 12
-fixed pilot key_m = 13
-fixed pilot key_n = 14
-fixed pilot key_o = 15
-fixed pilot key_p = 16
-fixed pilot key_q = 17
-fixed pilot key_r = 18
-fixed pilot key_s = 19
-fixed pilot key_t = 20
-fixed pilot key_u = 21
-fixed pilot key_v = 22
-fixed pilot key_w = 23
-fixed pilot key_x = 24
-fixed pilot key_y = 25
-fixed pilot key_z = 26
-fixed pilot key_enter     = 37
-fixed pilot key_escape    = 38
-fixed pilot key_space     = 39
-fixed pilot key_tab       = 40
-fixed pilot key_backspace = 41
-fixed pilot key_delete    = 42
-fixed pilot key_up        = 43
-fixed pilot key_down      = 44
-fixed pilot key_left      = 45
-fixed pilot key_right     = 46
+pilot key_a = 1
+pilot key_b = 2
+pilot key_c = 3
+pilot key_d = 4
+pilot key_e = 5
+pilot key_f = 6
+pilot key_g = 7
+pilot key_h = 8
+pilot key_i = 9
+pilot key_j = 10
+pilot key_k = 11
+pilot key_l = 12
+pilot key_m = 13
+pilot key_n = 14
+pilot key_o = 15
+pilot key_p = 16
+pilot key_q = 17
+pilot key_r = 18
+pilot key_s = 19
+pilot key_t = 20
+pilot key_u = 21
+pilot key_v = 22
+pilot key_w = 23
+pilot key_x = 24
+pilot key_y = 25
+pilot key_z = 26
+pilot key_enter     = 37
+pilot key_escape    = 38
+pilot key_space     = 39
+pilot key_tab       = 40
+pilot key_backspace = 41
+pilot key_delete    = 42
+pilot key_up        = 43
+pilot key_down      = 44
+pilot key_left      = 45
+pilot key_right     = 46
 
 -- Mouse button constants
-fixed pilot mouse_none   = 0
-fixed pilot mouse_left   = 1
-fixed pilot mouse_right  = 2
-fixed pilot mouse_middle = 3
+pilot mouse_none   = 0
+pilot mouse_left   = 1
+pilot mouse_right  = 2
+pilot mouse_middle = 3
 
 -- Raw event shape (flat, easy FFI)
 shape Event {
@@ -234,13 +255,13 @@ impl Window {
 
     -- Poll events for this frame. Returns a list of events.
     -- If quit was requested, the list will contain an event_quit event.
-    task poll(self) -> List<Event> {
-        pilot events = []
+    task poll(self) -> Squad {
+        pilot events = Squad::new()
         pilot count = ui::poll_events(self.handle)
 
         if count < 0 {
             -- Quit requested
-            events.push(Event {
+            events.add(Event {
                 kind: event_quit, key: 0, pressed: 0, key_repeat: 0,
                 character: 0, mouse_x: 0, mouse_y: 0, button: 0,
                 scroll_dy: 0, width: 0, height: 0, gained: 0
@@ -264,7 +285,7 @@ impl Window {
                 height:    ui::event_height(i),
                 gained:    ui::event_gained(i)
             }
-            events.push(ev)
+            events.add(ev)
             i = i + 1
         }
         give back events
