@@ -5,6 +5,10 @@
 -- "Every widget has a story. This is all of them at once."
 
 use std::ui::{Window, WindowConfig, Canvas, Event}
+use cockpit::{UI, Theme, SizeHint,
+              btn_normal, btn_primary, btn_danger, btn_operator, btn_equals, btn_ghost,
+              label_normal, label_heading, label_subheading, label_display, label_mono, label_muted,
+              ease_linear, ease_in, ease_out, ease_in_out, ease_spring}
 
 @protagonist
 task main() {
@@ -92,7 +96,7 @@ task main() {
             ui.begin_row(8, 0)
             ui.button("Normal")
             ui.button_primary("Primary")
-            if ui.button_styled("Open Modal", btn_danger, SizeHint::auto()) {
+            if ui.button_styled("Open Modal", btn_danger, SizeHint::auto_size()) {
                 modal_visible = true
             }
             ui.end_row()
