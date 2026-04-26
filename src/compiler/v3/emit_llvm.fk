@@ -892,7 +892,40 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
     if val == "to_lower" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_lower(i64 " + obj_reg + ")") give back res_reg }
     if val == "trim" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_trim(i64 " + obj_reg + ")") give back res_reg }
     if val == "replace" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_replace(i64 " + obj_reg + ", i64 " + a + ", i64 0)") give back res_reg }
-    if val == "to_int" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_int(i64 " + obj_reg + ")") give back res_reg }
+    -- to_int / to_num / to_word — receiver-type-dispatched primitive
+    -- conversions.  The receiver's inferred type picks which runtime
+    -- helper to call.  Without these, calls like `font_size.to_num()`
+    -- in cockpit landed on the unsupported-method branch and returned
+    -- 0, which collapsed every layout rect to zero size.
+    pilot recv_ty = llvm_infer_expr_type(left)
+    if val == "to_int" {
+        if recv_ty.starts_with("n") {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_num_to_int(i64 " + obj_reg + ")")
+        } else {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_int(i64 " + obj_reg + ")")
+        }
+        give back res_reg
+    }
+    if val == "to_num" {
+        if recv_ty.starts_with("w") {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_parse_num(i64 " + obj_reg + ")")
+        } else {
+            -- Default: treat as int → num (covers int and unknown-typed
+            -- locals that hold integer values, e.g. shape fields).
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_int_to_num(i64 " + obj_reg + ")")
+        }
+        give back res_reg
+    }
+    if val == "to_word" {
+        if recv_ty.starts_with("n") {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_from_num(i64 " + obj_reg + ")")
+        } else if recv_ty.starts_with("b") {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_from_bool(i64 " + obj_reg + ")")
+        } else {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_from_int(i64 " + obj_reg + ")")
+        }
+        give back res_reg
+    }
     -- User-defined impl methods
     -- Args are stored in `right` as a comma-separated list of expr id words.
     -- Thread them through llvm_emit_args so user methods receive every arg

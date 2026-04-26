@@ -246,6 +246,22 @@ void    freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t 
 void    freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) { }
 #endif /* FREAK_HAS_UI */
 
+/* ── Numeric conversions (i64 ↔ bitcast double) ────── */
+/* These were marked "pure LLVM IR intrinsics" in a comment but no IR
+   definition was ever emitted, so any user-side `.to_num()` /
+   `.to_int()` / `.to_word()` call became an unresolved extern.        */
+int64_t freak_llvm_int_to_num(int64_t i) {
+    return double_to_i64((double)i);
+}
+int64_t freak_llvm_num_to_int(int64_t n) {
+    return (int64_t)i64_to_double(n);
+}
+int64_t freak_llvm_word_from_num(int64_t n) {
+    static char buf[64];
+    snprintf(buf, sizeof(buf), "%.10g", i64_to_double(n));
+    return (int64_t)buf;
+}
+
 /* ── char_to_word (UTF-8 encode a code point) ───────── */
 int64_t freak_llvm_char_to_word(int64_t code) {
     char* buf = (char*)malloc(5);
