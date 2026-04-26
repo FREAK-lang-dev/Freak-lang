@@ -464,6 +464,51 @@ task emit_stmt(eid: word) -> void {
     if kind == STMT_ASSIGN {
         pilot op_w = name_w
         pilot rhs_w: word = array_get(ast_stmt_bodies, i)
+        pilot lhs_idx = word_to_int(expr_id_w)
+        pilot lhs_kind: word = array_get(ast_expr_kinds, lhs_idx)
+
+        -- Field assignment: self.field = rhs  ->  shape_set(self, fidx, rhs)
+        -- For compound ops we re-evaluate the receiver (acceptable for the
+        --  common `self.field +=` case; nested side-effecting receivers are
+        --  rare and can be lifted to a temp by the caller).
+        if lhs_kind == EXPR_FIELD {
+            pilot field_name: word = array_get(ast_expr_vals, lhs_idx)
+            pilot recv_id: word = array_get(ast_expr_lefts, lhs_idx)
+            pilot fidx = 0 - 1
+            pilot si = 0
+            repeat shape_registry_count times {
+                pilot tmpidx = get_shape_field_index(array_get(shape_registry_names, si), field_name)
+                if tmpidx >= 0 { fidx = tmpidx }
+                si += 1
+            }
+            if fidx < 0 { fidx = 0 }
+            pilot fidx_w = word_from_int(fidx)
+
+            if op_w == "=" {
+                emit("freak_llvm_shape_set(")
+                emit_expr(recv_id)
+                emit(", " + fidx_w + ", ")
+                emit_expr(rhs_w)
+                emit_line(");")
+                give back
+            }
+
+            pilot bin_op = "+"
+            if op_w == "-=" { bin_op = "-" }
+            if op_w == "*=" { bin_op = "*" }
+            if op_w == "/=" { bin_op = "/" }
+            if op_w == "%=" { bin_op = "%" }
+
+            emit("freak_llvm_shape_set(")
+            emit_expr(recv_id)
+            emit(", " + fidx_w + ", freak_llvm_shape_get(")
+            emit_expr(recv_id)
+            emit(", " + fidx_w + ") " + bin_op + " ")
+            emit_expr(rhs_w)
+            emit_line(");")
+            give back
+        }
+
         emit_expr(expr_id_w)
         emit(" " + op_w + " ")
         emit_expr(rhs_w)

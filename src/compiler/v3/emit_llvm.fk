@@ -149,9 +149,16 @@ task llvm_dbg_set_stmt_line(eid: word) -> void {
 }
 
 task llvm_dbg_begin_func(name: word, line_no: int) -> word {
-    llvm_dbg_current_scope_id = llvm_dbg_emit_subprogram(name, line_no)
-    llvm_dbg_current_line = line_no
-    give back " !dbg !" + word_from_int(llvm_dbg_current_scope_id)
+    -- Debug info disabled: emit no DISubprogram, no per-instruction
+    -- DILocation, no `!dbg !N` annotations. Brings the .ll file size
+    -- down by ~12x for cockpit-scale programs (one !DILocation per
+    -- instruction adds up fast). Re-enable when LB10 (debug info)
+    -- actually consumes the metadata via DIBuilder for source-level
+    -- debugging. The DIFile/DICompileUnit headers in llvm_dbg_init
+    -- are harmless to keep.
+    llvm_dbg_current_scope_id = 0
+    llvm_dbg_current_line = 0
+    give back ""
 }
 
 task register_string_literal(val: word) -> word {
@@ -322,7 +329,11 @@ task llvm_var_ptr(vname: word) -> word {
     if llvm_is_global(vname) { give back "@g_" + vname }
     pilot unique = llvm_get_llvm_name(vname)
     if unique != "" { give back "%" + unique }
-    give back "%" + vname
+    -- Unknown name: assume it's an unresolved top-level global. Emitting
+    -- "%vname" would produce an undefined SSA register and a confusing
+    -- clang error. "@g_vname" surfaces a clean linker-time missing-symbol
+    -- error instead.
+    give back "@g_" + vname
 }
 
 task llvm_is_runtime_func(fname: word) -> bool {
@@ -460,6 +471,7 @@ task llvm_map_call_name(val: word) -> word {
     if val == "word_from_int" { give back "@freak_llvm_word_from_int" }
     if val == "word_from_bool" { give back "@freak_llvm_word_from_bool" }
     if val == "word_to_int" { give back "@freak_llvm_word_to_int" }
+    if val == "char_to_word" { give back "@freak_llvm_char_to_word" }
     if val == "fs::read" { give back "@freak_llvm_fs_read" }
     if val == "fs::write" { give back "@freak_llvm_fs_write" }
     if val == "fs::append" { give back "@freak_llvm_fs_append" }
@@ -489,6 +501,13 @@ task llvm_map_call_name(val: word) -> word {
     if val == "ui::event_mouse_x" { give back "@freak_llvm_ui_event_mouse_x" }
     if val == "ui::event_mouse_y" { give back "@freak_llvm_ui_event_mouse_y" }
     if val == "ui::event_button" { give back "@freak_llvm_ui_event_button" }
+    if val == "ui::event_repeat" { give back "@freak_llvm_ui_event_repeat" }
+    if val == "ui::event_scroll_dy" { give back "@freak_llvm_ui_event_scroll_dy" }
+    if val == "ui::event_width" { give back "@freak_llvm_ui_event_width" }
+    if val == "ui::event_height" { give back "@freak_llvm_ui_event_height" }
+    if val == "ui::event_gained" { give back "@freak_llvm_ui_event_gained" }
+    if val == "ui::get_width" { give back "@freak_llvm_ui_get_width" }
+    if val == "ui::get_height" { give back "@freak_llvm_ui_get_height" }
     if val == "ui::clear" { give back "@freak_llvm_ui_clear" }
     if val == "ui::fill_rect" { give back "@freak_llvm_ui_fill_rect" }
     if val == "ui::stroke_rect" { give back "@freak_llvm_ui_stroke_rect" }
@@ -843,6 +862,13 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
     if val == "replace" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_replace(i64 " + obj_reg + ", i64 " + a + ", i64 0)") give back res_reg }
     if val == "to_int" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_int(i64 " + obj_reg + ")") give back res_reg }
     -- User-defined impl methods
+    -- Args are stored in `right` as a comma-separated list of expr id words.
+    -- Thread them through llvm_emit_args so user methods receive every arg
+    -- after `self`, not just `self` alone.
+    pilot extra_args = ""
+    if right.length() > 0 {
+        extra_args = ", " + llvm_emit_args(right)
+    }
     pilot si = 0
     repeat shape_registry_count times {
         pilot sname: word = "" + array_get(shape_registry_names, si)
@@ -850,10 +876,10 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
         if call_ret.length() > 0 {
             pilot impl_fname = "freak_" + sname + "_" + val
             if call_ret == "v" {
-                llvm_emit_line("    call void @" + impl_fname + "(i64 " + obj_reg + ")")
+                llvm_emit_line("    call void @" + impl_fname + "(i64 " + obj_reg + extra_args + ")")
                 llvm_emit_line("    " + res_reg + " = add i64 0, 0")
             } else {
-                llvm_emit_line("    " + res_reg + " = call i64 @" + impl_fname + "(i64 " + obj_reg + ")")
+                llvm_emit_line("    " + res_reg + " = call i64 @" + impl_fname + "(i64 " + obj_reg + extra_args + ")")
             }
             give back res_reg
         }
@@ -1142,7 +1168,49 @@ task llvm_emit_stmt_assign(eid: word) -> void {
     pilot name_w: word = array_get(ast_stmt_names, i)
     pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
     pilot rhs_w: word = array_get(ast_stmt_bodies, i)
-    pilot var_name_expr: word = array_get(ast_expr_vals, word_to_int(expr_id_w))
+    pilot lhs_idx = word_to_int(expr_id_w)
+    pilot lhs_kind: word = array_get(ast_expr_kinds, lhs_idx)
+
+    -- Field assignment: self.field = rhs  ->  shape_set(self, fidx, rhs)
+    -- (Receiver evaluated once and reused for compound ops to avoid
+    --  re-running side effects.)
+    if lhs_kind == EXPR_FIELD {
+        pilot field_name: word = array_get(ast_expr_vals, lhs_idx)
+        pilot recv_id: word = array_get(ast_expr_lefts, lhs_idx)
+        pilot recv_reg = llvm_emit_expr(recv_id)
+
+        pilot fidx = 0 - 1
+        pilot si = 0
+        repeat shape_registry_count times {
+            pilot tmpidx = get_shape_field_index(array_get(shape_registry_names, si), field_name)
+            if tmpidx >= 0 { fidx = tmpidx }
+            si += 1
+        }
+        if fidx < 0 { fidx = 0 }
+
+        pilot rhs_reg = llvm_emit_expr(rhs_w)
+        pilot fidx_w = word_from_int(fidx)
+
+        if name_w == "=" {
+            llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + rhs_reg + ")")
+            give back
+        }
+
+        -- Compound op on field: read, combine, write
+        pilot cur_reg = next_reg()
+        llvm_emit_line("    " + cur_reg + " = call i64 @freak_llvm_shape_get(i64 " + recv_reg + ", i64 " + fidx_w + ")")
+        pilot op_reg = next_reg()
+        if name_w == "+=" { llvm_emit_line("    " + op_reg + " = add i64 " + cur_reg + ", " + rhs_reg) }
+        if name_w == "-=" { llvm_emit_line("    " + op_reg + " = sub i64 " + cur_reg + ", " + rhs_reg) }
+        if name_w == "*=" { llvm_emit_line("    " + op_reg + " = mul i64 " + cur_reg + ", " + rhs_reg) }
+        if name_w == "/=" { llvm_emit_line("    " + op_reg + " = sdiv i64 " + cur_reg + ", " + rhs_reg) }
+        if name_w == "%=" { llvm_emit_line("    " + op_reg + " = srem i64 " + cur_reg + ", " + rhs_reg) }
+        llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + op_reg + ")")
+        give back
+    }
+
+    -- Plain variable / global assignment
+    pilot var_name_expr: word = array_get(ast_expr_vals, lhs_idx)
     pilot reg = llvm_emit_expr(rhs_w)
     pilot var_ptr = llvm_var_ptr(var_name_expr)
     if name_w == "=" {
@@ -1333,6 +1401,10 @@ task llvm_allocate_params(p: word) -> void {
             if cur_type == "num" { pt = "n" }
             if cur_type == "bool" { pt = "b" }
             llvm_set_var_type(cur_name, pt)
+            -- Register the param in the llvm-name map so later references
+            -- to `cur_name` resolve to `%cur_name` rather than falling
+            -- through to the unknown-name path.
+            llvm_reg_var(cur_name, cur_name)
             cur_name = ""
             cur_type = ""
             in_type = false
@@ -1350,6 +1422,7 @@ task llvm_allocate_params(p: word) -> void {
         if cur_type == "num" { pt = "n" }
         if cur_type == "bool" { pt = "b" }
         llvm_set_var_type(cur_name, pt)
+        llvm_reg_var(cur_name, cur_name)
     }
 }
 
@@ -1392,6 +1465,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @strlen(i8*)")
     llvm_emit_line("declare i64 @freak_llvm_word_from_int(i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_from_bool(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_char_to_word(i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_concat(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_eq(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_neq(i64, i64)")
@@ -1438,6 +1512,13 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_llvm_ui_event_mouse_x(i64)")
     llvm_emit_line("declare i64 @freak_llvm_ui_event_mouse_y(i64)")
     llvm_emit_line("declare i64 @freak_llvm_ui_event_button(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_repeat(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_scroll_dy(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_width(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_height(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_gained(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_get_width(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_get_height(i64)")
     llvm_emit_line("declare void @freak_llvm_ui_clear(i64, i64, i64, i64, i64)")
     llvm_emit_line("declare void @freak_llvm_ui_fill_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
     llvm_emit_line("declare void @freak_llvm_ui_stroke_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")

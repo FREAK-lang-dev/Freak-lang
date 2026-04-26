@@ -391,6 +391,27 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_EVENTUALLY, "", "", ev_body, "", "", "", "", stmt_line)
     }
 
+    -- fixed pilot name = expr  (immutable binding; treated identically to
+    --                            `pilot` here since the v3 emitter doesn't
+    --                            track mutability — the type checker will
+    --                            eventually enforce the `fixed` half.)
+    if match_tok(TOK_KW, "fixed") {
+        if not match_tok(TOK_KW, "pilot") {
+            diag_error("expected 'pilot' after 'fixed'", "")
+        }
+        pilot fname = cur_tok_val()
+        advance_tok()
+        pilot ftype_ann = ""
+        if cur_tok_type() == TOK_PUNCT and cur_tok_val() == ":" {
+            advance_tok()
+            ftype_ann = cur_tok_val()
+            advance_tok()
+        }
+        expect_tok(TOK_PUNCT, "=")
+        pilot fexpr_id = parse_expr()
+        give back alloc_stmt(STMT_PILOT, fname, word_from_int(fexpr_id), "", "", ftype_ann, "", "", stmt_line)
+    }
+
     -- pilot name = expr
     if match_tok(TOK_KW, "pilot") {
         pilot name = cur_tok_val()
