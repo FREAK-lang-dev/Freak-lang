@@ -34,6 +34,9 @@ pilot EXPR_CALL = "8"
 pilot EXPR_METHOD = "9"
 pilot EXPR_FIELD = "10"
 pilot EXPR_INDEX = "11"
+-- `[a, b, c]` — value is unused, left holds the comma-separated list of
+-- element expr ids (same encoding as call args).
+pilot EXPR_ARRAY_LIT = "12"
 
 pilot ast_expr_kinds = 0
 pilot ast_expr_vals = 0

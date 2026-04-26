@@ -168,6 +168,40 @@ task emit_expr(id: word) -> void {
         give back
     }
 
+    if kind == EXPR_ARRAY_LIT {
+        -- `[a, b, c]` lowers to a clang/gcc statement-expression:
+        --   ({ int64_t arr = freak_llvm_array_new();
+        --      freak_llvm_array_push(arr, a);
+        --      freak_llvm_array_push(arr, b);
+        --      arr; })
+        -- Element ids live in `left`, comma-separated.
+        emit("({ int64_t __arr = freak_llvm_array_new(); ")
+        pilot ali = 0
+        pilot alen2 = left.length()
+        pilot cur_eid_c = ""
+        repeat alen2 times {
+            pilot acc = left.char_at(ali)
+            if acc == "," {
+                if cur_eid_c.length() > 0 {
+                    emit("freak_llvm_array_push(__arr, ")
+                    emit_expr(cur_eid_c)
+                    emit("); ")
+                    cur_eid_c = ""
+                }
+            } else {
+                cur_eid_c = cur_eid_c + acc
+            }
+            ali += 1
+        }
+        if cur_eid_c.length() > 0 {
+            emit("freak_llvm_array_push(__arr, ")
+            emit_expr(cur_eid_c)
+            emit("); ")
+        }
+        emit("__arr; })")
+        give back
+    }
+
     if kind == EXPR_BINOP {
         emit_c_binop(val, left, right)
         give back

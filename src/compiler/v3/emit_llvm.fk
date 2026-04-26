@@ -630,6 +630,38 @@ task llvm_emit_expr(id: word) -> word {
         llvm_emit_line("    " + res_reg + " = zext i8 " + char_reg + " to i64")
         give back res_reg
     }
+    if kind == EXPR_ARRAY_LIT {
+        -- Lower `[a, b, c]` to:
+        --   %arr = call i64 @freak_llvm_array_new()
+        --   call void @freak_llvm_array_push(i64 %arr, i64 %a)
+        --   call void @freak_llvm_array_push(i64 %arr, i64 %b)
+        --   ...
+        -- and return %arr.  `left` is a comma-separated list of element
+        -- expr ids (same encoding as call args / shape ctor args).
+        pilot arr_reg = next_reg()
+        llvm_emit_line("    " + arr_reg + " = call i64 @freak_llvm_array_new()")
+        pilot ai = 0
+        pilot alen = left.length()
+        pilot cur_eid = ""
+        repeat alen times {
+            pilot ac = left.char_at(ai)
+            if ac == "," {
+                if cur_eid.length() > 0 {
+                    pilot er = llvm_emit_expr(cur_eid)
+                    llvm_emit_line("    call void @freak_llvm_array_push(i64 " + arr_reg + ", i64 " + er + ")")
+                    cur_eid = ""
+                }
+            } else {
+                cur_eid = cur_eid + ac
+            }
+            ai += 1
+        }
+        if cur_eid.length() > 0 {
+            pilot er2 = llvm_emit_expr(cur_eid)
+            llvm_emit_line("    call void @freak_llvm_array_push(i64 " + arr_reg + ", i64 " + er2 + ")")
+        }
+        give back arr_reg
+    }
     give back "0"
 }
 
