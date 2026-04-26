@@ -16,11 +16,11 @@ use std::ui::{Window, Canvas, Rect, Vec2, Color, Font, Event,
               key_left, key_right, key_enter, key_tab, key_escape}
 
 -- Easing function constants
-fixed pilot ease_linear      = 0
-fixed pilot ease_in          = 1
-fixed pilot ease_out         = 2
-fixed pilot ease_in_out      = 3
-fixed pilot ease_spring      = 4
+pilot ease_linear      = 0
+pilot ease_in          = 1
+pilot ease_out         = 2
+pilot ease_in_out      = 3
+pilot ease_spring      = 4
 
 -- ================================================================
 --  UI — the immediate mode state machine
@@ -74,7 +74,7 @@ shape UI {
     dropdown_open_id:  int   -- which dropdown is open (-1 = none)
 
     -- Scroll state (per-widget, up to 16 scrollable regions)
-    scroll_offsets:    List<num>
+    scroll_offsets:    Squad
     scroll_count:      int
 
     -- Animation / frame timing
@@ -82,11 +82,11 @@ shape UI {
     delta_time:        num   -- seconds since last frame
 
     -- Tween state (up to 32 active tweens)
-    tween_ids:         List<int>
-    tween_currents:    List<num>
-    tween_targets:     List<num>
-    tween_speeds:      List<num>
-    tween_easings:     List<int>
+    tween_ids:         Squad
+    tween_currents:    Squad
+    tween_targets:     Squad
+    tween_speeds:      Squad
+    tween_easings:     Squad
     tween_count:       int
 
     -- Tooltip state (drawn at end of frame, on top of everything)
@@ -128,15 +128,15 @@ impl UI {
             input_focus_id: -1,
             scroll_delta:   0,
             dropdown_open_id: -1,
-            scroll_offsets:   [],
+            scroll_offsets:   Squad::new(),
             scroll_count:     0,
             last_frame_time:  0.0,
             delta_time:       0.0,
-            tween_ids:        [],
-            tween_currents:   [],
-            tween_targets:    [],
-            tween_speeds:     [],
-            tween_easings:    [],
+            tween_ids:        Squad::new(),
+            tween_currents:   Squad::new(),
+            tween_targets:    Squad::new(),
+            tween_speeds:     Squad::new(),
+            tween_easings:    Squad::new(),
             tween_count:      0,
             tooltip_text:     "",
             tooltip_x:        0,
@@ -150,7 +150,7 @@ impl UI {
     --  Frame lifecycle
     -- ============================================================
 
-    task begin_frame(self) -> List<Event> {
+    task begin_frame(self) -> Squad {
         -- Poll events
         pilot events = self.window.poll()
 
@@ -173,8 +173,11 @@ impl UI {
 
         -- Process events
         pilot i = 0
-        repeat events.len() times {
-            pilot ev = events[i]
+        repeat events.size() times {
+            pilot ev_word: word = events.get(i)
+            -- We assume word is actually a pointer to Event shape
+            pilot ev: Event = ev_word
+            
             if ev.kind == event_quit {
                 self.should_quit = true
             }
@@ -226,10 +229,10 @@ impl UI {
         self.layout = LayoutStack::new()
         self.layout.push(
             0.0, 0.0,
-            self.window.width, self.window.height,
+            self.window.width.to_num(), self.window.height.to_num(),
             dir_vertical,
-            self.theme.gap,
-            self.theme.padding
+            self.theme.gap.to_num(),
+            self.theme.padding.to_num()
         )
 
         give back events
@@ -238,7 +241,7 @@ impl UI {
     task end_frame(self) -> void {
         -- Pop root layout
         if self.layout.depth > 0 {
-            self.layout.pop()
+            pilot _v = self.layout.pop()
         }
 
         -- Draw tooltip on top of everything (if active)
@@ -278,7 +281,7 @@ impl UI {
     task end_row(self) -> void {
         pilot consumed = self.layout.pop()
         -- Allocate the consumed space in the parent context
-        self.layout.allocate(consumed.x, consumed.y)
+        pilot _r = self.layout.allocate(consumed.x, consumed.y)
     }
 
     task begin_column(self, gap: num, pad: num) -> void {
@@ -294,7 +297,7 @@ impl UI {
 
     task end_column(self) -> void {
         pilot consumed = self.layout.pop()
-        self.layout.allocate(consumed.x, consumed.y)
+        pilot _r = self.layout.allocate(consumed.x, consumed.y)
     }
 
     -- ============================================================
@@ -307,7 +310,7 @@ impl UI {
     }
 
     task label_styled(self, text: word, style: int) -> void {
-        pilot h = label_height(style, self.theme.font_size)
+        pilot h = label_height(style, self.theme.font_size).to_num()
         pilot w = self.layout.remaining_width()
         pilot rect = self.layout.allocate(w, h)
 
@@ -319,16 +322,16 @@ impl UI {
 
     -- Button: clickable, returns true on click
     task button(self, text: word) -> bool {
-        give back self.button_styled(text, btn_normal, SizeHint::auto())
+        give back self.button_styled(text, btn_normal, SizeHint::auto_size())
     }
 
     task button_primary(self, text: word) -> bool {
-        give back self.button_styled(text, btn_primary, SizeHint::auto())
+        give back self.button_styled(text, btn_primary, SizeHint::auto_size())
     }
 
     task button_styled(self, text: word, style: int, width_hint: SizeHint) -> bool {
-        pilot btn_h = self.theme.font_size + self.theme.padding * 2
-        pilot content_w = measure_text_width(text, self.theme.font_size) + self.theme.padding * 2
+        pilot btn_h = (self.theme.font_size + self.theme.padding * 2).to_num()
+        pilot content_w = (measure_text_width(text, self.theme.font_size) + self.theme.padding * 2).to_num()
         pilot avail_w = self.layout.remaining_width()
         pilot btn_w = width_hint.resolve(avail_w, content_w)
 
@@ -338,8 +341,17 @@ impl UI {
         pilot btn_result = button_check(rect, self.mouse_x, self.mouse_y,
                                     self.mouse_down, self.mouse_clicked)
 
+        -- Smoothly tween the hover intensity 0..1 toward the current
+        -- hover state.  Speed 14 ≈ ~120ms to settle, ease_out gives a
+        -- snappy attack and gentle release.  Keyed by widget_count so
+        -- each button has its own channel.
+        pilot hover_target = 0.0
+        if btn_result.hovered { hover_target = 1.0 }
+        pilot hover_t = self.tween(HOVER_TWEEN_BASE + self.widget_count,
+                                   hover_target, 14.0, ease_out)
+
         -- Draw
-        button_draw(self.canvas, text, rect, style, btn_result.hovered,
+        button_draw(self.canvas, text, rect, style, hover_t,
                     self.theme.surface, self.theme.accent, self.theme.accent_hover,
                     self.theme.danger, self.theme.text, self.theme.border,
                     self.theme.radius, self.theme.font_size)
@@ -350,7 +362,7 @@ impl UI {
 
     -- Input: text field, returns true if value changed
     task input(self, value: word, placeholder: word) -> word {
-        pilot input_h = self.theme.font_size + self.theme.padding * 2
+        pilot input_h = (self.theme.font_size + self.theme.padding * 2).to_num()
         pilot avail_w = self.layout.remaining_width()
         pilot rect = self.layout.allocate(avail_w, input_h)
 
@@ -360,9 +372,9 @@ impl UI {
         -- Click to focus
         pilot focused = self.input_focus_id == my_id
         if self.mouse_clicked {
-            if rect.contains(self.mouse_x, self.mouse_y) {
+            if rect.contains(self.mouse_x.to_num(), self.mouse_y.to_num()) {
                 self.input_focus_id = my_id
-                self.input_cursor = value.len()
+                self.input_cursor = value.length()
                 focused = true
             } else {
                 if focused {
@@ -380,30 +392,28 @@ impl UI {
                 pilot ch = self.char_typed
                 -- Insert character at cursor position
                 pilot before = new_value.substring(0, self.input_cursor)
-                pilot after = new_value.substring(self.input_cursor, new_value.len())
-                -- Build new string with inserted char
-                -- (Using string concatenation with the character)
+                pilot after = new_value.substring(self.input_cursor, new_value.length())
                 new_value = before + chr(ch) + after
                 self.input_cursor = self.input_cursor + 1
             }
             -- Backspace
             if self.key_backspace and self.input_cursor > 0 {
                 pilot before = new_value.substring(0, self.input_cursor - 1)
-                pilot after = new_value.substring(self.input_cursor, new_value.len())
+                pilot after = new_value.substring(self.input_cursor, new_value.length())
                 new_value = before + after
                 self.input_cursor = self.input_cursor - 1
             }
             -- Delete
-            if self.key_delete and self.input_cursor < new_value.len() {
+            if self.key_delete and self.input_cursor < new_value.length() {
                 pilot before = new_value.substring(0, self.input_cursor)
-                pilot after = new_value.substring(self.input_cursor + 1, new_value.len())
+                pilot after = new_value.substring(self.input_cursor + 1, new_value.length())
                 new_value = before + after
             }
             -- Cursor movement
             if self.key_left and self.input_cursor > 0 {
                 self.input_cursor = self.input_cursor - 1
             }
-            if self.key_right and self.input_cursor < new_value.len() {
+            if self.key_right and self.input_cursor < new_value.length() {
                 self.input_cursor = self.input_cursor + 1
             }
         }
@@ -422,9 +432,9 @@ impl UI {
     task spacer(self, size: num) -> void {
         pilot dir = self.layout.current_direction()
         if dir == dir_horizontal {
-            self.layout.allocate(size, 0.0)
+            pilot _r = self.layout.allocate(size, 0.0)
         } else {
-            self.layout.allocate(0.0, size)
+            pilot _r = self.layout.allocate(0.0, size)
         }
     }
 
@@ -432,10 +442,10 @@ impl UI {
         pilot dir = self.layout.current_direction()
         if dir == dir_horizontal {
             pilot remaining = self.layout.remaining_width()
-            self.layout.allocate(remaining, 0.0)
+            pilot _r = self.layout.allocate(remaining, 0.0)
         } else {
             pilot remaining = self.layout.remaining_height()
-            self.layout.allocate(0.0, remaining)
+            pilot _r = self.layout.allocate(0.0, remaining)
         }
     }
 
@@ -453,10 +463,10 @@ impl UI {
 
     -- Checkbox: togglable, returns true if toggled
     task checkbox(self, text: word, checked: bool) -> bool {
-        pilot box_size = self.theme.font_size + 4
-        pilot text_w = measure_text_width(text, self.theme.font_size)
-        pilot total_w = box_size + 8 + text_w
-        pilot h = box_size + 4
+        pilot box_size = (self.theme.font_size + 4).to_num()
+        pilot text_w = measure_text_width(text, self.theme.font_size).to_num()
+        pilot total_w = box_size + 8.0 + text_w
+        pilot h = box_size + 4.0
 
         pilot rect = self.layout.allocate(total_w, h)
         self.widget_count = self.widget_count + 1
@@ -464,22 +474,22 @@ impl UI {
         -- Check box area
         pilot box_rect = Rect {
             x: rect.x,
-            y: rect.y + 2,
+            y: rect.y + 2.0,
             w: box_size,
             h: box_size
         }
 
         -- Click detection
-        pilot clicked = self.mouse_clicked and rect.contains(self.mouse_x, self.mouse_y)
+        pilot clicked = self.mouse_clicked and rect.contains(self.mouse_x.to_num(), self.mouse_y.to_num())
 
         -- Draw box
         if checked {
             self.canvas.fill_rect(box_rect, self.theme.accent)
             -- Draw checkmark (simplified: just an X for now)
-            pilot cx = box_rect.x + 4
-            pilot cy = box_rect.y + 4
-            self.canvas.draw_text("X", cx, cy,
-                Font { size: box_size - 6, bold: true, italic: false },
+            pilot cx = (box_rect.x + 4.0).to_int()
+            pilot cy = (box_rect.y + 4.0).to_int()
+            pilot _w = self.canvas.draw_text("X", cx, cy,
+                Font { size: self.theme.font_size - 6, bold: true, italic: false },
                 Color::rgb(255, 255, 255))
         } else {
             self.canvas.fill_rect(box_rect, self.theme.bg2)
@@ -487,9 +497,9 @@ impl UI {
         }
 
         -- Draw label
-        pilot text_x = rect.x + box_size + 8
-        pilot text_y = rect.y + (h - self.theme.font_size) / 2
-        self.canvas.draw_text(text, text_x, text_y,
+        pilot text_x = (rect.x + box_size + 8.0).to_int()
+        pilot text_y = (rect.y + (h - self.theme.font_size.to_num()) / 2.0).to_int()
+        pilot _w2 = self.canvas.draw_text(text, text_x, text_y,
             Font { size: self.theme.font_size, bold: false, italic: false },
             self.theme.text)
 
@@ -498,14 +508,14 @@ impl UI {
 
     -- Slider: horizontal slider, returns true if value changed
     task slider(self, value: num, lo: num, hi: num) -> num {
-        pilot slider_h = 24
+        pilot slider_h = 24.0
         pilot avail_w = self.layout.remaining_width()
         pilot rect = self.layout.allocate(avail_w, slider_h)
         self.widget_count = self.widget_count + 1
 
         -- Track
-        pilot track_y = rect.y + slider_h / 2 - 2
-        pilot track_rect = Rect { x: rect.x, y: track_y, w: rect.w, h: 4 }
+        pilot track_y = rect.y + slider_h / 2.0 - 2.0
+        pilot track_rect = Rect { x: rect.x, y: track_y, w: rect.w, h: 4.0 }
         self.canvas.fill_rect(track_rect, self.theme.bg2)
 
         -- Calculate thumb position
@@ -514,11 +524,11 @@ impl UI {
         if range > 0.0 {
             normalized = (value - lo) / range
         }
-        pilot thumb_x = rect.x + normalized * (rect.w - 16)
+        pilot thumb_x = rect.x + normalized * (rect.w - 16.0)
 
         -- Thumb
-        pilot thumb_rect = Rect { x: thumb_x, y: rect.y + 2, w: 16, h: slider_h - 4 }
-        pilot thumb_hovered = thumb_rect.contains(self.mouse_x, self.mouse_y)
+        pilot thumb_rect = Rect { x: thumb_x, y: rect.y + 2.0, w: 16.0, h: slider_h - 4.0 }
+        pilot thumb_hovered = thumb_rect.contains(self.mouse_x.to_num(), self.mouse_y.to_num())
         if thumb_hovered {
             self.canvas.fill_rect(thumb_rect, self.theme.accent_hover)
         } else {
@@ -526,13 +536,13 @@ impl UI {
         }
 
         -- Fill track up to thumb
-        pilot fill_rect = Rect { x: rect.x, y: track_y, w: thumb_x - rect.x + 8, h: 4 }
+        pilot fill_rect = Rect { x: rect.x, y: track_y, w: thumb_x - rect.x + 8.0, h: 4.0 }
         self.canvas.fill_rect(fill_rect, self.theme.accent)
 
         -- Handle dragging
         pilot new_value = value
-        if self.mouse_down and rect.contains(self.mouse_x, self.mouse_y) {
-            pilot rel_x = self.mouse_x - rect.x
+        if self.mouse_down and rect.contains(self.mouse_x.to_num(), self.mouse_y.to_num()) {
+            pilot rel_x = self.mouse_x.to_num() - rect.x
             pilot new_norm = rel_x / rect.w
             if new_norm < 0.0 { new_norm = 0.0 }
             if new_norm > 1.0 { new_norm = 1.0 }
@@ -546,8 +556,8 @@ impl UI {
     --  Dropdown — select from a list of options
     -- ============================================================
 
-    task dropdown(self, selected: int, items: List<word>) -> int {
-        pilot dd_h = self.theme.font_size + self.theme.padding * 2
+    task dropdown(self, selected: int, items: Squad) -> int {
+        pilot dd_h = (self.theme.font_size + self.theme.padding * 2).to_num()
         pilot avail_w = self.layout.remaining_width()
         pilot rect = self.layout.allocate(avail_w, dd_h)
 
@@ -562,9 +572,9 @@ impl UI {
         pilot hover_index = -1
         if is_open {
             pilot list_y = rect.y + rect.h
-            if self.mouse_x >= rect.x and self.mouse_x <= rect.x + rect.w {
-                if self.mouse_y >= list_y and self.mouse_y < list_y + items.len() * item_h {
-                    hover_index = (self.mouse_y - list_y) / item_h
+            if self.mouse_x.to_num() >= rect.x and self.mouse_x.to_num() <= rect.x + rect.w {
+                if self.mouse_y.to_num() >= list_y and self.mouse_y.to_num() < list_y + (items.size() * item_h).to_num() {
+                    hover_index = (self.mouse_y.to_num() - list_y).to_int() / item_h
                 }
             }
         }
@@ -573,14 +583,14 @@ impl UI {
         if self.mouse_clicked {
             if is_open {
                 -- Click on an item?
-                if hover_index >= 0 and hover_index < items.len() {
+                if hover_index >= 0 and hover_index < items.size() {
                     new_selected = hover_index
                 }
                 -- Close dropdown (whether they clicked an item or outside)
                 self.dropdown_open_id = -1
             } else {
                 -- Click on the dropdown button to open
-                if rect.contains(self.mouse_x, self.mouse_y) {
+                if rect.contains(self.mouse_x.to_num(), self.mouse_y.to_num()) {
                     self.dropdown_open_id = my_id
                 }
             }
@@ -600,22 +610,22 @@ impl UI {
     --  Tabs — tabbed content selector
     -- ============================================================
 
-    task tabs(self, selected: int, names: List<word>) -> int {
-        pilot tab_h = self.theme.font_size + self.theme.padding * 2 + 4
+    task tabs(self, selected: int, names: Squad) -> int {
+        pilot tab_h = (self.theme.font_size + self.theme.padding * 2 + 4).to_num()
         pilot avail_w = self.layout.remaining_width()
         pilot rect = self.layout.allocate(avail_w, tab_h)
 
         self.widget_count = self.widget_count + 1
 
         pilot new_selected = selected
-        pilot tab_w = rect.w / names.len()
+        pilot tab_w = rect.w / names.size().to_num()
         pilot hover_index = -1
 
         -- Check hover and click
-        if self.mouse_y >= rect.y and self.mouse_y <= rect.y + rect.h {
-            if self.mouse_x >= rect.x and self.mouse_x <= rect.x + rect.w {
-                hover_index = (self.mouse_x - rect.x) / tab_w
-                if hover_index >= names.len() { hover_index = names.len() - 1 }
+        if self.mouse_y.to_num() >= rect.y and self.mouse_y.to_num() <= rect.y + rect.h {
+            if self.mouse_x.to_num() >= rect.x and self.mouse_x.to_num() <= rect.x + rect.w {
+                hover_index = (self.mouse_x.to_num() - rect.x).to_int() / tab_w.to_int()
+                if hover_index >= names.size() { hover_index = names.size() - 1 }
                 if self.mouse_clicked {
                     new_selected = hover_index
                 }
@@ -636,7 +646,7 @@ impl UI {
     -- ============================================================
 
     task progress(self, value: num, label: word) -> void {
-        pilot bar_h = self.theme.font_size + 8
+        pilot bar_h = (self.theme.font_size + 8).to_num()
         pilot avail_w = self.layout.remaining_width()
         pilot rect = self.layout.allocate(avail_w, bar_h)
 
@@ -661,20 +671,20 @@ impl UI {
         pilot my = self.mouse_y
 
         -- If mouse is above the current cursor (i.e. in the area of the previous widget)
-        if my < pos.y and my >= pos.y - 60 {
+        if my.to_num() < pos.y and my.to_num() >= pos.y - 60.0 {
             self.tooltip_text = text
             self.tooltip_x = mx
-            self.tooltip_y = pos.y - 4
+            self.tooltip_y = pos.y.to_int() - 4
             self.tooltip_active = true
         }
     }
 
     -- Explicit tooltip with anchor rect
     task tooltip_at(self, text: word, anchor: Rect) -> void {
-        if anchor.contains(self.mouse_x, self.mouse_y) {
+        if anchor.contains(self.mouse_x.to_num(), self.mouse_y.to_num()) {
             self.tooltip_text = text
             self.tooltip_x = self.mouse_x
-            self.tooltip_y = anchor.y
+            self.tooltip_y = anchor.y.to_int()
             self.tooltip_active = true
         }
     }
@@ -689,7 +699,7 @@ impl UI {
     task begin_modal(self, open: bool, panel_w: int, panel_h: int) -> Rect {
         self.modal_open = open
         if not open {
-            give back Rect { x: 0, y: 0, w: 0, h: 0 }
+            give back Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }
         }
 
         -- Draw overlay and panel
@@ -702,7 +712,7 @@ impl UI {
         -- Push a layout context inside the panel
         self.layout.push(
             panel.x, panel.y, panel.w, panel.h,
-            dir_vertical, self.theme.gap, self.theme.padding
+            dir_vertical, self.theme.gap.to_num(), self.theme.padding.to_num()
         )
 
         give back panel
@@ -710,7 +720,7 @@ impl UI {
 
     task end_modal(self) -> void {
         if self.modal_open {
-            self.layout.pop()
+            pilot _v = self.layout.pop()
         }
     }
 
@@ -730,26 +740,26 @@ impl UI {
         self.scroll_count = self.scroll_count + 1
 
         -- Ensure we have enough scroll offset slots
-        repeat until self.scroll_offsets.len() > scroll_id {
-            self.scroll_offsets.push(0.0)
+        repeat until self.scroll_offsets.size() > scroll_id {
+            self.scroll_offsets.add_num(0.0)
         }
 
         -- Handle mouse wheel scrolling when mouse is inside
-        pilot scroll_offset = self.scroll_offsets[scroll_id]
-        if rect.contains(self.mouse_x, self.mouse_y) {
+        pilot scroll_offset = self.scroll_offsets.get_num(scroll_id)
+        if rect.contains(self.mouse_x.to_num(), self.mouse_y.to_num()) {
             -- Use actual scroll wheel delta (positive = scroll down)
             if self.scroll_delta != 0 {
-                scroll_offset = scroll_offset + self.scroll_delta * 30.0
+                scroll_offset = scroll_offset + self.scroll_delta.to_num() * 30.0
             }
             if scroll_offset < 0.0 { scroll_offset = 0.0 }
-            self.scroll_offsets[scroll_id] = scroll_offset
+            self.scroll_offsets.set_num(scroll_id, scroll_offset)
         }
 
         -- Push layout context offset by scroll position
         -- Content starts at rect.y - scroll_offset (clipped by the visible area)
         self.layout.push(
             rect.x, rect.y - scroll_offset, avail_w, 10000.0,
-            dir_vertical, self.theme.gap, 0.0
+            dir_vertical, self.theme.gap.to_num(), 0.0
         )
 
         -- Draw background
@@ -760,7 +770,7 @@ impl UI {
     }
 
     task end_scroll(self) -> void {
-        pilot consumed = self.layout.pop()
+        pilot _v = self.layout.pop()
         -- consumed.y is the total content height
         -- We could draw a scrollbar here based on content_h vs visible_h
         -- For now, we draw a simple indicator track
@@ -808,22 +818,22 @@ impl UI {
         -- Find existing tween with this ID
         pilot i = 0
         repeat self.tween_count times {
-            if self.tween_ids[i] == id {
+            if self.tween_ids.get_int(i) == id {
                 -- Update target if changed
-                self.tween_targets[i] = target
-                self.tween_speeds[i] = speed
-                self.tween_easings[i] = easing
-                give back self.tween_currents[i]
+                self.tween_targets.set_num(i, target)
+                self.tween_speeds.set_num(i, speed)
+                self.tween_easings.set_int(i, easing)
+                give back self.tween_currents.get_num(i)
             }
             i = i + 1
         }
 
         -- Create new tween
-        self.tween_ids.push(id)
-        self.tween_currents.push(target)  -- start at target (no initial animation)
-        self.tween_targets.push(target)
-        self.tween_speeds.push(speed)
-        self.tween_easings.push(easing)
+        self.tween_ids.add_int(id)
+        self.tween_currents.add_num(target)  -- start at target (no initial animation)
+        self.tween_targets.add_num(target)
+        self.tween_speeds.add_num(speed)
+        self.tween_easings.add_int(easing)
         self.tween_count = self.tween_count + 1
         give back target
     }
@@ -833,21 +843,21 @@ impl UI {
         -- Find existing
         pilot i = 0
         repeat self.tween_count times {
-            if self.tween_ids[i] == id {
-                self.tween_targets[i] = target
-                self.tween_speeds[i] = speed
-                self.tween_easings[i] = easing
-                give back self.tween_currents[i]
+            if self.tween_ids.get_int(i) == id {
+                self.tween_targets.set_num(i, target)
+                self.tween_speeds.set_num(i, speed)
+                self.tween_easings.set_int(i, easing)
+                give back self.tween_currents.get_num(i)
             }
             i = i + 1
         }
 
         -- Create new starting from 'from'
-        self.tween_ids.push(id)
-        self.tween_currents.push(from)
-        self.tween_targets.push(target)
-        self.tween_speeds.push(speed)
-        self.tween_easings.push(easing)
+        self.tween_ids.add_int(id)
+        self.tween_currents.add_num(from)
+        self.tween_targets.add_num(target)
+        self.tween_speeds.add_num(speed)
+        self.tween_easings.add_int(easing)
         self.tween_count = self.tween_count + 1
         give back from
     }
@@ -856,19 +866,19 @@ impl UI {
     task _update_tweens(self) -> void {
         pilot i = 0
         repeat self.tween_count times {
-            pilot current = self.tween_currents[i]
-            pilot target = self.tween_targets[i]
-            pilot speed = self.tween_speeds[i]
-            pilot easing_type = self.tween_easings[i]
+            pilot current = self.tween_currents.get_num(i)
+            pilot target = self.tween_targets.get_num(i)
+            pilot speed = self.tween_speeds.get_num(i)
+            pilot easing_type = self.tween_easings.get_int(i)
 
             pilot diff = target - current
             if diff > 0.001 or diff < -0.001 {
                 pilot t = speed * self.delta_time
                 if t > 1.0 { t = 1.0 }
                 pilot eased_t = ease(t, easing_type)
-                self.tween_currents[i] = current + diff * eased_t
+                self.tween_currents.set_num(i, current + diff * eased_t)
             } else {
-                self.tween_currents[i] = target
+                self.tween_currents.set_num(i, target)
             }
             i = i + 1
         }

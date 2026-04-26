@@ -30,6 +30,33 @@ pilot btn_operator = 3
 pilot btn_equals   = 4
 pilot btn_ghost    = 5
 
+-- Tween-id namespace for cockpit-internal hover animations.  Any user
+-- tween whose id collides with `HOVER_TWEEN_BASE + widget_count` would
+-- ride the same channel; the offset is high enough to make collision
+-- unlikely with realistic user-chosen ids.
+pilot HOVER_TWEEN_BASE = 100000
+
+-- Linear interpolate between two colors.  `t` is clamped 0..1.
+task color_lerp(a: Color, b: Color, t: num) -> Color {
+    pilot tt = t
+    if tt < 0.0 { tt = 0.0 }
+    if tt > 1.0 { tt = 1.0 }
+    pilot ar = a.r.to_num()
+    pilot ag = a.g.to_num()
+    pilot ab = a.b.to_num()
+    pilot aa = a.a.to_num()
+    pilot dr = b.r.to_num() - ar
+    pilot dg = b.g.to_num() - ag
+    pilot db = b.b.to_num() - ab
+    pilot da = b.a.to_num() - aa
+    give back Color::rgba(
+        (ar + dr * tt).to_int(),
+        (ag + dg * tt).to_int(),
+        (ab + db * tt).to_int(),
+        (aa + da * tt).to_int()
+    )
+}
+
 -- ================================================================
 --  Label — display text, no interaction
 -- ================================================================
@@ -101,27 +128,31 @@ task button_check(rect: Rect, mouse_x: int, mouse_y: int, mouse_down: bool, mous
     give back ButtonResult { clicked: clicked, hovered: hovered }
 }
 
-task button_draw(canvas: Canvas, text: word, rect: Rect, style: int, hovered: bool,
+-- `hover_t` is a smoothly tweened 0.0..1.0 hover intensity from the UI
+-- frame state.  The button blends between its resting background and
+-- its hover background by hover_t, instead of the old discrete
+-- "snap brighter on hover" behaviour.
+task button_draw(canvas: Canvas, text: word, rect: Rect, style: int, hover_t: num,
                  theme_surface: Color, theme_accent: Color, theme_accent_hover: Color,
                  theme_danger: Color, theme_text: Color, theme_border: Color,
                  theme_radius: int, font_size: int) -> void {
-    -- Determine colors based on style
-    pilot bg = theme_surface
+    -- Resting palette per style.
+    pilot bg_rest = theme_surface
     pilot fg = theme_text
     pilot border = theme_border
 
     if style == btn_primary {
-        bg = theme_accent
+        bg_rest = theme_accent
         fg = Color::rgb(255, 255, 255)
         border = theme_accent
     }
     if style == btn_danger {
-        bg = theme_danger
+        bg_rest = theme_danger
         fg = Color::rgb(255, 255, 255)
         border = theme_danger
     }
     if style == btn_operator {
-        bg = Color::rgb(
+        bg_rest = Color::rgb(
             theme_accent.r / 3,
             theme_accent.g / 3,
             theme_accent.b / 3
@@ -130,29 +161,30 @@ task button_draw(canvas: Canvas, text: word, rect: Rect, style: int, hovered: bo
         border = theme_accent
     }
     if style == btn_equals {
-        bg = theme_accent
+        bg_rest = theme_accent
         fg = Color::rgb(255, 255, 255)
         border = theme_accent
     }
     if style == btn_ghost {
-        bg = Color::rgba(0, 0, 0, 0)
+        bg_rest = Color::rgba(0, 0, 0, 0)
         border = Color::rgba(0, 0, 0, 0)
     }
 
-    -- Hover brightening
-    if hovered {
-        if style == btn_primary or style == btn_equals {
-            bg = theme_accent_hover
-        } else {
-            if style != btn_ghost {
-                bg = Color::rgb(
-                    min_i(bg.r + 15, 255),
-                    min_i(bg.g + 15, 255),
-                    min_i(bg.b + 15, 255)
-                )
-            }
+    -- Hover target — different per style, matching the old discrete map.
+    pilot bg_hover = bg_rest
+    if style == btn_primary or style == btn_equals {
+        bg_hover = theme_accent_hover
+    } else {
+        if style != btn_ghost {
+            bg_hover = Color::rgb(
+                min_i(bg_rest.r + 15, 255),
+                min_i(bg_rest.g + 15, 255),
+                min_i(bg_rest.b + 15, 255)
+            )
         }
     }
+
+    pilot bg = color_lerp(bg_rest, bg_hover, hover_t)
 
     -- Draw background
     canvas.fill_rect(rect, bg)
