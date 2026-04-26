@@ -116,8 +116,9 @@ task main() {
 
         -- Check for quit
         pilot e = 0
-        repeat events.length times {
-            if events[e].kind == event_quit {
+        repeat events.size() times {
+            pilot ev: Event = events.get(e)
+            if ev.kind == event_quit {
                 running = false
             }
             e = e + 1
