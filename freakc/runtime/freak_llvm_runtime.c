@@ -207,6 +207,13 @@ int64_t freak_llvm_ui_event_character(int64_t idx)  { return freak_ui_event_char
 int64_t freak_llvm_ui_event_mouse_x(int64_t idx)   { return freak_ui_event_mouse_x(idx); }
 int64_t freak_llvm_ui_event_mouse_y(int64_t idx)   { return freak_ui_event_mouse_y(idx); }
 int64_t freak_llvm_ui_event_button(int64_t idx)    { return freak_ui_event_button(idx); }
+int64_t freak_llvm_ui_event_repeat(int64_t idx)    { return freak_ui_event_repeat(idx); }
+int64_t freak_llvm_ui_event_scroll_dy(int64_t idx) { return freak_ui_event_scroll_dy(idx); }
+int64_t freak_llvm_ui_event_width(int64_t idx)     { return freak_ui_event_width(idx); }
+int64_t freak_llvm_ui_event_height(int64_t idx)    { return freak_ui_event_height(idx); }
+int64_t freak_llvm_ui_event_gained(int64_t idx)    { return freak_ui_event_gained(idx); }
+int64_t freak_llvm_ui_get_width(int64_t handle)    { return freak_ui_get_width(handle); }
+int64_t freak_llvm_ui_get_height(int64_t handle)   { return freak_ui_get_height(handle); }
 void freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) {
     freak_ui_clear(h, r, g, b, a);
 }
@@ -238,6 +245,34 @@ void    freak_llvm_ui_end_frame(int64_t h)    { }
 void    freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) { }
 void    freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) { }
 #endif /* FREAK_HAS_UI */
+
+/* ── char_to_word (UTF-8 encode a code point) ───────── */
+int64_t freak_llvm_char_to_word(int64_t code) {
+    char* buf = (char*)malloc(5);
+    if (!buf) return (int64_t)"";
+    size_t len = 0;
+    uint32_t c = (uint32_t)code;
+    if (c <= 0x7F) {
+        buf[0] = (char)c; len = 1;
+    } else if (c <= 0x7FF) {
+        buf[0] = (char)(0xC0 | (c >> 6));
+        buf[1] = (char)(0x80 | (c & 0x3F));
+        len = 2;
+    } else if (c <= 0xFFFF) {
+        buf[0] = (char)(0xE0 | (c >> 12));
+        buf[1] = (char)(0x80 | ((c >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (c & 0x3F));
+        len = 3;
+    } else {
+        buf[0] = (char)(0xF0 | (c >> 18));
+        buf[1] = (char)(0x80 | ((c >> 12) & 0x3F));
+        buf[2] = (char)(0x80 | ((c >> 6) & 0x3F));
+        buf[3] = (char)(0x80 | (c & 0x3F));
+        len = 4;
+    }
+    buf[len] = '\0';
+    return (int64_t)buf;
+}
 
 /* ── Math bridge (LLVM i64-bitcast-double → real <math.h>) ─ */
 #include <math.h>
