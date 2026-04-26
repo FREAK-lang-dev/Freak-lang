@@ -901,21 +901,34 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
     if right.length() > 0 {
         extra_args = ", " + llvm_emit_args(right)
     }
+    -- Pick the LAST shape that has a matching method, not the first.
+    -- Without proper receiver-type inference we can't know which shape
+    -- the `self` is, but in practice the public widget shapes are
+    -- declared after their internal helpers (e.g. `LayoutStack` after
+    -- `LayoutContext`), so last-match is a useful heuristic.  This is
+    -- a pragmatic fix; a real shape-typed receiver inference belongs
+    -- in a follow-up.
+    pilot best_sname = ""
+    pilot best_ret = ""
     pilot si = 0
     repeat shape_registry_count times {
         pilot sname: word = "" + array_get(shape_registry_names, si)
         pilot call_ret: word = llvm_get_task_ret_type(sname + "_" + val)
         if call_ret.length() > 0 {
-            pilot impl_fname = "freak_" + sname + "_" + val
-            if call_ret == "v" {
-                llvm_emit_line("    call void @" + impl_fname + "(i64 " + obj_reg + extra_args + ")")
-                llvm_emit_line("    " + res_reg + " = add i64 0, 0")
-            } else {
-                llvm_emit_line("    " + res_reg + " = call i64 @" + impl_fname + "(i64 " + obj_reg + extra_args + ")")
-            }
-            give back res_reg
+            best_sname = sname
+            best_ret = call_ret
         }
         si += 1
+    }
+    if best_sname.length() > 0 {
+        pilot impl_fname = "freak_" + best_sname + "_" + val
+        if best_ret == "v" {
+            llvm_emit_line("    call void @" + impl_fname + "(i64 " + obj_reg + extra_args + ")")
+            llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+        } else {
+            llvm_emit_line("    " + res_reg + " = call i64 @" + impl_fname + "(i64 " + obj_reg + extra_args + ")")
+        }
+        give back res_reg
     }
     llvm_emit_line("    ; unsupported method " + val)
     llvm_emit_line("    " + res_reg + " = add i64 0, 0")
