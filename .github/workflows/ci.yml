@@ -47,7 +47,7 @@ jobs:
       - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
         shell: bash
         run: |
-          cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
+          cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/checker.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
           clang -o build/freakc_v3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
       - name: Build full CLI (Stage 1 — V3 compiler + CLI + Hangar)
@@ -60,6 +60,7 @@ jobs:
           cat src/compiler/v3/helpers.fk >> build/freakc_cli.fk
           cat src/compiler/v3/lexer.fk >> build/freakc_cli.fk
           cat src/compiler/v3/parser.fk >> build/freakc_cli.fk
+          cat src/compiler/v3/checker.fk >> build/freakc_cli.fk
           cat src/compiler/v3/emit_c.fk >> build/freakc_cli.fk
           cat src/compiler/v3/emit_llvm.fk >> build/freakc_cli.fk
           cat src/cli/version.fk >> build/freakc_cli.fk
