@@ -14,10 +14,10 @@ use std::ui::{Rect, Vec2}
 -- ================================================================
 
 -- Size hint constants
-fixed pilot size_auto     = 0   -- fit content
-fixed pilot size_fill     = 1   -- fill remaining space
-fixed pilot size_fixed    = 2   -- exact pixel value
-fixed pilot size_fraction = 3   -- fraction of available space
+pilot size_auto     = 0   -- fit content
+pilot size_fill     = 1   -- fill remaining space
+pilot size_fixed    = 2   -- exact pixel value
+pilot size_fraction = 3   -- fraction of available space
 
 shape SizeHint {
     kind:  int
@@ -25,7 +25,7 @@ shape SizeHint {
 }
 
 impl SizeHint {
-    task auto() -> SizeHint {
+    task auto_size() -> SizeHint {
         give back SizeHint { kind: size_auto, value: 0.0 }
     }
 
@@ -63,8 +63,8 @@ impl SizeHint {
 --  Layout direction
 -- ================================================================
 
-fixed pilot dir_vertical   = 0
-fixed pilot dir_horizontal = 1
+pilot dir_vertical   = 0
+pilot dir_horizontal = 1
 
 -- ================================================================
 --  Layout context — one entry on the layout stack
@@ -189,106 +189,134 @@ impl LayoutContext {
 -- ================================================================
 
 -- Maximum nesting depth for layout contexts
-fixed pilot MAX_LAYOUT_DEPTH = 32
+pilot MAX_LAYOUT_DEPTH = 32
 
 shape LayoutStack {
     -- Flat arrays for the layout stack (since we can't have List<LayoutContext>
     -- easily in the C backend, we use parallel arrays)
-    ctx_x:         List<num>
-    ctx_y:         List<num>
-    ctx_max_w:     List<num>
-    ctx_max_h:     List<num>
-    ctx_cursor_x:  List<num>
-    ctx_cursor_y:  List<num>
-    ctx_direction: List<int>
-    ctx_gap:       List<num>
-    ctx_pad:       List<num>
-    ctx_count:     List<int>
-    ctx_cross_max: List<num>
+    ctx_x:         Squad
+    ctx_y:         Squad
+    ctx_max_w:     Squad
+    ctx_max_h:     Squad
+    ctx_cursor_x:  Squad
+    ctx_cursor_y:  Squad
+    ctx_direction: Squad
+    ctx_gap:       Squad
+    ctx_pad:       Squad
+    ctx_count:     Squad
+    ctx_cross_max: Squad
     depth:         int
 }
 
 impl LayoutStack {
     task new() -> LayoutStack {
         give back LayoutStack {
-            ctx_x:         [],
-            ctx_y:         [],
-            ctx_max_w:     [],
-            ctx_max_h:     [],
-            ctx_cursor_x:  [],
-            ctx_cursor_y:  [],
-            ctx_direction: [],
-            ctx_gap:       [],
-            ctx_pad:       [],
-            ctx_count:     [],
-            ctx_cross_max: [],
+            ctx_x:         Squad::new(),
+            ctx_y:         Squad::new(),
+            ctx_max_w:     Squad::new(),
+            ctx_max_h:     Squad::new(),
+            ctx_cursor_x:  Squad::new(),
+            ctx_cursor_y:  Squad::new(),
+            ctx_direction: Squad::new(),
+            ctx_gap:       Squad::new(),
+            ctx_pad:       Squad::new(),
+            ctx_count:     Squad::new(),
+            ctx_cross_max: Squad::new(),
             depth:         0
         }
     }
 
-    -- Push a new layout context onto the stack
+    -- Reset the stack to empty without reallocating any Squads.  Called
+    -- once per frame from UI.begin_frame.  Without this, every frame
+    -- allocates a fresh LayoutStack (11 Squads each) and the global
+    -- array pool runs dry in seconds.
+    task clear(self) -> void {
+        self.depth = 0
+    }
+
+    -- Push a new layout context.  Reuses Squad slots up to the current
+    -- size, only growing when depth exceeds the high-water mark — so
+    -- long-running apps converge to constant memory instead of leaking
+    -- a slot per push per frame.
     task push(self, x: num, y: num, w: num, h: num, dir: int, gap: num, pad: num) -> void {
         pilot px = x + pad
         pilot py = y + pad
         pilot pw = w - pad * 2.0
         pilot ph = h - pad * 2.0
 
-        self.ctx_x.push(px)
-        self.ctx_y.push(py)
-        self.ctx_max_w.push(pw)
-        self.ctx_max_h.push(ph)
-        self.ctx_cursor_x.push(px)
-        self.ctx_cursor_y.push(py)
-        self.ctx_direction.push(dir)
-        self.ctx_gap.push(gap)
-        self.ctx_pad.push(pad)
-        self.ctx_count.push(0)
-        self.ctx_cross_max.push(0.0)
-        self.depth = self.depth + 1
+        pilot d = self.depth
+        if d < self.ctx_x.size() {
+            self.ctx_x.set_num(d, px)
+            self.ctx_y.set_num(d, py)
+            self.ctx_max_w.set_num(d, pw)
+            self.ctx_max_h.set_num(d, ph)
+            self.ctx_cursor_x.set_num(d, px)
+            self.ctx_cursor_y.set_num(d, py)
+            self.ctx_direction.set_int(d, dir)
+            self.ctx_gap.set_num(d, gap)
+            self.ctx_pad.set_num(d, pad)
+            self.ctx_count.set_int(d, 0)
+            self.ctx_cross_max.set_num(d, 0.0)
+        } else {
+            self.ctx_x.add_num(px)
+            self.ctx_y.add_num(py)
+            self.ctx_max_w.add_num(pw)
+            self.ctx_max_h.add_num(ph)
+            self.ctx_cursor_x.add_num(px)
+            self.ctx_cursor_y.add_num(py)
+            self.ctx_direction.add_int(dir)
+            self.ctx_gap.add_num(gap)
+            self.ctx_pad.add_num(pad)
+            self.ctx_count.add_int(0)
+            self.ctx_cross_max.add_num(0.0)
+        }
+        self.depth = d + 1
     }
 
     -- Pop the top layout context, returning consumed size as (width, height)
     task pop(self) -> Vec2 {
         pilot i = self.depth - 1
-        pilot dir = self.ctx_direction[i]
+        pilot dir = self.ctx_direction.get_int(i)
         pilot consumed_w = 0.0
         pilot consumed_h = 0.0
 
         if dir == dir_horizontal {
-            consumed_w = self.ctx_cursor_x[i] - self.ctx_x[i]
-            consumed_h = self.ctx_cross_max[i]
+            consumed_w = self.ctx_cursor_x.get_num(i) - self.ctx_x.get_num(i)
+            consumed_h = self.ctx_cross_max.get_num(i)
         } else {
-            consumed_w = self.ctx_cross_max[i]
-            consumed_h = self.ctx_cursor_y[i] - self.ctx_y[i]
+            consumed_w = self.ctx_cross_max.get_num(i)
+            consumed_h = self.ctx_cursor_y.get_num(i) - self.ctx_y.get_num(i)
         }
 
         -- Add padding back
-        pilot pad = self.ctx_pad[i]
+        pilot pad = self.ctx_pad.get_num(i)
         consumed_w = consumed_w + pad * 2.0
         consumed_h = consumed_h + pad * 2.0
 
         self.depth = self.depth - 1
+        -- Note: Squad doesn't support pop, but since we use depth counter, 
+        -- the old data just sits there.
         give back Vec2 { x: consumed_w, y: consumed_h }
     }
 
     -- Get remaining width in current context
     task remaining_width(self) -> num {
         pilot i = self.depth - 1
-        if self.ctx_direction[i] == dir_horizontal {
-            pilot used = self.ctx_cursor_x[i] - self.ctx_x[i]
-            give back self.ctx_max_w[i] - used
+        if self.ctx_direction.get_int(i) == dir_horizontal {
+            pilot used = self.ctx_cursor_x.get_num(i) - self.ctx_x.get_num(i)
+            give back self.ctx_max_w.get_num(i) - used
         }
-        give back self.ctx_max_w[i]
+        give back self.ctx_max_w.get_num(i)
     }
 
     -- Get remaining height in current context
     task remaining_height(self) -> num {
         pilot i = self.depth - 1
-        if self.ctx_direction[i] == dir_vertical {
-            pilot used = self.ctx_cursor_y[i] - self.ctx_y[i]
-            give back self.ctx_max_h[i] - used
+        if self.ctx_direction.get_int(i) == dir_vertical {
+            pilot used = self.ctx_cursor_y.get_num(i) - self.ctx_y.get_num(i)
+            give back self.ctx_max_h.get_num(i) - used
         }
-        give back self.ctx_max_h[i]
+        give back self.ctx_max_h.get_num(i)
     }
 
     -- Allocate a rect in the current context
@@ -296,35 +324,40 @@ impl LayoutStack {
         pilot i = self.depth - 1
 
         -- Add gap before non-first widgets
-        if self.ctx_count[i] > 0 {
-            if self.ctx_direction[i] == dir_horizontal {
-                self.ctx_cursor_x[i] = self.ctx_cursor_x[i] + self.ctx_gap[i]
+        if self.ctx_count.get_int(i) > 0 {
+            if self.ctx_direction.get_int(i) == dir_horizontal {
+                pilot new_cx = self.ctx_cursor_x.get_num(i) + self.ctx_gap.get_num(i)
+                self.ctx_cursor_x.set_num(i, new_cx)
             } else {
-                self.ctx_cursor_y[i] = self.ctx_cursor_y[i] + self.ctx_gap[i]
+                pilot new_cy = self.ctx_cursor_y.get_num(i) + self.ctx_gap.get_num(i)
+                self.ctx_cursor_y.set_num(i, new_cy)
             }
         }
 
         pilot rect = Rect {
-            x: self.ctx_cursor_x[i],
-            y: self.ctx_cursor_y[i],
+            x: self.ctx_cursor_x.get_num(i),
+            y: self.ctx_cursor_y.get_num(i),
             w: w,
             h: h
         }
 
         -- Advance cursor
-        if self.ctx_direction[i] == dir_horizontal {
-            self.ctx_cursor_x[i] = self.ctx_cursor_x[i] + w
-            if h > self.ctx_cross_max[i] {
-                self.ctx_cross_max[i] = h
+        if self.ctx_direction.get_int(i) == dir_horizontal {
+            pilot new_cx = self.ctx_cursor_x.get_num(i) + w
+            self.ctx_cursor_x.set_num(i, new_cx)
+            if h > self.ctx_cross_max.get_num(i) {
+                self.ctx_cross_max.set_num(i, h)
             }
         } else {
-            self.ctx_cursor_y[i] = self.ctx_cursor_y[i] + h
-            if w > self.ctx_cross_max[i] {
-                self.ctx_cross_max[i] = w
+            pilot new_cy = self.ctx_cursor_y.get_num(i) + h
+            self.ctx_cursor_y.set_num(i, new_cy)
+            if w > self.ctx_cross_max.get_num(i) {
+                self.ctx_cross_max.set_num(i, w)
             }
         }
 
-        self.ctx_count[i] = self.ctx_count[i] + 1
+        pilot new_count = self.ctx_count.get_int(i) + 1
+        self.ctx_count.set_int(i, new_count)
         give back rect
     }
 
@@ -332,18 +365,18 @@ impl LayoutStack {
     task cursor(self) -> Vec2 {
         pilot i = self.depth - 1
         give back Vec2 {
-            x: self.ctx_cursor_x[i],
-            y: self.ctx_cursor_y[i]
+            x: self.ctx_cursor_x.get_num(i),
+            y: self.ctx_cursor_y.get_num(i)
         }
     }
 
     -- Get the current context's direction
     task current_direction(self) -> int {
-        give back self.ctx_direction[self.depth - 1]
+        give back self.ctx_direction.get_int(self.depth - 1)
     }
 
     -- Get the current context's available width
     task current_width(self) -> num {
-        give back self.ctx_max_w[self.depth - 1]
+        give back self.ctx_max_w.get_num(self.depth - 1)
     }
 }

@@ -225,8 +225,10 @@ impl UI {
         -- Clear with theme background
         self.canvas.clear(self.theme.bg)
 
-        -- Push root layout context (full window, vertical, theme gap/padding)
-        self.layout = LayoutStack::new()
+        -- Push root layout context (full window, vertical, theme gap/padding).
+        -- Re-use the existing LayoutStack — recreating it here every frame
+        -- would burn 11 array slots per frame.
+        self.layout.clear()
         self.layout.push(
             0.0, 0.0,
             self.window.width.to_num(), self.window.height.to_num(),
