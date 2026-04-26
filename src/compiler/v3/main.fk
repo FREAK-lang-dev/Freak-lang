@@ -23,6 +23,7 @@ task freakc_v3_main() -> void {
             say "  --c                Use C backend"
             say "  --opt=N            Optimization level 0-3 (default: 2)"
             say "  --target=TRIPLE    Cross-compile target triple"
+            say "  --strict-borrow    Enforce ownership + mutability (Bible §4.1)"
             say "  --version, -V      Show version"
             say "  --help, -h         Show this help"
             give back
@@ -30,7 +31,7 @@ task freakc_v3_main() -> void {
     }
 
     if args_cnt < 2 {
-        say "Usage: freakc <file.fk> [--c] [--llvm] [--opt=N] [--target=TRIPLE]"
+        say "Usage: freakc <file.fk> [--c] [--llvm] [--opt=N] [--target=TRIPLE] [--strict-borrow]"
         say "       freakc --version | --help"
         give back
     }
@@ -43,6 +44,7 @@ task freakc_v3_main() -> void {
         pilot flag = process::arg(fi)
         if flag == "--c" { emit_target = "c" }
         if flag == "--llvm" { emit_target = "llvm" }
+        if flag == "--strict-borrow" { strict_borrow = true }
         if flag.starts_with("--opt=") { opt_level = flag.char_at(6) }
         if flag.starts_with("--target=") {
             pilot ti = 9
@@ -77,8 +79,16 @@ task freakc_v3_main() -> void {
         process::exit(1)
     }
 
-    say "[3/4] Type Checking..."
+    if strict_borrow {
+        say "[3/4] Borrow checking..."
+    } else {
+        say "[3/4] Type Checking..."
+    }
     check_program()
+    if error_count > 0 {
+        say "\x1b[1;31maborting: " + word_from_int(error_count) + " error(s) found\x1b[0m"
+        process::exit(1)
+    }
 
     say "[4/4] Emitting..."
     if emit_target == "llvm" {

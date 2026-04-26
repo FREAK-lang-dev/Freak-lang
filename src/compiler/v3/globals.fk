@@ -70,6 +70,28 @@ pilot ast_stmt_lines = 0
 
 pilot ast_top_stmts = 0
 
+-- Mutability flag per stmt_id. "1" iff the stmt is `pilot mut <name> = ...`.
+-- Always pushed alongside the other ast_stmt_* arrays (see alloc_stmt).
+pilot ast_pilot_is_mut = 0
+
+-- ===================== BORROW CHECKER STATE ========================
+-- Phase-1 borrow checker (Bible §4.1: ownership + mutability).
+-- Off by default; enabled via --strict-borrow on the CLI.
+
+pilot strict_borrow = false
+
+-- Symbol table (parallel arrays, scope-stack discipline).
+-- bc_sym_kinds: "copy" | "owned"
+-- bc_sym_state: "live" | "moved"
+pilot bc_sym_names  = 0
+pilot bc_sym_kinds  = 0
+pilot bc_sym_is_mut = 0
+pilot bc_sym_state  = 0
+pilot bc_sym_scopes = 0
+pilot bc_sym_lines  = 0
+pilot bc_sym_count  = 0
+pilot bc_scope_depth = 0
+
 -- ===================== SHAPE REGISTRY ==============================
 pilot shape_registry_names = 0
 pilot shape_registry_fields = 0

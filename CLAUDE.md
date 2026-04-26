@@ -255,6 +255,17 @@ Bootstrap sequence (`bootstrap.bat`):
 
 **M15 is complete.** The self-hosting compiler can compile itself.
 
+### Borrow Checker (Phase 1)
+
+The V3 compiler ships a Phase-1 borrow checker behind `--strict-borrow`. Default builds (`freak build file.fk`) keep the historical leak-everything model; passing `--strict-borrow` enforces the cheapest two rules from Bible §4.1:
+
+- **Mutability**: `pilot x = ...` is immutable; reassign is rejected with `This binding was sworn to silence.` Use `pilot mut x = ...` to opt into mutation.
+- **Single-owner moves**: `word`, `List<...>`, `Map<...>`, user shapes are Move types. Passing one to a function moves it; using the binding afterwards is rejected with `Shirogane. You gave this away.` Primitives (`int`, `num`, `bool`, `tiny`, `char`, `float`, `float32`, `big`) are Copy.
+
+Source lives in [src/compiler/v3/checker.fk](src/compiler/v3/checker.fk). Tests under `tests/borrow_*.fk`. **Out of scope for v1**: `lend`/`lend mut` syntax, lifetimes, drop emission, `Shared<T>`, `trust me` honor levels, partial-field moves. Those land in later phases.
+
+When the CLI auto-loads std (which is not yet BC-clean), BC silently skips std-prefix statements (their lines clamp to 1 via `adjust_token_lines`). For clean BC testing on isolated files, invoke `freakc_v3.exe file.fk --strict-borrow --c` directly.
+
 ---
 
 ## Language Quick Reference
@@ -263,8 +274,9 @@ Bootstrap sequence (`bootstrap.bat`):
 
 | FREAK | Meaning |
 |---|---|
-| `pilot` | variable declaration (`var`) |
-| `fixed pilot` | immutable binding (`const`) |
+| `pilot` | variable declaration — immutable by default under `--strict-borrow` |
+| `pilot mut` | mutable variable declaration (Phase-1 BC) |
+| `fixed pilot` | immutable binding (`const`, predates Phase-1 BC) |
 | `task` | function declaration (`fn`/`func`) |
 | `give back` | return |
 | `say` | print (always available, no import) |

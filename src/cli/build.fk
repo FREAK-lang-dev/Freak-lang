@@ -92,7 +92,15 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
 
     cli_step_start()
     check_program()
-    cli_step_done("Type checking")
+    if strict_borrow {
+        cli_step_done("Borrow checking")
+        if error_count > 0 {
+            say "  " + C_BRED + SYM_CROSS + " " + word_from_int(error_count) + " borrow-check error(s)" + C_RESET
+            give back ""
+        }
+    } else {
+        cli_step_done("Type checking")
+    }
 
     cli_step_start()
     if target == "llvm" {

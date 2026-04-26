@@ -1,0 +1,18 @@
+-- Phase-1 borrow checker: primitives are Copy.
+-- Reusing an int after passing it to a fn must be allowed under
+-- --strict-borrow. Expected: exit 0.
+
+task double_it(n: int) -> int {
+    give back n + n
+}
+
+task main() -> int {
+    pilot x: int = 21
+    pilot y = double_it(x)
+    -- x is still live because int is Copy.
+    pilot z = x + y
+    say "z = " + word_from_int(z)
+    give back 0
+}
+
+main()

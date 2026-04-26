@@ -13,6 +13,7 @@ type src\compiler\v3\globals.fk >> build\freakc_cli.fk
 type src\compiler\v3\helpers.fk >> build\freakc_cli.fk
 type src\compiler\v3\lexer.fk >> build\freakc_cli.fk
 type src\compiler\v3\parser.fk >> build\freakc_cli.fk
+type src\compiler\v3\checker.fk >> build\freakc_cli.fk
 type src\compiler\v3\emit_c.fk >> build\freakc_cli.fk
 type src\compiler\v3\emit_llvm.fk >> build\freakc_cli.fk
 
@@ -32,6 +33,7 @@ if not exist build\freakc_v3.fk (
     type src\compiler\v3\helpers.fk >> build\freakc_v3.fk
     type src\compiler\v3\lexer.fk >> build\freakc_v3.fk
     type src\compiler\v3\parser.fk >> build\freakc_v3.fk
+    type src\compiler\v3\checker.fk >> build\freakc_v3.fk
     type src\compiler\v3\emit_c.fk >> build\freakc_v3.fk
     type src\compiler\v3\emit_llvm.fk >> build\freakc_v3.fk
     type src\compiler\v3\main.fk >> build\freakc_v3.fk

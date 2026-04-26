@@ -1,0 +1,18 @@
+-- Phase-1 borrow checker: `word` is a Move type.
+-- After passing it to a fn, the binding is moved; using it again is
+-- a use-after-move error.
+-- Expected under --strict-borrow:
+--   borrowck: Shirogane. You gave this away... 'name'
+
+task greet(who: word) -> void {
+    say "Hello, " + who
+}
+
+task main() -> int {
+    pilot name: word = "Takeru"
+    greet(name)
+    say name   -- ERROR: name was moved into greet()
+    give back 0
+}
+
+main()

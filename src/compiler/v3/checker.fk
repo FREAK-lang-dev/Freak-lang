@@ -1,0 +1,448 @@
+-- ===================================================================
+-- FREAK v3 COMPILER — BORROW CHECKER (Phase 1)
+-- ===================================================================
+-- Bible §4.1 enforcement: single-owner ownership + mutability.
+-- Runs only when --strict-borrow is on; otherwise check_program() in
+-- parser.fk skips this entire pass.
+--
+-- v1 scope:
+--   * `pilot x = e`        → immutable binding. Reassign is an error.
+--   * `pilot mut x = e`    → mutable binding.   Reassign is fine.
+--   * Move types (word, shape values, etc.): the binding moves on use,
+--     subsequent uses are use-after-move.
+--   * Copy types (int, num, bool, char, tiny, float, float32): unmoved.
+--
+-- Out of scope (later phases):
+--   * lend / lend mut     — Phase 2.
+--   * lifetimes           — Phase 3.
+--   * drop emission       — Phase 4.
+--   * Shared<T>, Weak<T>  — Phase 5.
+--   * trust me honor      — Phase 6.
+--   * partial-field moves — treated as full-parent move for v1.
+--   * closure captures    — body-level treatment, no per-capture move.
+-- ===================================================================
+
+-- ---------- Type kind classification --------------------------------
+
+-- Returns true iff the named type annotation is a primitive Copy type.
+task bc_is_copy_type(type_ann: word) -> bool {
+    if type_ann == "int"     { give back true }
+    if type_ann == "uint"    { give back true }
+    if type_ann == "num"     { give back true }
+    if type_ann == "tiny"    { give back true }
+    if type_ann == "bool"    { give back true }
+    if type_ann == "char"    { give back true }
+    if type_ann == "float"   { give back true }
+    if type_ann == "float32" { give back true }
+    if type_ann == "big"     { give back true }
+    give back false
+}
+
+-- Best-effort kind classification when the binding has no type annotation.
+-- Conservative: if the RHS is a literal primitive, "copy"; otherwise "owned".
+task bc_classify_rhs(expr_id: int) -> word {
+    if expr_id < 0 { give back "owned" }
+    pilot k: word = array_get(ast_expr_kinds, expr_id)
+    if k == EXPR_INT   { give back "copy" }
+    if k == EXPR_FLOAT { give back "copy" }
+    if k == EXPR_BOOL  { give back "copy" }
+    -- EXPR_STR, EXPR_IDENT (of unknown type), EXPR_CALL, EXPR_METHOD,
+    -- EXPR_FIELD, EXPR_INDEX, EXPR_BINOP, EXPR_UNARYOP all default to owned.
+    -- That over-reports, but Phase 1 errs on the safe side for moves.
+    give back "owned"
+}
+
+task bc_classify_binding(type_ann: word, expr_id: int) -> word {
+    if type_ann != "" {
+        if bc_is_copy_type(type_ann) { give back "copy" }
+        give back "owned"
+    }
+    give back bc_classify_rhs(expr_id)
+}
+
+-- ---------- Symbol-table helpers ------------------------------------
+
+task bc_push_sym(name: word, kind: word, is_mut: word, line: int) -> void {
+    pilot phys_len = array_len(bc_sym_names)
+    if bc_sym_count < phys_len {
+        array_set(bc_sym_names,  bc_sym_count, name)
+        array_set(bc_sym_kinds,  bc_sym_count, kind)
+        array_set(bc_sym_is_mut, bc_sym_count, is_mut)
+        array_set(bc_sym_state,  bc_sym_count, "live")
+        array_set(bc_sym_scopes, bc_sym_count, word_from_int(bc_scope_depth))
+        array_set(bc_sym_lines,  bc_sym_count, word_from_int(line))
+    } else {
+        array_push(bc_sym_names,  name)
+        array_push(bc_sym_kinds,  kind)
+        array_push(bc_sym_is_mut, is_mut)
+        array_push(bc_sym_state,  "live")
+        array_push(bc_sym_scopes, word_from_int(bc_scope_depth))
+        array_push(bc_sym_lines,  word_from_int(line))
+    }
+    bc_sym_count += 1
+}
+
+-- Latest binding of `name` visible in any active scope. -1 if none.
+task bc_lookup_idx(name: word) -> int {
+    pilot j = bc_sym_count - 1
+    repeat until j < 0 {
+        if array_get(bc_sym_names, j) == name { give back j }
+        j -= 1
+    }
+    give back 0 - 1
+}
+
+task bc_pop_to_depth(target_depth: int) -> void {
+    repeat until bc_sym_count == 0 {
+        pilot top = bc_sym_count - 1
+        pilot d = word_to_int(array_get(bc_sym_scopes, top))
+        if d <= target_depth { give back }
+        bc_sym_count -= 1
+    }
+}
+
+task bc_enter_scope() -> void {
+    bc_scope_depth += 1
+}
+
+task bc_leave_scope() -> void {
+    pilot prev = bc_scope_depth - 1
+    bc_pop_to_depth(prev)
+    bc_scope_depth = prev
+}
+
+-- ---------- Diagnostic emission -------------------------------------
+-- diag_error in helpers.fk reads the current parse_idx to point at a
+-- token. The borrow checker runs after parsing, so parse_idx is past
+-- the end. We emit a free-form line so the user gets the message even
+-- without a caret, and bump error_count directly.
+
+task bc_diag(msg: word, name: word, line: int) -> void {
+    error_count += 1
+    pilot loc: word = ""
+    if line > 0 { loc = " (line " + word_from_int(line) + ")" }
+    pilot at_name: word = ""
+    if name != "" { at_name = " '" + name + "'" }
+    say "\x1b[1;31mborrowck\x1b[0m: " + msg + at_name + loc
+}
+
+-- Anime-voiced canonical messages from Bible §4.1, §4.2.
+task bc_err_use_after_move(name: word, line: int) -> void {
+    bc_diag("Shirogane. You gave this away. It no longer belongs to you.", name, line)
+}
+
+task bc_err_assign_immut(name: word, line: int) -> void {
+    bc_diag("This binding was sworn to silence. It cannot be reassigned.", name, line)
+}
+
+-- ---------- Expression walk -----------------------------------------
+-- Walking an expression with `consume = true` means the value flows
+-- into a position that takes ownership (RHS of pilot/assign, call arg).
+-- For owned-kind ident leaves under consume, we mark the binding moved.
+
+task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
+    if expr_id < 0 { give back }
+    pilot k: word = array_get(ast_expr_kinds, expr_id)
+
+    if k == EXPR_INT or k == EXPR_FLOAT or k == EXPR_STR or k == EXPR_BOOL {
+        give back
+    }
+
+    if k == EXPR_IDENT {
+        pilot name: word = array_get(ast_expr_vals, expr_id)
+        pilot idx = bc_lookup_idx(name)
+        if idx < 0 { give back }
+        pilot state: word = array_get(bc_sym_state, idx)
+        pilot kind: word  = array_get(bc_sym_kinds, idx)
+        if state == "moved" {
+            bc_err_use_after_move(name, use_line)
+            give back
+        }
+        if consume and kind == "owned" {
+            array_set(bc_sym_state, idx, "moved")
+        }
+        give back
+    }
+
+    if k == EXPR_BINOP {
+        pilot lft: word = array_get(ast_expr_lefts,  expr_id)
+        pilot rht: word = array_get(ast_expr_rights, expr_id)
+        bc_walk_expr(word_to_int(lft), false, use_line)
+        bc_walk_expr(word_to_int(rht), false, use_line)
+        give back
+    }
+
+    if k == EXPR_UNARYOP {
+        pilot inner: word = array_get(ast_expr_lefts, expr_id)
+        bc_walk_expr(word_to_int(inner), false, use_line)
+        give back
+    }
+
+    if k == EXPR_CALL {
+        -- ast_expr_lefts holds a string of comma-separated arg expr ids.
+        pilot args: word = array_get(ast_expr_lefts, expr_id)
+        bc_walk_call_args(args, use_line)
+        give back
+    }
+
+    if k == EXPR_METHOD {
+        -- Receiver + args. ast_expr_lefts = receiver expr id (as word).
+        -- ast_expr_rights = comma-separated arg expr ids.
+        pilot recv: word = array_get(ast_expr_lefts, expr_id)
+        pilot margs: word = array_get(ast_expr_rights, expr_id)
+        bc_walk_expr(word_to_int(recv), false, use_line)
+        bc_walk_call_args(margs, use_line)
+        give back
+    }
+
+    if k == EXPR_FIELD {
+        pilot base: word = array_get(ast_expr_lefts, expr_id)
+        -- Touching a field counts as a use of the parent. v1 treats as
+        -- read-only; if the parent was moved, this is use-after-move.
+        bc_walk_expr(word_to_int(base), false, use_line)
+        give back
+    }
+
+    if k == EXPR_INDEX {
+        pilot base: word = array_get(ast_expr_lefts, expr_id)
+        pilot idxe: word = array_get(ast_expr_rights, expr_id)
+        bc_walk_expr(word_to_int(base), false, use_line)
+        bc_walk_expr(word_to_int(idxe), false, use_line)
+        give back
+    }
+}
+
+-- Parse a comma-separated list of expr ids and walk each as a consumed arg.
+task bc_walk_call_args(args: word, use_line: int) -> void {
+    if args == "" { give back }
+    pilot cur: word = ""
+    pilot i = 0
+    pilot n = args.length()
+    repeat n times {
+        pilot c: word = args.char_at(i)
+        if c == "," {
+            if cur != "" { bc_walk_expr(word_to_int(cur), true, use_line) }
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        i += 1
+    }
+    if cur != "" { bc_walk_expr(word_to_int(cur), true, use_line) }
+}
+
+-- ---------- Statement walk ------------------------------------------
+
+task bc_walk_stmt(stmt_id: int) -> void {
+    if stmt_id < 0 { give back }
+    pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
+    pilot line = word_to_int(array_get(ast_stmt_lines, stmt_id))
+    -- adjust_token_lines clamps every prepended-std token to line 1
+    -- when the CLI auto-loads std (source_line_offset > 0). Skip BC on
+    -- those stmts so the user's file is the only thing checked. The
+    -- corner case of user-file line 1 sharing the clamp value is the
+    -- price; phases past v1 will track origin via stmt-id range
+    -- instead of line number.
+    if source_line_offset > 0 {
+        if line <= 1 { give back }
+    }
+
+    if kind == STMT_PILOT {
+        pilot name: word = array_get(ast_stmt_names, stmt_id)
+        pilot expr_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot type_ann: word = array_get(ast_stmt_extras, stmt_id)
+        pilot expr_id = word_to_int(expr_w)
+        -- Walk RHS first so RHS may move other owned bindings.
+        bc_walk_expr(expr_id, true, line)
+        pilot k: word = bc_classify_binding(type_ann, expr_id)
+        pilot is_mut: word = array_get(ast_pilot_is_mut, stmt_id)
+        bc_push_sym(name, k, is_mut, line)
+        give back
+    }
+
+    if kind == STMT_ASSIGN {
+        pilot op: word = array_get(ast_stmt_names, stmt_id)
+        pilot lhs_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot rhs_w: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot lhs = word_to_int(lhs_w)
+        pilot rhs = word_to_int(rhs_w)
+        -- Walk RHS first (may move other bindings).
+        bc_walk_expr(rhs, true, line)
+        -- Mutability check: only when LHS is a bare identifier. Field /
+        -- index writes are treated as field-level mutation and are not
+        -- yet tracked in v1 (full-parent treatment lands later).
+        pilot lk: word = array_get(ast_expr_kinds, lhs)
+        if lk == EXPR_IDENT {
+            pilot lname: word = array_get(ast_expr_vals, lhs)
+            pilot idx = bc_lookup_idx(lname)
+            if idx >= 0 {
+                pilot is_mut: word = array_get(bc_sym_is_mut, idx)
+                if is_mut != "1" {
+                    bc_err_assign_immut(lname, line)
+                }
+                -- Reassignment re-establishes liveness for the binding.
+                array_set(bc_sym_state, idx, "live")
+            }
+        } else {
+            -- Non-ident LHS: walk as a read for now.
+            bc_walk_expr(lhs, false, line)
+        }
+        give back
+    }
+
+    if kind == STMT_SAY {
+        pilot expr_w: word = array_get(ast_stmt_exprs, stmt_id)
+        bc_walk_expr(word_to_int(expr_w), false, line)
+        give back
+    }
+
+    if kind == STMT_GIVE_BACK {
+        pilot expr_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot eid = word_to_int(expr_w)
+        if eid >= 0 { bc_walk_expr(eid, true, line) }
+        give back
+    }
+
+    if kind == STMT_EXPR {
+        pilot expr_w: word = array_get(ast_stmt_exprs, stmt_id)
+        bc_walk_expr(word_to_int(expr_w), false, line)
+        give back
+    }
+
+    if kind == STMT_IF {
+        pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot then_w: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot else_w: word = array_get(ast_stmt_else_bodies, stmt_id)
+        bc_walk_expr(word_to_int(cond_w), false, line)
+        bc_enter_scope()
+        bc_walk_block(then_w)
+        bc_leave_scope()
+        if else_w != "" {
+            bc_enter_scope()
+            bc_walk_block(else_w)
+            bc_leave_scope()
+        }
+        give back
+    }
+
+    if kind == STMT_REPEAT {
+        pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
+        bc_walk_expr(word_to_int(cond_w), false, line)
+        bc_enter_scope()
+        bc_walk_block(body_w)
+        bc_leave_scope()
+        give back
+    }
+
+    if kind == STMT_TRAINING_ARC {
+        pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
+        bc_walk_expr(word_to_int(cond_w), false, line)
+        bc_enter_scope()
+        bc_walk_block(body_w)
+        bc_leave_scope()
+        give back
+    }
+
+    if kind == STMT_BLOCK {
+        pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
+        bc_enter_scope()
+        bc_walk_block(body_w)
+        bc_leave_scope()
+        give back
+    }
+
+    if kind == STMT_EVENTUALLY {
+        pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
+        bc_enter_scope()
+        bc_walk_block(body_w)
+        bc_leave_scope()
+        give back
+    }
+
+    if kind == STMT_TASK {
+        -- Body lives in its own scope. Params are in scope during body.
+        pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot params: word = array_get(ast_task_params, stmt_id)
+        bc_enter_scope()
+        bc_register_task_params(params, line)
+        bc_walk_block(body_w)
+        bc_leave_scope()
+        give back
+    }
+
+    if kind == STMT_SHAPE        { give back }
+    if kind == STMT_BREAK        { give back }
+    if kind == STMT_CONTINUE     { give back }
+    if kind == STMT_EXTERN       { give back }
+    if kind == STMT_WHEN         { give back }
+}
+
+-- Walk a comma-separated list of stmt ids, in order.
+task bc_walk_block(block_str: word) -> void {
+    if block_str == "" { give back }
+    pilot cur: word = ""
+    pilot i = 0
+    pilot n = block_str.length()
+    repeat n times {
+        pilot c: word = block_str.char_at(i)
+        if c == "," {
+            if cur != "" { bc_walk_stmt(word_to_int(cur)) }
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        i += 1
+    }
+    if cur != "" { bc_walk_stmt(word_to_int(cur)) }
+}
+
+-- Param string format used by the v3 parser is "name:type,name:type,...".
+-- Each param becomes a fresh, live, mutable binding for the body.
+-- (Param immutability is a Phase 2 feature alongside `lend`.)
+task bc_register_task_params(params: word, line: int) -> void {
+    if params == "" { give back }
+    pilot cur_name: word = ""
+    pilot cur_type: word = ""
+    pilot in_type = false
+    pilot i = 0
+    pilot n = params.length()
+    repeat n times {
+        pilot c: word = params.char_at(i)
+        if c == "," {
+            if cur_name != "" {
+                pilot k: word = "owned"
+                if bc_is_copy_type(cur_type) { k = "copy" }
+                bc_push_sym(cur_name, k, "1", line)
+            }
+            cur_name = ""
+            cur_type = ""
+            in_type = false
+        } else if c == ":" {
+            in_type = true
+        } else {
+            if in_type { cur_type = cur_type + c } else { cur_name = cur_name + c }
+        }
+        i += 1
+    }
+    if cur_name != "" {
+        pilot k2: word = "owned"
+        if bc_is_copy_type(cur_type) { k2 = "copy" }
+        bc_push_sym(cur_name, k2, "1", line)
+    }
+}
+
+-- ---------- Top-level entry -----------------------------------------
+
+task bc_run_program() -> void {
+    bc_sym_count = 0
+    bc_scope_depth = 0
+    pilot top_count = array_len(ast_top_stmts)
+    pilot i = 0
+    repeat top_count times {
+        pilot stmt_id = word_to_int(array_get(ast_top_stmts, i))
+        bc_walk_stmt(stmt_id)
+        i += 1
+    }
+}

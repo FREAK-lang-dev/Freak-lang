@@ -45,14 +45,12 @@ task current_source_line() -> word {
     if parse_idx < 0 or parse_idx >= tokens_count {
         give back "1"
     }
+    -- tok_lines is already in user-file coordinates: adjust_token_lines()
+    -- subtracts source_line_offset right after tokenize when the CLI has
+    -- prepended std. Standalone freakc_v3 leaves source_line_offset at 0
+    -- so adjust is a no-op. Don't subtract again here — that doubles the
+    -- offset and clamps every stmt to line 1.
     pilot line_no = word_to_int(array_get(tok_lines, parse_idx))
-    if source_line_offset > 0 {
-        if line_no > source_line_offset {
-            line_no -= source_line_offset
-        } else {
-            line_no = 1
-        }
-    }
     if line_no <= 0 { line_no = 1 }
     give back word_from_int(line_no)
 }
@@ -412,8 +410,10 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_PILOT, fname, word_from_int(fexpr_id), "", "", ftype_ann, "", "", stmt_line)
     }
 
-    -- pilot name = expr
+    -- pilot [mut] name = expr
     if match_tok(TOK_KW, "pilot") {
+        pilot is_mut = false
+        if match_tok(TOK_KW, "mut") { is_mut = true }
         pilot name = cur_tok_val()
         advance_tok()
         pilot type_ann = ""
@@ -424,7 +424,9 @@ task parse_stmt() -> int {
         }
         expect_tok(TOK_PUNCT, "=")
         pilot expr_id = parse_expr()
-        give back alloc_stmt(STMT_PILOT, name, word_from_int(expr_id), "", "", type_ann, "", "", stmt_line)
+        pilot stmt_id = alloc_stmt(STMT_PILOT, name, word_from_int(expr_id), "", "", type_ann, "", "", stmt_line)
+        if is_mut { array_set(ast_pilot_is_mut, stmt_id, "1") }
+        give back stmt_id
     }
 
     -- give back expr
@@ -735,5 +737,10 @@ task parse_program() -> void {
 }
 
 task check_program() -> void {
-    -- Type checker stub (v3 Phase 1)
+    -- v3 has no full type checker yet. The borrow checker (Bible §4.1)
+    -- runs only when --strict-borrow is on the CLI; otherwise this is
+    -- a no-op so existing code keeps building.
+    if strict_borrow {
+        bc_run_program()
+    }
 }

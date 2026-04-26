@@ -1,0 +1,13 @@
+-- Phase-1 borrow checker: `pilot mut` allows reassignment.
+-- Expected: exit 0 under --strict-borrow.
+
+task main() -> int {
+    pilot mut counter = 0
+    counter = counter + 1
+    counter = counter + 2
+    counter = counter + 3
+    say "counter = " + word_from_int(counter)
+    give back 0
+}
+
+main()

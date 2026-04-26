@@ -8,9 +8,12 @@
 task cli_parse_flags(start_idx: int, args_cnt: int) -> word {
     -- Parse flags from command line args starting at start_idx.
     -- Returns a colon-delimited string: "target:opt:cross"
+    -- Side effect: --strict-borrow flips the global `strict_borrow`
+    -- so check_program() runs the borrow checker in-process.
     pilot target = "llvm"
     pilot opt = "2"
     pilot cross = ""
+    strict_borrow = false
 
     pilot fi = start_idx
     repeat until fi >= args_cnt {
@@ -19,6 +22,8 @@ task cli_parse_flags(start_idx: int, args_cnt: int) -> word {
             target = "c"
         } else if flag == "--llvm" {
             target = "llvm"
+        } else if flag == "--strict-borrow" {
+            strict_borrow = true
         } else if flag.starts_with("--opt=") {
             opt = flag.char_at(6)
         } else if flag.starts_with("--target=") {

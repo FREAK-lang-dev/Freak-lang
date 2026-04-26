@@ -1,0 +1,23 @@
+-- Phase-1 borrow checker: shape values are Move types.
+-- Moving a shape into a fn invalidates the original binding; using
+-- the binding (or any of its fields) afterwards is use-after-move.
+-- Expected under --strict-borrow:
+--   borrowck: Shirogane. You gave this away... 'ship'
+
+shape Eishi {
+    name: word
+    hp: int
+}
+
+task report(e: Eishi) -> void {
+    say e.name
+}
+
+task main() -> int {
+    pilot ship: Eishi = Eishi { name: "Takeru", hp: 100 }
+    report(ship)
+    say ship.name   -- ERROR: ship was moved
+    give back 0
+}
+
+main()

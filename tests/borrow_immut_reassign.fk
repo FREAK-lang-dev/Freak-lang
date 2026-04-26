@@ -1,0 +1,12 @@
+-- Phase-1 borrow checker: `pilot` (without mut) is immutable.
+-- Expected under --strict-borrow:
+--   borrowck: This binding was sworn to silence... 'counter'
+
+task main() -> int {
+    pilot counter = 0
+    counter = counter + 1   -- ERROR: immutable binding
+    say "counter = " + word_from_int(counter)
+    give back 0
+}
+
+main()

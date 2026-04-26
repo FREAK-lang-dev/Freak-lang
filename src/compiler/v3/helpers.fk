@@ -22,6 +22,13 @@ task init_arrays() -> void {
     ast_task_returns = array_new()
     ast_stmt_lines = array_new()
     ast_top_stmts = array_new()
+    ast_pilot_is_mut = array_new()
+    bc_sym_names  = array_new()
+    bc_sym_kinds  = array_new()
+    bc_sym_is_mut = array_new()
+    bc_sym_state  = array_new()
+    bc_sym_scopes = array_new()
+    bc_sym_lines  = array_new()
     shape_registry_names = array_new()
     shape_registry_fields = array_new()
     emt_var_names = array_new()
@@ -55,6 +62,9 @@ task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body:
     array_push(ast_task_params, params)
     array_push(ast_task_returns, returns)
     array_push(ast_stmt_lines, line_no)
+    -- Default mutability: immutable. The `pilot mut` parser path overrides
+    -- via array_set after this returns. All other stmt kinds keep "0".
+    array_push(ast_pilot_is_mut, "0")
     give back id
 }
 
