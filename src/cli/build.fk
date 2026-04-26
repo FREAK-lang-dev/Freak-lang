@@ -37,14 +37,27 @@ task cli_strip_resolved_use_lines(source: word) -> word {
     pilot line = ""
     pilot i = 0
     pilot slen = source.length()
+    -- When `in_use_block` is set we're inside a multi-line `use std::x::{ ... }`
+    -- that spans newlines. Keep stripping until we see the closing brace.
+    pilot in_use_block = false
     repeat until i >= slen {
         pilot ch = source.char_at(i)
         if ch == "\n" {
             pilot trimmed = line.trim()
-            if trimmed.starts_with("use std::math3d") or trimmed.starts_with("use std::zip") {
-                out = out + "-- [resolved] " + trimmed + "\n"
+            if in_use_block {
+                out = out + "-- [resolved cont] " + trimmed + "\n"
+                if trimmed.contains("}") { in_use_block = false }
             } else {
-                out = out + line + "\n"
+                if trimmed.starts_with("use ") {
+                    out = out + "-- [resolved] " + trimmed + "\n"
+                    -- Multi-line use? Look for `{` without a matching `}` on
+                    -- the same line — keep eating lines until we see `}`.
+                    if trimmed.contains("{") and not trimmed.contains("}") {
+                        in_use_block = true
+                    }
+                } else {
+                    out = out + line + "\n"
+                }
             }
             line = ""
         } else if ch != "\r" {
@@ -54,7 +67,7 @@ task cli_strip_resolved_use_lines(source: word) -> word {
     }
     if line != "" {
         pilot trimmed_last = line.trim()
-        if trimmed_last.starts_with("use std::math3d") or trimmed_last.starts_with("use std::zip") {
+        if in_use_block or trimmed_last.starts_with("use ") {
             out = out + "-- [resolved] " + trimmed_last
         } else {
             out = out + line
@@ -304,11 +317,13 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         cmd = cmd + " -lws2_32"
     }
 
-    -- Add UI runtime if source file uses ui:: functions
+    -- Add UI runtime if source file uses ui:: functions.
+    -- -DFREAK_HAS_UI activates the LLVM-side bridge wrappers
+    -- (freak_llvm_ui_*) inside freak_llvm_runtime.c.
     pilot ui_c = runtime_dir + "/ui/win32_backend.c"
     if is_win {
         if fs::exists(ui_c) {
-            cmd = cmd + " " + ui_c + " -luser32 -lgdi32 -lmsimg32"
+            cmd = cmd + " " + ui_c + " -DFREAK_HAS_UI -luser32 -lgdi32 -lmsimg32"
         }
     }
 
@@ -408,6 +423,39 @@ task cli_load_std(source: word, target: word) -> word {
     if fs::exists(version_path) {
         std_src = std_src + fs::read(version_path) + "\n"
     }
+    -- std::ui — window and canvas types. Loaded conditionally because most
+    -- programs don't need it, and pulling its shape definitions into every
+    -- compile would slow plain CLI builds. Without it, programs that
+    -- `use std::ui` would parse `WindowConfig { ... }` as an identifier
+    -- followed by an unrecognized block, since `is_shape_name` looks at
+    -- the current shape registry only.
+    pilot need_ui = false
+    if source.contains("use std::ui") {
+        need_ui = true
+    }
+    pilot ui_path = std_dir + "/ui/window.fk"
+    if need_ui and fs::exists(ui_path) {
+        std_src = std_src + fs::read(ui_path) + "\n"
+    }
+    -- cockpit — UI framework Hangar package. Mirrors the std::ui pattern:
+    -- if the source mentions `use cockpit`, append the cockpit src files
+    -- so its shapes (UI, Theme) and module-level pilots (btn_*, label_*)
+    -- are in scope. Order matters: containers first, then theme, layout,
+    -- widgets, ui (the dispatcher).
+    pilot need_cockpit = false
+    if source.contains("use cockpit") {
+        need_cockpit = true
+    }
+    if need_cockpit {
+        pilot cockpit_root = "packages/cockpit/src"
+        if fs::exists(cockpit_root + "/containers.fk") {
+            std_src = std_src + fs::read(cockpit_root + "/containers.fk") + "\n"
+            std_src = std_src + fs::read(cockpit_root + "/theme.fk") + "\n"
+            std_src = std_src + fs::read(cockpit_root + "/layout.fk") + "\n"
+            std_src = std_src + fs::read(cockpit_root + "/widgets.fk") + "\n"
+            std_src = std_src + fs::read(cockpit_root + "/ui.fk") + "\n"
+        }
+    }
     -- http.fk uses TCP socket functions (tcp_recv_all returns freak_word)
     -- which only work correctly with the LLVM backend's i64 representation.
     -- The C backend's freak_word struct type causes type mismatches.
@@ -457,6 +505,7 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     pilot std_source: word = cli_load_std(source, target)
     source_line_offset = 0
     if std_source != "" {
+        std_source = cli_strip_resolved_use_lines(std_source)
         source_line_offset = cli_count_lines(std_source)
         source = cli_strip_resolved_use_lines(source)
         source = std_source + source
