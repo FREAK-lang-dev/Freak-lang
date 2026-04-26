@@ -526,14 +526,16 @@ impl UI {
         }
         pilot thumb_x = rect.x + normalized * (rect.w - 16.0)
 
-        -- Thumb
+        -- Thumb — smoothly tween between resting and hover colours
+        -- using the same channel scheme as button hover.
         pilot thumb_rect = Rect { x: thumb_x, y: rect.y + 2.0, w: 16.0, h: slider_h - 4.0 }
         pilot thumb_hovered = thumb_rect.contains(self.mouse_x.to_num(), self.mouse_y.to_num())
-        if thumb_hovered {
-            self.canvas.fill_rect(thumb_rect, self.theme.accent_hover)
-        } else {
-            self.canvas.fill_rect(thumb_rect, self.theme.accent)
-        }
+        pilot thumb_target = 0.0
+        if thumb_hovered { thumb_target = 1.0 }
+        pilot thumb_t = self.tween(HOVER_TWEEN_BASE + self.widget_count - 1,
+                                   thumb_target, 14.0, ease_out)
+        self.canvas.fill_rect(thumb_rect,
+            color_lerp(self.theme.accent, self.theme.accent_hover, thumb_t))
 
         -- Fill track up to thumb
         pilot fill_rect = Rect { x: rect.x, y: track_y, w: thumb_x - rect.x + 8.0, h: 4.0 }
