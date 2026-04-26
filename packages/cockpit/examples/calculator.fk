@@ -46,7 +46,7 @@ impl CalcState {
     }
 
     task set_op(self, new_op: int) -> void {
-        self.pending = word_to_num(self.display)
+        self.pending = w_to_num(self.display)
         self.has_pending = true
         self.op = new_op
         self.fresh = true
@@ -61,19 +61,19 @@ impl CalcState {
     }
 
     task negate(self) -> void {
-        pilot val = word_to_num(self.display) * -1.0
-        self.display = num_to_word(val)
+        pilot val = w_to_num(self.display) * -1.0
+        self.display = num_to_w(val)
     }
 
     task percent(self) -> void {
-        pilot val = word_to_num(self.display) / 100.0
-        self.display = num_to_word(val)
+        pilot val = w_to_num(self.display) / 100.0
+        self.display = num_to_w(val)
     }
 
     task calculate(self) -> void {
         if not self.has_pending { give back }
 
-        pilot current = word_to_num(self.display)
+        pilot current = w_to_num(self.display)
         pilot answer = 0.0
 
         if self.op == op_add { answer = self.pending + current }
@@ -90,7 +90,7 @@ impl CalcState {
             answer = self.pending / current
         }
 
-        self.display = num_to_word(answer)
+        self.display = num_to_w(answer)
         self.has_pending = false
         self.op = op_none
         self.fresh = true
@@ -116,7 +116,7 @@ task main() {
 
         -- Check for quit
         pilot e = 0
-        repeat events.len() times {
+        repeat events.length times {
             if events[e].kind == event_quit {
                 running = false
             }
@@ -176,13 +176,14 @@ task main() {
 }
 
 -- ================================================================
---  Helpers (would normally be in std::convert)
+--  Helpers (renamed from w_to_num / num_to_w to dodge
+--  collisions with the runtime symbols of the same name).
 -- ================================================================
 
-task word_to_num(s: word) -> num {
+task w_to_num(s: word) -> num {
     give back parse_num(s)
 }
 
-task num_to_word(n: num) -> word {
+task num_to_w(n: num) -> word {
     give back format_num(n)
 }
