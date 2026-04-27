@@ -1,0 +1,35 @@
+-- ===================================================================
+-- FREAK CLI — Audit Command Shims
+-- ===================================================================
+-- Bridges native CLI audit subcommands to the Python implementation in
+-- freakc/auditor.py. A native FREAK port of the audit logic is planned
+-- for V4; this shim closes the v0.13.x conformance gap (bible §13).
+-- Subcommands handled:
+--   audit-science      list 'for science,' call sites
+--   audit-trust        list 'trust me' blocks with honor levels
+--   audit-miracles     list 'deus_ex_machina' blocks (>3 warn, >10 err)
+--   foreshadow-audit   foreshadow/payoff pairs and unpaid debt
+--   audit-conformance  v0.13.x conformance check vs the bible
+-- ===================================================================
+
+task cli_audit_dispatch(subcmd: word, args_cnt: int) -> int {
+    -- Build the Python invocation from arg(1) (the subcommand) onwards.
+    -- Native CLI argv: arg(0)=binary, arg(1)=subcmd, arg(2..)=user args.
+    pilot cmd = "python -m freakc " + subcmd
+
+    pilot ai = 2
+    repeat until ai >= args_cnt {
+        pilot extra: word = process::arg(ai)
+        cmd = cmd + " " + extra
+        ai += 1
+    }
+
+    pilot exit_code = process::exec(cmd)
+    if exit_code != 0 {
+        say ""
+        say "  " + C_DIM + "Note: audit commands currently shell out to the Python CLI." + C_RESET
+        say "  " + C_DIM + "If Python is missing, install Python 3.10+ and try again." + C_RESET
+        say "  " + C_DIM + "(Native FREAK port of the auditor lands in V4.)" + C_RESET
+    }
+    give back exit_code
+}

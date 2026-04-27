@@ -286,6 +286,15 @@ task freakc_cli_main() -> void {
         give back
     }
 
+    -- Audit commands (shell out to Python; native port lands in V4)
+    if subcmd == "audit-science" or subcmd == "audit-trust" or subcmd == "audit-miracles" or subcmd == "foreshadow-audit" or subcmd == "audit-conformance" {
+        pilot audit_exit = cli_audit_dispatch(subcmd, args_cnt)
+        if audit_exit != 0 {
+            process::exit(audit_exit)
+        }
+        give back
+    }
+
     -- Legacy mode: first arg is a .fk file (backwards compat with freakc_v2 behavior)
     if subcmd.ends_with(".fk") {
         pilot flags: word = cli_parse_flags(2, args_cnt)

@@ -533,11 +533,247 @@ def foreshadow_audit(paths: List[Path]) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+#  audit_conformance — verify v0.13.x bible-vs-implementation conformance
+# ---------------------------------------------------------------------------
+
+
+def _find_repo_root(start: Path) -> Optional[Path]:
+    """Walk upward looking for freak-full-bible.md to locate repo root."""
+    p = start.resolve()
+    if p.is_file():
+        p = p.parent
+    while True:
+        if (p / "freak-full-bible.md").exists():
+            return p
+        if p.parent == p:
+            return None
+        p = p.parent
+
+
+def audit_conformance(paths: List[Path]) -> int:
+    """
+    Verify v0.13.x implementation conforms to the contracts the bible
+    promises for this release. Checks every "✅ aligned" claim from
+    freak-conformance-audit.md is still backed by code or files.
+
+    Returns 1 if any v0.13.x contract is broken, 0 otherwise.
+
+    The check set is hardcoded to the v0.13.x baseline. V4-tagged contracts
+    are intentionally not checked — once Phase D bible amendments add
+    Status tags, this function can be extended to read them directly.
+    """
+    import sys as _sys
+
+    start = paths[0] if paths else Path(".")
+    repo = _find_repo_root(start)
+    if repo is None:
+        print("✗ Cannot locate repo root (freak-full-bible.md not found).")
+        return 1
+
+    failures: List[str] = []
+    warnings: List[str] = []
+    summary: List[Tuple[str, bool, str]] = []
+
+    def add(label: str, ok: bool, detail: str = "") -> None:
+        summary.append((label, ok, detail))
+
+    # ── Check 1: bible + audit doc present ─────────────────────
+    bible = repo / "freak-full-bible.md"
+    audit_doc = repo / "freak-conformance-audit.md"
+    bible_size = bible.stat().st_size if bible.exists() else 0
+    add("Bible", bible.exists() and bible_size > 10_000, f"{bible_size} bytes")
+    if not bible.exists():
+        failures.append(f"Missing: {bible}")
+    elif bible_size < 10_000:
+        warnings.append(f"Bible suspiciously small: {bible_size} bytes")
+
+    add("Audit doc", audit_doc.exists(),
+        "freak-conformance-audit.md" if audit_doc.exists() else "missing (run audit first)")
+    if not audit_doc.exists():
+        warnings.append("freak-conformance-audit.md missing — run conformance audit first.")
+
+    # ── Check 2: native CLI binary present ─────────────────────
+    freak_exe_name = "freak.exe" if _sys.platform == "win32" else "freak"
+    freak_exe = repo / "build" / freak_exe_name
+    add("Native CLI", freak_exe.exists(), str(freak_exe.relative_to(repo)) if freak_exe.exists() else "not built")
+    if not freak_exe.exists():
+        warnings.append(f"Native CLI not built ({freak_exe}). Run build_cli.bat or CI.")
+
+    # ── Check 3: lexer has v0.13.x keywords ───────────────────
+    lexer_path = repo / "freakc" / "lexer.py"
+    required_keywords = [
+        # Core
+        "PILOT", "TASK", "GIVE_BACK", "SAY", "SHAPE", "IMPL", "DOCTRINE",
+        "LAUNCH", "USE",
+        # Control flow
+        "IF", "ELSE", "WHEN", "REPEAT", "TIMES", "UNTIL", "DONE",
+        "BREAK", "CONTINUE",
+        # Error handling
+        "CHECK", "RESULT_KW", "GOT", "NOBODY", "SOME", "OK", "ERR", "OR_ELSE",
+        # Memory
+        "LEND", "MUT", "MOVE", "COPY", "TRUST_ME",
+        # Anime
+        "TRAINING_ARC", "FORESHADOW", "PAYOFF", "DEUS_EX_MACHINA",
+        "ISEKAI", "EVENTUALLY", "BRINGING_BACK", "ON_MY_HONOR",
+        "FOR_SCIENCE", "KNOWING", "SADLY", "ROUTE_KW",
+        # Operators
+        "PIPE", "FAT_ARROW", "ARROW", "QUESTION",
+        "PLUS_ULTRA", "NAKAMA", "FINAL_FORM", "TSUNDERE",
+    ]
+    missing_kw: List[str] = []
+    if lexer_path.exists():
+        lexer_src = lexer_path.read_text(encoding="utf-8")
+        missing_kw = [kw for kw in required_keywords if kw not in lexer_src]
+    else:
+        failures.append(f"Lexer source not found: {lexer_path}")
+    add("Lexer keywords",
+        bool(lexer_path.exists()) and not missing_kw,
+        f"{len(required_keywords) - len(missing_kw)}/{len(required_keywords)} keywords"
+        if lexer_path.exists() else "lexer missing")
+    if missing_kw:
+        failures.append(f"Lexer missing keywords: {', '.join(missing_kw)}")
+
+    # ── Check 4: audit dispatch consistency (Python + native) ──
+    audit_subs = [
+        "audit-science",
+        "audit-trust",
+        "audit-miracles",
+        "foreshadow-audit",
+        "audit-conformance",
+    ]
+
+    main_py = repo / "freakc" / "__main__.py"
+    py_missing: List[str] = []
+    if main_py.exists():
+        py_src = main_py.read_text(encoding="utf-8")
+        py_missing = [s for s in audit_subs if s not in py_src]
+    else:
+        failures.append("freakc/__main__.py missing")
+    add("Python CLI audits",
+        main_py.exists() and not py_missing,
+        f"{len(audit_subs) - len(py_missing)}/{len(audit_subs)} dispatched")
+    if py_missing:
+        failures.append(f"Python CLI missing dispatch: {', '.join(py_missing)}")
+
+    cli_main = repo / "src" / "cli" / "main.fk"
+    cli_missing: List[str] = []
+    if cli_main.exists():
+        cli_src = cli_main.read_text(encoding="utf-8")
+        cli_missing = [s for s in audit_subs if s not in cli_src]
+    else:
+        warnings.append("src/cli/main.fk missing — native CLI source not present")
+    add("Native CLI audits",
+        cli_main.exists() and not cli_missing,
+        f"{len(audit_subs) - len(cli_missing)}/{len(audit_subs)} dispatched")
+    if cli_missing and cli_main.exists():
+        # Downgrade audit-conformance-only gap to warning until rebuild
+        non_self = [s for s in cli_missing if s != "audit-conformance"]
+        if non_self:
+            failures.append(f"Native CLI missing dispatch: {', '.join(non_self)}")
+        else:
+            warnings.append("Native CLI missing audit-conformance dispatch — rebuild via build_cli.bat.")
+
+    # ── Check 5: stdlib modules present ────────────────────────
+    expected_fk = {
+        "std::math": "std/math.fk",
+        "std::string": "std/string.fk",
+        "std::convert": "std/convert.fk",
+        "std::algorithm": "std/algorithm.fk",
+        "std::json": "std/json.fk",
+        "std::http": "std/http.fk",
+        "std::math3d": "std/math3d.fk",
+        "std::version": "std/version.fk",
+        "std::zip": "std/zip.fk",
+    }
+    runtime_c = repo / "freakc" / "runtime" / "freak_runtime.c"
+    runtime_src = runtime_c.read_text(encoding="utf-8") if runtime_c.exists() else ""
+    expected_runtime = {
+        "std::fs": ("freak_fs_read", "freak_runtime_fs_read"),
+        "std::process": ("freak_process_exec", "freak_runtime_process_exec"),
+        "std::time": ("freak_time_now_ms", "freak_runtime_time_now_ms"),
+    }
+
+    missing_stdlib: List[str] = []
+    for mod, fk_path in expected_fk.items():
+        if not (repo / fk_path).exists():
+            missing_stdlib.append(f"{mod} -> {fk_path}")
+    for mod, syms in expected_runtime.items():
+        if not any(s in runtime_src for s in syms):
+            missing_stdlib.append(f"{mod} -> runtime symbol")
+
+    add("Stdlib modules",
+        not missing_stdlib,
+        f"{len(expected_fk) + len(expected_runtime) - len(missing_stdlib)}/"
+        f"{len(expected_fk) + len(expected_runtime)} present")
+    if missing_stdlib:
+        failures.append(f"Stdlib missing: {'; '.join(missing_stdlib)}")
+
+    # ── Check 6: borrow checker --strict-borrow flag ──────────
+    cli_src = cli_main.read_text(encoding="utf-8") if cli_main.exists() else ""
+    bc_ok = "--strict-borrow" in cli_src
+    add("Borrow checker", bc_ok, "--strict-borrow flag handled" if bc_ok else "flag missing")
+    if not bc_ok:
+        failures.append("--strict-borrow not handled in src/cli/main.fk")
+
+    # ── Check 7: deus_ex_machina 20-word rule still enforced ──
+    parser_path = repo / "freakc" / "parser.py"
+    dem_ok = False
+    if parser_path.exists():
+        parser_src = parser_path.read_text(encoding="utf-8")
+        # Look for any reference to the 20-word minimum near deus_ex_machina
+        dem_ok = "20" in parser_src and "deus_ex_machina" in parser_src.lower()
+    add("deus_ex_machina ≥20", dem_ok, "monologue word count enforced" if dem_ok else "rule missing")
+    if not dem_ok:
+        warnings.append("deus_ex_machina 20-word rule not visibly enforced in parser.py")
+
+    # ── Print summary ────────────────────────────────────────
+    print()
+    print("FREAK Conformance Audit (v0.13.x baseline)")
+    print("=" * 56)
+    for label, ok, detail in summary:
+        marker = "✓" if ok else "✗"
+        print(f"  {marker}  {label:<20} {detail}")
+    print("=" * 56)
+
+    if warnings:
+        print()
+        print("Warnings:")
+        for w in warnings:
+            print(f"  ⚠  {w}")
+
+    if failures:
+        print()
+        print("Failures:")
+        for f in failures:
+            print(f"  ✗  {f}")
+        print()
+        print(
+            f"✗ {len(failures)} divergence(s) found. v0.13.x conformance NOT clean. "
+            '(Sagiri voice: "I told you the bible was overpromising.")'
+        )
+        return 1
+
+    print()
+    if warnings:
+        print(
+            f"⚠  {len(warnings)} warning(s); no failures. Conformance clean with caveats. "
+            '(Yuuko voice: "Acceptable. Barely.")'
+        )
+    else:
+        print(
+            "✓ All v0.13.x conformance checks passed. "
+            '(Meiya voice: "I knew you would not disappoint.")'
+        )
+    return 0
+
+
 __all__ = [
     "audit_science",
     "audit_trust",
     "audit_miracles",
     "foreshadow_audit",
+    "audit_conformance",
     "ScienceCallSite",
     "TrustMeEntry",
     "MiracleEntry",

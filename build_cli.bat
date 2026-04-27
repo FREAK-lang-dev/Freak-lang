@@ -25,6 +25,7 @@ type src\cli\build.fk >> build\freakc_cli.fk
 type src\cli\run.fk >> build\freakc_cli.fk
 type src\cli\hangar.fk >> build\freakc_cli.fk
 type src\cli\doctor.fk >> build\freakc_cli.fk
+type src\cli\audit.fk >> build\freakc_cli.fk
 type src\cli\main.fk >> build\freakc_cli.fk
 
 echo [Stage 2] Building V3 bootstrap compiler...

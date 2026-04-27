@@ -26,7 +26,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .auditor import audit_miracles, audit_science, audit_trust, foreshadow_audit
+from .auditor import (
+    audit_conformance,
+    audit_miracles,
+    audit_science,
+    audit_trust,
+    foreshadow_audit,
+)
 from .diagnostics import (
     format_emit_error,
     format_legacy_diagnostic,
@@ -76,19 +82,22 @@ _MODULE_FILES: dict[str, list[str]] = {
     "std::math3d": ["std/math3d.fk"],
     "std::zip": ["std/zip.fk"],
     "cockpit": [
-        # Order: theme → layout → widgets → ui (ui.fk depends on all others)
+        # Order: containers → theme → layout → widgets → ui
+        "packages/cockpit/src/containers.fk",
         "packages/cockpit/src/theme.fk",
         "packages/cockpit/src/layout.fk",
         "packages/cockpit/src/widgets.fk",
         "packages/cockpit/src/ui.fk",
     ],
     "freak-ui": [
+        "packages/cockpit/src/containers.fk",
         "packages/cockpit/src/theme.fk",
         "packages/cockpit/src/layout.fk",
         "packages/cockpit/src/widgets.fk",
         "packages/cockpit/src/ui.fk",
     ],
     "freak_ui": [
+        "packages/cockpit/src/containers.fk",
         "packages/cockpit/src/theme.fk",
         "packages/cockpit/src/layout.fk",
         "packages/cockpit/src/widgets.fk",
@@ -606,6 +615,8 @@ def cmd_audit(sub: str, argv: list[str]) -> int:
         return audit_miracles(paths)
     if sub == "foreshadow-audit":
         return foreshadow_audit(paths)
+    if sub == "audit-conformance":
+        return audit_conformance(paths)
 
     print(_red(f"✗ Unknown audit command: '{sub}'"), file=sys.stderr)
     return 1
@@ -867,7 +878,13 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "hangar":
         return cmd_hangar(argv[1:])
 
-    if cmd in ("audit-science", "audit-trust", "audit-miracles", "foreshadow-audit"):
+    if cmd in (
+        "audit-science",
+        "audit-trust",
+        "audit-miracles",
+        "foreshadow-audit",
+        "audit-conformance",
+    ):
         return cmd_audit(cmd, argv[1:])
 
     if cmd == "v2":
