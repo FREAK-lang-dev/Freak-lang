@@ -1397,6 +1397,12 @@ eventually if mission_failed {
 
 ## SECTION 6: MODULE SYSTEM AND HANGAR
 
+**Status (v0.13.2): ⚠️ Partial.** `launch`, `use module::{names}`, and
+the core Hangar commands (`init`, `add`, `remove`, `install`, `version`,
+`install freak`) ship. **🔜 V4:** `launch(package)` package-private
+visibility, `use module::*` glob imports, and `hangar search` against a
+live registry.
+
 ### 6.1 Module System
 
 ```
@@ -1459,6 +1465,25 @@ freak hangar clean         -- clear cache
 ---
 
 ## SECTION 7: STD LIBRARY — COMPLETE REFERENCE
+
+**Status (v0.13.2): ⚠️ Partial.**
+
+| Module | v0.13.2 status |
+|---|---|
+| `std::math`, `std::math3d` | ✅ Implemented (pure FREAK) |
+| `std::string`, `std::convert`, `std::algorithm`, `std::version`, `std::zip` | ✅ Implemented (pure FREAK) |
+| `std::json`, `std::http` | ✅ Implemented (pure FREAK + TCP runtime) |
+| `std::fs`, `std::process`, `std::time`, `std::bytes` | ✅ Implemented (C runtime) |
+| `std::ui` | ⚠️ Partial — Phase MA-MF complete (window, layout, widgets, themes, animation); MG (polish + Hangar publish) pending |
+| `std::thread` (`spawn`, atomics, channels) | 🔜 V4 |
+| `std::anime` (mood arithmetic, power checks) | 🔜 V4 (depends on §2 types) |
+| `std::narrative` (death-flag analysis, foreshadow logs) | 🔜 V4 (depends on §5 enforcement) |
+| `std::test` (`test "..." { expect ... }`) | 🔜 V4 (currently use `python tests/suite/run_tests.py`) |
+| `std::ffi`, `std::os`, `std::panic`, `std::regex`, `std::crypto`, `Shared<T>` / `Weak<T>` / `size_of<T>()` | 🔜 V4 |
+
+The prelude (always-available types and `say`/`ask`/`panic`) ships in v0.13.x
+but several primitive types listed below (`tiny`, `uint`, `char`, `big`,
+`float`, `float32`, `never`) are 🔜 V4 — see §1.3.
 
 ### 7.1 Prelude (always available, no import needed)
 
@@ -1815,6 +1840,17 @@ Rules:
 
 ## SECTION 8: FULL LEXER SPECIFICATION
 
+**Status (v0.13.2): ⚠️ Partial.** All v0.13.x keywords lex correctly
+(verified by `freak audit-conformance`). **🔜 V4:** lifetime tokens
+(`'a`), numeric suffixes (`42u`, `3.14f`, `42t`, `999b`), the `\|\|`
+xm3 branch separator (currently lexed as logical OR), and tolerant-
+lexer recovery for IDE mode (§17).
+
+> **Compiler divergence note:** the v1 (Python) lexer in `freakc/lexer.py`
+> and the v3 (self-hosting) lexer in `src/compiler/v3/lexer.fk` accept
+> overlapping but not identical token sets. The V3 lexer is the
+> bible-conformant target; v1 is a strict subset (FREAK Lite).
+
 ### 8.1 All Token Types
 
 ```python
@@ -1886,6 +1922,20 @@ fixed pilot / launch(package) / launch(universe)
 ---
 
 ## SECTION 9: FULL PARSER — AST NODES
+
+**Status (v0.13.2): ⚠️ Partial.** Core AST nodes (variables, tasks,
+shapes, doctrines, control flow, error handling, anime constructs that
+ship) are implemented. **🔜 V4:** tolerant parsing with `ErrorNode` /
+`IncompleteNode`, recovery boundaries, AST node-id stability across
+edits, incremental parsing, the IDE-grade autocomplete pipeline. Until
+V4 lands, parse errors abort the build instead of producing diagnostic
+trees.
+
+> **Phase A finding:** the v1 (Python) parser fails on ~30 files in this
+> repo — including V3 self-hosting source, `std/algorithm.fk`,
+> `std/runtime.fk`, `tests/borrow_mut_reassign.fk`, and several
+> `extern_*` tests — because V3 accepts a superset of v1's grammar.
+> The V3 parser is the bible-conformant target; v1 is FREAK Lite.
 
 All nodes from freak-lite-bible.md Section 7.1, plus:
 
@@ -2090,6 +2140,16 @@ class DirectOrder:           # direct_order [arch] (bindings) { asm }
 
 ## SECTION 10: TYPE CHECKER — FULL RULES
 
+**Status (v0.13.2): ⚠️ Partial.** Basic type inference and shape/
+function/maybe/result checking ship. **🔜 V4 — most of the rules
+listed below:** `power<N>` arithmetic, `prob[lo..hi]` range tracking,
+`causality<T>` write broadcasts, mood compound verification, route
+exhaustiveness, foreshadow strict pairing (compile error if unpaid),
+classified redaction, `dyn` object-safety, FFI safety checks, layout
+validation, isekai export validation, variant exhaustiveness (depends
+on §1.14), and root-`fixed pilot` cycle detection. The
+`deus_ex_machina` 20-word minimum is enforced today.
+
 ### 10.1 All Lite checks (from freak-lite-bible.md Section 8) plus:
 
 - power<N> arithmetic: verify N at call sites, propagate through generics
@@ -2134,6 +2194,16 @@ class DirectOrder:           # direct_order [arch] (bindings) { asm }
 
 ## SECTION 11: CODE GENERATION NOTES (Full Compiler)
 
+**Status (v0.13.2): ⚠️ Partial.** LLVM IR and C backends both ship and
+handle core control flow, shapes/impl, arrays (LLVM-compatible pool),
+strings, fs/process/math/UI/TCP/JSON/HTTP. **🔜 V4 — the special
+codegen rules listed below:** mood as uint8_t, variant tag+payload
+layout, `dyn` fat-pointer + vtable, `Shared<T>` ref-count headers,
+extern target ABI selection, `deus_ex_machina` pragma optimization,
+`isekai` fresh-frame isolation, `@classified` debug-symbol stripping.
+JIT (LB7) and DWARF debug info (LB10) are the remaining LLVM-backend
+milestones inside v0.13.x scope.
+
 The full compiler targets native code via LLVM IR or direct assembly,
 not C. Key differences from FREAK Lite:
 
@@ -2158,6 +2228,13 @@ not C. Key differences from FREAK Lite:
 
 ## SECTION 12: BUILD MODES
 
+> **🔜 V4 — entire section.** None of the named build modes
+> (`slice_of_life`, `mecha`, `shonen_jump`, `final_form`, `alternative`)
+> are recognized in v0.13.x. Today the only build knobs are `--opt=0..3`
+> (LLVM optimization level) and `--c` / `--llvm` backend selection.
+> `final_form`'s 5-second build pause and the codegen variations per mode
+> ship with V4.
+
 ```
 slice_of_life   -- debug mode. full symbols. no optimization. death flags warn only.
 mecha           -- release mode. O2. strip debug.
@@ -2171,6 +2248,24 @@ alternative     -- special mode. enables ALL anime features. full causality.
 ---
 
 ## SECTION 13: COMPILER CLI — FULL COMMANDS
+
+**Status (v0.13.2): ⚠️ Partial.**
+
+| Subcommand / flag | v0.13.2 status |
+|---|---|
+| `freak run`, `freak build`, `freak check`, `freak transpile` | ✅ Implemented |
+| `freak version`, `freak help`, `freak init`, `freak flex`, `freak doctor`, `freak upgrade` | ✅ Implemented |
+| `freak hangar <cmd>` and standalone `hangar` binary | ✅ Implemented |
+| `freak audit-science`, `freak audit-trust`, `freak audit-miracles`, `freak foreshadow-audit` | ✅ Implemented (native CLI shells out to Python; native FREAK port is V4) |
+| `freak audit-conformance` | ✅ Implemented (verifies §0.2 status table against the code) |
+| `--llvm`, `--c`, `--opt=0..3`, `--target=TRIPLE`, `--strict-borrow` | ✅ Implemented |
+| `freak test` | 🔜 V4 (workaround: `python tests/suite/run_tests.py`) |
+| `freak vibe` | 🔜 V4 |
+| `--voice=[character]` flag | 🔜 V4 (depends on §14) |
+| `--clearance=TOP_SECRET` flag | 🔜 V4 (depends on `@classified`) |
+| `--build-mode=[mode]` flag | 🔜 V4 (depends on §12) |
+| `-o output_path` flag | 🔜 V4 (output path currently fixed to source basename + `.exe`) |
+
 
 ```
 freak run file.fk             -- compile and run
@@ -2198,6 +2293,14 @@ freak timeline-diff           -- show causality divergence between timelines
 
 ## SECTION 14: ERROR VOICE CAST
 
+> **🔜 V4 — entire section.** Voice routing per error class is V4 work.
+> v0.13.x emits generic compiler diagnostics. The borrow checker has
+> signature anime phrasing (`"Shirogane. You gave this away."`,
+> `"This binding was sworn to silence."`) but errors are not character-
+> routed by category — that lands with the V4 diagnostic engine.
+> The cast below is the V4 destination.
+
+
 | Error Type              | Character | Personality                              |
 |-------------------------|-----------|------------------------------------------|
 | Borrow/lifetime         | Meiya     | Formal, disappointed, believes in you    |
@@ -2215,6 +2318,9 @@ freak timeline-diff           -- show causality divergence between timelines
 ---
 
 ## SECTION 15: COMPLETE SYNTAX CHEATSHEET
+
+**Status (v0.13.2): ⚠️ Partial.** This cheatsheet reflects the *full*
+language. Cross-reference §0.2 for what currently ships vs. 🔜 V4.
 
 ```
 -- Variables
@@ -2343,6 +2449,20 @@ only on TrueRoute from result { }
 ---
 
 ## SECTION 16: SYSTEM BOUNDARIES -- FFI, ABI, AND OS INTEROP
+
+> **🔜 V4 — entire section.** Calling-convention selection (`cdecl`,
+> `stdcall`, `fastcall`, `thiscall`, `vectorcall`, `win64`, `sysv64`,
+> `system`), `link="…"` library binding, `@link_name`, `@layout(C)` /
+> `@layout(C, packed=N)` / `@layout(transparent)`, `@repr(uN)`,
+> raw-pointer ops (`*ptr`, `.read()`, `.offset()`, `.cast<U>()`,
+> `.is_null()`), `std::os` platform modules, error-code translation,
+> and panic-across-extern guarantees are V4 work.
+>
+> **v0.13.x today:** a minimal `extern` form for direct C calls works
+> via the V3 compiler in `tests/extern_test.fk` and
+> `tests/extern_llvm_test.fk` (note: those files do not parse on the v1
+> Python compiler — see §9 divergence note). Treat that as the
+> bootstrap surface, not the bible-defined FFI contract.
 
 FREAK is memory-safe until you deliberately walk to the perimeter fence.
 The fence is marked `extern`, `@layout(C)`, raw pointers, and `trust me`.
@@ -2536,6 +2656,16 @@ Rules:
 ---
 
 ## SECTION 17: COMPILER INTERNALS AND IDE PARSER SUPPORT
+
+> **🔜 V4 — entire section.** The IDE-grade compiler — panic
+> infrastructure (PanicInfo, controlled unwinding, `panic=abort` mode,
+> `std::panic::catch`), tolerant parsing with `ErrorNode` /
+> `IncompleteNode`, AST node-id stability across edits, incremental
+> parsing, deterministic diagnostics, autocomplete on incomplete code,
+> and the IDE-mode "compiler panic becomes diagnostic" guarantee — all
+> ships with V4. Today the v1 Python parser aborts on the first error
+> and the V3 self-hosting parser has limited recovery. Sortie IDE
+> integration depends on this section landing.
 
 Sortie, the language server, and the self-hosting compiler must survive
 half-written code. A pilot who crashes because someone typed `task f(`
