@@ -2259,7 +2259,7 @@ alternative     -- special mode. enables ALL anime features. full causality.
 | `freak audit-science`, `freak audit-trust`, `freak audit-miracles`, `freak foreshadow-audit` | ✅ Implemented (native CLI shells out to Python; native FREAK port is V4) |
 | `freak audit-conformance` | ✅ Implemented (verifies §0.2 status table against the code) |
 | `--llvm`, `--c`, `--opt=0..3`, `--target=TRIPLE`, `--strict-borrow` | ✅ Implemented |
-| `freak test` | 🔜 V4 (workaround: `python tests/suite/run_tests.py`) |
+| `freak test` | ✅ Implemented — wraps `python tests/suite/run_tests.py`. The test framework with `test "name" { expect ... to be ... }` and vibes ratings is still 🔜 V4. |
 | `freak vibe` | 🔜 V4 |
 | `--voice=[character]` flag | 🔜 V4 (depends on §14) |
 | `--clearance=TOP_SECRET` flag | 🔜 V4 (depends on `@classified`) |

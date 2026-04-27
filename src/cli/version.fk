@@ -166,6 +166,8 @@ task cli_show_help() -> void {
     say cli_box_mid("  " + C_G4 + "transpile" + C_RESET + " <file.fk> [opts]  " + C_DIM + "Emit .c or .ll" + C_RESET, 45)
     say cli_box_mid("  " + C_G5 + "hangar" + C_RESET + "    <cmd>              " + C_DIM + "Package manager" + C_RESET, 45)
     say cli_box_mid("  " + C_G6 + "doctor" + C_RESET + "    [--fix]              " + C_DIM + "Check setup, auto-fix" + C_RESET, 45)
+    say cli_box_mid("  " + C_G1 + "test" + C_RESET + "                          " + C_DIM + "Run regression suite" + C_RESET, 45)
+    say cli_box_mid("  " + C_G2 + "audit-*" + C_RESET + "                       " + C_DIM + "audit-conformance/science/trust/miracles" + C_RESET, 45)
     say cli_box_mid("  " + C_G1 + "upgrade" + C_RESET + "                      " + C_DIM + "Download latest FREAK" + C_RESET, 45)
     say cli_box_mid("  " + C_BCYAN + "version" + C_RESET + "                      " + C_DIM + "Show version" + C_RESET, 45)
     say cli_box_mid("  " + C_BCYAN + "help" + C_RESET + "                         " + C_DIM + "This screen" + C_RESET, 45)

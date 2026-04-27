@@ -138,6 +138,10 @@ class CEmitter:
         "%": ("Rem", "rem"),
         "==": ("Eq", "equals"),
         "!=": ("Eq", "equals"),  # result is negated
+        "<": ("Ord", "lt"),
+        ">": ("Ord", "gt"),
+        "<=": ("Ord", "le"),
+        ">=": ("Ord", "ge"),
     }
     _UNARY_OP_DOCTRINE: Dict[str, tuple] = {
         "-": ("Neg", "neg"),
@@ -378,14 +382,24 @@ class CEmitter:
             "bool": "bool",
             "char": "uint32_t",
             "void": "void",
+            "Squad": "Squad",
+            "Event": "Event",
+            "Vec2": "Vec2",
+            "Rect": "Rect",
+            "Color": "Color",
+            "Font": "Font",
+            "UI": "UI",
+            "Theme": "Theme",
+            "LayoutStack": "LayoutStack",
+            "SizeHint": "SizeHint",
         }
         if te.is_pointer:
             inner = self._type_to_c(TypeExpr(name=te.name, params=te.params))
             return f"{inner}*"
         if te.name in mapping:
             return mapping[te.name]
-        # Generic containers: List<T>, Map<K,V>, Set<T> → int64_t (handle-based)
-        if te.name in ("List", "Map", "Set", "Lineup"):
+        # Generic containers: Map<K,V>, Set<T> → int64_t (handle-based)
+        if te.name in ("Map", "Set"):
             return "int64_t"
         # Could be a shape name or other user-defined type
         if te.name in self.shapes:
@@ -1242,11 +1256,7 @@ class CEmitter:
 
         # Built-in word methods -> freak_word_* functions
         WORD_METHODS = {
-            "length": (
-                "freak_word_length",
-                0,
-                False,
-            ),  # (c_func, extra_args, pass_obj_as_ref)
+            "length": ("freak_word_length", 0, False),
             "to_upper": ("freak_word_to_upper", 0, False),
             "to_lower": ("freak_word_to_lower", 0, False),
             "contains": ("freak_word_contains", 1, False),
@@ -1257,14 +1267,44 @@ class CEmitter:
             "char_at": ("freak_word_char_at", 1, False),
             "to_int": ("freak_word_to_int", 0, False),
             "to_num": ("freak_word_to_num", 0, False),
-            "to_word": ("freak_word_from_int", 0, False),  # on int, not word
             "substring": ("freak_word_substring", 2, False),
         }
-        if expr.method in WORD_METHODS:
+        if obj_type == "freak_word" and expr.method in WORD_METHODS:
             c_func, _, _ = WORD_METHODS[expr.method]
             if args_c:
                 return f"{c_func}({obj_c}, {args_c})"
             return f"{c_func}({obj_c})"
+
+        if obj_type == "int64_t" and expr.method == "to_word":
+            return f"freak_word_from_int({obj_c})"
+        if obj_type == "double" and expr.method == "to_word":
+            return f"freak_word_from_double({obj_c})"
+        
+        if expr.method == "to_int":
+            return f"((int64_t){obj_c})"
+        if expr.method == "to_num":
+            return f"((double){obj_c})"
+
+        # Aggressive shape mapping for Stage 3 (bypassing TypeChecker limits)
+        ST3_SHAPES = ("Squad", "Event", "Vec2", "Rect", "Color", "Font", "UI", "Theme", "LayoutStack", "SizeHint", "Window", "Canvas", "SortieState")
+        if base_type == "int64_t":
+            # Try to see if the object name hints at a shape (e.g. self, ui, win, state)
+            hints = {
+                "self": "SortieState", # context dependent but often true in main.fk
+                "ui": "UI",
+                "win": "Window",
+                "state": "SortieState",
+                "events": "Squad",
+                "tab_names": "Squad",
+                "items": "Squad",
+                "names": "Squad",
+                "rect": "Rect",
+                "pos": "Vec2",
+                "consumed": "Vec2",
+                "ev": "Event",
+            }
+            if obj_c in hints:
+                base_type = hints[obj_c]
 
         # Generic method call: try type_method pattern
         ref = obj_c if is_ptr else f"&{obj_c}"

@@ -295,6 +295,15 @@ task freakc_cli_main() -> void {
         give back
     }
 
+    -- Test runner shim (wraps the Python suite runner; native runner is V4)
+    if subcmd == "test" {
+        pilot test_exit = process::exec("python tests/suite/run_tests.py")
+        if test_exit != 0 {
+            process::exit(test_exit)
+        }
+        give back
+    }
+
     -- Legacy mode: first arg is a .fk file (backwards compat with freakc_v2 behavior)
     if subcmd.ends_with(".fk") {
         pilot flags: word = cli_parse_flags(2, args_cnt)

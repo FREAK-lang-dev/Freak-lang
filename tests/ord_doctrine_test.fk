@@ -1,0 +1,37 @@
+-- Test: Ord operator overloading via doctrine impls
+-- Verifies <, >, <=, >= dispatch to user-defined methods.
+
+shape Power {
+    level: num,
+}
+
+impl Ord for Power {
+    task lt(self, other: Power) -> bool {
+        give back self.level < other.level
+    }
+    task gt(self, other: Power) -> bool {
+        give back self.level > other.level
+    }
+    task le(self, other: Power) -> bool {
+        give back self.level <= other.level
+    }
+    task ge(self, other: Power) -> bool {
+        give back self.level >= other.level
+    }
+}
+
+pilot weak = Power { level: 100.0 }
+pilot strong = Power { level: 9001.0 }
+
+if weak < strong {
+    say "weak < strong: ok"
+}
+if strong > weak {
+    say "strong > weak: ok"
+}
+if weak <= weak {
+    say "weak <= weak: ok"
+}
+if strong >= weak {
+    say "strong >= weak: ok"
+}

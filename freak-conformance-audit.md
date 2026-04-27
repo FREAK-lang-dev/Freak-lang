@@ -147,8 +147,9 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Operator overloading: `Add` | ✅ | ✅ | [freakc/emitter.py:1750-1800](freakc/emitter.py) |
 | Operator overloading: `Sub`, `Mul`, `Div`, `Neg` | ✅ | ✅ | |
 | Operator overloading: `Eq` | ✅ | ✅ | |
-| Operator overloading: `Ord` | ❌ | 🛠 fix if cheap, else 📖 V4 | not wired in emitter |
-| Operator overloading: `Index`, `IndexMut` | ❌ | 🛠 fix if cheap, else 📖 V4 | not wired |
+| Operator overloading: `Ord` (`<`, `>`, `<=`, `>=`) | ⚠️ | 🛠 wired in Python compiler (4 methods: lt/gt/le/ge); V3 emitter still missing — V4 |
+| Operator overloading: `Index` | ✅ | ✅ wired in Python compiler ([freakc/emitter.py:924-934](freakc/emitter.py)); V3 emitter still missing — V4 |
+| Operator overloading: `IndexMut` (`a[i] = x`) | ❌ | 📖 V4 | requires lvalue-assignment rewrite |
 | `dyn Doctrine` dynamic dispatch with vtable | ❌ | 📖 V4 | no vtable codegen |
 | Multi-bound generics `T: A + B` | ❌ | 📖 V4 | parsed `<T>` only |
 | `dyn` object-safety rules | ❌ | 📖 V4 | not implemented |
@@ -507,7 +508,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | `freak build file.fk` | ✅ | ✅ | |
 | `freak check file.fk` | ✅ | ✅ | |
 | `freak transpile file.fk` | ✅ | ✅ | |
-| `freak test` | ❌ | 🛠 (cheap shim) | wrap `python tests/suite/run_tests.py` |
+| `freak test` | ✅ | ✅ shim wraps `python tests/suite/run_tests.py` |
 | `freak vibe file.fk` | ❌ | 📖 V4 (or remove) |
 | `freak audit-science` | ⚠️ | 🛠 wire native CLI | Python-only; native dispatch missing |
 | `freak audit-trust` | ⚠️ | 🛠 wire native CLI | same |
