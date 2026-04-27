@@ -70,6 +70,7 @@ jobs:
           cat src/cli/run.fk >> build/freakc_cli.fk
           cat src/cli/hangar.fk >> build/freakc_cli.fk
           cat src/cli/doctor.fk >> build/freakc_cli.fk
+          cat src/cli/audit.fk >> build/freakc_cli.fk
           cat src/cli/main.fk >> build/freakc_cli.fk
           ./build/freakc_v3$EXT build/freakc_cli.fk --c
           clang -o build/freak$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
