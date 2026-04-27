@@ -842,6 +842,16 @@ task final_goodbye(pilot: Eishi) -> void mood<.muv_luv> { ... }
 
 ## SECTION 3: CONCURRENCY — FULL MODEL
 
+> **🔜 V4 — entire section.** None of the squadron primitives (`xm3`,
+> `sortie`, `formation`, `BriefingRoom`, `wingman`) parse or run in
+> v0.13.x. The lexer rejects `\|\|` as a branch separator (it's lexed
+> as logical OR), and none of the squadron keywords are recognized.
+>
+> **v0.13.x escape hatch:** the only currently-available concurrency
+> primitive is the planned `std::thread::spawn` in §7.13. Treat the
+> structured-concurrency model below as the V4 destination — once it
+> ships, prefer it over raw `std::thread`.
+
 ### 3.1 XM3 {} — Parallel Racing Concurrency
 
 xm3 {} runs multiple branches in parallel and commits the FIRST branch
@@ -936,6 +946,27 @@ pilot all = tracker.report()
 ---
 
 ## SECTION 4: BORROW CHECKER — FULL RULES
+
+**Status (v0.13.2): ⚠️ Partial.** Phase-1 ships behind `--strict-borrow`;
+the rest is V4.
+
+> **What ships in v0.13.x (Phase-1):**
+> - `pilot x = ...` is immutable; `pilot mut x = ...` opts into reassignment.
+>   Reassign without `mut` produces *"This binding was sworn to silence."*
+> - Single-owner moves for `word`, `List<...>`, `Map<...>`, and user
+>   shapes. Use after move produces *"Shirogane. You gave this away."*
+> - Primitives are Copy: `int`, `num`, `bool`, `tiny`, `char`, `float`,
+>   `float32`, `big`. Assignment copies; both bindings remain valid.
+> - Default mode (no flag) is leak-everything — Phase-1 BC only runs
+>   under `--strict-borrow`. This will tighten over time.
+>
+> **🔜 V4 — the rest of this section:** `lend p: T` / `lend mut p: T`
+> parameters, lifetimes (`'a`), `Shared<T>` / `Weak<T>` / `.borrow()` /
+> `.borrow_mut()` / `.get_mut()`, the full honor-level system inside
+> `trust me ... on my honor as .level`, and `direct_order [arch] { asm }`
+> inline assembly are V4 work. The current parser accepts `lend` as a
+> keyword (so the syntax compiles in declarations) but the type checker
+> does not enforce borrow rules around it.
 
 The borrow checker enforces memory safety without a garbage collector.
 It runs as a separate pass after type checking, before code generation.
@@ -1088,6 +1119,19 @@ direct_order [x86_64] (in: rax = value, out: rbx = result) {
 ---
 
 ## SECTION 5: ANIME LAYER — FULL SPECIFICATION
+
+**Status (v0.13.2): ⚠️ Partial.** Syntax parses across the whole section;
+strict semantic enforcement is mostly V4.
+
+| Sub-section | v0.13.2 status |
+|---|---|
+| §5.1 Annotations (`@protagonist`, `@nakige`, `@experiment`, `@classified`, `@season_finale`, `@deprecated`, `@rival`, `@fixed_fate`, `@side_character`) | ⚠️ Partial — parsed; only `@deprecated` semantically enforced. Caller-prefix rules (`knowing this will hurt,`, `for science,`), death-flag tier analysis, classified redaction, season-finale uniqueness check are 🔜 V4. |
+| §5.2 Foreshadowing (`foreshadow` / `payoff` / `freak foreshadow-audit`) | ✅ Implemented — auditor reports unpaid debt and exits nonzero. Strict compile-time error for unpaid foreshadow inside the type checker is 🔜 V4. |
+| §5.3 Route system (`route`, `check route`, `only on … from`) | 🔜 V4 — `route` lexes as a keyword but the route declaration grammar and route-locked scopes are V4. |
+| §5.4 Anime operators (`PLUS ULTRA`, `NAKAMA`, `FINAL FORM`, `TSUNDERE`) | ⚠️ Partial — multi-word tokens lex; codegen and the `FINAL FORM` 5-second build pause are 🔜 V4. |
+| §5.5 `deus_ex_machina` block | ⚠️ Partial — 20-word minimum is enforced (compile error if shorter). The "all safety checks suspended within the block" semantic, the `>3 = warning` / `>10 = error` codebase-wide limit, and pragma-level optimization codegen are 🔜 V4. `freak audit-miracles` reports every block. |
+| §5.6 Training arc loop | ⚠️ Partial — `training arc until cond max N sessions` parses and emits as a bounded while loop. `with growth` variant (compile-time mutation check) is 🔜 V4. |
+| §5.7 Isekai and Eventually | ⚠️ Partial — both parse; `isekai { } bringing back { vars }` emits as a nested scope but does not strictly validate exports. `eventually { }` emits inline rather than LIFO-deferred (it does not run on `give back` / `panic` / `break` reliably). True deferred semantics are 🔜 V4. |
 
 ### 5.1 Annotations
 
