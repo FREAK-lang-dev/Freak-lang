@@ -20,7 +20,95 @@ Pipeline (full compiler):
 
 ---
 
+## SECTION 0: IMPLEMENTATION STATUS
+
+> **Read this first.** The bible describes the *full* language. The *current*
+> compiler ships a subset of it. This section is the single source of truth
+> for what works in v0.13.x today vs. what is V4 work.
+
+### 0.1 Status legend
+
+| Tag | Meaning |
+|---|---|
+| **✅ Implemented** | Feature works end-to-end on the current compiler. Tests exist. |
+| **⚠️ Partial** | Parsed and recognized, but enforcement / runtime is incomplete. The syntax compiles but the semantic guarantee in this bible may not hold. |
+| **🔜 V4** | Specified here, **not in v0.13.x**. Ships with the V4 self-hosting compiler. v0.13.x parsers may reject the syntax outright. Do not depend on these features yet. |
+
+> Whenever a section, sub-section, or row carries the **🔜 V4** tag, the rule
+> below applies: write the code that way for the future, but expect the
+> v0.13.x compiler to reject or ignore it. The conformance audit
+> (`freak audit-conformance`) skips V4-tagged contracts so v0.13.x stays
+> green even while V4 features land.
+
+### 0.2 Section status (v0.13.2 "Shiranui")
+
+| Section | Status | Summary |
+|---|---|---|
+| §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). Missing: `variant`, pattern destructuring, named call args, lifetime annotations, `prob_when`, several primitive types (`tiny`, `uint`, `char`, `big`, `float32`, fixed `[T;N]`), tuples. |
+| §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
+| §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. Full rules (`lend`, lifetimes, `Shared<T>`/`Weak<T>`, honor levels, `direct_order`) are V4. |
+| §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
+| §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
+| §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
+| §8 Lexer | ⚠️ Partial | All v0.13.x keywords lex. `'a` lifetimes, number suffixes (`42u`/`3.14f`/`42t`/`999b`), `\|\|` xm3 separator are V4. |
+| §9 Parser | ⚠️ Partial | Tolerant parsing (`ErrorNode`/`IncompleteNode`, recovery boundaries, IDE-grade incremental parsing) is V4. v1 (Python) parser fails on V3-superset syntax — V3 self-hosting compiler is the bible-conformant parser. |
+| §10 Type Checker | ⚠️ Partial | Most semantic checks listed (power arithmetic, prob ranges, route exhaustiveness, foreshadow strict enforcement, classified redaction, dyn object-safety, FFI safety, layout validation) are V4. |
+| §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. Special codegen for `mood`/variants/`dyn`/`Shared<T>`/extern ABIs/optimization pragmas/classified symbol stripping is V4. |
+| §12 Build Modes | 🔜 V4 | `slice_of_life`/`mecha`/`shonen_jump`/`final_form`/`alternative` modes are V4. v0.13.x has only LLVM `--opt=0..3` and `--c`/`--llvm` backend selection. |
+| §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`. V4: `freak vibe`, `freak test`, `--voice=…`, `--clearance=…`, `--build-mode=…`, `-o output_path`. |
+| §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
+| §15 Cheatsheet | ⚠️ Partial | Reflects §1-§14 status. |
+| §16 FFI | 🔜 V4 | `extern [C]` calling conventions, `@layout` annotations, `@link_name`, raw pointer ops, `std::os` platform modules, error-code translation are V4. v0.13.x has minimal `extern` for direct C calls. |
+| §17 Compiler Internals + IDE | 🔜 V4 | Panic infrastructure, tolerant parsing, AST node IDs, incremental parsing, autocomplete, IDE-mode error reporting are V4. |
+
+### 0.3 V4 roadmap and conformance
+
+The V4 self-hosting compiler is the destination for all 🔜 V4 contracts. The
+plan is to land v0.13.x as a final patch release, then iterate the V4 work
+across multiple milestones until the bible is fully implemented and we tag
+1.0.0.
+
+To verify the v0.13.x baseline at any time:
+
+```
+freak audit-conformance .
+```
+
+This walks the implementation surface (lexer keywords, audit dispatch,
+stdlib presence, `--strict-borrow` flag, `deus_ex_machina` enforcement)
+and exits zero only when the v0.13.x scope is intact. V4-tagged
+contracts are intentionally skipped so this command stays green during
+V4 development; once a V4 feature lands, its row in §0.2 changes from
+🔜 to ⚠️/✅ and the audit grows a new check.
+
+The companion document **freak-conformance-audit.md** at the repo root
+holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
+⚠️ or ✅, update both that document and §0.2 here.
+
+---
+
 ## SECTION 1: SYNTAX — COMPLETE REFERENCE
+
+**Status (v0.13.2): ⚠️ Partial.** Core syntax works; gaps tagged inline below.
+
+| Sub-section | v0.13.2 status |
+|---|---|
+| §1.1 Variables | ✅ Implemented (note: `pilot mut` only matters under `--strict-borrow`) |
+| §1.2 Functions | ✅ Implemented (named call-site arguments are 🔜 V4) |
+| §1.3 Primitive types | ⚠️ Partial — `num`/`int`/`word`/`bool`/`void` ship; `uint`/`tiny`/`char`/`big`/`float`/`float32`/`never`/`[T;N]`/tuple/raw-pointer types are 🔜 V4 |
+| §1.4 Compound types (`maybe<T>`, `result<T,E>`) | ✅ Implemented |
+| §1.5 Shapes | ✅ Implemented |
+| §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships; `Ord`/`Index`/`IndexMut`/`dyn`/multi-bound generics are 🔜 V4 |
+| §1.7 Control flow | ⚠️ Partial — pattern destructuring, `prob_when`, `training arc with growth` are 🔜 V4 |
+| §1.8 Closures | ⚠️ Partial — `copy`/`move`/`mut` closure modes parsed, semantics 🔜 V4 |
+| §1.9 Pipe operator `\|>` | ✅ Implemented |
+| §1.10 Error handling (`?`, `or else`, `check`) | ✅ Implemented |
+| §1.11 Generics | ⚠️ Partial — basic `<T>` works; trait bounds + multi-bound 🔜 V4 |
+| §1.12 Borrow checker | ⚠️ Partial — see §4 |
+| §1.13 Modules | ⚠️ Partial — see §6 |
+| §1.14 Variants & aliases | 🔜 V4 |
+| §1.15 Literals | ⚠️ Partial — fixed-array `[T;N]` literals, repeat-fill `[0; 100]`, numeric suffixes are 🔜 V4 |
 
 ### 1.1 Variables
 
@@ -424,6 +512,11 @@ launch shape MyType { ... }
 
 ### 1.14 Variants, Aliases, and Compile-Time Constants
 
+> **🔜 V4.** `variant` declarations, exhaustive variant matching with
+> destructuring, and `alias` types are not implemented in v0.13.x. The
+> v0.13.x parser will reject `variant Foo { ... }` and `alias X = Y`.
+> Use `shape` plus a tag field as a workaround until V4 lands.
+
 FREAK has nominal sum types. Use `variant` when the universe can take
 one of several named forms and the compiler must prove every route is
 handled before anyone gets eaten by a Laser-class.
@@ -550,6 +643,16 @@ Rules:
 ---
 
 ## SECTION 2: ADVANCED TYPE SYSTEM
+
+> **🔜 V4 — entire section.** `power<N>`, `prob[lo..hi]`, `causality<T>`,
+> and `mood` are not implemented in v0.13.x. The lexer and parser will
+> reject these forms outright. Section 2 documents the V4 destination;
+> until then, model the same constraints with regular types and runtime
+> checks if you need similar behavior.
+>
+> The v0.13.x conformance audit (`freak audit-conformance`) skips this
+> section. Once V4 lands, individual sub-sections will move from
+> 🔜 to ⚠️/✅ in §0.2 and grow checks here.
 
 ### 2.1 power<N> — Compile-Time Capability Type
 
