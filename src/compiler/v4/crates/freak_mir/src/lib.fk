@@ -4831,7 +4831,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         pattern_end = colon_token
         pilot type_start = v4_mir_skip_trivia(stream_id, colon_token + 1)
         if type_start < decl_end {
-            declared_ty = v4_ty_type_text(stream_id, type_start, decl_end)
+            declared_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_type_text(stream_id, type_start, decl_end))
             if declared_ty == "" {
                 declared_ty = v4_ty_unknown
             }

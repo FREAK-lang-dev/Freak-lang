@@ -1,0 +1,84 @@
+-- V4 type alias smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_alias_type_source() -> word {
+    pilot src = "alias Score = int\n"
+    src = src + "alias HighScore = Score\n"
+    src = src + "task id(value: HighScore) -> Score {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task main() -> HighScore {\n"
+    src = src + "    pilot total: Score = 7\n"
+    src = src + "    give back id(total)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_alias_type_find_local_stmt(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == local_name {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_alias_type_find_return_stmt(mir_id: int, body_id: int) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_alias_type_stream = v4_lex_text(0, v4_alias_type_source())
+pilot v4_alias_type_tree = v4_parse_stream(0, v4_alias_type_stream)
+pilot v4_alias_type_hir = v4_hir_lower_tree(0, v4_alias_type_tree)
+pilot v4_alias_type_resolve = v4_resolve_lower_hir(0, v4_alias_type_hir)
+pilot v4_alias_type_ty = v4_ty_lower_resolve(0, v4_alias_type_resolve)
+pilot v4_alias_type_mir = v4_mir_lower_ty(0, v4_alias_type_ty)
+
+pilot v4_alias_type_score_def = v4_resolve_def_for_name(v4_alias_type_resolve, "Score")
+pilot v4_alias_type_high_score_def = v4_resolve_def_for_name(v4_alias_type_resolve, "HighScore")
+pilot v4_alias_type_id_def = v4_resolve_def_for_name(v4_alias_type_resolve, "id")
+pilot v4_alias_type_main_def = v4_resolve_def_for_name(v4_alias_type_resolve, "main")
+pilot v4_alias_type_score_sig = v4_ty_lookup_signature(v4_alias_type_ty, v4_alias_type_score_def)
+pilot v4_alias_type_high_score_sig = v4_ty_lookup_signature(v4_alias_type_ty, v4_alias_type_high_score_def)
+pilot v4_alias_type_id_sig = v4_ty_lookup_signature(v4_alias_type_ty, v4_alias_type_id_def)
+pilot v4_alias_type_main_sig = v4_ty_lookup_signature(v4_alias_type_ty, v4_alias_type_main_def)
+
+pilot v4_alias_type_main_body = v4_mir_lookup_body(v4_alias_type_mir, v4_alias_type_main_def)
+pilot v4_alias_type_total_stmt = v4_alias_type_find_local_stmt(v4_alias_type_mir, v4_alias_type_main_body, "total")
+pilot v4_alias_type_total_place = v4_mir_stmt_place(v4_alias_type_mir, v4_alias_type_main_body, v4_alias_type_total_stmt)
+pilot v4_alias_type_return_stmt = v4_alias_type_find_return_stmt(v4_alias_type_mir, v4_alias_type_main_body)
+pilot v4_alias_type_return_rvalue = v4_mir_stmt_rvalue(v4_alias_type_mir, v4_alias_type_main_body, v4_alias_type_return_stmt)
+
+say "alias-parse-kind=" + v4_parse_node_kind(v4_alias_type_tree, 1)
+say "alias-parse-name=" + v4_parse_node_value(v4_alias_type_tree, 1)
+say "alias-parse-target=" + v4_parse_alias_target(v4_alias_type_tree, 1)
+say "alias-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_alias_type_tree))
+say "alias-hir-kind=" + v4_hir_item_kind(v4_alias_type_hir, 0)
+say "alias-hir-name=" + v4_hir_item_name(v4_alias_type_hir, 0)
+say "alias-hir-target=" + v4_hir_alias_target(v4_alias_type_hir, 0)
+say "alias-resolve-kind=" + v4_resolve_symbol_kind(v4_alias_type_resolve, v4_resolve_lookup_any(v4_alias_type_resolve, "Score"))
+say "alias-score-sig-kind=" + v4_ty_signature_kind(v4_alias_type_ty, v4_alias_type_score_sig)
+say "alias-score-display=" + v4_ty_signature_display(v4_alias_type_ty, v4_alias_type_score_sig)
+say "alias-score-target=" + v4_ty_alias_target_type_for_sig(v4_alias_type_ty, v4_alias_type_score_sig)
+say "alias-high-score-target=" + v4_ty_alias_target_type_for_sig(v4_alias_type_ty, v4_alias_type_high_score_sig)
+say "alias-high-score-canonical=" + v4_ty_canonical_type(v4_alias_type_ty, "HighScore")
+say "alias-id-param-type=" + v4_ty_signature_param_type(v4_alias_type_ty, v4_alias_type_id_sig, 0)
+say "alias-id-return-type=" + v4_ty_signature_return_type(v4_alias_type_ty, v4_alias_type_id_sig)
+say "alias-main-return-type=" + v4_ty_signature_return_type(v4_alias_type_ty, v4_alias_type_main_sig)
+say "alias-total-place-ty=" + v4_mir_place_ty(v4_alias_type_mir, v4_alias_type_main_body, v4_alias_type_total_place)
+say "alias-return-rvalue-kind=" + v4_mir_rvalue_kind(v4_alias_type_mir, v4_alias_type_main_body, v4_alias_type_return_rvalue)
+say "alias-return-rvalue-ty=" + v4_mir_rvalue_ty(v4_alias_type_mir, v4_alias_type_main_body, v4_alias_type_return_rvalue)
+say "alias-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_alias_type_mir))

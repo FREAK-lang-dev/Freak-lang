@@ -9,6 +9,7 @@ pilot v4_node_source_file = "SourceFile"
 pilot v4_node_task = "TaskDecl"
 pilot v4_node_shape = "ShapeDecl"
 pilot v4_node_route = "RouteDecl"
+pilot v4_node_alias = "AliasDecl"
 pilot v4_node_impl = "ImplDecl"
 pilot v4_node_doctrine = "DoctrineDecl"
 pilot v4_node_use = "UseImport"
@@ -166,7 +167,7 @@ task v4_parse_is_newline_token(stream_id: int, token_id: int) -> bool {
 }
 
 task v4_parse_is_top_keyword(value: word) -> bool {
-    give back value == "task" or value == "shape" or value == "route" or value == "variant" or value == "impl" or value == "doctrine" or value == "use" or value == "extern"
+    give back value == "task" or value == "shape" or value == "route" or value == "variant" or value == "alias" or value == "impl" or value == "doctrine" or value == "use" or value == "extern"
 }
 
 task v4_parse_kind_for_keyword(value: word) -> word {
@@ -174,6 +175,7 @@ task v4_parse_kind_for_keyword(value: word) -> word {
     if value == "shape" { give back v4_node_shape }
     if value == "route" { give back v4_node_route }
     if value == "variant" { give back v4_node_route }
+    if value == "alias" { give back v4_node_alias }
     if value == "impl" { give back v4_node_impl }
     if value == "doctrine" { give back v4_node_doctrine }
     if value == "use" { give back v4_node_use }
@@ -182,7 +184,7 @@ task v4_parse_kind_for_keyword(value: word) -> word {
 }
 
 task v4_parse_keyword_requires_name(value: word) -> bool {
-    give back value == "task" or value == "shape" or value == "route" or value == "variant" or value == "impl" or value == "doctrine"
+    give back value == "task" or value == "shape" or value == "route" or value == "variant" or value == "alias" or value == "impl" or value == "doctrine"
 }
 
 task v4_parse_keyword_requires_body(value: word) -> bool {
@@ -377,6 +379,18 @@ task v4_parse_find_token_value(stream_id: int, start_token: int, end_token: int,
     give back 0 - 1
 }
 
+task v4_parse_alias_target_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot equals_token = v4_parse_find_token_value(stream_id, start_token, end_token, "=")
+    if equals_token < 0 {
+        give back ""
+    }
+    pilot target_start = v4_parse_skip_trivia(stream_id, equals_token + 1)
+    if target_start >= end_token {
+        give back ""
+    }
+    give back v4_parse_text(stream_id, target_start, end_token)
+}
+
 task v4_parse_find_matching_token(stream_id: int, open_token: int, end_token: int, open_value: word, close_value: word) -> int {
     pilot idx = open_token
     pilot depth = 0
@@ -434,6 +448,19 @@ task v4_parse_import_binding(tree_id: int, node_id: int) -> word {
         give back ""
     }
     give back v4_parse_use_binding_from_tokens(stream_id, start_token + 1, end_token)
+}
+
+task v4_parse_alias_target(tree_id: int, node_id: int) -> word {
+    if v4_parse_node_kind(tree_id, node_id) != v4_node_alias {
+        give back ""
+    }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_parse_node_start_token(tree_id, node_id)
+    pilot end_token = v4_parse_node_end_token(tree_id, node_id)
+    if start_token < 0 or end_token <= start_token {
+        give back ""
+    }
+    give back v4_parse_alias_target_from_tokens(stream_id, start_token + 1, end_token)
 }
 
 task v4_parse_attribute_arg_text(tree_id: int, node_id: int) -> word {
@@ -720,6 +747,12 @@ task v4_parse_parse_top_item(tree_id: int, stream_id: int, token_id: int, root_i
             if v4_parse_use_alias_from_tokens(stream_id, token_id + 1, end_token) == "" {
                 v4_parse_add_incomplete(tree_id, item_node, item_span, "expected alias name after as")
             }
+        }
+    } else if keyword == "alias" {
+        if v4_parse_find_token_value(stream_id, token_id + 1, end_token, "=") < 0 {
+            v4_parse_add_incomplete(tree_id, item_node, item_span, "expected = in alias")
+        } else if v4_parse_alias_target_from_tokens(stream_id, token_id + 1, end_token) == "" {
+            v4_parse_add_incomplete(tree_id, item_node, item_span, "expected target type after =")
         }
     }
 

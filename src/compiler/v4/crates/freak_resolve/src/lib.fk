@@ -133,6 +133,7 @@ task v4_resolve_is_definition_kind(item_kind: word) -> bool {
     if item_kind == v4_hir_task { give back true }
     if item_kind == v4_hir_shape { give back true }
     if item_kind == v4_hir_route { give back true }
+    if item_kind == v4_hir_alias { give back true }
     if item_kind == v4_hir_doctrine { give back true }
     if item_kind == v4_hir_extern { give back true }
     give back false

@@ -18,6 +18,7 @@ pilot v4_ty_void = "void"
 pilot v4_ty_task_sig = "task-signature"
 pilot v4_ty_shape_sig = "shape-signature"
 pilot v4_ty_route_sig = "route-signature"
+pilot v4_ty_alias_sig = "alias-signature"
 pilot v4_ty_doctrine_sig = "doctrine-signature"
 pilot v4_ty_extern_sig = "extern-signature"
 pilot v4_ty_import_sig = "import-signature"
@@ -155,6 +156,61 @@ task v4_ty_copy_resolve_diags(ty_id: int, resolve_id: int) -> void {
         v4_ty_add_diag(ty_id, v4_resolve_diag(resolve_id, diag_idx))
         diag_idx += 1
     }
+}
+
+task v4_ty_alias_signature_id_for_name(ty_id: int, alias_name: word) -> int {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_alias_sig {
+            if v4_ty_signature_name(ty_id, sig_id) == alias_name {
+                give back sig_id
+            }
+        }
+        sig_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_alias_target_type_for_sig(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back v4_ty_unknown
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_alias_sig {
+        give back v4_ty_unknown
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back v4_ty_unknown
+    }
+    pilot target = v4_hir_alias_target(hir_id, hir_item)
+    if target == "" {
+        give back v4_ty_unknown
+    }
+    give back target
+}
+
+task v4_ty_alias_target_type(ty_id: int, alias_name: word) -> word {
+    give back v4_ty_alias_target_type_for_sig(ty_id, v4_ty_alias_signature_id_for_name(ty_id, alias_name))
+}
+
+task v4_ty_canonical_type_depth(ty_id: int, type_text: word, depth: int) -> word {
+    if depth > 8 {
+        give back type_text
+    }
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back type_text
+    }
+    pilot alias_target = v4_ty_alias_target_type(ty_id, type_text)
+    if alias_target != "" and alias_target != v4_ty_unknown {
+        give back v4_ty_canonical_type_depth(ty_id, alias_target, depth + 1)
+    }
+    give back type_text
+}
+
+task v4_ty_canonical_type(ty_id: int, type_text: word) -> word {
+    give back v4_ty_canonical_type_depth(ty_id, type_text, 0)
 }
 
 task v4_ty_is_numeric(ty_name: word) -> bool {
@@ -346,6 +402,7 @@ task v4_ty_kind_for_symbol(symbol_kind: word) -> word {
     if symbol_kind == v4_hir_task { give back v4_ty_task_sig }
     if symbol_kind == v4_hir_shape { give back v4_ty_shape_sig }
     if symbol_kind == v4_hir_route { give back v4_ty_route_sig }
+    if symbol_kind == v4_hir_alias { give back v4_ty_alias_sig }
     if symbol_kind == v4_hir_doctrine { give back v4_ty_doctrine_sig }
     if symbol_kind == v4_hir_extern { give back v4_ty_extern_sig }
     if symbol_kind == v4_hir_import { give back v4_ty_import_sig }
@@ -363,6 +420,9 @@ task v4_ty_display_for_symbol(symbol_kind: word, symbol_name: word) -> word {
     }
     if symbol_kind == v4_hir_route {
         give back "route " + symbol_name
+    }
+    if symbol_kind == v4_hir_alias {
+        give back "alias " + symbol_name
     }
     if symbol_kind == v4_hir_doctrine {
         give back "doctrine " + symbol_name
@@ -536,7 +596,7 @@ task v4_ty_extern_member_return_type(ty_id: int, sig_id: int, member_id: int) ->
     if stream_id < 0 or start_token < 0 or end_token <= start_token {
         give back v4_ty_unknown
     }
-    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
+    give back v4_ty_canonical_type(ty_id, v4_ty_task_return_from_tokens(stream_id, start_token, end_token))
 }
 
 task v4_ty_extern_member_display(ty_id: int, sig_id: int, member_id: int) -> word {
@@ -1201,7 +1261,7 @@ task v4_ty_signature_param_type(ty_id: int, sig_id: int, param_id: int) -> word 
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
     pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
-    give back v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
+    give back v4_ty_canonical_type(ty_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
 }
 
 task v4_ty_param_type_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
@@ -1596,7 +1656,7 @@ task v4_ty_impl_method_param_type(ty_id: int, hir_item: int, method_id: int, par
     if param_name == "self" {
         give back v4_ty_impl_target_type_from_hir(ty_id, hir_item)
     }
-    give back v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
+    give back v4_ty_canonical_type(ty_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
 }
 
 task v4_ty_impl_method_is_instance(ty_id: int, hir_item: int, method_id: int) -> bool {
@@ -1712,11 +1772,11 @@ task v4_ty_apply_impl_generics(ty_id: int, hir_item: int, owner_ty: word, member
 }
 
 task v4_ty_impl_method_param_type_for_owner(ty_id: int, hir_item: int, method_id: int, param_id: int, owner_ty: word) -> word {
-    give back v4_ty_apply_impl_generics(ty_id, hir_item, owner_ty, v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_id))
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_impl_generics(ty_id, hir_item, owner_ty, v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_id)))
 }
 
 task v4_ty_impl_method_explicit_param_type_for_owner(ty_id: int, hir_item: int, method_id: int, param_id: int, owner_ty: word) -> word {
-    give back v4_ty_apply_impl_generics(ty_id, hir_item, owner_ty, v4_ty_impl_method_explicit_param_type(ty_id, hir_item, method_id, param_id))
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_impl_generics(ty_id, hir_item, owner_ty, v4_ty_impl_method_explicit_param_type(ty_id, hir_item, method_id, param_id)))
 }
 
 task v4_ty_impl_method_return_type(ty_id: int, hir_item: int, method_id: int) -> word {
@@ -1726,11 +1786,11 @@ task v4_ty_impl_method_return_type(ty_id: int, hir_item: int, method_id: int) ->
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
     pilot stream_id = v4_parse_stream_id(tree_id)
-    give back v4_ty_task_return_from_tokens(stream_id, v4_ty_impl_method_start_token(ty_id, hir_item, method_id), v4_ty_impl_method_end_token(ty_id, hir_item, method_id))
+    give back v4_ty_canonical_type(ty_id, v4_ty_task_return_from_tokens(stream_id, v4_ty_impl_method_start_token(ty_id, hir_item, method_id), v4_ty_impl_method_end_token(ty_id, hir_item, method_id)))
 }
 
 task v4_ty_impl_method_return_type_for_owner(ty_id: int, hir_item: int, method_id: int, owner_ty: word) -> word {
-    give back v4_ty_apply_impl_generics(ty_id, hir_item, owner_ty, v4_ty_impl_method_return_type(ty_id, hir_item, method_id))
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_impl_generics(ty_id, hir_item, owner_ty, v4_ty_impl_method_return_type(ty_id, hir_item, method_id)))
 }
 
 task v4_ty_impl_method_def(ty_id: int, hir_item: int, method_id: int) -> word {
@@ -1916,7 +1976,7 @@ task v4_ty_doctrine_method_param_type(ty_id: int, sig_id: int, method_id: int, p
     if v4_ty_param_name_from_tokens(stream_id, start_token, end_token) == "self" {
         give back "Self"
     }
-    give back v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
+    give back v4_ty_canonical_type(ty_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
 }
 
 task v4_ty_doctrine_method_is_instance(ty_id: int, sig_id: int, method_id: int) -> bool {
@@ -1949,7 +2009,7 @@ task v4_ty_doctrine_method_return_type(ty_id: int, sig_id: int, method_id: int) 
     if stream_id < 0 or start_token < 0 or end_token <= start_token {
         give back v4_ty_unknown
     }
-    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
+    give back v4_ty_canonical_type(ty_id, v4_ty_task_return_from_tokens(stream_id, start_token, end_token))
 }
 
 task v4_ty_apply_self_type(type_text: word, self_ty: word) -> word {
@@ -1961,11 +2021,11 @@ task v4_ty_apply_self_type(type_text: word, self_ty: word) -> word {
 }
 
 task v4_ty_doctrine_method_explicit_param_type_for_self(ty_id: int, sig_id: int, method_id: int, param_id: int, self_ty: word) -> word {
-    give back v4_ty_apply_self_type(v4_ty_doctrine_method_explicit_param_type(ty_id, sig_id, method_id, param_id), self_ty)
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_self_type(v4_ty_doctrine_method_explicit_param_type(ty_id, sig_id, method_id, param_id), self_ty))
 }
 
 task v4_ty_doctrine_method_return_type_for_self(ty_id: int, sig_id: int, method_id: int, self_ty: word) -> word {
-    give back v4_ty_apply_self_type(v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id), self_ty)
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_self_type(v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id), self_ty))
 }
 
 task v4_ty_type_satisfies_doctrine(ty_id: int, actual_ty: word, doctrine_name: word) -> bool {
@@ -2026,6 +2086,13 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, symbol_def
     if symbol_kind == v4_hir_route {
         give back "route " + symbol_name + generic_text
     }
+    if symbol_kind == v4_hir_alias {
+        pilot alias_target = v4_hir_alias_target(hir_id, hir_item)
+        if alias_target != "" {
+            give back "alias " + symbol_name + " = " + alias_target
+        }
+        give back "alias " + symbol_name
+    }
     if symbol_kind == v4_hir_doctrine {
         give back "doctrine " + symbol_name + generic_text
     }
@@ -2065,7 +2132,7 @@ task v4_ty_signature_return_type(ty_id: int, sig_id: int) -> word {
             if start_pos < display.length() and display.char_at(start_pos) == " " {
                 start_pos += 1
             }
-            give back v4_slice(display, start_pos, display.length())
+            give back v4_ty_canonical_type(ty_id, v4_slice(display, start_pos, display.length()))
         }
         i += 1
     }
@@ -2074,6 +2141,10 @@ task v4_ty_signature_return_type(ty_id: int, sig_id: int) -> word {
 
 task v4_ty_shape_signature_id_for_name(ty_id: int, shape_name: word) -> int {
     pilot lookup_name = shape_name
+    pilot alias_lookup = v4_ty_alias_target_type(ty_id, lookup_name)
+    if alias_lookup != "" and alias_lookup != v4_ty_unknown {
+        lookup_name = alias_lookup
+    }
     if v4_ty_is_generic_instance_type(lookup_name) {
         lookup_name = v4_ty_generic_base_name(lookup_name)
     }
@@ -2092,6 +2163,10 @@ task v4_ty_shape_signature_id_for_name(ty_id: int, shape_name: word) -> int {
 
 task v4_ty_route_signature_id_for_name(ty_id: int, route_name: word) -> int {
     pilot lookup_name = route_name
+    pilot alias_lookup = v4_ty_alias_target_type(ty_id, lookup_name)
+    if alias_lookup != "" and alias_lookup != v4_ty_unknown {
+        lookup_name = alias_lookup
+    }
     if v4_ty_is_generic_instance_type(lookup_name) {
         lookup_name = v4_ty_generic_base_name(lookup_name)
     }
@@ -2505,7 +2580,7 @@ task v4_ty_route_case_field_type(ty_id: int, route_name: word, case_name: word, 
     if field_ty == "" {
         give back v4_ty_unknown
     }
-    give back v4_ty_apply_signature_generics(ty_id, sig_id, route_name, field_ty)
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_signature_generics(ty_id, sig_id, route_name, field_ty))
 }
 
 task v4_ty_route_case_field_id_for_name(ty_id: int, route_name: word, case_name: word, field_name: word) -> int {
@@ -2700,7 +2775,7 @@ task v4_ty_shape_field_type(ty_id: int, sig_id: int, field_id: int) -> word {
     if field_ty == "" {
         give back v4_ty_unknown
     }
-    give back field_ty
+    give back v4_ty_canonical_type(ty_id, field_ty)
 }
 
 task v4_ty_shape_field_id_for_name(ty_id: int, shape_name: word, field_name: word) -> int {
@@ -3078,7 +3153,7 @@ task v4_ty_apply_signature_generics(ty_id: int, sig_id: int, instance_ty: word, 
 }
 
 task v4_ty_signature_return_type_for_env(ty_id: int, sig_id: int, env: word) -> word {
-    give back v4_ty_apply_generic_env(v4_ty_signature_return_type(ty_id, sig_id), env)
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_generic_env(v4_ty_signature_return_type(ty_id, sig_id), env))
 }
 
 task v4_ty_list_element_type(container_ty: word) -> word {
