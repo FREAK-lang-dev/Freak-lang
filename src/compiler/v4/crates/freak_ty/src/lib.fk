@@ -291,6 +291,46 @@ task v4_ty_contextual_numeric_literal_type(default_ty: word, expected_ty: word) 
     give back default_ty
 }
 
+task v4_ty_numeric_literal_suffix(value: word) -> word {
+    if value.length() <= 0 {
+        give back ""
+    }
+    pilot suffix = value.char_at(value.length() - 1)
+    if suffix == "u" or suffix == "t" or suffix == "b" or suffix == "f" {
+        give back suffix
+    }
+    give back ""
+}
+
+task v4_ty_numeric_literal_value(value: word) -> word {
+    pilot suffix = v4_ty_numeric_literal_suffix(value)
+    if suffix == "" {
+        give back value
+    }
+    give back value.substring(0, value.length() - 1)
+}
+
+task v4_ty_int_literal_type(value: word, expected_ty: word) -> word {
+    pilot suffix = v4_ty_numeric_literal_suffix(value)
+    if suffix == "u" {
+        give back v4_ty_uint
+    }
+    if suffix == "t" {
+        give back v4_ty_tiny
+    }
+    if suffix == "b" {
+        give back v4_ty_big
+    }
+    give back v4_ty_contextual_numeric_literal_type(v4_ty_int, expected_ty)
+}
+
+task v4_ty_float_literal_type(value: word, expected_ty: word) -> word {
+    if v4_ty_numeric_literal_suffix(value) == "f" {
+        give back v4_ty_float
+    }
+    give back v4_ty_contextual_numeric_literal_type(v4_ty_num, expected_ty)
+}
+
 task v4_ty_is_known(ty_name: word) -> bool {
     give back ty_name != "" and ty_name != v4_ty_unknown
 }

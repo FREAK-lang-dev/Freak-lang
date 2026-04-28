@@ -183,6 +183,33 @@ task v4_lex_is_ident_continue(ch: word) -> bool {
     give back v4_lex_is_ident_start(ch) or v4_lex_is_digit(ch)
 }
 
+task v4_lex_number_suffix_has_boundary(text: word, pos: int) -> bool {
+    pilot next_ch = v4_lex_char_at(text, pos + 1)
+    if next_ch == "" {
+        give back true
+    }
+    give back not v4_lex_is_ident_continue(next_ch)
+}
+
+task v4_lex_int_suffix_len(text: word, pos: int) -> int {
+    pilot ch = v4_lex_char_at(text, pos)
+    if ch == "u" or ch == "t" or ch == "b" {
+        if v4_lex_number_suffix_has_boundary(text, pos) {
+            give back 1
+        }
+    }
+    give back 0
+}
+
+task v4_lex_float_suffix_len(text: word, pos: int) -> int {
+    if v4_lex_char_at(text, pos) == "f" {
+        if v4_lex_number_suffix_has_boundary(text, pos) {
+            give back 1
+        }
+    }
+    give back 0
+}
+
 task v4_lex_is_horizontal_space(ch: word) -> bool {
     give back ch == " " or ch == "\t" or ch == "\r"
 }
@@ -339,6 +366,16 @@ task v4_lex_text(file_id: int, text: word) -> int {
                         col_no += 1
                     }
                 }
+            }
+            pilot suffix_len = 0
+            if number_type == v4_tok_int {
+                suffix_len = v4_lex_int_suffix_len(text, pos)
+            } else {
+                suffix_len = v4_lex_float_suffix_len(text, pos)
+            }
+            if suffix_len > 0 {
+                pos += suffix_len
+                col_no += suffix_len
             }
             v4_lex_add_token(stream_id, number_type, v4_slice(text, start_pos, pos), v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
         } else if ch == "\"" {

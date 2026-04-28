@@ -1,0 +1,82 @@
+-- V4 numeric suffix smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_suffix_find_token(stream_id: int, value: word) -> int {
+    pilot idx = 0
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until idx >= count {
+        if v4_lex_token_value(stream_id, idx) == value {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_suffix_source() -> word {
+    pilot src = "task suffixes() -> float {\n"
+    src = src + "    pilot u: uint = 42u\n"
+    src = src + "    pilot t: tiny = 7t\n"
+    src = src + "    pilot b: big = 999b\n"
+    src = src + "    pilot f: float = 3.14f\n"
+    src = src + "    pilot c: float32 = 1.5\n"
+    src = src + "    give back f\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_suffix_src = v4_suffix_source()
+pilot v4_suffix_stream = v4_lex_text(0, v4_suffix_src)
+pilot v4_suffix_42u = v4_suffix_find_token(v4_suffix_stream, "42u")
+pilot v4_suffix_7t = v4_suffix_find_token(v4_suffix_stream, "7t")
+pilot v4_suffix_999b = v4_suffix_find_token(v4_suffix_stream, "999b")
+pilot v4_suffix_314f = v4_suffix_find_token(v4_suffix_stream, "3.14f")
+pilot v4_suffix_15 = v4_suffix_find_token(v4_suffix_stream, "1.5")
+
+pilot v4_suffix_tree = v4_parse_stream(0, v4_suffix_stream)
+pilot v4_suffix_hir = v4_hir_lower_tree(0, v4_suffix_tree)
+pilot v4_suffix_resolve = v4_resolve_lower_hir(0, v4_suffix_hir)
+pilot v4_suffix_ty = v4_ty_lower_resolve(0, v4_suffix_resolve)
+pilot v4_suffix_mir = v4_mir_lower_ty(0, v4_suffix_ty)
+pilot v4_suffix_def = v4_resolve_def_for_name(v4_suffix_resolve, "suffixes")
+pilot v4_suffix_body = v4_mir_lookup_body(v4_suffix_mir, v4_suffix_def)
+
+pilot v4_suffix_u_rvalue = v4_mir_stmt_rvalue(v4_suffix_mir, v4_suffix_body, 0)
+pilot v4_suffix_t_rvalue = v4_mir_stmt_rvalue(v4_suffix_mir, v4_suffix_body, 1)
+pilot v4_suffix_b_rvalue = v4_mir_stmt_rvalue(v4_suffix_mir, v4_suffix_body, 2)
+pilot v4_suffix_f_rvalue = v4_mir_stmt_rvalue(v4_suffix_mir, v4_suffix_body, 3)
+pilot v4_suffix_c_rvalue = v4_mir_stmt_rvalue(v4_suffix_mir, v4_suffix_body, 4)
+
+say "suffix-lex-42u-type=" + v4_lex_token_type(v4_suffix_stream, v4_suffix_42u)
+say "suffix-lex-42u-value=" + v4_lex_token_value(v4_suffix_stream, v4_suffix_42u)
+say "suffix-lex-7t-type=" + v4_lex_token_type(v4_suffix_stream, v4_suffix_7t)
+say "suffix-lex-999b-type=" + v4_lex_token_type(v4_suffix_stream, v4_suffix_999b)
+say "suffix-lex-314f-type=" + v4_lex_token_type(v4_suffix_stream, v4_suffix_314f)
+say "suffix-lex-15-type=" + v4_lex_token_type(v4_suffix_stream, v4_suffix_15)
+say "suffix-lex-diagnostics=" + word_from_int(v4_lex_diag_count(v4_suffix_stream))
+
+say "suffix-type-42u=" + v4_ty_int_literal_type("42u", v4_ty_unknown)
+say "suffix-type-7t=" + v4_ty_int_literal_type("7t", v4_ty_unknown)
+say "suffix-type-999b=" + v4_ty_int_literal_type("999b", v4_ty_unknown)
+say "suffix-type-314f=" + v4_ty_float_literal_type("3.14f", v4_ty_unknown)
+say "suffix-type-context-float32=" + v4_ty_float_literal_type("1.5", v4_ty_float32)
+say "suffix-value-42u=" + v4_ty_numeric_literal_value("42u")
+say "suffix-value-314f=" + v4_ty_numeric_literal_value("3.14f")
+
+say "suffix-local-u-type=" + v4_mir_local_ty(v4_suffix_mir, v4_suffix_body, v4_mir_find_local(v4_suffix_mir, v4_suffix_body, "u"))
+say "suffix-local-t-type=" + v4_mir_local_ty(v4_suffix_mir, v4_suffix_body, v4_mir_find_local(v4_suffix_mir, v4_suffix_body, "t"))
+say "suffix-local-b-type=" + v4_mir_local_ty(v4_suffix_mir, v4_suffix_body, v4_mir_find_local(v4_suffix_mir, v4_suffix_body, "b"))
+say "suffix-local-f-type=" + v4_mir_local_ty(v4_suffix_mir, v4_suffix_body, v4_mir_find_local(v4_suffix_mir, v4_suffix_body, "f"))
+say "suffix-local-c-type=" + v4_mir_local_ty(v4_suffix_mir, v4_suffix_body, v4_mir_find_local(v4_suffix_mir, v4_suffix_body, "c"))
+
+say "suffix-rvalue-u-type=" + v4_mir_rvalue_ty(v4_suffix_mir, v4_suffix_body, v4_suffix_u_rvalue)
+say "suffix-rvalue-u-text=" + v4_mir_rvalue_text(v4_suffix_mir, v4_suffix_body, v4_suffix_u_rvalue)
+say "suffix-rvalue-t-type=" + v4_mir_rvalue_ty(v4_suffix_mir, v4_suffix_body, v4_suffix_t_rvalue)
+say "suffix-rvalue-t-text=" + v4_mir_rvalue_text(v4_suffix_mir, v4_suffix_body, v4_suffix_t_rvalue)
+say "suffix-rvalue-b-type=" + v4_mir_rvalue_ty(v4_suffix_mir, v4_suffix_body, v4_suffix_b_rvalue)
+say "suffix-rvalue-b-text=" + v4_mir_rvalue_text(v4_suffix_mir, v4_suffix_body, v4_suffix_b_rvalue)
+say "suffix-rvalue-f-type=" + v4_mir_rvalue_ty(v4_suffix_mir, v4_suffix_body, v4_suffix_f_rvalue)
+say "suffix-rvalue-f-text=" + v4_mir_rvalue_text(v4_suffix_mir, v4_suffix_body, v4_suffix_f_rvalue)
+say "suffix-rvalue-c-type=" + v4_mir_rvalue_ty(v4_suffix_mir, v4_suffix_body, v4_suffix_c_rvalue)
+say "suffix-rvalue-c-text=" + v4_mir_rvalue_text(v4_suffix_mir, v4_suffix_body, v4_suffix_c_rvalue)
+say "suffix-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_suffix_mir))
