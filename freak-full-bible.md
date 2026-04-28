@@ -54,7 +54,7 @@ Pipeline (full compiler):
 | §8 Lexer | ⚠️ Partial | All v0.13.x keywords lex. `'a` lifetimes, number suffixes (`42u`/`3.14f`/`42t`/`999b`), `\|\|` xm3 separator are V4. |
 | §9 Parser | ⚠️ Partial | Tolerant parsing (`ErrorNode`/`IncompleteNode`, recovery boundaries, IDE-grade incremental parsing) is V4. v1 (Python) parser fails on V3-superset syntax — V3 self-hosting compiler is the bible-conformant parser. |
 | §10 Type Checker | ⚠️ Partial | Most semantic checks listed (power arithmetic, prob ranges, route exhaustiveness, foreshadow strict enforcement, classified redaction, dyn object-safety, FFI safety, layout validation) are V4. |
-| §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. Special codegen for `mood`/variants/`dyn`/`Shared<T>`/extern ABIs/optimization pragmas/classified symbol stripping is V4. |
+| §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. LLVM emits LineTablesOnly DWARF (DISubprogram per function + per-instruction `!dbg`). Special codegen for `mood`/variants/`dyn`/`Shared<T>`/extern ABIs/optimization pragmas/classified symbol stripping is V4. JIT (OrcJIT) is V4. |
 | §12 Build Modes | 🔜 V4 | `slice_of_life`/`mecha`/`shonen_jump`/`final_form`/`alternative` modes are V4. v0.13.x has only LLVM `--opt=0..3` and `--c`/`--llvm` backend selection. |
 | §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`. V4: `freak vibe`, `freak test`, `--voice=…`, `--clearance=…`, `--build-mode=…`, `-o output_path`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
@@ -2196,13 +2196,15 @@ on §1.14), and root-`fixed pilot` cycle detection. The
 
 **Status (v0.13.2): ⚠️ Partial.** LLVM IR and C backends both ship and
 handle core control flow, shapes/impl, arrays (LLVM-compatible pool),
-strings, fs/process/math/UI/TCP/JSON/HTTP. **🔜 V4 — the special
-codegen rules listed below:** mood as uint8_t, variant tag+payload
-layout, `dyn` fat-pointer + vtable, `Shared<T>` ref-count headers,
-extern target ABI selection, `deus_ex_machina` pragma optimization,
-`isekai` fresh-frame isolation, `@classified` debug-symbol stripping.
-JIT (LB7) and DWARF debug info (LB10) are the remaining LLVM-backend
-milestones inside v0.13.x scope.
+strings, fs/process/math/UI/TCP/JSON/HTTP. The LLVM backend emits
+LineTablesOnly DWARF — `DISubprogram` per function plus per-instruction
+`!dbg` annotations — so gdb/lldb get source-line backtraces today.
+**🔜 V4 — the special codegen rules listed below:** mood as uint8_t,
+variant tag+payload layout, `dyn` fat-pointer + vtable, `Shared<T>`
+ref-count headers, extern target ABI selection, `deus_ex_machina`
+pragma optimization, `isekai` fresh-frame isolation, `@classified`
+debug-symbol stripping. JIT (LB7) and FullDebug DWARF (variable / type
+metadata beyond LineTablesOnly) are V4.
 
 The full compiler targets native code via LLVM IR or direct assembly,
 not C. Key differences from FREAK Lite:

@@ -234,14 +234,15 @@
 [x] M9  — BETA early warning system runs in FREAK
 [x] M10 — GitHub repo public, README written       ← tell people
 [x] M11 — std::process, std::thread, std::bytes done (runtime stubs + emitter + tests)
-[x] M12 — operator overloading works (Add/Sub/Mul/Div/Neg/Eq via doctrines)
-[ ] M13 — freak-http and freak-json published to Hangar
-[ ] M14 — freak-image and freak-zip exist (yours or community)
+[x] M12 — operator overloading works (Add/Sub/Mul/Div/Rem/Neg/Eq/Ord/Index via doctrines, Python emitter)
+[x] M13 — freak-http and freak-json shipped (std/http.fk, std/json.fk pure FREAK)
+[~] M14 — std::zip done (std/zip.fk), std::image deferred to V4
 [x] M15 — self-hosting compiler bootstrap COMPLETE (freakc_self.exe compiles hello.fk)
 [x] M16 — std::fs, std::math, std::time integrated in v2 compiler
 [x] M17 — LLVM IR backend core complete (LB1-LB4: hello, types, control flow, shapes, impl)
 [x] M18 — CI/CD: GitHub Actions on Linux/macOS/Windows, auto-release on tag push
 [x] M19 — Distribution: install.sh, install.ps1, hangar install freak, v0.9.0 released
+[x] M20 — Conformance audit + freak audit-conformance command (v0.13.x baseline gate)
 
 ---
 
@@ -263,10 +264,10 @@
 - [x] Boolean logic (and/or/not)
 - [x] Comparisons (==, !=, <, >, <=, >=)
 - [x] Cross-compilation targets (`--target`)
-- [ ] Runtime intrinsics (replace freak_runtime.c calls with IR)
-- [ ] JIT mode via OrcJIT
-- [ ] Optimization levels (--opt=0/1/2/3)
-- [ ] DWARF debug info
+- [x] Runtime intrinsics (LLVM-compatible array pool + libc wrappers in freak_llvm_runtime.c; platform-dep C remains for stdin/popen/sockets/UI)
+- [ ] JIT mode via OrcJIT (LB7 — deferred to V4)
+- [x] Optimization levels (--opt=0/1/2/3)
+- [x] DWARF debug info — minimal LineTablesOnly (LB10): DISubprogram per function + per-instruction !dbg metadata in IR; verified with !llvm.dbg.cu / !llvm.module.flags
 
 ---
 
@@ -278,8 +279,9 @@
 - [x] `install.sh` — Linux/macOS curl installer
 - [x] `install.ps1` — Windows PowerShell installer
 - [x] `hangar install freak` / `hangar upgrade freak` — toolchain bootstrap
-- [ ] Homebrew formula
-- [ ] Scoop/Winget manifests
+- [x] Homebrew formula (packaging/homebrew/freak.rb, checksum-patched on tag)
+- [x] Scoop manifest (packaging/scoop/freak.json, checksum-patched on tag)
+- [x] Winget manifests (packaging/winget/manifests/F/FREAK/freak/<version>/, dynamic path on release)
 
 ---
 

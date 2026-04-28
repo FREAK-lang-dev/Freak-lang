@@ -195,10 +195,10 @@ Pending — depends on freak-ui Phase C for codegen; lexer/parser can start earl
 [x] LB4  — Shapes (structs) and impl methods work
 [x] LB5  — freak_runtime.h functions replaced by IR intrinsics (platform-dependent C remains: stdin, popen, sockets, UI)
 [x] LB6  — freak build uses LLVM backend by default
-[ ] LB7  — JIT mode: freak run executes via OrcJIT (no binary written)
+[ ] LB7  — JIT mode: freak run executes via OrcJIT (no binary written) — deferred to V4
 [x] LB8  — Optimization levels: --opt=0/1/2/3
 [x] LB9  — Cross-compilation: freak build --target x86_64-linux
-[ ] LB10 — Debug info: source line numbers in DWARF via DIBuilder
+[x] LB10 — Debug info: minimal LineTablesOnly DWARF (DISubprogram + per-instruction !dbg)
 ```
 
 ### Distribution Milestones (D-series)
@@ -623,7 +623,7 @@ Bootstrap: `build_cli.bat` (Windows) or CI workflow. Pre-compiled bootstrap at `
 
 **Runtime:** LLVM builds link `freak_llvm_runtime.c` (libc wrappers, LLVM-compatible array pool, time, process_exec_capture) + `freak_runtime.c` (word/string methods, C-backend arrays — separate pool).
 
-**Not yet implemented:** JIT (LB7), debug info (LB10).
+**Not yet implemented:** JIT (LB7) — deferred to V4.
 
 ---
 
@@ -653,12 +653,17 @@ In rough priority order:
 2. ~~**GitHub Actions CI/CD**~~ — ✅ Done.
 3. ~~**Hangar bootstrapper**~~ — ✅ Done.
 4. ~~**Native CLI rewrite**~~ — ✅ Done. `build/freak.exe` replaces `python -m freakc`. Includes compiler + CLI + Hangar + semver library in a single ~450KB binary. `hangar.exe` is a BusyBox-style copy that dispatches to package manager mode.
-5. ~~**LLVM IR backend (LB5, LB7, LB10)**~~ — ~~LB5 (runtime intrinsics)~~, ~~LB6 (default backend)~~, ~~LB8 (opt levels)~~, ~~LB9 (cross-compilation)~~ done. **LB7 (JIT)** and **LB10 (debug info)** remain.
-6. ~~**freak-ui Phase MA–MF**~~ — ✅ Done. Window system, layout, widgets (core + extended), themes, animation. **MG (polish + Hangar publish)** remains.
-7. **HFML lexer/parser (MH0–MH3)** — can start before freak-ui Phase C is done.
+5. ~~**LLVM IR backend (LB5–LB10)**~~ — ~~LB5 (runtime intrinsics)~~, ~~LB6 (default backend)~~, ~~LB8 (opt levels)~~, ~~LB9 (cross-compilation)~~, ~~LB10 (DWARF line info)~~ done. **LB7 (JIT)** is the only remaining item — deferred to V4.
+6. ~~**COCKPIT Phase MA–MF**~~ — ✅ Done. Window system, layout, widgets (core + extended), themes, animation. **MG (accessibility + polish)** is incremental work — substantial enough that v0.13.x ships with MA–MF and MG continues across V4.
+7. **HFML lexer/parser (MH0–MH3)** — V4 work. Can start before COCKPIT Phase C is fully done.
 8. ~~**M13: freak-http + freak-json**~~ — ✅ Done. std::json (pure FREAK) + std::http (TCP sockets + pure FREAK).
-9. **Sortie IDE Phase 1** — VS Code extension.
+9. **Sortie IDE Phase 1** — VS Code extension. V4 / parallel track.
 10. ~~**Update CI/release workflows**~~ — ✅ Done. Workflows build `freak.exe` + `hangar.exe`. Install scripts updated with `runtime.fk`.
+11. ~~**Conformance audit**~~ — ✅ Done. `freak audit-conformance` gates the v0.13.x baseline; `freak-conformance-audit.md` is the single source of truth for what's V4 vs ⚠️ vs ✅.
+12. ~~**Distribution: Homebrew / Scoop / Winget**~~ — ✅ Done. `packaging/{homebrew,scoop,winget}/` with the release workflow patching checksums on tag.
+13. ~~**Suite test fixes**~~ — ✅ Done. Both previously-skipped tests (`test_maybe.fk`, `test_pipe.fk`) now pass; suite at 14/14.
+
+**Remaining v0.13.x items**: none in scope. v0.13.x final patch ready when a tag is cut. The `--strict-borrow` Phase-1 BC is on by opt-in — promoting it to default-on is V4 work and will require fixing std/ files that aren't yet BC-clean.
 
 ---
 

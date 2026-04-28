@@ -1,9 +1,11 @@
 # FREAK Conformance Audit
 
-**Snapshot:** v0.13.2 "Shiranui" — 2026-04-27
+**Snapshot:** v0.13.2 "Shiranui" — 2026-04-28
 **Bible:** [freak-full-bible.md](freak-full-bible.md) (Alternative-4 Edition)
 **Audit scope:** every testable contract in §1–§17 of the bible vs. observable behavior in `freakc/`, `src/compiler/v3/`, `src/cli/`, runtime, stdlib, and tests.
 **Verdict policy:** unimplemented features default to a bible amendment tagging them **"Coming in V4"**. Code fixes are reserved for cheap wins (audit CLI wiring, missing operator doctrines, test shims). The V4 self-hosting compiler is the destination for the full bible surface.
+
+**v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
 ---
 
@@ -13,12 +15,12 @@
 |---|---|---|
 | Bible sections audited | 17 (§1–§17) | + cheatsheet §15 |
 | Testable contracts identified | ~445 | derived from Phase-1 exploration |
-| Contracts ✅ aligned | ~145 (33%) | core syntax, primitives, basic stdlib |
-| Contracts ⚠️ stubbed | ~110 (25%) | parsed but not enforced (anime layer, partial doctrines, Phase-1 BC) |
-| Contracts ❌ missing | ~190 (42%) | variants, mood/prob/power/causality, squadron, full BC, dyn dispatch, FFI surface, error voices |
-| Verdict 🛠 fix code | 11 | wire audit cmds, add `audit-conformance`, possibly Ord/Index/IndexMut, `freak test` shim |
-| Verdict 📖 amend bible (V4 tag) | ~140 | bulk of the gaps |
-| Verdict ✅ already aligned | ~145 | preserved as-is |
+| Contracts ✅ aligned | ~150 (34%) | core syntax, primitives, basic stdlib, audit suite, Phase-1 BC, LB10 line-table DWARF |
+| Contracts ⚠️ stubbed | ~108 (24%) | parsed but not enforced (anime layer, partial doctrines, Phase-1 BC default-off) |
+| Contracts ❌ missing | ~187 (42%) | variants, mood/prob/power/causality, squadron, full BC, dyn dispatch, FFI surface, error voices |
+| Verdict 🛠 fix code | 0 remaining | all 11 cheap fixes shipped (audit cmds, audit-conformance, Ord/Index, freak test, test_maybe + test_pipe, winget, LB10) |
+| Verdict 📖 amend bible (V4 tag) | ~140 | bulk of the gaps — bible §0.2 reflects |
+| Verdict ✅ already aligned | ~150 | preserved as-is |
 
 **Top 18 divergences** (severity-ordered) — see §3 below.
 
@@ -122,7 +124,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `maybe<T>` with `some(x)` and `nobody` | ✅ | ✅ | known C-backend issue with compound literal — `tests/suite/test_maybe.fk` SKIP'd |
+| `maybe<T>` with `some(x)` and `nobody` | ✅ | ✅ | C-backend cast fix landed; `tests/suite/test_maybe.fk` now PASSES |
 | `result<T, E>` with `ok(x)` and `err(x)` | ✅ | ✅ | |
 | `?` propagation operator | ✅ | ✅ | parsed and emitted |
 | `or else default` fallback | ✅ | ✅ | |
@@ -183,7 +185,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `expr \|> task` left-to-right pipeline | ✅ | ✅ | parsed; `tests/suite/test_pipe.fk` SKIP'd due to type-checker arity false positive — known v1 limitation |
+| `expr \|> task` left-to-right pipeline | ✅ | ✅ | desugaring routed through `_emit_call` (gets `freak_` prefix) + pipe-aware arity check; `tests/suite/test_pipe.fk` now PASSES |
 
 #### §1.10 Error Handling — see §1.4 (maybe/result)
 
@@ -589,19 +591,26 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 ## 5. Triage list
 
-### 🛠 Code fixes for v0.13.x final patch (in scope)
+### 🛠 Code fixes for v0.13.x final patch — SHIPPED
 
-1. **Wire `audit-science` to native CLI** — [src/cli/main.fk](src/cli/main.fk) + new [src/cli/audit.fk](src/cli/audit.fk), shells out to Python.
-2. **Wire `audit-trust` to native CLI** — same.
-3. **Wire `audit-miracles` to native CLI** — same.
-4. **Wire `foreshadow-audit` to native CLI** — same.
-5. **Add `audit-conformance` Python implementation** — [freakc/auditor.py](freakc/auditor.py) + [freakc/__main__.py](freakc/__main__.py).
-6. **Wire `audit-conformance` to native CLI** — same pattern.
-7. **Wire `Ord` operator doctrine** — IF the codegen pattern in [freakc/emitter.py:1750-1800](freakc/emitter.py) extends cleanly. Else 📖 V4.
-8. **Wire `Index`, `IndexMut` operator doctrines** — same conditional.
-9. **Add `freak test` shim** — [src/cli/main.fk](src/cli/main.fk), wraps `python tests/suite/run_tests.py`. Trivial.
-10. **Add minimal `tiny`/`uint`/`char` type aliases** — IF possible to alias to existing types in checker without invasive changes. Else 📖 V4.
-11. **(Optional) Add `say_err`** to runtime — one-liner if `std::process` already exposes stderr.
+All cheap-win items below landed across commits `035b33e`–`b0a05f9` plus the v0.13.x final-patch run on 2026-04-28. Status in parentheses.
+
+1. **Wire `audit-science` to native CLI** ✅ — [src/cli/audit.fk](src/cli/audit.fk) shells out to Python.
+2. **Wire `audit-trust` to native CLI** ✅ — same.
+3. **Wire `audit-miracles` to native CLI** ✅ — same.
+4. **Wire `foreshadow-audit` to native CLI** ✅ — same.
+5. **Add `audit-conformance` Python implementation** ✅ — [freakc/auditor.py](freakc/auditor.py) + [freakc/__main__.py](freakc/__main__.py).
+6. **Wire `audit-conformance` to native CLI** ✅ — same pattern.
+7. **Wire `Ord` operator doctrine** ✅ — Python emitter; V3 emitter still missing operator-overload codegen entirely (V4).
+8. **Index doctrine** ✅ — already wired in Python emitter (audit doc had a small inaccuracy at first pass). `IndexMut` deferred to V4 (lvalue-assignment rewrite).
+9. **Add `freak test` shim** ✅ — [src/cli/main.fk](src/cli/main.fk) wraps `python tests/suite/run_tests.py`.
+10. **Fix the two SKIP'd suite tests** ✅ — `test_maybe.fk` (compound-literal cast) + `test_pipe.fk` (pipe desugaring + arity check). Suite at 14/14.
+11. **Restore winget manifest + dynamic release path** ✅ — `packaging/winget/manifests/F/FREAK/freak/0.13.2/` tracked; `release.yml` derives the path from `$VERSION`.
+12. **LB10 minimal DWARF** ✅ — line-tables-only debug info live in V3 emit_llvm.fk. Source-line backtraces work in gdb/lldb.
+13. **Add minimal `tiny`/`uint`/`char` type aliases** — DEFERRED to V4. Touching the checker for these would sprawl into the larger numeric-type work that V4 needs to do anyway.
+14. **(Optional) Add `say_err`** — DEFERRED to V4. Not blocking; current `freak_say` to stderr workaround exists via `process::exec_capture` + redirect.
+
+**No 🛠 items remain in v0.13.x scope.** The next milestone is V4.
 
 ### 📖 Bible amendments (in scope)
 
@@ -674,9 +683,9 @@ PLUS ~30 PARSE ERRORS from V3 source files, std/, and several tests — Python p
 
 ### `python tests/suite/run_tests.py`
 ```
-12 passed, 0 failed, 2 skipped / 14 total  (11.0s)
+14 passed, 0 failed / 14 total
 ```
-Skipped: `test_maybe.fk` (compound literal C-backend issue), `test_pipe.fk` (type-checker arity false positive).
+Both previously-SKIP'd tests (`test_maybe.fk`, `test_pipe.fk`) now PASS after the v0.13.x cast + pipe-arity fixes landed in `freakc/emitter.py` and `freakc/type_checker.py`.
 
 ### `build\freak.exe build tests/hello.fk`
 Both LLVM (default) and `--c` backends built `tests/hello.exe` successfully.
