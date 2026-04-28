@@ -1,0 +1,104 @@
+-- V4 primitive type semantics smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_primitive_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_primitive_source() -> word {
+    pilot src = "task mix(count: uint, byte: tiny, wide: big, ratio: float32, scalar: float, marker: char) -> float {\n"
+    src = src + "    pilot u: uint = count + byte\n"
+    src = src + "    pilot t: tiny = 7\n"
+    src = src + "    pilot w: big = wide + u\n"
+    src = src + "    pilot r: float32 = ratio + t\n"
+    src = src + "    pilot f: float = scalar + r\n"
+    src = src + "    pilot again: char = marker\n"
+    src = src + "    give back f\n"
+    src = src + "}\n"
+    src = src + "task copy_marker(ch: char) -> char {\n"
+    src = src + "    give back ch\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_primitive_src = v4_primitive_source()
+pilot v4_primitive_stream = v4_lex_text(0, v4_primitive_src)
+pilot v4_primitive_tree = v4_parse_stream(0, v4_primitive_stream)
+pilot v4_primitive_hir = v4_hir_lower_tree(0, v4_primitive_tree)
+pilot v4_primitive_resolve = v4_resolve_lower_hir(0, v4_primitive_hir)
+pilot v4_primitive_ty = v4_ty_lower_resolve(0, v4_primitive_resolve)
+pilot v4_primitive_mir = v4_mir_lower_ty(0, v4_primitive_ty)
+pilot v4_primitive_borrow = v4_borrowck_check_mir(0, v4_primitive_mir)
+pilot v4_primitive_codegen = v4_codegen_llvm_lower_mir(0, v4_primitive_mir)
+
+pilot v4_primitive_mix_def = v4_resolve_def_for_name(v4_primitive_resolve, "mix")
+pilot v4_primitive_mix_sig = v4_ty_lookup_signature(v4_primitive_ty, v4_primitive_mix_def)
+pilot v4_primitive_mix_body = v4_mir_lookup_body(v4_primitive_mir, v4_primitive_mix_def)
+pilot v4_primitive_mix_borrow = v4_borrowck_lookup_result(v4_primitive_borrow, v4_primitive_mix_def)
+pilot v4_primitive_mix_decl = v4_codegen_llvm_find_decl(v4_primitive_codegen, "mix")
+
+pilot v4_primitive_u_local = v4_mir_find_local(v4_primitive_mir, v4_primitive_mix_body, "u")
+pilot v4_primitive_t_local = v4_mir_find_local(v4_primitive_mir, v4_primitive_mix_body, "t")
+pilot v4_primitive_w_local = v4_mir_find_local(v4_primitive_mir, v4_primitive_mix_body, "w")
+pilot v4_primitive_r_local = v4_mir_find_local(v4_primitive_mir, v4_primitive_mix_body, "r")
+pilot v4_primitive_f_local = v4_mir_find_local(v4_primitive_mir, v4_primitive_mix_body, "f")
+pilot v4_primitive_again_local = v4_mir_find_local(v4_primitive_mir, v4_primitive_mix_body, "again")
+
+pilot v4_primitive_u_rvalue = v4_mir_stmt_rvalue(v4_primitive_mir, v4_primitive_mix_body, 0)
+pilot v4_primitive_t_rvalue = v4_mir_stmt_rvalue(v4_primitive_mir, v4_primitive_mix_body, 1)
+pilot v4_primitive_w_rvalue = v4_mir_stmt_rvalue(v4_primitive_mir, v4_primitive_mix_body, 2)
+pilot v4_primitive_r_rvalue = v4_mir_stmt_rvalue(v4_primitive_mir, v4_primitive_mix_body, 3)
+pilot v4_primitive_f_rvalue = v4_mir_stmt_rvalue(v4_primitive_mir, v4_primitive_mix_body, 4)
+pilot v4_primitive_again_rvalue = v4_mir_stmt_rvalue(v4_primitive_mir, v4_primitive_mix_body, 5)
+
+say "primitive-known-uint=" + v4_primitive_bool(v4_ty_is_declared_simple_type_name(v4_primitive_ty, v4_ty_uint))
+say "primitive-known-tiny=" + v4_primitive_bool(v4_ty_is_declared_simple_type_name(v4_primitive_ty, v4_ty_tiny))
+say "primitive-known-float32=" + v4_primitive_bool(v4_ty_is_declared_simple_type_name(v4_primitive_ty, v4_ty_float32))
+say "primitive-known-char=" + v4_primitive_bool(v4_ty_is_declared_simple_type_name(v4_primitive_ty, v4_ty_char))
+say "primitive-known-big=" + v4_primitive_bool(v4_ty_is_declared_simple_type_name(v4_primitive_ty, v4_ty_big))
+say "primitive-known-never=" + v4_primitive_bool(v4_ty_is_declared_simple_type_name(v4_primitive_ty, v4_ty_never))
+
+say "primitive-rank-tiny=" + word_from_int(v4_ty_numeric_rank(v4_ty_tiny))
+say "primitive-rank-float32=" + word_from_int(v4_ty_numeric_rank(v4_ty_float32))
+say "primitive-copy-big=" + v4_primitive_bool(v4_ty_is_copy_type(v4_ty_big))
+say "primitive-copy-word=" + v4_primitive_bool(v4_ty_is_copy_type(v4_ty_word))
+say "primitive-uint-plus-tiny=" + v4_ty_binary_result("Add", v4_ty_uint, v4_ty_tiny)
+say "primitive-big-plus-uint=" + v4_ty_binary_result("Add", v4_ty_big, v4_ty_uint)
+say "primitive-float32-plus-tiny=" + v4_ty_binary_result("Add", v4_ty_float32, v4_ty_tiny)
+say "primitive-float-plus-float32=" + v4_ty_binary_result("Add", v4_ty_float, v4_ty_float32)
+say "primitive-mod-float-valid=" + v4_primitive_bool(v4_ty_binary_valid("Mod", v4_ty_float, v4_ty_int))
+say "primitive-never-to-word=" + v4_primitive_bool(v4_ty_types_compatible(v4_ty_word, v4_ty_never))
+
+say "primitive-param-count=" + word_from_int(v4_ty_signature_param_count(v4_primitive_ty, v4_primitive_mix_sig))
+say "primitive-param0-type=" + v4_ty_signature_param_type(v4_primitive_ty, v4_primitive_mix_sig, 0)
+say "primitive-param1-type=" + v4_ty_signature_param_type(v4_primitive_ty, v4_primitive_mix_sig, 1)
+say "primitive-param2-type=" + v4_ty_signature_param_type(v4_primitive_ty, v4_primitive_mix_sig, 2)
+say "primitive-param3-type=" + v4_ty_signature_param_type(v4_primitive_ty, v4_primitive_mix_sig, 3)
+say "primitive-param4-type=" + v4_ty_signature_param_type(v4_primitive_ty, v4_primitive_mix_sig, 4)
+say "primitive-param5-type=" + v4_ty_signature_param_type(v4_primitive_ty, v4_primitive_mix_sig, 5)
+say "primitive-return-type=" + v4_ty_signature_return_type(v4_primitive_ty, v4_primitive_mix_sig)
+
+say "primitive-local-u-type=" + v4_mir_local_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_u_local)
+say "primitive-local-t-type=" + v4_mir_local_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_t_local)
+say "primitive-local-w-type=" + v4_mir_local_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_w_local)
+say "primitive-local-r-type=" + v4_mir_local_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_r_local)
+say "primitive-local-f-type=" + v4_mir_local_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_f_local)
+say "primitive-local-again-type=" + v4_mir_local_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_again_local)
+
+say "primitive-rvalue-u-type=" + v4_mir_rvalue_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_u_rvalue)
+say "primitive-rvalue-t-type=" + v4_mir_rvalue_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_t_rvalue)
+say "primitive-rvalue-w-type=" + v4_mir_rvalue_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_w_rvalue)
+say "primitive-rvalue-r-type=" + v4_mir_rvalue_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_r_rvalue)
+say "primitive-rvalue-f-type=" + v4_mir_rvalue_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_f_rvalue)
+say "primitive-rvalue-again-type=" + v4_mir_rvalue_ty(v4_primitive_mir, v4_primitive_mix_body, v4_primitive_again_rvalue)
+
+say "primitive-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_primitive_mir))
+say "primitive-borrow-status=" + v4_borrowck_result_status(v4_primitive_borrow, v4_primitive_mix_borrow)
+say "primitive-borrow-moves=" + word_from_int(v4_borrowck_result_moves(v4_primitive_borrow, v4_primitive_mix_borrow))
+say "primitive-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_primitive_borrow))
+say "primitive-llvm-return=" + v4_codegen_llvm_decl_return(v4_primitive_codegen, v4_primitive_mix_decl)
+say "primitive-llvm-params=" + v4_codegen_llvm_decl_params(v4_primitive_codegen, v4_primitive_mix_decl)
+say "primitive-codegen-diagnostics=" + word_from_int(v4_codegen_llvm_diag_count(v4_primitive_codegen))

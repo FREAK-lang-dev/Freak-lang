@@ -3616,10 +3616,12 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, unary_kind, operand_id, 0 - 1, expr_span, result_ty)
     }
     if first_type == v4_tok_int {
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_int)
+        pilot literal_ty = v4_ty_contextual_numeric_literal_type(v4_ty_int, expected_ty)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, first_value, "", 0 - 1, 0 - 1, expr_span, literal_ty)
     }
     if first_type == v4_tok_float {
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_float, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_num)
+        pilot literal_ty = v4_ty_contextual_numeric_literal_type(v4_ty_num, expected_ty)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_float, first_value, "", 0 - 1, 0 - 1, expr_span, literal_ty)
     }
     if first_type == v4_tok_string {
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_word)

@@ -304,13 +304,7 @@ task v4_borrowck_rhs_needs_move(rhs: word) -> bool {
 }
 
 task v4_borrowck_ty_is_copy(ty_name: word) -> bool {
-    if ty_name == v4_ty_int or ty_name == v4_ty_num or ty_name == v4_ty_bool or ty_name == v4_ty_void {
-        give back true
-    }
-    if ty_name == "uint" or ty_name == "tiny" or ty_name == "float" or ty_name == "float32" or ty_name == "char" {
-        give back true
-    }
-    give back false
+    give back v4_ty_is_copy_type(ty_name)
 }
 
 task v4_borrowck_rvalue_transfer_kind(mir_id: int, body_id: int, rvalue_id: int) -> word {

@@ -384,26 +384,29 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
     if ty_name == v4_ty_bool {
         give back "i1"
     }
-    if ty_name == v4_ty_int or ty_name == "uint" {
+    if ty_name == v4_ty_int or ty_name == v4_ty_uint {
         give back "i64"
     }
-    if ty_name == "tiny" {
+    if ty_name == v4_ty_tiny {
         give back "i8"
     }
-    if ty_name == v4_ty_num or ty_name == "float" {
+    if ty_name == v4_ty_num or ty_name == v4_ty_float {
         give back "double"
     }
-    if ty_name == "float32" {
+    if ty_name == v4_ty_float32 {
         give back "float"
     }
-    if ty_name == "char" {
+    if ty_name == v4_ty_char {
         give back "i32"
     }
     if ty_name == v4_ty_word {
         give back "%freak_word"
     }
-    if ty_name == "big" {
+    if ty_name == v4_ty_big {
         give back "%freak_bigint"
+    }
+    if ty_name == v4_ty_never {
+        give back "void"
     }
 
     if v4_ty_is_generic_instance_type(ty_name) {

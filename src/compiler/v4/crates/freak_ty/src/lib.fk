@@ -10,10 +10,17 @@
 
 pilot v4_ty_unknown = "unknown"
 pilot v4_ty_int = "int"
+pilot v4_ty_uint = "uint"
+pilot v4_ty_tiny = "tiny"
 pilot v4_ty_num = "num"
+pilot v4_ty_float = "float"
+pilot v4_ty_float32 = "float32"
+pilot v4_ty_big = "big"
 pilot v4_ty_word = "word"
 pilot v4_ty_bool = "bool"
+pilot v4_ty_char = "char"
 pilot v4_ty_void = "void"
+pilot v4_ty_never = "never"
 
 pilot v4_ty_task_sig = "task-signature"
 pilot v4_ty_shape_sig = "shape-signature"
@@ -214,7 +221,74 @@ task v4_ty_canonical_type(ty_id: int, type_text: word) -> word {
 }
 
 task v4_ty_is_numeric(ty_name: word) -> bool {
-    give back ty_name == v4_ty_int or ty_name == v4_ty_num
+    give back v4_ty_is_integer(ty_name) or v4_ty_is_float(ty_name)
+}
+
+task v4_ty_is_integer(ty_name: word) -> bool {
+    give back ty_name == v4_ty_int or ty_name == v4_ty_uint or ty_name == v4_ty_tiny or ty_name == v4_ty_big
+}
+
+task v4_ty_is_float(ty_name: word) -> bool {
+    give back ty_name == v4_ty_num or ty_name == v4_ty_float or ty_name == v4_ty_float32
+}
+
+task v4_ty_is_copy_type(ty_name: word) -> bool {
+    if ty_name == v4_ty_int or ty_name == v4_ty_uint or ty_name == v4_ty_tiny or ty_name == v4_ty_num {
+        give back true
+    }
+    if ty_name == v4_ty_float or ty_name == v4_ty_float32 or ty_name == v4_ty_big or ty_name == v4_ty_bool or ty_name == v4_ty_char or ty_name == v4_ty_void {
+        give back true
+    }
+    give back false
+}
+
+task v4_ty_is_primitive_type(ty_name: word) -> bool {
+    if ty_name == v4_ty_int or ty_name == v4_ty_uint or ty_name == v4_ty_tiny or ty_name == v4_ty_num {
+        give back true
+    }
+    if ty_name == v4_ty_float or ty_name == v4_ty_float32 or ty_name == v4_ty_big or ty_name == v4_ty_word {
+        give back true
+    }
+    if ty_name == v4_ty_bool or ty_name == v4_ty_char or ty_name == v4_ty_void or ty_name == v4_ty_never {
+        give back true
+    }
+    give back false
+}
+
+task v4_ty_numeric_rank(ty_name: word) -> int {
+    if ty_name == v4_ty_tiny {
+        give back 1
+    }
+    if ty_name == v4_ty_int or ty_name == v4_ty_uint {
+        give back 2
+    }
+    if ty_name == v4_ty_big {
+        give back 3
+    }
+    if ty_name == v4_ty_float32 {
+        give back 4
+    }
+    if ty_name == v4_ty_num or ty_name == v4_ty_float {
+        give back 5
+    }
+    give back 0
+}
+
+task v4_ty_contextual_numeric_literal_type(default_ty: word, expected_ty: word) -> word {
+    if not v4_ty_is_known(expected_ty) {
+        give back default_ty
+    }
+    if default_ty == v4_ty_int {
+        if v4_ty_is_numeric(expected_ty) {
+            give back expected_ty
+        }
+    }
+    if default_ty == v4_ty_num {
+        if v4_ty_is_float(expected_ty) {
+            give back expected_ty
+        }
+    }
+    give back default_ty
 }
 
 task v4_ty_is_known(ty_name: word) -> bool {
@@ -223,6 +297,9 @@ task v4_ty_is_known(ty_name: word) -> bool {
 
 task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
     if not v4_ty_is_known(expected_ty) or not v4_ty_is_known(actual_ty) {
+        give back true
+    }
+    if actual_ty == v4_ty_never {
         give back true
     }
     if expected_ty == actual_ty {
@@ -255,10 +332,7 @@ task v4_ty_is_declared_simple_type_name(ty_id: int, type_name: word) -> bool {
     if type_name == "" or type_name == v4_ty_unknown {
         give back false
     }
-    if type_name == v4_ty_int or type_name == v4_ty_num or type_name == v4_ty_word or type_name == v4_ty_bool or type_name == v4_ty_void {
-        give back true
-    }
-    if type_name == "uint" or type_name == "tiny" or type_name == "float" or type_name == "float32" or type_name == "char" or type_name == "big" {
+    if v4_ty_is_primitive_type(type_name) {
         give back true
     }
     if type_name == "maybe" or type_name == "result" or type_name == "List" or type_name == "Map" or type_name == "Set" or type_name == "Lineup" {
@@ -280,13 +354,32 @@ task v4_ty_numeric_result(left_ty: word, right_ty: word) -> word {
     if left_ty == v4_ty_unknown or right_ty == v4_ty_unknown {
         give back v4_ty_unknown
     }
-    if left_ty == v4_ty_num or right_ty == v4_ty_num {
-        if v4_ty_is_numeric(left_ty) and v4_ty_is_numeric(right_ty) {
-            give back v4_ty_num
-        }
+    if not v4_ty_is_numeric(left_ty) or not v4_ty_is_numeric(right_ty) {
+        give back v4_ty_unknown
     }
-    if left_ty == v4_ty_int and right_ty == v4_ty_int {
+    if left_ty == right_ty {
+        give back left_ty
+    }
+    if left_ty == v4_ty_num or right_ty == v4_ty_num {
+        give back v4_ty_num
+    }
+    if left_ty == v4_ty_float or right_ty == v4_ty_float {
+        give back v4_ty_float
+    }
+    if left_ty == v4_ty_float32 or right_ty == v4_ty_float32 {
+        give back v4_ty_float32
+    }
+    if left_ty == v4_ty_big or right_ty == v4_ty_big {
+        give back v4_ty_big
+    }
+    if left_ty == v4_ty_int or right_ty == v4_ty_int {
         give back v4_ty_int
+    }
+    if left_ty == v4_ty_uint or right_ty == v4_ty_uint {
+        give back v4_ty_uint
+    }
+    if left_ty == v4_ty_tiny or right_ty == v4_ty_tiny {
+        give back v4_ty_tiny
     }
     give back v4_ty_unknown
 }
@@ -370,8 +463,11 @@ task v4_ty_binary_valid(op: word, left_ty: word, right_ty: word) -> bool {
         }
         give back v4_ty_is_numeric(left_ty) and v4_ty_is_numeric(right_ty)
     }
-    if op == "Sub" or op == "Mul" or op == "Div" or op == "Mod" {
+    if op == "Sub" or op == "Mul" or op == "Div" {
         give back v4_ty_is_numeric(left_ty) and v4_ty_is_numeric(right_ty)
+    }
+    if op == "Mod" {
+        give back v4_ty_is_integer(left_ty) and v4_ty_is_integer(right_ty)
     }
     give back true
 }
