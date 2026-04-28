@@ -166,13 +166,14 @@ task v4_parse_is_newline_token(stream_id: int, token_id: int) -> bool {
 }
 
 task v4_parse_is_top_keyword(value: word) -> bool {
-    give back value == "task" or value == "shape" or value == "route" or value == "impl" or value == "doctrine" or value == "use" or value == "extern"
+    give back value == "task" or value == "shape" or value == "route" or value == "variant" or value == "impl" or value == "doctrine" or value == "use" or value == "extern"
 }
 
 task v4_parse_kind_for_keyword(value: word) -> word {
     if value == "task" { give back v4_node_task }
     if value == "shape" { give back v4_node_shape }
     if value == "route" { give back v4_node_route }
+    if value == "variant" { give back v4_node_route }
     if value == "impl" { give back v4_node_impl }
     if value == "doctrine" { give back v4_node_doctrine }
     if value == "use" { give back v4_node_use }
@@ -181,11 +182,11 @@ task v4_parse_kind_for_keyword(value: word) -> word {
 }
 
 task v4_parse_keyword_requires_name(value: word) -> bool {
-    give back value == "task" or value == "shape" or value == "route" or value == "impl" or value == "doctrine"
+    give back value == "task" or value == "shape" or value == "route" or value == "variant" or value == "impl" or value == "doctrine"
 }
 
 task v4_parse_keyword_requires_body(value: word) -> bool {
-    give back value == "task" or value == "shape" or value == "route" or value == "impl" or value == "doctrine" or value == "extern"
+    give back value == "task" or value == "shape" or value == "route" or value == "variant" or value == "impl" or value == "doctrine" or value == "extern"
 }
 
 task v4_parse_make_span(stream_id: int, start_token: int, end_token: int) -> word {

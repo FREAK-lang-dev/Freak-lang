@@ -210,7 +210,7 @@ task v4_lex_is_keyword_word(text_word: word) -> bool {
     if lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "or" {
         give back true
     }
-    if lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "sadly" or lower == "deus_ex_machina" {
+    if lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "variant" or lower == "sadly" or lower == "deus_ex_machina" {
         give back true
     }
     if lower == "isekai" or lower == "eventually" or lower == "and" or lower == "not" or lower == "nakama" or lower == "tsundere" or lower == "extern" {

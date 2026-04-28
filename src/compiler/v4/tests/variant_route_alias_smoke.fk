@@ -1,0 +1,100 @@
+-- V4 variant alias smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_variant_route_alias_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_variant_route_alias_source() -> word {
+    pilot src = "variant Event {\n"
+    src = src + "    Key " + v4_variant_route_alias_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task make() -> Event {\n"
+    src = src + "    pilot event: Event = Event::Key " + v4_variant_route_alias_braces(" code: 7, repeat: false ") + "\n"
+    src = src + "    give back event\n"
+    src = src + "}\n"
+    src = src + "task score(event: Event) -> int {\n"
+    src = src + "    when event {\n"
+    src = src + "        Event::Key " + v4_variant_route_alias_braces(" code ") + " -> give back code\n"
+    src = src + "        Event::Closed -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_variant_route_alias_find_local_stmt(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == local_name {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_variant_route_alias_find_branch_stmt(mir_id: int, body_id: int, condition: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_branch {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == condition {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_variant_route_alias_stream = v4_lex_text(0, v4_variant_route_alias_source())
+pilot v4_variant_route_alias_tree = v4_parse_stream(0, v4_variant_route_alias_stream)
+pilot v4_variant_route_alias_hir = v4_hir_lower_tree(0, v4_variant_route_alias_tree)
+pilot v4_variant_route_alias_resolve = v4_resolve_lower_hir(0, v4_variant_route_alias_hir)
+pilot v4_variant_route_alias_ty = v4_ty_lower_resolve(0, v4_variant_route_alias_resolve)
+pilot v4_variant_route_alias_mir = v4_mir_lower_ty(0, v4_variant_route_alias_ty)
+
+pilot v4_variant_route_alias_sig = v4_ty_route_signature_id_for_name(v4_variant_route_alias_ty, "Event")
+pilot v4_variant_route_alias_make_def = v4_resolve_def_for_name(v4_variant_route_alias_resolve, "make")
+pilot v4_variant_route_alias_make_body = v4_mir_lookup_body(v4_variant_route_alias_mir, v4_variant_route_alias_make_def)
+pilot v4_variant_route_alias_event_stmt = v4_variant_route_alias_find_local_stmt(v4_variant_route_alias_mir, v4_variant_route_alias_make_body, "event")
+pilot v4_variant_route_alias_event_rvalue = v4_mir_stmt_rvalue(v4_variant_route_alias_mir, v4_variant_route_alias_make_body, v4_variant_route_alias_event_stmt)
+
+pilot v4_variant_route_alias_score_def = v4_resolve_def_for_name(v4_variant_route_alias_resolve, "score")
+pilot v4_variant_route_alias_score_body = v4_mir_lookup_body(v4_variant_route_alias_mir, v4_variant_route_alias_score_def)
+pilot v4_variant_route_alias_arm_stmt = v4_variant_route_alias_find_branch_stmt(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, "event == Event::Key")
+pilot v4_variant_route_alias_arm_rvalue = v4_mir_stmt_rvalue(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_arm_stmt)
+pilot v4_variant_route_alias_code_stmt = v4_variant_route_alias_find_local_stmt(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, "code")
+pilot v4_variant_route_alias_code_rvalue = v4_mir_stmt_rvalue(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_code_stmt)
+pilot v4_variant_route_alias_code_place = v4_mir_rvalue_lhs(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_code_rvalue)
+
+say "variant-parse-node-kind=" + v4_parse_node_kind(v4_variant_route_alias_tree, 1)
+say "variant-parse-node-name=" + v4_parse_node_value(v4_variant_route_alias_tree, 1)
+say "variant-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_variant_route_alias_tree))
+say "variant-hir-kind=" + v4_hir_item_kind(v4_variant_route_alias_hir, 0)
+say "variant-hir-name=" + v4_hir_item_name(v4_variant_route_alias_hir, 0)
+say "variant-sig-kind=" + v4_ty_signature_kind(v4_variant_route_alias_ty, v4_variant_route_alias_sig)
+say "variant-case-count=" + word_from_int(v4_ty_route_case_count(v4_variant_route_alias_ty, v4_variant_route_alias_sig))
+say "variant-case0-name=" + v4_ty_route_case_name(v4_variant_route_alias_ty, v4_variant_route_alias_sig, 0)
+say "variant-case0-fields=" + word_from_int(v4_ty_route_case_field_count(v4_variant_route_alias_ty, "Event", "Key"))
+say "variant-case0-field0-name=" + v4_ty_route_case_field_name(v4_variant_route_alias_ty, "Event", "Key", 0)
+say "variant-case0-field0-type=" + v4_ty_route_case_field_type(v4_variant_route_alias_ty, "Event", "Key", 0)
+say "variant-case0-field1-name=" + v4_ty_route_case_field_name(v4_variant_route_alias_ty, "Event", "Key", 1)
+say "variant-case0-field1-type=" + v4_ty_route_case_field_type(v4_variant_route_alias_ty, "Event", "Key", 1)
+say "variant-ctor-kind=" + v4_mir_rvalue_kind(v4_variant_route_alias_mir, v4_variant_route_alias_make_body, v4_variant_route_alias_event_rvalue)
+say "variant-ctor-op=" + v4_mir_rvalue_op(v4_variant_route_alias_mir, v4_variant_route_alias_make_body, v4_variant_route_alias_event_rvalue)
+say "variant-ctor-ty=" + v4_mir_rvalue_ty(v4_variant_route_alias_mir, v4_variant_route_alias_make_body, v4_variant_route_alias_event_rvalue)
+say "variant-arm-kind=" + v4_mir_stmt_kind(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_arm_stmt)
+say "variant-arm-lhs=" + v4_mir_stmt_lhs(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_arm_stmt)
+say "variant-arm-rvalue-kind=" + v4_mir_rvalue_kind(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_arm_rvalue)
+say "variant-arm-rvalue-ty=" + v4_mir_rvalue_ty(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_arm_rvalue)
+say "variant-code-kind=" + v4_mir_rvalue_kind(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_code_rvalue)
+say "variant-code-ty=" + v4_mir_rvalue_ty(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_code_rvalue)
+say "variant-code-place-field=" + v4_mir_place_field(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_code_place)
+say "variant-code-place-ty=" + v4_mir_place_ty(v4_variant_route_alias_mir, v4_variant_route_alias_score_body, v4_variant_route_alias_code_place)
+say "variant-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_variant_route_alias_mir))
