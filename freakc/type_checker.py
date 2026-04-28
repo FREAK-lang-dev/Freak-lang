@@ -486,6 +486,31 @@ class TypeChecker:
             # Treat as callable symbol reference; declaration may come from stdlib/imports.
             return T_UNKNOWN
         if isinstance(expr, BinOp):
+            # Pipe operator injects the LHS as the first arg of the RHS call.
+            # Don't run the standard arity check on the RHS Call — it would
+            # see one fewer argument than the function expects. Validate
+            # against the synthesized arity (call args + 1) and skip the
+            # default Call dispatch.
+            if expr.op == "|>" and isinstance(expr.right, Call):
+                self._check_expr(expr.left)
+                if isinstance(expr.right.func, Ident):
+                    sig = self.functions.get(expr.right.func.name)
+                    if sig:
+                        expected = len(sig.params)
+                        actual = len(expr.right.args) + 1  # +1 for piped LHS
+                        if expected != actual:
+                            self._error(
+                                f"Function '{expr.right.func.name}' expects "
+                                f"{expected} argument(s), got {actual} (via pipe)"
+                            )
+                        for a in expr.right.args:
+                            self._check_expr(a)
+                        return sig.return_type
+                # Unknown / non-Ident callee — type-check args, return unknown
+                for a in expr.right.args:
+                    self._check_expr(a)
+                return T_UNKNOWN
+
             lt = self._check_expr(expr.left)
             rt = self._check_expr(expr.right)
             if expr.op in ("==", "!=", "<", ">", "<=", ">=", "and", "or"):

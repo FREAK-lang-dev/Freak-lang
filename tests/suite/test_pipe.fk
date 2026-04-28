@@ -1,4 +1,5 @@
--- SKIP: pipe operator |> has type checker arity false-positive and C forward-declaration issue
+-- EXPECT: 5 doubled = 10
+-- EXPECT: 10 + 5 = 15
 -- Test: pipe operator |>
 
 task double_it(x: int) -> int {

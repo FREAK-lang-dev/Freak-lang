@@ -914,7 +914,10 @@ class CEmitter:
                 return self._emit_interpolated_string(expr)
             return f'freak_word_lit("{self._escape_c_string(expr.value)}")'
         if isinstance(expr, Nobody):
-            return "/* nobody */ { .has_value = false }"
+            # Cast required so the compound literal is valid in assignment
+            # context (`x = nobody`), not just in declaration initializers.
+            inferred = self._infer_c_type_of_expr(expr)
+            return f"/* nobody */ ({inferred}){{ .has_value = false }}"
         if isinstance(expr, BinOp):
             return self._emit_binop(expr)
         if isinstance(expr, UnaryOp):
@@ -955,13 +958,16 @@ class CEmitter:
             return "/* MAP_LIT_TODO */ 0"
         if isinstance(expr, SomeExpr):
             val_c = self._expr_to_c(expr.value)
-            return f"{{ .has_value = true, .value = {val_c} }}"
+            inferred = self._infer_c_type_of_expr(expr)
+            return f"({inferred}){{ .has_value = true, .value = {val_c} }}"
         if isinstance(expr, OkExpr):
             val_c = self._expr_to_c(expr.value)
-            return f"{{ .is_ok = true, .data.ok_val = {val_c} }}"
+            inferred = self._infer_c_type_of_expr(expr)
+            return f"({inferred}){{ .is_ok = true, .data.ok_val = {val_c} }}"
         if isinstance(expr, ErrExpr):
             val_c = self._expr_to_c(expr.value)
-            return f"{{ .is_ok = false, .data.err_val = {val_c} }}"
+            inferred = self._infer_c_type_of_expr(expr)
+            return f"({inferred}){{ .is_ok = false, .data.err_val = {val_c} }}"
         if isinstance(expr, Lambda):
             return self._emit_lambda(expr)
         raise EmitError(f"Unsupported expression: {expr!r}")
@@ -1027,18 +1033,19 @@ class CEmitter:
         if expr.op == "NAKAMA":
             return f"({left} + {right} + ({left} * {right} * 0.1))"
 
-        # Pipe operator: desugar a |> f to f(a)
+        # Pipe operator: desugar a |> f(...) to f(a, ...). Synthesize a Call
+        # node so _emit_call's prefix logic (freak_* for user funcs, builtin
+        # handling for panic/ask/chr, std::* dispatch) applies uniformly.
         if expr.op == "|>":
-            # right should be a Call or Ident
             if isinstance(expr.right, Call):
-                # Insert left as first argument
-                args = [self._expr_to_c(expr.left)] + [
-                    self._expr_to_c(a) for a in expr.right.args
-                ]
-                func = self._expr_to_c(expr.right.func)
-                return f"{func}({', '.join(args)})"
-            else:
-                return f"{right}({left})"
+                synthesized = Call(
+                    func=expr.right.func,
+                    args=[expr.left] + list(expr.right.args),
+                )
+                return self._emit_call(synthesized)
+            # `a |> f` (no parens) form — treat as f(a)
+            synthesized = Call(func=expr.right, args=[expr.left])
+            return self._emit_call(synthesized)
 
         # or else: fallback for maybe/result
         if expr.op == "or else":
@@ -1757,9 +1764,31 @@ class CEmitter:
         if isinstance(expr, Lambda):
             return "freak_closure"
         if isinstance(expr, SomeExpr):
-            return "freak_maybe_int"  # default; proper generics would refine this
-        if isinstance(expr, Nobody):
+            inner_t = self._infer_c_type_of_expr(expr.value)
+            if inner_t == "freak_word":
+                return "freak_maybe_word"
+            if inner_t == "double":
+                return "freak_maybe_num"
+            if inner_t == "bool":
+                return "freak_maybe_bool"
             return "freak_maybe_int"
+        if isinstance(expr, Nobody):
+            # Without context we default to maybe<int>; assignment-side casts
+            # rely on this. Future generics work will refine via target type.
+            return "freak_maybe_int"
+        if isinstance(expr, OkExpr):
+            inner_t = self._infer_c_type_of_expr(expr.value)
+            # Default error type is `word`; mirror that in the runtime
+            # struct name so the emit_call cast matches.
+            if inner_t == "freak_word":
+                return "freak_result_word_word"
+            if inner_t == "double":
+                return "freak_result_num_word"
+            if inner_t == "bool":
+                return "freak_result_bool_word"
+            return "freak_result_int_word"
+        if isinstance(expr, ErrExpr):
+            return "freak_result_int_word"
         if isinstance(expr, MethodCall):
             obj_type = self._infer_c_type_of_expr(expr.obj)
 

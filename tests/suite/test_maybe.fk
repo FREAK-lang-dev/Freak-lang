@@ -1,4 +1,6 @@
--- SKIP: maybe<T> compound literal codegen has known C backend issue (assignment without cast)
+-- EXPECT: safe_val = 42
+-- EXPECT: Got value: 42
+-- EXPECT: Nobody home!
 -- Test: maybe<T> with some and nobody
 
 pilot val = some(42)
