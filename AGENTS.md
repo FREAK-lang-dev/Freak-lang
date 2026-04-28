@@ -33,9 +33,25 @@ Key facts:
 
 ---
 
+## Bible Conformance & the V4 Roadmap
+
+The bible describes the *full* language. The *current* compiler ships a strict subset of it. Two documents are the load-bearing references for what works today vs. what is V4 work:
+
+- **[freak-full-bible.md §0.2](freak-full-bible.md)** — section-by-section status matrix (✅ Implemented / ⚠️ Partial / 🔜 V4) with per-row notes inside each section. Always read this first when you're planning a feature change — the row tells you whether you're patching v0.13.x or building V4.
+- **[freak-conformance-audit.md](freak-conformance-audit.md)** — per-contract audit doc. Has the executive summary (~145 contracts ✅, ~110 ⚠️, ~190 ❌), the top-18 divergences table, the triage list (🛠 fix vs. 📖 amend), and the untested-contract list for V4 milestone planning.
+
+**V4 is the destination.** All features the bible describes that are not yet in v0.13.x are tagged 🔜 V4 — they ship with the V4 self-hosting compiler. The plan is: v0.13.x final patch → V4 work across multiple milestones → 1.0.0. When you find a bible promise that the code doesn't honor, the default verdict is **amend the bible to mark the feature V4** rather than rush a v0.13.x implementation. Cheap exceptions (wiring missing CLI dispatch, small operator doctrine fixes) are still allowed but should be called out explicitly.
+
+**`freak audit-conformance`** is the single command that gates the v0.13.x baseline. It checks: bible + audit doc presence, native CLI binary, lexer keywords, audit dispatch consistency between the Python and native CLIs, stdlib module presence, the `--strict-borrow` flag, and the `deus_ex_machina` 20-word rule. Run it any time you've touched the compiler, runtime, CLI, or stdlib — exit 0 means the v0.13.x scope is intact. V4-tagged contracts are intentionally skipped so the command stays green during V4 development.
+
+**Whenever a 🔜 V4 row promotes to ⚠️ or ✅**, update both `freak-full-bible.md` §0.2 and `freak-conformance-audit.md` so the two documents stay in sync, and add a corresponding check to `audit_conformance` in `freakc/auditor.py` so regressions are caught.
+
+---
+
 ## Task Log
 
 - **2026-04-24**: Updated project version to v0.13.2 across documentation (README.md, AGENTS.md, CLAUDE.md) and packaging manifests.
+- **2026-04-27**: Conformance audit pass against `freak-full-bible.md`. Added `freak-conformance-audit.md`, new `freak audit-conformance` command (Python + native CLI), bible §0 Implementation Status matrix, V4 admonitions across §1-§17. Wired Ord operator doctrine in Python emitter and added `freak test` shim. CI cat chain updated to bundle `src/cli/audit.fk`.
 
 ---
 
@@ -411,6 +427,7 @@ freak check file.fk              # type check only
 freak transpile file.fk          # transpile only (emit .c or .ll)
 freak --version                  # show version
 freak help                       # show help
+freak test                       # run regression suite (wraps tests/suite/run_tests.py)
 
 # Hangar package manager (standalone or via freak)
 hangar init                       # create project skeleton + hangar.toml
@@ -426,11 +443,13 @@ hangar version patch              # bump patch version
 python -m freakc build file.fk
 python -m freakc run file.fk
 
-# Audit commands (Python CLI only, not yet in native CLI)
-freak audit-science
-freak audit-trust
-freak audit-miracles
-freak foreshadow-audit
+# Audit commands (native CLI shells out to the Python implementation;
+# native FREAK port lands with V4)
+freak audit-conformance          # verify v0.13.x baseline against the bible
+freak audit-science              # list 'for science,' call sites
+freak audit-trust                # list 'trust me' blocks with honor levels
+freak audit-miracles             # list deus_ex_machina blocks (>3 warn, >10 err)
+freak foreshadow-audit           # foreshadow/payoff pairs and unpaid debt
 ```
 
 ### Bootstrap

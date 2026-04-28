@@ -17,9 +17,9 @@ and not enough sleep, but somehow it compiles.
 
 ## What is FREAK?
 
-FREAK is a compiled, statically-typed, memory-safe systems language with a syntax inspired by visual novels, anime, and the kind of programming that only makes sense at 3am.
+FREAK is a compiled, statically-typed systems language with a syntax inspired by visual novels, anime, and the kind of programming that only makes sense at 3am.
 
-It compiles to native binaries. It has a borrow checker. It has **mood types**. It has a package manager called **Hangar**. It has a UI framework called **COCKPIT**. And every variable is called `pilot` because you are always on a mission.
+It compiles to native binaries via LLVM (or C — your choice). It has a Phase-1 borrow checker behind `--strict-borrow`. It has a package manager called **Hangar**. It has a UI framework called **COCKPIT**. And every variable is called `pilot` because you are always on a mission.
 
 ```fk
 pilot name = "Takeru"
@@ -44,103 +44,79 @@ That's it. That's the whole vibe.
 - **`task`** — functions. Everything is a task.
 - **`give back`** — return. Because `return` is cowardly.
 - **`say`** — print. Always available. No imports.
-- **`when`** — pattern matching. Destructures anything.
+- **`when`** — pattern matching over literal values.
 - **`fixed pilot`** — immutable binding. The pilot cannot be reassigned.
-- **`trust-me`** — unsafe blocks. You asked for this.
-- **`training arc`** — loops guaranteed to terminate (with a session cap).
-- **`eventually`** — deferred execution. Runs when the mission ends.
-- **`isekai`** — fresh isolated scope. What happens in another world stays there.
+- **`trust me`** — unsafe blocks. You asked for this.
+- **`training arc`** — bounded loop with a session cap. Compiles to a counted while.
+- **`eventually`** — block that runs at the end of the current scope.
+- **`isekai`** — nested scope with explicit `bringing back { ... }` exports.
 
 ### The Type System
 
 | Type | What it is |
 |---|---|
 | `num` | 64-bit float. The default. Context-narrows to `int`. |
+| `int` | 64-bit signed integer. |
 | `word` | UTF-8 string. Fat pointer. Knows its own length. |
-| `big` | Arbitrary precision integer. Never overflows. Ever. |
+| `bool` | Booleans. `true`/`false`/`yes`/`no`/`hai`/`iie` are all valid literals. |
 | `maybe<T>` | Optional. `some(42)` or `nobody`. |
-| `result<T, E>` | Success or failure. `ok(val) or err("message")`. |
-| `mood` | Emotional state enum. `.chill` `.focused` `.hype` `.mono_no_aware` |
-| `prob[lo..hi]` | A value constrained to a probability range. Yes, really. |
-| `power<N>` | A number that must be ≥ N. The compiler enforces it. |
+| `result<T, E>` | Success or failure. `ok(val)` or `err("message")`. |
+| `List<T>` / `Map<K,V>` | The collections you'd expect. |
+
+> The bible promises a wider type universe — `mood`, `prob[lo..hi]`, `power<N>`, `tiny`, `uint`, `char`, `big`, `float32`, fixed `[T;N]`, tuples, raw pointers. Those ship with the V4 self-hosting compiler. See [freak-conformance-audit.md](freak-conformance-audit.md) for the v0.13.x → V4 mapping.
 
 ### The Anime Layer
 
-FREAK understands the narrative weight of your code.
+FREAK records the narrative weight of your code via the audit suite. What ships today:
 
-- **`foreshadow / payoff`** — If you foreshadow a variable, you **must** payoff that promise before the scope ends. The compiler is your editor.
-- **`knowing this will hurt / sadly`** — Required prefixes to call tasks marked as `@nakige` (tragedy). You must acknowledge the pain.
-- **`for science,`** — Required prefix to call `@experiment` tasks. Every call is logged to the research archives.
-- **`deus_ex_machina`** — Bypasses all safety, borrow rules, and probability. Requires a dramatic monologue of at least 20 words. Don't use it more than 3 times or Yuuko will be disappointed.
+- **`foreshadow / payoff`** — Foreshadow a variable, payoff the promise. `freak foreshadow-audit` reports any unpaid debts and exits nonzero.
+- **`for science,`** — Used at call sites for `@experiment` tasks. `freak audit-science` lists every site.
+- **`trust me on my honor as .level { ... }`** — Escape-hatch blocks. `freak audit-trust` lists every block with its declared honor level.
+- **`deus_ex_machina "monologue" { ... }`** — Requires a monologue of at least 20 words (compile error if shorter). `freak audit-miracles` lists every block; warns past 3, errors past 10.
 
 ```fk
-@nakige
-task sacrifice(p: &pilot) { ... }
-
--- Error: must acknowledge the tragedy
-sacrifice(sumika) 
-
--- Success
-sadly sacrifice(sumika)
-
 foreshadow pilot victory = false
-...
-payoff victory -- promise kept
+-- ... narrative happens ...
+payoff victory   -- promise kept
 ```
+
+> Strict semantic enforcement of `@nakige` caller prefixes (`knowing this will hurt,` / `sadly`), death-flag tier analysis on `@side_character`, route-locked scopes, and the full `mood` / `prob` / `power` / `causality` system are V4 work. The auditor commands cover the observable surface today.
 
 ---
 
 ## The Audit System
 
-FREAK isn't just about compiling; it's about accountability. The `audit` command suite lets you inspect the narrative integrity of your codebase.
+FREAK isn't just about compiling; it's about accountability. The audit suite inspects narrative integrity and v0.13.x conformance against the bible:
 
 ```bash
-freak audit-trust      # List every 'trust me' block and its honor level
-freak audit-science    # List every 'for science,' call site
-freak audit-miracles   # Find every 'deus_ex_machina' (warns if > 3)
-freak foreshadow-audit # Find any narrative promises you haven't kept
+freak audit-conformance   # Verify v0.13.x baseline against the bible
+freak audit-trust         # List every 'trust me' block and its honor level
+freak audit-science       # List every 'for science,' call site
+freak audit-miracles      # Find every 'deus_ex_machina' (warns if > 3)
+freak foreshadow-audit    # Find any narrative promises you haven't kept
 ```
+
+`freak audit-conformance` is the gate for v0.13.x: it cross-checks lexer keywords, audit dispatch, stdlib presence, the `--strict-borrow` flag, and the `deus_ex_machina` 20-word rule. It exits zero only when the v0.13.x scope is intact.
 
 ---
 
-### The Mood System
+### Memory Safety (Phase 1)
 
-FREAK has a compile-time `mood` type with real arithmetic:
-
-```fk
-pilot current_mood: mood = .focused
-
--- Moods can be added and subtracted
-pilot new_mood = current_mood + .hype      -- .hype
-pilot worn_out  = current_mood - .focused  -- .chill
-
--- Anime-aware standard library uses mood context
-use std::anime::power_check
-power_check(pilot_power, required: power<9000>)
-```
-
-Moods flow through the type system. The standard library uses them. The UI framework uses them for theming. They're not a joke. (They're a little bit of a joke.)
-
-### Memory Safety
-
-FREAK has a borrow checker — single owner, shared borrows, mutable borrows, the whole deal — and it does it with syntax that doesn't make you want to quit programming:
+FREAK has a Phase-1 borrow checker — mutability and single-owner moves — gated behind the `--strict-borrow` flag. The default mode (no flag) is leak-everything; turn on the flag to opt into the safety rules.
 
 ```fk
-pilot data = [1, 2, 3, 4, 5]
+shape Ship { name: word }
 
--- Immutable borrow
-task sum(items: &List<num>) -> num { ... }
+pilot mut a = Ship { name: "Takeru" }   -- mutable binding
+a = Ship { name: "Sumika" }              -- ok
 
--- Mutable borrow
-task push_double(items: &mut List<num>, val: num) {
-    items.push(val * 2)
-}
-
--- Move (transfer ownership)
-task consume(items: List<num>) -> void { ... }
+pilot b = a                              -- moves a → b
+-- a is no longer valid: "Shirogane. You gave this away."
 ```
 
-If you need to step outside the rules, `trust-me` blocks give you raw pointers and full unsafety. You asked for this. The compiler will remember.
+Primitives (`int`, `num`, `bool`) are Copy and don't move. `word`, `List<...>`, `Map<...>`, and user shapes are Move. If you need to step outside the rules, `trust me on my honor as .cadet { ... }` is the escape hatch (and `freak audit-trust` will remember).
+
+> Full borrow rules — `lend p: T`, `lend mut p: T`, lifetime parameters (`'a`), `Shared<T>` / `Weak<T>`, the full honor-level system, `direct_order [arch] { asm }` inline assembly — are V4 work.
 
 ---
 
@@ -280,15 +256,18 @@ repeat until ui.should_quit {
 
 ## More Syntax Highlights
 
-### Pattern Matching
+### Pattern Matching (literal)
 
 ```fk
-when contact {
-    BETA::Soldier { position }  -> engage_at(position)
-    BETA::BRAIN   { .. }        -> request_orbital_strike()
-    _                           -> say "unknown contact"
+when status {
+    1  -> say "soldier"
+    2  -> say "destroyer"
+    99 -> say "BRAIN"
+    _  -> say "unknown"
 }
 ```
+
+> Variant types (`variant Contact { Soldier { … } }`) and the destructuring form (`when contact { Soldier { position } -> … }`) are V4. v0.13.x matches on literal values; use `shape` plus a tag field as a workaround.
 
 ### Error Handling
 
@@ -301,39 +280,21 @@ task load_config(path: word) -> result<Config, word> {
 }
 
 -- Handle inline
-when load_config("settings.toml") {
+check result load_config("settings.toml") {
     ok(cfg) -> use_config(cfg)
     err(e)  -> say "Config failed: {e}"
 }
 ```
 
-### Concurrency
-
-```fk
-use std::thread::spawn
-use std::sync::Channel
-
-pilot (tx, rx) = Channel::new()
-
-pilot handle = spawn(copy(tx) || {
-    tx.send("message from another dimension")
-})
-
-pilot msg = rx.recv()
-say msg
-handle.join()
-```
-
 ### The Training Arc
 
 ```fk
--- A loop the compiler knows will end
+-- A bounded loop with a hard session cap
 training arc until power >= 9000 max 1000 sessions {
     practice()
     receive_trauma()
     power = power + 1
 }
--- If max sessions is hit in tests, the compiler warns you
 ```
 
 ### Doctrines (Traits)
@@ -348,11 +309,9 @@ impl Displayable for Point {
         give back "({self.x}, {self.y})"
     }
 }
-
-task print_it<T: Displayable>(val: T) {
-    say val.display()
-}
 ```
+
+> Operator overloading via doctrines works in the Python compiler today for `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, `Eq`, `Ord`, and `Index`. `IndexMut`, `dyn`-dispatch, and trait bounds (`<T: Displayable>`) ship with V4.
 
 ---
 
@@ -361,46 +320,44 @@ task print_it<T: Displayable>(val: T) {
 | Module | What it gives you |
 |---|---|
 | `std::fs` | File I/O |
-| `std::net` | TCP, UDP, HTTP client |
+| `std::http` | HTTP/1.1 client over TCP sockets |
 | `std::json` | Parse and serialize JSON |
-| `std::thread` | Threads, atomics, channels |
-| `std::math` | Everything `num` needs |
+| `std::math` / `std::math3d` | Numeric helpers, 3D vector / matrix math |
+| `std::string` / `std::convert` | String and conversion utilities |
+| `std::algorithm` | Sort, search, aggregate |
 | `std::time` | Timestamps, durations, sleep |
-| `std::process` | Spawn processes, read env |
-| `std::ui` | Native window, events, canvas |
-| `std::anime` | Mood arithmetic, power checks |
-| `std::narrative` | Death flags, foreshadow logs |
-| `std::test` | Tests with vibes ratings |
+| `std::process` | Spawn processes, read env, exec_capture |
+| `std::bytes` | `ByteBuffer` for binary I/O |
+| `std::ui` | Native window, events, canvas (COCKPIT runs on top of this) |
+| `std::version` | Semver parsing, comparison, bumping, constraints |
+| `std::zip` | ZIP archive read/write |
 
-Yes, `std::narrative` ships with the compiler. The `foreshadow_log.unpaid` field should be 0 at program end. This is a compiler warning if it isn't.
+> The bible also describes `std::thread`, `std::anime`, `std::narrative`, `std::test`, `std::ffi`, `std::os`, `std::panic`, `std::regex`, `Shared<T>` / `Weak<T>` / `size_of<T>()`, and a few more. Those ship with V4 — see [freak-conformance-audit.md](freak-conformance-audit.md) §7 for the per-module status.
 
 ---
 
 ## Testing
 
-```fk
-test "addition works" {
-    expect 2 + 2 to be 4
-}
+The native CLI ships a regression harness that runs every `tests/suite/*.fk` file and compares output against `-- EXPECT:` / `-- EXPECT_COMPILE_ERROR:` / `-- SKIP:` directives in each file:
 
-test "panics correctly" {
-    expect divide(10, 0) to panic
-}
-
-test "sad path" @nakige {
-    -- @nakige: this test is expected to make you feel something
-    expect character.survives_ending to be false
-}
+```bash
+freak test
 ```
 
-Test output includes a **vibes rating**:
-```
-✓ addition works
-✓ panics correctly  
-✓ sad path
+Sample output:
 
-vibes: MONO_NO_AWARE  (almost there. so close.)
 ```
+Found 14 test(s).
+  PASS  test_arithmetic.fk
+  PASS  test_boolean.fk
+  PASS  test_loops.fk
+  ...
+==================================================
+  12 passed, 0 failed, 2 skipped / 14 total
+==================================================
+```
+
+> The bible describes a richer in-language test framework — `test "name" { expect X to be Y }` blocks, `@nakige` test annotations, vibes ratings on output. That ships with V4. Today, write one `.fk` per test under `tests/suite/` with an `EXPECT` directive and `freak test` will pick it up.
 
 ---
 
@@ -436,19 +393,23 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 | Milestone | Status |
 |---|---|
 | Self-hosting compiler | ✅ Complete |
-| LLVM IR backend | ✅ Complete |
-| C backend | ✅ Complete |
-| Native CLI (`freak build/run/check`) | ✅ Complete |
+| LLVM IR backend (default) | ✅ Complete |
+| C backend (`--c`) | ✅ Complete |
+| Native CLI (`freak build`/`run`/`check`/`transpile`/`test`) | ✅ Complete |
 | Hangar package manager | ✅ Complete |
-| Cross-compilation | ✅ Complete |
+| Cross-compilation (`--target=`) | ✅ Complete |
+| Optimization levels (`--opt=0..3`) | ✅ Complete |
 | One-command install (Linux/macOS/Windows) | ✅ Complete |
 | CI/CD with 4-platform releases | ✅ Complete |
-| `std::process`, `std::thread`, `std::bytes` | ✅ Complete |
-| muvluv package (Official) | ✅ Complete |
-| COCKPIT UI framework | 🚧 In progress |
+| Phase-1 borrow checker (`--strict-borrow`) | ✅ Complete |
+| Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | ✅ Complete |
+| `std::fs`, `std::process`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
+| COCKPIT UI framework | 🚧 In progress (MA–MF done, MG pending) |
+| LLVM JIT mode + DWARF debug info | 🚧 In progress |
+| V4 self-hosting compiler (variants, full BC, mood/prob/power, squadron concurrency, FFI surface, error voices) | 🔜 Roadmapped |
 | HFML (markup language) | 📐 Planned |
 
-The language specification is complete — see `freak-full-bible.md`. Development checklist is in [`freak-todo.md`](freak-todo.md).
+The language specification is in [`freak-full-bible.md`](freak-full-bible.md). The bible-vs-implementation audit — and the roadmap from v0.13.x to V4 to 1.0.0 — lives in [`freak-conformance-audit.md`](freak-conformance-audit.md). Development checklist: [`freak-todo.md`](freak-todo.md).
 
 ---
 
