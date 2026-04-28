@@ -123,7 +123,7 @@ task llvm_dbg_init() -> void {
     pilot file_name = llvm_dbg_escape(llvm_dbg_current_file)
     pilot dir_name = llvm_dbg_escape(llvm_dbg_current_dir)
     llvm_dbg_file_id = llvm_dbg_append("!DIFile(filename: \"" + file_name + "\", directory: \"" + dir_name + "\")")
-    llvm_dbg_cu_id = llvm_dbg_append("distinct !DICompileUnit(language: DW_LANG_C, file: !" + word_from_int(llvm_dbg_file_id) + ", producer: \"FREAK v3\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)")
+    llvm_dbg_cu_id = llvm_dbg_append("distinct !DICompileUnit(language: DW_LANG_C, file: !" + word_from_int(llvm_dbg_file_id) + ", producer: \"FREAK v3\", isOptimized: false, runtimeVersion: 0, emissionKind: LineTablesOnly)")
     llvm_dbg_empty_id = llvm_dbg_append("!{}")
     llvm_dbg_subroutine_type_id = llvm_dbg_append("!DISubroutineType(types: !" + word_from_int(llvm_dbg_empty_id) + ")")
 }
@@ -149,16 +149,17 @@ task llvm_dbg_set_stmt_line(eid: word) -> void {
 }
 
 task llvm_dbg_begin_func(name: word, line_no: int) -> word {
-    -- Debug info disabled: emit no DISubprogram, no per-instruction
-    -- DILocation, no `!dbg !N` annotations. Brings the .ll file size
-    -- down by ~12x for cockpit-scale programs (one !DILocation per
-    -- instruction adds up fast). Re-enable when LB10 (debug info)
-    -- actually consumes the metadata via DIBuilder for source-level
-    -- debugging. The DIFile/DICompileUnit headers in llvm_dbg_init
-    -- are harmless to keep.
-    llvm_dbg_current_scope_id = 0
-    llvm_dbg_current_line = 0
-    give back ""
+    -- LB10 minimal: emit a DISubprogram for this function, set the
+    -- current scope so llvm_emit_line attaches `!dbg !N` to every
+    -- instruction, and return the function-level attribute that
+    -- links the definition to the subprogram. The `lineTablesOnly`
+    -- emission kind in llvm_dbg_init keeps the metadata footprint
+    -- bounded — no variable info, no type info, just enough for
+    -- source-line backtraces in gdb/lldb.
+    pilot sp_id = llvm_dbg_emit_subprogram(name, line_no)
+    llvm_dbg_current_scope_id = sp_id
+    llvm_dbg_current_line = line_no
+    give back " !dbg !" + word_from_int(sp_id)
 }
 
 task register_string_literal(val: word) -> word {
@@ -357,6 +358,8 @@ task llvm_infer_expr_type(expr_id: word) -> word {
 
     if kind == EXPR_METHOD {
         if val == "trim" or val == "to_upper" or val == "to_lower" or val == "replace" or val == "char_at" { give back "w" }
+        if val == "to_word" { give back "w" }
+        if val == "to_num" { give back "n" }
         if val == "length" or val == "to_int" or val == "contains" or val == "starts_with" or val == "ends_with" { give back "i" }
         pilot mi = 0
         repeat shape_registry_count times {
