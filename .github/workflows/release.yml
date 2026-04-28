@@ -181,7 +181,15 @@ jobs:
           sed -i "s/HOMEBREW_SHA256_LINUX_X64_PLACEHOLDER/$HASH_LINUX_X64/g" repo/packaging/homebrew/freak.rb
           sed -i "s/HOMEBREW_SHA256_LINUX_ARM64_PLACEHOLDER/$HASH_LINUX_ARM64/g" repo/packaging/homebrew/freak.rb
           sed -i "s/SCOOP_HASH_PLACEHOLDER/$HASH_WIN/g" repo/packaging/scoop/freak.json
-          sed -i "s/WINGET_HASH_PLACEHOLDER/$HASH_WIN/g" repo/packaging/winget/manifests/F/FREAK/freak/0.13.1/FREAK.freak.installer.yaml
+          # Patch the winget manifest for the version we're releasing.
+          # Manifests live under packaging/winget/manifests/F/FREAK/freak/<VERSION>/
+          # and must exist before release; commit a new dir per bumped version.
+          WINGET_DIR="repo/packaging/winget/manifests/F/FREAK/freak/$VERSION"
+          if [ -f "$WINGET_DIR/FREAK.freak.installer.yaml" ]; then
+            sed -i "s/WINGET_HASH_PLACEHOLDER/$HASH_WIN/g" "$WINGET_DIR/FREAK.freak.installer.yaml"
+          else
+            echo "::warning::winget manifest for $VERSION missing at $WINGET_DIR — skipping checksum patch"
+          fi
           sed -i "s/0\.13\.1/$VERSION/g" repo/packaging/scoop/freak.json
           echo "Checksums injected for $VERSION"
           cat repo/packaging/scoop/freak.json
