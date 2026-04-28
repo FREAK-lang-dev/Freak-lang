@@ -1,9 +1,9 @@
 {
-  "version": "0.13.1",
+  "version": "0.13.3",
   "description": "FREAK programming language compiler and package manager",
   "homepage": "https://github.com/FREAK-lang-dev/Freak-lang",
   "license": "MIT",
-  "url": "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v0.13.1/freak-windows-x64.zip",
+  "url": "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v0.13.3/freak-windows-x64.zip",
   "hash": "SCOOP_HASH_PLACEHOLDER",
   "extract_dir": "freak",
   "bin": [

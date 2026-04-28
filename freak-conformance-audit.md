@@ -1,6 +1,6 @@
 # FREAK Conformance Audit
 
-**Snapshot:** v0.13.2 "Shiranui" — 2026-04-28
+**Snapshot:** v0.13.3 "Shiranui" — 2026-04-28
 **Bible:** [freak-full-bible.md](freak-full-bible.md) (Alternative-4 Edition)
 **Audit scope:** every testable contract in §1–§17 of the bible vs. observable behavior in `freakc/`, `src/compiler/v3/`, `src/cli/`, runtime, stdlib, and tests.
 **Verdict policy:** unimplemented features default to a bible amendment tagging them **"Coming in V4"**. Code fixes are reserved for cheap wins (audit CLI wiring, missing operator doctrines, test shims). The V4 self-hosting compiler is the destination for the full bible surface.
@@ -620,7 +620,7 @@ A. **Add §0.1 Implementation Status matrix** at top of bible — single-source-
 
 B. **Add a "Coming in V4" admonition style** — `> **V4:** This feature ships with the V4 self-hosting compiler. v0.13.x parsers may accept the syntax but enforcement is deferred.`
 
-C. **Per-section Status headers** — `**Status (v0.13.2): Implemented | Partial | V4**` at the top of each top-level section (§1–§17).
+C. **Per-section Status headers** — `**Status (v0.13.3): Implemented | Partial | V4**` at the top of each top-level section (§1–§17).
 
 D. **§3 Concurrency** — wholesale V4 tag, with a small "v0.13.x: only `std::thread::spawn` available" callout.
 

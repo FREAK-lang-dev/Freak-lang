@@ -40,7 +40,7 @@ Pipeline (full compiler):
 > (`freak audit-conformance`) skips V4-tagged contracts so v0.13.x stays
 > green even while V4 features land.
 
-### 0.2 Section status (v0.13.2 "Shiranui")
+### 0.2 Section status (v0.13.3 "Shiranui")
 
 | Section | Status | Summary |
 |---|---|---|
@@ -90,9 +90,9 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 
 ## SECTION 1: SYNTAX — COMPLETE REFERENCE
 
-**Status (v0.13.2): ⚠️ Partial.** Core syntax works; gaps tagged inline below.
+**Status (v0.13.3): ⚠️ Partial.** Core syntax works; gaps tagged inline below.
 
-| Sub-section | v0.13.2 status |
+| Sub-section | v0.13.3 status |
 |---|---|
 | §1.1 Variables | ✅ Implemented (note: `pilot mut` only matters under `--strict-borrow`) |
 | §1.2 Functions | ✅ Implemented (named call-site arguments are 🔜 V4) |
@@ -580,7 +580,7 @@ Module-level constants are immutable compile-time bindings declared with
 ```
 fixed pilot MAX_WIDGETS: uint = 4096u
 fixed pilot SORTIE_NAME: word = "Sortie"
-launch fixed pilot VERSION: word = "0.13.2"
+launch fixed pilot VERSION: word = "0.13.3"
 ```
 
 Rules:
@@ -947,7 +947,7 @@ pilot all = tracker.report()
 
 ## SECTION 4: BORROW CHECKER — FULL RULES
 
-**Status (v0.13.2): ⚠️ Partial.** Phase-1 ships behind `--strict-borrow`;
+**Status (v0.13.3): ⚠️ Partial.** Phase-1 ships behind `--strict-borrow`;
 the rest is V4.
 
 > **What ships in v0.13.x (Phase-1):**
@@ -1120,10 +1120,10 @@ direct_order [x86_64] (in: rax = value, out: rbx = result) {
 
 ## SECTION 5: ANIME LAYER — FULL SPECIFICATION
 
-**Status (v0.13.2): ⚠️ Partial.** Syntax parses across the whole section;
+**Status (v0.13.3): ⚠️ Partial.** Syntax parses across the whole section;
 strict semantic enforcement is mostly V4.
 
-| Sub-section | v0.13.2 status |
+| Sub-section | v0.13.3 status |
 |---|---|
 | §5.1 Annotations (`@protagonist`, `@nakige`, `@experiment`, `@classified`, `@season_finale`, `@deprecated`, `@rival`, `@fixed_fate`, `@side_character`) | ⚠️ Partial — parsed; only `@deprecated` semantically enforced. Caller-prefix rules (`knowing this will hurt,`, `for science,`), death-flag tier analysis, classified redaction, season-finale uniqueness check are 🔜 V4. |
 | §5.2 Foreshadowing (`foreshadow` / `payoff` / `freak foreshadow-audit`) | ✅ Implemented — auditor reports unpaid debt and exits nonzero. Strict compile-time error for unpaid foreshadow inside the type checker is 🔜 V4. |
@@ -1397,7 +1397,7 @@ eventually if mission_failed {
 
 ## SECTION 6: MODULE SYSTEM AND HANGAR
 
-**Status (v0.13.2): ⚠️ Partial.** `launch`, `use module::{names}`, and
+**Status (v0.13.3): ⚠️ Partial.** `launch`, `use module::{names}`, and
 the core Hangar commands (`init`, `add`, `remove`, `install`, `version`,
 `install freak`) ship. **🔜 V4:** `launch(package)` package-private
 visibility, `use module::*` glob imports, and `hangar search` against a
@@ -1466,9 +1466,9 @@ freak hangar clean         -- clear cache
 
 ## SECTION 7: STD LIBRARY — COMPLETE REFERENCE
 
-**Status (v0.13.2): ⚠️ Partial.**
+**Status (v0.13.3): ⚠️ Partial.**
 
-| Module | v0.13.2 status |
+| Module | v0.13.3 status |
 |---|---|
 | `std::math`, `std::math3d` | ✅ Implemented (pure FREAK) |
 | `std::string`, `std::convert`, `std::algorithm`, `std::version`, `std::zip` | ✅ Implemented (pure FREAK) |
@@ -1840,7 +1840,7 @@ Rules:
 
 ## SECTION 8: FULL LEXER SPECIFICATION
 
-**Status (v0.13.2): ⚠️ Partial.** All v0.13.x keywords lex correctly
+**Status (v0.13.3): ⚠️ Partial.** All v0.13.x keywords lex correctly
 (verified by `freak audit-conformance`). **🔜 V4:** lifetime tokens
 (`'a`), numeric suffixes (`42u`, `3.14f`, `42t`, `999b`), the `\|\|`
 xm3 branch separator (currently lexed as logical OR), and tolerant-
@@ -1923,7 +1923,7 @@ fixed pilot / launch(package) / launch(universe)
 
 ## SECTION 9: FULL PARSER — AST NODES
 
-**Status (v0.13.2): ⚠️ Partial.** Core AST nodes (variables, tasks,
+**Status (v0.13.3): ⚠️ Partial.** Core AST nodes (variables, tasks,
 shapes, doctrines, control flow, error handling, anime constructs that
 ship) are implemented. **🔜 V4:** tolerant parsing with `ErrorNode` /
 `IncompleteNode`, recovery boundaries, AST node-id stability across
@@ -2140,7 +2140,7 @@ class DirectOrder:           # direct_order [arch] (bindings) { asm }
 
 ## SECTION 10: TYPE CHECKER — FULL RULES
 
-**Status (v0.13.2): ⚠️ Partial.** Basic type inference and shape/
+**Status (v0.13.3): ⚠️ Partial.** Basic type inference and shape/
 function/maybe/result checking ship. **🔜 V4 — most of the rules
 listed below:** `power<N>` arithmetic, `prob[lo..hi]` range tracking,
 `causality<T>` write broadcasts, mood compound verification, route
@@ -2194,7 +2194,7 @@ on §1.14), and root-`fixed pilot` cycle detection. The
 
 ## SECTION 11: CODE GENERATION NOTES (Full Compiler)
 
-**Status (v0.13.2): ⚠️ Partial.** LLVM IR and C backends both ship and
+**Status (v0.13.3): ⚠️ Partial.** LLVM IR and C backends both ship and
 handle core control flow, shapes/impl, arrays (LLVM-compatible pool),
 strings, fs/process/math/UI/TCP/JSON/HTTP. The LLVM backend emits
 LineTablesOnly DWARF — `DISubprogram` per function plus per-instruction
@@ -2251,9 +2251,9 @@ alternative     -- special mode. enables ALL anime features. full causality.
 
 ## SECTION 13: COMPILER CLI — FULL COMMANDS
 
-**Status (v0.13.2): ⚠️ Partial.**
+**Status (v0.13.3): ⚠️ Partial.**
 
-| Subcommand / flag | v0.13.2 status |
+| Subcommand / flag | v0.13.3 status |
 |---|---|
 | `freak run`, `freak build`, `freak check`, `freak transpile` | ✅ Implemented |
 | `freak version`, `freak help`, `freak init`, `freak flex`, `freak doctor`, `freak upgrade` | ✅ Implemented |
@@ -2321,7 +2321,7 @@ freak timeline-diff           -- show causality divergence between timelines
 
 ## SECTION 15: COMPLETE SYNTAX CHEATSHEET
 
-**Status (v0.13.2): ⚠️ Partial.** This cheatsheet reflects the *full*
+**Status (v0.13.3): ⚠️ Partial.** This cheatsheet reflects the *full*
 language. Cross-reference §0.2 for what currently ships vs. 🔜 V4.
 
 ```

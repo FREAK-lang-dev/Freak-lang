@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+
+PackageIdentifier: FREAK.freak
+PackageVersion: 0.13.3
+PackageLocale: en-US
+Publisher: FREAK-lang-dev
+PublisherUrl: https://github.com/FREAK-lang-dev
+PublisherSupportUrl: https://github.com/FREAK-lang-dev/Freak-lang/issues
+PackageName: FREAK
+PackageUrl: https://github.com/FREAK-lang-dev/Freak-lang
+License: MIT
+LicenseUrl: https://github.com/FREAK-lang-dev/Freak-lang/blob/main/LICENSE
+Copyright: Copyright (c) FREAK-lang-dev
+ShortDescription: A compiled, statically-typed, memory-safe systems programming language with anime aesthetics.
+Description: |-
+  FREAK is a compiled, statically-typed, memory-safe systems programming language
+  with syntax and aesthetics inspired by anime and visual novels. It transpiles to
+  native binaries via an LLVM IR backend. Includes the Hangar package manager.
+
+  Features:
+  - Self-hosting compiler (freakc_self.exe compiles itself)
+  - LLVM IR backend with cross-compilation support
+  - Hangar package manager (hangar.toml)
+  - Standard library: std::fs, std::math, std::json, std::http, std::process, std::ui, and more
+  - Operator overloading, closures, maybe<T>/result<T,E>, pattern matching
+  - Unique language constructs: training arc, foreshadow/payoff, deus_ex_machina, isekai
+Moniker: freak
+Tags:
+  - compiler
+  - language
+  - programming-language
+  - systems-programming
+  - anime
+  - llvm
+ReleaseNotes: |-
+  v0.13.3 "Shiranui"
+  See https://github.com/FREAK-lang-dev/Freak-lang/releases/tag/v0.13.3 for full release notes.
+ReleaseNotesUrl: https://github.com/FREAK-lang-dev/Freak-lang/releases/tag/v0.13.3
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

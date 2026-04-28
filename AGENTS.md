@@ -28,7 +28,7 @@ The cost of committing too often is zero. The cost of losing work because you fo
 Key facts:
 - Files use the `.fk` extension
 - The authoritative spec is `freak-full-bible.md` — if code disagrees with the bible, **the bible wins**
-- Version name: **Alternative-4 Edition** — current release **v0.13.2 "Shiranui"**
+- Version name: **Alternative-4 Edition** — current release **v0.13.3 "Shiranui"**
 - The self-hosting compiler (`freakc_self.exe`) is a major credibility milestone and should be prominently featured in public materials
 
 ---
@@ -52,6 +52,7 @@ The bible describes the *full* language. The *current* compiler ships a strict s
 
 - **2026-04-24**: Updated project version to v0.13.2 across documentation (README.md, AGENTS.md, CLAUDE.md) and packaging manifests.
 - **2026-04-27**: Conformance audit pass against `freak-full-bible.md`. Added `freak-conformance-audit.md`, new `freak audit-conformance` command (Python + native CLI), bible §0 Implementation Status matrix, V4 admonitions across §1-§17. Wired Ord operator doctrine in Python emitter and added `freak test` shim. CI cat chain updated to bundle `src/cli/audit.fk`.
+- **2026-04-28**: v0.13.x final patch. Both SKIP'd suite tests (`test_maybe.fk`, `test_pipe.fk`) now pass — suite at 14/14. LB10 minimal DWARF (LineTablesOnly) wired in `src/compiler/v3/emit_llvm.fk`. Winget 0.13.2 manifest restored + release workflow path made dynamic. Tagged v0.13.3 — final v0.13.x patch before V4.
 
 ---
 
@@ -601,14 +602,14 @@ Test files in `tests/` directory. Run with `python -m freakc test` or `freak tes
 
 The version is hardcoded in **two files** that must be updated together before tagging a release:
 
-- `src/cli/version.fk` → `pilot CLI_VERSION = "0.13.2"` and `CLI_CODENAME = "Shiranui"` (shown by `freak version`)
-- `src/compiler/v3/globals.fk` → `pilot FREAKC_VERSION = "0.13.2"` and `FREAKC_CODENAME = "Shiranui"` (shown by `freakc_v3 --version`)
+- `src/cli/version.fk` → `pilot CLI_VERSION = "0.13.3"` and `CLI_CODENAME = "Shiranui"` (shown by `freak version`)
+- `src/compiler/v3/globals.fk` → `pilot FREAKC_VERSION = "0.13.3"` and `FREAKC_CODENAME = "Shiranui"` (shown by `freakc_v3 --version`)
 
 If you forget, the installed binary will report the old version even though the release tag is newer. This has happened before (v0.10.0 shipped reporting 0.9.0).
 
 ### LLVM Backend Progress (V3 — current default)
 
-The V3 LLVM IR backend (`src/compiler/v3/emit_llvm.fk`) is the **default** backend as of v0.13.2. The pipeline is:
+The V3 LLVM IR backend (`src/compiler/v3/emit_llvm.fk`) is the **default** backend as of v0.13.3. The pipeline is:
 
 ```
 .fk source → V3 compiler (freakc_v3.exe) → .ll → clang/lld → native binary
