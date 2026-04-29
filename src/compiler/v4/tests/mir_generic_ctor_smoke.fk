@@ -20,12 +20,20 @@ task v4_mir_generic_ctor_good_source() -> word {
     src = src + "task shape_expected() -> Box<int> {\n"
     src = src + "    give back Box " + v4_mir_generic_ctor_braces(" value: 9 ") + "\n"
     src = src + "}\n"
+    src = src + "task shape_explicit() -> int {\n"
+    src = src + "    pilot box = Box<int> " + v4_mir_generic_ctor_braces(" value: 5 ") + "\n"
+    src = src + "    give back box.value\n"
+    src = src + "}\n"
     src = src + "task route_infer() -> Option<int> {\n"
     src = src + "    pilot some = Option::Some " + v4_mir_generic_ctor_braces(" value: 11 ") + "\n"
     src = src + "    give back some\n"
     src = src + "}\n"
     src = src + "task route_expected() -> Option<int> {\n"
     src = src + "    pilot empty: Option<int> = Option::None\n"
+    src = src + "    give back empty\n"
+    src = src + "}\n"
+    src = src + "task route_explicit() -> Option<int> {\n"
+    src = src + "    pilot empty = Option<int>::None\n"
     src = src + "    give back empty\n"
     src = src + "}\n"
     give back src
@@ -51,23 +59,23 @@ task v4_mir_generic_ctor_bad_route_source() -> word {
     give back src
 }
 
-task v4_mir_generic_ctor_bad_annotated_shape_source() -> word {
+task v4_mir_generic_ctor_bad_explicit_shape_source() -> word {
     pilot src = "shape Box<T> {\n"
     src = src + "    value: T\n"
     src = src + "}\n"
     src = src + "task bad() -> void {\n"
-    src = src + "    pilot ghost: Box<int,word> = Box " + v4_mir_generic_ctor_braces(" value: 7 ") + "\n"
+    src = src + "    pilot ghost = Box<int,word> " + v4_mir_generic_ctor_braces(" value: 7 ") + "\n"
     src = src + "}\n"
     give back src
 }
 
-task v4_mir_generic_ctor_bad_annotated_route_source() -> word {
+task v4_mir_generic_ctor_bad_explicit_route_source() -> word {
     pilot src = "route Option<T> {\n"
     src = src + "    Some " + v4_mir_generic_ctor_braces(" value: T ") + "\n"
     src = src + "    None\n"
     src = src + "}\n"
     src = src + "task bad() -> void {\n"
-    src = src + "    pilot ghost: Option<int,word> = Option::Some " + v4_mir_generic_ctor_braces(" value: 7 ") + "\n"
+    src = src + "    pilot ghost = Option<int,word>::None\n"
     src = src + "}\n"
     give back src
 }
@@ -116,6 +124,12 @@ pilot v4_mir_generic_ctor_shape_expected_body = v4_mir_lookup_body(v4_mir_generi
 pilot v4_mir_generic_ctor_shape_expected_stmt = v4_mir_generic_ctor_find_return_stmt(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_expected_body)
 pilot v4_mir_generic_ctor_shape_expected_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_expected_body, v4_mir_generic_ctor_shape_expected_stmt)
 
+pilot v4_mir_generic_ctor_shape_explicit_def = v4_resolve_def_for_name(v4_mir_generic_ctor_good_resolve, "shape_explicit")
+pilot v4_mir_generic_ctor_shape_explicit_body = v4_mir_lookup_body(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_explicit_def)
+pilot v4_mir_generic_ctor_shape_explicit_stmt = v4_mir_generic_ctor_find_local_stmt(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_explicit_body, "box")
+pilot v4_mir_generic_ctor_shape_explicit_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_explicit_body, v4_mir_generic_ctor_shape_explicit_stmt)
+pilot v4_mir_generic_ctor_shape_explicit_place = v4_mir_stmt_place(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_explicit_body, v4_mir_generic_ctor_shape_explicit_stmt)
+
 pilot v4_mir_generic_ctor_route_infer_def = v4_resolve_def_for_name(v4_mir_generic_ctor_good_resolve, "route_infer")
 pilot v4_mir_generic_ctor_route_infer_body = v4_mir_lookup_body(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_def)
 pilot v4_mir_generic_ctor_route_infer_stmt = v4_mir_generic_ctor_find_local_stmt(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_body, "some")
@@ -128,16 +142,28 @@ pilot v4_mir_generic_ctor_route_expected_stmt = v4_mir_generic_ctor_find_local_s
 pilot v4_mir_generic_ctor_route_expected_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_expected_body, v4_mir_generic_ctor_route_expected_stmt)
 pilot v4_mir_generic_ctor_route_expected_place = v4_mir_stmt_place(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_expected_body, v4_mir_generic_ctor_route_expected_stmt)
 
+pilot v4_mir_generic_ctor_route_explicit_def = v4_resolve_def_for_name(v4_mir_generic_ctor_good_resolve, "route_explicit")
+pilot v4_mir_generic_ctor_route_explicit_body = v4_mir_lookup_body(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_explicit_def)
+pilot v4_mir_generic_ctor_route_explicit_stmt = v4_mir_generic_ctor_find_local_stmt(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_explicit_body, "empty")
+pilot v4_mir_generic_ctor_route_explicit_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_explicit_body, v4_mir_generic_ctor_route_explicit_stmt)
+pilot v4_mir_generic_ctor_route_explicit_place = v4_mir_stmt_place(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_explicit_body, v4_mir_generic_ctor_route_explicit_stmt)
+
 say v4_mir_summary(v4_mir_generic_ctor_good_mir)
 say "generic-shape-local-ty=" + v4_mir_place_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_infer_body, v4_mir_generic_ctor_shape_infer_place)
 say "generic-shape-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_infer_body, v4_mir_generic_ctor_shape_infer_rvalue)
 say "generic-shape-rvalue-op=" + v4_mir_rvalue_op(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_infer_body, v4_mir_generic_ctor_shape_infer_rvalue)
 say "generic-shape-expected-return-ty=" + v4_mir_rvalue_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_expected_body, v4_mir_generic_ctor_shape_expected_rvalue)
+say "generic-shape-explicit-local-ty=" + v4_mir_place_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_explicit_body, v4_mir_generic_ctor_shape_explicit_place)
+say "generic-shape-explicit-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_explicit_body, v4_mir_generic_ctor_shape_explicit_rvalue)
+say "generic-shape-explicit-rvalue-op=" + v4_mir_rvalue_op(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_shape_explicit_body, v4_mir_generic_ctor_shape_explicit_rvalue)
 say "generic-route-local-ty=" + v4_mir_place_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_body, v4_mir_generic_ctor_route_infer_place)
 say "generic-route-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_body, v4_mir_generic_ctor_route_infer_rvalue)
 say "generic-route-rvalue-op=" + v4_mir_rvalue_op(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_infer_body, v4_mir_generic_ctor_route_infer_rvalue)
 say "generic-route-expected-local-ty=" + v4_mir_place_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_expected_body, v4_mir_generic_ctor_route_expected_place)
 say "generic-route-expected-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_expected_body, v4_mir_generic_ctor_route_expected_rvalue)
+say "generic-route-explicit-local-ty=" + v4_mir_place_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_explicit_body, v4_mir_generic_ctor_route_explicit_place)
+say "generic-route-explicit-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_explicit_body, v4_mir_generic_ctor_route_explicit_rvalue)
+say "generic-route-explicit-rvalue-op=" + v4_mir_rvalue_op(v4_mir_generic_ctor_good_mir, v4_mir_generic_ctor_route_explicit_body, v4_mir_generic_ctor_route_explicit_rvalue)
 say "generic-ctor-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_ctor_good_mir))
 
 pilot v4_mir_generic_ctor_bad_shape_stream = v4_lex_text(1, v4_mir_generic_ctor_bad_shape_source())
@@ -160,22 +186,22 @@ say "generic-route-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_ge
 say "generic-route-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_ctor_bad_route_mir, 0))
 say "generic-route-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_ctor_bad_route_mir, 0))
 
-pilot v4_mir_generic_ctor_bad_annotated_shape_stream = v4_lex_text(3, v4_mir_generic_ctor_bad_annotated_shape_source())
-pilot v4_mir_generic_ctor_bad_annotated_shape_tree = v4_parse_stream(3, v4_mir_generic_ctor_bad_annotated_shape_stream)
-pilot v4_mir_generic_ctor_bad_annotated_shape_hir = v4_hir_lower_tree(3, v4_mir_generic_ctor_bad_annotated_shape_tree)
-pilot v4_mir_generic_ctor_bad_annotated_shape_resolve = v4_resolve_lower_hir(3, v4_mir_generic_ctor_bad_annotated_shape_hir)
-pilot v4_mir_generic_ctor_bad_annotated_shape_ty = v4_ty_lower_resolve(3, v4_mir_generic_ctor_bad_annotated_shape_resolve)
-pilot v4_mir_generic_ctor_bad_annotated_shape_mir = v4_mir_lower_ty(3, v4_mir_generic_ctor_bad_annotated_shape_ty)
-say "generic-shape-annotated-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_ctor_bad_annotated_shape_mir))
-say "generic-shape-annotated-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_ctor_bad_annotated_shape_mir, 0))
-say "generic-shape-annotated-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_ctor_bad_annotated_shape_mir, 0))
+pilot v4_mir_generic_ctor_bad_explicit_shape_stream = v4_lex_text(3, v4_mir_generic_ctor_bad_explicit_shape_source())
+pilot v4_mir_generic_ctor_bad_explicit_shape_tree = v4_parse_stream(3, v4_mir_generic_ctor_bad_explicit_shape_stream)
+pilot v4_mir_generic_ctor_bad_explicit_shape_hir = v4_hir_lower_tree(3, v4_mir_generic_ctor_bad_explicit_shape_tree)
+pilot v4_mir_generic_ctor_bad_explicit_shape_resolve = v4_resolve_lower_hir(3, v4_mir_generic_ctor_bad_explicit_shape_hir)
+pilot v4_mir_generic_ctor_bad_explicit_shape_ty = v4_ty_lower_resolve(3, v4_mir_generic_ctor_bad_explicit_shape_resolve)
+pilot v4_mir_generic_ctor_bad_explicit_shape_mir = v4_mir_lower_ty(3, v4_mir_generic_ctor_bad_explicit_shape_ty)
+say "generic-shape-explicit-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_ctor_bad_explicit_shape_mir))
+say "generic-shape-explicit-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_ctor_bad_explicit_shape_mir, 0))
+say "generic-shape-explicit-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_ctor_bad_explicit_shape_mir, 0))
 
-pilot v4_mir_generic_ctor_bad_annotated_route_stream = v4_lex_text(4, v4_mir_generic_ctor_bad_annotated_route_source())
-pilot v4_mir_generic_ctor_bad_annotated_route_tree = v4_parse_stream(4, v4_mir_generic_ctor_bad_annotated_route_stream)
-pilot v4_mir_generic_ctor_bad_annotated_route_hir = v4_hir_lower_tree(4, v4_mir_generic_ctor_bad_annotated_route_tree)
-pilot v4_mir_generic_ctor_bad_annotated_route_resolve = v4_resolve_lower_hir(4, v4_mir_generic_ctor_bad_annotated_route_hir)
-pilot v4_mir_generic_ctor_bad_annotated_route_ty = v4_ty_lower_resolve(4, v4_mir_generic_ctor_bad_annotated_route_resolve)
-pilot v4_mir_generic_ctor_bad_annotated_route_mir = v4_mir_lower_ty(4, v4_mir_generic_ctor_bad_annotated_route_ty)
-say "generic-route-annotated-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_ctor_bad_annotated_route_mir))
-say "generic-route-annotated-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_ctor_bad_annotated_route_mir, 0))
-say "generic-route-annotated-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_ctor_bad_annotated_route_mir, 0))
+pilot v4_mir_generic_ctor_bad_explicit_route_stream = v4_lex_text(4, v4_mir_generic_ctor_bad_explicit_route_source())
+pilot v4_mir_generic_ctor_bad_explicit_route_tree = v4_parse_stream(4, v4_mir_generic_ctor_bad_explicit_route_stream)
+pilot v4_mir_generic_ctor_bad_explicit_route_hir = v4_hir_lower_tree(4, v4_mir_generic_ctor_bad_explicit_route_tree)
+pilot v4_mir_generic_ctor_bad_explicit_route_resolve = v4_resolve_lower_hir(4, v4_mir_generic_ctor_bad_explicit_route_hir)
+pilot v4_mir_generic_ctor_bad_explicit_route_ty = v4_ty_lower_resolve(4, v4_mir_generic_ctor_bad_explicit_route_resolve)
+pilot v4_mir_generic_ctor_bad_explicit_route_mir = v4_mir_lower_ty(4, v4_mir_generic_ctor_bad_explicit_route_ty)
+say "generic-route-explicit-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_ctor_bad_explicit_route_mir))
+say "generic-route-explicit-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_ctor_bad_explicit_route_mir, 0))
+say "generic-route-explicit-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_ctor_bad_explicit_route_mir, 0))

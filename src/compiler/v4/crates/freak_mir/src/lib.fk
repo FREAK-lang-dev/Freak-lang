@@ -2705,6 +2705,39 @@ task v4_mir_shape_ctor_name(stream_id: int, start_token: int, open_token: int) -
     give back v4_ty_type_text(stream_id, start_token, end_name + 1)
 }
 
+task v4_mir_constructor_head_is_valid(stream_id: int, start_token: int, end_token: int) -> bool {
+    pilot idx = start_token
+    pilot depth = 0
+    pilot saw_token = false
+    repeat until idx >= end_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type != v4_tok_trivia {
+            saw_token = true
+            if tok_type == v4_tok_ident or tok_type == v4_tok_keyword or tok_type == v4_tok_lifetime or tok_type == v4_tok_int or tok_type == v4_tok_float {
+                -- allowed
+            } else if val == "::" or val == "<" or val == ">" or val == "," or val == "(" or val == ")" or val == "[" or val == "]" or val == ";" {
+                -- allowed
+            } else {
+                give back false
+            }
+            depth = v4_mir_depth_after_token(depth, val)
+            if depth < 0 {
+                give back false
+            }
+        }
+        idx += 1
+    }
+    give back saw_token and depth == 0
+}
+
+task v4_mir_constructor_head_name(stream_id: int, start_token: int, end_token: int) -> word {
+    if not v4_mir_constructor_head_is_valid(stream_id, start_token, end_token) {
+        give back ""
+    }
+    give back v4_ty_type_text(stream_id, start_token, end_token)
+}
+
 task v4_mir_try_lower_named_call(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
     if v4_lex_token_value(stream_id, last) != ")" {
         give back 0 - 1
@@ -3233,7 +3266,7 @@ task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, firs
         give back 0 - 1
     }
 
-    pilot shape_name = v4_mir_shape_ctor_name(stream_id, first, open_token)
+    pilot shape_name = v4_mir_constructor_head_name(stream_id, first, open_token)
     if shape_name == "" {
         give back 0 - 1
     }
@@ -3268,10 +3301,13 @@ task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, firs
 
 task v4_mir_path_scope_separator(path: word) -> int {
     pilot idx = 0
+    pilot depth = 0
     repeat until idx + 1 >= path.length() {
-        if path.char_at(idx) == ":" and path.char_at(idx + 1) == ":" {
+        pilot ch = path.char_at(idx)
+        if depth == 0 and ch == ":" and path.char_at(idx + 1) == ":" {
             give back idx
         }
+        depth = v4_ty_type_depth_after_char(depth, ch)
         idx += 1
     }
     give back 0 - 1
@@ -3401,7 +3437,7 @@ task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: i
         give back 0 - 1
     }
 
-    pilot ctor_name = v4_mir_shape_ctor_name(stream_id, first, open_token)
+    pilot ctor_name = v4_mir_constructor_head_name(stream_id, first, open_token)
     if ctor_name == "" {
         give back 0 - 1
     }
@@ -3449,8 +3485,16 @@ task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: i
 }
 
 task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
+    pilot last_type = v4_lex_token_type(stream_id, last)
+    if last_type != v4_tok_ident and last_type != v4_tok_keyword {
+        give back 0 - 1
+    }
+
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    pilot expr_text = v4_ty_type_text(stream_id, first, last + 1)
+    if expr_text == "" {
+        expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    }
     pilot route_name = v4_mir_path_left(expr_text)
     pilot case_name = v4_mir_path_right(expr_text)
     if route_name != "" {
@@ -3688,6 +3732,21 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back or_else_rvalue
     }
 
+    pilot route_ctor_rvalue = v4_mir_try_lower_route_payload_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
+    if route_ctor_rvalue >= 0 {
+        give back route_ctor_rvalue
+    }
+
+    pilot ctor_rvalue = v4_mir_try_lower_shape_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
+    if ctor_rvalue >= 0 {
+        give back ctor_rvalue
+    }
+
+    pilot route_case_rvalue = v4_mir_try_lower_route_case_expr(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
+    if route_case_rvalue >= 0 {
+        give back route_case_rvalue
+    }
+
     pilot tier = 1
     repeat until tier > 5 {
         pilot op_token = v4_mir_find_binary_op(stream_id, first, last + 1, tier)
@@ -3766,16 +3825,6 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back maybe_result_rvalue
     }
 
-    pilot route_ctor_rvalue = v4_mir_try_lower_route_payload_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
-    if route_ctor_rvalue >= 0 {
-        give back route_ctor_rvalue
-    }
-
-    pilot ctor_rvalue = v4_mir_try_lower_shape_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
-    if ctor_rvalue >= 0 {
-        give back ctor_rvalue
-    }
-
     pilot named_call_rvalue = v4_mir_try_lower_named_call(mir_id, body_id, stream_id, first, last, expr_span)
     if named_call_rvalue >= 0 {
         give back named_call_rvalue
@@ -3789,11 +3838,6 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot associated_method_rvalue = v4_mir_try_lower_associated_method_call(mir_id, body_id, stream_id, first, last, expr_span)
     if associated_method_rvalue >= 0 {
         give back associated_method_rvalue
-    }
-
-    pilot route_case_rvalue = v4_mir_try_lower_route_case_expr(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
-    if route_case_rvalue >= 0 {
-        give back route_case_rvalue
     }
 
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
