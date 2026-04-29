@@ -1,0 +1,65 @@
+-- V4 lifetime lexer smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lifetime_find_token_value(stream_id: int, value: word) -> int {
+    pilot idx = 0
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until idx >= count {
+        if v4_lex_token_value(stream_id, idx) == value {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_lifetime_find_token_type(stream_id: int, tok_type: word) -> int {
+    pilot idx = 0
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until idx >= count {
+        if v4_lex_token_type(stream_id, idx) == tok_type {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_lifetime_count_type(stream_id: int, tok_type: word) -> int {
+    pilot total = 0
+    pilot idx = 0
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until idx >= count {
+        if v4_lex_token_type(stream_id, idx) == tok_type {
+            total += 1
+        }
+        idx += 1
+    }
+    give back total
+}
+
+task v4_lifetime_source() -> word {
+    pilot src = "task borrow<'a, 'static, '_>(value: word) -> word {\n"
+    src = src + "    pilot marker: char = 'A'\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_lifetime_src = v4_lifetime_source()
+pilot v4_lifetime_stream = v4_lex_text(0, v4_lifetime_src)
+pilot v4_lifetime_a = v4_lifetime_find_token_value(v4_lifetime_stream, "'a")
+pilot v4_lifetime_static = v4_lifetime_find_token_value(v4_lifetime_stream, "'static")
+pilot v4_lifetime_anon = v4_lifetime_find_token_value(v4_lifetime_stream, "'_")
+pilot v4_lifetime_char = v4_lifetime_find_token_type(v4_lifetime_stream, v4_tok_char)
+
+say "lifetime-token-count=" + word_from_int(v4_lifetime_count_type(v4_lifetime_stream, v4_tok_lifetime))
+say "lifetime-a-type=" + v4_lex_token_type(v4_lifetime_stream, v4_lifetime_a)
+say "lifetime-a-value=" + v4_lex_token_value(v4_lifetime_stream, v4_lifetime_a)
+say "lifetime-static-type=" + v4_lex_token_type(v4_lifetime_stream, v4_lifetime_static)
+say "lifetime-static-value=" + v4_lex_token_value(v4_lifetime_stream, v4_lifetime_static)
+say "lifetime-anon-type=" + v4_lex_token_type(v4_lifetime_stream, v4_lifetime_anon)
+say "lifetime-anon-value=" + v4_lex_token_value(v4_lifetime_stream, v4_lifetime_anon)
+say "lifetime-char-type=" + v4_lex_token_type(v4_lifetime_stream, v4_lifetime_char)
+say "lifetime-char-value=" + v4_lex_token_value(v4_lifetime_stream, v4_lifetime_char)
+say "lifetime-diagnostics=" + word_from_int(v4_lex_diag_count(v4_lifetime_stream))

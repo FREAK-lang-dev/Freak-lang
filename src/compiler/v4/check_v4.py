@@ -308,6 +308,22 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "lifetime lexing",
+        "fixture": "lifetime_lex_smoke.fk",
+        "expect": [
+            "lifetime-token-count=3",
+            "lifetime-a-type=lifetime",
+            "lifetime-a-value='a",
+            "lifetime-static-type=lifetime",
+            "lifetime-static-value='static",
+            "lifetime-anon-type=lifetime",
+            "lifetime-anon-value='_",
+            "lifetime-char-type=char",
+            "lifetime-char-value=A",
+            "lifetime-diagnostics=0",
+        ],
+    },
+    {
         "name": "typed generic signatures",
         "fixture": "ty_generics_smoke.fk",
         "expect": [

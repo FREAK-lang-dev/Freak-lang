@@ -14,6 +14,7 @@ pilot v4_tok_float = "float"
 pilot v4_tok_string = "string"
 pilot v4_tok_bool = "bool"
 pilot v4_tok_char = "char"
+pilot v4_tok_lifetime = "lifetime"
 pilot v4_tok_symbol = "symbol"
 pilot v4_tok_trivia = "trivia"
 pilot v4_tok_unknown = "unknown"
@@ -254,6 +255,20 @@ task v4_lex_char_literal_value(text: word, pos: int, literal_len: int) -> word {
     give back v4_lex_char_at(text, pos + 1)
 }
 
+task v4_lex_lifetime_len(text: word, pos: int) -> int {
+    if v4_lex_char_at(text, pos) != "'" {
+        give back 0
+    }
+    if v4_lex_is_ident_start(v4_lex_char_at(text, pos + 1)) == false {
+        give back 0
+    }
+    pilot idx = pos + 2
+    repeat until v4_lex_is_ident_continue(v4_lex_char_at(text, idx)) == false {
+        idx += 1
+    }
+    give back idx - pos
+}
+
 task v4_lex_is_horizontal_space(ch: word) -> bool {
     give back ch == " " or ch == "\t" or ch == "\r"
 }
@@ -428,6 +443,11 @@ task v4_lex_text(file_id: int, text: word) -> int {
             pos += char_len
             col_no += char_len
             v4_lex_add_token(stream_id, v4_tok_char, char_value, v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+        } else if v4_lex_lifetime_len(text, pos) > 0 {
+            pilot lifetime_len = v4_lex_lifetime_len(text, pos)
+            pos += lifetime_len
+            col_no += lifetime_len
+            v4_lex_add_token(stream_id, v4_tok_lifetime, v4_slice(text, start_pos, pos), v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
         } else if ch == "\"" {
             pos += 1
             col_no += 1
