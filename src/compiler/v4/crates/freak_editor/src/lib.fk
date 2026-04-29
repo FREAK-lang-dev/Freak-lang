@@ -168,6 +168,50 @@ task v4_editor_ty_signature_for_hir_item(ty_id: int, hir_item: int) -> int {
     give back 0 - 1
 }
 
+task v4_editor_lifetime_def(ty_id: int, sig_id: int, lifetime_name: word) -> word {
+    if sig_id < 0 {
+        give back ""
+    }
+    if lifetime_name == "" {
+        give back ""
+    }
+    give back v4_ty_signature_def(ty_id, sig_id) + "::Lifetime::" + lifetime_name
+}
+
+task v4_editor_lifetime_detail(ty_id: int, sig_id: int, lifetime_name: word) -> word {
+    if sig_id < 0 or lifetime_name == "" {
+        give back v4_ty_unknown
+    }
+    if v4_ty_signature_declares_lifetime_name(ty_id, sig_id, lifetime_name) {
+        give back "lifetime " + lifetime_name + " on " + v4_ty_signature_display(ty_id, sig_id)
+    }
+    if v4_ty_lifetime_is_implicit(lifetime_name) {
+        give back "implicit lifetime " + lifetime_name
+    }
+    give back "undeclared lifetime " + lifetime_name + " near " + v4_ty_signature_name(ty_id, sig_id)
+}
+
+task v4_editor_lifetime_decl_span(stream_id: int, item_span: word, lifetime_name: word) -> word {
+    if lifetime_name == "" {
+        give back item_span
+    }
+
+    pilot item_start = v4_span_start(item_span)
+    pilot item_end = v4_span_end(item_span)
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        pilot token_span = v4_lex_token_span(stream_id, token_id)
+        if v4_span_start(token_span) >= item_start and v4_span_end(token_span) <= item_end {
+            if v4_lex_token_type(stream_id, token_id) == v4_tok_lifetime and v4_lex_token_value(stream_id, token_id) == lifetime_name {
+                give back token_span
+            }
+        }
+        token_id += 1
+    }
+    give back item_span
+}
+
 task v4_editor_hir_item_for_def(hir_id: int, def_id: word) -> int {
     pilot item_id = 0
     pilot item_count = v4_hir_item_count(hir_id)
@@ -369,6 +413,15 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
         pilot item_sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
         if item_sig_id >= 0 {
             type_display = v4_ty_signature_display(ty_id, item_sig_id)
+        }
+    }
+    if token_kind == v4_tok_lifetime and hir_item >= 0 {
+        pilot lifetime_sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
+        if lifetime_sig_id >= 0 {
+            name = token_value
+            kind = "Lifetime"
+            def_id = v4_editor_lifetime_def(ty_id, lifetime_sig_id, token_value)
+            type_display = v4_editor_lifetime_detail(ty_id, lifetime_sig_id, token_value)
         }
     }
 
@@ -670,8 +723,17 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
     pilot hir_item = 0 - 1
     pilot span = V4_NO_SPAN
     pilot found = 0
+    pilot stream_id = 0 - 1
 
-    if def_id != "" {
+    if kind == "Lifetime" {
+        hir_item = v4_semantic_at_hir_item(semantic_id)
+        if hir_item >= 0 {
+            span = v4_hir_item_span(hir_id, hir_item)
+            stream_id = v4_lex_text_cached(path, text)
+            span = v4_editor_lifetime_decl_span(stream_id, span, name)
+            found = 1
+        }
+    } else if def_id != "" {
         hir_item = v4_editor_hir_item_for_def(hir_id, def_id)
         if hir_item >= 0 {
             span = v4_hir_item_span(hir_id, hir_item)
@@ -683,6 +745,7 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
     v4_query_store(key, fingerprint, word_from_int(defn_id))
     v4_query_record_dep(key, "source:" + path)
     v4_query_record_dep(key, v4_semantic_at_query_key(path, offset))
+    v4_query_record_dep(key, v4_lex_query_key(path))
     v4_query_record_dep(key, v4_hir_query_key(path))
     give back defn_id
 }
@@ -1019,6 +1082,27 @@ task v4_completion_add_document_symbols(completion_id: int, doc_id: int) -> void
     }
 }
 
+task v4_completion_add_lifetimes_for_offset(completion_id: int, path: word, text: word, offset: int) -> void {
+    pilot hir_id = v4_hir_text_cached(path, text)
+    pilot ty_id = v4_ty_text_cached(path, text)
+    pilot hir_item = v4_editor_hir_item_at(hir_id, offset)
+    if hir_item < 0 {
+        give back
+    }
+    pilot sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
+    if sig_id < 0 {
+        give back
+    }
+
+    pilot lifetime_id = 0
+    pilot lifetime_count = v4_ty_signature_lifetime_count(ty_id, sig_id)
+    repeat until lifetime_id >= lifetime_count {
+        pilot lifetime_name = v4_ty_signature_lifetime_name(ty_id, sig_id, lifetime_id)
+        v4_completion_add(completion_id, lifetime_name, "lifetime", v4_editor_lifetime_detail(ty_id, sig_id, lifetime_name), lifetime_name)
+        lifetime_id += 1
+    }
+}
+
 task v4_completion_summary(completion_id: int) -> word {
     pilot summary = "completion id=" + word_from_int(completion_id)
     summary = summary + " path=" + v4_completion_path(completion_id)
@@ -1075,11 +1159,14 @@ task v4_completion_text_cached(path: word, text: word, offset: int) -> int {
     pilot doc_id = v4_document_symbols_text_cached(path, text)
     pilot completion_id = v4_editor_completion_new(path, offset)
     v4_completion_add_document_symbols(completion_id, doc_id)
+    v4_completion_add_lifetimes_for_offset(completion_id, path, text, offset)
     v4_completion_add_keywords(completion_id)
 
     v4_query_store(key, fingerprint, word_from_int(completion_id))
     v4_query_record_dep(key, "source:" + path)
     v4_query_record_dep(key, v4_document_symbols_query_key(path))
+    v4_query_record_dep(key, v4_hir_query_key(path))
+    v4_query_record_dep(key, v4_ty_query_key(path))
     give back completion_id
 }
 

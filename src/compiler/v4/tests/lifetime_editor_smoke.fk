@@ -1,0 +1,71 @@
+-- V4 lifetime editor-query smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lifetime_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_lifetime_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_lifetime_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_lifetime_editor_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_lifetime_editor_source_text() -> word {
+    pilot src = "shape RefBox<'a, T> "
+    src = src + v4_lifetime_editor_braces("\n    value: T\n    borrowed: RefBox<'a,T>\n")
+    src = src + "\n"
+    give back src
+}
+
+pilot v4_lifetime_editor_source = v4_lifetime_editor_source_text()
+
+pilot v4_lifetime_editor_stream = v4_lex_text(0, v4_lifetime_editor_source)
+pilot v4_lifetime_editor_lifetime_offset = v4_lifetime_editor_token_offset(v4_lifetime_editor_stream, "'a", 0)
+pilot v4_lifetime_editor_use_lifetime_offset = v4_lifetime_editor_token_offset(v4_lifetime_editor_stream, "'a", 1)
+pilot v4_lifetime_editor_shape_body_offset = v4_lifetime_editor_token_offset(v4_lifetime_editor_stream, "value", 0)
+
+pilot v4_lifetime_editor_sem = v4_semantic_at_text_cached("lifetime-editor.fk", v4_lifetime_editor_source, v4_lifetime_editor_lifetime_offset)
+pilot v4_lifetime_editor_use_sem = v4_semantic_at_text_cached("lifetime-editor.fk", v4_lifetime_editor_source, v4_lifetime_editor_use_lifetime_offset)
+pilot v4_lifetime_editor_hover = v4_hover_text_cached("lifetime-editor.fk", v4_lifetime_editor_source, v4_lifetime_editor_lifetime_offset)
+pilot v4_lifetime_editor_definition = v4_definition_at_text_cached("lifetime-editor.fk", v4_lifetime_editor_source, v4_lifetime_editor_use_lifetime_offset)
+pilot v4_lifetime_editor_symbols = v4_document_symbols_text_cached("lifetime-editor.fk", v4_lifetime_editor_source)
+pilot v4_lifetime_editor_completion = v4_completion_text_cached("lifetime-editor.fk", v4_lifetime_editor_source, v4_lifetime_editor_shape_body_offset)
+
+say v4_semantic_at_summary(v4_lifetime_editor_sem)
+say "lifetime-editor-sem-name=" + v4_semantic_at_name(v4_lifetime_editor_sem)
+say "lifetime-editor-sem-kind=" + v4_semantic_at_kind(v4_lifetime_editor_sem)
+say "lifetime-editor-sem-type=" + v4_semantic_at_type(v4_lifetime_editor_sem)
+say "lifetime-editor-use-kind=" + v4_semantic_at_kind(v4_lifetime_editor_use_sem)
+say "lifetime-editor-use-type=" + v4_semantic_at_type(v4_lifetime_editor_use_sem)
+say "lifetime-editor-hover-name=" + v4_hover_name(v4_lifetime_editor_hover)
+say "lifetime-editor-hover-kind=" + v4_hover_kind(v4_lifetime_editor_hover)
+say "lifetime-editor-hover-type=" + v4_hover_type(v4_lifetime_editor_hover)
+say "lifetime-editor-hover-markdown=" + v4_hover_markdown(v4_lifetime_editor_hover)
+say "lifetime-editor-definition-kind=" + v4_definition_at_kind(v4_lifetime_editor_definition)
+say "lifetime-editor-definition-found=" + word_from_int(v4_definition_at_found(v4_lifetime_editor_definition))
+say "lifetime-editor-definition-span-start=" + word_from_int(v4_span_start(v4_definition_at_span(v4_lifetime_editor_definition)))
+say "lifetime-editor-symbol-count=" + word_from_int(v4_document_symbol_count(v4_lifetime_editor_symbols))
+say "lifetime-editor-symbol0-type=" + v4_document_symbol_type(v4_lifetime_editor_symbols, 0)
+say "lifetime-editor-completion-count=" + word_from_int(v4_completion_count(v4_lifetime_editor_completion))
+say "lifetime-editor-completion1-label=" + v4_completion_label(v4_lifetime_editor_completion, 1)
+say "lifetime-editor-completion1-kind=" + v4_completion_kind(v4_lifetime_editor_completion, 1)
+say "lifetime-editor-completion1-detail=" + v4_completion_detail(v4_lifetime_editor_completion, 1)
