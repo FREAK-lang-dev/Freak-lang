@@ -1,0 +1,127 @@
+-- V4 local tuple and fixed-array editor smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_local_type_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_local_type_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_local_type_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_local_type_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_local_type_editor_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_local_type_editor_completion_kind_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_kind(completion_id, item_id)
+}
+
+task v4_local_type_editor_completion_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_local_type_editor_source_text() -> word {
+    pilot src = "alias Pair = (int,word)\n"
+    src = src + "alias Grid = [[int;2];2]\n"
+    src = src + "task inspect(grid: Grid) -> int {\n"
+    src = src + "    pilot pair: Pair = (grid[0][0], \"ace\")\n"
+    src = src + "    pilot row: [int;2] = [grid[1][0], grid[1][1]]\n"
+    src = src + "    give back pair.0 + row[1]\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_local_type_editor_source = v4_local_type_editor_source_text()
+pilot v4_local_type_editor_stream = v4_lex_text(0, v4_local_type_editor_source)
+pilot v4_local_type_editor_hir = v4_hir_text_cached("local-type-editor.fk", v4_local_type_editor_source)
+pilot v4_local_type_editor_resolve = v4_resolve_text_cached("local-type-editor.fk", v4_local_type_editor_source)
+pilot v4_local_type_editor_mir = v4_mir_text_cached("local-type-editor.fk", v4_local_type_editor_source)
+
+pilot v4_local_type_editor_grid_use_offset = v4_local_type_editor_token_offset(v4_local_type_editor_stream, "Grid", 1)
+pilot v4_local_type_editor_pair_use_offset = v4_local_type_editor_token_offset(v4_local_type_editor_stream, "pair", 1)
+pilot v4_local_type_editor_row_use_offset = v4_local_type_editor_token_offset(v4_local_type_editor_stream, "row", 1)
+
+pilot v4_local_type_editor_grid_sem = v4_semantic_at_text_cached("local-type-editor.fk", v4_local_type_editor_source, v4_local_type_editor_grid_use_offset)
+pilot v4_local_type_editor_pair_sem = v4_semantic_at_text_cached("local-type-editor.fk", v4_local_type_editor_source, v4_local_type_editor_pair_use_offset)
+pilot v4_local_type_editor_row_sem = v4_semantic_at_text_cached("local-type-editor.fk", v4_local_type_editor_source, v4_local_type_editor_row_use_offset)
+pilot v4_local_type_editor_hover = v4_hover_text_cached("local-type-editor.fk", v4_local_type_editor_source, v4_local_type_editor_row_use_offset)
+pilot v4_local_type_editor_definition = v4_definition_at_text_cached("local-type-editor.fk", v4_local_type_editor_source, v4_local_type_editor_pair_use_offset)
+pilot v4_local_type_editor_symbols = v4_document_symbols_text_cached("local-type-editor.fk", v4_local_type_editor_source)
+pilot v4_local_type_editor_completion = v4_completion_text_cached("local-type-editor.fk", v4_local_type_editor_source, v4_local_type_editor_row_use_offset)
+
+pilot v4_local_type_editor_inspect_def = v4_resolve_def_for_name(v4_local_type_editor_resolve, "inspect")
+pilot v4_local_type_editor_body = v4_mir_lookup_body(v4_local_type_editor_mir, v4_local_type_editor_inspect_def)
+pilot v4_local_type_editor_pair_local = v4_mir_find_local(v4_local_type_editor_mir, v4_local_type_editor_body, "pair")
+
+pilot v4_local_type_editor_pair_completion = v4_local_type_editor_find_completion_label(v4_local_type_editor_completion, "pair")
+pilot v4_local_type_editor_row_completion = v4_local_type_editor_find_completion_label(v4_local_type_editor_completion, "row")
+pilot v4_local_type_editor_pair_alias_completion = v4_local_type_editor_find_completion_label(v4_local_type_editor_completion, "Pair")
+pilot v4_local_type_editor_grid_alias_completion = v4_local_type_editor_find_completion_label(v4_local_type_editor_completion, "Grid")
+
+say v4_semantic_at_summary(v4_local_type_editor_pair_sem)
+say "local-editor-grid-kind=" + v4_semantic_at_kind(v4_local_type_editor_grid_sem)
+say "local-editor-grid-type=" + v4_semantic_at_type(v4_local_type_editor_grid_sem)
+say "local-editor-pair-kind=" + v4_semantic_at_kind(v4_local_type_editor_pair_sem)
+say "local-editor-pair-type=" + v4_semantic_at_type(v4_local_type_editor_pair_sem)
+say "local-editor-row-kind=" + v4_semantic_at_kind(v4_local_type_editor_row_sem)
+say "local-editor-row-type=" + v4_semantic_at_type(v4_local_type_editor_row_sem)
+say "local-editor-hover-name=" + v4_hover_name(v4_local_type_editor_hover)
+say "local-editor-hover-kind=" + v4_hover_kind(v4_local_type_editor_hover)
+say "local-editor-hover-type=" + v4_hover_type(v4_local_type_editor_hover)
+say "local-editor-definition-kind=" + v4_definition_at_kind(v4_local_type_editor_definition)
+say "local-editor-definition-found=" + word_from_int(v4_definition_at_found(v4_local_type_editor_definition))
+say "local-editor-definition-matches-local=" + v4_local_type_editor_bool_word(v4_span_start(v4_definition_at_span(v4_local_type_editor_definition)) == v4_span_start(v4_mir_local_span(v4_local_type_editor_mir, v4_local_type_editor_body, v4_local_type_editor_pair_local)))
+say "local-editor-symbol-count=" + word_from_int(v4_document_symbol_count(v4_local_type_editor_symbols))
+say "local-editor-symbol0-name=" + v4_document_symbol_name(v4_local_type_editor_symbols, 0)
+say "local-editor-symbol0-type=" + v4_document_symbol_type(v4_local_type_editor_symbols, 0)
+say "local-editor-symbol1-name=" + v4_document_symbol_name(v4_local_type_editor_symbols, 1)
+say "local-editor-symbol1-type=" + v4_document_symbol_type(v4_local_type_editor_symbols, 1)
+say "local-editor-completion-count=" + word_from_int(v4_completion_count(v4_local_type_editor_completion))
+say "local-editor-completion-pair-found=" + v4_local_type_editor_bool_word(v4_local_type_editor_pair_completion >= 0)
+say "local-editor-completion-pair-kind=" + v4_local_type_editor_completion_kind_or_empty(v4_local_type_editor_completion, v4_local_type_editor_pair_completion)
+say "local-editor-completion-pair-detail=" + v4_local_type_editor_completion_detail_or_empty(v4_local_type_editor_completion, v4_local_type_editor_pair_completion)
+say "local-editor-completion-row-found=" + v4_local_type_editor_bool_word(v4_local_type_editor_row_completion >= 0)
+say "local-editor-completion-row-kind=" + v4_local_type_editor_completion_kind_or_empty(v4_local_type_editor_completion, v4_local_type_editor_row_completion)
+say "local-editor-completion-row-detail=" + v4_local_type_editor_completion_detail_or_empty(v4_local_type_editor_completion, v4_local_type_editor_row_completion)
+say "local-editor-completion-pair-alias-found=" + v4_local_type_editor_bool_word(v4_local_type_editor_pair_alias_completion >= 0)
+say "local-editor-completion-pair-alias-detail=" + v4_local_type_editor_completion_detail_or_empty(v4_local_type_editor_completion, v4_local_type_editor_pair_alias_completion)
+say "local-editor-completion-grid-alias-found=" + v4_local_type_editor_bool_word(v4_local_type_editor_grid_alias_completion >= 0)
+say "local-editor-completion-grid-alias-detail=" + v4_local_type_editor_completion_detail_or_empty(v4_local_type_editor_completion, v4_local_type_editor_grid_alias_completion)

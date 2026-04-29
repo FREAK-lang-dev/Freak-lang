@@ -224,6 +224,30 @@ task v4_editor_hir_item_for_def(hir_id: int, def_id: word) -> int {
     give back 0 - 1
 }
 
+task v4_editor_body_for_hir_item(hir_id: int, mir_id: int, hir_item: int) -> int {
+    if hir_item < 0 {
+        give back 0 - 1
+    }
+    if v4_hir_item_kind(hir_id, hir_item) != "Task" {
+        give back 0 - 1
+    }
+    give back v4_mir_lookup_body(mir_id, v4_hir_item_def(hir_id, hir_item))
+}
+
+task v4_editor_local_def(hir_id: int, hir_item: int, local_name: word) -> word {
+    if hir_item < 0 or local_name == "" {
+        give back ""
+    }
+    give back v4_hir_item_def(hir_id, hir_item) + "::Local::" + local_name
+}
+
+task v4_editor_internal_local_name(local_name: word) -> bool {
+    if local_name == "" {
+        give back false
+    }
+    give back local_name.char_at(0) == "_"
+}
+
 task v4_editor_semantic_fact_new(path: word, offset: int, token_id: int, token_kind: word, token_value: word, token_span: word, hir_item: int, item_name: word, item_kind: word, symbol_id: int, name: word, kind: word, def_id: word, type_display: word) -> int {
     v4_editor_init()
     pilot fact_id = array_len(v4_editor_sem_paths)
@@ -371,6 +395,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
     pilot hir_id = v4_hir_text_cached(path, text)
     pilot resolve_id = v4_resolve_text_cached(path, text)
     pilot ty_id = v4_ty_text_cached(path, text)
+    pilot mir_id = v4_mir_text_cached(path, text)
     pilot token_id = v4_editor_token_at(stream_id, offset)
     pilot token_kind = ""
     pilot token_value = ""
@@ -423,6 +448,17 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
             def_id = v4_editor_lifetime_def(ty_id, lifetime_sig_id, token_value)
             type_display = v4_editor_lifetime_detail(ty_id, lifetime_sig_id, token_value)
         }
+    } else if symbol_id < 0 and token_kind == v4_tok_ident {
+        pilot body_id = v4_editor_body_for_hir_item(hir_id, mir_id, hir_item)
+        if body_id >= 0 {
+            pilot local_id = v4_mir_find_local(mir_id, body_id, token_value)
+            if local_id >= 0 {
+                name = token_value
+                kind = "Local"
+                def_id = v4_editor_local_def(hir_id, hir_item, token_value)
+                type_display = v4_mir_local_ty(mir_id, body_id, local_id)
+            }
+        }
     }
 
     pilot fact_id = v4_editor_semantic_fact_new(path, offset, token_id, token_kind, token_value, token_span, hir_item, item_name, item_kind, symbol_id, name, kind, def_id, type_display)
@@ -432,6 +468,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
     v4_query_record_dep(key, v4_hir_query_key(path))
     v4_query_record_dep(key, v4_resolve_query_key(path))
     v4_query_record_dep(key, v4_ty_query_key(path))
+    v4_query_record_dep(key, v4_mir_query_key(path))
     give back fact_id
 }
 
@@ -717,6 +754,7 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
 
     pilot semantic_id = v4_semantic_at_text_cached(path, text, offset)
     pilot hir_id = v4_hir_text_cached(path, text)
+    pilot mir_id = v4_mir_text_cached(path, text)
     pilot name = v4_semantic_at_name(semantic_id)
     pilot kind = v4_semantic_at_kind(semantic_id)
     pilot def_id = v4_semantic_at_def(semantic_id)
@@ -733,6 +771,16 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
             span = v4_editor_lifetime_decl_span(stream_id, span, name)
             found = 1
         }
+    } else if kind == "Local" {
+        hir_item = v4_semantic_at_hir_item(semantic_id)
+        pilot body_id = v4_editor_body_for_hir_item(hir_id, mir_id, hir_item)
+        if body_id >= 0 {
+            pilot local_id = v4_mir_find_local(mir_id, body_id, name)
+            if local_id >= 0 {
+                span = v4_mir_local_span(mir_id, body_id, local_id)
+                found = 1
+            }
+        }
     } else if def_id != "" {
         hir_item = v4_editor_hir_item_for_def(hir_id, def_id)
         if hir_item >= 0 {
@@ -747,6 +795,7 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
     v4_query_record_dep(key, v4_semantic_at_query_key(path, offset))
     v4_query_record_dep(key, v4_lex_query_key(path))
     v4_query_record_dep(key, v4_hir_query_key(path))
+    v4_query_record_dep(key, v4_mir_query_key(path))
     give back defn_id
 }
 
@@ -1085,6 +1134,43 @@ task v4_completion_add_document_symbols(completion_id: int, doc_id: int) -> void
     }
 }
 
+task v4_completion_has_label(completion_id: int, label: word) -> bool {
+    if label == "" {
+        give back false
+    }
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back true
+        }
+        item_id += 1
+    }
+    give back false
+}
+
+task v4_completion_add_locals_for_offset(completion_id: int, path: word, text: word, offset: int) -> void {
+    pilot hir_id = v4_hir_text_cached(path, text)
+    pilot mir_id = v4_mir_text_cached(path, text)
+    pilot hir_item = v4_editor_hir_item_at(hir_id, offset)
+    pilot body_id = v4_editor_body_for_hir_item(hir_id, mir_id, hir_item)
+    if body_id < 0 {
+        give back
+    }
+
+    pilot local_id = 0
+    pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+    repeat until local_id >= local_count {
+        pilot label = v4_mir_local_name(mir_id, body_id, local_id)
+        if label != "" and not v4_editor_internal_local_name(label) {
+            if not v4_completion_has_label(completion_id, label) {
+                v4_completion_add(completion_id, label, "local", v4_mir_local_ty(mir_id, body_id, local_id), label)
+            }
+        }
+        local_id += 1
+    }
+}
+
 task v4_completion_add_lifetimes_for_offset(completion_id: int, path: word, text: word, offset: int) -> void {
     pilot hir_id = v4_hir_text_cached(path, text)
     pilot ty_id = v4_ty_text_cached(path, text)
@@ -1162,6 +1248,7 @@ task v4_completion_text_cached(path: word, text: word, offset: int) -> int {
     pilot doc_id = v4_document_symbols_text_cached(path, text)
     pilot completion_id = v4_editor_completion_new(path, offset)
     v4_completion_add_document_symbols(completion_id, doc_id)
+    v4_completion_add_locals_for_offset(completion_id, path, text, offset)
     v4_completion_add_lifetimes_for_offset(completion_id, path, text, offset)
     v4_completion_add_keywords(completion_id)
 
@@ -1169,6 +1256,7 @@ task v4_completion_text_cached(path: word, text: word, offset: int) -> int {
     v4_query_record_dep(key, "source:" + path)
     v4_query_record_dep(key, v4_document_symbols_query_key(path))
     v4_query_record_dep(key, v4_hir_query_key(path))
+    v4_query_record_dep(key, v4_mir_query_key(path))
     v4_query_record_dep(key, v4_ty_query_key(path))
     give back completion_id
 }
