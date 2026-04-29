@@ -1,0 +1,86 @@
+-- V4 lifetime type-signature smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lifetime_ty_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_lifetime_ty_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_lifetime_ty_source() -> word {
+    pilot src = "task borrow<'a, T>(value: T) -> T {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task static_name<'static>(name: word) -> word {\n"
+    src = src + "    give back name\n"
+    src = src + "}\n"
+    src = src + "shape RefBox<'a, T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "doctrine Lendable<'a, T> {\n"
+    src = src + "    task lend(self) -> T\n"
+    src = src + "}\n"
+    src = src + "route Loan<'a, T> {\n"
+    src = src + "    Active " + v4_lifetime_ty_braces(" value: T ") + "\n"
+    src = src + "    Empty\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_lifetime_ty_src = v4_lifetime_ty_source()
+pilot v4_lifetime_ty_stream = v4_lex_text(0, v4_lifetime_ty_src)
+pilot v4_lifetime_ty_tree = v4_parse_stream(0, v4_lifetime_ty_stream)
+pilot v4_lifetime_ty_hir = v4_hir_lower_tree(0, v4_lifetime_ty_tree)
+pilot v4_lifetime_ty_resolve = v4_resolve_lower_hir(0, v4_lifetime_ty_hir)
+pilot v4_lifetime_ty_ty = v4_ty_lower_resolve(0, v4_lifetime_ty_resolve)
+
+pilot v4_lifetime_ty_borrow_def = v4_resolve_def_for_name(v4_lifetime_ty_resolve, "borrow")
+pilot v4_lifetime_ty_static_def = v4_resolve_def_for_name(v4_lifetime_ty_resolve, "static_name")
+pilot v4_lifetime_ty_refbox_def = v4_resolve_def_for_name(v4_lifetime_ty_resolve, "RefBox")
+pilot v4_lifetime_ty_lendable_def = v4_resolve_def_for_name(v4_lifetime_ty_resolve, "Lendable")
+pilot v4_lifetime_ty_loan_def = v4_resolve_def_for_name(v4_lifetime_ty_resolve, "Loan")
+
+pilot v4_lifetime_ty_borrow_sig = v4_ty_lookup_signature(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_def)
+pilot v4_lifetime_ty_static_sig = v4_ty_lookup_signature(v4_lifetime_ty_ty, v4_lifetime_ty_static_def)
+pilot v4_lifetime_ty_refbox_sig = v4_ty_lookup_signature(v4_lifetime_ty_ty, v4_lifetime_ty_refbox_def)
+pilot v4_lifetime_ty_lendable_sig = v4_ty_lookup_signature(v4_lifetime_ty_ty, v4_lifetime_ty_lendable_def)
+pilot v4_lifetime_ty_loan_sig = v4_ty_lookup_signature(v4_lifetime_ty_ty, v4_lifetime_ty_loan_def)
+
+say "lifetime-ty-borrow-signature=" + v4_ty_signature_of(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_def)
+say "lifetime-ty-borrow-generic-count=" + word_from_int(v4_ty_signature_generic_count(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig))
+say "lifetime-ty-borrow-generic0-kind=" + v4_ty_signature_generic_kind(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig, 0)
+say "lifetime-ty-borrow-generic0-name=" + v4_ty_signature_generic_name(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig, 0)
+say "lifetime-ty-borrow-generic1-kind=" + v4_ty_signature_generic_kind(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig, 1)
+say "lifetime-ty-borrow-generic1-name=" + v4_ty_signature_generic_name(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig, 1)
+say "lifetime-ty-borrow-lifetime-count=" + word_from_int(v4_ty_signature_lifetime_count(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig))
+say "lifetime-ty-borrow-lifetime0-name=" + v4_ty_signature_lifetime_name(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig, 0)
+say "lifetime-ty-borrow-type-generic-count=" + word_from_int(v4_ty_signature_type_generic_count(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig))
+say "lifetime-ty-borrow-type-generic0-name=" + v4_ty_signature_type_generic_name(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig, 0)
+say "lifetime-ty-borrow-param-type=" + v4_ty_signature_param_type(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig, 0)
+say "lifetime-ty-borrow-return=" + v4_ty_signature_return_type(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig)
+
+say "lifetime-ty-static-signature=" + v4_ty_signature_of(v4_lifetime_ty_ty, v4_lifetime_ty_static_def)
+say "lifetime-ty-static-lifetime-count=" + word_from_int(v4_ty_signature_lifetime_count(v4_lifetime_ty_ty, v4_lifetime_ty_static_sig))
+say "lifetime-ty-static-lifetime0-name=" + v4_ty_signature_lifetime_name(v4_lifetime_ty_ty, v4_lifetime_ty_static_sig, 0)
+say "lifetime-ty-static-type-generic-count=" + word_from_int(v4_ty_signature_type_generic_count(v4_lifetime_ty_ty, v4_lifetime_ty_static_sig))
+
+say "lifetime-ty-refbox-signature=" + v4_ty_signature_of(v4_lifetime_ty_ty, v4_lifetime_ty_refbox_def)
+say "lifetime-ty-refbox-lifetime0-name=" + v4_ty_signature_lifetime_name(v4_lifetime_ty_ty, v4_lifetime_ty_refbox_sig, 0)
+say "lifetime-ty-refbox-type-generic0-name=" + v4_ty_signature_type_generic_name(v4_lifetime_ty_ty, v4_lifetime_ty_refbox_sig, 0)
+say "lifetime-ty-refbox-field-value=" + v4_ty_shape_field_type_for_name(v4_lifetime_ty_ty, "RefBox<'a,int>", "value")
+
+say "lifetime-ty-lendable-signature=" + v4_ty_signature_of(v4_lifetime_ty_ty, v4_lifetime_ty_lendable_def)
+say "lifetime-ty-lendable-lifetime-count=" + word_from_int(v4_ty_signature_lifetime_count(v4_lifetime_ty_ty, v4_lifetime_ty_lendable_sig))
+say "lifetime-ty-lendable-type-generic-count=" + word_from_int(v4_ty_signature_type_generic_count(v4_lifetime_ty_ty, v4_lifetime_ty_lendable_sig))
+say "lifetime-ty-lendable-method-count=" + word_from_int(v4_ty_doctrine_method_count(v4_lifetime_ty_ty, v4_lifetime_ty_lendable_sig))
+
+say "lifetime-ty-loan-signature=" + v4_ty_signature_of(v4_lifetime_ty_ty, v4_lifetime_ty_loan_def)
+say "lifetime-ty-loan-lifetime-count=" + word_from_int(v4_ty_signature_lifetime_count(v4_lifetime_ty_ty, v4_lifetime_ty_loan_sig))
+say "lifetime-ty-loan-type-generic-count=" + word_from_int(v4_ty_signature_type_generic_count(v4_lifetime_ty_ty, v4_lifetime_ty_loan_sig))
+say "lifetime-ty-loan-active-value=" + v4_ty_route_case_field_type_for_name(v4_lifetime_ty_ty, "Loan<'a,int>", "Active", "value")
+say "lifetime-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_lifetime_ty_ty))

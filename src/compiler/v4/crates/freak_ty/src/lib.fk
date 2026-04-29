@@ -33,6 +33,8 @@ pilot v4_ty_attribute_sig = "attribute-signature"
 pilot v4_ty_error_sig = "error-signature"
 pilot v4_ty_snapshot_format = "freak-ty-snapshot-v1"
 pilot v4_ty_generic_env_fail = "#fail"
+pilot v4_ty_generic_kind_type = "type"
+pilot v4_ty_generic_kind_lifetime = "lifetime"
 
 pilot v4_ty_files = 0
 pilot v4_ty_resolves = 0
@@ -1280,6 +1282,82 @@ task v4_ty_signature_generic_bounds(ty_id: int, sig_id: int, generic_id: int) ->
     pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
     pilot end_token = v4_ty_signature_generic_segment_end(ty_id, sig_id, generic_id)
     give back v4_ty_generic_bounds_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_signature_generic_kind(ty_id: int, sig_id: int, generic_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
+    pilot end_token = v4_ty_signature_generic_segment_end(ty_id, sig_id, generic_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back v4_ty_generic_kind_type
+    }
+    pilot first = v4_ty_skip_trivia(stream_id, start_token)
+    if first < end_token and v4_lex_token_type(stream_id, first) == v4_tok_lifetime {
+        give back v4_ty_generic_kind_lifetime
+    }
+    give back v4_ty_generic_kind_type
+}
+
+task v4_ty_signature_generic_is_lifetime(ty_id: int, sig_id: int, generic_id: int) -> bool {
+    give back v4_ty_signature_generic_kind(ty_id, sig_id, generic_id) == v4_ty_generic_kind_lifetime
+}
+
+task v4_ty_signature_lifetime_count(ty_id: int, sig_id: int) -> int {
+    pilot total = 0
+    pilot generic_id = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_id >= generic_count {
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) {
+            total += 1
+        }
+        generic_id += 1
+    }
+    give back total
+}
+
+task v4_ty_signature_type_generic_count(ty_id: int, sig_id: int) -> int {
+    pilot total = 0
+    pilot generic_id = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_id >= generic_count {
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) == false {
+            total += 1
+        }
+        generic_id += 1
+    }
+    give back total
+}
+
+task v4_ty_signature_lifetime_name(ty_id: int, sig_id: int, lifetime_id: int) -> word {
+    pilot seen = 0
+    pilot generic_id = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_id >= generic_count {
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) {
+            if seen == lifetime_id {
+                give back v4_ty_signature_generic_name(ty_id, sig_id, generic_id)
+            }
+            seen += 1
+        }
+        generic_id += 1
+    }
+    give back ""
+}
+
+task v4_ty_signature_type_generic_name(ty_id: int, sig_id: int, type_generic_id: int) -> word {
+    pilot seen = 0
+    pilot generic_id = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_id >= generic_count {
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) == false {
+            if seen == type_generic_id {
+                give back v4_ty_signature_generic_name(ty_id, sig_id, generic_id)
+            }
+            seen += 1
+        }
+        generic_id += 1
+    }
+    give back ""
 }
 
 task v4_ty_generic_bound_count(bounds_text: word) -> int {
