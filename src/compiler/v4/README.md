@@ -19,6 +19,27 @@ The **Bootstrap V4** finish line is considered met when all of the following rem
 
 Anything beyond this marker belongs to the next phase: richer language coverage, deeper Meiya borrow analysis, and backend/codegen integration. Do not push those concerns back into `freak_driver` to move faster; that is how the rewrite loop returns.
 
+## Post-Bootstrap Sequencing
+
+After the bootstrap slice, V4 work advances by dependency strata rather than by
+bible chapter order or by isolated crate ownership:
+
+1. Semantic Core: stabilize value shapes, variants/routes, aliases, tuple/array
+   type forms, and generic propagation as vertical slices across
+   `lex -> parse -> HIR -> TY -> MIR -> editor/snapshot/LSP -> smokes`.
+2. Borrow Checker: finish Meiya only after the semantic surface is stable enough
+   that new value forms are no longer reopening ownership analysis every week.
+3. FFI And Systems Boundary: extend ABI, layout, raw-pointer, and LLVM carriage
+   once TY/MIR contracts are settled.
+4. Concurrency: land `xm3`, `sortie`, `formation`, `briefing room`, and
+   `wingman` only after ownership semantics are coherent.
+5. Advanced And Anime Surface: enforce `mood`, `prob`, `power`, `causality`,
+   narrative strictness, and richer error voices on top of the stabilized core.
+
+The anti-rewrite rule is simple: do not try to "finish borrowck first" while
+Semantic Core forms are still moving. Each new source form must become a full
+vertical slice before the next dependency gate opens.
+
 The first landing is intentionally small and isolated from the V3 compiler:
 
 ```text

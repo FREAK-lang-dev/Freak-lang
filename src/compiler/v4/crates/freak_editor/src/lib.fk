@@ -1056,6 +1056,9 @@ task v4_completion_insert_text(completion_id: int, item_id: int) -> word {
 task v4_completion_add_keywords(completion_id: int) -> void {
     v4_completion_add(completion_id, "task", "keyword", "declare a task", "task ")
     v4_completion_add(completion_id, "shape", "keyword", "declare a shape", "shape ")
+    v4_completion_add(completion_id, "route", "keyword", "declare a route", "route ")
+    v4_completion_add(completion_id, "variant", "keyword", "declare a variant route", "variant ")
+    v4_completion_add(completion_id, "alias", "keyword", "declare a type alias", "alias ")
     v4_completion_add(completion_id, "doctrine", "keyword", "declare a doctrine", "doctrine ")
     v4_completion_add(completion_id, "impl", "keyword", "implement a shape or doctrine", "impl ")
     v4_completion_add(completion_id, "use", "keyword", "import a module", "use ")
