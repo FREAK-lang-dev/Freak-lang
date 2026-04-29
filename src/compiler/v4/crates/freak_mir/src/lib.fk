@@ -1784,6 +1784,99 @@ task v4_mir_check_local_decl_type(mir_id: int, stmt_span: word, local_name: word
     }
 }
 
+task v4_mir_type_contract_accepts_lifetime(mir_id: int, sig_id: int, lifetime_name: word) -> bool {
+    if v4_ty_lifetime_is_implicit(lifetime_name) {
+        give back true
+    }
+    if sig_id < 0 {
+        give back false
+    }
+    give back v4_ty_signature_accepts_lifetime(v4_mir_ty_id(mir_id), sig_id, lifetime_name)
+}
+
+task v4_mir_validate_type_contract(mir_id: int, sig_id: int, stmt_span: word, type_text: word, message: word, context: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back true
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot valid = true
+    if v4_ty_is_lifetime_name(type_text) {
+        v4_mir_add_type_error(mir_id, stmt_span, message, "Meiya lifetime debt: " + type_text + " cannot be used as a value type in " + context)
+        valid = false
+    }
+
+    pilot lifetime_id = 0
+    pilot lifetime_count = v4_ty_type_lifetime_count(type_text)
+    repeat until lifetime_id >= lifetime_count {
+        pilot lifetime_name = v4_ty_type_lifetime_name(type_text, lifetime_id)
+        if not v4_mir_type_contract_accepts_lifetime(mir_id, sig_id, lifetime_name) {
+            pilot scope_name = "this scope"
+            if sig_id >= 0 {
+                scope_name = v4_ty_signature_name(ty_id, sig_id)
+            }
+            v4_mir_add_type_error(mir_id, stmt_span, message, "Meiya lifetime debt: " + lifetime_name + " is used in " + context + " but is not declared on " + scope_name)
+            valid = false
+        }
+        lifetime_id += 1
+    }
+
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot base_name = v4_ty_generic_base_name(type_text)
+        pilot actual_count = v4_ty_generic_arg_count(type_text)
+        pilot expected_count = v4_ty_expected_generic_arg_count(ty_id, base_name)
+        if expected_count >= 0 and expected_count != actual_count {
+            v4_mir_add_type_error(mir_id, stmt_span, message, "Meiya lifetime debt: " + base_name + " expects " + word_from_int(expected_count) + " generic arguments in " + context + " but received " + word_from_int(actual_count))
+            valid = false
+        }
+
+        pilot arg_id = 0
+        repeat until arg_id >= actual_count {
+            pilot arg_text = v4_ty_generic_arg(type_text, arg_id)
+            if v4_ty_generic_slot_accepts_lifetime(ty_id, base_name, arg_id) {
+                if not v4_ty_is_lifetime_name(arg_text) {
+                    v4_mir_add_type_error(mir_id, stmt_span, message, "Meiya lifetime debt: generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context + " must be a lifetime like 'a")
+                    valid = false
+                }
+            } else if v4_ty_generic_slot_accepts_type(ty_id, base_name, arg_id) {
+                if v4_ty_is_lifetime_name(arg_text) {
+                    v4_mir_add_type_error(mir_id, stmt_span, message, "Meiya lifetime debt: " + arg_text + " cannot be used as a value type in generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context)
+                    valid = false
+                } else {
+                    if not v4_mir_validate_type_contract(mir_id, sig_id, stmt_span, arg_text, message, "generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context) {
+                        valid = false
+                    }
+                }
+            } else {
+                if not v4_mir_validate_type_contract(mir_id, sig_id, stmt_span, arg_text, message, "generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context) {
+                    valid = false
+                }
+            }
+            arg_id += 1
+        }
+        give back valid
+    }
+
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            if not v4_mir_validate_type_contract(mir_id, sig_id, stmt_span, v4_ty_tuple_slot_type(type_text, slot_id), message, "tuple slot " + word_from_int(slot_id) + " of " + context) {
+                valid = false
+            }
+            slot_id += 1
+        }
+        give back valid
+    }
+
+    if v4_ty_is_fixed_array_type(type_text) {
+        if not v4_mir_validate_type_contract(mir_id, sig_id, stmt_span, v4_ty_fixed_array_element_type(type_text), message, "array element of " + context) {
+            valid = false
+        }
+    }
+    give back valid
+}
+
 task v4_mir_signature_id_for_exact_name(mir_id: int, callee_name: word) -> int {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot sig_idx = 0
@@ -3147,12 +3240,18 @@ task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, firs
 
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, shape_name)
+    pilot explicit_shape_instance_valid = true
+    if v4_ty_is_generic_instance_type(shape_name) {
+        explicit_shape_instance_valid = v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), expr_span, shape_name, "invalid generic shape instance", "shape constructor " + shape_name)
+    }
     pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, shape_name, expected_ty)
     pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, seed_instance_ty)
     env = v4_mir_check_shape_ctor_fields(mir_id, body_id, stream_id, expr_span, shape_name, sig_id, open_token, close_token, env)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     pilot result_ty = shape_name
     if sig_id < 0 {
+        result_ty = v4_ty_unknown
+    } else if not explicit_shape_instance_valid {
         result_ty = v4_ty_unknown
     } else if v4_ty_signature_generic_count(ty_id, sig_id) > 0 {
         if v4_ty_signature_generic_env_complete(ty_id, sig_id, env) {
@@ -3323,11 +3422,17 @@ task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: i
     }
 
     pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    pilot explicit_route_instance_valid = true
+    if v4_ty_is_generic_instance_type(route_name) {
+        explicit_route_instance_valid = v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), expr_span, route_name, "invalid generic route instance", "route constructor " + route_name + "::" + case_name)
+    }
     pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, route_name, expected_ty)
     pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, seed_instance_ty)
     env = v4_mir_check_route_ctor_fields(mir_id, body_id, stream_id, expr_span, route_name, case_name, open_token, close_token, env)
     pilot result_ty = route_name
     if not v4_ty_is_route_type(ty_id, route_name) or not v4_ty_route_has_case(ty_id, route_name, case_name) {
+        result_ty = v4_ty_unknown
+    } else if not explicit_route_instance_valid {
         result_ty = v4_ty_unknown
     } else if sig_id >= 0 and v4_ty_signature_generic_count(ty_id, sig_id) > 0 {
         if v4_ty_signature_generic_env_complete(ty_id, sig_id, env) {
@@ -3366,6 +3471,11 @@ task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int,
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
         }
         pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+        if v4_ty_is_generic_instance_type(route_name) {
+            if not v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), expr_span, route_name, "invalid generic route instance", "route constructor " + route_name + "::" + case_name) {
+                give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+            }
+        }
         if sig_id >= 0 and v4_ty_signature_generic_count(ty_id, sig_id) > 0 {
             pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, route_name, expected_ty)
             if v4_ty_is_generic_instance_type(seed_instance_ty) {
@@ -4847,13 +4957,18 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     }
 
     pilot pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, pattern_start, pattern_end))
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, pilot_token, stmt_end)
+    if v4_ty_is_known(declared_ty) {
+        if not v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), stmt_span, declared_ty, "invalid local annotation type", "local declaration " + pattern) {
+            declared_ty = v4_ty_unknown
+        }
+    }
 
     pilot rhs_start = decl_end
     if eq_token >= 0 {
         rhs_start = eq_token + 1
     }
 
-    pilot stmt_span = v4_mir_span_from_tokens(stream_id, pilot_token, stmt_end)
     pilot rhs = v4_mir_expr_text(stream_id, rhs_start, stmt_end)
     pilot rvalue_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, rhs_start, stmt_end, declared_ty)
     pilot inferred_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)

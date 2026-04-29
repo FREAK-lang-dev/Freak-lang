@@ -51,6 +51,27 @@ task v4_mir_generic_ctor_bad_route_source() -> word {
     give back src
 }
 
+task v4_mir_generic_ctor_bad_annotated_shape_source() -> word {
+    pilot src = "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "task bad() -> void {\n"
+    src = src + "    pilot ghost: Box<int,word> = Box " + v4_mir_generic_ctor_braces(" value: 7 ") + "\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_generic_ctor_bad_annotated_route_source() -> word {
+    pilot src = "route Option<T> {\n"
+    src = src + "    Some " + v4_mir_generic_ctor_braces(" value: T ") + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "task bad() -> void {\n"
+    src = src + "    pilot ghost: Option<int,word> = Option::Some " + v4_mir_generic_ctor_braces(" value: 7 ") + "\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_mir_generic_ctor_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
     pilot stmt_id = 0
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
@@ -138,3 +159,23 @@ pilot v4_mir_generic_ctor_bad_route_mir = v4_mir_lower_ty(2, v4_mir_generic_ctor
 say "generic-route-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_ctor_bad_route_mir))
 say "generic-route-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_ctor_bad_route_mir, 0))
 say "generic-route-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_ctor_bad_route_mir, 0))
+
+pilot v4_mir_generic_ctor_bad_annotated_shape_stream = v4_lex_text(3, v4_mir_generic_ctor_bad_annotated_shape_source())
+pilot v4_mir_generic_ctor_bad_annotated_shape_tree = v4_parse_stream(3, v4_mir_generic_ctor_bad_annotated_shape_stream)
+pilot v4_mir_generic_ctor_bad_annotated_shape_hir = v4_hir_lower_tree(3, v4_mir_generic_ctor_bad_annotated_shape_tree)
+pilot v4_mir_generic_ctor_bad_annotated_shape_resolve = v4_resolve_lower_hir(3, v4_mir_generic_ctor_bad_annotated_shape_hir)
+pilot v4_mir_generic_ctor_bad_annotated_shape_ty = v4_ty_lower_resolve(3, v4_mir_generic_ctor_bad_annotated_shape_resolve)
+pilot v4_mir_generic_ctor_bad_annotated_shape_mir = v4_mir_lower_ty(3, v4_mir_generic_ctor_bad_annotated_shape_ty)
+say "generic-shape-annotated-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_ctor_bad_annotated_shape_mir))
+say "generic-shape-annotated-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_ctor_bad_annotated_shape_mir, 0))
+say "generic-shape-annotated-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_ctor_bad_annotated_shape_mir, 0))
+
+pilot v4_mir_generic_ctor_bad_annotated_route_stream = v4_lex_text(4, v4_mir_generic_ctor_bad_annotated_route_source())
+pilot v4_mir_generic_ctor_bad_annotated_route_tree = v4_parse_stream(4, v4_mir_generic_ctor_bad_annotated_route_stream)
+pilot v4_mir_generic_ctor_bad_annotated_route_hir = v4_hir_lower_tree(4, v4_mir_generic_ctor_bad_annotated_route_tree)
+pilot v4_mir_generic_ctor_bad_annotated_route_resolve = v4_resolve_lower_hir(4, v4_mir_generic_ctor_bad_annotated_route_hir)
+pilot v4_mir_generic_ctor_bad_annotated_route_ty = v4_ty_lower_resolve(4, v4_mir_generic_ctor_bad_annotated_route_resolve)
+pilot v4_mir_generic_ctor_bad_annotated_route_mir = v4_mir_lower_ty(4, v4_mir_generic_ctor_bad_annotated_route_ty)
+say "generic-route-annotated-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_ctor_bad_annotated_route_mir))
+say "generic-route-annotated-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_ctor_bad_annotated_route_mir, 0))
+say "generic-route-annotated-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_ctor_bad_annotated_route_mir, 0))

@@ -857,6 +857,9 @@ EXECUTABLE_SMOKES = [
             "decl-bad-diagnostics=1",
             "decl-bad-message=local declaration type mismatch",
             "decl-bad-help=x expects int but got word",
+            "decl-generic-bad-diagnostics=1",
+            "decl-generic-bad-message=invalid local annotation type",
+            "decl-generic-bad-help=Meiya lifetime debt: maybe expects 1 generic arguments in local declaration hold but received 2",
         ],
     },
     {
@@ -2128,6 +2131,12 @@ EXECUTABLE_SMOKES = [
             "generic-route-bad-diagnostics=1",
             "generic-route-bad-message=generic route case needs type context",
             "generic-route-bad-help=Option has type parameters; write Option<int>::None or use an expected Option<int>",
+            "generic-shape-annotated-bad-diagnostics=1",
+            "generic-shape-annotated-bad-message=invalid local annotation type",
+            "generic-shape-annotated-bad-help=Meiya lifetime debt: Box expects 1 generic arguments in local declaration ghost but received 2",
+            "generic-route-annotated-bad-diagnostics=1",
+            "generic-route-annotated-bad-message=invalid local annotation type",
+            "generic-route-annotated-bad-help=Meiya lifetime debt: Option expects 1 generic arguments in local declaration ghost but received 2",
         ],
     },
     {
