@@ -337,6 +337,10 @@ task v4_ty_is_known(ty_name: word) -> bool {
     give back ty_name != "" and ty_name != v4_ty_unknown
 }
 
+task v4_ty_is_lifetime_name(ty_name: word) -> bool {
+    give back ty_name.length() > 1 and ty_name.char_at(0) == "'"
+}
+
 task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
     if not v4_ty_is_known(expected_ty) or not v4_ty_is_known(actual_ty) {
         give back true
@@ -345,6 +349,9 @@ task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
         give back true
     }
     if expected_ty == actual_ty {
+        give back true
+    }
+    if v4_ty_is_lifetime_name(expected_ty) and v4_ty_is_lifetime_name(actual_ty) {
         give back true
     }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
@@ -1435,6 +1442,34 @@ task v4_ty_signature_declares_generic_name(ty_id: int, sig_id: int, type_name: w
     repeat until generic_idx >= generic_count {
         if v4_ty_signature_generic_name(ty_id, sig_id, generic_idx) == type_name {
             give back true
+        }
+        generic_idx += 1
+    }
+    give back false
+}
+
+task v4_ty_signature_declares_lifetime_name(ty_id: int, sig_id: int, lifetime_name: word) -> bool {
+    pilot generic_idx = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_idx >= generic_count {
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_idx) {
+            if v4_ty_signature_generic_name(ty_id, sig_id, generic_idx) == lifetime_name {
+                give back true
+            }
+        }
+        generic_idx += 1
+    }
+    give back false
+}
+
+task v4_ty_signature_declares_type_generic_name(ty_id: int, sig_id: int, type_name: word) -> bool {
+    pilot generic_idx = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_idx >= generic_count {
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_idx) == false {
+            if v4_ty_signature_generic_name(ty_id, sig_id, generic_idx) == type_name {
+                give back true
+            }
         }
         generic_idx += 1
     }
@@ -3170,7 +3205,10 @@ task v4_ty_match_signature_type_env(ty_id: int, sig_id: int, expected_ty: word, 
     if expected_ty == actual_ty {
         give back env
     }
-    if v4_ty_signature_declares_generic_name(ty_id, sig_id, expected_ty) {
+    if v4_ty_signature_declares_lifetime_name(ty_id, sig_id, expected_ty) {
+        give back env
+    }
+    if v4_ty_signature_declares_type_generic_name(ty_id, sig_id, expected_ty) {
         give back v4_ty_generic_env_bind(env, expected_ty, actual_ty)
     }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
@@ -3274,7 +3312,7 @@ task v4_ty_type_mentions_signature_generics(ty_id: int, sig_id: int, type_text: 
     if type_text == "" or type_text == v4_ty_unknown {
         give back false
     }
-    if v4_ty_signature_declares_generic_name(ty_id, sig_id, type_text) {
+    if v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text) {
         give back true
     }
     if v4_ty_is_generic_instance_type(type_text) {
@@ -3317,9 +3355,11 @@ task v4_ty_signature_generic_env_for_instance(ty_id: int, sig_id: int, instance_
     pilot generic_idx = 0
     pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
     repeat until generic_idx >= generic_count {
-        env = v4_ty_generic_env_bind(env, v4_ty_signature_generic_name(ty_id, sig_id, generic_idx), v4_ty_generic_arg(instance_ty, generic_idx))
-        if env == v4_ty_generic_env_fail {
-            give back ""
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_idx) == false {
+            env = v4_ty_generic_env_bind(env, v4_ty_signature_generic_name(ty_id, sig_id, generic_idx), v4_ty_generic_arg(instance_ty, generic_idx))
+            if env == v4_ty_generic_env_fail {
+                give back ""
+            }
         }
         generic_idx += 1
     }
@@ -3330,8 +3370,10 @@ task v4_ty_signature_generic_env_complete(ty_id: int, sig_id: int, env: word) ->
     pilot generic_idx = 0
     pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
     repeat until generic_idx >= generic_count {
-        if v4_ty_generic_env_lookup(env, v4_ty_signature_generic_name(ty_id, sig_id, generic_idx)) == "" {
-            give back false
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_idx) == false {
+            if v4_ty_generic_env_lookup(env, v4_ty_signature_generic_name(ty_id, sig_id, generic_idx)) == "" {
+                give back false
+            }
         }
         generic_idx += 1
     }
