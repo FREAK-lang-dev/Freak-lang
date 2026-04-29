@@ -285,28 +285,42 @@
 
 ---
 
-## SESSION NOTES — What was done this session
+## SESSION NOTES — v0.13.3 "Shiranui" final patch
 
-### New language features
-- **`deus_ex_machina` block** — lexer token, parser AST node (`DeusExMachina`), emitter (C block with dramatic comment), type checker (validates monologue ≥ 20 words)
-- **`isekai` block** — lexer/parser/emitter/type checker; fresh isolated scope with `bringing back { ... }` exports
-- **`eventually` block** — lexer/parser/emitter/type checker; `eventually { }` and `eventually if cond { }` forms
-- **`PathIdent` AST node** — namespace path expressions like `process::pid()` and `ByteBuffer::new()`
+Released 2026-04-28. Ships the last v0.13.x patch before V4 work begins.
 
-### Audit commands (Phase 8)
-- `freakc/auditor.py` — new module with AST walker + token scanner
-- `freak audit-science` — finds every `for science,` call site with line numbers
-- `freak audit-trust` — lists every `trust me` block with honor level and reason
-- `freak audit-miracles` — lists every `deus_ex_machina` block, warns >3, errors >10
-- `freak foreshadow-audit` — shows all foreshadow/payoff pairs, flags unpaid ones
+### Conformance audit + V4 roadmap
+- New `freak-conformance-audit.md` — per-section bible-vs-implementation mapping, top-18 divergences, triage list, untested-contract list for V4 milestone planning
+- New `freak audit-conformance` command (Python + native CLI) — verifies the v0.13.x baseline (lexer keywords, audit dispatch consistency, stdlib presence, `--strict-borrow` flag, `deus_ex_machina` 20-word rule); exits nonzero on real divergence; skips V4-tagged contracts so it stays green during V4 development
+- Bible §0 added: Implementation Status legend + per-section status matrix (✅ Implemented / ⚠️ Partial / 🔜 V4)
+- V4 admonitions added across §1-§17 — every contract that doesn't ship in v0.13.x is explicitly tagged so readers know not to depend on it yet
 
-### std::process / std::thread / std::bytes (Phases 11–13)
-- Runtime header declarations and C stub implementations in `freak_runtime.h/.c`
-- Emitter PathIdent call dispatch: `process::pid()` → `freak_process_pid()`
-- ByteBuffer method dispatch table in emitter (type-aware, avoids `freak_word_length` collision)
-- Correct return type inference for all std module calls
-- `tests/process.fk`, `tests/bytes.fk` — compile and run
+### Native CLI audit dispatch
+- `src/cli/audit.fk` — new module shells `audit-science` / `audit-trust` / `audit-miracles` / `foreshadow-audit` / `audit-conformance` out to `python -m freakc <subcommand>` (native FREAK port lands with V4)
+- `build_cli.bat`, `.github/workflows/ci.yml`, `.github/workflows/release.yml` — added `src/cli/audit.fk` to the cat chain so `cli_audit_dispatch` resolves at link time
 
-### Operator overloading (Phase 14)
-- Emitter tracks `impl_doctrines: Dict[type → set[doctrine]]` during first pass
-- `
+### Compiler fixes
+- **Maybe / Result compound-literal cast** — `freakc/emitter.py` now wraps `some(...)`, `nobody`, `ok(...)`, `err(...)` in `(freak_maybe_T)` / `(freak_result_T_word)` casts so the literal is valid in assignment context, not just declaration initializers. `_infer_c_type_of_expr` extended to pick the right T per inner type.
+- **Pipe operator** — pipe desugaring in `_emit_binop` now synthesizes a `Call` node and dispatches through `_emit_call`, so user-function `freak_` prefixing applies. Type checker grew a `|>` short-circuit that bumps expected arity by 1 (the LHS injection) instead of falsely flagging arity mismatches.
+- **Ord operator doctrine** — `<`, `>`, `<=`, `>=` mapped to `Ord/lt`, `Ord/gt`, `Ord/le`, `Ord/ge` in the Python emitter's `_OP_DOCTRINE` table. `tests/ord_doctrine_test.fk` covers all four.
+
+### Test suite
+- `tests/suite/test_maybe.fk` and `tests/suite/test_pipe.fk` un-skipped — both PASS
+- `freak test` shim added in `src/cli/main.fk` — wraps `python tests/suite/run_tests.py` (in-language `test "..." { expect ... }` framework lands with V4)
+- Suite at **14 passed, 0 failed, 0 skipped**
+
+### LB10 minimal DWARF
+- `src/compiler/v3/emit_llvm.fk:llvm_dbg_begin_func` flipped on: now emits a DISubprogram per function, sets the current scope, and returns `!dbg !N` for the function attribute. Per-instruction `!dbg` annotations were already wired in `llvm_emit_line` — they just needed the scope id.
+- Compile-unit emission kind changed from `FullDebug` to `LineTablesOnly` to keep the metadata footprint bounded
+- Source-line backtraces in gdb/lldb work today; full DWARF (variables, types) ships with V4
+
+### Distribution
+- D6 Homebrew formula (`packaging/homebrew/freak.rb`) — release workflow patches checksums on tag
+- D7 Scoop manifest (`packaging/scoop/freak.json`) — release workflow patches checksums + version on tag
+- D7 Winget manifests (`packaging/winget/manifests/F/FREAK/freak/<version>/`) — 0.13.2 manifest tracked, 0.13.3 manifest added; `release.yml` path made dynamic from `$VERSION` so future bumps just need the new subdirectory
+- v0.13.3 release shipped clean: 4-platform binary matrix, 13 release assets
+
+### What's left for v0.13.x
+Nothing in scope. v0.13.x final patch is on `main` and tagged at v0.13.3. The remaining bible promises (variants, `mood`/`prob`/`power`/`causality`, full borrow checker, squadron concurrency, FFI surface, error-voice routing, JIT/LB7, in-language `test` framework, COCKPIT MG accessibility/polish) all ship with **V4**.
+
+V4 work is now landing on `main` — see commits prefixed `Add V4 …` for the latest. As V4 features land, promote the matching rows in `freak-full-bible.md` §0.2 and `freak-conformance-audit.md` from 🔜 to ⚠️/✅, and grow the matching check in `freakc/auditor.py:audit_conformance`.
