@@ -248,6 +248,10 @@ task v4_editor_internal_local_name(local_name: word) -> bool {
     give back local_name.char_at(0) == "_"
 }
 
+task v4_editor_local_visible_at(mir_id: int, body_id: int, local_id: int, offset: int) -> bool {
+    give back v4_mir_local_visible_at(mir_id, body_id, local_id, offset)
+}
+
 task v4_editor_semantic_fact_new(path: word, offset: int, token_id: int, token_kind: word, token_value: word, token_span: word, hir_item: int, item_name: word, item_kind: word, symbol_id: int, name: word, kind: word, def_id: word, type_display: word) -> int {
     v4_editor_init()
     pilot fact_id = array_len(v4_editor_sem_paths)
@@ -452,7 +456,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
         pilot body_id = v4_editor_body_for_hir_item(hir_id, mir_id, hir_item)
         if body_id >= 0 {
             pilot local_id = v4_mir_find_local(mir_id, body_id, token_value)
-            if local_id >= 0 {
+            if local_id >= 0 and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
                 name = token_value
                 kind = "Local"
                 def_id = v4_editor_local_def(hir_id, hir_item, token_value)
@@ -1162,7 +1166,7 @@ task v4_completion_add_locals_for_offset(completion_id: int, path: word, text: w
     pilot local_count = v4_mir_body_local_count(mir_id, body_id)
     repeat until local_id >= local_count {
         pilot label = v4_mir_local_name(mir_id, body_id, local_id)
-        if label != "" and not v4_editor_internal_local_name(label) {
+        if label != "" and not v4_editor_internal_local_name(label) and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
             if not v4_completion_has_label(completion_id, label) {
                 v4_completion_add(completion_id, label, "local", v4_mir_local_ty(mir_id, body_id, local_id), label)
             }

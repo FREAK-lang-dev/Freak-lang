@@ -1,0 +1,96 @@
+-- V4 local scope-aware editor completion smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_local_scope_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_local_scope_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_local_scope_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_local_scope_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_local_scope_editor_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_local_scope_editor_completion_kind_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_kind(completion_id, item_id)
+}
+
+task v4_local_scope_editor_completion_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_local_scope_editor_source_text() -> word {
+    pilot src = "task scope(seed: int) -> int {\n"
+    src = src + "    pilot early = seed\n"
+    src = src + "    pilot pair: (int,word) = (seed, \"ace\")\n"
+    src = src + "    give back pair.0 + early\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_local_scope_editor_source = v4_local_scope_editor_source_text()
+pilot v4_local_scope_editor_stream = v4_lex_text(0, v4_local_scope_editor_source)
+
+pilot v4_local_scope_editor_pair_stmt_offset = v4_local_scope_editor_token_offset(v4_local_scope_editor_stream, "pilot", 1)
+pilot v4_local_scope_editor_pair_decl_offset = v4_local_scope_editor_token_offset(v4_local_scope_editor_stream, "pair", 0)
+pilot v4_local_scope_editor_pair_use_offset = v4_local_scope_editor_token_offset(v4_local_scope_editor_stream, "pair", 1)
+
+pilot v4_local_scope_editor_before_pair = v4_completion_text_cached("local-scope-editor.fk", v4_local_scope_editor_source, v4_local_scope_editor_pair_stmt_offset - 1)
+pilot v4_local_scope_editor_after_pair = v4_completion_text_cached("local-scope-editor.fk", v4_local_scope_editor_source, v4_local_scope_editor_pair_use_offset)
+pilot v4_local_scope_editor_pair_sem = v4_semantic_at_text_cached("local-scope-editor.fk", v4_local_scope_editor_source, v4_local_scope_editor_pair_use_offset)
+
+pilot v4_local_scope_editor_before_seed = v4_local_scope_editor_find_completion_label(v4_local_scope_editor_before_pair, "seed")
+pilot v4_local_scope_editor_before_early = v4_local_scope_editor_find_completion_label(v4_local_scope_editor_before_pair, "early")
+pilot v4_local_scope_editor_before_pair_item = v4_local_scope_editor_find_completion_label(v4_local_scope_editor_before_pair, "pair")
+pilot v4_local_scope_editor_after_pair_item = v4_local_scope_editor_find_completion_label(v4_local_scope_editor_after_pair, "pair")
+
+say v4_completion_summary(v4_local_scope_editor_before_pair)
+say "local-scope-before-count=" + word_from_int(v4_completion_count(v4_local_scope_editor_before_pair))
+say "local-scope-before-seed-found=" + v4_local_scope_editor_bool_word(v4_local_scope_editor_before_seed >= 0)
+say "local-scope-before-early-found=" + v4_local_scope_editor_bool_word(v4_local_scope_editor_before_early >= 0)
+say "local-scope-before-pair-found=" + v4_local_scope_editor_bool_word(v4_local_scope_editor_before_pair_item >= 0)
+say "local-scope-after-count=" + word_from_int(v4_completion_count(v4_local_scope_editor_after_pair))
+say "local-scope-after-pair-found=" + v4_local_scope_editor_bool_word(v4_local_scope_editor_after_pair_item >= 0)
+say "local-scope-after-pair-kind=" + v4_local_scope_editor_completion_kind_or_empty(v4_local_scope_editor_after_pair, v4_local_scope_editor_after_pair_item)
+say "local-scope-after-pair-detail=" + v4_local_scope_editor_completion_detail_or_empty(v4_local_scope_editor_after_pair, v4_local_scope_editor_after_pair_item)
+say "local-scope-pair-kind=" + v4_semantic_at_kind(v4_local_scope_editor_pair_sem)
+say "local-scope-pair-type=" + v4_semantic_at_type(v4_local_scope_editor_pair_sem)

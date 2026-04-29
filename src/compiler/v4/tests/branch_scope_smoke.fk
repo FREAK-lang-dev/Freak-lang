@@ -1,0 +1,122 @@
+-- V4 branch-local scope smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_branch_scope_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_branch_scope_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_branch_scope_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_branch_scope_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_branch_scope_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_branch_scope_find_last_return_stmt(mir_id: int, body_id: int, rhs: word) -> int {
+    pilot stmt_id = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id <= 0 {
+        stmt_id -= 1
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return and v4_mir_stmt_rhs(mir_id, body_id, stmt_id) == rhs {
+            give back stmt_id
+        }
+    }
+    give back 0 - 1
+}
+
+task v4_branch_scope_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_branch_scope_source_text() -> word {
+    pilot src = "variant Event {\n"
+    src = src + "    Key " + v4_branch_scope_braces(" code: int ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task score(event: Event) -> int {\n"
+    src = src + "    when event {\n"
+    src = src + "        Event::Key " + v4_branch_scope_braces(" code ") + " -> give back code\n"
+    src = src + "        Event::Closed -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back code\n"
+    src = src + "}\n"
+    src = src + "task maybe_score(value: maybe<int>) -> int {\n"
+    src = src + "    check value {\n"
+    src = src + "        got x -> give back x\n"
+    src = src + "        nobody -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "    give back x\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_branch_scope_source = v4_branch_scope_source_text()
+pilot v4_branch_scope_stream = v4_lex_text(0, v4_branch_scope_source)
+pilot v4_branch_scope_resolve = v4_resolve_text_cached("branch-scope.fk", v4_branch_scope_source)
+pilot v4_branch_scope_mir = v4_mir_text_cached("branch-scope.fk", v4_branch_scope_source)
+
+pilot v4_branch_scope_code_inner_offset = v4_branch_scope_token_offset(v4_branch_scope_stream, "code", 2)
+pilot v4_branch_scope_code_outer_offset = v4_branch_scope_token_offset(v4_branch_scope_stream, "code", 3)
+pilot v4_branch_scope_x_inner_offset = v4_branch_scope_token_offset(v4_branch_scope_stream, "x", 1)
+pilot v4_branch_scope_x_outer_offset = v4_branch_scope_token_offset(v4_branch_scope_stream, "x", 2)
+
+pilot v4_branch_scope_code_inner_completion = v4_completion_text_cached("branch-scope.fk", v4_branch_scope_source, v4_branch_scope_code_inner_offset)
+pilot v4_branch_scope_code_outer_completion = v4_completion_text_cached("branch-scope.fk", v4_branch_scope_source, v4_branch_scope_code_outer_offset)
+pilot v4_branch_scope_x_inner_completion = v4_completion_text_cached("branch-scope.fk", v4_branch_scope_source, v4_branch_scope_x_inner_offset)
+pilot v4_branch_scope_x_outer_completion = v4_completion_text_cached("branch-scope.fk", v4_branch_scope_source, v4_branch_scope_x_outer_offset)
+
+pilot v4_branch_scope_score_def = v4_resolve_def_for_name(v4_branch_scope_resolve, "score")
+pilot v4_branch_scope_score_body = v4_mir_lookup_body(v4_branch_scope_mir, v4_branch_scope_score_def)
+pilot v4_branch_scope_score_code_local = v4_mir_find_local(v4_branch_scope_mir, v4_branch_scope_score_body, "code")
+pilot v4_branch_scope_score_return_stmt = v4_branch_scope_find_last_return_stmt(v4_branch_scope_mir, v4_branch_scope_score_body, "code")
+pilot v4_branch_scope_score_return_rvalue = v4_mir_stmt_rvalue(v4_branch_scope_mir, v4_branch_scope_score_body, v4_branch_scope_score_return_stmt)
+
+pilot v4_branch_scope_maybe_def = v4_resolve_def_for_name(v4_branch_scope_resolve, "maybe_score")
+pilot v4_branch_scope_maybe_body = v4_mir_lookup_body(v4_branch_scope_mir, v4_branch_scope_maybe_def)
+pilot v4_branch_scope_maybe_x_local = v4_mir_find_local(v4_branch_scope_mir, v4_branch_scope_maybe_body, "x")
+pilot v4_branch_scope_maybe_return_stmt = v4_branch_scope_find_last_return_stmt(v4_branch_scope_mir, v4_branch_scope_maybe_body, "x")
+pilot v4_branch_scope_maybe_return_rvalue = v4_mir_stmt_rvalue(v4_branch_scope_mir, v4_branch_scope_maybe_body, v4_branch_scope_maybe_return_stmt)
+
+say "branch-scope-code-inner-found=" + v4_branch_scope_bool_word(v4_branch_scope_find_completion_label(v4_branch_scope_code_inner_completion, "code") >= 0)
+say "branch-scope-code-outer-found=" + v4_branch_scope_bool_word(v4_branch_scope_find_completion_label(v4_branch_scope_code_outer_completion, "code") >= 0)
+say "branch-scope-x-inner-found=" + v4_branch_scope_bool_word(v4_branch_scope_find_completion_label(v4_branch_scope_x_inner_completion, "x") >= 0)
+say "branch-scope-x-outer-found=" + v4_branch_scope_bool_word(v4_branch_scope_find_completion_label(v4_branch_scope_x_outer_completion, "x") >= 0)
+say "branch-scope-code-visible-inner=" + v4_branch_scope_bool_word(v4_mir_local_visible_at(v4_branch_scope_mir, v4_branch_scope_score_body, v4_branch_scope_score_code_local, v4_branch_scope_code_inner_offset))
+say "branch-scope-code-visible-outer=" + v4_branch_scope_bool_word(v4_mir_local_visible_at(v4_branch_scope_mir, v4_branch_scope_score_body, v4_branch_scope_score_code_local, v4_branch_scope_code_outer_offset))
+say "branch-scope-x-visible-inner=" + v4_branch_scope_bool_word(v4_mir_local_visible_at(v4_branch_scope_mir, v4_branch_scope_maybe_body, v4_branch_scope_maybe_x_local, v4_branch_scope_x_inner_offset))
+say "branch-scope-x-visible-outer=" + v4_branch_scope_bool_word(v4_mir_local_visible_at(v4_branch_scope_mir, v4_branch_scope_maybe_body, v4_branch_scope_maybe_x_local, v4_branch_scope_x_outer_offset))
+say "branch-scope-code-return-kind=" + v4_mir_rvalue_kind(v4_branch_scope_mir, v4_branch_scope_score_body, v4_branch_scope_score_return_rvalue)
+say "branch-scope-code-return-ty=" + v4_mir_rvalue_ty(v4_branch_scope_mir, v4_branch_scope_score_body, v4_branch_scope_score_return_rvalue)
+say "branch-scope-x-return-kind=" + v4_mir_rvalue_kind(v4_branch_scope_mir, v4_branch_scope_maybe_body, v4_branch_scope_maybe_return_rvalue)
+say "branch-scope-x-return-ty=" + v4_mir_rvalue_ty(v4_branch_scope_mir, v4_branch_scope_maybe_body, v4_branch_scope_maybe_return_rvalue)

@@ -72,7 +72,7 @@ pilot v4_mir_place_field = "Field"
 pilot v4_mir_place_index = "Index"
 pilot v4_mir_place_return = "Return"
 pilot v4_mir_place_unknown = "Unknown"
-pilot v4_mir_snapshot_format = "freak-mir-snapshot-v2"
+pilot v4_mir_snapshot_format = "freak-mir-snapshot-v3"
 
 pilot v4_mir_files = 0
 pilot v4_mir_tys = 0
@@ -83,6 +83,7 @@ pilot v4_mir_body_blocks = 0
 pilot v4_mir_body_local_names = 0
 pilot v4_mir_body_local_tys = 0
 pilot v4_mir_body_local_spans = 0
+pilot v4_mir_body_local_scope_spans = 0
 pilot v4_mir_body_stmt_kinds = 0
 pilot v4_mir_body_stmt_lhs = 0
 pilot v4_mir_body_stmt_rhs = 0
@@ -110,6 +111,8 @@ pilot v4_mir_diags = 0
 pilot v4_mir_loop_break_targets = 0
 pilot v4_mir_loop_continue_targets = 0
 pilot v4_mir_loop_depth = 0
+pilot v4_mir_scope_spans = 0
+pilot v4_mir_scope_depth = 0
 pilot v4_mir_ready = 0
 
 task v4_mir_init() -> void {
@@ -123,6 +126,7 @@ task v4_mir_init() -> void {
         v4_mir_body_local_names = array_new()
         v4_mir_body_local_tys = array_new()
         v4_mir_body_local_spans = array_new()
+        v4_mir_body_local_scope_spans = array_new()
         v4_mir_body_stmt_kinds = array_new()
         v4_mir_body_stmt_lhs = array_new()
         v4_mir_body_stmt_rhs = array_new()
@@ -150,6 +154,8 @@ task v4_mir_init() -> void {
         v4_mir_loop_break_targets = array_new()
         v4_mir_loop_continue_targets = array_new()
         v4_mir_loop_depth = 0
+        v4_mir_scope_spans = array_new()
+        v4_mir_scope_depth = 0
         v4_mir_ready = 1
     }
 }
@@ -158,6 +164,33 @@ task v4_mir_clear_loop_context() -> void {
     v4_mir_loop_break_targets = array_new()
     v4_mir_loop_continue_targets = array_new()
     v4_mir_loop_depth = 0
+}
+
+task v4_mir_clear_scope_context() -> void {
+    v4_mir_scope_spans = array_new()
+    v4_mir_scope_depth = 0
+}
+
+task v4_mir_push_scope_span(span: word) -> void {
+    if array_len(v4_mir_scope_spans) > v4_mir_scope_depth {
+        array_set(v4_mir_scope_spans, v4_mir_scope_depth, span)
+    } else {
+        array_push(v4_mir_scope_spans, span)
+    }
+    v4_mir_scope_depth += 1
+}
+
+task v4_mir_pop_scope_span() -> void {
+    if v4_mir_scope_depth > 0 {
+        v4_mir_scope_depth -= 1
+    }
+}
+
+task v4_mir_current_scope_span(fallback_span: word) -> word {
+    if v4_mir_scope_depth == 0 {
+        give back fallback_span
+    }
+    give back array_get(v4_mir_scope_spans, v4_mir_scope_depth - 1)
 }
 
 task v4_mir_push_loop_context(break_target: int, continue_target: int) -> void {
@@ -203,6 +236,7 @@ task v4_mir_file_new(file_id: int, ty_id: int) -> int {
     array_push(v4_mir_body_local_names, word_from_int(array_new()))
     array_push(v4_mir_body_local_tys, word_from_int(array_new()))
     array_push(v4_mir_body_local_spans, word_from_int(array_new()))
+    array_push(v4_mir_body_local_scope_spans, word_from_int(array_new()))
     array_push(v4_mir_body_stmt_kinds, word_from_int(array_new()))
     array_push(v4_mir_body_stmt_lhs, word_from_int(array_new()))
     array_push(v4_mir_body_stmt_rhs, word_from_int(array_new()))
@@ -256,6 +290,10 @@ task v4_mir_local_tys_index_handle(mir_id: int) -> int {
 
 task v4_mir_local_spans_index_handle(mir_id: int) -> int {
     give back word_to_int(array_get(v4_mir_body_local_spans, mir_id))
+}
+
+task v4_mir_local_scope_spans_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_local_scope_spans, mir_id))
 }
 
 task v4_mir_stmt_kinds_index_handle(mir_id: int) -> int {
@@ -414,6 +452,10 @@ task v4_mir_body_local_spans_handle(mir_id: int, body_id: int) -> int {
     give back word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body_id))
 }
 
+task v4_mir_body_local_scope_spans_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_local_scope_spans_index_handle(mir_id), body_id))
+}
+
 task v4_mir_body_stmt_kinds_handle(mir_id: int, body_id: int) -> int {
     give back word_to_int(array_get(v4_mir_stmt_kinds_index_handle(mir_id), body_id))
 }
@@ -536,6 +578,24 @@ task v4_mir_local_ty(mir_id: int, body_id: int, local_id: int) -> word {
 
 task v4_mir_local_span(mir_id: int, body_id: int, local_id: int) -> word {
     give back array_get(v4_mir_body_local_spans_handle(mir_id, body_id), local_id)
+}
+
+task v4_mir_local_scope_span(mir_id: int, body_id: int, local_id: int) -> word {
+    give back array_get(v4_mir_body_local_scope_spans_handle(mir_id, body_id), local_id)
+}
+
+task v4_mir_local_visible_at(mir_id: int, body_id: int, local_id: int, offset: int) -> bool {
+    if local_id < 0 {
+        give back false
+    }
+    pilot def_span = v4_mir_local_span(mir_id, body_id, local_id)
+    pilot scope_span = v4_mir_local_scope_span(mir_id, body_id, local_id)
+    pilot start_offset = v4_span_start(def_span)
+    pilot end_offset = v4_span_end(scope_span)
+    if end_offset <= start_offset {
+        end_offset = v4_span_end(def_span)
+    }
+    give back offset >= start_offset and offset < end_offset
 }
 
 task v4_mir_stmt_kind(mir_id: int, body_id: int, stmt_id: int) -> word {
@@ -1141,6 +1201,17 @@ task v4_mir_find_local(mir_id: int, body_id: int, local_name: word) -> int {
     give back 0 - 1
 }
 
+task v4_mir_find_local_visible_at(mir_id: int, body_id: int, local_name: word, offset: int) -> int {
+    pilot local_idx = v4_mir_body_local_count(mir_id, body_id)
+    repeat until local_idx <= 0 {
+        local_idx -= 1
+        if v4_mir_local_name(mir_id, body_id, local_idx) == local_name and v4_mir_local_visible_at(mir_id, body_id, local_idx, offset) {
+            give back local_idx
+        }
+    }
+    give back 0 - 1
+}
+
 task v4_mir_set_local_ty(mir_id: int, body_id: int, local_id: int, local_ty: word) -> void {
     if local_id < 0 {
         give back
@@ -1222,6 +1293,7 @@ task v4_mir_add_local(mir_id: int, body_id: int, local_name: word, local_ty: wor
     array_push(v4_mir_body_local_names_handle(mir_id, body_id), local_name)
     array_push(v4_mir_body_local_tys_handle(mir_id, body_id), local_ty)
     array_push(v4_mir_body_local_spans_handle(mir_id, body_id), span)
+    array_push(v4_mir_body_local_scope_spans_handle(mir_id, body_id), v4_mir_current_scope_span(span))
     give back local_id
 }
 
@@ -1243,6 +1315,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     pilot local_names_handle = array_new()
     pilot local_tys_handle = array_new()
     pilot local_spans_handle = array_new()
+    pilot local_scope_spans_handle = array_new()
     pilot stmt_kinds_handle = array_new()
     pilot stmt_lhs_handle = array_new()
     pilot stmt_rhs_handle = array_new()
@@ -1274,6 +1347,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     array_push(v4_mir_local_names_index_handle(mir_id), word_from_int(local_names_handle))
     array_push(v4_mir_local_tys_index_handle(mir_id), word_from_int(local_tys_handle))
     array_push(v4_mir_local_spans_index_handle(mir_id), word_from_int(local_spans_handle))
+    array_push(v4_mir_local_scope_spans_index_handle(mir_id), word_from_int(local_scope_spans_handle))
     array_push(v4_mir_stmt_kinds_index_handle(mir_id), word_from_int(stmt_kinds_handle))
     array_push(v4_mir_stmt_lhs_index_handle(mir_id), word_from_int(stmt_lhs_handle))
     array_push(v4_mir_stmt_rhs_index_handle(mir_id), word_from_int(stmt_rhs_handle))
@@ -3534,7 +3608,7 @@ task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int,
 
     if first == last and v4_ty_is_route_type(ty_id, expected_ty) {
         pilot first_value = v4_lex_token_value(stream_id, first)
-        if v4_mir_find_local(mir_id, body_id, first_value) >= 0 {
+        if v4_mir_find_local_visible_at(mir_id, body_id, first_value, v4_span_start(expr_span)) >= 0 {
             give back 0 - 1
         }
         if v4_ty_route_has_case(ty_id, expected_ty, first_value) {
@@ -3857,8 +3931,9 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back call_rvalue
     }
     if first == last {
-        if v4_mir_find_local(mir_id, body_id, first_value) >= 0 {
-            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_mir_local_ty_for_name(mir_id, body_id, first_value))
+        pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, first_value, v4_span_start(expr_span))
+        if local_id >= 0 {
+            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_mir_local_ty(mir_id, body_id, local_id))
         }
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_symbol, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
     }
@@ -4047,8 +4122,9 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
 
     if first == last {
         pilot local_name = v4_lex_token_value(stream_id, first)
-        if v4_mir_find_local(mir_id, body_id, local_name) >= 0 {
-            give back v4_mir_add_place(mir_id, body_id, v4_mir_place_local, local_name, 0 - 1, local_name, 0 - 1, place_span, v4_mir_local_ty_for_name(mir_id, body_id, local_name))
+        pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, local_name, v4_span_start(place_span))
+        if local_id >= 0 {
+            give back v4_mir_add_place(mir_id, body_id, v4_mir_place_local, local_name, 0 - 1, local_name, 0 - 1, place_span, v4_mir_local_ty(mir_id, body_id, local_id))
         }
     }
 
@@ -4846,12 +4922,14 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
     pilot loop_pattern = v4_mir_expr_text(stream_id, each_token + 1, in_token)
     pilot iterable_text = v4_mir_expr_text(stream_id, in_token + 1, open_token)
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, for_token, stmt_end)
+    pilot loop_scope_span = v4_mir_span_from_tokens(stream_id, open_token, stmt_end)
     pilot iterable_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, in_token + 1, open_token)
     pilot iterable_ty = v4_mir_rvalue_ty(mir_id, body_id, iterable_rvalue)
 
     pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot loop_condition = "for each " + loop_pattern + " in " + iterable_text
+    v4_mir_push_scope_span(loop_scope_span)
     pilot loop_place = v4_mir_lower_for_each_binding(mir_id, body_id, body_block, stmt_span, loop_pattern, iterable_text, iterable_ty)
 
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, body_block, after_block, loop_condition))
@@ -4859,6 +4937,7 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
     v4_mir_push_loop_context(after_block, block_id)
     pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
     v4_mir_pop_loop_context()
+    v4_mir_pop_scope_span()
     v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, block_id)
 
     give back after_block
@@ -5870,9 +5949,11 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
 
     pilot got_arrow = 0 - 1
     pilot got_end = 0 - 1
+    pilot got_span = V4_NO_SPAN
     pilot got_name = ""
     pilot nobody_arrow = 0 - 1
     pilot nobody_end = 0 - 1
+    pilot nobody_span = V4_NO_SPAN
     pilot idx = open_token + 1
     repeat until idx >= check_close {
         idx = v4_mir_skip_trivia(stream_id, idx)
@@ -5899,6 +5980,7 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
                     } else {
                         got_arrow = arrow
                         got_end = arm_end
+                        got_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
                     }
                 }
             } else if arm_head == "nobody" {
@@ -5907,6 +5989,7 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
                 } else {
                     nobody_arrow = arrow
                     nobody_end = arm_end
+                    nobody_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
                 }
             } else {
                 v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe arm malformed", "use got name -> ... or nobody -> ...")
@@ -5933,13 +6016,17 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
     if got_arrow >= 0 {
         pilot value_ty = v4_ty_maybe_value_type(subject_ty)
         pilot value_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".some", subject_place, "some", 0 - 1, stmt_span, value_ty)
-        v4_mir_lower_checked_binding(mir_id, body_id, got_block, stmt_span, got_name, value_place, value_ty, "check maybe binding duplicate local")
+        v4_mir_push_scope_span(got_span)
+        v4_mir_lower_checked_binding(mir_id, body_id, got_block, got_span, got_name, value_place, value_ty, "check maybe binding duplicate local")
         got_block = v4_mir_lower_arm_body(mir_id, body_id, got_block, stream_id, got_arrow, got_end)
+        v4_mir_pop_scope_span()
     }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, got_block, after_block)
 
     if nobody_arrow >= 0 {
+        v4_mir_push_scope_span(nobody_span)
         nobody_block = v4_mir_lower_arm_body(mir_id, body_id, nobody_block, stream_id, nobody_arrow, nobody_end)
+        v4_mir_pop_scope_span()
     }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, nobody_block, after_block)
     give back after_block
@@ -5968,9 +6055,11 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
 
     pilot ok_arrow = 0 - 1
     pilot ok_end = 0 - 1
+    pilot ok_span = V4_NO_SPAN
     pilot ok_name = ""
     pilot err_arrow = 0 - 1
     pilot err_end = 0 - 1
+    pilot err_span = V4_NO_SPAN
     pilot err_name = ""
     pilot idx = open_token + 1
     repeat until idx >= check_close {
@@ -6017,6 +6106,7 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
                 } else {
                     ok_arrow = arrow
                     ok_end = arm_end
+                    ok_span = head_span
                     ok_name = bind_name
                 }
             } else if arm_head == "err" {
@@ -6027,6 +6117,7 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
                 } else {
                     err_arrow = arrow
                     err_end = arm_end
+                    err_span = head_span
                     err_name = bind_name
                 }
             } else {
@@ -6054,16 +6145,20 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
     if ok_arrow >= 0 {
         pilot ok_ty = v4_ty_result_ok_type(subject_ty)
         pilot ok_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".ok", subject_place, "ok", 0 - 1, stmt_span, ok_ty)
-        v4_mir_lower_checked_binding(mir_id, body_id, ok_block, stmt_span, ok_name, ok_place, ok_ty, "check result binding duplicate local")
+        v4_mir_push_scope_span(ok_span)
+        v4_mir_lower_checked_binding(mir_id, body_id, ok_block, ok_span, ok_name, ok_place, ok_ty, "check result binding duplicate local")
         ok_block = v4_mir_lower_arm_body(mir_id, body_id, ok_block, stream_id, ok_arrow, ok_end)
+        v4_mir_pop_scope_span()
     }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, ok_block, after_block)
 
     if err_arrow >= 0 {
         pilot err_ty = v4_ty_result_err_type(subject_ty)
         pilot err_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".err", subject_place, "err", 0 - 1, stmt_span, err_ty)
-        v4_mir_lower_checked_binding(mir_id, body_id, err_block, stmt_span, err_name, err_place, err_ty, "check result binding duplicate local")
+        v4_mir_push_scope_span(err_span)
+        v4_mir_lower_checked_binding(mir_id, body_id, err_block, err_span, err_name, err_place, err_ty, "check result binding duplicate local")
         err_block = v4_mir_lower_arm_body(mir_id, body_id, err_block, stream_id, err_arrow, err_end)
+        v4_mir_pop_scope_span()
     }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, err_block, after_block)
     give back after_block
@@ -6150,8 +6245,10 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
                 v4_mir_add_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
                 current_check = next_check
             }
-            v4_mir_lower_when_pattern_bindings(mir_id, body_id, arm_block, stmt_span, pattern, subject_place, scrutinee_ty)
+            v4_mir_push_scope_span(arm_span)
+            v4_mir_lower_when_pattern_bindings(mir_id, body_id, arm_block, arm_span, pattern, subject_place, scrutinee_ty)
             pilot arm_tail = v4_mir_lower_arm_body(mir_id, body_id, arm_block, stream_id, arrow, arm_end)
+            v4_mir_pop_scope_span()
             v4_mir_seal_block_goto_if_live(mir_id, body_id, arm_tail, after_block)
             if not arm_unreachable and route_when and pattern_full_route_case != "" {
                 route_covered_cases = v4_mir_name_list_add(route_covered_cases, pattern_full_route_case)
@@ -6296,24 +6393,27 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
 
 task v4_mir_lower_block_body(mir_id: int, body_id: int, block_id: int, stream_id: int, open_token: int, end_token: int) -> int {
     pilot close_token = v4_mir_find_matching_brace(stream_id, open_token, end_token)
+    pilot block_span = v4_mir_span_from_tokens(stream_id, open_token, close_token + 1)
+    v4_mir_push_scope_span(block_span)
     pilot idx = open_token + 1
     pilot current_block = block_id
     repeat until idx >= close_token {
         idx = v4_mir_skip_trivia(stream_id, idx)
         if idx >= close_token {
-            give back current_block
-        }
-        pilot stmt_end = v4_mir_statement_end(stream_id, idx, close_token)
-        current_block = v4_mir_lower_statement(mir_id, body_id, current_block, stream_id, idx, stmt_end)
-        if v4_mir_block_has_terminal_stmt(mir_id, body_id, current_block) {
-            give back current_block
-        }
-        if stmt_end <= idx {
-            idx += 1
+            idx = close_token
         } else {
-            idx = stmt_end + 1
+            pilot stmt_end = v4_mir_statement_end(stream_id, idx, close_token)
+            current_block = v4_mir_lower_statement(mir_id, body_id, current_block, stream_id, idx, stmt_end)
+            if v4_mir_block_has_terminal_stmt(mir_id, body_id, current_block) {
+                idx = close_token
+            } else if stmt_end <= idx {
+                idx += 1
+            } else {
+                idx = stmt_end + 1
+            }
         }
     }
+    v4_mir_pop_scope_span()
     give back current_block
 }
 
@@ -6341,6 +6441,7 @@ task v4_mir_lower_task_body_token_range(mir_id: int, body_id: int, stream_id: in
     }
 
     v4_mir_clear_loop_context()
+    v4_mir_clear_scope_context()
     pilot body_marker = v4_lex_token_value(stream_id, body_token)
     if body_marker == "{" {
         pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, 0, stream_id, body_token, end_token)
@@ -6695,6 +6796,7 @@ task v4_mir_snapshot_local_line(mir_id: int, body_id: int, local_id: int) -> wor
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_name(mir_id, body_id, local_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_ty(mir_id, body_id, local_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_span(mir_id, body_id, local_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_scope_span(mir_id, body_id, local_id))
     give back out
 }
 
@@ -6819,7 +6921,7 @@ task v4_mir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "mir" { give back 6 }
     if kind == "mir-body" { give back 11 }
     if kind == "mir-block" { give back 5 }
-    if kind == "mir-local" { give back 7 }
+    if kind == "mir-local" { give back 8 }
     if kind == "mir-stmt" { give back 11 }
     if kind == "mir-place" { give back 11 }
     if kind == "mir-rvalue" { give back 13 }
@@ -6932,6 +7034,7 @@ task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
     array_set(v4_mir_body_local_names, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_local_tys, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_local_spans, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_local_scope_spans, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_stmt_kinds, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_stmt_lhs, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_stmt_rhs, mir_id, word_from_int(array_new()))
@@ -6974,6 +7077,7 @@ task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name
     array_set(v4_mir_local_names_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_local_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_local_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_local_scope_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_stmt_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_stmt_lhs_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_stmt_rhs_index_handle(mir_id), body_id, word_from_int(array_new()))
@@ -7019,7 +7123,7 @@ task v4_mir_restore_block_slot(mir_id: int, body_id: int, block_id: int, block_r
     give back 1
 }
 
-task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_name: word, local_ty: word, span: word) -> int {
+task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_name: word, local_ty: word, span: word, scope_span: word) -> int {
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
     }
@@ -7027,10 +7131,12 @@ task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_n
         array_push(v4_mir_body_local_names_handle(mir_id, body_id), "")
         array_push(v4_mir_body_local_tys_handle(mir_id, body_id), v4_ty_unknown)
         array_push(v4_mir_body_local_spans_handle(mir_id, body_id), V4_NO_SPAN)
+        array_push(v4_mir_body_local_scope_spans_handle(mir_id, body_id), V4_NO_SPAN)
     }
     array_set(v4_mir_body_local_names_handle(mir_id, body_id), local_id, local_name)
     array_set(v4_mir_body_local_tys_handle(mir_id, body_id), local_id, local_ty)
     array_set(v4_mir_body_local_spans_handle(mir_id, body_id), local_id, span)
+    array_set(v4_mir_body_local_scope_spans_handle(mir_id, body_id), local_id, scope_span)
     give back 1
 }
 
@@ -7155,7 +7261,7 @@ task v4_mir_snapshot_restore_local_line(line: word) -> int {
     pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
     pilot body_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
     pilot local_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
-    give back v4_mir_restore_local_slot(mir_id, body_id, local_id, v4_mir_snapshot_field(line, 4), v4_mir_snapshot_field(line, 5), v4_mir_snapshot_field(line, 6))
+    give back v4_mir_restore_local_slot(mir_id, body_id, local_id, v4_mir_snapshot_field(line, 4), v4_mir_snapshot_field(line, 5), v4_mir_snapshot_field(line, 6), v4_mir_snapshot_field(line, 7))
 }
 
 task v4_mir_snapshot_restore_stmt_line(line: word) -> int {
