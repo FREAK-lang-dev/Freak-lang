@@ -285,6 +285,24 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "char literal carriage",
+        "fixture": "char_literal_smoke.fk",
+        "expect": [
+            "char-lex-type=char",
+            "char-lex-value=A",
+            "char-lex-diagnostics=0",
+            "char-return-type=char",
+            "char-local-type=char",
+            "char-rvalue-kind=ConstChar",
+            "char-rvalue-type=char",
+            "char-rvalue-text=A",
+            "char-mir-diagnostics=0",
+            "char-borrow-status=clean",
+            "char-borrow-moves=0",
+            "char-borrow-diagnostics=0",
+        ],
+    },
+    {
         "name": "typed generic signatures",
         "fixture": "ty_generics_smoke.fk",
         "expect": [

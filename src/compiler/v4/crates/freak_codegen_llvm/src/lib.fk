@@ -519,7 +519,7 @@ task v4_codegen_llvm_rvalue_operand(mir_id: int, body_id: int, rvalue_id: int) -
     pilot operand_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
-    if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word {
+    if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_char {
         give back operand_ty + " " + text
     }
     if kind == v4_mir_rvalue_use_local {
@@ -541,7 +541,7 @@ task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> 
 
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
-    if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word {
+    if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_char {
         give back text
     }
     if kind == v4_mir_rvalue_use_local {

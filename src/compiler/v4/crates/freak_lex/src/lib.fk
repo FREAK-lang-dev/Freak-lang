@@ -13,6 +13,7 @@ pilot v4_tok_int = "int"
 pilot v4_tok_float = "float"
 pilot v4_tok_string = "string"
 pilot v4_tok_bool = "bool"
+pilot v4_tok_char = "char"
 pilot v4_tok_symbol = "symbol"
 pilot v4_tok_trivia = "trivia"
 pilot v4_tok_unknown = "unknown"
@@ -210,6 +211,39 @@ task v4_lex_float_suffix_len(text: word, pos: int) -> int {
     give back 0
 }
 
+task v4_lex_char_literal_len(text: word, pos: int) -> int {
+    if v4_lex_char_at(text, pos) != "'" {
+        give back 0
+    }
+    if v4_lex_char_at(text, pos + 1) == "" {
+        give back 0
+    }
+    if v4_lex_char_at(text, pos + 1) == "\\" {
+        pilot escaped = v4_lex_char_at(text, pos + 2)
+        if escaped == "" {
+            give back 0
+        }
+        if v4_lex_char_at(text, pos + 3) == "'" {
+            give back 4
+        }
+        give back 0
+    }
+    if v4_lex_is_newline(v4_lex_char_at(text, pos + 1)) {
+        give back 0
+    }
+    if v4_lex_char_at(text, pos + 2) == "'" {
+        give back 3
+    }
+    give back 0
+}
+
+task v4_lex_char_literal_value(text: word, pos: int, literal_len: int) -> word {
+    if literal_len == 4 {
+        give back "\\" + v4_lex_char_at(text, pos + 2)
+    }
+    give back v4_lex_char_at(text, pos + 1)
+}
+
 task v4_lex_is_horizontal_space(ch: word) -> bool {
     give back ch == " " or ch == "\t" or ch == "\r"
 }
@@ -378,6 +412,12 @@ task v4_lex_text(file_id: int, text: word) -> int {
                 col_no += suffix_len
             }
             v4_lex_add_token(stream_id, number_type, v4_slice(text, start_pos, pos), v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+        } else if v4_lex_char_literal_len(text, pos) > 0 {
+            pilot char_len = v4_lex_char_literal_len(text, pos)
+            pilot char_value = v4_lex_char_literal_value(text, pos, char_len)
+            pos += char_len
+            col_no += char_len
+            v4_lex_add_token(stream_id, v4_tok_char, char_value, v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
         } else if ch == "\"" {
             pos += 1
             col_no += 1

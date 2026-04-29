@@ -1,0 +1,53 @@
+-- V4 char literal smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_char_find_token_type(stream_id: int, tok_type: word) -> int {
+    pilot idx = 0
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until idx >= count {
+        if v4_lex_token_type(stream_id, idx) == tok_type {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_char_source() -> word {
+    pilot src = "task marker() -> char {\n"
+    src = src + "    pilot mark: char = 'A'\n"
+    src = src + "    give back mark\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_char_src = v4_char_source()
+pilot v4_char_stream = v4_lex_text(0, v4_char_src)
+pilot v4_char_token = v4_char_find_token_type(v4_char_stream, v4_tok_char)
+
+pilot v4_char_tree = v4_parse_stream(0, v4_char_stream)
+pilot v4_char_hir = v4_hir_lower_tree(0, v4_char_tree)
+pilot v4_char_resolve = v4_resolve_lower_hir(0, v4_char_hir)
+pilot v4_char_ty = v4_ty_lower_resolve(0, v4_char_resolve)
+pilot v4_char_mir = v4_mir_lower_ty(0, v4_char_ty)
+pilot v4_char_borrow = v4_borrowck_check_mir(0, v4_char_mir)
+
+pilot v4_char_def = v4_resolve_def_for_name(v4_char_resolve, "marker")
+pilot v4_char_sig = v4_ty_lookup_signature(v4_char_ty, v4_char_def)
+pilot v4_char_body = v4_mir_lookup_body(v4_char_mir, v4_char_def)
+pilot v4_char_local = v4_mir_find_local(v4_char_mir, v4_char_body, "mark")
+pilot v4_char_rvalue = v4_mir_stmt_rvalue(v4_char_mir, v4_char_body, 0)
+pilot v4_char_borrow_result = v4_borrowck_lookup_result(v4_char_borrow, v4_char_def)
+
+say "char-lex-type=" + v4_lex_token_type(v4_char_stream, v4_char_token)
+say "char-lex-value=" + v4_lex_token_value(v4_char_stream, v4_char_token)
+say "char-lex-diagnostics=" + word_from_int(v4_lex_diag_count(v4_char_stream))
+say "char-return-type=" + v4_ty_signature_return_type(v4_char_ty, v4_char_sig)
+say "char-local-type=" + v4_mir_local_ty(v4_char_mir, v4_char_body, v4_char_local)
+say "char-rvalue-kind=" + v4_mir_rvalue_kind(v4_char_mir, v4_char_body, v4_char_rvalue)
+say "char-rvalue-type=" + v4_mir_rvalue_ty(v4_char_mir, v4_char_body, v4_char_rvalue)
+say "char-rvalue-text=" + v4_mir_rvalue_text(v4_char_mir, v4_char_body, v4_char_rvalue)
+say "char-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_char_mir))
+say "char-borrow-status=" + v4_borrowck_result_status(v4_char_borrow, v4_char_borrow_result)
+say "char-borrow-moves=" + word_from_int(v4_borrowck_result_moves(v4_char_borrow, v4_char_borrow_result))
+say "char-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_char_borrow))
