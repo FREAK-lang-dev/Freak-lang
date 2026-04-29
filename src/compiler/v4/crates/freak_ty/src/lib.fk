@@ -477,6 +477,78 @@ task v4_ty_is_declared_simple_type_name(ty_id: int, type_name: word) -> bool {
     give back false
 }
 
+task v4_ty_builtin_generic_arg_count(type_name: word) -> int {
+    if type_name == "maybe" or type_name == "List" or type_name == "Set" or type_name == "Lineup" {
+        give back 1
+    }
+    if type_name == "result" or type_name == "Map" {
+        give back 2
+    }
+    give back 0 - 1
+}
+
+task v4_ty_type_signature_id_for_name(ty_id: int, type_name: word) -> int {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
+        if sig_kind == v4_ty_shape_sig or sig_kind == v4_ty_route_sig or sig_kind == v4_ty_alias_sig or sig_kind == v4_ty_doctrine_sig {
+            if v4_ty_signature_name(ty_id, sig_id) == type_name {
+                give back sig_id
+            }
+        }
+        sig_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_expected_generic_arg_count(ty_id: int, type_name: word) -> int {
+    pilot builtin_count = v4_ty_builtin_generic_arg_count(type_name)
+    if builtin_count >= 0 {
+        give back builtin_count
+    }
+
+    pilot sig_id = v4_ty_type_signature_id_for_name(ty_id, type_name)
+    if sig_id >= 0 {
+        give back v4_ty_signature_generic_count(ty_id, sig_id)
+    }
+    give back 0 - 1
+}
+
+task v4_ty_generic_slot_accepts_lifetime(ty_id: int, type_name: word, arg_id: int) -> bool {
+    if arg_id < 0 {
+        give back false
+    }
+    pilot sig_id = v4_ty_type_signature_id_for_name(ty_id, type_name)
+    if sig_id < 0 {
+        give back false
+    }
+    if arg_id >= v4_ty_signature_generic_count(ty_id, sig_id) {
+        give back false
+    }
+    give back v4_ty_signature_generic_is_lifetime(ty_id, sig_id, arg_id)
+}
+
+task v4_ty_generic_slot_accepts_type(ty_id: int, type_name: word, arg_id: int) -> bool {
+    if arg_id < 0 {
+        give back false
+    }
+
+    pilot builtin_count = v4_ty_builtin_generic_arg_count(type_name)
+    if builtin_count >= 0 {
+        give back arg_id < builtin_count
+    }
+
+    pilot sig_id = v4_ty_type_signature_id_for_name(ty_id, type_name)
+    if sig_id < 0 {
+        give back false
+    }
+    if arg_id >= v4_ty_signature_generic_count(ty_id, sig_id) {
+        give back false
+    }
+    give back v4_ty_signature_generic_is_lifetime(ty_id, sig_id, arg_id) == false
+}
+
 task v4_ty_numeric_result(left_ty: word, right_ty: word) -> word {
     if left_ty == v4_ty_unknown or right_ty == v4_ty_unknown {
         give back v4_ty_unknown
@@ -3183,6 +3255,69 @@ task v4_ty_validate_signature_type_lifetimes(ty_id: int, sig_id: int, type_text:
             v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + lifetime_name + " is used in " + context + " but is not declared on " + v4_ty_signature_name(ty_id, sig_id))
         }
         lifetime_id += 1
+    }
+
+    v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, type_text, context)
+}
+
+task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, type_text: word, context: word) -> void {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back
+    }
+
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot base_name = v4_ty_generic_base_name(type_text)
+        pilot actual_count = v4_ty_generic_arg_count(type_text)
+        pilot expected_count = v4_ty_expected_generic_arg_count(ty_id, base_name)
+        if expected_count >= 0 and expected_count != actual_count {
+            v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + base_name + " expects " + word_from_int(expected_count) + " generic arguments in " + context + " but received " + word_from_int(actual_count))
+        }
+
+        pilot arg_id = 0
+        repeat until arg_id >= actual_count {
+            pilot arg_text = v4_ty_generic_arg(type_text, arg_id)
+            if v4_ty_generic_slot_accepts_lifetime(ty_id, base_name, arg_id) {
+                if v4_ty_is_lifetime_name(arg_text) == false {
+                    v4_ty_add_diag(ty_id, "Meiya lifetime debt: generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context + " must be a lifetime like 'a")
+                }
+            } else if v4_ty_generic_slot_accepts_type(ty_id, base_name, arg_id) {
+                if v4_ty_is_lifetime_name(arg_text) {
+                    v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + arg_text + " cannot be used as a value type in generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context)
+                } else {
+                    v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, arg_text, "generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context)
+                }
+            } else {
+                if v4_ty_is_lifetime_name(arg_text) == false {
+                    v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, arg_text, "generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context)
+                }
+            }
+            arg_id += 1
+        }
+        give back
+    }
+
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            pilot slot_text = v4_ty_tuple_slot_type(type_text, slot_id)
+            if v4_ty_is_lifetime_name(slot_text) {
+                v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + slot_text + " cannot be used as a value type in tuple slot " + word_from_int(slot_id) + " of " + context)
+            } else {
+                v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, slot_text, "tuple slot " + word_from_int(slot_id) + " of " + context)
+            }
+            slot_id += 1
+        }
+        give back
+    }
+
+    if v4_ty_is_fixed_array_type(type_text) {
+        pilot element_type = v4_ty_fixed_array_element_type(type_text)
+        if v4_ty_is_lifetime_name(element_type) {
+            v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + element_type + " cannot be used as a value type in array element of " + context)
+        } else {
+            v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, element_type, "array element of " + context)
+        }
     }
 }
 

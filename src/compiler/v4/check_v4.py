@@ -375,7 +375,7 @@ EXECUTABLE_SMOKES = [
         "name": "lifetime diagnostics",
         "fixture": "lifetime_diagnostics_smoke.fk",
         "expect": [
-            "lifetime-diag-count=9",
+            "lifetime-diag-count=14",
             "lifetime-diag-type-count=2",
             "lifetime-diag-type0='a",
             "lifetime-diag-type1='static",
@@ -390,6 +390,11 @@ EXECUTABLE_SMOKES = [
             "lifetime-diag6=Meiya lifetime debt: duplicate generic 'a on duplicate; every route through Alternative IV needs one owner",
             "lifetime-diag7=Meiya lifetime debt: duplicate generic T on duplicate; every route through Alternative IV needs one owner",
             "lifetime-diag8=Meiya lifetime debt: 'a cannot be used as a value type in parameter 0 of bare",
+            "lifetime-diag9=Meiya lifetime debt: RefBox expects 2 generic arguments in field value of MissingArgs but received 1",
+            "lifetime-diag10=Meiya lifetime debt: RefBox expects 2 generic arguments in field value of ExtraArgs but received 3",
+            "lifetime-diag11=Meiya lifetime debt: generic argument 0 of RefBox in field value of WrongKinds must be a lifetime like 'a",
+            "lifetime-diag12=Meiya lifetime debt: 'a cannot be used as a value type in generic argument 1 of RefBox in field value of WrongKinds",
+            "lifetime-diag13=Meiya lifetime debt: maybe expects 1 generic arguments in alias target of BadMaybe but received 2",
         ],
     },
     {

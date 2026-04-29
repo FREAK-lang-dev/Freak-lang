@@ -41,6 +41,16 @@ task v4_lifetime_diag_source() -> word {
     src = src + "task bare<'a>(value: 'a) -> int {\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "shape MissingArgs<'a> {\n"
+    src = src + "    value: RefBox<'a>\n"
+    src = src + "}\n"
+    src = src + "shape ExtraArgs<'a> {\n"
+    src = src + "    value: RefBox<'a,int,word>\n"
+    src = src + "}\n"
+    src = src + "shape WrongKinds<'a> {\n"
+    src = src + "    value: RefBox<int,'a>\n"
+    src = src + "}\n"
+    src = src + "alias BadMaybe = maybe<int,word>\n"
     give back src
 }
 
