@@ -1,6 +1,51 @@
 -- V4 query invalidation smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_invalidation_contract_match_key(left: word, right: word, key: word) -> word {
+    if v4_unit_snapshot_key_value(left, key) == v4_unit_snapshot_key_value(right, key) {
+        give back "true"
+    }
+    give back key
+}
+
+task v4_invalidation_contract_matches(left: word, right: word) -> word {
+    pilot key = v4_invalidation_contract_match_key(left, right, "query-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "core-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "syntax-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "lex-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "parse-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "hir-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "resolve-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "ty-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "mir-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "borrowck-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "diagnostics-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "editor-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "semantic-at-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "hover-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "definition-at-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "document-symbols-invalidations-added")
+    if key != "true" { give back key }
+    key = v4_invalidation_contract_match_key(left, right, "completion-invalidations-added")
+    if key != "true" { give back key }
+    give back "true"
+}
+
 pilot v4_invalidation_source = "task main() => \"hi\"\n"
 v4_invalidation_source = v4_invalidation_source + "shape Pilot\n"
 v4_lsp_open_document("invalidate.fk", v4_invalidation_source)
@@ -16,12 +61,35 @@ pilot v4_invalidation_before_snapshot = v4_unit_snapshot()
 pilot v4_invalidation_changed = "shape Pilot\n"
 v4_invalidation_changed = v4_invalidation_changed + "task main() => \"hi\"\n"
 say v4_lsp_handle_text_request("textDocument/didChange", "invalidate.fk", v4_invalidation_changed, 0)
-say v4_lsp_invalidation_summary("invalidate.fk")
+pilot v4_invalidation_report1 = v4_lsp_invalidation_summary("invalidate.fk")
+say v4_invalidation_report1
 pilot v4_invalidation_after_snapshot = v4_unit_snapshot()
 pilot v4_invalidation_diff = v4_unit_snapshot_diff(v4_invalidation_before_snapshot, v4_invalidation_after_snapshot)
-say v4_unit_snapshot_health_diff_line(v4_invalidation_diff)
+pilot v4_invalidation_diff_line = v4_unit_snapshot_health_diff_line(v4_invalidation_diff)
+say v4_invalidation_diff_line
+say "invalidation-match-first=" + v4_invalidation_contract_matches(v4_invalidation_report1, v4_invalidation_diff_line)
 say "generation-after=" + word_from_int(v4_query_generation())
 say "generation-reason=" + v4_query_generation_reason(v4_query_generation())
 say "invalidated-total=" + word_from_int(v4_query_invalidated_count())
 say "dirty-total=" + word_from_int(v4_query_dirty_count())
 say "first-invalidated=" + v4_query_invalidated_key(0)
+
+say v4_lsp_handle_position_request("textDocument/hover", "invalidate.fk", 1, 5)
+say v4_lsp_handle_position_request("textDocument/definition", "invalidate.fk", 1, 5)
+say v4_lsp_handle_position_request("textDocument/completion", "invalidate.fk", 0, 0)
+say v4_lsp_handle_request("textDocument/documentSymbol", "invalidate.fk", 0)
+say v4_lsp_handle_request("textDocument/publishDiagnostics", "invalidate.fk", 0)
+pilot v4_invalidation_mid_snapshot = v4_unit_snapshot()
+
+pilot v4_invalidation_changed2 = "task main() => \"bye\"\n"
+v4_invalidation_changed2 = v4_invalidation_changed2 + "shape Pilot\n"
+say v4_lsp_handle_text_request("textDocument/didChange", "invalidate.fk", v4_invalidation_changed2, 0)
+pilot v4_invalidation_report2 = v4_lsp_invalidation_summary("invalidate.fk")
+say v4_invalidation_report2
+pilot v4_invalidation_after_snapshot2 = v4_unit_snapshot()
+pilot v4_invalidation_diff2 = v4_unit_snapshot_diff(v4_invalidation_mid_snapshot, v4_invalidation_after_snapshot2)
+pilot v4_invalidation_diff_line2 = v4_unit_snapshot_health_diff_line(v4_invalidation_diff2)
+say v4_invalidation_diff_line2
+say "invalidation-match-second=" + v4_invalidation_contract_matches(v4_invalidation_report2, v4_invalidation_diff_line2)
+say "generation-after-second=" + word_from_int(v4_query_generation())
+say "generation-reason-second=" + v4_query_generation_reason(v4_query_generation())

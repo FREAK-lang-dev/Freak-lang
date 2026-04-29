@@ -54,6 +54,8 @@ EXECUTABLE_SMOKES = [
             "health-diff|",
             "lex-invalidations-added=",
             "editor-invalidations-added=",
+            "invalidation-match-first=true",
+            "invalidation-match-second=true",
         ],
     },
     {

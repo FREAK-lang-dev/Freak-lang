@@ -1376,6 +1376,23 @@ task v4_unit_invalidation_family_count(path: word, family: word) -> int {
     give back total
 }
 
+task v4_unit_invalidation_family_count_at_generation(path: word, family: word, generation: int) -> int {
+    pilot total = 0
+    pilot idx = 0
+    pilot count = v4_query_invalidated_count()
+    repeat until idx >= count {
+        pilot key = v4_query_invalidated_key(idx)
+        pilot invalidation_generation = v4_query_invalidated_generation(idx)
+        if generation <= 0 or invalidation_generation == generation {
+            if v4_unit_invalidation_family_matches_path_key(path, family, key) {
+                total += 1
+            }
+        }
+        idx += 1
+    }
+    give back total
+}
+
 task v4_unit_invalidation_latest_generation(path: word) -> int {
     pilot latest = 0
     pilot idx = 0
@@ -1388,6 +1405,13 @@ task v4_unit_invalidation_latest_generation(path: word) -> int {
         idx += 1
     }
     give back latest
+}
+
+task v4_unit_invalidation_resolve_generation(path: word, generation: int) -> int {
+    if generation > 0 {
+        give back generation
+    }
+    give back v4_unit_invalidation_latest_generation(path)
 }
 
 task v4_unit_invalidation_latest_reason(path: word) -> word {
@@ -1417,34 +1441,55 @@ task v4_unit_invalidation_first_key(path: word) -> word {
     give back ""
 }
 
-task v4_unit_invalidation_report(path: word) -> word {
+task v4_unit_invalidation_first_key_at_generation(path: word, generation: int) -> word {
+    pilot idx = 0
+    pilot count = v4_query_invalidated_count()
+    repeat until idx >= count {
+        pilot key = v4_query_invalidated_key(idx)
+        pilot invalidation_generation = v4_query_invalidated_generation(idx)
+        if generation <= 0 or invalidation_generation == generation {
+            if v4_unit_invalidation_family_matches_path_key(path, "all", key) {
+                give back key
+            }
+        }
+        idx += 1
+    }
+    give back ""
+}
+
+task v4_unit_invalidation_report_at_generation(path: word, generation: int) -> word {
+    pilot resolved_generation = v4_unit_invalidation_resolve_generation(path, generation)
     pilot out = "invalidation-contract"
     out = out + "|path=" + v4_unit_snapshot_escape(path)
-    out = out + "|generation=" + word_from_int(v4_unit_invalidation_latest_generation(path))
-    out = out + "|reason=" + v4_unit_snapshot_escape(v4_unit_invalidation_latest_reason(path))
-    out = out + "|query-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "all"))
-    out = out + "|core-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "core"))
-    out = out + "|syntax-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "syntax"))
-    out = out + "|lex-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "lex"))
-    out = out + "|parse-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "parse"))
-    out = out + "|hir-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "hir"))
-    out = out + "|resolve-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "resolve"))
-    out = out + "|ty-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "ty"))
-    out = out + "|mir-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "mir"))
-    out = out + "|borrowck-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "borrowck"))
-    out = out + "|diagnostics-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "diagnostics"))
-    out = out + "|editor-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "editor"))
-    out = out + "|semantic-at-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "semantic-at"))
-    out = out + "|hover-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "hover"))
-    out = out + "|definition-at-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "definition-at"))
-    out = out + "|document-symbols-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "document-symbols"))
-    out = out + "|completion-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count(path, "completion"))
+    out = out + "|generation=" + word_from_int(resolved_generation)
+    out = out + "|reason=" + v4_unit_snapshot_escape(v4_query_generation_reason(resolved_generation))
+    out = out + "|query-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "all", resolved_generation))
+    out = out + "|core-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "core", resolved_generation))
+    out = out + "|syntax-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "syntax", resolved_generation))
+    out = out + "|lex-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "lex", resolved_generation))
+    out = out + "|parse-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "parse", resolved_generation))
+    out = out + "|hir-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "hir", resolved_generation))
+    out = out + "|resolve-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "resolve", resolved_generation))
+    out = out + "|ty-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "ty", resolved_generation))
+    out = out + "|mir-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "mir", resolved_generation))
+    out = out + "|borrowck-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "borrowck", resolved_generation))
+    out = out + "|diagnostics-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "diagnostics", resolved_generation))
+    out = out + "|editor-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "editor", resolved_generation))
+    out = out + "|semantic-at-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "semantic-at", resolved_generation))
+    out = out + "|hover-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "hover", resolved_generation))
+    out = out + "|definition-at-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "definition-at", resolved_generation))
+    out = out + "|document-symbols-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "document-symbols", resolved_generation))
+    out = out + "|completion-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "completion", resolved_generation))
     out = out + "|dirty=" + word_from_int(v4_query_dirty_count())
-    pilot first_key = v4_unit_invalidation_first_key(path)
+    pilot first_key = v4_unit_invalidation_first_key_at_generation(path, resolved_generation)
     if first_key != "" {
         out = out + "|first=" + v4_unit_snapshot_escape(first_key)
     }
     give back out
+}
+
+task v4_unit_invalidation_report(path: word) -> word {
+    give back v4_unit_invalidation_report_at_generation(path, 0)
 }
 
 task v4_driver_query_output_can_promote(path: word, key: word) -> int {
