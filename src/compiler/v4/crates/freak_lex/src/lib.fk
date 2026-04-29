@@ -211,6 +211,13 @@ task v4_lex_float_suffix_len(text: word, pos: int) -> int {
     give back 0
 }
 
+task v4_lex_char_escape_is_supported(escaped: word) -> bool {
+    if escaped == "n" or escaped == "r" or escaped == "t" or escaped == "0" {
+        give back true
+    }
+    give back escaped == "'" or escaped == "\"" or escaped == "\\"
+}
+
 task v4_lex_char_literal_len(text: word, pos: int) -> int {
     if v4_lex_char_at(text, pos) != "'" {
         give back 0
@@ -221,6 +228,9 @@ task v4_lex_char_literal_len(text: word, pos: int) -> int {
     if v4_lex_char_at(text, pos + 1) == "\\" {
         pilot escaped = v4_lex_char_at(text, pos + 2)
         if escaped == "" {
+            give back 0
+        }
+        if v4_lex_char_escape_is_supported(escaped) == false {
             give back 0
         }
         if v4_lex_char_at(text, pos + 3) == "'" {

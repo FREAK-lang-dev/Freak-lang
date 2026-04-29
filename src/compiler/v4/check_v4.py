@@ -290,6 +290,8 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "char-lex-type=char",
             "char-lex-value=A",
+            "char-escape-lex-type=char",
+            "char-escape-lex-value=\\n",
             "char-lex-diagnostics=0",
             "char-return-type=char",
             "char-local-type=char",
@@ -300,6 +302,9 @@ EXECUTABLE_SMOKES = [
             "char-borrow-status=clean",
             "char-borrow-moves=0",
             "char-borrow-diagnostics=0",
+            "char-codegen-direct-ret-65=true",
+            "char-codegen-escape-ret-10=true",
+            "char-codegen-diagnostics=0",
         ],
     },
     {

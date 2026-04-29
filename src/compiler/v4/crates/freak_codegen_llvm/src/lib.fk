@@ -511,6 +511,44 @@ task v4_codegen_llvm_temp_value(body_id: int, rvalue_id: int) -> word {
     give back "%rv" + word_from_int(body_id) + "_" + word_from_int(rvalue_id)
 }
 
+task v4_codegen_llvm_char_literal_codepoint_in_chunk(text: word, chunk: word, base: int) -> word {
+    if text.length() == 1 {
+        pilot idx = v4_index_of_from(chunk, text, 0)
+        if idx >= 0 {
+            give back word_from_int(base + idx)
+        }
+    }
+    give back ""
+}
+
+task v4_codegen_llvm_char_literal_codepoint(text: word) -> word {
+    if text == "\\0" { give back "0" }
+    if text == "\\t" { give back "9" }
+    if text == "\\n" { give back "10" }
+    if text == "\\r" { give back "13" }
+    if text == "\\\"" { give back "34" }
+    if text == "\\'" { give back "39" }
+    if text == "\\\\" { give back "92" }
+
+    if text == "\"" { give back "34" }
+    if text == "\\" { give back "92" }
+    if text == "`" { give back "96" }
+    if text == "{" { give back "123" }
+    if text == "|" { give back "124" }
+    if text == "}" { give back "125" }
+    if text == "~" { give back "126" }
+
+    pilot codepoint = v4_codegen_llvm_char_literal_codepoint_in_chunk(text, " !", 32)
+    if codepoint != "" { give back codepoint }
+    codepoint = v4_codegen_llvm_char_literal_codepoint_in_chunk(text, "#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[", 35)
+    if codepoint != "" { give back codepoint }
+    codepoint = v4_codegen_llvm_char_literal_codepoint_in_chunk(text, "]^_", 93)
+    if codepoint != "" { give back codepoint }
+    codepoint = v4_codegen_llvm_char_literal_codepoint_in_chunk(text, "abcdefghijklmnopqrstuvwxyz", 97)
+    if codepoint != "" { give back codepoint }
+    give back "0"
+}
+
 task v4_codegen_llvm_rvalue_operand(mir_id: int, body_id: int, rvalue_id: int) -> word {
     if rvalue_id < 0 {
         give back ""
@@ -519,7 +557,10 @@ task v4_codegen_llvm_rvalue_operand(mir_id: int, body_id: int, rvalue_id: int) -
     pilot operand_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
-    if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_char {
+    if kind == v4_mir_rvalue_const_char {
+        give back operand_ty + " " + v4_codegen_llvm_char_literal_codepoint(text)
+    }
+    if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word {
         give back operand_ty + " " + text
     }
     if kind == v4_mir_rvalue_use_local {
@@ -541,7 +582,10 @@ task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> 
 
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
-    if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_char {
+    if kind == v4_mir_rvalue_const_char {
+        give back v4_codegen_llvm_char_literal_codepoint(text)
+    }
+    if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word {
         give back text
     }
     if kind == v4_mir_rvalue_use_local {
