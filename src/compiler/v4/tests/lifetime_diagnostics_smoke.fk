@@ -1,0 +1,66 @@
+-- V4 lifetime diagnostics smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lifetime_diag_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_lifetime_diag_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_lifetime_diag_source() -> word {
+    pilot src = "task valid_static(value: RefBox<'static,int>) -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "shape RefBox<'a, T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "task bad_param(value: RefBox<'ghost,int>) -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task bad_return<'a>(value: int) -> RefBox<'missing,int> {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "shape BadBox<'a, T> {\n"
+    src = src + "    value: RefBox<'ghost,T>\n"
+    src = src + "}\n"
+    src = src + "route BadLoan<'a, T> {\n"
+    src = src + "    Active " + v4_lifetime_diag_braces(" value: RefBox<'ghost,T> ") + "\n"
+    src = src + "    Empty\n"
+    src = src + "}\n"
+    src = src + "doctrine BadDoctrine<'a, T> {\n"
+    src = src + "    task lend(self, value: RefBox<'ghost,T>) -> RefBox<'missing,T>\n"
+    src = src + "}\n"
+    src = src + "task duplicate<'a, 'a, T, T>(value: T) -> T {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task bare<'a>(value: 'a) -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_lifetime_diag_src = v4_lifetime_diag_source()
+pilot v4_lifetime_diag_stream = v4_lex_text(0, v4_lifetime_diag_src)
+pilot v4_lifetime_diag_tree = v4_parse_stream(0, v4_lifetime_diag_stream)
+pilot v4_lifetime_diag_hir = v4_hir_lower_tree(0, v4_lifetime_diag_tree)
+pilot v4_lifetime_diag_resolve = v4_resolve_lower_hir(0, v4_lifetime_diag_hir)
+pilot v4_lifetime_diag_ty = v4_ty_lower_resolve(0, v4_lifetime_diag_resolve)
+
+say v4_ty_summary(v4_lifetime_diag_ty)
+say "lifetime-diag-count=" + word_from_int(v4_ty_diag_count(v4_lifetime_diag_ty))
+say "lifetime-diag-type-count=" + word_from_int(v4_ty_type_lifetime_count("RefBox<'a,Map<word,RefBox<'static,int>>>"))
+say "lifetime-diag-type0=" + v4_ty_type_lifetime_name("RefBox<'a,Map<word,RefBox<'static,int>>>", 0)
+say "lifetime-diag-type1=" + v4_ty_type_lifetime_name("RefBox<'a,Map<word,RefBox<'static,int>>>", 1)
+say "lifetime-diag-mentions-static=" + v4_lifetime_diag_bool(v4_ty_type_mentions_lifetime("RefBox<'a,Map<word,RefBox<'static,int>>>", "'static"))
+say "lifetime-diag-mentions-ghost=" + v4_lifetime_diag_bool(v4_ty_type_mentions_lifetime("RefBox<'a,Map<word,RefBox<'static,int>>>", "'ghost"))
+
+pilot v4_lifetime_diag_idx = 0
+repeat until v4_lifetime_diag_idx >= v4_ty_diag_count(v4_lifetime_diag_ty) {
+    say "lifetime-diag" + word_from_int(v4_lifetime_diag_idx) + "=" + v4_ty_diag(v4_lifetime_diag_ty, v4_lifetime_diag_idx)
+    v4_lifetime_diag_idx += 1
+}

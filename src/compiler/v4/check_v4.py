@@ -370,6 +370,27 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "lifetime diagnostics",
+        "fixture": "lifetime_diagnostics_smoke.fk",
+        "expect": [
+            "lifetime-diag-count=9",
+            "lifetime-diag-type-count=2",
+            "lifetime-diag-type0='a",
+            "lifetime-diag-type1='static",
+            "lifetime-diag-mentions-static=true",
+            "lifetime-diag-mentions-ghost=false",
+            "lifetime-diag0=Meiya lifetime debt: 'ghost is used in parameter 0 of bad_param but is not declared on bad_param",
+            "lifetime-diag1=Meiya lifetime debt: 'missing is used in return type of bad_return but is not declared on bad_return",
+            "lifetime-diag2=Meiya lifetime debt: 'ghost is used in field value of BadBox but is not declared on BadBox",
+            "lifetime-diag3=Meiya lifetime debt: 'ghost is used in field value of BadLoan::Active but is not declared on BadLoan",
+            "lifetime-diag4=Meiya lifetime debt: 'ghost is used in parameter 1 of BadDoctrine::lend but is not declared on BadDoctrine",
+            "lifetime-diag5=Meiya lifetime debt: 'missing is used in return type of BadDoctrine::lend but is not declared on BadDoctrine",
+            "lifetime-diag6=Meiya lifetime debt: duplicate generic 'a on duplicate; every route through Alternative IV needs one owner",
+            "lifetime-diag7=Meiya lifetime debt: duplicate generic T on duplicate; every route through Alternative IV needs one owner",
+            "lifetime-diag8=Meiya lifetime debt: 'a cannot be used as a value type in parameter 0 of bare",
+        ],
+    },
+    {
         "name": "typed generic signatures",
         "fixture": "ty_generics_smoke.fk",
         "expect": [

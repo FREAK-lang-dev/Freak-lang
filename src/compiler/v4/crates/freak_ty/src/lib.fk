@@ -341,6 +341,84 @@ task v4_ty_is_lifetime_name(ty_name: word) -> bool {
     give back ty_name.length() > 1 and ty_name.char_at(0) == "'"
 }
 
+task v4_ty_lifetime_name_end(type_text: word, start_pos: int) -> int {
+    if start_pos < 0 or start_pos >= type_text.length() {
+        give back start_pos
+    }
+    if type_text.char_at(start_pos) != "'" {
+        give back start_pos
+    }
+    if start_pos + 1 >= type_text.length() {
+        give back start_pos
+    }
+    if v4_lex_is_ident_start(type_text.char_at(start_pos + 1)) == false {
+        give back start_pos
+    }
+
+    pilot idx = start_pos + 2
+    repeat until idx >= type_text.length() or v4_lex_is_ident_continue(type_text.char_at(idx)) == false {
+        idx += 1
+    }
+    give back idx
+}
+
+task v4_ty_type_lifetime_count(type_text: word) -> int {
+    pilot count = 0
+    pilot idx = 0
+    repeat until idx >= type_text.length() {
+        if type_text.char_at(idx) == "'" {
+            pilot lifetime_end = v4_ty_lifetime_name_end(type_text, idx)
+            if lifetime_end > idx {
+                count += 1
+                idx = lifetime_end
+            } else {
+                idx += 1
+            }
+        } else {
+            idx += 1
+        }
+    }
+    give back count
+}
+
+task v4_ty_type_lifetime_name(type_text: word, lifetime_id: int) -> word {
+    if lifetime_id < 0 {
+        give back ""
+    }
+
+    pilot seen = 0
+    pilot idx = 0
+    repeat until idx >= type_text.length() {
+        if type_text.char_at(idx) == "'" {
+            pilot lifetime_end = v4_ty_lifetime_name_end(type_text, idx)
+            if lifetime_end > idx {
+                if seen == lifetime_id {
+                    give back v4_slice(type_text, idx, lifetime_end)
+                }
+                seen += 1
+                idx = lifetime_end
+            } else {
+                idx += 1
+            }
+        } else {
+            idx += 1
+        }
+    }
+    give back ""
+}
+
+task v4_ty_type_mentions_lifetime(type_text: word, lifetime_name: word) -> bool {
+    pilot lifetime_id = 0
+    pilot lifetime_count = v4_ty_type_lifetime_count(type_text)
+    repeat until lifetime_id >= lifetime_count {
+        if v4_ty_type_lifetime_name(type_text, lifetime_id) == lifetime_name {
+            give back true
+        }
+        lifetime_id += 1
+    }
+    give back false
+}
+
 task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
     if not v4_ty_is_known(expected_ty) or not v4_ty_is_known(actual_ty) {
         give back true
@@ -3057,6 +3135,138 @@ task v4_ty_shape_field_type_for_name(ty_id: int, shape_name: word, field_name: w
     give back v4_ty_unknown
 }
 
+task v4_ty_lifetime_is_implicit(lifetime_name: word) -> bool {
+    give back lifetime_name == "'static"
+}
+
+task v4_ty_signature_accepts_lifetime(ty_id: int, sig_id: int, lifetime_name: word) -> bool {
+    if v4_ty_lifetime_is_implicit(lifetime_name) {
+        give back true
+    }
+    give back v4_ty_signature_declares_lifetime_name(ty_id, sig_id, lifetime_name)
+}
+
+task v4_ty_validate_signature_generic_names(ty_id: int, sig_id: int) -> void {
+    pilot generic_id = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_id >= generic_count {
+        pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_id)
+        if generic_name == "" {
+            v4_ty_add_diag(ty_id, "Meiya lifetime debt: empty generic slot on " + v4_ty_signature_name(ty_id, sig_id))
+        }
+
+        pilot previous_id = 0
+        repeat until previous_id >= generic_id {
+            if v4_ty_signature_generic_name(ty_id, sig_id, previous_id) == generic_name {
+                v4_ty_add_diag(ty_id, "Meiya lifetime debt: duplicate generic " + generic_name + " on " + v4_ty_signature_name(ty_id, sig_id) + "; every route through Alternative IV needs one owner")
+            }
+            previous_id += 1
+        }
+        generic_id += 1
+    }
+}
+
+task v4_ty_validate_signature_type_lifetimes(ty_id: int, sig_id: int, type_text: word, context: word) -> void {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back
+    }
+
+    if v4_ty_is_lifetime_name(type_text) {
+        v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + type_text + " cannot be used as a value type in " + context)
+    }
+
+    pilot lifetime_id = 0
+    pilot lifetime_count = v4_ty_type_lifetime_count(type_text)
+    repeat until lifetime_id >= lifetime_count {
+        pilot lifetime_name = v4_ty_type_lifetime_name(type_text, lifetime_id)
+        if v4_ty_signature_accepts_lifetime(ty_id, sig_id, lifetime_name) == false {
+            v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + lifetime_name + " is used in " + context + " but is not declared on " + v4_ty_signature_name(ty_id, sig_id))
+        }
+        lifetime_id += 1
+    }
+}
+
+task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_signature_param_type(ty_id, sig_id, param_id), "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id))
+        param_id += 1
+    }
+    v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_signature_return_type(ty_id, sig_id), "return type of " + v4_ty_signature_name(ty_id, sig_id))
+}
+
+task v4_ty_validate_shape_signature_lifetimes(ty_id: int, sig_id: int) -> void {
+    pilot field_id = 0
+    pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
+    repeat until field_id >= field_count {
+        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_shape_field_type(ty_id, sig_id, field_id), "field " + v4_ty_shape_field_name(ty_id, sig_id, field_id) + " of " + v4_ty_signature_name(ty_id, sig_id))
+        field_id += 1
+    }
+}
+
+task v4_ty_validate_route_signature_lifetimes(ty_id: int, sig_id: int) -> void {
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot case_id = 0
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    repeat until case_id >= case_count {
+        pilot case_name = v4_ty_route_case_name(ty_id, sig_id, case_id)
+        pilot field_id = 0
+        pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
+        repeat until field_id >= field_count {
+            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_route_case_field_type(ty_id, route_name, case_name, field_id), "field " + v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) + " of " + route_name + "::" + case_name)
+            field_id += 1
+        }
+        case_id += 1
+    }
+}
+
+task v4_ty_validate_doctrine_signature_lifetimes(ty_id: int, sig_id: int) -> void {
+    pilot method_id = 0
+    pilot method_count = v4_ty_doctrine_method_count(ty_id, sig_id)
+    repeat until method_id >= method_count {
+        pilot method_name = v4_ty_doctrine_method_name(ty_id, sig_id, method_id)
+        pilot param_id = 0
+        pilot param_count = v4_ty_doctrine_method_param_count(ty_id, sig_id, method_id)
+        repeat until param_id >= param_count {
+            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_doctrine_method_param_type(ty_id, sig_id, method_id, param_id), "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name)
+            param_id += 1
+        }
+        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id), "return type of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name)
+        method_id += 1
+    }
+}
+
+task v4_ty_validate_alias_signature_lifetimes(ty_id: int, sig_id: int) -> void {
+    v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_alias_target_type_for_sig(ty_id, sig_id), "alias target of " + v4_ty_signature_name(ty_id, sig_id))
+}
+
+task v4_ty_validate_signature_lifetimes(ty_id: int, sig_id: int) -> void {
+    v4_ty_validate_signature_generic_names(ty_id, sig_id)
+
+    pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
+    if sig_kind == v4_ty_task_sig or sig_kind == v4_ty_extern_sig {
+        v4_ty_validate_task_signature_lifetimes(ty_id, sig_id)
+    } else if sig_kind == v4_ty_shape_sig {
+        v4_ty_validate_shape_signature_lifetimes(ty_id, sig_id)
+    } else if sig_kind == v4_ty_route_sig {
+        v4_ty_validate_route_signature_lifetimes(ty_id, sig_id)
+    } else if sig_kind == v4_ty_doctrine_sig {
+        v4_ty_validate_doctrine_signature_lifetimes(ty_id, sig_id)
+    } else if sig_kind == v4_ty_alias_sig {
+        v4_ty_validate_alias_signature_lifetimes(ty_id, sig_id)
+    }
+}
+
+task v4_ty_validate_lifetime_contracts(ty_id: int) -> void {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        v4_ty_validate_signature_lifetimes(ty_id, sig_id)
+        sig_id += 1
+    }
+}
+
 task v4_ty_type_depth_after_char(depth: int, ch: word) -> int {
     pilot next_depth = depth
     if ch == "(" or ch == "[" or ch == "{" or ch == "<" {
@@ -3646,6 +3856,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
         symbol_idx += 1
     }
 
+    v4_ty_validate_lifetime_contracts(ty_id)
     give back ty_id
 }
 
