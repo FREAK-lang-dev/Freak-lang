@@ -1,0 +1,112 @@
+-- V4 destructuring-assignment editor smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_destructure_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_destructure_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_destructure_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_destructure_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_destructure_editor_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_destructure_editor_completion_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_destructure_editor_source_text() -> word {
+    pilot src = "task redistribute() -> int {\n"
+    src = src + "    pilot pair = (7, 9)\n"
+    src = src + "    pilot left = 0\n"
+    src = src + "    pilot right = 0\n"
+    src = src + "    (left, right) = pair\n"
+    src = src + "    pilot squad = [3, 5]\n"
+    src = src + "    pilot front = 0\n"
+    src = src + "    pilot flank = 0\n"
+    src = src + "    [front, flank] = squad\n"
+    src = src + "    give back left + flank\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_destructure_editor_source = v4_destructure_editor_source_text()
+pilot v4_destructure_editor_stream = v4_lex_text(0, v4_destructure_editor_source)
+
+pilot v4_destructure_editor_left_decl_offset = v4_destructure_editor_token_offset(v4_destructure_editor_stream, "left", 0)
+pilot v4_destructure_editor_left_target_offset = v4_destructure_editor_token_offset(v4_destructure_editor_stream, "left", 1)
+pilot v4_destructure_editor_left_use_offset = v4_destructure_editor_token_offset(v4_destructure_editor_stream, "left", 2)
+pilot v4_destructure_editor_flank_decl_offset = v4_destructure_editor_token_offset(v4_destructure_editor_stream, "flank", 0)
+pilot v4_destructure_editor_flank_use_offset = v4_destructure_editor_token_offset(v4_destructure_editor_stream, "flank", 2)
+
+pilot v4_destructure_editor_left_sem = v4_semantic_at_text_cached("destructure-editor.fk", v4_destructure_editor_source, v4_destructure_editor_left_target_offset)
+pilot v4_destructure_editor_flank_hover = v4_hover_text_cached("destructure-editor.fk", v4_destructure_editor_source, v4_destructure_editor_flank_use_offset)
+pilot v4_destructure_editor_left_definition = v4_definition_at_text_cached("destructure-editor.fk", v4_destructure_editor_source, v4_destructure_editor_left_target_offset)
+pilot v4_destructure_editor_flank_definition = v4_definition_at_text_cached("destructure-editor.fk", v4_destructure_editor_source, v4_destructure_editor_flank_use_offset)
+pilot v4_destructure_editor_completion = v4_completion_text_cached("destructure-editor.fk", v4_destructure_editor_source, v4_destructure_editor_left_use_offset)
+
+pilot v4_destructure_editor_left_item = v4_destructure_editor_find_completion_label(v4_destructure_editor_completion, "left")
+pilot v4_destructure_editor_right_item = v4_destructure_editor_find_completion_label(v4_destructure_editor_completion, "right")
+pilot v4_destructure_editor_front_item = v4_destructure_editor_find_completion_label(v4_destructure_editor_completion, "front")
+pilot v4_destructure_editor_flank_item = v4_destructure_editor_find_completion_label(v4_destructure_editor_completion, "flank")
+pilot v4_destructure_editor_tuple_temp_item = v4_destructure_editor_find_completion_label(v4_destructure_editor_completion, "_tuple_assign")
+pilot v4_destructure_editor_seq_temp_item = v4_destructure_editor_find_completion_label(v4_destructure_editor_completion, "_seq_assign")
+
+say v4_semantic_at_summary(v4_destructure_editor_left_sem)
+say "destructure-editor-left-kind=" + v4_semantic_at_kind(v4_destructure_editor_left_sem)
+say "destructure-editor-left-type=" + v4_semantic_at_type(v4_destructure_editor_left_sem)
+say "destructure-editor-flank-hover-kind=" + v4_hover_kind(v4_destructure_editor_flank_hover)
+say "destructure-editor-flank-hover-type=" + v4_hover_type(v4_destructure_editor_flank_hover)
+say "destructure-editor-left-definition-kind=" + v4_definition_at_kind(v4_destructure_editor_left_definition)
+say "destructure-editor-left-definition-found=" + word_from_int(v4_definition_at_found(v4_destructure_editor_left_definition))
+say "destructure-editor-left-definition-matches=" + v4_destructure_editor_bool_word(v4_span_start(v4_definition_at_span(v4_destructure_editor_left_definition)) == v4_destructure_editor_left_decl_offset)
+say "destructure-editor-flank-definition-kind=" + v4_definition_at_kind(v4_destructure_editor_flank_definition)
+say "destructure-editor-flank-definition-found=" + word_from_int(v4_definition_at_found(v4_destructure_editor_flank_definition))
+say "destructure-editor-flank-definition-matches=" + v4_destructure_editor_bool_word(v4_span_start(v4_definition_at_span(v4_destructure_editor_flank_definition)) == v4_destructure_editor_flank_decl_offset)
+say "destructure-editor-completion-count=" + word_from_int(v4_completion_count(v4_destructure_editor_completion))
+say "destructure-editor-left-found=" + v4_destructure_editor_bool_word(v4_destructure_editor_left_item >= 0)
+say "destructure-editor-left-detail=" + v4_destructure_editor_completion_detail_or_empty(v4_destructure_editor_completion, v4_destructure_editor_left_item)
+say "destructure-editor-right-found=" + v4_destructure_editor_bool_word(v4_destructure_editor_right_item >= 0)
+say "destructure-editor-right-detail=" + v4_destructure_editor_completion_detail_or_empty(v4_destructure_editor_completion, v4_destructure_editor_right_item)
+say "destructure-editor-front-found=" + v4_destructure_editor_bool_word(v4_destructure_editor_front_item >= 0)
+say "destructure-editor-front-detail=" + v4_destructure_editor_completion_detail_or_empty(v4_destructure_editor_completion, v4_destructure_editor_front_item)
+say "destructure-editor-flank-found=" + v4_destructure_editor_bool_word(v4_destructure_editor_flank_item >= 0)
+say "destructure-editor-flank-detail=" + v4_destructure_editor_completion_detail_or_empty(v4_destructure_editor_completion, v4_destructure_editor_flank_item)
+say "destructure-editor-tuple-temp-found=" + v4_destructure_editor_bool_word(v4_destructure_editor_tuple_temp_item >= 0)
+say "destructure-editor-seq-temp-found=" + v4_destructure_editor_bool_word(v4_destructure_editor_seq_temp_item >= 0)
