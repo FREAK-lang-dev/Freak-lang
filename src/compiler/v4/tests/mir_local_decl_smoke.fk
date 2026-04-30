@@ -46,6 +46,27 @@ task v4_mir_reuse_after_block_local_decl_make_source() -> word {
     give back src
 }
 
+task v4_mir_param_shadow_local_decl_make_source() -> word {
+    pilot src = "task shadow_param(x: int) -> int {\n"
+    src = src + "    pilot x = 2\n"
+    src = src + "    give back x\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_method_param_shadow_local_decl_make_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task boost(self, bonus: int) -> int {\n"
+    src = src + "        pilot bonus = 2\n"
+    src = src + "        give back bonus + self.hp\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_mir_local_decl_count_named(mir_id: int, body_id: int, local_name: word) -> int {
     pilot local_id = 0
     pilot count = 0
@@ -57,6 +78,20 @@ task v4_mir_local_decl_count_named(mir_id: int, body_id: int, local_name: word) 
         local_id += 1
     }
     give back count
+}
+
+task v4_mir_local_decl_find_impl_item(hir_id: int, ty_id: int, owner_ty: word) -> int {
+    pilot hir_item = 0
+    pilot hir_count = v4_hir_item_count(hir_id)
+    repeat until hir_item >= hir_count {
+        if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl {
+            if v4_ty_impl_target_type_from_hir(ty_id, hir_item) == owner_ty {
+                give back hir_item
+            }
+        }
+        hir_item += 1
+    }
+    give back 0 - 1
 }
 
 pilot v4_mir_local_decl_source = v4_mir_local_decl_make_source()
@@ -135,3 +170,33 @@ pilot v4_mir_reuse_after_block_local_decl_body = v4_mir_lookup_body(v4_mir_reuse
 
 say "decl-reuse-after-block-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_reuse_after_block_local_decl_mir))
 say "decl-reuse-after-block-x-locals=" + word_from_int(v4_mir_local_decl_count_named(v4_mir_reuse_after_block_local_decl_mir, v4_mir_reuse_after_block_local_decl_body, "x"))
+
+pilot v4_mir_param_shadow_local_decl_source = v4_mir_param_shadow_local_decl_make_source()
+pilot v4_mir_param_shadow_local_decl_stream = v4_lex_text(5, v4_mir_param_shadow_local_decl_source)
+pilot v4_mir_param_shadow_local_decl_tree = v4_parse_stream(5, v4_mir_param_shadow_local_decl_stream)
+pilot v4_mir_param_shadow_local_decl_hir = v4_hir_lower_tree(5, v4_mir_param_shadow_local_decl_tree)
+pilot v4_mir_param_shadow_local_decl_resolve = v4_resolve_lower_hir(5, v4_mir_param_shadow_local_decl_hir)
+pilot v4_mir_param_shadow_local_decl_ty = v4_ty_lower_resolve(5, v4_mir_param_shadow_local_decl_resolve)
+pilot v4_mir_param_shadow_local_decl_mir = v4_mir_lower_ty(5, v4_mir_param_shadow_local_decl_ty)
+pilot v4_mir_param_shadow_local_decl_def = v4_resolve_def_for_name(v4_mir_param_shadow_local_decl_resolve, "shadow_param")
+pilot v4_mir_param_shadow_local_decl_body = v4_mir_lookup_body(v4_mir_param_shadow_local_decl_mir, v4_mir_param_shadow_local_decl_def)
+
+say "decl-param-shadow-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_param_shadow_local_decl_mir))
+say "decl-param-shadow-message=" + v4_diag_message(v4_mir_diag(v4_mir_param_shadow_local_decl_mir, 0))
+say "decl-param-shadow-help=" + v4_diag_help(v4_mir_diag(v4_mir_param_shadow_local_decl_mir, 0))
+say "decl-param-shadow-x-locals=" + word_from_int(v4_mir_local_decl_count_named(v4_mir_param_shadow_local_decl_mir, v4_mir_param_shadow_local_decl_body, "x"))
+
+pilot v4_mir_method_param_shadow_local_decl_source = v4_mir_method_param_shadow_local_decl_make_source()
+pilot v4_mir_method_param_shadow_local_decl_stream = v4_lex_text(6, v4_mir_method_param_shadow_local_decl_source)
+pilot v4_mir_method_param_shadow_local_decl_tree = v4_parse_stream(6, v4_mir_method_param_shadow_local_decl_stream)
+pilot v4_mir_method_param_shadow_local_decl_hir = v4_hir_lower_tree(6, v4_mir_method_param_shadow_local_decl_tree)
+pilot v4_mir_method_param_shadow_local_decl_resolve = v4_resolve_lower_hir(6, v4_mir_method_param_shadow_local_decl_hir)
+pilot v4_mir_method_param_shadow_local_decl_ty = v4_ty_lower_resolve(6, v4_mir_method_param_shadow_local_decl_resolve)
+pilot v4_mir_method_param_shadow_local_decl_mir = v4_mir_lower_ty(6, v4_mir_method_param_shadow_local_decl_ty)
+pilot v4_mir_method_param_shadow_local_decl_impl = v4_mir_local_decl_find_impl_item(v4_mir_method_param_shadow_local_decl_hir, v4_mir_method_param_shadow_local_decl_ty, "Pilot")
+pilot v4_mir_method_param_shadow_local_decl_body = v4_mir_lookup_body(v4_mir_method_param_shadow_local_decl_mir, v4_ty_impl_method_def(v4_mir_method_param_shadow_local_decl_ty, v4_mir_method_param_shadow_local_decl_impl, 0))
+
+say "decl-method-param-shadow-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_param_shadow_local_decl_mir))
+say "decl-method-param-shadow-message=" + v4_diag_message(v4_mir_diag(v4_mir_method_param_shadow_local_decl_mir, 0))
+say "decl-method-param-shadow-help=" + v4_diag_help(v4_mir_diag(v4_mir_method_param_shadow_local_decl_mir, 0))
+say "decl-method-param-shadow-bonus-locals=" + word_from_int(v4_mir_local_decl_count_named(v4_mir_method_param_shadow_local_decl_mir, v4_mir_method_param_shadow_local_decl_body, "bonus"))

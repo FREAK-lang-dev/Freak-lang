@@ -1,0 +1,99 @@
+-- V4 MIR parameter collision smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_param_collision_task_source() -> word {
+    pilot src = "task bad(power: int, power: int) -> int {\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_param_collision_method_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task boost(self, bonus: int, bonus: int) -> int {\n"
+    src = src + "        give back bonus + self.hp\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_param_collision_count_named(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot local_id = 0
+    pilot count = 0
+    pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+    repeat until local_id >= local_count {
+        if v4_mir_local_name(mir_id, body_id, local_id) == local_name {
+            count += 1
+        }
+        local_id += 1
+    }
+    give back count
+}
+
+task v4_mir_param_collision_find_impl_item(hir_id: int, ty_id: int, owner_ty: word) -> int {
+    pilot hir_item = 0
+    pilot hir_count = v4_hir_item_count(hir_id)
+    repeat until hir_item >= hir_count {
+        if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl {
+            if v4_ty_impl_target_type_from_hir(ty_id, hir_item) == owner_ty {
+                give back hir_item
+            }
+        }
+        hir_item += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_param_collision_find_method_id(ty_id: int, hir_item: int, method_name: word) -> int {
+    if hir_item < 0 {
+        give back 0 - 1
+    }
+    pilot method_id = 0
+    pilot method_count = v4_ty_impl_method_count(ty_id, hir_item)
+    repeat until method_id >= method_count {
+        if v4_ty_impl_method_name(ty_id, hir_item, method_id) == method_name {
+            give back method_id
+        }
+        method_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_param_collision_lookup_method_body(mir_id: int, ty_id: int, hir_item: int, method_name: word) -> int {
+    pilot method_id = v4_mir_param_collision_find_method_id(ty_id, hir_item, method_name)
+    if method_id < 0 {
+        give back 0 - 1
+    }
+    give back v4_mir_lookup_body(mir_id, v4_ty_impl_method_def(ty_id, hir_item, method_id))
+}
+
+pilot v4_mir_param_collision_task_stream = v4_lex_text(0, v4_mir_param_collision_task_source())
+pilot v4_mir_param_collision_task_tree = v4_parse_stream(0, v4_mir_param_collision_task_stream)
+pilot v4_mir_param_collision_task_hir = v4_hir_lower_tree(0, v4_mir_param_collision_task_tree)
+pilot v4_mir_param_collision_task_resolve = v4_resolve_lower_hir(0, v4_mir_param_collision_task_hir)
+pilot v4_mir_param_collision_task_ty = v4_ty_lower_resolve(0, v4_mir_param_collision_task_resolve)
+pilot v4_mir_param_collision_task_mir = v4_mir_lower_ty(0, v4_mir_param_collision_task_ty)
+pilot v4_mir_param_collision_task_def = v4_resolve_def_for_name(v4_mir_param_collision_task_resolve, "bad")
+pilot v4_mir_param_collision_task_body = v4_mir_lookup_body(v4_mir_param_collision_task_mir, v4_mir_param_collision_task_def)
+
+say "param-collision-task-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_param_collision_task_mir))
+say "param-collision-task-message=" + v4_diag_message(v4_mir_diag(v4_mir_param_collision_task_mir, 0))
+say "param-collision-task-help=" + v4_diag_help(v4_mir_diag(v4_mir_param_collision_task_mir, 0))
+say "param-collision-task-power-locals=" + word_from_int(v4_mir_param_collision_count_named(v4_mir_param_collision_task_mir, v4_mir_param_collision_task_body, "power"))
+
+pilot v4_mir_param_collision_method_stream = v4_lex_text(1, v4_mir_param_collision_method_source())
+pilot v4_mir_param_collision_method_tree = v4_parse_stream(1, v4_mir_param_collision_method_stream)
+pilot v4_mir_param_collision_method_hir = v4_hir_lower_tree(1, v4_mir_param_collision_method_tree)
+pilot v4_mir_param_collision_method_resolve = v4_resolve_lower_hir(1, v4_mir_param_collision_method_hir)
+pilot v4_mir_param_collision_method_ty = v4_ty_lower_resolve(1, v4_mir_param_collision_method_resolve)
+pilot v4_mir_param_collision_method_mir = v4_mir_lower_ty(1, v4_mir_param_collision_method_ty)
+pilot v4_mir_param_collision_method_impl = v4_mir_param_collision_find_impl_item(v4_mir_param_collision_method_hir, v4_mir_param_collision_method_ty, "Pilot")
+pilot v4_mir_param_collision_method_body = v4_mir_param_collision_lookup_method_body(v4_mir_param_collision_method_mir, v4_mir_param_collision_method_ty, v4_mir_param_collision_method_impl, "boost")
+
+say "param-collision-method-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_param_collision_method_mir))
+say "param-collision-method-message=" + v4_diag_message(v4_mir_diag(v4_mir_param_collision_method_mir, 0))
+say "param-collision-method-help=" + v4_diag_help(v4_mir_diag(v4_mir_param_collision_method_mir, 0))
+say "param-collision-method-bonus-locals=" + word_from_int(v4_mir_param_collision_count_named(v4_mir_param_collision_method_mir, v4_mir_param_collision_method_body, "bonus"))
