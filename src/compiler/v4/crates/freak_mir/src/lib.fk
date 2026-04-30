@@ -1281,7 +1281,7 @@ task v4_mir_signature_call_abi(mir_id: int, sig_id: int) -> word {
 }
 
 task v4_mir_add_local(mir_id: int, body_id: int, local_name: word, local_ty: word, span: word) -> int {
-    pilot existing = v4_mir_find_local(mir_id, body_id, local_name)
+    pilot existing = v4_mir_find_local_visible_at(mir_id, body_id, local_name, v4_span_start(span))
     if existing >= 0 {
         if v4_mir_local_ty(mir_id, body_id, existing) == v4_ty_unknown and local_ty != v4_ty_unknown {
             v4_mir_set_local_ty(mir_id, body_id, existing, local_ty)
@@ -4639,7 +4639,7 @@ task v4_mir_lower_destructure_pattern(mir_id: int, body_id: int, block_id: int, 
     }
 
     if v4_mir_pattern_is_simple_local(pattern) {
-        if v4_mir_find_local(mir_id, body_id, pattern) >= 0 {
+        if v4_mir_find_local_visible_at(mir_id, body_id, pattern, v4_span_start(stmt_span)) >= 0 {
             pilot duplicate_message = "tuple destructure duplicate binding"
             if pattern_kind == "sequence" {
                 duplicate_message = "sequence destructure duplicate binding"
@@ -4748,7 +4748,7 @@ task v4_mir_lower_destructure_assignment_pattern(mir_id: int, body_id: int, bloc
     }
 
     if v4_mir_pattern_is_simple_local(pattern) {
-        pilot local_id = v4_mir_find_local(mir_id, body_id, pattern)
+        pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, pattern, v4_span_start(stmt_span))
         if local_id < 0 {
             v4_mir_add_type_error(mir_id, stmt_span, "destructure assignment target missing", pattern + " is not in scope")
             give back
@@ -4882,8 +4882,8 @@ task v4_mir_lower_for_each_binding(mir_id: int, body_id: int, block_id: int, stm
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, temp_name, item_text, stmt_span, temp_place, item_rvalue)
 
     if v4_mir_pattern_is_simple_local(loop_pattern) {
-        if v4_mir_find_local(mir_id, body_id, loop_pattern) >= 0 {
-            v4_mir_add_type_error(mir_id, stmt_span, "for each binding duplicate local", loop_pattern + " already exists in this body")
+        if v4_mir_find_local_visible_at(mir_id, body_id, loop_pattern, v4_span_start(stmt_span)) >= 0 {
+            v4_mir_add_type_error(mir_id, stmt_span, "for each binding duplicate local", loop_pattern + " already exists in this scope")
             give back temp_place
         }
         pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, temp_place, stmt_span)
@@ -5612,7 +5612,7 @@ task v4_mir_lower_when_pattern_bindings(mir_id: int, body_id: int, block_id: int
     }
 
     if v4_mir_pattern_is_simple_local(pattern) {
-        if v4_mir_find_local(mir_id, body_id, pattern) >= 0 {
+        if v4_mir_find_local_visible_at(mir_id, body_id, pattern, v4_span_start(stmt_span)) >= 0 {
             v4_mir_add_type_error(mir_id, stmt_span, "when arm duplicate binding", pattern + " already exists in this scope")
             give back
         }
@@ -5917,7 +5917,7 @@ task v4_mir_lower_checked_binding(mir_id: int, body_id: int, block_id: int, stmt
     if local_name == "" or local_name == "_" {
         give back
     }
-    if v4_mir_find_local(mir_id, body_id, local_name) >= 0 {
+    if v4_mir_find_local_visible_at(mir_id, body_id, local_name, v4_span_start(stmt_span)) >= 0 {
         v4_mir_add_type_error(mir_id, stmt_span, duplicate_message, local_name + " already exists in this scope")
         give back
     }
@@ -6327,7 +6327,7 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
             }
         }
         if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
-            pilot local_id = v4_mir_find_local(mir_id, body_id, v4_mir_place_text(mir_id, body_id, place_id))
+            pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, v4_mir_place_text(mir_id, body_id, place_id), v4_span_start(stmt_span))
             if local_id >= 0 and v4_mir_local_ty(mir_id, body_id, local_id) == v4_ty_unknown {
                 v4_mir_set_local_ty(mir_id, body_id, local_id, value_ty)
             }

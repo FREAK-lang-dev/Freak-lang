@@ -76,6 +76,7 @@ pilot v4_local_type_editor_resolve = v4_resolve_text_cached("local-type-editor.f
 pilot v4_local_type_editor_mir = v4_mir_text_cached("local-type-editor.fk", v4_local_type_editor_source)
 
 pilot v4_local_type_editor_grid_use_offset = v4_local_type_editor_token_offset(v4_local_type_editor_stream, "Grid", 1)
+pilot v4_local_type_editor_pair_decl_offset = v4_local_type_editor_token_offset(v4_local_type_editor_stream, "pair", 0)
 pilot v4_local_type_editor_pair_use_offset = v4_local_type_editor_token_offset(v4_local_type_editor_stream, "pair", 1)
 pilot v4_local_type_editor_row_use_offset = v4_local_type_editor_token_offset(v4_local_type_editor_stream, "row", 1)
 
@@ -108,7 +109,7 @@ say "local-editor-hover-kind=" + v4_hover_kind(v4_local_type_editor_hover)
 say "local-editor-hover-type=" + v4_hover_type(v4_local_type_editor_hover)
 say "local-editor-definition-kind=" + v4_definition_at_kind(v4_local_type_editor_definition)
 say "local-editor-definition-found=" + word_from_int(v4_definition_at_found(v4_local_type_editor_definition))
-say "local-editor-definition-matches-local=" + v4_local_type_editor_bool_word(v4_span_start(v4_definition_at_span(v4_local_type_editor_definition)) == v4_span_start(v4_mir_local_span(v4_local_type_editor_mir, v4_local_type_editor_body, v4_local_type_editor_pair_local)))
+say "local-editor-definition-matches-local=" + v4_local_type_editor_bool_word(v4_span_start(v4_definition_at_span(v4_local_type_editor_definition)) == v4_local_type_editor_pair_decl_offset)
 say "local-editor-symbol-count=" + word_from_int(v4_document_symbol_count(v4_local_type_editor_symbols))
 say "local-editor-symbol0-name=" + v4_document_symbol_name(v4_local_type_editor_symbols, 0)
 say "local-editor-symbol0-type=" + v4_document_symbol_type(v4_local_type_editor_symbols, 0)

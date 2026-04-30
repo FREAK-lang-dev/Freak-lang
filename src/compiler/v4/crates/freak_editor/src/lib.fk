@@ -212,6 +212,27 @@ task v4_editor_lifetime_decl_span(stream_id: int, item_span: word, lifetime_name
     give back item_span
 }
 
+task v4_editor_local_decl_span(stream_id: int, local_span: word, local_name: word) -> word {
+    if local_name == "" {
+        give back local_span
+    }
+
+    pilot local_start = v4_span_start(local_span)
+    pilot local_end = v4_span_end(local_span)
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        pilot token_span = v4_lex_token_span(stream_id, token_id)
+        if v4_span_start(token_span) >= local_start and v4_span_end(token_span) <= local_end {
+            if v4_lex_token_type(stream_id, token_id) != v4_tok_trivia and v4_lex_token_value(stream_id, token_id) == local_name {
+                give back token_span
+            }
+        }
+        token_id += 1
+    }
+    give back local_span
+}
+
 task v4_editor_hir_item_for_def(hir_id: int, def_id: word) -> int {
     pilot item_id = 0
     pilot item_count = v4_hir_item_count(hir_id)
@@ -234,11 +255,11 @@ task v4_editor_body_for_hir_item(hir_id: int, mir_id: int, hir_item: int) -> int
     give back v4_mir_lookup_body(mir_id, v4_hir_item_def(hir_id, hir_item))
 }
 
-task v4_editor_local_def(hir_id: int, hir_item: int, local_name: word) -> word {
-    if hir_item < 0 or local_name == "" {
+task v4_editor_local_def(hir_id: int, hir_item: int, local_id: int, local_name: word) -> word {
+    if hir_item < 0 or local_id < 0 or local_name == "" {
         give back ""
     }
-    give back v4_hir_item_def(hir_id, hir_item) + "::Local::" + local_name
+    give back v4_hir_item_def(hir_id, hir_item) + "::Local::" + word_from_int(local_id) + "::" + local_name
 }
 
 task v4_editor_internal_local_name(local_name: word) -> bool {
@@ -455,11 +476,11 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
     } else if symbol_id < 0 and token_kind == v4_tok_ident {
         pilot body_id = v4_editor_body_for_hir_item(hir_id, mir_id, hir_item)
         if body_id >= 0 {
-            pilot local_id = v4_mir_find_local(mir_id, body_id, token_value)
+            pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, token_value, offset)
             if local_id >= 0 and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
                 name = token_value
                 kind = "Local"
-                def_id = v4_editor_local_def(hir_id, hir_item, token_value)
+                def_id = v4_editor_local_def(hir_id, hir_item, local_id, token_value)
                 type_display = v4_mir_local_ty(mir_id, body_id, local_id)
             }
         }
@@ -779,9 +800,11 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
         hir_item = v4_semantic_at_hir_item(semantic_id)
         pilot body_id = v4_editor_body_for_hir_item(hir_id, mir_id, hir_item)
         if body_id >= 0 {
-            pilot local_id = v4_mir_find_local(mir_id, body_id, name)
+            pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, name, offset)
             if local_id >= 0 {
                 span = v4_mir_local_span(mir_id, body_id, local_id)
+                stream_id = v4_lex_text_cached(path, text)
+                span = v4_editor_local_decl_span(stream_id, span, name)
                 found = 1
             }
         }

@@ -55,6 +55,33 @@ task v4_branch_scope_find_last_return_stmt(mir_id: int, body_id: int, rhs: word)
     give back 0 - 1
 }
 
+task v4_branch_scope_count_locals_named(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot local_id = 0
+    pilot count = 0
+    pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+    repeat until local_id >= local_count {
+        if v4_mir_local_name(mir_id, body_id, local_id) == local_name {
+            count += 1
+        }
+        local_id += 1
+    }
+    give back count
+}
+
+task v4_branch_scope_diag_message_or_empty(mir_id: int, diag_id: int) -> word {
+    if diag_id < 0 or diag_id >= v4_mir_diag_count(mir_id) {
+        give back ""
+    }
+    give back v4_diag_message(v4_mir_diag(mir_id, diag_id))
+}
+
+task v4_branch_scope_diag_help_or_empty(mir_id: int, diag_id: int) -> word {
+    if diag_id < 0 or diag_id >= v4_mir_diag_count(mir_id) {
+        give back ""
+    }
+    give back v4_diag_help(v4_mir_diag(mir_id, diag_id))
+}
+
 task v4_branch_scope_braces(inner: word) -> word {
     give back "{" + inner + "}"
 }
@@ -78,6 +105,16 @@ task v4_branch_scope_source_text() -> word {
     src = src + "    }\n"
     src = src + "    give back x\n"
     src = src + "}\n"
+    src = src + "task reuse(event: Event) -> int {\n"
+    src = src + "    when event {\n"
+    src = src + "        Event::Key " + v4_branch_scope_braces(" code ") + " -> give back code\n"
+    src = src + "        Event::Closed -> {\n"
+    src = src + "            pilot code = 0\n"
+    src = src + "            give back code\n"
+    src = src + "        }\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -95,6 +132,10 @@ pilot v4_branch_scope_code_inner_completion = v4_completion_text_cached("branch-
 pilot v4_branch_scope_code_outer_completion = v4_completion_text_cached("branch-scope.fk", v4_branch_scope_source, v4_branch_scope_code_outer_offset)
 pilot v4_branch_scope_x_inner_completion = v4_completion_text_cached("branch-scope.fk", v4_branch_scope_source, v4_branch_scope_x_inner_offset)
 pilot v4_branch_scope_x_outer_completion = v4_completion_text_cached("branch-scope.fk", v4_branch_scope_source, v4_branch_scope_x_outer_offset)
+pilot v4_branch_scope_code_inner_definition = v4_definition_at_text_cached("branch-scope.fk", v4_branch_scope_source, v4_branch_scope_code_inner_offset)
+pilot v4_branch_scope_code_outer_definition = v4_definition_at_text_cached("branch-scope.fk", v4_branch_scope_source, v4_branch_scope_code_outer_offset)
+pilot v4_branch_scope_x_inner_definition = v4_definition_at_text_cached("branch-scope.fk", v4_branch_scope_source, v4_branch_scope_x_inner_offset)
+pilot v4_branch_scope_x_outer_definition = v4_definition_at_text_cached("branch-scope.fk", v4_branch_scope_source, v4_branch_scope_x_outer_offset)
 
 pilot v4_branch_scope_score_def = v4_resolve_def_for_name(v4_branch_scope_resolve, "score")
 pilot v4_branch_scope_score_body = v4_mir_lookup_body(v4_branch_scope_mir, v4_branch_scope_score_def)
@@ -108,10 +149,19 @@ pilot v4_branch_scope_maybe_x_local = v4_mir_find_local(v4_branch_scope_mir, v4_
 pilot v4_branch_scope_maybe_return_stmt = v4_branch_scope_find_last_return_stmt(v4_branch_scope_mir, v4_branch_scope_maybe_body, "x")
 pilot v4_branch_scope_maybe_return_rvalue = v4_mir_stmt_rvalue(v4_branch_scope_mir, v4_branch_scope_maybe_body, v4_branch_scope_maybe_return_stmt)
 
+pilot v4_branch_scope_reuse_def = v4_resolve_def_for_name(v4_branch_scope_resolve, "reuse")
+pilot v4_branch_scope_reuse_body = v4_mir_lookup_body(v4_branch_scope_mir, v4_branch_scope_reuse_def)
+
 say "branch-scope-code-inner-found=" + v4_branch_scope_bool_word(v4_branch_scope_find_completion_label(v4_branch_scope_code_inner_completion, "code") >= 0)
 say "branch-scope-code-outer-found=" + v4_branch_scope_bool_word(v4_branch_scope_find_completion_label(v4_branch_scope_code_outer_completion, "code") >= 0)
 say "branch-scope-x-inner-found=" + v4_branch_scope_bool_word(v4_branch_scope_find_completion_label(v4_branch_scope_x_inner_completion, "x") >= 0)
 say "branch-scope-x-outer-found=" + v4_branch_scope_bool_word(v4_branch_scope_find_completion_label(v4_branch_scope_x_outer_completion, "x") >= 0)
+say "branch-scope-code-definition-found=" + word_from_int(v4_definition_at_found(v4_branch_scope_code_inner_definition))
+say "branch-scope-code-definition-matches=" + v4_branch_scope_bool_word(v4_span_start(v4_definition_at_span(v4_branch_scope_code_inner_definition)) == v4_branch_scope_token_offset(v4_branch_scope_stream, "code", 1))
+say "branch-scope-code-outer-definition-found=" + word_from_int(v4_definition_at_found(v4_branch_scope_code_outer_definition))
+say "branch-scope-x-definition-found=" + word_from_int(v4_definition_at_found(v4_branch_scope_x_inner_definition))
+say "branch-scope-x-definition-matches=" + v4_branch_scope_bool_word(v4_span_start(v4_definition_at_span(v4_branch_scope_x_inner_definition)) == v4_branch_scope_token_offset(v4_branch_scope_stream, "x", 0))
+say "branch-scope-x-outer-definition-found=" + word_from_int(v4_definition_at_found(v4_branch_scope_x_outer_definition))
 say "branch-scope-code-visible-inner=" + v4_branch_scope_bool_word(v4_mir_local_visible_at(v4_branch_scope_mir, v4_branch_scope_score_body, v4_branch_scope_score_code_local, v4_branch_scope_code_inner_offset))
 say "branch-scope-code-visible-outer=" + v4_branch_scope_bool_word(v4_mir_local_visible_at(v4_branch_scope_mir, v4_branch_scope_score_body, v4_branch_scope_score_code_local, v4_branch_scope_code_outer_offset))
 say "branch-scope-x-visible-inner=" + v4_branch_scope_bool_word(v4_mir_local_visible_at(v4_branch_scope_mir, v4_branch_scope_maybe_body, v4_branch_scope_maybe_x_local, v4_branch_scope_x_inner_offset))
@@ -120,3 +170,11 @@ say "branch-scope-code-return-kind=" + v4_mir_rvalue_kind(v4_branch_scope_mir, v
 say "branch-scope-code-return-ty=" + v4_mir_rvalue_ty(v4_branch_scope_mir, v4_branch_scope_score_body, v4_branch_scope_score_return_rvalue)
 say "branch-scope-x-return-kind=" + v4_mir_rvalue_kind(v4_branch_scope_mir, v4_branch_scope_maybe_body, v4_branch_scope_maybe_return_rvalue)
 say "branch-scope-x-return-ty=" + v4_mir_rvalue_ty(v4_branch_scope_mir, v4_branch_scope_maybe_body, v4_branch_scope_maybe_return_rvalue)
+say "branch-scope-diagnostics=" + word_from_int(v4_mir_diag_count(v4_branch_scope_mir))
+say "branch-scope-diag0-message=" + v4_branch_scope_diag_message_or_empty(v4_branch_scope_mir, 0)
+say "branch-scope-diag0-help=" + v4_branch_scope_diag_help_or_empty(v4_branch_scope_mir, 0)
+say "branch-scope-diag1-message=" + v4_branch_scope_diag_message_or_empty(v4_branch_scope_mir, 1)
+say "branch-scope-diag1-help=" + v4_branch_scope_diag_help_or_empty(v4_branch_scope_mir, 1)
+say "branch-scope-diag2-message=" + v4_branch_scope_diag_message_or_empty(v4_branch_scope_mir, 2)
+say "branch-scope-diag2-help=" + v4_branch_scope_diag_help_or_empty(v4_branch_scope_mir, 2)
+say "branch-scope-reuse-code-locals=" + word_from_int(v4_branch_scope_count_locals_named(v4_branch_scope_mir, v4_branch_scope_reuse_body, "code"))
