@@ -1,0 +1,111 @@
+-- V4 impl-method pattern editor smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_method_pattern_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_method_pattern_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_method_pattern_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_method_pattern_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_method_pattern_editor_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_method_pattern_editor_completion_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_method_pattern_editor_source_text() -> word {
+    pilot src = "shape Squadron {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "impl Squadron {\n"
+    src = src + "    task plan(self, squads: List<(int,word)>) -> int {\n"
+    src = src + "        pilot _ace = self.hp\n"
+    src = src + "        pilot total = _ace\n"
+    src = src + "        for each (power, codename) in squads {\n"
+    src = src + "            pilot tag = codename\n"
+    src = src + "            total = power + total\n"
+    src = src + "        }\n"
+    src = src + "        give back total\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_method_pattern_editor_source = v4_method_pattern_editor_source_text()
+pilot v4_method_pattern_editor_stream = v4_lex_text(0, v4_method_pattern_editor_source)
+
+pilot v4_method_pattern_editor_ace_use_offset = v4_method_pattern_editor_token_offset(v4_method_pattern_editor_stream, "_ace", 1)
+pilot v4_method_pattern_editor_power_decl_offset = v4_method_pattern_editor_token_offset(v4_method_pattern_editor_stream, "power", 0)
+pilot v4_method_pattern_editor_power_use_offset = v4_method_pattern_editor_token_offset(v4_method_pattern_editor_stream, "power", 1)
+
+pilot v4_method_pattern_editor_power_sem = v4_semantic_at_text_cached("method-pattern-editor.fk", v4_method_pattern_editor_source, v4_method_pattern_editor_power_use_offset)
+pilot v4_method_pattern_editor_ace_hover = v4_hover_text_cached("method-pattern-editor.fk", v4_method_pattern_editor_source, v4_method_pattern_editor_ace_use_offset)
+pilot v4_method_pattern_editor_power_definition = v4_definition_at_text_cached("method-pattern-editor.fk", v4_method_pattern_editor_source, v4_method_pattern_editor_power_use_offset)
+pilot v4_method_pattern_editor_completion = v4_completion_text_cached("method-pattern-editor.fk", v4_method_pattern_editor_source, v4_method_pattern_editor_power_use_offset)
+
+pilot v4_method_pattern_editor_power_item = v4_method_pattern_editor_find_completion_label(v4_method_pattern_editor_completion, "power")
+pilot v4_method_pattern_editor_codename_item = v4_method_pattern_editor_find_completion_label(v4_method_pattern_editor_completion, "codename")
+pilot v4_method_pattern_editor_ace_item = v4_method_pattern_editor_find_completion_label(v4_method_pattern_editor_completion, "_ace")
+pilot v4_method_pattern_editor_self_item = v4_method_pattern_editor_find_completion_label(v4_method_pattern_editor_completion, "self")
+pilot v4_method_pattern_editor_squads_item = v4_method_pattern_editor_find_completion_label(v4_method_pattern_editor_completion, "squads")
+pilot v4_method_pattern_editor_temp_item = v4_method_pattern_editor_find_completion_label(v4_method_pattern_editor_completion, "_for_each_item")
+
+say v4_semantic_at_summary(v4_method_pattern_editor_power_sem)
+say "method-pattern-sem-kind=" + v4_semantic_at_kind(v4_method_pattern_editor_power_sem)
+say "method-pattern-sem-type=" + v4_semantic_at_type(v4_method_pattern_editor_power_sem)
+say "method-pattern-hover-name=" + v4_hover_name(v4_method_pattern_editor_ace_hover)
+say "method-pattern-hover-kind=" + v4_hover_kind(v4_method_pattern_editor_ace_hover)
+say "method-pattern-hover-type=" + v4_hover_type(v4_method_pattern_editor_ace_hover)
+say "method-pattern-definition-kind=" + v4_definition_at_kind(v4_method_pattern_editor_power_definition)
+say "method-pattern-definition-found=" + word_from_int(v4_definition_at_found(v4_method_pattern_editor_power_definition))
+say "method-pattern-definition-matches=" + v4_method_pattern_editor_bool_word(v4_span_start(v4_definition_at_span(v4_method_pattern_editor_power_definition)) == v4_method_pattern_editor_power_decl_offset)
+say "method-pattern-completion-count=" + word_from_int(v4_completion_count(v4_method_pattern_editor_completion))
+say "method-pattern-completion-power-found=" + v4_method_pattern_editor_bool_word(v4_method_pattern_editor_power_item >= 0)
+say "method-pattern-completion-power-detail=" + v4_method_pattern_editor_completion_detail_or_empty(v4_method_pattern_editor_completion, v4_method_pattern_editor_power_item)
+say "method-pattern-completion-codename-found=" + v4_method_pattern_editor_bool_word(v4_method_pattern_editor_codename_item >= 0)
+say "method-pattern-completion-codename-detail=" + v4_method_pattern_editor_completion_detail_or_empty(v4_method_pattern_editor_completion, v4_method_pattern_editor_codename_item)
+say "method-pattern-completion-ace-found=" + v4_method_pattern_editor_bool_word(v4_method_pattern_editor_ace_item >= 0)
+say "method-pattern-completion-ace-detail=" + v4_method_pattern_editor_completion_detail_or_empty(v4_method_pattern_editor_completion, v4_method_pattern_editor_ace_item)
+say "method-pattern-completion-self-found=" + v4_method_pattern_editor_bool_word(v4_method_pattern_editor_self_item >= 0)
+say "method-pattern-completion-self-detail=" + v4_method_pattern_editor_completion_detail_or_empty(v4_method_pattern_editor_completion, v4_method_pattern_editor_self_item)
+say "method-pattern-completion-squads-found=" + v4_method_pattern_editor_bool_word(v4_method_pattern_editor_squads_item >= 0)
+say "method-pattern-completion-squads-detail=" + v4_method_pattern_editor_completion_detail_or_empty(v4_method_pattern_editor_completion, v4_method_pattern_editor_squads_item)
+say "method-pattern-completion-temp-found=" + v4_method_pattern_editor_bool_word(v4_method_pattern_editor_temp_item >= 0)
