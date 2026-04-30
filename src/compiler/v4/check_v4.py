@@ -977,6 +977,12 @@ EXECUTABLE_SMOKES = [
             "decl-generic-bad-diagnostics=1",
             "decl-generic-bad-message=invalid local annotation type",
             "decl-generic-bad-help=Meiya lifetime debt: maybe expects 1 generic arguments in local declaration hold but received 2",
+            "decl-duplicate-diagnostics=1",
+            "decl-duplicate-message=duplicate local declaration",
+            "decl-duplicate-help=x already exists in this scope",
+            "decl-duplicate-x-locals=1",
+            "decl-reuse-after-block-diagnostics=0",
+            "decl-reuse-after-block-x-locals=2",
         ],
     },
     {

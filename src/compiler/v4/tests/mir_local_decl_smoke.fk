@@ -26,6 +26,39 @@ task v4_mir_bad_local_generic_decl_make_source() -> word {
     give back src
 }
 
+task v4_mir_bad_duplicate_local_decl_make_source() -> word {
+    pilot src = "task bad_dup() -> int {\n"
+    src = src + "    pilot x = 1\n"
+    src = src + "    pilot x = 2\n"
+    src = src + "    give back x\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_reuse_after_block_local_decl_make_source() -> word {
+    pilot src = "task reuse_after_block() -> int {\n"
+    src = src + "    if true {\n"
+    src = src + "        pilot x = 1\n"
+    src = src + "    }\n"
+    src = src + "    pilot x = 2\n"
+    src = src + "    give back x\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_local_decl_count_named(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot local_id = 0
+    pilot count = 0
+    pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+    repeat until local_id >= local_count {
+        if v4_mir_local_name(mir_id, body_id, local_id) == local_name {
+            count += 1
+        }
+        local_id += 1
+    }
+    give back count
+}
+
 pilot v4_mir_local_decl_source = v4_mir_local_decl_make_source()
 pilot v4_mir_local_decl_stream = v4_lex_text(0, v4_mir_local_decl_source)
 pilot v4_mir_local_decl_tree = v4_parse_stream(0, v4_mir_local_decl_stream)
@@ -74,3 +107,31 @@ pilot v4_mir_bad_local_generic_decl_mir = v4_mir_lower_ty(2, v4_mir_bad_local_ge
 say "decl-generic-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_local_generic_decl_mir))
 say "decl-generic-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_local_generic_decl_mir, 0))
 say "decl-generic-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_local_generic_decl_mir, 0))
+
+pilot v4_mir_bad_duplicate_local_decl_source = v4_mir_bad_duplicate_local_decl_make_source()
+pilot v4_mir_bad_duplicate_local_decl_stream = v4_lex_text(3, v4_mir_bad_duplicate_local_decl_source)
+pilot v4_mir_bad_duplicate_local_decl_tree = v4_parse_stream(3, v4_mir_bad_duplicate_local_decl_stream)
+pilot v4_mir_bad_duplicate_local_decl_hir = v4_hir_lower_tree(3, v4_mir_bad_duplicate_local_decl_tree)
+pilot v4_mir_bad_duplicate_local_decl_resolve = v4_resolve_lower_hir(3, v4_mir_bad_duplicate_local_decl_hir)
+pilot v4_mir_bad_duplicate_local_decl_ty = v4_ty_lower_resolve(3, v4_mir_bad_duplicate_local_decl_resolve)
+pilot v4_mir_bad_duplicate_local_decl_mir = v4_mir_lower_ty(3, v4_mir_bad_duplicate_local_decl_ty)
+pilot v4_mir_bad_duplicate_local_decl_def = v4_resolve_def_for_name(v4_mir_bad_duplicate_local_decl_resolve, "bad_dup")
+pilot v4_mir_bad_duplicate_local_decl_body = v4_mir_lookup_body(v4_mir_bad_duplicate_local_decl_mir, v4_mir_bad_duplicate_local_decl_def)
+
+say "decl-duplicate-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_duplicate_local_decl_mir))
+say "decl-duplicate-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_duplicate_local_decl_mir, 0))
+say "decl-duplicate-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_duplicate_local_decl_mir, 0))
+say "decl-duplicate-x-locals=" + word_from_int(v4_mir_local_decl_count_named(v4_mir_bad_duplicate_local_decl_mir, v4_mir_bad_duplicate_local_decl_body, "x"))
+
+pilot v4_mir_reuse_after_block_local_decl_source = v4_mir_reuse_after_block_local_decl_make_source()
+pilot v4_mir_reuse_after_block_local_decl_stream = v4_lex_text(4, v4_mir_reuse_after_block_local_decl_source)
+pilot v4_mir_reuse_after_block_local_decl_tree = v4_parse_stream(4, v4_mir_reuse_after_block_local_decl_stream)
+pilot v4_mir_reuse_after_block_local_decl_hir = v4_hir_lower_tree(4, v4_mir_reuse_after_block_local_decl_tree)
+pilot v4_mir_reuse_after_block_local_decl_resolve = v4_resolve_lower_hir(4, v4_mir_reuse_after_block_local_decl_hir)
+pilot v4_mir_reuse_after_block_local_decl_ty = v4_ty_lower_resolve(4, v4_mir_reuse_after_block_local_decl_resolve)
+pilot v4_mir_reuse_after_block_local_decl_mir = v4_mir_lower_ty(4, v4_mir_reuse_after_block_local_decl_ty)
+pilot v4_mir_reuse_after_block_local_decl_def = v4_resolve_def_for_name(v4_mir_reuse_after_block_local_decl_resolve, "reuse_after_block")
+pilot v4_mir_reuse_after_block_local_decl_body = v4_mir_lookup_body(v4_mir_reuse_after_block_local_decl_mir, v4_mir_reuse_after_block_local_decl_def)
+
+say "decl-reuse-after-block-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_reuse_after_block_local_decl_mir))
+say "decl-reuse-after-block-x-locals=" + word_from_int(v4_mir_local_decl_count_named(v4_mir_reuse_after_block_local_decl_mir, v4_mir_reuse_after_block_local_decl_body, "x"))

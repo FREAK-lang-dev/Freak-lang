@@ -5096,6 +5096,10 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     pilot rvalue_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, rhs_start, stmt_end, declared_ty)
     pilot inferred_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     if v4_mir_pattern_is_simple_local(pattern) {
+        if v4_mir_find_local_visible_at(mir_id, body_id, pattern, v4_span_start(stmt_span)) >= 0 {
+            v4_mir_add_type_error(mir_id, stmt_span, "duplicate local declaration", pattern + " already exists in this scope")
+            give back block_id
+        }
         pilot local_ty = inferred_ty
         if v4_ty_is_known(declared_ty) {
             v4_mir_check_local_decl_type(mir_id, stmt_span, pattern, declared_ty, inferred_ty)
