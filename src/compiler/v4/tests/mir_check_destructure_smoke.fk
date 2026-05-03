@@ -1,0 +1,111 @@
+-- V4 MIR checked-pattern destructuring smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_check_destructure_find_stmt(mir_id: int, body_id: int, kind: word, lhs: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == kind and v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == lhs {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_check_destructure_source() -> word {
+    pilot src = "alias Pair = (int,word)\n"
+    src = src + "alias Wing = [int;2]\n"
+    src = src + "task maybe_good(value: maybe<Pair>) -> int {\n"
+    src = src + "    check value {\n"
+    src = src + "        got (power, label) -> give back power\n"
+    src = src + "        nobody -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task result_good(parsed: result<Wing,word>) -> int {\n"
+    src = src + "    check result parsed {\n"
+    src = src + "        ok([left, right]) -> give back right\n"
+    src = src + "        err(msg) -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task bad_maybe(value: maybe<Pair>) -> void {\n"
+    src = src + "    check value {\n"
+    src = src + "        got 7 -> say \"no\"\n"
+    src = src + "        nobody -> say \"none\"\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task bad_result(parsed: result<Wing,word>) -> void {\n"
+    src = src + "    check result parsed {\n"
+    src = src + "        ok([left, right, extra]) -> say left\n"
+    src = src + "        err(msg) -> say msg\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task dup(value: maybe<Pair>) -> void {\n"
+    src = src + "    check value {\n"
+    src = src + "        got (left, left) -> say left\n"
+    src = src + "        nobody -> say \"none\"\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_check_destructure_stream = v4_lex_text(0, v4_mir_check_destructure_source())
+pilot v4_mir_check_destructure_tree = v4_parse_stream(0, v4_mir_check_destructure_stream)
+pilot v4_mir_check_destructure_hir = v4_hir_lower_tree(0, v4_mir_check_destructure_tree)
+pilot v4_mir_check_destructure_resolve = v4_resolve_lower_hir(0, v4_mir_check_destructure_hir)
+pilot v4_mir_check_destructure_ty = v4_ty_lower_resolve(0, v4_mir_check_destructure_resolve)
+pilot v4_mir_check_destructure_mir = v4_mir_lower_ty(0, v4_mir_check_destructure_ty)
+
+pilot v4_mir_check_destructure_maybe_def = v4_resolve_def_for_name(v4_mir_check_destructure_resolve, "maybe_good")
+pilot v4_mir_check_destructure_maybe_body = v4_mir_lookup_body(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_def)
+pilot v4_mir_check_destructure_maybe_branch_stmt = v4_mir_check_destructure_find_stmt(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_stmt_branch, "check value HasSome")
+pilot v4_mir_check_destructure_power_stmt = v4_mir_check_destructure_find_stmt(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_stmt_local, "power")
+pilot v4_mir_check_destructure_label_stmt = v4_mir_check_destructure_find_stmt(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_stmt_local, "label")
+pilot v4_mir_check_destructure_power_rvalue = v4_mir_stmt_rvalue(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_power_stmt)
+pilot v4_mir_check_destructure_label_rvalue = v4_mir_stmt_rvalue(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_label_stmt)
+pilot v4_mir_check_destructure_power_place = v4_mir_rvalue_lhs(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_power_rvalue)
+pilot v4_mir_check_destructure_label_place = v4_mir_rvalue_lhs(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_label_rvalue)
+
+pilot v4_mir_check_destructure_result_def = v4_resolve_def_for_name(v4_mir_check_destructure_resolve, "result_good")
+pilot v4_mir_check_destructure_result_body = v4_mir_lookup_body(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_def)
+pilot v4_mir_check_destructure_result_branch_stmt = v4_mir_check_destructure_find_stmt(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_stmt_branch, "check parsed IsOk")
+pilot v4_mir_check_destructure_right_stmt = v4_mir_check_destructure_find_stmt(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_stmt_local, "right")
+pilot v4_mir_check_destructure_msg_stmt = v4_mir_check_destructure_find_stmt(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_stmt_local, "msg")
+pilot v4_mir_check_destructure_right_rvalue = v4_mir_stmt_rvalue(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_right_stmt)
+pilot v4_mir_check_destructure_msg_rvalue = v4_mir_stmt_rvalue(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_stmt)
+pilot v4_mir_check_destructure_right_place = v4_mir_rvalue_lhs(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_right_rvalue)
+pilot v4_mir_check_destructure_msg_place = v4_mir_rvalue_lhs(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_rvalue)
+pilot v4_mir_check_destructure_right_index = v4_mir_place_index(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_right_place)
+
+say v4_mir_summary(v4_mir_check_destructure_mir)
+say "check-destructure-maybe-branch-kind=" + v4_mir_stmt_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_maybe_branch_stmt)
+say "check-destructure-maybe-branch-lhs=" + v4_mir_stmt_lhs(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_maybe_branch_stmt)
+say "check-destructure-power-kind=" + v4_mir_rvalue_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_power_rvalue)
+say "check-destructure-power-ty=" + v4_mir_rvalue_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_power_rvalue)
+say "check-destructure-power-source-field=" + v4_mir_place_field(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_power_place)
+say "check-destructure-power-source-ty=" + v4_mir_place_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_power_place)
+say "check-destructure-label-kind=" + v4_mir_rvalue_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_label_rvalue)
+say "check-destructure-label-ty=" + v4_mir_rvalue_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_label_rvalue)
+say "check-destructure-label-source-field=" + v4_mir_place_field(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_label_place)
+say "check-destructure-label-source-ty=" + v4_mir_place_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_maybe_body, v4_mir_check_destructure_label_place)
+say "check-destructure-result-branch-kind=" + v4_mir_stmt_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_result_branch_stmt)
+say "check-destructure-result-branch-lhs=" + v4_mir_stmt_lhs(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_result_branch_stmt)
+say "check-destructure-right-kind=" + v4_mir_rvalue_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_right_rvalue)
+say "check-destructure-right-ty=" + v4_mir_rvalue_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_right_rvalue)
+say "check-destructure-right-place-kind=" + v4_mir_place_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_right_place)
+say "check-destructure-right-place-ty=" + v4_mir_place_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_right_place)
+say "check-destructure-right-index-kind=" + v4_mir_rvalue_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_right_index)
+say "check-destructure-right-index-text=" + v4_mir_rvalue_text(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_right_index)
+say "check-destructure-right-index-ty=" + v4_mir_rvalue_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_right_index)
+say "check-destructure-msg-kind=" + v4_mir_rvalue_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_rvalue)
+say "check-destructure-msg-ty=" + v4_mir_rvalue_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_rvalue)
+say "check-destructure-msg-source-field=" + v4_mir_place_field(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_place)
+say "check-destructure-msg-source-ty=" + v4_mir_place_ty(v4_mir_check_destructure_mir, v4_mir_check_destructure_result_body, v4_mir_check_destructure_msg_place)
+say "check-destructure-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_destructure_mir))
+say "check-destructure-diagnostic0-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 0))
+say "check-destructure-diagnostic0-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_destructure_mir, 0))
+say "check-destructure-diagnostic1-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 1))
+say "check-destructure-diagnostic1-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_destructure_mir, 1))
+say "check-destructure-diagnostic2-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 2))
+say "check-destructure-diagnostic2-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_destructure_mir, 2))
+say "check-destructure-diagnostic3-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 3))
+say "check-destructure-diagnostic3-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_destructure_mir, 3))

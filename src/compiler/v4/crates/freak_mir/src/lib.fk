@@ -4292,12 +4292,19 @@ task v4_mir_pattern_is_simple_local(pattern: word) -> bool {
     if pattern == "" {
         give back false
     }
-    if v4_index_of_from(pattern, " ", 0) >= 0 { give back false }
-    if v4_index_of_from(pattern, "(", 0) >= 0 { give back false }
-    if v4_index_of_from(pattern, ")", 0) >= 0 { give back false }
-    if v4_index_of_from(pattern, "[", 0) >= 0 { give back false }
-    if v4_index_of_from(pattern, "]", 0) >= 0 { give back false }
-    if v4_index_of_from(pattern, ",", 0) >= 0 { give back false }
+    if v4_lex_is_bool_word(pattern) {
+        give back false
+    }
+    if not v4_lex_is_ident_start(pattern.char_at(0)) {
+        give back false
+    }
+    pilot idx = 1
+    repeat until idx >= pattern.length() {
+        if not v4_lex_is_ident_continue(pattern.char_at(idx)) {
+            give back false
+        }
+        idx += 1
+    }
     give back true
 }
 
@@ -5945,6 +5952,39 @@ task v4_mir_lower_checked_binding(mir_id: int, body_id: int, block_id: int, stmt
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, local_name, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, place_id, source_rvalue)
 }
 
+task v4_mir_checked_pattern_supported(pattern: word) -> bool {
+    pattern = v4_mir_pattern_trim(pattern)
+    if pattern == "" {
+        give back false
+    }
+    if pattern == "_" or v4_mir_pattern_is_simple_local(pattern) {
+        give back true
+    }
+    give back v4_mir_destructure_pattern_kind(pattern) != ""
+}
+
+task v4_mir_lower_checked_pattern(mir_id: int, body_id: int, block_id: int, stmt_span: word, pattern: word, source_place: int, source_ty: word, duplicate_message: word, malformed_message: word, malformed_help: word) -> void {
+    pattern = v4_mir_pattern_trim(pattern)
+    if pattern == "" {
+        v4_mir_add_type_error(mir_id, stmt_span, malformed_message, malformed_help)
+        give back
+    }
+    if pattern == "_" {
+        give back
+    }
+    if v4_mir_pattern_is_simple_local(pattern) {
+        v4_mir_lower_checked_binding(mir_id, body_id, block_id, stmt_span, pattern, source_place, source_ty, duplicate_message)
+        give back
+    }
+
+    pilot pattern_kind = v4_mir_destructure_pattern_kind(pattern)
+    if pattern_kind == "" {
+        v4_mir_add_type_error(mir_id, stmt_span, malformed_message, malformed_help)
+        give back
+    }
+    v4_mir_lower_destructure_pattern(mir_id, body_id, block_id, stmt_span, pattern_kind, pattern, source_place, source_ty)
+}
+
 task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, check_token: int, stmt_end: int) -> int {
     pilot open_token = v4_mir_find_token_value(stream_id, check_token, stmt_end, "{")
     if open_token < 0 {
@@ -5968,7 +6008,7 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
     pilot got_arrow = 0 - 1
     pilot got_end = 0 - 1
     pilot got_span = V4_NO_SPAN
-    pilot got_name = ""
+      pilot got_pattern = ""
     pilot nobody_arrow = 0 - 1
     pilot nobody_end = 0 - 1
     pilot nobody_span = V4_NO_SPAN
@@ -5988,36 +6028,36 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
             if arm_first < arrow {
                 arm_head = v4_lex_token_value(stream_id, arm_first)
             }
-            if arm_head == "got" {
-                if got_arrow >= 0 {
-                    v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe duplicate got arm", "got already appears in this check")
-                } else {
-                    got_name = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, arm_first + 1, arrow))
-                    if got_name == "" or (got_name != "_" and not v4_mir_pattern_is_simple_local(got_name)) {
-                        v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe arm malformed", "use got name -> ...")
-                    } else {
-                        got_arrow = arrow
-                        got_end = arm_end
-                        got_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
-                    }
+              if arm_head == "got" {
+                  if got_arrow >= 0 {
+                      v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe duplicate got arm", "got already appears in this check")
+                  } else {
+                      got_pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, arm_first + 1, arrow))
+                      if not v4_mir_checked_pattern_supported(got_pattern) {
+                          v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe arm malformed", "use got pattern -> ...")
+                      } else {
+                          got_arrow = arrow
+                          got_end = arm_end
+                          got_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
+                      }
                 }
             } else if arm_head == "nobody" {
                 if nobody_arrow >= 0 {
                     v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe duplicate nobody arm", "nobody already appears in this check")
-                } else {
-                    nobody_arrow = arrow
-                    nobody_end = arm_end
-                    nobody_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
-                }
-            } else {
-                v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe arm malformed", "use got name -> ... or nobody -> ...")
-            }
-            idx = arm_end + 1
-        }
-    }
+                  } else {
+                      nobody_arrow = arrow
+                      nobody_end = arm_end
+                      nobody_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
+                  }
+              } else {
+                  v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe arm malformed", "use got pattern -> ... or nobody -> ...")
+              }
+              idx = arm_end + 1
+          }
+      }
 
     if got_arrow < 0 {
-        v4_mir_add_type_error(mir_id, stmt_span, "check maybe missing got arm", "add got name -> ...")
+        v4_mir_add_type_error(mir_id, stmt_span, "check maybe missing got arm", "add got pattern -> ...")
     }
     if nobody_arrow < 0 {
         v4_mir_add_type_error(mir_id, stmt_span, "check maybe missing nobody arm", "add nobody -> ...")
@@ -6031,14 +6071,14 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, got_block, nobody_block, cond_text))
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "got#" + word_from_int(got_block) + " nobody#" + word_from_int(nobody_block), stmt_span, 0 - 1, cond_rvalue)
 
-    if got_arrow >= 0 {
-        pilot value_ty = v4_ty_maybe_value_type(subject_ty)
-        pilot value_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".some", subject_place, "some", 0 - 1, stmt_span, value_ty)
-        v4_mir_push_scope_span(got_span)
-        v4_mir_lower_checked_binding(mir_id, body_id, got_block, got_span, got_name, value_place, value_ty, "check maybe binding duplicate local")
-        got_block = v4_mir_lower_arm_body(mir_id, body_id, got_block, stream_id, got_arrow, got_end)
-        v4_mir_pop_scope_span()
-    }
+      if got_arrow >= 0 {
+          pilot value_ty = v4_ty_maybe_value_type(subject_ty)
+          pilot value_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".some", subject_place, "some", 0 - 1, stmt_span, value_ty)
+          v4_mir_push_scope_span(got_span)
+          v4_mir_lower_checked_pattern(mir_id, body_id, got_block, got_span, got_pattern, value_place, value_ty, "check maybe binding duplicate local", "check maybe arm malformed", "use got pattern -> ...")
+          got_block = v4_mir_lower_arm_body(mir_id, body_id, got_block, stream_id, got_arrow, got_end)
+          v4_mir_pop_scope_span()
+      }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, got_block, after_block)
 
     if nobody_arrow >= 0 {
@@ -6074,11 +6114,11 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
     pilot ok_arrow = 0 - 1
     pilot ok_end = 0 - 1
     pilot ok_span = V4_NO_SPAN
-    pilot ok_name = ""
+      pilot ok_pattern = ""
     pilot err_arrow = 0 - 1
     pilot err_end = 0 - 1
     pilot err_span = V4_NO_SPAN
-    pilot err_name = ""
+      pilot err_pattern = ""
     pilot idx = open_token + 1
     repeat until idx >= check_close {
         idx = v4_mir_skip_trivia(stream_id, idx)
@@ -6097,59 +6137,59 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
             }
             pilot head_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
             pilot head_last = v4_mir_last_nontrivia_before(stream_id, arrow)
-            pilot bind_name = ""
-            pilot malformed = false
-            if arm_head == "ok" or arm_head == "err" {
-                pilot open_paren = v4_mir_skip_trivia(stream_id, arm_first + 1)
-                if open_paren >= arrow or v4_lex_token_value(stream_id, open_paren) != "(" {
-                    malformed = true
-                } else {
-                    pilot close_paren = v4_mir_find_matching_paren(stream_id, open_paren, arrow)
-                    if close_paren != head_last {
-                        malformed = true
-                    } else {
-                        bind_name = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, open_paren + 1, close_paren))
-                        if bind_name == "" or (bind_name != "_" and not v4_mir_pattern_is_simple_local(bind_name)) {
-                            malformed = true
-                        }
-                    }
-                }
-            }
+              pilot bind_pattern = ""
+              pilot malformed = false
+              if arm_head == "ok" or arm_head == "err" {
+                  pilot open_paren = v4_mir_skip_trivia(stream_id, arm_first + 1)
+                  if open_paren >= arrow or v4_lex_token_value(stream_id, open_paren) != "(" {
+                      malformed = true
+                  } else {
+                      pilot close_paren = v4_mir_find_matching_paren(stream_id, open_paren, arrow)
+                      if close_paren != head_last {
+                          malformed = true
+                      } else {
+                          bind_pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, open_paren + 1, close_paren))
+                          if not v4_mir_checked_pattern_supported(bind_pattern) {
+                              malformed = true
+                          }
+                      }
+                  }
+              }
 
             if arm_head == "ok" {
-                if ok_arrow >= 0 {
-                    v4_mir_add_type_error(mir_id, head_span, "check result duplicate ok arm", "ok already appears in this check result")
-                } else if malformed {
-                    v4_mir_add_type_error(mir_id, head_span, "check result arm malformed", "use ok(name) -> ...")
-                } else {
-                    ok_arrow = arrow
-                    ok_end = arm_end
-                    ok_span = head_span
-                    ok_name = bind_name
-                }
-            } else if arm_head == "err" {
-                if err_arrow >= 0 {
-                    v4_mir_add_type_error(mir_id, head_span, "check result duplicate err arm", "err already appears in this check result")
-                } else if malformed {
-                    v4_mir_add_type_error(mir_id, head_span, "check result arm malformed", "use err(name) -> ...")
-                } else {
-                    err_arrow = arrow
-                    err_end = arm_end
-                    err_span = head_span
-                    err_name = bind_name
-                }
-            } else {
-                v4_mir_add_type_error(mir_id, head_span, "check result arm malformed", "use ok(name) -> ... or err(name) -> ...")
-            }
-            idx = arm_end + 1
-        }
+                  if ok_arrow >= 0 {
+                      v4_mir_add_type_error(mir_id, head_span, "check result duplicate ok arm", "ok already appears in this check result")
+                  } else if malformed {
+                      v4_mir_add_type_error(mir_id, head_span, "check result arm malformed", "use ok(pattern) -> ...")
+                  } else {
+                      ok_arrow = arrow
+                      ok_end = arm_end
+                      ok_span = head_span
+                      ok_pattern = bind_pattern
+                  }
+              } else if arm_head == "err" {
+                  if err_arrow >= 0 {
+                      v4_mir_add_type_error(mir_id, head_span, "check result duplicate err arm", "err already appears in this check result")
+                  } else if malformed {
+                      v4_mir_add_type_error(mir_id, head_span, "check result arm malformed", "use err(pattern) -> ...")
+                  } else {
+                      err_arrow = arrow
+                      err_end = arm_end
+                      err_span = head_span
+                      err_pattern = bind_pattern
+                  }
+              } else {
+                  v4_mir_add_type_error(mir_id, head_span, "check result arm malformed", "use ok(pattern) -> ... or err(pattern) -> ...")
+              }
+              idx = arm_end + 1
+          }
     }
 
     if ok_arrow < 0 {
-        v4_mir_add_type_error(mir_id, stmt_span, "check result missing ok arm", "add ok(name) -> ...")
+        v4_mir_add_type_error(mir_id, stmt_span, "check result missing ok arm", "add ok(pattern) -> ...")
     }
     if err_arrow < 0 {
-        v4_mir_add_type_error(mir_id, stmt_span, "check result missing err arm", "add err(name) -> ...")
+        v4_mir_add_type_error(mir_id, stmt_span, "check result missing err arm", "add err(pattern) -> ...")
     }
 
     pilot ok_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
@@ -6160,24 +6200,24 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, ok_block, err_block, cond_text))
     v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "ok#" + word_from_int(ok_block) + " err#" + word_from_int(err_block), stmt_span, 0 - 1, cond_rvalue)
 
-    if ok_arrow >= 0 {
-        pilot ok_ty = v4_ty_result_ok_type(subject_ty)
-        pilot ok_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".ok", subject_place, "ok", 0 - 1, stmt_span, ok_ty)
-        v4_mir_push_scope_span(ok_span)
-        v4_mir_lower_checked_binding(mir_id, body_id, ok_block, ok_span, ok_name, ok_place, ok_ty, "check result binding duplicate local")
-        ok_block = v4_mir_lower_arm_body(mir_id, body_id, ok_block, stream_id, ok_arrow, ok_end)
-        v4_mir_pop_scope_span()
-    }
+      if ok_arrow >= 0 {
+          pilot ok_ty = v4_ty_result_ok_type(subject_ty)
+          pilot ok_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".ok", subject_place, "ok", 0 - 1, stmt_span, ok_ty)
+          v4_mir_push_scope_span(ok_span)
+          v4_mir_lower_checked_pattern(mir_id, body_id, ok_block, ok_span, ok_pattern, ok_place, ok_ty, "check result binding duplicate local", "check result arm malformed", "use ok(pattern) -> ...")
+          ok_block = v4_mir_lower_arm_body(mir_id, body_id, ok_block, stream_id, ok_arrow, ok_end)
+          v4_mir_pop_scope_span()
+      }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, ok_block, after_block)
 
-    if err_arrow >= 0 {
-        pilot err_ty = v4_ty_result_err_type(subject_ty)
-        pilot err_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".err", subject_place, "err", 0 - 1, stmt_span, err_ty)
-        v4_mir_push_scope_span(err_span)
-        v4_mir_lower_checked_binding(mir_id, body_id, err_block, err_span, err_name, err_place, err_ty, "check result binding duplicate local")
-        err_block = v4_mir_lower_arm_body(mir_id, body_id, err_block, stream_id, err_arrow, err_end)
-        v4_mir_pop_scope_span()
-    }
+      if err_arrow >= 0 {
+          pilot err_ty = v4_ty_result_err_type(subject_ty)
+          pilot err_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".err", subject_place, "err", 0 - 1, stmt_span, err_ty)
+          v4_mir_push_scope_span(err_span)
+          v4_mir_lower_checked_pattern(mir_id, body_id, err_block, err_span, err_pattern, err_place, err_ty, "check result binding duplicate local", "check result arm malformed", "use err(pattern) -> ...")
+          err_block = v4_mir_lower_arm_body(mir_id, body_id, err_block, stream_id, err_arrow, err_end)
+          v4_mir_pop_scope_span()
+      }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, err_block, after_block)
     give back after_block
 }
