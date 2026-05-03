@@ -4660,20 +4660,25 @@ task v4_mir_lower_destructure_pattern(mir_id: int, body_id: int, block_id: int, 
         give back
     }
 
+    pilot canonical_source_ty = source_ty
+    if v4_ty_is_known(canonical_source_ty) {
+        canonical_source_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), canonical_source_ty)
+    }
+
     if pattern_kind == "tuple" {
         if not v4_mir_is_tuple_pattern(pattern) {
             v4_mir_add_type_error(mir_id, stmt_span, "unsupported local pattern", "use a single name, (a, b, ...), or [a, b, ...]")
             give back
         }
 
-        if v4_ty_is_known(source_ty) and not v4_ty_is_tuple_type(source_ty) {
+        if v4_ty_is_known(canonical_source_ty) and not v4_ty_is_tuple_type(canonical_source_ty) {
             v4_mir_add_type_error(mir_id, stmt_span, "tuple destructure needs tuple source", "got " + source_ty)
             give back
         }
 
         pilot pattern_slots = v4_mir_tuple_pattern_slot_count(pattern)
-        if v4_ty_is_tuple_type(source_ty) {
-            pilot source_slots = v4_ty_tuple_slot_count(source_ty)
+        if v4_ty_is_tuple_type(canonical_source_ty) {
+            pilot source_slots = v4_ty_tuple_slot_count(canonical_source_ty)
             if source_slots != pattern_slots {
                 v4_mir_add_type_error(mir_id, stmt_span, "tuple destructure arity mismatch", "pattern wants " + word_from_int(pattern_slots) + " slots but source has " + word_from_int(source_slots))
             }
@@ -4683,8 +4688,8 @@ task v4_mir_lower_destructure_pattern(mir_id: int, body_id: int, block_id: int, 
         repeat until slot_idx >= pattern_slots {
             pilot slot_name = word_from_int(slot_idx)
             pilot slot_ty = v4_ty_unknown
-            if v4_ty_is_tuple_type(source_ty) {
-                slot_ty = v4_ty_tuple_slot_type(source_ty, slot_idx)
+            if v4_ty_is_tuple_type(canonical_source_ty) {
+                slot_ty = v4_ty_tuple_slot_type(canonical_source_ty, slot_idx)
             }
             pilot slot_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + slot_name, source_place, slot_name, 0 - 1, stmt_span, slot_ty)
             pilot child_pattern = v4_mir_tuple_pattern_slot(pattern, slot_idx)
@@ -4702,27 +4707,27 @@ task v4_mir_lower_destructure_pattern(mir_id: int, body_id: int, block_id: int, 
         }
 
         pilot source_is_sequence = false
-        if v4_ty_is_known(source_ty) == false or v4_ty_list_element_type(source_ty) != v4_ty_unknown or v4_ty_is_fixed_array_type(source_ty) {
+        if v4_ty_is_known(canonical_source_ty) == false or v4_ty_list_element_type(canonical_source_ty) != v4_ty_unknown or v4_ty_is_fixed_array_type(canonical_source_ty) {
             source_is_sequence = true
         }
-        if v4_ty_is_known(source_ty) and not source_is_sequence {
+        if v4_ty_is_known(canonical_source_ty) and not source_is_sequence {
             v4_mir_add_type_error(mir_id, stmt_span, "sequence destructure needs list or array source", "got " + source_ty)
             give back
         }
 
         pilot pattern_slots = v4_mir_bracket_pattern_slot_count(pattern)
-        if v4_ty_is_fixed_array_type(source_ty) {
-            pilot source_slots = word_to_int(v4_ty_fixed_array_length_text(source_ty))
+        if v4_ty_is_fixed_array_type(canonical_source_ty) {
+            pilot source_slots = word_to_int(v4_ty_fixed_array_length_text(canonical_source_ty))
             if source_slots != pattern_slots {
                 v4_mir_add_type_error(mir_id, stmt_span, "sequence destructure arity mismatch", "pattern wants " + word_from_int(pattern_slots) + " slots but source has " + word_from_int(source_slots))
             }
         }
 
         pilot element_ty = v4_ty_unknown
-        if v4_ty_list_element_type(source_ty) != v4_ty_unknown {
-            element_ty = v4_ty_list_element_type(source_ty)
-        } else if v4_ty_is_fixed_array_type(source_ty) {
-            element_ty = v4_ty_fixed_array_element_type(source_ty)
+        if v4_ty_list_element_type(canonical_source_ty) != v4_ty_unknown {
+            element_ty = v4_ty_list_element_type(canonical_source_ty)
+        } else if v4_ty_is_fixed_array_type(canonical_source_ty) {
+            element_ty = v4_ty_fixed_array_element_type(canonical_source_ty)
         }
 
         pilot slot_idx = 0
@@ -4771,20 +4776,25 @@ task v4_mir_lower_destructure_assignment_pattern(mir_id: int, body_id: int, bloc
         give back
     }
 
+    pilot canonical_source_ty = source_ty
+    if v4_ty_is_known(canonical_source_ty) {
+        canonical_source_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), canonical_source_ty)
+    }
+
     if pattern_kind == "tuple" {
         if not v4_mir_is_tuple_pattern(pattern) {
             v4_mir_add_type_error(mir_id, stmt_span, "destructure assignment target must be local", "use existing locals inside (a, b, ...) or [a, b, ...]")
             give back
         }
 
-        if v4_ty_is_known(source_ty) and not v4_ty_is_tuple_type(source_ty) {
+        if v4_ty_is_known(canonical_source_ty) and not v4_ty_is_tuple_type(canonical_source_ty) {
             v4_mir_add_type_error(mir_id, stmt_span, "tuple destructure assignment needs tuple source", "got " + source_ty)
             give back
         }
 
         pilot pattern_slots = v4_mir_tuple_pattern_slot_count(pattern)
-        if v4_ty_is_tuple_type(source_ty) {
-            pilot source_slots = v4_ty_tuple_slot_count(source_ty)
+        if v4_ty_is_tuple_type(canonical_source_ty) {
+            pilot source_slots = v4_ty_tuple_slot_count(canonical_source_ty)
             if source_slots != pattern_slots {
                 v4_mir_add_type_error(mir_id, stmt_span, "tuple destructure assignment arity mismatch", "pattern wants " + word_from_int(pattern_slots) + " slots but source has " + word_from_int(source_slots))
             }
@@ -4794,8 +4804,8 @@ task v4_mir_lower_destructure_assignment_pattern(mir_id: int, body_id: int, bloc
         repeat until slot_idx >= pattern_slots {
             pilot slot_name = word_from_int(slot_idx)
             pilot slot_ty = v4_ty_unknown
-            if v4_ty_is_tuple_type(source_ty) {
-                slot_ty = v4_ty_tuple_slot_type(source_ty, slot_idx)
+            if v4_ty_is_tuple_type(canonical_source_ty) {
+                slot_ty = v4_ty_tuple_slot_type(canonical_source_ty, slot_idx)
             }
             pilot slot_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + slot_name, source_place, slot_name, 0 - 1, stmt_span, slot_ty)
             pilot child_pattern = v4_mir_tuple_pattern_slot(pattern, slot_idx)
@@ -4813,27 +4823,27 @@ task v4_mir_lower_destructure_assignment_pattern(mir_id: int, body_id: int, bloc
         }
 
         pilot source_is_sequence = false
-        if v4_ty_is_known(source_ty) == false or v4_ty_list_element_type(source_ty) != v4_ty_unknown or v4_ty_is_fixed_array_type(source_ty) {
+        if v4_ty_is_known(canonical_source_ty) == false or v4_ty_list_element_type(canonical_source_ty) != v4_ty_unknown or v4_ty_is_fixed_array_type(canonical_source_ty) {
             source_is_sequence = true
         }
-        if v4_ty_is_known(source_ty) and not source_is_sequence {
+        if v4_ty_is_known(canonical_source_ty) and not source_is_sequence {
             v4_mir_add_type_error(mir_id, stmt_span, "sequence destructure assignment needs list or array source", "got " + source_ty)
             give back
         }
 
         pilot pattern_slots = v4_mir_bracket_pattern_slot_count(pattern)
-        if v4_ty_is_fixed_array_type(source_ty) {
-            pilot source_slots = word_to_int(v4_ty_fixed_array_length_text(source_ty))
+        if v4_ty_is_fixed_array_type(canonical_source_ty) {
+            pilot source_slots = word_to_int(v4_ty_fixed_array_length_text(canonical_source_ty))
             if source_slots != pattern_slots {
                 v4_mir_add_type_error(mir_id, stmt_span, "sequence destructure assignment arity mismatch", "pattern wants " + word_from_int(pattern_slots) + " slots but source has " + word_from_int(source_slots))
             }
         }
 
         pilot element_ty = v4_ty_unknown
-        if v4_ty_list_element_type(source_ty) != v4_ty_unknown {
-            element_ty = v4_ty_list_element_type(source_ty)
-        } else if v4_ty_is_fixed_array_type(source_ty) {
-            element_ty = v4_ty_fixed_array_element_type(source_ty)
+        if v4_ty_list_element_type(canonical_source_ty) != v4_ty_unknown {
+            element_ty = v4_ty_list_element_type(canonical_source_ty)
+        } else if v4_ty_is_fixed_array_type(canonical_source_ty) {
+            element_ty = v4_ty_fixed_array_element_type(canonical_source_ty)
         }
 
         pilot slot_idx = 0
@@ -4869,7 +4879,11 @@ task v4_mir_lower_for_each_binding(mir_id: int, body_id: int, block_id: int, stm
         give back 0 - 1
     }
 
-    pilot element_ty = v4_ty_index_element_type(iterable_ty)
+    pilot canonical_iterable_ty = iterable_ty
+    if v4_ty_is_known(canonical_iterable_ty) {
+        canonical_iterable_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), canonical_iterable_ty)
+    }
+    pilot element_ty = v4_ty_index_element_type(canonical_iterable_ty)
     if v4_ty_is_known(iterable_ty) and not v4_ty_is_known(element_ty) {
         v4_mir_add_type_error(mir_id, stmt_span, "for each needs iterable source", "got " + iterable_ty)
     }

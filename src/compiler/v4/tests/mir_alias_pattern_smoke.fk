@@ -1,0 +1,184 @@
+-- V4 MIR alias-backed destructure and for-each pattern smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_alias_pattern_source() -> word {
+    pilot src = "alias Pair = (int,word)\n"
+    src = src + "alias PairList = List<Pair>\n"
+    src = src + "alias Wing = [int;2]\n"
+    src = src + "task inspect(pairs: PairList, board: Wing) -> int {\n"
+    src = src + "    pilot pair: Pair = (7, \"ace\")\n"
+    src = src + "    pilot left = 0\n"
+    src = src + "    pilot codename = \"\"\n"
+    src = src + "    (left, codename) = pair\n"
+    src = src + "    pilot front = 0\n"
+    src = src + "    pilot flank = 0\n"
+    src = src + "    [front, flank] = board\n"
+    src = src + "    for each (power, label) in pairs {\n"
+    src = src + "        give back power + front\n"
+    src = src + "    }\n"
+    src = src + "    give back left\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_alias_pattern_find_local_id(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot local_id = 0
+    pilot local_count = v4_mir_body_local_count(mir_id, body_id)
+    repeat until local_id >= local_count {
+        if v4_mir_local_name(mir_id, body_id, local_id) == wanted {
+            give back local_id
+        }
+        local_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_alias_pattern_find_stmt_id(mir_id: int, body_id: int, wanted_kind: word, wanted_lhs: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == wanted_kind and v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted_lhs {
+            if seen == ordinal {
+                give back stmt_id
+            }
+            seen += 1
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_alias_pattern_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_mir_alias_pattern_local_ty_or_empty(mir_id: int, body_id: int, local_id: int) -> word {
+    if local_id < 0 {
+        give back ""
+    }
+    give back v4_mir_local_ty(mir_id, body_id, local_id)
+}
+
+task v4_mir_alias_pattern_stmt_rvalue_or_missing(mir_id: int, body_id: int, stmt_id: int) -> int {
+    if stmt_id < 0 {
+        give back 0 - 1
+    }
+    give back v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+}
+
+task v4_mir_alias_pattern_rvalue_kind_or_empty(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if rvalue_id < 0 {
+        give back ""
+    }
+    give back v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+}
+
+task v4_mir_alias_pattern_rvalue_ty_or_empty(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if rvalue_id < 0 {
+        give back ""
+    }
+    give back v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+}
+
+task v4_mir_alias_pattern_rvalue_source_place_or_missing(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 {
+        give back 0 - 1
+    }
+    give back v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+}
+
+task v4_mir_alias_pattern_place_kind_or_empty(mir_id: int, body_id: int, place_id: int) -> word {
+    if place_id < 0 {
+        give back ""
+    }
+    give back v4_mir_place_kind(mir_id, body_id, place_id)
+}
+
+task v4_mir_alias_pattern_place_field_or_empty(mir_id: int, body_id: int, place_id: int) -> word {
+    if place_id < 0 {
+        give back ""
+    }
+    give back v4_mir_place_field(mir_id, body_id, place_id)
+}
+
+task v4_mir_alias_pattern_place_ty_or_empty(mir_id: int, body_id: int, place_id: int) -> word {
+    if place_id < 0 {
+        give back ""
+    }
+    give back v4_mir_place_ty(mir_id, body_id, place_id)
+}
+
+pilot v4_mir_alias_pattern_stream = v4_lex_text(0, v4_mir_alias_pattern_source())
+pilot v4_mir_alias_pattern_tree = v4_parse_stream(0, v4_mir_alias_pattern_stream)
+pilot v4_mir_alias_pattern_hir = v4_hir_lower_tree(0, v4_mir_alias_pattern_tree)
+pilot v4_mir_alias_pattern_resolve = v4_resolve_lower_hir(0, v4_mir_alias_pattern_hir)
+pilot v4_mir_alias_pattern_ty = v4_ty_lower_resolve(0, v4_mir_alias_pattern_resolve)
+pilot v4_mir_alias_pattern_mir = v4_mir_lower_ty(0, v4_mir_alias_pattern_ty)
+pilot v4_mir_alias_pattern_def = v4_resolve_def_for_name(v4_mir_alias_pattern_resolve, "inspect")
+pilot v4_mir_alias_pattern_body = v4_mir_lookup_body(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_def)
+
+pilot v4_mir_alias_pattern_tuple_temp = v4_mir_alias_pattern_find_local_id(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, "_tuple_assign")
+pilot v4_mir_alias_pattern_seq_temp = v4_mir_alias_pattern_find_local_id(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, "_seq_assign")
+pilot v4_mir_alias_pattern_loop_temp = v4_mir_alias_pattern_find_local_id(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, "_for_each_item")
+pilot v4_mir_alias_pattern_power_local = v4_mir_alias_pattern_find_local_id(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, "power")
+pilot v4_mir_alias_pattern_label_local = v4_mir_alias_pattern_find_local_id(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, "label")
+
+pilot v4_mir_alias_pattern_left_assign_stmt = v4_mir_alias_pattern_find_stmt_id(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_stmt_assign, "left", 0)
+pilot v4_mir_alias_pattern_codename_assign_stmt = v4_mir_alias_pattern_find_stmt_id(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_stmt_assign, "codename", 0)
+pilot v4_mir_alias_pattern_front_assign_stmt = v4_mir_alias_pattern_find_stmt_id(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_stmt_assign, "front", 0)
+pilot v4_mir_alias_pattern_flank_assign_stmt = v4_mir_alias_pattern_find_stmt_id(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_stmt_assign, "flank", 0)
+pilot v4_mir_alias_pattern_power_stmt = v4_mir_alias_pattern_find_stmt_id(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_stmt_local, "power", 0)
+pilot v4_mir_alias_pattern_label_stmt = v4_mir_alias_pattern_find_stmt_id(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_stmt_local, "label", 0)
+
+pilot v4_mir_alias_pattern_left_rvalue = v4_mir_alias_pattern_stmt_rvalue_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_left_assign_stmt)
+pilot v4_mir_alias_pattern_codename_rvalue = v4_mir_alias_pattern_stmt_rvalue_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_codename_assign_stmt)
+pilot v4_mir_alias_pattern_front_rvalue = v4_mir_alias_pattern_stmt_rvalue_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_front_assign_stmt)
+pilot v4_mir_alias_pattern_flank_rvalue = v4_mir_alias_pattern_stmt_rvalue_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_flank_assign_stmt)
+pilot v4_mir_alias_pattern_power_rvalue = v4_mir_alias_pattern_stmt_rvalue_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_power_stmt)
+pilot v4_mir_alias_pattern_label_rvalue = v4_mir_alias_pattern_stmt_rvalue_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_label_stmt)
+
+pilot v4_mir_alias_pattern_left_source_place = v4_mir_alias_pattern_rvalue_source_place_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_left_rvalue)
+pilot v4_mir_alias_pattern_codename_source_place = v4_mir_alias_pattern_rvalue_source_place_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_codename_rvalue)
+pilot v4_mir_alias_pattern_front_source_place = v4_mir_alias_pattern_rvalue_source_place_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_front_rvalue)
+pilot v4_mir_alias_pattern_flank_source_place = v4_mir_alias_pattern_rvalue_source_place_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_flank_rvalue)
+pilot v4_mir_alias_pattern_power_source_place = v4_mir_alias_pattern_rvalue_source_place_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_power_rvalue)
+pilot v4_mir_alias_pattern_label_source_place = v4_mir_alias_pattern_rvalue_source_place_or_missing(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_label_rvalue)
+
+say v4_mir_summary(v4_mir_alias_pattern_mir)
+say "alias-mir-tuple-temp-found=" + v4_mir_alias_pattern_bool_word(v4_mir_alias_pattern_tuple_temp >= 0)
+say "alias-mir-tuple-temp-ty=" + v4_mir_alias_pattern_local_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_tuple_temp)
+say "alias-mir-seq-temp-found=" + v4_mir_alias_pattern_bool_word(v4_mir_alias_pattern_seq_temp >= 0)
+say "alias-mir-seq-temp-ty=" + v4_mir_alias_pattern_local_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_seq_temp)
+say "alias-mir-loop-temp-found=" + v4_mir_alias_pattern_bool_word(v4_mir_alias_pattern_loop_temp >= 0)
+say "alias-mir-loop-temp-ty=" + v4_mir_alias_pattern_local_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_loop_temp)
+say "alias-mir-power-found=" + v4_mir_alias_pattern_bool_word(v4_mir_alias_pattern_power_local >= 0)
+say "alias-mir-power-ty=" + v4_mir_alias_pattern_local_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_power_local)
+say "alias-mir-label-found=" + v4_mir_alias_pattern_bool_word(v4_mir_alias_pattern_label_local >= 0)
+say "alias-mir-label-ty=" + v4_mir_alias_pattern_local_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_label_local)
+say "alias-mir-left-assign-kind=" + v4_mir_alias_pattern_rvalue_kind_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_left_rvalue)
+say "alias-mir-left-assign-ty=" + v4_mir_alias_pattern_rvalue_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_left_rvalue)
+say "alias-mir-left-source-kind=" + v4_mir_alias_pattern_place_kind_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_left_source_place)
+say "alias-mir-left-source-field=" + v4_mir_alias_pattern_place_field_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_left_source_place)
+say "alias-mir-left-source-ty=" + v4_mir_alias_pattern_place_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_left_source_place)
+say "alias-mir-codename-assign-ty=" + v4_mir_alias_pattern_rvalue_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_codename_rvalue)
+say "alias-mir-codename-source-field=" + v4_mir_alias_pattern_place_field_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_codename_source_place)
+say "alias-mir-codename-source-ty=" + v4_mir_alias_pattern_place_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_codename_source_place)
+say "alias-mir-front-assign-kind=" + v4_mir_alias_pattern_rvalue_kind_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_front_rvalue)
+say "alias-mir-front-assign-ty=" + v4_mir_alias_pattern_rvalue_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_front_rvalue)
+say "alias-mir-front-source-kind=" + v4_mir_alias_pattern_place_kind_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_front_source_place)
+say "alias-mir-front-source-ty=" + v4_mir_alias_pattern_place_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_front_source_place)
+say "alias-mir-flank-source-kind=" + v4_mir_alias_pattern_place_kind_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_flank_source_place)
+say "alias-mir-flank-source-ty=" + v4_mir_alias_pattern_place_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_flank_source_place)
+say "alias-mir-power-rvalue-kind=" + v4_mir_alias_pattern_rvalue_kind_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_power_rvalue)
+say "alias-mir-power-rvalue-ty=" + v4_mir_alias_pattern_rvalue_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_power_rvalue)
+say "alias-mir-power-source-field=" + v4_mir_alias_pattern_place_field_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_power_source_place)
+say "alias-mir-power-source-ty=" + v4_mir_alias_pattern_place_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_power_source_place)
+say "alias-mir-label-rvalue-kind=" + v4_mir_alias_pattern_rvalue_kind_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_label_rvalue)
+say "alias-mir-label-rvalue-ty=" + v4_mir_alias_pattern_rvalue_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_label_rvalue)
+say "alias-mir-label-source-field=" + v4_mir_alias_pattern_place_field_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_label_source_place)
+say "alias-mir-label-source-ty=" + v4_mir_alias_pattern_place_ty_or_empty(v4_mir_alias_pattern_mir, v4_mir_alias_pattern_body, v4_mir_alias_pattern_label_source_place)
+say "alias-mir-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_alias_pattern_mir))

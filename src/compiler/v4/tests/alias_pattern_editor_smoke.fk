@@ -1,0 +1,136 @@
+-- V4 alias-backed pattern editor smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_alias_pattern_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_alias_pattern_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_alias_pattern_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_alias_pattern_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_alias_pattern_editor_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_alias_pattern_editor_completion_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_alias_pattern_editor_source_text() -> word {
+    pilot src = "alias Pair = (int,word)\n"
+    src = src + "alias PairList = List<Pair>\n"
+    src = src + "alias Wing = [int;2]\n"
+    src = src + "task inspect(pairs: PairList, board: Wing) -> int {\n"
+    src = src + "    pilot pair: Pair = (7, \"ace\")\n"
+    src = src + "    pilot (left, codename) = pair\n"
+    src = src + "    pilot [front, flank] = board\n"
+    src = src + "    for each (power, label) in pairs {\n"
+    src = src + "        say label\n"
+    src = src + "        give back power + left + flank\n"
+    src = src + "    }\n"
+    src = src + "    give back front\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_alias_pattern_editor_source = v4_alias_pattern_editor_source_text()
+pilot v4_alias_pattern_editor_stream = v4_lex_text(0, v4_alias_pattern_editor_source)
+
+pilot v4_alias_pattern_editor_pairs_offset = v4_alias_pattern_editor_token_offset(v4_alias_pattern_editor_stream, "PairList", 1)
+pilot v4_alias_pattern_editor_left_decl_offset = v4_alias_pattern_editor_token_offset(v4_alias_pattern_editor_stream, "left", 0)
+pilot v4_alias_pattern_editor_label_decl_offset = v4_alias_pattern_editor_token_offset(v4_alias_pattern_editor_stream, "label", 0)
+pilot v4_alias_pattern_editor_power_use_offset = v4_alias_pattern_editor_token_offset(v4_alias_pattern_editor_stream, "power", 1)
+pilot v4_alias_pattern_editor_left_use_offset = v4_alias_pattern_editor_token_offset(v4_alias_pattern_editor_stream, "left", 1)
+pilot v4_alias_pattern_editor_flank_use_offset = v4_alias_pattern_editor_token_offset(v4_alias_pattern_editor_stream, "flank", 1)
+pilot v4_alias_pattern_editor_label_use_offset = v4_alias_pattern_editor_token_offset(v4_alias_pattern_editor_stream, "label", 1)
+
+pilot v4_alias_pattern_editor_pairs_sem = v4_semantic_at_text_cached("alias-pattern-editor.fk", v4_alias_pattern_editor_source, v4_alias_pattern_editor_pairs_offset)
+pilot v4_alias_pattern_editor_left_sem = v4_semantic_at_text_cached("alias-pattern-editor.fk", v4_alias_pattern_editor_source, v4_alias_pattern_editor_left_use_offset)
+pilot v4_alias_pattern_editor_flank_sem = v4_semantic_at_text_cached("alias-pattern-editor.fk", v4_alias_pattern_editor_source, v4_alias_pattern_editor_flank_use_offset)
+pilot v4_alias_pattern_editor_power_hover = v4_hover_text_cached("alias-pattern-editor.fk", v4_alias_pattern_editor_source, v4_alias_pattern_editor_power_use_offset)
+pilot v4_alias_pattern_editor_label_definition = v4_definition_at_text_cached("alias-pattern-editor.fk", v4_alias_pattern_editor_source, v4_alias_pattern_editor_label_use_offset)
+pilot v4_alias_pattern_editor_symbols = v4_document_symbols_text_cached("alias-pattern-editor.fk", v4_alias_pattern_editor_source)
+pilot v4_alias_pattern_editor_completion = v4_completion_text_cached("alias-pattern-editor.fk", v4_alias_pattern_editor_source, v4_alias_pattern_editor_power_use_offset)
+
+pilot v4_alias_pattern_editor_left_item = v4_alias_pattern_editor_find_completion_label(v4_alias_pattern_editor_completion, "left")
+pilot v4_alias_pattern_editor_codename_item = v4_alias_pattern_editor_find_completion_label(v4_alias_pattern_editor_completion, "codename")
+pilot v4_alias_pattern_editor_flank_item = v4_alias_pattern_editor_find_completion_label(v4_alias_pattern_editor_completion, "flank")
+pilot v4_alias_pattern_editor_power_item = v4_alias_pattern_editor_find_completion_label(v4_alias_pattern_editor_completion, "power")
+pilot v4_alias_pattern_editor_label_item = v4_alias_pattern_editor_find_completion_label(v4_alias_pattern_editor_completion, "label")
+pilot v4_alias_pattern_editor_pair_item = v4_alias_pattern_editor_find_completion_label(v4_alias_pattern_editor_completion, "Pair")
+pilot v4_alias_pattern_editor_pair_list_item = v4_alias_pattern_editor_find_completion_label(v4_alias_pattern_editor_completion, "PairList")
+pilot v4_alias_pattern_editor_wing_item = v4_alias_pattern_editor_find_completion_label(v4_alias_pattern_editor_completion, "Wing")
+pilot v4_alias_pattern_editor_temp_item = v4_alias_pattern_editor_find_completion_label(v4_alias_pattern_editor_completion, "_for_each_item")
+
+say "alias-pattern-pairs-kind=" + v4_semantic_at_kind(v4_alias_pattern_editor_pairs_sem)
+say "alias-pattern-pairs-type=" + v4_semantic_at_type(v4_alias_pattern_editor_pairs_sem)
+say "alias-pattern-left-kind=" + v4_semantic_at_kind(v4_alias_pattern_editor_left_sem)
+say "alias-pattern-left-type=" + v4_semantic_at_type(v4_alias_pattern_editor_left_sem)
+say "alias-pattern-flank-kind=" + v4_semantic_at_kind(v4_alias_pattern_editor_flank_sem)
+say "alias-pattern-flank-type=" + v4_semantic_at_type(v4_alias_pattern_editor_flank_sem)
+say "alias-pattern-power-hover-name=" + v4_hover_name(v4_alias_pattern_editor_power_hover)
+say "alias-pattern-power-hover-kind=" + v4_hover_kind(v4_alias_pattern_editor_power_hover)
+say "alias-pattern-power-hover-type=" + v4_hover_type(v4_alias_pattern_editor_power_hover)
+say "alias-pattern-label-definition-kind=" + v4_definition_at_kind(v4_alias_pattern_editor_label_definition)
+say "alias-pattern-label-definition-found=" + word_from_int(v4_definition_at_found(v4_alias_pattern_editor_label_definition))
+say "alias-pattern-label-definition-matches=" + v4_alias_pattern_editor_bool_word(v4_span_start(v4_definition_at_span(v4_alias_pattern_editor_label_definition)) == v4_alias_pattern_editor_label_decl_offset)
+say "alias-pattern-symbol-count=" + word_from_int(v4_document_symbol_count(v4_alias_pattern_editor_symbols))
+say "alias-pattern-symbol0-name=" + v4_document_symbol_name(v4_alias_pattern_editor_symbols, 0)
+say "alias-pattern-symbol0-type=" + v4_document_symbol_type(v4_alias_pattern_editor_symbols, 0)
+say "alias-pattern-symbol1-name=" + v4_document_symbol_name(v4_alias_pattern_editor_symbols, 1)
+say "alias-pattern-symbol1-type=" + v4_document_symbol_type(v4_alias_pattern_editor_symbols, 1)
+say "alias-pattern-symbol2-name=" + v4_document_symbol_name(v4_alias_pattern_editor_symbols, 2)
+say "alias-pattern-symbol2-type=" + v4_document_symbol_type(v4_alias_pattern_editor_symbols, 2)
+say "alias-pattern-completion-count=" + word_from_int(v4_completion_count(v4_alias_pattern_editor_completion))
+say "alias-pattern-left-found=" + v4_alias_pattern_editor_bool_word(v4_alias_pattern_editor_left_item >= 0)
+say "alias-pattern-left-detail=" + v4_alias_pattern_editor_completion_detail_or_empty(v4_alias_pattern_editor_completion, v4_alias_pattern_editor_left_item)
+say "alias-pattern-codename-found=" + v4_alias_pattern_editor_bool_word(v4_alias_pattern_editor_codename_item >= 0)
+say "alias-pattern-codename-detail=" + v4_alias_pattern_editor_completion_detail_or_empty(v4_alias_pattern_editor_completion, v4_alias_pattern_editor_codename_item)
+say "alias-pattern-flank-found=" + v4_alias_pattern_editor_bool_word(v4_alias_pattern_editor_flank_item >= 0)
+say "alias-pattern-flank-detail=" + v4_alias_pattern_editor_completion_detail_or_empty(v4_alias_pattern_editor_completion, v4_alias_pattern_editor_flank_item)
+say "alias-pattern-power-found=" + v4_alias_pattern_editor_bool_word(v4_alias_pattern_editor_power_item >= 0)
+say "alias-pattern-power-detail=" + v4_alias_pattern_editor_completion_detail_or_empty(v4_alias_pattern_editor_completion, v4_alias_pattern_editor_power_item)
+say "alias-pattern-label-found=" + v4_alias_pattern_editor_bool_word(v4_alias_pattern_editor_label_item >= 0)
+say "alias-pattern-label-detail=" + v4_alias_pattern_editor_completion_detail_or_empty(v4_alias_pattern_editor_completion, v4_alias_pattern_editor_label_item)
+say "alias-pattern-pair-found=" + v4_alias_pattern_editor_bool_word(v4_alias_pattern_editor_pair_item >= 0)
+say "alias-pattern-pair-detail=" + v4_alias_pattern_editor_completion_detail_or_empty(v4_alias_pattern_editor_completion, v4_alias_pattern_editor_pair_item)
+say "alias-pattern-pair-list-found=" + v4_alias_pattern_editor_bool_word(v4_alias_pattern_editor_pair_list_item >= 0)
+say "alias-pattern-pair-list-detail=" + v4_alias_pattern_editor_completion_detail_or_empty(v4_alias_pattern_editor_completion, v4_alias_pattern_editor_pair_list_item)
+say "alias-pattern-wing-found=" + v4_alias_pattern_editor_bool_word(v4_alias_pattern_editor_wing_item >= 0)
+say "alias-pattern-wing-detail=" + v4_alias_pattern_editor_completion_detail_or_empty(v4_alias_pattern_editor_completion, v4_alias_pattern_editor_wing_item)
+say "alias-pattern-temp-found=" + v4_alias_pattern_editor_bool_word(v4_alias_pattern_editor_temp_item >= 0)
