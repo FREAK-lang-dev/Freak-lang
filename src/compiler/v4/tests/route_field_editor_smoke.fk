@@ -1,0 +1,112 @@
+-- V4 route-field editor facts smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_route_field_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_route_field_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_route_field_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_route_field_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_route_field_editor_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_route_field_editor_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_route_field_editor_completion_kind_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_kind(completion_id, item_id)
+}
+
+task v4_route_field_editor_completion_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_route_field_editor_source_text() -> word {
+    pilot src = "variant Event {\n"
+    src = src + "    Key " + v4_route_field_editor_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task make() -> Event {\n"
+    src = src + "    give back Event::Key " + v4_route_field_editor_braces(" code: 7, repeat: false ") + "\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_route_field_editor_source = v4_route_field_editor_source_text()
+pilot v4_route_field_editor_stream = v4_lex_text(0, v4_route_field_editor_source)
+
+pilot v4_route_field_editor_code_decl_offset = v4_route_field_editor_token_offset(v4_route_field_editor_stream, "code", 0)
+pilot v4_route_field_editor_code_ctor_offset = v4_route_field_editor_token_offset(v4_route_field_editor_stream, "code", 1)
+pilot v4_route_field_editor_repeat_ctor_offset = v4_route_field_editor_token_offset(v4_route_field_editor_stream, "repeat", 1)
+pilot v4_route_field_editor_false_offset = v4_route_field_editor_token_offset(v4_route_field_editor_stream, "false", 0)
+
+pilot v4_route_field_editor_code_decl_sem = v4_semantic_at_text_cached("route-field-editor.fk", v4_route_field_editor_source, v4_route_field_editor_code_decl_offset)
+pilot v4_route_field_editor_code_ctor_sem = v4_semantic_at_text_cached("route-field-editor.fk", v4_route_field_editor_source, v4_route_field_editor_code_ctor_offset)
+pilot v4_route_field_editor_repeat_ctor_sem = v4_semantic_at_text_cached("route-field-editor.fk", v4_route_field_editor_source, v4_route_field_editor_repeat_ctor_offset)
+pilot v4_route_field_editor_repeat_hover = v4_hover_text_cached("route-field-editor.fk", v4_route_field_editor_source, v4_route_field_editor_repeat_ctor_offset)
+pilot v4_route_field_editor_code_definition = v4_definition_at_text_cached("route-field-editor.fk", v4_route_field_editor_source, v4_route_field_editor_code_ctor_offset)
+pilot v4_route_field_editor_completion = v4_completion_text_cached("route-field-editor.fk", v4_route_field_editor_source, v4_route_field_editor_false_offset)
+
+pilot v4_route_field_editor_code_item = v4_route_field_editor_find_completion_label(v4_route_field_editor_completion, "code")
+pilot v4_route_field_editor_repeat_item = v4_route_field_editor_find_completion_label(v4_route_field_editor_completion, "repeat")
+
+say "route-field-decl-kind=" + v4_semantic_at_kind(v4_route_field_editor_code_decl_sem)
+say "route-field-decl-type=" + v4_semantic_at_type(v4_route_field_editor_code_decl_sem)
+say "route-field-ctor-kind=" + v4_semantic_at_kind(v4_route_field_editor_code_ctor_sem)
+say "route-field-ctor-type=" + v4_semantic_at_type(v4_route_field_editor_code_ctor_sem)
+say "route-field-repeat-kind=" + v4_semantic_at_kind(v4_route_field_editor_repeat_ctor_sem)
+say "route-field-repeat-type=" + v4_semantic_at_type(v4_route_field_editor_repeat_ctor_sem)
+say "route-field-hover-name=" + v4_hover_name(v4_route_field_editor_repeat_hover)
+say "route-field-hover-kind=" + v4_hover_kind(v4_route_field_editor_repeat_hover)
+say "route-field-hover-type=" + v4_hover_type(v4_route_field_editor_repeat_hover)
+say "route-field-definition-kind=" + v4_definition_at_kind(v4_route_field_editor_code_definition)
+say "route-field-definition-found=" + word_from_int(v4_definition_at_found(v4_route_field_editor_code_definition))
+say "route-field-definition-matches-decl=" + v4_route_field_editor_bool_word(v4_span_start(v4_definition_at_span(v4_route_field_editor_code_definition)) == v4_route_field_editor_code_decl_offset)
+say "route-field-completion-count=" + word_from_int(v4_completion_count(v4_route_field_editor_completion))
+say "route-field-completion-code-found=" + v4_route_field_editor_bool_word(v4_route_field_editor_code_item >= 0)
+say "route-field-completion-code-kind=" + v4_route_field_editor_completion_kind_or_empty(v4_route_field_editor_completion, v4_route_field_editor_code_item)
+say "route-field-completion-code-detail=" + v4_route_field_editor_completion_detail_or_empty(v4_route_field_editor_completion, v4_route_field_editor_code_item)
+say "route-field-completion-repeat-found=" + v4_route_field_editor_bool_word(v4_route_field_editor_repeat_item >= 0)
+say "route-field-completion-repeat-kind=" + v4_route_field_editor_completion_kind_or_empty(v4_route_field_editor_completion, v4_route_field_editor_repeat_item)
+say "route-field-completion-repeat-detail=" + v4_route_field_editor_completion_detail_or_empty(v4_route_field_editor_completion, v4_route_field_editor_repeat_item)

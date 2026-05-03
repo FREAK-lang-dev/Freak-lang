@@ -298,6 +298,18 @@ task v4_editor_prev_nontrivia_token(stream_id: int, token_id: int) -> int {
     give back 0 - 1
 }
 
+task v4_editor_next_nontrivia_token(stream_id: int, token_id: int) -> int {
+    pilot idx = token_id + 1
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until idx >= token_count {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
 task v4_editor_route_case_def(ty_id: int, sig_id: int, case_name: word) -> word {
     if sig_id < 0 or case_name == "" {
         give back ""
@@ -387,6 +399,215 @@ task v4_editor_route_case_decl_id_at_token(ty_id: int, sig_id: int, stream_id: i
         case_id += 1
     }
     give back 0 - 1
+}
+
+task v4_editor_route_field_def(ty_id: int, sig_id: int, case_name: word, field_name: word) -> word {
+    if sig_id < 0 or case_name == "" or field_name == "" {
+        give back ""
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back ""
+    }
+    give back v4_ty_signature_def(ty_id, sig_id) + "::Case::" + case_name + "::Field::" + field_name
+}
+
+task v4_editor_route_field_detail(ty_id: int, sig_id: int, case_name: word, field_name: word) -> word {
+    if sig_id < 0 or case_name == "" or field_name == "" {
+        give back v4_ty_unknown
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back v4_ty_unknown
+    }
+
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    if route_name == "" {
+        give back v4_ty_unknown
+    }
+
+    give back "route field " + route_name + "::" + case_name + "." + field_name + ": " + v4_ty_route_case_field_type_for_name(ty_id, route_name, case_name, field_name)
+}
+
+task v4_editor_route_field_name_span(ty_id: int, sig_id: int, case_name: word, field_name: word) -> word {
+    if sig_id < 0 or case_name == "" or field_name == "" {
+        give back V4_NO_SPAN
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back V4_NO_SPAN
+    }
+
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot field_id = v4_ty_route_case_field_id_for_name(ty_id, route_name, case_name, field_name)
+    if field_id < 0 {
+        give back V4_NO_SPAN
+    }
+
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_route_case_field_segment_start(ty_id, route_name, case_name, field_id)
+    if stream_id < 0 or start_token < 0 {
+        give back V4_NO_SPAN
+    }
+
+    pilot name_token = v4_ty_skip_trivia(stream_id, start_token)
+    if name_token < 0 {
+        give back V4_NO_SPAN
+    }
+    give back v4_lex_token_span(stream_id, name_token)
+}
+
+task v4_editor_route_field_decl_case_name_at_token(ty_id: int, sig_id: int, stream_id: int, token_id: int, token_value: word) -> word {
+    if sig_id < 0 or token_id < 0 or token_value == "" {
+        give back ""
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back ""
+    }
+
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot case_id = 0
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    repeat until case_id >= case_count {
+        pilot case_name = v4_ty_route_case_name(ty_id, sig_id, case_id)
+        pilot field_id = 0
+        pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
+        repeat until field_id >= field_count {
+            pilot field_start = v4_ty_route_case_field_segment_start(ty_id, route_name, case_name, field_id)
+            if field_start >= 0 {
+                pilot field_token = v4_ty_skip_trivia(stream_id, field_start)
+                if field_token == token_id and v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) == token_value {
+                    give back case_name
+                }
+            }
+            field_id += 1
+        }
+        case_id += 1
+    }
+    give back ""
+}
+
+task v4_editor_route_payload_open_token(stream_id: int, token_id: int) -> int {
+    pilot depth = 0
+    pilot idx = token_id - 1
+    repeat until idx < 0 {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot value = v4_lex_token_value(stream_id, idx)
+            if value == "{" {
+                if depth == 0 {
+                    give back idx
+                }
+                depth -= 1
+            } else if value == "[" or value == "(" {
+                if depth > 0 {
+                    depth -= 1
+                }
+            } else if value == "}" or value == "]" or value == ")" {
+                depth += 1
+            }
+        }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_route_case_name_for_payload_token(resolve_id: int, ty_id: int, stream_id: int, token_id: int) -> word {
+    pilot open_token = v4_editor_route_payload_open_token(stream_id, token_id)
+    if open_token < 0 {
+        give back ""
+    }
+
+    pilot case_token = v4_editor_prev_nontrivia_token(stream_id, open_token)
+    pilot scope_token = v4_editor_prev_nontrivia_token(stream_id, case_token)
+    pilot route_token = v4_editor_prev_nontrivia_token(stream_id, scope_token)
+    if case_token < 0 or scope_token < 0 or route_token < 0 {
+        give back ""
+    }
+    if v4_lex_token_value(stream_id, scope_token) != "::" {
+        give back ""
+    }
+
+    pilot route_name = v4_lex_token_value(stream_id, route_token)
+    pilot case_name = v4_lex_token_value(stream_id, case_token)
+    pilot sig_id = v4_editor_route_case_sig_for_reference(resolve_id, ty_id, stream_id, case_token)
+    if sig_id < 0 {
+        give back ""
+    }
+    if v4_ty_route_has_case(ty_id, route_name, case_name) == false {
+        give back ""
+    }
+    give back case_name
+}
+
+task v4_editor_route_field_ref_case_name_at_token(resolve_id: int, ty_id: int, stream_id: int, token_id: int, token_value: word) -> word {
+    if token_id < 0 or token_value == "" {
+        give back ""
+    }
+    pilot colon_token = v4_editor_next_nontrivia_token(stream_id, token_id)
+    if colon_token < 0 or v4_lex_token_value(stream_id, colon_token) != ":" {
+        give back ""
+    }
+
+    pilot case_name = v4_editor_route_case_name_for_payload_token(resolve_id, ty_id, stream_id, token_id)
+    if case_name == "" {
+        give back ""
+    }
+    pilot sig_id = v4_editor_route_case_sig_for_payload_token(resolve_id, ty_id, stream_id, token_id)
+    if sig_id < 0 {
+        give back ""
+    }
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    if v4_ty_route_case_field_id_for_name(ty_id, route_name, case_name, token_value) < 0 {
+        give back ""
+    }
+    give back case_name
+}
+
+task v4_editor_route_case_sig_for_payload_token(resolve_id: int, ty_id: int, stream_id: int, token_id: int) -> int {
+    pilot case_name = v4_editor_route_case_name_for_payload_token(resolve_id, ty_id, stream_id, token_id)
+    if case_name == "" {
+        give back 0 - 1
+    }
+    pilot open_token = v4_editor_route_payload_open_token(stream_id, token_id)
+    if open_token < 0 {
+        give back 0 - 1
+    }
+    pilot case_token = v4_editor_prev_nontrivia_token(stream_id, open_token)
+    if case_token < 0 {
+        give back 0 - 1
+    }
+    give back v4_editor_route_case_sig_for_reference(resolve_id, ty_id, stream_id, case_token)
+}
+
+task v4_editor_route_field_marker_index(def_id: word) -> int {
+    pilot marker = "::Field::"
+    pilot marker_len = marker.length()
+    pilot def_len = def_id.length()
+    pilot idx = 0
+    repeat until idx + marker_len > def_len {
+        if v4_slice(def_id, idx, idx + marker_len) == marker {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_route_field_case_def(def_id: word) -> word {
+    pilot marker = v4_editor_route_field_marker_index(def_id)
+    if marker < 0 {
+        give back ""
+    }
+    give back v4_slice(def_id, 0, marker)
+}
+
+task v4_editor_route_field_name_from_def(def_id: word) -> word {
+    pilot marker = v4_editor_route_field_marker_index(def_id)
+    if marker < 0 {
+        give back ""
+    }
+    pilot start = marker + "::Field::".length()
+    if start >= def_id.length() {
+        give back ""
+    }
+    give back v4_slice(def_id, start, def_id.length())
 }
 
 task v4_editor_route_case_sig_for_reference(resolve_id: int, ty_id: int, stream_id: int, token_id: int) -> int {
@@ -694,32 +915,50 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
             def_id = v4_editor_lifetime_def(ty_id, lifetime_sig_id, token_value)
             type_display = v4_editor_lifetime_detail(ty_id, lifetime_sig_id, token_value)
         }
-    } else if token_kind == v4_tok_ident {
+    } else if token_kind == v4_tok_ident or token_kind == v4_tok_keyword {
         pilot decl_route_sig_id = 0 - 1
         if hir_item >= 0 and item_kind == v4_hir_route {
             decl_route_sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
         }
-        if decl_route_sig_id >= 0 and v4_editor_route_case_decl_id_at_token(ty_id, decl_route_sig_id, stream_id, token_id, token_value) >= 0 {
+        pilot decl_route_field_case = ""
+        if decl_route_sig_id >= 0 {
+            decl_route_field_case = v4_editor_route_field_decl_case_name_at_token(ty_id, decl_route_sig_id, stream_id, token_id, token_value)
+        }
+        if decl_route_field_case != "" {
+            name = token_value
+            kind = "RouteField"
+            def_id = v4_editor_route_field_def(ty_id, decl_route_sig_id, decl_route_field_case, token_value)
+            type_display = v4_editor_route_field_detail(ty_id, decl_route_sig_id, decl_route_field_case, token_value)
+        } else if decl_route_sig_id >= 0 and v4_editor_route_case_decl_id_at_token(ty_id, decl_route_sig_id, stream_id, token_id, token_value) >= 0 {
             name = token_value
             kind = "RouteCase"
             def_id = v4_editor_route_case_def(ty_id, decl_route_sig_id, token_value)
             type_display = v4_editor_route_case_detail(ty_id, decl_route_sig_id, token_value)
         } else if symbol_id < 0 {
-            pilot ref_route_sig_id = v4_editor_route_case_sig_for_reference(resolve_id, ty_id, stream_id, token_id)
-            if ref_route_sig_id >= 0 and v4_ty_route_has_case(ty_id, v4_ty_signature_name(ty_id, ref_route_sig_id), token_value) {
+            pilot ref_route_field_sig_id = v4_editor_route_case_sig_for_payload_token(resolve_id, ty_id, stream_id, token_id)
+            pilot ref_route_field_case = v4_editor_route_field_ref_case_name_at_token(resolve_id, ty_id, stream_id, token_id, token_value)
+            if ref_route_field_sig_id >= 0 and ref_route_field_case != "" {
                 name = token_value
-                kind = "RouteCase"
-                def_id = v4_editor_route_case_def(ty_id, ref_route_sig_id, token_value)
-                type_display = v4_editor_route_case_detail(ty_id, ref_route_sig_id, token_value)
+                kind = "RouteField"
+                def_id = v4_editor_route_field_def(ty_id, ref_route_field_sig_id, ref_route_field_case, token_value)
+                type_display = v4_editor_route_field_detail(ty_id, ref_route_field_sig_id, ref_route_field_case, token_value)
             } else {
-                pilot body_id = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
-                if body_id >= 0 {
-                    pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, token_value, offset)
-                    if local_id >= 0 and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
-                        name = token_value
-                        kind = "Local"
-                        def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
-                        type_display = v4_mir_local_ty(mir_id, body_id, local_id)
+                pilot ref_route_sig_id = v4_editor_route_case_sig_for_reference(resolve_id, ty_id, stream_id, token_id)
+                if ref_route_sig_id >= 0 and v4_ty_route_has_case(ty_id, v4_ty_signature_name(ty_id, ref_route_sig_id), token_value) {
+                    name = token_value
+                    kind = "RouteCase"
+                    def_id = v4_editor_route_case_def(ty_id, ref_route_sig_id, token_value)
+                    type_display = v4_editor_route_case_detail(ty_id, ref_route_sig_id, token_value)
+                } else {
+                    pilot body_id = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
+                    if body_id >= 0 {
+                        pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, token_value, offset)
+                        if local_id >= 0 and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
+                            name = token_value
+                            kind = "Local"
+                            def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
+                            type_display = v4_mir_local_ty(mir_id, body_id, local_id)
+                        }
                     }
                 }
             }
@@ -1034,6 +1273,17 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
         if hir_item >= 0 {
             span = v4_hir_item_span(hir_id, hir_item)
             span = v4_editor_lifetime_decl_span(stream_id, span, name)
+            found = 1
+        }
+    } else if kind == "RouteField" {
+        pilot case_def = v4_editor_route_field_case_def(def_id)
+        pilot field_name = v4_editor_route_field_name_from_def(def_id)
+        pilot route_def = v4_editor_route_case_route_def(case_def)
+        pilot case_name = v4_editor_route_case_name_from_def(case_def)
+        pilot sig_id = v4_ty_lookup_signature(ty_id, route_def)
+        if sig_id >= 0 {
+            hir_item = v4_editor_hir_item_for_def(hir_id, route_def)
+            span = v4_editor_route_field_name_span(ty_id, sig_id, case_name, field_name)
             found = 1
         }
     } else if kind == "RouteCase" {
@@ -1452,6 +1702,33 @@ task v4_completion_add_locals_for_offset(completion_id: int, path: word, text: w
     }
 }
 
+task v4_completion_add_route_fields_for_offset(completion_id: int, path: word, text: word, offset: int) -> void {
+    pilot stream_id = v4_lex_text_cached(path, text)
+    pilot resolve_id = v4_resolve_text_cached(path, text)
+    pilot ty_id = v4_ty_text_cached(path, text)
+    pilot token_id = v4_editor_token_at(stream_id, offset)
+    if token_id < 0 {
+        give back
+    }
+
+    pilot sig_id = v4_editor_route_case_sig_for_payload_token(resolve_id, ty_id, stream_id, token_id)
+    pilot case_name = v4_editor_route_case_name_for_payload_token(resolve_id, ty_id, stream_id, token_id)
+    if sig_id < 0 or case_name == "" {
+        give back
+    }
+
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot field_id = 0
+    pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
+    repeat until field_id >= field_count {
+        pilot field_name = v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id)
+        if field_name != "" and not v4_completion_has_label(completion_id, field_name) {
+            v4_completion_add(completion_id, field_name, "route-field", v4_editor_route_field_detail(ty_id, sig_id, case_name, field_name), field_name)
+        }
+        field_id += 1
+    }
+}
+
 task v4_completion_add_lifetimes_for_offset(completion_id: int, path: word, text: word, offset: int) -> void {
     pilot hir_id = v4_hir_text_cached(path, text)
     pilot ty_id = v4_ty_text_cached(path, text)
@@ -1530,6 +1807,7 @@ task v4_completion_text_cached(path: word, text: word, offset: int) -> int {
     pilot completion_id = v4_editor_completion_new(path, offset)
     v4_completion_add_document_symbols(completion_id, doc_id)
     v4_completion_add_locals_for_offset(completion_id, path, text, offset)
+    v4_completion_add_route_fields_for_offset(completion_id, path, text, offset)
     v4_completion_add_lifetimes_for_offset(completion_id, path, text, offset)
     v4_completion_add_keywords(completion_id)
 
@@ -1538,6 +1816,7 @@ task v4_completion_text_cached(path: word, text: word, offset: int) -> int {
     v4_query_record_dep(key, v4_document_symbols_query_key(path))
     v4_query_record_dep(key, v4_lex_query_key(path))
     v4_query_record_dep(key, v4_hir_query_key(path))
+    v4_query_record_dep(key, v4_resolve_query_key(path))
     v4_query_record_dep(key, v4_mir_query_key(path))
     v4_query_record_dep(key, v4_ty_query_key(path))
     give back completion_id
