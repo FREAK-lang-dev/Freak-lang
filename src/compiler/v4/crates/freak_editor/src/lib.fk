@@ -287,6 +287,185 @@ task v4_editor_local_def(owner_def: word, local_id: int, local_name: word) -> wo
     give back owner_def + "::Local::" + word_from_int(local_id) + "::" + local_name
 }
 
+task v4_editor_prev_nontrivia_token(stream_id: int, token_id: int) -> int {
+    pilot idx = token_id - 1
+    repeat until idx < 0 {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            give back idx
+        }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_route_case_def(ty_id: int, sig_id: int, case_name: word) -> word {
+    if sig_id < 0 or case_name == "" {
+        give back ""
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back ""
+    }
+    give back v4_ty_signature_def(ty_id, sig_id) + "::Case::" + case_name
+}
+
+task v4_editor_route_case_detail(ty_id: int, sig_id: int, case_name: word) -> word {
+    if sig_id < 0 or case_name == "" {
+        give back v4_ty_unknown
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back v4_ty_unknown
+    }
+
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    if route_name == "" {
+        give back v4_ty_unknown
+    }
+
+    pilot detail = "route case " + route_name + "::" + case_name
+    pilot field_id = 0
+    pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
+    if field_count > 0 {
+        detail = detail + " { "
+        repeat until field_id >= field_count {
+            if field_id > 0 {
+                detail = detail + ", "
+            }
+            detail = detail + v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id)
+            detail = detail + ": " + v4_ty_route_case_field_type(ty_id, route_name, case_name, field_id)
+            field_id += 1
+        }
+        detail = detail + " }"
+    }
+    give back detail
+}
+
+task v4_editor_route_case_name_span(ty_id: int, sig_id: int, case_name: word) -> word {
+    if sig_id < 0 or case_name == "" {
+        give back V4_NO_SPAN
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back V4_NO_SPAN
+    }
+
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot case_id = v4_ty_route_case_id_for_name(ty_id, route_name, case_name)
+    if case_id < 0 {
+        give back V4_NO_SPAN
+    }
+
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_route_case_segment_start(ty_id, sig_id, case_id)
+    if stream_id < 0 or start_token < 0 {
+        give back V4_NO_SPAN
+    }
+
+    pilot name_token = v4_ty_skip_trivia(stream_id, start_token)
+    if name_token < 0 {
+        give back V4_NO_SPAN
+    }
+    give back v4_lex_token_span(stream_id, name_token)
+}
+
+task v4_editor_route_case_decl_id_at_token(ty_id: int, sig_id: int, stream_id: int, token_id: int, token_value: word) -> int {
+    if sig_id < 0 or token_id < 0 or token_value == "" {
+        give back 0 - 1
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back 0 - 1
+    }
+
+    pilot case_id = 0
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    repeat until case_id >= case_count {
+        pilot case_start = v4_ty_route_case_segment_start(ty_id, sig_id, case_id)
+        if case_start >= 0 {
+            pilot case_token = v4_ty_skip_trivia(stream_id, case_start)
+            if case_token == token_id and v4_ty_route_case_name(ty_id, sig_id, case_id) == token_value {
+                give back case_id
+            }
+        }
+        case_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_route_case_sig_for_reference(resolve_id: int, ty_id: int, stream_id: int, token_id: int) -> int {
+    if token_id < 0 {
+        give back 0 - 1
+    }
+
+    pilot scope_token = v4_editor_prev_nontrivia_token(stream_id, token_id)
+    if scope_token < 0 or v4_lex_token_value(stream_id, scope_token) != "::" {
+        give back 0 - 1
+    }
+
+    pilot route_token = v4_editor_prev_nontrivia_token(stream_id, scope_token)
+    if route_token < 0 {
+        give back 0 - 1
+    }
+
+    pilot route_name = v4_lex_token_value(stream_id, route_token)
+    pilot route_symbol = v4_resolve_lookup_symbol(resolve_id, route_name, v4_hir_route)
+    if route_symbol < 0 {
+        give back 0 - 1
+    }
+    give back v4_ty_lookup_signature(ty_id, v4_resolve_symbol_def(resolve_id, route_symbol))
+}
+
+task v4_editor_route_case_marker_index(def_id: word) -> int {
+    pilot marker = "::Case::"
+    pilot marker_len = marker.length()
+    pilot def_len = def_id.length()
+    pilot idx = 0
+    repeat until idx + marker_len > def_len {
+        if v4_slice(def_id, idx, idx + marker_len) == marker {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_route_case_route_def(def_id: word) -> word {
+    pilot marker = v4_editor_route_case_marker_index(def_id)
+    if marker < 0 {
+        give back ""
+    }
+    give back v4_slice(def_id, 0, marker)
+}
+
+task v4_editor_route_case_name_from_def(def_id: word) -> word {
+    pilot marker = v4_editor_route_case_marker_index(def_id)
+    if marker < 0 {
+        give back ""
+    }
+    pilot start = marker + "::Case::".length()
+    if start >= def_id.length() {
+        give back ""
+    }
+    give back v4_slice(def_id, start, def_id.length())
+}
+
+task v4_editor_document_symbols_add_route_cases(doc_id: int, ty_id: int, sig_id: int, hir_item: int) -> void {
+    if sig_id < 0 {
+        give back
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back
+    }
+
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot case_id = 0
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    repeat until case_id >= case_count {
+        pilot case_name = v4_ty_route_case_name(ty_id, sig_id, case_id)
+        if case_name != "" {
+            v4_document_symbols_add(doc_id, route_name + "::" + case_name, "RouteCase", v4_editor_route_case_def(ty_id, sig_id, case_name), hir_item, v4_editor_route_case_name_span(ty_id, sig_id, case_name), v4_editor_route_case_detail(ty_id, sig_id, case_name))
+        }
+        case_id += 1
+    }
+}
+
 task v4_editor_local_has_decl_token(stream_id: int, local_span: word, local_name: word) -> bool {
     if local_name == "" {
         give back false
@@ -515,15 +694,34 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
             def_id = v4_editor_lifetime_def(ty_id, lifetime_sig_id, token_value)
             type_display = v4_editor_lifetime_detail(ty_id, lifetime_sig_id, token_value)
         }
-    } else if symbol_id < 0 and token_kind == v4_tok_ident {
-        pilot body_id = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
-        if body_id >= 0 {
-            pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, token_value, offset)
-            if local_id >= 0 and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
+    } else if token_kind == v4_tok_ident {
+        pilot decl_route_sig_id = 0 - 1
+        if hir_item >= 0 and item_kind == v4_hir_route {
+            decl_route_sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
+        }
+        if decl_route_sig_id >= 0 and v4_editor_route_case_decl_id_at_token(ty_id, decl_route_sig_id, stream_id, token_id, token_value) >= 0 {
+            name = token_value
+            kind = "RouteCase"
+            def_id = v4_editor_route_case_def(ty_id, decl_route_sig_id, token_value)
+            type_display = v4_editor_route_case_detail(ty_id, decl_route_sig_id, token_value)
+        } else if symbol_id < 0 {
+            pilot ref_route_sig_id = v4_editor_route_case_sig_for_reference(resolve_id, ty_id, stream_id, token_id)
+            if ref_route_sig_id >= 0 and v4_ty_route_has_case(ty_id, v4_ty_signature_name(ty_id, ref_route_sig_id), token_value) {
                 name = token_value
-                kind = "Local"
-                def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
-                type_display = v4_mir_local_ty(mir_id, body_id, local_id)
+                kind = "RouteCase"
+                def_id = v4_editor_route_case_def(ty_id, ref_route_sig_id, token_value)
+                type_display = v4_editor_route_case_detail(ty_id, ref_route_sig_id, token_value)
+            } else {
+                pilot body_id = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
+                if body_id >= 0 {
+                    pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, token_value, offset)
+                    if local_id >= 0 and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
+                        name = token_value
+                        kind = "Local"
+                        def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
+                        type_display = v4_mir_local_ty(mir_id, body_id, local_id)
+                    }
+                }
             }
         }
     }
@@ -838,6 +1036,15 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
             span = v4_editor_lifetime_decl_span(stream_id, span, name)
             found = 1
         }
+    } else if kind == "RouteCase" {
+        pilot route_def = v4_editor_route_case_route_def(def_id)
+        pilot case_name = v4_editor_route_case_name_from_def(def_id)
+        pilot sig_id = v4_ty_lookup_signature(ty_id, route_def)
+        if sig_id >= 0 {
+            hir_item = v4_editor_hir_item_for_def(hir_id, route_def)
+            span = v4_editor_route_case_name_span(ty_id, sig_id, case_name)
+            found = 1
+        }
     } else if kind == "Local" {
         hir_item = v4_semantic_at_hir_item(semantic_id)
         pilot body_id = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
@@ -1058,6 +1265,9 @@ task v4_document_symbols_text_cached(path: word, text: word) -> int {
             type_display = v4_ty_signature_display(ty_id, sig_id)
         }
         v4_document_symbols_add(doc_id, name, kind, def_id, hir_item, span, type_display)
+        if kind == v4_hir_route and sig_id >= 0 {
+            v4_editor_document_symbols_add_route_cases(doc_id, ty_id, sig_id, hir_item)
+        }
         symbol_id += 1
     }
 

@@ -62,6 +62,18 @@ task v4_semantic_core_editor_completion_detail_or_empty(completion_id: int, item
     give back v4_completion_detail(completion_id, item_id)
 }
 
+task v4_semantic_core_editor_find_symbol(doc_id: int, name: word) -> int {
+    pilot symbol_id = 0
+    pilot symbol_count = v4_document_symbol_count(doc_id)
+    repeat until symbol_id >= symbol_count {
+        if v4_document_symbol_name(doc_id, symbol_id) == name {
+            give back symbol_id
+        }
+        symbol_id += 1
+    }
+    give back 0 - 1
+}
+
 task v4_semantic_core_editor_source_text() -> word {
     pilot src = "variant Event {\n"
     src = src + "    Key " + v4_semantic_core_editor_braces(" code: int ") + "\n"
@@ -94,6 +106,7 @@ pilot v4_semantic_core_editor_completion = v4_completion_text_cached("semantic-c
 pilot v4_semantic_core_editor_variant_completion = v4_semantic_core_editor_find_completion_label(v4_semantic_core_editor_completion, "variant")
 pilot v4_semantic_core_editor_route_completion = v4_semantic_core_editor_find_completion_label(v4_semantic_core_editor_completion, "route")
 pilot v4_semantic_core_editor_alias_completion = v4_semantic_core_editor_find_completion_label(v4_semantic_core_editor_completion, "alias")
+pilot v4_semantic_core_editor_alias_symbol = v4_semantic_core_editor_find_symbol(v4_semantic_core_editor_symbols, "Score")
 
 say v4_semantic_at_summary(v4_semantic_core_editor_route_sem)
 say "semantic-core-route-name=" + v4_semantic_at_name(v4_semantic_core_editor_route_sem)
@@ -114,7 +127,10 @@ say "semantic-core-symbol0-type=" + v4_document_symbol_type(v4_semantic_core_edi
 say "semantic-core-symbol1-name=" + v4_document_symbol_name(v4_semantic_core_editor_symbols, 1)
 say "semantic-core-symbol1-kind=" + v4_document_symbol_kind(v4_semantic_core_editor_symbols, 1)
 say "semantic-core-symbol1-type=" + v4_document_symbol_type(v4_semantic_core_editor_symbols, 1)
-say "semantic-core-definition-matches-decl=" + v4_semantic_core_editor_bool_word(v4_span_start(v4_definition_at_span(v4_semantic_core_editor_definition)) == v4_span_start(v4_document_symbol_span(v4_semantic_core_editor_symbols, 1)))
+say "semantic-core-symbol-alias-name=" + v4_document_symbol_name(v4_semantic_core_editor_symbols, v4_semantic_core_editor_alias_symbol)
+say "semantic-core-symbol-alias-kind=" + v4_document_symbol_kind(v4_semantic_core_editor_symbols, v4_semantic_core_editor_alias_symbol)
+say "semantic-core-symbol-alias-type=" + v4_document_symbol_type(v4_semantic_core_editor_symbols, v4_semantic_core_editor_alias_symbol)
+say "semantic-core-definition-matches-decl=" + v4_semantic_core_editor_bool_word(v4_span_start(v4_definition_at_span(v4_semantic_core_editor_definition)) == v4_span_start(v4_document_symbol_span(v4_semantic_core_editor_symbols, v4_semantic_core_editor_alias_symbol)))
 say "semantic-core-completion-count=" + word_from_int(v4_completion_count(v4_semantic_core_editor_completion))
 say "semantic-core-completion-variant-found=" + v4_semantic_core_editor_bool_word(v4_semantic_core_editor_variant_completion >= 0)
 say "semantic-core-completion-variant-kind=" + v4_semantic_core_editor_completion_kind_or_empty(v4_semantic_core_editor_completion, v4_semantic_core_editor_variant_completion)
