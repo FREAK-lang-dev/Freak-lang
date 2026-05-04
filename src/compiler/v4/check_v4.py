@@ -826,6 +826,28 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "generic alias-backed method editor facts",
+        "fixture": "generic_alias_method_editor_smoke.fk",
+        "expect": [
+            "generic-alias-method-editor-decl-kind=Method",
+            "generic-alias-method-editor-decl-type=task Box<T>::take(...) -> T",
+            "generic-alias-method-editor-take-kind=Method",
+            "generic-alias-method-editor-take-type=task Box<int>::take(...) -> int",
+            "generic-alias-method-editor-take-hover-kind=Method",
+            "generic-alias-method-editor-take-hover-type=task Box<int>::take(...) -> int",
+            "generic-alias-method-editor-take-definition-kind=Method",
+            "generic-alias-method-editor-take-definition-found=1",
+            "generic-alias-method-editor-take-definition-matches=true",
+            "generic-alias-method-editor-pack-alias-kind=Method",
+            "generic-alias-method-editor-pack-alias-type=task Box<int>::pack(...) -> Box<int>",
+            "generic-alias-method-editor-pack-alias-hover-kind=Method",
+            "generic-alias-method-editor-pack-alias-hover-type=task Box<int>::pack(...) -> Box<int>",
+            "generic-alias-method-editor-pack-definition-kind=Method",
+            "generic-alias-method-editor-pack-definition-found=1",
+            "generic-alias-method-editor-pack-definition-matches=true",
+        ],
+    },
+    {
         "name": "local tuple and array editor facts",
         "fixture": "local_type_editor_smoke.fk",
         "expect": [

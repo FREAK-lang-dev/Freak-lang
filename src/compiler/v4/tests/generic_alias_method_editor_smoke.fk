@@ -1,0 +1,95 @@
+-- V4 generic alias-backed method editor facts smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_generic_alias_method_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_generic_alias_method_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_generic_alias_method_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_generic_alias_method_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_generic_alias_method_editor_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_generic_alias_method_editor_source_text() -> word {
+    pilot src = "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "alias Crate<T> = Box<T>\n"
+    src = src + "alias IntCrate = Crate<int>\n"
+    src = src + "impl Box<T> {\n"
+    src = src + "    task take(self) -> T {\n"
+    src = src + "        give back self.value\n"
+    src = src + "    }\n"
+    src = src + "    task pack(value: T) -> Box<T> {\n"
+    src = src + "        give back Box<T> " + v4_generic_alias_method_editor_braces(" value: value ") + "\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot box = IntCrate " + v4_generic_alias_method_editor_braces(" value: 7 ") + "\n"
+    src = src + "    pilot taken = box.take()\n"
+    src = src + "    pilot packed = IntCrate::pack(8)\n"
+    src = src + "    pilot repacked = Crate<int>::pack(9)\n"
+    src = src + "    give back taken + packed.value + repacked.value\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_generic_alias_method_editor_source = v4_generic_alias_method_editor_source_text()
+pilot v4_generic_alias_method_editor_stream = v4_lex_text(0, v4_generic_alias_method_editor_source)
+
+pilot v4_generic_alias_method_editor_take_decl_offset = v4_generic_alias_method_editor_token_offset(v4_generic_alias_method_editor_stream, "take", 0)
+pilot v4_generic_alias_method_editor_take_use_offset = v4_generic_alias_method_editor_token_offset(v4_generic_alias_method_editor_stream, "take", 1)
+pilot v4_generic_alias_method_editor_pack_decl_offset = v4_generic_alias_method_editor_token_offset(v4_generic_alias_method_editor_stream, "pack", 0)
+pilot v4_generic_alias_method_editor_pack_alias_use_offset = v4_generic_alias_method_editor_token_offset(v4_generic_alias_method_editor_stream, "pack", 1)
+pilot v4_generic_alias_method_editor_pack_generic_use_offset = v4_generic_alias_method_editor_token_offset(v4_generic_alias_method_editor_stream, "pack", 2)
+
+pilot v4_generic_alias_method_editor_take_decl_sem = v4_semantic_at_text_cached("generic-alias-method-editor.fk", v4_generic_alias_method_editor_source, v4_generic_alias_method_editor_take_decl_offset)
+pilot v4_generic_alias_method_editor_take_use_sem = v4_semantic_at_text_cached("generic-alias-method-editor.fk", v4_generic_alias_method_editor_source, v4_generic_alias_method_editor_take_use_offset)
+pilot v4_generic_alias_method_editor_take_hover = v4_hover_text_cached("generic-alias-method-editor.fk", v4_generic_alias_method_editor_source, v4_generic_alias_method_editor_take_use_offset)
+pilot v4_generic_alias_method_editor_take_definition = v4_definition_at_text_cached("generic-alias-method-editor.fk", v4_generic_alias_method_editor_source, v4_generic_alias_method_editor_take_use_offset)
+pilot v4_generic_alias_method_editor_pack_alias_sem = v4_semantic_at_text_cached("generic-alias-method-editor.fk", v4_generic_alias_method_editor_source, v4_generic_alias_method_editor_pack_alias_use_offset)
+pilot v4_generic_alias_method_editor_pack_alias_hover = v4_hover_text_cached("generic-alias-method-editor.fk", v4_generic_alias_method_editor_source, v4_generic_alias_method_editor_pack_alias_use_offset)
+pilot v4_generic_alias_method_editor_pack_generic_definition = v4_definition_at_text_cached("generic-alias-method-editor.fk", v4_generic_alias_method_editor_source, v4_generic_alias_method_editor_pack_generic_use_offset)
+
+say "generic-alias-method-editor-decl-kind=" + v4_semantic_at_kind(v4_generic_alias_method_editor_take_decl_sem)
+say "generic-alias-method-editor-decl-type=" + v4_semantic_at_type(v4_generic_alias_method_editor_take_decl_sem)
+say "generic-alias-method-editor-take-kind=" + v4_semantic_at_kind(v4_generic_alias_method_editor_take_use_sem)
+say "generic-alias-method-editor-take-type=" + v4_semantic_at_type(v4_generic_alias_method_editor_take_use_sem)
+say "generic-alias-method-editor-take-hover-kind=" + v4_hover_kind(v4_generic_alias_method_editor_take_hover)
+say "generic-alias-method-editor-take-hover-type=" + v4_hover_type(v4_generic_alias_method_editor_take_hover)
+say "generic-alias-method-editor-take-definition-kind=" + v4_definition_at_kind(v4_generic_alias_method_editor_take_definition)
+say "generic-alias-method-editor-take-definition-found=" + word_from_int(v4_definition_at_found(v4_generic_alias_method_editor_take_definition))
+say "generic-alias-method-editor-take-definition-matches=" + v4_generic_alias_method_editor_bool_word(v4_span_start(v4_definition_at_span(v4_generic_alias_method_editor_take_definition)) == v4_generic_alias_method_editor_take_decl_offset)
+say "generic-alias-method-editor-pack-alias-kind=" + v4_semantic_at_kind(v4_generic_alias_method_editor_pack_alias_sem)
+say "generic-alias-method-editor-pack-alias-type=" + v4_semantic_at_type(v4_generic_alias_method_editor_pack_alias_sem)
+say "generic-alias-method-editor-pack-alias-hover-kind=" + v4_hover_kind(v4_generic_alias_method_editor_pack_alias_hover)
+say "generic-alias-method-editor-pack-alias-hover-type=" + v4_hover_type(v4_generic_alias_method_editor_pack_alias_hover)
+say "generic-alias-method-editor-pack-definition-kind=" + v4_definition_at_kind(v4_generic_alias_method_editor_pack_generic_definition)
+say "generic-alias-method-editor-pack-definition-found=" + word_from_int(v4_definition_at_found(v4_generic_alias_method_editor_pack_generic_definition))
+say "generic-alias-method-editor-pack-definition-matches=" + v4_generic_alias_method_editor_bool_word(v4_span_start(v4_definition_at_span(v4_generic_alias_method_editor_pack_generic_definition)) == v4_generic_alias_method_editor_pack_decl_offset)
