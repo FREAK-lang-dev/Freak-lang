@@ -1,11 +1,66 @@
 -- V4 go-to-definition query smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-pilot v4_def_source = "task main() -> int {\n"
-v4_def_source = v4_def_source + "    give back 0\n"
-v4_def_source = v4_def_source + "}\n"
+task v4_definition_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
 
-pilot v4_def_main = v4_definition_at_text_cached("definition_at.fk", v4_def_source, 5)
+task v4_definition_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_definition_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_definition_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_definition_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_definition_source_text() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    rank: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task salute(self) -> int {\n"
+    src = src + "        give back self.rank\n"
+    src = src + "    }\n"
+    src = src + "    task pack(level: int) -> Pilot {\n"
+    src = src + "        give back Pilot " + v4_definition_braces(" rank: level ") + "\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot ace = Pilot::pack(7)\n"
+    src = src + "    give back ace.salute()\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_def_source = v4_definition_source_text()
+pilot v4_def_stream = v4_lex_text(0, v4_def_source)
+
+pilot v4_def_main = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "main", 0))
+pilot v4_def_salute = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "salute", 1))
+pilot v4_def_pack = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "pack", 1))
 
 say v4_definition_at_summary(v4_def_main)
 say "definition-found=" + word_from_int(v4_definition_at_found(v4_def_main))
@@ -13,3 +68,9 @@ say "definition-name=" + v4_definition_at_name(v4_def_main)
 say "definition-kind=" + v4_definition_at_kind(v4_def_main)
 say "definition-def=" + v4_definition_at_def(v4_def_main)
 say "definition-span=" + v4_definition_at_span(v4_def_main)
+say "definition-method-kind=" + v4_definition_at_kind(v4_def_salute)
+say "definition-method-found=" + word_from_int(v4_definition_at_found(v4_def_salute))
+say "definition-method-matches=" + v4_definition_bool_word(v4_span_start(v4_definition_at_span(v4_def_salute)) == v4_definition_token_offset(v4_def_stream, "salute", 0))
+say "definition-static-kind=" + v4_definition_at_kind(v4_def_pack)
+say "definition-static-found=" + word_from_int(v4_definition_at_found(v4_def_pack))
+say "definition-static-matches=" + v4_definition_bool_word(v4_span_start(v4_definition_at_span(v4_def_pack)) == v4_definition_token_offset(v4_def_stream, "pack", 0))

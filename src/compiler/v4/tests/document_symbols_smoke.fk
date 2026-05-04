@@ -1,17 +1,80 @@
 -- V4 document symbols query smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-pilot v4_doc_source = "@protagonist\n"
-v4_doc_source = v4_doc_source + "task main() => \"hi\"\n"
-v4_doc_source = v4_doc_source + "shape Pilot\n"
-v4_doc_source = v4_doc_source + "doctrine Display\n"
+task v4_doc_symbol_find(doc_id: int, name: word) -> int {
+    pilot symbol_id = 0
+    pilot symbol_count = v4_document_symbol_count(doc_id)
+    repeat until symbol_id >= symbol_count {
+        if v4_document_symbol_name(doc_id, symbol_id) == name {
+            give back symbol_id
+        }
+        symbol_id += 1
+    }
+    give back 0 - 1
+}
 
+task v4_doc_symbol_type_or_empty(doc_id: int, symbol_id: int) -> word {
+    if symbol_id < 0 {
+        give back ""
+    }
+    give back v4_document_symbol_type(doc_id, symbol_id)
+}
+
+task v4_doc_symbol_kind_or_empty(doc_id: int, symbol_id: int) -> word {
+    if symbol_id < 0 {
+        give back ""
+    }
+    give back v4_document_symbol_kind(doc_id, symbol_id)
+}
+
+task v4_doc_symbol_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_doc_symbol_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_doc_symbols_source_text() -> word {
+    pilot src = "@protagonist\n"
+    src = src + "shape Pilot {\n"
+    src = src + "    rank: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task salute(self) -> int {\n"
+    src = src + "        give back self.rank\n"
+    src = src + "    }\n"
+    src = src + "    task pack(level: int) -> Pilot {\n"
+    src = src + "        give back Pilot " + v4_doc_symbol_braces(" rank: level ") + "\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot ace = Pilot::pack(7)\n"
+    src = src + "    give back ace.salute()\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_doc_source = v4_doc_symbols_source_text()
 pilot v4_doc_symbols = v4_document_symbols_text_cached("document_symbols.fk", v4_doc_source)
+
+pilot v4_doc_main_symbol = v4_doc_symbol_find(v4_doc_symbols, "main")
+pilot v4_doc_pilot_symbol = v4_doc_symbol_find(v4_doc_symbols, "Pilot")
+pilot v4_doc_salute_symbol = v4_doc_symbol_find(v4_doc_symbols, "Pilot::salute")
+pilot v4_doc_pack_symbol = v4_doc_symbol_find(v4_doc_symbols, "Pilot::pack")
 
 say v4_document_symbols_summary(v4_doc_symbols)
 say "document-symbol-count=" + word_from_int(v4_document_symbol_count(v4_doc_symbols))
-say "symbol0-name=" + v4_document_symbol_name(v4_doc_symbols, 0)
-say "symbol0-kind=" + v4_document_symbol_kind(v4_doc_symbols, 0)
-say "symbol1-name=" + v4_document_symbol_name(v4_doc_symbols, 1)
-say "symbol1-type=" + v4_document_symbol_type(v4_doc_symbols, 1)
-say "symbol1-span=" + v4_document_symbol_span(v4_doc_symbols, 1)
+say "document-main-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_main_symbol)
+say "document-main-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_main_symbol)
+say "document-pilot-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_pilot_symbol)
+say "document-pilot-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_pilot_symbol)
+say "document-salute-found=" + v4_doc_symbol_bool_word(v4_doc_salute_symbol >= 0)
+say "document-salute-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_salute_symbol)
+say "document-salute-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_salute_symbol)
+say "document-pack-found=" + v4_doc_symbol_bool_word(v4_doc_pack_symbol >= 0)
+say "document-pack-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_pack_symbol)
+say "document-pack-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_pack_symbol)

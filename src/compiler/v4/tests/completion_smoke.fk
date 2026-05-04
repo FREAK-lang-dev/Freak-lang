@@ -1,15 +1,105 @@
 -- V4 completion query smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-pilot v4_completion_source = "task main() => \"hi\"\n"
-v4_completion_source = v4_completion_source + "shape Pilot\n"
+task v4_completion_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
 
-pilot v4_completion_items = v4_completion_text_cached("completion.fk", v4_completion_source, 0)
+task v4_completion_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_completion_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
 
-say v4_completion_summary(v4_completion_items)
-say "completion-count=" + word_from_int(v4_completion_count(v4_completion_items))
-say "completion0-label=" + v4_completion_label(v4_completion_items, 0)
-say "completion0-kind=" + v4_completion_kind(v4_completion_items, 0)
-say "completion1-label=" + v4_completion_label(v4_completion_items, 1)
-say "completion2-label=" + v4_completion_label(v4_completion_items, 2)
-say "completion2-insert=" + v4_completion_insert_text(v4_completion_items, 2)
+task v4_completion_find_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_completion_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_completion_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_completion_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_completion_source_text() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    rank: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task salute(self) -> int {\n"
+    src = src + "        give back self.rank\n"
+    src = src + "    }\n"
+    src = src + "    task pack(level: int) -> Pilot {\n"
+    src = src + "        give back Pilot " + v4_completion_braces(" rank: level ") + "\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot ace = Pilot::pack(7)\n"
+    src = src + "    give back ace.salute()\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_completion_source = v4_completion_source_text()
+pilot v4_completion_stream = v4_lex_text(0, v4_completion_source)
+
+pilot v4_completion_global_items = v4_completion_text_cached("completion.fk", v4_completion_source, 0)
+pilot v4_completion_salute_offset = v4_completion_token_offset(v4_completion_stream, "salute", 1)
+pilot v4_completion_pack_offset = v4_completion_token_offset(v4_completion_stream, "pack", 1)
+pilot v4_completion_instance_items = v4_completion_text_cached("completion.fk", v4_completion_source, v4_completion_salute_offset)
+pilot v4_completion_static_items = v4_completion_text_cached("completion.fk", v4_completion_source, v4_completion_pack_offset)
+
+pilot v4_completion_global_main = v4_completion_find_label(v4_completion_global_items, "main")
+pilot v4_completion_global_pilot = v4_completion_find_label(v4_completion_global_items, "Pilot")
+pilot v4_completion_global_salute = v4_completion_find_label(v4_completion_global_items, "salute")
+pilot v4_completion_global_pack = v4_completion_find_label(v4_completion_global_items, "pack")
+pilot v4_completion_instance_salute = v4_completion_find_label(v4_completion_instance_items, "salute")
+pilot v4_completion_instance_pack = v4_completion_find_label(v4_completion_instance_items, "pack")
+pilot v4_completion_static_salute = v4_completion_find_label(v4_completion_static_items, "salute")
+pilot v4_completion_static_pack = v4_completion_find_label(v4_completion_static_items, "pack")
+
+say v4_completion_summary(v4_completion_global_items)
+say "completion-global-main-found=" + v4_completion_bool_word(v4_completion_global_main >= 0)
+say "completion-global-pilot-found=" + v4_completion_bool_word(v4_completion_global_pilot >= 0)
+say "completion-global-salute-found=" + v4_completion_bool_word(v4_completion_global_salute >= 0)
+say "completion-global-pack-found=" + v4_completion_bool_word(v4_completion_global_pack >= 0)
+say "completion-instance-salute-found=" + v4_completion_bool_word(v4_completion_instance_salute >= 0)
+say "completion-instance-salute-detail=" + v4_completion_detail_or_empty(v4_completion_instance_items, v4_completion_instance_salute)
+say "completion-instance-pack-found=" + v4_completion_bool_word(v4_completion_instance_pack >= 0)
+say "completion-static-pack-found=" + v4_completion_bool_word(v4_completion_static_pack >= 0)
+say "completion-static-pack-detail=" + v4_completion_detail_or_empty(v4_completion_static_items, v4_completion_static_pack)
+say "completion-static-salute-found=" + v4_completion_bool_word(v4_completion_static_salute >= 0)

@@ -1,17 +1,66 @@
 -- V4 position-indexed semantic query smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-pilot v4_sem_source = "task main() -> int {\n"
-v4_sem_source = v4_sem_source + "    give back 0\n"
-v4_sem_source = v4_sem_source + "}\n"
+task v4_semantic_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
 
-pilot v4_sem_main_fact = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, 5)
-pilot v4_sem_body_fact = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, 24)
+task v4_semantic_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_semantic_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_semantic_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_semantic_source_text() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    rank: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task salute(self) -> int {\n"
+    src = src + "        give back self.rank\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot ace = Pilot " + v4_semantic_braces(" rank: 7 ") + "\n"
+    src = src + "    give back ace.salute()\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_sem_source = v4_semantic_source_text()
+pilot v4_sem_stream = v4_lex_text(0, v4_sem_source)
+
+pilot v4_sem_main_fact = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "main", 0))
+pilot v4_sem_body_fact = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "ace", 1))
+pilot v4_sem_method_decl = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "salute", 0))
+pilot v4_sem_method_use = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "salute", 1))
 
 say v4_semantic_at_summary(v4_sem_main_fact)
-say "main-name=" + v4_semantic_at_name(v4_sem_main_fact)
-say "main-kind=" + v4_semantic_at_kind(v4_sem_main_fact)
-say "main-type=" + v4_semantic_at_type(v4_sem_main_fact)
-say "body-token=" + v4_semantic_at_token_value(v4_sem_body_fact)
-say "body-item=" + v4_semantic_at_item_name(v4_sem_body_fact)
-say "body-item-kind=" + v4_semantic_at_item_kind(v4_sem_body_fact)
+say "semantic-main-name=" + v4_semantic_at_name(v4_sem_main_fact)
+say "semantic-main-kind=" + v4_semantic_at_kind(v4_sem_main_fact)
+say "semantic-main-type=" + v4_semantic_at_type(v4_sem_main_fact)
+say "semantic-body-token=" + v4_semantic_at_token_value(v4_sem_body_fact)
+say "semantic-body-item=" + v4_semantic_at_item_name(v4_sem_body_fact)
+say "semantic-body-item-kind=" + v4_semantic_at_item_kind(v4_sem_body_fact)
+say "semantic-method-decl-kind=" + v4_semantic_at_kind(v4_sem_method_decl)
+say "semantic-method-decl-type=" + v4_semantic_at_type(v4_sem_method_decl)
+say "semantic-method-use-kind=" + v4_semantic_at_kind(v4_sem_method_use)
+say "semantic-method-use-type=" + v4_semantic_at_type(v4_sem_method_use)
