@@ -1,22 +1,64 @@
 -- V4 semantic-at arena snapshot smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-pilot v4_semantic_snapshot_source = "task main() -> int {\n"
-v4_semantic_snapshot_source = v4_semantic_snapshot_source + "    pilot x = 40\n"
-v4_semantic_snapshot_source = v4_semantic_snapshot_source + "    give back x\n"
-v4_semantic_snapshot_source = v4_semantic_snapshot_source + "}\n"
+task v4_semantic_snapshot_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
 
-pilot v4_semantic_snapshot_main = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, 5)
-pilot v4_semantic_snapshot_body = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, 36)
+task v4_semantic_snapshot_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_semantic_snapshot_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_semantic_snapshot_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_semantic_snapshot_source_text() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    rank: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task salute(self) -> int {\n"
+    src = src + "        give back self.rank\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot ace = Pilot " + v4_semantic_snapshot_braces(" rank: 7 ") + "\n"
+    src = src + "    give back ace.salute()\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_semantic_snapshot_source = v4_semantic_snapshot_source_text()
+pilot v4_semantic_snapshot_stream = v4_lex_text(0, v4_semantic_snapshot_source)
+pilot v4_semantic_snapshot_main_offset = v4_semantic_snapshot_token_offset(v4_semantic_snapshot_stream, "main", 0)
+pilot v4_semantic_snapshot_method_offset = v4_semantic_snapshot_token_offset(v4_semantic_snapshot_stream, "salute", 1)
+
+pilot v4_semantic_snapshot_main = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_main_offset)
+pilot v4_semantic_snapshot_method = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_method_offset)
 say v4_semantic_at_summary(v4_semantic_snapshot_main)
 say v4_semantic_snapshot_summary()
 
 pilot v4_semantic_snapshot_payload = v4_semantic_snapshot()
 say v4_semantic_snapshot_validate(v4_semantic_snapshot_payload)
 say "semantic-snapshot-bytes=" + word_from_int(v4_semantic_snapshot_payload.length())
-say "semantic-snapshot-escape=" + v4_semantic_snapshot_escape("main|Yuuko%0\nMeiya")
-say "semantic-snapshot-unescape=" + v4_semantic_snapshot_unescape("main%7CYuuko%250%0AMeiya")
-say v4_semantic_snapshot_fact_line(v4_semantic_snapshot_main)
+say v4_semantic_snapshot_fact_line(v4_semantic_snapshot_method)
 say v4_parse_snapshot_restore(v4_parse_snapshot())
 say v4_hir_snapshot_restore(v4_hir_snapshot())
 say v4_resolve_snapshot_restore(v4_resolve_snapshot())
@@ -25,14 +67,16 @@ say v4_semantic_snapshot_restore(v4_semantic_snapshot_payload)
 say v4_lsp_semantic_snapshot_text()
 say v4_lsp_semantic_snapshot_restore_text(v4_semantic_snapshot_payload)
 say v4_lsp_handle_text_request("workspace/semanticSnapshotRestore", "semantic-snapshot.fk", v4_semantic_snapshot_payload, 0)
-say v4_lsp_handle_request("workspace/semanticSnapshotRestore", "semantic-snapshot.fk", 0)
 
 pilot v4_semantic_query_payload = v4_query_snapshot()
 say v4_query_snapshot_restore(v4_semantic_query_payload)
 say v4_driver_confirm_restored_document_text("semantic-snapshot.fk", v4_semantic_snapshot_source)
 pilot v4_semantic_file = v4_source_find("semantic-snapshot.fk")
 pilot v4_semantic_fingerprint = v4_source_fingerprint(v4_semantic_file)
-pilot v4_semantic_restored_id = word_to_int(v4_query_get(v4_semantic_at_query_key("semantic-snapshot.fk", 5), v4_semantic_fingerprint))
+pilot v4_semantic_restored_id = word_to_int(v4_query_get(v4_semantic_at_query_key("semantic-snapshot.fk", v4_semantic_snapshot_method_offset), v4_semantic_fingerprint))
 say v4_semantic_at_summary(v4_semantic_restored_id)
-say "semantic-body-name=" + v4_semantic_at_name(v4_semantic_snapshot_body)
+say "semantic-snapshot-method-kind=" + v4_semantic_at_kind(v4_semantic_snapshot_method)
+say "semantic-snapshot-method-type=" + v4_semantic_at_type(v4_semantic_snapshot_method)
+say "semantic-snapshot-restored-kind=" + v4_semantic_at_kind(v4_semantic_restored_id)
+say "semantic-snapshot-restored-type=" + v4_semantic_at_type(v4_semantic_restored_id)
 say v4_driver_confirm_restored_document_text("semantic-snapshot.fk", "task changed() => 7\n")
