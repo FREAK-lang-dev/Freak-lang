@@ -3484,7 +3484,16 @@ task v4_mir_route_names_match(ty_id: int, left: word, right: word) -> bool {
         give back false
     }
     if v4_ty_is_generic_instance_type(left_name) and v4_ty_is_generic_instance_type(right_name) {
-        give back v4_ty_types_compatible(left_name, right_name)
+        pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, left_base)
+        if sig_id >= 0 {
+            if v4_ty_match_signature_type_env(ty_id, sig_id, left_name, right_name, "") != v4_ty_generic_env_fail {
+                give back true
+            }
+            if v4_ty_match_signature_type_env(ty_id, sig_id, right_name, left_name, "") != v4_ty_generic_env_fail {
+                give back true
+            }
+        }
+        give back false
     }
     give back true
 }
@@ -3500,6 +3509,11 @@ task v4_mir_route_effective_name(ty_id: int, route_name: word, source_ty: word) 
     }
     if explicit_name == "" {
         give back source_name
+    }
+    if source_name != "" and v4_ty_is_generic_instance_type(source_name) and v4_mir_route_names_match(ty_id, explicit_name, source_name) {
+        if not v4_ty_is_generic_instance_type(explicit_name) or not v4_ty_types_compatible(explicit_name, source_name) {
+            give back source_name
+        }
     }
     if v4_ty_is_generic_instance_type(explicit_name) {
         give back explicit_name

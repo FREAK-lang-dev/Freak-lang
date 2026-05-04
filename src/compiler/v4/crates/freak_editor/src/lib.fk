@@ -627,10 +627,10 @@ task v4_editor_route_case_sig_for_reference(resolve_id: int, ty_id: int, stream_
 
     pilot route_name = v4_lex_token_value(stream_id, route_token)
     pilot route_symbol = v4_resolve_lookup_symbol(resolve_id, route_name, v4_hir_route)
-    if route_symbol < 0 {
-        give back 0 - 1
+    if route_symbol >= 0 {
+        give back v4_ty_lookup_signature(ty_id, v4_resolve_symbol_def(resolve_id, route_symbol))
     }
-    give back v4_ty_lookup_signature(ty_id, v4_resolve_symbol_def(resolve_id, route_symbol))
+    give back v4_ty_route_signature_id_for_name(ty_id, route_name)
 }
 
 task v4_editor_route_case_marker_index(def_id: word) -> int {

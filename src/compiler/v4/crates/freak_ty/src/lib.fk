@@ -201,7 +201,25 @@ task v4_ty_alias_target_type_for_sig(ty_id: int, sig_id: int) -> word {
 }
 
 task v4_ty_alias_target_type(ty_id: int, alias_name: word) -> word {
-    give back v4_ty_alias_target_type_for_sig(ty_id, v4_ty_alias_signature_id_for_name(ty_id, alias_name))
+    pilot sig_id = v4_ty_alias_signature_id_for_name(ty_id, alias_name)
+    if sig_id >= 0 {
+        give back v4_ty_alias_target_type_for_sig(ty_id, sig_id)
+    }
+    if v4_ty_is_generic_instance_type(alias_name) {
+        pilot base_name = v4_ty_generic_base_name(alias_name)
+        if base_name != v4_ty_unknown {
+            sig_id = v4_ty_alias_signature_id_for_name(ty_id, base_name)
+            if sig_id >= 0 {
+                if v4_ty_signature_generic_count(ty_id, sig_id) == v4_ty_generic_arg_count(alias_name) {
+                    pilot target = v4_ty_alias_target_type_for_sig(ty_id, sig_id)
+                    if target != "" and target != v4_ty_unknown {
+                        give back v4_ty_apply_signature_generics(ty_id, sig_id, alias_name, target)
+                    }
+                }
+            }
+        }
+    }
+    give back v4_ty_unknown
 }
 
 task v4_ty_canonical_type_depth(ty_id: int, type_text: word, depth: int) -> word {
@@ -2542,7 +2560,7 @@ task v4_ty_shape_signature_id_for_name(ty_id: int, shape_name: word) -> int {
     pilot lookup_name = shape_name
     pilot alias_lookup = v4_ty_alias_target_type(ty_id, lookup_name)
     if alias_lookup != "" and alias_lookup != v4_ty_unknown {
-        lookup_name = alias_lookup
+        lookup_name = v4_ty_canonical_type(ty_id, alias_lookup)
     }
     if v4_ty_is_generic_instance_type(lookup_name) {
         lookup_name = v4_ty_generic_base_name(lookup_name)
@@ -2564,7 +2582,7 @@ task v4_ty_route_signature_id_for_name(ty_id: int, route_name: word) -> int {
     pilot lookup_name = route_name
     pilot alias_lookup = v4_ty_alias_target_type(ty_id, lookup_name)
     if alias_lookup != "" and alias_lookup != v4_ty_unknown {
-        lookup_name = alias_lookup
+        lookup_name = v4_ty_canonical_type(ty_id, alias_lookup)
     }
     if v4_ty_is_generic_instance_type(lookup_name) {
         lookup_name = v4_ty_generic_base_name(lookup_name)
@@ -2979,7 +2997,11 @@ task v4_ty_route_case_field_type(ty_id: int, route_name: word, case_name: word, 
     if field_ty == "" {
         give back v4_ty_unknown
     }
-    give back v4_ty_canonical_type(ty_id, v4_ty_apply_signature_generics(ty_id, sig_id, route_name, field_ty))
+    pilot instance_name = v4_ty_canonical_type(ty_id, route_name)
+    if instance_name == "" or instance_name == v4_ty_unknown {
+        instance_name = route_name
+    }
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_signature_generics(ty_id, sig_id, instance_name, field_ty))
 }
 
 task v4_ty_route_case_field_id_for_name(ty_id: int, route_name: word, case_name: word, field_name: word) -> int {
@@ -3202,7 +3224,11 @@ task v4_ty_shape_field_type_for_name(ty_id: int, shape_name: word, field_name: w
 
     pilot field_id = v4_ty_shape_field_id_for_name(ty_id, shape_name, field_name)
     if field_id >= 0 {
-        give back v4_ty_apply_signature_generics(ty_id, sig_id, shape_name, v4_ty_shape_field_type(ty_id, sig_id, field_id))
+        pilot instance_name = v4_ty_canonical_type(ty_id, shape_name)
+        if instance_name == "" or instance_name == v4_ty_unknown {
+            instance_name = shape_name
+        }
+        give back v4_ty_apply_signature_generics(ty_id, sig_id, instance_name, v4_ty_shape_field_type(ty_id, sig_id, field_id))
     }
     give back v4_ty_unknown
 }

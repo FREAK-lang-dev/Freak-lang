@@ -1,0 +1,53 @@
+-- V4 generic alias type smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_generic_alias_type_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_generic_alias_type_source() -> word {
+    pilot src = "route Option<T> {\n"
+    src = src + "    Some " + v4_generic_alias_type_braces(" value: T ") + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "alias Maybe<T> = Option<T>\n"
+    src = src + "alias MaybeInt = Maybe<int>\n"
+    src = src + "alias Crate<T> = Box<T>\n"
+    src = src + "alias IntCrate = Crate<int>\n"
+    src = src + "task main(choice: MaybeInt, package: IntCrate) -> int {\n"
+    src = src + "    only on MaybeInt::Some " + v4_generic_alias_type_braces(" value ") + " from choice {\n"
+    src = src + "        give back package.value\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_generic_alias_type_stream = v4_lex_text(0, v4_generic_alias_type_source())
+pilot v4_generic_alias_type_tree = v4_parse_stream(0, v4_generic_alias_type_stream)
+pilot v4_generic_alias_type_hir = v4_hir_lower_tree(0, v4_generic_alias_type_tree)
+pilot v4_generic_alias_type_resolve = v4_resolve_lower_hir(0, v4_generic_alias_type_hir)
+pilot v4_generic_alias_type_ty = v4_ty_lower_resolve(0, v4_generic_alias_type_resolve)
+
+pilot v4_generic_alias_type_maybe_def = v4_resolve_def_for_name(v4_generic_alias_type_resolve, "Maybe")
+pilot v4_generic_alias_type_maybe_int_def = v4_resolve_def_for_name(v4_generic_alias_type_resolve, "MaybeInt")
+pilot v4_generic_alias_type_maybe_sig = v4_ty_lookup_signature(v4_generic_alias_type_ty, v4_generic_alias_type_maybe_def)
+pilot v4_generic_alias_type_maybe_int_sig = v4_ty_lookup_signature(v4_generic_alias_type_ty, v4_generic_alias_type_maybe_int_def)
+pilot v4_generic_alias_type_route_sig = v4_ty_route_signature_id_for_name(v4_generic_alias_type_ty, "MaybeInt")
+pilot v4_generic_alias_type_shape_sig = v4_ty_shape_signature_id_for_name(v4_generic_alias_type_ty, "IntCrate")
+
+say "generic-alias-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_generic_alias_type_tree))
+say "generic-alias-maybe-sig-kind=" + v4_ty_signature_kind(v4_generic_alias_type_ty, v4_generic_alias_type_maybe_sig)
+say "generic-alias-maybe-target=" + v4_ty_alias_target_type_for_sig(v4_generic_alias_type_ty, v4_generic_alias_type_maybe_sig)
+say "generic-alias-maybe-int-target=" + v4_ty_alias_target_type_for_sig(v4_generic_alias_type_ty, v4_generic_alias_type_maybe_int_sig)
+say "generic-alias-maybe-int-canonical=" + v4_ty_canonical_type(v4_generic_alias_type_ty, "MaybeInt")
+say "generic-alias-maybe-word-canonical=" + v4_ty_canonical_type(v4_generic_alias_type_ty, "Maybe<word>")
+say "generic-alias-route-sig-name=" + v4_ty_signature_name(v4_generic_alias_type_ty, v4_generic_alias_type_route_sig)
+say "generic-alias-route-field-int-ty=" + v4_ty_route_case_field_type_for_name(v4_generic_alias_type_ty, "MaybeInt", "Some", "value")
+say "generic-alias-route-field-word-ty=" + v4_ty_route_case_field_type_for_name(v4_generic_alias_type_ty, "Maybe<word>", "Some", "value")
+say "generic-alias-shape-sig-name=" + v4_ty_signature_name(v4_generic_alias_type_ty, v4_generic_alias_type_shape_sig)
+say "generic-alias-shape-field-int-ty=" + v4_ty_shape_field_type_for_name(v4_generic_alias_type_ty, "IntCrate", "value")
+say "generic-alias-shape-field-word-ty=" + v4_ty_shape_field_type_for_name(v4_generic_alias_type_ty, "Crate<word>", "value")
