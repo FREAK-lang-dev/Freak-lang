@@ -2742,16 +2742,24 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
     }
 
     pilot owner_ty = v4_ty_type_text(stream_id, first, scope_token)
+    pilot lookup_owner_ty = owner_ty
+    pilot canonical_owner_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), owner_ty)
+    if canonical_owner_ty != "" and canonical_owner_ty != v4_ty_unknown {
+        lookup_owner_ty = canonical_owner_ty
+    }
+    if not v4_mir_is_type_like_owner(v4_mir_ty_id(mir_id), owner_ty) {
+        give back 0 - 1
+    }
     pilot method_token = v4_mir_skip_trivia(stream_id, scope_token + 1)
     if method_token >= open_token {
         give back 0 - 1
     }
     pilot method_name = v4_lex_token_value(stream_id, method_token)
-    pilot method_ref = v4_mir_find_method_ref(mir_id, owner_ty, method_name, false)
+    pilot method_ref = v4_mir_find_method_ref(mir_id, lookup_owner_ty, method_name, false)
     pilot any_ref = ""
     pilot explicit_args_payload = ""
     if method_ref == "" {
-        any_ref = v4_mir_find_any_method_ref(mir_id, owner_ty, method_name)
+        any_ref = v4_mir_find_any_method_ref(mir_id, lookup_owner_ty, method_name)
         if any_ref != "" {
             v4_mir_add_type_error(mir_id, expr_span, "associated call needs a receiver", owner_ty + "::" + method_name + " is an instance method; call it through a value")
         } else {
@@ -2762,9 +2770,9 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
     }
 
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-    pilot result_ty = v4_mir_method_return_type(mir_id, owner_ty, method_ref)
+    pilot result_ty = v4_mir_method_return_type(mir_id, lookup_owner_ty, method_ref)
     if method_ref == "" and any_ref != "" {
-        result_ty = v4_mir_method_return_type(mir_id, owner_ty, any_ref)
+        result_ty = v4_mir_method_return_type(mir_id, lookup_owner_ty, any_ref)
     }
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, owner_ty + "::" + method_name, 0 - 1, 0 - 1, expr_span, result_ty)
     v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, explicit_args_payload)
@@ -2797,6 +2805,36 @@ task v4_mir_shape_ctor_name(stream_id: int, start_token: int, open_token: int) -
         give back ""
     }
     give back v4_ty_type_text(stream_id, start_token, end_name + 1)
+}
+
+task v4_mir_is_type_like_owner(ty_id: int, owner_ty: word) -> bool {
+    owner_ty = v4_mir_compact_type_text(owner_ty)
+    if owner_ty == "" or owner_ty == v4_ty_unknown {
+        give back false
+    }
+
+    pilot canonical_owner = v4_ty_canonical_type(ty_id, owner_ty)
+    if canonical_owner != "" and canonical_owner != v4_ty_unknown {
+        owner_ty = canonical_owner
+    }
+
+    if v4_ty_is_tuple_type(owner_ty) or v4_ty_is_fixed_array_type(owner_ty) {
+        give back true
+    }
+    if v4_ty_is_generic_instance_type(owner_ty) {
+        pilot base_name = v4_ty_generic_base_name(owner_ty)
+        if base_name == v4_ty_unknown {
+            give back false
+        }
+        if v4_ty_is_primitive_type(base_name) or v4_ty_builtin_generic_arg_count(base_name) >= 0 {
+            give back true
+        }
+        give back v4_ty_type_signature_id_for_name(ty_id, base_name) >= 0
+    }
+    if v4_ty_is_primitive_type(owner_ty) or v4_ty_builtin_generic_arg_count(owner_ty) >= 0 {
+        give back true
+    }
+    give back v4_ty_type_signature_id_for_name(ty_id, owner_ty) >= 0
 }
 
 task v4_mir_constructor_head_is_valid(stream_id: int, start_token: int, end_token: int) -> bool {
@@ -3939,6 +3977,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back route_case_rvalue
     }
 
+    pilot associated_method_rvalue = v4_mir_try_lower_associated_method_call(mir_id, body_id, stream_id, first, last, expr_span)
+    if associated_method_rvalue >= 0 {
+        give back associated_method_rvalue
+    }
+
     pilot tier = 1
     repeat until tier > 5 {
         pilot op_token = v4_mir_find_binary_op(stream_id, first, last + 1, tier)
@@ -4025,11 +4068,6 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot instance_method_rvalue = v4_mir_try_lower_instance_method_call(mir_id, body_id, stream_id, first, last, expr_span)
     if instance_method_rvalue >= 0 {
         give back instance_method_rvalue
-    }
-
-    pilot associated_method_rvalue = v4_mir_try_lower_associated_method_call(mir_id, body_id, stream_id, first, last, expr_span)
-    if associated_method_rvalue >= 0 {
-        give back associated_method_rvalue
     }
 
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)

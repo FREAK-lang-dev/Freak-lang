@@ -2113,6 +2113,14 @@ task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word,
     if env == v4_ty_generic_env_fail {
         give back env
     }
+    pilot canonical_pattern = v4_ty_canonical_type(ty_id, pattern_ty)
+    if canonical_pattern != "" and canonical_pattern != v4_ty_unknown {
+        pattern_ty = canonical_pattern
+    }
+    pilot canonical_actual = v4_ty_canonical_type(ty_id, actual_ty)
+    if canonical_actual != "" and canonical_actual != v4_ty_unknown {
+        actual_ty = canonical_actual
+    }
     if pattern_ty == "" or pattern_ty == v4_ty_unknown or not v4_ty_is_known(actual_ty) {
         give back v4_ty_generic_env_fail
     }

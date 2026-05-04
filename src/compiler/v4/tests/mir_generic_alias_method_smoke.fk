@@ -1,0 +1,168 @@
+-- V4 MIR generic alias-backed impl method smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_generic_alias_method_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_mir_generic_alias_method_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_generic_alias_method_find_return_stmt(mir_id: int, body_id: int) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_generic_alias_method_good_source() -> word {
+    pilot src = "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "impl Box<T> {\n"
+    src = src + "    task take(self) -> T {\n"
+    src = src + "        give back self.value\n"
+    src = src + "    }\n"
+    src = src + "    task echo(self, value: T) -> T {\n"
+    src = src + "        give back value\n"
+    src = src + "    }\n"
+    src = src + "    task pack(value: T) -> Box<T> {\n"
+    src = src + "        give back Box<T> " + v4_mir_generic_alias_method_braces(" value: value ") + "\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "alias Crate<T> = Box<T>\n"
+    src = src + "alias IntCrate = Crate<int>\n"
+    src = src + "task alias_instance(box: IntCrate) -> int {\n"
+    src = src + "    pilot taken = box.take()\n"
+    src = src + "    pilot echoed = box.echo(5)\n"
+    src = src + "    give back taken + echoed\n"
+    src = src + "}\n"
+    src = src + "task alias_generic_instance(box: Crate<int>) -> int {\n"
+    src = src + "    give back box.take()\n"
+    src = src + "}\n"
+    src = src + "task alias_static() -> IntCrate {\n"
+    src = src + "    give back IntCrate::pack(7)\n"
+    src = src + "}\n"
+    src = src + "task alias_generic_static() -> Crate<int> {\n"
+    src = src + "    give back Crate<int>::pack(9)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_generic_alias_method_bad_arg_source() -> word {
+    pilot src = "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "impl Box<T> {\n"
+    src = src + "    task echo(self, value: T) -> T {\n"
+    src = src + "        give back value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "alias Crate<T> = Box<T>\n"
+    src = src + "alias IntCrate = Crate<int>\n"
+    src = src + "task bad(box: IntCrate) -> void {\n"
+    src = src + "    pilot echoed = box.echo(\"nope\")\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_generic_alias_method_bad_associated_source() -> word {
+    pilot src = "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "impl Box<T> {\n"
+    src = src + "    task take(self) -> T {\n"
+    src = src + "        give back self.value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "alias Crate<T> = Box<T>\n"
+    src = src + "alias IntCrate = Crate<int>\n"
+    src = src + "task bad() -> void {\n"
+    src = src + "    pilot ghost = IntCrate::take()\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_generic_alias_method_good_stream = v4_lex_text(0, v4_mir_generic_alias_method_good_source())
+pilot v4_mir_generic_alias_method_good_tree = v4_parse_stream(0, v4_mir_generic_alias_method_good_stream)
+pilot v4_mir_generic_alias_method_good_hir = v4_hir_lower_tree(0, v4_mir_generic_alias_method_good_tree)
+pilot v4_mir_generic_alias_method_good_resolve = v4_resolve_lower_hir(0, v4_mir_generic_alias_method_good_hir)
+pilot v4_mir_generic_alias_method_good_ty = v4_ty_lower_resolve(0, v4_mir_generic_alias_method_good_resolve)
+pilot v4_mir_generic_alias_method_good_mir = v4_mir_lower_ty(0, v4_mir_generic_alias_method_good_ty)
+
+pilot v4_mir_generic_alias_method_alias_instance_def = v4_resolve_def_for_name(v4_mir_generic_alias_method_good_resolve, "alias_instance")
+pilot v4_mir_generic_alias_method_alias_instance_body = v4_mir_lookup_body(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_instance_def)
+pilot v4_mir_generic_alias_method_taken_stmt = v4_mir_generic_alias_method_find_local_stmt(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_instance_body, "taken")
+pilot v4_mir_generic_alias_method_taken_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_instance_body, v4_mir_generic_alias_method_taken_stmt)
+pilot v4_mir_generic_alias_method_echoed_stmt = v4_mir_generic_alias_method_find_local_stmt(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_instance_body, "echoed")
+pilot v4_mir_generic_alias_method_echoed_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_instance_body, v4_mir_generic_alias_method_echoed_stmt)
+
+pilot v4_mir_generic_alias_method_alias_generic_instance_def = v4_resolve_def_for_name(v4_mir_generic_alias_method_good_resolve, "alias_generic_instance")
+pilot v4_mir_generic_alias_method_alias_generic_instance_body = v4_mir_lookup_body(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_instance_def)
+pilot v4_mir_generic_alias_method_alias_generic_instance_return = v4_mir_generic_alias_method_find_return_stmt(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_instance_body)
+pilot v4_mir_generic_alias_method_alias_generic_instance_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_instance_body, v4_mir_generic_alias_method_alias_generic_instance_return)
+
+pilot v4_mir_generic_alias_method_alias_static_def = v4_resolve_def_for_name(v4_mir_generic_alias_method_good_resolve, "alias_static")
+pilot v4_mir_generic_alias_method_alias_static_body = v4_mir_lookup_body(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_static_def)
+pilot v4_mir_generic_alias_method_alias_static_return = v4_mir_generic_alias_method_find_return_stmt(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_static_body)
+pilot v4_mir_generic_alias_method_alias_static_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_static_body, v4_mir_generic_alias_method_alias_static_return)
+
+pilot v4_mir_generic_alias_method_alias_generic_static_def = v4_resolve_def_for_name(v4_mir_generic_alias_method_good_resolve, "alias_generic_static")
+pilot v4_mir_generic_alias_method_alias_generic_static_body = v4_mir_lookup_body(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_static_def)
+pilot v4_mir_generic_alias_method_alias_generic_static_return = v4_mir_generic_alias_method_find_return_stmt(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_static_body)
+pilot v4_mir_generic_alias_method_alias_generic_static_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_static_body, v4_mir_generic_alias_method_alias_generic_static_return)
+
+say "generic-alias-method-diag-count=" + word_from_int(v4_mir_diag_count(v4_mir_generic_alias_method_good_mir))
+say "generic-alias-method-taken-kind=" + v4_mir_rvalue_kind(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_instance_body, v4_mir_generic_alias_method_taken_rvalue)
+say "generic-alias-method-taken-op=" + v4_mir_rvalue_op(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_instance_body, v4_mir_generic_alias_method_taken_rvalue)
+say "generic-alias-method-taken-ty=" + v4_mir_rvalue_ty(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_instance_body, v4_mir_generic_alias_method_taken_rvalue)
+say "generic-alias-method-echoed-kind=" + v4_mir_rvalue_kind(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_instance_body, v4_mir_generic_alias_method_echoed_rvalue)
+say "generic-alias-method-echoed-op=" + v4_mir_rvalue_op(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_instance_body, v4_mir_generic_alias_method_echoed_rvalue)
+say "generic-alias-method-echoed-ty=" + v4_mir_rvalue_ty(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_instance_body, v4_mir_generic_alias_method_echoed_rvalue)
+say "generic-alias-method-generic-instance-kind=" + v4_mir_rvalue_kind(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_instance_body, v4_mir_generic_alias_method_alias_generic_instance_rvalue)
+say "generic-alias-method-generic-instance-op=" + v4_mir_rvalue_op(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_instance_body, v4_mir_generic_alias_method_alias_generic_instance_rvalue)
+say "generic-alias-method-generic-instance-ty=" + v4_mir_rvalue_ty(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_instance_body, v4_mir_generic_alias_method_alias_generic_instance_rvalue)
+say "generic-alias-method-static-kind=" + v4_mir_rvalue_kind(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_static_body, v4_mir_generic_alias_method_alias_static_rvalue)
+say "generic-alias-method-static-op=" + v4_mir_rvalue_op(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_static_body, v4_mir_generic_alias_method_alias_static_rvalue)
+say "generic-alias-method-static-ty=" + v4_mir_rvalue_ty(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_static_body, v4_mir_generic_alias_method_alias_static_rvalue)
+say "generic-alias-method-generic-static-kind=" + v4_mir_rvalue_kind(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_static_body, v4_mir_generic_alias_method_alias_generic_static_rvalue)
+say "generic-alias-method-generic-static-op=" + v4_mir_rvalue_op(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_static_body, v4_mir_generic_alias_method_alias_generic_static_rvalue)
+say "generic-alias-method-generic-static-ty=" + v4_mir_rvalue_ty(v4_mir_generic_alias_method_good_mir, v4_mir_generic_alias_method_alias_generic_static_body, v4_mir_generic_alias_method_alias_generic_static_rvalue)
+
+pilot v4_mir_generic_alias_method_bad_arg_stream = v4_lex_text(1, v4_mir_generic_alias_method_bad_arg_source())
+pilot v4_mir_generic_alias_method_bad_arg_tree = v4_parse_stream(1, v4_mir_generic_alias_method_bad_arg_stream)
+pilot v4_mir_generic_alias_method_bad_arg_hir = v4_hir_lower_tree(1, v4_mir_generic_alias_method_bad_arg_tree)
+pilot v4_mir_generic_alias_method_bad_arg_resolve = v4_resolve_lower_hir(1, v4_mir_generic_alias_method_bad_arg_hir)
+pilot v4_mir_generic_alias_method_bad_arg_ty = v4_ty_lower_resolve(1, v4_mir_generic_alias_method_bad_arg_resolve)
+pilot v4_mir_generic_alias_method_bad_arg_mir = v4_mir_lower_ty(1, v4_mir_generic_alias_method_bad_arg_ty)
+
+say "generic-alias-method-bad-arg-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_alias_method_bad_arg_mir))
+say "generic-alias-method-bad-arg-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_alias_method_bad_arg_mir, 0))
+say "generic-alias-method-bad-arg-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_alias_method_bad_arg_mir, 0))
+
+pilot v4_mir_generic_alias_method_bad_associated_stream = v4_lex_text(2, v4_mir_generic_alias_method_bad_associated_source())
+pilot v4_mir_generic_alias_method_bad_associated_tree = v4_parse_stream(2, v4_mir_generic_alias_method_bad_associated_stream)
+pilot v4_mir_generic_alias_method_bad_associated_hir = v4_hir_lower_tree(2, v4_mir_generic_alias_method_bad_associated_tree)
+pilot v4_mir_generic_alias_method_bad_associated_resolve = v4_resolve_lower_hir(2, v4_mir_generic_alias_method_bad_associated_hir)
+pilot v4_mir_generic_alias_method_bad_associated_ty = v4_ty_lower_resolve(2, v4_mir_generic_alias_method_bad_associated_resolve)
+pilot v4_mir_generic_alias_method_bad_associated_mir = v4_mir_lower_ty(2, v4_mir_generic_alias_method_bad_associated_ty)
+
+say "generic-alias-method-bad-associated-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_alias_method_bad_associated_mir))
+say "generic-alias-method-bad-associated-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_alias_method_bad_associated_mir, 0))
+say "generic-alias-method-bad-associated-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_alias_method_bad_associated_mir, 0))
