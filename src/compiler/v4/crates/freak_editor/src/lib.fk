@@ -844,6 +844,22 @@ task v4_editor_document_symbols_add_route_cases(doc_id: int, ty_id: int, sig_id:
     }
 }
 
+task v4_editor_document_symbols_add_impl_methods(doc_id: int, ty_id: int, hir_item: int) -> void {
+    if hir_item < 0 {
+        give back
+    }
+    pilot owner_ty = v4_ty_impl_target_type_from_hir(ty_id, hir_item)
+    pilot method_id = 0
+    pilot method_count = v4_ty_impl_method_count(ty_id, hir_item)
+    repeat until method_id >= method_count {
+        pilot method_name = v4_ty_impl_method_name(ty_id, hir_item, method_id)
+        if method_name != "" {
+            v4_document_symbols_add(doc_id, owner_ty + "::" + method_name, "Method", v4_ty_impl_method_def(ty_id, hir_item, method_id), hir_item, v4_editor_impl_method_name_span(ty_id, hir_item, method_id), v4_ty_impl_method_display(ty_id, hir_item, method_id))
+        }
+        method_id += 1
+    }
+}
+
 task v4_editor_local_has_decl_token(stream_id: int, local_span: word, local_name: word) -> bool {
     if local_name == "" {
         give back false
@@ -1718,6 +1734,8 @@ task v4_document_symbols_text_cached(path: word, text: word) -> int {
         v4_document_symbols_add(doc_id, name, kind, def_id, hir_item, span, type_display)
         if kind == v4_hir_route and sig_id >= 0 {
             v4_editor_document_symbols_add_route_cases(doc_id, ty_id, sig_id, hir_item)
+        } else if kind == v4_hir_impl and hir_item >= 0 {
+            v4_editor_document_symbols_add_impl_methods(doc_id, ty_id, hir_item)
         }
         symbol_id += 1
     }
@@ -1855,11 +1873,13 @@ task v4_completion_add_document_symbols(completion_id: int, doc_id: int) -> void
     repeat until symbol_id >= symbol_count {
         pilot label = v4_document_symbol_name(doc_id, symbol_id)
         pilot kind = v4_document_symbol_kind(doc_id, symbol_id)
-        pilot detail = v4_document_symbol_type(doc_id, symbol_id)
-        if detail == "" or detail == v4_ty_unknown {
-            detail = v4_document_symbol_def(doc_id, symbol_id)
+        if kind != "Method" {
+            pilot detail = v4_document_symbol_type(doc_id, symbol_id)
+            if detail == "" or detail == v4_ty_unknown {
+                detail = v4_document_symbol_def(doc_id, symbol_id)
+            }
+            v4_completion_add(completion_id, label, kind, detail, label)
         }
-        v4_completion_add(completion_id, label, kind, detail, label)
         symbol_id += 1
     }
 }
@@ -1951,6 +1971,62 @@ task v4_completion_add_lifetimes_for_offset(completion_id: int, path: word, text
     }
 }
 
+task v4_completion_add_methods_for_offset(completion_id: int, path: word, text: word, offset: int) -> void {
+    pilot stream_id = v4_lex_text_cached(path, text)
+    pilot hir_id = v4_hir_text_cached(path, text)
+    pilot ty_id = v4_ty_text_cached(path, text)
+    pilot mir_id = v4_mir_text_cached(path, text)
+    pilot token_id = v4_editor_token_at(stream_id, offset)
+    if token_id < 0 {
+        give back
+    }
+    pilot token_value = v4_lex_token_value(stream_id, token_id)
+    if token_value == "" {
+        give back
+    }
+    pilot hir_item = v4_editor_hir_item_at(hir_id, offset)
+    pilot body_id = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
+    if body_id < 0 {
+        give back
+    }
+    pilot rvalue_id = v4_editor_method_call_rvalue_at_token(stream_id, ty_id, mir_id, body_id, token_id, token_value, offset)
+    if rvalue_id < 0 {
+        give back
+    }
+
+    pilot call_op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    pilot owner_ty = v4_editor_method_call_owner(call_op, token_value)
+    if owner_ty == "" {
+        give back
+    }
+    pilot lookup_owner_ty = v4_mir_compact_type_text(owner_ty)
+    pilot canonical_owner_ty = v4_ty_canonical_type(ty_id, lookup_owner_ty)
+    if canonical_owner_ty != "" and canonical_owner_ty != v4_ty_unknown {
+        lookup_owner_ty = canonical_owner_ty
+    }
+    pilot want_instance = v4_editor_method_call_is_instance(call_op, token_value)
+
+    pilot item_id = 0
+    pilot item_count = v4_hir_item_count(hir_id)
+    repeat until item_id >= item_count {
+        if v4_hir_item_kind(hir_id, item_id) == v4_hir_impl and v4_ty_impl_matches_owner(ty_id, item_id, lookup_owner_ty) {
+            pilot method_id = 0
+            pilot method_count = v4_ty_impl_method_count(ty_id, item_id)
+            repeat until method_id >= method_count {
+                if v4_ty_impl_method_is_instance(ty_id, item_id, method_id) == want_instance {
+                    pilot label = v4_ty_impl_method_name(ty_id, item_id, method_id)
+                    if label != "" and not v4_completion_has_label(completion_id, label) {
+                        pilot method_ref = v4_mir_method_ref(item_id, method_id)
+                        v4_completion_add(completion_id, label, "method", v4_editor_method_detail_for_owner(ty_id, lookup_owner_ty, method_ref), label)
+                    }
+                }
+                method_id += 1
+            }
+        }
+        item_id += 1
+    }
+}
+
 task v4_completion_summary(completion_id: int) -> word {
     pilot summary = "completion id=" + word_from_int(completion_id)
     summary = summary + " path=" + v4_completion_path(completion_id)
@@ -2008,6 +2084,7 @@ task v4_completion_text_cached(path: word, text: word, offset: int) -> int {
     pilot completion_id = v4_editor_completion_new(path, offset)
     v4_completion_add_document_symbols(completion_id, doc_id)
     v4_completion_add_locals_for_offset(completion_id, path, text, offset)
+    v4_completion_add_methods_for_offset(completion_id, path, text, offset)
     v4_completion_add_route_fields_for_offset(completion_id, path, text, offset)
     v4_completion_add_lifetimes_for_offset(completion_id, path, text, offset)
     v4_completion_add_keywords(completion_id)
