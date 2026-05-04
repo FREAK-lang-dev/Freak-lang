@@ -3430,6 +3430,24 @@ task v4_mir_route_case_text(route_name: word, case_name: word) -> word {
     give back route_name + "::" + case_name
 }
 
+task v4_mir_route_alias_name(ty_id: int, route_name: word) -> word {
+    if route_name == "" {
+        give back ""
+    }
+    pilot canonical = v4_ty_canonical_type(ty_id, route_name)
+    if canonical != "" and canonical != v4_ty_unknown {
+        give back canonical
+    }
+    give back route_name
+}
+
+task v4_mir_route_names_match(ty_id: int, left: word, right: word) -> bool {
+    if left == "" or right == "" {
+        give back false
+    }
+    give back v4_mir_route_alias_name(ty_id, left) == v4_mir_route_alias_name(ty_id, right)
+}
+
 task v4_mir_route_case_rvalue(mir_id: int, body_id: int, display_text: word, route_name: word, case_name: word, expr_span: word) -> int {
     pilot case_text = v4_mir_route_case_text(route_name, case_name)
     if display_text == "" {
@@ -5480,7 +5498,7 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
                 v4_mir_add_type_error(mir_id, stmt_span, v4_mir_route_pattern_message(context, "lookup-failed"), route_name + " is not a known route")
                 give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
             }
-            if v4_ty_is_known(source_ty) and v4_ty_is_route_type(ty_id, source_ty) and route_name != source_ty {
+            if v4_ty_is_known(source_ty) and v4_ty_is_route_type(ty_id, source_ty) and not v4_mir_route_names_match(ty_id, route_name, source_ty) {
                 v4_mir_add_type_error(mir_id, stmt_span, v4_mir_route_pattern_message(context, "wrong-route"), "scrutinee is " + source_ty + " but pattern names " + route_name)
                 give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
             }
@@ -5548,7 +5566,7 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
                 v4_mir_add_type_error(mir_id, stmt_span, v4_mir_route_pattern_message(context, "lookup-failed"), route_name + " is not a known route")
                 give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
             }
-            if v4_ty_is_known(source_ty) and v4_ty_is_route_type(ty_id, source_ty) and route_name != source_ty {
+            if v4_ty_is_known(source_ty) and v4_ty_is_route_type(ty_id, source_ty) and not v4_mir_route_names_match(ty_id, route_name, source_ty) {
                 v4_mir_add_type_error(mir_id, stmt_span, v4_mir_route_pattern_message(context, "wrong-route"), "scrutinee is " + source_ty + " but pattern names " + route_name)
                 give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
             }
@@ -5808,7 +5826,7 @@ task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: w
             route_name = v4_mir_path_left(pattern)
             case_name = v4_mir_path_right(pattern)
         }
-        give back route_name != "" and route_name == source_ty and v4_ty_route_has_case(ty_id, route_name, case_name)
+        give back route_name != "" and v4_mir_route_names_match(ty_id, route_name, source_ty) and v4_ty_route_has_case(ty_id, route_name, case_name)
     }
 
     if v4_mir_pattern_is_simple_local(pattern) {
@@ -5872,7 +5890,7 @@ task v4_mir_when_pattern_route_case(mir_id: int, pattern: word, source_ty: word)
             route_name = route_payload_scope
             case_name = v4_mir_path_right(route_payload_head)
         }
-        if route_name != source_ty {
+        if not v4_mir_route_names_match(ty_id, route_name, source_ty) {
             give back ""
         }
         if not v4_ty_route_has_case(ty_id, route_name, case_name) {
@@ -5892,7 +5910,7 @@ task v4_mir_when_pattern_route_case(mir_id: int, pattern: word, source_ty: word)
             route_name = v4_mir_path_left(pattern)
             case_name = v4_mir_path_right(pattern)
         }
-        if route_name == source_ty and v4_ty_route_has_case(ty_id, route_name, case_name) {
+        if v4_mir_route_names_match(ty_id, route_name, source_ty) and v4_ty_route_has_case(ty_id, route_name, case_name) {
             give back case_name
         }
     }

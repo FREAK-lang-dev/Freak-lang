@@ -1,0 +1,80 @@
+-- V4 MIR alias-backed route scope smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_alias_route_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_mir_alias_route_find_stmt(mir_id: int, body_id: int, kind: word, lhs: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == kind and v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == lhs {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_alias_route_source_text() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_alias_route_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "alias Alarm = Event\n"
+    src = src + "task only_score(event: Alarm) -> int {\n"
+    src = src + "    only on Event::Key " + v4_mir_alias_route_braces(" code, repeat: held ") + " from event {\n"
+    src = src + "        if held {\n"
+    src = src + "            give back code\n"
+    src = src + "        }\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task when_score(event: Alarm) -> int {\n"
+    src = src + "    when event {\n"
+    src = src + "        Event::Closed -> give back 0\n"
+    src = src + "        Event::Key " + v4_mir_alias_route_braces(" code ") + " -> give back code\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task check_score(event: Alarm) -> int {\n"
+    src = src + "    check route event {\n"
+    src = src + "        Event::Closed -> give back 0\n"
+    src = src + "        Event::Key " + v4_mir_alias_route_braces(" code ") + " -> give back code\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_alias_route_stream = v4_lex_text(0, v4_mir_alias_route_source_text())
+pilot v4_mir_alias_route_tree = v4_parse_stream(0, v4_mir_alias_route_stream)
+pilot v4_mir_alias_route_hir = v4_hir_lower_tree(0, v4_mir_alias_route_tree)
+pilot v4_mir_alias_route_resolve = v4_resolve_lower_hir(0, v4_mir_alias_route_hir)
+pilot v4_mir_alias_route_ty = v4_ty_lower_resolve(0, v4_mir_alias_route_resolve)
+pilot v4_mir_alias_route_mir = v4_mir_lower_ty(0, v4_mir_alias_route_ty)
+
+pilot v4_mir_alias_route_only_body = v4_mir_lookup_body(v4_mir_alias_route_mir, v4_resolve_def_for_name(v4_mir_alias_route_resolve, "only_score"))
+pilot v4_mir_alias_route_when_body = v4_mir_lookup_body(v4_mir_alias_route_mir, v4_resolve_def_for_name(v4_mir_alias_route_resolve, "when_score"))
+pilot v4_mir_alias_route_check_body = v4_mir_lookup_body(v4_mir_alias_route_mir, v4_resolve_def_for_name(v4_mir_alias_route_resolve, "check_score"))
+
+pilot v4_mir_alias_route_only_branch_stmt = v4_mir_alias_route_find_stmt(v4_mir_alias_route_mir, v4_mir_alias_route_only_body, v4_mir_stmt_branch, "event == Event::Key")
+pilot v4_mir_alias_route_only_code_stmt = v4_mir_alias_route_find_stmt(v4_mir_alias_route_mir, v4_mir_alias_route_only_body, v4_mir_stmt_local, "code")
+pilot v4_mir_alias_route_only_held_stmt = v4_mir_alias_route_find_stmt(v4_mir_alias_route_mir, v4_mir_alias_route_only_body, v4_mir_stmt_local, "held")
+pilot v4_mir_alias_route_when_code_stmt = v4_mir_alias_route_find_stmt(v4_mir_alias_route_mir, v4_mir_alias_route_when_body, v4_mir_stmt_local, "code")
+pilot v4_mir_alias_route_check_code_stmt = v4_mir_alias_route_find_stmt(v4_mir_alias_route_mir, v4_mir_alias_route_check_body, v4_mir_stmt_local, "code")
+
+pilot v4_mir_alias_route_only_code_rvalue = v4_mir_stmt_rvalue(v4_mir_alias_route_mir, v4_mir_alias_route_only_body, v4_mir_alias_route_only_code_stmt)
+pilot v4_mir_alias_route_only_held_rvalue = v4_mir_stmt_rvalue(v4_mir_alias_route_mir, v4_mir_alias_route_only_body, v4_mir_alias_route_only_held_stmt)
+pilot v4_mir_alias_route_when_code_rvalue = v4_mir_stmt_rvalue(v4_mir_alias_route_mir, v4_mir_alias_route_when_body, v4_mir_alias_route_when_code_stmt)
+pilot v4_mir_alias_route_check_code_rvalue = v4_mir_stmt_rvalue(v4_mir_alias_route_mir, v4_mir_alias_route_check_body, v4_mir_alias_route_check_code_stmt)
+
+say "alias-route-diag-count=" + word_from_int(v4_mir_diag_count(v4_mir_alias_route_mir))
+say "alias-route-only-branch-kind=" + v4_mir_stmt_kind(v4_mir_alias_route_mir, v4_mir_alias_route_only_body, v4_mir_alias_route_only_branch_stmt)
+say "alias-route-only-branch-lhs=" + v4_mir_stmt_lhs(v4_mir_alias_route_mir, v4_mir_alias_route_only_body, v4_mir_alias_route_only_branch_stmt)
+say "alias-route-only-code-kind=" + v4_mir_rvalue_kind(v4_mir_alias_route_mir, v4_mir_alias_route_only_body, v4_mir_alias_route_only_code_rvalue)
+say "alias-route-only-code-ty=" + v4_mir_rvalue_ty(v4_mir_alias_route_mir, v4_mir_alias_route_only_body, v4_mir_alias_route_only_code_rvalue)
+say "alias-route-only-held-kind=" + v4_mir_rvalue_kind(v4_mir_alias_route_mir, v4_mir_alias_route_only_body, v4_mir_alias_route_only_held_rvalue)
+say "alias-route-only-held-ty=" + v4_mir_rvalue_ty(v4_mir_alias_route_mir, v4_mir_alias_route_only_body, v4_mir_alias_route_only_held_rvalue)
+say "alias-route-when-code-kind=" + v4_mir_rvalue_kind(v4_mir_alias_route_mir, v4_mir_alias_route_when_body, v4_mir_alias_route_when_code_rvalue)
+say "alias-route-when-code-ty=" + v4_mir_rvalue_ty(v4_mir_alias_route_mir, v4_mir_alias_route_when_body, v4_mir_alias_route_when_code_rvalue)
+say "alias-route-check-code-kind=" + v4_mir_rvalue_kind(v4_mir_alias_route_mir, v4_mir_alias_route_check_body, v4_mir_alias_route_check_code_rvalue)
+say "alias-route-check-code-ty=" + v4_mir_rvalue_ty(v4_mir_alias_route_mir, v4_mir_alias_route_check_body, v4_mir_alias_route_check_code_rvalue)
