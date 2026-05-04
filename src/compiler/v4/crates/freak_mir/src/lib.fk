@@ -3430,7 +3430,21 @@ task v4_mir_route_case_text(route_name: word, case_name: word) -> word {
     give back route_name + "::" + case_name
 }
 
+task v4_mir_compact_type_text(type_text: word) -> word {
+    pilot out = ""
+    pilot idx = 0
+    repeat until idx >= type_text.length() {
+        pilot ch = type_text.char_at(idx)
+        if ch != " " and ch != "\n" and ch != "\t" and ch != "\r" {
+            out = out + ch
+        }
+        idx += 1
+    }
+    give back out
+}
+
 task v4_mir_route_alias_name(ty_id: int, route_name: word) -> word {
+    route_name = v4_mir_compact_type_text(route_name)
     if route_name == "" {
         give back ""
     }
@@ -3441,11 +3455,59 @@ task v4_mir_route_alias_name(ty_id: int, route_name: word) -> word {
     give back route_name
 }
 
+task v4_mir_route_base_name(ty_id: int, route_name: word) -> word {
+    pilot canonical = v4_mir_route_alias_name(ty_id, route_name)
+    if canonical == "" or canonical == v4_ty_unknown {
+        give back canonical
+    }
+    if v4_ty_is_generic_instance_type(canonical) {
+        pilot base = v4_ty_generic_base_name(canonical)
+        if base != v4_ty_unknown {
+            give back base
+        }
+    }
+    give back canonical
+}
+
 task v4_mir_route_names_match(ty_id: int, left: word, right: word) -> bool {
     if left == "" or right == "" {
         give back false
     }
-    give back v4_mir_route_alias_name(ty_id, left) == v4_mir_route_alias_name(ty_id, right)
+    pilot left_name = v4_mir_route_alias_name(ty_id, left)
+    pilot right_name = v4_mir_route_alias_name(ty_id, right)
+    if left_name == right_name {
+        give back true
+    }
+    pilot left_base = v4_mir_route_base_name(ty_id, left_name)
+    pilot right_base = v4_mir_route_base_name(ty_id, right_name)
+    if left_base == "" or right_base == "" or left_base != right_base {
+        give back false
+    }
+    if v4_ty_is_generic_instance_type(left_name) and v4_ty_is_generic_instance_type(right_name) {
+        give back v4_ty_types_compatible(left_name, right_name)
+    }
+    give back true
+}
+
+task v4_mir_route_effective_name(ty_id: int, route_name: word, source_ty: word) -> word {
+    pilot explicit_name = v4_mir_route_alias_name(ty_id, route_name)
+    if explicit_name == "" or explicit_name == v4_ty_unknown {
+        explicit_name = route_name
+    }
+    pilot source_name = v4_mir_route_alias_name(ty_id, source_ty)
+    if source_name == "" or source_name == v4_ty_unknown {
+        source_name = source_ty
+    }
+    if explicit_name == "" {
+        give back source_name
+    }
+    if v4_ty_is_generic_instance_type(explicit_name) {
+        give back explicit_name
+    }
+    if source_name != "" and v4_ty_is_generic_instance_type(source_name) and v4_mir_route_names_match(ty_id, explicit_name, source_name) {
+        give back source_name
+    }
+    give back explicit_name
 }
 
 task v4_mir_route_case_rvalue(mir_id: int, body_id: int, display_text: word, route_name: word, case_name: word, expr_span: word) -> int {
@@ -5491,7 +5553,7 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
         pilot case_name = route_payload_head
         pilot pattern_text = route_payload_head
         if route_payload_scope != "" {
-            route_name = route_payload_scope
+            route_name = v4_mir_compact_type_text(route_payload_scope)
             case_name = v4_mir_path_right(route_payload_head)
             pattern_text = v4_mir_route_case_text(route_name, case_name)
             if not v4_ty_is_route_type(ty_id, route_name) {
@@ -5508,17 +5570,18 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
             v4_mir_add_type_error(mir_id, stmt_span, v4_mir_route_pattern_message(context, "needs-source"), "got " + source_ty)
             give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
         }
-        if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+        pilot route_lookup_name = v4_mir_route_effective_name(ty_id, route_name, source_ty)
+        if not v4_ty_route_has_case(ty_id, route_lookup_name, case_name) {
             v4_mir_add_type_error(mir_id, stmt_span, v4_mir_route_pattern_message(context, "case-lookup-failed"), route_name + " exposes no case " + case_name)
             give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
         }
-        if not v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+        if not v4_ty_route_case_has_payload(ty_id, route_lookup_name, case_name) {
             v4_mir_add_type_error(mir_id, stmt_span, v4_mir_route_pattern_message(context, "fieldless"), route_name + "::" + case_name + " carries no fields")
             give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
         }
 
         pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
-        pilot tag_rvalue = v4_mir_route_case_rvalue(mir_id, body_id, pattern_text, route_name, case_name, stmt_span)
+        pilot tag_rvalue = v4_mir_route_case_rvalue(mir_id, body_id, pattern_text, route_lookup_name, case_name, stmt_span)
         pilot cond_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, source_text + " == " + pattern_text, v4_mir_bin_eq, source_rvalue, tag_rvalue, stmt_span, v4_ty_bool)
         pilot seen_fields = ""
         pilot field_idx = 0
@@ -5533,7 +5596,7 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
                 v4_mir_add_type_error(mir_id, stmt_span, "duplicate route pattern field", field_name + " already appears in " + route_name + "::" + case_name)
             } else {
                 seen_fields = v4_mir_name_list_add(seen_fields, field_name)
-                pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_name, case_name, field_name)
+                pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_lookup_name, case_name, field_name)
                 if field_ty == v4_ty_unknown {
                     v4_mir_add_type_error(mir_id, stmt_span, "unknown route pattern field", route_name + "::" + case_name + " has no field " + field_name)
                 } else {
@@ -5559,7 +5622,7 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
         pilot case_name = pattern
         pilot pattern_text = pattern
         if route_pattern_sep >= 0 {
-            route_name = v4_mir_path_left(pattern)
+            route_name = v4_mir_compact_type_text(v4_mir_path_left(pattern))
             case_name = v4_mir_path_right(pattern)
             pattern_text = v4_mir_route_case_text(route_name, case_name)
             if not v4_ty_is_route_type(ty_id, route_name) {
@@ -5576,13 +5639,14 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
             v4_mir_add_type_error(mir_id, stmt_span, v4_mir_route_pattern_message(context, "needs-source"), "got " + source_ty)
             give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
         }
-        if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+        pilot route_lookup_name = v4_mir_route_effective_name(ty_id, route_name, source_ty)
+        if not v4_ty_route_has_case(ty_id, route_lookup_name, case_name) {
             v4_mir_add_type_error(mir_id, stmt_span, v4_mir_route_pattern_message(context, "case-lookup-failed"), route_name + " exposes no case " + case_name)
             give back v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
         }
 
         pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
-        pilot pattern_rvalue = v4_mir_route_case_rvalue(mir_id, body_id, pattern_text, route_name, case_name, stmt_span)
+        pilot pattern_rvalue = v4_mir_route_case_rvalue(mir_id, body_id, pattern_text, route_lookup_name, case_name, stmt_span)
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, source_text + " == " + pattern_text, v4_mir_bin_eq, source_rvalue, pattern_rvalue, stmt_span, v4_ty_bool)
     }
 
@@ -5782,16 +5846,17 @@ task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: w
         pilot route_name = source_ty
         pilot case_name = route_payload_head
         if route_payload_scope != "" {
-            route_name = route_payload_scope
+            route_name = v4_mir_compact_type_text(route_payload_scope)
             case_name = v4_mir_path_right(route_payload_head)
         }
         if route_name == "" or not v4_ty_is_route_type(ty_id, route_name) {
             give back false
         }
-        if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+        pilot route_lookup_name = v4_mir_route_effective_name(ty_id, route_name, source_ty)
+        if not v4_ty_route_has_case(ty_id, route_lookup_name, case_name) {
             give back false
         }
-        if not v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+        if not v4_ty_route_case_has_payload(ty_id, route_lookup_name, case_name) {
             give back false
         }
 
@@ -5806,7 +5871,7 @@ task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: w
                 give back false
             }
             seen_fields = v4_mir_name_list_add(seen_fields, field_name)
-            pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_name, case_name, field_name)
+            pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_lookup_name, case_name, field_name)
             if field_ty == v4_ty_unknown {
                 give back false
             }
@@ -5823,10 +5888,11 @@ task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: w
         pilot route_name = source_ty
         pilot case_name = pattern
         if route_pattern_sep >= 0 {
-            route_name = v4_mir_path_left(pattern)
+            route_name = v4_mir_compact_type_text(v4_mir_path_left(pattern))
             case_name = v4_mir_path_right(pattern)
         }
-        give back route_name != "" and v4_mir_route_names_match(ty_id, route_name, source_ty) and v4_ty_route_has_case(ty_id, route_name, case_name)
+        pilot route_lookup_name = v4_mir_route_effective_name(ty_id, route_name, source_ty)
+        give back route_name != "" and v4_mir_route_names_match(ty_id, route_name, source_ty) and v4_ty_route_has_case(ty_id, route_lookup_name, case_name)
     }
 
     if v4_mir_pattern_is_simple_local(pattern) {
@@ -5887,16 +5953,17 @@ task v4_mir_when_pattern_route_case(mir_id: int, pattern: word, source_ty: word)
         pilot route_name = source_ty
         pilot case_name = route_payload_head
         if route_payload_scope != "" {
-            route_name = route_payload_scope
+            route_name = v4_mir_compact_type_text(route_payload_scope)
             case_name = v4_mir_path_right(route_payload_head)
         }
+        pilot route_lookup_name = v4_mir_route_effective_name(ty_id, route_name, source_ty)
         if not v4_mir_route_names_match(ty_id, route_name, source_ty) {
             give back ""
         }
-        if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+        if not v4_ty_route_has_case(ty_id, route_lookup_name, case_name) {
             give back ""
         }
-        if not v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+        if not v4_ty_route_case_has_payload(ty_id, route_lookup_name, case_name) {
             give back ""
         }
         give back case_name
@@ -5907,10 +5974,11 @@ task v4_mir_when_pattern_route_case(mir_id: int, pattern: word, source_ty: word)
         pilot route_name = source_ty
         pilot case_name = pattern
         if route_pattern_sep >= 0 {
-            route_name = v4_mir_path_left(pattern)
+            route_name = v4_mir_compact_type_text(v4_mir_path_left(pattern))
             case_name = v4_mir_path_right(pattern)
         }
-        if v4_mir_route_names_match(ty_id, route_name, source_ty) and v4_ty_route_has_case(ty_id, route_name, case_name) {
+        pilot route_lookup_name = v4_mir_route_effective_name(ty_id, route_name, source_ty)
+        if v4_mir_route_names_match(ty_id, route_name, source_ty) and v4_ty_route_has_case(ty_id, route_lookup_name, case_name) {
             give back case_name
         }
     }
@@ -6064,16 +6132,17 @@ task v4_mir_try_lower_route_pattern_bindings(mir_id: int, body_id: int, block_id
         pilot route_name = source_ty
         pilot case_name = route_payload_head
         if route_payload_scope != "" {
-            route_name = route_payload_scope
+            route_name = v4_mir_compact_type_text(route_payload_scope)
             case_name = v4_mir_path_right(route_payload_head)
         }
         if route_name == "" or not v4_ty_is_route_type(ty_id, route_name) {
             give back true
         }
-        if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+        pilot route_lookup_name = v4_mir_route_effective_name(ty_id, route_name, source_ty)
+        if not v4_ty_route_has_case(ty_id, route_lookup_name, case_name) {
             give back true
         }
-        if not v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+        if not v4_ty_route_case_has_payload(ty_id, route_lookup_name, case_name) {
             give back true
         }
 
@@ -6086,7 +6155,7 @@ task v4_mir_try_lower_route_pattern_bindings(mir_id: int, body_id: int, block_id
             pilot child_pattern = v4_mir_named_brace_field_pattern(field_segment)
             if field_name != "" and not v4_mir_name_list_contains(seen_fields, field_name) {
                 seen_fields = v4_mir_name_list_add(seen_fields, field_name)
-                pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_name, case_name, field_name)
+                pilot field_ty = v4_ty_route_case_field_type_for_name(ty_id, route_lookup_name, case_name, field_name)
                 if field_ty != v4_ty_unknown {
                     pilot field_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, source_place) + "." + field_name, source_place, field_name, 0 - 1, stmt_span, field_ty)
                     v4_mir_lower_when_pattern_bindings(mir_id, body_id, block_id, stmt_span, child_pattern, field_place, field_ty)

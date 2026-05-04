@@ -1,0 +1,83 @@
+-- V4 MIR generic route pattern smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_generic_route_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_mir_generic_route_find_stmt(mir_id: int, body_id: int, kind: word, lhs: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == kind and v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == lhs {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_generic_route_source_text() -> word {
+    pilot src = "route Option<T> {\n"
+    src = src + "    Some " + v4_mir_generic_route_braces(" value: T ") + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "task when_score(choice: Option<int>) -> int {\n"
+    src = src + "    when choice {\n"
+    src = src + "        Option::None -> give back 0\n"
+    src = src + "        Option::Some " + v4_mir_generic_route_braces(" value ") + " -> give back value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task check_score(choice: Option<int>) -> int {\n"
+    src = src + "    check route choice {\n"
+    src = src + "        Option<int>::None -> give back 0\n"
+    src = src + "        Option<int>::Some " + v4_mir_generic_route_braces(" value ") + " -> give back value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task only_score(choice: Option<int>) -> int {\n"
+    src = src + "    only on Option::Some " + v4_mir_generic_route_braces(" value ") + " from choice {\n"
+    src = src + "        give back value\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_generic_route_stream = v4_lex_text(0, v4_mir_generic_route_source_text())
+pilot v4_mir_generic_route_tree = v4_parse_stream(0, v4_mir_generic_route_stream)
+pilot v4_mir_generic_route_hir = v4_hir_lower_tree(0, v4_mir_generic_route_tree)
+pilot v4_mir_generic_route_resolve = v4_resolve_lower_hir(0, v4_mir_generic_route_hir)
+pilot v4_mir_generic_route_ty = v4_ty_lower_resolve(0, v4_mir_generic_route_resolve)
+pilot v4_mir_generic_route_mir = v4_mir_lower_ty(0, v4_mir_generic_route_ty)
+
+pilot v4_mir_generic_route_when_body = v4_mir_lookup_body(v4_mir_generic_route_mir, v4_resolve_def_for_name(v4_mir_generic_route_resolve, "when_score"))
+pilot v4_mir_generic_route_check_body = v4_mir_lookup_body(v4_mir_generic_route_mir, v4_resolve_def_for_name(v4_mir_generic_route_resolve, "check_score"))
+pilot v4_mir_generic_route_only_body = v4_mir_lookup_body(v4_mir_generic_route_mir, v4_resolve_def_for_name(v4_mir_generic_route_resolve, "only_score"))
+
+pilot v4_mir_generic_route_when_value_stmt = v4_mir_generic_route_find_stmt(v4_mir_generic_route_mir, v4_mir_generic_route_when_body, v4_mir_stmt_local, "value")
+pilot v4_mir_generic_route_check_value_stmt = v4_mir_generic_route_find_stmt(v4_mir_generic_route_mir, v4_mir_generic_route_check_body, v4_mir_stmt_local, "value")
+pilot v4_mir_generic_route_only_branch_stmt = v4_mir_generic_route_find_stmt(v4_mir_generic_route_mir, v4_mir_generic_route_only_body, v4_mir_stmt_branch, "choice == Option::Some")
+pilot v4_mir_generic_route_only_value_stmt = v4_mir_generic_route_find_stmt(v4_mir_generic_route_mir, v4_mir_generic_route_only_body, v4_mir_stmt_local, "value")
+
+pilot v4_mir_generic_route_when_value_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_route_mir, v4_mir_generic_route_when_body, v4_mir_generic_route_when_value_stmt)
+pilot v4_mir_generic_route_check_value_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_route_mir, v4_mir_generic_route_check_body, v4_mir_generic_route_check_value_stmt)
+pilot v4_mir_generic_route_only_value_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_route_mir, v4_mir_generic_route_only_body, v4_mir_generic_route_only_value_stmt)
+
+pilot v4_mir_generic_route_when_value_place = v4_mir_rvalue_lhs(v4_mir_generic_route_mir, v4_mir_generic_route_when_body, v4_mir_generic_route_when_value_rvalue)
+pilot v4_mir_generic_route_check_value_place = v4_mir_rvalue_lhs(v4_mir_generic_route_mir, v4_mir_generic_route_check_body, v4_mir_generic_route_check_value_rvalue)
+pilot v4_mir_generic_route_only_value_place = v4_mir_rvalue_lhs(v4_mir_generic_route_mir, v4_mir_generic_route_only_body, v4_mir_generic_route_only_value_rvalue)
+
+say "generic-route-diag-count=" + word_from_int(v4_mir_diag_count(v4_mir_generic_route_mir))
+say "generic-route-when-value-kind=" + v4_mir_rvalue_kind(v4_mir_generic_route_mir, v4_mir_generic_route_when_body, v4_mir_generic_route_when_value_rvalue)
+say "generic-route-when-value-ty=" + v4_mir_rvalue_ty(v4_mir_generic_route_mir, v4_mir_generic_route_when_body, v4_mir_generic_route_when_value_rvalue)
+say "generic-route-when-value-source-field=" + v4_mir_place_field(v4_mir_generic_route_mir, v4_mir_generic_route_when_body, v4_mir_generic_route_when_value_place)
+say "generic-route-when-value-source-ty=" + v4_mir_place_ty(v4_mir_generic_route_mir, v4_mir_generic_route_when_body, v4_mir_generic_route_when_value_place)
+say "generic-route-check-value-kind=" + v4_mir_rvalue_kind(v4_mir_generic_route_mir, v4_mir_generic_route_check_body, v4_mir_generic_route_check_value_rvalue)
+say "generic-route-check-value-ty=" + v4_mir_rvalue_ty(v4_mir_generic_route_mir, v4_mir_generic_route_check_body, v4_mir_generic_route_check_value_rvalue)
+say "generic-route-check-value-source-field=" + v4_mir_place_field(v4_mir_generic_route_mir, v4_mir_generic_route_check_body, v4_mir_generic_route_check_value_place)
+say "generic-route-check-value-source-ty=" + v4_mir_place_ty(v4_mir_generic_route_mir, v4_mir_generic_route_check_body, v4_mir_generic_route_check_value_place)
+say "generic-route-only-branch-kind=" + v4_mir_stmt_kind(v4_mir_generic_route_mir, v4_mir_generic_route_only_body, v4_mir_generic_route_only_branch_stmt)
+say "generic-route-only-branch-lhs=" + v4_mir_stmt_lhs(v4_mir_generic_route_mir, v4_mir_generic_route_only_body, v4_mir_generic_route_only_branch_stmt)
+say "generic-route-only-value-kind=" + v4_mir_rvalue_kind(v4_mir_generic_route_mir, v4_mir_generic_route_only_body, v4_mir_generic_route_only_value_rvalue)
+say "generic-route-only-value-ty=" + v4_mir_rvalue_ty(v4_mir_generic_route_mir, v4_mir_generic_route_only_body, v4_mir_generic_route_only_value_rvalue)
+say "generic-route-only-value-source-field=" + v4_mir_place_field(v4_mir_generic_route_mir, v4_mir_generic_route_only_body, v4_mir_generic_route_only_value_place)
+say "generic-route-only-value-source-ty=" + v4_mir_place_ty(v4_mir_generic_route_mir, v4_mir_generic_route_only_body, v4_mir_generic_route_only_value_place)

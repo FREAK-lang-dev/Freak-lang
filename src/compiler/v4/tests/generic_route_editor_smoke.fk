@@ -1,0 +1,101 @@
+-- V4 generic route editor facts smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_generic_route_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_generic_route_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_generic_route_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_generic_route_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_generic_route_editor_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_generic_route_editor_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_generic_route_editor_completion_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_generic_route_editor_source_text() -> word {
+    pilot src = "route Option<T> {\n"
+    src = src + "    Some " + v4_generic_route_editor_braces(" value: T ") + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "task score(choice: Option<int>) -> int {\n"
+    src = src + "    only on Option::Some " + v4_generic_route_editor_braces(" value ") + " from choice {\n"
+    src = src + "        say value\n"
+    src = src + "        give back value\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_generic_route_editor_source = v4_generic_route_editor_source_text()
+pilot v4_generic_route_editor_stream = v4_lex_text(0, v4_generic_route_editor_source)
+
+pilot v4_generic_route_editor_some_use_offset = v4_generic_route_editor_token_offset(v4_generic_route_editor_stream, "Some", 1)
+pilot v4_generic_route_editor_value_decl_offset = v4_generic_route_editor_token_offset(v4_generic_route_editor_stream, "value", 1)
+pilot v4_generic_route_editor_value_use_offset = v4_generic_route_editor_token_offset(v4_generic_route_editor_stream, "value", 3)
+pilot v4_generic_route_editor_zero_offset = v4_generic_route_editor_token_offset(v4_generic_route_editor_stream, "0", 0)
+
+pilot v4_generic_route_editor_some_sem = v4_semantic_at_text_cached("generic-route-editor.fk", v4_generic_route_editor_source, v4_generic_route_editor_some_use_offset)
+pilot v4_generic_route_editor_value_hover = v4_hover_text_cached("generic-route-editor.fk", v4_generic_route_editor_source, v4_generic_route_editor_value_use_offset)
+pilot v4_generic_route_editor_value_definition = v4_definition_at_text_cached("generic-route-editor.fk", v4_generic_route_editor_source, v4_generic_route_editor_value_use_offset)
+pilot v4_generic_route_editor_block_completion = v4_completion_text_cached("generic-route-editor.fk", v4_generic_route_editor_source, v4_generic_route_editor_value_use_offset)
+pilot v4_generic_route_editor_outer_completion = v4_completion_text_cached("generic-route-editor.fk", v4_generic_route_editor_source, v4_generic_route_editor_zero_offset)
+
+pilot v4_generic_route_editor_value_item = v4_generic_route_editor_find_completion_label(v4_generic_route_editor_block_completion, "value")
+pilot v4_generic_route_editor_temp_item = v4_generic_route_editor_find_completion_label(v4_generic_route_editor_block_completion, "_only_on_subject")
+pilot v4_generic_route_editor_outer_value_item = v4_generic_route_editor_find_completion_label(v4_generic_route_editor_outer_completion, "value")
+
+say "generic-route-editor-some-kind=" + v4_semantic_at_kind(v4_generic_route_editor_some_sem)
+say "generic-route-editor-some-type=" + v4_semantic_at_type(v4_generic_route_editor_some_sem)
+say "generic-route-editor-value-hover-kind=" + v4_hover_kind(v4_generic_route_editor_value_hover)
+say "generic-route-editor-value-hover-type=" + v4_hover_type(v4_generic_route_editor_value_hover)
+say "generic-route-editor-value-definition-kind=" + v4_definition_at_kind(v4_generic_route_editor_value_definition)
+say "generic-route-editor-value-definition-found=" + word_from_int(v4_definition_at_found(v4_generic_route_editor_value_definition))
+say "generic-route-editor-value-definition-matches=" + v4_generic_route_editor_bool_word(v4_span_start(v4_definition_at_span(v4_generic_route_editor_value_definition)) == v4_generic_route_editor_value_decl_offset)
+say "generic-route-editor-value-found=" + v4_generic_route_editor_bool_word(v4_generic_route_editor_value_item >= 0)
+say "generic-route-editor-value-detail=" + v4_generic_route_editor_completion_detail_or_empty(v4_generic_route_editor_block_completion, v4_generic_route_editor_value_item)
+say "generic-route-editor-temp-found=" + v4_generic_route_editor_bool_word(v4_generic_route_editor_temp_item >= 0)
+say "generic-route-editor-outer-value-found=" + v4_generic_route_editor_bool_word(v4_generic_route_editor_outer_value_item >= 0)
