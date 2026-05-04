@@ -1,0 +1,120 @@
+-- V4 MIR generic alias-backed shape constructor smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_generic_alias_shape_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_mir_generic_alias_shape_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_generic_alias_shape_find_return_stmt(mir_id: int, body_id: int) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_generic_alias_shape_good_source() -> word {
+    pilot src = "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "alias Crate<T> = Box<T>\n"
+    src = src + "alias IntCrate = Crate<int>\n"
+    src = src + "task alias_head_local() -> int {\n"
+    src = src + "    pilot box = IntCrate " + v4_mir_generic_alias_shape_braces(" value: 7 ") + "\n"
+    src = src + "    give back box.value\n"
+    src = src + "}\n"
+    src = src + "task alias_generic_local() -> int {\n"
+    src = src + "    pilot box = Crate<int> " + v4_mir_generic_alias_shape_braces(" value: 9 ") + "\n"
+    src = src + "    give back box.value\n"
+    src = src + "}\n"
+    src = src + "task alias_expected() -> IntCrate {\n"
+    src = src + "    give back Crate " + v4_mir_generic_alias_shape_braces(" value: 11 ") + "\n"
+    src = src + "}\n"
+    src = src + "task alias_annotated() -> int {\n"
+    src = src + "    pilot box: IntCrate = Box " + v4_mir_generic_alias_shape_braces(" value: 13 ") + "\n"
+    src = src + "    give back box.value\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_generic_alias_shape_bad_source() -> word {
+    pilot src = "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "alias Crate<T> = Box<T>\n"
+    src = src + "task bad() -> void {\n"
+    src = src + "    pilot ghost = Crate<int,word> " + v4_mir_generic_alias_shape_braces(" value: 7 ") + "\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_generic_alias_shape_good_stream = v4_lex_text(0, v4_mir_generic_alias_shape_good_source())
+pilot v4_mir_generic_alias_shape_good_tree = v4_parse_stream(0, v4_mir_generic_alias_shape_good_stream)
+pilot v4_mir_generic_alias_shape_good_hir = v4_hir_lower_tree(0, v4_mir_generic_alias_shape_good_tree)
+pilot v4_mir_generic_alias_shape_good_resolve = v4_resolve_lower_hir(0, v4_mir_generic_alias_shape_good_hir)
+pilot v4_mir_generic_alias_shape_good_ty = v4_ty_lower_resolve(0, v4_mir_generic_alias_shape_good_resolve)
+pilot v4_mir_generic_alias_shape_good_mir = v4_mir_lower_ty(0, v4_mir_generic_alias_shape_good_ty)
+
+pilot v4_mir_generic_alias_shape_alias_head_def = v4_resolve_def_for_name(v4_mir_generic_alias_shape_good_resolve, "alias_head_local")
+pilot v4_mir_generic_alias_shape_alias_head_body = v4_mir_lookup_body(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_head_def)
+pilot v4_mir_generic_alias_shape_alias_head_stmt = v4_mir_generic_alias_shape_find_local_stmt(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_head_body, "box")
+pilot v4_mir_generic_alias_shape_alias_head_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_head_body, v4_mir_generic_alias_shape_alias_head_stmt)
+pilot v4_mir_generic_alias_shape_alias_head_place = v4_mir_stmt_place(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_head_body, v4_mir_generic_alias_shape_alias_head_stmt)
+
+pilot v4_mir_generic_alias_shape_alias_generic_def = v4_resolve_def_for_name(v4_mir_generic_alias_shape_good_resolve, "alias_generic_local")
+pilot v4_mir_generic_alias_shape_alias_generic_body = v4_mir_lookup_body(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_generic_def)
+pilot v4_mir_generic_alias_shape_alias_generic_stmt = v4_mir_generic_alias_shape_find_local_stmt(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_generic_body, "box")
+pilot v4_mir_generic_alias_shape_alias_generic_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_generic_body, v4_mir_generic_alias_shape_alias_generic_stmt)
+pilot v4_mir_generic_alias_shape_alias_generic_place = v4_mir_stmt_place(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_generic_body, v4_mir_generic_alias_shape_alias_generic_stmt)
+
+pilot v4_mir_generic_alias_shape_alias_expected_def = v4_resolve_def_for_name(v4_mir_generic_alias_shape_good_resolve, "alias_expected")
+pilot v4_mir_generic_alias_shape_alias_expected_body = v4_mir_lookup_body(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_expected_def)
+pilot v4_mir_generic_alias_shape_alias_expected_stmt = v4_mir_generic_alias_shape_find_return_stmt(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_expected_body)
+pilot v4_mir_generic_alias_shape_alias_expected_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_expected_body, v4_mir_generic_alias_shape_alias_expected_stmt)
+
+pilot v4_mir_generic_alias_shape_alias_annotated_def = v4_resolve_def_for_name(v4_mir_generic_alias_shape_good_resolve, "alias_annotated")
+pilot v4_mir_generic_alias_shape_alias_annotated_body = v4_mir_lookup_body(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_annotated_def)
+pilot v4_mir_generic_alias_shape_alias_annotated_stmt = v4_mir_generic_alias_shape_find_local_stmt(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_annotated_body, "box")
+pilot v4_mir_generic_alias_shape_alias_annotated_rvalue = v4_mir_stmt_rvalue(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_annotated_body, v4_mir_generic_alias_shape_alias_annotated_stmt)
+pilot v4_mir_generic_alias_shape_alias_annotated_place = v4_mir_stmt_place(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_annotated_body, v4_mir_generic_alias_shape_alias_annotated_stmt)
+
+say "generic-alias-shape-diag-count=" + word_from_int(v4_mir_diag_count(v4_mir_generic_alias_shape_good_mir))
+say "generic-alias-shape-head-local-ty=" + v4_mir_place_ty(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_head_body, v4_mir_generic_alias_shape_alias_head_place)
+say "generic-alias-shape-head-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_head_body, v4_mir_generic_alias_shape_alias_head_rvalue)
+say "generic-alias-shape-head-rvalue-op=" + v4_mir_rvalue_op(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_head_body, v4_mir_generic_alias_shape_alias_head_rvalue)
+say "generic-alias-shape-generic-local-ty=" + v4_mir_place_ty(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_generic_body, v4_mir_generic_alias_shape_alias_generic_place)
+say "generic-alias-shape-generic-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_generic_body, v4_mir_generic_alias_shape_alias_generic_rvalue)
+say "generic-alias-shape-generic-rvalue-op=" + v4_mir_rvalue_op(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_generic_body, v4_mir_generic_alias_shape_alias_generic_rvalue)
+say "generic-alias-shape-expected-return-ty=" + v4_mir_rvalue_ty(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_expected_body, v4_mir_generic_alias_shape_alias_expected_rvalue)
+say "generic-alias-shape-expected-rvalue-op=" + v4_mir_rvalue_op(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_expected_body, v4_mir_generic_alias_shape_alias_expected_rvalue)
+say "generic-alias-shape-annotated-local-ty=" + v4_mir_place_ty(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_annotated_body, v4_mir_generic_alias_shape_alias_annotated_place)
+say "generic-alias-shape-annotated-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_annotated_body, v4_mir_generic_alias_shape_alias_annotated_rvalue)
+say "generic-alias-shape-annotated-rvalue-op=" + v4_mir_rvalue_op(v4_mir_generic_alias_shape_good_mir, v4_mir_generic_alias_shape_alias_annotated_body, v4_mir_generic_alias_shape_alias_annotated_rvalue)
+
+pilot v4_mir_generic_alias_shape_bad_stream = v4_lex_text(1, v4_mir_generic_alias_shape_bad_source())
+pilot v4_mir_generic_alias_shape_bad_tree = v4_parse_stream(1, v4_mir_generic_alias_shape_bad_stream)
+pilot v4_mir_generic_alias_shape_bad_hir = v4_hir_lower_tree(1, v4_mir_generic_alias_shape_bad_tree)
+pilot v4_mir_generic_alias_shape_bad_resolve = v4_resolve_lower_hir(1, v4_mir_generic_alias_shape_bad_hir)
+pilot v4_mir_generic_alias_shape_bad_ty = v4_ty_lower_resolve(1, v4_mir_generic_alias_shape_bad_resolve)
+pilot v4_mir_generic_alias_shape_bad_mir = v4_mir_lower_ty(1, v4_mir_generic_alias_shape_bad_ty)
+
+say "generic-alias-shape-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_alias_shape_bad_mir))
+say "generic-alias-shape-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_alias_shape_bad_mir, 0))

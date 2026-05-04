@@ -3373,7 +3373,9 @@ task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, firs
     }
     pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, shape_name, expected_ty)
     pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, seed_instance_ty)
-    env = v4_mir_check_shape_ctor_fields(mir_id, body_id, stream_id, expr_span, shape_name, sig_id, open_token, close_token, env)
+    if explicit_shape_instance_valid {
+        env = v4_mir_check_shape_ctor_fields(mir_id, body_id, stream_id, expr_span, shape_name, sig_id, open_token, close_token, env)
+    }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     pilot result_ty = shape_name
     if sig_id < 0 {
@@ -3652,7 +3654,9 @@ task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: i
     }
     pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, route_name, expected_ty)
     pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, seed_instance_ty)
-    env = v4_mir_check_route_ctor_fields(mir_id, body_id, stream_id, expr_span, route_name, case_name, open_token, close_token, env)
+    if explicit_route_instance_valid {
+        env = v4_mir_check_route_ctor_fields(mir_id, body_id, stream_id, expr_span, route_name, case_name, open_token, close_token, env)
+    }
     pilot result_ty = route_name
     if not v4_ty_is_route_type(ty_id, route_name) or not v4_ty_route_has_case(ty_id, route_name, case_name) {
         result_ty = v4_ty_unknown
