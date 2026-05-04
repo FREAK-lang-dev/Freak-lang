@@ -1,0 +1,114 @@
+-- V4 only-on editor facts smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_only_on_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_only_on_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_only_on_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_only_on_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_only_on_editor_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_only_on_editor_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_only_on_editor_completion_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_only_on_editor_source_text() -> word {
+    pilot src = "variant Event {\n"
+    src = src + "    Key " + v4_only_on_editor_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task score(event: Event) -> int {\n"
+    src = src + "    only on Event::Key " + v4_only_on_editor_braces(" code, repeat: held ") + " from event {\n"
+    src = src + "        say held\n"
+    src = src + "        give back code\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_only_on_editor_source = v4_only_on_editor_source_text()
+pilot v4_only_on_editor_stream = v4_lex_text(0, v4_only_on_editor_source)
+
+pilot v4_only_on_editor_key_decl_offset = v4_only_on_editor_token_offset(v4_only_on_editor_stream, "Key", 0)
+pilot v4_only_on_editor_key_use_offset = v4_only_on_editor_token_offset(v4_only_on_editor_stream, "Key", 1)
+pilot v4_only_on_editor_code_decl_offset = v4_only_on_editor_token_offset(v4_only_on_editor_stream, "code", 1)
+pilot v4_only_on_editor_code_use_offset = v4_only_on_editor_token_offset(v4_only_on_editor_stream, "code", 2)
+pilot v4_only_on_editor_held_decl_offset = v4_only_on_editor_token_offset(v4_only_on_editor_stream, "held", 0)
+pilot v4_only_on_editor_held_use_offset = v4_only_on_editor_token_offset(v4_only_on_editor_stream, "held", 1)
+pilot v4_only_on_editor_zero_offset = v4_only_on_editor_token_offset(v4_only_on_editor_stream, "0", 0)
+
+pilot v4_only_on_editor_key_sem = v4_semantic_at_text_cached("only-on-editor.fk", v4_only_on_editor_source, v4_only_on_editor_key_use_offset)
+pilot v4_only_on_editor_held_hover = v4_hover_text_cached("only-on-editor.fk", v4_only_on_editor_source, v4_only_on_editor_held_use_offset)
+pilot v4_only_on_editor_key_definition = v4_definition_at_text_cached("only-on-editor.fk", v4_only_on_editor_source, v4_only_on_editor_key_use_offset)
+pilot v4_only_on_editor_code_definition = v4_definition_at_text_cached("only-on-editor.fk", v4_only_on_editor_source, v4_only_on_editor_code_use_offset)
+pilot v4_only_on_editor_block_completion = v4_completion_text_cached("only-on-editor.fk", v4_only_on_editor_source, v4_only_on_editor_held_use_offset)
+pilot v4_only_on_editor_outer_completion = v4_completion_text_cached("only-on-editor.fk", v4_only_on_editor_source, v4_only_on_editor_zero_offset)
+
+pilot v4_only_on_editor_code_item = v4_only_on_editor_find_completion_label(v4_only_on_editor_block_completion, "code")
+pilot v4_only_on_editor_held_item = v4_only_on_editor_find_completion_label(v4_only_on_editor_block_completion, "held")
+pilot v4_only_on_editor_temp_item = v4_only_on_editor_find_completion_label(v4_only_on_editor_block_completion, "_only_on_subject")
+pilot v4_only_on_editor_outer_code_item = v4_only_on_editor_find_completion_label(v4_only_on_editor_outer_completion, "code")
+pilot v4_only_on_editor_outer_held_item = v4_only_on_editor_find_completion_label(v4_only_on_editor_outer_completion, "held")
+
+say "only-on-editor-key-kind=" + v4_semantic_at_kind(v4_only_on_editor_key_sem)
+say "only-on-editor-key-type=" + v4_semantic_at_type(v4_only_on_editor_key_sem)
+say "only-on-editor-held-hover-kind=" + v4_hover_kind(v4_only_on_editor_held_hover)
+say "only-on-editor-held-hover-type=" + v4_hover_type(v4_only_on_editor_held_hover)
+say "only-on-editor-key-definition-kind=" + v4_definition_at_kind(v4_only_on_editor_key_definition)
+say "only-on-editor-key-definition-found=" + word_from_int(v4_definition_at_found(v4_only_on_editor_key_definition))
+say "only-on-editor-key-definition-matches=" + v4_only_on_editor_bool_word(v4_span_start(v4_definition_at_span(v4_only_on_editor_key_definition)) == v4_only_on_editor_key_decl_offset)
+say "only-on-editor-code-definition-kind=" + v4_definition_at_kind(v4_only_on_editor_code_definition)
+say "only-on-editor-code-definition-found=" + word_from_int(v4_definition_at_found(v4_only_on_editor_code_definition))
+say "only-on-editor-code-definition-matches=" + v4_only_on_editor_bool_word(v4_span_start(v4_definition_at_span(v4_only_on_editor_code_definition)) == v4_only_on_editor_code_decl_offset)
+say "only-on-editor-block-completion-count=" + word_from_int(v4_completion_count(v4_only_on_editor_block_completion))
+say "only-on-editor-code-found=" + v4_only_on_editor_bool_word(v4_only_on_editor_code_item >= 0)
+say "only-on-editor-code-detail=" + v4_only_on_editor_completion_detail_or_empty(v4_only_on_editor_block_completion, v4_only_on_editor_code_item)
+say "only-on-editor-held-found=" + v4_only_on_editor_bool_word(v4_only_on_editor_held_item >= 0)
+say "only-on-editor-held-detail=" + v4_only_on_editor_completion_detail_or_empty(v4_only_on_editor_block_completion, v4_only_on_editor_held_item)
+say "only-on-editor-temp-found=" + v4_only_on_editor_bool_word(v4_only_on_editor_temp_item >= 0)
+say "only-on-editor-outer-code-found=" + v4_only_on_editor_bool_word(v4_only_on_editor_outer_code_item >= 0)
+say "only-on-editor-outer-held-found=" + v4_only_on_editor_bool_word(v4_only_on_editor_outer_held_item >= 0)

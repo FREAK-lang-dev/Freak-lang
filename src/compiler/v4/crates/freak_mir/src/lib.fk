@@ -1502,6 +1502,26 @@ task v4_mir_find_open_paren_token(stream_id: int, start_token: int, close_token:
     give back 0 - 1
 }
 
+task v4_mir_find_open_brace_token(stream_id: int, start_token: int, close_token: int) -> int {
+    pilot idx = close_token
+    pilot depth = 0
+    repeat until idx < start_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if val == "}" {
+                depth += 1
+            } else if val == "{" {
+                depth -= 1
+                if depth == 0 {
+                    give back idx
+                }
+            }
+        }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
 task v4_mir_name_list_contains(names: word, wanted: word) -> bool {
     if names == "" or wanted == "" {
         give back false
@@ -5398,6 +5418,23 @@ task v4_mir_route_pattern_message(context: word, kind: word) -> word {
             give back "check route case has no payload"
         }
     }
+    if context == "only on" {
+        if kind == "needs-source" {
+            give back "only on needs route source"
+        }
+        if kind == "lookup-failed" {
+            give back "only on pattern lookup failed"
+        }
+        if kind == "wrong-route" {
+            give back "only on pattern belongs to different route"
+        }
+        if kind == "case-lookup-failed" {
+            give back "only on case lookup failed"
+        }
+        if kind == "fieldless" {
+            give back "only on case has no payload"
+        }
+    }
 
     if kind == "needs-source" {
         give back "when route pattern needs route source"
@@ -6386,6 +6423,61 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
     give back after_block
 }
 
+task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, only_token: int, stmt_end: int) -> int {
+    pilot on_token = v4_mir_skip_trivia(stream_id, only_token + 1)
+    if on_token >= stmt_end or v4_lex_token_value(stream_id, on_token) != "on" {
+        give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, only_token, stmt_end)
+    }
+
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, only_token, stmt_end)
+    pilot from_token = v4_mir_find_top_level_token(stream_id, on_token + 1, stmt_end, "from")
+    if from_token < 0 or from_token <= on_token + 1 {
+        v4_mir_add_type_error(mir_id, stmt_span, "only on statement malformed", "use only on Route::Case from value with a guarded block")
+        give back block_id
+    }
+
+    pilot open_token = v4_mir_find_open_brace_token(stream_id, from_token + 1, stmt_end)
+    if open_token < 0 or from_token + 1 >= open_token {
+        v4_mir_add_type_error(mir_id, stmt_span, "only on statement malformed", "use only on Route::Case from value with a guarded block")
+        give back block_id
+    }
+
+    pilot pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, on_token + 1, from_token))
+    pilot subject_text = v4_mir_expr_text(stream_id, from_token + 1, open_token)
+    if pattern == "" or subject_text == "" {
+        v4_mir_add_type_error(mir_id, stmt_span, "only on statement malformed", "use only on Route::Case from value with a guarded block")
+        give back block_id
+    }
+
+    pilot subject_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, from_token + 1, open_token)
+    pilot subject_ty = v4_mir_rvalue_ty(mir_id, body_id, subject_rvalue)
+
+    pilot subject_name = v4_mir_unique_local_name(mir_id, body_id, "_only_on_subject")
+    pilot subject_id = v4_mir_add_local(mir_id, body_id, subject_name, subject_ty, stmt_span)
+    pilot subject_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, subject_name, subject_id, subject_name, 0 - 1, stmt_span, subject_ty)
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, subject_text, stmt_span, subject_place, subject_rvalue)
+
+    pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot cond_rvalue = v4_mir_try_lower_route_pattern_condition(mir_id, body_id, stmt_span, pattern, subject_place, subject_text, subject_ty, "only on", true)
+    if cond_rvalue < 0 {
+        v4_mir_add_type_error(mir_id, stmt_span, "only on statement malformed", "use only on Route::Case from value with a guarded block")
+        cond_rvalue = v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
+    }
+    pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
+    v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, body_block, after_block, cond_text))
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "body#" + word_from_int(body_block) + " after#" + word_from_int(after_block), stmt_span, 0 - 1, cond_rvalue)
+
+    pilot body_scope = v4_mir_span_from_tokens(stream_id, open_token, stmt_end)
+    pilot pattern_span = v4_mir_span_from_tokens(stream_id, on_token + 1, from_token)
+    v4_mir_push_scope_span(body_scope)
+    v4_mir_try_lower_route_pattern_bindings(mir_id, body_id, body_block, pattern_span, pattern, subject_place, subject_ty, true)
+    pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
+    v4_mir_pop_scope_span()
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, after_block)
+    give back after_block
+}
+
 task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, when_token: int, stmt_end: int) -> int {
     pilot open_token = v4_mir_find_token_value(stream_id, when_token, stmt_end, "{")
     if open_token < 0 {
@@ -6610,6 +6702,8 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
         give back v4_mir_lower_training_arc_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "when" {
         give back v4_mir_lower_when_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+    } else if first_val == "only" {
+        give back v4_mir_lower_only_on_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     }

@@ -1,0 +1,180 @@
+-- V4 MIR only-on route-locked scope smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_only_on_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_mir_only_on_find_stmt(mir_id: int, body_id: int, kind: word, lhs: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == kind and v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == lhs {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_only_on_good_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key " + v4_mir_only_on_braces(" code: int, repeat: bool ") + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task score(event: Event) -> int {\n"
+    src = src + "    only on Event::Key " + v4_mir_only_on_braces(" code, repeat: held ") + " from event {\n"
+    src = src + "        say held\n"
+    src = src + "        give back code\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_only_on_bad_nonroute_source() -> word {
+    pilot src = "route Event {\n"
+    src = src + "    Key\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task bad(score: int) -> int {\n"
+    src = src + "    only on Event::Key from score {\n"
+    src = src + "        give back 1\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_only_on_bad_other_route_source() -> word {
+    pilot src = "route Outcome {\n"
+    src = src + "    Victory / Defeat\n"
+    src = src + "}\n"
+    src = src + "route Result {\n"
+    src = src + "    Win / Lose\n"
+    src = src + "}\n"
+    src = src + "task bad(outcome: Outcome) -> int {\n"
+    src = src + "    only on Result::Win from outcome {\n"
+    src = src + "        give back 1\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_only_on_bad_case_source() -> word {
+    pilot src = "route Outcome {\n"
+    src = src + "    Victory / Defeat\n"
+    src = src + "}\n"
+    src = src + "task bad(outcome: Outcome) -> int {\n"
+    src = src + "    only on Ghost from outcome {\n"
+    src = src + "        give back 1\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_only_on_bad_pattern_source() -> word {
+    pilot src = "route Outcome {\n"
+    src = src + "    Victory / Defeat\n"
+    src = src + "}\n"
+    src = src + "task bad(outcome: Outcome) -> int {\n"
+    src = src + "    only on 7 from outcome {\n"
+    src = src + "        give back 1\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_only_on_bad_stmt_source() -> word {
+    pilot src = "route Outcome {\n"
+    src = src + "    Victory / Defeat\n"
+    src = src + "}\n"
+    src = src + "task bad(outcome: Outcome) -> int {\n"
+    src = src + "    only on Victory {\n"
+    src = src + "        give back 1\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_only_on_stream = v4_lex_text(0, v4_mir_only_on_good_source())
+pilot v4_mir_only_on_tree = v4_parse_stream(0, v4_mir_only_on_stream)
+pilot v4_mir_only_on_hir = v4_hir_lower_tree(0, v4_mir_only_on_tree)
+pilot v4_mir_only_on_resolve = v4_resolve_lower_hir(0, v4_mir_only_on_hir)
+pilot v4_mir_only_on_ty = v4_ty_lower_resolve(0, v4_mir_only_on_resolve)
+pilot v4_mir_only_on_mir = v4_mir_lower_ty(0, v4_mir_only_on_ty)
+
+pilot v4_mir_only_on_score_def = v4_resolve_def_for_name(v4_mir_only_on_resolve, "score")
+pilot v4_mir_only_on_score_body = v4_mir_lookup_body(v4_mir_only_on_mir, v4_mir_only_on_score_def)
+pilot v4_mir_only_on_branch_stmt = v4_mir_only_on_find_stmt(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_stmt_branch, "event == Event::Key")
+pilot v4_mir_only_on_code_stmt = v4_mir_only_on_find_stmt(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_stmt_local, "code")
+pilot v4_mir_only_on_held_stmt = v4_mir_only_on_find_stmt(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_stmt_local, "held")
+pilot v4_mir_only_on_code_rvalue = v4_mir_stmt_rvalue(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_code_stmt)
+pilot v4_mir_only_on_held_rvalue = v4_mir_stmt_rvalue(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_held_stmt)
+pilot v4_mir_only_on_code_place = v4_mir_rvalue_lhs(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_code_rvalue)
+pilot v4_mir_only_on_held_place = v4_mir_rvalue_lhs(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_held_rvalue)
+
+say "only-on-branch-kind=" + v4_mir_stmt_kind(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_branch_stmt)
+say "only-on-branch-lhs=" + v4_mir_stmt_lhs(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_branch_stmt)
+say "only-on-code-kind=" + v4_mir_rvalue_kind(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_code_rvalue)
+say "only-on-code-ty=" + v4_mir_rvalue_ty(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_code_rvalue)
+say "only-on-code-source-field=" + v4_mir_place_field(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_code_place)
+say "only-on-code-source-ty=" + v4_mir_place_ty(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_code_place)
+say "only-on-held-kind=" + v4_mir_rvalue_kind(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_held_rvalue)
+say "only-on-held-ty=" + v4_mir_rvalue_ty(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_held_rvalue)
+say "only-on-held-source-field=" + v4_mir_place_field(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_held_place)
+say "only-on-held-source-ty=" + v4_mir_place_ty(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_held_place)
+say "only-on-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_only_on_mir))
+
+pilot v4_mir_only_on_bad_nonroute_stream = v4_lex_text(1, v4_mir_only_on_bad_nonroute_source())
+pilot v4_mir_only_on_bad_nonroute_tree = v4_parse_stream(1, v4_mir_only_on_bad_nonroute_stream)
+pilot v4_mir_only_on_bad_nonroute_hir = v4_hir_lower_tree(1, v4_mir_only_on_bad_nonroute_tree)
+pilot v4_mir_only_on_bad_nonroute_resolve = v4_resolve_lower_hir(1, v4_mir_only_on_bad_nonroute_hir)
+pilot v4_mir_only_on_bad_nonroute_ty = v4_ty_lower_resolve(1, v4_mir_only_on_bad_nonroute_resolve)
+pilot v4_mir_only_on_bad_nonroute_mir = v4_mir_lower_ty(1, v4_mir_only_on_bad_nonroute_ty)
+say "only-on-bad-nonroute-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_only_on_bad_nonroute_mir))
+say "only-on-bad-nonroute-message=" + v4_diag_message(v4_mir_diag(v4_mir_only_on_bad_nonroute_mir, 0))
+say "only-on-bad-nonroute-help=" + v4_diag_help(v4_mir_diag(v4_mir_only_on_bad_nonroute_mir, 0))
+
+pilot v4_mir_only_on_bad_other_stream = v4_lex_text(2, v4_mir_only_on_bad_other_route_source())
+pilot v4_mir_only_on_bad_other_tree = v4_parse_stream(2, v4_mir_only_on_bad_other_stream)
+pilot v4_mir_only_on_bad_other_hir = v4_hir_lower_tree(2, v4_mir_only_on_bad_other_tree)
+pilot v4_mir_only_on_bad_other_resolve = v4_resolve_lower_hir(2, v4_mir_only_on_bad_other_hir)
+pilot v4_mir_only_on_bad_other_ty = v4_ty_lower_resolve(2, v4_mir_only_on_bad_other_resolve)
+pilot v4_mir_only_on_bad_other_mir = v4_mir_lower_ty(2, v4_mir_only_on_bad_other_ty)
+say "only-on-bad-other-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_only_on_bad_other_mir))
+say "only-on-bad-other-message=" + v4_diag_message(v4_mir_diag(v4_mir_only_on_bad_other_mir, 0))
+say "only-on-bad-other-help=" + v4_diag_help(v4_mir_diag(v4_mir_only_on_bad_other_mir, 0))
+
+pilot v4_mir_only_on_bad_case_stream = v4_lex_text(3, v4_mir_only_on_bad_case_source())
+pilot v4_mir_only_on_bad_case_tree = v4_parse_stream(3, v4_mir_only_on_bad_case_stream)
+pilot v4_mir_only_on_bad_case_hir = v4_hir_lower_tree(3, v4_mir_only_on_bad_case_tree)
+pilot v4_mir_only_on_bad_case_resolve = v4_resolve_lower_hir(3, v4_mir_only_on_bad_case_hir)
+pilot v4_mir_only_on_bad_case_ty = v4_ty_lower_resolve(3, v4_mir_only_on_bad_case_resolve)
+pilot v4_mir_only_on_bad_case_mir = v4_mir_lower_ty(3, v4_mir_only_on_bad_case_ty)
+say "only-on-bad-case-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_only_on_bad_case_mir))
+say "only-on-bad-case-message=" + v4_diag_message(v4_mir_diag(v4_mir_only_on_bad_case_mir, 0))
+say "only-on-bad-case-help=" + v4_diag_help(v4_mir_diag(v4_mir_only_on_bad_case_mir, 0))
+
+pilot v4_mir_only_on_bad_pattern_stream = v4_lex_text(4, v4_mir_only_on_bad_pattern_source())
+pilot v4_mir_only_on_bad_pattern_tree = v4_parse_stream(4, v4_mir_only_on_bad_pattern_stream)
+pilot v4_mir_only_on_bad_pattern_hir = v4_hir_lower_tree(4, v4_mir_only_on_bad_pattern_tree)
+pilot v4_mir_only_on_bad_pattern_resolve = v4_resolve_lower_hir(4, v4_mir_only_on_bad_pattern_hir)
+pilot v4_mir_only_on_bad_pattern_ty = v4_ty_lower_resolve(4, v4_mir_only_on_bad_pattern_resolve)
+pilot v4_mir_only_on_bad_pattern_mir = v4_mir_lower_ty(4, v4_mir_only_on_bad_pattern_ty)
+say "only-on-bad-pattern-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_only_on_bad_pattern_mir))
+say "only-on-bad-pattern-message=" + v4_diag_message(v4_mir_diag(v4_mir_only_on_bad_pattern_mir, 0))
+say "only-on-bad-pattern-help=" + v4_diag_help(v4_mir_diag(v4_mir_only_on_bad_pattern_mir, 0))
+
+pilot v4_mir_only_on_bad_stmt_stream = v4_lex_text(5, v4_mir_only_on_bad_stmt_source())
+pilot v4_mir_only_on_bad_stmt_tree = v4_parse_stream(5, v4_mir_only_on_bad_stmt_stream)
+pilot v4_mir_only_on_bad_stmt_hir = v4_hir_lower_tree(5, v4_mir_only_on_bad_stmt_tree)
+pilot v4_mir_only_on_bad_stmt_resolve = v4_resolve_lower_hir(5, v4_mir_only_on_bad_stmt_hir)
+pilot v4_mir_only_on_bad_stmt_ty = v4_ty_lower_resolve(5, v4_mir_only_on_bad_stmt_resolve)
+pilot v4_mir_only_on_bad_stmt_mir = v4_mir_lower_ty(5, v4_mir_only_on_bad_stmt_ty)
+say "only-on-bad-stmt-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_only_on_bad_stmt_mir))
+say "only-on-bad-stmt-message=" + v4_diag_message(v4_mir_diag(v4_mir_only_on_bad_stmt_mir, 0))
+say "only-on-bad-stmt-help=" + v4_diag_help(v4_mir_diag(v4_mir_only_on_bad_stmt_mir, 0))
