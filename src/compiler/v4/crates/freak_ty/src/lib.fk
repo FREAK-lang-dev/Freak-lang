@@ -328,6 +328,25 @@ task v4_ty_canonical_type_depth_seen(ty_id: int, type_text: word, seen_aliases: 
         give back type_text
     }
 
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            if v4_ty_canonical_type_depth_seen(ty_id, v4_ty_tuple_slot_type(type_text, slot_id), seen_aliases, depth + 1) == v4_ty_unknown {
+                give back v4_ty_unknown
+            }
+            slot_id += 1
+        }
+        give back type_text
+    }
+
+    if v4_ty_is_fixed_array_type(type_text) {
+        if v4_ty_canonical_type_depth_seen(ty_id, v4_ty_fixed_array_element_type(type_text), seen_aliases, depth + 1) == v4_ty_unknown {
+            give back v4_ty_unknown
+        }
+        give back type_text
+    }
+
     pilot alias_name = ""
     if v4_ty_is_generic_instance_type(type_text) {
         pilot base_name = v4_ty_generic_base_name(type_text)

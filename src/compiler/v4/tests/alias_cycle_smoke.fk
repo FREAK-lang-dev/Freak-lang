@@ -6,6 +6,7 @@ task v4_alias_cycle_source() -> word {
     src = src + "alias First = Second\n"
     src = src + "alias Second = First\n"
     src = src + "alias Spiral<T> = Spiral<T>\n"
+    src = src + "alias Pair = (Pair, int)\n"
     src = src + "alias Score = int\n"
     src = src + "task main() -> Score {\n"
     src = src + "    give back 7\n"
@@ -26,6 +27,7 @@ say "alias-cycle-loop-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "Loo
 say "alias-cycle-first-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "First")
 say "alias-cycle-second-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "Second")
 say "alias-cycle-spiral-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "Spiral<int>")
+say "alias-cycle-pair-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "Pair")
 say "alias-cycle-score-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "Score")
 
 pilot v4_alias_cycle_diag_idx = 0
