@@ -183,6 +183,60 @@ CRATE_BOUNDARY_FORBIDDEN = {
     ],
 }
 
+TOOLING_INTERFACE_ENDPOINTS = [
+    "workspace/queryTelemetry",
+    "workspace/queryGraph",
+    "workspace/queryExplain",
+    "workspace/querySnapshot",
+    "workspace/querySnapshotImport",
+    "workspace/querySnapshotRestore",
+    "workspace/querySnapshotConfirm",
+    "workspace/lexSnapshot",
+    "workspace/lexSnapshotRestore",
+    "workspace/parseSnapshot",
+    "workspace/parseSnapshotRestore",
+    "workspace/hirSnapshot",
+    "workspace/hirSnapshotRestore",
+    "workspace/resolveSnapshot",
+    "workspace/resolveSnapshotRestore",
+    "workspace/tySnapshot",
+    "workspace/tySnapshotRestore",
+    "workspace/mirSnapshot",
+    "workspace/mirSnapshotRestore",
+    "workspace/borrowckSnapshot",
+    "workspace/borrowckSnapshotRestore",
+    "workspace/diagnosticsSnapshot",
+    "workspace/diagnosticsSnapshotRestore",
+    "workspace/semanticSnapshot",
+    "workspace/semanticSnapshotRestore",
+    "workspace/hoverSnapshot",
+    "workspace/hoverSnapshotRestore",
+    "workspace/definitionSnapshot",
+    "workspace/definitionSnapshotRestore",
+    "workspace/documentSymbolsSnapshot",
+    "workspace/documentSymbolsSnapshotRestore",
+    "workspace/completionSnapshot",
+    "workspace/completionSnapshotRestore",
+    "workspace/unitSnapshot",
+    "workspace/unitSnapshotManifest",
+    "workspace/unitSnapshotHealth",
+    "workspace/unitSnapshotDiff",
+    "workspace/unitSnapshotRestore",
+]
+
+README_PROTOCOL_MARKERS = [
+    "## Public Tooling Protocols",
+    "### `workspace/unitSnapshot`",
+    "### `workspace/unitSnapshotManifest`",
+    "### `workspace/unitSnapshotDiff`",
+    "### `workspace/unitSnapshotHealth`",
+    "### Restore And Import Paths",
+    "workspace/querySnapshotImport",
+    "workspace/querySnapshotRestore",
+    "workspace/querySnapshotConfirm",
+    "workspace/unitSnapshotRestore",
+]
+
 EXECUTABLE_SMOKES = [
     {
         "name": "query invalidation",
@@ -3918,6 +3972,27 @@ def check_crate_boundaries() -> None:
     print(f"boundary rules: {', '.join(boundary_crates)}")
 
 
+def check_tooling_interfaces() -> None:
+    readme = read_text(V4_ROOT / "README.md")
+    lsp_source = read_text(crate_path("freak_lsp"))
+    violations: list[str] = []
+
+    for marker in README_PROTOCOL_MARKERS:
+        if marker not in readme:
+            violations.append(f"tooling docs missing: {marker}")
+
+    for method in TOOLING_INTERFACE_ENDPOINTS:
+        if "|" + method not in lsp_source and '"' + method + '"' not in lsp_source:
+            violations.append(f"tooling endpoint missing: {method}")
+
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+
+    print(f"tooling interfaces: {len(TOOLING_INTERFACE_ENDPOINTS)} endpoints")
+
+
 def check_exists(paths: list[Path]) -> None:
     missing = [path for path in paths if not path.exists()]
     if missing:
@@ -4175,6 +4250,7 @@ def main(argv: list[str] | None = None) -> int:
     check_individual_parse(crates + fixtures)
     check_smoke_inventory(fixtures)
     check_crate_boundaries()
+    check_tooling_interfaces()
     base_source = check_flattened_crates()
     if args.fast and args.smoke:
         print(f"mode: fast smoke filters={len(args.smoke)} fixtures={len(transpile_targets)}")
