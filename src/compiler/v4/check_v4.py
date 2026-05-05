@@ -123,6 +123,26 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "diagnostics baseline",
+        "fixture": "diagnostics_smoke.fk",
+        "expect": [
+            "mir-ok mir=",
+            "diagnostic-count=",
+            "diag0-message=",
+            "diag1-message=",
+        ],
+    },
+    {
+        "name": "diagnostics query baseline",
+        "fixture": "diagnostics_query_smoke.fk",
+        "expect": [
+            "diagnostics id=",
+            "query-diag-count=",
+            "query-diag0-message=",
+            "syntax-summary=syntax-ok",
+        ],
+    },
+    {
         "name": "LSP facade baseline",
         "fixture": "lsp_smoke.fk",
         "expect": [
