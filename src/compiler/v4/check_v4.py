@@ -2993,6 +2993,24 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "alias cycle diagnostics",
+        "fixture": "alias_cycle_smoke.fk",
+        "expect": [
+            "alias-cycle-parse-diagnostics=0",
+            "alias-cycle-diag-count=4",
+            "alias-cycle-loop-canonical=unknown",
+            "alias-cycle-first-canonical=unknown",
+            "alias-cycle-second-canonical=unknown",
+            "alias-cycle-spiral-canonical=unknown",
+            "alias-cycle-score-canonical=int",
+            "alias-cycle-diag0=Yuuko alias loop: alias Loop expands forever via Loop -> Loop",
+            "alias-cycle-diag1=Yuuko alias loop: alias First expands forever via First -> Second -> First",
+            "alias-cycle-diag2=Yuuko alias loop: alias Second expands forever via Second -> First -> Second",
+            "alias-cycle-diag3=Yuuko alias loop: alias Spiral expands forever via Spiral -> Spiral",
+            "alias-cycle-mir-diagnostics=4",
+        ],
+    },
+    {
         "name": "MIR refutable route patterns outside checked contexts",
         "fixture": "mir_refutable_pattern_smoke.fk",
         "expect": [

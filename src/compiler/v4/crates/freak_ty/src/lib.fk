@@ -222,22 +222,137 @@ task v4_ty_alias_target_type(ty_id: int, alias_name: word) -> word {
     give back v4_ty_unknown
 }
 
-task v4_ty_canonical_type_depth(ty_id: int, type_text: word, depth: int) -> word {
+task v4_ty_alias_cycle_seen_contains(seen_aliases: word, alias_name: word) -> bool {
+    if seen_aliases == "" or alias_name == "" {
+        give back false
+    }
+    give back ("|" + seen_aliases + "|").contains("|" + alias_name + "|")
+}
+
+task v4_ty_alias_cycle_seen_append(seen_aliases: word, alias_name: word) -> word {
+    if alias_name == "" {
+        give back seen_aliases
+    }
+    if seen_aliases == "" {
+        give back alias_name
+    }
+    give back seen_aliases + "|" + alias_name
+}
+
+task v4_ty_alias_cycle_chain_display(chain: word) -> word {
+    if chain == "" {
+        give back ""
+    }
+
+    pilot out = ""
+    pilot segment_start = 0
+    repeat until segment_start >= chain.length() {
+        pilot segment_end = v4_ty_find_top_level_type_char(chain, "|", segment_start, chain.length())
+        if segment_end < 0 {
+            segment_end = chain.length()
+        }
+        pilot segment = v4_slice(chain, segment_start, segment_end)
+        if segment != "" {
+            if out != "" {
+                out = out + " -> "
+            }
+            out = out + segment
+        }
+        segment_start = segment_end + 1
+    }
+    give back out
+}
+
+task v4_ty_alias_cycle_path_in_type(ty_id: int, type_text: word, seen_aliases: word) -> word {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back ""
+    }
+    if v4_ty_is_primitive_type(type_text) or v4_ty_is_lifetime_name(type_text) {
+        give back ""
+    }
+
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            pilot slot_path = v4_ty_alias_cycle_path_in_type(ty_id, v4_ty_tuple_slot_type(type_text, slot_id), seen_aliases)
+            if slot_path != "" {
+                give back slot_path
+            }
+            slot_id += 1
+        }
+        give back ""
+    }
+
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_alias_cycle_path_in_type(ty_id, v4_ty_fixed_array_element_type(type_text), seen_aliases)
+    }
+
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot base_name = v4_ty_generic_base_name(type_text)
+        if base_name != v4_ty_unknown {
+            if v4_ty_alias_signature_id_for_name(ty_id, base_name) >= 0 {
+                if v4_ty_alias_cycle_seen_contains(seen_aliases, base_name) {
+                    give back v4_ty_alias_cycle_seen_append(seen_aliases, base_name)
+                }
+                pilot alias_target = v4_ty_alias_target_type(ty_id, type_text)
+                if alias_target != "" and alias_target != v4_ty_unknown {
+                    pilot alias_path = v4_ty_alias_cycle_path_in_type(ty_id, alias_target, v4_ty_alias_cycle_seen_append(seen_aliases, base_name))
+                    if alias_path != "" {
+                        give back alias_path
+                    }
+                }
+            }
+        }
+        give back ""
+    }
+
+    if v4_ty_alias_signature_id_for_name(ty_id, type_text) >= 0 {
+        if v4_ty_alias_cycle_seen_contains(seen_aliases, type_text) {
+            give back v4_ty_alias_cycle_seen_append(seen_aliases, type_text)
+        }
+        pilot alias_target = v4_ty_alias_target_type(ty_id, type_text)
+        if alias_target != "" and alias_target != v4_ty_unknown {
+            give back v4_ty_alias_cycle_path_in_type(ty_id, alias_target, v4_ty_alias_cycle_seen_append(seen_aliases, type_text))
+        }
+    }
+
+    give back ""
+}
+
+task v4_ty_canonical_type_depth_seen(ty_id: int, type_text: word, seen_aliases: word, depth: int) -> word {
     if depth > 8 {
         give back type_text
     }
     if type_text == "" or type_text == v4_ty_unknown {
         give back type_text
     }
-    pilot alias_target = v4_ty_alias_target_type(ty_id, type_text)
-    if alias_target != "" and alias_target != v4_ty_unknown {
-        give back v4_ty_canonical_type_depth(ty_id, alias_target, depth + 1)
+
+    pilot alias_name = ""
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot base_name = v4_ty_generic_base_name(type_text)
+        if base_name != v4_ty_unknown and v4_ty_alias_signature_id_for_name(ty_id, base_name) >= 0 {
+            alias_name = base_name
+        }
+    } else if v4_ty_alias_signature_id_for_name(ty_id, type_text) >= 0 {
+        alias_name = type_text
     }
+
+    if alias_name != "" {
+        if v4_ty_alias_cycle_seen_contains(seen_aliases, alias_name) {
+            give back v4_ty_unknown
+        }
+        pilot alias_target = v4_ty_alias_target_type(ty_id, type_text)
+        if alias_target != "" and alias_target != v4_ty_unknown {
+            give back v4_ty_canonical_type_depth_seen(ty_id, alias_target, v4_ty_alias_cycle_seen_append(seen_aliases, alias_name), depth + 1)
+        }
+    }
+
     give back type_text
 }
 
 task v4_ty_canonical_type(ty_id: int, type_text: word) -> word {
-    give back v4_ty_canonical_type_depth(ty_id, type_text, 0)
+    give back v4_ty_canonical_type_depth_seen(ty_id, type_text, "", 0)
 }
 
 task v4_ty_is_numeric(ty_name: word) -> bool {
@@ -3410,6 +3525,30 @@ task v4_ty_validate_alias_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_alias_target_type_for_sig(ty_id, sig_id), "alias target of " + v4_ty_signature_name(ty_id, sig_id))
 }
 
+task v4_ty_validate_alias_signature_cycle(ty_id: int, sig_id: int) -> void {
+    pilot alias_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot alias_target = v4_ty_alias_target_type_for_sig(ty_id, sig_id)
+    if alias_name == "" or alias_target == "" or alias_target == v4_ty_unknown {
+        give back
+    }
+
+    pilot cycle_path = v4_ty_alias_cycle_path_in_type(ty_id, alias_target, alias_name)
+    if cycle_path != "" {
+        v4_ty_add_diag(ty_id, "Yuuko alias loop: alias " + alias_name + " expands forever via " + v4_ty_alias_cycle_chain_display(cycle_path))
+    }
+}
+
+task v4_ty_validate_alias_cycles(ty_id: int) -> void {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_alias_sig {
+            v4_ty_validate_alias_signature_cycle(ty_id, sig_id)
+        }
+        sig_id += 1
+    }
+}
+
 task v4_ty_validate_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     v4_ty_validate_signature_generic_names(ty_id, sig_id)
 
@@ -4026,6 +4165,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
     }
 
     v4_ty_validate_lifetime_contracts(ty_id)
+    v4_ty_validate_alias_cycles(ty_id)
     give back ty_id
 }
 

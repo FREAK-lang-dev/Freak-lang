@@ -578,7 +578,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | Tolerant parsing → ErrorNode/IncompleteNode | ❌ | 📖 V4 |
 | AST node IDs preserved across edits | ❌ | 📖 V4 |
 | Module resolution phases 1-7 | ❌ | 📖 V4 |
-| Alias cycle detection | ❌ | 📖 V4 |
+| Alias cycle detection | ⚠️ | 📖 V4 | direct and generic alias loops are diagnosed in V4 TY; the full phase-5 resolution surface is still in progress |
 | Constant evaluation cycle detection | ⚠️ | 📖 V4 |
 | Visibility levels (module/package/universe) | ⚠️ | 📖 V4 |
 | Cancellable parsing | ❌ | 📖 V4 |

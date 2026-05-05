@@ -1,0 +1,37 @@
+-- V4 alias cycle smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_alias_cycle_source() -> word {
+    pilot src = "alias Loop = Loop\n"
+    src = src + "alias First = Second\n"
+    src = src + "alias Second = First\n"
+    src = src + "alias Spiral<T> = Spiral<T>\n"
+    src = src + "alias Score = int\n"
+    src = src + "task main() -> Score {\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_alias_cycle_stream = v4_lex_text(0, v4_alias_cycle_source())
+pilot v4_alias_cycle_tree = v4_parse_stream(0, v4_alias_cycle_stream)
+pilot v4_alias_cycle_hir = v4_hir_lower_tree(0, v4_alias_cycle_tree)
+pilot v4_alias_cycle_resolve = v4_resolve_lower_hir(0, v4_alias_cycle_hir)
+pilot v4_alias_cycle_ty = v4_ty_lower_resolve(0, v4_alias_cycle_resolve)
+pilot v4_alias_cycle_mir = v4_mir_lower_ty(0, v4_alias_cycle_ty)
+
+say "alias-cycle-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_alias_cycle_tree))
+say "alias-cycle-diag-count=" + word_from_int(v4_ty_diag_count(v4_alias_cycle_ty))
+say "alias-cycle-loop-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "Loop")
+say "alias-cycle-first-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "First")
+say "alias-cycle-second-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "Second")
+say "alias-cycle-spiral-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "Spiral<int>")
+say "alias-cycle-score-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "Score")
+
+pilot v4_alias_cycle_diag_idx = 0
+repeat until v4_alias_cycle_diag_idx >= v4_ty_diag_count(v4_alias_cycle_ty) {
+    say "alias-cycle-diag" + word_from_int(v4_alias_cycle_diag_idx) + "=" + v4_ty_diag(v4_alias_cycle_ty, v4_alias_cycle_diag_idx)
+    v4_alias_cycle_diag_idx += 1
+}
+
+say "alias-cycle-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_alias_cycle_mir))

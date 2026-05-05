@@ -60,7 +60,7 @@ Pipeline (full compiler):
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
 | §15 Cheatsheet | ⚠️ Partial | Reflects §1-§14 status. |
 | §16 FFI | 🔜 V4 | `extern [C]` calling conventions, `@layout` annotations, `@link_name`, raw pointer ops, `std::os` platform modules, error-code translation are V4. v0.13.x has minimal `extern` for direct C calls. |
-| §17 Compiler Internals + IDE | 🔜 V4 | Panic infrastructure, tolerant parsing, AST node IDs, incremental parsing, autocomplete, IDE-mode error reporting are V4. |
+| §17 Compiler Internals + IDE | 🔜 V4 | Panic infrastructure, tolerant parsing, AST node IDs, incremental parsing, autocomplete, IDE-mode error reporting are V4. V4 TY now diagnoses alias-cycle loops; the broader 00-Unit IDE/compiler-internals surface remains in progress. |
 
 ### 0.3 V4 roadmap and conformance
 
