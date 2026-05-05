@@ -237,6 +237,113 @@ README_PROTOCOL_MARKERS = [
     "workspace/unitSnapshotRestore",
 ]
 
+UNIT_SNAPSHOT_SECTIONS = [
+    {
+        "name": "lex",
+        "validate": "v4_lex_snapshot_validate(section_payload)",
+        "restore": "v4_lex_snapshot_restore(section_payload)",
+        "endpoint": "workspace/lexSnapshotRestore",
+    },
+    {
+        "name": "parse",
+        "validate": "v4_parse_snapshot_validate(section_payload)",
+        "restore": "v4_parse_snapshot_restore(section_payload)",
+        "endpoint": "workspace/parseSnapshotRestore",
+    },
+    {
+        "name": "hir",
+        "validate": "v4_hir_snapshot_validate(section_payload)",
+        "restore": "v4_hir_snapshot_restore(section_payload)",
+        "endpoint": "workspace/hirSnapshotRestore",
+    },
+    {
+        "name": "resolve",
+        "validate": "v4_resolve_snapshot_validate(section_payload)",
+        "restore": "v4_resolve_snapshot_restore(section_payload)",
+        "endpoint": "workspace/resolveSnapshotRestore",
+    },
+    {
+        "name": "ty",
+        "validate": "v4_ty_snapshot_validate(section_payload)",
+        "restore": "v4_ty_snapshot_restore(section_payload)",
+        "endpoint": "workspace/tySnapshotRestore",
+    },
+    {
+        "name": "mir",
+        "validate": "v4_mir_snapshot_validate(section_payload)",
+        "restore": "v4_mir_snapshot_restore(section_payload)",
+        "endpoint": "workspace/mirSnapshotRestore",
+    },
+    {
+        "name": "borrowck",
+        "validate": "v4_borrowck_snapshot_validate(section_payload)",
+        "restore": "v4_borrowck_snapshot_restore(section_payload)",
+        "endpoint": "workspace/borrowckSnapshotRestore",
+    },
+    {
+        "name": "diagnostics",
+        "validate": "v4_diagnostics_snapshot_validate(section_payload)",
+        "restore": "v4_diagnostics_snapshot_restore(section_payload)",
+        "endpoint": "workspace/diagnosticsSnapshotRestore",
+    },
+    {
+        "name": "semantic",
+        "validate": "v4_semantic_snapshot_validate(section_payload)",
+        "restore": "v4_semantic_snapshot_restore(section_payload)",
+        "endpoint": "workspace/semanticSnapshotRestore",
+    },
+    {
+        "name": "hover",
+        "validate": "v4_hover_snapshot_validate(section_payload)",
+        "restore": "v4_hover_snapshot_restore(section_payload)",
+        "endpoint": "workspace/hoverSnapshotRestore",
+    },
+    {
+        "name": "definition",
+        "validate": "v4_definition_snapshot_validate(section_payload)",
+        "restore": "v4_definition_snapshot_restore(section_payload)",
+        "endpoint": "workspace/definitionSnapshotRestore",
+    },
+    {
+        "name": "document-symbols",
+        "validate": "v4_document_symbols_snapshot_validate(section_payload)",
+        "restore": "v4_document_symbols_snapshot_restore(section_payload)",
+        "endpoint": "workspace/documentSymbolsSnapshotRestore",
+    },
+    {
+        "name": "completion",
+        "validate": "v4_completion_snapshot_validate(section_payload)",
+        "restore": "v4_completion_snapshot_restore(section_payload)",
+        "endpoint": "workspace/completionSnapshotRestore",
+    },
+    {
+        "name": "query",
+        "validate": "v4_query_snapshot_validate(section_payload)",
+        "restore": "v4_query_snapshot_restore(section_payload)",
+        "endpoint": "workspace/querySnapshotRestore",
+    },
+]
+
+INVALIDATION_FAMILY_FIELDS = [
+    ("all", "query-invalidations-added"),
+    ("core", "core-invalidations-added"),
+    ("syntax", "syntax-invalidations-added"),
+    ("lex", "lex-invalidations-added"),
+    ("parse", "parse-invalidations-added"),
+    ("hir", "hir-invalidations-added"),
+    ("resolve", "resolve-invalidations-added"),
+    ("ty", "ty-invalidations-added"),
+    ("mir", "mir-invalidations-added"),
+    ("borrowck", "borrowck-invalidations-added"),
+    ("diagnostics", "diagnostics-invalidations-added"),
+    ("editor", "editor-invalidations-added"),
+    ("semantic-at", "semantic-at-invalidations-added"),
+    ("hover", "hover-invalidations-added"),
+    ("definition-at", "definition-at-invalidations-added"),
+    ("document-symbols", "document-symbols-invalidations-added"),
+    ("completion", "completion-invalidations-added"),
+]
+
 EXECUTABLE_SMOKES = [
     {
         "name": "query invalidation",
@@ -3993,6 +4100,46 @@ def check_tooling_interfaces() -> None:
     print(f"tooling interfaces: {len(TOOLING_INTERFACE_ENDPOINTS)} endpoints")
 
 
+def check_snapshot_inventories() -> None:
+    readme = read_text(V4_ROOT / "README.md")
+    snapshot_source = read_text(crate_path("freak_snapshot"))
+    violations: list[str] = []
+
+    expected_section_count = len(UNIT_SNAPSHOT_SECTIONS)
+    if f"sections={expected_section_count}" not in readme:
+        violations.append(f"snapshot docs missing: sections={expected_section_count}")
+
+    for section in UNIT_SNAPSHOT_SECTIONS:
+        name = section["name"]
+        if f'section_name == "{name}"' not in snapshot_source:
+            violations.append(f"snapshot section missing: {name}")
+        if section["validate"] not in snapshot_source:
+            violations.append(f"snapshot validator missing: {name}")
+        if section["restore"] not in snapshot_source:
+            violations.append(f"snapshot restore missing: {name}")
+        if section["endpoint"] not in readme:
+            violations.append(f"snapshot docs missing endpoint: {section['endpoint']}")
+
+    for family, public_field in INVALIDATION_FAMILY_FIELDS:
+        if f'family == "{family}"' not in snapshot_source:
+            violations.append(f"invalidation family missing: {family}")
+        if public_field not in snapshot_source:
+            violations.append(f"invalidation report field missing: {public_field}")
+        if public_field not in readme:
+            violations.append(f"invalidation docs missing: {public_field}")
+
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+
+    print(
+        "snapshot inventories: "
+        f"sections={len(UNIT_SNAPSHOT_SECTIONS)} "
+        f"invalidation-families={len(INVALIDATION_FAMILY_FIELDS)}"
+    )
+
+
 def check_exists(paths: list[Path]) -> None:
     missing = [path for path in paths if not path.exists()]
     if missing:
@@ -4251,6 +4398,7 @@ def main(argv: list[str] | None = None) -> int:
     check_smoke_inventory(fixtures)
     check_crate_boundaries()
     check_tooling_interfaces()
+    check_snapshot_inventories()
     base_source = check_flattened_crates()
     if args.fast and args.smoke:
         print(f"mode: fast smoke filters={len(args.smoke)} fixtures={len(transpile_targets)}")

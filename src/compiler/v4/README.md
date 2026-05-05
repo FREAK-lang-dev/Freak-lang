@@ -231,6 +231,10 @@ must stay out of snapshot/editor ownership, `freak_snapshot` must own the
 wire formats and invalidation reports, and `freak_lsp` must remain a transport
 wrapper instead of growing compiler fact storage.
 
+It also locks the public 00-Unit inventories: the fixed snapshot section set,
+the fixed invalidation family/report field set, and the documented section
+restore endpoints must all stay in sync with the implementation.
+
 For faster local iteration, the harness also supports:
 
 ```powershell
