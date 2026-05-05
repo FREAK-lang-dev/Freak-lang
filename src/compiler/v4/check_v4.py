@@ -45,6 +45,144 @@ TESTS_ROOT = V4_ROOT / "tests"
 RUNTIME_ROOT = ROOT / "freakc" / "runtime"
 RUNTIME_BUILD_ROOT = ROOT / "build" / "v4_smoke"
 
+CRATE_BOUNDARY_REQUIRED = {
+    "freak_driver": [
+        ("driver ownership comment", "-- freak_driver - early V4 driver facade"),
+        ("core diagnostics query", "task v4_diagnostics_text_cached(path: word, text: word) -> int {"),
+        ("core syntax summary", "task v4_check_syntax_text(path: word, text: word) -> word {"),
+    ],
+    "freak_editor": [
+        (
+            "editor ownership comment",
+            "-- Depends on freak_driver and owns semantic-at, hover, definition,",
+        ),
+        ("semantic fact arena", "pilot v4_editor_sem_paths = 0"),
+        ("hover fact arena", "pilot v4_editor_hover_paths = 0"),
+        ("definition fact arena", "pilot v4_editor_defn_paths = 0"),
+        ("document symbol arena", "pilot v4_editor_doc_paths = 0"),
+        ("completion arena", "pilot v4_editor_comp_paths = 0"),
+        ("semantic query", "task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {"),
+        ("hover query", "task v4_hover_text_cached(path: word, text: word, offset: int) -> int {"),
+        ("definition query", "task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {"),
+        ("document symbols query", "task v4_document_symbols_text_cached(path: word, text: word) -> int {"),
+        ("completion query", "task v4_completion_text_cached(path: word, text: word, offset: int) -> int {"),
+    ],
+    "freak_snapshot": [
+        (
+            "snapshot ownership comment",
+            "-- the unified workspace snapshot envelope, manifest, diff, health,",
+        ),
+        ("diagnostics snapshot format", 'pilot v4_diagnostics_snapshot_format = "freak-diagnostics-snapshot-v1"'),
+        ("semantic snapshot format", 'pilot v4_semantic_snapshot_format = "freak-semantic-snapshot-v1"'),
+        ("hover snapshot format", 'pilot v4_hover_snapshot_format = "freak-hover-snapshot-v1"'),
+        ("definition snapshot format", 'pilot v4_definition_snapshot_format = "freak-definition-snapshot-v1"'),
+        (
+            "document symbols snapshot format",
+            'pilot v4_document_symbols_snapshot_format = "freak-document-symbols-snapshot-v1"',
+        ),
+        ("completion snapshot format", 'pilot v4_completion_snapshot_format = "freak-completion-snapshot-v1"'),
+        ("unit snapshot manifest", "task v4_unit_snapshot_manifest(payload: word) -> word {"),
+        ("unit snapshot diff", "task v4_unit_snapshot_diff(snapshot_before_payload: word, snapshot_after_payload: word) -> word {"),
+        ("unit snapshot health", "task v4_unit_snapshot_health(payload: word) -> word {"),
+        ("unit snapshot restore", "task v4_unit_snapshot_restore(payload: word) -> word {"),
+        ("invalidation report", "task v4_unit_invalidation_report(path: word) -> word {"),
+        ("restore confirm coordination", "task v4_driver_confirm_restored_document(path: word) -> word {"),
+    ],
+    "freak_lsp": [
+        (
+            "lsp ownership comment",
+            "-- Depends on freak_driver and freak_snapshot. This crate owns no compiler facts;",
+        ),
+        ("open document state", "pilot v4_lsp_doc_paths = 0"),
+        ("ok envelope", "task v4_lsp_response_ok(method: word, body: word) -> word {"),
+        ("error envelope", "task v4_lsp_response_error(method: word, code: int, message: word) -> word {"),
+        ("request dispatcher", "task v4_lsp_handle_request(method: word, path: word, offset: int) -> word {"),
+        ("unit snapshot transport", 'give back v4_lsp_response_ok("workspace/unitSnapshot", v4_unit_snapshot())'),
+        (
+            "unit snapshot manifest transport",
+            'give back v4_lsp_response_ok("workspace/unitSnapshotManifest", v4_unit_snapshot_manifest(payload))',
+        ),
+        ("unit snapshot health transport", 'give back v4_lsp_response_ok("workspace/unitSnapshotHealth", v4_unit_snapshot_health(payload))'),
+        ("unit snapshot diff transport", 'give back v4_lsp_response_ok("workspace/unitSnapshotDiff", v4_unit_snapshot_diff_from_input(payload))'),
+    ],
+}
+
+CRATE_BOUNDARY_FORBIDDEN = {
+    "freak_driver": [
+        ("semantic fact arena", "pilot v4_editor_sem_paths = 0"),
+        ("hover fact arena", "pilot v4_editor_hover_paths = 0"),
+        ("definition fact arena", "pilot v4_editor_defn_paths = 0"),
+        ("document symbol arena", "pilot v4_editor_doc_paths = 0"),
+        ("completion arena", "pilot v4_editor_comp_paths = 0"),
+        ("semantic query", "task v4_semantic_at_text_cached("),
+        ("hover query", "task v4_hover_text_cached("),
+        ("definition query", "task v4_definition_at_text_cached("),
+        ("document symbols query", "task v4_document_symbols_text_cached("),
+        ("completion query", "task v4_completion_text_cached("),
+        ("diagnostics snapshot format", "pilot v4_diagnostics_snapshot_format = "),
+        ("semantic snapshot format", "pilot v4_semantic_snapshot_format = "),
+        ("hover snapshot format", "pilot v4_hover_snapshot_format = "),
+        ("definition snapshot format", "pilot v4_definition_snapshot_format = "),
+        ("document symbols snapshot format", "pilot v4_document_symbols_snapshot_format = "),
+        ("completion snapshot format", "pilot v4_completion_snapshot_format = "),
+        ("diagnostics snapshot serializer", "task v4_diagnostics_snapshot("),
+        ("semantic snapshot serializer", "task v4_semantic_snapshot("),
+        ("hover snapshot serializer", "task v4_hover_snapshot("),
+        ("definition snapshot serializer", "task v4_definition_snapshot("),
+        ("document symbols snapshot serializer", "task v4_document_symbols_snapshot("),
+        ("completion snapshot serializer", "task v4_completion_snapshot("),
+        ("unit snapshot serializer", "task v4_unit_snapshot("),
+        ("unit snapshot manifest", "task v4_unit_snapshot_manifest("),
+        ("unit snapshot diff", "task v4_unit_snapshot_diff("),
+        ("unit snapshot health", "task v4_unit_snapshot_health("),
+        ("invalidation report", "task v4_unit_invalidation_report("),
+    ],
+    "freak_editor": [
+        ("ok envelope", "task v4_lsp_response_ok("),
+        ("error envelope", "task v4_lsp_response_error("),
+        ("diagnostics snapshot format", "pilot v4_diagnostics_snapshot_format = "),
+        ("semantic snapshot format", "pilot v4_semantic_snapshot_format = "),
+        ("hover snapshot format", "pilot v4_hover_snapshot_format = "),
+        ("definition snapshot format", "pilot v4_definition_snapshot_format = "),
+        ("document symbols snapshot format", "pilot v4_document_symbols_snapshot_format = "),
+        ("completion snapshot format", "pilot v4_completion_snapshot_format = "),
+        ("unit snapshot serializer", "task v4_unit_snapshot("),
+        ("unit snapshot manifest", "task v4_unit_snapshot_manifest("),
+        ("unit snapshot diff", "task v4_unit_snapshot_diff("),
+        ("unit snapshot health", "task v4_unit_snapshot_health("),
+    ],
+    "freak_snapshot": [
+        ("open document state", "pilot v4_lsp_doc_paths = 0"),
+        ("ok envelope", "task v4_lsp_response_ok("),
+        ("error envelope", "task v4_lsp_response_error("),
+        ("request dispatcher", "task v4_lsp_handle_request("),
+    ],
+    "freak_lsp": [
+        ("semantic fact arena", "pilot v4_editor_sem_paths = 0"),
+        ("hover fact arena", "pilot v4_editor_hover_paths = 0"),
+        ("definition fact arena", "pilot v4_editor_defn_paths = 0"),
+        ("document symbol arena", "pilot v4_editor_doc_paths = 0"),
+        ("completion arena", "pilot v4_editor_comp_paths = 0"),
+        ("diagnostics snapshot format", "pilot v4_diagnostics_snapshot_format = "),
+        ("semantic snapshot format", "pilot v4_semantic_snapshot_format = "),
+        ("hover snapshot format", "pilot v4_hover_snapshot_format = "),
+        ("definition snapshot format", "pilot v4_definition_snapshot_format = "),
+        ("document symbols snapshot format", "pilot v4_document_symbols_snapshot_format = "),
+        ("completion snapshot format", "pilot v4_completion_snapshot_format = "),
+        ("diagnostics snapshot serializer", "task v4_diagnostics_snapshot("),
+        ("semantic snapshot serializer", "task v4_semantic_snapshot("),
+        ("hover snapshot serializer", "task v4_hover_snapshot("),
+        ("definition snapshot serializer", "task v4_definition_snapshot("),
+        ("document symbols snapshot serializer", "task v4_document_symbols_snapshot("),
+        ("completion snapshot serializer", "task v4_completion_snapshot("),
+        ("unit snapshot serializer", "task v4_unit_snapshot("),
+        ("unit snapshot manifest", "task v4_unit_snapshot_manifest("),
+        ("unit snapshot diff", "task v4_unit_snapshot_diff("),
+        ("unit snapshot health", "task v4_unit_snapshot_health("),
+        ("invalidation report", "task v4_unit_invalidation_report("),
+    ],
+}
+
 EXECUTABLE_SMOKES = [
     {
         "name": "query invalidation",
@@ -3750,6 +3888,36 @@ def check_smoke_inventory(fixtures: list[Path]) -> None:
     print(f"smoke inventory: {len(smoke_names)} fixtures")
 
 
+def check_crate_boundaries() -> None:
+    boundary_crates = sorted(
+        {
+            *CRATE_BOUNDARY_REQUIRED.keys(),
+            *CRATE_BOUNDARY_FORBIDDEN.keys(),
+        }
+    )
+    contents = {name: read_text(crate_path(name)) for name in boundary_crates}
+    violations: list[str] = []
+
+    for crate, checks in CRATE_BOUNDARY_REQUIRED.items():
+        text = contents[crate]
+        for label, needle in checks:
+            if needle not in text:
+                violations.append(f"boundary missing: {crate} {label}")
+
+    for crate, checks in CRATE_BOUNDARY_FORBIDDEN.items():
+        text = contents[crate]
+        for label, needle in checks:
+            if needle in text:
+                violations.append(f"boundary violation: {crate} owns {label}")
+
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+
+    print(f"boundary rules: {', '.join(boundary_crates)}")
+
+
 def check_exists(paths: list[Path]) -> None:
     missing = [path for path in paths if not path.exists()]
     if missing:
@@ -4006,6 +4174,7 @@ def main(argv: list[str] | None = None) -> int:
     check_ascii(all_files)
     check_individual_parse(crates + fixtures)
     check_smoke_inventory(fixtures)
+    check_crate_boundaries()
     base_source = check_flattened_crates()
     if args.fast and args.smoke:
         print(f"mode: fast smoke filters={len(args.smoke)} fixtures={len(transpile_targets)}")
