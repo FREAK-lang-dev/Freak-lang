@@ -702,11 +702,18 @@ task v4_mir_add_type_error(mir_id: int, span: word, message: word, help: word) -
     v4_mir_add_diag(mir_id, v4_diag_new(v4_diag_error, span, message, help))
 }
 
+task v4_mir_normalize_ty_diag(diag: word) -> word {
+    if v4_diag_part(diag, 1) != "" or v4_diag_part(diag, 2) != "" or v4_diag_part(diag, 3) != "" {
+        give back diag
+    }
+    give back v4_diag_new(v4_diag_error, V4_NO_SPAN, diag, "00-Unit carried this from freak_ty without a source span")
+}
+
 task v4_mir_copy_ty_diags(mir_id: int, ty_id: int) -> void {
     pilot diag_idx = 0
     pilot diag_count = v4_ty_diag_count(ty_id)
     repeat until diag_idx >= diag_count {
-        v4_mir_add_diag(mir_id, v4_ty_diag(ty_id, diag_idx))
+        v4_mir_add_diag(mir_id, v4_mir_normalize_ty_diag(v4_ty_diag(ty_id, diag_idx)))
         diag_idx += 1
     }
 }

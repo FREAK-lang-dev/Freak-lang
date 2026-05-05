@@ -1,6 +1,18 @@
 -- V4 query-facing diagnostics smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_alias_query_diag_source() -> word {
+    pilot src = "alias Loop = Loop\n"
+    src = src + "alias First = Second\n"
+    src = src + "alias Second = First\n"
+    src = src + "alias Spiral<T> = Spiral<T>\n"
+    src = src + "alias Pair = (Pair, int)\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_diag_query_source = "task main() -> int {\n"
 v4_diag_query_source = v4_diag_query_source + "    pilot text = \"hi\"\n"
 v4_diag_query_source = v4_diag_query_source + "    pilot bad = text - 1\n"
@@ -12,8 +24,12 @@ v4_diag_query_source = v4_diag_query_source + "    give back 0\n"
 v4_diag_query_source = v4_diag_query_source + "}\n"
 
 pilot v4_diag_query_id = v4_diagnostics_text_cached("diag_query.fk", v4_diag_query_source)
+pilot v4_alias_diag_query_id = v4_diagnostics_text_cached("alias_cycle_query.fk", v4_alias_query_diag_source())
 
 say v4_diagnostics_summary(v4_diag_query_id)
 say "query-diag-count=" + word_from_int(v4_diagnostics_count(v4_diag_query_id))
 say "query-diag0-message=" + v4_diag_message(v4_diagnostics_diag(v4_diag_query_id, 0))
+say "alias-query-diag-count=" + word_from_int(v4_diagnostics_count(v4_alias_diag_query_id))
+say "alias-query-diag0-message=" + v4_diag_message(v4_diagnostics_diag(v4_alias_diag_query_id, 0))
+say "alias-query-diag4-message=" + v4_diag_message(v4_diagnostics_diag(v4_alias_diag_query_id, 4))
 say "syntax-summary=" + v4_check_syntax_text("diag_query.fk", v4_diag_query_source)
