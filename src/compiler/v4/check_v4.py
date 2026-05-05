@@ -3723,6 +3723,33 @@ def fixture_paths() -> list[Path]:
     return sorted(TESTS_ROOT.glob("*.fk"))
 
 
+def check_smoke_inventory(fixtures: list[Path]) -> None:
+    fixture_names = [fixture.name for fixture in fixtures]
+    smoke_names = [str(smoke["fixture"]) for smoke in EXECUTABLE_SMOKES]
+
+    missing = sorted(name for name in fixture_names if name not in smoke_names)
+    extra = sorted(name for name in smoke_names if name not in fixture_names)
+
+    seen: dict[str, int] = {}
+    for name in smoke_names:
+        seen[name] = seen.get(name, 0) + 1
+    duplicates = sorted(name for name, count in seen.items() if count > 1)
+
+    if missing or extra or duplicates:
+        if missing:
+            for name in missing:
+                print(f"smoke inventory missing: {name}")
+        if extra:
+            for name in extra:
+                print(f"smoke inventory extra: {name}")
+        if duplicates:
+            for name in duplicates:
+                print(f"smoke inventory duplicate: {name}")
+        raise SystemExit(1)
+
+    print(f"smoke inventory: {len(smoke_names)} fixtures")
+
+
 def check_exists(paths: list[Path]) -> None:
     missing = [path for path in paths if not path.exists()]
     if missing:
@@ -3978,6 +4005,7 @@ def main(argv: list[str] | None = None) -> int:
     check_exists(crates)
     check_ascii(all_files)
     check_individual_parse(crates + fixtures)
+    check_smoke_inventory(fixtures)
     base_source = check_flattened_crates()
     if args.fast and args.smoke:
         print(f"mode: fast smoke filters={len(args.smoke)} fixtures={len(transpile_targets)}")

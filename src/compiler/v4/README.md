@@ -221,6 +221,11 @@ python src/compiler/v4/check_v4.py
 
 The harness verifies crate existence/order, ASCII source, individual parser acceptance, flattened-crate type checking, and transpilation of every `src/compiler/v4/tests/*.fk` smoke fixture.
 
+The bootstrap contract is now stricter: every `src/compiler/v4/tests/*.fk`
+fixture must also appear in `EXECUTABLE_SMOKES` inside
+`src/compiler/v4/check_v4.py`. If a fixture exists without a runtime smoke
+entry, the harness fails before transpilation.
+
 For faster local iteration, the harness also supports:
 
 ```powershell
