@@ -458,6 +458,8 @@ EXECUTABLE_SMOKES = [
             "document-symbols|2",
             "completion|",
             "diagnostics|1",
+            "diagnostics|5",
+            "Yuuko alias loop: alias Loop expands forever via Loop -> Loop",
         ],
     },
     {
@@ -472,6 +474,9 @@ EXECUTABLE_SMOKES = [
             "ok|textDocument/documentSymbol",
             "ok|textDocument/completion",
             "ok|textDocument/publishDiagnostics",
+            "document id=0 path=live.fk rev=3 bytes=152",
+            "diagnostics|5",
+            "Yuuko alias loop: alias Pair expands forever via Pair -> Pair",
         ],
     },
     {

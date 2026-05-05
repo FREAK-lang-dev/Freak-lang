@@ -1,6 +1,18 @@
 -- V4 LSP facade smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_lsp_alias_diag_source() -> word {
+    pilot src = "alias Loop = Loop\n"
+    src = src + "alias First = Second\n"
+    src = src + "alias Second = First\n"
+    src = src + "alias Spiral<T> = Spiral<T>\n"
+    src = src + "alias Pair = (Pair, int)\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_source = "task main() => \"hi\"\n"
 v4_lsp_source = v4_lsp_source + "shape Pilot\n"
 
@@ -9,3 +21,4 @@ say v4_lsp_definition_text("lsp.fk", v4_lsp_source, 5)
 say v4_lsp_document_symbols_text("lsp.fk", v4_lsp_source)
 say v4_lsp_completion_text("lsp.fk", v4_lsp_source, 0)
 say v4_lsp_diagnostics_text("lsp.fk", v4_lsp_source)
+say v4_lsp_diagnostics_text("lsp_alias.fk", v4_lsp_alias_diag_source())

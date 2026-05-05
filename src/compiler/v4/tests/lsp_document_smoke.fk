@@ -1,6 +1,18 @@
 -- V4 LSP document lifecycle smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_lsp_doc_alias_diag_source() -> word {
+    pilot src = "alias Loop = Loop\n"
+    src = src + "alias First = Second\n"
+    src = src + "alias Second = First\n"
+    src = src + "alias Spiral<T> = Spiral<T>\n"
+    src = src + "alias Pair = (Pair, int)\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_doc_source = "task main() => \"hi\"\n"
 pilot v4_lsp_doc_id = v4_lsp_open_document("live.fk", v4_lsp_doc_source)
 
@@ -16,4 +28,9 @@ v4_lsp_change_document("live.fk", v4_lsp_doc_changed)
 say v4_lsp_document_summary("live.fk")
 say v4_lsp_document_symbols_document("live.fk")
 say v4_lsp_completion_document("live.fk", 0)
+say v4_lsp_diagnostics_document("live.fk")
+
+v4_lsp_change_document("live.fk", v4_lsp_doc_alias_diag_source())
+
+say v4_lsp_document_summary("live.fk")
 say v4_lsp_diagnostics_document("live.fk")
