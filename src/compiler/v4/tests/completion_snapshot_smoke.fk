@@ -44,6 +44,13 @@ task v4_completion_snapshot_detail_or_empty(completion_id: int, item_id: int) ->
     give back v4_completion_detail(completion_id, item_id)
 }
 
+task v4_completion_snapshot_insert_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_insert_text(completion_id, item_id)
+}
+
 task v4_completion_snapshot_bool_word(flag: bool) -> word {
     if flag {
         give back "true"
@@ -56,7 +63,10 @@ task v4_completion_snapshot_braces(inner: word) -> word {
 }
 
 task v4_completion_snapshot_source_text() -> word {
-    pilot src = "shape Pilot {\n"
+    pilot src = "task compose(host: word, port: int, timeout: int) -> int {\n"
+    src = src + "    give back port + timeout\n"
+    src = src + "}\n"
+    src = src + "shape Pilot {\n"
     src = src + "    rank: int\n"
     src = src + "}\n"
     src = src + "impl Pilot {\n"
@@ -71,9 +81,10 @@ task v4_completion_snapshot_source_text() -> word {
     src = src + "    Key " + v4_completion_snapshot_braces(" code: int ") + "\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
+    src = src + "    pilot routed = compose(host: \"localhost\", port: 8080)\n"
     src = src + "    pilot ace = Pilot::pack(7)\n"
     src = src + "    pilot event = Event::Key " + v4_completion_snapshot_braces(" code: 9 ") + "\n"
-    src = src + "    give back ace.salute()\n"
+    src = src + "    give back routed + ace.salute()\n"
     src = src + "}\n"
     give back src
 }
@@ -82,15 +93,18 @@ pilot v4_completion_snapshot_source = v4_completion_snapshot_source_text()
 pilot v4_completion_snapshot_stream = v4_lex_text(0, v4_completion_snapshot_source)
 pilot v4_completion_snapshot_global_offset = 0
 pilot v4_completion_snapshot_offset = v4_completion_snapshot_token_offset(v4_completion_snapshot_stream, "salute", 1)
+pilot v4_completion_snapshot_named_offset = v4_completion_snapshot_token_offset(v4_completion_snapshot_stream, "8080", 0)
 
 pilot v4_completion_snapshot_global_id = v4_completion_text_cached("completion-snapshot.fk", v4_completion_snapshot_source, v4_completion_snapshot_global_offset)
 pilot v4_completion_snapshot_id = v4_completion_text_cached("completion-snapshot.fk", v4_completion_snapshot_source, v4_completion_snapshot_offset)
+pilot v4_completion_snapshot_named_id = v4_completion_text_cached("completion-snapshot.fk", v4_completion_snapshot_source, v4_completion_snapshot_named_offset)
 pilot v4_completion_snapshot_event = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "Event")
 pilot v4_completion_snapshot_event_key = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "Event::Key")
 pilot v4_completion_snapshot_uint = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "uint")
 pilot v4_completion_snapshot_float32 = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "float32")
 pilot v4_completion_snapshot_salute = v4_completion_snapshot_find_label(v4_completion_snapshot_id, "salute")
 pilot v4_completion_snapshot_pack = v4_completion_snapshot_find_label(v4_completion_snapshot_id, "pack")
+pilot v4_completion_snapshot_timeout = v4_completion_snapshot_find_label(v4_completion_snapshot_named_id, "timeout:")
 say v4_completion_summary(v4_completion_snapshot_id)
 say v4_completion_snapshot_summary()
 
@@ -116,12 +130,14 @@ pilot v4_completion_file = v4_source_find("completion-snapshot.fk")
 pilot v4_completion_fingerprint = v4_source_fingerprint(v4_completion_file)
 pilot v4_completion_global_restored_id = word_to_int(v4_query_get(v4_completion_query_key("completion-snapshot.fk", v4_completion_snapshot_global_offset), v4_completion_fingerprint))
 pilot v4_completion_restored_id = word_to_int(v4_query_get(v4_completion_query_key("completion-snapshot.fk", v4_completion_snapshot_offset), v4_completion_fingerprint))
+pilot v4_completion_named_restored_id = word_to_int(v4_query_get(v4_completion_query_key("completion-snapshot.fk", v4_completion_snapshot_named_offset), v4_completion_fingerprint))
 pilot v4_completion_restored_event = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "Event")
 pilot v4_completion_restored_event_key = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "Event::Key")
 pilot v4_completion_restored_uint = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "uint")
 pilot v4_completion_restored_float32 = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "float32")
 pilot v4_completion_restored_salute = v4_completion_snapshot_find_label(v4_completion_restored_id, "salute")
 pilot v4_completion_restored_pack = v4_completion_snapshot_find_label(v4_completion_restored_id, "pack")
+pilot v4_completion_restored_timeout = v4_completion_snapshot_find_label(v4_completion_named_restored_id, "timeout:")
 say v4_completion_summary(v4_completion_restored_id)
 say "completion-snapshot-event-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_event >= 0)
 say "completion-snapshot-event-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_snapshot_global_id, v4_completion_snapshot_event)
@@ -134,6 +150,9 @@ say "completion-snapshot-float32-detail=" + v4_completion_snapshot_detail_or_emp
 say "completion-snapshot-salute-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_salute >= 0)
 say "completion-snapshot-salute-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_snapshot_id, v4_completion_snapshot_salute)
 say "completion-snapshot-pack-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_pack >= 0)
+say "completion-snapshot-timeout-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_timeout >= 0)
+say "completion-snapshot-timeout-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_snapshot_named_id, v4_completion_snapshot_timeout)
+say "completion-snapshot-timeout-insert=" + v4_completion_snapshot_insert_or_empty(v4_completion_snapshot_named_id, v4_completion_snapshot_timeout)
 say "completion-snapshot-restored-event-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_event >= 0)
 say "completion-snapshot-restored-event-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_global_restored_id, v4_completion_restored_event)
 say "completion-snapshot-restored-event-key-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_event_key >= 0)
@@ -145,4 +164,7 @@ say "completion-snapshot-restored-float32-detail=" + v4_completion_snapshot_deta
 say "completion-snapshot-restored-salute-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_salute >= 0)
 say "completion-snapshot-restored-salute-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_restored_id, v4_completion_restored_salute)
 say "completion-snapshot-restored-pack-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_pack >= 0)
+say "completion-snapshot-restored-timeout-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_timeout >= 0)
+say "completion-snapshot-restored-timeout-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_named_restored_id, v4_completion_restored_timeout)
+say "completion-snapshot-restored-timeout-insert=" + v4_completion_snapshot_insert_or_empty(v4_completion_named_restored_id, v4_completion_restored_timeout)
 say v4_driver_confirm_restored_document_text("completion-snapshot.fk", "task changed() => 7\n")

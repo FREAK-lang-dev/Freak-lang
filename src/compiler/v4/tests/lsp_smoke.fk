@@ -74,6 +74,31 @@ task v4_lsp_primitive_source() -> word {
     give back src
 }
 
+task v4_lsp_named_source() -> word {
+    pilot src = "task compose(host: word, port: int, timeout: int) -> int {\n"
+    src = src + "    give back port + timeout\n"
+    src = src + "}\n"
+    src = src + "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task boost(self, bonus: int) -> int {\n"
+    src = src + "        give back self.hp + bonus\n"
+    src = src + "    }\n"
+    src = src + "    task ace(callsign: word) -> Pilot {\n"
+    src = src + "        give back Pilot " + v4_lsp_braces(" hp: 9 ") + "\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot ship = Pilot " + v4_lsp_braces(" hp: 7 ") + "\n"
+    src = src + "    pilot routed = compose(host: \"localhost\", port: 8080)\n"
+    src = src + "    pilot boosted = ship.boost(2)\n"
+    src = src + "    pilot ace = Pilot::ace(\"Valkyrie-1\")\n"
+    src = src + "    give back routed + boosted + ace.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_source = "task main() => \"hi\"\n"
 v4_lsp_source = v4_lsp_source + "shape Pilot\n"
 pilot v4_lsp_variant = v4_lsp_variant_source()
@@ -83,6 +108,11 @@ pilot v4_lsp_variant_key_offset = v4_lsp_token_offset(v4_lsp_variant_stream, "Ke
 pilot v4_lsp_primitive = v4_lsp_primitive_source()
 pilot v4_lsp_primitive_stream = v4_lex_text(1, v4_lsp_primitive)
 pilot v4_lsp_primitive_uint_offset = v4_lsp_token_offset(v4_lsp_primitive_stream, "uint", 0)
+pilot v4_lsp_named = v4_lsp_named_source()
+pilot v4_lsp_named_stream = v4_lex_text(2, v4_lsp_named)
+pilot v4_lsp_named_timeout_offset = v4_lsp_token_offset(v4_lsp_named_stream, "8080", 0)
+pilot v4_lsp_named_bonus_offset = v4_lsp_token_offset(v4_lsp_named_stream, "2", 0)
+pilot v4_lsp_named_callsign_offset = v4_lsp_token_offset(v4_lsp_named_stream, "Valkyrie-1", 0)
 
 say v4_lsp_hover_text("lsp.fk", v4_lsp_source, 5)
 say v4_lsp_definition_text("lsp.fk", v4_lsp_source, 5)
@@ -95,6 +125,9 @@ say v4_lsp_completion_text("lsp_variant.fk", v4_lsp_variant, 0)
 say v4_lsp_definition_text("lsp_variant.fk", v4_lsp_variant, v4_lsp_variant_key_offset)
 say v4_lsp_hover_text("lsp_primitive.fk", v4_lsp_primitive, v4_lsp_primitive_uint_offset)
 say v4_lsp_completion_text("lsp_primitive.fk", v4_lsp_primitive, 0)
+say v4_lsp_completion_text("lsp_named.fk", v4_lsp_named, v4_lsp_named_timeout_offset)
+say v4_lsp_completion_text("lsp_named.fk", v4_lsp_named, v4_lsp_named_bonus_offset)
+say v4_lsp_completion_text("lsp_named.fk", v4_lsp_named, v4_lsp_named_callsign_offset)
 say v4_lsp_diagnostics_text("lsp.fk", v4_lsp_source)
 say v4_lsp_diagnostics_text("lsp_alias.fk", v4_lsp_alias_diag_source())
 say v4_lsp_diagnostics_text("lsp_lifetime.fk", v4_lsp_lifetime_diag_source())
