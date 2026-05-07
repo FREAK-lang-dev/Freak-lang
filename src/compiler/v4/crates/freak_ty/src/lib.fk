@@ -158,6 +158,14 @@ task v4_ty_add_diag(ty_id: int, diag: word) -> void {
     array_push(v4_ty_diags_handle(ty_id), diag)
 }
 
+task v4_ty_add_error_diag(ty_id: int, span: word, message: word, help: word) -> void {
+    pilot diag_span = span
+    if diag_span == "" {
+        diag_span = V4_NO_SPAN
+    }
+    v4_ty_add_diag(ty_id, v4_diag_new(v4_diag_error, diag_span, message, help))
+}
+
 task v4_ty_copy_resolve_diags(ty_id: int, resolve_id: int) -> void {
     pilot diag_idx = 0
     pilot diag_count = v4_resolve_diag_count(resolve_id)
@@ -1200,6 +1208,30 @@ task v4_ty_signature_item_end_token(ty_id: int, sig_id: int) -> int {
     give back end_token
 }
 
+task v4_ty_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back V4_NO_SPAN
+    }
+
+    pilot first = v4_ty_skip_trivia(stream_id, start_token)
+    if first >= end_token {
+        give back V4_NO_SPAN
+    }
+
+    pilot last = end_token
+    repeat until last <= first {
+        last -= 1
+        if v4_lex_token_type(stream_id, last) != v4_tok_trivia {
+            pilot start_span = v4_lex_token_span(stream_id, first)
+            pilot end_span = v4_lex_token_span(stream_id, last)
+            give back v4_span_new(v4_span_file(start_span), v4_span_start(start_span), v4_span_end(end_span))
+        }
+    }
+
+    pilot only_span = v4_lex_token_span(stream_id, first)
+    give back v4_span_new(v4_span_file(only_span), v4_span_start(only_span), v4_span_end(only_span))
+}
+
 task v4_ty_hir_item_start_token(hir_id: int, item_id: int) -> int {
     if hir_id < 0 {
         give back 0 - 1
@@ -1553,6 +1585,13 @@ task v4_ty_signature_generic_segment_end(ty_id: int, sig_id: int, generic_id: in
     give back v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
 }
 
+task v4_ty_signature_generic_segment_span(ty_id: int, sig_id: int, generic_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
+    pilot end_token = v4_ty_signature_generic_segment_end(ty_id, sig_id, generic_id)
+    give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+}
+
 task v4_ty_generic_name_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
     if stream_id < 0 or start_token < 0 or end_token <= start_token {
         give back ""
@@ -1808,11 +1847,34 @@ task v4_ty_param_name_from_tokens(stream_id: int, start_token: int, end_token: i
     give back v4_lex_token_value(stream_id, first)
 }
 
+task v4_ty_param_type_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back V4_NO_SPAN
+    }
+
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+    }
+    pilot type_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
+    if type_start >= end_token {
+        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+    }
+    give back v4_ty_span_from_tokens(stream_id, type_start, end_token)
+}
+
 task v4_ty_signature_param_type(ty_id: int, sig_id: int, param_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
     pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
     give back v4_ty_canonical_type(ty_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
+}
+
+task v4_ty_signature_param_type_span(ty_id: int, sig_id: int, param_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    give back v4_ty_param_type_span_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_param_type_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
@@ -1902,6 +1964,25 @@ task v4_ty_task_return_from_tokens(stream_id: int, start_token: int, end_token: 
     }
 
     give back v4_ty_unknown
+}
+
+task v4_ty_task_return_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot return_arrow = v4_ty_find_token_value(stream_id, start_token, end_token, "->")
+    if return_arrow >= 0 {
+        pilot return_start = v4_ty_skip_trivia(stream_id, return_arrow + 1)
+        pilot return_end = v4_ty_return_type_end(stream_id, return_start, end_token)
+        if return_start < return_end {
+            give back v4_ty_span_from_tokens(stream_id, return_start, return_end)
+        }
+    }
+    give back V4_NO_SPAN
+}
+
+task v4_ty_signature_return_span(ty_id: int, sig_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    give back v4_ty_task_return_span_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_task_return_from_hir(hir_id: int, hir_item: int) -> word {
@@ -2538,6 +2619,18 @@ task v4_ty_doctrine_method_param_type(ty_id: int, sig_id: int, method_id: int, p
     give back v4_ty_canonical_type(ty_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
 }
 
+task v4_ty_doctrine_method_param_type_span(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_doctrine_method_param_open_token(ty_id, sig_id, method_id)
+    pilot close_token = v4_ty_doctrine_method_param_close_token(ty_id, sig_id, method_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back V4_NO_SPAN
+    }
+    pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
+    pilot end_token = v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
+    give back v4_ty_param_type_span_from_tokens(stream_id, start_token, end_token)
+}
+
 task v4_ty_doctrine_method_is_instance(ty_id: int, sig_id: int, method_id: int) -> bool {
     if v4_ty_doctrine_method_param_count(ty_id, sig_id, method_id) <= 0 {
         give back false
@@ -2569,6 +2662,13 @@ task v4_ty_doctrine_method_return_type(ty_id: int, sig_id: int, method_id: int) 
         give back v4_ty_unknown
     }
     give back v4_ty_canonical_type(ty_id, v4_ty_task_return_from_tokens(stream_id, start_token, end_token))
+}
+
+task v4_ty_doctrine_method_return_span(ty_id: int, sig_id: int, method_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_doctrine_method_start_token(ty_id, sig_id, method_id)
+    pilot end_token = v4_ty_doctrine_method_end_token(ty_id, sig_id, method_id)
+    give back v4_ty_task_return_span_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_apply_self_type(type_text: word, self_ty: word) -> word {
@@ -3146,6 +3246,25 @@ task v4_ty_route_case_field_type(ty_id: int, route_name: word, case_name: word, 
     give back v4_ty_canonical_type(ty_id, v4_ty_apply_signature_generics(ty_id, sig_id, instance_name, field_ty))
 }
 
+task v4_ty_route_case_field_type_span(ty_id: int, route_name: word, case_name: word, field_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_route_case_field_segment_start(ty_id, route_name, case_name, field_id)
+    pilot end_token = v4_ty_route_case_field_segment_end(ty_id, route_name, case_name, field_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back V4_NO_SPAN
+    }
+
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+    }
+    pilot type_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
+    if type_start >= end_token {
+        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+    }
+    give back v4_ty_span_from_tokens(stream_id, type_start, end_token)
+}
+
 task v4_ty_route_case_field_id_for_name(ty_id: int, route_name: word, case_name: word, field_name: word) -> int {
     pilot field_id = 0
     pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
@@ -3341,6 +3460,25 @@ task v4_ty_shape_field_type(ty_id: int, sig_id: int, field_id: int) -> word {
     give back v4_ty_canonical_type(ty_id, field_ty)
 }
 
+task v4_ty_shape_field_type_span(ty_id: int, sig_id: int, field_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_shape_field_segment_start(ty_id, sig_id, field_id)
+    pilot end_token = v4_ty_shape_field_segment_end(ty_id, sig_id, field_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back V4_NO_SPAN
+    }
+
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+    }
+    pilot type_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
+    if type_start >= end_token {
+        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+    }
+    give back v4_ty_span_from_tokens(stream_id, type_start, end_token)
+}
+
 task v4_ty_shape_field_id_for_name(ty_id: int, shape_name: word, field_name: word) -> int {
     pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, shape_name)
     if sig_id < 0 {
@@ -3386,19 +3524,39 @@ task v4_ty_signature_accepts_lifetime(ty_id: int, sig_id: int, lifetime_name: wo
     give back v4_ty_signature_declares_lifetime_name(ty_id, sig_id, lifetime_name)
 }
 
+task v4_ty_alias_target_span(ty_id: int, sig_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back V4_NO_SPAN
+    }
+
+    pilot eq_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, "=")
+    if eq_token < 0 {
+        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+    }
+    pilot type_start = v4_ty_skip_trivia(stream_id, eq_token + 1)
+    if type_start >= end_token {
+        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+    }
+    give back v4_ty_span_from_tokens(stream_id, type_start, end_token)
+}
+
 task v4_ty_validate_signature_generic_names(ty_id: int, sig_id: int) -> void {
     pilot generic_id = 0
     pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
     repeat until generic_id >= generic_count {
         pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_id)
+        pilot generic_span = v4_ty_signature_generic_segment_span(ty_id, sig_id, generic_id)
         if generic_name == "" {
-            v4_ty_add_diag(ty_id, "Meiya lifetime debt: empty generic slot on " + v4_ty_signature_name(ty_id, sig_id))
+            v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: empty generic slot on " + v4_ty_signature_name(ty_id, sig_id), "")
         }
 
         pilot previous_id = 0
         repeat until previous_id >= generic_id {
             if v4_ty_signature_generic_name(ty_id, sig_id, previous_id) == generic_name {
-                v4_ty_add_diag(ty_id, "Meiya lifetime debt: duplicate generic " + generic_name + " on " + v4_ty_signature_name(ty_id, sig_id) + "; every route through Alternative IV needs one owner")
+                v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: duplicate generic " + generic_name + " on " + v4_ty_signature_name(ty_id, sig_id) + "; every route through Alternative IV needs one owner", "")
             }
             previous_id += 1
         }
@@ -3406,13 +3564,13 @@ task v4_ty_validate_signature_generic_names(ty_id: int, sig_id: int) -> void {
     }
 }
 
-task v4_ty_validate_signature_type_lifetimes(ty_id: int, sig_id: int, type_text: word, context: word) -> void {
+task v4_ty_validate_signature_type_lifetimes(ty_id: int, sig_id: int, type_text: word, context: word, context_span: word) -> void {
     if type_text == "" or type_text == v4_ty_unknown {
         give back
     }
 
     if v4_ty_is_lifetime_name(type_text) {
-        v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + type_text + " cannot be used as a value type in " + context)
+        v4_ty_add_error_diag(ty_id, context_span, "Meiya lifetime debt: " + type_text + " cannot be used as a value type in " + context, "")
     }
 
     pilot lifetime_id = 0
@@ -3420,15 +3578,15 @@ task v4_ty_validate_signature_type_lifetimes(ty_id: int, sig_id: int, type_text:
     repeat until lifetime_id >= lifetime_count {
         pilot lifetime_name = v4_ty_type_lifetime_name(type_text, lifetime_id)
         if v4_ty_signature_accepts_lifetime(ty_id, sig_id, lifetime_name) == false {
-            v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + lifetime_name + " is used in " + context + " but is not declared on " + v4_ty_signature_name(ty_id, sig_id))
+            v4_ty_add_error_diag(ty_id, context_span, "Meiya lifetime debt: " + lifetime_name + " is used in " + context + " but is not declared on " + v4_ty_signature_name(ty_id, sig_id), "")
         }
         lifetime_id += 1
     }
 
-    v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, type_text, context)
+    v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, type_text, context, context_span)
 }
 
-task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, type_text: word, context: word) -> void {
+task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, type_text: word, context: word, context_span: word) -> void {
     if type_text == "" or type_text == v4_ty_unknown {
         give back
     }
@@ -3438,7 +3596,7 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
         pilot actual_count = v4_ty_generic_arg_count(type_text)
         pilot expected_count = v4_ty_expected_generic_arg_count(ty_id, base_name)
         if expected_count >= 0 and expected_count != actual_count {
-            v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + base_name + " expects " + word_from_int(expected_count) + " generic arguments in " + context + " but received " + word_from_int(actual_count))
+            v4_ty_add_error_diag(ty_id, context_span, "Meiya lifetime debt: " + base_name + " expects " + word_from_int(expected_count) + " generic arguments in " + context + " but received " + word_from_int(actual_count), "")
         }
 
         pilot arg_id = 0
@@ -3446,17 +3604,17 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
             pilot arg_text = v4_ty_generic_arg(type_text, arg_id)
             if v4_ty_generic_slot_accepts_lifetime(ty_id, base_name, arg_id) {
                 if v4_ty_is_lifetime_name(arg_text) == false {
-                    v4_ty_add_diag(ty_id, "Meiya lifetime debt: generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context + " must be a lifetime like 'a")
+                    v4_ty_add_error_diag(ty_id, context_span, "Meiya lifetime debt: generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context + " must be a lifetime like 'a", "")
                 }
             } else if v4_ty_generic_slot_accepts_type(ty_id, base_name, arg_id) {
                 if v4_ty_is_lifetime_name(arg_text) {
-                    v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + arg_text + " cannot be used as a value type in generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context)
+                    v4_ty_add_error_diag(ty_id, context_span, "Meiya lifetime debt: " + arg_text + " cannot be used as a value type in generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context, "")
                 } else {
-                    v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, arg_text, "generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context)
+                    v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, arg_text, "generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context, context_span)
                 }
             } else {
                 if v4_ty_is_lifetime_name(arg_text) == false {
-                    v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, arg_text, "generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context)
+                    v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, arg_text, "generic argument " + word_from_int(arg_id) + " of " + base_name + " in " + context, context_span)
                 }
             }
             arg_id += 1
@@ -3470,9 +3628,9 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
         repeat until slot_id >= slot_count {
             pilot slot_text = v4_ty_tuple_slot_type(type_text, slot_id)
             if v4_ty_is_lifetime_name(slot_text) {
-                v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + slot_text + " cannot be used as a value type in tuple slot " + word_from_int(slot_id) + " of " + context)
+                v4_ty_add_error_diag(ty_id, context_span, "Meiya lifetime debt: " + slot_text + " cannot be used as a value type in tuple slot " + word_from_int(slot_id) + " of " + context, "")
             } else {
-                v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, slot_text, "tuple slot " + word_from_int(slot_id) + " of " + context)
+                v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, slot_text, "tuple slot " + word_from_int(slot_id) + " of " + context, context_span)
             }
             slot_id += 1
         }
@@ -3482,9 +3640,9 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
     if v4_ty_is_fixed_array_type(type_text) {
         pilot element_type = v4_ty_fixed_array_element_type(type_text)
         if v4_ty_is_lifetime_name(element_type) {
-            v4_ty_add_diag(ty_id, "Meiya lifetime debt: " + element_type + " cannot be used as a value type in array element of " + context)
+            v4_ty_add_error_diag(ty_id, context_span, "Meiya lifetime debt: " + element_type + " cannot be used as a value type in array element of " + context, "")
         } else {
-            v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, element_type, "array element of " + context)
+            v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, element_type, "array element of " + context, context_span)
         }
     }
 }
@@ -3493,17 +3651,17 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     pilot param_id = 0
     pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
     repeat until param_id >= param_count {
-        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_signature_param_type(ty_id, sig_id, param_id), "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id))
+        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_signature_param_type(ty_id, sig_id, param_id), "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_param_type_span(ty_id, sig_id, param_id))
         param_id += 1
     }
-    v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_signature_return_type(ty_id, sig_id), "return type of " + v4_ty_signature_name(ty_id, sig_id))
+    v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_signature_return_type(ty_id, sig_id), "return type of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
 }
 
 task v4_ty_validate_shape_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     pilot field_id = 0
     pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
     repeat until field_id >= field_count {
-        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_shape_field_type(ty_id, sig_id, field_id), "field " + v4_ty_shape_field_name(ty_id, sig_id, field_id) + " of " + v4_ty_signature_name(ty_id, sig_id))
+        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_shape_field_type(ty_id, sig_id, field_id), "field " + v4_ty_shape_field_name(ty_id, sig_id, field_id) + " of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_shape_field_type_span(ty_id, sig_id, field_id))
         field_id += 1
     }
 }
@@ -3517,7 +3675,7 @@ task v4_ty_validate_route_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         pilot field_id = 0
         pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
         repeat until field_id >= field_count {
-            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_route_case_field_type(ty_id, route_name, case_name, field_id), "field " + v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) + " of " + route_name + "::" + case_name)
+            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_route_case_field_type(ty_id, route_name, case_name, field_id), "field " + v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) + " of " + route_name + "::" + case_name, v4_ty_route_case_field_type_span(ty_id, route_name, case_name, field_id))
             field_id += 1
         }
         case_id += 1
@@ -3532,16 +3690,16 @@ task v4_ty_validate_doctrine_signature_lifetimes(ty_id: int, sig_id: int) -> voi
         pilot param_id = 0
         pilot param_count = v4_ty_doctrine_method_param_count(ty_id, sig_id, method_id)
         repeat until param_id >= param_count {
-            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_doctrine_method_param_type(ty_id, sig_id, method_id, param_id), "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name)
+            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_doctrine_method_param_type(ty_id, sig_id, method_id, param_id), "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name, v4_ty_doctrine_method_param_type_span(ty_id, sig_id, method_id, param_id))
             param_id += 1
         }
-        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id), "return type of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name)
+        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id), "return type of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name, v4_ty_doctrine_method_return_span(ty_id, sig_id, method_id))
         method_id += 1
     }
 }
 
 task v4_ty_validate_alias_signature_lifetimes(ty_id: int, sig_id: int) -> void {
-    v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_alias_target_type_for_sig(ty_id, sig_id), "alias target of " + v4_ty_signature_name(ty_id, sig_id))
+    v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_alias_target_type_for_sig(ty_id, sig_id), "alias target of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_alias_target_span(ty_id, sig_id))
 }
 
 task v4_ty_validate_alias_signature_cycle(ty_id: int, sig_id: int) -> void {
@@ -3553,7 +3711,7 @@ task v4_ty_validate_alias_signature_cycle(ty_id: int, sig_id: int) -> void {
 
     pilot cycle_path = v4_ty_alias_cycle_path_in_type(ty_id, alias_target, alias_name)
     if cycle_path != "" {
-        v4_ty_add_diag(ty_id, "Yuuko alias loop: alias " + alias_name + " expands forever via " + v4_ty_alias_cycle_chain_display(cycle_path))
+        v4_ty_add_error_diag(ty_id, v4_ty_alias_target_span(ty_id, sig_id), "Yuuko alias loop: alias " + alias_name + " expands forever via " + v4_ty_alias_cycle_chain_display(cycle_path), "")
     }
 }
 

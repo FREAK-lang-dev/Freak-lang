@@ -71,6 +71,8 @@ say "lifetime-diag-mentions-ghost=" + v4_lifetime_diag_bool(v4_ty_type_mentions_
 
 pilot v4_lifetime_diag_idx = 0
 repeat until v4_lifetime_diag_idx >= v4_ty_diag_count(v4_lifetime_diag_ty) {
-    say "lifetime-diag" + word_from_int(v4_lifetime_diag_idx) + "=" + v4_ty_diag(v4_lifetime_diag_ty, v4_lifetime_diag_idx)
+    pilot v4_lifetime_diag = v4_ty_diag(v4_lifetime_diag_ty, v4_lifetime_diag_idx)
+    say "lifetime-diag" + word_from_int(v4_lifetime_diag_idx) + "=" + v4_diag_message(v4_lifetime_diag)
+    say "lifetime-diag" + word_from_int(v4_lifetime_diag_idx) + "-span=" + v4_diag_span(v4_lifetime_diag)
     v4_lifetime_diag_idx += 1
 }

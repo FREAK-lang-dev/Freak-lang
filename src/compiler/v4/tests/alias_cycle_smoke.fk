@@ -32,7 +32,9 @@ say "alias-cycle-score-canonical=" + v4_ty_canonical_type(v4_alias_cycle_ty, "Sc
 
 pilot v4_alias_cycle_diag_idx = 0
 repeat until v4_alias_cycle_diag_idx >= v4_ty_diag_count(v4_alias_cycle_ty) {
-    say "alias-cycle-diag" + word_from_int(v4_alias_cycle_diag_idx) + "=" + v4_ty_diag(v4_alias_cycle_ty, v4_alias_cycle_diag_idx)
+    pilot v4_alias_cycle_diag = v4_ty_diag(v4_alias_cycle_ty, v4_alias_cycle_diag_idx)
+    say "alias-cycle-diag" + word_from_int(v4_alias_cycle_diag_idx) + "=" + v4_diag_message(v4_alias_cycle_diag)
+    say "alias-cycle-diag" + word_from_int(v4_alias_cycle_diag_idx) + "-span=" + v4_diag_span(v4_alias_cycle_diag)
     v4_alias_cycle_diag_idx += 1
 }
 
