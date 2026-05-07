@@ -26,13 +26,61 @@ task v4_lsp_lifetime_diag_source() -> word {
     give back src
 }
 
+task v4_lsp_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_lsp_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_lsp_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_lsp_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_lsp_variant_source() -> word {
+    pilot src = "variant Event {\n"
+    src = src + "    Key " + v4_lsp_braces(" code: int ") + "\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot event = Event::Key " + v4_lsp_braces(" code: 9 ") + "\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_source = "task main() => \"hi\"\n"
 v4_lsp_source = v4_lsp_source + "shape Pilot\n"
+pilot v4_lsp_variant = v4_lsp_variant_source()
+pilot v4_lsp_variant_stream = v4_lex_text(0, v4_lsp_variant)
+pilot v4_lsp_variant_event_offset = v4_lsp_token_offset(v4_lsp_variant_stream, "Event", 1)
+pilot v4_lsp_variant_key_offset = v4_lsp_token_offset(v4_lsp_variant_stream, "Key", 1)
 
 say v4_lsp_hover_text("lsp.fk", v4_lsp_source, 5)
 say v4_lsp_definition_text("lsp.fk", v4_lsp_source, 5)
 say v4_lsp_document_symbols_text("lsp.fk", v4_lsp_source)
 say v4_lsp_completion_text("lsp.fk", v4_lsp_source, 0)
+say v4_lsp_hover_text("lsp_variant.fk", v4_lsp_variant, v4_lsp_variant_event_offset)
+say v4_lsp_definition_text("lsp_variant.fk", v4_lsp_variant, v4_lsp_variant_event_offset)
+say v4_lsp_document_symbols_text("lsp_variant.fk", v4_lsp_variant)
+say v4_lsp_completion_text("lsp_variant.fk", v4_lsp_variant, 0)
+say v4_lsp_definition_text("lsp_variant.fk", v4_lsp_variant, v4_lsp_variant_key_offset)
 say v4_lsp_diagnostics_text("lsp.fk", v4_lsp_source)
 say v4_lsp_diagnostics_text("lsp_alias.fk", v4_lsp_alias_diag_source())
 say v4_lsp_diagnostics_text("lsp_lifetime.fk", v4_lsp_lifetime_diag_source())

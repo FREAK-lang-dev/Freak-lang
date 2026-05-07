@@ -26,6 +26,21 @@ task v4_lsp_doc_lifetime_diag_source() -> word {
     give back src
 }
 
+task v4_lsp_doc_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_lsp_doc_variant_source() -> word {
+    pilot src = "variant Event {\n"
+    src = src + "    Key " + v4_lsp_doc_braces(" code: int ") + "\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot event = Event::Key " + v4_lsp_doc_braces(" code: 9 ") + "\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_doc_source = "task main() => \"hi\"\n"
 pilot v4_lsp_doc_id = v4_lsp_open_document("live.fk", v4_lsp_doc_source)
 
@@ -34,8 +49,7 @@ say v4_lsp_document_summary("live.fk")
 say v4_lsp_hover_document("live.fk", 5)
 say v4_lsp_definition_document("live.fk", 5)
 
-pilot v4_lsp_doc_changed = "shape Pilot\n"
-v4_lsp_doc_changed = v4_lsp_doc_changed + "task main() => \"hi\"\n"
+pilot v4_lsp_doc_changed = v4_lsp_doc_variant_source()
 v4_lsp_change_document("live.fk", v4_lsp_doc_changed)
 
 say v4_lsp_document_summary("live.fk")
