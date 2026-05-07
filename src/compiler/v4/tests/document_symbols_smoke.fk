@@ -51,8 +51,12 @@ task v4_doc_symbols_source_text() -> word {
     src = src + "        give back Pilot " + v4_doc_symbol_braces(" rank: level ") + "\n"
     src = src + "    }\n"
     src = src + "}\n"
+    src = src + "variant Event {\n"
+    src = src + "    Key " + v4_doc_symbol_braces(" code: int ") + "\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot::pack(7)\n"
+    src = src + "    pilot event = Event::Key " + v4_doc_symbol_braces(" code: 9 ") + "\n"
     src = src + "    give back ace.salute()\n"
     src = src + "}\n"
     give back src
@@ -63,6 +67,8 @@ pilot v4_doc_symbols = v4_document_symbols_text_cached("document_symbols.fk", v4
 
 pilot v4_doc_main_symbol = v4_doc_symbol_find(v4_doc_symbols, "main")
 pilot v4_doc_pilot_symbol = v4_doc_symbol_find(v4_doc_symbols, "Pilot")
+pilot v4_doc_event_symbol = v4_doc_symbol_find(v4_doc_symbols, "Event")
+pilot v4_doc_event_key_symbol = v4_doc_symbol_find(v4_doc_symbols, "Event::Key")
 pilot v4_doc_salute_symbol = v4_doc_symbol_find(v4_doc_symbols, "Pilot::salute")
 pilot v4_doc_pack_symbol = v4_doc_symbol_find(v4_doc_symbols, "Pilot::pack")
 
@@ -72,6 +78,10 @@ say "document-main-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_m
 say "document-main-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_main_symbol)
 say "document-pilot-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_pilot_symbol)
 say "document-pilot-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_pilot_symbol)
+say "document-event-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_event_symbol)
+say "document-event-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_event_symbol)
+say "document-event-key-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_event_key_symbol)
+say "document-event-key-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_event_key_symbol)
 say "document-salute-found=" + v4_doc_symbol_bool_word(v4_doc_salute_symbol >= 0)
 say "document-salute-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_salute_symbol)
 say "document-salute-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_salute_symbol)

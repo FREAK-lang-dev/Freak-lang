@@ -67,8 +67,12 @@ task v4_completion_source_text() -> word {
     src = src + "        give back Pilot " + v4_completion_braces(" rank: level ") + "\n"
     src = src + "    }\n"
     src = src + "}\n"
+    src = src + "variant Event {\n"
+    src = src + "    Key " + v4_completion_braces(" code: int ") + "\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot::pack(7)\n"
+    src = src + "    pilot event = Event::Key " + v4_completion_braces(" code: 9 ") + "\n"
     src = src + "    give back ace.salute()\n"
     src = src + "}\n"
     give back src
@@ -85,6 +89,8 @@ pilot v4_completion_static_items = v4_completion_text_cached("completion.fk", v4
 
 pilot v4_completion_global_main = v4_completion_find_label(v4_completion_global_items, "main")
 pilot v4_completion_global_pilot = v4_completion_find_label(v4_completion_global_items, "Pilot")
+pilot v4_completion_global_event = v4_completion_find_label(v4_completion_global_items, "Event")
+pilot v4_completion_global_event_key = v4_completion_find_label(v4_completion_global_items, "Event::Key")
 pilot v4_completion_global_salute = v4_completion_find_label(v4_completion_global_items, "salute")
 pilot v4_completion_global_pack = v4_completion_find_label(v4_completion_global_items, "pack")
 pilot v4_completion_instance_salute = v4_completion_find_label(v4_completion_instance_items, "salute")
@@ -95,6 +101,10 @@ pilot v4_completion_static_pack = v4_completion_find_label(v4_completion_static_
 say v4_completion_summary(v4_completion_global_items)
 say "completion-global-main-found=" + v4_completion_bool_word(v4_completion_global_main >= 0)
 say "completion-global-pilot-found=" + v4_completion_bool_word(v4_completion_global_pilot >= 0)
+say "completion-global-event-found=" + v4_completion_bool_word(v4_completion_global_event >= 0)
+say "completion-global-event-detail=" + v4_completion_detail_or_empty(v4_completion_global_items, v4_completion_global_event)
+say "completion-global-event-key-found=" + v4_completion_bool_word(v4_completion_global_event_key >= 0)
+say "completion-global-event-key-detail=" + v4_completion_detail_or_empty(v4_completion_global_items, v4_completion_global_event_key)
 say "completion-global-salute-found=" + v4_completion_bool_word(v4_completion_global_salute >= 0)
 say "completion-global-pack-found=" + v4_completion_bool_word(v4_completion_global_pack >= 0)
 say "completion-instance-salute-found=" + v4_completion_bool_word(v4_completion_instance_salute >= 0)

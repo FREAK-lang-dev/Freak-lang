@@ -38,8 +38,12 @@ task v4_semantic_source_text() -> word {
     src = src + "        give back self.rank\n"
     src = src + "    }\n"
     src = src + "}\n"
+    src = src + "variant Event {\n"
+    src = src + "    Key " + v4_semantic_braces(" code: int ") + "\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot " + v4_semantic_braces(" rank: 7 ") + "\n"
+    src = src + "    pilot event = Event::Key " + v4_semantic_braces(" code: 9 ") + "\n"
     src = src + "    give back ace.salute()\n"
     src = src + "}\n"
     give back src
@@ -52,6 +56,8 @@ pilot v4_sem_main_fact = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_sou
 pilot v4_sem_body_fact = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "ace", 1))
 pilot v4_sem_method_decl = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "salute", 0))
 pilot v4_sem_method_use = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "salute", 1))
+pilot v4_sem_variant = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "Event", 1))
+pilot v4_sem_variant_case = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "Key", 1))
 
 say v4_semantic_at_summary(v4_sem_main_fact)
 say "semantic-main-name=" + v4_semantic_at_name(v4_sem_main_fact)
@@ -64,3 +70,7 @@ say "semantic-method-decl-kind=" + v4_semantic_at_kind(v4_sem_method_decl)
 say "semantic-method-decl-type=" + v4_semantic_at_type(v4_sem_method_decl)
 say "semantic-method-use-kind=" + v4_semantic_at_kind(v4_sem_method_use)
 say "semantic-method-use-type=" + v4_semantic_at_type(v4_sem_method_use)
+say "semantic-variant-kind=" + v4_semantic_at_kind(v4_sem_variant)
+say "semantic-variant-type=" + v4_semantic_at_type(v4_sem_variant)
+say "semantic-variant-case-kind=" + v4_semantic_at_kind(v4_sem_variant_case)
+say "semantic-variant-case-type=" + v4_semantic_at_type(v4_sem_variant_case)
