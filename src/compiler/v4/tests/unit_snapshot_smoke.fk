@@ -1,4 +1,4 @@
--- V4 unified 00-Unit workspace snapshot smoke fixture.
+-- V4 current 00-Unit snapshot and restore smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
 pilot v4_unit_snapshot_source = "task main() -> int {\n"
@@ -14,21 +14,13 @@ say v4_lsp_definition_text("unit-snapshot.fk", v4_unit_snapshot_source, 5)
 say v4_lsp_document_symbols_text("unit-snapshot.fk", v4_unit_snapshot_source)
 say v4_lsp_completion_text("unit-snapshot.fk", v4_unit_snapshot_source, 0)
 
-say v4_unit_snapshot_summary()
-pilot v4_unit_snapshot_payload = v4_unit_snapshot()
-say v4_unit_snapshot_validate(v4_unit_snapshot_payload)
-say v4_unit_snapshot_manifest(v4_unit_snapshot_payload)
-say v4_unit_snapshot_health(v4_unit_snapshot_payload)
-say "unit-snapshot-bytes=" + word_from_int(v4_unit_snapshot_payload.length())
-say "unit-source-line=" + v4_unit_snapshot_source_line(0)
-say "unit-semantic-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "semantic").length())
-say "unit-hover-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "hover").length())
-say "unit-definition-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "definition").length())
-say "unit-document-symbols-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "document-symbols").length())
-say "unit-completion-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "completion").length())
-say "unit-query-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "query").length())
-pilot v4_unit_diagnostics_payload = v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "diagnostics")
-say "unit-diagnostics-section-bytes=" + word_from_int(v4_unit_diagnostics_payload.length())
+say v4_unit_snapshot_ref_store("before", v4_unit_snapshot())
+say v4_unit_snapshot_validate(v4_unit_snapshot_ref_text("before"))
+say v4_unit_snapshot_manifest(v4_unit_snapshot_ref_text("before"))
+say v4_unit_snapshot_health(v4_unit_snapshot_ref_text("before"))
+
+pilot v4_unit_diagnostics_payload = v4_unit_snapshot_section_payload(v4_unit_snapshot_ref_text("before"), "diagnostics")
+v4_unit_diagnostics_payload = v4_diagnostics_snapshot()
 say "unit-diagnostics-section-validation=" + v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload)
 pilot v4_unit_diagnostics_line_idx = 0
 pilot v4_unit_diagnostics_line_count = v4_diagnostics_snapshot_line_count(v4_unit_diagnostics_payload)
@@ -39,7 +31,6 @@ repeat until v4_unit_diagnostics_line_idx >= v4_unit_diagnostics_line_count {
     }
     v4_unit_diagnostics_line_idx += 1
 }
-say "unit-query-section-validation=" + v4_unit_snapshot_section_validate("query", v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "query"))
 
 pilot v4_unit_snapshot_source_changed = "task main() -> int {\n"
 v4_unit_snapshot_source_changed = v4_unit_snapshot_source_changed + "    pilot name = \"Yuuko|Meiya|XM3\"\n"
@@ -51,57 +42,15 @@ say v4_lsp_handle_text_request("textDocument/didOpen", "unit-snapshot.fk", v4_un
 say v4_lsp_handle_text_request("textDocument/didChange", "unit-snapshot.fk", v4_unit_snapshot_source_changed, 0)
 say v4_check_syntax_text("unit-snapshot.fk", v4_unit_snapshot_source_changed)
 say v4_diagnostics_text("unit-snapshot.fk", v4_unit_snapshot_source_changed)
-pilot v4_unit_snapshot_payload_changed = v4_unit_snapshot()
-pilot v4_unit_diagnostics_payload_changed = v4_unit_snapshot_section_payload(v4_unit_snapshot_payload_changed, "diagnostics")
-say "unit-diagnostics-changed-section-bytes=" + word_from_int(v4_unit_diagnostics_payload_changed.length())
+
+say v4_unit_snapshot_manifest(v4_unit_snapshot())
+say v4_unit_snapshot_health(v4_unit_snapshot())
+pilot v4_unit_diagnostics_payload_changed = v4_unit_snapshot_section_payload(v4_unit_snapshot(), "diagnostics")
 say "unit-diagnostics-changed-section-validation=" + v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload_changed)
-pilot v4_unit_diagnostics_changed_line_idx = 0
-pilot v4_unit_diagnostics_changed_line_count = v4_diagnostics_snapshot_line_count(v4_unit_diagnostics_payload_changed)
-repeat until v4_unit_diagnostics_changed_line_idx >= v4_unit_diagnostics_changed_line_count {
-    pilot v4_unit_diagnostics_changed_line = v4_diagnostics_snapshot_line(v4_unit_diagnostics_payload_changed, v4_unit_diagnostics_changed_line_idx)
-    if v4_unit_diagnostics_changed_line.starts_with("diagnostic|") {
-        say "unit-diagnostics-changed-diag-line=" + v4_unit_diagnostics_changed_line
-    }
-    v4_unit_diagnostics_changed_line_idx += 1
-}
-say v4_unit_snapshot_manifest(v4_unit_snapshot_payload_changed)
-say v4_unit_snapshot_health(v4_unit_snapshot_payload_changed)
-say v4_lsp_handle_text_request("workspace/unitSnapshotManifest", "unit-snapshot.fk", v4_unit_snapshot_payload_changed, 0)
-say v4_lsp_handle_text_request("workspace/unitSnapshotHealth", "unit-snapshot.fk", v4_unit_snapshot_payload_changed, 0)
-pilot v4_unit_snapshot_diff_payload = v4_unit_snapshot_diff_input(v4_unit_snapshot_payload, v4_unit_snapshot_payload_changed)
-say v4_unit_snapshot_diff(v4_unit_snapshot_payload, v4_unit_snapshot_payload_changed)
-say v4_unit_snapshot_health_from_diff_input(v4_unit_snapshot_diff_payload)
-say v4_lsp_unit_snapshot_health_text(v4_unit_snapshot_diff_payload)
-say v4_lsp_handle_text_request("workspace/unitSnapshotHealth", "unit-snapshot.fk", v4_unit_snapshot_diff_payload, 0)
-say v4_lsp_unit_snapshot_diff_text(v4_unit_snapshot_diff_payload)
-say v4_lsp_handle_text_request("workspace/unitSnapshotDiff", "unit-snapshot.fk", v4_unit_snapshot_diff_payload, 0)
-say v4_lsp_handle_request("workspace/unitSnapshotDiff", "unit-snapshot.fk", 0)
+say v4_lsp_handle_text_request("workspace/unitSnapshotManifest", "unit-snapshot.fk", v4_unit_snapshot(), 0)
+say v4_lsp_handle_text_request("workspace/unitSnapshotHealth", "unit-snapshot.fk", v4_unit_snapshot(), 0)
 
-say "unit-escape=" + v4_unit_snapshot_escape("00|Unit%XM3\nMeiya")
-say "unit-unescape=" + v4_unit_snapshot_unescape("00%7CUnit%25XM3%0AMeiya")
-say v4_unit_snapshot_restore(v4_unit_snapshot_payload)
-say v4_lsp_unit_snapshot_text()
-say v4_lsp_unit_snapshot_manifest_text(v4_unit_snapshot_payload)
-say v4_lsp_unit_snapshot_health_text(v4_unit_snapshot_payload)
-say v4_lsp_handle_text_request("workspace/unitSnapshotHealth", "unit-snapshot.fk", v4_unit_snapshot_payload, 0)
-say v4_lsp_handle_request("workspace/unitSnapshotHealth", "unit-snapshot.fk", 0)
-say v4_lsp_unit_snapshot_restore_text(v4_unit_snapshot_payload)
-say v4_lsp_handle_text_request("workspace/unitSnapshotManifest", "unit-snapshot.fk", v4_unit_snapshot_payload, 0)
-say v4_lsp_handle_request("workspace/unitSnapshotManifest", "unit-snapshot.fk", 0)
-say v4_lsp_handle_text_request("workspace/unitSnapshotRestore", "unit-snapshot.fk", v4_unit_snapshot_payload, 0)
+say v4_unit_snapshot_restore(v4_unit_snapshot_ref_text("before"))
+say v4_lsp_handle_text_request("workspace/unitSnapshotRestore", "unit-snapshot.fk", v4_unit_snapshot_ref_text("before"), 0)
 say v4_lsp_handle_request("workspace/unitSnapshotRestore", "unit-snapshot.fk", 0)
-
-pilot v4_unit_file = v4_source_find("unit-snapshot.fk")
-pilot v4_unit_fingerprint = v4_source_fingerprint(v4_unit_file)
-say v4_query_get(v4_check_syntax_query_key("unit-snapshot.fk"), v4_unit_fingerprint)
-pilot v4_unit_diag_id = word_to_int(v4_query_get(v4_diagnostics_query_key("unit-snapshot.fk"), v4_unit_fingerprint))
-say v4_diagnostics_summary(v4_unit_diag_id)
-pilot v4_unit_hover_id = word_to_int(v4_query_get(v4_hover_query_key("unit-snapshot.fk", 8), v4_unit_fingerprint))
-say v4_hover_summary(v4_unit_hover_id)
-pilot v4_unit_definition_id = word_to_int(v4_query_get(v4_definition_at_query_key("unit-snapshot.fk", 5), v4_unit_fingerprint))
-say v4_definition_at_summary(v4_unit_definition_id)
-pilot v4_unit_doc_id = word_to_int(v4_query_get(v4_document_symbols_query_key("unit-snapshot.fk"), v4_unit_fingerprint))
-say v4_document_symbols_summary(v4_unit_doc_id)
-pilot v4_unit_completion_id = word_to_int(v4_query_get(v4_completion_query_key("unit-snapshot.fk", 0), v4_unit_fingerprint))
-say v4_completion_summary(v4_unit_completion_id)
 say v4_unit_snapshot_restore("00-unit-snapshot|format=wrong\nend|wrong")

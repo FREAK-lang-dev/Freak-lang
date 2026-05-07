@@ -126,6 +126,15 @@ after|<escaped-after-snapshot>
 end|freak-00-unit-snapshot-diff-input-v1
 ```
 
+For in-process tooling and smoke runners, the same envelope also accepts snapshot refs:
+
+```text
+00-unit-diff-input|format=freak-00-unit-snapshot-diff-input-v1
+before-ref|<escaped-before-ref>
+after-ref|<escaped-after-ref>
+end|freak-00-unit-snapshot-diff-input-v1
+```
+
 The response starts with a summary record, then optional detail records, then the terminator:
 
 ```text

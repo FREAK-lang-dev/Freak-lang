@@ -1,0 +1,29 @@
+-- V4 00-Unit snapshot diff smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_unit_snapshot_source = "task main() -> int {\n"
+v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot name = \"Yuuko|Meiya\"\n"
+v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot bad = name - 1\n"
+v4_unit_snapshot_source = v4_unit_snapshot_source + "    give back 0\n"
+v4_unit_snapshot_source = v4_unit_snapshot_source + "}\n"
+
+say v4_check_syntax_text("unit-snapshot-diff.fk", v4_unit_snapshot_source)
+say v4_diagnostics_text("unit-snapshot-diff.fk", v4_unit_snapshot_source)
+say v4_unit_snapshot_ref_store("before-diff", v4_unit_snapshot())
+
+pilot v4_unit_snapshot_source_changed = "task main() -> int {\n"
+v4_unit_snapshot_source_changed = v4_unit_snapshot_source_changed + "    pilot name = \"Yuuko|Meiya|XM3\"\n"
+v4_unit_snapshot_source_changed = v4_unit_snapshot_source_changed + "    pilot good = name + \"!\"\n"
+v4_unit_snapshot_source_changed = v4_unit_snapshot_source_changed + "    give back 0\n"
+v4_unit_snapshot_source_changed = v4_unit_snapshot_source_changed + "}\n"
+
+say v4_lsp_handle_text_request("textDocument/didOpen", "unit-snapshot-diff.fk", v4_unit_snapshot_source, 0)
+say v4_lsp_handle_text_request("textDocument/didChange", "unit-snapshot-diff.fk", v4_unit_snapshot_source_changed, 0)
+say v4_check_syntax_text("unit-snapshot-diff.fk", v4_unit_snapshot_source_changed)
+say v4_diagnostics_text("unit-snapshot-diff.fk", v4_unit_snapshot_source_changed)
+say v4_unit_snapshot_ref_store("after-diff", v4_unit_snapshot())
+
+pilot v4_unit_diff_input = v4_unit_snapshot_diff_ref_input("before-diff", "after-diff")
+say v4_unit_snapshot_diff_from_input(v4_unit_diff_input)
+say v4_lsp_handle_text_request("workspace/unitSnapshotDiff", "unit-snapshot-diff.fk", v4_unit_diff_input, 0)
+say v4_lsp_handle_request("workspace/unitSnapshotDiff", "unit-snapshot-diff.fk", 0)
