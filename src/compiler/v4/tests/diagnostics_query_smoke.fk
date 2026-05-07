@@ -13,6 +13,19 @@ task v4_alias_query_diag_source() -> word {
     give back src
 }
 
+task v4_lifetime_query_diag_source() -> word {
+    pilot src = "shape RefBox<'a,T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "shape BadBox {\n"
+    src = src + "    value: RefBox<'ghost,int>\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_diag_query_source = "task main() -> int {\n"
 v4_diag_query_source = v4_diag_query_source + "    pilot text = \"hi\"\n"
 v4_diag_query_source = v4_diag_query_source + "    pilot bad = text - 1\n"
@@ -25,6 +38,7 @@ v4_diag_query_source = v4_diag_query_source + "}\n"
 
 pilot v4_diag_query_id = v4_diagnostics_text_cached("diag_query.fk", v4_diag_query_source)
 pilot v4_alias_diag_query_id = v4_diagnostics_text_cached("alias_cycle_query.fk", v4_alias_query_diag_source())
+pilot v4_lifetime_diag_query_id = v4_diagnostics_text_cached("lifetime_query.fk", v4_lifetime_query_diag_source())
 
 say v4_diagnostics_summary(v4_diag_query_id)
 say "query-diag-count=" + word_from_int(v4_diagnostics_count(v4_diag_query_id))
@@ -34,4 +48,7 @@ say "alias-query-diag0-message=" + v4_diag_message(v4_diagnostics_diag(v4_alias_
 say "alias-query-diag0-span=" + v4_diag_span(v4_diagnostics_diag(v4_alias_diag_query_id, 0))
 say "alias-query-diag4-message=" + v4_diag_message(v4_diagnostics_diag(v4_alias_diag_query_id, 4))
 say "alias-query-diag4-span=" + v4_diag_span(v4_diagnostics_diag(v4_alias_diag_query_id, 4))
+say "lifetime-query-diag-count=" + word_from_int(v4_diagnostics_count(v4_lifetime_diag_query_id))
+say "lifetime-query-diag0-message=" + v4_diag_message(v4_diagnostics_diag(v4_lifetime_diag_query_id, 0))
+say "lifetime-query-diag0-span=" + v4_diag_span(v4_diagnostics_diag(v4_lifetime_diag_query_id, 0))
 say "syntax-summary=" + v4_check_syntax_text("diag_query.fk", v4_diag_query_source)

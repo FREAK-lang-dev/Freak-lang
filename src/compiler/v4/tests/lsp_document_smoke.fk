@@ -13,6 +13,19 @@ task v4_lsp_doc_alias_diag_source() -> word {
     give back src
 }
 
+task v4_lsp_doc_lifetime_diag_source() -> word {
+    pilot src = "shape RefBox<'a,T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "shape BadBox {\n"
+    src = src + "    value: RefBox<'ghost,int>\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_doc_source = "task main() => \"hi\"\n"
 pilot v4_lsp_doc_id = v4_lsp_open_document("live.fk", v4_lsp_doc_source)
 
@@ -31,6 +44,11 @@ say v4_lsp_completion_document("live.fk", 0)
 say v4_lsp_diagnostics_document("live.fk")
 
 v4_lsp_change_document("live.fk", v4_lsp_doc_alias_diag_source())
+
+say v4_lsp_document_summary("live.fk")
+say v4_lsp_diagnostics_document("live.fk")
+
+v4_lsp_change_document("live.fk", v4_lsp_doc_lifetime_diag_source())
 
 say v4_lsp_document_summary("live.fk")
 say v4_lsp_diagnostics_document("live.fk")

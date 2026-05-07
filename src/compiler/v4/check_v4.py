@@ -443,6 +443,9 @@ EXECUTABLE_SMOKES = [
             "alias-query-diag0-span=1@13:17",
             "alias-query-diag4-message=Yuuko alias loop: alias Pair expands forever via Pair -> Pair",
             "alias-query-diag4-span=1@101:112",
+            "lifetime-query-diag-count=1",
+            "lifetime-query-diag0-message=Meiya lifetime debt: 'ghost is used in field value of BadBox but is not declared on BadBox",
+            "lifetime-query-diag0-span=2@62:80",
             "syntax-summary=syntax-ok",
         ],
     },
@@ -463,6 +466,8 @@ EXECUTABLE_SMOKES = [
             "diagnostics|5",
             "diagnostic|error|range|0|13|0|17|Yuuko alias loop: alias Loop expands forever via Loop -> Loop|",
             "diagnostic|error|range|4|13|4|24|Yuuko alias loop: alias Pair expands forever via Pair -> Pair|",
+            "diagnostics|1",
+            "diagnostic|error|range|4|11|4|29|Meiya lifetime debt: 'ghost is used in field value of BadBox but is not declared on BadBox|",
         ],
     },
     {
@@ -481,6 +486,9 @@ EXECUTABLE_SMOKES = [
             "diagnostics|5",
             "diagnostic|error|range|0|13|0|17|Yuuko alias loop: alias Loop expands forever via Loop -> Loop|",
             "diagnostic|error|range|4|13|4|24|Yuuko alias loop: alias Pair expands forever via Pair -> Pair|",
+            "document id=0 path=live.fk rev=4 bytes=122",
+            "diagnostics|1",
+            "diagnostic|error|range|4|11|4|29|Meiya lifetime debt: 'ghost is used in field value of BadBox but is not declared on BadBox|",
         ],
     },
     {
