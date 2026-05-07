@@ -16,7 +16,33 @@ task v4_lsp_position_source_text() -> word {
     give back src
 }
 
+task v4_lsp_position_named_source_text() -> word {
+    pilot src = "task compose(host: word, port: int, timeout: int) -> int {\n"
+    src = src + "    give back port + timeout\n"
+    src = src + "}\n"
+    src = src + "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task boost(self, bonus: int) -> int {\n"
+    src = src + "        give back self.hp + bonus\n"
+    src = src + "    }\n"
+    src = src + "    task ace(callsign: word) -> Pilot {\n"
+    src = src + "        give back Pilot " + v4_lsp_position_braces(" hp: 9 ") + "\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot ship = Pilot " + v4_lsp_position_braces(" hp: 7 ") + "\n"
+    src = src + "    pilot routed = compose(host: \"localhost\", port: 8080)\n"
+    src = src + "    pilot boosted = ship.boost(2)\n"
+    src = src + "    pilot ace = Pilot::ace(\"Valkyrie-1\")\n"
+    src = src + "    give back routed + boosted + ace.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_position_source = v4_lsp_position_source_text()
+pilot v4_lsp_position_named_source = v4_lsp_position_named_source_text()
 
 say "offset-event=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_source, 4, 18))
 say "offset-key=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_source, 4, 25))
@@ -24,8 +50,16 @@ say v4_lsp_range_from_span(v4_span_new("0", 0, 4), v4_lsp_position_source)
 say v4_lsp_hover_position_text("position.fk", v4_lsp_position_source, 4, 18)
 say v4_lsp_definition_position_text("position.fk", v4_lsp_position_source, 4, 18)
 say v4_lsp_completion_position_text("position.fk", v4_lsp_position_source, 0, 0)
+say "offset-host=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_named_source, 16, 27))
+say v4_lsp_hover_position_text("position_named.fk", v4_lsp_position_named_source, 16, 27)
+say v4_lsp_definition_position_text("position_named.fk", v4_lsp_position_named_source, 16, 27)
+say v4_lsp_completion_position_text("position_named.fk", v4_lsp_position_named_source, 16, 52)
 
 v4_lsp_open_document("position-live.fk", v4_lsp_position_source)
 say v4_lsp_handle_position_request("textDocument/hover", "position-live.fk", 4, 18)
 say v4_lsp_handle_position_request("textDocument/definition", "position-live.fk", 4, 18)
 say v4_lsp_handle_position_request("textDocument/completion", "position-live.fk", 0, 0)
+v4_lsp_open_document("position-named-live.fk", v4_lsp_position_named_source)
+say v4_lsp_handle_position_request("textDocument/hover", "position-named-live.fk", 16, 27)
+say v4_lsp_handle_position_request("textDocument/definition", "position-named-live.fk", 16, 27)
+say v4_lsp_handle_position_request("textDocument/completion", "position-named-live.fk", 16, 52)

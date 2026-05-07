@@ -26,6 +26,30 @@ task v4_lsp_doc_lifetime_diag_source() -> word {
     give back src
 }
 
+task v4_lsp_doc_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_lsp_doc_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_lsp_doc_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
 task v4_lsp_doc_braces(inner: word) -> word {
     give back "{" + inner + "}"
 }
@@ -37,6 +61,33 @@ task v4_lsp_doc_variant_source() -> word {
     src = src + "task main() -> int {\n"
     src = src + "    pilot event = Event::Key " + v4_lsp_doc_braces(" code: 9 ") + "\n"
     src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_lsp_doc_named_source() -> word {
+    pilot src = "task compose(host: word, port: int, timeout: int) -> int {\n"
+    src = src + "    give back port + timeout\n"
+    src = src + "}\n"
+    src = src + "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task boost(self, bonus: int) -> int {\n"
+    src = src + "        give back self.hp + bonus\n"
+    src = src + "    }\n"
+    src = src + "    task ace(callsign: word) -> Pilot {\n"
+    src = src + "        give back Pilot " + v4_lsp_doc_braces(" hp: 9 ") + "\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot ship = Pilot " + v4_lsp_doc_braces(" hp: 7 ") + "\n"
+    src = src + "    pilot routed = compose(host: \"localhost\", port: 8080)\n"
+    src = src + "    pilot boosted = ship.boost(2)\n"
+    src = src + "    pilot ace = Pilot::ace(\"Valkyrie-1\")\n"
+    src = src + "    pilot boosted_named = ship.boost(bonus: 4)\n"
+    src = src + "    pilot ace_named = Pilot::ace(callsign: \"Valkyrie-2\")\n"
+    src = src + "    give back routed + boosted + ace.hp\n"
     src = src + "}\n"
     give back src
 }
@@ -56,6 +107,31 @@ say v4_lsp_document_summary("live.fk")
 say v4_lsp_document_symbols_document("live.fk")
 say v4_lsp_completion_document("live.fk", 0)
 say v4_lsp_diagnostics_document("live.fk")
+
+pilot v4_lsp_named_doc_source = "task main() => 0\n"
+pilot v4_lsp_named_doc_id = v4_lsp_open_document("named-live.fk", v4_lsp_named_doc_source)
+pilot v4_lsp_named_changed = v4_lsp_doc_named_source()
+pilot v4_lsp_named_stream = v4_lex_text(0, v4_lsp_named_changed)
+pilot v4_lsp_named_host_label_offset = v4_lsp_doc_token_offset(v4_lsp_named_stream, "host", 1)
+pilot v4_lsp_named_bonus_label_offset = v4_lsp_doc_token_offset(v4_lsp_named_stream, "bonus", 2)
+pilot v4_lsp_named_callsign_label_offset = v4_lsp_doc_token_offset(v4_lsp_named_stream, "callsign", 1)
+pilot v4_lsp_named_timeout_offset = v4_lsp_doc_token_offset(v4_lsp_named_stream, "8080", 0)
+pilot v4_lsp_named_bonus_offset = v4_lsp_doc_token_offset(v4_lsp_named_stream, "2", 0)
+pilot v4_lsp_named_callsign_offset = v4_lsp_doc_token_offset(v4_lsp_named_stream, "Valkyrie-1", 0)
+
+say "opened-named-doc=" + word_from_int(v4_lsp_named_doc_id)
+say v4_lsp_document_summary("named-live.fk")
+v4_lsp_change_document("named-live.fk", v4_lsp_named_changed)
+say v4_lsp_document_summary("named-live.fk")
+say v4_lsp_hover_document("named-live.fk", v4_lsp_named_host_label_offset)
+say v4_lsp_definition_document("named-live.fk", v4_lsp_named_host_label_offset)
+say v4_lsp_hover_document("named-live.fk", v4_lsp_named_bonus_label_offset)
+say v4_lsp_definition_document("named-live.fk", v4_lsp_named_bonus_label_offset)
+say v4_lsp_hover_document("named-live.fk", v4_lsp_named_callsign_label_offset)
+say v4_lsp_definition_document("named-live.fk", v4_lsp_named_callsign_label_offset)
+say v4_lsp_completion_document("named-live.fk", v4_lsp_named_timeout_offset)
+say v4_lsp_completion_document("named-live.fk", v4_lsp_named_bonus_offset)
+say v4_lsp_completion_document("named-live.fk", v4_lsp_named_callsign_offset)
 
 v4_lsp_change_document("live.fk", v4_lsp_doc_alias_diag_source())
 
