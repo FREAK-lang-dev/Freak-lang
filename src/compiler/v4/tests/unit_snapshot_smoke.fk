@@ -27,6 +27,18 @@ say "unit-definition-section-bytes=" + word_from_int(v4_unit_snapshot_section_pa
 say "unit-document-symbols-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "document-symbols").length())
 say "unit-completion-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "completion").length())
 say "unit-query-section-bytes=" + word_from_int(v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "query").length())
+pilot v4_unit_diagnostics_payload = v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "diagnostics")
+say "unit-diagnostics-section-bytes=" + word_from_int(v4_unit_diagnostics_payload.length())
+say "unit-diagnostics-section-validation=" + v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload)
+pilot v4_unit_diagnostics_line_idx = 0
+pilot v4_unit_diagnostics_line_count = v4_diagnostics_snapshot_line_count(v4_unit_diagnostics_payload)
+repeat until v4_unit_diagnostics_line_idx >= v4_unit_diagnostics_line_count {
+    pilot v4_unit_diagnostics_line = v4_diagnostics_snapshot_line(v4_unit_diagnostics_payload, v4_unit_diagnostics_line_idx)
+    if v4_unit_diagnostics_line.starts_with("diagnostic|") {
+        say "unit-diagnostics-diag-line=" + v4_unit_diagnostics_line
+    }
+    v4_unit_diagnostics_line_idx += 1
+}
 say "unit-query-section-validation=" + v4_unit_snapshot_section_validate("query", v4_unit_snapshot_section_payload(v4_unit_snapshot_payload, "query"))
 
 pilot v4_unit_snapshot_source_changed = "task main() -> int {\n"
@@ -40,6 +52,18 @@ say v4_lsp_handle_text_request("textDocument/didChange", "unit-snapshot.fk", v4_
 say v4_check_syntax_text("unit-snapshot.fk", v4_unit_snapshot_source_changed)
 say v4_diagnostics_text("unit-snapshot.fk", v4_unit_snapshot_source_changed)
 pilot v4_unit_snapshot_payload_changed = v4_unit_snapshot()
+pilot v4_unit_diagnostics_payload_changed = v4_unit_snapshot_section_payload(v4_unit_snapshot_payload_changed, "diagnostics")
+say "unit-diagnostics-changed-section-bytes=" + word_from_int(v4_unit_diagnostics_payload_changed.length())
+say "unit-diagnostics-changed-section-validation=" + v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload_changed)
+pilot v4_unit_diagnostics_changed_line_idx = 0
+pilot v4_unit_diagnostics_changed_line_count = v4_diagnostics_snapshot_line_count(v4_unit_diagnostics_payload_changed)
+repeat until v4_unit_diagnostics_changed_line_idx >= v4_unit_diagnostics_changed_line_count {
+    pilot v4_unit_diagnostics_changed_line = v4_diagnostics_snapshot_line(v4_unit_diagnostics_payload_changed, v4_unit_diagnostics_changed_line_idx)
+    if v4_unit_diagnostics_changed_line.starts_with("diagnostic|") {
+        say "unit-diagnostics-changed-diag-line=" + v4_unit_diagnostics_changed_line
+    }
+    v4_unit_diagnostics_changed_line_idx += 1
+}
 pilot v4_unit_snapshot_diff_payload = v4_unit_snapshot_diff_input(v4_unit_snapshot_payload, v4_unit_snapshot_payload_changed)
 say v4_unit_snapshot_diff(v4_unit_snapshot_payload, v4_unit_snapshot_payload_changed)
 say v4_unit_snapshot_health_from_diff_input(v4_unit_snapshot_diff_payload)
