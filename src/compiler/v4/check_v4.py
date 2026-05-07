@@ -394,6 +394,8 @@ EXECUTABLE_SMOKES = [
             "sources-changed=1",
             "query-invalidations-added=9",
             "diagnostics-invalidations-added=1",
+            "ok|workspace/unitSnapshotHealth",
+            "health-diff|ok=1|sources-added=0|sources-changed=1|sources-removed=0|sections-added=0|sections-changed=9|sections-removed=0|query-invalidations-added=9",
             "section-diff|name=diagnostics|state=changed|before-bytes=229|after-bytes=267|before-lines=4|after-lines=5",
             "section-diff|name=query|state=changed",
             "ok|workspace/unitSnapshotDiff",

@@ -25,5 +25,6 @@ say v4_unit_snapshot_ref_store("after-diff", v4_unit_snapshot())
 
 pilot v4_unit_diff_input = v4_unit_snapshot_diff_ref_input("before-diff", "after-diff")
 say v4_unit_snapshot_diff_from_input(v4_unit_diff_input)
+say v4_lsp_handle_text_request("workspace/unitSnapshotHealth", "unit-snapshot-diff.fk", v4_unit_diff_input, 0)
 say v4_lsp_handle_text_request("workspace/unitSnapshotDiff", "unit-snapshot-diff.fk", v4_unit_diff_input, 0)
 say v4_lsp_handle_request("workspace/unitSnapshotDiff", "unit-snapshot-diff.fk", 0)
