@@ -41,10 +41,14 @@ task v4_semantic_snapshot_source_text() -> word {
     src = src + "variant Event {\n"
     src = src + "    Key " + v4_semantic_snapshot_braces(" code: int ") + "\n"
     src = src + "}\n"
+    src = src + "task compose(host: word, port: int) -> int {\n"
+    src = src + "    give back port\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot " + v4_semantic_snapshot_braces(" rank: 7 ") + "\n"
     src = src + "    pilot event = Event::Key " + v4_semantic_snapshot_braces(" code: 9 ") + "\n"
-    src = src + "    give back ace.salute()\n"
+    src = src + "    pilot tuned = compose(host: \"relay\", port: 9)\n"
+    src = src + "    give back ace.salute() + tuned\n"
     src = src + "}\n"
     src = src + "task mix(count: uint, marker: char) -> float32 {\n"
     src = src + "    give back 1.5\n"
@@ -58,12 +62,14 @@ pilot v4_semantic_snapshot_main_offset = v4_semantic_snapshot_token_offset(v4_se
 pilot v4_semantic_snapshot_method_offset = v4_semantic_snapshot_token_offset(v4_semantic_snapshot_stream, "salute", 1)
 pilot v4_semantic_snapshot_variant_offset = v4_semantic_snapshot_token_offset(v4_semantic_snapshot_stream, "Event", 1)
 pilot v4_semantic_snapshot_variant_case_offset = v4_semantic_snapshot_token_offset(v4_semantic_snapshot_stream, "Key", 1)
+pilot v4_semantic_snapshot_param_offset = v4_semantic_snapshot_token_offset(v4_semantic_snapshot_stream, "host", 1)
 pilot v4_semantic_snapshot_builtin_offset = v4_semantic_snapshot_token_offset(v4_semantic_snapshot_stream, "uint", 0)
 
 pilot v4_semantic_snapshot_main = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_main_offset)
 pilot v4_semantic_snapshot_method = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_method_offset)
 pilot v4_semantic_snapshot_variant = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_variant_offset)
 pilot v4_semantic_snapshot_variant_case = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_variant_case_offset)
+pilot v4_semantic_snapshot_param = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_param_offset)
 pilot v4_semantic_snapshot_builtin = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_builtin_offset)
 say v4_semantic_at_summary(v4_semantic_snapshot_main)
 say v4_semantic_snapshot_summary()
@@ -89,6 +95,7 @@ pilot v4_semantic_fingerprint = v4_source_fingerprint(v4_semantic_file)
 pilot v4_semantic_restored_id = word_to_int(v4_query_get(v4_semantic_at_query_key("semantic-snapshot.fk", v4_semantic_snapshot_method_offset), v4_semantic_fingerprint))
 pilot v4_semantic_variant_restored_id = word_to_int(v4_query_get(v4_semantic_at_query_key("semantic-snapshot.fk", v4_semantic_snapshot_variant_offset), v4_semantic_fingerprint))
 pilot v4_semantic_variant_case_restored_id = word_to_int(v4_query_get(v4_semantic_at_query_key("semantic-snapshot.fk", v4_semantic_snapshot_variant_case_offset), v4_semantic_fingerprint))
+pilot v4_semantic_param_restored_id = word_to_int(v4_query_get(v4_semantic_at_query_key("semantic-snapshot.fk", v4_semantic_snapshot_param_offset), v4_semantic_fingerprint))
 pilot v4_semantic_builtin_restored_id = word_to_int(v4_query_get(v4_semantic_at_query_key("semantic-snapshot.fk", v4_semantic_snapshot_builtin_offset), v4_semantic_fingerprint))
 say v4_semantic_at_summary(v4_semantic_restored_id)
 say "semantic-snapshot-method-kind=" + v4_semantic_at_kind(v4_semantic_snapshot_method)
@@ -103,6 +110,10 @@ say "semantic-snapshot-variant-case-kind=" + v4_semantic_at_kind(v4_semantic_sna
 say "semantic-snapshot-variant-case-type=" + v4_semantic_at_type(v4_semantic_snapshot_variant_case)
 say "semantic-snapshot-variant-case-restored-kind=" + v4_semantic_at_kind(v4_semantic_variant_case_restored_id)
 say "semantic-snapshot-variant-case-restored-type=" + v4_semantic_at_type(v4_semantic_variant_case_restored_id)
+say "semantic-snapshot-param-kind=" + v4_semantic_at_kind(v4_semantic_snapshot_param)
+say "semantic-snapshot-param-type=" + v4_semantic_at_type(v4_semantic_snapshot_param)
+say "semantic-snapshot-param-restored-kind=" + v4_semantic_at_kind(v4_semantic_param_restored_id)
+say "semantic-snapshot-param-restored-type=" + v4_semantic_at_type(v4_semantic_param_restored_id)
 say "semantic-snapshot-builtin-kind=" + v4_semantic_at_kind(v4_semantic_snapshot_builtin)
 say "semantic-snapshot-builtin-type=" + v4_semantic_at_type(v4_semantic_snapshot_builtin)
 say "semantic-snapshot-builtin-restored-kind=" + v4_semantic_at_kind(v4_semantic_builtin_restored_id)

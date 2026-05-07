@@ -309,6 +309,122 @@ task v4_editor_local_def(owner_def: word, local_id: int, local_name: word) -> wo
     give back owner_def + "::Local::" + word_from_int(local_id) + "::" + local_name
 }
 
+task v4_editor_param_def(owner_def: word, param_name: word) -> word {
+    if owner_def == "" or param_name == "" {
+        give back ""
+    }
+    give back owner_def + "::Param::" + param_name
+}
+
+task v4_editor_param_marker_index(def_id: word) -> int {
+    pilot marker = "::Param::"
+    pilot marker_len = marker.length()
+    pilot def_len = def_id.length()
+    pilot idx = 0
+    repeat until idx + marker_len > def_len {
+        if v4_slice(def_id, idx, idx + marker_len) == marker {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_param_owner_def(def_id: word) -> word {
+    pilot marker = v4_editor_param_marker_index(def_id)
+    if marker < 0 {
+        give back ""
+    }
+    give back v4_slice(def_id, 0, marker)
+}
+
+task v4_editor_param_name_from_def(def_id: word) -> word {
+    pilot marker = v4_editor_param_marker_index(def_id)
+    if marker < 0 {
+        give back ""
+    }
+    pilot start = marker + "::Param::".length()
+    if start >= def_id.length() {
+        give back ""
+    }
+    give back v4_slice(def_id, start, def_id.length())
+}
+
+task v4_editor_signature_param_id_for_name(ty_id: int, sig_id: int, param_name: word) -> int {
+    if sig_id < 0 or param_name == "" {
+        give back 0 - 1
+    }
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        if v4_ty_signature_param_name(ty_id, sig_id, param_id) == param_name {
+            give back param_id
+        }
+        param_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_signature_param_name_span(ty_id: int, sig_id: int, param_name: word) -> word {
+    pilot param_id = v4_editor_signature_param_id_for_name(ty_id, sig_id, param_name)
+    if param_id < 0 {
+        give back V4_NO_SPAN
+    }
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
+    if stream_id < 0 or start_token < 0 {
+        give back V4_NO_SPAN
+    }
+    pilot name_token = v4_ty_skip_trivia(stream_id, start_token)
+    if name_token < 0 {
+        give back V4_NO_SPAN
+    }
+    give back v4_lex_token_span(stream_id, name_token)
+}
+
+task v4_editor_impl_method_explicit_param_id_for_name(ty_id: int, hir_item: int, method_id: int, param_name: word) -> int {
+    if hir_item < 0 or method_id < 0 or param_name == "" {
+        give back 0 - 1
+    }
+    pilot param_id = 0
+    pilot param_count = v4_ty_impl_method_explicit_param_count(ty_id, hir_item, method_id)
+    repeat until param_id >= param_count {
+        if v4_ty_impl_method_explicit_param_name(ty_id, hir_item, method_id, param_id) == param_name {
+            give back param_id
+        }
+        param_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_impl_method_explicit_param_name_span(ty_id: int, hir_item: int, method_id: int, param_name: word) -> word {
+    pilot param_id = v4_editor_impl_method_explicit_param_id_for_name(ty_id, hir_item, method_id, param_name)
+    if param_id < 0 {
+        give back V4_NO_SPAN
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back V4_NO_SPAN
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot open_token = v4_ty_impl_method_param_open_token(ty_id, hir_item, method_id)
+    pilot close_token = v4_ty_impl_method_param_close_token(ty_id, hir_item, method_id)
+    pilot shift = 0
+    if v4_ty_impl_method_is_instance(ty_id, hir_item, method_id) {
+        shift = 1
+    }
+    pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id + shift)
+    if start_token < 0 {
+        give back V4_NO_SPAN
+    }
+    pilot name_token = v4_ty_skip_trivia(stream_id, start_token)
+    if name_token < 0 {
+        give back V4_NO_SPAN
+    }
+    give back v4_lex_token_span(stream_id, name_token)
+}
+
 task v4_editor_impl_method_name_span(ty_id: int, hir_item: int, method_id: int) -> word {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 {
@@ -626,6 +742,27 @@ task v4_editor_call_arg_uses_label(stream_id: int, open_token: int, close_token:
         pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
         if v4_mir_call_arg_label(stream_id, arg_start, arg_end) == wanted_name {
             give back true
+        }
+        arg_idx += 1
+        arg_start = v4_mir_skip_trivia(stream_id, arg_end + 1)
+    }
+    give back false
+}
+
+task v4_editor_call_arg_label_matches_token(stream_id: int, open_token: int, close_token: int, token_id: int, token_value: word) -> bool {
+    if token_id < 0 or token_value == "" or open_token < 0 or close_token <= open_token {
+        give back false
+    }
+    pilot arg_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    pilot arg_idx = 0
+    pilot arg_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+    repeat until arg_idx >= arg_count {
+        pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
+        if v4_mir_call_arg_label(stream_id, arg_start, arg_end) == token_value {
+            pilot label_token = v4_mir_skip_trivia(stream_id, arg_start)
+            if label_token == token_id {
+                give back true
+            }
         }
         arg_idx += 1
         arg_start = v4_mir_skip_trivia(stream_id, arg_end + 1)
@@ -1257,58 +1394,124 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
             type_display = v4_editor_lifetime_detail(ty_id, lifetime_sig_id, token_value)
         }
     } else if token_kind == v4_tok_ident or token_kind == v4_tok_keyword {
-        if symbol_id < 0 and v4_editor_is_builtin_type_name(token_value) {
-            name = token_value
-            kind = "BuiltinType"
-            def_id = v4_editor_builtin_type_def(token_value)
-            type_display = token_value
-        } else {
-        pilot decl_method_id = 0 - 1
-        if hir_item >= 0 and item_kind == v4_hir_impl {
-            decl_method_id = v4_editor_impl_method_decl_id_at_token(ty_id, hir_item, stream_id, token_id, token_value)
+        pilot named_param_handled = false
+        pilot named_param_body = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
+        if named_param_body >= 0 {
+            pilot named_param_rvalue = v4_editor_call_rvalue_at_offset(mir_id, named_param_body, offset)
+            if named_param_rvalue >= 0 and v4_editor_offset_in_call_args(stream_id, mir_id, named_param_body, named_param_rvalue, offset) {
+                pilot open_token = v4_editor_call_rvalue_open_token(stream_id, mir_id, named_param_body, named_param_rvalue)
+                pilot close_token = v4_editor_call_rvalue_close_token(stream_id, mir_id, named_param_body, named_param_rvalue)
+                if v4_editor_call_arg_label_matches_token(stream_id, open_token, close_token, token_id, token_value) {
+                    pilot call_op = v4_mir_rvalue_op(mir_id, named_param_body, named_param_rvalue)
+                    pilot method_name = v4_editor_call_op_method_name(call_op)
+                    if method_name != "" {
+                        pilot owner_ty = v4_editor_method_call_owner(call_op, method_name)
+                        pilot lookup_owner_ty = v4_mir_compact_type_text(owner_ty)
+                        pilot canonical_owner_ty = v4_ty_canonical_type(ty_id, lookup_owner_ty)
+                        if canonical_owner_ty != "" and canonical_owner_ty != v4_ty_unknown {
+                            lookup_owner_ty = canonical_owner_ty
+                        }
+                        pilot method_ref = v4_mir_find_method_ref(mir_id, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(call_op, method_name))
+                        if method_ref != "" {
+                            pilot method_hir_item = v4_mir_method_ref_hir_item(method_ref)
+                            pilot method_id = v4_mir_method_ref_method_id(method_ref)
+                            pilot param_id = v4_editor_impl_method_explicit_param_id_for_name(ty_id, method_hir_item, method_id, token_value)
+                            if param_id >= 0 {
+                                name = token_value
+                                kind = "Parameter"
+                                def_id = v4_editor_param_def(v4_ty_impl_method_def(ty_id, method_hir_item, method_id), token_value)
+                                type_display = "parameter " + token_value + ": " + v4_ty_impl_method_explicit_param_type_for_owner(ty_id, method_hir_item, method_id, param_id, lookup_owner_ty)
+                                named_param_handled = true
+                            }
+                        }
+                    } else {
+                        pilot sig_id = v4_mir_signature_id_for_name(mir_id, call_op)
+                        if sig_id >= 0 {
+                            pilot param_id = v4_editor_signature_param_id_for_name(ty_id, sig_id, token_value)
+                            if param_id >= 0 {
+                                name = token_value
+                                kind = "Parameter"
+                                def_id = v4_editor_param_def(v4_ty_signature_def(ty_id, sig_id), token_value)
+                                type_display = "parameter " + token_value + ": " + v4_ty_signature_param_type(ty_id, sig_id, param_id)
+                                named_param_handled = true
+                            }
+                        }
+                    }
+                }
+            }
         }
-        pilot decl_route_sig_id = 0 - 1
-        if hir_item >= 0 and item_kind == v4_hir_route {
-            decl_route_sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
-        }
-        pilot decl_route_field_case = ""
-        if decl_method_id >= 0 {
-            name = token_value
-            kind = "Method"
-            def_id = v4_ty_impl_method_def(ty_id, hir_item, decl_method_id)
-            type_display = v4_ty_impl_method_display(ty_id, hir_item, decl_method_id)
-        } else if decl_route_sig_id >= 0 {
-            decl_route_field_case = v4_editor_route_field_decl_case_name_at_token(ty_id, decl_route_sig_id, stream_id, token_id, token_value)
-        }
-        if decl_method_id >= 0 {
-            -- method declaration already handled
-        } else if decl_route_field_case != "" {
-            name = token_value
-            kind = "RouteField"
-            def_id = v4_editor_route_field_def(ty_id, decl_route_sig_id, decl_route_field_case, token_value)
-            type_display = v4_editor_route_field_detail(ty_id, decl_route_sig_id, decl_route_field_case, token_value)
-        } else if decl_route_sig_id >= 0 and v4_editor_route_case_decl_id_at_token(ty_id, decl_route_sig_id, stream_id, token_id, token_value) >= 0 {
-            name = token_value
-            kind = "RouteCase"
-            def_id = v4_editor_route_case_def(ty_id, decl_route_sig_id, token_value)
-            type_display = v4_editor_route_case_detail(ty_id, decl_route_sig_id, token_value)
-        } else {
-            pilot body_id = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
-            if symbol_id < 0 {
-                pilot ref_route_field_sig_id = v4_editor_route_case_sig_for_payload_token(resolve_id, ty_id, stream_id, token_id)
-                pilot ref_route_field_case = v4_editor_route_field_ref_case_name_at_token(resolve_id, ty_id, stream_id, token_id, token_value)
-                if ref_route_field_sig_id >= 0 and ref_route_field_case != "" {
+        if not named_param_handled {
+            if symbol_id < 0 and v4_editor_is_builtin_type_name(token_value) {
+                name = token_value
+                kind = "BuiltinType"
+                def_id = v4_editor_builtin_type_def(token_value)
+                type_display = token_value
+            } else {
+                pilot decl_method_id = 0 - 1
+                if hir_item >= 0 and item_kind == v4_hir_impl {
+                    decl_method_id = v4_editor_impl_method_decl_id_at_token(ty_id, hir_item, stream_id, token_id, token_value)
+                }
+                pilot decl_route_sig_id = 0 - 1
+                if hir_item >= 0 and item_kind == v4_hir_route {
+                    decl_route_sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
+                }
+                pilot decl_route_field_case = ""
+                if decl_method_id >= 0 {
+                    name = token_value
+                    kind = "Method"
+                    def_id = v4_ty_impl_method_def(ty_id, hir_item, decl_method_id)
+                    type_display = v4_ty_impl_method_display(ty_id, hir_item, decl_method_id)
+                } else if decl_route_sig_id >= 0 {
+                    decl_route_field_case = v4_editor_route_field_decl_case_name_at_token(ty_id, decl_route_sig_id, stream_id, token_id, token_value)
+                }
+                if decl_method_id >= 0 {
+                    -- method declaration already handled
+                } else if decl_route_field_case != "" {
                     name = token_value
                     kind = "RouteField"
-                    def_id = v4_editor_route_field_def(ty_id, ref_route_field_sig_id, ref_route_field_case, token_value)
-                    type_display = v4_editor_route_field_detail(ty_id, ref_route_field_sig_id, ref_route_field_case, token_value)
+                    def_id = v4_editor_route_field_def(ty_id, decl_route_sig_id, decl_route_field_case, token_value)
+                    type_display = v4_editor_route_field_detail(ty_id, decl_route_sig_id, decl_route_field_case, token_value)
+                } else if decl_route_sig_id >= 0 and v4_editor_route_case_decl_id_at_token(ty_id, decl_route_sig_id, stream_id, token_id, token_value) >= 0 {
+                    name = token_value
+                    kind = "RouteCase"
+                    def_id = v4_editor_route_case_def(ty_id, decl_route_sig_id, token_value)
+                    type_display = v4_editor_route_case_detail(ty_id, decl_route_sig_id, token_value)
                 } else {
-                    pilot ref_route_sig_id = v4_editor_route_case_sig_for_reference(resolve_id, ty_id, stream_id, token_id)
-                    if ref_route_sig_id >= 0 and v4_ty_route_has_case(ty_id, v4_ty_signature_name(ty_id, ref_route_sig_id), token_value) {
-                        name = token_value
-                        kind = "RouteCase"
-                        def_id = v4_editor_route_case_def(ty_id, ref_route_sig_id, token_value)
-                        type_display = v4_editor_route_case_detail(ty_id, ref_route_sig_id, token_value)
+                    pilot body_id = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
+                    if symbol_id < 0 {
+                        pilot ref_route_field_sig_id = v4_editor_route_case_sig_for_payload_token(resolve_id, ty_id, stream_id, token_id)
+                        pilot ref_route_field_case = v4_editor_route_field_ref_case_name_at_token(resolve_id, ty_id, stream_id, token_id, token_value)
+                        if ref_route_field_sig_id >= 0 and ref_route_field_case != "" {
+                            name = token_value
+                            kind = "RouteField"
+                            def_id = v4_editor_route_field_def(ty_id, ref_route_field_sig_id, ref_route_field_case, token_value)
+                            type_display = v4_editor_route_field_detail(ty_id, ref_route_field_sig_id, ref_route_field_case, token_value)
+                        } else {
+                            pilot ref_route_sig_id = v4_editor_route_case_sig_for_reference(resolve_id, ty_id, stream_id, token_id)
+                            if ref_route_sig_id >= 0 and v4_ty_route_has_case(ty_id, v4_ty_signature_name(ty_id, ref_route_sig_id), token_value) {
+                                name = token_value
+                                kind = "RouteCase"
+                                def_id = v4_editor_route_case_def(ty_id, ref_route_sig_id, token_value)
+                                type_display = v4_editor_route_case_detail(ty_id, ref_route_sig_id, token_value)
+                            } else if body_id >= 0 {
+                                pilot method_rvalue = v4_editor_method_call_rvalue_at_token(stream_id, ty_id, mir_id, body_id, token_id, token_value, offset)
+                                if method_rvalue >= 0 {
+                                    pilot method_ref = v4_editor_method_ref_for_call_rvalue(ty_id, mir_id, body_id, method_rvalue, token_value)
+                                    name = token_value
+                                    kind = "Method"
+                                    def_id = v4_ty_impl_method_def(ty_id, v4_mir_method_ref_hir_item(method_ref), v4_mir_method_ref_method_id(method_ref))
+                                    type_display = v4_editor_method_detail_for_owner(ty_id, v4_editor_method_call_owner(v4_mir_rvalue_op(mir_id, body_id, method_rvalue), token_value), method_ref)
+                                } else {
+                                    pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, token_value, offset)
+                                    if local_id >= 0 and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
+                                        name = token_value
+                                        kind = "Local"
+                                        def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
+                                        type_display = v4_mir_local_ty(mir_id, body_id, local_id)
+                                    }
+                                }
+                            }
+                        }
                     } else if body_id >= 0 {
                         pilot method_rvalue = v4_editor_method_call_rvalue_at_token(stream_id, ty_id, mir_id, body_id, token_id, token_value, offset)
                         if method_rvalue >= 0 {
@@ -1328,25 +1531,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                         }
                     }
                 }
-            } else if body_id >= 0 {
-                pilot method_rvalue = v4_editor_method_call_rvalue_at_token(stream_id, ty_id, mir_id, body_id, token_id, token_value, offset)
-                if method_rvalue >= 0 {
-                    pilot method_ref = v4_editor_method_ref_for_call_rvalue(ty_id, mir_id, body_id, method_rvalue, token_value)
-                    name = token_value
-                    kind = "Method"
-                    def_id = v4_ty_impl_method_def(ty_id, v4_mir_method_ref_hir_item(method_ref), v4_mir_method_ref_method_id(method_ref))
-                    type_display = v4_editor_method_detail_for_owner(ty_id, v4_editor_method_call_owner(v4_mir_rvalue_op(mir_id, body_id, method_rvalue), token_value), method_ref)
-                } else {
-                    pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, token_value, offset)
-                    if local_id >= 0 and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
-                        name = token_value
-                        kind = "Local"
-                        def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
-                        type_display = v4_mir_local_ty(mir_id, body_id, local_id)
-                    }
-                }
             }
-        }
         }
     }
 
@@ -1659,6 +1844,26 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
             span = v4_hir_item_span(hir_id, hir_item)
             span = v4_editor_lifetime_decl_span(stream_id, span, name)
             found = 1
+        }
+    } else if kind == "Parameter" {
+        pilot owner_def = v4_editor_param_owner_def(def_id)
+        pilot param_name = v4_editor_param_name_from_def(def_id)
+        pilot method_ref = v4_editor_impl_method_ref_for_def(ty_id, owner_def)
+        if method_ref != "" {
+            hir_item = v4_mir_method_ref_hir_item(method_ref)
+            span = v4_editor_impl_method_explicit_param_name_span(ty_id, hir_item, v4_mir_method_ref_method_id(method_ref), param_name)
+            if v4_span_end(span) > v4_span_start(span) {
+                found = 1
+            }
+        } else {
+            pilot sig_id = v4_ty_lookup_signature(ty_id, owner_def)
+            if sig_id >= 0 {
+                hir_item = v4_editor_hir_item_for_def(hir_id, owner_def)
+                span = v4_editor_signature_param_name_span(ty_id, sig_id, param_name)
+                if v4_span_end(span) > v4_span_start(span) {
+                    found = 1
+                }
+            }
         }
     } else if kind == "RouteField" {
         pilot case_def = v4_editor_route_field_case_def(def_id)
