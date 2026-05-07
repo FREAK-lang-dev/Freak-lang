@@ -2665,6 +2665,14 @@ task v4_ty_doctrine_method_explicit_param_count(ty_id: int, sig_id: int, method_
     give back count
 }
 
+task v4_ty_doctrine_method_explicit_param_name(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
+    pilot shift = 0
+    if v4_ty_doctrine_method_is_instance(ty_id, sig_id, method_id) {
+        shift = 1
+    }
+    give back v4_ty_doctrine_method_param_name(ty_id, sig_id, method_id, param_id + shift)
+}
+
 task v4_ty_doctrine_method_explicit_param_type(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
     pilot shift = 0
     if v4_ty_doctrine_method_is_instance(ty_id, sig_id, method_id) {

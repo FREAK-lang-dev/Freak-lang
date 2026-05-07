@@ -1,0 +1,146 @@
+-- V4 MIR named call argument smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_named_call_good_source() -> word {
+    pilot src = "task compose(host: word, port: int, timeout: int) -> int {\n"
+    src = src + "    give back port + timeout\n"
+    src = src + "}\n"
+    src = src + "task pick<T>(left: T, right: T) -> T {\n"
+    src = src + "    give back left\n"
+    src = src + "}\n"
+    src = src + "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "    callsign: word\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task boost(self, bonus: int) -> int {\n"
+    src = src + "        give back self.hp + bonus\n"
+    src = src + "    }\n"
+    src = src + "    task ace(callsign: word) -> Pilot {\n"
+    src = src + "        give back Pilot " + "{" + " hp: 9, callsign: callsign " + "}\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot ship = Pilot " + "{" + " hp: 7, callsign: \"Shirogane\" " + "}\n"
+    src = src + "    pilot routed = compose(timeout: 30, host: \"localhost\", port: 8080)\n"
+    src = src + "    pilot picked = pick(right: 9, left: 7)\n"
+    src = src + "    pilot boosted = ship.boost(bonus: 2)\n"
+    src = src + "    pilot ace = Pilot::ace(callsign: \"Valkyrie-1\")\n"
+    src = src + "    give back routed + picked + boosted + ace.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_named_call_unknown_source() -> word {
+    pilot src = "task compose(host: word, port: int, timeout: int) -> int {\n"
+    src = src + "    give back port + timeout\n"
+    src = src + "}\n"
+    src = src + "task bad() -> int {\n"
+    src = src + "    give back compose(host: \"localhost\", port: 8080, retries: 3)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_named_call_duplicate_method_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task boost(self, bonus: int) -> int {\n"
+    src = src + "        give back self.hp + bonus\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task bad() -> int {\n"
+    src = src + "    pilot ship = Pilot " + "{" + " hp: 7 " + "}\n"
+    src = src + "    give back ship.boost(bonus: 2, bonus: 3)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_named_call_positional_after_named_source() -> word {
+    pilot src = "task pick<T>(left: T, right: T) -> T {\n"
+    src = src + "    give back left\n"
+    src = src + "}\n"
+    src = src + "task bad() -> int {\n"
+    src = src + "    give back pick(left: 7, 9)\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_named_good_stream = v4_lex_text(0, v4_mir_named_call_good_source())
+pilot v4_mir_named_good_tree = v4_parse_stream(0, v4_mir_named_good_stream)
+pilot v4_mir_named_good_hir = v4_hir_lower_tree(0, v4_mir_named_good_tree)
+pilot v4_mir_named_good_resolve = v4_resolve_lower_hir(0, v4_mir_named_good_hir)
+pilot v4_mir_named_good_ty = v4_ty_lower_resolve(0, v4_mir_named_good_resolve)
+pilot v4_mir_named_good_mir = v4_mir_lower_ty(0, v4_mir_named_good_ty)
+pilot v4_mir_named_good_main_def = v4_resolve_def_for_name(v4_mir_named_good_resolve, "main")
+pilot v4_mir_named_good_main_body = v4_mir_lookup_body(v4_mir_named_good_mir, v4_mir_named_good_main_def)
+pilot v4_mir_named_compose_call = v4_mir_stmt_rvalue(v4_mir_named_good_mir, v4_mir_named_good_main_body, 1)
+pilot v4_mir_named_pick_call = v4_mir_stmt_rvalue(v4_mir_named_good_mir, v4_mir_named_good_main_body, 2)
+pilot v4_mir_named_boost_call = v4_mir_stmt_rvalue(v4_mir_named_good_mir, v4_mir_named_good_main_body, 3)
+pilot v4_mir_named_ace_call = v4_mir_stmt_rvalue(v4_mir_named_good_mir, v4_mir_named_good_main_body, 4)
+
+pilot v4_mir_named_compose_arg0 = v4_mir_rvalue_call_arg(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_call, 0)
+pilot v4_mir_named_compose_arg1 = v4_mir_rvalue_call_arg(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_call, 1)
+pilot v4_mir_named_compose_arg2 = v4_mir_rvalue_call_arg(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_call, 2)
+pilot v4_mir_named_pick_arg0 = v4_mir_rvalue_call_arg(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_pick_call, 0)
+pilot v4_mir_named_pick_arg1 = v4_mir_rvalue_call_arg(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_pick_call, 1)
+
+say v4_mir_summary(v4_mir_named_good_mir)
+say "named-compose-kind=" + v4_mir_rvalue_kind(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_call)
+say "named-compose-op=" + v4_mir_rvalue_op(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_call)
+say "named-compose-ty=" + v4_mir_rvalue_ty(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_call)
+say "named-compose-arg-count=" + word_from_int(v4_mir_rvalue_call_arg_count(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_call))
+say "named-compose-arg0-text=" + v4_mir_rvalue_text(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_arg0)
+say "named-compose-arg0-ty=" + v4_mir_rvalue_ty(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_arg0)
+say "named-compose-arg1-text=" + v4_mir_rvalue_text(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_arg1)
+say "named-compose-arg1-ty=" + v4_mir_rvalue_ty(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_arg1)
+say "named-compose-arg2-text=" + v4_mir_rvalue_text(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_arg2)
+say "named-compose-arg2-ty=" + v4_mir_rvalue_ty(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_compose_arg2)
+say "named-pick-ty=" + v4_mir_rvalue_ty(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_pick_call)
+say "named-pick-arg0-text=" + v4_mir_rvalue_text(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_pick_arg0)
+say "named-pick-arg1-text=" + v4_mir_rvalue_text(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_pick_arg1)
+say "named-boost-op=" + v4_mir_rvalue_op(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_boost_call)
+say "named-boost-ty=" + v4_mir_rvalue_ty(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_boost_call)
+say "named-ace-op=" + v4_mir_rvalue_op(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_ace_call)
+say "named-ace-ty=" + v4_mir_rvalue_ty(v4_mir_named_good_mir, v4_mir_named_good_main_body, v4_mir_named_ace_call)
+say "named-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_named_good_mir))
+
+pilot v4_mir_named_unknown_stream = v4_lex_text(1, v4_mir_named_call_unknown_source())
+pilot v4_mir_named_unknown_tree = v4_parse_stream(1, v4_mir_named_unknown_stream)
+pilot v4_mir_named_unknown_hir = v4_hir_lower_tree(1, v4_mir_named_unknown_tree)
+pilot v4_mir_named_unknown_resolve = v4_resolve_lower_hir(1, v4_mir_named_unknown_hir)
+pilot v4_mir_named_unknown_ty = v4_ty_lower_resolve(1, v4_mir_named_unknown_resolve)
+pilot v4_mir_named_unknown_mir = v4_mir_lower_ty(1, v4_mir_named_unknown_ty)
+
+say "named-unknown-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_named_unknown_mir))
+say "named-unknown-message0=" + v4_diag_message(v4_mir_diag(v4_mir_named_unknown_mir, 0))
+say "named-unknown-help0=" + v4_diag_help(v4_mir_diag(v4_mir_named_unknown_mir, 0))
+say "named-unknown-message1=" + v4_diag_message(v4_mir_diag(v4_mir_named_unknown_mir, 1))
+say "named-unknown-help1=" + v4_diag_help(v4_mir_diag(v4_mir_named_unknown_mir, 1))
+
+pilot v4_mir_named_duplicate_stream = v4_lex_text(2, v4_mir_named_call_duplicate_method_source())
+pilot v4_mir_named_duplicate_tree = v4_parse_stream(2, v4_mir_named_duplicate_stream)
+pilot v4_mir_named_duplicate_hir = v4_hir_lower_tree(2, v4_mir_named_duplicate_tree)
+pilot v4_mir_named_duplicate_resolve = v4_resolve_lower_hir(2, v4_mir_named_duplicate_hir)
+pilot v4_mir_named_duplicate_ty = v4_ty_lower_resolve(2, v4_mir_named_duplicate_resolve)
+pilot v4_mir_named_duplicate_mir = v4_mir_lower_ty(2, v4_mir_named_duplicate_ty)
+
+say "named-duplicate-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_named_duplicate_mir))
+say "named-duplicate-message0=" + v4_diag_message(v4_mir_diag(v4_mir_named_duplicate_mir, 0))
+say "named-duplicate-help0=" + v4_diag_help(v4_mir_diag(v4_mir_named_duplicate_mir, 0))
+say "named-duplicate-message1=" + v4_diag_message(v4_mir_diag(v4_mir_named_duplicate_mir, 1))
+say "named-duplicate-help1=" + v4_diag_help(v4_mir_diag(v4_mir_named_duplicate_mir, 1))
+
+pilot v4_mir_named_positional_stream = v4_lex_text(3, v4_mir_named_call_positional_after_named_source())
+pilot v4_mir_named_positional_tree = v4_parse_stream(3, v4_mir_named_positional_stream)
+pilot v4_mir_named_positional_hir = v4_hir_lower_tree(3, v4_mir_named_positional_tree)
+pilot v4_mir_named_positional_resolve = v4_resolve_lower_hir(3, v4_mir_named_positional_hir)
+pilot v4_mir_named_positional_ty = v4_ty_lower_resolve(3, v4_mir_named_positional_resolve)
+pilot v4_mir_named_positional_mir = v4_mir_lower_ty(3, v4_mir_named_positional_ty)
+
+say "named-positional-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_named_positional_mir))
+say "named-positional-message0=" + v4_diag_message(v4_mir_diag(v4_mir_named_positional_mir, 0))
+say "named-positional-help0=" + v4_diag_help(v4_mir_diag(v4_mir_named_positional_mir, 0))
+say "named-positional-message1=" + v4_diag_message(v4_mir_diag(v4_mir_named_positional_mir, 1))
+say "named-positional-help1=" + v4_diag_help(v4_mir_diag(v4_mir_named_positional_mir, 1))
