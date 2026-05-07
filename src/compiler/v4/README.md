@@ -152,6 +152,8 @@ The invalidation counters are the public contract for source-change reporting. `
 
 Runs health checks against a snapshot or a snapshot diff input. With no text payload, it checks the current workspace snapshot. With a snapshot payload, it checks that snapshot. With a diff input payload, it checks both snapshots and appends a `health-diff` record.
 
+The diff-input form accepted here is the same `00-unit-diff-input` envelope documented under `workspace/unitSnapshotDiff`, including the `before-ref` / `after-ref` variant for in-process tooling.
+
 ```text
 00-unit-health|format=freak-00-unit-health-v1|ok=<0-or-1>|snapshot-ok=<0-or-1>|snapshot-bytes=<bytes>|manifest-bytes=<bytes>|manifest-lines=<lines>|sources=<count>|sections-ok=<count>|sections-bad=<count>|query-entries=<count>|query-dirty=<count>|query-invalidations=<count>|query-hits=<count>|query-misses=<count>|query-stores=<count>|validation=<escaped-message>
 health-query|ok=<0-or-1>|generation=<id>|generations=<count>|entries=<count>|dirty=<count>|edges=<count>|invalidations=<count>|telemetry=<count>|hits=<count>|misses=<count>|stores=<count>|validation=<escaped-message>
