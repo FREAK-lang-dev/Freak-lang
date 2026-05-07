@@ -38,8 +38,12 @@ task v4_hover_snapshot_source_text() -> word {
     src = src + "        give back self.rank\n"
     src = src + "    }\n"
     src = src + "}\n"
+    src = src + "variant Event {\n"
+    src = src + "    Key " + v4_hover_snapshot_braces(" code: int ") + "\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot " + v4_hover_snapshot_braces(" rank: 7 ") + "\n"
+    src = src + "    pilot event = Event::Key " + v4_hover_snapshot_braces(" code: 9 ") + "\n"
     src = src + "    give back ace.salute()\n"
     src = src + "}\n"
     give back src
@@ -49,9 +53,13 @@ pilot v4_hover_snapshot_source = v4_hover_snapshot_source_text()
 pilot v4_hover_snapshot_stream = v4_lex_text(0, v4_hover_snapshot_source)
 pilot v4_hover_snapshot_main_offset = v4_hover_snapshot_token_offset(v4_hover_snapshot_stream, "main", 0)
 pilot v4_hover_snapshot_method_offset = v4_hover_snapshot_token_offset(v4_hover_snapshot_stream, "salute", 1)
+pilot v4_hover_snapshot_variant_offset = v4_hover_snapshot_token_offset(v4_hover_snapshot_stream, "Event", 1)
+pilot v4_hover_snapshot_variant_case_offset = v4_hover_snapshot_token_offset(v4_hover_snapshot_stream, "Key", 1)
 
 pilot v4_hover_snapshot_main = v4_hover_text_cached("hover-snapshot.fk", v4_hover_snapshot_source, v4_hover_snapshot_main_offset)
 pilot v4_hover_snapshot_method = v4_hover_text_cached("hover-snapshot.fk", v4_hover_snapshot_source, v4_hover_snapshot_method_offset)
+pilot v4_hover_snapshot_variant = v4_hover_text_cached("hover-snapshot.fk", v4_hover_snapshot_source, v4_hover_snapshot_variant_offset)
+pilot v4_hover_snapshot_variant_case = v4_hover_text_cached("hover-snapshot.fk", v4_hover_snapshot_source, v4_hover_snapshot_variant_case_offset)
 say v4_hover_summary(v4_hover_snapshot_main)
 say v4_hover_snapshot_summary()
 
@@ -75,9 +83,19 @@ say v4_driver_confirm_restored_document_text("hover-snapshot.fk", v4_hover_snaps
 pilot v4_hover_file = v4_source_find("hover-snapshot.fk")
 pilot v4_hover_fingerprint = v4_source_fingerprint(v4_hover_file)
 pilot v4_hover_restored_id = word_to_int(v4_query_get(v4_hover_query_key("hover-snapshot.fk", v4_hover_snapshot_method_offset), v4_hover_fingerprint))
+pilot v4_hover_variant_restored_id = word_to_int(v4_query_get(v4_hover_query_key("hover-snapshot.fk", v4_hover_snapshot_variant_offset), v4_hover_fingerprint))
+pilot v4_hover_variant_case_restored_id = word_to_int(v4_query_get(v4_hover_query_key("hover-snapshot.fk", v4_hover_snapshot_variant_case_offset), v4_hover_fingerprint))
 say v4_hover_summary(v4_hover_restored_id)
 say "hover-snapshot-method-kind=" + v4_hover_kind(v4_hover_snapshot_method)
 say "hover-snapshot-method-type=" + v4_hover_type(v4_hover_snapshot_method)
 say "hover-snapshot-restored-kind=" + v4_hover_kind(v4_hover_restored_id)
 say "hover-snapshot-restored-type=" + v4_hover_type(v4_hover_restored_id)
+say "hover-snapshot-variant-kind=" + v4_hover_kind(v4_hover_snapshot_variant)
+say "hover-snapshot-variant-type=" + v4_hover_type(v4_hover_snapshot_variant)
+say "hover-snapshot-variant-restored-kind=" + v4_hover_kind(v4_hover_variant_restored_id)
+say "hover-snapshot-variant-restored-type=" + v4_hover_type(v4_hover_variant_restored_id)
+say "hover-snapshot-variant-case-kind=" + v4_hover_kind(v4_hover_snapshot_variant_case)
+say "hover-snapshot-variant-case-type=" + v4_hover_type(v4_hover_snapshot_variant_case)
+say "hover-snapshot-variant-case-restored-kind=" + v4_hover_kind(v4_hover_variant_case_restored_id)
+say "hover-snapshot-variant-case-restored-type=" + v4_hover_type(v4_hover_variant_case_restored_id)
 say v4_driver_confirm_restored_document_text("hover-snapshot.fk", "task changed() => 7\n")

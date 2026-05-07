@@ -48,8 +48,12 @@ task v4_definition_snapshot_source_text() -> word {
     src = src + "        give back Pilot " + v4_definition_snapshot_braces(" rank: level ") + "\n"
     src = src + "    }\n"
     src = src + "}\n"
+    src = src + "variant Event {\n"
+    src = src + "    Key " + v4_definition_snapshot_braces(" code: int ") + "\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot::pack(7)\n"
+    src = src + "    pilot event = Event::Key " + v4_definition_snapshot_braces(" code: 9 ") + "\n"
     src = src + "    give back ace.salute()\n"
     src = src + "}\n"
     give back src
@@ -58,8 +62,10 @@ task v4_definition_snapshot_source_text() -> word {
 pilot v4_definition_snapshot_source = v4_definition_snapshot_source_text()
 pilot v4_definition_snapshot_stream = v4_lex_text(0, v4_definition_snapshot_source)
 pilot v4_definition_snapshot_salute_offset = v4_definition_snapshot_token_offset(v4_definition_snapshot_stream, "salute", 1)
+pilot v4_definition_snapshot_variant_case_offset = v4_definition_snapshot_token_offset(v4_definition_snapshot_stream, "Key", 1)
 
 pilot v4_definition_snapshot_method = v4_definition_at_text_cached("definition-snapshot.fk", v4_definition_snapshot_source, v4_definition_snapshot_salute_offset)
+pilot v4_definition_snapshot_variant_case = v4_definition_at_text_cached("definition-snapshot.fk", v4_definition_snapshot_source, v4_definition_snapshot_variant_case_offset)
 say v4_definition_at_summary(v4_definition_snapshot_method)
 say v4_definition_snapshot_summary()
 
@@ -83,10 +89,16 @@ say v4_driver_confirm_restored_document_text("definition-snapshot.fk", v4_defini
 pilot v4_definition_file = v4_source_find("definition-snapshot.fk")
 pilot v4_definition_fingerprint = v4_source_fingerprint(v4_definition_file)
 pilot v4_definition_restored_id = word_to_int(v4_query_get(v4_definition_at_query_key("definition-snapshot.fk", v4_definition_snapshot_salute_offset), v4_definition_fingerprint))
+pilot v4_definition_variant_case_restored_id = word_to_int(v4_query_get(v4_definition_at_query_key("definition-snapshot.fk", v4_definition_snapshot_variant_case_offset), v4_definition_fingerprint))
 say v4_definition_at_summary(v4_definition_restored_id)
 say "definition-snapshot-method-kind=" + v4_definition_at_kind(v4_definition_snapshot_method)
 say "definition-snapshot-method-found=" + word_from_int(v4_definition_at_found(v4_definition_snapshot_method))
 say "definition-snapshot-restored-kind=" + v4_definition_at_kind(v4_definition_restored_id)
 say "definition-snapshot-restored-found=" + word_from_int(v4_definition_at_found(v4_definition_restored_id))
 say "definition-snapshot-restored-matches=" + v4_definition_snapshot_bool_word(v4_span_start(v4_definition_at_span(v4_definition_restored_id)) == v4_definition_snapshot_token_offset(v4_definition_snapshot_stream, "salute", 0))
+say "definition-snapshot-variant-case-kind=" + v4_definition_at_kind(v4_definition_snapshot_variant_case)
+say "definition-snapshot-variant-case-found=" + word_from_int(v4_definition_at_found(v4_definition_snapshot_variant_case))
+say "definition-snapshot-variant-case-restored-kind=" + v4_definition_at_kind(v4_definition_variant_case_restored_id)
+say "definition-snapshot-variant-case-restored-found=" + word_from_int(v4_definition_at_found(v4_definition_variant_case_restored_id))
+say "definition-snapshot-variant-case-restored-matches=" + v4_definition_snapshot_bool_word(v4_span_start(v4_definition_at_span(v4_definition_variant_case_restored_id)) == v4_definition_snapshot_token_offset(v4_definition_snapshot_stream, "Key", 0))
 say v4_driver_confirm_restored_document_text("definition-snapshot.fk", "task changed() => 7\n")

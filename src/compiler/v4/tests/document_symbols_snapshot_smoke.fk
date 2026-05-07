@@ -51,8 +51,12 @@ task v4_doc_snapshot_source_text() -> word {
     src = src + "        give back Pilot " + v4_doc_snapshot_braces(" rank: level ") + "\n"
     src = src + "    }\n"
     src = src + "}\n"
+    src = src + "variant Event {\n"
+    src = src + "    Key " + v4_doc_snapshot_braces(" code: int ") + "\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot::pack(7)\n"
+    src = src + "    pilot event = Event::Key " + v4_doc_snapshot_braces(" code: 9 ") + "\n"
     src = src + "    give back ace.salute()\n"
     src = src + "}\n"
     give back src
@@ -60,6 +64,8 @@ task v4_doc_snapshot_source_text() -> word {
 
 pilot v4_doc_snapshot_source = v4_doc_snapshot_source_text()
 pilot v4_doc_snapshot_id = v4_document_symbols_text_cached("document-symbols-snapshot.fk", v4_doc_snapshot_source)
+pilot v4_doc_snapshot_event = v4_doc_snapshot_find_symbol(v4_doc_snapshot_id, "Event")
+pilot v4_doc_snapshot_event_key = v4_doc_snapshot_find_symbol(v4_doc_snapshot_id, "Event::Key")
 pilot v4_doc_snapshot_salute = v4_doc_snapshot_find_symbol(v4_doc_snapshot_id, "Pilot::salute")
 pilot v4_doc_snapshot_pack = v4_doc_snapshot_find_symbol(v4_doc_snapshot_id, "Pilot::pack")
 say v4_document_symbols_summary(v4_doc_snapshot_id)
@@ -85,12 +91,23 @@ say v4_driver_confirm_restored_document_text("document-symbols-snapshot.fk", v4_
 pilot v4_doc_file = v4_source_find("document-symbols-snapshot.fk")
 pilot v4_doc_fingerprint = v4_source_fingerprint(v4_doc_file)
 pilot v4_doc_restored_id = word_to_int(v4_query_get(v4_document_symbols_query_key("document-symbols-snapshot.fk"), v4_doc_fingerprint))
+pilot v4_doc_restored_event = v4_doc_snapshot_find_symbol(v4_doc_restored_id, "Event")
+pilot v4_doc_restored_event_key = v4_doc_snapshot_find_symbol(v4_doc_restored_id, "Event::Key")
 pilot v4_doc_restored_salute = v4_doc_snapshot_find_symbol(v4_doc_restored_id, "Pilot::salute")
 pilot v4_doc_restored_pack = v4_doc_snapshot_find_symbol(v4_doc_restored_id, "Pilot::pack")
 say v4_document_symbols_summary(v4_doc_restored_id)
+say "document-symbols-snapshot-event-found=" + v4_doc_snapshot_bool_word(v4_doc_snapshot_event >= 0)
+say "document-symbols-snapshot-event-kind=" + v4_doc_snapshot_kind_or_empty(v4_doc_snapshot_id, v4_doc_snapshot_event)
+say "document-symbols-snapshot-event-type=" + v4_doc_snapshot_type_or_empty(v4_doc_snapshot_id, v4_doc_snapshot_event)
+say "document-symbols-snapshot-event-key-found=" + v4_doc_snapshot_bool_word(v4_doc_snapshot_event_key >= 0)
+say "document-symbols-snapshot-event-key-type=" + v4_doc_snapshot_type_or_empty(v4_doc_snapshot_id, v4_doc_snapshot_event_key)
 say "document-symbols-snapshot-salute-found=" + v4_doc_snapshot_bool_word(v4_doc_snapshot_salute >= 0)
 say "document-symbols-snapshot-salute-kind=" + v4_doc_snapshot_kind_or_empty(v4_doc_snapshot_id, v4_doc_snapshot_salute)
 say "document-symbols-snapshot-salute-type=" + v4_doc_snapshot_type_or_empty(v4_doc_snapshot_id, v4_doc_snapshot_salute)
+say "document-symbols-snapshot-restored-event-found=" + v4_doc_snapshot_bool_word(v4_doc_restored_event >= 0)
+say "document-symbols-snapshot-restored-event-kind=" + v4_doc_snapshot_kind_or_empty(v4_doc_restored_id, v4_doc_restored_event)
+say "document-symbols-snapshot-restored-event-key-found=" + v4_doc_snapshot_bool_word(v4_doc_restored_event_key >= 0)
+say "document-symbols-snapshot-restored-event-key-type=" + v4_doc_snapshot_type_or_empty(v4_doc_restored_id, v4_doc_restored_event_key)
 say "document-symbols-snapshot-restored-salute-found=" + v4_doc_snapshot_bool_word(v4_doc_restored_salute >= 0)
 say "document-symbols-snapshot-restored-salute-kind=" + v4_doc_snapshot_kind_or_empty(v4_doc_restored_id, v4_doc_restored_salute)
 say "document-symbols-snapshot-restored-pack-found=" + v4_doc_snapshot_bool_word(v4_doc_restored_pack >= 0)
