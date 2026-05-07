@@ -1,0 +1,120 @@
+-- V4 named call editor completion smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_named_call_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_named_call_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_named_call_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_named_call_editor_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_named_call_editor_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_named_call_editor_insert_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_insert_text(completion_id, item_id)
+}
+
+task v4_named_call_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_named_call_editor_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_named_call_editor_source_text() -> word {
+    pilot src = "task compose(host: word, port: int, timeout: int) -> int {\n"
+    src = src + "    give back port + timeout\n"
+    src = src + "}\n"
+    src = src + "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "impl Pilot {\n"
+    src = src + "    task boost(self, bonus: int) -> int {\n"
+    src = src + "        give back self.hp + bonus\n"
+    src = src + "    }\n"
+    src = src + "    task ace(callsign: word) -> Pilot {\n"
+    src = src + "        give back Pilot " + v4_named_call_editor_braces(" hp: 9 ") + "\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot ship = Pilot " + v4_named_call_editor_braces(" hp: 7 ") + "\n"
+    src = src + "    pilot routed = compose(host: \"localhost\", port: 8080)\n"
+    src = src + "    pilot boosted = ship.boost(2)\n"
+    src = src + "    pilot ace = Pilot::ace(\"Valkyrie-1\")\n"
+    src = src + "    give back routed + boosted + ace.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_named_call_editor_source = v4_named_call_editor_source_text()
+pilot v4_named_call_editor_stream = v4_lex_text(0, v4_named_call_editor_source)
+pilot v4_named_call_editor_compose_offset = v4_named_call_editor_token_offset(v4_named_call_editor_stream, "8080", 0)
+pilot v4_named_call_editor_boost_offset = v4_named_call_editor_token_offset(v4_named_call_editor_stream, "2", 0)
+pilot v4_named_call_editor_ace_offset = v4_named_call_editor_token_offset(v4_named_call_editor_stream, "Valkyrie-1", 0)
+
+pilot v4_named_call_editor_compose_completion = v4_completion_text_cached("named-call-editor.fk", v4_named_call_editor_source, v4_named_call_editor_compose_offset)
+pilot v4_named_call_editor_boost_completion = v4_completion_text_cached("named-call-editor.fk", v4_named_call_editor_source, v4_named_call_editor_boost_offset)
+pilot v4_named_call_editor_ace_completion = v4_completion_text_cached("named-call-editor.fk", v4_named_call_editor_source, v4_named_call_editor_ace_offset)
+
+pilot v4_named_call_editor_compose_timeout = v4_named_call_editor_find_completion_label(v4_named_call_editor_compose_completion, "timeout:")
+pilot v4_named_call_editor_compose_host = v4_named_call_editor_find_completion_label(v4_named_call_editor_compose_completion, "host:")
+pilot v4_named_call_editor_compose_port = v4_named_call_editor_find_completion_label(v4_named_call_editor_compose_completion, "port:")
+pilot v4_named_call_editor_boost_bonus = v4_named_call_editor_find_completion_label(v4_named_call_editor_boost_completion, "bonus:")
+pilot v4_named_call_editor_boost_self = v4_named_call_editor_find_completion_label(v4_named_call_editor_boost_completion, "self:")
+pilot v4_named_call_editor_ace_callsign = v4_named_call_editor_find_completion_label(v4_named_call_editor_ace_completion, "callsign:")
+pilot v4_named_call_editor_ace_bonus = v4_named_call_editor_find_completion_label(v4_named_call_editor_ace_completion, "bonus:")
+
+say "named-call-editor-compose-timeout-found=" + v4_named_call_editor_bool_word(v4_named_call_editor_compose_timeout >= 0)
+say "named-call-editor-compose-timeout-detail=" + v4_named_call_editor_detail_or_empty(v4_named_call_editor_compose_completion, v4_named_call_editor_compose_timeout)
+say "named-call-editor-compose-timeout-insert=" + v4_named_call_editor_insert_or_empty(v4_named_call_editor_compose_completion, v4_named_call_editor_compose_timeout)
+say "named-call-editor-compose-host-found=" + v4_named_call_editor_bool_word(v4_named_call_editor_compose_host >= 0)
+say "named-call-editor-compose-port-found=" + v4_named_call_editor_bool_word(v4_named_call_editor_compose_port >= 0)
+say "named-call-editor-boost-bonus-found=" + v4_named_call_editor_bool_word(v4_named_call_editor_boost_bonus >= 0)
+say "named-call-editor-boost-bonus-detail=" + v4_named_call_editor_detail_or_empty(v4_named_call_editor_boost_completion, v4_named_call_editor_boost_bonus)
+say "named-call-editor-boost-bonus-insert=" + v4_named_call_editor_insert_or_empty(v4_named_call_editor_boost_completion, v4_named_call_editor_boost_bonus)
+say "named-call-editor-boost-self-found=" + v4_named_call_editor_bool_word(v4_named_call_editor_boost_self >= 0)
+say "named-call-editor-ace-callsign-found=" + v4_named_call_editor_bool_word(v4_named_call_editor_ace_callsign >= 0)
+say "named-call-editor-ace-callsign-detail=" + v4_named_call_editor_detail_or_empty(v4_named_call_editor_ace_completion, v4_named_call_editor_ace_callsign)
+say "named-call-editor-ace-callsign-insert=" + v4_named_call_editor_insert_or_empty(v4_named_call_editor_ace_completion, v4_named_call_editor_ace_callsign)
+say "named-call-editor-ace-bonus-found=" + v4_named_call_editor_bool_word(v4_named_call_editor_ace_bonus >= 0)

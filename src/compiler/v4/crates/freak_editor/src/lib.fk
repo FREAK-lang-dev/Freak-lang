@@ -489,6 +489,150 @@ task v4_editor_method_call_rvalue_at_token(stream_id: int, ty_id: int, mir_id: i
     give back best_rvalue
 }
 
+task v4_editor_call_op_separator(call_op: word) -> int {
+    if call_op == "" {
+        give back 0 - 1
+    }
+    pilot idx = call_op.length() - 1
+    repeat until idx < 0 {
+        if call_op.char_at(idx) == "." {
+            give back idx
+        }
+        if idx > 0 and call_op.char_at(idx) == ":" and call_op.char_at(idx - 1) == ":" {
+            give back idx - 1
+        }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_call_op_method_name(call_op: word) -> word {
+    pilot sep = v4_editor_call_op_separator(call_op)
+    if sep < 0 {
+        give back ""
+    }
+    if call_op.char_at(sep) == "." {
+        if sep + 1 >= call_op.length() {
+            give back ""
+        }
+        give back call_op.substring(sep + 1, call_op.length())
+    }
+    if sep + 2 >= call_op.length() {
+        give back ""
+    }
+    give back call_op.substring(sep + 2, call_op.length())
+}
+
+task v4_editor_call_rvalue_at_offset(mir_id: int, body_id: int, offset: int) -> int {
+    if body_id < 0 {
+        give back 0 - 1
+    }
+    pilot best_rvalue = 0 - 1
+    pilot best_width = 0 - 1
+    pilot rvalue_id = 0
+    pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
+    repeat until rvalue_id >= rvalue_count {
+        if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call {
+            pilot span = v4_mir_rvalue_span(mir_id, body_id, rvalue_id)
+            if offset >= v4_span_start(span) and offset <= v4_span_end(span) {
+                pilot width = v4_span_end(span) - v4_span_start(span)
+                if best_rvalue < 0 or width < best_width {
+                    best_rvalue = rvalue_id
+                    best_width = width
+                }
+            }
+        }
+        rvalue_id += 1
+    }
+    give back best_rvalue
+}
+
+task v4_editor_first_nontrivia_token_in_span(stream_id: int, span: word) -> int {
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_type(stream_id, token_id) != v4_tok_trivia {
+            pilot token_span = v4_lex_token_span(stream_id, token_id)
+            if v4_span_start(token_span) >= v4_span_start(span) and v4_span_start(token_span) < v4_span_end(span) {
+                give back token_id
+            }
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_last_nontrivia_token_in_span(stream_id: int, span: word) -> int {
+    pilot best_token = 0 - 1
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_type(stream_id, token_id) != v4_tok_trivia {
+            pilot token_span = v4_lex_token_span(stream_id, token_id)
+            if v4_span_start(token_span) < v4_span_end(span) and v4_span_end(token_span) <= v4_span_end(span) {
+                best_token = token_id
+            }
+        }
+        token_id += 1
+    }
+    give back best_token
+}
+
+task v4_editor_call_rvalue_open_token(stream_id: int, mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 {
+        give back 0 - 1
+    }
+    pilot span = v4_mir_rvalue_span(mir_id, body_id, rvalue_id)
+    pilot start_token = v4_editor_first_nontrivia_token_in_span(stream_id, span)
+    pilot end_token = v4_editor_last_nontrivia_token_in_span(stream_id, span)
+    if start_token < 0 or end_token < start_token {
+        give back 0 - 1
+    }
+    give back v4_mir_find_open_paren_token(stream_id, start_token, end_token)
+}
+
+task v4_editor_call_rvalue_close_token(stream_id: int, mir_id: int, body_id: int, rvalue_id: int) -> int {
+    pilot open_token = v4_editor_call_rvalue_open_token(stream_id, mir_id, body_id, rvalue_id)
+    if open_token < 0 {
+        give back 0 - 1
+    }
+    pilot span = v4_mir_rvalue_span(mir_id, body_id, rvalue_id)
+    pilot end_token = v4_editor_last_nontrivia_token_in_span(stream_id, span)
+    if end_token < open_token {
+        give back 0 - 1
+    }
+    give back v4_mir_find_matching_paren(stream_id, open_token, end_token + 1)
+}
+
+task v4_editor_offset_in_call_args(stream_id: int, mir_id: int, body_id: int, rvalue_id: int, offset: int) -> bool {
+    pilot open_token = v4_editor_call_rvalue_open_token(stream_id, mir_id, body_id, rvalue_id)
+    pilot close_token = v4_editor_call_rvalue_close_token(stream_id, mir_id, body_id, rvalue_id)
+    if open_token < 0 or close_token <= open_token {
+        give back false
+    }
+    pilot open_span = v4_lex_token_span(stream_id, open_token)
+    pilot close_span = v4_lex_token_span(stream_id, close_token)
+    give back offset >= v4_span_end(open_span) and offset <= v4_span_end(close_span)
+}
+
+task v4_editor_call_arg_uses_label(stream_id: int, open_token: int, close_token: int, wanted_name: word) -> bool {
+    if wanted_name == "" or open_token < 0 or close_token <= open_token {
+        give back false
+    }
+    pilot arg_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    pilot arg_idx = 0
+    pilot arg_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+    repeat until arg_idx >= arg_count {
+        pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
+        if v4_mir_call_arg_label(stream_id, arg_start, arg_end) == wanted_name {
+            give back true
+        }
+        arg_idx += 1
+        arg_start = v4_mir_skip_trivia(stream_id, arg_end + 1)
+    }
+    give back false
+}
+
 task v4_editor_route_case_def(ty_id: int, sig_id: int, case_name: word) -> word {
     if sig_id < 0 or case_name == "" {
         give back ""
@@ -2074,6 +2218,81 @@ task v4_completion_add_methods_for_offset(completion_id: int, path: word, text: 
     }
 }
 
+task v4_completion_add_named_call_params_for_offset(completion_id: int, path: word, text: word, offset: int) -> void {
+    pilot stream_id = v4_lex_text_cached(path, text)
+    pilot hir_id = v4_hir_text_cached(path, text)
+    pilot ty_id = v4_ty_text_cached(path, text)
+    pilot mir_id = v4_mir_text_cached(path, text)
+    pilot hir_item = v4_editor_hir_item_at(hir_id, offset)
+    pilot body_id = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
+    if body_id < 0 {
+        give back
+    }
+
+    pilot rvalue_id = v4_editor_call_rvalue_at_offset(mir_id, body_id, offset)
+    if rvalue_id < 0 or not v4_editor_offset_in_call_args(stream_id, mir_id, body_id, rvalue_id, offset) {
+        give back
+    }
+
+    pilot open_token = v4_editor_call_rvalue_open_token(stream_id, mir_id, body_id, rvalue_id)
+    pilot close_token = v4_editor_call_rvalue_close_token(stream_id, mir_id, body_id, rvalue_id)
+    if open_token < 0 or close_token <= open_token {
+        give back
+    }
+
+    pilot call_op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    pilot method_name = v4_editor_call_op_method_name(call_op)
+    if method_name != "" {
+        pilot owner_ty = v4_editor_method_call_owner(call_op, method_name)
+        if owner_ty == "" {
+            give back
+        }
+        pilot lookup_owner_ty = v4_mir_compact_type_text(owner_ty)
+        pilot canonical_owner_ty = v4_ty_canonical_type(ty_id, lookup_owner_ty)
+        if canonical_owner_ty != "" and canonical_owner_ty != v4_ty_unknown {
+            lookup_owner_ty = canonical_owner_ty
+        }
+        pilot method_ref = v4_mir_find_method_ref(mir_id, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(call_op, method_name))
+        if method_ref == "" {
+            give back
+        }
+        pilot hir_impl = v4_mir_method_ref_hir_item(method_ref)
+        pilot method_id = v4_mir_method_ref_method_id(method_ref)
+        pilot param_id = 0
+        pilot param_count = v4_ty_impl_method_explicit_param_count(ty_id, hir_impl, method_id)
+        repeat until param_id >= param_count {
+            pilot param_name = v4_ty_impl_method_explicit_param_name(ty_id, hir_impl, method_id, param_id)
+            if param_name != "" and not v4_editor_call_arg_uses_label(stream_id, open_token, close_token, param_name) {
+                pilot label = param_name + ":"
+                if not v4_completion_has_label(completion_id, label) {
+                    pilot detail = "parameter " + param_name + ": " + v4_ty_impl_method_explicit_param_type_for_owner(ty_id, hir_impl, method_id, param_id, lookup_owner_ty)
+                    v4_completion_add(completion_id, label, "parameter", detail, param_name + ": ")
+                }
+            }
+            param_id += 1
+        }
+        give back
+    }
+
+    pilot sig_id = v4_mir_signature_id_for_name(mir_id, call_op)
+    if sig_id < 0 {
+        give back
+    }
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
+        if param_name != "" and not v4_editor_call_arg_uses_label(stream_id, open_token, close_token, param_name) {
+            pilot label = param_name + ":"
+            if not v4_completion_has_label(completion_id, label) {
+                pilot detail = "parameter " + param_name + ": " + v4_ty_signature_param_type(ty_id, sig_id, param_id)
+                v4_completion_add(completion_id, label, "parameter", detail, param_name + ": ")
+            }
+        }
+        param_id += 1
+    }
+}
+
 task v4_completion_summary(completion_id: int) -> word {
     pilot summary = "completion id=" + word_from_int(completion_id)
     summary = summary + " path=" + v4_completion_path(completion_id)
@@ -2131,6 +2350,7 @@ task v4_completion_text_cached(path: word, text: word, offset: int) -> int {
     pilot completion_id = v4_editor_completion_new(path, offset)
     v4_completion_add_document_symbols(completion_id, doc_id)
     v4_completion_add_locals_for_offset(completion_id, path, text, offset)
+    v4_completion_add_named_call_params_for_offset(completion_id, path, text, offset)
     v4_completion_add_methods_for_offset(completion_id, path, text, offset)
     v4_completion_add_route_fields_for_offset(completion_id, path, text, offset)
     v4_completion_add_lifetimes_for_offset(completion_id, path, text, offset)

@@ -1891,6 +1891,25 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "named call editor completions",
+        "fixture": "named_call_editor_smoke.fk",
+        "expect": [
+            "named-call-editor-compose-timeout-found=true",
+            "named-call-editor-compose-timeout-detail=parameter timeout: int",
+            "named-call-editor-compose-timeout-insert=timeout: ",
+            "named-call-editor-compose-host-found=false",
+            "named-call-editor-compose-port-found=false",
+            "named-call-editor-boost-bonus-found=true",
+            "named-call-editor-boost-bonus-detail=parameter bonus: int",
+            "named-call-editor-boost-bonus-insert=bonus: ",
+            "named-call-editor-boost-self-found=false",
+            "named-call-editor-ace-callsign-found=true",
+            "named-call-editor-ace-callsign-detail=parameter callsign: word",
+            "named-call-editor-ace-callsign-insert=callsign: ",
+            "named-call-editor-ace-bonus-found=false",
+        ],
+    },
+    {
         "name": "local scope-aware editor facts",
         "fixture": "local_scope_editor_smoke.fk",
         "expect": [
