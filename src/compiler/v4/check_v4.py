@@ -1781,6 +1781,8 @@ EXECUTABLE_SMOKES = [
             "semantic-variant-type=variant Event",
             "semantic-variant-case-kind=RouteCase",
             "semantic-variant-case-type=variant case Event::Key { code: int }",
+            "semantic-param-kind=Parameter",
+            "semantic-param-type=parameter host: word",
         ],
     },
     {
@@ -1796,6 +1798,8 @@ EXECUTABLE_SMOKES = [
             "variant-hover-type=variant Event",
             "variant-case-hover-kind=RouteCase",
             "variant-case-hover-type=variant case Event::Key { code: int }",
+            "param-hover-kind=Parameter",
+            "param-hover-type=parameter bonus: int",
         ],
     },
     {
@@ -1811,6 +1815,9 @@ EXECUTABLE_SMOKES = [
             "definition-static-kind=Method",
             "definition-static-found=1",
             "definition-static-matches=true",
+            "definition-param-kind=Parameter",
+            "definition-param-found=1",
+            "definition-param-matches=true",
             "definition-variant-case-kind=RouteCase",
             "definition-variant-case-found=1",
             "definition-variant-case-matches=true",

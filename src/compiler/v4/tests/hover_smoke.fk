@@ -37,6 +37,9 @@ task v4_hover_source_text() -> word {
     src = src + "    task salute(self) -> int {\n"
     src = src + "        give back self.rank\n"
     src = src + "    }\n"
+    src = src + "    task boost(self, bonus: int) -> int {\n"
+    src = src + "        give back self.rank + bonus\n"
+    src = src + "    }\n"
     src = src + "}\n"
     src = src + "variant Event {\n"
     src = src + "    Key " + v4_hover_braces(" code: int ") + "\n"
@@ -44,7 +47,8 @@ task v4_hover_source_text() -> word {
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot " + v4_hover_braces(" rank: 7 ") + "\n"
     src = src + "    pilot event = Event::Key " + v4_hover_braces(" code: 9 ") + "\n"
-    src = src + "    give back ace.salute()\n"
+    src = src + "    pilot power = ace.boost(bonus: 2)\n"
+    src = src + "    give back ace.salute() + power\n"
     src = src + "}\n"
     give back src
 }
@@ -57,6 +61,7 @@ pilot v4_hover_body = v4_hover_text_cached("hover.fk", v4_hover_source, v4_hover
 pilot v4_hover_method = v4_hover_text_cached("hover.fk", v4_hover_source, v4_hover_token_offset(v4_hover_stream, "salute", 1))
 pilot v4_hover_variant = v4_hover_text_cached("hover.fk", v4_hover_source, v4_hover_token_offset(v4_hover_stream, "Event", 1))
 pilot v4_hover_variant_case = v4_hover_text_cached("hover.fk", v4_hover_source, v4_hover_token_offset(v4_hover_stream, "Key", 1))
+pilot v4_hover_param = v4_hover_text_cached("hover.fk", v4_hover_source, v4_hover_token_offset(v4_hover_stream, "bonus", 2))
 
 say v4_hover_summary(v4_hover_main)
 say "hover-name=" + v4_hover_name(v4_hover_main)
@@ -70,3 +75,5 @@ say "variant-hover-kind=" + v4_hover_kind(v4_hover_variant)
 say "variant-hover-type=" + v4_hover_type(v4_hover_variant)
 say "variant-case-hover-kind=" + v4_hover_kind(v4_hover_variant_case)
 say "variant-case-hover-type=" + v4_hover_type(v4_hover_variant_case)
+say "param-hover-kind=" + v4_hover_kind(v4_hover_param)
+say "param-hover-type=" + v4_hover_type(v4_hover_param)

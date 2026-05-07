@@ -52,7 +52,7 @@ task v4_definition_source_text() -> word {
     src = src + "    Key " + v4_definition_braces(" code: int ") + "\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
-    src = src + "    pilot ace = Pilot::pack(7)\n"
+    src = src + "    pilot ace = Pilot::pack(level: 7)\n"
     src = src + "    pilot event = Event::Key " + v4_definition_braces(" code: 9 ") + "\n"
     src = src + "    give back ace.salute()\n"
     src = src + "}\n"
@@ -65,6 +65,7 @@ pilot v4_def_stream = v4_lex_text(0, v4_def_source)
 pilot v4_def_main = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "main", 0))
 pilot v4_def_salute = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "salute", 1))
 pilot v4_def_pack = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "pack", 1))
+pilot v4_def_level = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "level", 2))
 pilot v4_def_variant_case = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "Key", 1))
 
 say v4_definition_at_summary(v4_def_main)
@@ -79,6 +80,9 @@ say "definition-method-matches=" + v4_definition_bool_word(v4_span_start(v4_defi
 say "definition-static-kind=" + v4_definition_at_kind(v4_def_pack)
 say "definition-static-found=" + word_from_int(v4_definition_at_found(v4_def_pack))
 say "definition-static-matches=" + v4_definition_bool_word(v4_span_start(v4_definition_at_span(v4_def_pack)) == v4_definition_token_offset(v4_def_stream, "pack", 0))
+say "definition-param-kind=" + v4_definition_at_kind(v4_def_level)
+say "definition-param-found=" + word_from_int(v4_definition_at_found(v4_def_level))
+say "definition-param-matches=" + v4_definition_bool_word(v4_span_start(v4_definition_at_span(v4_def_level)) == v4_definition_token_offset(v4_def_stream, "level", 0))
 say "definition-variant-case-kind=" + v4_definition_at_kind(v4_def_variant_case)
 say "definition-variant-case-found=" + word_from_int(v4_definition_at_found(v4_def_variant_case))
 say "definition-variant-case-matches=" + v4_definition_bool_word(v4_span_start(v4_definition_at_span(v4_def_variant_case)) == v4_definition_token_offset(v4_def_stream, "Key", 0))
