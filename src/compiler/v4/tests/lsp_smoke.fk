@@ -65,12 +65,24 @@ task v4_lsp_variant_source() -> word {
     give back src
 }
 
+task v4_lsp_primitive_source() -> word {
+    pilot src = "task mix(count: uint, marker: char) -> float32 {\n"
+    src = src + "    pilot byte: tiny = 7t\n"
+    src = src + "    pilot power: big = 999b\n"
+    src = src + "    give back 1.5\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_source = "task main() => \"hi\"\n"
 v4_lsp_source = v4_lsp_source + "shape Pilot\n"
 pilot v4_lsp_variant = v4_lsp_variant_source()
 pilot v4_lsp_variant_stream = v4_lex_text(0, v4_lsp_variant)
 pilot v4_lsp_variant_event_offset = v4_lsp_token_offset(v4_lsp_variant_stream, "Event", 1)
 pilot v4_lsp_variant_key_offset = v4_lsp_token_offset(v4_lsp_variant_stream, "Key", 1)
+pilot v4_lsp_primitive = v4_lsp_primitive_source()
+pilot v4_lsp_primitive_stream = v4_lex_text(1, v4_lsp_primitive)
+pilot v4_lsp_primitive_uint_offset = v4_lsp_token_offset(v4_lsp_primitive_stream, "uint", 0)
 
 say v4_lsp_hover_text("lsp.fk", v4_lsp_source, 5)
 say v4_lsp_definition_text("lsp.fk", v4_lsp_source, 5)
@@ -81,6 +93,8 @@ say v4_lsp_definition_text("lsp_variant.fk", v4_lsp_variant, v4_lsp_variant_even
 say v4_lsp_document_symbols_text("lsp_variant.fk", v4_lsp_variant)
 say v4_lsp_completion_text("lsp_variant.fk", v4_lsp_variant, 0)
 say v4_lsp_definition_text("lsp_variant.fk", v4_lsp_variant, v4_lsp_variant_key_offset)
+say v4_lsp_hover_text("lsp_primitive.fk", v4_lsp_primitive, v4_lsp_primitive_uint_offset)
+say v4_lsp_completion_text("lsp_primitive.fk", v4_lsp_primitive, 0)
 say v4_lsp_diagnostics_text("lsp.fk", v4_lsp_source)
 say v4_lsp_diagnostics_text("lsp_alias.fk", v4_lsp_alias_diag_source())
 say v4_lsp_diagnostics_text("lsp_lifetime.fk", v4_lsp_lifetime_diag_source())

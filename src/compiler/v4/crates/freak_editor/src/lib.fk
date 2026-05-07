@@ -179,6 +179,17 @@ task v4_editor_route_surface_keyword(ty_id: int, sig_id: int) -> word {
     give back v4_ty_route_surface_keyword_for_signature(ty_id, sig_id)
 }
 
+task v4_editor_is_builtin_type_name(type_name: word) -> bool {
+    give back v4_ty_is_primitive_type(type_name)
+}
+
+task v4_editor_builtin_type_def(type_name: word) -> word {
+    if type_name == "" {
+        give back ""
+    }
+    give back "builtin:type:" + type_name
+}
+
 task v4_editor_lifetime_def(ty_id: int, sig_id: int, lifetime_name: word) -> word {
     if sig_id < 0 {
         give back ""
@@ -1102,6 +1113,12 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
             type_display = v4_editor_lifetime_detail(ty_id, lifetime_sig_id, token_value)
         }
     } else if token_kind == v4_tok_ident or token_kind == v4_tok_keyword {
+        if symbol_id < 0 and v4_editor_is_builtin_type_name(token_value) {
+            name = token_value
+            kind = "BuiltinType"
+            def_id = v4_editor_builtin_type_def(token_value)
+            type_display = token_value
+        } else {
         pilot decl_method_id = 0 - 1
         if hir_item >= 0 and item_kind == v4_hir_impl {
             decl_method_id = v4_editor_impl_method_decl_id_at_token(ty_id, hir_item, stream_id, token_id, token_value)
@@ -1185,6 +1202,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                     }
                 }
             }
+        }
         }
     }
 
@@ -1881,6 +1899,21 @@ task v4_completion_add_keywords(completion_id: int) -> void {
     v4_completion_add(completion_id, "when", "keyword", "route matching", "when ")
 }
 
+task v4_completion_add_builtin_types(completion_id: int) -> void {
+    v4_completion_add(completion_id, "int", "type", "builtin type int", "int")
+    v4_completion_add(completion_id, "uint", "type", "builtin type uint", "uint")
+    v4_completion_add(completion_id, "tiny", "type", "builtin type tiny", "tiny")
+    v4_completion_add(completion_id, "num", "type", "builtin type num", "num")
+    v4_completion_add(completion_id, "float", "type", "builtin type float", "float")
+    v4_completion_add(completion_id, "float32", "type", "builtin type float32", "float32")
+    v4_completion_add(completion_id, "big", "type", "builtin type big", "big")
+    v4_completion_add(completion_id, "word", "type", "builtin type word", "word")
+    v4_completion_add(completion_id, "char", "type", "builtin type char", "char")
+    v4_completion_add(completion_id, "bool", "type", "builtin type bool", "bool")
+    v4_completion_add(completion_id, "void", "type", "builtin type void", "void")
+    v4_completion_add(completion_id, "never", "type", "builtin type never", "never")
+}
+
 task v4_completion_add_document_symbols(completion_id: int, doc_id: int) -> void {
     pilot symbol_id = 0
     pilot symbol_count = v4_document_symbol_count(doc_id)
@@ -2102,6 +2135,7 @@ task v4_completion_text_cached(path: word, text: word, offset: int) -> int {
     v4_completion_add_route_fields_for_offset(completion_id, path, text, offset)
     v4_completion_add_lifetimes_for_offset(completion_id, path, text, offset)
     v4_completion_add_keywords(completion_id)
+    v4_completion_add_builtin_types(completion_id)
 
     v4_query_store(key, fingerprint, word_from_int(completion_id))
     v4_query_record_dep(key, "source:" + path)
