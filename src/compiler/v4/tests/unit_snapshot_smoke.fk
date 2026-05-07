@@ -64,6 +64,10 @@ repeat until v4_unit_diagnostics_changed_line_idx >= v4_unit_diagnostics_changed
     }
     v4_unit_diagnostics_changed_line_idx += 1
 }
+say v4_unit_snapshot_manifest(v4_unit_snapshot_payload_changed)
+say v4_unit_snapshot_health(v4_unit_snapshot_payload_changed)
+say v4_lsp_handle_text_request("workspace/unitSnapshotManifest", "unit-snapshot.fk", v4_unit_snapshot_payload_changed, 0)
+say v4_lsp_handle_text_request("workspace/unitSnapshotHealth", "unit-snapshot.fk", v4_unit_snapshot_payload_changed, 0)
 pilot v4_unit_snapshot_diff_payload = v4_unit_snapshot_diff_input(v4_unit_snapshot_payload, v4_unit_snapshot_payload_changed)
 say v4_unit_snapshot_diff(v4_unit_snapshot_payload, v4_unit_snapshot_payload_changed)
 say v4_unit_snapshot_health_from_diff_input(v4_unit_snapshot_diff_payload)
