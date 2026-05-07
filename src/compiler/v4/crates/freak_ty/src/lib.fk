@@ -1947,6 +1947,25 @@ task v4_ty_infer_arrow_expr_return(stream_id: int, start_token: int, end_token: 
     give back v4_ty_unknown
 }
 
+task v4_ty_route_surface_keyword(hir_id: int, hir_item: int) -> word {
+    if hir_item >= 0 and v4_hir_route_is_variant(hir_id, hir_item) {
+        give back "variant"
+    }
+    give back "route"
+}
+
+task v4_ty_route_surface_keyword_for_signature(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        give back "route"
+    }
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    pilot hir_id = v4_resolve_hir_id(resolve_id)
+    if hir_id < 0 {
+        give back "route"
+    }
+    give back v4_ty_route_surface_keyword(hir_id, v4_ty_signature_hir_item(ty_id, sig_id))
+}
+
 task v4_ty_task_return_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
     pilot return_arrow = v4_ty_find_token_value(stream_id, start_token, end_token, "->")
     if return_arrow >= 0 {
@@ -2743,7 +2762,7 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, symbol_def
         give back "shape " + symbol_name + generic_text
     }
     if symbol_kind == v4_hir_route {
-        give back "route " + symbol_name + generic_text
+        give back v4_ty_route_surface_keyword(hir_id, hir_item) + " " + symbol_name + generic_text
     }
     if symbol_kind == v4_hir_alias {
         pilot alias_target = v4_hir_alias_target(hir_id, hir_item)

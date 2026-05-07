@@ -168,6 +168,24 @@ task v4_hir_item_stream_id(hir_id: int) -> int {
     give back v4_parse_stream_id(tree_id)
 }
 
+task v4_hir_item_decl_keyword(hir_id: int, item_id: int) -> word {
+    if item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
+        give back ""
+    }
+    pilot tree_id = v4_hir_item_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back ""
+    }
+    give back v4_parse_node_decl_keyword(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+}
+
+task v4_hir_route_is_variant(hir_id: int, item_id: int) -> bool {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_route {
+        give back false
+    }
+    give back v4_hir_item_decl_keyword(hir_id, item_id) == "variant"
+}
+
 task v4_hir_import_path(hir_id: int, item_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_import {
         give back ""

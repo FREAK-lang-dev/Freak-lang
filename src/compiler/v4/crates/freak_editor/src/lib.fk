@@ -168,6 +168,17 @@ task v4_editor_ty_signature_for_hir_item(ty_id: int, hir_item: int) -> int {
     give back 0 - 1
 }
 
+task v4_editor_surface_kind_for_hir_item(hir_id: int, hir_item: int, item_kind: word) -> word {
+    if item_kind == v4_hir_route and hir_item >= 0 and v4_hir_route_is_variant(hir_id, hir_item) {
+        give back "Variant"
+    }
+    give back item_kind
+}
+
+task v4_editor_route_surface_keyword(ty_id: int, sig_id: int) -> word {
+    give back v4_ty_route_surface_keyword_for_signature(ty_id, sig_id)
+}
+
 task v4_editor_lifetime_def(ty_id: int, sig_id: int, lifetime_name: word) -> word {
     if sig_id < 0 {
         give back ""
@@ -490,7 +501,7 @@ task v4_editor_route_case_detail(ty_id: int, sig_id: int, case_name: word) -> wo
         give back v4_ty_unknown
     }
 
-    pilot detail = "route case " + route_name + "::" + case_name
+    pilot detail = v4_editor_route_surface_keyword(ty_id, sig_id) + " case " + route_name + "::" + case_name
     pilot field_id = 0
     pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
     if field_count > 0 {
@@ -581,7 +592,7 @@ task v4_editor_route_field_detail(ty_id: int, sig_id: int, case_name: word, fiel
         give back v4_ty_unknown
     }
 
-    give back "route field " + route_name + "::" + case_name + "." + field_name + ": " + v4_ty_route_case_field_type_for_name(ty_id, route_name, case_name, field_name)
+    give back v4_editor_route_surface_keyword(ty_id, sig_id) + " field " + route_name + "::" + case_name + "." + field_name + ": " + v4_ty_route_case_field_type_for_name(ty_id, route_name, case_name, field_name)
 }
 
 task v4_editor_route_field_name_span(ty_id: int, sig_id: int, case_name: word, field_name: word) -> word {
@@ -1067,13 +1078,15 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
         name = v4_resolve_symbol_name(resolve_id, symbol_id)
         kind = v4_resolve_symbol_kind(resolve_id, symbol_id)
         def_id = v4_resolve_symbol_def(resolve_id, symbol_id)
+        pilot symbol_hir_item = v4_resolve_symbol_hir_item(resolve_id, symbol_id)
+        kind = v4_editor_surface_kind_for_hir_item(hir_id, symbol_hir_item, kind)
         pilot sig_id = v4_ty_lookup_signature(ty_id, def_id)
         if sig_id >= 0 {
             type_display = v4_ty_signature_display(ty_id, sig_id)
         }
     } else if token_value == item_name and hir_item >= 0 {
         name = item_name
-        kind = item_kind
+        kind = v4_editor_surface_kind_for_hir_item(hir_id, hir_item, item_kind)
         def_id = v4_hir_item_def(hir_id, hir_item)
         pilot item_sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
         if item_sig_id >= 0 {
@@ -1719,9 +1732,10 @@ task v4_document_symbols_text_cached(path: word, text: word) -> int {
     pilot symbol_count = v4_resolve_symbol_count(resolve_id)
     repeat until symbol_id >= symbol_count {
         pilot name = v4_resolve_symbol_name(resolve_id, symbol_id)
-        pilot kind = v4_resolve_symbol_kind(resolve_id, symbol_id)
+        pilot raw_kind = v4_resolve_symbol_kind(resolve_id, symbol_id)
         pilot def_id = v4_resolve_symbol_def(resolve_id, symbol_id)
         pilot hir_item = v4_resolve_symbol_hir_item(resolve_id, symbol_id)
+        pilot kind = v4_editor_surface_kind_for_hir_item(hir_id, hir_item, raw_kind)
         pilot span = V4_NO_SPAN
         if hir_item >= 0 {
             span = v4_hir_item_span(hir_id, hir_item)
@@ -1732,9 +1746,9 @@ task v4_document_symbols_text_cached(path: word, text: word) -> int {
             type_display = v4_ty_signature_display(ty_id, sig_id)
         }
         v4_document_symbols_add(doc_id, name, kind, def_id, hir_item, span, type_display)
-        if kind == v4_hir_route and sig_id >= 0 {
+        if raw_kind == v4_hir_route and sig_id >= 0 {
             v4_editor_document_symbols_add_route_cases(doc_id, ty_id, sig_id, hir_item)
-        } else if kind == v4_hir_impl and hir_item >= 0 {
+        } else if raw_kind == v4_hir_impl and hir_item >= 0 {
             v4_editor_document_symbols_add_impl_methods(doc_id, ty_id, hir_item)
         }
         symbol_id += 1

@@ -243,6 +243,27 @@ task v4_parse_node_end_token(tree_id: int, node_id: int) -> int {
     give back end_token
 }
 
+task v4_parse_node_decl_keyword(tree_id: int, node_id: int) -> word {
+    if v4_parse_tree_exists(tree_id) == false {
+        give back ""
+    }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_parse_skip_trivia(stream_id, v4_parse_node_start_token(tree_id, node_id))
+    pilot end_token = v4_parse_node_end_token(tree_id, node_id)
+    pilot token_count = v4_lex_token_count(stream_id)
+    if start_token < 0 or start_token >= token_count or start_token >= end_token {
+        give back ""
+    }
+    give back v4_lex_token_value(stream_id, start_token)
+}
+
+task v4_parse_route_is_variant(tree_id: int, node_id: int) -> bool {
+    if v4_parse_node_kind(tree_id, node_id) != v4_node_route {
+        give back false
+    }
+    give back v4_parse_node_decl_keyword(tree_id, node_id) == "variant"
+}
+
 task v4_parse_text(stream_id: int, start_token: int, end_token: int) -> word {
     pilot out = ""
     pilot idx = start_token

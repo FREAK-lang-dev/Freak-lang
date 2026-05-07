@@ -75,10 +75,13 @@ pilot v4_variant_route_alias_code_place = v4_mir_rvalue_lhs(v4_variant_route_ali
 
 say "variant-parse-node-kind=" + v4_parse_node_kind(v4_variant_route_alias_tree, 1)
 say "variant-parse-node-name=" + v4_parse_node_value(v4_variant_route_alias_tree, 1)
+say "variant-parse-keyword=" + v4_parse_node_decl_keyword(v4_variant_route_alias_tree, 1)
 say "variant-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_variant_route_alias_tree))
 say "variant-hir-kind=" + v4_hir_item_kind(v4_variant_route_alias_hir, 0)
 say "variant-hir-name=" + v4_hir_item_name(v4_variant_route_alias_hir, 0)
+say "variant-hir-keyword=" + v4_hir_item_decl_keyword(v4_variant_route_alias_hir, 0)
 say "variant-sig-kind=" + v4_ty_signature_kind(v4_variant_route_alias_ty, v4_variant_route_alias_sig)
+say "variant-sig-display=" + v4_ty_signature_display(v4_variant_route_alias_ty, v4_variant_route_alias_sig)
 say "variant-case-count=" + word_from_int(v4_ty_route_case_count(v4_variant_route_alias_ty, v4_variant_route_alias_sig))
 say "variant-case0-name=" + v4_ty_route_case_name(v4_variant_route_alias_ty, v4_variant_route_alias_sig, 0)
 say "variant-case0-fields=" + word_from_int(v4_ty_route_case_field_count(v4_variant_route_alias_ty, "Event", "Key"))
