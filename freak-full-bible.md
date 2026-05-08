@@ -107,8 +107,8 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.11 Generics | ⚠️ Partial — basic `<T>` works; trait bounds + multi-bound 🔜 V4 |
 | §1.12 Borrow checker | ⚠️ Partial — see §4 |
 | §1.13 Modules | ⚠️ Partial — see §6 |
-| §1.14 Variants & aliases | 🔜 V4 |
-| §1.15 Literals | ⚠️ Partial — fixed-array `[T;N]` literals, repeat-fill `[0; 100]`, numeric suffixes are 🔜 V4 |
+| §1.14 Variants & aliases | ⚠️ Partial — aliases and root `fixed pilot` constants work in V4; variant-specific surface still expands |
+| §1.15 Literals | ⚠️ Partial — fixed-array `[T;N]` literals, repeat-fill `[0; 100]`, numeric suffixes, and root-constant array lengths work in V4; full const-expression evaluation remains 🔜 V4 |
 
 ### 1.1 Variables
 

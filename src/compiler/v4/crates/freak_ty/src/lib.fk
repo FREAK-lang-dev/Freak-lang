@@ -350,10 +350,11 @@ task v4_ty_canonical_type_depth_seen(ty_id: int, type_text: word, seen_aliases: 
     }
 
     if v4_ty_is_fixed_array_type(type_text) {
-        if v4_ty_canonical_type_depth_seen(ty_id, v4_ty_fixed_array_element_type(type_text), seen_aliases, depth + 1) == v4_ty_unknown {
+        pilot element_ty = v4_ty_canonical_type_depth_seen(ty_id, v4_ty_fixed_array_element_type(type_text), seen_aliases, depth + 1)
+        if element_ty == v4_ty_unknown {
             give back v4_ty_unknown
         }
-        give back type_text
+        give back "[" + element_ty + ";" + v4_ty_fixed_array_length_normalized_text(ty_id, type_text) + "]"
     }
 
     pilot alias_name = ""
@@ -393,6 +394,10 @@ task v4_ty_is_integer(ty_name: word) -> bool {
 
 task v4_ty_is_float(ty_name: word) -> bool {
     give back ty_name == v4_ty_num or ty_name == v4_ty_float or ty_name == v4_ty_float32
+}
+
+task v4_ty_is_integer_text_literal(value: word) -> bool {
+    give back v4_ty_integer_literal_value_text(value) != v4_ty_unknown
 }
 
 task v4_ty_is_copy_type(ty_name: word) -> bool {
@@ -2218,6 +2223,149 @@ task v4_ty_const_cycle_seen_append(seen_consts: word, const_name: word) -> word 
     give back seen_consts + "|" + const_name
 }
 
+task v4_ty_compact_const_expr_text(expr: word) -> word {
+    pilot out = ""
+    pilot idx = 0
+    repeat until idx >= expr.length() {
+        pilot ch = expr.char_at(idx)
+        if ch != " " and ch != "\t" and ch != "\n" and ch != "\r" {
+            out = out + ch
+        }
+        idx += 1
+    }
+    give back out
+}
+
+task v4_ty_const_expr_is_wrapped(expr: word) -> bool {
+    if expr.length() < 2 {
+        give back false
+    }
+    if expr.char_at(0) != "(" or expr.char_at(expr.length() - 1) != ")" {
+        give back false
+    }
+
+    pilot depth = 0
+    pilot idx = 0
+    repeat until idx >= expr.length() {
+        pilot ch = expr.char_at(idx)
+        if ch == "(" {
+            depth += 1
+        } else if ch == ")" {
+            depth -= 1
+            if depth == 0 and idx < expr.length() - 1 {
+                give back false
+            }
+        }
+        idx += 1
+    }
+    give back depth == 0
+}
+
+task v4_ty_strip_const_expr_wrappers(expr: word) -> word {
+    pilot out = v4_ty_compact_const_expr_text(expr)
+    repeat until out.length() < 2 or v4_ty_const_expr_is_wrapped(out) == false {
+        out = out.substring(1, out.length() - 1)
+    }
+    give back out
+}
+
+task v4_ty_integer_literal_value_text(value: word) -> word {
+    pilot compact = v4_ty_strip_const_expr_wrappers(value)
+    if compact == "" {
+        give back v4_ty_unknown
+    }
+
+    pilot negative = false
+    if compact.char_at(0) == "-" {
+        if compact.length() <= 1 {
+            give back v4_ty_unknown
+        }
+        negative = true
+        compact = compact.substring(1, compact.length())
+    }
+
+    pilot digits = v4_ty_numeric_literal_value(compact)
+    if digits == "" {
+        give back v4_ty_unknown
+    }
+
+    pilot idx = 0
+    repeat until idx >= digits.length() {
+        pilot ch = digits.char_at(idx)
+        if not v4_lex_is_digit(ch) {
+            give back v4_ty_unknown
+        }
+        idx += 1
+    }
+
+    if negative {
+        give back "-" + digits
+    }
+    give back digits
+}
+
+task v4_ty_const_integer_text_from_expr_seen(ty_id: int, expr_text: word, seen_consts: word) -> word {
+    pilot expr = v4_ty_strip_const_expr_wrappers(expr_text)
+    if expr == "" {
+        give back v4_ty_unknown
+    }
+
+    pilot literal = v4_ty_integer_literal_value_text(expr)
+    if literal != v4_ty_unknown {
+        give back literal
+    }
+
+    if expr.char_at(0) == "-" and expr.length() > 1 {
+        pilot inner = v4_ty_const_integer_text_from_expr_seen(ty_id, expr.substring(1, expr.length()), seen_consts)
+        if inner != v4_ty_unknown and inner.char_at(0) != "-" {
+            give back "-" + inner
+        }
+    }
+
+    pilot sig_id = v4_ty_const_signature_id_for_name(ty_id, expr)
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_const_integer_text_for_sig_seen(ty_id, sig_id, seen_consts)
+}
+
+task v4_ty_const_integer_text_from_expr(ty_id: int, expr_text: word) -> word {
+    give back v4_ty_const_integer_text_from_expr_seen(ty_id, expr_text, "")
+}
+
+task v4_ty_const_integer_text_for_sig_seen(ty_id: int, sig_id: int, seen_consts: word) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back v4_ty_unknown
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_const_sig {
+        give back v4_ty_unknown
+    }
+
+    pilot const_name = v4_ty_signature_name(ty_id, sig_id)
+    if const_name == "" {
+        give back v4_ty_unknown
+    }
+    if v4_ty_const_cycle_seen_contains(seen_consts, const_name) {
+        give back v4_ty_unknown
+    }
+    if not v4_ty_is_integer(v4_ty_const_value_type_for_sig(ty_id, sig_id)) {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_const_integer_text_from_expr_seen(ty_id, v4_ty_const_init_text_for_sig(ty_id, sig_id), v4_ty_const_cycle_seen_append(seen_consts, const_name))
+}
+
+task v4_ty_const_integer_text_for_sig(ty_id: int, sig_id: int) -> word {
+    give back v4_ty_const_integer_text_for_sig_seen(ty_id, sig_id, "")
+}
+
+task v4_ty_const_integer_text_for_name(ty_id: int, const_name: word) -> word {
+    pilot sig_id = v4_ty_const_signature_id_for_name(ty_id, const_name)
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_const_integer_text_for_sig(ty_id, sig_id)
+}
+
 task v4_ty_const_dep_name_at_token(ty_id: int, stream_id: int, token_id: int, start_token: int, end_token: int) -> word {
     pilot tok_type = v4_lex_token_type(stream_id, token_id)
     if tok_type != v4_tok_ident and tok_type != v4_tok_keyword {
@@ -2685,7 +2833,7 @@ task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word,
         give back next_env
     }
     if v4_ty_is_fixed_array_type(pattern_ty) and v4_ty_is_fixed_array_type(actual_ty) {
-        if v4_ty_fixed_array_length_text(pattern_ty) != v4_ty_fixed_array_length_text(actual_ty) {
+        if v4_ty_fixed_array_length_normalized_text(ty_id, pattern_ty) != v4_ty_fixed_array_length_normalized_text(ty_id, actual_ty) {
             give back v4_ty_generic_env_fail
         }
         give back v4_ty_match_type_pattern_env(ty_id, v4_ty_fixed_array_element_type(pattern_ty), v4_ty_fixed_array_element_type(actual_ty), env)
@@ -3963,6 +4111,18 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
         } else {
             v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, element_type, "array element of " + context, context_span)
         }
+        pilot length_text = v4_ty_fixed_array_length_text(type_text)
+        pilot resolved_length = v4_ty_const_integer_text_from_expr(ty_id, length_text)
+        if resolved_length == v4_ty_unknown {
+            pilot const_ty = v4_ty_const_value_type_for_name(ty_id, v4_ty_strip_const_expr_wrappers(length_text))
+            if const_ty != v4_ty_unknown and not v4_ty_is_integer(const_ty) {
+                v4_ty_add_error_diag(ty_id, context_span, "array length of " + context + " must use int or uint constant, but " + v4_ty_strip_const_expr_wrappers(length_text) + " has type " + const_ty, "")
+            } else {
+                v4_ty_add_error_diag(ty_id, context_span, "array length of " + context + " must be compile-time constant", "use a literal length like 4 or a root fixed pilot int/uint constant")
+            }
+        } else if resolved_length.char_at(0) == "-" {
+            v4_ty_add_error_diag(ty_id, context_span, "array length of " + context + " must be non-negative", "got " + resolved_length)
+        }
     }
 }
 
@@ -4264,7 +4424,7 @@ task v4_ty_match_signature_type_env(ty_id: int, sig_id: int, expected_ty: word, 
         give back next_env
     }
     if v4_ty_is_fixed_array_type(expected_ty) and v4_ty_is_fixed_array_type(actual_ty) {
-        if v4_ty_fixed_array_length_text(expected_ty) != v4_ty_fixed_array_length_text(actual_ty) {
+        if v4_ty_fixed_array_length_normalized_text(ty_id, expected_ty) != v4_ty_fixed_array_length_normalized_text(ty_id, actual_ty) {
             give back v4_ty_generic_env_fail
         }
         give back v4_ty_match_signature_type_env(ty_id, sig_id, v4_ty_fixed_array_element_type(expected_ty), v4_ty_fixed_array_element_type(actual_ty), env)
@@ -4317,7 +4477,7 @@ task v4_ty_apply_generic_env(type_text: word, env: word) -> word {
         give back out
     }
     if v4_ty_is_fixed_array_type(type_text) {
-        give back "[" + v4_ty_apply_generic_env(v4_ty_fixed_array_element_type(type_text), env) + ";" + v4_ty_fixed_array_length_text(type_text) + "]"
+        give back "[" + v4_ty_apply_generic_env(v4_ty_fixed_array_element_type(type_text), env) + ";" + v4_ty_strip_const_expr_wrappers(v4_ty_fixed_array_length_text(type_text)) + "]"
     }
     give back type_text
 }
@@ -4580,6 +4740,18 @@ task v4_ty_fixed_array_length_text(container_ty: word) -> word {
         give back v4_ty_unknown
     }
     give back v4_slice(container_ty, separator + 1, container_ty.length() - 1)
+}
+
+task v4_ty_fixed_array_length_normalized_text(ty_id: int, container_ty: word) -> word {
+    pilot raw = v4_ty_fixed_array_length_text(container_ty)
+    if raw == "" or raw == v4_ty_unknown {
+        give back v4_ty_unknown
+    }
+    pilot resolved = v4_ty_const_integer_text_from_expr(ty_id, raw)
+    if resolved != v4_ty_unknown {
+        give back resolved
+    }
+    give back v4_ty_strip_const_expr_wrappers(raw)
 }
 
 task v4_ty_map_key_type(container_ty: word) -> word {

@@ -1974,6 +1974,20 @@ task v4_mir_validate_type_contract(mir_id: int, sig_id: int, stmt_span: word, ty
         if not v4_mir_validate_type_contract(mir_id, sig_id, stmt_span, v4_ty_fixed_array_element_type(type_text), message, "array element of " + context) {
             valid = false
         }
+        pilot length_text = v4_ty_fixed_array_length_text(type_text)
+        pilot resolved_length = v4_ty_const_integer_text_from_expr(v4_mir_ty_id(mir_id), length_text)
+        if resolved_length == v4_ty_unknown {
+            pilot const_ty = v4_ty_const_value_type_for_name(v4_mir_ty_id(mir_id), v4_ty_strip_const_expr_wrappers(length_text))
+            if const_ty != v4_ty_unknown and not v4_ty_is_integer(const_ty) {
+                v4_mir_add_type_error(mir_id, stmt_span, message, "array length of " + context + " must use int or uint constant, but " + v4_ty_strip_const_expr_wrappers(length_text) + " has type " + const_ty)
+            } else {
+                v4_mir_add_type_error(mir_id, stmt_span, message, "array length of " + context + " must be compile-time constant")
+            }
+            valid = false
+        } else if resolved_length.char_at(0) == "-" {
+            v4_mir_add_type_error(mir_id, stmt_span, message, "array length of " + context + " must be non-negative")
+            valid = false
+        }
     }
     give back valid
 }
@@ -3414,16 +3428,41 @@ task v4_mir_fixed_array_length_matches(expected_length: word, actual_length: int
     give back expected_length == word_from_int(actual_length)
 }
 
+task v4_mir_fixed_array_slot_count(mir_id: int, array_ty: word) -> int {
+    pilot length_text = v4_ty_fixed_array_length_normalized_text(v4_mir_ty_id(mir_id), array_ty)
+    if length_text == "" or length_text == v4_ty_unknown {
+        give back 0 - 1
+    }
+    if not v4_ty_is_integer_text_literal(length_text) {
+        give back 0 - 1
+    }
+    if length_text.char_at(0) == "-" {
+        give back 0 - 1
+    }
+    give back word_to_int(length_text)
+}
+
 task v4_mir_fixed_array_count_from_rvalue(mir_id: int, body_id: int, count_rvalue: int, expr_span: word) -> word {
     pilot count_kind = v4_mir_rvalue_kind(mir_id, body_id, count_rvalue)
     pilot count_ty = v4_mir_rvalue_ty(mir_id, body_id, count_rvalue)
     if count_kind == v4_mir_rvalue_const_int {
-        give back v4_mir_rvalue_text(mir_id, body_id, count_rvalue)
+        give back v4_ty_integer_literal_value_text(v4_mir_rvalue_text(mir_id, body_id, count_rvalue))
+    }
+    if count_kind == v4_mir_rvalue_use_symbol {
+        pilot const_name = v4_mir_rvalue_text(mir_id, body_id, count_rvalue)
+        pilot const_text = v4_ty_const_integer_text_for_name(v4_mir_ty_id(mir_id), const_name)
+        if const_text != v4_ty_unknown {
+            if const_text.char_at(0) == "-" {
+                v4_mir_add_type_error(mir_id, expr_span, "array repeat count must be non-negative", "got " + const_text)
+                give back v4_ty_unknown
+            }
+            give back const_text
+        }
     }
     if count_kind == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body_id, count_rvalue) == v4_mir_unary_neg {
         pilot operand = v4_mir_rvalue_lhs(mir_id, body_id, count_rvalue)
         if operand >= 0 and v4_mir_rvalue_kind(mir_id, body_id, operand) == v4_mir_rvalue_const_int {
-            v4_mir_add_type_error(mir_id, expr_span, "array repeat count must be non-negative", "got -" + v4_mir_rvalue_text(mir_id, body_id, operand))
+            v4_mir_add_type_error(mir_id, expr_span, "array repeat count must be non-negative", "got -" + v4_ty_integer_literal_value_text(v4_mir_rvalue_text(mir_id, body_id, operand)))
             give back v4_ty_unknown
         }
     }
@@ -3431,13 +3470,13 @@ task v4_mir_fixed_array_count_from_rvalue(mir_id: int, body_id: int, count_rvalu
         v4_mir_add_type_error(mir_id, expr_span, "array repeat count must be int", "got " + count_ty)
         give back v4_ty_unknown
     }
-    v4_mir_add_type_error(mir_id, expr_span, "array repeat count must be constant", "use a literal length like 4")
+    v4_mir_add_type_error(mir_id, expr_span, "array repeat count must be constant", "use a literal length like 4 or a root fixed pilot int/uint constant")
     give back v4_ty_unknown
 }
 
 task v4_mir_check_fixed_array_repeated_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, repeat_token: int, close_token: int, expected_ty: word) -> word {
     pilot expected_element_ty = v4_ty_fixed_array_element_type(expected_ty)
-    pilot expected_length = v4_ty_fixed_array_length_text(expected_ty)
+    pilot expected_length = v4_ty_fixed_array_length_normalized_text(v4_mir_ty_id(mir_id), expected_ty)
     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, open_token + 1, repeat_token, expected_element_ty)
     pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
     if v4_ty_is_known(expected_element_ty) and not v4_ty_types_compatible(expected_element_ty, value_ty) {
@@ -3463,7 +3502,7 @@ task v4_mir_check_fixed_array_literal(mir_id: int, body_id: int, stream_id: int,
     }
 
     pilot expected_element_ty = v4_ty_fixed_array_element_type(expected_ty)
-    pilot expected_length = v4_ty_fixed_array_length_text(expected_ty)
+    pilot expected_length = v4_ty_fixed_array_length_normalized_text(v4_mir_ty_id(mir_id), expected_ty)
     pilot element_start = v4_mir_skip_trivia(stream_id, open_token + 1)
     if element_start >= close_token {
         if v4_mir_fixed_array_length_matches(expected_length, 0) {
@@ -5273,8 +5312,8 @@ task v4_mir_lower_destructure_pattern(mir_id: int, body_id: int, block_id: int, 
 
         pilot pattern_slots = v4_mir_bracket_pattern_slot_count(pattern)
         if v4_ty_is_fixed_array_type(canonical_source_ty) {
-            pilot source_slots = word_to_int(v4_ty_fixed_array_length_text(canonical_source_ty))
-            if source_slots != pattern_slots {
+            pilot source_slots = v4_mir_fixed_array_slot_count(mir_id, canonical_source_ty)
+            if source_slots >= 0 and source_slots != pattern_slots {
                 v4_mir_add_type_error(mir_id, stmt_span, "sequence destructure arity mismatch", "pattern wants " + word_from_int(pattern_slots) + " slots but source has " + word_from_int(source_slots))
             }
         }
@@ -5389,8 +5428,8 @@ task v4_mir_lower_destructure_assignment_pattern(mir_id: int, body_id: int, bloc
 
         pilot pattern_slots = v4_mir_bracket_pattern_slot_count(pattern)
         if v4_ty_is_fixed_array_type(canonical_source_ty) {
-            pilot source_slots = word_to_int(v4_ty_fixed_array_length_text(canonical_source_ty))
-            if source_slots != pattern_slots {
+            pilot source_slots = v4_mir_fixed_array_slot_count(mir_id, canonical_source_ty)
+            if source_slots >= 0 and source_slots != pattern_slots {
                 v4_mir_add_type_error(mir_id, stmt_span, "sequence destructure assignment arity mismatch", "pattern wants " + word_from_int(pattern_slots) + " slots but source has " + word_from_int(source_slots))
             }
         }
@@ -6167,8 +6206,8 @@ task v4_mir_lower_when_pattern_condition(mir_id: int, body_id: int, stmt_span: w
 
         pilot pattern_slots = v4_mir_bracket_pattern_slot_count(pattern)
         if v4_ty_is_fixed_array_type(source_ty) {
-            pilot source_slots = word_to_int(v4_ty_fixed_array_length_text(source_ty))
-            if source_slots != pattern_slots {
+            pilot source_slots = v4_mir_fixed_array_slot_count(mir_id, source_ty)
+            if source_slots >= 0 and source_slots != pattern_slots {
                 v4_mir_add_type_error(mir_id, stmt_span, "when sequence pattern arity mismatch", "pattern wants " + word_from_int(pattern_slots) + " slots but source has " + word_from_int(source_slots))
             }
         }
@@ -6371,7 +6410,7 @@ task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: w
             give back false
         }
         pilot slot_count = v4_mir_bracket_pattern_slot_count(pattern)
-        pilot length_text = v4_ty_fixed_array_length_text(source_ty)
+        pilot length_text = v4_ty_fixed_array_length_normalized_text(v4_mir_ty_id(mir_id), source_ty)
         if length_text != word_from_int(slot_count) {
             give back false
         }

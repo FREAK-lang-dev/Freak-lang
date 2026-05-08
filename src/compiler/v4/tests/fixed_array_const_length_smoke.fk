@@ -1,0 +1,88 @@
+-- V4 fixed-array compile-time constant smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_fixed_array_const_good_source() -> word {
+    pilot src = "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot WIDTH: uint = 2u\n"
+    src = src + "fixed pilot DEPTH: int = WIDTH\n"
+    src = src + "task take(values: [int; DEPTH]) -> int {\n"
+    src = src + "    give back values[1]\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot duo: [int; BASE] = [1, 2]\n"
+    src = src + "    pilot echo: [int; WIDTH] = [0; DEPTH]\n"
+    src = src + "    pilot [left, right] = duo\n"
+    src = src + "    give back take(echo) + right\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_fixed_array_const_bad_type_source() -> word {
+    pilot src = "fixed pilot WORDS: word = \"oops\"\n"
+    src = src + "task bad(values: [int; WORDS]) -> void {\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_fixed_array_const_bad_repeat_source() -> word {
+    pilot src = "fixed pilot NEG: int = -1\n"
+    src = src + "task bad() -> void {\n"
+    src = src + "    pilot zeros = [0; NEG]\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_fixed_array_const_good_stream = v4_lex_text(0, v4_fixed_array_const_good_source())
+pilot v4_fixed_array_const_good_tree = v4_parse_stream(0, v4_fixed_array_const_good_stream)
+pilot v4_fixed_array_const_good_hir = v4_hir_lower_tree(0, v4_fixed_array_const_good_tree)
+pilot v4_fixed_array_const_good_resolve = v4_resolve_lower_hir(0, v4_fixed_array_const_good_hir)
+pilot v4_fixed_array_const_good_ty = v4_ty_lower_resolve(0, v4_fixed_array_const_good_resolve)
+pilot v4_fixed_array_const_good_mir = v4_mir_lower_ty(0, v4_fixed_array_const_good_ty)
+
+pilot v4_fixed_array_const_take_def = v4_resolve_def_for_name(v4_fixed_array_const_good_resolve, "take")
+pilot v4_fixed_array_const_main_def = v4_resolve_def_for_name(v4_fixed_array_const_good_resolve, "main")
+pilot v4_fixed_array_const_take_sig = v4_ty_lookup_signature(v4_fixed_array_const_good_ty, v4_fixed_array_const_take_def)
+pilot v4_fixed_array_const_take_body = v4_mir_lookup_body(v4_fixed_array_const_good_mir, v4_fixed_array_const_take_def)
+pilot v4_fixed_array_const_main_body = v4_mir_lookup_body(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_def)
+pilot v4_fixed_array_const_echo_rvalue = v4_mir_stmt_rvalue(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, 1)
+
+say "array-const-base=" + v4_ty_const_integer_text_for_name(v4_fixed_array_const_good_ty, "BASE")
+say "array-const-width=" + v4_ty_const_integer_text_for_name(v4_fixed_array_const_good_ty, "WIDTH")
+say "array-const-depth=" + v4_ty_const_integer_text_for_name(v4_fixed_array_const_good_ty, "DEPTH")
+say "array-const-take-param-ty=" + v4_ty_signature_param_type(v4_fixed_array_const_good_ty, v4_fixed_array_const_take_sig, 0)
+say "array-const-take-local0-ty=" + v4_mir_local_ty(v4_fixed_array_const_good_mir, v4_fixed_array_const_take_body, 0)
+say "array-const-main-locals=" + word_from_int(v4_mir_body_local_count(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body))
+say "array-const-main-local0-name=" + v4_mir_local_name(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, 0)
+say "array-const-main-local0-ty=" + v4_mir_local_ty(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, 0)
+say "array-const-main-local1-name=" + v4_mir_local_name(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, 1)
+say "array-const-main-local1-ty=" + v4_mir_local_ty(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, 1)
+say "array-const-main-local2-name=" + v4_mir_local_name(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, 2)
+say "array-const-main-local2-ty=" + v4_mir_local_ty(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, 2)
+say "array-const-main-local3-name=" + v4_mir_local_name(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, 3)
+say "array-const-main-local3-ty=" + v4_mir_local_ty(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, 3)
+say "array-const-main-local4-name=" + v4_mir_local_name(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, 4)
+say "array-const-main-local4-ty=" + v4_mir_local_ty(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, 4)
+say "array-const-echo-rvalue-kind=" + v4_mir_rvalue_kind(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, v4_fixed_array_const_echo_rvalue)
+say "array-const-echo-rvalue-ty=" + v4_mir_rvalue_ty(v4_fixed_array_const_good_mir, v4_fixed_array_const_main_body, v4_fixed_array_const_echo_rvalue)
+say "array-const-good-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_fixed_array_const_good_ty))
+say "array-const-good-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_fixed_array_const_good_mir))
+
+pilot v4_fixed_array_const_bad_type_stream = v4_lex_text(1, v4_fixed_array_const_bad_type_source())
+pilot v4_fixed_array_const_bad_type_tree = v4_parse_stream(1, v4_fixed_array_const_bad_type_stream)
+pilot v4_fixed_array_const_bad_type_hir = v4_hir_lower_tree(1, v4_fixed_array_const_bad_type_tree)
+pilot v4_fixed_array_const_bad_type_resolve = v4_resolve_lower_hir(1, v4_fixed_array_const_bad_type_hir)
+pilot v4_fixed_array_const_bad_type_ty = v4_ty_lower_resolve(1, v4_fixed_array_const_bad_type_resolve)
+
+say "array-const-bad-type-diagnostics=" + word_from_int(v4_ty_diag_count(v4_fixed_array_const_bad_type_ty))
+say "array-const-bad-type-message=" + v4_diag_message(v4_ty_diag(v4_fixed_array_const_bad_type_ty, 0))
+
+pilot v4_fixed_array_const_bad_repeat_stream = v4_lex_text(2, v4_fixed_array_const_bad_repeat_source())
+pilot v4_fixed_array_const_bad_repeat_tree = v4_parse_stream(2, v4_fixed_array_const_bad_repeat_stream)
+pilot v4_fixed_array_const_bad_repeat_hir = v4_hir_lower_tree(2, v4_fixed_array_const_bad_repeat_tree)
+pilot v4_fixed_array_const_bad_repeat_resolve = v4_resolve_lower_hir(2, v4_fixed_array_const_bad_repeat_hir)
+pilot v4_fixed_array_const_bad_repeat_ty = v4_ty_lower_resolve(2, v4_fixed_array_const_bad_repeat_resolve)
+pilot v4_fixed_array_const_bad_repeat_mir = v4_mir_lower_ty(2, v4_fixed_array_const_bad_repeat_ty)
+
+say "array-const-bad-repeat-diagnostics=" + word_from_int(v4_mir_diag_count(v4_fixed_array_const_bad_repeat_mir))
+say "array-const-bad-repeat-message=" + v4_diag_message(v4_mir_diag(v4_fixed_array_const_bad_repeat_mir, 0))
+say "array-const-bad-repeat-help=" + v4_diag_help(v4_mir_diag(v4_fixed_array_const_bad_repeat_mir, 0))
