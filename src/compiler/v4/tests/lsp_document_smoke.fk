@@ -164,6 +164,7 @@ say v4_lsp_hover_document("glob-live.fk", v4_lsp_glob_double_offset)
 say v4_lsp_definition_document("glob-live.fk", v4_lsp_glob_double_offset)
 say v4_lsp_hover_document("glob-live.fk", v4_lsp_glob_triple_offset)
 say v4_lsp_definition_document("glob-live.fk", v4_lsp_glob_triple_offset)
+say v4_lsp_completion_document("glob-live.fk", 0)
 
 v4_lsp_change_document("live.fk", v4_lsp_doc_alias_diag_source())
 
