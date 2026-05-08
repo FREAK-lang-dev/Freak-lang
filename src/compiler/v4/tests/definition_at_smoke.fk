@@ -51,10 +51,15 @@ task v4_definition_source_text() -> word {
     src = src + "variant Event {\n"
     src = src + "    Key " + v4_definition_braces(" code: int ") + "\n"
     src = src + "}\n"
+    src = src + "task util::math::double(value: int) -> int {\n"
+    src = src + "    give back value + value\n"
+    src = src + "}\n"
+    src = src + "use util::math::*\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot::pack(level: 7)\n"
     src = src + "    pilot event = Event::Key " + v4_definition_braces(" code: 9 ") + "\n"
-    src = src + "    give back ace.salute()\n"
+    src = src + "    pilot doubled = double(2)\n"
+    src = src + "    give back ace.salute() + doubled\n"
     src = src + "}\n"
     give back src
 }
@@ -67,6 +72,7 @@ pilot v4_def_salute = v4_definition_at_text_cached("definition_at.fk", v4_def_so
 pilot v4_def_pack = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "pack", 1))
 pilot v4_def_level = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "level", 2))
 pilot v4_def_variant_case = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "Key", 1))
+pilot v4_def_glob = v4_definition_at_text_cached("definition_at.fk", v4_def_source, v4_definition_token_offset(v4_def_stream, "double", 1))
 
 say v4_definition_at_summary(v4_def_main)
 say "definition-found=" + word_from_int(v4_definition_at_found(v4_def_main))
@@ -86,3 +92,6 @@ say "definition-param-matches=" + v4_definition_bool_word(v4_span_start(v4_defin
 say "definition-variant-case-kind=" + v4_definition_at_kind(v4_def_variant_case)
 say "definition-variant-case-found=" + word_from_int(v4_definition_at_found(v4_def_variant_case))
 say "definition-variant-case-matches=" + v4_definition_bool_word(v4_span_start(v4_definition_at_span(v4_def_variant_case)) == v4_definition_token_offset(v4_def_stream, "Key", 0))
+say "definition-glob-kind=" + v4_definition_at_kind(v4_def_glob)
+say "definition-glob-found=" + word_from_int(v4_definition_at_found(v4_def_glob))
+say "definition-glob-matches=" + v4_definition_bool_word(v4_span_start(v4_definition_at_span(v4_def_glob)) == v4_definition_token_offset(v4_def_stream, "double", 0))

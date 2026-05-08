@@ -92,6 +92,22 @@ task v4_lsp_doc_named_source() -> word {
     give back src
 }
 
+task v4_lsp_doc_glob_source() -> word {
+    pilot src = "task util::math::double(value: int) -> int {\n"
+    src = src + "    give back value + value\n"
+    src = src + "}\n"
+    src = src + "task util::math::triple(value: int) -> int {\n"
+    src = src + "    give back value + value + value\n"
+    src = src + "}\n"
+    src = src + "use util::math::*\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot a = double(2)\n"
+    src = src + "    pilot b = triple(3)\n"
+    src = src + "    give back a + b\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_doc_source = "task main() => \"hi\"\n"
 pilot v4_lsp_doc_id = v4_lsp_open_document("live.fk", v4_lsp_doc_source)
 
@@ -132,6 +148,22 @@ say v4_lsp_definition_document("named-live.fk", v4_lsp_named_callsign_label_offs
 say v4_lsp_completion_document("named-live.fk", v4_lsp_named_timeout_offset)
 say v4_lsp_completion_document("named-live.fk", v4_lsp_named_bonus_offset)
 say v4_lsp_completion_document("named-live.fk", v4_lsp_named_callsign_offset)
+
+pilot v4_lsp_glob_doc_source = "task main() => 0\n"
+pilot v4_lsp_glob_doc_id = v4_lsp_open_document("glob-live.fk", v4_lsp_glob_doc_source)
+pilot v4_lsp_glob_changed = v4_lsp_doc_glob_source()
+pilot v4_lsp_glob_stream = v4_lex_text(0, v4_lsp_glob_changed)
+pilot v4_lsp_glob_double_offset = v4_lsp_doc_token_offset(v4_lsp_glob_stream, "double", 1)
+pilot v4_lsp_glob_triple_offset = v4_lsp_doc_token_offset(v4_lsp_glob_stream, "triple", 1)
+
+say "opened-glob-doc=" + word_from_int(v4_lsp_glob_doc_id)
+say v4_lsp_document_summary("glob-live.fk")
+v4_lsp_change_document("glob-live.fk", v4_lsp_glob_changed)
+say v4_lsp_document_summary("glob-live.fk")
+say v4_lsp_hover_document("glob-live.fk", v4_lsp_glob_double_offset)
+say v4_lsp_definition_document("glob-live.fk", v4_lsp_glob_double_offset)
+say v4_lsp_hover_document("glob-live.fk", v4_lsp_glob_triple_offset)
+say v4_lsp_definition_document("glob-live.fk", v4_lsp_glob_triple_offset)
 
 v4_lsp_change_document("live.fk", v4_lsp_doc_alias_diag_source())
 

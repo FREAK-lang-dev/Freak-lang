@@ -51,10 +51,15 @@ task v4_definition_snapshot_source_text() -> word {
     src = src + "variant Event {\n"
     src = src + "    Key " + v4_definition_snapshot_braces(" code: int ") + "\n"
     src = src + "}\n"
+    src = src + "task util::math::double(value: int) -> int {\n"
+    src = src + "    give back value + value\n"
+    src = src + "}\n"
+    src = src + "use util::math::*\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot::pack(level: 7)\n"
     src = src + "    pilot event = Event::Key " + v4_definition_snapshot_braces(" code: 9 ") + "\n"
-    src = src + "    give back ace.salute()\n"
+    src = src + "    pilot doubled = double(2)\n"
+    src = src + "    give back ace.salute() + doubled\n"
     src = src + "}\n"
     src = src + "task mix(count: uint, marker: char) -> float32 {\n"
     src = src + "    give back 1.5\n"
@@ -68,11 +73,13 @@ pilot v4_definition_snapshot_salute_offset = v4_definition_snapshot_token_offset
 pilot v4_definition_snapshot_param_offset = v4_definition_snapshot_token_offset(v4_definition_snapshot_stream, "level", 2)
 pilot v4_definition_snapshot_variant_case_offset = v4_definition_snapshot_token_offset(v4_definition_snapshot_stream, "Key", 1)
 pilot v4_definition_snapshot_builtin_offset = v4_definition_snapshot_token_offset(v4_definition_snapshot_stream, "float32", 0)
+pilot v4_definition_snapshot_glob_offset = v4_definition_snapshot_token_offset(v4_definition_snapshot_stream, "double", 1)
 
 pilot v4_definition_snapshot_method = v4_definition_at_text_cached("definition-snapshot.fk", v4_definition_snapshot_source, v4_definition_snapshot_salute_offset)
 pilot v4_definition_snapshot_param = v4_definition_at_text_cached("definition-snapshot.fk", v4_definition_snapshot_source, v4_definition_snapshot_param_offset)
 pilot v4_definition_snapshot_variant_case = v4_definition_at_text_cached("definition-snapshot.fk", v4_definition_snapshot_source, v4_definition_snapshot_variant_case_offset)
 pilot v4_definition_snapshot_builtin = v4_definition_at_text_cached("definition-snapshot.fk", v4_definition_snapshot_source, v4_definition_snapshot_builtin_offset)
+pilot v4_definition_snapshot_glob = v4_definition_at_text_cached("definition-snapshot.fk", v4_definition_snapshot_source, v4_definition_snapshot_glob_offset)
 say v4_definition_at_summary(v4_definition_snapshot_method)
 say v4_definition_snapshot_summary()
 
@@ -99,6 +106,7 @@ pilot v4_definition_restored_id = word_to_int(v4_query_get(v4_definition_at_quer
 pilot v4_definition_param_restored_id = word_to_int(v4_query_get(v4_definition_at_query_key("definition-snapshot.fk", v4_definition_snapshot_param_offset), v4_definition_fingerprint))
 pilot v4_definition_variant_case_restored_id = word_to_int(v4_query_get(v4_definition_at_query_key("definition-snapshot.fk", v4_definition_snapshot_variant_case_offset), v4_definition_fingerprint))
 pilot v4_definition_builtin_restored_id = word_to_int(v4_query_get(v4_definition_at_query_key("definition-snapshot.fk", v4_definition_snapshot_builtin_offset), v4_definition_fingerprint))
+pilot v4_definition_glob_restored_id = word_to_int(v4_query_get(v4_definition_at_query_key("definition-snapshot.fk", v4_definition_snapshot_glob_offset), v4_definition_fingerprint))
 say v4_definition_at_summary(v4_definition_restored_id)
 say "definition-snapshot-method-kind=" + v4_definition_at_kind(v4_definition_snapshot_method)
 say "definition-snapshot-method-found=" + word_from_int(v4_definition_at_found(v4_definition_snapshot_method))
@@ -121,4 +129,9 @@ say "definition-snapshot-builtin-def=" + v4_definition_at_def(v4_definition_snap
 say "definition-snapshot-builtin-restored-kind=" + v4_definition_at_kind(v4_definition_builtin_restored_id)
 say "definition-snapshot-builtin-restored-found=" + word_from_int(v4_definition_at_found(v4_definition_builtin_restored_id))
 say "definition-snapshot-builtin-restored-def=" + v4_definition_at_def(v4_definition_builtin_restored_id)
+say "definition-snapshot-glob-kind=" + v4_definition_at_kind(v4_definition_snapshot_glob)
+say "definition-snapshot-glob-found=" + word_from_int(v4_definition_at_found(v4_definition_snapshot_glob))
+say "definition-snapshot-glob-restored-kind=" + v4_definition_at_kind(v4_definition_glob_restored_id)
+say "definition-snapshot-glob-restored-found=" + word_from_int(v4_definition_at_found(v4_definition_glob_restored_id))
+say "definition-snapshot-glob-restored-matches=" + v4_definition_snapshot_bool_word(v4_span_start(v4_definition_at_span(v4_definition_glob_restored_id)) == v4_definition_snapshot_token_offset(v4_definition_snapshot_stream, "double", 0))
 say v4_driver_confirm_restored_document_text("definition-snapshot.fk", "task changed() => 7\n")

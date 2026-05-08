@@ -41,14 +41,22 @@ task v4_semantic_source_text() -> word {
     src = src + "variant Event {\n"
     src = src + "    Key " + v4_semantic_braces(" code: int ") + "\n"
     src = src + "}\n"
+    src = src + "task util::math::double(value: int) -> int {\n"
+    src = src + "    give back value + value\n"
+    src = src + "}\n"
+    src = src + "task util::math::triple(value: int) -> int {\n"
+    src = src + "    give back value + value + value\n"
+    src = src + "}\n"
     src = src + "task compose(host: word, port: int) -> int {\n"
     src = src + "    give back port\n"
     src = src + "}\n"
+    src = src + "use util::math::*\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot " + v4_semantic_braces(" rank: 7 ") + "\n"
     src = src + "    pilot event = Event::Key " + v4_semantic_braces(" code: 9 ") + "\n"
     src = src + "    pilot tuned = compose(host: \"relay\", port: 9)\n"
-    src = src + "    give back ace.salute() + tuned\n"
+    src = src + "    pilot doubled = double(2)\n"
+    src = src + "    give back ace.salute() + tuned + doubled\n"
     src = src + "}\n"
     give back src
 }
@@ -63,6 +71,7 @@ pilot v4_sem_method_use = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_so
 pilot v4_sem_variant = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "Event", 1))
 pilot v4_sem_variant_case = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "Key", 1))
 pilot v4_sem_param = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "host", 1))
+pilot v4_sem_glob = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "double", 1))
 
 say v4_semantic_at_summary(v4_sem_main_fact)
 say "semantic-main-name=" + v4_semantic_at_name(v4_sem_main_fact)
@@ -81,3 +90,5 @@ say "semantic-variant-case-kind=" + v4_semantic_at_kind(v4_sem_variant_case)
 say "semantic-variant-case-type=" + v4_semantic_at_type(v4_sem_variant_case)
 say "semantic-param-kind=" + v4_semantic_at_kind(v4_sem_param)
 say "semantic-param-type=" + v4_semantic_at_type(v4_sem_param)
+say "semantic-glob-kind=" + v4_semantic_at_kind(v4_sem_glob)
+say "semantic-glob-type=" + v4_semantic_at_type(v4_sem_glob)
