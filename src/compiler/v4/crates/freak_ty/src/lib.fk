@@ -4362,9 +4362,11 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
         pilot symbol_name = v4_resolve_symbol_name(resolve_id, symbol_idx)
         pilot symbol_def = v4_resolve_symbol_def(resolve_id, symbol_idx)
         pilot hir_item = v4_resolve_symbol_hir_item(resolve_id, symbol_idx)
-        pilot sig_kind = v4_ty_kind_for_symbol(symbol_kind)
-        pilot sig_display = v4_ty_display_for_hir_item(symbol_kind, symbol_name, symbol_def, hir_id, hir_item)
-        v4_ty_add_signature(ty_id, symbol_def, sig_kind, symbol_name, sig_display, hir_item)
+        if symbol_def == "" or v4_ty_lookup_signature(ty_id, symbol_def) < 0 {
+            pilot sig_kind = v4_ty_kind_for_symbol(symbol_kind)
+            pilot sig_display = v4_ty_display_for_hir_item(symbol_kind, symbol_name, symbol_def, hir_id, hir_item)
+            v4_ty_add_signature(ty_id, symbol_def, sig_kind, symbol_name, sig_display, hir_item)
+        }
         symbol_idx += 1
     }
 

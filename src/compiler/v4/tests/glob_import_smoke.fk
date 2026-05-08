@@ -1,0 +1,67 @@
+-- V4 glob import expansion smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_glob_import_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_glob_import_source_text() -> word {
+    pilot src = "task util::math::double(value: int) -> int {\n"
+    src = src + "    give back value + value\n"
+    src = src + "}\n"
+    src = src + "task util::math::triple(value: int) -> int {\n"
+    src = src + "    give back value + value + value\n"
+    src = src + "}\n"
+    src = src + "use util::math::*\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot a = double(2)\n"
+    src = src + "    pilot b = triple(3)\n"
+    src = src + "    give back a + b\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_glob_import_source = v4_glob_import_source_text()
+pilot v4_glob_import_stream = v4_lex_text(0, v4_glob_import_source)
+pilot v4_glob_import_tree = v4_parse_stream(0, v4_glob_import_stream)
+pilot v4_glob_import_hir = v4_hir_lower_tree(0, v4_glob_import_tree)
+pilot v4_glob_import_resolve = v4_resolve_lower_hir(0, v4_glob_import_hir)
+pilot v4_glob_import_ty = v4_ty_lower_resolve(0, v4_glob_import_resolve)
+pilot v4_glob_import_mir = v4_mir_lower_ty(0, v4_glob_import_ty)
+
+pilot v4_glob_import_main_def = v4_resolve_def_for_name(v4_glob_import_resolve, "main")
+pilot v4_glob_import_main_body = v4_mir_lookup_body(v4_glob_import_mir, v4_glob_import_main_def)
+pilot v4_glob_import_a_stmt = v4_glob_import_find_local_stmt(v4_glob_import_mir, v4_glob_import_main_body, "a")
+pilot v4_glob_import_b_stmt = v4_glob_import_find_local_stmt(v4_glob_import_mir, v4_glob_import_main_body, "b")
+
+say v4_hir_summary(v4_glob_import_hir)
+say "glob-import-binding=" + v4_hir_item_name(v4_glob_import_hir, 2)
+say "glob-import-path=" + v4_hir_import_path(v4_glob_import_hir, 2)
+say "glob-import-alias=" + v4_hir_import_alias(v4_glob_import_hir, 2)
+say v4_resolve_summary(v4_glob_import_resolve)
+say "glob-symbol-count=" + word_from_int(v4_resolve_symbol_count(v4_glob_import_resolve))
+say "glob-expand-double=" + v4_resolve_expand_import_name(v4_glob_import_resolve, "double")
+say "glob-expand-triple=" + v4_resolve_expand_import_name(v4_glob_import_resolve, "triple")
+say "glob-def-double=" + v4_resolve_def_for_name(v4_glob_import_resolve, "double")
+say "glob-def-triple=" + v4_resolve_def_for_name(v4_glob_import_resolve, "triple")
+say "glob-double-kind=" + v4_resolve_symbol_kind(v4_glob_import_resolve, v4_resolve_lookup_any(v4_glob_import_resolve, "double"))
+say "glob-triple-kind=" + v4_resolve_symbol_kind(v4_glob_import_resolve, v4_resolve_lookup_any(v4_glob_import_resolve, "triple"))
+say v4_ty_summary(v4_glob_import_ty)
+say "glob-ty-double-display=" + v4_ty_signature_of(v4_glob_import_ty, v4_resolve_def_for_name(v4_glob_import_resolve, "double"))
+say "glob-ty-triple-display=" + v4_ty_signature_of(v4_glob_import_ty, v4_resolve_def_for_name(v4_glob_import_resolve, "triple"))
+say v4_mir_summary(v4_glob_import_mir)
+say "glob-call-a-op=" + v4_mir_rvalue_op(v4_glob_import_mir, v4_glob_import_main_body, v4_mir_stmt_rvalue(v4_glob_import_mir, v4_glob_import_main_body, v4_glob_import_a_stmt))
+say "glob-call-a-ty=" + v4_mir_rvalue_ty(v4_glob_import_mir, v4_glob_import_main_body, v4_mir_stmt_rvalue(v4_glob_import_mir, v4_glob_import_main_body, v4_glob_import_a_stmt))
+say "glob-call-b-op=" + v4_mir_rvalue_op(v4_glob_import_mir, v4_glob_import_main_body, v4_mir_stmt_rvalue(v4_glob_import_mir, v4_glob_import_main_body, v4_glob_import_b_stmt))
+say "glob-call-b-ty=" + v4_mir_rvalue_ty(v4_glob_import_mir, v4_glob_import_main_body, v4_mir_stmt_rvalue(v4_glob_import_mir, v4_glob_import_main_body, v4_glob_import_b_stmt))
+say "glob-import-diagnostics=" + word_from_int(v4_mir_diag_count(v4_glob_import_mir))

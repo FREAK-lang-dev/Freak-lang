@@ -41,8 +41,9 @@ Semantic Core forms are still moving. Each new source form must become a full
 vertical slice before the next dependency gate opens.
 
 Current Phase 1 landings already cover routes/variants, alias-backed pattern
-surfaces, tuple and fixed-array local/editor facts, and named call-site
-arguments across task calls plus instance/associated method calls.
+surfaces, tuple and fixed-array local/editor facts, module/glob import call
+resolution, and named call-site arguments across task calls plus
+instance/associated method calls.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 

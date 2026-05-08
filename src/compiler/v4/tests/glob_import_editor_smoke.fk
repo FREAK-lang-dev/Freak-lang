@@ -1,0 +1,76 @@
+-- V4 glob import editor fact smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_glob_import_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_glob_import_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_glob_import_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_glob_import_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_glob_import_editor_source_text() -> word {
+    pilot src = "task util::math::double(value: int) -> int {\n"
+    src = src + "    give back value + value\n"
+    src = src + "}\n"
+    src = src + "task util::math::triple(value: int) -> int {\n"
+    src = src + "    give back value + value + value\n"
+    src = src + "}\n"
+    src = src + "use util::math::*\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot a = double(2)\n"
+    src = src + "    pilot b = triple(3)\n"
+    src = src + "    give back a + b\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_glob_import_editor_source = v4_glob_import_editor_source_text()
+pilot v4_glob_import_editor_stream = v4_lex_text(0, v4_glob_import_editor_source)
+pilot v4_glob_import_editor_double_decl_offset = v4_glob_import_editor_token_offset(v4_glob_import_editor_stream, "double", 0)
+pilot v4_glob_import_editor_triple_decl_offset = v4_glob_import_editor_token_offset(v4_glob_import_editor_stream, "triple", 0)
+pilot v4_glob_import_editor_double_call_offset = v4_glob_import_editor_token_offset(v4_glob_import_editor_stream, "double", 1)
+pilot v4_glob_import_editor_triple_call_offset = v4_glob_import_editor_token_offset(v4_glob_import_editor_stream, "triple", 1)
+
+pilot v4_glob_import_editor_double_sem = v4_semantic_at_text_cached("glob-import-editor.fk", v4_glob_import_editor_source, v4_glob_import_editor_double_call_offset)
+pilot v4_glob_import_editor_triple_sem = v4_semantic_at_text_cached("glob-import-editor.fk", v4_glob_import_editor_source, v4_glob_import_editor_triple_call_offset)
+pilot v4_glob_import_editor_hover = v4_hover_text_cached("glob-import-editor.fk", v4_glob_import_editor_source, v4_glob_import_editor_double_call_offset)
+pilot v4_glob_import_editor_double_definition = v4_definition_at_text_cached("glob-import-editor.fk", v4_glob_import_editor_source, v4_glob_import_editor_double_call_offset)
+pilot v4_glob_import_editor_triple_definition = v4_definition_at_text_cached("glob-import-editor.fk", v4_glob_import_editor_source, v4_glob_import_editor_triple_call_offset)
+
+say "glob-import-editor-double-kind=" + v4_semantic_at_kind(v4_glob_import_editor_double_sem)
+say "glob-import-editor-double-type=" + v4_semantic_at_type(v4_glob_import_editor_double_sem)
+say "glob-import-editor-triple-kind=" + v4_semantic_at_kind(v4_glob_import_editor_triple_sem)
+say "glob-import-editor-triple-type=" + v4_semantic_at_type(v4_glob_import_editor_triple_sem)
+say "glob-import-editor-hover-name=" + v4_hover_name(v4_glob_import_editor_hover)
+say "glob-import-editor-hover-kind=" + v4_hover_kind(v4_glob_import_editor_hover)
+say "glob-import-editor-hover-type=" + v4_hover_type(v4_glob_import_editor_hover)
+say "glob-import-editor-double-definition-kind=" + v4_definition_at_kind(v4_glob_import_editor_double_definition)
+say "glob-import-editor-double-definition-found=" + word_from_int(v4_definition_at_found(v4_glob_import_editor_double_definition))
+say "glob-import-editor-double-definition-matches=" + v4_glob_import_editor_bool_word(v4_span_start(v4_definition_at_span(v4_glob_import_editor_double_definition)) == v4_glob_import_editor_double_decl_offset)
+say "glob-import-editor-triple-definition-kind=" + v4_definition_at_kind(v4_glob_import_editor_triple_definition)
+say "glob-import-editor-triple-definition-found=" + word_from_int(v4_definition_at_found(v4_glob_import_editor_triple_definition))
+say "glob-import-editor-triple-definition-matches=" + v4_glob_import_editor_bool_word(v4_span_start(v4_definition_at_span(v4_glob_import_editor_triple_definition)) == v4_glob_import_editor_triple_decl_offset)
