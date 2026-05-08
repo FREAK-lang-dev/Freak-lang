@@ -1,0 +1,77 @@
+-- V4 root fixed-pilot constant smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_global_const_source() -> word {
+    pilot src = "fixed pilot BASE: int = 9\n"
+    src = src + "fixed pilot BONUS: int = BASE\n"
+    src = src + "fixed pilot A: int = B\n"
+    src = src + "fixed pilot B: int = A\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back BONUS + 1\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_global_const_find_return_stmt(mir_id: int, body_id: int) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_global_const_stream = v4_lex_text(0, v4_global_const_source())
+pilot v4_global_const_tree = v4_parse_stream(0, v4_global_const_stream)
+pilot v4_global_const_hir = v4_hir_lower_tree(0, v4_global_const_tree)
+pilot v4_global_const_resolve = v4_resolve_lower_hir(0, v4_global_const_hir)
+pilot v4_global_const_ty = v4_ty_lower_resolve(0, v4_global_const_resolve)
+pilot v4_global_const_mir = v4_mir_lower_ty(0, v4_global_const_ty)
+
+pilot v4_global_const_base_def = v4_resolve_def_for_name(v4_global_const_resolve, "BASE")
+pilot v4_global_const_bonus_def = v4_resolve_def_for_name(v4_global_const_resolve, "BONUS")
+pilot v4_global_const_main_def = v4_resolve_def_for_name(v4_global_const_resolve, "main")
+pilot v4_global_const_base_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_base_def)
+pilot v4_global_const_bonus_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_bonus_def)
+pilot v4_global_const_main_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_main_def)
+
+pilot v4_global_const_main_body = v4_mir_lookup_body(v4_global_const_mir, v4_global_const_main_def)
+pilot v4_global_const_return_stmt = v4_global_const_find_return_stmt(v4_global_const_mir, v4_global_const_main_body)
+pilot v4_global_const_return_rvalue = v4_mir_stmt_rvalue(v4_global_const_mir, v4_global_const_main_body, v4_global_const_return_stmt)
+pilot v4_global_const_return_left = v4_mir_rvalue_lhs(v4_global_const_mir, v4_global_const_main_body, v4_global_const_return_rvalue)
+
+say "global-const-parse-kind=" + v4_parse_node_kind(v4_global_const_tree, 1)
+say "global-const-parse-name=" + v4_parse_node_value(v4_global_const_tree, 1)
+say "global-const-parse-type=" + v4_parse_const_type(v4_global_const_tree, 1)
+say "global-const-parse-init=" + v4_parse_const_init(v4_global_const_tree, 1)
+say "global-const-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_global_const_tree))
+say "global-const-hir-kind=" + v4_hir_item_kind(v4_global_const_hir, 0)
+say "global-const-hir-name=" + v4_hir_item_name(v4_global_const_hir, 0)
+say "global-const-hir-type=" + v4_hir_const_type(v4_global_const_hir, 0)
+say "global-const-hir-init=" + v4_hir_const_init(v4_global_const_hir, 0)
+say "global-const-resolve-kind=" + v4_resolve_symbol_kind(v4_global_const_resolve, v4_resolve_lookup_any(v4_global_const_resolve, "BASE"))
+say "global-const-base-sig-kind=" + v4_ty_signature_kind(v4_global_const_ty, v4_global_const_base_sig)
+say "global-const-base-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_base_sig)
+say "global-const-base-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_base_sig)
+say "global-const-bonus-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_bonus_sig)
+say "global-const-bonus-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_bonus_sig)
+say "global-const-main-return-type=" + v4_ty_signature_return_type(v4_global_const_ty, v4_global_const_main_sig)
+say "global-const-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_global_const_ty))
+
+pilot v4_global_const_diag_idx = 0
+repeat until v4_global_const_diag_idx >= v4_ty_diag_count(v4_global_const_ty) {
+    pilot v4_global_const_diag = v4_ty_diag(v4_global_const_ty, v4_global_const_diag_idx)
+    say "global-const-diag" + word_from_int(v4_global_const_diag_idx) + "=" + v4_diag_message(v4_global_const_diag)
+    say "global-const-diag" + word_from_int(v4_global_const_diag_idx) + "-span=" + v4_diag_span(v4_global_const_diag)
+    v4_global_const_diag_idx += 1
+}
+
+say "global-const-return-kind=" + v4_mir_rvalue_kind(v4_global_const_mir, v4_global_const_main_body, v4_global_const_return_rvalue)
+say "global-const-return-ty=" + v4_mir_rvalue_ty(v4_global_const_mir, v4_global_const_main_body, v4_global_const_return_rvalue)
+say "global-const-return-left-kind=" + v4_mir_rvalue_kind(v4_global_const_mir, v4_global_const_main_body, v4_global_const_return_left)
+say "global-const-return-left-text=" + v4_mir_rvalue_text(v4_global_const_mir, v4_global_const_main_body, v4_global_const_return_left)
+say "global-const-return-left-ty=" + v4_mir_rvalue_ty(v4_global_const_mir, v4_global_const_main_body, v4_global_const_return_left)
+say "global-const-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_global_const_mir))

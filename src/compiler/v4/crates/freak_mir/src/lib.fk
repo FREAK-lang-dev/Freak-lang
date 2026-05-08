@@ -2032,6 +2032,29 @@ task v4_mir_signature_return_type_for_name(mir_id: int, callee_name: word) -> wo
     give back v4_ty_unknown
 }
 
+task v4_mir_symbol_value_type(mir_id: int, symbol_name: word) -> word {
+    if symbol_name == "" {
+        give back v4_ty_unknown
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    if v4_resolve_exists(resolve_id) == false {
+        give back v4_ty_unknown
+    }
+    pilot symbol_id = v4_resolve_lookup_any(resolve_id, symbol_name)
+    if symbol_id < 0 {
+        give back v4_ty_unknown
+    }
+    if v4_resolve_symbol_kind(resolve_id, symbol_id) != v4_hir_const {
+        give back v4_ty_unknown
+    }
+    pilot sig_id = v4_ty_lookup_signature(ty_id, v4_resolve_symbol_def(resolve_id, symbol_id))
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_const_value_type_for_sig(ty_id, sig_id)
+}
+
 task v4_mir_expected_return_type(mir_id: int, body_id: int) -> word {
     pilot sig_id = v4_ty_lookup_signature(v4_mir_ty_id(mir_id), v4_mir_body_def(mir_id, body_id))
     if sig_id < 0 {
@@ -4461,7 +4484,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         if local_id >= 0 {
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_mir_local_ty(mir_id, body_id, local_id))
         }
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_symbol, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_symbol, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_mir_symbol_value_type(mir_id, first_value))
     }
 
     pilot place_id = v4_mir_lower_place(mir_id, body_id, stream_id, first, last + 1)

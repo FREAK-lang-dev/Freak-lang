@@ -1,0 +1,117 @@
+-- V4 root fixed-pilot editor visibility smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_global_const_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_global_const_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_global_const_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_global_const_editor_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_global_const_editor_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_global_const_editor_find_symbol(doc_id: int, name: word) -> int {
+    pilot symbol_id = 0
+    pilot symbol_count = v4_document_symbol_count(doc_id)
+    repeat until symbol_id >= symbol_count {
+        if v4_document_symbol_name(doc_id, symbol_id) == name {
+            give back symbol_id
+        }
+        symbol_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_global_const_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_global_const_editor_source_text() -> word {
+    pilot src = "fixed pilot MAX_HP: int = 9\n"
+    src = src + "fixed pilot BONUS: int = MAX_HP\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back BONUS\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_global_const_editor_source = v4_global_const_editor_source_text()
+pilot v4_global_const_editor_stream = v4_lex_text(0, v4_global_const_editor_source)
+
+pilot v4_global_const_editor_max_decl_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "MAX_HP", 0)
+pilot v4_global_const_editor_bonus_decl_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "BONUS", 0)
+pilot v4_global_const_editor_max_use_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "MAX_HP", 1)
+pilot v4_global_const_editor_bonus_use_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "BONUS", 1)
+
+pilot v4_global_const_editor_max_sem = v4_semantic_at_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_max_use_offset)
+pilot v4_global_const_editor_bonus_sem = v4_semantic_at_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_bonus_use_offset)
+pilot v4_global_const_editor_hover = v4_hover_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_bonus_use_offset)
+pilot v4_global_const_editor_definition = v4_definition_at_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_bonus_use_offset)
+pilot v4_global_const_editor_symbols = v4_document_symbols_text_cached("global-const-editor.fk", v4_global_const_editor_source)
+pilot v4_global_const_editor_completion = v4_completion_text_cached("global-const-editor.fk", v4_global_const_editor_source, 0)
+
+pilot v4_global_const_editor_max_completion = v4_global_const_editor_find_completion_label(v4_global_const_editor_completion, "MAX_HP")
+pilot v4_global_const_editor_bonus_completion = v4_global_const_editor_find_completion_label(v4_global_const_editor_completion, "BONUS")
+pilot v4_global_const_editor_bonus_symbol = v4_global_const_editor_find_symbol(v4_global_const_editor_symbols, "BONUS")
+
+say "global-const-editor-max-kind=" + v4_semantic_at_kind(v4_global_const_editor_max_sem)
+say "global-const-editor-max-type=" + v4_semantic_at_type(v4_global_const_editor_max_sem)
+say "global-const-editor-bonus-kind=" + v4_semantic_at_kind(v4_global_const_editor_bonus_sem)
+say "global-const-editor-bonus-type=" + v4_semantic_at_type(v4_global_const_editor_bonus_sem)
+say "global-const-editor-hover-name=" + v4_hover_name(v4_global_const_editor_hover)
+say "global-const-editor-hover-kind=" + v4_hover_kind(v4_global_const_editor_hover)
+say "global-const-editor-hover-type=" + v4_hover_type(v4_global_const_editor_hover)
+say "global-const-editor-definition-kind=" + v4_definition_at_kind(v4_global_const_editor_definition)
+say "global-const-editor-definition-found=" + word_from_int(v4_definition_at_found(v4_global_const_editor_definition))
+say "global-const-editor-definition-matches=" + v4_global_const_editor_bool_word(v4_span_start(v4_definition_at_span(v4_global_const_editor_definition)) == v4_global_const_editor_bonus_decl_offset)
+say "global-const-editor-symbol-count=" + word_from_int(v4_document_symbol_count(v4_global_const_editor_symbols))
+say "global-const-editor-symbol0-name=" + v4_document_symbol_name(v4_global_const_editor_symbols, 0)
+say "global-const-editor-symbol0-kind=" + v4_document_symbol_kind(v4_global_const_editor_symbols, 0)
+say "global-const-editor-symbol0-type=" + v4_document_symbol_type(v4_global_const_editor_symbols, 0)
+say "global-const-editor-symbol1-name=" + v4_document_symbol_name(v4_global_const_editor_symbols, 1)
+say "global-const-editor-symbol1-kind=" + v4_document_symbol_kind(v4_global_const_editor_symbols, 1)
+say "global-const-editor-symbol1-type=" + v4_document_symbol_type(v4_global_const_editor_symbols, 1)
+say "global-const-editor-bonus-symbol-name=" + v4_document_symbol_name(v4_global_const_editor_symbols, v4_global_const_editor_bonus_symbol)
+say "global-const-editor-bonus-symbol-kind=" + v4_document_symbol_kind(v4_global_const_editor_symbols, v4_global_const_editor_bonus_symbol)
+say "global-const-editor-bonus-symbol-type=" + v4_document_symbol_type(v4_global_const_editor_symbols, v4_global_const_editor_bonus_symbol)
+say "global-const-editor-max-completion-found=" + v4_global_const_editor_bool_word(v4_global_const_editor_max_completion >= 0)
+say "global-const-editor-max-completion-detail=" + v4_global_const_editor_detail_or_empty(v4_global_const_editor_completion, v4_global_const_editor_max_completion)
+say "global-const-editor-bonus-completion-found=" + v4_global_const_editor_bool_word(v4_global_const_editor_bonus_completion >= 0)
+say "global-const-editor-bonus-completion-detail=" + v4_global_const_editor_detail_or_empty(v4_global_const_editor_completion, v4_global_const_editor_bonus_completion)

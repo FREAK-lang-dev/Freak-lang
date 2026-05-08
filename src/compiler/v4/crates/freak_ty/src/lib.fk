@@ -23,6 +23,7 @@ pilot v4_ty_void = "void"
 pilot v4_ty_never = "never"
 
 pilot v4_ty_task_sig = "task-signature"
+pilot v4_ty_const_sig = "const-signature"
 pilot v4_ty_shape_sig = "shape-signature"
 pilot v4_ty_route_sig = "route-signature"
 pilot v4_ty_alias_sig = "alias-signature"
@@ -855,6 +856,7 @@ task v4_ty_binary_result(op: word, left_ty: word, right_ty: word) -> word {
 
 task v4_ty_kind_for_symbol(symbol_kind: word) -> word {
     if symbol_kind == v4_hir_task { give back v4_ty_task_sig }
+    if symbol_kind == v4_hir_const { give back v4_ty_const_sig }
     if symbol_kind == v4_hir_shape { give back v4_ty_shape_sig }
     if symbol_kind == v4_hir_route { give back v4_ty_route_sig }
     if symbol_kind == v4_hir_alias { give back v4_ty_alias_sig }
@@ -869,6 +871,9 @@ task v4_ty_kind_for_symbol(symbol_kind: word) -> word {
 task v4_ty_display_for_symbol(symbol_kind: word, symbol_name: word) -> word {
     if symbol_kind == v4_hir_task {
         give back "task " + symbol_name + "(...) -> unknown"
+    }
+    if symbol_kind == v4_hir_const {
+        give back "fixed pilot " + symbol_name
     }
     if symbol_kind == v4_hir_shape {
         give back "shape " + symbol_name
@@ -1107,6 +1112,28 @@ task v4_ty_skip_trivia(stream_id: int, token_id: int) -> int {
         idx += 1
     }
     give back idx
+}
+
+task v4_ty_next_nontrivia(stream_id: int, token_id: int, end_token: int) -> int {
+    pilot idx = token_id
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            give back idx
+        }
+        idx += 1
+    }
+    give back end_token
+}
+
+task v4_ty_prev_nontrivia(stream_id: int, token_id: int, start_token: int) -> int {
+    pilot idx = token_id
+    repeat until idx < start_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            give back idx
+        }
+        idx -= 1
+    }
+    give back 0 - 1
 }
 
 task v4_ty_find_token_value(stream_id: int, start_token: int, end_token: int, wanted: word) -> int {
@@ -2016,6 +2043,264 @@ task v4_ty_task_return_from_hir(hir_id: int, hir_item: int) -> word {
     give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
 }
 
+task v4_ty_const_signature_id_for_name(ty_id: int, const_name: word) -> int {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_const_sig and v4_ty_signature_name(ty_id, sig_id) == const_name {
+            give back sig_id
+        }
+        sig_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_const_declared_type_for_sig(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back ""
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_const_sig {
+        give back ""
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back ""
+    }
+    give back v4_hir_const_type(hir_id, hir_item)
+}
+
+task v4_ty_const_init_text_for_sig(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back ""
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_const_sig {
+        give back ""
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back ""
+    }
+    give back v4_hir_const_init(hir_id, hir_item)
+}
+
+task v4_ty_const_name_span(ty_id: int, sig_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back V4_NO_SPAN
+    }
+    pilot fixed_token = v4_ty_find_token_value(stream_id, start_token, end_token, "fixed")
+    if fixed_token < 0 {
+        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+    }
+    pilot pilot_token = v4_ty_next_nontrivia(stream_id, fixed_token + 1, end_token)
+    if pilot_token >= end_token or v4_lex_token_value(stream_id, pilot_token) != "pilot" {
+        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+    }
+    pilot name_token = v4_ty_next_nontrivia(stream_id, pilot_token + 1, end_token)
+    if name_token >= end_token {
+        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+    }
+    give back v4_lex_token_span(stream_id, name_token)
+}
+
+task v4_ty_const_equals_token(ty_id: int, sig_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back 0 - 1
+    }
+    pilot fixed_token = v4_ty_find_token_value(stream_id, start_token, end_token, "fixed")
+    if fixed_token < 0 {
+        give back 0 - 1
+    }
+    pilot pilot_token = v4_ty_next_nontrivia(stream_id, fixed_token + 1, end_token)
+    if pilot_token >= end_token or v4_lex_token_value(stream_id, pilot_token) != "pilot" {
+        give back 0 - 1
+    }
+    give back v4_ty_find_top_level_token(stream_id, pilot_token + 1, end_token, "=")
+}
+
+task v4_ty_const_init_start_token(ty_id: int, sig_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot eq_token = v4_ty_const_equals_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    if stream_id < 0 or eq_token < 0 or end_token <= eq_token {
+        give back 0 - 1
+    }
+    pilot start_token = v4_ty_skip_trivia(stream_id, eq_token + 1)
+    if start_token >= end_token {
+        give back 0 - 1
+    }
+    give back start_token
+}
+
+task v4_ty_const_init_end_token(ty_id: int, sig_id: int) -> int {
+    give back v4_ty_signature_item_end_token(ty_id, sig_id)
+}
+
+task v4_ty_const_infer_simple_type_from_tokens(ty_id: int, owner_sig: int, stream_id: int, start_token: int, end_token: int) -> word {
+    pilot first = v4_ty_skip_trivia(stream_id, start_token)
+    pilot second = v4_ty_next_nontrivia(stream_id, first + 1, end_token)
+    if first < 0 or first >= end_token {
+        give back v4_ty_unknown
+    }
+    if second < end_token {
+        give back v4_ty_unknown
+    }
+
+    pilot first_type = v4_lex_token_type(stream_id, first)
+    pilot first_value = v4_lex_token_value(stream_id, first)
+    if first_type == v4_tok_int {
+        give back v4_ty_int_literal_type(first_value, v4_ty_unknown)
+    }
+    if first_type == v4_tok_float {
+        give back v4_ty_float_literal_type(first_value, v4_ty_unknown)
+    }
+    if first_type == v4_tok_string {
+        give back v4_ty_word
+    }
+    if first_type == v4_tok_bool {
+        give back v4_ty_bool
+    }
+    if first_type == v4_tok_char {
+        give back v4_ty_char
+    }
+    if first_type == v4_tok_ident or first_type == v4_tok_keyword {
+        pilot dep_sig = v4_ty_const_signature_id_for_name(ty_id, first_value)
+        if dep_sig >= 0 and dep_sig != owner_sig {
+            give back v4_ty_const_value_type_for_sig(ty_id, dep_sig)
+        }
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_const_value_type_for_sig(ty_id: int, sig_id: int) -> word {
+    pilot declared_ty = v4_ty_const_declared_type_for_sig(ty_id, sig_id)
+    if declared_ty != "" {
+        give back v4_ty_canonical_type(ty_id, declared_ty)
+    }
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot init_start = v4_ty_const_init_start_token(ty_id, sig_id)
+    pilot init_end = v4_ty_const_init_end_token(ty_id, sig_id)
+    if stream_id < 0 or init_start < 0 or init_end <= init_start {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_const_infer_simple_type_from_tokens(ty_id, sig_id, stream_id, init_start, init_end)
+}
+
+task v4_ty_const_value_type_for_name(ty_id: int, const_name: word) -> word {
+    pilot sig_id = v4_ty_const_signature_id_for_name(ty_id, const_name)
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_const_value_type_for_sig(ty_id, sig_id)
+}
+
+task v4_ty_const_cycle_seen_contains(seen_consts: word, const_name: word) -> bool {
+    if seen_consts == "" or const_name == "" {
+        give back false
+    }
+    give back ("|" + seen_consts + "|").contains("|" + const_name + "|")
+}
+
+task v4_ty_const_cycle_seen_append(seen_consts: word, const_name: word) -> word {
+    if const_name == "" {
+        give back seen_consts
+    }
+    if seen_consts == "" {
+        give back const_name
+    }
+    give back seen_consts + "|" + const_name
+}
+
+task v4_ty_const_dep_name_at_token(ty_id: int, stream_id: int, token_id: int, start_token: int, end_token: int) -> word {
+    pilot tok_type = v4_lex_token_type(stream_id, token_id)
+    if tok_type != v4_tok_ident and tok_type != v4_tok_keyword {
+        give back ""
+    }
+
+    pilot token_value = v4_lex_token_value(stream_id, token_id)
+    if v4_ty_const_signature_id_for_name(ty_id, token_value) < 0 {
+        give back ""
+    }
+
+    pilot prev_token = v4_ty_prev_nontrivia(stream_id, token_id - 1, start_token)
+    if prev_token >= start_token {
+        pilot prev_value = v4_lex_token_value(stream_id, prev_token)
+        if prev_value == "." or prev_value == "::" {
+            give back ""
+        }
+    }
+
+    pilot next_token = v4_ty_next_nontrivia(stream_id, token_id + 1, end_token)
+    if next_token < end_token {
+        pilot next_value = v4_lex_token_value(stream_id, next_token)
+        if next_value == ":" or next_value == "::" or next_value == "(" {
+            give back ""
+        }
+    }
+
+    give back token_value
+}
+
+task v4_ty_const_cycle_path_for_sig(ty_id: int, sig_id: int, seen_consts: word) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back ""
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_const_sig {
+        give back ""
+    }
+
+    pilot const_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot next_seen = v4_ty_const_cycle_seen_append(seen_consts, const_name)
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_const_init_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_const_init_end_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back ""
+    }
+
+    pilot token_id = start_token
+    repeat until token_id >= end_token {
+        pilot dep_name = v4_ty_const_dep_name_at_token(ty_id, stream_id, token_id, start_token, end_token)
+        if dep_name != "" {
+            if v4_ty_const_cycle_seen_contains(next_seen, dep_name) {
+                give back v4_ty_const_cycle_seen_append(next_seen, dep_name)
+            }
+            pilot dep_sig = v4_ty_const_signature_id_for_name(ty_id, dep_name)
+            if dep_sig >= 0 {
+                pilot dep_path = v4_ty_const_cycle_path_for_sig(ty_id, dep_sig, next_seen)
+                if dep_path != "" {
+                    give back dep_path
+                }
+            }
+        }
+        token_id += 1
+    }
+    give back ""
+}
+
+task v4_ty_validate_const_cycles(ty_id: int) -> void {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_const_sig {
+            pilot cycle_path = v4_ty_const_cycle_path_for_sig(ty_id, sig_id, "")
+            if cycle_path != "" {
+                pilot const_name = v4_ty_signature_name(ty_id, sig_id)
+                pilot span = v4_ty_const_name_span(ty_id, sig_id)
+                v4_ty_add_error_diag(ty_id, span, "Yuuko constant loop: fixed pilot " + const_name + " depends on itself via " + v4_ty_alias_cycle_chain_display(cycle_path), "break the constant cycle with a literal or a const task boundary")
+            }
+        }
+        sig_id += 1
+    }
+}
+
 task v4_ty_skip_item(stream_id: int, start_token: int, end_limit: int) -> int {
     pilot idx = start_token
     pilot depth = 0
@@ -2765,6 +3050,13 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, symbol_def
             give back "task " + symbol_name + "(...) -> " + v4_ty_task_return_from_tokens(stream_id, member_start, member_end)
         }
         give back "task " + symbol_name + generic_text + "(...) -> " + v4_ty_task_return_from_hir(hir_id, hir_item)
+    }
+    if symbol_kind == v4_hir_const {
+        pilot const_ty = v4_hir_const_type(hir_id, hir_item)
+        if const_ty != "" {
+            give back "fixed pilot " + symbol_name + ": " + const_ty
+        }
+        give back "fixed pilot " + symbol_name
     }
     if symbol_kind == v4_hir_shape {
         give back "shape " + symbol_name + generic_text
@@ -4372,6 +4664,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
 
     v4_ty_validate_lifetime_contracts(ty_id)
     v4_ty_validate_alias_cycles(ty_id)
+    v4_ty_validate_const_cycles(ty_id)
     give back ty_id
 }
 

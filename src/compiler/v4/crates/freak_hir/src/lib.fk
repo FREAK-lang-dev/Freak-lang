@@ -10,6 +10,7 @@ pilot v4_hir_task = "Task"
 pilot v4_hir_shape = "Shape"
 pilot v4_hir_route = "Route"
 pilot v4_hir_alias = "Alias"
+pilot v4_hir_const = "Const"
 pilot v4_hir_impl = "Impl"
 pilot v4_hir_doctrine = "Doctrine"
 pilot v4_hir_import = "Import"
@@ -241,6 +242,28 @@ task v4_hir_alias_target(hir_id: int, item_id: int) -> word {
     give back v4_parse_alias_target(tree_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
+task v4_hir_const_type(hir_id: int, item_id: int) -> word {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_const {
+        give back ""
+    }
+    pilot tree_id = v4_hir_item_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back ""
+    }
+    give back v4_parse_const_type(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+}
+
+task v4_hir_const_init(hir_id: int, item_id: int) -> word {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_const {
+        give back ""
+    }
+    pilot tree_id = v4_hir_item_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back ""
+    }
+    give back v4_parse_const_init(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+}
+
 task v4_hir_item_attribute_start(hir_id: int, item_id: int) -> int {
     if item_id <= 0 {
         give back item_id
@@ -359,6 +382,7 @@ task v4_hir_kind_from_parse(parse_kind: word) -> word {
     if parse_kind == v4_node_shape { give back v4_hir_shape }
     if parse_kind == v4_node_route { give back v4_hir_route }
     if parse_kind == v4_node_alias { give back v4_hir_alias }
+    if parse_kind == v4_node_const { give back v4_hir_const }
     if parse_kind == v4_node_impl { give back v4_hir_impl }
     if parse_kind == v4_node_doctrine { give back v4_hir_doctrine }
     if parse_kind == v4_node_use { give back v4_hir_import }
