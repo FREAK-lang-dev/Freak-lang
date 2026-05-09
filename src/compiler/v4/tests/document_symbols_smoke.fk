@@ -40,6 +40,10 @@ task v4_doc_symbol_braces(inner: word) -> word {
 
 task v4_doc_symbols_source_text() -> word {
     pilot src = "@protagonist\n"
+    src = src + "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot WIDTH: uint = 2u\n"
+    src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
+    src = src + "fixed pilot CELLS = DEPTH * BASE\n"
     src = src + "shape Pilot {\n"
     src = src + "    rank: int\n"
     src = src + "}\n"
@@ -57,7 +61,7 @@ task v4_doc_symbols_source_text() -> word {
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot::pack(7)\n"
     src = src + "    pilot event = Event::Key " + v4_doc_symbol_braces(" code: 9 ") + "\n"
-    src = src + "    give back ace.salute()\n"
+    src = src + "    give back ace.salute() + CELLS\n"
     src = src + "}\n"
     give back src
 }
@@ -66,6 +70,8 @@ pilot v4_doc_source = v4_doc_symbols_source_text()
 pilot v4_doc_symbols = v4_document_symbols_text_cached("document_symbols.fk", v4_doc_source)
 
 pilot v4_doc_main_symbol = v4_doc_symbol_find(v4_doc_symbols, "main")
+pilot v4_doc_base_symbol = v4_doc_symbol_find(v4_doc_symbols, "BASE")
+pilot v4_doc_cells_symbol = v4_doc_symbol_find(v4_doc_symbols, "CELLS")
 pilot v4_doc_pilot_symbol = v4_doc_symbol_find(v4_doc_symbols, "Pilot")
 pilot v4_doc_event_symbol = v4_doc_symbol_find(v4_doc_symbols, "Event")
 pilot v4_doc_event_key_symbol = v4_doc_symbol_find(v4_doc_symbols, "Event::Key")
@@ -76,6 +82,10 @@ say v4_document_symbols_summary(v4_doc_symbols)
 say "document-symbol-count=" + word_from_int(v4_document_symbol_count(v4_doc_symbols))
 say "document-main-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_main_symbol)
 say "document-main-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_main_symbol)
+say "document-base-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_base_symbol)
+say "document-base-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_base_symbol)
+say "document-cells-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_cells_symbol)
+say "document-cells-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_cells_symbol)
 say "document-pilot-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_pilot_symbol)
 say "document-pilot-type=" + v4_doc_symbol_type_or_empty(v4_doc_symbols, v4_doc_pilot_symbol)
 say "document-event-kind=" + v4_doc_symbol_kind_or_empty(v4_doc_symbols, v4_doc_event_symbol)

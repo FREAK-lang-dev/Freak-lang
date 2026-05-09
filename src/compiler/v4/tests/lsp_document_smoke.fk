@@ -189,6 +189,7 @@ v4_lsp_change_document("const-live.fk", v4_lsp_const_changed)
 say v4_lsp_document_summary("const-live.fk")
 say v4_lsp_hover_document("const-live.fk", v4_lsp_const_cells_offset)
 say v4_lsp_definition_document("const-live.fk", v4_lsp_const_cells_offset)
+say v4_lsp_document_symbols_document("const-live.fk")
 say v4_lsp_completion_document("const-live.fk", 0)
 
 v4_lsp_change_document("live.fk", v4_lsp_doc_alias_diag_source())
