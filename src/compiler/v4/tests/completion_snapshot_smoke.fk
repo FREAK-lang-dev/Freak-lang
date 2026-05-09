@@ -91,6 +91,30 @@ task v4_completion_snapshot_source_text() -> word {
     src = src + "fixed pilot WIDTH: uint = 2u\n"
     src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
     src = src + "fixed pilot CELLS = DEPTH * BASE\n"
+    src = src + "doctrine Displayable {\n"
+    src = src + "    task display(self) -> word\n"
+    src = src + "}\n"
+    src = src + "doctrine Ranked {\n"
+    src = src + "    task rank(self) -> int\n"
+    src = src + "}\n"
+    src = src + "shape Wing {\n"
+    src = src + "    callsign: word\n"
+    src = src + "    score: int\n"
+    src = src + "}\n"
+    src = src + "impl Displayable for Wing {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back self.callsign\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Ranked for Wing {\n"
+    src = src + "    task rank(self) -> int {\n"
+    src = src + "        give back self.score\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task show<T: Displayable + Ranked>(value: T) -> word {\n"
+    src = src + "    pilot score = value.rank()\n"
+    src = src + "    give back value.display()\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot routed = compose(host: \"localhost\", port: 8080)\n"
     src = src + "    pilot ace = Pilot::pack(7)\n"
@@ -106,10 +130,12 @@ pilot v4_completion_snapshot_stream = v4_lex_text(0, v4_completion_snapshot_sour
 pilot v4_completion_snapshot_global_offset = 0
 pilot v4_completion_snapshot_offset = v4_completion_snapshot_token_offset(v4_completion_snapshot_stream, "salute", 1)
 pilot v4_completion_snapshot_named_offset = v4_completion_snapshot_token_offset(v4_completion_snapshot_stream, "8080", 0)
+pilot v4_completion_snapshot_bound_offset = v4_completion_snapshot_token_offset(v4_completion_snapshot_stream, "rank", 3)
 
 pilot v4_completion_snapshot_global_id = v4_completion_text_cached("completion-snapshot.fk", v4_completion_snapshot_source, v4_completion_snapshot_global_offset)
 pilot v4_completion_snapshot_id = v4_completion_text_cached("completion-snapshot.fk", v4_completion_snapshot_source, v4_completion_snapshot_offset)
 pilot v4_completion_snapshot_named_id = v4_completion_text_cached("completion-snapshot.fk", v4_completion_snapshot_source, v4_completion_snapshot_named_offset)
+pilot v4_completion_snapshot_bound_id = v4_completion_text_cached("completion-snapshot.fk", v4_completion_snapshot_source, v4_completion_snapshot_bound_offset)
 pilot v4_completion_snapshot_event = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "Event")
 pilot v4_completion_snapshot_event_key = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "Event::Key")
 pilot v4_completion_snapshot_double = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "double")
@@ -120,6 +146,8 @@ pilot v4_completion_snapshot_float32 = v4_completion_snapshot_find_label(v4_comp
 pilot v4_completion_snapshot_salute = v4_completion_snapshot_find_label(v4_completion_snapshot_id, "salute")
 pilot v4_completion_snapshot_pack = v4_completion_snapshot_find_label(v4_completion_snapshot_id, "pack")
 pilot v4_completion_snapshot_timeout = v4_completion_snapshot_find_label(v4_completion_snapshot_named_id, "timeout:")
+pilot v4_completion_snapshot_bound_rank = v4_completion_snapshot_find_label(v4_completion_snapshot_bound_id, "rank")
+pilot v4_completion_snapshot_bound_display = v4_completion_snapshot_find_label(v4_completion_snapshot_bound_id, "display")
 say v4_completion_summary(v4_completion_snapshot_id)
 say v4_completion_snapshot_summary()
 
@@ -146,6 +174,7 @@ pilot v4_completion_fingerprint = v4_source_fingerprint(v4_completion_file)
 pilot v4_completion_global_restored_id = word_to_int(v4_query_get(v4_completion_query_key("completion-snapshot.fk", v4_completion_snapshot_global_offset), v4_completion_fingerprint))
 pilot v4_completion_restored_id = word_to_int(v4_query_get(v4_completion_query_key("completion-snapshot.fk", v4_completion_snapshot_offset), v4_completion_fingerprint))
 pilot v4_completion_named_restored_id = word_to_int(v4_query_get(v4_completion_query_key("completion-snapshot.fk", v4_completion_snapshot_named_offset), v4_completion_fingerprint))
+pilot v4_completion_bound_restored_id = word_to_int(v4_query_get(v4_completion_query_key("completion-snapshot.fk", v4_completion_snapshot_bound_offset), v4_completion_fingerprint))
 pilot v4_completion_restored_event = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "Event")
 pilot v4_completion_restored_event_key = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "Event::Key")
 pilot v4_completion_restored_double = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "double")
@@ -156,6 +185,8 @@ pilot v4_completion_restored_float32 = v4_completion_snapshot_find_label(v4_comp
 pilot v4_completion_restored_salute = v4_completion_snapshot_find_label(v4_completion_restored_id, "salute")
 pilot v4_completion_restored_pack = v4_completion_snapshot_find_label(v4_completion_restored_id, "pack")
 pilot v4_completion_restored_timeout = v4_completion_snapshot_find_label(v4_completion_named_restored_id, "timeout:")
+pilot v4_completion_restored_bound_rank = v4_completion_snapshot_find_label(v4_completion_bound_restored_id, "rank")
+pilot v4_completion_restored_bound_display = v4_completion_snapshot_find_label(v4_completion_bound_restored_id, "display")
 say v4_completion_summary(v4_completion_restored_id)
 say "completion-snapshot-event-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_event >= 0)
 say "completion-snapshot-event-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_snapshot_global_id, v4_completion_snapshot_event)
@@ -177,6 +208,10 @@ say "completion-snapshot-pack-found=" + v4_completion_snapshot_bool_word(v4_comp
 say "completion-snapshot-timeout-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_timeout >= 0)
 say "completion-snapshot-timeout-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_snapshot_named_id, v4_completion_snapshot_timeout)
 say "completion-snapshot-timeout-insert=" + v4_completion_snapshot_insert_or_empty(v4_completion_snapshot_named_id, v4_completion_snapshot_timeout)
+say "completion-snapshot-bound-rank-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_bound_rank >= 0)
+say "completion-snapshot-bound-rank-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_snapshot_bound_id, v4_completion_snapshot_bound_rank)
+say "completion-snapshot-bound-display-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_bound_display >= 0)
+say "completion-snapshot-bound-display-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_snapshot_bound_id, v4_completion_snapshot_bound_display)
 say "completion-snapshot-restored-event-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_event >= 0)
 say "completion-snapshot-restored-event-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_global_restored_id, v4_completion_restored_event)
 say "completion-snapshot-restored-event-key-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_event_key >= 0)
@@ -197,4 +232,8 @@ say "completion-snapshot-restored-pack-found=" + v4_completion_snapshot_bool_wor
 say "completion-snapshot-restored-timeout-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_timeout >= 0)
 say "completion-snapshot-restored-timeout-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_named_restored_id, v4_completion_restored_timeout)
 say "completion-snapshot-restored-timeout-insert=" + v4_completion_snapshot_insert_or_empty(v4_completion_named_restored_id, v4_completion_restored_timeout)
+say "completion-snapshot-restored-bound-rank-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_bound_rank >= 0)
+say "completion-snapshot-restored-bound-rank-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_bound_restored_id, v4_completion_restored_bound_rank)
+say "completion-snapshot-restored-bound-display-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_bound_display >= 0)
+say "completion-snapshot-restored-bound-display-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_bound_restored_id, v4_completion_restored_bound_display)
 say v4_driver_confirm_restored_document_text("completion-snapshot.fk", "task changed() => 7\n")

@@ -81,6 +81,30 @@ task v4_completion_source_text() -> word {
     src = src + "fixed pilot WIDTH: uint = 2u\n"
     src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
     src = src + "fixed pilot CELLS = DEPTH * BASE\n"
+    src = src + "doctrine Displayable {\n"
+    src = src + "    task display(self) -> word\n"
+    src = src + "}\n"
+    src = src + "doctrine Ranked {\n"
+    src = src + "    task rank(self) -> int\n"
+    src = src + "}\n"
+    src = src + "shape Wing {\n"
+    src = src + "    callsign: word\n"
+    src = src + "    score: int\n"
+    src = src + "}\n"
+    src = src + "impl Displayable for Wing {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back self.callsign\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Ranked for Wing {\n"
+    src = src + "    task rank(self) -> int {\n"
+    src = src + "        give back self.score\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task show<T: Displayable + Ranked>(value: T) -> word {\n"
+    src = src + "    pilot score = value.rank()\n"
+    src = src + "    give back value.display()\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot::pack(7)\n"
     src = src + "    pilot event = Event::Key " + v4_completion_braces(" code: 9 ") + "\n"
@@ -96,8 +120,10 @@ pilot v4_completion_stream = v4_lex_text(0, v4_completion_source)
 pilot v4_completion_global_items = v4_completion_text_cached("completion.fk", v4_completion_source, 0)
 pilot v4_completion_salute_offset = v4_completion_token_offset(v4_completion_stream, "salute", 1)
 pilot v4_completion_pack_offset = v4_completion_token_offset(v4_completion_stream, "pack", 1)
+pilot v4_completion_bound_offset = v4_completion_token_offset(v4_completion_stream, "rank", 3)
 pilot v4_completion_instance_items = v4_completion_text_cached("completion.fk", v4_completion_source, v4_completion_salute_offset)
 pilot v4_completion_static_items = v4_completion_text_cached("completion.fk", v4_completion_source, v4_completion_pack_offset)
+pilot v4_completion_bound_items = v4_completion_text_cached("completion.fk", v4_completion_source, v4_completion_bound_offset)
 
 pilot v4_completion_global_main = v4_completion_find_label(v4_completion_global_items, "main")
 pilot v4_completion_global_pilot = v4_completion_find_label(v4_completion_global_items, "Pilot")
@@ -113,6 +139,8 @@ pilot v4_completion_instance_salute = v4_completion_find_label(v4_completion_ins
 pilot v4_completion_instance_pack = v4_completion_find_label(v4_completion_instance_items, "pack")
 pilot v4_completion_static_salute = v4_completion_find_label(v4_completion_static_items, "salute")
 pilot v4_completion_static_pack = v4_completion_find_label(v4_completion_static_items, "pack")
+pilot v4_completion_bound_rank = v4_completion_find_label(v4_completion_bound_items, "rank")
+pilot v4_completion_bound_display = v4_completion_find_label(v4_completion_bound_items, "display")
 
 say v4_completion_summary(v4_completion_global_items)
 say "completion-global-main-found=" + v4_completion_bool_word(v4_completion_global_main >= 0)
@@ -137,3 +165,7 @@ say "completion-instance-pack-found=" + v4_completion_bool_word(v4_completion_in
 say "completion-static-pack-found=" + v4_completion_bool_word(v4_completion_static_pack >= 0)
 say "completion-static-pack-detail=" + v4_completion_detail_or_empty(v4_completion_static_items, v4_completion_static_pack)
 say "completion-static-salute-found=" + v4_completion_bool_word(v4_completion_static_salute >= 0)
+say "completion-bound-rank-found=" + v4_completion_bool_word(v4_completion_bound_rank >= 0)
+say "completion-bound-rank-detail=" + v4_completion_detail_or_empty(v4_completion_bound_items, v4_completion_bound_rank)
+say "completion-bound-display-found=" + v4_completion_bool_word(v4_completion_bound_display >= 0)
+say "completion-bound-display-detail=" + v4_completion_detail_or_empty(v4_completion_bound_items, v4_completion_bound_display)

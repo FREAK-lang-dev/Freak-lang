@@ -128,6 +128,37 @@ task v4_lsp_const_source() -> word {
     give back src
 }
 
+task v4_lsp_bounds_source() -> word {
+    pilot src = "doctrine Displayable {\n"
+    src = src + "    task display(self) -> word\n"
+    src = src + "}\n"
+    src = src + "doctrine Ranked {\n"
+    src = src + "    task rank(self) -> int\n"
+    src = src + "}\n"
+    src = src + "shape Wing {\n"
+    src = src + "    callsign: word\n"
+    src = src + "    score: int\n"
+    src = src + "}\n"
+    src = src + "impl Displayable for Wing {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back self.callsign\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Ranked for Wing {\n"
+    src = src + "    task rank(self) -> int {\n"
+    src = src + "        give back self.score\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task show<T: Displayable + Ranked>(value: T) -> word {\n"
+    src = src + "    pilot score = value.rank()\n"
+    src = src + "    give back value.display()\n"
+    src = src + "}\n"
+    src = src + "task main(ship: Wing) -> word {\n"
+    src = src + "    give back show(ship)\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_source = "task main() => \"hi\"\n"
 v4_lsp_source = v4_lsp_source + "shape Pilot\n"
 pilot v4_lsp_variant = v4_lsp_variant_source()
@@ -152,6 +183,9 @@ pilot v4_lsp_glob_triple_offset = v4_lsp_token_offset(v4_lsp_glob_stream, "tripl
 pilot v4_lsp_const = v4_lsp_const_source()
 pilot v4_lsp_const_stream = v4_lex_text(4, v4_lsp_const)
 pilot v4_lsp_const_cells_offset = v4_lsp_token_offset(v4_lsp_const_stream, "CELLS", 1)
+pilot v4_lsp_bounds = v4_lsp_bounds_source()
+pilot v4_lsp_bounds_stream = v4_lex_text(5, v4_lsp_bounds)
+pilot v4_lsp_bounds_display_offset = v4_lsp_token_offset(v4_lsp_bounds_stream, "rank", 2)
 
 say v4_lsp_hover_text("lsp.fk", v4_lsp_source, 5)
 say v4_lsp_definition_text("lsp.fk", v4_lsp_source, 5)
@@ -182,6 +216,9 @@ say v4_lsp_hover_text("lsp_const.fk", v4_lsp_const, v4_lsp_const_cells_offset)
 say v4_lsp_definition_text("lsp_const.fk", v4_lsp_const, v4_lsp_const_cells_offset)
 say v4_lsp_document_symbols_text("lsp_const.fk", v4_lsp_const)
 say v4_lsp_completion_text("lsp_const.fk", v4_lsp_const, 0)
+say v4_lsp_hover_text("lsp_bounds.fk", v4_lsp_bounds, v4_lsp_bounds_display_offset)
+say v4_lsp_definition_text("lsp_bounds.fk", v4_lsp_bounds, v4_lsp_bounds_display_offset)
+say v4_lsp_completion_text("lsp_bounds.fk", v4_lsp_bounds, v4_lsp_bounds_display_offset)
 say v4_lsp_diagnostics_text("lsp.fk", v4_lsp_source)
 say v4_lsp_diagnostics_text("lsp_alias.fk", v4_lsp_alias_diag_source())
 say v4_lsp_diagnostics_text("lsp_lifetime.fk", v4_lsp_lifetime_diag_source())

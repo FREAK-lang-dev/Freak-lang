@@ -55,6 +55,30 @@ task v4_semantic_source_text() -> word {
     src = src + "fixed pilot WIDTH: uint = 2u\n"
     src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
     src = src + "fixed pilot CELLS = DEPTH * BASE\n"
+    src = src + "doctrine Displayable {\n"
+    src = src + "    task display(self) -> word\n"
+    src = src + "}\n"
+    src = src + "doctrine Ranked {\n"
+    src = src + "    task rank(self) -> int\n"
+    src = src + "}\n"
+    src = src + "shape Wing {\n"
+    src = src + "    callsign: word\n"
+    src = src + "    score: int\n"
+    src = src + "}\n"
+    src = src + "impl Displayable for Wing {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back self.callsign\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Ranked for Wing {\n"
+    src = src + "    task rank(self) -> int {\n"
+    src = src + "        give back self.score\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task show<T: Displayable + Ranked>(value: T) -> word {\n"
+    src = src + "    pilot score = value.rank()\n"
+    src = src + "    give back value.display()\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot " + v4_semantic_braces(" rank: 7 ") + "\n"
     src = src + "    pilot event = Event::Key " + v4_semantic_braces(" code: 9 ") + "\n"
@@ -77,6 +101,7 @@ pilot v4_sem_variant_case = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_
 pilot v4_sem_param = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "host", 1))
 pilot v4_sem_glob = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "double", 1))
 pilot v4_sem_const = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "CELLS", 1))
+pilot v4_sem_bound_method = v4_semantic_at_text_cached("semantic_at.fk", v4_sem_source, v4_semantic_token_offset(v4_sem_stream, "display", 2))
 
 say v4_semantic_at_summary(v4_sem_main_fact)
 say "semantic-main-name=" + v4_semantic_at_name(v4_sem_main_fact)
@@ -99,3 +124,5 @@ say "semantic-glob-kind=" + v4_semantic_at_kind(v4_sem_glob)
 say "semantic-glob-type=" + v4_semantic_at_type(v4_sem_glob)
 say "semantic-const-kind=" + v4_semantic_at_kind(v4_sem_const)
 say "semantic-const-type=" + v4_semantic_at_type(v4_sem_const)
+say "semantic-bound-method-kind=" + v4_semantic_at_kind(v4_sem_bound_method)
+say "semantic-bound-method-type=" + v4_semantic_at_type(v4_sem_bound_method)
