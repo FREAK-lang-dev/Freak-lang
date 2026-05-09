@@ -57,9 +57,21 @@ task v4_lsp_position_glob_source_text() -> word {
     give back src
 }
 
+task v4_lsp_position_const_source_text() -> word {
+    pilot src = "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot WIDTH: uint = 2u\n"
+    src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
+    src = src + "fixed pilot CELLS = DEPTH * BASE\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back CELLS\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_position_source = v4_lsp_position_source_text()
 pilot v4_lsp_position_named_source = v4_lsp_position_named_source_text()
 pilot v4_lsp_position_glob_source = v4_lsp_position_glob_source_text()
+pilot v4_lsp_position_const_source = v4_lsp_position_const_source_text()
 
 say "offset-event=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_source, 4, 18))
 say "offset-key=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_source, 4, 25))
@@ -75,6 +87,10 @@ say "offset-double=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position
 say v4_lsp_hover_position_text("position_glob.fk", v4_lsp_position_glob_source, 8, 14)
 say v4_lsp_definition_position_text("position_glob.fk", v4_lsp_position_glob_source, 8, 14)
 say v4_lsp_completion_position_text("position_glob.fk", v4_lsp_position_glob_source, 0, 0)
+say "offset-cells=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_const_source, 5, 14))
+say v4_lsp_hover_position_text("position_const.fk", v4_lsp_position_const_source, 5, 14)
+say v4_lsp_definition_position_text("position_const.fk", v4_lsp_position_const_source, 5, 14)
+say v4_lsp_completion_position_text("position_const.fk", v4_lsp_position_const_source, 0, 0)
 
 v4_lsp_open_document("position-live.fk", v4_lsp_position_source)
 say v4_lsp_handle_position_request("textDocument/hover", "position-live.fk", 4, 18)
@@ -88,3 +104,7 @@ v4_lsp_open_document("position-glob-live.fk", v4_lsp_position_glob_source)
 say v4_lsp_handle_position_request("textDocument/hover", "position-glob-live.fk", 8, 14)
 say v4_lsp_handle_position_request("textDocument/definition", "position-glob-live.fk", 8, 14)
 say v4_lsp_handle_position_request("textDocument/completion", "position-glob-live.fk", 0, 0)
+v4_lsp_open_document("position-const-live.fk", v4_lsp_position_const_source)
+say v4_lsp_handle_position_request("textDocument/hover", "position-const-live.fk", 5, 14)
+say v4_lsp_handle_position_request("textDocument/definition", "position-const-live.fk", 5, 14)
+say v4_lsp_handle_position_request("textDocument/completion", "position-const-live.fk", 0, 0)

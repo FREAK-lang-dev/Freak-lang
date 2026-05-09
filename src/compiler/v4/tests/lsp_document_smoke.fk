@@ -108,6 +108,17 @@ task v4_lsp_doc_glob_source() -> word {
     give back src
 }
 
+task v4_lsp_doc_const_source() -> word {
+    pilot src = "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot WIDTH: uint = 2u\n"
+    src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
+    src = src + "fixed pilot CELLS = DEPTH * BASE\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back CELLS\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_doc_source = "task main() => \"hi\"\n"
 pilot v4_lsp_doc_id = v4_lsp_open_document("live.fk", v4_lsp_doc_source)
 
@@ -165,6 +176,20 @@ say v4_lsp_definition_document("glob-live.fk", v4_lsp_glob_double_offset)
 say v4_lsp_hover_document("glob-live.fk", v4_lsp_glob_triple_offset)
 say v4_lsp_definition_document("glob-live.fk", v4_lsp_glob_triple_offset)
 say v4_lsp_completion_document("glob-live.fk", 0)
+
+pilot v4_lsp_const_doc_source = "task main() => 0\n"
+pilot v4_lsp_const_doc_id = v4_lsp_open_document("const-live.fk", v4_lsp_const_doc_source)
+pilot v4_lsp_const_changed = v4_lsp_doc_const_source()
+pilot v4_lsp_const_stream = v4_lex_text(0, v4_lsp_const_changed)
+pilot v4_lsp_const_cells_offset = v4_lsp_doc_token_offset(v4_lsp_const_stream, "CELLS", 1)
+
+say "opened-const-doc=" + word_from_int(v4_lsp_const_doc_id)
+say v4_lsp_document_summary("const-live.fk")
+v4_lsp_change_document("const-live.fk", v4_lsp_const_changed)
+say v4_lsp_document_summary("const-live.fk")
+say v4_lsp_hover_document("const-live.fk", v4_lsp_const_cells_offset)
+say v4_lsp_definition_document("const-live.fk", v4_lsp_const_cells_offset)
+say v4_lsp_completion_document("const-live.fk", 0)
 
 v4_lsp_change_document("live.fk", v4_lsp_doc_alias_diag_source())
 
