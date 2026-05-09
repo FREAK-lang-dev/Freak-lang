@@ -48,12 +48,16 @@ task v4_semantic_snapshot_source_text() -> word {
     src = src + "    give back port\n"
     src = src + "}\n"
     src = src + "use util::math::*\n"
+    src = src + "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot WIDTH: uint = 2u\n"
+    src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
+    src = src + "fixed pilot CELLS = DEPTH * BASE\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot " + v4_semantic_snapshot_braces(" rank: 7 ") + "\n"
     src = src + "    pilot event = Event::Key " + v4_semantic_snapshot_braces(" code: 9 ") + "\n"
     src = src + "    pilot tuned = compose(host: \"relay\", port: 9)\n"
     src = src + "    pilot doubled = double(2)\n"
-    src = src + "    give back ace.salute() + tuned + doubled\n"
+    src = src + "    give back ace.salute() + tuned + doubled + CELLS\n"
     src = src + "}\n"
     src = src + "task mix(count: uint, marker: char) -> float32 {\n"
     src = src + "    give back 1.5\n"
@@ -70,6 +74,7 @@ pilot v4_semantic_snapshot_variant_case_offset = v4_semantic_snapshot_token_offs
 pilot v4_semantic_snapshot_param_offset = v4_semantic_snapshot_token_offset(v4_semantic_snapshot_stream, "host", 1)
 pilot v4_semantic_snapshot_builtin_offset = v4_semantic_snapshot_token_offset(v4_semantic_snapshot_stream, "uint", 0)
 pilot v4_semantic_snapshot_glob_offset = v4_semantic_snapshot_token_offset(v4_semantic_snapshot_stream, "double", 1)
+pilot v4_semantic_snapshot_const_offset = v4_semantic_snapshot_token_offset(v4_semantic_snapshot_stream, "CELLS", 1)
 
 pilot v4_semantic_snapshot_main = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_main_offset)
 pilot v4_semantic_snapshot_method = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_method_offset)
@@ -78,6 +83,7 @@ pilot v4_semantic_snapshot_variant_case = v4_semantic_at_text_cached("semantic-s
 pilot v4_semantic_snapshot_param = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_param_offset)
 pilot v4_semantic_snapshot_builtin = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_builtin_offset)
 pilot v4_semantic_snapshot_glob = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_glob_offset)
+pilot v4_semantic_snapshot_const = v4_semantic_at_text_cached("semantic-snapshot.fk", v4_semantic_snapshot_source, v4_semantic_snapshot_const_offset)
 say v4_semantic_at_summary(v4_semantic_snapshot_main)
 say v4_semantic_snapshot_summary()
 
@@ -105,6 +111,7 @@ pilot v4_semantic_variant_case_restored_id = word_to_int(v4_query_get(v4_semanti
 pilot v4_semantic_param_restored_id = word_to_int(v4_query_get(v4_semantic_at_query_key("semantic-snapshot.fk", v4_semantic_snapshot_param_offset), v4_semantic_fingerprint))
 pilot v4_semantic_builtin_restored_id = word_to_int(v4_query_get(v4_semantic_at_query_key("semantic-snapshot.fk", v4_semantic_snapshot_builtin_offset), v4_semantic_fingerprint))
 pilot v4_semantic_glob_restored_id = word_to_int(v4_query_get(v4_semantic_at_query_key("semantic-snapshot.fk", v4_semantic_snapshot_glob_offset), v4_semantic_fingerprint))
+pilot v4_semantic_const_restored_id = word_to_int(v4_query_get(v4_semantic_at_query_key("semantic-snapshot.fk", v4_semantic_snapshot_const_offset), v4_semantic_fingerprint))
 say v4_semantic_at_summary(v4_semantic_restored_id)
 say "semantic-snapshot-method-kind=" + v4_semantic_at_kind(v4_semantic_snapshot_method)
 say "semantic-snapshot-method-type=" + v4_semantic_at_type(v4_semantic_snapshot_method)
@@ -130,4 +137,8 @@ say "semantic-snapshot-glob-kind=" + v4_semantic_at_kind(v4_semantic_snapshot_gl
 say "semantic-snapshot-glob-type=" + v4_semantic_at_type(v4_semantic_snapshot_glob)
 say "semantic-snapshot-glob-restored-kind=" + v4_semantic_at_kind(v4_semantic_glob_restored_id)
 say "semantic-snapshot-glob-restored-type=" + v4_semantic_at_type(v4_semantic_glob_restored_id)
+say "semantic-snapshot-const-kind=" + v4_semantic_at_kind(v4_semantic_snapshot_const)
+say "semantic-snapshot-const-type=" + v4_semantic_at_type(v4_semantic_snapshot_const)
+say "semantic-snapshot-const-restored-kind=" + v4_semantic_at_kind(v4_semantic_const_restored_id)
+say "semantic-snapshot-const-restored-type=" + v4_semantic_at_type(v4_semantic_const_restored_id)
 say v4_driver_confirm_restored_document_text("semantic-snapshot.fk", "task changed() => 7\n")

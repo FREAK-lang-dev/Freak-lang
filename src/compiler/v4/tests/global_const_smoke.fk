@@ -2,8 +2,11 @@
 -- Verification prepends the V4 crates before this file.
 
 task v4_global_const_source() -> word {
-    pilot src = "fixed pilot BASE: int = 9\n"
-    src = src + "fixed pilot BONUS: int = BASE\n"
+    pilot src = "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot WIDTH: uint = 2u\n"
+    src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
+    src = src + "fixed pilot CELLS = DEPTH * BASE\n"
+    src = src + "fixed pilot BONUS: int = CELLS / BASE\n"
     src = src + "fixed pilot A: int = B\n"
     src = src + "fixed pilot B: int = A\n"
     src = src + "task main() -> int {\n"
@@ -32,9 +35,15 @@ pilot v4_global_const_ty = v4_ty_lower_resolve(0, v4_global_const_resolve)
 pilot v4_global_const_mir = v4_mir_lower_ty(0, v4_global_const_ty)
 
 pilot v4_global_const_base_def = v4_resolve_def_for_name(v4_global_const_resolve, "BASE")
+pilot v4_global_const_width_def = v4_resolve_def_for_name(v4_global_const_resolve, "WIDTH")
+pilot v4_global_const_depth_def = v4_resolve_def_for_name(v4_global_const_resolve, "DEPTH")
+pilot v4_global_const_cells_def = v4_resolve_def_for_name(v4_global_const_resolve, "CELLS")
 pilot v4_global_const_bonus_def = v4_resolve_def_for_name(v4_global_const_resolve, "BONUS")
 pilot v4_global_const_main_def = v4_resolve_def_for_name(v4_global_const_resolve, "main")
 pilot v4_global_const_base_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_base_def)
+pilot v4_global_const_width_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_width_def)
+pilot v4_global_const_depth_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_depth_def)
+pilot v4_global_const_cells_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_cells_def)
 pilot v4_global_const_bonus_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_bonus_def)
 pilot v4_global_const_main_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_main_def)
 
@@ -56,6 +65,12 @@ say "global-const-resolve-kind=" + v4_resolve_symbol_kind(v4_global_const_resolv
 say "global-const-base-sig-kind=" + v4_ty_signature_kind(v4_global_const_ty, v4_global_const_base_sig)
 say "global-const-base-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_base_sig)
 say "global-const-base-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_base_sig)
+say "global-const-width-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_width_sig)
+say "global-const-width-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_width_sig)
+say "global-const-depth-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_depth_sig)
+say "global-const-depth-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_depth_sig)
+say "global-const-cells-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_cells_sig)
+say "global-const-cells-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_cells_sig)
 say "global-const-bonus-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_bonus_sig)
 say "global-const-bonus-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_bonus_sig)
 say "global-const-main-return-type=" + v4_ty_signature_return_type(v4_global_const_ty, v4_global_const_main_sig)

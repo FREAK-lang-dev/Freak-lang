@@ -117,6 +117,17 @@ task v4_lsp_glob_source() -> word {
     give back src
 }
 
+task v4_lsp_const_source() -> word {
+    pilot src = "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot WIDTH: uint = 2u\n"
+    src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
+    src = src + "fixed pilot CELLS = DEPTH * BASE\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back CELLS\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_lsp_source = "task main() => \"hi\"\n"
 v4_lsp_source = v4_lsp_source + "shape Pilot\n"
 pilot v4_lsp_variant = v4_lsp_variant_source()
@@ -138,6 +149,9 @@ pilot v4_lsp_glob = v4_lsp_glob_source()
 pilot v4_lsp_glob_stream = v4_lex_text(3, v4_lsp_glob)
 pilot v4_lsp_glob_double_offset = v4_lsp_token_offset(v4_lsp_glob_stream, "double", 1)
 pilot v4_lsp_glob_triple_offset = v4_lsp_token_offset(v4_lsp_glob_stream, "triple", 1)
+pilot v4_lsp_const = v4_lsp_const_source()
+pilot v4_lsp_const_stream = v4_lex_text(4, v4_lsp_const)
+pilot v4_lsp_const_cells_offset = v4_lsp_token_offset(v4_lsp_const_stream, "CELLS", 1)
 
 say v4_lsp_hover_text("lsp.fk", v4_lsp_source, 5)
 say v4_lsp_definition_text("lsp.fk", v4_lsp_source, 5)
@@ -164,6 +178,9 @@ say v4_lsp_definition_text("lsp_glob.fk", v4_lsp_glob, v4_lsp_glob_double_offset
 say v4_lsp_hover_text("lsp_glob.fk", v4_lsp_glob, v4_lsp_glob_triple_offset)
 say v4_lsp_definition_text("lsp_glob.fk", v4_lsp_glob, v4_lsp_glob_triple_offset)
 say v4_lsp_completion_text("lsp_glob.fk", v4_lsp_glob, 0)
+say v4_lsp_hover_text("lsp_const.fk", v4_lsp_const, v4_lsp_const_cells_offset)
+say v4_lsp_definition_text("lsp_const.fk", v4_lsp_const, v4_lsp_const_cells_offset)
+say v4_lsp_completion_text("lsp_const.fk", v4_lsp_const, 0)
 say v4_lsp_diagnostics_text("lsp.fk", v4_lsp_source)
 say v4_lsp_diagnostics_text("lsp_alias.fk", v4_lsp_alias_diag_source())
 say v4_lsp_diagnostics_text("lsp_lifetime.fk", v4_lsp_lifetime_diag_source())

@@ -48,12 +48,16 @@ task v4_hover_snapshot_source_text() -> word {
     src = src + "    give back value + value\n"
     src = src + "}\n"
     src = src + "use util::math::*\n"
+    src = src + "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot WIDTH: uint = 2u\n"
+    src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
+    src = src + "fixed pilot CELLS = DEPTH * BASE\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot ace = Pilot " + v4_hover_snapshot_braces(" rank: 7 ") + "\n"
     src = src + "    pilot event = Event::Key " + v4_hover_snapshot_braces(" code: 9 ") + "\n"
     src = src + "    pilot doubled = double(2)\n"
     src = src + "    pilot power = ace.boost(bonus: 2)\n"
-    src = src + "    give back ace.salute() + power + doubled\n"
+    src = src + "    give back ace.salute() + power + doubled + CELLS\n"
     src = src + "}\n"
     src = src + "task mix(count: uint, marker: char) -> float32 {\n"
     src = src + "    give back 1.5\n"
@@ -70,6 +74,7 @@ pilot v4_hover_snapshot_variant_case_offset = v4_hover_snapshot_token_offset(v4_
 pilot v4_hover_snapshot_param_offset = v4_hover_snapshot_token_offset(v4_hover_snapshot_stream, "bonus", 2)
 pilot v4_hover_snapshot_builtin_offset = v4_hover_snapshot_token_offset(v4_hover_snapshot_stream, "char", 0)
 pilot v4_hover_snapshot_glob_offset = v4_hover_snapshot_token_offset(v4_hover_snapshot_stream, "double", 1)
+pilot v4_hover_snapshot_const_offset = v4_hover_snapshot_token_offset(v4_hover_snapshot_stream, "CELLS", 1)
 
 pilot v4_hover_snapshot_main = v4_hover_text_cached("hover-snapshot.fk", v4_hover_snapshot_source, v4_hover_snapshot_main_offset)
 pilot v4_hover_snapshot_method = v4_hover_text_cached("hover-snapshot.fk", v4_hover_snapshot_source, v4_hover_snapshot_method_offset)
@@ -78,6 +83,7 @@ pilot v4_hover_snapshot_variant_case = v4_hover_text_cached("hover-snapshot.fk",
 pilot v4_hover_snapshot_param = v4_hover_text_cached("hover-snapshot.fk", v4_hover_snapshot_source, v4_hover_snapshot_param_offset)
 pilot v4_hover_snapshot_builtin = v4_hover_text_cached("hover-snapshot.fk", v4_hover_snapshot_source, v4_hover_snapshot_builtin_offset)
 pilot v4_hover_snapshot_glob = v4_hover_text_cached("hover-snapshot.fk", v4_hover_snapshot_source, v4_hover_snapshot_glob_offset)
+pilot v4_hover_snapshot_const = v4_hover_text_cached("hover-snapshot.fk", v4_hover_snapshot_source, v4_hover_snapshot_const_offset)
 say v4_hover_summary(v4_hover_snapshot_main)
 say v4_hover_snapshot_summary()
 
@@ -106,6 +112,7 @@ pilot v4_hover_variant_case_restored_id = word_to_int(v4_query_get(v4_hover_quer
 pilot v4_hover_param_restored_id = word_to_int(v4_query_get(v4_hover_query_key("hover-snapshot.fk", v4_hover_snapshot_param_offset), v4_hover_fingerprint))
 pilot v4_hover_builtin_restored_id = word_to_int(v4_query_get(v4_hover_query_key("hover-snapshot.fk", v4_hover_snapshot_builtin_offset), v4_hover_fingerprint))
 pilot v4_hover_glob_restored_id = word_to_int(v4_query_get(v4_hover_query_key("hover-snapshot.fk", v4_hover_snapshot_glob_offset), v4_hover_fingerprint))
+pilot v4_hover_const_restored_id = word_to_int(v4_query_get(v4_hover_query_key("hover-snapshot.fk", v4_hover_snapshot_const_offset), v4_hover_fingerprint))
 say v4_hover_summary(v4_hover_restored_id)
 say "hover-snapshot-method-kind=" + v4_hover_kind(v4_hover_snapshot_method)
 say "hover-snapshot-method-type=" + v4_hover_type(v4_hover_snapshot_method)
@@ -131,4 +138,8 @@ say "hover-snapshot-glob-kind=" + v4_hover_kind(v4_hover_snapshot_glob)
 say "hover-snapshot-glob-type=" + v4_hover_type(v4_hover_snapshot_glob)
 say "hover-snapshot-glob-restored-kind=" + v4_hover_kind(v4_hover_glob_restored_id)
 say "hover-snapshot-glob-restored-type=" + v4_hover_type(v4_hover_glob_restored_id)
+say "hover-snapshot-const-kind=" + v4_hover_kind(v4_hover_snapshot_const)
+say "hover-snapshot-const-type=" + v4_hover_type(v4_hover_snapshot_const)
+say "hover-snapshot-const-restored-kind=" + v4_hover_kind(v4_hover_const_restored_id)
+say "hover-snapshot-const-restored-type=" + v4_hover_type(v4_hover_const_restored_id)
 say v4_driver_confirm_restored_document_text("hover-snapshot.fk", "task changed() => 7\n")

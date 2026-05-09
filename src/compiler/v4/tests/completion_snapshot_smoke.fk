@@ -87,12 +87,16 @@ task v4_completion_snapshot_source_text() -> word {
     src = src + "    give back value + value + value\n"
     src = src + "}\n"
     src = src + "use util::math::*\n"
+    src = src + "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot WIDTH: uint = 2u\n"
+    src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
+    src = src + "fixed pilot CELLS = DEPTH * BASE\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot routed = compose(host: \"localhost\", port: 8080)\n"
     src = src + "    pilot ace = Pilot::pack(7)\n"
     src = src + "    pilot event = Event::Key " + v4_completion_snapshot_braces(" code: 9 ") + "\n"
     src = src + "    pilot doubled = double(2)\n"
-    src = src + "    give back routed + ace.salute() + doubled\n"
+    src = src + "    give back routed + ace.salute() + doubled + CELLS\n"
     src = src + "}\n"
     give back src
 }
@@ -110,6 +114,7 @@ pilot v4_completion_snapshot_event = v4_completion_snapshot_find_label(v4_comple
 pilot v4_completion_snapshot_event_key = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "Event::Key")
 pilot v4_completion_snapshot_double = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "double")
 pilot v4_completion_snapshot_triple = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "triple")
+pilot v4_completion_snapshot_cells = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "CELLS")
 pilot v4_completion_snapshot_uint = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "uint")
 pilot v4_completion_snapshot_float32 = v4_completion_snapshot_find_label(v4_completion_snapshot_global_id, "float32")
 pilot v4_completion_snapshot_salute = v4_completion_snapshot_find_label(v4_completion_snapshot_id, "salute")
@@ -145,6 +150,7 @@ pilot v4_completion_restored_event = v4_completion_snapshot_find_label(v4_comple
 pilot v4_completion_restored_event_key = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "Event::Key")
 pilot v4_completion_restored_double = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "double")
 pilot v4_completion_restored_triple = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "triple")
+pilot v4_completion_restored_cells = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "CELLS")
 pilot v4_completion_restored_uint = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "uint")
 pilot v4_completion_restored_float32 = v4_completion_snapshot_find_label(v4_completion_global_restored_id, "float32")
 pilot v4_completion_restored_salute = v4_completion_snapshot_find_label(v4_completion_restored_id, "salute")
@@ -159,6 +165,8 @@ say "completion-snapshot-double-found=" + v4_completion_snapshot_bool_word(v4_co
 say "completion-snapshot-double-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_snapshot_global_id, v4_completion_snapshot_double)
 say "completion-snapshot-triple-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_triple >= 0)
 say "completion-snapshot-triple-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_snapshot_global_id, v4_completion_snapshot_triple)
+say "completion-snapshot-cells-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_cells >= 0)
+say "completion-snapshot-cells-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_snapshot_global_id, v4_completion_snapshot_cells)
 say "completion-snapshot-uint-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_uint >= 0)
 say "completion-snapshot-uint-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_snapshot_global_id, v4_completion_snapshot_uint)
 say "completion-snapshot-float32-found=" + v4_completion_snapshot_bool_word(v4_completion_snapshot_float32 >= 0)
@@ -177,6 +185,8 @@ say "completion-snapshot-restored-double-found=" + v4_completion_snapshot_bool_w
 say "completion-snapshot-restored-double-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_global_restored_id, v4_completion_restored_double)
 say "completion-snapshot-restored-triple-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_triple >= 0)
 say "completion-snapshot-restored-triple-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_global_restored_id, v4_completion_restored_triple)
+say "completion-snapshot-restored-cells-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_cells >= 0)
+say "completion-snapshot-restored-cells-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_global_restored_id, v4_completion_restored_cells)
 say "completion-snapshot-restored-uint-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_uint >= 0)
 say "completion-snapshot-restored-uint-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_global_restored_id, v4_completion_restored_uint)
 say "completion-snapshot-restored-float32-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_float32 >= 0)

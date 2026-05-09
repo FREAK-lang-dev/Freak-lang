@@ -144,7 +144,18 @@ task v4_ty_signature_name(ty_id: int, sig_id: int) -> word {
 }
 
 task v4_ty_signature_display(ty_id: int, sig_id: int) -> word {
-    give back array_get(v4_ty_displays_handle(ty_id), sig_id)
+    pilot display: word = array_get(v4_ty_displays_handle(ty_id), sig_id)
+    pilot sig_kind: word = array_get(v4_ty_kinds_handle(ty_id), sig_id)
+    if sig_kind == v4_ty_const_sig {
+        if not display.contains(":") {
+            pilot inferred_ty: word = v4_ty_const_value_type_for_sig(ty_id, sig_id)
+            if inferred_ty != v4_ty_unknown {
+                pilot sig_name: word = array_get(v4_ty_names_handle(ty_id), sig_id)
+                give back "fixed pilot " + sig_name + ": " + inferred_ty
+            }
+        }
+    }
+    give back display
 }
 
 task v4_ty_signature_hir_item(ty_id: int, sig_id: int) -> int {
@@ -2148,7 +2159,7 @@ task v4_ty_const_init_end_token(ty_id: int, sig_id: int) -> int {
     give back v4_ty_signature_item_end_token(ty_id, sig_id)
 }
 
-task v4_ty_const_infer_simple_type_from_tokens(ty_id: int, owner_sig: int, stream_id: int, start_token: int, end_token: int) -> word {
+task v4_ty_const_infer_simple_type_from_tokens(ty_id: int, owner_sig: int, stream_id: int, start_token: int, end_token: int, seen_consts: word) -> word {
     pilot first = v4_ty_skip_trivia(stream_id, start_token)
     pilot second = v4_ty_next_nontrivia(stream_id, first + 1, end_token)
     if first < 0 or first >= end_token {
@@ -2178,13 +2189,17 @@ task v4_ty_const_infer_simple_type_from_tokens(ty_id: int, owner_sig: int, strea
     if first_type == v4_tok_ident or first_type == v4_tok_keyword {
         pilot dep_sig = v4_ty_const_signature_id_for_name(ty_id, first_value)
         if dep_sig >= 0 and dep_sig != owner_sig {
-            give back v4_ty_const_value_type_for_sig(ty_id, dep_sig)
+            give back v4_ty_const_value_type_for_sig_seen(ty_id, dep_sig, seen_consts)
         }
     }
     give back v4_ty_unknown
 }
 
-task v4_ty_const_value_type_for_sig(ty_id: int, sig_id: int) -> word {
+task v4_ty_const_value_type_for_sig_seen(ty_id: int, sig_id: int, seen_consts: word) -> word {
+    pilot const_name = v4_ty_signature_name(ty_id, sig_id)
+    if v4_ty_const_cycle_seen_contains(seen_consts, const_name) {
+        give back v4_ty_unknown
+    }
     pilot declared_ty = v4_ty_const_declared_type_for_sig(ty_id, sig_id)
     if declared_ty != "" {
         give back v4_ty_canonical_type(ty_id, declared_ty)
@@ -2195,14 +2210,19 @@ task v4_ty_const_value_type_for_sig(ty_id: int, sig_id: int) -> word {
     if stream_id < 0 or init_start < 0 or init_end <= init_start {
         give back v4_ty_unknown
     }
-    pilot simple_ty = v4_ty_const_infer_simple_type_from_tokens(ty_id, sig_id, stream_id, init_start, init_end)
+    pilot next_seen = v4_ty_const_cycle_seen_append(seen_consts, const_name)
+    pilot simple_ty = v4_ty_const_infer_simple_type_from_tokens(ty_id, sig_id, stream_id, init_start, init_end, next_seen)
     if simple_ty != v4_ty_unknown {
         give back simple_ty
     }
-    if v4_ty_const_integer_text_for_sig_seen(ty_id, sig_id, "") != v4_ty_unknown {
+    if v4_ty_const_integer_text_for_sig_seen(ty_id, sig_id, seen_consts) != v4_ty_unknown {
         give back v4_ty_int
     }
     give back v4_ty_unknown
+}
+
+task v4_ty_const_value_type_for_sig(ty_id: int, sig_id: int) -> word {
+    give back v4_ty_const_value_type_for_sig_seen(ty_id, sig_id, "")
 }
 
 task v4_ty_const_value_type_for_name(ty_id: int, const_name: word) -> word {

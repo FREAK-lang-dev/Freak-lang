@@ -64,10 +64,12 @@ task v4_global_const_editor_bool_word(flag: bool) -> word {
 }
 
 task v4_global_const_editor_source_text() -> word {
-    pilot src = "fixed pilot MAX_HP: int = 9\n"
-    src = src + "fixed pilot BONUS: int = MAX_HP\n"
+    pilot src = "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot WIDTH: uint = 2u\n"
+    src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
+    src = src + "fixed pilot CELLS = DEPTH * BASE\n"
     src = src + "task main() -> int {\n"
-    src = src + "    give back BONUS\n"
+    src = src + "    give back CELLS\n"
     src = src + "}\n"
     give back src
 }
@@ -75,43 +77,43 @@ task v4_global_const_editor_source_text() -> word {
 pilot v4_global_const_editor_source = v4_global_const_editor_source_text()
 pilot v4_global_const_editor_stream = v4_lex_text(0, v4_global_const_editor_source)
 
-pilot v4_global_const_editor_max_decl_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "MAX_HP", 0)
-pilot v4_global_const_editor_bonus_decl_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "BONUS", 0)
-pilot v4_global_const_editor_max_use_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "MAX_HP", 1)
-pilot v4_global_const_editor_bonus_use_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "BONUS", 1)
+pilot v4_global_const_editor_depth_decl_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "DEPTH", 0)
+pilot v4_global_const_editor_cells_decl_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "CELLS", 0)
+pilot v4_global_const_editor_depth_use_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "DEPTH", 1)
+pilot v4_global_const_editor_cells_use_offset = v4_global_const_editor_token_offset(v4_global_const_editor_stream, "CELLS", 1)
 
-pilot v4_global_const_editor_max_sem = v4_semantic_at_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_max_use_offset)
-pilot v4_global_const_editor_bonus_sem = v4_semantic_at_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_bonus_use_offset)
-pilot v4_global_const_editor_hover = v4_hover_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_bonus_use_offset)
-pilot v4_global_const_editor_definition = v4_definition_at_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_bonus_use_offset)
+pilot v4_global_const_editor_depth_sem = v4_semantic_at_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_depth_use_offset)
+pilot v4_global_const_editor_cells_sem = v4_semantic_at_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_cells_use_offset)
+pilot v4_global_const_editor_hover = v4_hover_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_cells_use_offset)
+pilot v4_global_const_editor_definition = v4_definition_at_text_cached("global-const-editor.fk", v4_global_const_editor_source, v4_global_const_editor_cells_use_offset)
 pilot v4_global_const_editor_symbols = v4_document_symbols_text_cached("global-const-editor.fk", v4_global_const_editor_source)
 pilot v4_global_const_editor_completion = v4_completion_text_cached("global-const-editor.fk", v4_global_const_editor_source, 0)
 
-pilot v4_global_const_editor_max_completion = v4_global_const_editor_find_completion_label(v4_global_const_editor_completion, "MAX_HP")
-pilot v4_global_const_editor_bonus_completion = v4_global_const_editor_find_completion_label(v4_global_const_editor_completion, "BONUS")
-pilot v4_global_const_editor_bonus_symbol = v4_global_const_editor_find_symbol(v4_global_const_editor_symbols, "BONUS")
+pilot v4_global_const_editor_depth_completion = v4_global_const_editor_find_completion_label(v4_global_const_editor_completion, "DEPTH")
+pilot v4_global_const_editor_cells_completion = v4_global_const_editor_find_completion_label(v4_global_const_editor_completion, "CELLS")
+pilot v4_global_const_editor_cells_symbol = v4_global_const_editor_find_symbol(v4_global_const_editor_symbols, "CELLS")
 
-say "global-const-editor-max-kind=" + v4_semantic_at_kind(v4_global_const_editor_max_sem)
-say "global-const-editor-max-type=" + v4_semantic_at_type(v4_global_const_editor_max_sem)
-say "global-const-editor-bonus-kind=" + v4_semantic_at_kind(v4_global_const_editor_bonus_sem)
-say "global-const-editor-bonus-type=" + v4_semantic_at_type(v4_global_const_editor_bonus_sem)
+say "global-const-editor-depth-kind=" + v4_semantic_at_kind(v4_global_const_editor_depth_sem)
+say "global-const-editor-depth-type=" + v4_semantic_at_type(v4_global_const_editor_depth_sem)
+say "global-const-editor-cells-kind=" + v4_semantic_at_kind(v4_global_const_editor_cells_sem)
+say "global-const-editor-cells-type=" + v4_semantic_at_type(v4_global_const_editor_cells_sem)
 say "global-const-editor-hover-name=" + v4_hover_name(v4_global_const_editor_hover)
 say "global-const-editor-hover-kind=" + v4_hover_kind(v4_global_const_editor_hover)
 say "global-const-editor-hover-type=" + v4_hover_type(v4_global_const_editor_hover)
 say "global-const-editor-definition-kind=" + v4_definition_at_kind(v4_global_const_editor_definition)
 say "global-const-editor-definition-found=" + word_from_int(v4_definition_at_found(v4_global_const_editor_definition))
-say "global-const-editor-definition-matches=" + v4_global_const_editor_bool_word(v4_span_start(v4_definition_at_span(v4_global_const_editor_definition)) == v4_global_const_editor_bonus_decl_offset)
+say "global-const-editor-definition-matches=" + v4_global_const_editor_bool_word(v4_span_start(v4_definition_at_span(v4_global_const_editor_definition)) == v4_global_const_editor_cells_decl_offset)
 say "global-const-editor-symbol-count=" + word_from_int(v4_document_symbol_count(v4_global_const_editor_symbols))
 say "global-const-editor-symbol0-name=" + v4_document_symbol_name(v4_global_const_editor_symbols, 0)
 say "global-const-editor-symbol0-kind=" + v4_document_symbol_kind(v4_global_const_editor_symbols, 0)
 say "global-const-editor-symbol0-type=" + v4_document_symbol_type(v4_global_const_editor_symbols, 0)
-say "global-const-editor-symbol1-name=" + v4_document_symbol_name(v4_global_const_editor_symbols, 1)
-say "global-const-editor-symbol1-kind=" + v4_document_symbol_kind(v4_global_const_editor_symbols, 1)
-say "global-const-editor-symbol1-type=" + v4_document_symbol_type(v4_global_const_editor_symbols, 1)
-say "global-const-editor-bonus-symbol-name=" + v4_document_symbol_name(v4_global_const_editor_symbols, v4_global_const_editor_bonus_symbol)
-say "global-const-editor-bonus-symbol-kind=" + v4_document_symbol_kind(v4_global_const_editor_symbols, v4_global_const_editor_bonus_symbol)
-say "global-const-editor-bonus-symbol-type=" + v4_document_symbol_type(v4_global_const_editor_symbols, v4_global_const_editor_bonus_symbol)
-say "global-const-editor-max-completion-found=" + v4_global_const_editor_bool_word(v4_global_const_editor_max_completion >= 0)
-say "global-const-editor-max-completion-detail=" + v4_global_const_editor_detail_or_empty(v4_global_const_editor_completion, v4_global_const_editor_max_completion)
-say "global-const-editor-bonus-completion-found=" + v4_global_const_editor_bool_word(v4_global_const_editor_bonus_completion >= 0)
-say "global-const-editor-bonus-completion-detail=" + v4_global_const_editor_detail_or_empty(v4_global_const_editor_completion, v4_global_const_editor_bonus_completion)
+say "global-const-editor-symbol2-name=" + v4_document_symbol_name(v4_global_const_editor_symbols, 2)
+say "global-const-editor-symbol2-kind=" + v4_document_symbol_kind(v4_global_const_editor_symbols, 2)
+say "global-const-editor-symbol2-type=" + v4_document_symbol_type(v4_global_const_editor_symbols, 2)
+say "global-const-editor-cells-symbol-name=" + v4_document_symbol_name(v4_global_const_editor_symbols, v4_global_const_editor_cells_symbol)
+say "global-const-editor-cells-symbol-kind=" + v4_document_symbol_kind(v4_global_const_editor_symbols, v4_global_const_editor_cells_symbol)
+say "global-const-editor-cells-symbol-type=" + v4_document_symbol_type(v4_global_const_editor_symbols, v4_global_const_editor_cells_symbol)
+say "global-const-editor-depth-completion-found=" + v4_global_const_editor_bool_word(v4_global_const_editor_depth_completion >= 0)
+say "global-const-editor-depth-completion-detail=" + v4_global_const_editor_detail_or_empty(v4_global_const_editor_completion, v4_global_const_editor_depth_completion)
+say "global-const-editor-cells-completion-found=" + v4_global_const_editor_bool_word(v4_global_const_editor_cells_completion >= 0)
+say "global-const-editor-cells-completion-detail=" + v4_global_const_editor_detail_or_empty(v4_global_const_editor_completion, v4_global_const_editor_cells_completion)
