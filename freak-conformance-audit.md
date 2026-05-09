@@ -213,7 +213,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | `variant Foo { Case1, Case2 { fields } }` sum types | ❌ | 📖 V4 | parser has no variant production |
 | Pattern matching on variants exhaustive | ❌ | 📖 V4 | depends on variants |
 | `alias Matrix = [[num; 4]; 4]` type aliases | ❌ | 📖 V4 | not parsed |
-| `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; simple named-constant evaluation is in V4, full const-expr evaluation remains |
+| `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; integer const chains/arithmetic used by array lengths are in V4, full const-eval remains |
 
 #### §1.15 Literals
 
@@ -221,8 +221,8 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 |---|---|---|---|
 | `[1, 2, 3]` becomes `List<int>` | ✅ | ✅ | |
 | `[1, 2, 3]: [int; 3]` fixed array | ⚠️ | 📖 V4 | V4 lowers typed fixed-array literals; stack layout and deeper const semantics still expand |
-| `[0; 100]` repeat-fill literal | ⚠️ | 📖 V4 | V4 lowers repeat-fill with literal/root-const lengths; full const-expr counts remain |
-| Number suffixes: `42u`, `3.14f`, `42t`, `999b` | ⚠️ | 📖 V4 | V4 lex/type layers carry suffixes; deeper constant-evaluation surface still expands |
+| `[0; 100]` repeat-fill literal | ⚠️ | 📖 V4 | V4 lowers repeat-fill with literal and integer const arithmetic counts; broader const-eval still expands |
+| Number suffixes: `42u`, `3.14f`, `42t`, `999b` | ⚠️ | 📖 V4 | V4 lex/type layers carry suffixes; broader const-evaluation surface still expands |
 
 ---
 
@@ -464,7 +464,7 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 | Variant exhaustiveness | ❌ | 📖 V4 (no variants) |
 | Type alias expansion | ❌ | 📖 V4 |
 | Root-level `fixed pilot` cycle detection | ✅ | ✅ |
-| Fixed array length compile-time constants | ⚠️ | 📖 V4 (literal + root `fixed pilot` int/uint constants work; full const-expr arithmetic remains) |
+| Fixed array length compile-time constants | ⚠️ | 📖 V4 (literal + integer root-const arithmetic works; const tasks and broader const-eval remain) |
 | `dyn` object-safety rules | ❌ | 📖 V4 |
 | FFI safety (FFI-safe types only in extern) | ❌ | 📖 V4 |
 | Layout annotations validation | ❌ | 📖 V4 |

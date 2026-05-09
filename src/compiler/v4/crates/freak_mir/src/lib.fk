@@ -3442,29 +3442,61 @@ task v4_mir_fixed_array_slot_count(mir_id: int, array_ty: word) -> int {
     give back word_to_int(length_text)
 }
 
+task v4_mir_const_integer_text_from_rvalue(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if rvalue_id < 0 {
+        give back v4_ty_unknown
+    }
+
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_const_int {
+        give back v4_ty_integer_literal_value_text(v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
+    }
+    if kind == v4_mir_rvalue_use_symbol {
+        give back v4_ty_const_integer_text_for_name(v4_mir_ty_id(mir_id), v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
+    }
+    if kind == v4_mir_rvalue_unary {
+        pilot operand_text = v4_mir_const_integer_text_from_rvalue(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+        if operand_text == v4_ty_unknown or not v4_ty_is_integer_text_literal(operand_text) {
+            give back v4_ty_unknown
+        }
+        if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_neg {
+            give back word_from_int(0 - word_to_int(operand_text))
+        }
+        give back operand_text
+    }
+    if kind == v4_mir_rvalue_binary {
+        pilot left = v4_mir_const_integer_text_from_rvalue(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+        pilot right = v4_mir_const_integer_text_from_rvalue(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id))
+        pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+        if op == v4_mir_bin_add {
+            give back v4_ty_const_integer_apply_binary("+", left, right)
+        }
+        if op == v4_mir_bin_sub {
+            give back v4_ty_const_integer_apply_binary("-", left, right)
+        }
+        if op == v4_mir_bin_mul {
+            give back v4_ty_const_integer_apply_binary("*", left, right)
+        }
+        if op == v4_mir_bin_div {
+            give back v4_ty_const_integer_apply_binary("/", left, right)
+        }
+        if op == v4_mir_bin_mod {
+            give back v4_ty_const_integer_apply_binary("%", left, right)
+        }
+    }
+    give back v4_ty_unknown
+}
+
 task v4_mir_fixed_array_count_from_rvalue(mir_id: int, body_id: int, count_rvalue: int, expr_span: word) -> word {
     pilot count_kind = v4_mir_rvalue_kind(mir_id, body_id, count_rvalue)
     pilot count_ty = v4_mir_rvalue_ty(mir_id, body_id, count_rvalue)
-    if count_kind == v4_mir_rvalue_const_int {
-        give back v4_ty_integer_literal_value_text(v4_mir_rvalue_text(mir_id, body_id, count_rvalue))
-    }
-    if count_kind == v4_mir_rvalue_use_symbol {
-        pilot const_name = v4_mir_rvalue_text(mir_id, body_id, count_rvalue)
-        pilot const_text = v4_ty_const_integer_text_for_name(v4_mir_ty_id(mir_id), const_name)
-        if const_text != v4_ty_unknown {
-            if const_text.char_at(0) == "-" {
-                v4_mir_add_type_error(mir_id, expr_span, "array repeat count must be non-negative", "got " + const_text)
-                give back v4_ty_unknown
-            }
-            give back const_text
-        }
-    }
-    if count_kind == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body_id, count_rvalue) == v4_mir_unary_neg {
-        pilot operand = v4_mir_rvalue_lhs(mir_id, body_id, count_rvalue)
-        if operand >= 0 and v4_mir_rvalue_kind(mir_id, body_id, operand) == v4_mir_rvalue_const_int {
-            v4_mir_add_type_error(mir_id, expr_span, "array repeat count must be non-negative", "got -" + v4_ty_integer_literal_value_text(v4_mir_rvalue_text(mir_id, body_id, operand)))
+    pilot const_text = v4_mir_const_integer_text_from_rvalue(mir_id, body_id, count_rvalue)
+    if const_text != v4_ty_unknown {
+        if const_text.char_at(0) == "-" {
+            v4_mir_add_type_error(mir_id, expr_span, "array repeat count must be non-negative", "got " + const_text)
             give back v4_ty_unknown
         }
+        give back const_text
     }
     if v4_ty_is_known(count_ty) and count_ty != v4_ty_int {
         v4_mir_add_type_error(mir_id, expr_span, "array repeat count must be int", "got " + count_ty)

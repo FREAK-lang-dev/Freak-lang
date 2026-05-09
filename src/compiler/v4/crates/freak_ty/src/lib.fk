@@ -2195,7 +2195,14 @@ task v4_ty_const_value_type_for_sig(ty_id: int, sig_id: int) -> word {
     if stream_id < 0 or init_start < 0 or init_end <= init_start {
         give back v4_ty_unknown
     }
-    give back v4_ty_const_infer_simple_type_from_tokens(ty_id, sig_id, stream_id, init_start, init_end)
+    pilot simple_ty = v4_ty_const_infer_simple_type_from_tokens(ty_id, sig_id, stream_id, init_start, init_end)
+    if simple_ty != v4_ty_unknown {
+        give back simple_ty
+    }
+    if v4_ty_const_integer_text_for_sig_seen(ty_id, sig_id, "") != v4_ty_unknown {
+        give back v4_ty_int
+    }
+    give back v4_ty_unknown
 }
 
 task v4_ty_const_value_type_for_name(ty_id: int, const_name: word) -> word {
@@ -2304,6 +2311,91 @@ task v4_ty_integer_literal_value_text(value: word) -> word {
     give back digits
 }
 
+task v4_ty_const_expr_is_prefix_operator(expr: word, idx: int) -> bool {
+    if idx <= 0 {
+        give back true
+    }
+    pilot prev = expr.char_at(idx - 1)
+    give back prev == "+" or prev == "-" or prev == "*" or prev == "/" or prev == "%" or prev == "("
+}
+
+task v4_ty_const_expr_last_top_level_operator(expr: word, first: word, second: word) -> int {
+    pilot depth = 0
+    pilot idx = expr.length() - 1
+    repeat until idx < 0 {
+        pilot ch = expr.char_at(idx)
+        if ch == ")" {
+            depth += 1
+        } else if ch == "(" {
+            if depth > 0 {
+                depth -= 1
+            }
+        } else if depth == 0 {
+            if ch == first or (second != "" and ch == second) {
+                if (ch == "+" or ch == "-") and v4_ty_const_expr_is_prefix_operator(expr, idx) {
+                    -- unary prefix, not a binary split point
+                } else {
+                    give back idx
+                }
+            }
+        }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_const_expr_last_top_level_mul_operator(expr: word) -> int {
+    pilot depth = 0
+    pilot idx = expr.length() - 1
+    repeat until idx < 0 {
+        pilot ch = expr.char_at(idx)
+        if ch == ")" {
+            depth += 1
+        } else if ch == "(" {
+            if depth > 0 {
+                depth -= 1
+            }
+        } else if depth == 0 {
+            if ch == "*" or ch == "/" or ch == "%" {
+                give back idx
+            }
+        }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_const_integer_apply_binary(op: word, left_text: word, right_text: word) -> word {
+    if not v4_ty_is_integer_text_literal(left_text) or not v4_ty_is_integer_text_literal(right_text) {
+        give back v4_ty_unknown
+    }
+
+    pilot left = word_to_int(left_text)
+    pilot right = word_to_int(right_text)
+    if op == "+" {
+        give back word_from_int(left + right)
+    }
+    if op == "-" {
+        give back word_from_int(left - right)
+    }
+    if op == "*" {
+        give back word_from_int(left * right)
+    }
+    if op == "/" {
+        if right == 0 {
+            give back v4_ty_unknown
+        }
+        give back word_from_int(left / right)
+    }
+    if op == "%" {
+        if right == 0 {
+            give back v4_ty_unknown
+        }
+        give back word_from_int(left % right)
+    }
+    give back v4_ty_unknown
+}
+
 task v4_ty_const_integer_text_from_expr_seen(ty_id: int, expr_text: word, seen_consts: word) -> word {
     pilot expr = v4_ty_strip_const_expr_wrappers(expr_text)
     if expr == "" {
@@ -2315,6 +2407,23 @@ task v4_ty_const_integer_text_from_expr_seen(ty_id: int, expr_text: word, seen_c
         give back literal
     }
 
+    pilot additive_split = v4_ty_const_expr_last_top_level_operator(expr, "+", "-")
+    if additive_split >= 0 {
+        pilot left = v4_ty_const_integer_text_from_expr_seen(ty_id, expr.substring(0, additive_split), seen_consts)
+        pilot right = v4_ty_const_integer_text_from_expr_seen(ty_id, expr.substring(additive_split + 1, expr.length()), seen_consts)
+        give back v4_ty_const_integer_apply_binary(expr.char_at(additive_split), left, right)
+    }
+
+    pilot multiplicative_split = v4_ty_const_expr_last_top_level_mul_operator(expr)
+    if multiplicative_split >= 0 {
+        pilot left = v4_ty_const_integer_text_from_expr_seen(ty_id, expr.substring(0, multiplicative_split), seen_consts)
+        pilot right = v4_ty_const_integer_text_from_expr_seen(ty_id, expr.substring(multiplicative_split + 1, expr.length()), seen_consts)
+        give back v4_ty_const_integer_apply_binary(expr.char_at(multiplicative_split), left, right)
+    }
+
+    if expr.char_at(0) == "+" and expr.length() > 1 {
+        give back v4_ty_const_integer_text_from_expr_seen(ty_id, expr.substring(1, expr.length()), seen_consts)
+    }
     if expr.char_at(0) == "-" and expr.length() > 1 {
         pilot inner = v4_ty_const_integer_text_from_expr_seen(ty_id, expr.substring(1, expr.length()), seen_consts)
         if inner != v4_ty_unknown and inner.char_at(0) != "-" {
@@ -2348,7 +2457,11 @@ task v4_ty_const_integer_text_for_sig_seen(ty_id: int, sig_id: int, seen_consts:
     if v4_ty_const_cycle_seen_contains(seen_consts, const_name) {
         give back v4_ty_unknown
     }
-    if not v4_ty_is_integer(v4_ty_const_value_type_for_sig(ty_id, sig_id)) {
+    pilot declared_ty = v4_ty_const_declared_type_for_sig(ty_id, sig_id)
+    if declared_ty != "" {
+        declared_ty = v4_ty_canonical_type(ty_id, declared_ty)
+    }
+    if declared_ty != "" and not v4_ty_is_integer(declared_ty) {
         give back v4_ty_unknown
     }
     give back v4_ty_const_integer_text_from_expr_seen(ty_id, v4_ty_const_init_text_for_sig(ty_id, sig_id), v4_ty_const_cycle_seen_append(seen_consts, const_name))
