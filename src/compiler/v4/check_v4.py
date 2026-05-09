@@ -1888,6 +1888,8 @@ EXECUTABLE_SMOKES = [
             "semantic-param-type=parameter host: word",
             "semantic-glob-kind=Task",
             "semantic-glob-type=task util::math::double(...) -> int",
+            "semantic-const-kind=Const",
+            "semantic-const-type=fixed pilot CELLS: int",
         ],
     },
     {
@@ -1907,6 +1909,8 @@ EXECUTABLE_SMOKES = [
             "param-hover-type=parameter bonus: int",
             "glob-hover-kind=Task",
             "glob-hover-type=task util::math::double(...) -> int",
+            "const-hover-kind=Const",
+            "const-hover-type=fixed pilot CELLS: int",
         ],
     },
     {
@@ -1931,6 +1935,9 @@ EXECUTABLE_SMOKES = [
             "definition-glob-kind=Task",
             "definition-glob-found=1",
             "definition-glob-matches=false",
+            "definition-const-kind=Const",
+            "definition-const-found=1",
+            "definition-const-matches=false",
         ],
     },
     {
@@ -1972,6 +1979,10 @@ EXECUTABLE_SMOKES = [
             "completion-global-double-detail=task util::math::double(...) -> int",
             "completion-global-triple-found=true",
             "completion-global-triple-detail=task util::math::triple(...) -> int",
+            "completion-global-base-found=true",
+            "completion-global-base-detail=fixed pilot BASE: int",
+            "completion-global-cells-found=true",
+            "completion-global-cells-detail=fixed pilot CELLS: int",
             "completion-global-salute-found=false",
             "completion-global-pack-found=false",
             "completion-instance-salute-found=true",
