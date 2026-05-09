@@ -26,6 +26,15 @@ task v4_lsp_lifetime_diag_source() -> word {
     give back src
 }
 
+task v4_lsp_const_diag_source() -> word {
+    pilot src = "fixed pilot PAIR: (int,word) = (1, 2)\n"
+    src = src + "fixed pilot GRID: [int; 3] = [0; 2]\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_lsp_find_token(stream_id: int, value: word, ordinal: int) -> int {
     pilot seen = 0
     pilot token_id = 0
@@ -222,3 +231,4 @@ say v4_lsp_completion_text("lsp_bounds.fk", v4_lsp_bounds, v4_lsp_bounds_display
 say v4_lsp_diagnostics_text("lsp.fk", v4_lsp_source)
 say v4_lsp_diagnostics_text("lsp_alias.fk", v4_lsp_alias_diag_source())
 say v4_lsp_diagnostics_text("lsp_lifetime.fk", v4_lsp_lifetime_diag_source())
+say v4_lsp_diagnostics_text("lsp_const_diag.fk", v4_lsp_const_diag_source())

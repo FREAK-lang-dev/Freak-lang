@@ -1327,6 +1327,26 @@ task v4_ty_find_matching_paren(stream_id: int, open_token: int, end_token: int) 
     give back 0 - 1
 }
 
+task v4_ty_find_matching_square(stream_id: int, open_token: int, end_token: int) -> int {
+    pilot idx = open_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if val == "[" {
+                depth += 1
+            } else if val == "]" {
+                depth -= 1
+                if depth == 0 {
+                    give back idx
+                }
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
 task v4_ty_find_matching_brace(stream_id: int, open_token: int, end_token: int) -> int {
     pilot idx = open_token
     pilot depth = 0
@@ -2159,18 +2179,131 @@ task v4_ty_const_init_end_token(ty_id: int, sig_id: int) -> int {
     give back v4_ty_signature_item_end_token(ty_id, sig_id)
 }
 
-task v4_ty_const_infer_simple_type_from_tokens(ty_id: int, owner_sig: int, stream_id: int, start_token: int, end_token: int, seen_consts: word) -> word {
+task v4_ty_const_merge_literal_type(current_ty: word, next_ty: word) -> word {
+    if not v4_ty_is_known(current_ty) {
+        give back next_ty
+    }
+    if not v4_ty_is_known(next_ty) {
+        give back current_ty
+    }
+    if current_ty == next_ty {
+        give back current_ty
+    }
+    if v4_ty_is_numeric(current_ty) and v4_ty_is_numeric(next_ty) {
+        give back v4_ty_numeric_result(current_ty, next_ty)
+    }
+    give back current_ty
+}
+
+task v4_ty_const_expr_type_from_tokens_seen(ty_id: int, owner_sig: int, stream_id: int, start_token: int, end_token: int, seen_consts: word) -> word {
     pilot first = v4_ty_skip_trivia(stream_id, start_token)
-    pilot second = v4_ty_next_nontrivia(stream_id, first + 1, end_token)
     if first < 0 or first >= end_token {
         give back v4_ty_unknown
     }
-    if second < end_token {
+
+    pilot last = end_token - 1
+    repeat until last <= first or v4_lex_token_type(stream_id, last) != v4_tok_trivia {
+        last -= 1
+    }
+    if last < first {
+        give back v4_ty_unknown
+    }
+
+    pilot first_value = v4_lex_token_value(stream_id, first)
+    if first_value == "(" and v4_ty_find_matching_paren(stream_id, first, end_token) == last {
+        pilot tuple_comma = v4_ty_find_top_level_token(stream_id, first + 1, last, ",")
+        if tuple_comma >= 0 {
+            pilot tuple_ty = "("
+            pilot slot_start = v4_ty_skip_trivia(stream_id, first + 1)
+            pilot slot_idx = 0
+            repeat until slot_start >= last {
+                pilot slot_end = v4_ty_find_top_level_token(stream_id, slot_start, last, ",")
+                if slot_end < 0 {
+                    slot_end = last
+                }
+                if slot_end <= slot_start {
+                    give back v4_ty_unknown
+                }
+                pilot slot_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, owner_sig, stream_id, slot_start, slot_end, seen_consts)
+                if slot_ty == v4_ty_unknown {
+                    give back v4_ty_unknown
+                }
+                if slot_idx > 0 {
+                    tuple_ty = tuple_ty + ","
+                }
+                tuple_ty = tuple_ty + slot_ty
+                slot_idx += 1
+                if slot_end >= last {
+                    give back tuple_ty + ")"
+                }
+                slot_start = v4_ty_skip_trivia(stream_id, slot_end + 1)
+            }
+            give back v4_ty_unknown
+        }
+        give back v4_ty_const_expr_type_from_tokens_seen(ty_id, owner_sig, stream_id, first + 1, last, seen_consts)
+    }
+
+    if first_value == "[" and v4_ty_find_matching_square(stream_id, first, end_token) == last {
+        pilot repeat_token = v4_ty_find_top_level_token(stream_id, first + 1, last, ";")
+        if repeat_token >= 0 {
+            pilot value_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, owner_sig, stream_id, first + 1, repeat_token, seen_consts)
+            if value_ty == v4_ty_unknown {
+                give back v4_ty_unknown
+            }
+            pilot count_start = v4_ty_skip_trivia(stream_id, repeat_token + 1)
+            if count_start >= last {
+                give back v4_ty_unknown
+            }
+            pilot count_text = v4_ty_type_text(stream_id, count_start, last)
+            pilot resolved_length = v4_ty_const_integer_text_from_expr_seen(ty_id, count_text, seen_consts)
+            if resolved_length == v4_ty_unknown {
+                give back v4_ty_unknown
+            }
+            if resolved_length.starts_with("-") {
+                give back v4_ty_unknown
+            }
+            give back "[" + value_ty + ";" + resolved_length + "]"
+        }
+
+        pilot element_start = v4_ty_skip_trivia(stream_id, first + 1)
+        if element_start >= last {
+            give back v4_ty_unknown
+        }
+        pilot element_ty = v4_ty_unknown
+        repeat until element_start >= last {
+            pilot element_end = v4_ty_find_top_level_token(stream_id, element_start, last, ",")
+            if element_end < 0 {
+                element_end = last
+            }
+            if element_end <= element_start {
+                give back v4_ty_unknown
+            }
+            pilot next_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, owner_sig, stream_id, element_start, element_end, seen_consts)
+            if next_ty == v4_ty_unknown {
+                give back v4_ty_unknown
+            }
+            element_ty = v4_ty_const_merge_literal_type(element_ty, next_ty)
+            if element_end >= last {
+                if element_ty == v4_ty_unknown {
+                    give back v4_ty_unknown
+                }
+                give back "List<" + element_ty + ">"
+            }
+            element_start = v4_ty_skip_trivia(stream_id, element_end + 1)
+        }
         give back v4_ty_unknown
     }
 
     pilot first_type = v4_lex_token_type(stream_id, first)
-    pilot first_value = v4_lex_token_value(stream_id, first)
+    pilot second = v4_ty_next_nontrivia(stream_id, first + 1, end_token)
+    if second < end_token {
+        pilot expr_text = v4_ty_type_text(stream_id, first, end_token)
+        if v4_ty_const_integer_text_from_expr_seen(ty_id, expr_text, seen_consts) != v4_ty_unknown {
+            give back v4_ty_int
+        }
+        give back v4_ty_unknown
+    }
+
     if first_type == v4_tok_int {
         give back v4_ty_int_literal_type(first_value, v4_ty_unknown)
     }
@@ -2192,6 +2325,11 @@ task v4_ty_const_infer_simple_type_from_tokens(ty_id: int, owner_sig: int, strea
             give back v4_ty_const_value_type_for_sig_seen(ty_id, dep_sig, seen_consts)
         }
     }
+
+    pilot expr_text = v4_ty_type_text(stream_id, first, end_token)
+    if v4_ty_const_integer_text_from_expr_seen(ty_id, expr_text, seen_consts) != v4_ty_unknown {
+        give back v4_ty_int
+    }
     give back v4_ty_unknown
 }
 
@@ -2211,14 +2349,7 @@ task v4_ty_const_value_type_for_sig_seen(ty_id: int, sig_id: int, seen_consts: w
         give back v4_ty_unknown
     }
     pilot next_seen = v4_ty_const_cycle_seen_append(seen_consts, const_name)
-    pilot simple_ty = v4_ty_const_infer_simple_type_from_tokens(ty_id, sig_id, stream_id, init_start, init_end, next_seen)
-    if simple_ty != v4_ty_unknown {
-        give back simple_ty
-    }
-    if v4_ty_const_integer_text_for_sig_seen(ty_id, sig_id, seen_consts) != v4_ty_unknown {
-        give back v4_ty_int
-    }
-    give back v4_ty_unknown
+    give back v4_ty_const_expr_type_from_tokens_seen(ty_id, sig_id, stream_id, init_start, init_end, next_seen)
 }
 
 task v4_ty_const_value_type_for_sig(ty_id: int, sig_id: int) -> word {
@@ -2576,6 +2707,30 @@ task v4_ty_validate_const_cycles(ty_id: int) -> void {
                 pilot const_name = v4_ty_signature_name(ty_id, sig_id)
                 pilot span = v4_ty_const_name_span(ty_id, sig_id)
                 v4_ty_add_error_diag(ty_id, span, "Yuuko constant loop: fixed pilot " + const_name + " depends on itself via " + v4_ty_alias_cycle_chain_display(cycle_path), "break the constant cycle with a literal or a const task boundary")
+            }
+        }
+        sig_id += 1
+    }
+}
+
+task v4_ty_validate_const_initializers(ty_id: int) -> void {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_const_sig {
+            pilot declared_ty = v4_ty_const_declared_type_for_sig(ty_id, sig_id)
+            if declared_ty != "" {
+                declared_ty = v4_ty_canonical_type(ty_id, declared_ty)
+                pilot stream_id = v4_ty_signature_stream_id(ty_id)
+                pilot init_start = v4_ty_const_init_start_token(ty_id, sig_id)
+                pilot init_end = v4_ty_const_init_end_token(ty_id, sig_id)
+                if stream_id >= 0 and init_start >= 0 and init_end > init_start {
+                    pilot init_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, sig_id, stream_id, init_start, init_end, v4_ty_signature_name(ty_id, sig_id))
+                    if init_ty != v4_ty_unknown and not v4_ty_types_compatible_in_signature(ty_id, sig_id, declared_ty, init_ty) {
+                        pilot span = v4_ty_span_from_tokens(stream_id, init_start, init_end)
+                        v4_ty_add_error_diag(ty_id, span, "constant initializer type mismatch", "fixed pilot " + v4_ty_signature_name(ty_id, sig_id) + " expects " + declared_ty + " but got " + init_ty)
+                    }
+                }
             }
         }
         sig_id += 1
@@ -4970,6 +5125,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
     v4_ty_validate_lifetime_contracts(ty_id)
     v4_ty_validate_alias_cycles(ty_id)
     v4_ty_validate_const_cycles(ty_id)
+    v4_ty_validate_const_initializers(ty_id)
     give back ty_id
 }
 

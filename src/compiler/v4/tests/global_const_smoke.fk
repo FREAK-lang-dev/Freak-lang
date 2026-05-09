@@ -7,6 +7,9 @@ task v4_global_const_source() -> word {
     src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
     src = src + "fixed pilot CELLS = DEPTH * BASE\n"
     src = src + "fixed pilot BONUS: int = CELLS / BASE\n"
+    src = src + "fixed pilot PAIR = (BASE, \"ace\")\n"
+    src = src + "fixed pilot BOARD = [BASE, DEPTH, BONUS]\n"
+    src = src + "fixed pilot GRID = [0; CELLS]\n"
     src = src + "fixed pilot A: int = B\n"
     src = src + "fixed pilot B: int = A\n"
     src = src + "task main() -> int {\n"
@@ -39,12 +42,18 @@ pilot v4_global_const_width_def = v4_resolve_def_for_name(v4_global_const_resolv
 pilot v4_global_const_depth_def = v4_resolve_def_for_name(v4_global_const_resolve, "DEPTH")
 pilot v4_global_const_cells_def = v4_resolve_def_for_name(v4_global_const_resolve, "CELLS")
 pilot v4_global_const_bonus_def = v4_resolve_def_for_name(v4_global_const_resolve, "BONUS")
+pilot v4_global_const_pair_def = v4_resolve_def_for_name(v4_global_const_resolve, "PAIR")
+pilot v4_global_const_board_def = v4_resolve_def_for_name(v4_global_const_resolve, "BOARD")
+pilot v4_global_const_grid_def = v4_resolve_def_for_name(v4_global_const_resolve, "GRID")
 pilot v4_global_const_main_def = v4_resolve_def_for_name(v4_global_const_resolve, "main")
 pilot v4_global_const_base_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_base_def)
 pilot v4_global_const_width_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_width_def)
 pilot v4_global_const_depth_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_depth_def)
 pilot v4_global_const_cells_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_cells_def)
 pilot v4_global_const_bonus_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_bonus_def)
+pilot v4_global_const_pair_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_pair_def)
+pilot v4_global_const_board_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_board_def)
+pilot v4_global_const_grid_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_grid_def)
 pilot v4_global_const_main_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_main_def)
 
 pilot v4_global_const_main_body = v4_mir_lookup_body(v4_global_const_mir, v4_global_const_main_def)
@@ -73,6 +82,12 @@ say "global-const-cells-display=" + v4_ty_signature_display(v4_global_const_ty, 
 say "global-const-cells-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_cells_sig)
 say "global-const-bonus-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_bonus_sig)
 say "global-const-bonus-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_bonus_sig)
+say "global-const-pair-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_pair_sig)
+say "global-const-pair-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_pair_sig)
+say "global-const-board-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_board_sig)
+say "global-const-board-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_board_sig)
+say "global-const-grid-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_grid_sig)
+say "global-const-grid-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_grid_sig)
 say "global-const-main-return-type=" + v4_ty_signature_return_type(v4_global_const_ty, v4_global_const_main_sig)
 say "global-const-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_global_const_ty))
 

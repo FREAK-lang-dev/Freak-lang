@@ -213,7 +213,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | `variant Foo { Case1, Case2 { fields } }` sum types | ❌ | 📖 V4 | parser has no variant production |
 | Pattern matching on variants exhaustive | ❌ | 📖 V4 | depends on variants |
 | `alias Matrix = [[num; 4]; 4]` type aliases | ❌ | 📖 V4 | not parsed |
-| `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; integer const chains/arithmetic used by array lengths are in V4, full const-eval remains |
+| `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; integer const chains/arithmetic, tuple/list/repeat-fill type inference, and declared initializer mismatch diagnostics are in V4, full const-eval remains |
 
 #### §1.15 Literals
 
@@ -221,7 +221,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 |---|---|---|---|
 | `[1, 2, 3]` becomes `List<int>` | ✅ | ✅ | |
 | `[1, 2, 3]: [int; 3]` fixed array | ⚠️ | 📖 V4 | V4 lowers typed fixed-array literals; stack layout and deeper const semantics still expand |
-| `[0; 100]` repeat-fill literal | ⚠️ | 📖 V4 | V4 lowers repeat-fill with literal and integer const arithmetic counts; broader const-eval still expands |
+| `[0; 100]` repeat-fill literal | ⚠️ | 📖 V4 | V4 lowers repeat-fill with literal and integer const arithmetic counts, including root-const inference/diagnostics; broader const-eval still expands |
 | Number suffixes: `42u`, `3.14f`, `42t`, `999b` | ⚠️ | 📖 V4 | V4 lex/type layers carry suffixes; broader const-evaluation surface still expands |
 
 ---
