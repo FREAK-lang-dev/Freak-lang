@@ -1,0 +1,46 @@
+-- V4 root fixed-pilot constructor diagnostic smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_global_const_ctor_diag_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_global_const_ctor_diag_source() -> word {
+    pilot key_decl = v4_global_const_ctor_diag_braces(" code: int ")
+    pilot src = "fixed pilot BAD_SHAPE = Pilot " + v4_global_const_ctor_diag_braces(" mp: 1 ") + "\n"
+    src = src + "fixed pilot DUP_SHAPE = Pilot " + v4_global_const_ctor_diag_braces(" hp: 1, hp: 2 ") + "\n"
+    src = src + "fixed pilot TYPE_SHAPE = Pilot " + v4_global_const_ctor_diag_braces(" hp: \"ace\" ") + "\n"
+    src = src + "fixed pilot BAD_ROUTE = Event::Missing\n"
+    src = src + "fixed pilot BARE_ROUTE = Event::Key\n"
+    src = src + "fixed pilot EMPTY_ROUTE = Event::Key " + v4_global_const_ctor_diag_braces("") + "\n"
+    src = src + "fixed pilot BAD_ROUTE_FIELD = Event::Key " + v4_global_const_ctor_diag_braces(" tone: 1 ") + "\n"
+    src = src + "fixed pilot DUP_ROUTE = Event::Key " + v4_global_const_ctor_diag_braces(" code: 1, code: 2 ") + "\n"
+    src = src + "fixed pilot TYPE_ROUTE = Event::Key " + v4_global_const_ctor_diag_braces(" code: \"ace\" ") + "\n"
+    src = src + "fixed pilot CLOSED_PAYLOAD = Event::Closed " + v4_global_const_ctor_diag_braces(" code: 1 ") + "\n"
+    src = src + "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "route Event {\n"
+    src = src + "    Key " + key_decl + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_global_const_ctor_diag_stream = v4_lex_text(0, v4_global_const_ctor_diag_source())
+pilot v4_global_const_ctor_diag_tree = v4_parse_stream(0, v4_global_const_ctor_diag_stream)
+pilot v4_global_const_ctor_diag_hir = v4_hir_lower_tree(0, v4_global_const_ctor_diag_tree)
+pilot v4_global_const_ctor_diag_resolve = v4_resolve_lower_hir(0, v4_global_const_ctor_diag_hir)
+pilot v4_global_const_ctor_diag_ty = v4_ty_lower_resolve(0, v4_global_const_ctor_diag_resolve)
+
+say "global-const-ctor-diag-count=" + word_from_int(v4_ty_diag_count(v4_global_const_ctor_diag_ty))
+
+pilot v4_global_const_ctor_diag_idx = 0
+repeat until v4_global_const_ctor_diag_idx >= v4_ty_diag_count(v4_global_const_ctor_diag_ty) {
+    pilot v4_global_const_ctor_diag = v4_ty_diag(v4_global_const_ctor_diag_ty, v4_global_const_ctor_diag_idx)
+    say "global-const-ctor-diag" + word_from_int(v4_global_const_ctor_diag_idx) + "=" + v4_diag_message(v4_global_const_ctor_diag)
+    v4_global_const_ctor_diag_idx += 1
+}

@@ -2218,6 +2218,14 @@ task v4_ty_const_path_left(path: word) -> word {
     give back v4_slice(path, 0, sep)
 }
 
+task v4_ty_const_path_right(path: word) -> word {
+    pilot sep = v4_ty_const_path_scope_separator(path)
+    if sep < 0 {
+        give back ""
+    }
+    give back v4_slice(path, sep + 2, path.length())
+}
+
 task v4_ty_const_constructor_head_is_valid(stream_id: int, start_token: int, end_token: int) -> bool {
     pilot idx = start_token
     pilot depth = 0
@@ -2415,6 +2423,293 @@ task v4_ty_const_expr_type_from_tokens_seen(ty_id: int, owner_sig: int, stream_i
         give back v4_ty_int
     }
     give back v4_ty_unknown
+}
+
+task v4_ty_const_name_list_contains(names: word, name: word) -> bool {
+    if names == "" or name == "" {
+        give back false
+    }
+    give back ("|" + names + "|").contains("|" + name + "|")
+}
+
+task v4_ty_const_name_list_add(names: word, name: word) -> word {
+    if name == "" {
+        give back names
+    }
+    if names == "" {
+        give back name
+    }
+    give back names + "|" + name
+}
+
+task v4_ty_const_ctor_field_end(stream_id: int, start_token: int, close_token: int) -> int {
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= close_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type != v4_tok_trivia {
+            if depth == 0 and val == "," {
+                give back idx
+            }
+            depth = v4_ty_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back close_token
+}
+
+task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, start_token: int, end_token: int, seen_consts: word) -> void {
+    pilot first = v4_ty_skip_trivia(stream_id, start_token)
+    if first < 0 or first >= end_token {
+        give back
+    }
+
+    pilot last = end_token - 1
+    repeat until last <= first or v4_lex_token_type(stream_id, last) != v4_tok_trivia {
+        last -= 1
+    }
+    if last < first {
+        give back
+    }
+
+    pilot first_value = v4_lex_token_value(stream_id, first)
+    pilot expr_span = v4_ty_span_from_tokens(stream_id, first, last + 1)
+    if first_value == "(" and v4_ty_find_matching_paren(stream_id, first, end_token) == last {
+        pilot tuple_comma = v4_ty_find_top_level_token(stream_id, first + 1, last, ",")
+        if tuple_comma >= 0 {
+            pilot slot_start = v4_ty_skip_trivia(stream_id, first + 1)
+            repeat until slot_start >= last {
+                pilot slot_end = v4_ty_find_top_level_token(stream_id, slot_start, last, ",")
+                if slot_end < 0 {
+                    slot_end = last
+                }
+                if slot_end > slot_start {
+                    v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, slot_start, slot_end, seen_consts)
+                }
+                if slot_end >= last {
+                    give back
+                }
+                slot_start = v4_ty_skip_trivia(stream_id, slot_end + 1)
+            }
+            give back
+        }
+        v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, first + 1, last, seen_consts)
+        give back
+    }
+
+    if first_value == "[" and v4_ty_find_matching_square(stream_id, first, end_token) == last {
+        pilot repeat_token = v4_ty_find_top_level_token(stream_id, first + 1, last, ";")
+        if repeat_token >= 0 {
+            v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, first + 1, repeat_token, seen_consts)
+            give back
+        }
+
+        pilot element_start = v4_ty_skip_trivia(stream_id, first + 1)
+        repeat until element_start >= last {
+            pilot element_end = v4_ty_find_top_level_token(stream_id, element_start, last, ",")
+            if element_end < 0 {
+                element_end = last
+            }
+            if element_end > element_start {
+                v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, element_start, element_end, seen_consts)
+            }
+            if element_end >= last {
+                give back
+            }
+            element_start = v4_ty_skip_trivia(stream_id, element_end + 1)
+        }
+        give back
+    }
+
+    if v4_lex_token_value(stream_id, last) == "}" {
+        pilot open_token = v4_ty_find_top_level_token(stream_id, first, end_token, "{")
+        if open_token > first and v4_ty_find_matching_brace(stream_id, open_token, end_token) == last {
+            pilot ctor_name = v4_ty_const_constructor_head_name(stream_id, first, open_token)
+            if ctor_name != "" {
+                pilot scope_sep = v4_ty_const_path_scope_separator(ctor_name)
+                if scope_sep >= 0 {
+                    pilot route_name = v4_ty_const_path_left(ctor_name)
+                    pilot case_name = v4_ty_const_path_right(ctor_name)
+                    if case_name == "" {
+                        v4_ty_add_error_diag(ty_id, expr_span, "route constructor needs case name", "use " + route_name + "::CaseName")
+                        give back
+                    }
+                    if not v4_ty_is_route_type(ty_id, route_name) {
+                        v4_ty_add_error_diag(ty_id, expr_span, "unknown route constructor", route_name + " is not a known route")
+                        give back
+                    }
+                    if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+                        v4_ty_add_error_diag(ty_id, expr_span, "unknown route case", route_name + " exposes no case " + case_name)
+                        give back
+                    }
+
+                    pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
+                    if field_count <= 0 {
+                        v4_ty_add_error_diag(ty_id, expr_span, "route case has no payload", route_name + "::" + case_name + " carries no fields")
+                        give back
+                    }
+
+                    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+                    pilot route_sig_name = v4_ty_signature_name(ty_id, sig_id)
+                    pilot instance_name = v4_ty_canonical_type(ty_id, route_name)
+                    if instance_name == "" or instance_name == v4_ty_unknown {
+                        instance_name = route_name
+                    }
+                    pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, instance_name)
+                    pilot seen_fields = ""
+                    pilot field_start = v4_ty_skip_trivia(stream_id, open_token + 1)
+                    if field_start < last {
+                        repeat until field_start >= last {
+                            pilot field_end = v4_ty_const_ctor_field_end(stream_id, field_start, last)
+                            pilot field_span = v4_ty_span_from_tokens(stream_id, field_start, field_end)
+                            pilot name_token = v4_ty_skip_trivia(stream_id, field_start)
+                            pilot field_name = ""
+                            if name_token < field_end {
+                                field_name = v4_lex_token_value(stream_id, name_token)
+                            }
+                            pilot colon_token = v4_ty_find_top_level_token(stream_id, field_start, field_end, ":")
+                            if colon_token < 0 or field_name == "" {
+                                v4_ty_add_error_diag(ty_id, field_span, "malformed route field", "expected field: value inside " + route_name + "::" + case_name)
+                            } else {
+                                if v4_ty_const_name_list_contains(seen_fields, field_name) {
+                                    v4_ty_add_error_diag(ty_id, field_span, "duplicate route case field", field_name + " already set on " + route_name + "::" + case_name)
+                                } else {
+                                    seen_fields = v4_ty_const_name_list_add(seen_fields, field_name)
+                                }
+
+                                pilot value_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
+                                v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, value_start, field_end, seen_consts)
+
+                                pilot field_id = v4_ty_route_case_field_id_for_name(ty_id, route_name, case_name, field_name)
+                                if field_id < 0 {
+                                    v4_ty_add_error_diag(ty_id, field_span, "unknown route case field", route_name + "::" + case_name + " has no field " + field_name)
+                                } else {
+                                    pilot raw_expected_ty = v4_ty_route_case_field_type(ty_id, route_sig_name, case_name, field_id)
+                                    pilot expected_ty = v4_ty_apply_generic_env(raw_expected_ty, env)
+                                    pilot actual_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, owner_sig, stream_id, value_start, field_end, seen_consts)
+                                    pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
+                                    if next_env == v4_ty_generic_env_fail {
+                                        if expected_ty == "" {
+                                            expected_ty = raw_expected_ty
+                                        }
+                                        v4_ty_add_error_diag(ty_id, field_span, "route case field type mismatch", route_name + "::" + case_name + "." + field_name + " expects " + expected_ty + " but got " + actual_ty)
+                                    } else {
+                                        env = next_env
+                                    }
+                                }
+                            }
+                            field_start = v4_ty_skip_trivia(stream_id, field_end + 1)
+                        }
+                    }
+
+                    pilot required_field_id = 0
+                    repeat until required_field_id >= field_count {
+                        pilot required_name = v4_ty_route_case_field_name(ty_id, route_name, case_name, required_field_id)
+                        if required_name != "" and not v4_ty_const_name_list_contains(seen_fields, required_name) {
+                            v4_ty_add_error_diag(ty_id, expr_span, "missing route case field", route_name + "::" + case_name + " requires field " + required_name)
+                        }
+                        required_field_id += 1
+                    }
+                    give back
+                }
+
+                pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, ctor_name)
+                if sig_id < 0 {
+                    v4_ty_add_error_diag(ty_id, expr_span, "unknown shape constructor", ctor_name + " is not a known shape")
+                    give back
+                }
+
+                pilot instance_name = v4_ty_canonical_type(ty_id, ctor_name)
+                if instance_name == "" or instance_name == v4_ty_unknown {
+                    instance_name = ctor_name
+                }
+                pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, instance_name)
+                pilot seen_fields = ""
+                pilot field_start = v4_ty_skip_trivia(stream_id, open_token + 1)
+                if field_start < last {
+                    repeat until field_start >= last {
+                        pilot field_end = v4_ty_const_ctor_field_end(stream_id, field_start, last)
+                        pilot field_span = v4_ty_span_from_tokens(stream_id, field_start, field_end)
+                        pilot name_token = v4_ty_skip_trivia(stream_id, field_start)
+                        pilot field_name = ""
+                        if name_token < field_end {
+                            field_name = v4_lex_token_value(stream_id, name_token)
+                        }
+                        pilot colon_token = v4_ty_find_top_level_token(stream_id, field_start, field_end, ":")
+                        if colon_token < 0 or field_name == "" {
+                            v4_ty_add_error_diag(ty_id, field_span, "malformed shape field", "expected field: value inside " + ctor_name)
+                        } else {
+                            if v4_ty_const_name_list_contains(seen_fields, field_name) {
+                                v4_ty_add_error_diag(ty_id, field_span, "duplicate shape field", field_name + " already set on " + ctor_name)
+                            } else {
+                                seen_fields = v4_ty_const_name_list_add(seen_fields, field_name)
+                            }
+
+                            pilot value_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
+                            v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, value_start, field_end, seen_consts)
+
+                            pilot shape_field_id = v4_ty_shape_field_id_for_name(ty_id, ctor_name, field_name)
+                            if shape_field_id < 0 {
+                                v4_ty_add_error_diag(ty_id, field_span, "unknown shape field", ctor_name + " has no field " + field_name)
+                            } else {
+                                pilot raw_expected_ty = v4_ty_shape_field_type(ty_id, sig_id, shape_field_id)
+                                pilot expected_ty = v4_ty_apply_generic_env(raw_expected_ty, env)
+                                pilot actual_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, owner_sig, stream_id, value_start, field_end, seen_consts)
+                                pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
+                                if next_env == v4_ty_generic_env_fail {
+                                    if expected_ty == "" {
+                                        expected_ty = raw_expected_ty
+                                    }
+                                    v4_ty_add_error_diag(ty_id, field_span, "shape field type mismatch", ctor_name + "." + field_name + " expects " + expected_ty + " but got " + actual_ty)
+                                } else {
+                                    env = next_env
+                                }
+                            }
+                        }
+                        field_start = v4_ty_skip_trivia(stream_id, field_end + 1)
+                    }
+                }
+
+                pilot required_field_id = 0
+                pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
+                repeat until required_field_id >= field_count {
+                    pilot required_name = v4_ty_shape_field_name(ty_id, sig_id, required_field_id)
+                    if required_name != "" and not v4_ty_const_name_list_contains(seen_fields, required_name) {
+                        v4_ty_add_error_diag(ty_id, expr_span, "missing shape field", ctor_name + " requires field " + required_name)
+                    }
+                    required_field_id += 1
+                }
+                give back
+            }
+        }
+    }
+
+    pilot second = v4_ty_next_nontrivia(stream_id, first + 1, end_token)
+    if second < end_token {
+        pilot ctor_name = v4_ty_const_constructor_head_name(stream_id, first, end_token)
+        if ctor_name != "" {
+            pilot route_name = v4_ty_const_path_left(ctor_name)
+            pilot case_name = v4_ty_const_path_right(ctor_name)
+            if route_name != "" {
+                if case_name == "" {
+                    v4_ty_add_error_diag(ty_id, expr_span, "route constructor needs case name", "use " + route_name + "::CaseName")
+                    give back
+                }
+                if not v4_ty_is_route_type(ty_id, route_name) {
+                    v4_ty_add_error_diag(ty_id, expr_span, "unknown route constructor", route_name + " is not a known route")
+                    give back
+                }
+                if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+                    v4_ty_add_error_diag(ty_id, expr_span, "unknown route case", route_name + " exposes no case " + case_name)
+                    give back
+                }
+                if v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+                    v4_ty_add_error_diag(ty_id, expr_span, "route payload constructor needs fields", route_name + "::" + case_name + " expects named fields")
+                }
+            }
+        }
+    }
 }
 
 task v4_ty_const_value_type_for_sig_seen(ty_id: int, sig_id: int, seen_consts: word) -> word {
@@ -2802,17 +3097,21 @@ task v4_ty_validate_const_initializers(ty_id: int) -> void {
     pilot sig_count = v4_ty_signature_count(ty_id)
     repeat until sig_id >= sig_count {
         if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_const_sig {
+            pilot const_name = v4_ty_signature_name(ty_id, sig_id)
             pilot declared_ty = v4_ty_const_declared_type_for_sig(ty_id, sig_id)
+            pilot stream_id = v4_ty_signature_stream_id(ty_id)
+            pilot init_start = v4_ty_const_init_start_token(ty_id, sig_id)
+            pilot init_end = v4_ty_const_init_end_token(ty_id, sig_id)
+            if stream_id >= 0 and init_start >= 0 and init_end > init_start {
+                v4_ty_validate_const_expr_seen(ty_id, sig_id, stream_id, init_start, init_end, v4_ty_const_cycle_seen_append("", const_name))
+            }
             if declared_ty != "" {
                 declared_ty = v4_ty_canonical_type(ty_id, declared_ty)
-                pilot stream_id = v4_ty_signature_stream_id(ty_id)
-                pilot init_start = v4_ty_const_init_start_token(ty_id, sig_id)
-                pilot init_end = v4_ty_const_init_end_token(ty_id, sig_id)
                 if stream_id >= 0 and init_start >= 0 and init_end > init_start {
-                    pilot init_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, sig_id, stream_id, init_start, init_end, v4_ty_signature_name(ty_id, sig_id))
+                    pilot init_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, sig_id, stream_id, init_start, init_end, const_name)
                     if init_ty != v4_ty_unknown and not v4_ty_types_compatible_in_signature(ty_id, sig_id, declared_ty, init_ty) {
                         pilot span = v4_ty_span_from_tokens(stream_id, init_start, init_end)
-                        v4_ty_add_error_diag(ty_id, span, "constant initializer type mismatch", "fixed pilot " + v4_ty_signature_name(ty_id, sig_id) + " expects " + declared_ty + " but got " + init_ty)
+                        v4_ty_add_error_diag(ty_id, span, "constant initializer type mismatch", "fixed pilot " + const_name + " expects " + declared_ty + " but got " + init_ty)
                     }
                 }
             }

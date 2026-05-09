@@ -1,6 +1,10 @@
 -- V4 query-facing diagnostics smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_diag_query_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
 task v4_alias_query_diag_source() -> word {
     pilot src = "alias Loop = Loop\n"
     src = src + "alias First = Second\n"
@@ -27,8 +31,19 @@ task v4_lifetime_query_diag_source() -> word {
 }
 
 task v4_const_query_diag_source() -> word {
+    pilot ace_braces = v4_diag_query_braces(" hp: \"ace\" ")
+    pilot route_decl_braces = v4_diag_query_braces(" code: int ")
     pilot src = "fixed pilot PAIR: (int,word) = (1, 2)\n"
     src = src + "fixed pilot GRID: [int; 3] = [0; 2]\n"
+    src = src + "fixed pilot ACE: Pilot = Pilot " + ace_braces + "\n"
+    src = src + "fixed pilot SIGNAL = Event::Key\n"
+    src = src + "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "route Event {\n"
+    src = src + "    Key " + route_decl_braces + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
@@ -66,4 +81,8 @@ say "const-query-diag0-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_
 say "const-query-diag0-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_diag_query_id, 0))
 say "const-query-diag1-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_diag_query_id, 1))
 say "const-query-diag1-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_diag_query_id, 1))
+say "const-query-diag2-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_diag_query_id, 2))
+say "const-query-diag2-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_diag_query_id, 2))
+say "const-query-diag3-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_diag_query_id, 3))
+say "const-query-diag3-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_diag_query_id, 3))
 say "syntax-summary=" + v4_check_syntax_text("diag_query.fk", v4_diag_query_source)
