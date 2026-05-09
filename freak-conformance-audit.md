@@ -213,7 +213,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | `variant Foo { Case1, Case2 { fields } }` sum types | ❌ | 📖 V4 | parser has no variant production |
 | Pattern matching on variants exhaustive | ❌ | 📖 V4 | depends on variants |
 | `alias Matrix = [[num; 4]; 4]` type aliases | ❌ | 📖 V4 | not parsed |
-| `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; integer const chains/arithmetic, tuple/list/repeat-fill type inference, and declared initializer mismatch diagnostics are in V4, full const-eval remains |
+| `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; integer const chains/arithmetic, tuple/list/repeat-fill plus shape/route-constructor type inference, and declared initializer mismatch diagnostics are in V4, full const-eval remains |
 
 #### §1.15 Literals
 

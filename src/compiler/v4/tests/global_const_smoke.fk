@@ -2,6 +2,9 @@
 -- Verification prepends the V4 crates before this file.
 
 task v4_global_const_source() -> word {
+    pilot ctor_braces = v4_global_const_braces(" hp: BASE ")
+    pilot route_braces = v4_global_const_braces(" code: DEPTH ")
+    pilot route_decl_braces = v4_global_const_braces(" code: int ")
     pilot src = "fixed pilot BASE: int = 2\n"
     src = src + "fixed pilot WIDTH: uint = 2u\n"
     src = src + "fixed pilot DEPTH: int = BASE + WIDTH\n"
@@ -10,12 +13,26 @@ task v4_global_const_source() -> word {
     src = src + "fixed pilot PAIR = (BASE, \"ace\")\n"
     src = src + "fixed pilot BOARD = [BASE, DEPTH, BONUS]\n"
     src = src + "fixed pilot GRID = [0; CELLS]\n"
+    src = src + "fixed pilot ACE = Pilot " + ctor_braces + "\n"
+    src = src + "fixed pilot SIGNAL = Event::Key " + route_braces + "\n"
+    src = src + "fixed pilot CLOSED = Event::Closed\n"
     src = src + "fixed pilot A: int = B\n"
     src = src + "fixed pilot B: int = A\n"
+    src = src + "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "route Event {\n"
+    src = src + "    Key " + route_decl_braces + "\n"
+    src = src + "    Closed\n"
+    src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back BONUS + 1\n"
     src = src + "}\n"
     give back src
+}
+
+task v4_global_const_braces(inner: word) -> word {
+    give back "{" + inner + "}"
 }
 
 task v4_global_const_find_return_stmt(mir_id: int, body_id: int) -> int {
@@ -45,6 +62,9 @@ pilot v4_global_const_bonus_def = v4_resolve_def_for_name(v4_global_const_resolv
 pilot v4_global_const_pair_def = v4_resolve_def_for_name(v4_global_const_resolve, "PAIR")
 pilot v4_global_const_board_def = v4_resolve_def_for_name(v4_global_const_resolve, "BOARD")
 pilot v4_global_const_grid_def = v4_resolve_def_for_name(v4_global_const_resolve, "GRID")
+pilot v4_global_const_ace_def = v4_resolve_def_for_name(v4_global_const_resolve, "ACE")
+pilot v4_global_const_signal_def = v4_resolve_def_for_name(v4_global_const_resolve, "SIGNAL")
+pilot v4_global_const_closed_def = v4_resolve_def_for_name(v4_global_const_resolve, "CLOSED")
 pilot v4_global_const_main_def = v4_resolve_def_for_name(v4_global_const_resolve, "main")
 pilot v4_global_const_base_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_base_def)
 pilot v4_global_const_width_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_width_def)
@@ -54,6 +74,9 @@ pilot v4_global_const_bonus_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_
 pilot v4_global_const_pair_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_pair_def)
 pilot v4_global_const_board_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_board_def)
 pilot v4_global_const_grid_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_grid_def)
+pilot v4_global_const_ace_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_ace_def)
+pilot v4_global_const_signal_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_signal_def)
+pilot v4_global_const_closed_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_closed_def)
 pilot v4_global_const_main_sig = v4_ty_lookup_signature(v4_global_const_ty, v4_global_const_main_def)
 
 pilot v4_global_const_main_body = v4_mir_lookup_body(v4_global_const_mir, v4_global_const_main_def)
@@ -88,6 +111,12 @@ say "global-const-board-display=" + v4_ty_signature_display(v4_global_const_ty, 
 say "global-const-board-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_board_sig)
 say "global-const-grid-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_grid_sig)
 say "global-const-grid-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_grid_sig)
+say "global-const-ace-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_ace_sig)
+say "global-const-ace-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_ace_sig)
+say "global-const-signal-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_signal_sig)
+say "global-const-signal-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_signal_sig)
+say "global-const-closed-display=" + v4_ty_signature_display(v4_global_const_ty, v4_global_const_closed_sig)
+say "global-const-closed-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_ty, v4_global_const_closed_sig)
 say "global-const-main-return-type=" + v4_ty_signature_return_type(v4_global_const_ty, v4_global_const_main_sig)
 say "global-const-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_global_const_ty))
 
