@@ -5,15 +5,25 @@ task v4_mir_generic_bounds_good_source() -> word {
     pilot src = "doctrine Displayable {\n"
     src = src + "    task display(self) -> word\n"
     src = src + "}\n"
+    src = src + "doctrine Ranked {\n"
+    src = src + "    task rank(self) -> int\n"
+    src = src + "}\n"
     src = src + "shape Pilot {\n"
     src = src + "    callsign: word\n"
+    src = src + "    score: int\n"
     src = src + "}\n"
     src = src + "impl Displayable for Pilot {\n"
     src = src + "    task display(self) -> word {\n"
     src = src + "        give back self.callsign\n"
     src = src + "    }\n"
     src = src + "}\n"
-    src = src + "task show<T: Displayable>(value: T) -> word {\n"
+    src = src + "impl Ranked for Pilot {\n"
+    src = src + "    task rank(self) -> int {\n"
+    src = src + "        give back self.score\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task show<T: Displayable + Ranked>(value: T) -> word {\n"
+    src = src + "    pilot score = value.rank()\n"
     src = src + "    give back value.display()\n"
     src = src + "}\n"
     src = src + "task main(ship: Pilot) -> word {\n"
@@ -26,14 +36,33 @@ task v4_mir_generic_bounds_bad_source() -> word {
     pilot src = "doctrine Displayable {\n"
     src = src + "    task display(self) -> word\n"
     src = src + "}\n"
+    src = src + "doctrine Ranked {\n"
+    src = src + "    task rank(self) -> int\n"
+    src = src + "}\n"
     src = src + "shape Rock {\n"
     src = src + "    mass: int\n"
     src = src + "}\n"
-    src = src + "task show<T: Displayable>(value: T) -> word {\n"
+    src = src + "impl Ranked for Rock {\n"
+    src = src + "    task rank(self) -> int {\n"
+    src = src + "        give back self.mass\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "shape Sign {\n"
+    src = src + "    text: word\n"
+    src = src + "}\n"
+    src = src + "impl Displayable for Sign {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back self.text\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task show<T: Displayable + Ranked>(value: T) -> word {\n"
+    src = src + "    pilot score = value.rank()\n"
     src = src + "    give back value.display()\n"
     src = src + "}\n"
-    src = src + "task main(rock: Rock) -> word {\n"
-    src = src + "    give back show(rock)\n"
+    src = src + "task main(rock: Rock, sign: Sign) -> word {\n"
+    src = src + "    pilot left = show(rock)\n"
+    src = src + "    pilot right = show(sign)\n"
+    src = src + "    give back left\n"
     src = src + "}\n"
     give back src
 }
@@ -47,12 +76,17 @@ pilot v4_mir_generic_bounds_good_ty = v4_ty_lower_resolve(0, v4_mir_generic_boun
 pilot v4_mir_generic_bounds_good_mir = v4_mir_lower_ty(0, v4_mir_generic_bounds_good_ty)
 pilot v4_mir_generic_bounds_show_def = v4_resolve_def_for_name(v4_mir_generic_bounds_good_resolve, "show")
 pilot v4_mir_generic_bounds_show_body = v4_mir_lookup_body(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_show_def)
-pilot v4_mir_generic_bounds_show_return = v4_mir_stmt_rvalue(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_show_body, 0)
+pilot v4_mir_generic_bounds_show_score = v4_mir_stmt_rvalue(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_show_body, 0)
+pilot v4_mir_generic_bounds_show_return = v4_mir_stmt_rvalue(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_show_body, 1)
 pilot v4_mir_generic_bounds_main_def = v4_resolve_def_for_name(v4_mir_generic_bounds_good_resolve, "main")
 pilot v4_mir_generic_bounds_main_body = v4_mir_lookup_body(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_main_def)
 pilot v4_mir_generic_bounds_main_return = v4_mir_stmt_rvalue(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_main_body, 0)
 
 say v4_mir_summary(v4_mir_generic_bounds_good_mir)
+say "bound-good-show-body-stmts=" + word_from_int(v4_mir_body_stmt_count(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_show_body))
+say "bound-good-show-score-kind=" + v4_mir_rvalue_kind(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_show_body, v4_mir_generic_bounds_show_score)
+say "bound-good-show-score-op=" + v4_mir_rvalue_op(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_show_body, v4_mir_generic_bounds_show_score)
+say "bound-good-show-score-ty=" + v4_mir_rvalue_ty(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_show_body, v4_mir_generic_bounds_show_score)
 say "bound-good-show-return-kind=" + v4_mir_rvalue_kind(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_show_body, v4_mir_generic_bounds_show_return)
 say "bound-good-show-return-op=" + v4_mir_rvalue_op(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_show_body, v4_mir_generic_bounds_show_return)
 say "bound-good-show-return-ty=" + v4_mir_rvalue_ty(v4_mir_generic_bounds_good_mir, v4_mir_generic_bounds_show_body, v4_mir_generic_bounds_show_return)
@@ -70,3 +104,5 @@ pilot v4_mir_generic_bounds_bad_mir = v4_mir_lower_ty(1, v4_mir_generic_bounds_b
 say "bound-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_generic_bounds_bad_mir))
 say "bound-bad-message=" + v4_diag_message(v4_mir_diag(v4_mir_generic_bounds_bad_mir, 0))
 say "bound-bad-help=" + v4_diag_help(v4_mir_diag(v4_mir_generic_bounds_bad_mir, 0))
+say "bound-bad-message1=" + v4_diag_message(v4_mir_diag(v4_mir_generic_bounds_bad_mir, 1))
+say "bound-bad-help1=" + v4_diag_help(v4_mir_diag(v4_mir_generic_bounds_bad_mir, 1))

@@ -99,12 +99,12 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.3 Primitive types | ⚠️ Partial — `num`/`int`/`word`/`bool`/`void` ship; `uint`/`tiny`/`char`/`big`/`float`/`float32`/`never`/`[T;N]`/tuple/raw-pointer types are 🔜 V4 |
 | §1.4 Compound types (`maybe<T>`, `result<T,E>`) | ✅ Implemented |
 | §1.5 Shapes | ✅ Implemented |
-| §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships; `Ord`/`Index`/`IndexMut`/`dyn`/multi-bound generics are 🔜 V4 |
+| §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships; V4 also parses and enforces doctrine bounds plus multi-bound generics across TY/MIR/editor; `Ord`/`Index`/`IndexMut`/`dyn` still expand |
 | §1.7 Control flow | ⚠️ Partial — pattern destructuring, `prob_when`, `training arc with growth` are 🔜 V4 |
 | §1.8 Closures | ⚠️ Partial — `copy`/`move`/`mut` closure modes parsed, semantics 🔜 V4 |
 | §1.9 Pipe operator `\|>` | ✅ Implemented |
 | §1.10 Error handling (`?`, `or else`, `check`) | ✅ Implemented |
-| §1.11 Generics | ⚠️ Partial — basic `<T>` works; trait bounds + multi-bound 🔜 V4 |
+| §1.11 Generics | ⚠️ Partial — basic `<T>` plus doctrine and multi-bound generic constraints work in V4 query slices; full backend/monomorphization depth still expands |
 | §1.12 Borrow checker | ⚠️ Partial — see §4 |
 | §1.13 Modules | ⚠️ Partial — see §6 |
 | §1.14 Variants & aliases | ⚠️ Partial — aliases and root `fixed pilot` constants work in V4; variant-specific surface still expands |

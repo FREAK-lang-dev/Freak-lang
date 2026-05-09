@@ -43,8 +43,9 @@ vertical slice before the next dependency gate opens.
 Current Phase 1 landings already cover routes/variants, alias-backed pattern
 surfaces, tuple and fixed-array local/editor facts, module/glob import call
 resolution, root `fixed pilot` constants with cycle diagnostics, fixed-array
-compile-time lengths with root-constant integer arithmetic, and named
-call-site arguments across task calls plus instance/associated method calls.
+compile-time lengths with root-constant integer arithmetic, generic doctrine
+bounds plus multi-bound method/editor enforcement, and named call-site
+arguments across task calls plus instance/associated method calls.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 

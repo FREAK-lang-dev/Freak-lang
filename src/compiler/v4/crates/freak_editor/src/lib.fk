@@ -488,6 +488,75 @@ task v4_editor_impl_method_ref_for_def(ty_id: int, def_id: word) -> word {
     give back ""
 }
 
+task v4_editor_doctrine_method_def(ty_id: int, sig_id: int, method_id: int) -> word {
+    if sig_id < 0 or method_id < 0 {
+        give back ""
+    }
+    give back v4_ty_signature_def(ty_id, sig_id) + "::Method::" + v4_ty_doctrine_method_name(ty_id, sig_id, method_id)
+}
+
+task v4_editor_doctrine_method_marker_index(def_id: word) -> int {
+    pilot marker = "::Method::"
+    pilot marker_len = marker.length()
+    pilot def_len = def_id.length()
+    pilot idx = 0
+    repeat until idx + marker_len > def_len {
+        if v4_slice(def_id, idx, idx + marker_len) == marker {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_doctrine_method_owner_def(def_id: word) -> word {
+    pilot marker = v4_editor_doctrine_method_marker_index(def_id)
+    if marker < 0 {
+        give back ""
+    }
+    give back v4_slice(def_id, 0, marker)
+}
+
+task v4_editor_doctrine_method_name_from_def(def_id: word) -> word {
+    pilot marker = v4_editor_doctrine_method_marker_index(def_id)
+    if marker < 0 {
+        give back ""
+    }
+    pilot start = marker + "::Method::".length()
+    if start >= def_id.length() {
+        give back ""
+    }
+    give back v4_slice(def_id, start, def_id.length())
+}
+
+task v4_editor_doctrine_method_name_span(ty_id: int, sig_id: int, method_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_doctrine_method_start_token(ty_id, sig_id, method_id)
+    if stream_id < 0 or start_token < 0 {
+        give back V4_NO_SPAN
+    }
+    pilot name_token = v4_ty_skip_trivia(stream_id, start_token + 1)
+    if name_token < 0 {
+        give back V4_NO_SPAN
+    }
+    give back v4_lex_token_span(stream_id, name_token)
+}
+
+task v4_editor_doctrine_method_id_for_name(ty_id: int, sig_id: int, method_name: word) -> int {
+    if sig_id < 0 or method_name == "" {
+        give back 0 - 1
+    }
+    pilot method_id = 0
+    pilot method_count = v4_ty_doctrine_method_count(ty_id, sig_id)
+    repeat until method_id >= method_count {
+        if v4_ty_doctrine_method_name(ty_id, sig_id, method_id) == method_name {
+            give back method_id
+        }
+        method_id += 1
+    }
+    give back 0 - 1
+}
+
 task v4_editor_prev_nontrivia_token(stream_id: int, token_id: int) -> int {
     pilot idx = token_id - 1
     repeat until idx < 0 {
@@ -552,6 +621,15 @@ task v4_editor_method_ref_for_call_rvalue(ty_id: int, mir_id: int, body_id: int,
     give back v4_mir_find_method_ref(mir_id, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(v4_mir_rvalue_op(mir_id, body_id, rvalue_id), method_name))
 }
 
+task v4_editor_bound_method_ref_for_call_rvalue(mir_id: int, body_id: int, rvalue_id: int, method_name: word) -> word {
+    pilot call_op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    pilot owner_ty = v4_editor_method_call_owner(call_op, method_name)
+    if owner_ty == "" {
+        give back ""
+    }
+    give back v4_mir_find_bound_method_ref(mir_id, body_id, v4_mir_compact_type_text(owner_ty), method_name, v4_editor_method_call_is_instance(call_op, method_name))
+}
+
 task v4_editor_method_detail_for_owner(ty_id: int, owner_ty: word, method_ref: word) -> word {
     if owner_ty == "" or method_ref == "" {
         give back v4_ty_unknown
@@ -564,6 +642,20 @@ task v4_editor_method_detail_for_owner(ty_id: int, owner_ty: word, method_ref: w
     pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
     pilot method_id = v4_mir_method_ref_method_id(method_ref)
     give back "task " + lookup_owner_ty + "::" + v4_ty_impl_method_name(ty_id, hir_item, method_id) + "(...) -> " + v4_ty_impl_method_return_type_for_owner(ty_id, hir_item, method_id, lookup_owner_ty)
+}
+
+task v4_editor_bound_method_detail_for_owner(ty_id: int, owner_ty: word, method_ref: word) -> word {
+    if owner_ty == "" or method_ref == "" {
+        give back v4_ty_unknown
+    }
+    pilot lookup_owner_ty = v4_mir_compact_type_text(owner_ty)
+    pilot canonical_owner_ty = v4_ty_canonical_type(ty_id, lookup_owner_ty)
+    if canonical_owner_ty != "" and canonical_owner_ty != v4_ty_unknown {
+        lookup_owner_ty = canonical_owner_ty
+    }
+    pilot sig_id = v4_mir_bound_method_ref_sig_id(method_ref)
+    pilot method_id = v4_mir_bound_method_ref_method_id(method_ref)
+    give back "task " + lookup_owner_ty + "::" + v4_ty_doctrine_method_name(ty_id, sig_id, method_id) + "(...) -> " + v4_ty_doctrine_method_return_type_for_self(ty_id, sig_id, method_id, lookup_owner_ty)
 }
 
 task v4_editor_method_call_rvalue_at_token(stream_id: int, ty_id: int, mir_id: int, body_id: int, token_id: int, token_value: word, offset: int) -> int {
@@ -591,7 +683,7 @@ task v4_editor_method_call_rvalue_at_token(stream_id: int, ty_id: int, mir_id: i
         if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call {
             pilot span = v4_mir_rvalue_span(mir_id, body_id, rvalue_id)
             if offset >= v4_span_start(span) and offset <= v4_span_end(span) {
-                if v4_editor_method_ref_for_call_rvalue(ty_id, mir_id, body_id, rvalue_id, token_value) != "" {
+                if v4_editor_method_ref_for_call_rvalue(ty_id, mir_id, body_id, rvalue_id, token_value) != "" or v4_editor_bound_method_ref_for_call_rvalue(mir_id, body_id, rvalue_id, token_value) != "" {
                     pilot width = v4_span_end(span) - v4_span_start(span)
                     if best_rvalue < 0 or width < best_width {
                         best_rvalue = rvalue_id
@@ -1423,6 +1515,30 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                                 type_display = "parameter " + token_value + ": " + v4_ty_impl_method_explicit_param_type_for_owner(ty_id, method_hir_item, method_id, param_id, lookup_owner_ty)
                                 named_param_handled = true
                             }
+                        } else {
+                            pilot bound_method_ref = v4_mir_find_bound_method_ref(mir_id, named_param_body, v4_mir_compact_type_text(owner_ty), method_name, v4_editor_method_call_is_instance(call_op, method_name))
+                            if bound_method_ref != "" {
+                                pilot doctrine_sig = v4_mir_bound_method_ref_sig_id(bound_method_ref)
+                                pilot doctrine_method_id = v4_mir_bound_method_ref_method_id(bound_method_ref)
+                                pilot param_id = 0 - 1
+                                pilot doctrine_param_idx = 0
+                                pilot doctrine_param_count = v4_ty_doctrine_method_explicit_param_count(ty_id, doctrine_sig, doctrine_method_id)
+                                repeat until doctrine_param_idx >= doctrine_param_count {
+                                    if v4_ty_doctrine_method_explicit_param_name(ty_id, doctrine_sig, doctrine_method_id, doctrine_param_idx) == token_value {
+                                        param_id = doctrine_param_idx
+                                        doctrine_param_idx = doctrine_param_count
+                                    } else {
+                                        doctrine_param_idx += 1
+                                    }
+                                }
+                                if param_id >= 0 {
+                                    name = token_value
+                                    kind = "Parameter"
+                                    def_id = v4_editor_param_def(v4_editor_doctrine_method_def(ty_id, doctrine_sig, doctrine_method_id), token_value)
+                                    type_display = "parameter " + token_value + ": " + v4_ty_doctrine_method_explicit_param_type_for_self(ty_id, doctrine_sig, doctrine_method_id, param_id, owner_ty)
+                                    named_param_handled = true
+                                }
+                            }
                         }
                     } else {
                         pilot sig_id = v4_mir_signature_id_for_name(mir_id, call_op)
@@ -1497,10 +1613,21 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                                 pilot method_rvalue = v4_editor_method_call_rvalue_at_token(stream_id, ty_id, mir_id, body_id, token_id, token_value, offset)
                                 if method_rvalue >= 0 {
                                     pilot method_ref = v4_editor_method_ref_for_call_rvalue(ty_id, mir_id, body_id, method_rvalue, token_value)
+                                    pilot owner_ty = v4_editor_method_call_owner(v4_mir_rvalue_op(mir_id, body_id, method_rvalue), token_value)
                                     name = token_value
                                     kind = "Method"
-                                    def_id = v4_ty_impl_method_def(ty_id, v4_mir_method_ref_hir_item(method_ref), v4_mir_method_ref_method_id(method_ref))
-                                    type_display = v4_editor_method_detail_for_owner(ty_id, v4_editor_method_call_owner(v4_mir_rvalue_op(mir_id, body_id, method_rvalue), token_value), method_ref)
+                                    if method_ref != "" {
+                                        def_id = v4_ty_impl_method_def(ty_id, v4_mir_method_ref_hir_item(method_ref), v4_mir_method_ref_method_id(method_ref))
+                                        type_display = v4_editor_method_detail_for_owner(ty_id, owner_ty, method_ref)
+                                    } else {
+                                        pilot bound_method_ref = v4_editor_bound_method_ref_for_call_rvalue(mir_id, body_id, method_rvalue, token_value)
+                                        if bound_method_ref != "" {
+                                            pilot doctrine_sig = v4_mir_bound_method_ref_sig_id(bound_method_ref)
+                                            pilot doctrine_method_id = v4_mir_bound_method_ref_method_id(bound_method_ref)
+                                            def_id = v4_editor_doctrine_method_def(ty_id, doctrine_sig, doctrine_method_id)
+                                            type_display = v4_editor_bound_method_detail_for_owner(ty_id, owner_ty, bound_method_ref)
+                                        }
+                                    }
                                 } else {
                                     pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, token_value, offset)
                                     if local_id >= 0 and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
@@ -1516,10 +1643,21 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                         pilot method_rvalue = v4_editor_method_call_rvalue_at_token(stream_id, ty_id, mir_id, body_id, token_id, token_value, offset)
                         if method_rvalue >= 0 {
                             pilot method_ref = v4_editor_method_ref_for_call_rvalue(ty_id, mir_id, body_id, method_rvalue, token_value)
+                            pilot owner_ty = v4_editor_method_call_owner(v4_mir_rvalue_op(mir_id, body_id, method_rvalue), token_value)
                             name = token_value
                             kind = "Method"
-                            def_id = v4_ty_impl_method_def(ty_id, v4_mir_method_ref_hir_item(method_ref), v4_mir_method_ref_method_id(method_ref))
-                            type_display = v4_editor_method_detail_for_owner(ty_id, v4_editor_method_call_owner(v4_mir_rvalue_op(mir_id, body_id, method_rvalue), token_value), method_ref)
+                            if method_ref != "" {
+                                def_id = v4_ty_impl_method_def(ty_id, v4_mir_method_ref_hir_item(method_ref), v4_mir_method_ref_method_id(method_ref))
+                                type_display = v4_editor_method_detail_for_owner(ty_id, owner_ty, method_ref)
+                            } else {
+                                pilot bound_method_ref = v4_editor_bound_method_ref_for_call_rvalue(mir_id, body_id, method_rvalue, token_value)
+                                if bound_method_ref != "" {
+                                    pilot doctrine_sig = v4_mir_bound_method_ref_sig_id(bound_method_ref)
+                                    pilot doctrine_method_id = v4_mir_bound_method_ref_method_id(bound_method_ref)
+                                    def_id = v4_editor_doctrine_method_def(ty_id, doctrine_sig, doctrine_method_id)
+                                    type_display = v4_editor_bound_method_detail_for_owner(ty_id, owner_ty, bound_method_ref)
+                                }
+                            }
                         } else {
                             pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, token_value, offset)
                             if local_id >= 0 and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
@@ -1902,6 +2040,18 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
             hir_item = v4_mir_method_ref_hir_item(method_ref)
             span = v4_editor_impl_method_name_span(ty_id, hir_item, v4_mir_method_ref_method_id(method_ref))
             found = 1
+        } else {
+            pilot owner_def = v4_editor_doctrine_method_owner_def(def_id)
+            pilot method_name = v4_editor_doctrine_method_name_from_def(def_id)
+            pilot sig_id = v4_ty_lookup_signature(ty_id, owner_def)
+            if sig_id >= 0 {
+                pilot method_id = v4_editor_doctrine_method_id_for_name(ty_id, sig_id, method_name)
+                if method_id >= 0 {
+                    hir_item = v4_editor_hir_item_for_def(hir_id, owner_def)
+                    span = v4_editor_doctrine_method_name_span(ty_id, sig_id, method_id)
+                    found = 1
+                }
+            }
         }
     } else if def_id != "" {
         hir_item = v4_editor_hir_item_for_def(hir_id, def_id)
@@ -2367,6 +2517,40 @@ task v4_completion_add_lifetimes_for_offset(completion_id: int, path: word, text
     }
 }
 
+task v4_completion_add_bound_methods_for_owner(completion_id: int, ty_id: int, mir_id: int, body_id: int, owner_ty: word, want_instance: bool) -> void {
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id < 0 {
+        give back
+    }
+    pilot generic_name = v4_mir_compact_type_text(owner_ty)
+    pilot generic_id = v4_ty_signature_generic_id_for_name(ty_id, sig_id, generic_name)
+    if generic_id < 0 {
+        give back
+    }
+
+    pilot bound_idx = 0
+    pilot bound_count = v4_ty_signature_generic_bound_count(ty_id, sig_id, generic_id)
+    repeat until bound_idx >= bound_count {
+        pilot doctrine_name = v4_ty_signature_generic_bound_name(ty_id, sig_id, generic_id, bound_idx)
+        pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(ty_id, doctrine_name)
+        if doctrine_sig >= 0 {
+            pilot method_id = 0
+            pilot method_count = v4_ty_doctrine_method_count(ty_id, doctrine_sig)
+            repeat until method_id >= method_count {
+                if v4_ty_doctrine_method_is_instance(ty_id, doctrine_sig, method_id) == want_instance {
+                    pilot label = v4_ty_doctrine_method_name(ty_id, doctrine_sig, method_id)
+                    if label != "" and not v4_completion_has_label(completion_id, label) {
+                        pilot method_ref = v4_mir_bound_method_ref(doctrine_sig, method_id)
+                        v4_completion_add(completion_id, label, "method", v4_editor_bound_method_detail_for_owner(ty_id, owner_ty, method_ref), label)
+                    }
+                }
+                method_id += 1
+            }
+        }
+        bound_idx += 1
+    }
+}
+
 task v4_completion_add_methods_for_offset(completion_id: int, path: word, text: word, offset: int) -> void {
     pilot stream_id = v4_lex_text_cached(path, text)
     pilot hir_id = v4_hir_text_cached(path, text)
@@ -2421,6 +2605,7 @@ task v4_completion_add_methods_for_offset(completion_id: int, path: word, text: 
         }
         item_id += 1
     }
+    v4_completion_add_bound_methods_for_owner(completion_id, ty_id, mir_id, body_id, owner_ty, want_instance)
 }
 
 task v4_completion_add_named_call_params_for_offset(completion_id: int, path: word, text: word, offset: int) -> void {
@@ -2458,23 +2643,43 @@ task v4_completion_add_named_call_params_for_offset(completion_id: int, path: wo
             lookup_owner_ty = canonical_owner_ty
         }
         pilot method_ref = v4_mir_find_method_ref(mir_id, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(call_op, method_name))
-        if method_ref == "" {
+        if method_ref != "" {
+            pilot hir_impl = v4_mir_method_ref_hir_item(method_ref)
+            pilot method_id = v4_mir_method_ref_method_id(method_ref)
+            pilot param_id = 0
+            pilot param_count = v4_ty_impl_method_explicit_param_count(ty_id, hir_impl, method_id)
+            repeat until param_id >= param_count {
+                pilot param_name = v4_ty_impl_method_explicit_param_name(ty_id, hir_impl, method_id, param_id)
+                if param_name != "" and not v4_editor_call_arg_uses_label(stream_id, open_token, close_token, param_name) {
+                    pilot label = param_name + ":"
+                    if not v4_completion_has_label(completion_id, label) {
+                        pilot detail = "parameter " + param_name + ": " + v4_ty_impl_method_explicit_param_type_for_owner(ty_id, hir_impl, method_id, param_id, lookup_owner_ty)
+                        v4_completion_add(completion_id, label, "parameter", detail, param_name + ": ")
+                    }
+                }
+                param_id += 1
+            }
             give back
         }
-        pilot hir_impl = v4_mir_method_ref_hir_item(method_ref)
-        pilot method_id = v4_mir_method_ref_method_id(method_ref)
-        pilot param_id = 0
-        pilot param_count = v4_ty_impl_method_explicit_param_count(ty_id, hir_impl, method_id)
-        repeat until param_id >= param_count {
-            pilot param_name = v4_ty_impl_method_explicit_param_name(ty_id, hir_impl, method_id, param_id)
+
+        pilot bound_method_ref = v4_mir_find_bound_method_ref(mir_id, body_id, v4_mir_compact_type_text(owner_ty), method_name, v4_editor_method_call_is_instance(call_op, method_name))
+        if bound_method_ref == "" {
+            give back
+        }
+        pilot doctrine_sig = v4_mir_bound_method_ref_sig_id(bound_method_ref)
+        pilot doctrine_method_id = v4_mir_bound_method_ref_method_id(bound_method_ref)
+        pilot doctrine_param_id = 0
+        pilot doctrine_param_count = v4_ty_doctrine_method_explicit_param_count(ty_id, doctrine_sig, doctrine_method_id)
+        repeat until doctrine_param_id >= doctrine_param_count {
+            pilot param_name = v4_ty_doctrine_method_explicit_param_name(ty_id, doctrine_sig, doctrine_method_id, doctrine_param_id)
             if param_name != "" and not v4_editor_call_arg_uses_label(stream_id, open_token, close_token, param_name) {
                 pilot label = param_name + ":"
                 if not v4_completion_has_label(completion_id, label) {
-                    pilot detail = "parameter " + param_name + ": " + v4_ty_impl_method_explicit_param_type_for_owner(ty_id, hir_impl, method_id, param_id, lookup_owner_ty)
+                    pilot detail = "parameter " + param_name + ": " + v4_ty_doctrine_method_explicit_param_type_for_self(ty_id, doctrine_sig, doctrine_method_id, doctrine_param_id, owner_ty)
                     v4_completion_add(completion_id, label, "parameter", detail, param_name + ": ")
                 }
             }
-            param_id += 1
+            doctrine_param_id += 1
         }
         give back
     }

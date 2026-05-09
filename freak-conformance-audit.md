@@ -153,7 +153,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Operator overloading: `Index` | ✅ | ✅ wired in Python compiler ([freakc/emitter.py:924-934](freakc/emitter.py)); V3 emitter still missing — V4 |
 | Operator overloading: `IndexMut` (`a[i] = x`) | ❌ | 📖 V4 | requires lvalue-assignment rewrite |
 | `dyn Doctrine` dynamic dispatch with vtable | ❌ | 📖 V4 | no vtable codegen |
-| Multi-bound generics `T: A + B` | ❌ | 📖 V4 | parsed `<T>` only |
+| Multi-bound generics `T: A + B` | ⚠️ | 📖 V4 | V4 parses top-level `+` bounds and carries them through TY/MIR/editor queries; dyn/object-safe surfaces still expand |
 | `dyn` object-safety rules | ❌ | 📖 V4 | not implemented |
 
 #### §1.7 Control Flow
@@ -199,8 +199,8 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
 | `task name<T>(x: T)` parametric type params | ⚠️ | 📖 V4 | parsed; monomorphization via emitter is partial |
-| Trait bounds `T: Doctrine` | ❌ | 📖 V4 | not enforced |
-| Multi-bound `T: A + B` | ❌ | 📖 V4 | not parsed |
+| Trait bounds `T: Doctrine` | ⚠️ | 📖 V4 | V4 enforces doctrine bounds on generic call sites and bound-method editor facts; backend/monomorphization depth still expands |
+| Multi-bound `T: A + B` | ⚠️ | 📖 V4 | V4 parses and enforces multiple doctrine bounds across generic calls and bound-method tooling; broader generic depth remains |
 
 #### §1.12 Borrow Checker — see §4 below
 
