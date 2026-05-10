@@ -36,6 +36,6 @@ This Code of Conduct applies within all community spaces, repositories, pull req
 
 ## Enforcement & Reporting
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the maintainers at **teri@freak-lang.dev**. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the maintainers at **ttheresa_apocalypse0@proton.me**. All complaints will be reviewed and investigated promptly and fairly.
 
 All community maintainers are obligated to respect the privacy and security of the reporter of any incident.
