@@ -18,7 +18,7 @@ We take security vulnerabilities in the FREAK compiler, runtime, and package man
 
 Instead, please report it privately:
 
-1. **Email:** Send your report directly to **teri@freak-lang.dev**.
+1. **Email:** Send your report directly to **theresa_apocalypse0@proton.me**.
 2. **Details:** Include a clear description of the vulnerability, affected components (e.g., runtime memory safety, LLVM code generation, or Hangar package resolution), and a minimal reproducible `.fk` script or test case if possible.
 
 ### Response Timeline
