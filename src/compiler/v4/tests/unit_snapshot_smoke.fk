@@ -1,6 +1,31 @@
 -- V4 current 00-Unit snapshot and restore smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_unit_snapshot_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_unit_snapshot_const_source() -> word {
+    pilot box_braces = v4_unit_snapshot_braces(" value: 1 ")
+    pilot option_decl = v4_unit_snapshot_braces(" value: T ")
+    pilot some_braces = v4_unit_snapshot_braces(" value: \"ace\" ")
+    pilot src = "fixed pilot BAD_GENERIC_SHAPE = Box<int,word> " + box_braces + "\n"
+    src = src + "fixed pilot TYPE_GENERIC_SHAPE = Box<int> " + v4_unit_snapshot_braces(" value: \"ace\" ") + "\n"
+    src = src + "fixed pilot BAD_GENERIC_ROUTE = Option<int,word>::None\n"
+    src = src + "fixed pilot TYPE_GENERIC_ROUTE = Option<int>::Some " + some_braces + "\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "route Option<T> {\n"
+    src = src + "    Some " + option_decl + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_unit_snapshot_source = "task main() -> int {\n"
 v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot name = \"Yuuko|Meiya\"\n"
 v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot bad = name - 1\n"
@@ -54,3 +79,10 @@ say v4_unit_snapshot_restore(v4_unit_snapshot_ref_text("before"))
 say v4_lsp_handle_text_request("workspace/unitSnapshotRestore", "unit-snapshot.fk", v4_unit_snapshot_ref_text("before"), 0)
 say v4_lsp_handle_request("workspace/unitSnapshotRestore", "unit-snapshot.fk", 0)
 say v4_unit_snapshot_restore("00-unit-snapshot|format=wrong\nend|wrong")
+
+pilot v4_unit_snapshot_const_text = v4_unit_snapshot_const_source()
+say v4_lsp_handle_text_request("textDocument/didOpen", "unit-snapshot-const.fk", v4_unit_snapshot_const_text, 0)
+say v4_diagnostics_text("unit-snapshot-const.fk", v4_unit_snapshot_const_text)
+say v4_unit_snapshot_ref_store("const-before", v4_unit_snapshot())
+say v4_unit_snapshot_restore(v4_unit_snapshot_ref_text("const-before"))
+say v4_driver_confirm_restored_document_text("unit-snapshot-const.fk", v4_unit_snapshot_const_text)

@@ -1,6 +1,10 @@
 -- V4 diagnostics arena snapshot smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_diagnostics_snapshot_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
 task v4_diagnostics_snapshot_alias_source() -> word {
     pilot src = "alias Loop = Loop\n"
     src = src + "alias First = Second\n"
@@ -26,6 +30,27 @@ task v4_diagnostics_snapshot_lifetime_source() -> word {
     give back src
 }
 
+task v4_diagnostics_snapshot_const_source() -> word {
+    pilot box_braces = v4_diagnostics_snapshot_braces(" value: 1 ")
+    pilot option_decl = v4_diagnostics_snapshot_braces(" value: T ")
+    pilot some_braces = v4_diagnostics_snapshot_braces(" value: \"ace\" ")
+    pilot src = "fixed pilot BAD_GENERIC_SHAPE = Box<int,word> " + box_braces + "\n"
+    src = src + "fixed pilot TYPE_GENERIC_SHAPE = Box<int> " + v4_diagnostics_snapshot_braces(" value: \"ace\" ") + "\n"
+    src = src + "fixed pilot BAD_GENERIC_ROUTE = Option<int,word>::None\n"
+    src = src + "fixed pilot TYPE_GENERIC_ROUTE = Option<int>::Some " + some_braces + "\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "route Option<T> {\n"
+    src = src + "    Some " + option_decl + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_diagnostics_snapshot_source = "task main() -> int {\n"
 v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    pilot text = \"hi\"\n"
 v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    pilot bad = text - 1\n"
@@ -39,6 +64,7 @@ v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "}\n"
 pilot v4_diagnostics_snapshot_id = v4_diagnostics_text_cached("diagnostics-snapshot.fk", v4_diagnostics_snapshot_source)
 pilot v4_diagnostics_snapshot_alias_id = v4_diagnostics_text_cached("diagnostics-snapshot-alias.fk", v4_diagnostics_snapshot_alias_source())
 pilot v4_diagnostics_snapshot_lifetime_id = v4_diagnostics_text_cached("diagnostics-snapshot-lifetime.fk", v4_diagnostics_snapshot_lifetime_source())
+pilot v4_diagnostics_snapshot_const_id = v4_diagnostics_text_cached("diagnostics-snapshot-const.fk", v4_diagnostics_snapshot_const_source())
 say v4_diagnostics_summary(v4_diagnostics_snapshot_id)
 say v4_diagnostics_snapshot_summary()
 
@@ -52,6 +78,8 @@ say v4_diagnostics_snapshot_diag_line(v4_diagnostics_snapshot_id, 0)
 say "alias-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_alias_id, 0))
 say "alias-diagnostic4-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_alias_id, 4))
 say "lifetime-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_lifetime_id, 0))
+say "const-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_const_id, 0))
+say "const-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_const_id, 3))
 say v4_parse_snapshot_restore(v4_parse_snapshot())
 say v4_hir_snapshot_restore(v4_hir_snapshot())
 say v4_resolve_snapshot_restore(v4_resolve_snapshot())
@@ -89,4 +117,13 @@ pilot v4_diagnostics_lifetime_fingerprint = v4_source_fingerprint(v4_diagnostics
 pilot v4_diagnostics_lifetime_restored_id = word_to_int(v4_query_get(v4_diagnostics_query_key("diagnostics-snapshot-lifetime.fk"), v4_diagnostics_lifetime_fingerprint))
 say "restored-lifetime-diagnostic0=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_lifetime_restored_id, 0))
 say "restored-lifetime-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_lifetime_restored_id, 0))
+
+say v4_driver_confirm_restored_document_text("diagnostics-snapshot-const.fk", v4_diagnostics_snapshot_const_source())
+pilot v4_diagnostics_const_file = v4_source_find("diagnostics-snapshot-const.fk")
+pilot v4_diagnostics_const_fingerprint = v4_source_fingerprint(v4_diagnostics_const_file)
+pilot v4_diagnostics_const_restored_id = word_to_int(v4_query_get(v4_diagnostics_query_key("diagnostics-snapshot-const.fk"), v4_diagnostics_const_fingerprint))
+say "restored-const-diagnostic0=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_const_restored_id, 0))
+say "restored-const-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_const_restored_id, 0))
+say "restored-const-diagnostic3=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_const_restored_id, 3))
+say "restored-const-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_const_restored_id, 3))
 say v4_driver_confirm_restored_document_text("diagnostics-snapshot.fk", "task changed() => 7\n")
