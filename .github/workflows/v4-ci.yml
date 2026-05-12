@@ -1,0 +1,71 @@
+name: V4 CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  v4-fast:
+    name: V4 fast (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: V4 structural and transpile coverage
+        run: python src/compiler/v4/check_v4.py --fast
+
+  v4-runtime-linux:
+    name: V4 runtime linux (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/6", "2/6", "3/6", "4/6", "5/6", "6/6"]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: V4 executable smoke shard
+        run: python src/compiler/v4/check_v4.py --smoke-shard ${{ matrix.shard }}
+
+  v4-runtime-windows:
+    name: V4 runtime windows
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install LLVM
+        run: choco install llvm -y
+
+      - name: V4 representative runtime smokes
+        run: >
+          python src/compiler/v4/check_v4.py
+          --smoke query_invalidation
+          --smoke unit_snapshot
+          --smoke diagnostics_query
+          --smoke lsp
+          --smoke global_const
+          --smoke borrowck

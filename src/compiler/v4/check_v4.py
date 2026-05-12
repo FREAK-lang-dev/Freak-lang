@@ -5114,9 +5114,46 @@ def compile_runtime_smoke(
     return exe_path, True
 
 
-def select_smokes(filters: list[str]) -> list[dict[str, object]]:
+def parse_smoke_shard(spec: str) -> tuple[int, int] | None:
+    if not spec:
+        return None
+
+    parts = spec.split("/", 1)
+    if len(parts) != 2:
+        print(f"runtime smoke failed: invalid shard spec {spec!r}; use INDEX/TOTAL")
+        raise SystemExit(1)
+
+    try:
+        index = int(parts[0])
+        total = int(parts[1])
+    except ValueError:
+        print(f"runtime smoke failed: invalid shard spec {spec!r}; INDEX and TOTAL must be integers")
+        raise SystemExit(1)
+
+    if total <= 0 or index <= 0 or index > total:
+        print(f"runtime smoke failed: invalid shard spec {spec!r}; need 1 <= INDEX <= TOTAL")
+        raise SystemExit(1)
+
+    return index - 1, total
+
+
+def apply_smoke_shard(smokes: list[dict[str, object]], shard_spec: str) -> list[dict[str, object]]:
+    shard = parse_smoke_shard(shard_spec)
+    if shard is None:
+        return smokes
+
+    shard_index, shard_total = shard
+    selected = [smoke for idx, smoke in enumerate(smokes) if idx % shard_total == shard_index]
+    if selected:
+        return selected
+
+    print(f"runtime smoke failed: shard {shard_spec!r} matched no executable smokes")
+    raise SystemExit(1)
+
+
+def select_smokes(filters: list[str], shard_spec: str) -> list[dict[str, object]]:
     if not filters:
-        return EXECUTABLE_SMOKES
+        return apply_smoke_shard(EXECUTABLE_SMOKES, shard_spec)
 
     lowered = [item.lower() for item in filters]
     selected: list[dict[str, object]] = []
@@ -5130,7 +5167,7 @@ def select_smokes(filters: list[str]) -> list[dict[str, object]]:
             selected.append(smoke)
 
     if selected:
-        return selected
+        return apply_smoke_shard(selected, shard_spec)
 
     print("runtime smoke failed: no smoke matched filters")
     for needle in filters:
@@ -5214,6 +5251,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="NAME",
         help="run only matching executable smoke fixtures by name or fixture stem",
     )
+    parser.add_argument(
+        "--smoke-shard",
+        default="",
+        metavar="INDEX/TOTAL",
+        help="run one deterministic shard of the selected executable smokes",
+    )
     return parser.parse_args(argv)
 
 
@@ -5222,9 +5265,9 @@ def main(argv: list[str] | None = None) -> int:
     crates = crate_paths()
     fixtures = fixture_paths()
     all_files = crates + fixtures + [V4_ROOT / "README.md"]
-    selected_smokes = select_smokes(args.smoke)
+    selected_smokes = select_smokes(args.smoke, args.smoke_shard)
     selected_fixture_set = {TESTS_ROOT / str(smoke["fixture"]) for smoke in selected_smokes}
-    transpile_targets = fixtures if not args.smoke else [fixture for fixture in fixtures if fixture in selected_fixture_set]
+    transpile_targets = fixtures if not (args.smoke or args.smoke_shard) else [fixture for fixture in fixtures if fixture in selected_fixture_set]
 
     print("Maverick (00-unit) checks")
     check_exists(crates)
@@ -5235,12 +5278,20 @@ def main(argv: list[str] | None = None) -> int:
     check_tooling_interfaces()
     check_snapshot_inventories()
     base_source = check_flattened_crates()
-    if args.fast and args.smoke:
-        print(f"mode: fast smoke filters={len(args.smoke)} fixtures={len(transpile_targets)}")
+    if args.fast and (args.smoke or args.smoke_shard):
+        mode_bits: list[str] = [f"fixtures={len(transpile_targets)}"]
+        if args.smoke:
+            mode_bits.append(f"filters={len(args.smoke)}")
+        if args.smoke_shard:
+            mode_bits.append(f"shard={args.smoke_shard}")
+        print("mode: fast " + " ".join(mode_bits))
     elif args.fast:
         print("mode: fast")
-    elif args.smoke:
-        print(f"mode: targeted smokes={len(selected_smokes)}")
+    elif args.smoke or args.smoke_shard:
+        mode_bits = [f"smokes={len(selected_smokes)}"]
+        if args.smoke_shard:
+            mode_bits.append(f"shard={args.smoke_shard}")
+        print("mode: targeted " + " ".join(mode_bits))
 
     fixture_artifacts = check_fixture_transpile(base_source, transpile_targets)
     if not args.fast:

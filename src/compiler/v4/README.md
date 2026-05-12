@@ -261,8 +261,10 @@ For faster local iteration, the harness also supports:
 python src/compiler/v4/check_v4.py --fast
 python src/compiler/v4/check_v4.py --smoke "query invalidation"
 python src/compiler/v4/check_v4.py --smoke extern --smoke module
+python src/compiler/v4/check_v4.py --smoke-shard 1/6
 ```
 
 - `--fast` keeps the full front-end and fixture-transpile coverage, but skips runtime executable smokes.
 - `--smoke` narrows execution to matching runtime smokes by name, fixture file, or fixture stem.
+- `--smoke-shard INDEX/TOTAL` deterministically partitions the selected runtime smokes; CI uses it to fan the executable lane out without changing what each smoke proves.
 - Full mode still remains the bootstrap gate; the harness now reuses runtime smoke transpiles and skips unchanged `clang` rebuilds when the generated C and runtime shim are identical.
