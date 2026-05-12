@@ -7,6 +7,9 @@ task v4_global_const_ctor_diag_braces(inner: word) -> word {
 
 task v4_global_const_ctor_diag_source() -> word {
     pilot key_decl = v4_global_const_ctor_diag_braces(" code: int ")
+    pilot box_braces = v4_global_const_ctor_diag_braces(" value: 1 ")
+    pilot option_decl = v4_global_const_ctor_diag_braces(" value: T ")
+    pilot some_braces = v4_global_const_ctor_diag_braces(" value: \"ace\" ")
     pilot src = "fixed pilot BAD_SHAPE = Pilot " + v4_global_const_ctor_diag_braces(" mp: 1 ") + "\n"
     src = src + "fixed pilot DUP_SHAPE = Pilot " + v4_global_const_ctor_diag_braces(" hp: 1, hp: 2 ") + "\n"
     src = src + "fixed pilot TYPE_SHAPE = Pilot " + v4_global_const_ctor_diag_braces(" hp: \"ace\" ") + "\n"
@@ -17,12 +20,23 @@ task v4_global_const_ctor_diag_source() -> word {
     src = src + "fixed pilot DUP_ROUTE = Event::Key " + v4_global_const_ctor_diag_braces(" code: 1, code: 2 ") + "\n"
     src = src + "fixed pilot TYPE_ROUTE = Event::Key " + v4_global_const_ctor_diag_braces(" code: \"ace\" ") + "\n"
     src = src + "fixed pilot CLOSED_PAYLOAD = Event::Closed " + v4_global_const_ctor_diag_braces(" code: 1 ") + "\n"
+    src = src + "fixed pilot BAD_GENERIC_SHAPE = Box<int,word> " + box_braces + "\n"
+    src = src + "fixed pilot TYPE_GENERIC_SHAPE = Box<int> " + v4_global_const_ctor_diag_braces(" value: \"ace\" ") + "\n"
+    src = src + "fixed pilot BAD_GENERIC_ROUTE = Option<int,word>::None\n"
+    src = src + "fixed pilot TYPE_GENERIC_ROUTE = Option<int>::Some " + some_braces + "\n"
     src = src + "shape Pilot {\n"
     src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
     src = src + "}\n"
     src = src + "route Event {\n"
     src = src + "    Key " + key_decl + "\n"
     src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "route Option<T> {\n"
+    src = src + "    Some " + option_decl + "\n"
+    src = src + "    None\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back 0\n"

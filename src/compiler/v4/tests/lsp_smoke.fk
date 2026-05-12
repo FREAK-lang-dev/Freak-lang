@@ -29,16 +29,30 @@ task v4_lsp_lifetime_diag_source() -> word {
 task v4_lsp_const_diag_source() -> word {
     pilot ace_braces = v4_lsp_braces(" hp: \"ace\" ")
     pilot route_decl_braces = v4_lsp_braces(" code: int ")
+    pilot box_braces = v4_lsp_braces(" value: 1 ")
+    pilot option_decl_braces = v4_lsp_braces(" value: T ")
+    pilot some_braces = v4_lsp_braces(" value: \"ace\" ")
     pilot src = "fixed pilot PAIR: (int,word) = (1, 2)\n"
     src = src + "fixed pilot GRID: [int; 3] = [0; 2]\n"
     src = src + "fixed pilot ACE: Pilot = Pilot " + ace_braces + "\n"
     src = src + "fixed pilot SIGNAL = Event::Key\n"
+    src = src + "fixed pilot BAD_GENERIC_SHAPE = Box<int,word> " + box_braces + "\n"
+    src = src + "fixed pilot TYPE_GENERIC_SHAPE = Box<int> " + v4_lsp_braces(" value: \"ace\" ") + "\n"
+    src = src + "fixed pilot BAD_GENERIC_ROUTE = Option<int,word>::None\n"
+    src = src + "fixed pilot TYPE_GENERIC_ROUTE = Option<int>::Some " + some_braces + "\n"
     src = src + "shape Pilot {\n"
     src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
     src = src + "}\n"
     src = src + "route Event {\n"
     src = src + "    Key " + route_decl_braces + "\n"
     src = src + "    Closed\n"
+    src = src + "}\n"
+    src = src + "route Option<T> {\n"
+    src = src + "    Some " + option_decl_braces + "\n"
+    src = src + "    None\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back 0\n"

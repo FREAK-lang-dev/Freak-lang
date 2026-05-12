@@ -2260,7 +2260,11 @@ task v4_ty_const_constructor_head_name(stream_id: int, start_token: int, end_tok
 }
 
 task v4_ty_const_shape_ctor_result_type_seen(ty_id: int, owner_sig: int, stream_id: int, ctor_name: word, open_token: int, close_token: int, seen_consts: word) -> word {
-    pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, ctor_name)
+    pilot lookup_name = ctor_name
+    if v4_ty_is_generic_instance_type(lookup_name) {
+        lookup_name = v4_ty_generic_base_name(lookup_name)
+    }
+    pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, lookup_name)
     if sig_id < 0 {
         give back v4_ty_unknown
     }
@@ -2270,6 +2274,9 @@ task v4_ty_const_shape_ctor_result_type_seen(ty_id: int, owner_sig: int, stream_
         instance_name = ctor_name
     }
     pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, instance_name)
+    if env == v4_ty_generic_env_fail {
+        give back v4_ty_unknown
+    }
     pilot field_start = v4_ty_skip_trivia(stream_id, open_token + 1)
     if field_start < close_token {
         repeat until field_start >= close_token {
@@ -2281,7 +2288,7 @@ task v4_ty_const_shape_ctor_result_type_seen(ty_id: int, owner_sig: int, stream_
             }
             pilot colon_token = v4_ty_find_top_level_token(stream_id, field_start, field_end, ":")
             if colon_token >= 0 and field_name != "" {
-                pilot field_id = v4_ty_shape_field_id_for_name(ty_id, ctor_name, field_name)
+                pilot field_id = v4_ty_shape_field_id_for_name(ty_id, lookup_name, field_name)
                 if field_id >= 0 {
                     pilot value_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
                     pilot raw_expected_ty = v4_ty_shape_field_type(ty_id, sig_id, field_id)
@@ -2309,8 +2316,12 @@ task v4_ty_const_shape_ctor_result_type_seen(ty_id: int, owner_sig: int, stream_
 }
 
 task v4_ty_const_route_ctor_result_type_seen(ty_id: int, owner_sig: int, stream_id: int, route_name: word, case_name: word, open_token: int, close_token: int, seen_consts: word) -> word {
-    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
-    if sig_id < 0 or not v4_ty_route_has_case(ty_id, route_name, case_name) {
+    pilot lookup_name = route_name
+    if v4_ty_is_generic_instance_type(lookup_name) {
+        lookup_name = v4_ty_generic_base_name(lookup_name)
+    }
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, lookup_name)
+    if sig_id < 0 or not v4_ty_route_has_case(ty_id, lookup_name, case_name) {
         give back v4_ty_unknown
     }
 
@@ -2319,6 +2330,9 @@ task v4_ty_const_route_ctor_result_type_seen(ty_id: int, owner_sig: int, stream_
         instance_name = route_name
     }
     pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, instance_name)
+    if env == v4_ty_generic_env_fail {
+        give back v4_ty_unknown
+    }
     pilot route_sig_name = v4_ty_signature_name(ty_id, sig_id)
     pilot field_start = v4_ty_skip_trivia(stream_id, open_token + 1)
     if field_start < close_token {
@@ -2331,7 +2345,7 @@ task v4_ty_const_route_ctor_result_type_seen(ty_id: int, owner_sig: int, stream_
             }
             pilot colon_token = v4_ty_find_top_level_token(stream_id, field_start, field_end, ":")
             if colon_token >= 0 and field_name != "" {
-                pilot field_id = v4_ty_route_case_field_id_for_name(ty_id, route_name, case_name, field_name)
+                pilot field_id = v4_ty_route_case_field_id_for_name(ty_id, lookup_name, case_name, field_name)
                 if field_id >= 0 {
                     pilot value_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
                     pilot raw_expected_ty = v4_ty_route_case_field_type(ty_id, route_sig_name, case_name, field_id)
@@ -2485,11 +2499,18 @@ task v4_ty_const_expr_type_from_tokens_seen(ty_id: int, owner_sig: int, stream_i
             if scope_sep >= 0 {
                 pilot route_name = v4_ty_const_path_left(ctor_name)
                 pilot case_name = v4_ty_const_path_right(ctor_name)
-                if v4_ty_route_signature_id_for_name(ty_id, route_name) >= 0 and case_name != "" and v4_ty_route_has_case(ty_id, route_name, case_name) and not v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
-                    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+                pilot lookup_name = route_name
+                if v4_ty_is_generic_instance_type(lookup_name) {
+                    lookup_name = v4_ty_generic_base_name(lookup_name)
+                }
+                if v4_ty_route_signature_id_for_name(ty_id, lookup_name) >= 0 and case_name != "" and v4_ty_route_has_case(ty_id, lookup_name, case_name) and not v4_ty_route_case_has_payload(ty_id, lookup_name, case_name) {
+                    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, lookup_name)
                     pilot instance_name = v4_ty_canonical_type(ty_id, route_name)
                     if instance_name == "" or instance_name == v4_ty_unknown {
                         instance_name = route_name
+                    }
+                    if v4_ty_signature_generic_env_for_instance(ty_id, sig_id, instance_name) == v4_ty_generic_env_fail {
+                        give back v4_ty_unknown
                     }
                     if v4_ty_signature_generic_count(ty_id, sig_id) > 0 and not v4_ty_is_generic_instance_type(instance_name) {
                         give back v4_ty_unknown
@@ -2640,32 +2661,41 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
                 if scope_sep >= 0 {
                     pilot route_name = v4_ty_const_path_left(ctor_name)
                     pilot case_name = v4_ty_const_path_right(ctor_name)
+                    pilot route_lookup_name = route_name
+                    if v4_ty_is_generic_instance_type(route_lookup_name) {
+                        route_lookup_name = v4_ty_generic_base_name(route_lookup_name)
+                    }
+                    v4_ty_validate_signature_type_lifetimes(ty_id, owner_sig, route_name, "route constructor " + route_name + "::" + case_name, expr_span)
                     if case_name == "" {
                         v4_ty_add_error_diag(ty_id, expr_span, "route constructor needs case name", "use " + route_name + "::CaseName")
                         give back
                     }
-                    if not v4_ty_is_route_type(ty_id, route_name) {
+                    if not v4_ty_is_route_type(ty_id, route_lookup_name) {
                         v4_ty_add_error_diag(ty_id, expr_span, "unknown route constructor", route_name + " is not a known route")
                         give back
                     }
-                    if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+                    if not v4_ty_route_has_case(ty_id, route_lookup_name, case_name) {
                         v4_ty_add_error_diag(ty_id, expr_span, "unknown route case", route_name + " exposes no case " + case_name)
                         give back
                     }
 
-                    pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
-                    if field_count <= 0 {
-                        v4_ty_add_error_diag(ty_id, expr_span, "route case has no payload", route_name + "::" + case_name + " carries no fields")
-                        give back
-                    }
-
-                    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+                    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_lookup_name)
                     pilot route_sig_name = v4_ty_signature_name(ty_id, sig_id)
                     pilot instance_name = v4_ty_canonical_type(ty_id, route_name)
                     if instance_name == "" or instance_name == v4_ty_unknown {
                         instance_name = route_name
                     }
                     pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, instance_name)
+                    if env == v4_ty_generic_env_fail {
+                        give back
+                    }
+
+                    pilot field_count = v4_ty_route_case_field_count(ty_id, route_lookup_name, case_name)
+                    if field_count <= 0 {
+                        v4_ty_add_error_diag(ty_id, expr_span, "route case has no payload", route_name + "::" + case_name + " carries no fields")
+                        give back
+                    }
+
                     pilot seen_fields = ""
                     pilot field_start = v4_ty_skip_trivia(stream_id, open_token + 1)
                     if field_start < last {
@@ -2690,7 +2720,7 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
                                 pilot value_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
                                 v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, value_start, field_end, seen_consts)
 
-                                pilot field_id = v4_ty_route_case_field_id_for_name(ty_id, route_name, case_name, field_name)
+                                pilot field_id = v4_ty_route_case_field_id_for_name(ty_id, route_lookup_name, case_name, field_name)
                                 if field_id < 0 {
                                     v4_ty_add_error_diag(ty_id, field_span, "unknown route case field", route_name + "::" + case_name + " has no field " + field_name)
                                 } else {
@@ -2714,7 +2744,7 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
 
                     pilot required_field_id = 0
                     repeat until required_field_id >= field_count {
-                        pilot required_name = v4_ty_route_case_field_name(ty_id, route_name, case_name, required_field_id)
+                        pilot required_name = v4_ty_route_case_field_name(ty_id, route_lookup_name, case_name, required_field_id)
                         if required_name != "" and not v4_ty_const_name_list_contains(seen_fields, required_name) {
                             v4_ty_add_error_diag(ty_id, expr_span, "missing route case field", route_name + "::" + case_name + " requires field " + required_name)
                         }
@@ -2723,7 +2753,12 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
                     give back
                 }
 
-                pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, ctor_name)
+                pilot shape_lookup_name = ctor_name
+                if v4_ty_is_generic_instance_type(shape_lookup_name) {
+                    shape_lookup_name = v4_ty_generic_base_name(shape_lookup_name)
+                }
+                v4_ty_validate_signature_type_lifetimes(ty_id, owner_sig, ctor_name, "shape constructor " + ctor_name, expr_span)
+                pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, shape_lookup_name)
                 if sig_id < 0 {
                     v4_ty_add_error_diag(ty_id, expr_span, "unknown shape constructor", ctor_name + " is not a known shape")
                     give back
@@ -2734,6 +2769,9 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
                     instance_name = ctor_name
                 }
                 pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, instance_name)
+                if env == v4_ty_generic_env_fail {
+                    give back
+                }
                 pilot seen_fields = ""
                 pilot field_start = v4_ty_skip_trivia(stream_id, open_token + 1)
                 if field_start < last {
@@ -2758,7 +2796,7 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
                             pilot value_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
                             v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, value_start, field_end, seen_consts)
 
-                            pilot shape_field_id = v4_ty_shape_field_id_for_name(ty_id, ctor_name, field_name)
+                            pilot shape_field_id = v4_ty_shape_field_id_for_name(ty_id, shape_lookup_name, field_name)
                             if shape_field_id < 0 {
                                 v4_ty_add_error_diag(ty_id, field_span, "unknown shape field", ctor_name + " has no field " + field_name)
                             } else {
@@ -2800,20 +2838,33 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
         if ctor_name != "" {
             pilot route_name = v4_ty_const_path_left(ctor_name)
             pilot case_name = v4_ty_const_path_right(ctor_name)
+            pilot route_lookup_name = route_name
+            if v4_ty_is_generic_instance_type(route_lookup_name) {
+                route_lookup_name = v4_ty_generic_base_name(route_lookup_name)
+            }
+            v4_ty_validate_signature_type_lifetimes(ty_id, owner_sig, route_name, "route constructor " + route_name + "::" + case_name, expr_span)
             if route_name != "" {
                 if case_name == "" {
                     v4_ty_add_error_diag(ty_id, expr_span, "route constructor needs case name", "use " + route_name + "::CaseName")
                     give back
                 }
-                if not v4_ty_is_route_type(ty_id, route_name) {
+                if not v4_ty_is_route_type(ty_id, route_lookup_name) {
                     v4_ty_add_error_diag(ty_id, expr_span, "unknown route constructor", route_name + " is not a known route")
                     give back
                 }
-                if not v4_ty_route_has_case(ty_id, route_name, case_name) {
+                if not v4_ty_route_has_case(ty_id, route_lookup_name, case_name) {
                     v4_ty_add_error_diag(ty_id, expr_span, "unknown route case", route_name + " exposes no case " + case_name)
                     give back
                 }
-                if v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+                pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_lookup_name)
+                pilot instance_name = v4_ty_canonical_type(ty_id, route_name)
+                if instance_name == "" or instance_name == v4_ty_unknown {
+                    instance_name = route_name
+                }
+                if v4_ty_signature_generic_env_for_instance(ty_id, sig_id, instance_name) == v4_ty_generic_env_fail {
+                    give back
+                }
+                if v4_ty_route_case_has_payload(ty_id, route_lookup_name, case_name) {
                     v4_ty_add_error_diag(ty_id, expr_span, "route payload constructor needs fields", route_name + "::" + case_name + " expects named fields")
                 }
             }
