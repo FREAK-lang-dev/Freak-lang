@@ -1,0 +1,54 @@
+-- V4 generic root fixed-pilot constructor inference smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_global_const_generic_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_global_const_generic_source() -> word {
+    pilot box_braces = v4_global_const_generic_braces(" value: BASE ")
+    pilot option_decl_braces = v4_global_const_generic_braces(" value: T ")
+    pilot some_braces = v4_global_const_generic_braces(" value: BASE ")
+    pilot src = "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot INT_BOX = Box<int> " + box_braces + "\n"
+    src = src + "fixed pilot INFER_BOX = Box " + box_braces + "\n"
+    src = src + "fixed pilot SOME = Option::Some " + some_braces + "\n"
+    src = src + "fixed pilot EMPTY = Option<int>::None\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "route Option<T> {\n"
+    src = src + "    Some " + option_decl_braces + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back BASE\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_global_const_generic_stream = v4_lex_text(0, v4_global_const_generic_source())
+pilot v4_global_const_generic_tree = v4_parse_stream(0, v4_global_const_generic_stream)
+pilot v4_global_const_generic_hir = v4_hir_lower_tree(0, v4_global_const_generic_tree)
+pilot v4_global_const_generic_resolve = v4_resolve_lower_hir(0, v4_global_const_generic_hir)
+pilot v4_global_const_generic_ty = v4_ty_lower_resolve(0, v4_global_const_generic_resolve)
+
+pilot v4_global_const_generic_int_box_def = v4_resolve_def_for_name(v4_global_const_generic_resolve, "INT_BOX")
+pilot v4_global_const_generic_infer_box_def = v4_resolve_def_for_name(v4_global_const_generic_resolve, "INFER_BOX")
+pilot v4_global_const_generic_some_def = v4_resolve_def_for_name(v4_global_const_generic_resolve, "SOME")
+pilot v4_global_const_generic_empty_def = v4_resolve_def_for_name(v4_global_const_generic_resolve, "EMPTY")
+
+pilot v4_global_const_generic_int_box_sig = v4_ty_lookup_signature(v4_global_const_generic_ty, v4_global_const_generic_int_box_def)
+pilot v4_global_const_generic_infer_box_sig = v4_ty_lookup_signature(v4_global_const_generic_ty, v4_global_const_generic_infer_box_def)
+pilot v4_global_const_generic_some_sig = v4_ty_lookup_signature(v4_global_const_generic_ty, v4_global_const_generic_some_def)
+pilot v4_global_const_generic_empty_sig = v4_ty_lookup_signature(v4_global_const_generic_ty, v4_global_const_generic_empty_def)
+
+say "global-const-generic-int-box-display=" + v4_ty_signature_display(v4_global_const_generic_ty, v4_global_const_generic_int_box_sig)
+say "global-const-generic-int-box-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_generic_ty, v4_global_const_generic_int_box_sig)
+say "global-const-generic-infer-box-display=" + v4_ty_signature_display(v4_global_const_generic_ty, v4_global_const_generic_infer_box_sig)
+say "global-const-generic-infer-box-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_generic_ty, v4_global_const_generic_infer_box_sig)
+say "global-const-generic-some-display=" + v4_ty_signature_display(v4_global_const_generic_ty, v4_global_const_generic_some_sig)
+say "global-const-generic-some-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_generic_ty, v4_global_const_generic_some_sig)
+say "global-const-generic-empty-display=" + v4_ty_signature_display(v4_global_const_generic_ty, v4_global_const_generic_empty_sig)
+say "global-const-generic-empty-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_generic_ty, v4_global_const_generic_empty_sig)
+say "global-const-generic-diag-count=" + word_from_int(v4_ty_diag_count(v4_global_const_generic_ty))

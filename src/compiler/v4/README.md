@@ -43,7 +43,7 @@ vertical slice before the next dependency gate opens.
 Current Phase 1 landings already cover routes/variants, alias-backed pattern
 surfaces, tuple and fixed-array local/editor facts, module/glob import call
 resolution, root `fixed pilot` constants with cycle diagnostics plus composite
-tuple/list/repeat-fill inference, shape/route constructor-head inference,
+tuple/list/repeat-fill inference, generic shape/route constructor inference,
 constructor-payload validation, and declared-initializer mismatch diagnostics,
 fixed-array compile-time lengths with root-constant integer arithmetic,
 generic doctrine bounds plus multi-bound method/editor enforcement, and named
