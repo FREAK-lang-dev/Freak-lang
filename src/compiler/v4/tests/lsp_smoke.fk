@@ -148,6 +148,30 @@ task v4_lsp_const_source() -> word {
     give back src
 }
 
+task v4_lsp_const_generic_source() -> word {
+    pilot box_braces = v4_lsp_braces(" value: BASE ")
+    pilot option_decl_braces = v4_lsp_braces(" value: T ")
+    pilot some_braces = v4_lsp_braces(" value: BASE ")
+    pilot src = "fixed pilot BASE: int = 2\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "route Option<T> {\n"
+    src = src + "    Some " + option_decl_braces + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "fixed pilot INT_BOX = Box<int> " + box_braces + "\n"
+    src = src + "fixed pilot INFER_BOX = Box " + box_braces + "\n"
+    src = src + "fixed pilot SOME = Option::Some " + some_braces + "\n"
+    src = src + "fixed pilot EMPTY = Option<int>::None\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot int_box = INT_BOX\n"
+    src = src + "    pilot some = SOME\n"
+    src = src + "    give back int_box.value + BASE\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_lsp_bounds_source() -> word {
     pilot src = "doctrine Displayable {\n"
     src = src + "    task display(self) -> word\n"
@@ -203,8 +227,12 @@ pilot v4_lsp_glob_triple_offset = v4_lsp_token_offset(v4_lsp_glob_stream, "tripl
 pilot v4_lsp_const = v4_lsp_const_source()
 pilot v4_lsp_const_stream = v4_lex_text(4, v4_lsp_const)
 pilot v4_lsp_const_cells_offset = v4_lsp_token_offset(v4_lsp_const_stream, "CELLS", 1)
+pilot v4_lsp_const_generic = v4_lsp_const_generic_source()
+pilot v4_lsp_const_generic_stream = v4_lex_text(5, v4_lsp_const_generic)
+pilot v4_lsp_const_generic_int_box_offset = v4_lsp_token_offset(v4_lsp_const_generic_stream, "INT_BOX", 1)
+pilot v4_lsp_const_generic_some_offset = v4_lsp_token_offset(v4_lsp_const_generic_stream, "SOME", 1)
 pilot v4_lsp_bounds = v4_lsp_bounds_source()
-pilot v4_lsp_bounds_stream = v4_lex_text(5, v4_lsp_bounds)
+pilot v4_lsp_bounds_stream = v4_lex_text(6, v4_lsp_bounds)
 pilot v4_lsp_bounds_display_offset = v4_lsp_token_offset(v4_lsp_bounds_stream, "rank", 2)
 
 say v4_lsp_hover_text("lsp.fk", v4_lsp_source, 5)
@@ -236,6 +264,12 @@ say v4_lsp_hover_text("lsp_const.fk", v4_lsp_const, v4_lsp_const_cells_offset)
 say v4_lsp_definition_text("lsp_const.fk", v4_lsp_const, v4_lsp_const_cells_offset)
 say v4_lsp_document_symbols_text("lsp_const.fk", v4_lsp_const)
 say v4_lsp_completion_text("lsp_const.fk", v4_lsp_const, 0)
+say v4_lsp_hover_text("lsp_const_generic.fk", v4_lsp_const_generic, v4_lsp_const_generic_int_box_offset)
+say v4_lsp_definition_text("lsp_const_generic.fk", v4_lsp_const_generic, v4_lsp_const_generic_int_box_offset)
+say v4_lsp_hover_text("lsp_const_generic.fk", v4_lsp_const_generic, v4_lsp_const_generic_some_offset)
+say v4_lsp_definition_text("lsp_const_generic.fk", v4_lsp_const_generic, v4_lsp_const_generic_some_offset)
+say v4_lsp_document_symbols_text("lsp_const_generic.fk", v4_lsp_const_generic)
+say v4_lsp_completion_text("lsp_const_generic.fk", v4_lsp_const_generic, 0)
 say v4_lsp_hover_text("lsp_bounds.fk", v4_lsp_bounds, v4_lsp_bounds_display_offset)
 say v4_lsp_definition_text("lsp_bounds.fk", v4_lsp_bounds, v4_lsp_bounds_display_offset)
 say v4_lsp_completion_text("lsp_bounds.fk", v4_lsp_bounds, v4_lsp_bounds_display_offset)

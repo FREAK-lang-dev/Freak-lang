@@ -119,6 +119,30 @@ task v4_lsp_doc_const_source() -> word {
     give back src
 }
 
+task v4_lsp_doc_const_generic_source() -> word {
+    pilot box_braces = v4_lsp_doc_braces(" value: BASE ")
+    pilot option_decl_braces = v4_lsp_doc_braces(" value: T ")
+    pilot some_braces = v4_lsp_doc_braces(" value: BASE ")
+    pilot src = "fixed pilot BASE: int = 2\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "route Option<T> {\n"
+    src = src + "    Some " + option_decl_braces + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "fixed pilot INT_BOX = Box<int> " + box_braces + "\n"
+    src = src + "fixed pilot INFER_BOX = Box " + box_braces + "\n"
+    src = src + "fixed pilot SOME = Option::Some " + some_braces + "\n"
+    src = src + "fixed pilot EMPTY = Option<int>::None\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot int_box = INT_BOX\n"
+    src = src + "    pilot some = SOME\n"
+    src = src + "    give back int_box.value + BASE\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_lsp_doc_bounds_source() -> word {
     pilot src = "doctrine Displayable {\n"
     src = src + "    task display(self) -> word\n"
@@ -222,6 +246,24 @@ say v4_lsp_hover_document("const-live.fk", v4_lsp_const_cells_offset)
 say v4_lsp_definition_document("const-live.fk", v4_lsp_const_cells_offset)
 say v4_lsp_document_symbols_document("const-live.fk")
 say v4_lsp_completion_document("const-live.fk", 0)
+
+pilot v4_lsp_const_generic_doc_source = "task main() => 0\n"
+pilot v4_lsp_const_generic_doc_id = v4_lsp_open_document("const-generic-live.fk", v4_lsp_const_generic_doc_source)
+pilot v4_lsp_const_generic_changed = v4_lsp_doc_const_generic_source()
+pilot v4_lsp_const_generic_stream = v4_lex_text(0, v4_lsp_const_generic_changed)
+pilot v4_lsp_const_generic_int_box_offset = v4_lsp_doc_token_offset(v4_lsp_const_generic_stream, "INT_BOX", 1)
+pilot v4_lsp_const_generic_some_offset = v4_lsp_doc_token_offset(v4_lsp_const_generic_stream, "SOME", 1)
+
+say "opened-const-generic-doc=" + word_from_int(v4_lsp_const_generic_doc_id)
+say v4_lsp_document_summary("const-generic-live.fk")
+v4_lsp_change_document("const-generic-live.fk", v4_lsp_const_generic_changed)
+say v4_lsp_document_summary("const-generic-live.fk")
+say v4_lsp_hover_document("const-generic-live.fk", v4_lsp_const_generic_int_box_offset)
+say v4_lsp_definition_document("const-generic-live.fk", v4_lsp_const_generic_int_box_offset)
+say v4_lsp_hover_document("const-generic-live.fk", v4_lsp_const_generic_some_offset)
+say v4_lsp_definition_document("const-generic-live.fk", v4_lsp_const_generic_some_offset)
+say v4_lsp_document_symbols_document("const-generic-live.fk")
+say v4_lsp_completion_document("const-generic-live.fk", 0)
 
 pilot v4_lsp_bounds_doc_source = "task main() => 0\n"
 pilot v4_lsp_bounds_doc_id = v4_lsp_open_document("bounds-live.fk", v4_lsp_bounds_doc_source)

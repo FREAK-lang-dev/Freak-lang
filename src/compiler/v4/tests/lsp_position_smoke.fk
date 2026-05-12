@@ -68,6 +68,30 @@ task v4_lsp_position_const_source_text() -> word {
     give back src
 }
 
+task v4_lsp_position_const_generic_source_text() -> word {
+    pilot box_braces = v4_lsp_position_braces(" value: BASE ")
+    pilot option_decl_braces = v4_lsp_position_braces(" value: T ")
+    pilot some_braces = v4_lsp_position_braces(" value: BASE ")
+    pilot src = "fixed pilot BASE: int = 2\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "route Option<T> {\n"
+    src = src + "    Some " + option_decl_braces + "\n"
+    src = src + "    None\n"
+    src = src + "}\n"
+    src = src + "fixed pilot INT_BOX = Box<int> " + box_braces + "\n"
+    src = src + "fixed pilot INFER_BOX = Box " + box_braces + "\n"
+    src = src + "fixed pilot SOME = Option::Some " + some_braces + "\n"
+    src = src + "fixed pilot EMPTY = Option<int>::None\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot int_box = INT_BOX\n"
+    src = src + "    pilot some = SOME\n"
+    src = src + "    give back int_box.value + BASE\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_lsp_position_bounds_source_text() -> word {
     pilot src = "doctrine Displayable {\n"
     src = src + "    task display(self) -> word\n"
@@ -103,6 +127,7 @@ pilot v4_lsp_position_source = v4_lsp_position_source_text()
 pilot v4_lsp_position_named_source = v4_lsp_position_named_source_text()
 pilot v4_lsp_position_glob_source = v4_lsp_position_glob_source_text()
 pilot v4_lsp_position_const_source = v4_lsp_position_const_source_text()
+pilot v4_lsp_position_const_generic_source = v4_lsp_position_const_generic_source_text()
 pilot v4_lsp_position_bounds_source = v4_lsp_position_bounds_source_text()
 
 say "offset-event=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_source, 4, 18))
@@ -123,6 +148,13 @@ say "offset-cells=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_
 say v4_lsp_hover_position_text("position_const.fk", v4_lsp_position_const_source, 5, 14)
 say v4_lsp_definition_position_text("position_const.fk", v4_lsp_position_const_source, 5, 14)
 say v4_lsp_completion_position_text("position_const.fk", v4_lsp_position_const_source, 0, 0)
+say "offset-int-box=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_const_generic_source, 13, 20))
+say v4_lsp_hover_position_text("position_const_generic.fk", v4_lsp_position_const_generic_source, 13, 20)
+say v4_lsp_definition_position_text("position_const_generic.fk", v4_lsp_position_const_generic_source, 13, 20)
+say "offset-some=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_const_generic_source, 14, 17))
+say v4_lsp_hover_position_text("position_const_generic.fk", v4_lsp_position_const_generic_source, 14, 17)
+say v4_lsp_definition_position_text("position_const_generic.fk", v4_lsp_position_const_generic_source, 14, 17)
+say v4_lsp_completion_position_text("position_const_generic.fk", v4_lsp_position_const_generic_source, 0, 0)
 say "offset-rank=" + word_from_int(v4_lsp_offset_from_position(v4_lsp_position_bounds_source, 21, 24))
 say v4_lsp_hover_position_text("position_bounds.fk", v4_lsp_position_bounds_source, 21, 24)
 say v4_lsp_definition_position_text("position_bounds.fk", v4_lsp_position_bounds_source, 21, 24)
@@ -144,6 +176,12 @@ v4_lsp_open_document("position-const-live.fk", v4_lsp_position_const_source)
 say v4_lsp_handle_position_request("textDocument/hover", "position-const-live.fk", 5, 14)
 say v4_lsp_handle_position_request("textDocument/definition", "position-const-live.fk", 5, 14)
 say v4_lsp_handle_position_request("textDocument/completion", "position-const-live.fk", 0, 0)
+v4_lsp_open_document("position-const-generic-live.fk", v4_lsp_position_const_generic_source)
+say v4_lsp_handle_position_request("textDocument/hover", "position-const-generic-live.fk", 13, 20)
+say v4_lsp_handle_position_request("textDocument/definition", "position-const-generic-live.fk", 13, 20)
+say v4_lsp_handle_position_request("textDocument/hover", "position-const-generic-live.fk", 14, 17)
+say v4_lsp_handle_position_request("textDocument/definition", "position-const-generic-live.fk", 14, 17)
+say v4_lsp_handle_position_request("textDocument/completion", "position-const-generic-live.fk", 0, 0)
 v4_lsp_open_document("position-bounds-live.fk", v4_lsp_position_bounds_source)
 say v4_lsp_handle_position_request("textDocument/hover", "position-bounds-live.fk", 21, 24)
 say v4_lsp_handle_position_request("textDocument/definition", "position-bounds-live.fk", 21, 24)
