@@ -15,15 +15,25 @@ task v4_global_const_task_call_source() -> word {
     src = src + "@const task pack<T>(value: T) -> Box<T> {\n"
     src = src + "    give back Box " + v4_global_const_task_call_braces(" value: value ") + "\n"
     src = src + "}\n"
+    src = src + "@const task add(base: int, bonus: int) -> int {\n"
+    src = src + "    give back base + bonus\n"
+    src = src + "}\n"
     src = src + "task runtime_only(n: int) -> int {\n"
     src = src + "    give back n + 1\n"
     src = src + "}\n"
     src = src + "fixed pilot BASE: int = 2\n"
     src = src + "fixed pilot BOOSTED = bump(BASE)\n"
+    src = src + "fixed pilot NAMED_BOOST = bump(n: BASE)\n"
     src = src + "fixed pilot PACKED = pack(BASE)\n"
+    src = src + "fixed pilot NAMED_PACKED = pack(value: BASE)\n"
+    src = src + "fixed pilot MIXED = add(bonus: 1, base: BASE)\n"
     src = src + "fixed pilot BAD_RUNTIME = runtime_only(BASE)\n"
     src = src + "fixed pilot BAD_ARITY = bump()\n"
     src = src + "fixed pilot BAD_TYPE = bump(\"ace\")\n"
+    src = src + "fixed pilot BAD_UNKNOWN = add(extra: BASE, bonus: 1)\n"
+    src = src + "fixed pilot BAD_DUP = add(base: BASE, base: 1)\n"
+    src = src + "fixed pilot BAD_ORDER = add(base: BASE, 1)\n"
+    src = src + "fixed pilot BAD_MISSING = add(base: BASE)\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back BOOSTED\n"
     src = src + "}\n"
@@ -37,14 +47,26 @@ pilot v4_global_const_task_call_resolve = v4_resolve_lower_hir(0, v4_global_cons
 pilot v4_global_const_task_call_ty = v4_ty_lower_resolve(0, v4_global_const_task_call_resolve)
 
 pilot v4_global_const_task_call_boosted_def = v4_resolve_def_for_name(v4_global_const_task_call_resolve, "BOOSTED")
+pilot v4_global_const_task_call_named_boost_def = v4_resolve_def_for_name(v4_global_const_task_call_resolve, "NAMED_BOOST")
 pilot v4_global_const_task_call_packed_def = v4_resolve_def_for_name(v4_global_const_task_call_resolve, "PACKED")
+pilot v4_global_const_task_call_named_packed_def = v4_resolve_def_for_name(v4_global_const_task_call_resolve, "NAMED_PACKED")
+pilot v4_global_const_task_call_mixed_def = v4_resolve_def_for_name(v4_global_const_task_call_resolve, "MIXED")
 pilot v4_global_const_task_call_boosted_sig = v4_ty_lookup_signature(v4_global_const_task_call_ty, v4_global_const_task_call_boosted_def)
+pilot v4_global_const_task_call_named_boost_sig = v4_ty_lookup_signature(v4_global_const_task_call_ty, v4_global_const_task_call_named_boost_def)
 pilot v4_global_const_task_call_packed_sig = v4_ty_lookup_signature(v4_global_const_task_call_ty, v4_global_const_task_call_packed_def)
+pilot v4_global_const_task_call_named_packed_sig = v4_ty_lookup_signature(v4_global_const_task_call_ty, v4_global_const_task_call_named_packed_def)
+pilot v4_global_const_task_call_mixed_sig = v4_ty_lookup_signature(v4_global_const_task_call_ty, v4_global_const_task_call_mixed_def)
 
 say "global-const-task-call-boosted-display=" + v4_ty_signature_display(v4_global_const_task_call_ty, v4_global_const_task_call_boosted_sig)
 say "global-const-task-call-boosted-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_task_call_ty, v4_global_const_task_call_boosted_sig)
+say "global-const-task-call-named-boost-display=" + v4_ty_signature_display(v4_global_const_task_call_ty, v4_global_const_task_call_named_boost_sig)
+say "global-const-task-call-named-boost-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_task_call_ty, v4_global_const_task_call_named_boost_sig)
 say "global-const-task-call-packed-display=" + v4_ty_signature_display(v4_global_const_task_call_ty, v4_global_const_task_call_packed_sig)
 say "global-const-task-call-packed-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_task_call_ty, v4_global_const_task_call_packed_sig)
+say "global-const-task-call-named-packed-display=" + v4_ty_signature_display(v4_global_const_task_call_ty, v4_global_const_task_call_named_packed_sig)
+say "global-const-task-call-named-packed-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_task_call_ty, v4_global_const_task_call_named_packed_sig)
+say "global-const-task-call-mixed-display=" + v4_ty_signature_display(v4_global_const_task_call_ty, v4_global_const_task_call_mixed_sig)
+say "global-const-task-call-mixed-value-type=" + v4_ty_const_value_type_for_sig(v4_global_const_task_call_ty, v4_global_const_task_call_mixed_sig)
 say "global-const-task-call-diag-count=" + word_from_int(v4_ty_diag_count(v4_global_const_task_call_ty))
 
 pilot v4_global_const_task_call_diag_idx = 0

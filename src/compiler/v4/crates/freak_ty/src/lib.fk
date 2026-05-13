@@ -1899,6 +1899,18 @@ task v4_ty_signature_param_name(ty_id: int, sig_id: int, param_id: int) -> word 
     give back v4_ty_param_name_from_tokens(stream_id, start_token, end_token)
 }
 
+task v4_ty_signature_param_index_for_name(ty_id: int, sig_id: int, wanted_name: word) -> int {
+    pilot param_idx = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_idx >= param_count {
+        if v4_ty_signature_param_name(ty_id, sig_id, param_idx) == wanted_name {
+            give back param_idx
+        }
+        param_idx += 1
+    }
+    give back 0 - 1
+}
+
 task v4_ty_param_name_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
     if stream_id < 0 or start_token < 0 or end_token <= start_token {
         give back ""
@@ -2285,6 +2297,237 @@ task v4_ty_const_constructor_head_name(stream_id: int, start_token: int, end_tok
     give back v4_ty_type_text(stream_id, start_token, end_token)
 }
 
+task v4_ty_call_arg_label(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back ""
+    }
+    pilot name_token = v4_ty_skip_trivia(stream_id, start_token)
+    if name_token < 0 or name_token >= colon_token {
+        give back ""
+    }
+    pilot next_token = v4_ty_skip_trivia(stream_id, name_token + 1)
+    if next_token != colon_token {
+        give back ""
+    }
+    give back v4_lex_token_value(stream_id, name_token)
+}
+
+task v4_ty_call_arg_value_start(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back start_token
+    }
+    give back v4_ty_skip_trivia(stream_id, colon_token + 1)
+}
+
+task v4_ty_call_arg_segment(start_token: int, end_token: int) -> word {
+    give back word_from_int(start_token) + "|" + word_from_int(end_token)
+}
+
+task v4_ty_call_arg_segment_pipe(segment: word) -> int {
+    pilot idx = 0
+    repeat until idx >= segment.length() {
+        if segment.char_at(idx) == "|" {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_call_arg_segment_start(segment: word) -> int {
+    pilot pipe = v4_ty_call_arg_segment_pipe(segment)
+    if pipe < 0 {
+        give back 0 - 1
+    }
+    give back word_to_int(v4_slice(segment, 0, pipe))
+}
+
+task v4_ty_call_arg_segment_end(segment: word) -> int {
+    pilot pipe = v4_ty_call_arg_segment_pipe(segment)
+    if pipe < 0 {
+        give back 0 - 1
+    }
+    give back word_to_int(v4_slice(segment, pipe + 1, segment.length()))
+}
+
+task v4_ty_call_arg_segment_payload_append(payload: word, start_token: int, end_token: int) -> word {
+    pilot segment = v4_ty_call_arg_segment(start_token, end_token)
+    if payload == "" {
+        give back segment
+    }
+    give back payload + "\n" + segment
+}
+
+task v4_ty_call_arg_segment_payload_at(payload: word, wanted: int) -> word {
+    if wanted < 0 {
+        give back ""
+    }
+    pilot current = 0
+    pilot start_idx = 0
+    pilot idx = 0
+    repeat until idx > payload.length() {
+        if idx == payload.length() or payload.char_at(idx) == "\n" {
+            if current == wanted {
+                give back v4_slice(payload, start_idx, idx)
+            }
+            current += 1
+            start_idx = idx + 1
+        }
+        idx += 1
+    }
+    give back ""
+}
+
+task v4_ty_call_arg_slot_payload_new(slot_count: int) -> word {
+    pilot payload = ""
+    pilot idx = 0
+    repeat until idx >= slot_count {
+        payload = v4_ty_call_arg_segment_payload_append(payload, 0 - 1, 0 - 1)
+        idx += 1
+    }
+    give back payload
+}
+
+task v4_ty_call_arg_slot_assigned(payload: word, slot_id: int) -> bool {
+    pilot segment = v4_ty_call_arg_segment_payload_at(payload, slot_id)
+    give back v4_ty_call_arg_segment_start(segment) >= 0
+}
+
+task v4_ty_call_arg_slot_start(payload: word, slot_id: int) -> int {
+    give back v4_ty_call_arg_segment_start(v4_ty_call_arg_segment_payload_at(payload, slot_id))
+}
+
+task v4_ty_call_arg_slot_end(payload: word, slot_id: int) -> int {
+    give back v4_ty_call_arg_segment_end(v4_ty_call_arg_segment_payload_at(payload, slot_id))
+}
+
+task v4_ty_call_arg_slot_set(payload: word, slot_count: int, slot_id: int, start_token: int, end_token: int) -> word {
+    pilot rewritten = ""
+    pilot idx = 0
+    repeat until idx >= slot_count {
+        pilot segment = v4_ty_call_arg_segment_payload_at(payload, idx)
+        if idx == slot_id {
+            segment = v4_ty_call_arg_segment(start_token, end_token)
+        }
+        rewritten = v4_ty_call_arg_segment_payload_append(rewritten, v4_ty_call_arg_segment_start(segment), v4_ty_call_arg_segment_end(segment))
+        idx += 1
+    }
+    give back rewritten
+}
+
+task v4_ty_const_task_call_env_seen(ty_id: int, owner_sig: int, stream_id: int, sig_id: int, callee_name: word, open_token: int, close_token: int, seed_env: word, seen_consts: word, emit_diags: bool, expr_span: word) -> word {
+    pilot expected_count = v4_ty_signature_param_count(ty_id, sig_id)
+    pilot actual_count = v4_ty_param_count_from_tokens(stream_id, open_token, close_token)
+    pilot planned_slots = v4_ty_call_arg_slot_payload_new(expected_count)
+    pilot named_seen = false
+    pilot next_positional = 0
+    pilot env = seed_env
+    pilot valid = true
+    pilot arg_start = v4_ty_skip_trivia(stream_id, open_token + 1)
+    if arg_start < close_token {
+        repeat until arg_start >= close_token {
+            pilot arg_end = v4_ty_const_ctor_field_end(stream_id, arg_start, close_token)
+            if arg_end <= arg_start {
+                if emit_diags {
+                    v4_ty_add_error_diag(ty_id, expr_span, "const task call arity drift", callee_name + " arguments are malformed")
+                }
+                give back v4_ty_generic_env_fail
+            }
+
+            pilot arg_span = v4_ty_span_from_tokens(stream_id, arg_start, arg_end)
+            pilot arg_label = v4_ty_call_arg_label(stream_id, arg_start, arg_end)
+            pilot value_start = v4_ty_call_arg_value_start(stream_id, arg_start, arg_end)
+            if arg_label != "" {
+                named_seen = true
+                if value_start < arg_end {
+                    v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, value_start, arg_end, seen_consts)
+                }
+                pilot param_idx = v4_ty_signature_param_index_for_name(ty_id, sig_id, arg_label)
+                if param_idx < 0 {
+                    if emit_diags {
+                        v4_ty_add_error_diag(ty_id, arg_span, "unknown call argument", callee_name + " has no parameter " + arg_label)
+                    }
+                    valid = false
+                } else if v4_ty_call_arg_slot_assigned(planned_slots, param_idx) {
+                    if emit_diags {
+                        v4_ty_add_error_diag(ty_id, arg_span, "duplicate call argument", arg_label + " already has an assignment in " + callee_name)
+                    }
+                    valid = false
+                } else {
+                    planned_slots = v4_ty_call_arg_slot_set(planned_slots, expected_count, param_idx, value_start, arg_end)
+                }
+            } else {
+                if named_seen {
+                    v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, arg_start, arg_end, seen_consts)
+                    if emit_diags {
+                        v4_ty_add_error_diag(ty_id, arg_span, "positional call argument after named", "place positional arguments before named ones in " + callee_name)
+                    }
+                    valid = false
+                } else if next_positional < expected_count {
+                    planned_slots = v4_ty_call_arg_slot_set(planned_slots, expected_count, next_positional, arg_start, arg_end)
+                    next_positional += 1
+                } else {
+                    v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, arg_start, arg_end, seen_consts)
+                    valid = false
+                }
+            }
+
+            arg_start = v4_ty_skip_trivia(stream_id, arg_end + 1)
+        }
+    }
+
+    pilot param_idx = 0
+    repeat until param_idx >= expected_count {
+        if named_seen and not v4_ty_call_arg_slot_assigned(planned_slots, param_idx) {
+            if emit_diags {
+                pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_idx)
+                v4_ty_add_error_diag(ty_id, expr_span, "missing call argument", callee_name + " still needs parameter " + param_name)
+            }
+            valid = false
+        }
+
+        pilot planned_start = v4_ty_call_arg_slot_start(planned_slots, param_idx)
+        pilot planned_end = v4_ty_call_arg_slot_end(planned_slots, param_idx)
+        if planned_start >= 0 and planned_end > planned_start {
+            v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, planned_start, planned_end, seen_consts)
+            pilot raw_expected_ty = v4_ty_signature_param_type(ty_id, sig_id, param_idx)
+            pilot actual_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, owner_sig, stream_id, planned_start, planned_end, seen_consts)
+            pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
+            if next_env == v4_ty_generic_env_fail {
+                if emit_diags {
+                    pilot expected_ty = v4_ty_apply_generic_env(raw_expected_ty, env)
+                    if expected_ty == "" {
+                        expected_ty = raw_expected_ty
+                    }
+                    pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_idx)
+                    if param_name == "" {
+                        param_name = "parameter " + word_from_int(param_idx)
+                    }
+                    v4_ty_add_error_diag(ty_id, v4_ty_span_from_tokens(stream_id, planned_start, planned_end), "const task call argument mismatch", callee_name + "." + param_name + " expects " + expected_ty + " but got " + actual_ty)
+                }
+                valid = false
+            } else {
+                env = next_env
+            }
+        }
+        param_idx += 1
+    }
+
+    if actual_count != expected_count {
+        if emit_diags {
+            v4_ty_add_error_diag(ty_id, expr_span, "const task call arity drift", callee_name + " takes " + word_from_int(expected_count) + " arguments but got " + word_from_int(actual_count))
+        }
+        valid = false
+    }
+
+    if not valid {
+        give back v4_ty_generic_env_fail
+    }
+    give back env
+}
+
 task v4_ty_const_task_call_return_type_seen(ty_id: int, owner_sig: int, stream_id: int, callee_name: word, open_token: int, close_token: int, seen_consts: word) -> word {
     pilot lookup_name = callee_name
     if v4_ty_is_generic_instance_type(lookup_name) {
@@ -2310,31 +2553,8 @@ task v4_ty_const_task_call_return_type_seen(ty_id: int, owner_sig: int, stream_i
         }
     }
 
-    pilot expected_count = v4_ty_signature_param_count(ty_id, sig_id)
-    pilot actual_count = 0
-    pilot arg_start = v4_ty_skip_trivia(stream_id, open_token + 1)
-    if arg_start < close_token {
-        repeat until arg_start >= close_token {
-            pilot arg_end = v4_ty_const_ctor_field_end(stream_id, arg_start, close_token)
-            if arg_end <= arg_start {
-                give back v4_ty_unknown
-            }
-            pilot colon_token = v4_ty_find_top_level_token(stream_id, arg_start, arg_end, ":")
-            if colon_token >= 0 or actual_count >= expected_count {
-                give back v4_ty_unknown
-            }
-            pilot raw_expected_ty = v4_ty_signature_param_type(ty_id, sig_id, actual_count)
-            pilot actual_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, owner_sig, stream_id, arg_start, arg_end, seen_consts)
-            env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
-            if env == v4_ty_generic_env_fail {
-                give back v4_ty_unknown
-            }
-            actual_count += 1
-            arg_start = v4_ty_skip_trivia(stream_id, arg_end + 1)
-        }
-    }
-
-    if actual_count != expected_count {
+    env = v4_ty_const_task_call_env_seen(ty_id, owner_sig, stream_id, sig_id, callee_name, open_token, close_token, env, seen_consts, false, V4_NO_SPAN)
+    if env == v4_ty_generic_env_fail {
         give back v4_ty_unknown
     }
 
@@ -2765,8 +2985,6 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
                 if sig_id >= 0 {
                     v4_ty_validate_signature_type_lifetimes(ty_id, owner_sig, callee_name, "const task call " + callee_name, expr_span)
 
-                    pilot actual_count = 0
-                    pilot expected_count = v4_ty_signature_param_count(ty_id, sig_id)
                     pilot env = ""
                     if v4_ty_is_generic_instance_type(callee_name) {
                         pilot instance_name = v4_ty_canonical_type(ty_id, callee_name)
@@ -2779,58 +2997,12 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
                         }
                     }
 
-                    pilot arg_start = v4_ty_skip_trivia(stream_id, open_token + 1)
-                    if arg_start < last {
-                        repeat until arg_start >= last {
-                            pilot arg_end = v4_ty_const_ctor_field_end(stream_id, arg_start, last)
-                            if arg_end <= arg_start {
-                                v4_ty_add_error_diag(ty_id, expr_span, "const task call arity drift", callee_name + " arguments are malformed")
-                                give back
-                            }
-
-                            pilot arg_span = v4_ty_span_from_tokens(stream_id, arg_start, arg_end)
-                            pilot colon_token = v4_ty_find_top_level_token(stream_id, arg_start, arg_end, ":")
-                            if colon_token >= 0 {
-                                pilot value_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
-                                if value_start < arg_end {
-                                    v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, value_start, arg_end, seen_consts)
-                                }
-                                v4_ty_add_error_diag(ty_id, arg_span, "const task call named arguments not yet supported", callee_name + " still requires positional arguments inside root constants")
-                            } else {
-                                v4_ty_validate_const_expr_seen(ty_id, owner_sig, stream_id, arg_start, arg_end, seen_consts)
-                            }
-
-                            actual_count += 1
-                            if colon_token < 0 and actual_count <= expected_count and v4_ty_signature_has_attribute(ty_id, sig_id, "const") {
-                                pilot raw_expected_ty = v4_ty_signature_param_type(ty_id, sig_id, actual_count - 1)
-                                pilot expected_ty = v4_ty_apply_generic_env(raw_expected_ty, env)
-                                pilot actual_ty = v4_ty_const_expr_type_from_tokens_seen(ty_id, owner_sig, stream_id, arg_start, arg_end, seen_consts)
-                                pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
-                                if next_env == v4_ty_generic_env_fail {
-                                    if expected_ty == "" {
-                                        expected_ty = raw_expected_ty
-                                    }
-                                    pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, actual_count - 1)
-                                    if param_name == "" {
-                                        param_name = "parameter " + word_from_int(actual_count - 1)
-                                    }
-                                    v4_ty_add_error_diag(ty_id, arg_span, "const task call argument mismatch", callee_name + "." + param_name + " expects " + expected_ty + " but got " + actual_ty)
-                                } else {
-                                    env = next_env
-                                }
-                            }
-                            arg_start = v4_ty_skip_trivia(stream_id, arg_end + 1)
-                        }
-                    }
-
                     if not v4_ty_signature_has_attribute(ty_id, sig_id, "const") {
                         v4_ty_add_error_diag(ty_id, expr_span, "root constant task call needs @const", callee_name + " must be declared with @const before a fixed pilot can call it")
                         give back
                     }
 
-                    if actual_count != expected_count {
-                        v4_ty_add_error_diag(ty_id, expr_span, "const task call arity drift", callee_name + " takes " + word_from_int(expected_count) + " arguments but got " + word_from_int(actual_count))
-                    }
+                    pilot ignored_env = v4_ty_const_task_call_env_seen(ty_id, owner_sig, stream_id, sig_id, callee_name, open_token, last, env, seen_consts, true, expr_span)
                     give back
                 }
             }
