@@ -213,7 +213,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | `variant Foo { Case1, Case2 { fields } }` sum types | ❌ | 📖 V4 | parser has no variant production |
 | Pattern matching on variants exhaustive | ❌ | 📖 V4 | depends on variants |
 | `alias Matrix = [[num; 4]; 4]` type aliases | ❌ | 📖 V4 | not parsed |
-| `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; integer const chains/arithmetic, tuple/list/repeat-fill plus generic shape/route-constructor type inference, constructor payload validation, and declared initializer mismatch diagnostics are in V4, full const-eval remains |
+| `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; integer const chains/arithmetic, tuple/list/repeat-fill plus generic shape/route-constructor type inference, const task calls, constructor payload validation, and declared initializer mismatch diagnostics are in V4, full const-eval remains |
 
 #### §1.15 Literals
 
@@ -464,7 +464,7 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 | Variant exhaustiveness | ❌ | 📖 V4 (no variants) |
 | Type alias expansion | ❌ | 📖 V4 |
 | Root-level `fixed pilot` cycle detection | ✅ | ✅ |
-| Fixed array length compile-time constants | ⚠️ | 📖 V4 (literal + integer root-const arithmetic works; const tasks and broader const-eval remain) |
+| Fixed array length compile-time constants | ⚠️ | 📖 V4 (literal + integer root-const arithmetic works; broader const-eval remains) |
 | `dyn` object-safety rules | ❌ | 📖 V4 |
 | FFI safety (FFI-safe types only in extern) | ❌ | 📖 V4 |
 | Layout annotations validation | ❌ | 📖 V4 |

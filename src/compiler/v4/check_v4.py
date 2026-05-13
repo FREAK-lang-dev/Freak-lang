@@ -3758,6 +3758,20 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "root fixed-pilot const task calls",
+        "fixture": "global_const_task_call_smoke.fk",
+        "expect": [
+            "global-const-task-call-boosted-display=fixed pilot BOOSTED: int",
+            "global-const-task-call-boosted-value-type=int",
+            "global-const-task-call-packed-display=fixed pilot PACKED: Box<int>",
+            "global-const-task-call-packed-value-type=Box<int>",
+            "global-const-task-call-diag-count=3",
+            "global-const-task-call-diag0=root constant task call needs @const",
+            "global-const-task-call-diag1=const task call arity drift",
+            "global-const-task-call-diag2=const task call argument mismatch",
+        ],
+    },
+    {
         "name": "root fixed-pilot constructor diagnostics",
         "fixture": "global_const_ctor_diag_smoke.fk",
         "expect": [

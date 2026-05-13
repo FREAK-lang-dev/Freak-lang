@@ -832,6 +832,24 @@ task v4_parse_skip_item(stream_id: int, start_token: int) -> int {
     give back idx
 }
 
+task v4_parse_skip_attribute(stream_id: int, start_token: int) -> int {
+    pilot count = v4_lex_token_count(stream_id)
+    pilot name_token = v4_parse_skip_trivia(stream_id, start_token + 1)
+    if name_token >= count {
+        give back start_token + 1
+    }
+
+    pilot open_token = v4_parse_skip_trivia(stream_id, name_token + 1)
+    if open_token < count and v4_lex_token_value(stream_id, open_token) == "(" {
+        pilot close_token = v4_parse_find_matching_token(stream_id, open_token, count, "(", ")")
+        if close_token >= 0 {
+            give back close_token + 1
+        }
+        give back open_token + 1
+    }
+    give back name_token + 1
+}
+
 task v4_parse_add_incomplete(tree_id: int, parent: int, span: word, missing: word) -> void {
     v4_parse_add_node(tree_id, v4_node_incomplete, missing, span, parent)
     v4_parse_add_diag(tree_id, v4_diag_error, span, "incomplete syntax node", missing)
@@ -840,7 +858,7 @@ task v4_parse_add_incomplete(tree_id: int, parent: int, span: word, missing: wor
 task v4_parse_parse_attribute(tree_id: int, stream_id: int, token_id: int, root_id: int) -> int {
     pilot start_token = token_id
     pilot name_token = v4_parse_skip_trivia(stream_id, token_id + 1)
-    pilot end_token = v4_parse_skip_item(stream_id, token_id)
+    pilot end_token = v4_parse_skip_attribute(stream_id, token_id)
     pilot attr_name = ""
     if name_token < v4_lex_token_count(stream_id) {
         attr_name = v4_lex_token_value(stream_id, name_token)

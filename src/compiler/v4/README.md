@@ -44,8 +44,9 @@ Current Phase 1 landings already cover routes/variants, alias-backed pattern
 surfaces, tuple and fixed-array local/editor facts, module/glob import call
 resolution, root `fixed pilot` constants with cycle diagnostics plus composite
 tuple/list/repeat-fill inference, generic shape/route constructor inference,
-constructor-payload validation, and declared-initializer mismatch diagnostics,
-fixed-array compile-time lengths with root-constant integer arithmetic,
+constructor-payload validation, const-task-call type inference plus
+diagnostics, and declared-initializer mismatch diagnostics, fixed-array
+compile-time lengths with root-constant integer arithmetic,
 generic doctrine bounds plus multi-bound method/editor enforcement, and named
 call-site arguments across task calls plus instance/associated method calls.
 
