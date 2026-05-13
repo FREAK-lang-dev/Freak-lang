@@ -51,6 +51,23 @@ task v4_diagnostics_snapshot_const_source() -> word {
     give back src
 }
 
+task v4_diagnostics_snapshot_const_task_source() -> word {
+    pilot src = "@const task bump(n: int) -> int {\n"
+    src = src + "    give back n + 1\n"
+    src = src + "}\n"
+    src = src + "task runtime_only(n: int) -> int {\n"
+    src = src + "    give back n + 1\n"
+    src = src + "}\n"
+    src = src + "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot BAD_RUNTIME = runtime_only(BASE)\n"
+    src = src + "fixed pilot BAD_ARITY = bump()\n"
+    src = src + "fixed pilot BAD_TYPE = bump(\"ace\")\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back BASE\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_diagnostics_snapshot_source = "task main() -> int {\n"
 v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    pilot text = \"hi\"\n"
 v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    pilot bad = text - 1\n"
@@ -65,6 +82,7 @@ pilot v4_diagnostics_snapshot_id = v4_diagnostics_text_cached("diagnostics-snaps
 pilot v4_diagnostics_snapshot_alias_id = v4_diagnostics_text_cached("diagnostics-snapshot-alias.fk", v4_diagnostics_snapshot_alias_source())
 pilot v4_diagnostics_snapshot_lifetime_id = v4_diagnostics_text_cached("diagnostics-snapshot-lifetime.fk", v4_diagnostics_snapshot_lifetime_source())
 pilot v4_diagnostics_snapshot_const_id = v4_diagnostics_text_cached("diagnostics-snapshot-const.fk", v4_diagnostics_snapshot_const_source())
+pilot v4_diagnostics_snapshot_const_task_id = v4_diagnostics_text_cached("diagnostics-snapshot-const-task.fk", v4_diagnostics_snapshot_const_task_source())
 say v4_diagnostics_summary(v4_diagnostics_snapshot_id)
 say v4_diagnostics_snapshot_summary()
 
@@ -80,6 +98,8 @@ say "alias-diagnostic4-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_
 say "lifetime-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_lifetime_id, 0))
 say "const-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_const_id, 0))
 say "const-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_const_id, 3))
+say "const-task-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_const_task_id, 0))
+say "const-task-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_const_task_id, 2))
 say v4_parse_snapshot_restore(v4_parse_snapshot())
 say v4_hir_snapshot_restore(v4_hir_snapshot())
 say v4_resolve_snapshot_restore(v4_resolve_snapshot())
@@ -126,4 +146,13 @@ say "restored-const-diagnostic0=" + v4_diag_message(v4_diagnostics_diag(v4_diagn
 say "restored-const-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_const_restored_id, 0))
 say "restored-const-diagnostic3=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_const_restored_id, 3))
 say "restored-const-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_const_restored_id, 3))
+
+say v4_driver_confirm_restored_document_text("diagnostics-snapshot-const-task.fk", v4_diagnostics_snapshot_const_task_source())
+pilot v4_diagnostics_const_task_file = v4_source_find("diagnostics-snapshot-const-task.fk")
+pilot v4_diagnostics_const_task_fingerprint = v4_source_fingerprint(v4_diagnostics_const_task_file)
+pilot v4_diagnostics_const_task_restored_id = word_to_int(v4_query_get(v4_diagnostics_query_key("diagnostics-snapshot-const-task.fk"), v4_diagnostics_const_task_fingerprint))
+say "restored-const-task-diagnostic0=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_const_task_restored_id, 0))
+say "restored-const-task-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_const_task_restored_id, 0))
+say "restored-const-task-diagnostic2=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_const_task_restored_id, 2))
+say "restored-const-task-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_const_task_restored_id, 2))
 say v4_driver_confirm_restored_document_text("diagnostics-snapshot.fk", "task changed() => 7\n")
