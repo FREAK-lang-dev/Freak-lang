@@ -75,6 +75,13 @@ task v4_const_task_query_diag_source() -> word {
     src = src + "fixed pilot BAD_RUNTIME = runtime_only(BASE)\n"
     src = src + "fixed pilot BAD_ARITY = bump()\n"
     src = src + "fixed pilot BAD_TYPE = bump(\"ace\")\n"
+    src = src + "@const task add(base: int, bonus: int) -> int {\n"
+    src = src + "    give back base + bonus\n"
+    src = src + "}\n"
+    src = src + "fixed pilot BAD_UNKNOWN = add(extra: BASE, bonus: 1)\n"
+    src = src + "fixed pilot BAD_DUP = add(base: BASE, base: 1)\n"
+    src = src + "fixed pilot BAD_ORDER = add(base: BASE, 1)\n"
+    src = src + "fixed pilot BAD_MISSING = add(base: BASE)\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back BASE\n"
     src = src + "}\n"
@@ -132,4 +139,20 @@ say "const-task-query-diag1-message=" + v4_diag_message(v4_diagnostics_diag(v4_c
 say "const-task-query-diag1-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 1))
 say "const-task-query-diag2-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 2))
 say "const-task-query-diag2-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 2))
+say "const-task-query-diag3-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 3))
+say "const-task-query-diag3-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 3))
+say "const-task-query-diag4-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 4))
+say "const-task-query-diag4-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 4))
+say "const-task-query-diag5-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 5))
+say "const-task-query-diag5-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 5))
+say "const-task-query-diag6-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 6))
+say "const-task-query-diag6-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 6))
+say "const-task-query-diag7-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 7))
+say "const-task-query-diag7-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 7))
+say "const-task-query-diag8-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 8))
+say "const-task-query-diag8-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 8))
+say "const-task-query-diag9-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 9))
+say "const-task-query-diag9-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 9))
+say "const-task-query-diag10-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 10))
+say "const-task-query-diag10-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 10))
 say "syntax-summary=" + v4_check_syntax_text("diag_query.fk", v4_diag_query_source)
