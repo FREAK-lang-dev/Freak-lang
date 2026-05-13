@@ -84,6 +84,26 @@ task v4_lsp_const_task_diag_source() -> word {
     give back src
 }
 
+task v4_lsp_layout_diag_source() -> word {
+    pilot src = "@layout(transparent)\n"
+    src = src + "shape BrokenHandle {\n"
+    src = src + "    left: int\n"
+    src = src + "    right: int\n"
+    src = src + "}\n"
+    src = src + "@layout(C, packed=0)\n"
+    src = src + "shape ZeroPacked {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "@layout(packed=1)\n"
+    src = src + "shape MissingC {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_lsp_find_token(stream_id: int, value: word, ordinal: int) -> int {
     pilot seen = 0
     pilot token_id = 0
@@ -316,3 +336,4 @@ say v4_lsp_diagnostics_text("lsp_alias.fk", v4_lsp_alias_diag_source())
 say v4_lsp_diagnostics_text("lsp_lifetime.fk", v4_lsp_lifetime_diag_source())
 say v4_lsp_diagnostics_text("lsp_const_diag.fk", v4_lsp_const_diag_source())
 say v4_lsp_diagnostics_text("lsp_const_task_diag.fk", v4_lsp_const_task_diag_source())
+say v4_lsp_diagnostics_text("lsp_layout_diag.fk", v4_lsp_layout_diag_source())
