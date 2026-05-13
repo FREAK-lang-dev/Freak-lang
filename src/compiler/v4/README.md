@@ -49,6 +49,8 @@ diagnostics, and declared-initializer mismatch diagnostics, fixed-array
 compile-time lengths with root-constant integer arithmetic,
 generic doctrine bounds plus multi-bound method/editor enforcement, and named
 call-site arguments across task calls plus instance/associated method calls.
+The FFI/type lane also carries `@layout(C)`, `@layout(C, packed=N)`, and
+`@layout(transparent)` through TY queries with basic contract validation.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 

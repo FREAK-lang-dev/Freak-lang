@@ -1,0 +1,62 @@
+-- V4 extended extern/layout forms smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_extern_layout_variants_source() -> word {
+    pilot src = "@layout(C, packed=1)\n"
+    src = src + "shape PackedWord {\n"
+    src = src + "    head: int\n"
+    src = src + "}\n"
+    src = src + "@layout(transparent)\n"
+    src = src + "shape Handle {\n"
+    src = src + "    raw: int\n"
+    src = src + "}\n"
+    src = src + "@layout(transparent)\n"
+    src = src + "shape BrokenHandle {\n"
+    src = src + "    left: int\n"
+    src = src + "    right: int\n"
+    src = src + "}\n"
+    src = src + "@layout(C, packed=0)\n"
+    src = src + "shape ZeroPacked {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "@layout(packed=1)\n"
+    src = src + "shape MissingC {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_extern_layout_variants_text = v4_extern_layout_variants_source()
+pilot v4_extern_layout_variants_stream = v4_lex_text(0, v4_extern_layout_variants_text)
+pilot v4_extern_layout_variants_tree = v4_parse_stream(0, v4_extern_layout_variants_stream)
+pilot v4_extern_layout_variants_hir = v4_hir_lower_tree(0, v4_extern_layout_variants_tree)
+pilot v4_extern_layout_variants_resolve = v4_resolve_lower_hir(0, v4_extern_layout_variants_hir)
+pilot v4_extern_layout_variants_ty = v4_ty_lower_resolve(0, v4_extern_layout_variants_resolve)
+
+pilot v4_extern_layout_packed_def = v4_resolve_def_for_name(v4_extern_layout_variants_resolve, "PackedWord")
+pilot v4_extern_layout_handle_def = v4_resolve_def_for_name(v4_extern_layout_variants_resolve, "Handle")
+pilot v4_extern_layout_packed_sig = v4_ty_lookup_signature(v4_extern_layout_variants_ty, v4_extern_layout_packed_def)
+pilot v4_extern_layout_handle_sig = v4_ty_lookup_signature(v4_extern_layout_variants_ty, v4_extern_layout_handle_def)
+
+say v4_hir_summary(v4_extern_layout_variants_hir)
+say "extern-layout-variants-item-count=" + word_from_int(v4_hir_item_count(v4_extern_layout_variants_hir))
+say "extern-layout-packed-attr-arg=" + v4_hir_item_attribute_arg(v4_extern_layout_variants_hir, 1, 0)
+say "extern-layout-transparent-attr-arg=" + v4_hir_item_attribute_arg(v4_extern_layout_variants_hir, 3, 0)
+
+say v4_ty_summary(v4_extern_layout_variants_ty)
+say "extern-layout-packed-layout=" + v4_ty_signature_layout(v4_extern_layout_variants_ty, v4_extern_layout_packed_sig)
+say "extern-layout-packed-kind=" + v4_ty_signature_layout_kind(v4_extern_layout_variants_ty, v4_extern_layout_packed_sig)
+say "extern-layout-packed-packed=" + v4_ty_signature_layout_packed(v4_extern_layout_variants_ty, v4_extern_layout_packed_sig)
+say "extern-layout-transparent-layout=" + v4_ty_signature_layout(v4_extern_layout_variants_ty, v4_extern_layout_handle_sig)
+say "extern-layout-transparent-kind=" + v4_ty_signature_layout_kind(v4_extern_layout_variants_ty, v4_extern_layout_handle_sig)
+say "extern-layout-transparent-packed=" + v4_ty_signature_layout_packed(v4_extern_layout_variants_ty, v4_extern_layout_handle_sig)
+say "extern-layout-variant-diagnostics=" + word_from_int(v4_ty_diag_count(v4_extern_layout_variants_ty))
+say "extern-layout-variant-diag0-message=" + v4_diag_message(v4_ty_diag(v4_extern_layout_variants_ty, 0))
+say "extern-layout-variant-diag0-help=" + v4_diag_help(v4_ty_diag(v4_extern_layout_variants_ty, 0))
+say "extern-layout-variant-diag1-message=" + v4_diag_message(v4_ty_diag(v4_extern_layout_variants_ty, 1))
+say "extern-layout-variant-diag1-help=" + v4_diag_help(v4_ty_diag(v4_extern_layout_variants_ty, 1))
+say "extern-layout-variant-diag2-message=" + v4_diag_message(v4_ty_diag(v4_extern_layout_variants_ty, 2))
+say "extern-layout-variant-diag2-help=" + v4_diag_help(v4_ty_diag(v4_extern_layout_variants_ty, 2))

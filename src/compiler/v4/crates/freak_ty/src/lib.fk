@@ -967,6 +967,156 @@ task v4_ty_signature_layout(ty_id: int, sig_id: int) -> word {
     give back v4_ty_signature_attribute_arg_for_name(ty_id, sig_id, "layout")
 }
 
+task v4_ty_is_space_char(ch: word) -> bool {
+    give back ch == " " or ch == "\t" or ch == "\n" or ch == "\r"
+}
+
+task v4_ty_trim_spaces(value: word) -> word {
+    if value == "" {
+        give back ""
+    }
+
+    pilot leading = 0
+    repeat until leading >= value.length() or v4_ty_is_space_char(value.char_at(leading)) == false {
+        leading += 1
+    }
+    if leading >= value.length() {
+        give back ""
+    }
+
+    pilot end = value.length()
+    repeat until end <= leading or v4_ty_is_space_char(value.char_at(end - 1)) == false {
+        end -= 1
+    }
+    give back v4_slice(value, leading, end)
+}
+
+task v4_ty_layout_arg_count(layout_text: word) -> int {
+    pilot text = v4_ty_trim_spaces(layout_text)
+    if text == "" {
+        give back 0
+    }
+
+    pilot count = 1
+    pilot depth = 0
+    pilot idx = 0
+    repeat until idx >= text.length() {
+        pilot ch = text.char_at(idx)
+        if depth == 0 and ch == "," {
+            count += 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_layout_arg(layout_text: word, arg_id: int) -> word {
+    pilot text = v4_ty_trim_spaces(layout_text)
+    if text == "" or arg_id < 0 {
+        give back ""
+    }
+
+    pilot current = 0
+    pilot segment_start = 0
+    pilot depth = 0
+    pilot idx = 0
+    repeat until idx >= text.length() {
+        pilot ch = text.char_at(idx)
+        if depth == 0 and ch == "," {
+            if current == arg_id {
+                give back v4_ty_trim_spaces(v4_slice(text, segment_start, idx))
+            }
+            current += 1
+            segment_start = idx + 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+
+    if current == arg_id {
+        give back v4_ty_trim_spaces(v4_slice(text, segment_start, text.length()))
+    }
+    give back ""
+}
+
+task v4_ty_layout_option_name(layout_text: word) -> word {
+    pilot option_text = v4_ty_trim_spaces(layout_text)
+    if option_text == "" {
+        give back ""
+    }
+    pilot eq_pos = v4_ty_find_top_level_type_char(option_text, "=", 0, option_text.length())
+    if eq_pos < 0 {
+        give back option_text.to_lower()
+    }
+    give back v4_ty_trim_spaces(v4_slice(option_text, 0, eq_pos)).to_lower()
+}
+
+task v4_ty_layout_option_value(layout_text: word) -> word {
+    pilot option_text = v4_ty_trim_spaces(layout_text)
+    if option_text == "" {
+        give back ""
+    }
+    pilot eq_pos = v4_ty_find_top_level_type_char(option_text, "=", 0, option_text.length())
+    if eq_pos < 0 or eq_pos + 1 >= option_text.length() {
+        give back ""
+    }
+    give back v4_ty_trim_spaces(v4_slice(option_text, eq_pos + 1, option_text.length()))
+}
+
+task v4_ty_signature_layout_kind(ty_id: int, sig_id: int) -> word {
+    pilot layout_text = v4_ty_signature_layout(ty_id, sig_id)
+    pilot head = v4_ty_layout_arg(layout_text, 0)
+    if head == "" {
+        give back ""
+    }
+    pilot lower = head.to_lower()
+    if lower == "c" {
+        give back "C"
+    }
+    if lower == "transparent" {
+        give back "transparent"
+    }
+    give back ""
+}
+
+task v4_ty_signature_layout_packed(ty_id: int, sig_id: int) -> word {
+    pilot layout_text = v4_ty_signature_layout(ty_id, sig_id)
+    pilot arg_idx = 1
+    pilot arg_count = v4_ty_layout_arg_count(layout_text)
+    repeat until arg_idx >= arg_count {
+        pilot option_name = v4_ty_layout_option_name(v4_ty_layout_arg(layout_text, arg_idx))
+        if option_name == "packed" {
+            give back v4_ty_layout_option_value(v4_ty_layout_arg(layout_text, arg_idx))
+        }
+        arg_idx += 1
+    }
+    give back ""
+}
+
+task v4_ty_signature_attribute_span_for_name(ty_id: int, sig_id: int, wanted_name: word) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back V4_NO_SPAN
+    }
+
+    pilot attr_idx = 0
+    pilot attr_count = v4_hir_item_attribute_count(hir_id, hir_item)
+    repeat until attr_idx >= attr_count {
+        if v4_hir_item_attribute_name(hir_id, hir_item, attr_idx) == wanted_name {
+            pilot attr_item = v4_hir_item_attribute_item(hir_id, hir_item, attr_idx)
+            if attr_item >= 0 {
+                give back v4_hir_item_span(hir_id, attr_item)
+            }
+        }
+        attr_idx += 1
+    }
+    give back V4_NO_SPAN
+}
+
 task v4_ty_normalize_call_abi(abi: word) -> word {
     if abi == "" {
         give back ""
@@ -5419,6 +5569,66 @@ task v4_ty_validate_lifetime_contracts(ty_id: int) -> void {
     }
 }
 
+task v4_ty_validate_shape_layout_contract(ty_id: int, sig_id: int) -> void {
+    pilot layout_text = v4_ty_signature_layout(ty_id, sig_id)
+    if layout_text == "" {
+        give back
+    }
+
+    pilot layout_span = v4_ty_signature_attribute_span_for_name(ty_id, sig_id, "layout")
+    pilot layout_kind = v4_ty_signature_layout_kind(ty_id, sig_id)
+    if layout_kind == "" {
+        v4_ty_add_error_diag(ty_id, layout_span, "unknown layout contract", "use @layout(C), @layout(C, packed=1), or @layout(transparent)")
+        give back
+    }
+
+    pilot packed_seen = false
+    pilot arg_idx = 1
+    pilot arg_count = v4_ty_layout_arg_count(layout_text)
+    repeat until arg_idx >= arg_count {
+        pilot option_text = v4_ty_layout_arg(layout_text, arg_idx)
+        pilot option_name = v4_ty_layout_option_name(option_text)
+        if option_name == "packed" {
+            if packed_seen {
+                v4_ty_add_error_diag(ty_id, layout_span, "duplicate layout option", "packed appears more than once on " + v4_ty_signature_name(ty_id, sig_id))
+            }
+            packed_seen = true
+            pilot packed_value = v4_ty_layout_option_value(option_text)
+            pilot resolved = v4_ty_const_integer_text_from_expr(ty_id, packed_value)
+            if packed_value == "" or resolved == v4_ty_unknown {
+                v4_ty_add_error_diag(ty_id, layout_span, "packed layout must use compile-time integer", "write packed=1 or another positive integer constant")
+            } else if resolved == "0" or resolved.starts_with("-") {
+                v4_ty_add_error_diag(ty_id, layout_span, "packed layout must be positive", "got " + resolved)
+            }
+        } else {
+            v4_ty_add_error_diag(ty_id, layout_span, "unknown layout option", "only packed=N is supported after @layout(C)")
+        }
+        arg_idx += 1
+    }
+
+    if packed_seen and layout_kind != "C" {
+        v4_ty_add_error_diag(ty_id, layout_span, "packed layout needs C", "write @layout(C, packed=1) instead of @layout(" + layout_text + ")")
+    }
+
+    if layout_kind == "transparent" {
+        pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
+        if field_count != 1 {
+            v4_ty_add_error_diag(ty_id, layout_span, "transparent layout needs one field", v4_ty_signature_name(ty_id, sig_id) + " exposes " + word_from_int(field_count) + " fields")
+        }
+    }
+}
+
+task v4_ty_validate_layout_contracts(ty_id: int) -> void {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_shape_sig {
+            v4_ty_validate_shape_layout_contract(ty_id, sig_id)
+        }
+        sig_id += 1
+    }
+}
+
 task v4_ty_type_depth_after_char(depth: int, ch: word) -> int {
     pilot next_depth = depth
     if ch == "(" or ch == "[" or ch == "{" or ch == "<" {
@@ -6023,6 +6233,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
     }
 
     v4_ty_validate_lifetime_contracts(ty_id)
+    v4_ty_validate_layout_contracts(ty_id)
     v4_ty_validate_alias_cycles(ty_id)
     v4_ty_validate_const_cycles(ty_id)
     v4_ty_validate_const_initializers(ty_id)

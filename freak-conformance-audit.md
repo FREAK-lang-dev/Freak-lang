@@ -63,7 +63,7 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 12 | `tiny`, `uint`, `char`, `big`, `float32`, fixed `[T; N]` | Type checker knows int/num/word/bool/void only | 🔴 | 📖 V4 (add minimal aliases now) |
 | 13 | Audit commands in native CLI | Python-only; `build/freak.exe` doesn't dispatch | 🟡 | 🛠 wire native CLI |
 | 14 | Error voices (Meiya/Yuuko/Sagiri/Kasumi/Takeru/Mana/Hayase/Sumika/00-Unit) | Mostly generic errors | 🟡 | 📖 V4 |
-| 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | Minimal extern; no layout annotations | 🔴 | 📖 V4 |
+| 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 now carries `extern` ABI metadata plus `@layout(C)` / `packed` / `transparent` query validation; raw pointer ops and broader FFI safety still missing | 🟡 | 📖 V4 |
 | 16 | Bible-promised stdlib (`std::thread`, `std::anime`, `std::narrative`, `std::test`) | Listed planned, no `.fk` files | 🔴 | 📖 confirm Planned |
 | 17 | `freak vibe`, `freak test` CLI subcommands | Not in native CLI | 🟡 | 📖 OR 🛠 (`freak test` shim possible) |
 | 18 | Test coverage gap (~50% of bible has zero tests) | See Appendix B | 🟡 | Out of scope; surfaced |
@@ -548,7 +548,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 ### §16 SYSTEM BOUNDARIES — FFI ([freak-full-bible.md:2198-2390](freak-full-bible.md))
 
-**Section verdict: 📖 entire section tagged V4 except minimal `extern` already used in tests.**
+**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` parsing-query-validation now exist, but raw pointers, link-name controls, variadics, and broader FFI safety are still V4 work.
 
 | Contract | Status | Verdict |
 |---|---|---|
@@ -558,7 +558,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | `link="name"` library binding | ❌ | 📖 V4 |
 | `@link_name("symbol")` | ❌ | 📖 V4 |
 | Variadic `args: ...` | ❌ | 📖 V4 |
-| `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)` | ❌ | 📖 V4 |
+| `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)` | ⚠️ | 📖 V4 | V4 parses and carries all three through TY queries; it validates packed positivity and transparent single-field rules, but deeper FFI-stability checks still expand |
 | `@repr(u32)` discriminant size | ❌ | 📖 V4 |
 | Raw pointer ops (`*ptr`, `.read()`, `.offset()`, `.cast<U>()`, `.is_null()`) | ❌ | 📖 V4 |
 | `std::os` platform modules | ❌ | 📖 V4 |
@@ -642,7 +642,7 @@ K. **§17 Internals/IDE** — wholesale V4 tag.
 
 ### Out-of-scope (V4 work, surfaced for tracking)
 
-Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, `std::test`, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer ops, layout annotations, panic infrastructure, IDE-grade tolerant parser.
+Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, `std::test`, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer ops, broader layout-stability enforcement, panic infrastructure, IDE-grade tolerant parser.
 
 ---
 
