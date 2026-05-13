@@ -390,6 +390,11 @@ EXECUTABLE_SMOKES = [
             "00-unit-snapshot-ref|name=const-before",
             "00-unit-snapshot-restore ok=1 sources=2 sections=14 confirmed-sources=2",
             "query-confirm ok=1 path=unit-snapshot-const.fk",
+            "document id=2 path=unit-snapshot-const-task.fk rev=1 bytes=292",
+            "diagnostics id=3 count=3 errors=3 warnings=0",
+            "00-unit-snapshot-ref|name=const-task-before",
+            "00-unit-snapshot-restore ok=1 sources=3 sections=14 confirmed-sources=3",
+            "query-confirm ok=1 path=unit-snapshot-const-task.fk",
         ],
     },
     {

@@ -26,6 +26,23 @@ task v4_unit_snapshot_const_source() -> word {
     give back src
 }
 
+task v4_unit_snapshot_const_task_source() -> word {
+    pilot src = "@const task bump(n: int) -> int {\n"
+    src = src + "    give back n + 1\n"
+    src = src + "}\n"
+    src = src + "task runtime_only(n: int) -> int {\n"
+    src = src + "    give back n + 1\n"
+    src = src + "}\n"
+    src = src + "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot BAD_RUNTIME = runtime_only(BASE)\n"
+    src = src + "fixed pilot BAD_ARITY = bump()\n"
+    src = src + "fixed pilot BAD_TYPE = bump(\"ace\")\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back BASE\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_unit_snapshot_source = "task main() -> int {\n"
 v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot name = \"Yuuko|Meiya\"\n"
 v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot bad = name - 1\n"
@@ -86,3 +103,10 @@ say v4_diagnostics_text("unit-snapshot-const.fk", v4_unit_snapshot_const_text)
 say v4_unit_snapshot_ref_store("const-before", v4_unit_snapshot())
 say v4_unit_snapshot_restore(v4_unit_snapshot_ref_text("const-before"))
 say v4_driver_confirm_restored_document_text("unit-snapshot-const.fk", v4_unit_snapshot_const_text)
+
+pilot v4_unit_snapshot_const_task_text = v4_unit_snapshot_const_task_source()
+say v4_lsp_handle_text_request("textDocument/didOpen", "unit-snapshot-const-task.fk", v4_unit_snapshot_const_task_text, 0)
+say v4_diagnostics_text("unit-snapshot-const-task.fk", v4_unit_snapshot_const_task_text)
+say v4_unit_snapshot_ref_store("const-task-before", v4_unit_snapshot())
+say v4_unit_snapshot_restore(v4_unit_snapshot_ref_text("const-task-before"))
+say v4_driver_confirm_restored_document_text("unit-snapshot-const-task.fk", v4_unit_snapshot_const_task_text)
