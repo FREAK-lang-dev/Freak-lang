@@ -1192,6 +1192,7 @@ EXECUTABLE_SMOKES = [
             "const-diagnostic3-span=3@226:238",
             "const-task-diagnostic0-span=4@165:183",
             "const-task-diagnostic2-span=4@243:248",
+            "const-task-diagnostic7-span=4@467:468",
             "diagnostics-snapshot-restore ok=1 sets=5 diagnostics=22 skipped-other=0 arena-sets=5",
             "ok|workspace/diagnosticsSnapshotRestore",
             "error|workspace/diagnosticsSnapshotRestore|-32602|",
@@ -1217,6 +1218,8 @@ EXECUTABLE_SMOKES = [
             "restored-const-task-diagnostic0-span=4@165:183",
             "restored-const-task-diagnostic2=const task call argument mismatch",
             "restored-const-task-diagnostic2-span=4@243:248",
+            "restored-const-task-diagnostic7=positional call argument after named",
+            "restored-const-task-diagnostic7-span=4@467:468",
         ],
     },
     {
