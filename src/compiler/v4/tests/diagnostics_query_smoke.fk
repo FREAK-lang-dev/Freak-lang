@@ -64,6 +64,23 @@ task v4_const_query_diag_source() -> word {
     give back src
 }
 
+task v4_const_task_query_diag_source() -> word {
+    pilot src = "@const task bump(n: int) -> int {\n"
+    src = src + "    give back n + 1\n"
+    src = src + "}\n"
+    src = src + "task runtime_only(n: int) -> int {\n"
+    src = src + "    give back n + 1\n"
+    src = src + "}\n"
+    src = src + "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot BAD_RUNTIME = runtime_only(BASE)\n"
+    src = src + "fixed pilot BAD_ARITY = bump()\n"
+    src = src + "fixed pilot BAD_TYPE = bump(\"ace\")\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back BASE\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_diag_query_source = "task main() -> int {\n"
 v4_diag_query_source = v4_diag_query_source + "    pilot text = \"hi\"\n"
 v4_diag_query_source = v4_diag_query_source + "    pilot bad = text - 1\n"
@@ -78,6 +95,7 @@ pilot v4_diag_query_id = v4_diagnostics_text_cached("diag_query.fk", v4_diag_que
 pilot v4_alias_diag_query_id = v4_diagnostics_text_cached("alias_cycle_query.fk", v4_alias_query_diag_source())
 pilot v4_lifetime_diag_query_id = v4_diagnostics_text_cached("lifetime_query.fk", v4_lifetime_query_diag_source())
 pilot v4_const_diag_query_id = v4_diagnostics_text_cached("const_query.fk", v4_const_query_diag_source())
+pilot v4_const_task_diag_query_id = v4_diagnostics_text_cached("const_task_query.fk", v4_const_task_query_diag_source())
 
 say v4_diagnostics_summary(v4_diag_query_id)
 say "query-diag-count=" + word_from_int(v4_diagnostics_count(v4_diag_query_id))
@@ -107,4 +125,11 @@ say "const-query-diag6-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_
 say "const-query-diag6-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_diag_query_id, 6))
 say "const-query-diag7-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_diag_query_id, 7))
 say "const-query-diag7-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_diag_query_id, 7))
+say "const-task-query-diag-count=" + word_from_int(v4_diagnostics_count(v4_const_task_diag_query_id))
+say "const-task-query-diag0-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 0))
+say "const-task-query-diag0-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 0))
+say "const-task-query-diag1-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 1))
+say "const-task-query-diag1-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 1))
+say "const-task-query-diag2-message=" + v4_diag_message(v4_diagnostics_diag(v4_const_task_diag_query_id, 2))
+say "const-task-query-diag2-span=" + v4_diag_span(v4_diagnostics_diag(v4_const_task_diag_query_id, 2))
 say "syntax-summary=" + v4_check_syntax_text("diag_query.fk", v4_diag_query_source)
