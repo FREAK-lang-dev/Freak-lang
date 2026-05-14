@@ -473,8 +473,9 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
 }
 
 task v4_codegen_llvm_signature_params(ty_id: int, sig_id: int) -> word {
-    pilot count = v4_ty_signature_param_count(ty_id, sig_id)
-    if count <= 0 {
+    pilot count = v4_ty_signature_fixed_param_count(ty_id, sig_id)
+    pilot variadic = v4_ty_signature_is_variadic(ty_id, sig_id)
+    if count <= 0 and variadic == false {
         give back ""
     }
 
@@ -486,6 +487,12 @@ task v4_codegen_llvm_signature_params(ty_id: int, sig_id: int) -> word {
         }
         out = out + v4_codegen_llvm_type(v4_ty_signature_param_type(ty_id, sig_id, param_idx))
         param_idx += 1
+    }
+    if variadic {
+        if out != "" {
+            out = out + ", "
+        }
+        out = out + "..."
     }
     give back out
 }

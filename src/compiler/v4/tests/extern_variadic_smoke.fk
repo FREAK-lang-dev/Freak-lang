@@ -1,0 +1,136 @@
+-- V4 extern variadic signature smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_extern_variadic_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_extern_variadic_flag(value: bool) -> word {
+    if value { give back "yes" }
+    give back "no"
+}
+
+task v4_extern_variadic_good_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task sum(seed: std::ffi::c_int, args: ...) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot first = sum(1, 2, 3)\n"
+    src = src + "    pilot second = sum(seed: 4, 5, 6)\n"
+    src = src + "    give back first + second\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_variadic_bad_source() -> word {
+    pilot src = "task local_sum(args: ...) -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task misplaced(args: ..., seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "extern [stdcall] {\n"
+    src = src + "    task win_sum(seed: std::ffi::c_int, args: ...) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_variadic_bad_arity_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task sum(seed: std::ffi::c_int, args: ...) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back sum()\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_extern_variadic_source = v4_extern_variadic_good_source()
+pilot v4_extern_variadic_stream = v4_lex_text(0, v4_extern_variadic_source)
+pilot v4_extern_variadic_tree = v4_parse_stream(0, v4_extern_variadic_stream)
+pilot v4_extern_variadic_hir = v4_hir_lower_tree(0, v4_extern_variadic_tree)
+pilot v4_extern_variadic_resolve = v4_resolve_lower_hir(0, v4_extern_variadic_hir)
+pilot v4_extern_variadic_ty = v4_ty_lower_resolve(0, v4_extern_variadic_resolve)
+pilot v4_extern_variadic_mir = v4_mir_lower_ty(0, v4_extern_variadic_ty)
+pilot v4_extern_variadic_llvm = v4_codegen_llvm_lower_mir(0, v4_extern_variadic_mir)
+
+pilot v4_extern_variadic_sum_def = v4_resolve_def_for_name(v4_extern_variadic_resolve, "sum")
+pilot v4_extern_variadic_main_def = v4_resolve_def_for_name(v4_extern_variadic_resolve, "main")
+pilot v4_extern_variadic_sum_sig = v4_ty_lookup_signature(v4_extern_variadic_ty, v4_extern_variadic_sum_def)
+pilot v4_extern_variadic_main_body = v4_mir_lookup_body(v4_extern_variadic_mir, v4_extern_variadic_main_def)
+pilot v4_extern_variadic_first_stmt = v4_extern_variadic_find_local_stmt(v4_extern_variadic_mir, v4_extern_variadic_main_body, "first")
+pilot v4_extern_variadic_second_stmt = v4_extern_variadic_find_local_stmt(v4_extern_variadic_mir, v4_extern_variadic_main_body, "second")
+pilot v4_extern_variadic_first_rvalue = v4_mir_stmt_rvalue(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_extern_variadic_first_stmt)
+pilot v4_extern_variadic_second_rvalue = v4_mir_stmt_rvalue(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_extern_variadic_second_stmt)
+pilot v4_extern_variadic_sum_decl = v4_codegen_llvm_find_decl(v4_extern_variadic_llvm, "sum")
+pilot v4_extern_variadic_sum_call = v4_codegen_llvm_find_call(v4_extern_variadic_llvm, "main", "sum")
+
+say "extern-variadic-param-count=" + word_from_int(v4_ty_signature_param_count(v4_extern_variadic_ty, v4_extern_variadic_sum_sig))
+say "extern-variadic-fixed-param-count=" + word_from_int(v4_ty_signature_fixed_param_count(v4_extern_variadic_ty, v4_extern_variadic_sum_sig))
+say "extern-variadic-is-variadic=" + v4_extern_variadic_flag(v4_ty_signature_is_variadic(v4_extern_variadic_ty, v4_extern_variadic_sum_sig))
+say "extern-variadic-param0-name=" + v4_ty_signature_param_name(v4_extern_variadic_ty, v4_extern_variadic_sum_sig, 0)
+say "extern-variadic-param0-type=" + v4_ty_signature_param_type(v4_extern_variadic_ty, v4_extern_variadic_sum_sig, 0)
+say "extern-variadic-param1-name=" + v4_ty_signature_param_name(v4_extern_variadic_ty, v4_extern_variadic_sum_sig, 1)
+say "extern-variadic-param1-surface=" + v4_ty_signature_param_surface_type(v4_extern_variadic_ty, v4_extern_variadic_sum_sig, 1)
+say "extern-variadic-abi=" + v4_ty_signature_call_abi(v4_extern_variadic_ty, v4_extern_variadic_sum_sig)
+say "extern-variadic-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_extern_variadic_ty))
+say "extern-variadic-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_extern_variadic_mir))
+if v4_ty_diag_count(v4_extern_variadic_ty) > 0 {
+    say "extern-variadic-ty-diag0-message=" + v4_diag_message(v4_ty_diag(v4_extern_variadic_ty, 0))
+}
+if v4_mir_diag_count(v4_extern_variadic_mir) > 0 {
+    say "extern-variadic-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_extern_variadic_mir, 0))
+}
+
+say "extern-variadic-first-arg-count=" + word_from_int(v4_mir_rvalue_call_arg_count(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_extern_variadic_first_rvalue))
+say "extern-variadic-first-arg0-ty=" + v4_mir_rvalue_ty(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_mir_rvalue_call_arg(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_extern_variadic_first_rvalue, 0))
+say "extern-variadic-first-arg2-ty=" + v4_mir_rvalue_ty(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_mir_rvalue_call_arg(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_extern_variadic_first_rvalue, 2))
+say "extern-variadic-second-arg-count=" + word_from_int(v4_mir_rvalue_call_arg_count(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_extern_variadic_second_rvalue))
+say "extern-variadic-second-arg0-ty=" + v4_mir_rvalue_ty(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_mir_rvalue_call_arg(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_extern_variadic_second_rvalue, 0))
+say "extern-variadic-second-arg2-ty=" + v4_mir_rvalue_ty(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_mir_rvalue_call_arg(v4_extern_variadic_mir, v4_extern_variadic_main_body, v4_extern_variadic_second_rvalue, 2))
+
+say "extern-variadic-llvm-decl-params=" + v4_codegen_llvm_decl_params(v4_extern_variadic_llvm, v4_extern_variadic_sum_decl)
+say "extern-variadic-llvm-decl-line=" + v4_codegen_llvm_decl_line(v4_extern_variadic_llvm, v4_extern_variadic_sum_decl)
+say "extern-variadic-llvm-call-line=" + v4_codegen_llvm_call_line(v4_extern_variadic_llvm, v4_extern_variadic_sum_call)
+
+pilot v4_extern_variadic_bad_text = v4_extern_variadic_bad_source()
+pilot v4_extern_variadic_bad_stream = v4_lex_text(1, v4_extern_variadic_bad_text)
+pilot v4_extern_variadic_bad_tree = v4_parse_stream(1, v4_extern_variadic_bad_stream)
+pilot v4_extern_variadic_bad_hir = v4_hir_lower_tree(1, v4_extern_variadic_bad_tree)
+pilot v4_extern_variadic_bad_resolve = v4_resolve_lower_hir(1, v4_extern_variadic_bad_hir)
+pilot v4_extern_variadic_bad_ty = v4_ty_lower_resolve(1, v4_extern_variadic_bad_resolve)
+
+say "extern-variadic-bad-diag-count=" + word_from_int(v4_ty_diag_count(v4_extern_variadic_bad_ty))
+say "extern-variadic-bad-diag0-message=" + v4_diag_message(v4_ty_diag(v4_extern_variadic_bad_ty, 0))
+say "extern-variadic-bad-diag1-message=" + v4_diag_message(v4_ty_diag(v4_extern_variadic_bad_ty, 1))
+say "extern-variadic-bad-diag2-message=" + v4_diag_message(v4_ty_diag(v4_extern_variadic_bad_ty, 2))
+say "extern-variadic-bad-diag3-message=" + v4_diag_message(v4_ty_diag(v4_extern_variadic_bad_ty, 3))
+say "extern-variadic-bad-diag4-message=" + v4_diag_message(v4_ty_diag(v4_extern_variadic_bad_ty, 4))
+say "extern-variadic-bad-diag5-message=" + v4_diag_message(v4_ty_diag(v4_extern_variadic_bad_ty, 5))
+
+pilot v4_extern_variadic_bad_arity_text = v4_extern_variadic_bad_arity_source()
+pilot v4_extern_variadic_bad_arity_stream = v4_lex_text(2, v4_extern_variadic_bad_arity_text)
+pilot v4_extern_variadic_bad_arity_tree = v4_parse_stream(2, v4_extern_variadic_bad_arity_stream)
+pilot v4_extern_variadic_bad_arity_hir = v4_hir_lower_tree(2, v4_extern_variadic_bad_arity_tree)
+pilot v4_extern_variadic_bad_arity_resolve = v4_resolve_lower_hir(2, v4_extern_variadic_bad_arity_hir)
+pilot v4_extern_variadic_bad_arity_ty = v4_ty_lower_resolve(2, v4_extern_variadic_bad_arity_resolve)
+pilot v4_extern_variadic_bad_arity_mir = v4_mir_lower_ty(2, v4_extern_variadic_bad_arity_ty)
+
+say "extern-variadic-bad-arity-diag-count=" + word_from_int(v4_mir_diag_count(v4_extern_variadic_bad_arity_mir))
+say "extern-variadic-bad-arity-message=" + v4_diag_message(v4_mir_diag(v4_extern_variadic_bad_arity_mir, 0))
+say "extern-variadic-bad-arity-help=" + v4_diag_help(v4_mir_diag(v4_extern_variadic_bad_arity_mir, 0))
+say "extern-variadic-bad-arity-diag1-message=" + v4_diag_message(v4_mir_diag(v4_extern_variadic_bad_arity_mir, 1))
+say "extern-variadic-bad-arity-diag1-help=" + v4_diag_help(v4_mir_diag(v4_extern_variadic_bad_arity_mir, 1))

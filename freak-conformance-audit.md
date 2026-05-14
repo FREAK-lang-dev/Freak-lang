@@ -466,7 +466,7 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 | Root-level `fixed pilot` cycle detection | ✅ | ✅ |
 | Fixed array length compile-time constants | ⚠️ | 📖 V4 (literal + integer root-const arithmetic works; broader const-eval remains) |
 | `dyn` object-safety rules | ❌ | 📖 V4 |
-| FFI safety (FFI-safe types only in extern) | ⚠️ | 📖 V4 | V4 now rejects bare `word` / `int` extern boundaries and non-FFI-safe `@layout(...)` fields; trust-me wrappers, variadics, and deeper callback rules still expand |
+| FFI safety (FFI-safe types only in extern) | ⚠️ | 📖 V4 | V4 now rejects bare `word` / `int` extern boundaries and non-FFI-safe `@layout(...)` fields; extern variadics now validate final-slot/ABI contracts, while trust-me wrappers, variadic promotion rules, and deeper callback rules still expand |
 | Layout annotations validation | ❌ | 📖 V4 |
 | Visibility rules enforcement | ⚠️ | 📖 V4 |
 
@@ -548,16 +548,16 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 ### §16 SYSTEM BOUNDARIES — FFI ([freak-full-bible.md:2198-2390](freak-full-bible.md))
 
-**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, `link="..."` library metadata, `@link_name("...")` symbol overrides, and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation now exist. Raw pointer ops, variadics, and deeper ABI/runtime guarantees are still V4 work.
+**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, `link="..."` library metadata, `@link_name("...")` symbol overrides, final extern-only `args: ...` variadics, and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation now exist. Raw pointer ops, variadic promotion/deeper callback rules, and deeper ABI/runtime guarantees are still V4 work.
 
 | Contract | Status | Verdict |
 |---|---|---|
 | FFI-safe types only in extern | ⚠️ | 📖 V4 | V4 rejects bare `word`/`int` extern signatures and non-FFI-safe layout fields, but the full section-16 surface is not complete |
 | `extern [C]` (and other ABIs) | ⚠️ | partial — `tests/extern_test.fk` and `tests/extern_llvm_test.fk` (failing in v1 parser per Phase-A) |
-| Calling conventions: cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, system | ⚠️ | 📖 V4 | V4 carries and validates the core ABI list plus duplicate/unknown-option diagnostics; variadics and callback rules still expand |
+| Calling conventions: cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, system | ⚠️ | 📖 V4 | V4 carries and validates the core ABI list plus duplicate/unknown-option diagnostics; final extern variadics now enforce C-compatible ABI selection, while callback rules still expand |
 | `link="name"` library binding | ⚠️ | 📖 V4 | V4 carries library metadata through TY/codegen/query/LSP and diagnoses malformed or duplicate link entries |
 | `@link_name("symbol")` | ⚠️ | 📖 V4 | V4 carries per-member symbol overrides through TY/codegen/query/LSP and diagnoses malformed or duplicate attributes |
-| Variadic `args: ...` | ❌ | 📖 V4 |
+| Variadic `args: ...` | ⚠️ | 📖 V4 | V4 now supports final extern-only `args: ...` signatures through TY/MIR/LLVM plus query/LSP/snapshot diagnostics; vararg promotion and deeper runtime guarantees still expand |
 | `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)` | ⚠️ | 📖 V4 | V4 parses and carries all three through TY queries; it validates packed positivity, transparent single-field rules, and field-level FFI safety, but deeper ABI-stability checks still expand |
 | `@repr(u32)` discriminant size | ❌ | 📖 V4 |
 | Raw pointer ops (`*ptr`, `.read()`, `.offset()`, `.cast<U>()`, `.is_null()`) | ❌ | 📖 V4 |
