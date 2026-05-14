@@ -11,6 +11,7 @@ pilot v4_codegen_llvm_files = 0
 pilot v4_codegen_llvm_mirs = 0
 pilot v4_codegen_llvm_decl_names = 0
 pilot v4_codegen_llvm_decl_symbols = 0
+pilot v4_codegen_llvm_decl_links = 0
 pilot v4_codegen_llvm_decl_abis = 0
 pilot v4_codegen_llvm_decl_ccs = 0
 pilot v4_codegen_llvm_decl_returns = 0
@@ -19,6 +20,7 @@ pilot v4_codegen_llvm_decl_lines = 0
 pilot v4_codegen_llvm_call_bodies = 0
 pilot v4_codegen_llvm_call_names = 0
 pilot v4_codegen_llvm_call_symbols = 0
+pilot v4_codegen_llvm_call_links = 0
 pilot v4_codegen_llvm_call_abis = 0
 pilot v4_codegen_llvm_call_ccs = 0
 pilot v4_codegen_llvm_call_returns = 0
@@ -36,6 +38,7 @@ task v4_codegen_llvm_init() -> void {
         v4_codegen_llvm_mirs = array_new()
         v4_codegen_llvm_decl_names = array_new()
         v4_codegen_llvm_decl_symbols = array_new()
+        v4_codegen_llvm_decl_links = array_new()
         v4_codegen_llvm_decl_abis = array_new()
         v4_codegen_llvm_decl_ccs = array_new()
         v4_codegen_llvm_decl_returns = array_new()
@@ -44,6 +47,7 @@ task v4_codegen_llvm_init() -> void {
         v4_codegen_llvm_call_bodies = array_new()
         v4_codegen_llvm_call_names = array_new()
         v4_codegen_llvm_call_symbols = array_new()
+        v4_codegen_llvm_call_links = array_new()
         v4_codegen_llvm_call_abis = array_new()
         v4_codegen_llvm_call_ccs = array_new()
         v4_codegen_llvm_call_returns = array_new()
@@ -64,6 +68,7 @@ task v4_codegen_llvm_file_new(file_id: int, mir_id: int) -> int {
     array_push(v4_codegen_llvm_mirs, word_from_int(mir_id))
     array_push(v4_codegen_llvm_decl_names, word_from_int(array_new()))
     array_push(v4_codegen_llvm_decl_symbols, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_decl_links, word_from_int(array_new()))
     array_push(v4_codegen_llvm_decl_abis, word_from_int(array_new()))
     array_push(v4_codegen_llvm_decl_ccs, word_from_int(array_new()))
     array_push(v4_codegen_llvm_decl_returns, word_from_int(array_new()))
@@ -72,6 +77,7 @@ task v4_codegen_llvm_file_new(file_id: int, mir_id: int) -> int {
     array_push(v4_codegen_llvm_call_bodies, word_from_int(array_new()))
     array_push(v4_codegen_llvm_call_names, word_from_int(array_new()))
     array_push(v4_codegen_llvm_call_symbols, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_call_links, word_from_int(array_new()))
     array_push(v4_codegen_llvm_call_abis, word_from_int(array_new()))
     array_push(v4_codegen_llvm_call_ccs, word_from_int(array_new()))
     array_push(v4_codegen_llvm_call_returns, word_from_int(array_new()))
@@ -90,6 +96,10 @@ task v4_codegen_llvm_decl_names_handle(codegen_id: int) -> int {
 
 task v4_codegen_llvm_decl_symbols_handle(codegen_id: int) -> int {
     give back word_to_int(array_get(v4_codegen_llvm_decl_symbols, codegen_id))
+}
+
+task v4_codegen_llvm_decl_links_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_decl_links, codegen_id))
 }
 
 task v4_codegen_llvm_decl_abis_handle(codegen_id: int) -> int {
@@ -122,6 +132,10 @@ task v4_codegen_llvm_call_names_handle(codegen_id: int) -> int {
 
 task v4_codegen_llvm_call_symbols_handle(codegen_id: int) -> int {
     give back word_to_int(array_get(v4_codegen_llvm_call_symbols, codegen_id))
+}
+
+task v4_codegen_llvm_call_links_handle(codegen_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_call_links, codegen_id))
 }
 
 task v4_codegen_llvm_call_abis_handle(codegen_id: int) -> int {
@@ -184,6 +198,10 @@ task v4_codegen_llvm_decl_symbol(codegen_id: int, decl_id: int) -> word {
     give back array_get(v4_codegen_llvm_decl_symbols_handle(codegen_id), decl_id)
 }
 
+task v4_codegen_llvm_decl_link(codegen_id: int, decl_id: int) -> word {
+    give back array_get(v4_codegen_llvm_decl_links_handle(codegen_id), decl_id)
+}
+
 task v4_codegen_llvm_decl_abi(codegen_id: int, decl_id: int) -> word {
     give back array_get(v4_codegen_llvm_decl_abis_handle(codegen_id), decl_id)
 }
@@ -214,6 +232,10 @@ task v4_codegen_llvm_call_name(codegen_id: int, call_id: int) -> word {
 
 task v4_codegen_llvm_call_symbol(codegen_id: int, call_id: int) -> word {
     give back array_get(v4_codegen_llvm_call_symbols_handle(codegen_id), call_id)
+}
+
+task v4_codegen_llvm_call_link(codegen_id: int, call_id: int) -> word {
+    give back array_get(v4_codegen_llvm_call_links_handle(codegen_id), call_id)
 }
 
 task v4_codegen_llvm_call_abi(codegen_id: int, call_id: int) -> word {
@@ -256,9 +278,10 @@ task v4_codegen_llvm_add_diag(codegen_id: int, diag: word) -> void {
     array_push(v4_codegen_llvm_diags_handle(codegen_id), diag)
 }
 
-task v4_codegen_llvm_add_decl(codegen_id: int, name: word, symbol: word, abi: word, cc: word, return_ty: word, params: word, line: word) -> void {
+task v4_codegen_llvm_add_decl(codegen_id: int, name: word, symbol: word, link_name: word, abi: word, cc: word, return_ty: word, params: word, line: word) -> void {
     array_push(v4_codegen_llvm_decl_names_handle(codegen_id), name)
     array_push(v4_codegen_llvm_decl_symbols_handle(codegen_id), symbol)
+    array_push(v4_codegen_llvm_decl_links_handle(codegen_id), link_name)
     array_push(v4_codegen_llvm_decl_abis_handle(codegen_id), abi)
     array_push(v4_codegen_llvm_decl_ccs_handle(codegen_id), cc)
     array_push(v4_codegen_llvm_decl_returns_handle(codegen_id), return_ty)
@@ -266,10 +289,11 @@ task v4_codegen_llvm_add_decl(codegen_id: int, name: word, symbol: word, abi: wo
     array_push(v4_codegen_llvm_decl_lines_handle(codegen_id), line)
 }
 
-task v4_codegen_llvm_add_call(codegen_id: int, body_name: word, callee_name: word, symbol: word, abi: word, cc: word, return_ty: word, expr_text: word, line: word) -> void {
+task v4_codegen_llvm_add_call(codegen_id: int, body_name: word, callee_name: word, symbol: word, link_name: word, abi: word, cc: word, return_ty: word, expr_text: word, line: word) -> void {
     array_push(v4_codegen_llvm_call_bodies_handle(codegen_id), body_name)
     array_push(v4_codegen_llvm_call_names_handle(codegen_id), callee_name)
     array_push(v4_codegen_llvm_call_symbols_handle(codegen_id), symbol)
+    array_push(v4_codegen_llvm_call_links_handle(codegen_id), link_name)
     array_push(v4_codegen_llvm_call_abis_handle(codegen_id), abi)
     array_push(v4_codegen_llvm_call_ccs_handle(codegen_id), cc)
     array_push(v4_codegen_llvm_call_returns_handle(codegen_id), return_ty)
@@ -497,6 +521,14 @@ task v4_codegen_llvm_signature_is_callable(ty_id: int, sig_id: int) -> bool {
     give back false
 }
 
+task v4_codegen_llvm_signature_symbol_name(ty_id: int, sig_id: int) -> word {
+    give back v4_ty_signature_symbol_name(ty_id, sig_id)
+}
+
+task v4_codegen_llvm_signature_link_name(ty_id: int, sig_id: int) -> word {
+    give back v4_ty_signature_link_library(ty_id, sig_id)
+}
+
 task v4_codegen_llvm_signature_line(mir_id: int, ty_id: int, sig_id: int) -> word {
     pilot line_kind = "declare"
     if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_task_sig {
@@ -510,7 +542,7 @@ task v4_codegen_llvm_signature_line(mir_id: int, ty_id: int, sig_id: int) -> wor
     pilot cc = v4_codegen_llvm_calling_convention(abi)
     pilot return_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_id))
     pilot params = v4_codegen_llvm_signature_params(ty_id, sig_id)
-    pilot symbol = v4_codegen_llvm_symbol(v4_ty_signature_name(ty_id, sig_id))
+    pilot symbol = v4_codegen_llvm_symbol(v4_codegen_llvm_signature_symbol_name(ty_id, sig_id))
     give back line_kind + " " + cc + " " + return_ty + " " + symbol + "(" + params + ")"
 }
 
@@ -649,7 +681,13 @@ task v4_codegen_llvm_call_instruction(mir_id: int, body_id: int, rvalue_id: int,
     pilot call_abi = v4_mir_rvalue_abi(mir_id, body_id, rvalue_id)
     pilot call_cc = v4_codegen_llvm_calling_convention(call_abi)
     pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
-    pilot call_symbol = v4_codegen_llvm_symbol(call_name)
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot call_sig = v4_mir_signature_id_for_name(mir_id, call_name)
+    pilot call_symbol_name = call_name
+    if call_sig >= 0 {
+        call_symbol_name = v4_codegen_llvm_signature_symbol_name(ty_id, call_sig)
+    }
+    pilot call_symbol = v4_codegen_llvm_symbol(call_symbol_name)
     pilot call_args = v4_codegen_llvm_call_args(mir_id, body_id, rvalue_id)
     pilot call_text = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")"
     if target == "" or call_return == "void" {
@@ -752,9 +790,10 @@ task v4_codegen_llvm_lower_signatures(codegen_id: int, mir_id: int, ty_id: int) 
             pilot sig_cc = v4_codegen_llvm_calling_convention(sig_abi)
             pilot sig_return = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_idx))
             pilot sig_params = v4_codegen_llvm_signature_params(ty_id, sig_idx)
-            pilot sig_symbol = v4_codegen_llvm_symbol(sig_name)
+            pilot sig_symbol = v4_codegen_llvm_symbol(v4_codegen_llvm_signature_symbol_name(ty_id, sig_idx))
+            pilot sig_link = v4_codegen_llvm_signature_link_name(ty_id, sig_idx)
             pilot sig_line = v4_codegen_llvm_signature_line(mir_id, ty_id, sig_idx)
-            v4_codegen_llvm_add_decl(codegen_id, sig_name, sig_symbol, sig_abi, sig_cc, sig_return, sig_params, sig_line)
+            v4_codegen_llvm_add_decl(codegen_id, sig_name, sig_symbol, sig_link, sig_abi, sig_cc, sig_return, sig_params, sig_line)
         }
         sig_idx += 1
     }
@@ -773,11 +812,18 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                 pilot call_abi = v4_mir_rvalue_abi(mir_id, body_idx, rvalue_idx)
                 pilot call_cc = v4_codegen_llvm_calling_convention(call_abi)
                 pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_idx, rvalue_idx))
-                pilot call_symbol = v4_codegen_llvm_symbol(call_name)
+                pilot call_sig = v4_mir_signature_id_for_name(mir_id, call_name)
+                pilot call_symbol_name = call_name
+                pilot call_link = ""
+                if call_sig >= 0 {
+                    call_symbol_name = v4_codegen_llvm_signature_symbol_name(v4_mir_ty_id(mir_id), call_sig)
+                    call_link = v4_codegen_llvm_signature_link_name(v4_mir_ty_id(mir_id), call_sig)
+                }
+                pilot call_symbol = v4_codegen_llvm_symbol(call_symbol_name)
                 pilot call_expr = v4_mir_rvalue_text(mir_id, body_idx, rvalue_idx)
                 pilot call_args = v4_codegen_llvm_call_args(mir_id, body_idx, rvalue_idx)
                 pilot call_line = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")"
-                v4_codegen_llvm_add_call(codegen_id, body_name, call_name, call_symbol, call_abi, call_cc, call_return, call_expr, call_line)
+                v4_codegen_llvm_add_call(codegen_id, body_name, call_name, call_symbol, call_link, call_abi, call_cc, call_return, call_expr, call_line)
             }
             rvalue_idx += 1
         }

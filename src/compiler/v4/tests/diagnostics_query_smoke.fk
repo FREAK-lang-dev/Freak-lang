@@ -123,6 +123,18 @@ task v4_extern_query_diag_source() -> word {
     give back src
 }
 
+task v4_extern_link_query_diag_source() -> word {
+    pilot src = "extern [C, link=msvcrt, link=\"kernel32\", fastcall, stdcall, mystery] {\n"
+    src = src + "    @link_name(puts)\n"
+    src = src + "    @link_name(\"puts_again\")\n"
+    src = src + "    task bad_puts(text: *const tiny) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_diag_query_source = "task main() -> int {\n"
 v4_diag_query_source = v4_diag_query_source + "    pilot text = \"hi\"\n"
 v4_diag_query_source = v4_diag_query_source + "    pilot bad = text - 1\n"
@@ -140,6 +152,7 @@ pilot v4_const_diag_query_id = v4_diagnostics_text_cached("const_query.fk", v4_c
 pilot v4_const_task_diag_query_id = v4_diagnostics_text_cached("const_task_query.fk", v4_const_task_query_diag_source())
 pilot v4_layout_diag_query_id = v4_diagnostics_text_cached("layout_query.fk", v4_layout_query_diag_source())
 pilot v4_extern_diag_query_id = v4_diagnostics_text_cached("extern_query.fk", v4_extern_query_diag_source())
+pilot v4_extern_link_diag_query_id = v4_diagnostics_text_cached("extern_link_query.fk", v4_extern_link_query_diag_source())
 
 say v4_diagnostics_summary(v4_diag_query_id)
 say "query-diag-count=" + word_from_int(v4_diagnostics_count(v4_diag_query_id))
@@ -208,4 +221,11 @@ say "extern-query-diag2-message=" + v4_diag_message(v4_diagnostics_diag(v4_exter
 say "extern-query-diag2-span=" + v4_diag_span(v4_diagnostics_diag(v4_extern_diag_query_id, 2))
 say "extern-query-diag3-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_diag_query_id, 3))
 say "extern-query-diag3-span=" + v4_diag_span(v4_diagnostics_diag(v4_extern_diag_query_id, 3))
+say "extern-link-query-diag-count=" + word_from_int(v4_diagnostics_count(v4_extern_link_diag_query_id))
+say "extern-link-query-diag0-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_link_diag_query_id, 0))
+say "extern-link-query-diag1-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_link_diag_query_id, 1))
+say "extern-link-query-diag2-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_link_diag_query_id, 2))
+say "extern-link-query-diag3-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_link_diag_query_id, 3))
+say "extern-link-query-diag4-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_link_diag_query_id, 4))
+say "extern-link-query-diag5-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_link_diag_query_id, 5))
 say "syntax-summary=" + v4_check_syntax_text("diag_query.fk", v4_diag_query_source)

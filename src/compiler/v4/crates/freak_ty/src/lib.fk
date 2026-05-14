@@ -1160,6 +1160,175 @@ task v4_ty_layout_option_value(layout_text: word) -> word {
     give back v4_ty_trim_spaces(v4_slice(option_text, eq_pos + 1, option_text.length()))
 }
 
+task v4_ty_strip_string_quotes(value: word) -> word {
+    pilot text = v4_ty_trim_spaces(value)
+    if text.length() >= 2 and text.char_at(0) == "\"" and text.char_at(text.length() - 1) == "\"" {
+        give back text.substring(1, text.length() - 1)
+    }
+    give back ""
+}
+
+task v4_ty_extern_spec_arg_count(spec_text: word) -> int {
+    give back v4_ty_layout_arg_count(spec_text)
+}
+
+task v4_ty_extern_spec_arg(spec_text: word, arg_id: int) -> word {
+    give back v4_ty_layout_arg(spec_text, arg_id)
+}
+
+task v4_ty_extern_spec_option_name(spec_text: word) -> word {
+    give back v4_ty_layout_option_name(spec_text)
+}
+
+task v4_ty_extern_spec_option_value(spec_text: word) -> word {
+    give back v4_ty_layout_option_value(spec_text)
+}
+
+task v4_ty_extern_spec_open_token(ty_id: int, sig_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back 0 - 1
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
+    give back v4_parse_extern_abi_open_token(tree_id, parse_node)
+}
+
+task v4_ty_extern_spec_close_token(ty_id: int, sig_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back 0 - 1
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
+    give back v4_parse_extern_abi_close_token(tree_id, parse_node)
+}
+
+task v4_ty_extern_spec_item_start_token(ty_id: int, sig_id: int, item_id: int) -> int {
+    if item_id < 0 {
+        give back 0 - 1
+    }
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_extern_spec_open_token(ty_id, sig_id)
+    pilot close_token = v4_ty_extern_spec_close_token(ty_id, sig_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back 0 - 1
+    }
+
+    pilot current = 0
+    pilot depth = 0
+    pilot segment_start = v4_ty_skip_trivia(stream_id, open_token + 1)
+    pilot idx = open_token + 1
+    repeat until idx >= close_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if depth == 0 and val == "," {
+                if current == item_id {
+                    give back segment_start
+                }
+                current += 1
+                segment_start = v4_ty_skip_trivia(stream_id, idx + 1)
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, val)
+            }
+        }
+        idx += 1
+    }
+    if current == item_id {
+        give back segment_start
+    }
+    give back 0 - 1
+}
+
+task v4_ty_extern_spec_item_end_token(ty_id: int, sig_id: int, item_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_extern_spec_item_start_token(ty_id, sig_id, item_id)
+    pilot close_token = v4_ty_extern_spec_close_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or close_token <= start_token {
+        give back 0 - 1
+    }
+
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= close_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if depth == 0 and val == "," {
+                give back idx
+            }
+            depth = v4_ty_type_depth_after_char(depth, val)
+        }
+        idx += 1
+    }
+    give back close_token
+}
+
+task v4_ty_extern_spec_item_value_token(ty_id: int, sig_id: int, item_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_extern_spec_item_start_token(ty_id, sig_id, item_id)
+    pilot end_token = v4_ty_extern_spec_item_end_token(ty_id, sig_id, item_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back 0 - 1
+    }
+
+    pilot depth = 0
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if depth == 0 and val == "=" {
+                give back v4_ty_skip_trivia(stream_id, idx + 1)
+            }
+            depth = v4_ty_type_depth_after_char(depth, val)
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_extern_spec_item_value_is_string(ty_id: int, sig_id: int, item_id: int) -> bool {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot value_token = v4_ty_extern_spec_item_value_token(ty_id, sig_id, item_id)
+    if stream_id < 0 or value_token < 0 {
+        give back false
+    }
+    give back v4_lex_token_type(stream_id, value_token) == v4_tok_string
+}
+
+task v4_ty_extern_member_attribute_arg_is_string(ty_id: int, sig_id: int, member_id: int, attr_id: int) -> bool {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    if hir_id < 0 or hir_item < 0 or stream_id < 0 {
+        give back false
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
+    pilot start_token = v4_parse_extern_member_attribute_start_token(tree_id, parse_node, member_id, attr_id)
+    pilot end_token = v4_parse_extern_member_attribute_end_token(tree_id, parse_node, member_id, attr_id)
+    if start_token < 0 or end_token <= start_token {
+        give back false
+    }
+    pilot name_token = v4_ty_skip_trivia(stream_id, start_token + 1)
+    pilot open_token = v4_ty_skip_trivia(stream_id, name_token + 1)
+    if open_token >= end_token or v4_lex_token_value(stream_id, open_token) != "(" {
+        give back false
+    }
+    pilot value_token = v4_ty_skip_trivia(stream_id, open_token + 1)
+    if value_token >= end_token {
+        give back false
+    }
+    give back v4_lex_token_type(stream_id, value_token) == v4_tok_string
+}
+
 task v4_ty_signature_layout_kind(ty_id: int, sig_id: int) -> word {
     pilot layout_text = v4_ty_signature_layout(ty_id, sig_id)
     pilot head = v4_ty_layout_arg(layout_text, 0)
@@ -1245,7 +1414,18 @@ task v4_ty_normalize_call_abi(abi: word) -> word {
     give back abi
 }
 
-task v4_ty_extern_abi(ty_id: int, sig_id: int) -> word {
+task v4_ty_is_language_abi(abi: word) -> bool {
+    give back abi == "C"
+}
+
+task v4_ty_is_calling_convention_abi(abi: word) -> bool {
+    if abi == "cdecl" or abi == "stdcall" or abi == "fastcall" { give back true }
+    if abi == "thiscall" or abi == "vectorcall" { give back true }
+    if abi == "win64" or abi == "sysv64" or abi == "system" { give back true }
+    give back false
+}
+
+task v4_ty_extern_spec_text(ty_id: int, sig_id: int) -> word {
     if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
         give back ""
     }
@@ -1254,7 +1434,52 @@ task v4_ty_extern_abi(ty_id: int, sig_id: int) -> word {
     if hir_id < 0 or hir_item < 0 {
         give back ""
     }
-    give back v4_ty_normalize_call_abi(v4_hir_extern_abi(hir_id, hir_item))
+    give back v4_ty_trim_spaces(v4_hir_extern_abi(hir_id, hir_item))
+}
+
+task v4_ty_extern_abi(ty_id: int, sig_id: int) -> word {
+    pilot spec_text = v4_ty_extern_spec_text(ty_id, sig_id)
+    if spec_text == "" {
+        give back ""
+    }
+
+    pilot item_idx = 0
+    pilot item_count = v4_ty_extern_spec_arg_count(spec_text)
+    pilot fallback = ""
+    repeat until item_idx >= item_count {
+        pilot item = v4_ty_extern_spec_arg(spec_text, item_idx)
+        pilot normalized = v4_ty_normalize_call_abi(item)
+        if v4_ty_is_calling_convention_abi(normalized) {
+            give back normalized
+        }
+        if v4_ty_is_language_abi(normalized) {
+            fallback = normalized
+        }
+        item_idx += 1
+    }
+    give back fallback
+}
+
+task v4_ty_extern_link_library(ty_id: int, sig_id: int) -> word {
+    pilot spec_text = v4_ty_extern_spec_text(ty_id, sig_id)
+    if spec_text == "" {
+        give back ""
+    }
+
+    pilot item_idx = 0
+    pilot item_count = v4_ty_extern_spec_arg_count(spec_text)
+    repeat until item_idx >= item_count {
+        pilot item = v4_ty_extern_spec_arg(spec_text, item_idx)
+        if v4_ty_extern_spec_option_name(item) == "link" {
+            pilot link_name = v4_ty_strip_string_quotes(v4_ty_extern_spec_option_value(item))
+            if link_name != "" {
+                give back link_name
+            }
+            give back v4_ty_extern_spec_option_value(item)
+        }
+        item_idx += 1
+    }
+    give back ""
 }
 
 task v4_ty_extern_member_count(ty_id: int, sig_id: int) -> int {
@@ -1279,6 +1504,61 @@ task v4_ty_extern_member_name(ty_id: int, sig_id: int, member_id: int) -> word {
         give back ""
     }
     give back v4_hir_extern_member_name(hir_id, hir_item, member_id)
+}
+
+task v4_ty_extern_member_attribute_count(ty_id: int, sig_id: int, member_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back 0
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back 0
+    }
+    give back v4_hir_extern_member_attribute_count(hir_id, hir_item, member_id)
+}
+
+task v4_ty_extern_member_attribute_name(ty_id: int, sig_id: int, member_id: int, attr_id: int) -> word {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back ""
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back ""
+    }
+    give back v4_hir_extern_member_attribute_name(hir_id, hir_item, member_id, attr_id)
+}
+
+task v4_ty_extern_member_attribute_arg(ty_id: int, sig_id: int, member_id: int, attr_id: int) -> word {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back ""
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back ""
+    }
+    give back v4_hir_extern_member_attribute_arg(hir_id, hir_item, member_id, attr_id)
+}
+
+task v4_ty_extern_member_attribute_span(ty_id: int, sig_id: int, member_id: int, attr_id: int) -> word {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back V4_NO_SPAN
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back V4_NO_SPAN
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
+    pilot start_token = v4_parse_extern_member_attribute_start_token(tree_id, parse_node, member_id, attr_id)
+    pilot end_token = v4_parse_extern_member_attribute_end_token(tree_id, parse_node, member_id, attr_id)
+    if start_token < 0 or end_token <= start_token {
+        give back V4_NO_SPAN
+    }
+    give back v4_ty_span_from_tokens(v4_ty_signature_stream_id(ty_id), start_token, end_token)
 }
 
 task v4_ty_extern_member_start_token(ty_id: int, sig_id: int, member_id: int) -> int {
@@ -1337,11 +1617,88 @@ task v4_ty_extern_member_display(ty_id: int, sig_id: int, member_id: int) -> wor
     give back "task " + member_name + "(...) -> " + v4_ty_extern_member_return_type(ty_id, sig_id, member_id)
 }
 
+task v4_ty_extern_member_link_name_raw(ty_id: int, sig_id: int, member_id: int) -> word {
+    pilot attr_idx = 0
+    pilot attr_count = v4_ty_extern_member_attribute_count(ty_id, sig_id, member_id)
+    repeat until attr_idx >= attr_count {
+        if v4_ty_extern_member_attribute_name(ty_id, sig_id, member_id, attr_idx) == "link_name" {
+            give back v4_ty_extern_member_attribute_arg(ty_id, sig_id, member_id, attr_idx)
+        }
+        attr_idx += 1
+    }
+    give back ""
+}
+
+task v4_ty_extern_member_link_name(ty_id: int, sig_id: int, member_id: int) -> word {
+    pilot link_name = v4_ty_strip_string_quotes(v4_ty_extern_member_link_name_raw(ty_id, sig_id, member_id))
+    if link_name != "" {
+        give back link_name
+    }
+    give back v4_ty_extern_member_link_name_raw(ty_id, sig_id, member_id)
+}
+
 task v4_ty_signature_extern_member_id(ty_id: int, sig_id: int) -> int {
     if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
         give back 0 - 1
     }
     give back v4_resolve_extern_member_id_from_def(v4_ty_signature_def(ty_id, sig_id))
+}
+
+task v4_ty_signature_extern_block_sig(ty_id: int, sig_id: int) -> int {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back 0 - 1
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_extern_sig {
+        give back sig_id
+    }
+    if v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 {
+        give back 0 - 1
+    }
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    pilot scan_idx = 0
+    pilot scan_count = v4_ty_signature_count(ty_id)
+    repeat until scan_idx >= scan_count {
+        if v4_ty_signature_kind(ty_id, scan_idx) == v4_ty_extern_sig and v4_ty_signature_hir_item(ty_id, scan_idx) == hir_item {
+            give back scan_idx
+        }
+        scan_idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_signature_link_library(ty_id: int, sig_id: int) -> word {
+    pilot extern_sig = v4_ty_signature_extern_block_sig(ty_id, sig_id)
+    if extern_sig < 0 {
+        give back ""
+    }
+    give back v4_ty_extern_link_library(ty_id, extern_sig)
+}
+
+task v4_ty_signature_link_name(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back ""
+    }
+    pilot member_id = v4_ty_signature_extern_member_id(ty_id, sig_id)
+    if member_id < 0 {
+        give back ""
+    }
+    pilot extern_sig = v4_ty_signature_extern_block_sig(ty_id, sig_id)
+    if extern_sig < 0 {
+        give back ""
+    }
+    pilot link_name = v4_ty_extern_member_link_name(ty_id, extern_sig, member_id)
+    if link_name != "" {
+        give back link_name
+    }
+    give back v4_ty_signature_name(ty_id, sig_id)
+}
+
+task v4_ty_signature_symbol_name(ty_id: int, sig_id: int) -> word {
+    pilot link_name = v4_ty_signature_link_name(ty_id, sig_id)
+    if link_name != "" {
+        give back link_name
+    }
+    give back v4_ty_signature_name(ty_id, sig_id)
 }
 
 task v4_ty_signature_call_abi(ty_id: int, sig_id: int) -> word {
@@ -1354,10 +1711,11 @@ task v4_ty_signature_call_abi(ty_id: int, sig_id: int) -> word {
         give back ""
     }
     if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_extern_sig {
-        give back v4_ty_normalize_call_abi(v4_hir_extern_abi(hir_id, hir_item))
+        give back v4_ty_extern_abi(ty_id, sig_id)
     }
-    if v4_ty_signature_extern_member_id(ty_id, sig_id) >= 0 {
-        give back v4_ty_normalize_call_abi(v4_hir_extern_abi(hir_id, hir_item))
+    pilot extern_sig = v4_ty_signature_extern_block_sig(ty_id, sig_id)
+    if extern_sig >= 0 {
+        give back v4_ty_extern_abi(ty_id, extern_sig)
     }
     give back ""
 }
@@ -4678,9 +5036,9 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, symbol_def
         give back "doctrine " + symbol_name + generic_text
     }
     if symbol_kind == v4_hir_extern {
-        pilot extern_abi = v4_ty_normalize_call_abi(v4_hir_extern_abi(hir_id, hir_item))
-        if extern_abi != "" {
-            give back "extern [" + extern_abi + "]"
+        pilot extern_spec = v4_ty_trim_spaces(v4_hir_extern_abi(hir_id, hir_item))
+        if extern_spec != "" {
+            give back "extern [" + extern_spec + "]"
         }
         give back "extern"
     }
@@ -5881,6 +6239,83 @@ task v4_ty_validate_layout_contracts(ty_id: int) -> void {
     }
 }
 
+task v4_ty_validate_extern_spec_contract(ty_id: int, sig_id: int) -> void {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig {
+        give back
+    }
+
+    pilot spec_text = v4_ty_extern_spec_text(ty_id, sig_id)
+    if spec_text == "" {
+        give back
+    }
+
+    pilot spec_span = v4_hir_item_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
+    pilot language_seen = false
+    pilot cc_seen = false
+    pilot link_seen = false
+    pilot item_idx = 0
+    pilot item_count = v4_ty_extern_spec_arg_count(spec_text)
+    repeat until item_idx >= item_count {
+        pilot item = v4_ty_extern_spec_arg(spec_text, item_idx)
+        pilot normalized = v4_ty_normalize_call_abi(item)
+        pilot option_name = v4_ty_extern_spec_option_name(item)
+        if item == "" {
+            item_idx += 1
+        } else if option_name == "link" {
+            if link_seen {
+                v4_ty_add_error_diag(ty_id, spec_span, "duplicate extern link option", "link appears more than once on this extern block")
+            }
+            link_seen = true
+            if v4_ty_extern_spec_item_value_is_string(ty_id, sig_id, item_idx) == false {
+                v4_ty_add_error_diag(ty_id, spec_span, "extern link needs string literal", "write link=\"m\" or another quoted native library name")
+            }
+            item_idx += 1
+        } else if item.starts_with("if") {
+            item_idx += 1
+        } else if v4_ty_is_language_abi(normalized) {
+            if language_seen {
+                v4_ty_add_error_diag(ty_id, spec_span, "duplicate extern language ABI", "C appears more than once in this extern block")
+            }
+            language_seen = true
+            item_idx += 1
+        } else if v4_ty_is_calling_convention_abi(normalized) {
+            if cc_seen {
+                v4_ty_add_error_diag(ty_id, spec_span, "duplicate extern calling convention", "choose one of cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, or system")
+            }
+            cc_seen = true
+            item_idx += 1
+        } else {
+            v4_ty_add_error_diag(ty_id, spec_span, "unknown extern ABI option", "unsupported extern option " + item)
+            item_idx += 1
+        }
+    }
+}
+
+task v4_ty_validate_extern_member_link_name_contract(ty_id: int, sig_id: int) -> void {
+    pilot member_id = v4_ty_signature_extern_member_id(ty_id, sig_id)
+    pilot extern_sig = v4_ty_signature_extern_block_sig(ty_id, sig_id)
+    if member_id < 0 or extern_sig < 0 {
+        give back
+    }
+
+    pilot seen_link = false
+    pilot attr_idx = 0
+    pilot attr_count = v4_ty_extern_member_attribute_count(ty_id, extern_sig, member_id)
+    repeat until attr_idx >= attr_count {
+        if v4_ty_extern_member_attribute_name(ty_id, extern_sig, member_id, attr_idx) == "link_name" {
+            pilot attr_span = v4_ty_extern_member_attribute_span(ty_id, extern_sig, member_id, attr_idx)
+            if seen_link {
+                v4_ty_add_error_diag(ty_id, attr_span, "duplicate link_name attribute", "keep a single @link_name(\"symbol\") on " + v4_ty_signature_name(ty_id, sig_id))
+            }
+            seen_link = true
+            if v4_ty_extern_member_attribute_arg_is_string(ty_id, extern_sig, member_id, attr_idx) == false {
+                v4_ty_add_error_diag(ty_id, attr_span, "link_name needs string literal", "write @link_name(\"puts\") or another quoted native symbol")
+            }
+        }
+        attr_idx += 1
+    }
+}
+
 task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void {
     if v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 {
         give back
@@ -5910,6 +6345,10 @@ task v4_ty_validate_extern_ffi_contracts(ty_id: int) -> void {
     pilot sig_id = 0
     pilot sig_count = v4_ty_signature_count(ty_id)
     repeat until sig_id >= sig_count {
+        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_extern_sig {
+            v4_ty_validate_extern_spec_contract(ty_id, sig_id)
+        }
+        v4_ty_validate_extern_member_link_name_contract(ty_id, sig_id)
         v4_ty_validate_extern_member_ffi_contract(ty_id, sig_id)
         sig_id += 1
     }

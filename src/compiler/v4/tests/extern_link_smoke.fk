@@ -1,0 +1,72 @@
+-- V4 extern link and link_name smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_extern_link_good_source() -> word {
+    pilot src = "extern [C, cdecl, link=\"msvcrt\"] {\n"
+    src = src + "    @link_name(\"puts\")\n"
+    src = src + "    task c_puts(text: *const tiny) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "extern [system, link=\"user32\", if target_os = \"windows\"] {\n"
+    src = src + "    @link_name(\"MessageBoxW\")\n"
+    src = src + "    task show_message(hwnd: *mut void, text: *const tiny, title: *const tiny, kind: std::ffi::c_uint) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_link_bad_source() -> word {
+    pilot src = "extern [C, link=msvcrt, link=\"kernel32\", fastcall, stdcall, mystery] {\n"
+    src = src + "    @link_name(puts)\n"
+    src = src + "    @link_name(\"puts_again\")\n"
+    src = src + "    task bad_puts(text: *const tiny) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_extern_link_good_text = v4_extern_link_good_source()
+pilot v4_extern_link_good_stream = v4_lex_text(0, v4_extern_link_good_text)
+pilot v4_extern_link_good_tree = v4_parse_stream(0, v4_extern_link_good_stream)
+pilot v4_extern_link_good_hir = v4_hir_lower_tree(0, v4_extern_link_good_tree)
+pilot v4_extern_link_good_resolve = v4_resolve_lower_hir(0, v4_extern_link_good_hir)
+pilot v4_extern_link_good_ty = v4_ty_lower_resolve(0, v4_extern_link_good_resolve)
+
+pilot v4_extern_link_block0_def = v4_resolve_def_for_name(v4_extern_link_good_resolve, "extern")
+pilot v4_extern_link_puts_def = v4_resolve_def_for_name(v4_extern_link_good_resolve, "c_puts")
+pilot v4_extern_link_message_def = v4_resolve_def_for_name(v4_extern_link_good_resolve, "show_message")
+pilot v4_extern_link_block0_sig = v4_ty_lookup_signature(v4_extern_link_good_ty, v4_extern_link_block0_def)
+pilot v4_extern_link_puts_sig = v4_ty_lookup_signature(v4_extern_link_good_ty, v4_extern_link_puts_def)
+pilot v4_extern_link_message_sig = v4_ty_lookup_signature(v4_extern_link_good_ty, v4_extern_link_message_def)
+
+say "extern-link-good-block0-abi-raw=" + v4_hir_extern_abi(v4_extern_link_good_hir, 0)
+say "extern-link-good-block0-display=" + v4_ty_signature_of(v4_extern_link_good_ty, v4_extern_link_block0_def)
+say "extern-link-good-block0-abi=" + v4_ty_extern_abi(v4_extern_link_good_ty, v4_extern_link_block0_sig)
+say "extern-link-good-block0-link=" + v4_ty_extern_link_library(v4_extern_link_good_ty, v4_extern_link_block0_sig)
+say "extern-link-good-block0-member0-attr-count=" + word_from_int(v4_ty_extern_member_attribute_count(v4_extern_link_good_ty, v4_extern_link_block0_sig, 0))
+say "extern-link-good-block0-member0-attr0-name=" + v4_ty_extern_member_attribute_name(v4_extern_link_good_ty, v4_extern_link_block0_sig, 0, 0)
+say "extern-link-good-block0-member0-attr0-arg=" + v4_ty_extern_member_attribute_arg(v4_extern_link_good_ty, v4_extern_link_block0_sig, 0, 0)
+say "extern-link-good-puts-link=" + v4_ty_signature_link_library(v4_extern_link_good_ty, v4_extern_link_puts_sig)
+say "extern-link-good-puts-symbol=" + v4_ty_signature_symbol_name(v4_extern_link_good_ty, v4_extern_link_puts_sig)
+say "extern-link-good-message-abi=" + v4_ty_signature_call_abi(v4_extern_link_good_ty, v4_extern_link_message_sig)
+say "extern-link-good-message-link=" + v4_ty_signature_link_library(v4_extern_link_good_ty, v4_extern_link_message_sig)
+say "extern-link-good-message-symbol=" + v4_ty_signature_symbol_name(v4_extern_link_good_ty, v4_extern_link_message_sig)
+say "extern-link-good-diag-count=" + word_from_int(v4_ty_diag_count(v4_extern_link_good_ty))
+
+pilot v4_extern_link_bad_text = v4_extern_link_bad_source()
+pilot v4_extern_link_bad_stream = v4_lex_text(1, v4_extern_link_bad_text)
+pilot v4_extern_link_bad_tree = v4_parse_stream(1, v4_extern_link_bad_stream)
+pilot v4_extern_link_bad_hir = v4_hir_lower_tree(1, v4_extern_link_bad_tree)
+pilot v4_extern_link_bad_resolve = v4_resolve_lower_hir(1, v4_extern_link_bad_hir)
+pilot v4_extern_link_bad_ty = v4_ty_lower_resolve(1, v4_extern_link_bad_resolve)
+
+say "extern-link-bad-diag-count=" + word_from_int(v4_ty_diag_count(v4_extern_link_bad_ty))
+say "extern-link-bad-diag0-message=" + v4_diag_message(v4_ty_diag(v4_extern_link_bad_ty, 0))
+say "extern-link-bad-diag1-message=" + v4_diag_message(v4_ty_diag(v4_extern_link_bad_ty, 1))
+say "extern-link-bad-diag2-message=" + v4_diag_message(v4_ty_diag(v4_extern_link_bad_ty, 2))
+say "extern-link-bad-diag3-message=" + v4_diag_message(v4_ty_diag(v4_extern_link_bad_ty, 3))
+say "extern-link-bad-diag4-message=" + v4_diag_message(v4_ty_diag(v4_extern_link_bad_ty, 4))
+say "extern-link-bad-diag5-message=" + v4_diag_message(v4_ty_diag(v4_extern_link_bad_ty, 5))

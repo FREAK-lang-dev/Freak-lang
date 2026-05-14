@@ -52,7 +52,9 @@ call-site arguments across task calls plus instance/associated method calls.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, and `@layout(transparent)`
 through TY queries with boundary-safety diagnostics for non-FFI extern types
-and non-FFI layout fields.
+and non-FFI layout fields. Extern blocks also carry `link="..."` library
+metadata and member-level `@link_name("...")` symbol overrides through TY,
+LLVM declaration/call plans, query diagnostics, snapshot restore, and LSP.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 

@@ -373,6 +373,39 @@ task v4_hir_extern_member_name(hir_id: int, item_id: int, member_id: int) -> wor
     give back v4_parse_extern_member_name(tree_id, v4_hir_item_parse_node(hir_id, item_id), member_id)
 }
 
+task v4_hir_extern_member_attribute_count(hir_id: int, item_id: int, member_id: int) -> int {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
+        give back 0
+    }
+    pilot tree_id = v4_hir_item_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back 0
+    }
+    give back v4_parse_extern_member_attribute_count(tree_id, v4_hir_item_parse_node(hir_id, item_id), member_id)
+}
+
+task v4_hir_extern_member_attribute_name(hir_id: int, item_id: int, member_id: int, attr_id: int) -> word {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
+        give back ""
+    }
+    pilot tree_id = v4_hir_item_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back ""
+    }
+    give back v4_parse_extern_member_attribute_name(tree_id, v4_hir_item_parse_node(hir_id, item_id), member_id, attr_id)
+}
+
+task v4_hir_extern_member_attribute_arg(hir_id: int, item_id: int, member_id: int, attr_id: int) -> word {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
+        give back ""
+    }
+    pilot tree_id = v4_hir_item_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back ""
+    }
+    give back v4_parse_extern_member_attribute_arg(tree_id, v4_hir_item_parse_node(hir_id, item_id), member_id, attr_id)
+}
+
 task v4_hir_diag(hir_id: int, diag_id: int) -> word {
     give back array_get(v4_hir_diags_handle(hir_id), diag_id)
 }

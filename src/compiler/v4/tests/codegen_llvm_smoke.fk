@@ -2,8 +2,9 @@
 -- Verification prepends the V4 crates before this file.
 
 task v4_codegen_llvm_source() -> word {
-    pilot src = "extern [C] {\n"
+    pilot src = "extern [C, cdecl, link=\"msvcrt\"] {\n"
     src = src + "    task probe(buf: *const tiny) -> std::ffi::c_int\n"
+    src = src + "    @link_name(\"native_tick\")\n"
     src = src + "    task c_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "extern [stdcall] {\n"
@@ -56,6 +57,7 @@ say "codegen-llvm-body-count=" + word_from_int(v4_codegen_llvm_body_count(v4_cod
 say "codegen-llvm-diag-count=" + word_from_int(v4_codegen_llvm_diag_count(v4_codegen_llvm_ir))
 
 say "codegen-llvm-puts-symbol=" + v4_codegen_llvm_decl_symbol(v4_codegen_llvm_ir, v4_codegen_llvm_puts_decl)
+say "codegen-llvm-puts-link=" + v4_codegen_llvm_decl_link(v4_codegen_llvm_ir, v4_codegen_llvm_puts_decl)
 say "codegen-llvm-puts-abi=" + v4_codegen_llvm_decl_abi(v4_codegen_llvm_ir, v4_codegen_llvm_puts_decl)
 say "codegen-llvm-puts-cc=" + v4_codegen_llvm_decl_cc(v4_codegen_llvm_ir, v4_codegen_llvm_puts_decl)
 say "codegen-llvm-puts-return=" + v4_codegen_llvm_decl_return(v4_codegen_llvm_ir, v4_codegen_llvm_puts_decl)
@@ -75,6 +77,7 @@ say "codegen-llvm-double-line=" + v4_codegen_llvm_decl_line(v4_codegen_llvm_ir, 
 say "codegen-llvm-main-line=" + v4_codegen_llvm_decl_line(v4_codegen_llvm_ir, v4_codegen_llvm_main_decl)
 
 say "codegen-llvm-call-puts-symbol=" + v4_codegen_llvm_call_symbol(v4_codegen_llvm_ir, v4_codegen_llvm_puts_call)
+say "codegen-llvm-call-puts-link=" + v4_codegen_llvm_call_link(v4_codegen_llvm_ir, v4_codegen_llvm_puts_call)
 say "codegen-llvm-call-puts-abi=" + v4_codegen_llvm_call_abi(v4_codegen_llvm_ir, v4_codegen_llvm_puts_call)
 say "codegen-llvm-call-puts-cc=" + v4_codegen_llvm_call_cc(v4_codegen_llvm_ir, v4_codegen_llvm_puts_call)
 say "codegen-llvm-call-puts-return=" + v4_codegen_llvm_call_return(v4_codegen_llvm_ir, v4_codegen_llvm_puts_call)

@@ -63,7 +63,7 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 12 | `tiny`, `uint`, `char`, `big`, `float32`, fixed `[T; N]` | Type checker knows int/num/word/bool/void only | 🔴 | 📖 V4 (add minimal aliases now) |
 | 13 | Audit commands in native CLI | Python-only; `build/freak.exe` doesn't dispatch | 🟡 | 🛠 wire native CLI |
 | 14 | Error voices (Meiya/Yuuko/Sagiri/Kasumi/Takeru/Mana/Hayase/Sumika/00-Unit) | Mostly generic errors | 🟡 | 📖 V4 |
-| 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 now carries `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, and `@layout(C)` / `packed` / `transparent` validation plus basic FFI-safety checks; raw pointer ops, link controls, and deeper ABI coverage still expand | 🟡 | 📖 V4 |
+| 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 now carries `extern` ABI metadata, `link="..."` / `@link_name("...")` metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, and `@layout(C)` / `packed` / `transparent` validation plus basic FFI-safety checks; raw pointer ops and deeper ABI coverage still expand | 🟡 | 📖 V4 |
 | 16 | Bible-promised stdlib (`std::thread`, `std::anime`, `std::narrative`, `std::test`) | Listed planned, no `.fk` files | 🔴 | 📖 confirm Planned |
 | 17 | `freak vibe`, `freak test` CLI subcommands | Not in native CLI | 🟡 | 📖 OR 🛠 (`freak test` shim possible) |
 | 18 | Test coverage gap (~50% of bible has zero tests) | See Appendix B | 🟡 | Out of scope; surfaced |
@@ -548,15 +548,15 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 ### §16 SYSTEM BOUNDARIES — FFI ([freak-full-bible.md:2198-2390](freak-full-bible.md))
 
-**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation now exist. Raw pointer ops, link-name controls, variadics, and deeper ABI/runtime guarantees are still V4 work.
+**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, `link="..."` library metadata, `@link_name("...")` symbol overrides, and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation now exist. Raw pointer ops, variadics, and deeper ABI/runtime guarantees are still V4 work.
 
 | Contract | Status | Verdict |
 |---|---|---|
 | FFI-safe types only in extern | ⚠️ | 📖 V4 | V4 rejects bare `word`/`int` extern signatures and non-FFI-safe layout fields, but the full section-16 surface is not complete |
 | `extern [C]` (and other ABIs) | ⚠️ | partial — `tests/extern_test.fk` and `tests/extern_llvm_test.fk` (failing in v1 parser per Phase-A) |
-| Calling conventions: cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, system | ❌ | 📖 V4 |
-| `link="name"` library binding | ❌ | 📖 V4 |
-| `@link_name("symbol")` | ❌ | 📖 V4 |
+| Calling conventions: cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, system | ⚠️ | 📖 V4 | V4 carries and validates the core ABI list plus duplicate/unknown-option diagnostics; variadics and callback rules still expand |
+| `link="name"` library binding | ⚠️ | 📖 V4 | V4 carries library metadata through TY/codegen/query/LSP and diagnoses malformed or duplicate link entries |
+| `@link_name("symbol")` | ⚠️ | 📖 V4 | V4 carries per-member symbol overrides through TY/codegen/query/LSP and diagnoses malformed or duplicate attributes |
 | Variadic `args: ...` | ❌ | 📖 V4 |
 | `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)` | ⚠️ | 📖 V4 | V4 parses and carries all three through TY queries; it validates packed positivity, transparent single-field rules, and field-level FFI safety, but deeper ABI-stability checks still expand |
 | `@repr(u32)` discriminant size | ❌ | 📖 V4 |

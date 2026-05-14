@@ -110,6 +110,18 @@ task v4_diagnostics_snapshot_extern_source() -> word {
     give back src
 }
 
+task v4_diagnostics_snapshot_extern_link_source() -> word {
+    pilot src = "extern [C, link=msvcrt, link=\"kernel32\", fastcall, stdcall, mystery] {\n"
+    src = src + "    @link_name(puts)\n"
+    src = src + "    @link_name(\"puts_again\")\n"
+    src = src + "    task bad_puts(text: *const tiny) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_diagnostics_snapshot_source = "task main() -> int {\n"
 v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    pilot text = \"hi\"\n"
 v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    pilot bad = text - 1\n"
@@ -127,6 +139,7 @@ pilot v4_diagnostics_snapshot_const_id = v4_diagnostics_text_cached("diagnostics
 pilot v4_diagnostics_snapshot_const_task_id = v4_diagnostics_text_cached("diagnostics-snapshot-const-task.fk", v4_diagnostics_snapshot_const_task_source())
 pilot v4_diagnostics_snapshot_layout_id = v4_diagnostics_text_cached("diagnostics-snapshot-layout.fk", v4_diagnostics_snapshot_layout_source())
 pilot v4_diagnostics_snapshot_extern_id = v4_diagnostics_text_cached("diagnostics-snapshot-extern.fk", v4_diagnostics_snapshot_extern_source())
+pilot v4_diagnostics_snapshot_extern_link_id = v4_diagnostics_text_cached("diagnostics-snapshot-extern-link.fk", v4_diagnostics_snapshot_extern_link_source())
 say v4_diagnostics_summary(v4_diagnostics_snapshot_id)
 say v4_diagnostics_snapshot_summary()
 
@@ -152,6 +165,8 @@ say "extern-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics
 say "extern-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 1))
 say "extern-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 2))
 say "extern-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 3))
+say "extern-link-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_link_id, 0))
+say "extern-link-diagnostic5-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_link_id, 5))
 say v4_parse_snapshot_restore(v4_parse_snapshot())
 say v4_hir_snapshot_restore(v4_hir_snapshot())
 say v4_resolve_snapshot_restore(v4_resolve_snapshot())
@@ -232,4 +247,12 @@ say "restored-extern-diagnostic2=" + v4_diag_message(v4_diagnostics_diag(v4_diag
 say "restored-extern-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 2))
 say "restored-extern-diagnostic3=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 3))
 say "restored-extern-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 3))
+say v4_driver_confirm_restored_document_text("diagnostics-snapshot-extern-link.fk", v4_diagnostics_snapshot_extern_link_source())
+pilot v4_diagnostics_extern_link_file = v4_source_find("diagnostics-snapshot-extern-link.fk")
+pilot v4_diagnostics_extern_link_fingerprint = v4_source_fingerprint(v4_diagnostics_extern_link_file)
+pilot v4_diagnostics_extern_link_restored_id = word_to_int(v4_query_get(v4_diagnostics_query_key("diagnostics-snapshot-extern-link.fk"), v4_diagnostics_extern_link_fingerprint))
+say "restored-extern-link-diagnostic0=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_link_restored_id, 0))
+say "restored-extern-link-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_link_restored_id, 0))
+say "restored-extern-link-diagnostic5=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_link_restored_id, 5))
+say "restored-extern-link-diagnostic5-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_link_restored_id, 5))
 say v4_driver_confirm_restored_document_text("diagnostics-snapshot.fk", "task changed() => 7\n")
