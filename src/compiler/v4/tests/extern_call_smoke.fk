@@ -17,11 +17,10 @@ task v4_extern_call_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> 
 
 task v4_extern_call_good_source() -> word {
     pilot src = "extern [C] {\n"
-    src = src + "    task puts(text: word) -> int\n"
-    src = src + "    task strlen(text: word) -> int\n"
+    src = src + "    task tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
-    src = src + "    pilot code = puts(\"hello\")\n"
+    src = src + "    pilot code = tick(7)\n"
     src = src + "    give back code\n"
     src = src + "}\n"
     give back src
@@ -29,20 +28,20 @@ task v4_extern_call_good_source() -> word {
 
 task v4_extern_call_bad_arity_source() -> word {
     pilot src = "extern [C] {\n"
-    src = src + "    task puts(text: word) -> int\n"
+    src = src + "    task tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
-    src = src + "    give back puts()\n"
+    src = src + "    give back tick()\n"
     src = src + "}\n"
     give back src
 }
 
 task v4_extern_call_bad_arg_source() -> word {
     pilot src = "extern [C] {\n"
-    src = src + "    task puts(text: word) -> int\n"
+    src = src + "    task tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
-    src = src + "    give back puts(7)\n"
+    src = src + "    give back tick(\"ace\")\n"
     src = src + "}\n"
     give back src
 }
@@ -56,7 +55,7 @@ pilot v4_extern_call_ty = v4_ty_lower_resolve(0, v4_extern_call_resolve)
 pilot v4_extern_call_mir = v4_mir_lower_ty(0, v4_extern_call_ty)
 
 pilot v4_extern_call_main_def = v4_resolve_def_for_name(v4_extern_call_resolve, "main")
-pilot v4_extern_call_puts_def = v4_resolve_def_for_name(v4_extern_call_resolve, "puts")
+pilot v4_extern_call_puts_def = v4_resolve_def_for_name(v4_extern_call_resolve, "tick")
 pilot v4_extern_call_block_def = v4_resolve_def_for_name(v4_extern_call_resolve, "extern")
 pilot v4_extern_call_puts_sig = v4_ty_lookup_signature(v4_extern_call_ty, v4_extern_call_puts_def)
 pilot v4_extern_call_main_body = v4_mir_lookup_body(v4_extern_call_mir, v4_extern_call_main_def)

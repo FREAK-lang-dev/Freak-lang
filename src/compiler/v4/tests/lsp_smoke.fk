@@ -87,16 +87,31 @@ task v4_lsp_const_task_diag_source() -> word {
 task v4_lsp_layout_diag_source() -> word {
     pilot src = "@layout(transparent)\n"
     src = src + "shape BrokenHandle {\n"
-    src = src + "    left: int\n"
-    src = src + "    right: int\n"
+    src = src + "    left: std::ffi::c_int\n"
+    src = src + "    right: std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "@layout(C, packed=0)\n"
     src = src + "shape ZeroPacked {\n"
-    src = src + "    value: int\n"
+    src = src + "    value: std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "@layout(packed=1)\n"
     src = src + "shape MissingC {\n"
-    src = src + "    value: int\n"
+    src = src + "    value: std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_lsp_extern_diag_source() -> word {
+    pilot src = "@layout(C)\n"
+    src = src + "shape BadHeader {\n"
+    src = src + "    text: word\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task puts(text: word) -> int\n"
+    src = src + "    task ship(header: BadHeader) -> void\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back 0\n"
@@ -337,3 +352,4 @@ say v4_lsp_diagnostics_text("lsp_lifetime.fk", v4_lsp_lifetime_diag_source())
 say v4_lsp_diagnostics_text("lsp_const_diag.fk", v4_lsp_const_diag_source())
 say v4_lsp_diagnostics_text("lsp_const_task_diag.fk", v4_lsp_const_task_diag_source())
 say v4_lsp_diagnostics_text("lsp_layout_diag.fk", v4_lsp_layout_diag_source())
+say v4_lsp_diagnostics_text("lsp_extern_diag.fk", v4_lsp_extern_diag_source())

@@ -242,6 +242,71 @@ task v4_ty_alias_target_type(ty_id: int, alias_name: word) -> word {
     give back v4_ty_unknown
 }
 
+task v4_ty_surface_ffi_alias_name(type_text: word) -> word {
+    if type_text.starts_with("std::ffi::") {
+        give back v4_slice(type_text, 10, type_text.length())
+    }
+    give back type_text
+}
+
+task v4_ty_normalize_ffi_alias_type(type_text: word) -> word {
+    pilot alias_name = v4_ty_surface_ffi_alias_name(type_text)
+    if alias_name == "c_int" or alias_name == "c_long" or alias_name == "c_isize" or alias_name == "isize" {
+        give back v4_ty_int
+    }
+    if alias_name == "c_uint" or alias_name == "c_ulong" or alias_name == "c_size" or alias_name == "usize" {
+        give back v4_ty_uint
+    }
+    if alias_name == "c_float" {
+        give back v4_ty_float32
+    }
+    if alias_name == "c_double" {
+        give back v4_ty_float
+    }
+    if alias_name == "c_char" or alias_name == "c_uchar" {
+        give back v4_ty_tiny
+    }
+    if alias_name == "c_bool" {
+        give back v4_ty_bool
+    }
+    if alias_name == "c_void" {
+        give back v4_ty_void
+    }
+    if alias_name == "wchar" {
+        give back v4_ty_char
+    }
+    give back ""
+}
+
+task v4_ty_is_surface_ffi_alias_type(type_text: word) -> bool {
+    give back v4_ty_normalize_ffi_alias_type(type_text) != ""
+}
+
+task v4_ty_raw_pointer_prefix(type_text: word) -> word {
+    if type_text.starts_with("*const") and type_text.length() > 6 {
+        give back "*const"
+    }
+    if type_text.starts_with("*mut") and type_text.length() > 4 {
+        give back "*mut"
+    }
+    if type_text.starts_with("*") and type_text.length() > 1 {
+        give back "*"
+    }
+    give back ""
+}
+
+task v4_ty_is_raw_pointer_type(type_text: word) -> bool {
+    give back v4_ty_raw_pointer_prefix(type_text) != ""
+}
+
+task v4_ty_raw_pointer_target_type(type_text: word) -> word {
+    pilot prefix = v4_ty_raw_pointer_prefix(type_text)
+    if prefix == "" {
+        give back v4_ty_unknown
+    }
+    give back v4_slice(type_text, prefix.length(), type_text.length())
+}
+
 task v4_ty_alias_cycle_seen_contains(seen_aliases: word, alias_name: word) -> bool {
     if seen_aliases == "" or alias_name == "" {
         give back false
@@ -286,6 +351,12 @@ task v4_ty_alias_cycle_chain_display(chain: word) -> word {
 task v4_ty_alias_cycle_path_in_type(ty_id: int, type_text: word, seen_aliases: word) -> word {
     if type_text == "" or type_text == v4_ty_unknown {
         give back ""
+    }
+    if v4_ty_is_surface_ffi_alias_type(type_text) {
+        give back ""
+    }
+    if v4_ty_is_raw_pointer_type(type_text) {
+        give back v4_ty_alias_cycle_path_in_type(ty_id, v4_ty_raw_pointer_target_type(type_text), seen_aliases)
     }
     if v4_ty_is_primitive_type(type_text) or v4_ty_is_lifetime_name(type_text) {
         give back ""
@@ -346,6 +417,20 @@ task v4_ty_canonical_type_depth_seen(ty_id: int, type_text: word, seen_aliases: 
     }
     if type_text == "" or type_text == v4_ty_unknown {
         give back type_text
+    }
+
+    pilot ffi_alias = v4_ty_normalize_ffi_alias_type(type_text)
+    if ffi_alias != "" {
+        give back ffi_alias
+    }
+
+    if v4_ty_is_raw_pointer_type(type_text) {
+        pilot pointer_prefix = v4_ty_raw_pointer_prefix(type_text)
+        pilot pointer_target = v4_ty_canonical_type_depth_seen(ty_id, v4_ty_raw_pointer_target_type(type_text), seen_aliases, depth + 1)
+        if pointer_target == "" or pointer_target == v4_ty_unknown {
+            give back v4_ty_unknown
+        }
+        give back pointer_prefix + pointer_target
     }
 
     if v4_ty_is_tuple_type(type_text) {
@@ -416,6 +501,9 @@ task v4_ty_is_copy_type(ty_name: word) -> bool {
         give back true
     }
     if ty_name == v4_ty_float or ty_name == v4_ty_float32 or ty_name == v4_ty_big or ty_name == v4_ty_bool or ty_name == v4_ty_char or ty_name == v4_ty_void {
+        give back true
+    }
+    if v4_ty_is_raw_pointer_type(ty_name) {
         give back true
     }
     give back false
@@ -611,6 +699,12 @@ task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
     }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
         give back true
+    }
+    if v4_ty_is_raw_pointer_type(expected_ty) and v4_ty_is_raw_pointer_type(actual_ty) {
+        if v4_ty_raw_pointer_prefix(expected_ty) != v4_ty_raw_pointer_prefix(actual_ty) {
+            give back false
+        }
+        give back v4_ty_types_compatible(v4_ty_raw_pointer_target_type(expected_ty), v4_ty_raw_pointer_target_type(actual_ty))
     }
     if v4_ty_is_generic_instance_type(expected_ty) and v4_ty_is_generic_instance_type(actual_ty) {
         if v4_ty_generic_base_name(expected_ty) != v4_ty_generic_base_name(actual_ty) {
@@ -1223,6 +1317,16 @@ task v4_ty_extern_member_return_type(ty_id: int, sig_id: int, member_id: int) ->
         give back v4_ty_unknown
     }
     give back v4_ty_canonical_type(ty_id, v4_ty_task_return_from_tokens(stream_id, start_token, end_token))
+}
+
+task v4_ty_extern_member_return_surface_type(ty_id: int, sig_id: int, member_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_extern_member_start_token(ty_id, sig_id, member_id)
+    pilot end_token = v4_ty_extern_member_end_token(ty_id, sig_id, member_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_extern_member_display(ty_id: int, sig_id: int, member_id: int) -> word {
@@ -2093,6 +2197,13 @@ task v4_ty_signature_param_type(ty_id: int, sig_id: int, param_id: int) -> word 
     pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
     pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
     give back v4_ty_canonical_type(ty_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
+}
+
+task v4_ty_signature_param_surface_type(ty_id: int, sig_id: int, param_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    give back v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_signature_param_type_span(ty_id: int, sig_id: int, param_id: int) -> word {
@@ -4135,6 +4246,12 @@ task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word,
     if v4_ty_is_numeric(pattern_ty) and v4_ty_is_numeric(actual_ty) {
         give back env
     }
+    if v4_ty_is_raw_pointer_type(pattern_ty) and v4_ty_is_raw_pointer_type(actual_ty) {
+        if v4_ty_raw_pointer_prefix(pattern_ty) != v4_ty_raw_pointer_prefix(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        give back v4_ty_match_type_pattern_env(ty_id, v4_ty_raw_pointer_target_type(pattern_ty), v4_ty_raw_pointer_target_type(actual_ty), env)
+    }
     if v4_ty_is_generic_instance_type(pattern_ty) and v4_ty_is_generic_instance_type(actual_ty) {
         if v4_ty_generic_base_name(pattern_ty) != v4_ty_generic_base_name(actual_ty) {
             give back v4_ty_generic_env_fail
@@ -4601,6 +4718,16 @@ task v4_ty_signature_return_type(ty_id: int, sig_id: int) -> word {
         i += 1
     }
     give back v4_ty_unknown
+}
+
+task v4_ty_signature_return_surface_type(ty_id: int, sig_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_shape_signature_id_for_name(ty_id: int, shape_name: word) -> int {
@@ -5265,6 +5392,26 @@ task v4_ty_shape_field_type(ty_id: int, sig_id: int, field_id: int) -> word {
     give back v4_ty_canonical_type(ty_id, field_ty)
 }
 
+task v4_ty_shape_field_surface_type(ty_id: int, sig_id: int, field_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_shape_field_segment_start(ty_id, sig_id, field_id)
+    pilot end_token = v4_ty_shape_field_segment_end(ty_id, sig_id, field_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back v4_ty_unknown
+    }
+
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back v4_ty_unknown
+    }
+    pilot type_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
+    pilot field_ty = v4_ty_type_text(stream_id, type_start, end_token)
+    if field_ty == "" {
+        give back v4_ty_unknown
+    }
+    give back field_ty
+}
+
 task v4_ty_shape_field_type_span(ty_id: int, sig_id: int, field_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_shape_field_segment_start(ty_id, sig_id, field_id)
@@ -5393,6 +5540,16 @@ task v4_ty_validate_signature_type_lifetimes(ty_id: int, sig_id: int, type_text:
 
 task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, type_text: word, context: word, context_span: word) -> void {
     if type_text == "" or type_text == v4_ty_unknown {
+        give back
+    }
+
+    if v4_ty_is_raw_pointer_type(type_text) {
+        pilot target_type = v4_ty_raw_pointer_target_type(type_text)
+        if v4_ty_is_lifetime_name(target_type) {
+            v4_ty_add_error_diag(ty_id, context_span, "Meiya lifetime debt: " + target_type + " cannot be used as a value type behind pointer in " + context, "")
+        } else {
+            v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, target_type, "pointer target of " + context, context_span)
+        }
         give back
     }
 
@@ -5569,6 +5726,90 @@ task v4_ty_validate_lifetime_contracts(ty_id: int) -> void {
     }
 }
 
+task v4_ty_ffi_seen_contains(seen_types: word, type_name: word) -> bool {
+    give back v4_ty_alias_cycle_seen_contains(seen_types, type_name)
+}
+
+task v4_ty_ffi_seen_append(seen_types: word, type_name: word) -> word {
+    give back v4_ty_alias_cycle_seen_append(seen_types, type_name)
+}
+
+task v4_ty_ffi_boundary_help(surface_type: word, context: word) -> word {
+    if surface_type == "word" {
+        give back context + " uses word; that is a FREAK string fat pointer, not a C char*. Use *const tiny or an explicit @layout(C) buffer."
+    }
+    if surface_type == "int" or surface_type == "uint" or surface_type == "bool" or surface_type == "num" or surface_type == "float" or surface_type == "float32" {
+        give back context + " uses " + surface_type + "; spell boundary scalars with std::ffi aliases like c_int, c_uint, c_float, c_double, or c_bool."
+    }
+    if surface_type == "void" or surface_type == "c_void" or surface_type == "std::ffi::c_void" {
+        give back context + " may use void only as an extern return or behind a raw pointer."
+    }
+    give back context + " must use std::ffi aliases, raw pointers, fixed arrays, or @layout(C) / @layout(transparent) shapes; got " + surface_type
+}
+
+task v4_ty_surface_ffi_safe_type_seen(ty_id: int, surface_type: word, allow_bare_void: bool, seen_types: word) -> bool {
+    if surface_type == "" or surface_type == v4_ty_unknown {
+        give back false
+    }
+
+    pilot normalized = v4_ty_normalize_ffi_alias_type(surface_type)
+    if normalized != "" {
+        if normalized == v4_ty_void {
+            give back allow_bare_void
+        }
+        give back true
+    }
+
+    if surface_type == v4_ty_void {
+        give back allow_bare_void
+    }
+
+    if v4_ty_is_raw_pointer_type(surface_type) {
+        pilot target_type = v4_ty_raw_pointer_target_type(surface_type)
+        give back target_type != "" and target_type != v4_ty_unknown
+    }
+
+    if v4_ty_is_fixed_array_type(surface_type) {
+        give back v4_ty_surface_ffi_safe_type_seen(ty_id, v4_ty_fixed_array_element_type(surface_type), false, seen_types)
+    }
+
+    if v4_ty_is_tuple_type(surface_type) {
+        give back false
+    }
+
+    if v4_ty_ffi_seen_contains(seen_types, surface_type) {
+        give back false
+    }
+
+    pilot alias_target = v4_ty_alias_target_type(ty_id, surface_type)
+    if alias_target != "" and alias_target != v4_ty_unknown {
+        give back v4_ty_surface_ffi_safe_type_seen(ty_id, alias_target, allow_bare_void, v4_ty_ffi_seen_append(seen_types, surface_type))
+    }
+
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, surface_type)
+    if shape_sig >= 0 {
+        if v4_ty_signature_layout_kind(ty_id, shape_sig) == "" {
+            give back false
+        }
+        pilot shape_name = v4_ty_signature_name(ty_id, shape_sig)
+        if v4_ty_ffi_seen_contains(seen_types, shape_name) {
+            give back false
+        }
+        pilot next_seen = v4_ty_ffi_seen_append(seen_types, shape_name)
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            if v4_ty_surface_ffi_safe_type_seen(ty_id, v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id), false, next_seen) == false {
+                give back false
+            }
+            field_id += 1
+        }
+        give back true
+    }
+
+    give back false
+}
+
 task v4_ty_validate_shape_layout_contract(ty_id: int, sig_id: int) -> void {
     pilot layout_text = v4_ty_signature_layout(ty_id, sig_id)
     if layout_text == "" {
@@ -5616,6 +5857,17 @@ task v4_ty_validate_shape_layout_contract(ty_id: int, sig_id: int) -> void {
             v4_ty_add_error_diag(ty_id, layout_span, "transparent layout needs one field", v4_ty_signature_name(ty_id, sig_id) + " exposes " + word_from_int(field_count) + " fields")
         }
     }
+
+    pilot field_id = 0
+    pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
+    repeat until field_id >= field_count {
+        pilot field_surface = v4_ty_shape_field_surface_type(ty_id, sig_id, field_id)
+        if v4_ty_surface_ffi_safe_type_seen(ty_id, field_surface, false, v4_ty_signature_name(ty_id, sig_id)) == false {
+            pilot field_name = v4_ty_shape_field_name(ty_id, sig_id, field_id)
+            v4_ty_add_error_diag(ty_id, v4_ty_shape_field_type_span(ty_id, sig_id, field_id), "layout field type is not FFI-safe", v4_ty_ffi_boundary_help(field_surface, v4_ty_signature_name(ty_id, sig_id) + "." + field_name))
+        }
+        field_id += 1
+    }
 }
 
 task v4_ty_validate_layout_contracts(ty_id: int) -> void {
@@ -5625,6 +5877,40 @@ task v4_ty_validate_layout_contracts(ty_id: int) -> void {
         if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_shape_sig {
             v4_ty_validate_shape_layout_contract(ty_id, sig_id)
         }
+        sig_id += 1
+    }
+}
+
+task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void {
+    if v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 {
+        give back
+    }
+
+    pilot member_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        pilot param_surface = v4_ty_signature_param_surface_type(ty_id, sig_id, param_id)
+        if v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, "") == false {
+            pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
+            v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", v4_ty_ffi_boundary_help(param_surface, member_name + "." + param_name))
+        }
+        param_id += 1
+    }
+
+    pilot return_surface = v4_ty_signature_return_surface_type(ty_id, sig_id)
+    if return_surface != "" and return_surface != v4_ty_unknown {
+        if v4_ty_surface_ffi_safe_type_seen(ty_id, return_surface, true, "") == false {
+            v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "extern return type is not FFI-safe", v4_ty_ffi_boundary_help(return_surface, member_name + " return"))
+        }
+    }
+}
+
+task v4_ty_validate_extern_ffi_contracts(ty_id: int) -> void {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        v4_ty_validate_extern_member_ffi_contract(ty_id, sig_id)
         sig_id += 1
     }
 }
@@ -5785,6 +6071,12 @@ task v4_ty_match_signature_type_env(ty_id: int, sig_id: int, expected_ty: word, 
     }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
         give back env
+    }
+    if v4_ty_is_raw_pointer_type(expected_ty) and v4_ty_is_raw_pointer_type(actual_ty) {
+        if v4_ty_raw_pointer_prefix(expected_ty) != v4_ty_raw_pointer_prefix(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        give back v4_ty_match_signature_type_env(ty_id, sig_id, v4_ty_raw_pointer_target_type(expected_ty), v4_ty_raw_pointer_target_type(actual_ty), env)
     }
     if v4_ty_is_generic_instance_type(expected_ty) and v4_ty_is_generic_instance_type(actual_ty) {
         if v4_ty_generic_base_name(expected_ty) != v4_ty_generic_base_name(actual_ty) {
@@ -6234,6 +6526,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
 
     v4_ty_validate_lifetime_contracts(ty_id)
     v4_ty_validate_layout_contracts(ty_id)
+    v4_ty_validate_extern_ffi_contracts(ty_id)
     v4_ty_validate_alias_cycles(ty_id)
     v4_ty_validate_const_cycles(ty_id)
     v4_ty_validate_const_initializers(ty_id)

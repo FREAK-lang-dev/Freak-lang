@@ -3,19 +3,20 @@
 
 task v4_codegen_llvm_source() -> word {
     pilot src = "extern [C] {\n"
-    src = src + "    task puts(text: word) -> int\n"
+    src = src + "    task probe(buf: *const tiny) -> std::ffi::c_int\n"
+    src = src + "    task c_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "extern [stdcall] {\n"
-    src = src + "    task win_tick(seed: int) -> int\n"
+    src = src + "    task win_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "extern [system] {\n"
-    src = src + "    task host_tick(seed: int) -> int\n"
+    src = src + "    task host_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "task util::math::double(value: int) -> int {\n"
     src = src + "    give back value + value\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
-    src = src + "    pilot a = puts(\"hello\")\n"
+    src = src + "    pilot a = c_tick(0)\n"
     src = src + "    pilot b = win_tick(1)\n"
     src = src + "    pilot c = host_tick(2)\n"
     src = src + "    pilot d = util::math::double(4)\n"
@@ -33,13 +34,14 @@ pilot v4_codegen_llvm_ty = v4_ty_lower_resolve(0, v4_codegen_llvm_resolve)
 pilot v4_codegen_llvm_mir = v4_mir_lower_ty(0, v4_codegen_llvm_ty)
 pilot v4_codegen_llvm_ir = v4_codegen_llvm_lower_mir(0, v4_codegen_llvm_mir)
 
-pilot v4_codegen_llvm_puts_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "puts")
+pilot v4_codegen_llvm_probe_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "probe")
+pilot v4_codegen_llvm_puts_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "c_tick")
 pilot v4_codegen_llvm_win_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "win_tick")
 pilot v4_codegen_llvm_host_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "host_tick")
 pilot v4_codegen_llvm_double_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "util::math::double")
 pilot v4_codegen_llvm_main_decl = v4_codegen_llvm_find_decl(v4_codegen_llvm_ir, "main")
 
-pilot v4_codegen_llvm_puts_call = v4_codegen_llvm_find_call(v4_codegen_llvm_ir, "main", "puts")
+pilot v4_codegen_llvm_puts_call = v4_codegen_llvm_find_call(v4_codegen_llvm_ir, "main", "c_tick")
 pilot v4_codegen_llvm_win_call = v4_codegen_llvm_find_call(v4_codegen_llvm_ir, "main", "win_tick")
 pilot v4_codegen_llvm_host_call = v4_codegen_llvm_find_call(v4_codegen_llvm_ir, "main", "host_tick")
 pilot v4_codegen_llvm_double_call = v4_codegen_llvm_find_call(v4_codegen_llvm_ir, "main", "util::math::double")

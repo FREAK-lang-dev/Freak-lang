@@ -91,16 +91,31 @@ task v4_const_task_query_diag_source() -> word {
 task v4_layout_query_diag_source() -> word {
     pilot src = "@layout(transparent)\n"
     src = src + "shape BrokenHandle {\n"
-    src = src + "    left: int\n"
-    src = src + "    right: int\n"
+    src = src + "    left: std::ffi::c_int\n"
+    src = src + "    right: std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "@layout(C, packed=0)\n"
     src = src + "shape ZeroPacked {\n"
-    src = src + "    value: int\n"
+    src = src + "    value: std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "@layout(packed=1)\n"
     src = src + "shape MissingC {\n"
-    src = src + "    value: int\n"
+    src = src + "    value: std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_query_diag_source() -> word {
+    pilot src = "@layout(C)\n"
+    src = src + "shape BadHeader {\n"
+    src = src + "    text: word\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task puts(text: word) -> int\n"
+    src = src + "    task ship(header: BadHeader) -> void\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back 0\n"
@@ -124,6 +139,7 @@ pilot v4_lifetime_diag_query_id = v4_diagnostics_text_cached("lifetime_query.fk"
 pilot v4_const_diag_query_id = v4_diagnostics_text_cached("const_query.fk", v4_const_query_diag_source())
 pilot v4_const_task_diag_query_id = v4_diagnostics_text_cached("const_task_query.fk", v4_const_task_query_diag_source())
 pilot v4_layout_diag_query_id = v4_diagnostics_text_cached("layout_query.fk", v4_layout_query_diag_source())
+pilot v4_extern_diag_query_id = v4_diagnostics_text_cached("extern_query.fk", v4_extern_query_diag_source())
 
 say v4_diagnostics_summary(v4_diag_query_id)
 say "query-diag-count=" + word_from_int(v4_diagnostics_count(v4_diag_query_id))
@@ -183,4 +199,13 @@ say "layout-query-diag1-message=" + v4_diag_message(v4_diagnostics_diag(v4_layou
 say "layout-query-diag1-span=" + v4_diag_span(v4_diagnostics_diag(v4_layout_diag_query_id, 1))
 say "layout-query-diag2-message=" + v4_diag_message(v4_diagnostics_diag(v4_layout_diag_query_id, 2))
 say "layout-query-diag2-span=" + v4_diag_span(v4_diagnostics_diag(v4_layout_diag_query_id, 2))
+say "extern-query-diag-count=" + word_from_int(v4_diagnostics_count(v4_extern_diag_query_id))
+say "extern-query-diag0-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_diag_query_id, 0))
+say "extern-query-diag0-span=" + v4_diag_span(v4_diagnostics_diag(v4_extern_diag_query_id, 0))
+say "extern-query-diag1-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_diag_query_id, 1))
+say "extern-query-diag1-span=" + v4_diag_span(v4_diagnostics_diag(v4_extern_diag_query_id, 1))
+say "extern-query-diag2-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_diag_query_id, 2))
+say "extern-query-diag2-span=" + v4_diag_span(v4_diagnostics_diag(v4_extern_diag_query_id, 2))
+say "extern-query-diag3-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_diag_query_id, 3))
+say "extern-query-diag3-span=" + v4_diag_span(v4_diagnostics_diag(v4_extern_diag_query_id, 3))
 say "syntax-summary=" + v4_check_syntax_text("diag_query.fk", v4_diag_query_source)

@@ -63,7 +63,7 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 12 | `tiny`, `uint`, `char`, `big`, `float32`, fixed `[T; N]` | Type checker knows int/num/word/bool/void only | 🔴 | 📖 V4 (add minimal aliases now) |
 | 13 | Audit commands in native CLI | Python-only; `build/freak.exe` doesn't dispatch | 🟡 | 🛠 wire native CLI |
 | 14 | Error voices (Meiya/Yuuko/Sagiri/Kasumi/Takeru/Mana/Hayase/Sumika/00-Unit) | Mostly generic errors | 🟡 | 📖 V4 |
-| 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 now carries `extern` ABI metadata plus `@layout(C)` / `packed` / `transparent` query validation; raw pointer ops and broader FFI safety still missing | 🟡 | 📖 V4 |
+| 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 now carries `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, and `@layout(C)` / `packed` / `transparent` validation plus basic FFI-safety checks; raw pointer ops, link controls, and deeper ABI coverage still expand | 🟡 | 📖 V4 |
 | 16 | Bible-promised stdlib (`std::thread`, `std::anime`, `std::narrative`, `std::test`) | Listed planned, no `.fk` files | 🔴 | 📖 confirm Planned |
 | 17 | `freak vibe`, `freak test` CLI subcommands | Not in native CLI | 🟡 | 📖 OR 🛠 (`freak test` shim possible) |
 | 18 | Test coverage gap (~50% of bible has zero tests) | See Appendix B | 🟡 | Out of scope; surfaced |
@@ -402,7 +402,7 @@ V4 (not implemented):
 | `std::narrative` (death flags, foreshadow logs) | ❌ | 📖 V4 | depends on §5 enforcement |
 | `std::test` (`test "name" { expect ... to be ... }`) | ❌ | 📖 V4 | currently `tests/suite/run_tests.py` Python harness |
 | `Shared::new`, `Weak::upgrade`, `size_of<T>()` | ❌ | 📖 V4 | depends on §4 |
-| `std::ffi` C boundary types | ❌ | 📖 V4 | depends on §16 |
+| `std::ffi` C boundary types | ⚠️ | 📖 V4 | V4 normalizes core scalar aliases (`c_int`, `c_size`, `c_double`, `wchar`, etc.) through TY/codegen; target-width fidelity and the broader std::ffi surface still expand |
 | `std::http` (HTTP/1.1 client) | ✅ | ✅ | [std/http.fk](std/http.fk) |
 | `std::json` | ✅ | ✅ | [std/json.fk](std/json.fk) |
 | `std::bytes` ByteBuffer | ✅ | ✅ | runtime |
@@ -466,7 +466,7 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 | Root-level `fixed pilot` cycle detection | ✅ | ✅ |
 | Fixed array length compile-time constants | ⚠️ | 📖 V4 (literal + integer root-const arithmetic works; broader const-eval remains) |
 | `dyn` object-safety rules | ❌ | 📖 V4 |
-| FFI safety (FFI-safe types only in extern) | ❌ | 📖 V4 |
+| FFI safety (FFI-safe types only in extern) | ⚠️ | 📖 V4 | V4 now rejects bare `word` / `int` extern boundaries and non-FFI-safe `@layout(...)` fields; trust-me wrappers, variadics, and deeper callback rules still expand |
 | Layout annotations validation | ❌ | 📖 V4 |
 | Visibility rules enforcement | ⚠️ | 📖 V4 |
 
@@ -548,17 +548,17 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 ### §16 SYSTEM BOUNDARIES — FFI ([freak-full-bible.md:2198-2390](freak-full-bible.md))
 
-**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` parsing-query-validation now exist, but raw pointers, link-name controls, variadics, and broader FFI safety are still V4 work.
+**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation now exist. Raw pointer ops, link-name controls, variadics, and deeper ABI/runtime guarantees are still V4 work.
 
 | Contract | Status | Verdict |
 |---|---|---|
-| FFI-safe types only in extern | ❌ | 📖 V4 |
+| FFI-safe types only in extern | ⚠️ | 📖 V4 | V4 rejects bare `word`/`int` extern signatures and non-FFI-safe layout fields, but the full section-16 surface is not complete |
 | `extern [C]` (and other ABIs) | ⚠️ | partial — `tests/extern_test.fk` and `tests/extern_llvm_test.fk` (failing in v1 parser per Phase-A) |
 | Calling conventions: cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, system | ❌ | 📖 V4 |
 | `link="name"` library binding | ❌ | 📖 V4 |
 | `@link_name("symbol")` | ❌ | 📖 V4 |
 | Variadic `args: ...` | ❌ | 📖 V4 |
-| `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)` | ⚠️ | 📖 V4 | V4 parses and carries all three through TY queries; it validates packed positivity and transparent single-field rules, but deeper FFI-stability checks still expand |
+| `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)` | ⚠️ | 📖 V4 | V4 parses and carries all three through TY queries; it validates packed positivity, transparent single-field rules, and field-level FFI safety, but deeper ABI-stability checks still expand |
 | `@repr(u32)` discriminant size | ❌ | 📖 V4 |
 | Raw pointer ops (`*ptr`, `.read()`, `.offset()`, `.cast<U>()`, `.is_null()`) | ❌ | 📖 V4 |
 | `std::os` platform modules | ❌ | 📖 V4 |

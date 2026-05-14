@@ -59,7 +59,7 @@ Pipeline (full compiler):
 | §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`. V4: `freak vibe`, `freak test`, `--voice=…`, `--clearance=…`, `--build-mode=…`, `-o output_path`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
 | §15 Cheatsheet | ⚠️ Partial | Reflects §1-§14 status. |
-| §16 FFI | ⚠️ Partial | V4 carries `extern` calling-convention metadata plus `@layout(C)`, `@layout(C, packed=N)`, and `@layout(transparent)` query-validation support. `@link_name`, raw pointer ops, `std::os` platform modules, error-code translation, and broader FFI safety remain V4 work. |
+| §16 FFI | ⚠️ Partial | V4 carries `extern` calling-convention metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, and `@layout(C)`, `@layout(C, packed=N)`, and `@layout(transparent)` query-validation support. `@link_name`, raw pointer ops, `std::os` platform modules, error-code translation, and deeper FFI/runtime guarantees remain V4 work. |
 | §17 Compiler Internals + IDE | 🔜 V4 | Panic infrastructure, tolerant parsing, AST node IDs, incremental parsing, autocomplete, IDE-mode error reporting are V4. V4 TY now diagnoses alias-cycle loops; the broader 00-Unit IDE/compiler-internals surface remains in progress. |
 
 ### 0.3 V4 roadmap and conformance
@@ -1479,7 +1479,7 @@ freak hangar clean         -- clear cache
 | `std::anime` (mood arithmetic, power checks) | 🔜 V4 (depends on §2 types) |
 | `std::narrative` (death-flag analysis, foreshadow logs) | 🔜 V4 (depends on §5 enforcement) |
 | `std::test` (`test "..." { expect ... }`) | 🔜 V4 (currently use `python tests/suite/run_tests.py`) |
-| `std::ffi`, `std::os`, `std::panic`, `std::regex`, `std::crypto`, `Shared<T>` / `Weak<T>` / `size_of<T>()` | 🔜 V4 |
+| `std::ffi`, `std::os`, `std::panic`, `std::regex`, `std::crypto`, `Shared<T>` / `Weak<T>` / `size_of<T>()` | ⚠️ Partial — V4 normalizes core `std::ffi` boundary aliases and uses them in extern/layout safety checks; the rest remain V4 |
 
 The prelude (always-available types and `say`/`ask`/`panic`) ships in v0.13.x
 but several primitive types listed below (`tiny`, `uint`, `char`, `big`,

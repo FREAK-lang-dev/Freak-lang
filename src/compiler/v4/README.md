@@ -49,8 +49,10 @@ diagnostics, and declared-initializer mismatch diagnostics, fixed-array
 compile-time lengths with root-constant integer arithmetic,
 generic doctrine bounds plus multi-bound method/editor enforcement, and named
 call-site arguments across task calls plus instance/associated method calls.
-The FFI/type lane also carries `@layout(C)`, `@layout(C, packed=N)`, and
-`@layout(transparent)` through TY queries with basic contract validation.
+The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
+carriage, `@layout(C)`, `@layout(C, packed=N)`, and `@layout(transparent)`
+through TY queries with boundary-safety diagnostics for non-FFI extern types
+and non-FFI layout fields.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 

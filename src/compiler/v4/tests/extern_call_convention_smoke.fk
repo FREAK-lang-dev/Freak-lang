@@ -17,13 +17,13 @@ task v4_callconv_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int
 
 task v4_callconv_source() -> word {
     pilot src = "extern [stdcall] {\n"
-    src = src + "    task win_tick(seed: int) -> int\n"
+    src = src + "    task win_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "extern [cdecl] {\n"
-    src = src + "    task c_tick(seed: int) -> int\n"
+    src = src + "    task c_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "extern [system] {\n"
-    src = src + "    task host_tick(seed: int) -> int\n"
+    src = src + "    task host_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    pilot a = win_tick(1)\n"

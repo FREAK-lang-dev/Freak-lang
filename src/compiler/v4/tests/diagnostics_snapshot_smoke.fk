@@ -78,16 +78,31 @@ task v4_diagnostics_snapshot_const_task_source() -> word {
 task v4_diagnostics_snapshot_layout_source() -> word {
     pilot src = "@layout(transparent)\n"
     src = src + "shape BrokenHandle {\n"
-    src = src + "    left: int\n"
-    src = src + "    right: int\n"
+    src = src + "    left: std::ffi::c_int\n"
+    src = src + "    right: std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "@layout(C, packed=0)\n"
     src = src + "shape ZeroPacked {\n"
-    src = src + "    value: int\n"
+    src = src + "    value: std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "@layout(packed=1)\n"
     src = src + "shape MissingC {\n"
-    src = src + "    value: int\n"
+    src = src + "    value: std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_diagnostics_snapshot_extern_source() -> word {
+    pilot src = "@layout(C)\n"
+    src = src + "shape BadHeader {\n"
+    src = src + "    text: word\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task puts(text: word) -> int\n"
+    src = src + "    task ship(header: BadHeader) -> void\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back 0\n"
@@ -111,6 +126,7 @@ pilot v4_diagnostics_snapshot_lifetime_id = v4_diagnostics_text_cached("diagnost
 pilot v4_diagnostics_snapshot_const_id = v4_diagnostics_text_cached("diagnostics-snapshot-const.fk", v4_diagnostics_snapshot_const_source())
 pilot v4_diagnostics_snapshot_const_task_id = v4_diagnostics_text_cached("diagnostics-snapshot-const-task.fk", v4_diagnostics_snapshot_const_task_source())
 pilot v4_diagnostics_snapshot_layout_id = v4_diagnostics_text_cached("diagnostics-snapshot-layout.fk", v4_diagnostics_snapshot_layout_source())
+pilot v4_diagnostics_snapshot_extern_id = v4_diagnostics_text_cached("diagnostics-snapshot-extern.fk", v4_diagnostics_snapshot_extern_source())
 say v4_diagnostics_summary(v4_diagnostics_snapshot_id)
 say v4_diagnostics_snapshot_summary()
 
@@ -132,6 +148,10 @@ say "const-task-diagnostic7-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnos
 say "layout-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_layout_id, 0))
 say "layout-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_layout_id, 1))
 say "layout-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_layout_id, 2))
+say "extern-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 0))
+say "extern-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 1))
+say "extern-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 2))
+say "extern-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 3))
 say v4_parse_snapshot_restore(v4_parse_snapshot())
 say v4_hir_snapshot_restore(v4_hir_snapshot())
 say v4_resolve_snapshot_restore(v4_resolve_snapshot())
@@ -200,4 +220,16 @@ say "restored-layout-diagnostic1=" + v4_diag_message(v4_diagnostics_diag(v4_diag
 say "restored-layout-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_layout_restored_id, 1))
 say "restored-layout-diagnostic2=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_layout_restored_id, 2))
 say "restored-layout-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_layout_restored_id, 2))
+say v4_driver_confirm_restored_document_text("diagnostics-snapshot-extern.fk", v4_diagnostics_snapshot_extern_source())
+pilot v4_diagnostics_extern_file = v4_source_find("diagnostics-snapshot-extern.fk")
+pilot v4_diagnostics_extern_fingerprint = v4_source_fingerprint(v4_diagnostics_extern_file)
+pilot v4_diagnostics_extern_restored_id = word_to_int(v4_query_get(v4_diagnostics_query_key("diagnostics-snapshot-extern.fk"), v4_diagnostics_extern_fingerprint))
+say "restored-extern-diagnostic0=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 0))
+say "restored-extern-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 0))
+say "restored-extern-diagnostic1=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 1))
+say "restored-extern-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 1))
+say "restored-extern-diagnostic2=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 2))
+say "restored-extern-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 2))
+say "restored-extern-diagnostic3=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 3))
+say "restored-extern-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 3))
 say v4_driver_confirm_restored_document_text("diagnostics-snapshot.fk", "task changed() => 7\n")

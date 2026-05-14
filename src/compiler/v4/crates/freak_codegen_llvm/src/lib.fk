@@ -375,7 +375,14 @@ task v4_codegen_llvm_calling_convention(abi: word) -> word {
 }
 
 task v4_codegen_llvm_type(ty_name: word) -> word {
+    pilot ffi_alias = v4_ty_normalize_ffi_alias_type(ty_name)
+    if ffi_alias != "" {
+        ty_name = ffi_alias
+    }
     if ty_name == "" or ty_name == v4_ty_unknown {
+        give back "ptr"
+    }
+    if v4_ty_is_raw_pointer_type(ty_name) {
         give back "ptr"
     }
     if ty_name == v4_ty_void {
