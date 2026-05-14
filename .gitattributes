@@ -1,5 +1,5 @@
 # Tell GitHub linguist that .fk files are FREAK (show as primary language)
-*.fk linguist-language=csharp
+*.fk linguist-language=obj-c
 *.fk linguist-detectable=true
 
 # Python is only the bootstrap compiler — don't count it as primary
