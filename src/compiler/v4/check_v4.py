@@ -5559,6 +5559,8 @@ def compile_runtime_smoke(
         "-w",
         "-O0",
     ]
+    if sys.platform.startswith("linux"):
+        compile_cmd.append("-lm")
     compiled = subprocess.run(compile_cmd, cwd=ROOT, text=True, capture_output=True)
     if compiled.returncode != 0:
         print(f"runtime compile failed: {rel(fixture)}")
