@@ -608,6 +608,60 @@ task v4_ty_surface_extern_function_pointer_ffi_safe(ty_id: int, type_text: word,
     give back v4_ty_surface_ffi_safe_type_seen(ty_id, return_surface, true, seen_types)
 }
 
+task v4_ty_validate_callback_surface_contract(ty_id: int, surface_type: word, span: word, context: word, seen_types: word) -> bool {
+    if v4_ty_is_surface_extern_function_pointer_type(surface_type) == false {
+        if v4_ty_is_surface_task_function_type(surface_type) {
+            v4_ty_add_error_diag(ty_id, span, "callback type must use extern ABI", v4_ty_ffi_boundary_help(surface_type, context))
+            give back true
+        }
+        give back false
+    }
+
+    pilot variadic_param = v4_ty_function_type_variadic_param_id(surface_type)
+    pilot abi_specs = v4_ty_function_type_abi_specs(surface_type)
+    if v4_ty_function_type_abi_valid(abi_specs, variadic_param >= 0) == false {
+        if variadic_param >= 0 {
+            v4_ty_add_error_diag(ty_id, span, "callback ABI is invalid", context + " uses " + surface_type + "; variadic callbacks need extern[C], [cdecl], [system], [sysv64], or [win64], and args: ... must be the final parameter.")
+        } else {
+            v4_ty_add_error_diag(ty_id, span, "callback ABI is invalid", context + " uses " + surface_type + "; use extern[C], extern[system], or one supported calling convention without link=..., if..., or duplicate call-convention entries.")
+        }
+        give back true
+    }
+
+    pilot param_id = 0
+    pilot param_count = v4_ty_function_type_param_count(surface_type)
+    repeat until param_id >= param_count {
+        pilot param_surface = v4_ty_function_type_param_surface(surface_type, param_id)
+        if param_surface == "..." {
+            if param_id != param_count - 1 {
+                v4_ty_add_error_diag(ty_id, span, "callback variadic parameter must be final", "move args: ... to the end of " + context)
+                give back true
+            }
+        } else if v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, seen_types) == false {
+            pilot param_name = v4_ty_function_type_param_name(surface_type, param_id)
+            pilot param_context = context + " argument " + word_from_int(param_id + 1)
+            if param_name != "" {
+                param_context = context + "." + param_name
+            }
+            v4_ty_add_error_diag(ty_id, span, "callback parameter type is not FFI-safe", v4_ty_ffi_boundary_help(param_surface, param_context))
+            give back true
+        }
+        param_id += 1
+    }
+
+    pilot return_surface = v4_ty_function_type_return_text(surface_type)
+    if return_surface == "" or return_surface == v4_ty_unknown {
+        v4_ty_add_error_diag(ty_id, span, "callback return type is not FFI-safe", context + " must return an explicit FFI-safe type")
+        give back true
+    }
+    if v4_ty_surface_ffi_safe_type_seen(ty_id, return_surface, true, seen_types) == false {
+        v4_ty_add_error_diag(ty_id, span, "callback return type is not FFI-safe", v4_ty_ffi_boundary_help(return_surface, context + " return"))
+        give back true
+    }
+
+    give back true
+}
+
 task v4_ty_variadic_arg_promoted_type_seen(ty_id: int, surface_type: word, seen_types: word) -> word {
     if surface_type == "" or surface_type == v4_ty_unknown {
         give back v4_ty_unknown
@@ -6659,9 +6713,10 @@ task v4_ty_validate_shape_layout_contract(ty_id: int, sig_id: int) -> void {
     pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
     repeat until field_id >= field_count {
         pilot field_surface = v4_ty_shape_field_surface_type(ty_id, sig_id, field_id)
-        if v4_ty_surface_ffi_safe_type_seen(ty_id, field_surface, false, v4_ty_signature_name(ty_id, sig_id)) == false {
-            pilot field_name = v4_ty_shape_field_name(ty_id, sig_id, field_id)
-            v4_ty_add_error_diag(ty_id, v4_ty_shape_field_type_span(ty_id, sig_id, field_id), "layout field type is not FFI-safe", v4_ty_ffi_boundary_help(field_surface, v4_ty_signature_name(ty_id, sig_id) + "." + field_name))
+        pilot field_name = v4_ty_shape_field_name(ty_id, sig_id, field_id)
+        pilot field_context = v4_ty_signature_name(ty_id, sig_id) + "." + field_name
+        if v4_ty_validate_callback_surface_contract(ty_id, field_surface, v4_ty_shape_field_type_span(ty_id, sig_id, field_id), field_context, v4_ty_signature_name(ty_id, sig_id)) == false and v4_ty_surface_ffi_safe_type_seen(ty_id, field_surface, false, v4_ty_signature_name(ty_id, sig_id)) == false {
+            v4_ty_add_error_diag(ty_id, v4_ty_shape_field_type_span(ty_id, sig_id, field_id), "layout field type is not FFI-safe", v4_ty_ffi_boundary_help(field_surface, field_context))
         }
         field_id += 1
     }
@@ -6766,9 +6821,13 @@ task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void 
     repeat until param_id >= param_count {
         if v4_ty_signature_param_is_variadic(ty_id, sig_id, param_id) == false {
             pilot param_surface = v4_ty_signature_param_surface_type(ty_id, sig_id, param_id)
-            if v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, "") == false {
-                pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
-                v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", v4_ty_ffi_boundary_help(param_surface, member_name + "." + param_name))
+            pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
+            pilot param_context = member_name + " argument " + word_from_int(param_id + 1)
+            if param_name != "" {
+                param_context = member_name + "." + param_name
+            }
+            if v4_ty_validate_callback_surface_contract(ty_id, param_surface, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), param_context, "") == false and v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, "") == false {
+                v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", v4_ty_ffi_boundary_help(param_surface, param_context))
             }
         }
         param_id += 1
@@ -6776,7 +6835,7 @@ task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void 
 
     pilot return_surface = v4_ty_signature_return_surface_type(ty_id, sig_id)
     if return_surface != "" and return_surface != v4_ty_unknown {
-        if v4_ty_surface_ffi_safe_type_seen(ty_id, return_surface, true, "") == false {
+        if v4_ty_validate_callback_surface_contract(ty_id, return_surface, v4_ty_signature_return_span(ty_id, sig_id), member_name, "") == false and v4_ty_surface_ffi_safe_type_seen(ty_id, return_surface, true, "") == false {
             v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "extern return type is not FFI-safe", v4_ty_ffi_boundary_help(return_surface, member_name + " return"))
         }
     }

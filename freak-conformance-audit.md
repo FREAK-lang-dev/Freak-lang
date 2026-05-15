@@ -548,11 +548,11 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 ### §16 SYSTEM BOUNDARIES — FFI ([freak-full-bible.md:2198-2390](freak-full-bible.md))
 
-**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, `link="..."` library metadata, `@link_name("...")` symbol overrides, final extern-only `args: ...` variadics with scalar vararg promotion, `extern [C]/[system] task(...) -> T` callback surface validation, indirect callback call lowering, and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation now exist. Raw pointer ops, panic-boundary callback guarantees, and deeper ABI/runtime guarantees are still V4 work.
+**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, `link="..."` library metadata, `@link_name("...")` symbol overrides, final extern-only `args: ...` variadics with scalar vararg promotion, `extern [C]/[system] task(...) -> T` callback surface validation with specific missing-`extern` / bad-ABI / bad-payload diagnostics, indirect callback call lowering, and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation now exist. Raw pointer ops, panic-boundary callback guarantees, and deeper ABI/runtime guarantees are still V4 work.
 
 | Contract | Status | Verdict |
 |---|---|---|
-| FFI-safe types only in extern | ⚠️ | 📖 V4 | V4 rejects bare `word`/`int` extern signatures, validates `extern [C]/[system] task(...) -> T` callback surfaces, lowers indirect callback calls, and rejects non-FFI-safe layout fields, but the full section-16 surface is not complete |
+| FFI-safe types only in extern | ⚠️ | 📖 V4 | V4 rejects bare `word`/`int` extern signatures, validates `extern [C]/[system] task(...) -> T` callback surfaces with explicit missing-`extern`, bad-ABI, and non-FFI callback payload diagnostics, lowers indirect callback calls, and rejects non-FFI-safe layout fields, but the full section-16 surface is not complete |
 | `extern [C]` (and other ABIs) | ⚠️ | partial — `tests/extern_test.fk` and `tests/extern_llvm_test.fk` (failing in v1 parser per Phase-A) |
 | Calling conventions: cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, system | ⚠️ | 📖 V4 | V4 carries and validates the core ABI list plus duplicate/unknown-option diagnostics; final extern variadics now enforce C-compatible ABI selection, and callback surface types plus indirect callback calls reuse the same ABI validation, while panic-boundary callback rules still expand |
 | `link="name"` library binding | ⚠️ | 📖 V4 | V4 carries library metadata through TY/codegen/query/LSP and diagnoses malformed or duplicate link entries |

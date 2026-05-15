@@ -58,11 +58,12 @@ extern-only `args: ...` variadics through TY, MIR, LLVM declaration/call
 plans, scalar vararg promotion for `tiny`/`bool`/`char`/`float32` tails, query
 diagnostics, snapshot restore, and LSP. Extern callback surface types like
 `extern [C] task(...) -> T` and `extern [system] task(...) -> T` now validate
-through TY as FFI-safe function pointers, flow through query/snapshot/LSP
-diagnostics, lower to LLVM `ptr`, and now call through MIR/LLVM as indirect
-FFI calls from locals, returned callback values, and `@layout(C)` field
-places. Panic-abort guarantees across callback boundaries remain later FFI
-work.
+through TY as FFI-safe function pointers, now diagnose missing `extern`,
+invalid callback ABI lists, and non-FFI callback parameter payloads through
+query/snapshot/LSP, lower to LLVM `ptr`, and now call through MIR/LLVM as
+indirect FFI calls from locals, returned callback values, and `@layout(C)`
+field places. Panic-abort guarantees across callback boundaries remain later
+FFI work.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 
