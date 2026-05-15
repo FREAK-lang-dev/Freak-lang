@@ -5580,9 +5580,9 @@ def apply_smoke_shard(smokes: list[dict[str, object]], shard_spec: str) -> list[
     raise SystemExit(1)
 
 
-def select_smokes(filters: list[str], shard_spec: str) -> list[dict[str, object]]:
+def filter_smokes(filters: list[str]) -> list[dict[str, object]]:
     if not filters:
-        return apply_smoke_shard(EXECUTABLE_SMOKES, shard_spec)
+        return list(EXECUTABLE_SMOKES)
 
     lowered = [item.lower() for item in filters]
     selected: list[dict[str, object]] = []
@@ -5596,7 +5596,7 @@ def select_smokes(filters: list[str], shard_spec: str) -> list[dict[str, object]
             selected.append(smoke)
 
     if selected:
-        return apply_smoke_shard(selected, shard_spec)
+        return selected
 
     print("runtime smoke failed: no smoke matched filters")
     for needle in filters:
@@ -5604,6 +5604,40 @@ def select_smokes(filters: list[str], shard_spec: str) -> list[dict[str, object]
     for smoke in EXECUTABLE_SMOKES:
         print(f"available smoke: {smoke['name']} fixture={smoke['fixture']}")
     raise SystemExit(1)
+
+
+def exclude_smokes(smokes: list[dict[str, object]], excludes: list[str]) -> list[dict[str, object]]:
+    if not excludes:
+        return smokes
+
+    lowered = [item.lower() for item in excludes]
+    kept: list[dict[str, object]] = []
+    removed = 0
+    for smoke in smokes:
+        haystacks = [
+            smoke["name"],
+            smoke["fixture"],
+            Path(smoke["fixture"]).stem,
+        ]
+        if any(needle in haystack.lower() for needle in lowered for haystack in haystacks):
+            removed += 1
+            continue
+        kept.append(smoke)
+
+    if kept:
+        return kept
+
+    print("runtime smoke failed: exclusions removed every selected smoke")
+    print(f"selected={len(smokes)} excluded={removed}")
+    for needle in excludes:
+        print(f"exclude: {needle}")
+    raise SystemExit(1)
+
+
+def select_smokes(filters: list[str], excludes: list[str], shard_spec: str) -> list[dict[str, object]]:
+    selected = filter_smokes(filters)
+    selected = exclude_smokes(selected, excludes)
+    return apply_smoke_shard(selected, shard_spec)
 
 
 def check_executable_smokes(
@@ -5687,6 +5721,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="INDEX/TOTAL",
         help="run one deterministic shard of the selected executable smokes",
     )
+    parser.add_argument(
+        "--smoke-exclude",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="exclude matching executable smokes before sharding",
+    )
     return parser.parse_args(argv)
 
 
@@ -5695,9 +5736,9 @@ def main(argv: list[str] | None = None) -> int:
     crates = crate_paths()
     fixtures = fixture_paths()
     all_files = crates + fixtures + [V4_ROOT / "README.md"]
-    selected_smokes = select_smokes(args.smoke, args.smoke_shard)
+    selected_smokes = select_smokes(args.smoke, args.smoke_exclude, args.smoke_shard)
     selected_fixture_set = {TESTS_ROOT / str(smoke["fixture"]) for smoke in selected_smokes}
-    transpile_targets = fixtures if not (args.smoke or args.smoke_shard) else [fixture for fixture in fixtures if fixture in selected_fixture_set]
+    transpile_targets = fixtures if not (args.smoke or args.smoke_exclude or args.smoke_shard) else [fixture for fixture in fixtures if fixture in selected_fixture_set]
 
     print("Maverick (00-unit) checks")
     check_exists(crates)
@@ -5708,17 +5749,21 @@ def main(argv: list[str] | None = None) -> int:
     check_tooling_interfaces()
     check_snapshot_inventories()
     base_source = check_flattened_crates()
-    if args.fast and (args.smoke or args.smoke_shard):
+    if args.fast and (args.smoke or args.smoke_exclude or args.smoke_shard):
         mode_bits: list[str] = [f"fixtures={len(transpile_targets)}"]
         if args.smoke:
             mode_bits.append(f"filters={len(args.smoke)}")
+        if args.smoke_exclude:
+            mode_bits.append(f"excludes={len(args.smoke_exclude)}")
         if args.smoke_shard:
             mode_bits.append(f"shard={args.smoke_shard}")
         print("mode: fast " + " ".join(mode_bits))
     elif args.fast:
         print("mode: fast")
-    elif args.smoke or args.smoke_shard:
+    elif args.smoke or args.smoke_exclude or args.smoke_shard:
         mode_bits = [f"smokes={len(selected_smokes)}"]
+        if args.smoke_exclude:
+            mode_bits.append(f"excludes={len(args.smoke_exclude)}")
         if args.smoke_shard:
             mode_bits.append(f"shard={args.smoke_shard}")
         print("mode: targeted " + " ".join(mode_bits))
