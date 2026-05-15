@@ -374,7 +374,7 @@ EXECUTABLE_SMOKES = [
     {
         "name": "unit snapshot current/restore",
         "fixture": "unit_snapshot_smoke.fk",
-        "timeout": 240,
+        "timeout": 180,
         "expect": [
             "00-unit-snapshot-ref|name=before",
             "00-unit-snapshot-import ok=1",
@@ -386,10 +386,19 @@ EXECUTABLE_SMOKES = [
             "ok|workspace/unitSnapshotHealth",
             "00-unit-snapshot-restore ok=1",
             "ok|workspace/unitSnapshotRestore",
-            "document id=1 path=unit-snapshot-const.fk rev=1 bytes=1130",
-            "diagnostics id=2 count=18 errors=18 warnings=0",
+        ],
+    },
+    {
+        "name": "unit snapshot const current/restore",
+        "fixture": "unit_snapshot_const_smoke.fk",
+        "timeout": 180,
+        "expect": [
+            "ok|textDocument/didOpen",
+            "diagnostics id=0 count=18 errors=18 warnings=0",
             "00-unit-snapshot-ref|name=const-before",
-            "00-unit-snapshot-restore ok=1 sources=2 sections=14 confirmed-sources=2",
+            "document id=0 path=unit-snapshot-const.fk rev=1 bytes=1130",
+            "00-unit-snapshot-restore ok=1 sources=1 sections=14 confirmed-sources=1",
+            "ok|workspace/unitSnapshotRestore",
             "query-confirm ok=1 path=unit-snapshot-const.fk",
         ],
     },
