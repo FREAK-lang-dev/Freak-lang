@@ -55,7 +55,8 @@ through TY queries with boundary-safety diagnostics for non-FFI extern types
 and non-FFI layout fields. Extern blocks also carry `link="..."` library
 metadata, member-level `@link_name("...")` symbol overrides, and final
 extern-only `args: ...` variadics through TY, MIR, LLVM declaration/call
-plans, query diagnostics, snapshot restore, and LSP.
+plans, scalar vararg promotion for `tiny`/`bool`/`char`/`float32` tails, query
+diagnostics, snapshot restore, and LSP.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 

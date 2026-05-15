@@ -307,6 +307,60 @@ task v4_ty_raw_pointer_target_type(type_text: word) -> word {
     give back v4_slice(type_text, prefix.length(), type_text.length())
 }
 
+task v4_ty_variadic_arg_promoted_type_seen(ty_id: int, surface_type: word, seen_types: word) -> word {
+    if surface_type == "" or surface_type == v4_ty_unknown {
+        give back v4_ty_unknown
+    }
+
+    pilot normalized = v4_ty_normalize_ffi_alias_type(surface_type)
+    if normalized != "" {
+        surface_type = normalized
+    }
+
+    if v4_ty_is_raw_pointer_type(surface_type) {
+        pilot target_type = v4_ty_raw_pointer_target_type(surface_type)
+        if target_type == "" or target_type == v4_ty_unknown {
+            give back v4_ty_unknown
+        }
+        give back surface_type
+    }
+
+    if surface_type == v4_ty_bool or surface_type == v4_ty_tiny or surface_type == v4_ty_char {
+        give back v4_ty_int
+    }
+    if surface_type == v4_ty_float32 {
+        give back v4_ty_float
+    }
+    if surface_type == v4_ty_int or surface_type == v4_ty_uint or surface_type == v4_ty_num or surface_type == v4_ty_float {
+        give back surface_type
+    }
+
+    if v4_ty_ffi_seen_contains(seen_types, surface_type) {
+        give back v4_ty_unknown
+    }
+
+    pilot alias_target = v4_ty_alias_target_type(ty_id, surface_type)
+    if alias_target != "" and alias_target != v4_ty_unknown {
+        give back v4_ty_variadic_arg_promoted_type_seen(ty_id, alias_target, v4_ty_ffi_seen_append(seen_types, surface_type))
+    }
+
+    give back v4_ty_unknown
+}
+
+task v4_ty_variadic_arg_promoted_type(ty_id: int, surface_type: word) -> word {
+    give back v4_ty_variadic_arg_promoted_type_seen(ty_id, surface_type, "")
+}
+
+task v4_ty_variadic_arg_help(surface_type: word) -> word {
+    if surface_type == v4_ty_word {
+        give back "extern variadic calls need scalar std::ffi-style values or raw pointers; word should cross the boundary as *const tiny or another explicit buffer."
+    }
+    if v4_ty_is_tuple_type(surface_type) or v4_ty_is_fixed_array_type(surface_type) {
+        give back "extern variadic calls currently accept only scalar std::ffi-style values or raw pointers; pass aggregates through an explicit fixed signature slot instead."
+    }
+    give back "extern variadic calls currently accept only scalar std::ffi-style values or raw pointers; got " + surface_type
+}
+
 task v4_ty_alias_cycle_seen_contains(seen_aliases: word, alias_name: word) -> bool {
     if seen_aliases == "" or alias_name == "" {
         give back false

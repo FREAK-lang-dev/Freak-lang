@@ -374,6 +374,7 @@ EXECUTABLE_SMOKES = [
     {
         "name": "unit snapshot current/restore",
         "fixture": "unit_snapshot_smoke.fk",
+        "timeout": 120,
         "expect": [
             "00-unit-snapshot-ref|name=before",
             "00-unit-snapshot-import ok=1",
@@ -395,6 +396,7 @@ EXECUTABLE_SMOKES = [
     {
         "name": "unit snapshot diff",
         "fixture": "unit_snapshot_diff_smoke.fk",
+        "timeout": 120,
         "expect": [
             "00-unit-snapshot-ref|name=before-diff",
             "00-unit-snapshot-ref|name=after-diff",
@@ -544,6 +546,9 @@ EXECUTABLE_SMOKES = [
             "extern-variadic-query-diag1-span=8@91:94",
             "extern-variadic-query-diag2-message=variadic extern needs C-compatible ABI",
             "extern-variadic-query-diag2-span=8@205:208",
+            "extern-variadic-call-query-diag-count=1",
+            "extern-variadic-call-query-diag0-message=variadic call argument is not C vararg safe",
+            "extern-variadic-call-query-diag0-span=9@155:160",
             "syntax-summary=syntax-ok",
         ],
     },
@@ -652,6 +657,7 @@ EXECUTABLE_SMOKES = [
             "diagnostic|error|range|0|21|0|24|variadic parameter needs extern task|use args: ... only as the final parameter of an extern task",
             "diagnostic|error|range|4|25|4|28|variadic parameter must be final|move args: ... to the end of misplaced",
             "diagnostic|error|range|7|46|7|49|variadic extern needs C-compatible ABI|use extern [C], [cdecl], [system], [sysv64], or [win64] for win_sum",
+            "diagnostic|error|range|5|23|5|28|variadic call argument is not C vararg safe|trace cannot carry word through ...; extern variadic calls need scalar std::ffi-style values or raw pointers; word should cross the boundary as *const tiny or another explicit buffer.",
         ],
     },
     {
@@ -1209,8 +1215,8 @@ EXECUTABLE_SMOKES = [
         "name": "diagnostics snapshot restore",
         "fixture": "diagnostics_snapshot_smoke.fk",
         "expect": [
-            "diagnostics-snapshot format=freak-diagnostics-snapshot-v1 sets=9 diagnostics=38",
-            "diagnostics-snapshot-import ok=1 format=freak-diagnostics-snapshot-v1 lines=49 sets=9 diagnostics=38 malformed=0 headers=1 ends=1",
+            "diagnostics-snapshot format=freak-diagnostics-snapshot-v1 sets=10 diagnostics=39",
+            "diagnostics-snapshot-import ok=1 format=freak-diagnostics-snapshot-v1 lines=51 sets=10 diagnostics=39 malformed=0 headers=1 ends=1",
             "diagnostics-snapshot-bytes=",
             "diagnostics-snapshot-escape=error%7CYuuko%250%0AMeiya",
             "diagnostics-snapshot-unescape=error|Yuuko%0",
@@ -1250,6 +1256,7 @@ EXECUTABLE_SMOKES = [
             "extern-link-diagnostic5-span=7@96:120",
             "extern-variadic-diagnostic0-span=8@21:24",
             "extern-variadic-diagnostic2-span=8@205:208",
+            "extern-variadic-call-diagnostic0-span=9@155:160",
             "diagnostic|5|0|2%7C5@0:20%7Ctransparent layout needs one field%7CBrokenHandle exposes 2 fields",
             "diagnostic|5|1|2%7C5@97:117%7Cpacked layout must be positive%7Cgot 0",
             "diagnostic|5|2|2%7C5@166:183%7Cunknown layout contract%7Cuse @layout(C), @layout(C, packed=1), or @layout(transparent)",
@@ -1262,7 +1269,9 @@ EXECUTABLE_SMOKES = [
             "diagnostic|8|0|2%7C8@21:24%7Cvariadic parameter needs extern task%7Cuse args: ... only as the final parameter of an extern task",
             "diagnostic|8|1|2%7C8@91:94%7Cvariadic parameter must be final%7Cmove args: ... to the end of misplaced",
             "diagnostic|8|2|2%7C8@205:208%7Cvariadic extern needs C-compatible ABI%7Cuse extern [C], [cdecl], [system], [sysv64], or [win64] for win_sum",
-            "diagnostics-snapshot-restore ok=1 sets=9 diagnostics=38 skipped-other=0 arena-sets=9",
+            "diagnostics|9|diagnostics-snapshot-extern-variadic-call.fk|1",
+            "diagnostic|9|0|2%7C9@155:160%7Cvariadic call argument is not C vararg safe%7Ctrace cannot carry word through ...; extern variadic calls need scalar std::ffi-style values or raw pointers; word should cross the boundary as *const tiny or another explicit buffer.",
+            "diagnostics-snapshot-restore ok=1 sets=10 diagnostics=39 skipped-other=0 arena-sets=10",
             "ok|workspace/diagnosticsSnapshotRestore",
             "error|workspace/diagnosticsSnapshotRestore|-32602|",
             "query-snapshot-restore ok=1",
@@ -1310,6 +1319,9 @@ EXECUTABLE_SMOKES = [
             "restored-extern-variadic-diagnostic0-span=8@21:24",
             "restored-extern-variadic-diagnostic2=variadic extern needs C-compatible ABI",
             "restored-extern-variadic-diagnostic2-span=8@205:208",
+            "query-confirm ok=1 path=diagnostics-snapshot-extern-variadic-call.fk",
+            "restored-extern-variadic-call-diagnostic0=variadic call argument is not C vararg safe",
+            "restored-extern-variadic-call-diagnostic0-span=9@155:160",
         ],
     },
     {
@@ -2755,6 +2767,29 @@ EXECUTABLE_SMOKES = [
             "extern-variadic-bad-arity-diag-count=1",
             "extern-variadic-bad-arity-message=call arity mismatch",
             "extern-variadic-bad-arity-help=sum expects at least 1 arguments but got 0",
+        ],
+    },
+    {
+        "name": "extern variadic promotions",
+        "fixture": "extern_variadic_promotion_smoke.fk",
+        "expect": [
+            "extern-variadic-promotion-diag-count=0",
+            "extern-variadic-promotion-arg0-ty=int",
+            "extern-variadic-promotion-arg1-ty=tiny",
+            "extern-variadic-promotion-arg2-ty=bool",
+            "extern-variadic-promotion-arg3-ty=char",
+            "extern-variadic-promotion-arg4-ty=float32",
+            "extern-variadic-promotion-byte-cast=yes",
+            "extern-variadic-promotion-truth-cast=yes",
+            "extern-variadic-promotion-mark-cast=yes",
+            "extern-variadic-promotion-ratio-cast=yes",
+            "extern-variadic-promotion-call-byte-temp=yes",
+            "extern-variadic-promotion-call-truth-temp=yes",
+            "extern-variadic-promotion-call-mark-temp=yes",
+            "extern-variadic-promotion-call-ratio-temp=yes",
+            "extern-variadic-promotion-bad-diag-count=1",
+            "extern-variadic-promotion-bad-diag0-message=variadic call argument is not C vararg safe",
+            "extern-variadic-promotion-bad-diag0-help=trace cannot carry word through ...; extern variadic calls need scalar std::ffi-style values or raw pointers; word should cross the boundary as *const tiny or another explicit buffer.",
         ],
     },
     {
@@ -5514,7 +5549,8 @@ def check_executable_smokes(
             fixture,
             c_source,
         )
-        executed = subprocess.run([str(exe_path)], cwd=ROOT, text=True, capture_output=True, timeout=60)
+        timeout_seconds = int(smoke.get("timeout", 60))
+        executed = subprocess.run([str(exe_path)], cwd=ROOT, text=True, capture_output=True, timeout=timeout_seconds)
         output = executed.stdout + executed.stderr
         if executed.returncode != 0:
             print(f"runtime execution failed: {label} exit={executed.returncode}")

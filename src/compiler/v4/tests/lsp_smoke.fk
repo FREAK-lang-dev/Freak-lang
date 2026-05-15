@@ -147,6 +147,17 @@ task v4_lsp_extern_variadic_diag_source() -> word {
     give back src
 }
 
+task v4_lsp_extern_variadic_call_diag_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task trace(seed: std::ffi::c_int, args: ...) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot label = \"not ffi\"\n"
+    src = src + "    give back trace(1, label)\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_lsp_find_token(stream_id: int, value: word, ordinal: int) -> int {
     pilot seen = 0
     pilot token_id = 0
@@ -383,3 +394,4 @@ say v4_lsp_diagnostics_text("lsp_layout_diag.fk", v4_lsp_layout_diag_source())
 say v4_lsp_diagnostics_text("lsp_extern_diag.fk", v4_lsp_extern_diag_source())
 say v4_lsp_diagnostics_text("lsp_extern_link_diag.fk", v4_lsp_extern_link_diag_source())
 say v4_lsp_diagnostics_text("lsp_extern_variadic_diag.fk", v4_lsp_extern_variadic_diag_source())
+say v4_lsp_diagnostics_text("lsp_extern_variadic_call_diag.fk", v4_lsp_extern_variadic_call_diag_source())

@@ -1,0 +1,97 @@
+-- V4 extern variadic promotion smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_extern_variadic_promotion_flag(value: bool) -> word {
+    if value { give back "yes" }
+    give back "no"
+}
+
+task v4_extern_variadic_promotion_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_extern_variadic_promotion_good_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task trace(seed: std::ffi::c_int, args: ...) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot byte: tiny = 7t\n"
+    src = src + "    pilot truth: bool = true\n"
+    src = src + "    pilot mark: char = 'A'\n"
+    src = src + "    pilot ratio: float32 = 1.5\n"
+    src = src + "    pilot total = trace(9, byte, truth, mark, ratio)\n"
+    src = src + "    give back total\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_variadic_promotion_bad_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task trace(seed: std::ffi::c_int, args: ...) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot label = \"not ffi\"\n"
+    src = src + "    give back trace(1, label)\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_extern_variadic_promotion_text = v4_extern_variadic_promotion_good_source()
+pilot v4_extern_variadic_promotion_stream = v4_lex_text(0, v4_extern_variadic_promotion_text)
+pilot v4_extern_variadic_promotion_tree = v4_parse_stream(0, v4_extern_variadic_promotion_stream)
+pilot v4_extern_variadic_promotion_hir = v4_hir_lower_tree(0, v4_extern_variadic_promotion_tree)
+pilot v4_extern_variadic_promotion_resolve = v4_resolve_lower_hir(0, v4_extern_variadic_promotion_hir)
+pilot v4_extern_variadic_promotion_ty = v4_ty_lower_resolve(0, v4_extern_variadic_promotion_resolve)
+pilot v4_extern_variadic_promotion_mir = v4_mir_lower_ty(0, v4_extern_variadic_promotion_ty)
+pilot v4_extern_variadic_promotion_llvm = v4_codegen_llvm_lower_mir(0, v4_extern_variadic_promotion_mir)
+
+pilot v4_extern_variadic_promotion_main_def = v4_resolve_def_for_name(v4_extern_variadic_promotion_resolve, "main")
+pilot v4_extern_variadic_promotion_main_body = v4_mir_lookup_body(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_def)
+pilot v4_extern_variadic_promotion_total_stmt = v4_extern_variadic_promotion_find_local_stmt(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, "total")
+pilot v4_extern_variadic_promotion_total_rvalue = v4_mir_stmt_rvalue(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, v4_extern_variadic_promotion_total_stmt)
+pilot v4_extern_variadic_promotion_llvm_main = v4_codegen_llvm_find_body(v4_extern_variadic_promotion_llvm, "main")
+pilot v4_extern_variadic_promotion_llvm_call = v4_codegen_llvm_find_call(v4_extern_variadic_promotion_llvm, "main", "trace")
+pilot v4_extern_variadic_promotion_body_line = v4_codegen_llvm_body_line(v4_extern_variadic_promotion_llvm, v4_extern_variadic_promotion_llvm_main)
+pilot v4_extern_variadic_promotion_call_line = v4_codegen_llvm_call_line(v4_extern_variadic_promotion_llvm, v4_extern_variadic_promotion_llvm_call)
+pilot v4_extern_variadic_promotion_byte_temp = v4_codegen_llvm_variadic_arg_temp(v4_extern_variadic_promotion_main_body, v4_extern_variadic_promotion_total_rvalue, 1)
+pilot v4_extern_variadic_promotion_truth_temp = v4_codegen_llvm_variadic_arg_temp(v4_extern_variadic_promotion_main_body, v4_extern_variadic_promotion_total_rvalue, 2)
+pilot v4_extern_variadic_promotion_mark_temp = v4_codegen_llvm_variadic_arg_temp(v4_extern_variadic_promotion_main_body, v4_extern_variadic_promotion_total_rvalue, 3)
+pilot v4_extern_variadic_promotion_ratio_temp = v4_codegen_llvm_variadic_arg_temp(v4_extern_variadic_promotion_main_body, v4_extern_variadic_promotion_total_rvalue, 4)
+
+say "extern-variadic-promotion-diag-count=" + word_from_int(v4_mir_diag_count(v4_extern_variadic_promotion_mir))
+say "extern-variadic-promotion-arg0-ty=" + v4_mir_rvalue_ty(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, v4_mir_rvalue_call_arg(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, v4_extern_variadic_promotion_total_rvalue, 0))
+say "extern-variadic-promotion-arg1-ty=" + v4_mir_rvalue_ty(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, v4_mir_rvalue_call_arg(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, v4_extern_variadic_promotion_total_rvalue, 1))
+say "extern-variadic-promotion-arg2-ty=" + v4_mir_rvalue_ty(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, v4_mir_rvalue_call_arg(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, v4_extern_variadic_promotion_total_rvalue, 2))
+say "extern-variadic-promotion-arg3-ty=" + v4_mir_rvalue_ty(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, v4_mir_rvalue_call_arg(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, v4_extern_variadic_promotion_total_rvalue, 3))
+say "extern-variadic-promotion-arg4-ty=" + v4_mir_rvalue_ty(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, v4_mir_rvalue_call_arg(v4_extern_variadic_promotion_mir, v4_extern_variadic_promotion_main_body, v4_extern_variadic_promotion_total_rvalue, 4))
+say "extern-variadic-promotion-byte-cast=" + v4_extern_variadic_promotion_flag(v4_extern_variadic_promotion_body_line.contains(v4_extern_variadic_promotion_byte_temp + " = zext i8 %byte to i64"))
+say "extern-variadic-promotion-truth-cast=" + v4_extern_variadic_promotion_flag(v4_extern_variadic_promotion_body_line.contains(v4_extern_variadic_promotion_truth_temp + " = zext i1 %truth to i64"))
+say "extern-variadic-promotion-mark-cast=" + v4_extern_variadic_promotion_flag(v4_extern_variadic_promotion_body_line.contains(v4_extern_variadic_promotion_mark_temp + " = zext i32 %mark to i64"))
+say "extern-variadic-promotion-ratio-cast=" + v4_extern_variadic_promotion_flag(v4_extern_variadic_promotion_body_line.contains(v4_extern_variadic_promotion_ratio_temp + " = fpext float %ratio to double"))
+say "extern-variadic-promotion-call-byte-temp=" + v4_extern_variadic_promotion_flag(v4_extern_variadic_promotion_call_line.contains("i64 " + v4_extern_variadic_promotion_byte_temp))
+say "extern-variadic-promotion-call-truth-temp=" + v4_extern_variadic_promotion_flag(v4_extern_variadic_promotion_call_line.contains("i64 " + v4_extern_variadic_promotion_truth_temp))
+say "extern-variadic-promotion-call-mark-temp=" + v4_extern_variadic_promotion_flag(v4_extern_variadic_promotion_call_line.contains("i64 " + v4_extern_variadic_promotion_mark_temp))
+say "extern-variadic-promotion-call-ratio-temp=" + v4_extern_variadic_promotion_flag(v4_extern_variadic_promotion_call_line.contains("double " + v4_extern_variadic_promotion_ratio_temp))
+
+pilot v4_extern_variadic_promotion_bad_text = v4_extern_variadic_promotion_bad_source()
+pilot v4_extern_variadic_promotion_bad_stream = v4_lex_text(1, v4_extern_variadic_promotion_bad_text)
+pilot v4_extern_variadic_promotion_bad_tree = v4_parse_stream(1, v4_extern_variadic_promotion_bad_stream)
+pilot v4_extern_variadic_promotion_bad_hir = v4_hir_lower_tree(1, v4_extern_variadic_promotion_bad_tree)
+pilot v4_extern_variadic_promotion_bad_resolve = v4_resolve_lower_hir(1, v4_extern_variadic_promotion_bad_hir)
+pilot v4_extern_variadic_promotion_bad_ty = v4_ty_lower_resolve(1, v4_extern_variadic_promotion_bad_resolve)
+pilot v4_extern_variadic_promotion_bad_mir = v4_mir_lower_ty(1, v4_extern_variadic_promotion_bad_ty)
+
+say "extern-variadic-promotion-bad-diag-count=" + word_from_int(v4_mir_diag_count(v4_extern_variadic_promotion_bad_mir))
+say "extern-variadic-promotion-bad-diag0-message=" + v4_diag_message(v4_mir_diag(v4_extern_variadic_promotion_bad_mir, 0))
+say "extern-variadic-promotion-bad-diag0-help=" + v4_diag_help(v4_mir_diag(v4_extern_variadic_promotion_bad_mir, 0))
+say "extern-variadic-promotion-bad-diag0-span=" + v4_diag_span(v4_mir_diag(v4_extern_variadic_promotion_bad_mir, 0))

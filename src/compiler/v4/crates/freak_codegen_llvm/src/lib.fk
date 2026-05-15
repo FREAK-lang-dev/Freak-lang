@@ -646,6 +646,90 @@ task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> 
     give back v4_codegen_llvm_temp_value(body_id, rvalue_id)
 }
 
+task v4_codegen_llvm_variadic_arg_promoted_type(mir_id: int, body_id: int, call_rvalue_id: int, arg_id: int) -> word {
+    pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue_id, arg_id)
+    if arg_rvalue < 0 {
+        give back v4_ty_unknown
+    }
+
+    pilot call_name = v4_mir_rvalue_op(mir_id, body_id, call_rvalue_id)
+    pilot sig_id = v4_mir_signature_id_for_name(mir_id, call_name)
+    if sig_id < 0 {
+        give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_signature_is_variadic(ty_id, sig_id) == false {
+        give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+    }
+
+    if arg_id < v4_ty_signature_fixed_param_count(ty_id, sig_id) {
+        give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+    }
+
+    pilot promoted_ty = v4_ty_variadic_arg_promoted_type(ty_id, v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue))
+    if promoted_ty == v4_ty_unknown {
+        give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+    }
+    give back promoted_ty
+}
+
+task v4_codegen_llvm_variadic_arg_temp(body_id: int, call_rvalue_id: int, arg_id: int) -> word {
+    give back "%va" + word_from_int(body_id) + "_" + word_from_int(call_rvalue_id) + "_" + word_from_int(arg_id)
+}
+
+task v4_codegen_llvm_variadic_arg_cast_opcode(actual_llvm: word, target_llvm: word) -> word {
+    if actual_llvm == target_llvm {
+        give back ""
+    }
+    if target_llvm == "i64" {
+        if actual_llvm == "i1" or actual_llvm == "i8" or actual_llvm == "i32" {
+            give back "zext"
+        }
+    }
+    if actual_llvm == "float" and target_llvm == "double" {
+        give back "fpext"
+    }
+    give back ""
+}
+
+task v4_codegen_llvm_variadic_arg_needs_cast(mir_id: int, body_id: int, call_rvalue_id: int, arg_id: int) -> bool {
+    pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue_id, arg_id)
+    if arg_rvalue < 0 {
+        give back false
+    }
+    pilot actual_llvm = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue))
+    pilot target_llvm = v4_codegen_llvm_type(v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id))
+    give back v4_codegen_llvm_variadic_arg_cast_opcode(actual_llvm, target_llvm) != ""
+}
+
+task v4_codegen_llvm_variadic_arg_prelude_line(mir_id: int, body_id: int, call_rvalue_id: int, arg_id: int) -> word {
+    pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue_id, arg_id)
+    if arg_rvalue < 0 {
+        give back ""
+    }
+
+    pilot actual_llvm = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue))
+    pilot target_llvm = v4_codegen_llvm_type(v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id))
+    pilot opcode = v4_codegen_llvm_variadic_arg_cast_opcode(actual_llvm, target_llvm)
+    if opcode == "" {
+        give back ""
+    }
+    give back v4_codegen_llvm_variadic_arg_temp(body_id, call_rvalue_id, arg_id) + " = " + opcode + " " + actual_llvm + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, arg_rvalue) + " to " + target_llvm
+}
+
+task v4_codegen_llvm_call_arg_operand(mir_id: int, body_id: int, call_rvalue_id: int, arg_id: int) -> word {
+    pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue_id, arg_id)
+    if arg_rvalue < 0 {
+        give back ""
+    }
+
+    if v4_codegen_llvm_variadic_arg_needs_cast(mir_id, body_id, call_rvalue_id, arg_id) {
+        give back v4_codegen_llvm_type(v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id)) + " " + v4_codegen_llvm_variadic_arg_temp(body_id, call_rvalue_id, arg_id)
+    }
+    give back v4_codegen_llvm_rvalue_operand(mir_id, body_id, arg_rvalue)
+}
+
 task v4_codegen_llvm_rvalue_needs_instruction(mir_id: int, body_id: int, rvalue_id: int) -> bool {
     if rvalue_id < 0 {
         give back false
@@ -739,13 +823,45 @@ task v4_codegen_llvm_rvalue_tree_lines(mir_id: int, body_id: int, rvalue_id: int
     }
 
     pilot out = ""
-    pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
-    pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
-    if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, lhs) {
-        out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, lhs, v4_codegen_llvm_temp_value(body_id, lhs))
-    }
-    if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rhs) {
-        out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rhs, v4_codegen_llvm_temp_value(body_id, rhs))
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_call {
+        pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+        if arg_count > 0 {
+            pilot arg_idx = 0
+            repeat until arg_idx >= arg_count {
+                pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_idx)
+                if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, arg_rvalue) {
+                    out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, arg_rvalue, v4_codegen_llvm_temp_value(body_id, arg_rvalue))
+                }
+                arg_idx += 1
+            }
+            arg_idx = 0
+            repeat until arg_idx >= arg_count {
+                pilot line = v4_codegen_llvm_variadic_arg_prelude_line(mir_id, body_id, rvalue_id, arg_idx)
+                if line != "" {
+                    out = out + "  " + line + "\n"
+                }
+                arg_idx += 1
+            }
+        } else {
+            pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+            pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+            if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, lhs) {
+                out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, lhs, v4_codegen_llvm_temp_value(body_id, lhs))
+            }
+            if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rhs) {
+                out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rhs, v4_codegen_llvm_temp_value(body_id, rhs))
+            }
+        }
+    } else {
+        pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+        if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, lhs) {
+            out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, lhs, v4_codegen_llvm_temp_value(body_id, lhs))
+        }
+        if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rhs) {
+            out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rhs, v4_codegen_llvm_temp_value(body_id, rhs))
+        }
     }
 
     if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rvalue_id) {
@@ -781,7 +897,7 @@ task v4_codegen_llvm_call_args(mir_id: int, body_id: int, rvalue_id: int) -> wor
         if arg_idx > 0 {
             out = out + ", "
         }
-        out = out + v4_codegen_llvm_rvalue_operand(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_idx))
+        out = out + v4_codegen_llvm_call_arg_operand(mir_id, body_id, rvalue_id, arg_idx)
         arg_idx += 1
     }
     give back out

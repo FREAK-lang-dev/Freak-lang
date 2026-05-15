@@ -2460,6 +2460,21 @@ task v4_mir_call_check_result_args(check_result: word) -> word {
     give back ""
 }
 
+task v4_mir_validate_variadic_call_arg(mir_id: int, body_id: int, stream_id: int, callee_name: word, start_token: int, end_token: int, arg_rvalue: int) -> void {
+    if arg_rvalue < 0 or end_token <= start_token {
+        give back
+    }
+
+    pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+    pilot promoted_ty = v4_ty_variadic_arg_promoted_type(v4_mir_ty_id(mir_id), actual_ty)
+    if promoted_ty != v4_ty_unknown {
+        give back
+    }
+
+    pilot arg_span = v4_mir_span_from_tokens(stream_id, start_token, end_token)
+    v4_mir_add_type_error(mir_id, arg_span, "variadic call argument is not C vararg safe", callee_name + " cannot carry " + actual_ty + " through ...; " + v4_ty_variadic_arg_help(actual_ty))
+}
+
 task v4_mir_check_call_generic_bounds(mir_id: int, expr_span: word, callee_name: word, sig_id: int, generic_env: word) -> void {
     if sig_id < 0 or generic_env == "" or generic_env == v4_ty_generic_env_fail {
         give back
@@ -2581,6 +2596,7 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
         pilot extra_end = v4_mir_call_arg_segment_end(segment)
         if extra_start >= 0 and extra_end > extra_start {
             pilot arg_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, extra_start, extra_end)
+            v4_mir_validate_variadic_call_arg(mir_id, body_id, stream_id, callee_name, extra_start, extra_end, arg_rvalue)
             args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
         }
         variadic_idx += 1
