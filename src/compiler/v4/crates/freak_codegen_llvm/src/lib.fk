@@ -398,6 +398,13 @@ task v4_codegen_llvm_calling_convention(abi: word) -> word {
     give back "ccc"
 }
 
+task v4_codegen_llvm_ffi_call_suffix(abi: word) -> word {
+    if abi == "" {
+        give back ""
+    }
+    give back " nounwind"
+}
+
 task v4_codegen_llvm_type(ty_name: word) -> word {
     pilot ffi_alias = v4_ty_normalize_ffi_alias_type(ty_name)
     if ffi_alias != "" {
@@ -553,7 +560,11 @@ task v4_codegen_llvm_signature_line(mir_id: int, ty_id: int, sig_id: int) -> wor
     pilot return_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_id))
     pilot params = v4_codegen_llvm_signature_params(ty_id, sig_id)
     pilot symbol = v4_codegen_llvm_symbol(v4_codegen_llvm_signature_symbol_name(ty_id, sig_id))
-    give back line_kind + " " + cc + " " + return_ty + " " + symbol + "(" + params + ")"
+    pilot suffix = ""
+    if line_kind == "declare" and abi != "" {
+        suffix = v4_codegen_llvm_ffi_call_suffix(abi)
+    }
+    give back line_kind + " " + cc + " " + return_ty + " " + symbol + "(" + params + ")" + suffix
 }
 
 task v4_codegen_llvm_temp_value(body_id: int, rvalue_id: int) -> word {
@@ -815,7 +826,7 @@ task v4_codegen_llvm_call_instruction(mir_id: int, body_id: int, rvalue_id: int,
         call_symbol = v4_codegen_llvm_symbol(call_symbol_name)
     }
     pilot call_args = v4_codegen_llvm_call_args(mir_id, body_id, rvalue_id)
-    pilot call_text = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")"
+    pilot call_text = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")" + v4_codegen_llvm_ffi_call_suffix(call_abi)
     if target == "" or call_return == "void" {
         give back call_text
     }
@@ -990,7 +1001,7 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                 }
                 pilot call_expr = v4_mir_rvalue_text(mir_id, body_idx, rvalue_idx)
                 pilot call_args = v4_codegen_llvm_call_args(mir_id, body_idx, rvalue_idx)
-                pilot call_line = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")"
+                pilot call_line = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")" + v4_codegen_llvm_ffi_call_suffix(call_abi)
                 v4_codegen_llvm_add_call(codegen_id, body_name, call_name, call_symbol, call_link, call_abi, call_cc, call_return, call_expr, call_line)
             }
             rvalue_idx += 1
