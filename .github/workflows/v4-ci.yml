@@ -49,8 +49,8 @@ jobs:
           --smoke-exclude unit_snapshot
           --smoke-shard ${{ matrix.shard }}
 
-  v4-runtime-linux-00-unit:
-    name: V4 runtime linux (00-unit)
+  v4-runtime-linux-unit-snapshot:
+    name: V4 runtime linux (unit snapshot)
     runs-on: ubuntu-latest
 
     steps:
@@ -63,8 +63,25 @@ jobs:
       - name: Install Clang
         run: sudo apt-get update && sudo apt-get install -y clang lld
 
-      - name: V4 00-Unit runtime smokes
-        run: python src/compiler/v4/check_v4.py --smoke unit_snapshot
+      - name: V4 unit snapshot runtime smoke
+        run: python src/compiler/v4/check_v4.py --smoke unit_snapshot_smoke
+
+  v4-runtime-linux-unit-snapshot-diff:
+    name: V4 runtime linux (unit snapshot diff)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: V4 unit snapshot diff runtime smoke
+        run: python src/compiler/v4/check_v4.py --smoke unit_snapshot_diff_smoke
 
   v4-runtime-windows:
     name: V4 runtime windows

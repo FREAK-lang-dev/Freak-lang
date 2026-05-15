@@ -278,12 +278,13 @@ python src/compiler/v4/check_v4.py --fast
 python src/compiler/v4/check_v4.py --smoke "query invalidation"
 python src/compiler/v4/check_v4.py --smoke extern --smoke module
 python src/compiler/v4/check_v4.py --smoke-shard 1/6
-python src/compiler/v4/check_v4.py --smoke unit_snapshot
+python src/compiler/v4/check_v4.py --smoke unit_snapshot_smoke
+python src/compiler/v4/check_v4.py --smoke unit_snapshot_diff_smoke
 python src/compiler/v4/check_v4.py --smoke-exclude unit_snapshot --smoke-shard 1/6
 ```
 
 - `--fast` keeps the full front-end and fixture-transpile coverage, but skips runtime executable smokes.
 - `--smoke` narrows execution to matching runtime smokes by name, fixture file, or fixture stem.
-- `--smoke-exclude` removes matching runtime smokes before shard selection; CI uses this to keep heavy 00-Unit lanes out of the general shard matrix.
+- `--smoke-exclude` removes matching runtime smokes before shard selection; CI uses this to keep the unit-snapshot lanes out of the general shard matrix.
 - `--smoke-shard INDEX/TOTAL` deterministically partitions the selected runtime smokes; CI uses it to fan the executable lane out without changing what each smoke proves.
 - Full mode still remains the bootstrap gate; the harness now reuses runtime smoke transpiles and skips unchanged `clang` rebuilds when the generated C and runtime shim are identical.
