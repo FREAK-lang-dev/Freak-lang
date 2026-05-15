@@ -30,6 +30,12 @@ task v4_unit_snapshot_const_source() -> word {
     src = src + "fixed pilot BAD_DUP = add(base: BASE, base: 1)\n"
     src = src + "fixed pilot BAD_ORDER = add(base: BASE, 1)\n"
     src = src + "fixed pilot BAD_MISSING = add(base: BASE)\n"
+    src = src + "task run(cb: int, miss: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int, texty: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> int {\n"
+    src = src + "    pilot first = cb(1)\n"
+    src = src + "    pilot second = miss()\n"
+    src = src + "    pilot third = texty(\"ace\")\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     src = src + "shape Box<T> {\n"
     src = src + "    value: T\n"
     src = src + "}\n"
@@ -101,5 +107,24 @@ pilot v4_unit_snapshot_const_text = v4_unit_snapshot_const_source()
 say v4_lsp_handle_text_request("textDocument/didOpen", "unit-snapshot-const.fk", v4_unit_snapshot_const_text, 0)
 say v4_diagnostics_text("unit-snapshot-const.fk", v4_unit_snapshot_const_text)
 say v4_unit_snapshot_ref_store("const-before", v4_unit_snapshot())
+pilot v4_unit_const_snapshot = v4_unit_snapshot_ref_text("const-before")
+pilot v4_unit_const_snapshot_line_idx = 0
+pilot v4_unit_const_snapshot_line_count = v4_unit_snapshot_line_count(v4_unit_const_snapshot)
+repeat until v4_unit_const_snapshot_line_idx >= v4_unit_const_snapshot_line_count {
+    pilot v4_unit_const_snapshot_line = v4_unit_snapshot_line(v4_unit_const_snapshot, v4_unit_const_snapshot_line_idx)
+    if v4_unit_const_snapshot_line != "" {
+        if v4_unit_snapshot_field_raw(v4_unit_const_snapshot_line, 0) == "unit-source" {
+            if v4_unit_snapshot_field(v4_unit_const_snapshot_line, 2) == "unit-snapshot-const.fk" {
+                say "unit-const-source-line=" + v4_unit_snapshot_source_manifest_line(v4_unit_const_snapshot_line)
+            }
+        }
+        if v4_unit_snapshot_field_raw(v4_unit_const_snapshot_line, 0) == "unit-section" {
+            if v4_unit_snapshot_field_raw(v4_unit_const_snapshot_line, 1) == "diagnostics" {
+                say "unit-const-diagnostics-section-line=" + v4_unit_snapshot_section_manifest_line(v4_unit_const_snapshot_line)
+            }
+        }
+    }
+    v4_unit_const_snapshot_line_idx += 1
+}
 say v4_unit_snapshot_restore(v4_unit_snapshot_ref_text("const-before"))
 say v4_driver_confirm_restored_document_text("unit-snapshot-const.fk", v4_unit_snapshot_const_text)
