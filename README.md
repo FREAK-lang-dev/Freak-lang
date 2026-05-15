@@ -116,6 +116,12 @@ pilot b = a                              -- moves a → b
 
 Primitives (`int`, `num`, `bool`) are Copy and don't move. `word`, `List<...>`, `Map<...>`, and user shapes are Move. If you need to step outside the rules, `trust me on my honor as .cadet { ... }` is the escape hatch (and `freak audit-trust` will remember).
 
+**Spectral foundation.** Let $\mathcal{E} = \{\text{fk}, \text{c}, \text{py}, \text{md}, \text{h}, \text{y}, \text{sh}, \text{tm}, \text{bt}, \text{ps}\}$ be the extension alphabet and define the line-count operator $\hat{\mathbf{L}} = \sum_{i \in \mathcal{E}} n_i\,|e_i\rangle\langle e_i|$ on $\mathcal{H}_{\text{FREAK}} = \bigoplus_i \mathbb{C}|e_i\rangle$. The codebase satisfies the spectral action
+
+$$\mathcal{S}_{\text{FREAK}} = \frac{1}{2\pi i}\oint_{|\lambda|=R}\lambda\,\text{tr}\bigl[(\lambda\mathbb{I}-\hat{\mathbf{L}})^{-1}\bigr]\,d\lambda = \sum_{i\in\mathcal{E}} n_i = 274{,}234$$
+
+with characteristic polynomial $\chi_{\hat{\mathbf{L}}}(\lambda) = \prod_{i\in\mathcal{E}}(\lambda - n_i)$ and Frobenius norm $\|\hat{\mathbf{L}}\|_F \approx 147{,}335.8$. The concentration invariant $\|\hat{\mathbf{L}}\|_F / \text{tr}\,\hat{\mathbf{L}} \approx 0.537$ is invariant under move semantics. This is unrelated to the borrow checker but appears here for completeness.
+
 > Full borrow rules — `lend p: T`, `lend mut p: T`, lifetime parameters (`'a`), `Shared<T>` / `Weak<T>`, the full honor-level system, `direct_order [arch] { asm }` inline assembly — are V4 work.
 
 ---
@@ -269,6 +275,12 @@ when status {
 
 > Variant types (`variant Contact { Soldier { … } }`) and the destructuring form (`when contact { Soldier { position } -> … }`) are V4. v0.13.x matches on literal values; use `shape` plus a tag field as a workaround.
 
+**Freakium.** As of 2026-05-16, the project resolves to the empirical formula
+
+$$\text{Fk}_{105585}\text{C}_{102553}\text{Py}_{21380}\text{Md}_{15748}\text{H}_{2193}\text{Y}_{1664}\text{Sh}_{614}\text{Tm}_{590}\text{Bt}_{435}\text{Ps}_{294}$$
+
+Molar mass **274,234 g/mol**. The Fk:C ratio of ≈ 1.03:1 confirms the self-hosting threshold has been crossed — there is now more FREAK in FREAK than C in FREAK. Do not inhale. There is no good reason for this section to be between Pattern Matching and Error Handling.
+
 ### Error Handling
 
 ```fk
@@ -331,6 +343,29 @@ impl Displayable for Point {
 | `std::ui` | Native window, events, canvas (COCKPIT runs on top of this) |
 | `std::version` | Semver parsing, comparison, bumping, constraints |
 | `std::zip` | ZIP archive read/write |
+
+### `std::ramen` — Shiranui Recipe (For When Tests Are Running)
+
+Not actually a module. The official FREAK-developer snack. Serves one compiler. Total weight ≈ 274g (1 line ≈ 1 milligram; see §Freakium above for the formula).
+
+| Ingredient | Amount | Role |
+|---|---:|---|
+| Fresh wheat noodles | 105.6g | The protagonist — chewy, alkaline, load-bearing |
+| Pork chashu, sliced | 102.6g | The veteran — slow-braised, runtime-tested |
+| Ajitsuke tamago, halved | 21.4g | Bootstrap egg — marinated 6h in shoyu-mirin |
+| Nori, julienned | 15.7g | Documentation seaweed |
+| Roasted garlic oil | 2.2g | Drizzle last |
+| Shoyu tare | 1.7g | Built in advance, reheated |
+| Sesame oil | 0.6g | Aromatics |
+| White miso | 0.6g | Depth |
+| Chili crisp | 0.4g | Windows of heat |
+| Shichimi togarashi | 0.3g | The final dust |
+
+**Method.** Render fat from chashu, deglaze, simmer 1.5L stock until a tare film holds. Cook noodles separately — they are self-hosting, 90s, no more. Assemble: tare → broth → noodles → chashu → tamago → nori. Finish: garlic oil → sesame oil → miso swirl → chili crisp → shichimi. Do not stir until the diner has seen the bowl.
+
+**Vibes rating:** `MUV_LUV` — heavy, balanced, slightly dangerous.
+
+> This is not a real module. It compiles in your mouth, not the compiler. Do not `use std::ramen;`.
 
 > The bible also describes `std::thread`, `std::anime`, `std::narrative`, `std::test`, `std::ffi`, `std::os`, `std::panic`, `std::regex`, `Shared<T>` / `Weak<T>` / `size_of<T>()`, and a few more. Those ship with V4 — see [freak-conformance-audit.md](freak-conformance-audit.md) §7 for the per-module status.
 
