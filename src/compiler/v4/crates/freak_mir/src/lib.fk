@@ -2333,6 +2333,21 @@ task v4_mir_signature_param_index_for_name(mir_id: int, sig_id: int, wanted_name
     give back 0 - 1
 }
 
+task v4_mir_function_type_param_index_for_name(callback_ty: word, wanted_name: word) -> int {
+    if callback_ty == "" or wanted_name == "" {
+        give back 0 - 1
+    }
+    pilot param_id = 0
+    pilot param_count = v4_ty_function_type_fixed_param_count(callback_ty)
+    repeat until param_id >= param_count {
+        if v4_ty_function_type_param_name(callback_ty, param_id) == wanted_name {
+            give back param_id
+        }
+        param_id += 1
+    }
+    give back 0 - 1
+}
+
 task v4_mir_method_param_index_for_name(mir_id: int, hir_item: int, method_id: int, wanted_name: word) -> int {
     if hir_item < 0 or method_id < 0 or wanted_name == "" {
         give back 0 - 1
@@ -2475,6 +2490,21 @@ task v4_mir_validate_variadic_call_arg(mir_id: int, body_id: int, stream_id: int
     v4_mir_add_type_error(mir_id, arg_span, "variadic call argument is not C vararg safe", callee_name + " cannot carry " + actual_ty + " through ...; " + v4_ty_variadic_arg_help(actual_ty))
 }
 
+task v4_mir_lower_ignored_call_args(mir_id: int, body_id: int, stream_id: int, open_token: int, close_token: int) -> void {
+    pilot arg_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    pilot arg_idx = 0
+    pilot arg_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+    repeat until arg_idx >= arg_count {
+        pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
+        pilot value_start = v4_mir_call_arg_value_start(stream_id, arg_start, arg_end)
+        if value_start >= 0 and arg_end > value_start {
+            pilot ignored = v4_mir_lower_expr(mir_id, body_id, stream_id, value_start, arg_end)
+        }
+        arg_idx += 1
+        arg_start = v4_mir_skip_trivia(stream_id, arg_end + 1)
+    }
+}
+
 task v4_mir_check_call_generic_bounds(mir_id: int, expr_span: word, callee_name: word, sig_id: int, generic_env: word) -> void {
     if sig_id < 0 or generic_env == "" or generic_env == v4_ty_generic_env_fail {
         give back
@@ -2615,6 +2645,119 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
     }
     v4_mir_check_call_generic_bounds(mir_id, expr_span, callee_name, sig_id, generic_env)
     give back v4_mir_call_check_result(generic_env, args_payload)
+}
+
+task v4_mir_check_callback_call_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, callee_text: word, callback_ty: word, open_token: int, close_token: int) -> word {
+    if callback_ty == "" or open_token < 0 or close_token <= open_token {
+        give back ""
+    }
+
+    pilot expected_count = v4_ty_function_type_fixed_param_count(callback_ty)
+    pilot variadic = v4_ty_function_type_variadic_param_id(callback_ty) >= 0
+    pilot actual_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    if variadic {
+        if actual_count < expected_count {
+            v4_mir_add_type_error(mir_id, expr_span, "callback call arity mismatch", callee_text + " expects at least " + word_from_int(expected_count) + " arguments but got " + word_from_int(actual_count))
+        }
+    } else if expected_count != actual_count {
+        v4_mir_add_type_error(mir_id, expr_span, "callback call arity mismatch", callee_text + " expects " + word_from_int(expected_count) + " arguments but got " + word_from_int(actual_count))
+    }
+
+    pilot planned_slots = v4_mir_call_arg_slot_payload_new(expected_count)
+    pilot variadic_payload = ""
+    pilot extra_payload = ""
+    pilot named_seen = false
+    pilot next_positional = 0
+    pilot plan_arg_idx = 0
+    pilot arg_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+    repeat until plan_arg_idx >= actual_count {
+        pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
+        pilot arg_label = v4_mir_call_arg_label(stream_id, arg_start, arg_end)
+        pilot value_start = arg_start
+        if arg_label != "" {
+            named_seen = true
+            value_start = v4_mir_call_arg_value_start(stream_id, arg_start, arg_end)
+            pilot param_idx = v4_mir_function_type_param_index_for_name(callback_ty, arg_label)
+            if param_idx < 0 {
+                v4_mir_add_type_error(mir_id, expr_span, "unknown call argument", callee_text + " has no parameter " + arg_label)
+                extra_payload = v4_mir_call_arg_segment_payload_append(extra_payload, value_start, arg_end)
+            } else if v4_mir_call_arg_slot_assigned(planned_slots, param_idx) {
+                v4_mir_add_type_error(mir_id, expr_span, "duplicate call argument", arg_label + " already has an assignment in " + callee_text)
+                extra_payload = v4_mir_call_arg_segment_payload_append(extra_payload, value_start, arg_end)
+            } else {
+                planned_slots = v4_mir_call_arg_slot_set(planned_slots, expected_count, param_idx, value_start, arg_end)
+            }
+        } else {
+            if named_seen {
+                if variadic and v4_mir_call_arg_slots_all_assigned(planned_slots, expected_count) {
+                    variadic_payload = v4_mir_call_arg_segment_payload_append(variadic_payload, arg_start, arg_end)
+                } else {
+                    v4_mir_add_type_error(mir_id, expr_span, "positional call argument after named", "place positional arguments before named ones in " + callee_text)
+                    extra_payload = v4_mir_call_arg_segment_payload_append(extra_payload, arg_start, arg_end)
+                }
+            } else if next_positional < expected_count {
+                planned_slots = v4_mir_call_arg_slot_set(planned_slots, expected_count, next_positional, arg_start, arg_end)
+                next_positional += 1
+            } else if variadic {
+                variadic_payload = v4_mir_call_arg_segment_payload_append(variadic_payload, arg_start, arg_end)
+            } else {
+                extra_payload = v4_mir_call_arg_segment_payload_append(extra_payload, arg_start, arg_end)
+            }
+        }
+        plan_arg_idx += 1
+        arg_start = v4_mir_skip_trivia(stream_id, arg_end + 1)
+    }
+
+    pilot args_payload = ""
+    pilot lower_arg_idx = 0
+    repeat until lower_arg_idx >= expected_count {
+        if named_seen and not v4_mir_call_arg_slot_assigned(planned_slots, lower_arg_idx) {
+            pilot param_name = v4_ty_function_type_param_name(callback_ty, lower_arg_idx)
+            if param_name == "" {
+                param_name = word_from_int(lower_arg_idx + 1)
+            }
+            v4_mir_add_type_error(mir_id, expr_span, "missing call argument", callee_text + " still needs parameter " + param_name)
+        }
+        pilot planned_start = v4_mir_call_arg_slot_start(planned_slots, lower_arg_idx)
+        pilot planned_end = v4_mir_call_arg_slot_end(planned_slots, lower_arg_idx)
+        if planned_start >= 0 and planned_end > planned_start {
+            pilot expected_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_function_type_param_surface(callback_ty, lower_arg_idx))
+            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
+            args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
+            pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+            if not v4_ty_types_compatible(expected_ty, actual_ty) {
+                v4_mir_add_type_error(mir_id, expr_span, "call argument type mismatch", callee_text + " argument " + word_from_int(lower_arg_idx + 1) + " expects " + expected_ty + " but got " + actual_ty)
+            }
+        }
+        lower_arg_idx += 1
+    }
+
+    pilot variadic_idx = 0
+    pilot variadic_count = v4_mir_call_arg_segment_payload_count(variadic_payload)
+    repeat until variadic_idx >= variadic_count {
+        pilot segment = v4_mir_call_arg_segment_payload_at(variadic_payload, variadic_idx)
+        pilot extra_start = v4_mir_call_arg_segment_start(segment)
+        pilot extra_end = v4_mir_call_arg_segment_end(segment)
+        if extra_start >= 0 and extra_end > extra_start {
+            pilot arg_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, extra_start, extra_end)
+            v4_mir_validate_variadic_call_arg(mir_id, body_id, stream_id, callee_text, extra_start, extra_end, arg_rvalue)
+            args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
+        }
+        variadic_idx += 1
+    }
+
+    pilot extra_idx = 0
+    pilot extra_count = v4_mir_call_arg_segment_payload_count(extra_payload)
+    repeat until extra_idx >= extra_count {
+        pilot segment = v4_mir_call_arg_segment_payload_at(extra_payload, extra_idx)
+        pilot extra_start = v4_mir_call_arg_segment_start(segment)
+        pilot extra_end = v4_mir_call_arg_segment_end(segment)
+        if extra_start >= 0 and extra_end > extra_start {
+            pilot ignored = v4_mir_lower_expr(mir_id, body_id, stream_id, extra_start, extra_end)
+        }
+        extra_idx += 1
+    }
+    give back args_payload
 }
 
 task v4_mir_method_ref(hir_item: int, method_id: int) -> word {
@@ -3149,6 +3292,19 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     pilot receiver_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first, dot_token)
     pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
     pilot method_name = v4_lex_token_value(stream_id, method_token)
+    pilot field_callback_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir_id), receiver_ty, method_name))
+    if v4_ty_is_surface_extern_function_pointer_type(field_callback_ty) {
+        pilot field_place = v4_mir_lower_place(mir_id, body_id, stream_id, first, open_token)
+        pilot field_text = v4_mir_place_text(mir_id, body_id, field_place)
+        pilot field_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_place, field_text, field_text, field_place, 0 - 1, expr_span, field_callback_ty)
+        pilot args_payload = v4_mir_check_callback_call_args(mir_id, body_id, stream_id, expr_span, field_text, field_callback_ty, open_token, last)
+        pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+        pilot result_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_function_type_return_text(field_callback_ty))
+        pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, field_text, field_rvalue, 0 - 1, expr_span, result_ty)
+        v4_mir_set_rvalue_abi(mir_id, body_id, call_rvalue, v4_ty_function_type_call_abi(field_callback_ty))
+        v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, args_payload)
+        give back call_rvalue
+    }
     pilot method_ref = v4_mir_find_method_ref(mir_id, receiver_ty, method_name, true)
     pilot bound_method_ref = ""
     pilot any_ref = ""
@@ -4589,16 +4745,39 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     if next_token <= last and v4_lex_token_value(stream_id, next_token) == "(" {
         pilot close_token = v4_mir_find_matching_paren(stream_id, next_token, last + 1)
         pilot sig_id = v4_mir_signature_id_for_name(mir_id, first_value)
-        pilot target_name = v4_mir_resolved_callee_name(mir_id, first_value)
-        pilot call_check = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, first_value, sig_id, next_token, close_token)
-        pilot generic_env = v4_mir_call_check_result_env(call_check)
-        pilot args_payload = v4_mir_call_check_result_args(call_check)
-        pilot return_ty = v4_mir_signature_return_type_for_id(mir_id, sig_id)
         if sig_id >= 0 {
+            pilot target_name = v4_mir_resolved_callee_name(mir_id, first_value)
+            pilot call_check = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, first_value, sig_id, next_token, close_token)
+            pilot generic_env = v4_mir_call_check_result_env(call_check)
+            pilot args_payload = v4_mir_call_check_result_args(call_check)
+            pilot return_ty = v4_mir_signature_return_type_for_id(mir_id, sig_id)
             return_ty = v4_ty_signature_return_type_for_env(v4_mir_ty_id(mir_id), sig_id, generic_env)
+            pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, target_name, 0 - 1, 0 - 1, expr_span, return_ty)
+            v4_mir_set_rvalue_abi(mir_id, body_id, call_rvalue, v4_mir_signature_call_abi(mir_id, sig_id))
+            v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, args_payload)
+            give back call_rvalue
         }
-        pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, target_name, 0 - 1, 0 - 1, expr_span, return_ty)
-        v4_mir_set_rvalue_abi(mir_id, body_id, call_rvalue, v4_mir_signature_call_abi(mir_id, sig_id))
+
+        pilot callee_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first, next_token)
+        pilot callee_ty = v4_mir_rvalue_ty(mir_id, body_id, callee_rvalue)
+        if v4_ty_is_surface_extern_function_pointer_type(callee_ty) {
+            pilot args_payload = v4_mir_check_callback_call_args(mir_id, body_id, stream_id, expr_span, v4_mir_expr_text(stream_id, first, next_token), callee_ty, next_token, close_token)
+            pilot return_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_function_type_return_text(callee_ty))
+            pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, v4_mir_rvalue_text(mir_id, body_id, callee_rvalue), callee_rvalue, 0 - 1, expr_span, return_ty)
+            v4_mir_set_rvalue_abi(mir_id, body_id, call_rvalue, v4_ty_function_type_call_abi(callee_ty))
+            v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, args_payload)
+            give back call_rvalue
+        }
+
+        if v4_ty_is_known(callee_ty) {
+            v4_mir_add_type_error(mir_id, expr_span, "call target is not callable", v4_mir_expr_text(stream_id, first, next_token) + " has type " + callee_ty + "; only tasks and extern callback values can be called")
+            v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, next_token, close_token)
+            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, expr_text, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+        }
+
+        pilot call_check = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, first_value, sig_id, next_token, close_token)
+        pilot args_payload = v4_mir_call_check_result_args(call_check)
+        pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, first_value, 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
         v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, args_payload)
         give back call_rvalue
     }

@@ -431,6 +431,47 @@ task v4_ty_function_type_param_surface(type_text: word, param_id: int) -> word {
     give back v4_ty_unknown
 }
 
+task v4_ty_function_type_param_name(type_text: word, param_id: int) -> word {
+    pilot open_pos = v4_ty_function_type_open_paren(type_text)
+    pilot close_pos = v4_ty_function_type_close_paren(type_text)
+    if open_pos < 0 or close_pos < 0 or param_id < 0 or open_pos + 1 > close_pos {
+        give back ""
+    }
+    if open_pos + 1 == close_pos {
+        give back ""
+    }
+
+    pilot current = 0
+    pilot segment_start = open_pos + 1
+    pilot depth = 0
+    pilot idx = open_pos + 1
+    repeat until idx >= close_pos {
+        pilot ch = type_text.char_at(idx)
+        if depth == 0 and ch == "," {
+            if current == param_id {
+                pilot colon_pos = v4_ty_find_top_level_type_char(type_text, ":", segment_start, idx)
+                if colon_pos >= 0 {
+                    give back v4_slice(type_text, segment_start, colon_pos)
+                }
+                give back ""
+            }
+            current += 1
+            segment_start = idx + 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+
+    if current == param_id and segment_start < close_pos {
+        pilot colon_pos = v4_ty_find_top_level_type_char(type_text, ":", segment_start, close_pos)
+        if colon_pos >= 0 {
+            give back v4_slice(type_text, segment_start, colon_pos)
+        }
+    }
+    give back ""
+}
+
 task v4_ty_function_type_param_count(type_text: word) -> int {
     pilot open_pos = v4_ty_function_type_open_paren(type_text)
     pilot close_pos = v4_ty_function_type_close_paren(type_text)
@@ -456,6 +497,15 @@ task v4_ty_function_type_param_count(type_text: word) -> int {
     give back count
 }
 
+task v4_ty_function_type_fixed_param_count(type_text: word) -> int {
+    pilot param_count = v4_ty_function_type_param_count(type_text)
+    pilot variadic_param = v4_ty_function_type_variadic_param_id(type_text)
+    if variadic_param >= 0 {
+        give back variadic_param
+    }
+    give back param_count
+}
+
 task v4_ty_function_type_variadic_param_id(type_text: word) -> int {
     pilot param_id = 0
     pilot param_count = v4_ty_function_type_param_count(type_text)
@@ -466,6 +516,27 @@ task v4_ty_function_type_variadic_param_id(type_text: word) -> int {
         param_id += 1
     }
     give back 0 - 1
+}
+
+task v4_ty_function_type_call_abi(type_text: word) -> word {
+    pilot abi_specs = v4_ty_function_type_abi_specs(type_text)
+    if abi_specs == "" {
+        give back ""
+    }
+
+    pilot item_start = 0
+    repeat until item_start >= abi_specs.length() {
+        pilot item_end = v4_ty_find_top_level_type_char(abi_specs, ",", item_start, abi_specs.length())
+        if item_end < 0 {
+            item_end = abi_specs.length()
+        }
+        pilot item = v4_slice(abi_specs, item_start, item_end)
+        if item != "" {
+            give back v4_ty_normalize_call_abi(item)
+        }
+        item_start = item_end + 1
+    }
+    give back ""
 }
 
 task v4_ty_function_type_abi_valid(abi_specs: word, allow_variadic: bool) -> bool {

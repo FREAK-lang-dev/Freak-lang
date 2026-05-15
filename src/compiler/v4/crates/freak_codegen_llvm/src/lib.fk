@@ -649,6 +649,17 @@ task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> 
     give back v4_codegen_llvm_temp_value(body_id, rvalue_id)
 }
 
+task v4_codegen_llvm_call_target_rvalue(mir_id: int, body_id: int, call_rvalue_id: int) -> int {
+    pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, call_rvalue_id)
+    if lhs < 0 {
+        give back 0 - 1
+    }
+    if v4_ty_is_surface_extern_function_pointer_type(v4_mir_rvalue_ty(mir_id, body_id, lhs)) {
+        give back lhs
+    }
+    give back 0 - 1
+}
+
 task v4_codegen_llvm_variadic_arg_promoted_type(mir_id: int, body_id: int, call_rvalue_id: int, arg_id: int) -> word {
     pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue_id, arg_id)
     if arg_rvalue < 0 {
@@ -657,11 +668,26 @@ task v4_codegen_llvm_variadic_arg_promoted_type(mir_id: int, body_id: int, call_
 
     pilot call_name = v4_mir_rvalue_op(mir_id, body_id, call_rvalue_id)
     pilot sig_id = v4_mir_signature_id_for_name(mir_id, call_name)
+    pilot ty_id = v4_mir_ty_id(mir_id)
     if sig_id < 0 {
+        pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_id, call_rvalue_id)
+        if target_rvalue >= 0 {
+            pilot callback_ty = v4_mir_rvalue_ty(mir_id, body_id, target_rvalue)
+            if v4_ty_function_type_variadic_param_id(callback_ty) < 0 {
+                give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+            }
+            if arg_id < v4_ty_function_type_fixed_param_count(callback_ty) {
+                give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+            }
+            pilot promoted_callback_ty = v4_ty_variadic_arg_promoted_type(ty_id, v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue))
+            if promoted_callback_ty == v4_ty_unknown {
+                give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+            }
+            give back promoted_callback_ty
+        }
         give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
     }
 
-    pilot ty_id = v4_mir_ty_id(mir_id)
     if v4_ty_signature_is_variadic(ty_id, sig_id) == false {
         give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
     }
@@ -777,11 +803,17 @@ task v4_codegen_llvm_call_instruction(mir_id: int, body_id: int, rvalue_id: int,
     pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot call_sig = v4_mir_signature_id_for_name(mir_id, call_name)
+    pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_id, rvalue_id)
     pilot call_symbol_name = call_name
-    if call_sig >= 0 {
-        call_symbol_name = v4_codegen_llvm_signature_symbol_name(ty_id, call_sig)
+    pilot call_symbol = ""
+    if target_rvalue >= 0 {
+        call_symbol = v4_codegen_llvm_rvalue_value(mir_id, body_id, target_rvalue)
+    } else {
+        if call_sig >= 0 {
+            call_symbol_name = v4_codegen_llvm_signature_symbol_name(ty_id, call_sig)
+        }
+        call_symbol = v4_codegen_llvm_symbol(call_symbol_name)
     }
-    pilot call_symbol = v4_codegen_llvm_symbol(call_symbol_name)
     pilot call_args = v4_codegen_llvm_call_args(mir_id, body_id, rvalue_id)
     pilot call_text = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")"
     if target == "" or call_return == "void" {
@@ -828,6 +860,10 @@ task v4_codegen_llvm_rvalue_tree_lines(mir_id: int, body_id: int, rvalue_id: int
     pilot out = ""
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if kind == v4_mir_rvalue_call {
+        pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_id, rvalue_id)
+        if target_rvalue >= 0 and v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, target_rvalue) {
+            out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, target_rvalue, v4_codegen_llvm_temp_value(body_id, target_rvalue))
+        }
         pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
         if arg_count > 0 {
             pilot arg_idx = 0
@@ -939,13 +975,19 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                 pilot call_cc = v4_codegen_llvm_calling_convention(call_abi)
                 pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_idx, rvalue_idx))
                 pilot call_sig = v4_mir_signature_id_for_name(mir_id, call_name)
+                pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_idx, rvalue_idx)
                 pilot call_symbol_name = call_name
                 pilot call_link = ""
-                if call_sig >= 0 {
-                    call_symbol_name = v4_codegen_llvm_signature_symbol_name(v4_mir_ty_id(mir_id), call_sig)
-                    call_link = v4_codegen_llvm_signature_link_name(v4_mir_ty_id(mir_id), call_sig)
+                pilot call_symbol = ""
+                if target_rvalue >= 0 {
+                    call_symbol = v4_codegen_llvm_rvalue_value(mir_id, body_idx, target_rvalue)
+                } else {
+                    if call_sig >= 0 {
+                        call_symbol_name = v4_codegen_llvm_signature_symbol_name(v4_mir_ty_id(mir_id), call_sig)
+                        call_link = v4_codegen_llvm_signature_link_name(v4_mir_ty_id(mir_id), call_sig)
+                    }
+                    call_symbol = v4_codegen_llvm_symbol(call_symbol_name)
                 }
-                pilot call_symbol = v4_codegen_llvm_symbol(call_symbol_name)
                 pilot call_expr = v4_mir_rvalue_text(mir_id, body_idx, rvalue_idx)
                 pilot call_args = v4_codegen_llvm_call_args(mir_id, body_idx, rvalue_idx)
                 pilot call_line = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")"

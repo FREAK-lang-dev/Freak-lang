@@ -1,0 +1,131 @@
+-- V4 extern callback invocation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_extern_callback_call_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_extern_callback_call_good_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task current() -> extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "@layout(C)\n"
+    src = src + "shape HookTable {\n"
+    src = src + "    on_tick: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task run(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int, hooks: HookTable) -> int {\n"
+    src = src + "    pilot a = cb(7)\n"
+    src = src + "    pilot now = current()\n"
+    src = src + "    pilot b = now(8)\n"
+    src = src + "    pilot c = hooks.on_tick(9)\n"
+    src = src + "    give back a + b + c\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_callback_call_bad_target_source() -> word {
+    pilot src = "task run(cb: int) -> int {\n"
+    src = src + "    give back cb(1)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_callback_call_bad_arg_source() -> word {
+    pilot src = "task run(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> int {\n"
+    src = src + "    give back cb(\"ace\")\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_callback_call_bad_arity_source() -> word {
+    pilot src = "task run(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> int {\n"
+    src = src + "    give back cb()\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_extern_callback_call_stream = v4_lex_text(0, v4_extern_callback_call_good_source())
+pilot v4_extern_callback_call_tree = v4_parse_stream(0, v4_extern_callback_call_stream)
+pilot v4_extern_callback_call_hir = v4_hir_lower_tree(0, v4_extern_callback_call_tree)
+pilot v4_extern_callback_call_resolve = v4_resolve_lower_hir(0, v4_extern_callback_call_hir)
+pilot v4_extern_callback_call_ty = v4_ty_lower_resolve(0, v4_extern_callback_call_resolve)
+pilot v4_extern_callback_call_mir = v4_mir_lower_ty(0, v4_extern_callback_call_ty)
+pilot v4_extern_callback_call_llvm = v4_codegen_llvm_lower_mir(0, v4_extern_callback_call_mir)
+
+pilot v4_extern_callback_call_run_def = v4_resolve_def_for_name(v4_extern_callback_call_resolve, "run")
+pilot v4_extern_callback_call_run_body = v4_mir_lookup_body(v4_extern_callback_call_mir, v4_extern_callback_call_run_def)
+pilot v4_extern_callback_call_a_stmt = v4_extern_callback_call_find_local_stmt(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, "a")
+pilot v4_extern_callback_call_now_stmt = v4_extern_callback_call_find_local_stmt(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, "now")
+pilot v4_extern_callback_call_b_stmt = v4_extern_callback_call_find_local_stmt(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, "b")
+pilot v4_extern_callback_call_c_stmt = v4_extern_callback_call_find_local_stmt(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, "c")
+pilot v4_extern_callback_call_a_rvalue = v4_mir_stmt_rvalue(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_a_stmt)
+pilot v4_extern_callback_call_now_rvalue = v4_mir_stmt_rvalue(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_now_stmt)
+pilot v4_extern_callback_call_b_rvalue = v4_mir_stmt_rvalue(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_b_stmt)
+pilot v4_extern_callback_call_c_rvalue = v4_mir_stmt_rvalue(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_c_stmt)
+pilot v4_extern_callback_call_a_target = v4_mir_rvalue_lhs(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_a_rvalue)
+pilot v4_extern_callback_call_b_target = v4_mir_rvalue_lhs(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_b_rvalue)
+pilot v4_extern_callback_call_c_target = v4_mir_rvalue_lhs(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_c_rvalue)
+pilot v4_extern_callback_call_c_op = v4_mir_rvalue_op(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_c_rvalue)
+pilot v4_extern_callback_call_current_call = v4_codegen_llvm_find_call(v4_extern_callback_call_llvm, "run", "current")
+pilot v4_extern_callback_call_cb_call = v4_codegen_llvm_find_call(v4_extern_callback_call_llvm, "run", "cb")
+pilot v4_extern_callback_call_now_call = v4_codegen_llvm_find_call(v4_extern_callback_call_llvm, "run", "now")
+pilot v4_extern_callback_call_field_call = v4_codegen_llvm_find_call(v4_extern_callback_call_llvm, "run", v4_extern_callback_call_c_op)
+
+say "extern-callback-call-diag-count=" + word_from_int(v4_mir_diag_count(v4_extern_callback_call_mir))
+say "extern-callback-call-a-kind=" + v4_mir_rvalue_kind(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_a_rvalue)
+say "extern-callback-call-a-op=" + v4_mir_rvalue_op(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_a_rvalue)
+say "extern-callback-call-a-ty=" + v4_mir_rvalue_ty(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_a_rvalue)
+say "extern-callback-call-a-abi=" + v4_mir_rvalue_abi(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_a_rvalue)
+say "extern-callback-call-a-target-kind=" + v4_mir_rvalue_kind(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_a_target)
+say "extern-callback-call-a-arg0-ty=" + v4_mir_rvalue_ty(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_mir_rvalue_call_arg(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_a_rvalue, 0))
+say "extern-callback-call-b-op=" + v4_mir_rvalue_op(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_b_rvalue)
+say "extern-callback-call-b-target-kind=" + v4_mir_rvalue_kind(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_b_target)
+say "extern-callback-call-c-op=" + v4_extern_callback_call_c_op
+say "extern-callback-call-c-target-kind=" + v4_mir_rvalue_kind(v4_extern_callback_call_mir, v4_extern_callback_call_run_body, v4_extern_callback_call_c_target)
+say "extern-callback-call-current-line=" + v4_codegen_llvm_call_line(v4_extern_callback_call_llvm, v4_extern_callback_call_current_call)
+say "extern-callback-call-cb-line=" + v4_codegen_llvm_call_line(v4_extern_callback_call_llvm, v4_extern_callback_call_cb_call)
+say "extern-callback-call-now-line=" + v4_codegen_llvm_call_line(v4_extern_callback_call_llvm, v4_extern_callback_call_now_call)
+say "extern-callback-call-field-line=" + v4_codegen_llvm_call_line(v4_extern_callback_call_llvm, v4_extern_callback_call_field_call)
+
+pilot v4_extern_callback_call_bad_target_stream = v4_lex_text(1, v4_extern_callback_call_bad_target_source())
+pilot v4_extern_callback_call_bad_target_tree = v4_parse_stream(1, v4_extern_callback_call_bad_target_stream)
+pilot v4_extern_callback_call_bad_target_hir = v4_hir_lower_tree(1, v4_extern_callback_call_bad_target_tree)
+pilot v4_extern_callback_call_bad_target_resolve = v4_resolve_lower_hir(1, v4_extern_callback_call_bad_target_hir)
+pilot v4_extern_callback_call_bad_target_ty = v4_ty_lower_resolve(1, v4_extern_callback_call_bad_target_resolve)
+pilot v4_extern_callback_call_bad_target_mir = v4_mir_lower_ty(1, v4_extern_callback_call_bad_target_ty)
+
+say "extern-callback-call-bad-target-diag-count=" + word_from_int(v4_mir_diag_count(v4_extern_callback_call_bad_target_mir))
+say "extern-callback-call-bad-target-message=" + v4_diag_message(v4_mir_diag(v4_extern_callback_call_bad_target_mir, 0))
+say "extern-callback-call-bad-target-help=" + v4_diag_help(v4_mir_diag(v4_extern_callback_call_bad_target_mir, 0))
+
+pilot v4_extern_callback_call_bad_arg_stream = v4_lex_text(2, v4_extern_callback_call_bad_arg_source())
+pilot v4_extern_callback_call_bad_arg_tree = v4_parse_stream(2, v4_extern_callback_call_bad_arg_stream)
+pilot v4_extern_callback_call_bad_arg_hir = v4_hir_lower_tree(2, v4_extern_callback_call_bad_arg_tree)
+pilot v4_extern_callback_call_bad_arg_resolve = v4_resolve_lower_hir(2, v4_extern_callback_call_bad_arg_hir)
+pilot v4_extern_callback_call_bad_arg_ty = v4_ty_lower_resolve(2, v4_extern_callback_call_bad_arg_resolve)
+pilot v4_extern_callback_call_bad_arg_mir = v4_mir_lower_ty(2, v4_extern_callback_call_bad_arg_ty)
+
+say "extern-callback-call-bad-arg-diag-count=" + word_from_int(v4_mir_diag_count(v4_extern_callback_call_bad_arg_mir))
+say "extern-callback-call-bad-arg-message=" + v4_diag_message(v4_mir_diag(v4_extern_callback_call_bad_arg_mir, 0))
+say "extern-callback-call-bad-arg-help=" + v4_diag_help(v4_mir_diag(v4_extern_callback_call_bad_arg_mir, 0))
+
+pilot v4_extern_callback_call_bad_arity_stream = v4_lex_text(3, v4_extern_callback_call_bad_arity_source())
+pilot v4_extern_callback_call_bad_arity_tree = v4_parse_stream(3, v4_extern_callback_call_bad_arity_stream)
+pilot v4_extern_callback_call_bad_arity_hir = v4_hir_lower_tree(3, v4_extern_callback_call_bad_arity_tree)
+pilot v4_extern_callback_call_bad_arity_resolve = v4_resolve_lower_hir(3, v4_extern_callback_call_bad_arity_hir)
+pilot v4_extern_callback_call_bad_arity_ty = v4_ty_lower_resolve(3, v4_extern_callback_call_bad_arity_resolve)
+pilot v4_extern_callback_call_bad_arity_mir = v4_mir_lower_ty(3, v4_extern_callback_call_bad_arity_ty)
+
+say "extern-callback-call-bad-arity-diag-count=" + word_from_int(v4_mir_diag_count(v4_extern_callback_call_bad_arity_mir))
+say "extern-callback-call-bad-arity-message=" + v4_diag_message(v4_mir_diag(v4_extern_callback_call_bad_arity_mir, 0))
+say "extern-callback-call-bad-arity-help=" + v4_diag_help(v4_mir_diag(v4_extern_callback_call_bad_arity_mir, 0))

@@ -63,7 +63,7 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 12 | `tiny`, `uint`, `char`, `big`, `float32`, fixed `[T; N]` | Type checker knows int/num/word/bool/void only | 🔴 | 📖 V4 (add minimal aliases now) |
 | 13 | Audit commands in native CLI | Python-only; `build/freak.exe` doesn't dispatch | 🟡 | 🛠 wire native CLI |
 | 14 | Error voices (Meiya/Yuuko/Sagiri/Kasumi/Takeru/Mana/Hayase/Sumika/00-Unit) | Mostly generic errors | 🟡 | 📖 V4 |
-| 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 now carries `extern` ABI metadata, `link="..."` / `@link_name("...")` metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, `extern [C]/[system] task(...) -> T` callback surfaces, and `@layout(C)` / `packed` / `transparent` validation plus basic FFI-safety checks; raw pointer ops, call-through callbacks, and deeper ABI coverage still expand | 🟡 | 📖 V4 |
+| 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 now carries `extern` ABI metadata, `link="..."` / `@link_name("...")` metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, `extern [C]/[system] task(...) -> T` callback surfaces, indirect callback calls through MIR/LLVM, and `@layout(C)` / `packed` / `transparent` validation plus basic FFI-safety checks; raw pointer ops, panic-boundary callback guarantees, and deeper ABI coverage still expand | 🟡 | 📖 V4 |
 | 16 | Bible-promised stdlib (`std::thread`, `std::anime`, `std::narrative`, `std::test`) | Listed planned, no `.fk` files | 🔴 | 📖 confirm Planned |
 | 17 | `freak vibe`, `freak test` CLI subcommands | Not in native CLI | 🟡 | 📖 OR 🛠 (`freak test` shim possible) |
 | 18 | Test coverage gap (~50% of bible has zero tests) | See Appendix B | 🟡 | Out of scope; surfaced |
@@ -466,7 +466,7 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 | Root-level `fixed pilot` cycle detection | ✅ | ✅ |
 | Fixed array length compile-time constants | ⚠️ | 📖 V4 (literal + integer root-const arithmetic works; broader const-eval remains) |
 | `dyn` object-safety rules | ❌ | 📖 V4 |
-| FFI safety (FFI-safe types only in extern) | ⚠️ | 📖 V4 | V4 now rejects bare `word` / `int` extern boundaries and non-FFI-safe `@layout(...)` fields; extern variadics now validate final-slot/ABI contracts plus scalar vararg promotion for `tiny`/`bool`/`char`/`float32`, while trust-me wrappers and deeper callback rules still expand |
+| FFI safety (FFI-safe types only in extern) | ⚠️ | 📖 V4 | V4 now rejects bare `word` / `int` extern boundaries and non-FFI-safe `@layout(...)` fields; extern variadics now validate final-slot/ABI contracts plus scalar vararg promotion for `tiny`/`bool`/`char`/`float32`, and extern callback values now invoke through MIR/LLVM, while trust-me wrappers and panic-boundary callback rules still expand |
 | Layout annotations validation | ❌ | 📖 V4 |
 | Visibility rules enforcement | ⚠️ | 📖 V4 |
 
@@ -548,13 +548,13 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 ### §16 SYSTEM BOUNDARIES — FFI ([freak-full-bible.md:2198-2390](freak-full-bible.md))
 
-**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, `link="..."` library metadata, `@link_name("...")` symbol overrides, final extern-only `args: ...` variadics with scalar vararg promotion, `extern [C]/[system] task(...) -> T` callback surface validation, and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation now exist. Raw pointer ops, call-through callbacks, and deeper ABI/runtime guarantees are still V4 work.
+**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage, `link="..."` library metadata, `@link_name("...")` symbol overrides, final extern-only `args: ...` variadics with scalar vararg promotion, `extern [C]/[system] task(...) -> T` callback surface validation, indirect callback call lowering, and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation now exist. Raw pointer ops, panic-boundary callback guarantees, and deeper ABI/runtime guarantees are still V4 work.
 
 | Contract | Status | Verdict |
 |---|---|---|
-| FFI-safe types only in extern | ⚠️ | 📖 V4 | V4 rejects bare `word`/`int` extern signatures, validates `extern [C]/[system] task(...) -> T` callback surfaces, and rejects non-FFI-safe layout fields, but the full section-16 surface is not complete |
+| FFI-safe types only in extern | ⚠️ | 📖 V4 | V4 rejects bare `word`/`int` extern signatures, validates `extern [C]/[system] task(...) -> T` callback surfaces, lowers indirect callback calls, and rejects non-FFI-safe layout fields, but the full section-16 surface is not complete |
 | `extern [C]` (and other ABIs) | ⚠️ | partial — `tests/extern_test.fk` and `tests/extern_llvm_test.fk` (failing in v1 parser per Phase-A) |
-| Calling conventions: cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, system | ⚠️ | 📖 V4 | V4 carries and validates the core ABI list plus duplicate/unknown-option diagnostics; final extern variadics now enforce C-compatible ABI selection, and callback surface types reuse the same ABI validation, while call-through callback rules still expand |
+| Calling conventions: cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, system | ⚠️ | 📖 V4 | V4 carries and validates the core ABI list plus duplicate/unknown-option diagnostics; final extern variadics now enforce C-compatible ABI selection, and callback surface types plus indirect callback calls reuse the same ABI validation, while panic-boundary callback rules still expand |
 | `link="name"` library binding | ⚠️ | 📖 V4 | V4 carries library metadata through TY/codegen/query/LSP and diagnoses malformed or duplicate link entries |
 | `@link_name("symbol")` | ⚠️ | 📖 V4 | V4 carries per-member symbol overrides through TY/codegen/query/LSP and diagnoses malformed or duplicate attributes |
 | Variadic `args: ...` | ⚠️ | 📖 V4 | V4 now supports final extern-only `args: ...` signatures through TY/MIR/LLVM plus scalar vararg promotion and query/LSP/snapshot diagnostics; deeper runtime guarantees still expand |
