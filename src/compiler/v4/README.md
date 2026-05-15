@@ -51,16 +51,16 @@ generic doctrine bounds plus multi-bound method/editor enforcement, and named
 call-site arguments across task calls plus instance/associated method calls.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, and `@layout(transparent)`
-through TY queries with boundary-safety diagnostics for non-FFI extern types
-and non-FFI layout fields. Extern blocks also carry `link="..."` library
+through TY queries with boundary-safety diagnostics for non-FFI extern types,
+raw-pointer pointee targets, and non-FFI layout fields. Extern blocks also carry `link="..."` library
 metadata, member-level `@link_name("...")` symbol overrides, and final
 extern-only `args: ...` variadics through TY, MIR, LLVM declaration/call
 plans, scalar vararg promotion for `tiny`/`bool`/`char`/`float32` tails, query
 diagnostics, snapshot restore, and LSP. Extern callback surface types like
 `extern [C] task(...) -> T` and `extern [system] task(...) -> T` now validate
 through TY as FFI-safe function pointers, now diagnose missing `extern`,
-invalid callback ABI lists, and non-FFI callback parameter payloads through
-query/snapshot/LSP, lower to LLVM `ptr`, and now call through MIR/LLVM as
+invalid callback ABI lists, and non-FFI callback parameter payloads including
+raw-pointer pointees through query/snapshot/LSP, lower to LLVM `ptr`, and now call through MIR/LLVM as
 indirect FFI calls from locals, returned callback values, and `@layout(C)`
 field places. Panic-abort guarantees across callback boundaries remain later
 FFI work.

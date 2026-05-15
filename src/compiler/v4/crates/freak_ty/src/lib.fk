@@ -6575,6 +6575,22 @@ task v4_ty_ffi_seen_append(seen_types: word, type_name: word) -> word {
 }
 
 task v4_ty_ffi_boundary_help(surface_type: word, context: word) -> word {
+    if v4_ty_is_raw_pointer_type(surface_type) {
+        pilot target_type = v4_ty_raw_pointer_target_type(surface_type)
+        if target_type == "word" {
+            give back context + " points at word; raw pointers do not make FREAK strings C-safe. Use *const tiny or an explicit @layout(C) buffer."
+        }
+        if v4_ty_is_surface_task_function_type(target_type) {
+            give back context + " points at " + target_type + "; function pointers crossing FFI must use extern[C]/[system] task(...) -> T."
+        }
+        if target_type == "int" or target_type == "uint" or target_type == "bool" or target_type == "num" or target_type == "float" or target_type == "float32" {
+            give back context + " points at " + target_type + "; spell pointed-to boundary scalars with std::ffi aliases like *const std::ffi::c_int or *mut std::ffi::c_double."
+        }
+        if target_type == "void" {
+            give back context + " may point at void only as *const void, *mut void, or *const std::ffi::c_void."
+        }
+        give back context + " points at " + target_type + "; raw pointers crossing FFI must target std::ffi aliases, tiny/char buffers, extern callbacks, fixed arrays, or @layout(C) / @layout(transparent) shapes."
+    }
     if surface_type == "word" {
         give back context + " uses word; that is a FREAK string fat pointer, not a C char*. Use *const tiny or an explicit @layout(C) buffer."
     }
@@ -6588,6 +6604,73 @@ task v4_ty_ffi_boundary_help(surface_type: word, context: word) -> word {
         give back context + " may use void only as an extern return or behind a raw pointer."
     }
     give back context + " must use std::ffi aliases, raw pointers, fixed arrays, or @layout(C) / @layout(transparent) shapes; got " + surface_type
+}
+
+task v4_ty_surface_ffi_safe_pointer_target_seen(ty_id: int, surface_type: word, seen_types: word) -> bool {
+    if surface_type == "" or surface_type == v4_ty_unknown {
+        give back false
+    }
+
+    if v4_ty_is_surface_ffi_alias_type(surface_type) {
+        give back true
+    }
+
+    if surface_type == v4_ty_void or surface_type == v4_ty_tiny or surface_type == v4_ty_char {
+        give back true
+    }
+
+    if v4_ty_is_raw_pointer_type(surface_type) {
+        pilot target_type = v4_ty_raw_pointer_target_type(surface_type)
+        give back target_type != "" and target_type != v4_ty_unknown and v4_ty_surface_ffi_safe_pointer_target_seen(ty_id, target_type, seen_types)
+    }
+
+    if v4_ty_is_surface_extern_function_pointer_type(surface_type) {
+        give back v4_ty_surface_extern_function_pointer_ffi_safe(ty_id, surface_type, seen_types)
+    }
+
+    if v4_ty_is_surface_task_function_type(surface_type) {
+        give back false
+    }
+
+    if v4_ty_is_fixed_array_type(surface_type) {
+        give back v4_ty_surface_ffi_safe_pointer_target_seen(ty_id, v4_ty_fixed_array_element_type(surface_type), seen_types)
+    }
+
+    if v4_ty_is_tuple_type(surface_type) {
+        give back false
+    }
+
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, surface_type)
+    if shape_sig >= 0 {
+        if v4_ty_signature_layout_kind(ty_id, shape_sig) == "" {
+            give back false
+        }
+        pilot shape_name = v4_ty_signature_name(ty_id, shape_sig)
+        if v4_ty_ffi_seen_contains(seen_types, shape_name) {
+            give back true
+        }
+        pilot next_seen = v4_ty_ffi_seen_append(seen_types, shape_name)
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            if v4_ty_surface_ffi_safe_type_seen(ty_id, v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id), false, next_seen) == false {
+                give back false
+            }
+            field_id += 1
+        }
+        give back true
+    }
+
+    if v4_ty_ffi_seen_contains(seen_types, surface_type) {
+        give back false
+    }
+
+    pilot alias_target = v4_ty_alias_target_type(ty_id, surface_type)
+    if alias_target != "" and alias_target != v4_ty_unknown {
+        give back v4_ty_surface_ffi_safe_pointer_target_seen(ty_id, alias_target, v4_ty_ffi_seen_append(seen_types, surface_type))
+    }
+
+    give back false
 }
 
 task v4_ty_surface_ffi_safe_type_seen(ty_id: int, surface_type: word, allow_bare_void: bool, seen_types: word) -> bool {
@@ -6609,7 +6692,7 @@ task v4_ty_surface_ffi_safe_type_seen(ty_id: int, surface_type: word, allow_bare
 
     if v4_ty_is_raw_pointer_type(surface_type) {
         pilot target_type = v4_ty_raw_pointer_target_type(surface_type)
-        give back target_type != "" and target_type != v4_ty_unknown
+        give back target_type != "" and target_type != v4_ty_unknown and v4_ty_surface_ffi_safe_pointer_target_seen(ty_id, target_type, seen_types)
     }
 
     if v4_ty_is_surface_extern_function_pointer_type(surface_type) {

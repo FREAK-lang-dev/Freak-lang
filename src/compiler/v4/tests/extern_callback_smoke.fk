@@ -25,6 +25,9 @@ task v4_extern_callback_bad_source() -> word {
     src = src + "shape BadTable {\n"
     src = src + "    on_tick: task(seed: int) -> int\n"
     src = src + "}\n"
+    src = src + "shape PlainState {\n"
+    src = src + "    code: int\n"
+    src = src + "}\n"
     src = src + "extern [C] {\n"
     src = src + "    task plain(cb: task(seed: int) -> int) -> std::ffi::c_int\n"
     src = src + "    task mystery(cb: extern [mystery] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int\n"
@@ -32,6 +35,8 @@ task v4_extern_callback_bad_source() -> word {
     src = src + "    task back() -> extern [C] task(seed: std::ffi::c_int) -> word\n"
     src = src + "    task misplaced(cb: extern [C] task(args: ..., seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "    task win_hook(cb: extern [stdcall] task(seed: std::ffi::c_int, args: ...) -> std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "    task ptr_texty(cb: extern [C] task(text: *const word) -> std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "    task ptr_state(cb: extern [C] task(state: *const PlainState) -> std::ffi::c_int) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back 0\n"
@@ -91,3 +96,7 @@ say "extern-callback-bad-diag5-message=" + v4_diag_message(v4_ty_diag(v4_extern_
 say "extern-callback-bad-diag5-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_bad_ty, 5))
 say "extern-callback-bad-diag6-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_bad_ty, 6))
 say "extern-callback-bad-diag6-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_bad_ty, 6))
+say "extern-callback-bad-diag7-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_bad_ty, 7))
+say "extern-callback-bad-diag7-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_bad_ty, 7))
+say "extern-callback-bad-diag8-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_bad_ty, 8))
+say "extern-callback-bad-diag8-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_bad_ty, 8))
