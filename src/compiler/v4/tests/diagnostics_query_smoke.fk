@@ -178,6 +178,16 @@ task v4_extern_callback_query_diag_source() -> word {
     give back src
 }
 
+task v4_extern_callback_call_query_diag_source() -> word {
+    pilot src = "task run(cb: int, miss: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int, texty: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> int {\n"
+    src = src + "    pilot first = cb(1)\n"
+    src = src + "    pilot second = miss()\n"
+    src = src + "    pilot third = texty(\"ace\")\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_diag_query_source = "task main() -> int {\n"
 v4_diag_query_source = v4_diag_query_source + "    pilot text = \"hi\"\n"
 v4_diag_query_source = v4_diag_query_source + "    pilot bad = text - 1\n"
@@ -199,6 +209,7 @@ pilot v4_extern_link_diag_query_id = v4_diagnostics_text_cached("extern_link_que
 pilot v4_extern_variadic_diag_query_id = v4_diagnostics_text_cached("extern_variadic_query.fk", v4_extern_variadic_query_diag_source())
 pilot v4_extern_variadic_call_diag_query_id = v4_diagnostics_text_cached("extern_variadic_call_query.fk", v4_extern_variadic_call_query_diag_source())
 pilot v4_extern_callback_diag_query_id = v4_diagnostics_text_cached("extern_callback_query.fk", v4_extern_callback_query_diag_source())
+pilot v4_extern_callback_call_diag_query_id = v4_diagnostics_text_cached("extern_callback_call_query.fk", v4_extern_callback_call_query_diag_source())
 
 say v4_diagnostics_summary(v4_diag_query_id)
 say "query-diag-count=" + word_from_int(v4_diagnostics_count(v4_diag_query_id))
@@ -289,4 +300,11 @@ say "extern-callback-query-diag0-message=" + v4_diag_message(v4_diagnostics_diag
 say "extern-callback-query-diag0-span=" + v4_diag_span(v4_diagnostics_diag(v4_extern_callback_diag_query_id, 0))
 say "extern-callback-query-diag3-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_callback_diag_query_id, 3))
 say "extern-callback-query-diag3-span=" + v4_diag_span(v4_diagnostics_diag(v4_extern_callback_diag_query_id, 3))
+say "extern-callback-call-query-diag-count=" + word_from_int(v4_diagnostics_count(v4_extern_callback_call_diag_query_id))
+say "extern-callback-call-query-diag0-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_callback_call_diag_query_id, 0))
+say "extern-callback-call-query-diag0-span=" + v4_diag_span(v4_diagnostics_diag(v4_extern_callback_call_diag_query_id, 0))
+say "extern-callback-call-query-diag1-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_callback_call_diag_query_id, 1))
+say "extern-callback-call-query-diag1-span=" + v4_diag_span(v4_diagnostics_diag(v4_extern_callback_call_diag_query_id, 1))
+say "extern-callback-call-query-diag2-message=" + v4_diag_message(v4_diagnostics_diag(v4_extern_callback_call_diag_query_id, 2))
+say "extern-callback-call-query-diag2-span=" + v4_diag_span(v4_diagnostics_diag(v4_extern_callback_call_diag_query_id, 2))
 say "syntax-summary=" + v4_check_syntax_text("diag_query.fk", v4_diag_query_source)

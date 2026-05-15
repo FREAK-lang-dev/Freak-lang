@@ -174,6 +174,16 @@ task v4_lsp_extern_callback_diag_source() -> word {
     give back src
 }
 
+task v4_lsp_extern_callback_call_diag_source() -> word {
+    pilot src = "task run(cb: int, miss: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int, texty: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> int {\n"
+    src = src + "    pilot first = cb(1)\n"
+    src = src + "    pilot second = miss()\n"
+    src = src + "    pilot third = texty(\"ace\")\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_lsp_find_token(stream_id: int, value: word, ordinal: int) -> int {
     pilot seen = 0
     pilot token_id = 0
@@ -412,3 +422,4 @@ say v4_lsp_diagnostics_text("lsp_extern_link_diag.fk", v4_lsp_extern_link_diag_s
 say v4_lsp_diagnostics_text("lsp_extern_variadic_diag.fk", v4_lsp_extern_variadic_diag_source())
 say v4_lsp_diagnostics_text("lsp_extern_variadic_call_diag.fk", v4_lsp_extern_variadic_call_diag_source())
 say v4_lsp_diagnostics_text("lsp_extern_callback_diag.fk", v4_lsp_extern_callback_diag_source())
+say v4_lsp_diagnostics_text("lsp_extern_callback_call_diag.fk", v4_lsp_extern_callback_call_diag_source())
