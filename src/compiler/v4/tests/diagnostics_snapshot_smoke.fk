@@ -149,6 +149,22 @@ task v4_diagnostics_snapshot_extern_variadic_call_source() -> word {
     give back src
 }
 
+task v4_diagnostics_snapshot_extern_callback_source() -> word {
+    pilot src = "@layout(C)\n"
+    src = src + "shape BadTable {\n"
+    src = src + "    on_tick: task(seed: int) -> int\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task plain(cb: task(seed: int) -> int) -> std::ffi::c_int\n"
+    src = src + "    task mystery(cb: extern [mystery] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "    task texty(cb: extern [C] task(text: word) -> std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_diagnostics_snapshot_source = "task main() -> int {\n"
 v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    pilot text = \"hi\"\n"
 v4_diagnostics_snapshot_source = v4_diagnostics_snapshot_source + "    pilot bad = text - 1\n"
@@ -169,6 +185,7 @@ pilot v4_diagnostics_snapshot_extern_id = v4_diagnostics_text_cached("diagnostic
 pilot v4_diagnostics_snapshot_extern_link_id = v4_diagnostics_text_cached("diagnostics-snapshot-extern-link.fk", v4_diagnostics_snapshot_extern_link_source())
 pilot v4_diagnostics_snapshot_extern_variadic_id = v4_diagnostics_text_cached("diagnostics-snapshot-extern-variadic.fk", v4_diagnostics_snapshot_extern_variadic_source())
 pilot v4_diagnostics_snapshot_extern_variadic_call_id = v4_diagnostics_text_cached("diagnostics-snapshot-extern-variadic-call.fk", v4_diagnostics_snapshot_extern_variadic_call_source())
+pilot v4_diagnostics_snapshot_extern_callback_id = v4_diagnostics_text_cached("diagnostics-snapshot-extern-callback.fk", v4_diagnostics_snapshot_extern_callback_source())
 say v4_diagnostics_summary(v4_diagnostics_snapshot_id)
 say v4_diagnostics_snapshot_summary()
 
@@ -199,6 +216,8 @@ say "extern-link-diagnostic5-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagno
 say "extern-variadic-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_variadic_id, 0))
 say "extern-variadic-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_variadic_id, 2))
 say "extern-variadic-call-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_variadic_call_id, 0))
+say "extern-callback-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_callback_id, 0))
+say "extern-callback-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_callback_id, 3))
 say v4_parse_snapshot_restore(v4_parse_snapshot())
 say v4_hir_snapshot_restore(v4_hir_snapshot())
 say v4_resolve_snapshot_restore(v4_resolve_snapshot())
@@ -301,4 +320,12 @@ pilot v4_diagnostics_extern_variadic_call_fingerprint = v4_source_fingerprint(v4
 pilot v4_diagnostics_extern_variadic_call_restored_id = word_to_int(v4_query_get(v4_diagnostics_query_key("diagnostics-snapshot-extern-variadic-call.fk"), v4_diagnostics_extern_variadic_call_fingerprint))
 say "restored-extern-variadic-call-diagnostic0=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_variadic_call_restored_id, 0))
 say "restored-extern-variadic-call-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_variadic_call_restored_id, 0))
+say v4_driver_confirm_restored_document_text("diagnostics-snapshot-extern-callback.fk", v4_diagnostics_snapshot_extern_callback_source())
+pilot v4_diagnostics_extern_callback_file = v4_source_find("diagnostics-snapshot-extern-callback.fk")
+pilot v4_diagnostics_extern_callback_fingerprint = v4_source_fingerprint(v4_diagnostics_extern_callback_file)
+pilot v4_diagnostics_extern_callback_restored_id = word_to_int(v4_query_get(v4_diagnostics_query_key("diagnostics-snapshot-extern-callback.fk"), v4_diagnostics_extern_callback_fingerprint))
+say "restored-extern-callback-diagnostic0=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_callback_restored_id, 0))
+say "restored-extern-callback-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_callback_restored_id, 0))
+say "restored-extern-callback-diagnostic3=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_callback_restored_id, 3))
+say "restored-extern-callback-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_callback_restored_id, 3))
 say v4_driver_confirm_restored_document_text("diagnostics-snapshot.fk", "task changed() => 7\n")

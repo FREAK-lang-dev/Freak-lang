@@ -56,7 +56,11 @@ and non-FFI layout fields. Extern blocks also carry `link="..."` library
 metadata, member-level `@link_name("...")` symbol overrides, and final
 extern-only `args: ...` variadics through TY, MIR, LLVM declaration/call
 plans, scalar vararg promotion for `tiny`/`bool`/`char`/`float32` tails, query
-diagnostics, snapshot restore, and LSP.
+diagnostics, snapshot restore, and LSP. Extern callback surface types like
+`extern [C] task(...) -> T` and `extern [system] task(...) -> T` now validate
+through TY as FFI-safe function pointers, flow through query/snapshot/LSP
+diagnostics, and lower to LLVM `ptr`. Call-through callback execution and
+panic-abort guarantees across callback boundaries remain later FFI work.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 

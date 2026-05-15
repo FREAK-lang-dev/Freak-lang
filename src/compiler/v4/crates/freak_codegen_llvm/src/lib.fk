@@ -409,6 +409,9 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
     if v4_ty_is_raw_pointer_type(ty_name) {
         give back "ptr"
     }
+    if v4_ty_is_surface_task_function_type(ty_name) {
+        give back "ptr"
+    }
     if ty_name == v4_ty_void {
         give back "void"
     }

@@ -307,6 +307,236 @@ task v4_ty_raw_pointer_target_type(type_text: word) -> word {
     give back v4_slice(type_text, prefix.length(), type_text.length())
 }
 
+task v4_ty_function_type_task_pos(type_text: word) -> int {
+    if type_text.starts_with("task(") {
+        give back 0
+    }
+    if type_text.starts_with("extern[") == false {
+        give back 0 - 1
+    }
+
+    pilot abi_end = v4_ty_find_top_level_type_char(type_text, "]", 7, type_text.length())
+    if abi_end < 0 or abi_end + 5 >= type_text.length() {
+        give back 0 - 1
+    }
+    if v4_slice(type_text, abi_end + 1, abi_end + 5) != "task" {
+        give back 0 - 1
+    }
+    if type_text.char_at(abi_end + 5) != "(" {
+        give back 0 - 1
+    }
+    give back abi_end + 1
+}
+
+task v4_ty_is_surface_task_function_type(type_text: word) -> bool {
+    pilot task_pos = v4_ty_function_type_task_pos(type_text)
+    if task_pos < 0 {
+        give back false
+    }
+    pilot open_pos = task_pos + 4
+    if open_pos >= type_text.length() or type_text.char_at(open_pos) != "(" {
+        give back false
+    }
+    pilot close_pos = v4_ty_find_top_level_type_char(type_text, ")", open_pos + 1, type_text.length())
+    if close_pos < 0 or close_pos + 2 >= type_text.length() {
+        give back false
+    }
+    give back type_text.char_at(close_pos + 1) == "-" and type_text.char_at(close_pos + 2) == ">"
+}
+
+task v4_ty_is_surface_extern_function_pointer_type(type_text: word) -> bool {
+    give back type_text.starts_with("extern[") and v4_ty_is_surface_task_function_type(type_text)
+}
+
+task v4_ty_function_type_open_paren(type_text: word) -> int {
+    pilot task_pos = v4_ty_function_type_task_pos(type_text)
+    if task_pos < 0 {
+        give back 0 - 1
+    }
+    give back task_pos + 4
+}
+
+task v4_ty_function_type_close_paren(type_text: word) -> int {
+    pilot open_pos = v4_ty_function_type_open_paren(type_text)
+    if open_pos < 0 {
+        give back 0 - 1
+    }
+    give back v4_ty_find_top_level_type_char(type_text, ")", open_pos + 1, type_text.length())
+}
+
+task v4_ty_function_type_return_text(type_text: word) -> word {
+    pilot close_pos = v4_ty_function_type_close_paren(type_text)
+    if close_pos < 0 or close_pos + 2 >= type_text.length() {
+        give back v4_ty_unknown
+    }
+    if type_text.char_at(close_pos + 1) != "-" or type_text.char_at(close_pos + 2) != ">" {
+        give back v4_ty_unknown
+    }
+    if close_pos + 3 >= type_text.length() {
+        give back v4_ty_unknown
+    }
+    give back v4_slice(type_text, close_pos + 3, type_text.length())
+}
+
+task v4_ty_function_type_abi_specs(type_text: word) -> word {
+    if type_text.starts_with("extern[") == false {
+        give back ""
+    }
+    pilot abi_end = v4_ty_find_top_level_type_char(type_text, "]", 7, type_text.length())
+    if abi_end < 0 {
+        give back ""
+    }
+    give back v4_slice(type_text, 7, abi_end)
+}
+
+task v4_ty_function_type_param_surface(type_text: word, param_id: int) -> word {
+    pilot open_pos = v4_ty_function_type_open_paren(type_text)
+    pilot close_pos = v4_ty_function_type_close_paren(type_text)
+    if open_pos < 0 or close_pos < 0 or param_id < 0 or open_pos + 1 > close_pos {
+        give back v4_ty_unknown
+    }
+    if open_pos + 1 == close_pos {
+        give back v4_ty_unknown
+    }
+
+    pilot current = 0
+    pilot segment_start = open_pos + 1
+    pilot depth = 0
+    pilot idx = open_pos + 1
+    repeat until idx >= close_pos {
+        pilot ch = type_text.char_at(idx)
+        if depth == 0 and ch == "," {
+            if current == param_id {
+                pilot colon_pos = v4_ty_find_top_level_type_char(type_text, ":", segment_start, idx)
+                if colon_pos >= 0 {
+                    give back v4_slice(type_text, colon_pos + 1, idx)
+                }
+                give back v4_slice(type_text, segment_start, idx)
+            }
+            current += 1
+            segment_start = idx + 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+
+    if current == param_id and segment_start < close_pos {
+        pilot colon_pos = v4_ty_find_top_level_type_char(type_text, ":", segment_start, close_pos)
+        if colon_pos >= 0 {
+            give back v4_slice(type_text, colon_pos + 1, close_pos)
+        }
+        give back v4_slice(type_text, segment_start, close_pos)
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_function_type_param_count(type_text: word) -> int {
+    pilot open_pos = v4_ty_function_type_open_paren(type_text)
+    pilot close_pos = v4_ty_function_type_close_paren(type_text)
+    if open_pos < 0 or close_pos < 0 or open_pos + 1 > close_pos {
+        give back 0
+    }
+    if open_pos + 1 == close_pos {
+        give back 0
+    }
+
+    pilot count = 1
+    pilot depth = 0
+    pilot idx = open_pos + 1
+    repeat until idx >= close_pos {
+        pilot ch = type_text.char_at(idx)
+        if depth == 0 and ch == "," {
+            count += 1
+        } else {
+            depth = v4_ty_type_depth_after_char(depth, ch)
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_function_type_variadic_param_id(type_text: word) -> int {
+    pilot param_id = 0
+    pilot param_count = v4_ty_function_type_param_count(type_text)
+    repeat until param_id >= param_count {
+        if v4_ty_function_type_param_surface(type_text, param_id) == "..." {
+            give back param_id
+        }
+        param_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_function_type_abi_valid(abi_specs: word, allow_variadic: bool) -> bool {
+    if abi_specs == "" {
+        give back false
+    }
+
+    pilot seen_cc = ""
+    pilot item_start = 0
+    repeat until item_start >= abi_specs.length() {
+        pilot item_end = v4_ty_find_top_level_type_char(abi_specs, ",", item_start, abi_specs.length())
+        if item_end < 0 {
+            item_end = abi_specs.length()
+        }
+        pilot item = v4_slice(abi_specs, item_start, item_end)
+        if item == "" or item.starts_with("link=") or item.starts_with("if") {
+            give back false
+        }
+        pilot abi = v4_ty_normalize_call_abi(item)
+        if v4_ty_is_language_abi(abi) == false and v4_ty_is_calling_convention_abi(abi) == false {
+            give back false
+        }
+        if v4_ty_is_calling_convention_abi(abi) {
+            if seen_cc != "" and seen_cc != abi {
+                give back false
+            }
+            seen_cc = abi
+        }
+        item_start = item_end + 1
+    }
+
+    if allow_variadic == false {
+        give back true
+    }
+    if seen_cc == "" {
+        give back true
+    }
+    give back v4_ty_is_variadic_abi_compatible(seen_cc)
+}
+
+task v4_ty_surface_extern_function_pointer_ffi_safe(ty_id: int, type_text: word, seen_types: word) -> bool {
+    if v4_ty_is_surface_extern_function_pointer_type(type_text) == false {
+        give back false
+    }
+
+    pilot variadic_param = v4_ty_function_type_variadic_param_id(type_text)
+    if v4_ty_function_type_abi_valid(v4_ty_function_type_abi_specs(type_text), variadic_param >= 0) == false {
+        give back false
+    }
+
+    pilot param_id = 0
+    pilot param_count = v4_ty_function_type_param_count(type_text)
+    repeat until param_id >= param_count {
+        pilot param_surface = v4_ty_function_type_param_surface(type_text, param_id)
+        if param_surface == "..." {
+            if param_id != param_count - 1 {
+                give back false
+            }
+        } else if v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, seen_types) == false {
+            give back false
+        }
+        param_id += 1
+    }
+
+    pilot return_surface = v4_ty_function_type_return_text(type_text)
+    if return_surface == "" or return_surface == v4_ty_unknown {
+        give back false
+    }
+    give back v4_ty_surface_ffi_safe_type_seen(ty_id, return_surface, true, seen_types)
+}
+
 task v4_ty_variadic_arg_promoted_type_seen(ty_id: int, surface_type: word, seen_types: word) -> word {
     if surface_type == "" or surface_type == v4_ty_unknown {
         give back v4_ty_unknown
@@ -2755,7 +2985,7 @@ task v4_ty_route_surface_keyword_for_signature(ty_id: int, sig_id: int) -> word 
 }
 
 task v4_ty_task_return_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
-    pilot return_arrow = v4_ty_find_token_value(stream_id, start_token, end_token, "->")
+    pilot return_arrow = v4_ty_find_top_level_token(stream_id, start_token, end_token, "->")
     if return_arrow >= 0 {
         pilot return_start = v4_ty_skip_trivia(stream_id, return_arrow + 1)
         pilot return_end = v4_ty_return_type_end(stream_id, return_start, end_token)
@@ -2774,7 +3004,7 @@ task v4_ty_task_return_from_tokens(stream_id: int, start_token: int, end_token: 
 }
 
 task v4_ty_task_return_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
-    pilot return_arrow = v4_ty_find_token_value(stream_id, start_token, end_token, "->")
+    pilot return_arrow = v4_ty_find_top_level_token(stream_id, start_token, end_token, "->")
     if return_arrow >= 0 {
         pilot return_start = v4_ty_skip_trivia(stream_id, return_arrow + 1)
         pilot return_end = v4_ty_return_type_end(stream_id, return_start, end_token)
@@ -6223,6 +6453,9 @@ task v4_ty_ffi_boundary_help(surface_type: word, context: word) -> word {
     if surface_type == "word" {
         give back context + " uses word; that is a FREAK string fat pointer, not a C char*. Use *const tiny or an explicit @layout(C) buffer."
     }
+    if v4_ty_is_surface_task_function_type(surface_type) {
+        give back context + " uses " + surface_type + "; FFI callbacks must be spelled as extern[C]/[system] task(...) -> T with FFI-safe parameter and return types."
+    }
     if surface_type == "int" or surface_type == "uint" or surface_type == "bool" or surface_type == "num" or surface_type == "float" or surface_type == "float32" {
         give back context + " uses " + surface_type + "; spell boundary scalars with std::ffi aliases like c_int, c_uint, c_float, c_double, or c_bool."
     }
@@ -6252,6 +6485,14 @@ task v4_ty_surface_ffi_safe_type_seen(ty_id: int, surface_type: word, allow_bare
     if v4_ty_is_raw_pointer_type(surface_type) {
         pilot target_type = v4_ty_raw_pointer_target_type(surface_type)
         give back target_type != "" and target_type != v4_ty_unknown
+    }
+
+    if v4_ty_is_surface_extern_function_pointer_type(surface_type) {
+        give back v4_ty_surface_extern_function_pointer_ffi_safe(ty_id, surface_type, seen_types)
+    }
+
+    if v4_ty_is_surface_task_function_type(surface_type) {
+        give back false
     }
 
     if v4_ty_is_fixed_array_type(surface_type) {

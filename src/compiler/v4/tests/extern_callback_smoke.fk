@@ -1,0 +1,84 @@
+-- V4 extern callback/function-pointer FFI smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_extern_callback_good_source() -> word {
+    pilot src = "@layout(C)\n"
+    src = src + "shape HookTable {\n"
+    src = src + "    on_tick: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task install(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "    task current() -> extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "    task load(table: HookTable) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "extern [system] {\n"
+    src = src + "    task install_window(cb: extern [system] task(hwnd: *mut void, msg: std::ffi::c_uint, w: std::ffi::usize, l: std::ffi::isize) -> std::ffi::isize) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_callback_bad_source() -> word {
+    pilot src = "@layout(C)\n"
+    src = src + "shape BadTable {\n"
+    src = src + "    on_tick: task(seed: int) -> int\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task plain(cb: task(seed: int) -> int) -> std::ffi::c_int\n"
+    src = src + "    task mystery(cb: extern [mystery] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "    task texty(cb: extern [C] task(text: word) -> std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_extern_callback_text = v4_extern_callback_good_source()
+pilot v4_extern_callback_stream = v4_lex_text(0, v4_extern_callback_text)
+pilot v4_extern_callback_tree = v4_parse_stream(0, v4_extern_callback_stream)
+pilot v4_extern_callback_hir = v4_hir_lower_tree(0, v4_extern_callback_tree)
+pilot v4_extern_callback_resolve = v4_resolve_lower_hir(0, v4_extern_callback_hir)
+pilot v4_extern_callback_ty = v4_ty_lower_resolve(0, v4_extern_callback_resolve)
+pilot v4_extern_callback_llvm = v4_codegen_llvm_lower_mir(0, v4_mir_lower_ty(0, v4_extern_callback_ty))
+
+pilot v4_extern_callback_install_def = v4_resolve_def_for_name(v4_extern_callback_resolve, "install")
+pilot v4_extern_callback_current_def = v4_resolve_def_for_name(v4_extern_callback_resolve, "current")
+pilot v4_extern_callback_window_def = v4_resolve_def_for_name(v4_extern_callback_resolve, "install_window")
+pilot v4_extern_callback_hooktable_def = v4_resolve_def_for_name(v4_extern_callback_resolve, "HookTable")
+pilot v4_extern_callback_install_sig = v4_ty_lookup_signature(v4_extern_callback_ty, v4_extern_callback_install_def)
+pilot v4_extern_callback_current_sig = v4_ty_lookup_signature(v4_extern_callback_ty, v4_extern_callback_current_def)
+pilot v4_extern_callback_window_sig = v4_ty_lookup_signature(v4_extern_callback_ty, v4_extern_callback_window_def)
+pilot v4_extern_callback_hooktable_sig = v4_ty_lookup_signature(v4_extern_callback_ty, v4_extern_callback_hooktable_def)
+pilot v4_extern_callback_install_decl = v4_codegen_llvm_find_decl(v4_extern_callback_llvm, "install")
+pilot v4_extern_callback_current_decl = v4_codegen_llvm_find_decl(v4_extern_callback_llvm, "current")
+pilot v4_extern_callback_window_decl = v4_codegen_llvm_find_decl(v4_extern_callback_llvm, "install_window")
+
+say "extern-callback-good-diag-count=" + word_from_int(v4_ty_diag_count(v4_extern_callback_ty))
+say "extern-callback-install-surface=" + v4_ty_signature_param_surface_type(v4_extern_callback_ty, v4_extern_callback_install_sig, 0)
+say "extern-callback-current-return=" + v4_ty_signature_return_surface_type(v4_extern_callback_ty, v4_extern_callback_current_sig)
+say "extern-callback-window-surface=" + v4_ty_signature_param_surface_type(v4_extern_callback_ty, v4_extern_callback_window_sig, 0)
+say "extern-callback-hooktable-layout=" + v4_ty_signature_layout(v4_extern_callback_ty, v4_extern_callback_hooktable_sig)
+say "extern-callback-install-decl-params=" + v4_codegen_llvm_decl_params(v4_extern_callback_llvm, v4_extern_callback_install_decl)
+say "extern-callback-install-decl-line=" + v4_codegen_llvm_decl_line(v4_extern_callback_llvm, v4_extern_callback_install_decl)
+say "extern-callback-current-decl-line=" + v4_codegen_llvm_decl_line(v4_extern_callback_llvm, v4_extern_callback_current_decl)
+say "extern-callback-window-decl-line=" + v4_codegen_llvm_decl_line(v4_extern_callback_llvm, v4_extern_callback_window_decl)
+
+pilot v4_extern_callback_bad_text = v4_extern_callback_bad_source()
+pilot v4_extern_callback_bad_stream = v4_lex_text(1, v4_extern_callback_bad_text)
+pilot v4_extern_callback_bad_tree = v4_parse_stream(1, v4_extern_callback_bad_stream)
+pilot v4_extern_callback_bad_hir = v4_hir_lower_tree(1, v4_extern_callback_bad_tree)
+pilot v4_extern_callback_bad_resolve = v4_resolve_lower_hir(1, v4_extern_callback_bad_hir)
+pilot v4_extern_callback_bad_ty = v4_ty_lower_resolve(1, v4_extern_callback_bad_resolve)
+
+say "extern-callback-bad-diag-count=" + word_from_int(v4_ty_diag_count(v4_extern_callback_bad_ty))
+say "extern-callback-bad-diag0-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_bad_ty, 0))
+say "extern-callback-bad-diag0-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_bad_ty, 0))
+say "extern-callback-bad-diag1-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_bad_ty, 1))
+say "extern-callback-bad-diag1-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_bad_ty, 1))
+say "extern-callback-bad-diag2-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_bad_ty, 2))
+say "extern-callback-bad-diag2-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_bad_ty, 2))
+say "extern-callback-bad-diag3-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_bad_ty, 3))
+say "extern-callback-bad-diag3-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_bad_ty, 3))
