@@ -702,6 +702,24 @@ task v4_mir_add_type_error(mir_id: int, span: word, message: word, help: word) -
     v4_mir_add_diag(mir_id, v4_diag_new(v4_diag_error, span, message, help))
 }
 
+task v4_mir_is_callback_boundary_mismatch(mir_id: int, expected_ty: word, actual_ty: word) -> bool {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot expected_surface = v4_ty_canonical_type(ty_id, expected_ty)
+    pilot actual_surface = v4_ty_canonical_type(ty_id, actual_ty)
+    give back v4_ty_is_surface_extern_function_pointer_type(expected_surface) and v4_ty_is_surface_task_function_type(actual_surface)
+}
+
+task v4_mir_add_type_mismatch_error(mir_id: int, span: word, message: word, help: word, context: word, expected_ty: word, actual_ty: word) -> void {
+    if v4_mir_is_callback_boundary_mismatch(mir_id, expected_ty, actual_ty) {
+        pilot ty_id = v4_mir_ty_id(mir_id)
+        pilot expected_surface = v4_ty_canonical_type(ty_id, expected_ty)
+        pilot actual_surface = v4_ty_canonical_type(ty_id, actual_ty)
+        v4_mir_add_type_error(mir_id, span, "callback value must use extern ABI", context + " expects " + expected_surface + "; " + v4_ty_ffi_boundary_help(actual_surface, context))
+        give back
+    }
+    v4_mir_add_type_error(mir_id, span, message, help)
+}
+
 task v4_mir_normalize_ty_diag(diag: word) -> word {
     if v4_diag_part(diag, 1) != "" or v4_diag_part(diag, 2) != "" or v4_diag_part(diag, 3) != "" {
         give back diag
@@ -1821,11 +1839,11 @@ task v4_mir_check_assignment_types(mir_id: int, body_id: int, stmt_span: word, p
         }
         pilot target = v4_mir_assignment_target_context(mir_id, body_id, place_id)
         if place_kind == v4_mir_place_field {
-            v4_mir_add_type_error(mir_id, stmt_span, "field write type mismatch", target + " expects " + place_ty + " but got " + value_ty)
+            v4_mir_add_type_mismatch_error(mir_id, stmt_span, "field write type mismatch", target + " expects " + place_ty + " but got " + value_ty, target, place_ty, value_ty)
         } else if place_kind == v4_mir_place_index {
-            v4_mir_add_type_error(mir_id, stmt_span, "indexed write type mismatch", target + " expects " + place_ty + " but got " + value_ty)
+            v4_mir_add_type_mismatch_error(mir_id, stmt_span, "indexed write type mismatch", target + " expects " + place_ty + " but got " + value_ty, target, place_ty, value_ty)
         } else {
-            v4_mir_add_type_error(mir_id, stmt_span, "assignment type mismatch", "cannot assign " + value_ty + " into " + place_ty)
+            v4_mir_add_type_mismatch_error(mir_id, stmt_span, "assignment type mismatch", "cannot assign " + value_ty + " into " + place_ty, target, place_ty, value_ty)
         }
     }
 }
@@ -1881,7 +1899,7 @@ task v4_mir_place_read_rvalue(mir_id: int, body_id: int, place_id: int, span: wo
 
 task v4_mir_check_local_decl_type(mir_id: int, stmt_span: word, local_name: word, declared_ty: word, inferred_ty: word) -> void {
     if not v4_ty_types_compatible(declared_ty, inferred_ty) {
-        v4_mir_add_type_error(mir_id, stmt_span, "local declaration type mismatch", local_name + " expects " + declared_ty + " but got " + inferred_ty)
+        v4_mir_add_type_mismatch_error(mir_id, stmt_span, "local declaration type mismatch", local_name + " expects " + declared_ty + " but got " + inferred_ty, local_name, declared_ty, inferred_ty)
     }
 }
 
@@ -2059,12 +2077,16 @@ task v4_mir_symbol_value_type(mir_id: int, symbol_name: word) -> word {
     if symbol_id < 0 {
         give back v4_ty_unknown
     }
-    if v4_resolve_symbol_kind(resolve_id, symbol_id) != v4_hir_const {
+    pilot symbol_kind = v4_resolve_symbol_kind(resolve_id, symbol_id)
+    if symbol_kind != v4_hir_const and symbol_kind != v4_hir_task {
         give back v4_ty_unknown
     }
     pilot sig_id = v4_ty_lookup_signature(ty_id, v4_resolve_symbol_def(resolve_id, symbol_id))
     if sig_id < 0 {
         give back v4_ty_unknown
+    }
+    if symbol_kind == v4_hir_task {
+        give back v4_ty_signature_function_value_type(ty_id, sig_id)
     }
     give back v4_ty_const_value_type_for_sig(ty_id, sig_id)
 }
@@ -2084,7 +2106,8 @@ task v4_mir_body_signature_id(mir_id: int, body_id: int) -> int {
 task v4_mir_check_return_type(mir_id: int, body_id: int, stmt_span: word, actual_ty: word) -> void {
     pilot expected_ty = v4_mir_expected_return_type(mir_id, body_id)
     if not v4_ty_types_compatible(expected_ty, actual_ty) {
-        v4_mir_add_type_error(mir_id, stmt_span, "return type mismatch", v4_mir_body_name(mir_id, body_id) + " expects " + expected_ty + " but got " + actual_ty)
+        pilot context = v4_mir_body_name(mir_id, body_id) + " return"
+        v4_mir_add_type_mismatch_error(mir_id, stmt_span, "return type mismatch", v4_mir_body_name(mir_id, body_id) + " expects " + expected_ty + " but got " + actual_ty, context, expected_ty, actual_ty)
     }
 }
 
@@ -2610,7 +2633,8 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
             pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_ty, generic_env)
             if next_env == v4_ty_generic_env_fail {
-                v4_mir_add_type_error(mir_id, expr_span, "call argument type mismatch", callee_name + " argument " + word_from_int(lower_arg_idx + 1) + " expects " + expected_ty + " but got " + actual_ty)
+                pilot context = callee_name + " argument " + word_from_int(lower_arg_idx + 1)
+                v4_mir_add_type_mismatch_error(mir_id, expr_span, "call argument type mismatch", context + " expects " + expected_ty + " but got " + actual_ty, context, expected_ty, actual_ty)
             } else {
                 generic_env = next_env
             }
@@ -3154,7 +3178,8 @@ task v4_mir_check_method_args(mir_id: int, body_id: int, stream_id: int, expr_sp
             args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
             if not v4_ty_types_compatible(expected_ty, actual_ty) {
-                v4_mir_add_type_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived")
+                pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
+                v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             }
         }
         lower_arg_idx += 1
@@ -3249,7 +3274,8 @@ task v4_mir_check_bound_method_args(mir_id: int, body_id: int, stream_id: int, e
                 types_ok = v4_ty_types_compatible(expected_ty, actual_ty)
             }
             if not types_ok {
-                v4_mir_add_type_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived")
+                pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
+                v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             }
         }
         lower_arg_idx += 1
@@ -3600,7 +3626,8 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                         if expected_ty == "" {
                             expected_ty = raw_expected_ty
                         }
-                        v4_mir_add_type_error(mir_id, expr_span, "shape field type mismatch", shape_name + "." + field_name + " expects " + expected_ty + " but got " + actual_ty)
+                        pilot context = shape_name + "." + field_name
+                        v4_mir_add_type_mismatch_error(mir_id, expr_span, "shape field type mismatch", context + " expects " + expected_ty + " but got " + actual_ty, context, expected_ty, actual_ty)
                     } else {
                         env = next_env
                     }
@@ -4300,7 +4327,8 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                         if expected_ty == "" {
                             expected_ty = raw_expected_ty
                         }
-                        v4_mir_add_type_error(mir_id, expr_span, "route case field type mismatch", route_name + "::" + case_name + "." + field_name + " expects " + expected_ty + " but got " + actual_ty)
+                        pilot context = route_name + "::" + case_name + "." + field_name
+                        v4_mir_add_type_mismatch_error(mir_id, expr_span, "route case field type mismatch", context + " expects " + expected_ty + " but got " + actual_ty, context, expected_ty, actual_ty)
                     } else {
                         env = next_env
                     }

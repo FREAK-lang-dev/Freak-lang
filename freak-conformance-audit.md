@@ -466,7 +466,7 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 | Root-level `fixed pilot` cycle detection | ✅ | ✅ |
 | Fixed array length compile-time constants | ⚠️ | 📖 V4 (literal + integer root-const arithmetic works; broader const-eval remains) |
 | `dyn` object-safety rules | ❌ | 📖 V4 |
-| FFI safety (FFI-safe types only in extern) | ⚠️ | 📖 V4 | V4 now rejects bare `word` / `int` extern boundaries, raw pointers to non-FFI pointees like `*const word` / `*const PlainShape`, and non-FFI-safe `@layout(...)` fields; extern variadics now validate final-slot/ABI contracts plus scalar vararg promotion for `tiny`/`bool`/`char`/`float32`, and extern callback values now invoke through MIR/LLVM, while trust-me wrappers and panic-boundary callback rules still expand |
+| FFI safety (FFI-safe types only in extern) | ⚠️ | 📖 V4 | V4 now rejects bare `word` / `int` extern boundaries, raw pointers to non-FFI pointees like `*const word` / `*const PlainShape`, and non-FFI-safe `@layout(...)` fields; extern variadics now validate final-slot/ABI contracts plus scalar vararg promotion for `tiny`/`bool`/`char`/`float32`, extern callback values now invoke through MIR/LLVM, and plain task values now diagnose explicitly when they try to cross into foreign callback slots, while trust-me wrappers and panic-boundary callback rules still expand |
 | Layout annotations validation | ❌ | 📖 V4 |
 | Visibility rules enforcement | ⚠️ | 📖 V4 |
 
@@ -548,7 +548,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 ### §16 SYSTEM BOUNDARIES — FFI ([freak-full-bible.md:2198-2390](freak-full-bible.md))
 
-**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage plus pointee-safety diagnostics, `link="..."` library metadata, `@link_name("...")` symbol overrides, final extern-only `args: ...` variadics with scalar vararg promotion, `extern [C]/[system] task(...) -> T` callback surface validation with specific missing-`extern` / bad-ABI / bad-payload diagnostics, indirect callback call lowering, and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation now exist. Raw pointer ops, panic-boundary callback guarantees, and deeper ABI/runtime guarantees are still V4 work.
+**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage plus pointee-safety diagnostics, `link="..."` library metadata, `@link_name("...")` symbol overrides, final extern-only `args: ...` variadics with scalar vararg promotion, `extern [C]/[system] task(...) -> T` callback surface validation with specific missing-`extern` / bad-ABI / bad-payload diagnostics, explicit plain-task-to-extern callback boundary diagnostics, indirect callback call lowering, and `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation now exist. Raw pointer ops, panic-boundary callback guarantees, and deeper ABI/runtime guarantees are still V4 work.
 
 | Contract | Status | Verdict |
 |---|---|---|

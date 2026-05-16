@@ -62,7 +62,9 @@ through TY as FFI-safe function pointers, now diagnose missing `extern`,
 invalid callback ABI lists, and non-FFI callback parameter payloads including
 raw-pointer pointees through query/snapshot/LSP, lower to LLVM `ptr`, and now call through MIR/LLVM as
 indirect FFI calls from locals, returned callback values, and `@layout(C)`
-field places. Foreign LLVM declarations and call sites now carry `nounwind`
+field places. Plain FREAK task values now stop at that fence with dedicated
+callback-boundary diagnostics instead of silently flowing into foreign
+callback slots. Foreign LLVM declarations and call sites now carry `nounwind`
 as groundwork for the extern/callback panic-boundary contract. Full
 panic-abort guarantees across callback boundaries remain later FFI work.
 
