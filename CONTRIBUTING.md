@@ -214,6 +214,15 @@ The following protections are enabled in GitHub settings:
 - Require linear history (squash-merge only)
 - No admin bypass — emergencies still go through the PR flow
 
+### Repository security settings
+
+These are configured in GitHub settings (not in the repo) and listed here so they survive maintainer turnover:
+
+- **Secret scanning + push protection** enabled — blocks commits containing credentials before they reach the remote
+- **Default workflow permissions** set to "Read repository contents permission" — write scopes must be declared per-workflow or per-job
+- **Tag protection ruleset** on pattern `v*` — release tags cannot be deleted or rewritten
+- **Dependabot** watches the `github-actions` ecosystem and opens auto-PRs for action version bumps (see `.github/dependabot.yml`)
+
 ---
 
 ## Pull Request Guidelines
