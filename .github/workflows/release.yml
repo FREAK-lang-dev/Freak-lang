@@ -126,7 +126,7 @@ jobs:
           cp build/hangar${{ matrix.ext }} dist/hangar-${{ matrix.target }}${{ matrix.ext }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: freak-${{ matrix.target }}
           path: dist/
