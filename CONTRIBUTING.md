@@ -16,6 +16,7 @@ This document explains how to contribute to the FREAK compiler, standard library
 - [Project Structure](#project-structure)
 - [Making Changes](#making-changes)
 - [Commit Policy](#commit-policy)
+- [Branching Model](#branching-model)
 - [Pull Request Guidelines](#pull-request-guidelines)
 - [Language Design Contributions](#language-design-contributions)
 - [The Identity Rule](#the-identity-rule)
@@ -168,6 +169,50 @@ The C runtime (`freak_runtime.c` / `freak_llvm_runtime.c`) backs stdlib function
 
 - **Stage specific files** — do not `git add -A`. Never commit `.env`, credentials, or build artifacts larger than a few hundred KB
 - **No fixup commits for trivial typos** — just fix and include in the next logical commit
+
+---
+
+## Branching Model
+
+`main` is the trunk. It is always green, always releasable, and tags are cut from it directly. All work — features, fixes, docs, refactors — happens on short-lived topic branches that get merged back via pull request.
+
+### Branch naming
+
+| Prefix | When to use |
+|---|---|
+| `feat/<slug>` | New features, new stdlib modules, new CLI subcommands |
+| `fix/<slug>` | Bug fixes |
+| `docs/<slug>` | Documentation-only changes |
+| `chore/<slug>` | Build, CI, tooling, dependency bumps |
+| `refactor/<slug>` | Internal cleanup with no behavior change |
+| `release/v0.X.Y` | Release-prep branches (optional — tagging `main` directly is also fine) |
+| `claude/<slug>-<token>` | AI agent branches (created automatically by the Claude Code harness) |
+
+Keep slugs short and lowercase, hyphen-separated: `feat/json-streaming-parser`, not `feat/Add_JSON_Streaming_Parser_v2`.
+
+### Forks vs. branches in this repo
+
+- **Outside contributors**: fork the repo, open a PR from your fork. Standard GitHub flow.
+- **Maintainers and agents with push access**: branch directly in the canonical repo. Faster iteration, no fork-sync drift, CI works without secret-passing.
+
+Either way, the merge target is `main` and the same review gates apply.
+
+### Rules
+
+1. **No direct pushes to `main`.** Branch protection enforces this — every change goes through a PR with passing CI and a linear history (squash-merge).
+2. **One concern per branch.** Same rule as PRs.
+3. **Short-lived.** If a branch is more than ~a day old, rebase on `main` before opening or updating the PR.
+4. **Delete after merge.** GitHub's "delete branch on merge" setting handles this automatically.
+5. **Releases are tagged on `main`.** Never tag from a topic branch.
+
+### Branch protection on `main`
+
+The following protections are enabled in GitHub settings:
+
+- Require a pull request before merging
+- Require status checks to pass: `build-and-test` on Linux, macOS, and Windows
+- Require linear history (squash-merge only)
+- No admin bypass — emergencies still go through the PR flow
 
 ---
 

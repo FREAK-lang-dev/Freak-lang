@@ -14,10 +14,43 @@
 - **Stage specific files** — avoid `git add -A`. Never commit `.env`, credentials, or multi-GB build artifacts.
 - **Before starting risky work** (refactors, parser changes, emitter rewrites): make sure the current state is committed so you can revert if needed.
 - **After a successful build/test cycle**: if you just verified something works end-to-end, that's a natural commit point. Don't wait.
-- **Commit automatically** — do not ask for permission before committing. Just commit after completing significant work. Push silently when appropriate.
+- **Commit automatically** — do not ask for permission before committing. Just commit after completing significant work. Push to the current topic branch silently when appropriate.
 - **No AI attribution** — do NOT include `Co-Authored-By` trailers or any other AI/Claude attribution in commit messages. Commits should look like they came from the repo owner alone.
 
 The cost of committing too often is zero. The cost of losing work because you forgot to commit is real — it has happened before on this project.
+
+---
+
+## Branching & Worktrees
+
+**`main` is protected.** Never push directly to `main`. Every change — feature, fix, doc, refactor — goes on a topic branch and lands via pull request after CI is green. Branch protection on GitHub will reject direct pushes; there's no admin bypass.
+
+### Branch naming
+
+- `feat/<slug>` — new features
+- `fix/<slug>` — bug fixes
+- `docs/<slug>` / `chore/<slug>` / `refactor/<slug>` — non-shipping work
+- `release/v0.X.Y` — release prep (optional)
+- `claude/<slug>-<token>` — what the Claude Code web harness auto-creates; keep as-is when you're already on one
+
+If a session starts you on a `claude/...` branch, develop and push there. If you're starting fresh work without a designated branch, create a `feat/...` or `fix/...` branch — do not commit to `main`.
+
+### Pull request flow
+
+1. Work on the topic branch, commit often per the policy above.
+2. Push with `git push -u origin <branch-name>`.
+3. Open a PR targeting `main` only when the user asks for one. Use the template that auto-populates.
+4. CI must pass on Linux, macOS, and Windows before merge.
+5. Squash-merge (linear history is enforced). Branch is deleted on merge.
+
+### Worktrees (for parallel and risky work)
+
+Use git worktrees — via the Agent tool's `isolation: "worktree"` option — in two cases:
+
+1. **Parallel agents.** Any time you spawn two or more agents concurrently (Sprint A/B/C-style work in the Agent Teams section below), give each one its own worktree. Prevents agents from clobbering each other's uncommitted changes.
+2. **Risky or long-running work** (>15 min refactors, parser rewrites, emitter changes). Develop in an isolated worktree, validate it builds and tests pass, then merge the resulting branch back via PR. The live checkout stays stable.
+
+Single short-lived agents on a single branch can run in the normal checkout — worktrees aren't required for every spawn, just when isolation matters. The harness auto-cleans worktrees that produced no changes; ones with commits return their branch + path so you can open a PR from them.
 
 ---
 
