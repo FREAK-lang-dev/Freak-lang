@@ -194,10 +194,17 @@ task v4_lsp_extern_callback_diag_source() -> word {
 }
 
 task v4_lsp_extern_callback_call_diag_source() -> word {
-    pilot src = "task run(cb: int, miss: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int, texty: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> int {\n"
+    pilot src = "extern [C] {\n"
+    src = src + "    task install(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task bridge(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    give back seed\n"
+    src = src + "}\n"
+    src = src + "task run(cb: int, miss: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int, texty: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> int {\n"
     src = src + "    pilot first = cb(1)\n"
     src = src + "    pilot second = miss()\n"
     src = src + "    pilot third = texty(\"ace\")\n"
+    src = src + "    pilot fourth = install(bridge)\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
     give back src
