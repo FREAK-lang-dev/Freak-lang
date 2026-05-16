@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   v4-fast:
     name: V4 fast (${{ matrix.os }})
