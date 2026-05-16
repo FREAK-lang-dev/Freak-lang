@@ -2935,7 +2935,9 @@ EXECUTABLE_SMOKES = [
             "extern-callback-export-coerce-on-tick-trampoline-symbol=__freak_callback_on_tick",
             "extern-callback-export-coerce-install-call-line=call ccc i64 @install(ptr @__freak_callback_on_tick) nounwind",
             "extern-callback-export-coerce-bad-plain-value-ty=unknown",
-            "extern-callback-export-coerce-bad-diag0-message=call argument type mismatch",
+            "extern-callback-export-coerce-bad-mir-diag-count=2",
+            "extern-callback-export-coerce-bad-diag0-message=callback value must use extern ABI",
+            "extern-callback-export-coerce-bad-diag1-message=callback value must use extern ABI",
         ],
     },
     {

@@ -74,9 +74,9 @@ arguments, while codegen emits a `nounwind` LLVM trampoline
 to those tasks now type as the matching `extern [ABI] task(...) -> T`
 function pointer, so they coerce into FFI callback slots end-to-end and
 codegen rewrites the call-site symbol to the trampoline. ABI/signature
-mismatches between the FREAK task and the callback slot still surface as
-`call argument type mismatch` diagnostics. The runtime panic-catch inside
-the trampoline body remains later FFI work.
+mismatches between the FREAK task and the callback slot still trip the
+boundary-bridge `callback value must use extern ABI` diagnostic. The
+runtime panic-catch inside the trampoline body remains later FFI work.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 
