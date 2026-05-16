@@ -70,10 +70,13 @@ callback surface is now opened via `@extern_callback("C")` /
 `@extern_callback("system")` on FREAK tasks: TY validates the ABI, FFI-safe
 parameters/return, rejects variadics, and diagnoses missing/extra/invalid ABI
 arguments, while codegen emits a `nounwind` LLVM trampoline
-(`@__freak_callback_<task>`) that tail-calls the FREAK body and is the symbol
-future coercions will pass into FFI callback slots. Coercion of those task
-values into `extern [ABI] task(...) -> T` slots and the runtime panic-catch
-in the trampoline body remain later FFI work.
+(`@__freak_callback_<task>`) that tail-calls the FREAK body. Bare references
+to those tasks now type as the matching `extern [ABI] task(...) -> T`
+function pointer, so they coerce into FFI callback slots end-to-end and
+codegen rewrites the call-site symbol to the trampoline. ABI/signature
+mismatches between the FREAK task and the callback slot still surface as
+`call argument type mismatch` diagnostics. The runtime panic-catch inside
+the trampoline body remains later FFI work.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 

@@ -1834,6 +1834,80 @@ task v4_ty_signature_has_extern_callback(ty_id: int, sig_id: int) -> bool {
     give back false
 }
 
+task v4_ty_extern_callback_trampoline_name(task_name: word) -> word {
+    give back "__freak_callback_" + task_name
+}
+
+task v4_ty_task_callback_value_type(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+    pilot abi = v4_ty_signature_extern_callback_abi(ty_id, sig_id)
+    if abi == "" {
+        give back v4_ty_unknown
+    }
+    if v4_ty_is_language_abi(abi) == false and v4_ty_is_calling_convention_abi(abi) == false {
+        give back v4_ty_unknown
+    }
+    if v4_ty_signature_is_variadic(ty_id, sig_id) {
+        give back v4_ty_unknown
+    }
+
+    pilot out = "extern[" + abi + "]task("
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        if param_id > 0 {
+            out = out + ","
+        }
+        pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
+        pilot param_surface = v4_ty_signature_param_surface_type(ty_id, sig_id, param_id)
+        if param_name != "" {
+            out = out + param_name + ":"
+        }
+        out = out + param_surface
+        param_id += 1
+    }
+    pilot return_surface = v4_ty_signature_return_surface_type(ty_id, sig_id)
+    if return_surface == "" or return_surface == v4_ty_unknown {
+        return_surface = v4_ty_void
+    }
+    out = out + ")->" + return_surface
+    give back out
+}
+
+task v4_ty_task_callback_value_type_for_name(ty_id: int, task_name: word) -> word {
+    pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, task_name)
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+    if v4_ty_signature_has_extern_callback(ty_id, sig_id) == false {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_task_callback_value_type(ty_id, sig_id)
+}
+
+task v4_ty_extern_callback_export_symbol_name(ty_id: int, task_name: word) -> word {
+    pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, task_name)
+    if sig_id < 0 {
+        give back ""
+    }
+    if v4_ty_signature_has_extern_callback(ty_id, sig_id) == false {
+        give back ""
+    }
+    pilot abi = v4_ty_signature_extern_callback_abi(ty_id, sig_id)
+    if abi == "" {
+        give back ""
+    }
+    if v4_ty_is_language_abi(abi) == false and v4_ty_is_calling_convention_abi(abi) == false {
+        give back ""
+    }
+    if v4_ty_signature_is_variadic(ty_id, sig_id) {
+        give back ""
+    }
+    give back v4_ty_extern_callback_trampoline_name(task_name)
+}
+
 task v4_ty_normalize_call_abi(abi: word) -> word {
     if abi == "" {
         give back ""

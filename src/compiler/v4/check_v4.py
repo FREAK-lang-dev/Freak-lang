@@ -2929,6 +2929,13 @@ EXECUTABLE_SMOKES = [
             "extern-callback-export-bad-diag2-message=@extern_callback parameter type is not FFI-safe",
             "extern-callback-export-bad-diag3-message=@extern_callback return type is not FFI-safe",
             "extern-callback-export-bad-diag4-message=@extern_callback takes one ABI",
+            "extern-callback-export-coerce-good-ty-diag-count=0",
+            "extern-callback-export-coerce-good-mir-diag-count=0",
+            "extern-callback-export-coerce-on-tick-value-ty=extern[C]task(seed:std::ffi::c_int)->std::ffi::c_int",
+            "extern-callback-export-coerce-on-tick-trampoline-symbol=__freak_callback_on_tick",
+            "extern-callback-export-coerce-install-call-line=call ccc i64 @install(ptr @__freak_callback_on_tick) nounwind",
+            "extern-callback-export-coerce-bad-plain-value-ty=unknown",
+            "extern-callback-export-coerce-bad-diag0-message=call argument type mismatch",
         ],
     },
     {

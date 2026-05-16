@@ -406,7 +406,7 @@ task v4_codegen_llvm_ffi_call_suffix(abi: word) -> word {
 }
 
 task v4_codegen_llvm_callback_trampoline_name(task_name: word) -> word {
-    give back "__freak_callback_" + task_name
+    give back v4_ty_extern_callback_trampoline_name(task_name)
 }
 
 task v4_codegen_llvm_callback_trampoline_symbol(task_name: word) -> word {
@@ -679,9 +679,18 @@ task v4_codegen_llvm_rvalue_operand(mir_id: int, body_id: int, rvalue_id: int) -
         give back operand_ty + " %" + v4_codegen_llvm_mangle_name(v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
     }
     if kind == v4_mir_rvalue_use_symbol {
-        give back operand_ty + " " + v4_codegen_llvm_symbol(text)
+        give back operand_ty + " " + v4_codegen_llvm_use_symbol_value(mir_id, text)
     }
     give back operand_ty + " " + v4_codegen_llvm_temp_value(body_id, rvalue_id)
+}
+
+task v4_codegen_llvm_use_symbol_value(mir_id: int, text: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot trampoline = v4_ty_extern_callback_export_symbol_name(ty_id, text)
+    if trampoline != "" {
+        give back v4_codegen_llvm_symbol(trampoline)
+    }
+    give back v4_codegen_llvm_symbol(text)
 }
 
 task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> word {
@@ -704,7 +713,7 @@ task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> 
         give back "%" + v4_codegen_llvm_mangle_name(v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
     }
     if kind == v4_mir_rvalue_use_symbol {
-        give back v4_codegen_llvm_symbol(text)
+        give back v4_codegen_llvm_use_symbol_value(mir_id, text)
     }
     give back v4_codegen_llvm_temp_value(body_id, rvalue_id)
 }
