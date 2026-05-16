@@ -10,6 +10,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CLANG_FLAGS: "-w -O2 -D_CRT_SECURE_NO_WARNINGS"
 
