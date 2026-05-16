@@ -1,0 +1,74 @@
+-- V4 extern callback boundary bridge smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_extern_callback_bridge_good_source() -> word {
+    pilot hook_braces = "{" + " on_tick: cb " + "}"
+    pilot keep_braces = "{" + " on_tick: kept " + "}"
+    pilot src = "@layout(C)\n"
+    src = src + "shape HookTable {\n"
+    src = src + "    on_tick: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task current() -> extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "    task install(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task keep(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    pilot slot: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int = cb\n"
+    src = src + "    pilot hooks = HookTable " + hook_braces + "\n"
+    src = src + "    give back hooks.on_tick\n"
+    src = src + "}\n"
+    src = src + "task run() -> int {\n"
+    src = src + "    pilot cb = current()\n"
+    src = src + "    pilot kept = keep(cb)\n"
+    src = src + "    pilot hooks = HookTable " + keep_braces + "\n"
+    src = src + "    give back install(kept) + install(hooks.on_tick)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_callback_bridge_bad_source() -> word {
+    pilot hook_braces = "{" + " on_tick: local_hook " + "}"
+    pilot src = "@layout(C)\n"
+    src = src + "shape HookTable {\n"
+    src = src + "    on_tick: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task install(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task local_hook(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    give back seed\n"
+    src = src + "}\n"
+    src = src + "task keep() -> extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    pilot slot: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int = local_hook\n"
+    src = src + "    pilot hooks = HookTable " + hook_braces + "\n"
+    src = src + "    pilot armed = install(local_hook)\n"
+    src = src + "    give back local_hook\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_extern_callback_bridge_stream = v4_lex_text(0, v4_extern_callback_bridge_good_source())
+pilot v4_extern_callback_bridge_tree = v4_parse_stream(0, v4_extern_callback_bridge_stream)
+pilot v4_extern_callback_bridge_hir = v4_hir_lower_tree(0, v4_extern_callback_bridge_tree)
+pilot v4_extern_callback_bridge_resolve = v4_resolve_lower_hir(0, v4_extern_callback_bridge_hir)
+pilot v4_extern_callback_bridge_ty = v4_ty_lower_resolve(0, v4_extern_callback_bridge_resolve)
+pilot v4_extern_callback_bridge_mir = v4_mir_lower_ty(0, v4_extern_callback_bridge_ty)
+
+say "extern-callback-bridge-good-diag-count=" + word_from_int(v4_mir_diag_count(v4_extern_callback_bridge_mir))
+
+pilot v4_extern_callback_bridge_bad_stream = v4_lex_text(1, v4_extern_callback_bridge_bad_source())
+pilot v4_extern_callback_bridge_bad_tree = v4_parse_stream(1, v4_extern_callback_bridge_bad_stream)
+pilot v4_extern_callback_bridge_bad_hir = v4_hir_lower_tree(1, v4_extern_callback_bridge_bad_tree)
+pilot v4_extern_callback_bridge_bad_resolve = v4_resolve_lower_hir(1, v4_extern_callback_bridge_bad_hir)
+pilot v4_extern_callback_bridge_bad_ty = v4_ty_lower_resolve(1, v4_extern_callback_bridge_bad_resolve)
+pilot v4_extern_callback_bridge_bad_mir = v4_mir_lower_ty(1, v4_extern_callback_bridge_bad_ty)
+
+say "extern-callback-bridge-bad-diag-count=" + word_from_int(v4_mir_diag_count(v4_extern_callback_bridge_bad_mir))
+say "extern-callback-bridge-bad-diag0-message=" + v4_diag_message(v4_mir_diag(v4_extern_callback_bridge_bad_mir, 0))
+say "extern-callback-bridge-bad-diag0-help=" + v4_diag_help(v4_mir_diag(v4_extern_callback_bridge_bad_mir, 0))
+say "extern-callback-bridge-bad-diag1-message=" + v4_diag_message(v4_mir_diag(v4_extern_callback_bridge_bad_mir, 1))
+say "extern-callback-bridge-bad-diag1-help=" + v4_diag_help(v4_mir_diag(v4_extern_callback_bridge_bad_mir, 1))
+say "extern-callback-bridge-bad-diag2-message=" + v4_diag_message(v4_mir_diag(v4_extern_callback_bridge_bad_mir, 2))
+say "extern-callback-bridge-bad-diag2-help=" + v4_diag_help(v4_mir_diag(v4_extern_callback_bridge_bad_mir, 2))
+say "extern-callback-bridge-bad-diag3-message=" + v4_diag_message(v4_mir_diag(v4_extern_callback_bridge_bad_mir, 3))
+say "extern-callback-bridge-bad-diag3-help=" + v4_diag_help(v4_mir_diag(v4_extern_callback_bridge_bad_mir, 3))

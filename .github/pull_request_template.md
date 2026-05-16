@@ -14,7 +14,6 @@
 - [ ] `freak-full-bible.md` updated if this changes language semantics
 - [ ] CI is green on Linux, macOS, and Windows
 - [ ] Branch is short-lived and rebased on current `main`
-- [ ] No direct edits to `CLAUDE.md` (maintained separately)
 
 ## Notes for reviewers
 
