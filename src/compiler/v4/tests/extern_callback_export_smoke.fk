@@ -1,0 +1,96 @@
+-- V4 @extern_callback FREAK task export smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_extern_callback_export_good_source() -> word {
+    pilot src = "@extern_callback(\"C\")\n"
+    src = src + "task on_tick(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    give back seed\n"
+    src = src + "}\n"
+    src = src + "@extern_callback(\"system\")\n"
+    src = src + "task on_window(hwnd: *mut void, msg: std::ffi::c_uint, w: std::ffi::usize, l: std::ffi::isize) -> std::ffi::isize {\n"
+    src = src + "    give back l\n"
+    src = src + "}\n"
+    src = src + "@extern_callback(\"C\")\n"
+    src = src + "task on_notify() -> void {\n"
+    src = src + "    give back\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_extern_callback_export_bad_source() -> word {
+    pilot src = "@extern_callback()\n"
+    src = src + "task missing_abi(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    give back seed\n"
+    src = src + "}\n"
+    src = src + "@extern_callback(\"mystery\")\n"
+    src = src + "task bad_abi(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    give back seed\n"
+    src = src + "}\n"
+    src = src + "@extern_callback(\"C\")\n"
+    src = src + "task bad_param(text: word) -> std::ffi::c_int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "@extern_callback(\"C\")\n"
+    src = src + "task bad_return(seed: std::ffi::c_int) -> word {\n"
+    src = src + "    give back \"\"\n"
+    src = src + "}\n"
+    src = src + "@extern_callback(\"C\", extra)\n"
+    src = src + "task too_many(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    give back seed\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_extern_callback_export_text = v4_extern_callback_export_good_source()
+pilot v4_extern_callback_export_stream = v4_lex_text(0, v4_extern_callback_export_text)
+pilot v4_extern_callback_export_tree = v4_parse_stream(0, v4_extern_callback_export_stream)
+pilot v4_extern_callback_export_hir = v4_hir_lower_tree(0, v4_extern_callback_export_tree)
+pilot v4_extern_callback_export_resolve = v4_resolve_lower_hir(0, v4_extern_callback_export_hir)
+pilot v4_extern_callback_export_ty = v4_ty_lower_resolve(0, v4_extern_callback_export_resolve)
+pilot v4_extern_callback_export_mir = v4_mir_lower_ty(0, v4_extern_callback_export_ty)
+pilot v4_extern_callback_export_llvm = v4_codegen_llvm_lower_mir(0, v4_extern_callback_export_mir)
+
+pilot v4_extern_callback_export_on_tick_def = v4_resolve_def_for_name(v4_extern_callback_export_resolve, "on_tick")
+pilot v4_extern_callback_export_on_tick_sig = v4_ty_lookup_signature(v4_extern_callback_export_ty, v4_extern_callback_export_on_tick_def)
+pilot v4_extern_callback_export_on_window_def = v4_resolve_def_for_name(v4_extern_callback_export_resolve, "on_window")
+pilot v4_extern_callback_export_on_window_sig = v4_ty_lookup_signature(v4_extern_callback_export_ty, v4_extern_callback_export_on_window_def)
+pilot v4_extern_callback_export_on_notify_def = v4_resolve_def_for_name(v4_extern_callback_export_resolve, "on_notify")
+pilot v4_extern_callback_export_on_notify_sig = v4_ty_lookup_signature(v4_extern_callback_export_ty, v4_extern_callback_export_on_notify_def)
+
+pilot v4_extern_callback_export_on_tick_body = v4_codegen_llvm_find_body(v4_extern_callback_export_llvm, "__freak_callback_on_tick")
+pilot v4_extern_callback_export_on_window_body = v4_codegen_llvm_find_body(v4_extern_callback_export_llvm, "__freak_callback_on_window")
+pilot v4_extern_callback_export_on_notify_body = v4_codegen_llvm_find_body(v4_extern_callback_export_llvm, "__freak_callback_on_notify")
+
+say "extern-callback-export-good-diag-count=" + word_from_int(v4_ty_diag_count(v4_extern_callback_export_ty))
+say "extern-callback-export-on-tick-abi=" + v4_ty_signature_extern_callback_abi(v4_extern_callback_export_ty, v4_extern_callback_export_on_tick_sig)
+say "extern-callback-export-on-window-abi=" + v4_ty_signature_extern_callback_abi(v4_extern_callback_export_ty, v4_extern_callback_export_on_window_sig)
+say "extern-callback-export-on-notify-abi=" + v4_ty_signature_extern_callback_abi(v4_extern_callback_export_ty, v4_extern_callback_export_on_notify_sig)
+say "extern-callback-export-on-tick-symbol=" + v4_codegen_llvm_body_symbol(v4_extern_callback_export_llvm, v4_extern_callback_export_on_tick_body)
+say "extern-callback-export-on-tick-line=" + v4_codegen_llvm_body_line(v4_extern_callback_export_llvm, v4_extern_callback_export_on_tick_body)
+say "extern-callback-export-on-window-line=" + v4_codegen_llvm_body_line(v4_extern_callback_export_llvm, v4_extern_callback_export_on_window_body)
+say "extern-callback-export-on-notify-line=" + v4_codegen_llvm_body_line(v4_extern_callback_export_llvm, v4_extern_callback_export_on_notify_body)
+
+pilot v4_extern_callback_export_bad_text = v4_extern_callback_export_bad_source()
+pilot v4_extern_callback_export_bad_stream = v4_lex_text(1, v4_extern_callback_export_bad_text)
+pilot v4_extern_callback_export_bad_tree = v4_parse_stream(1, v4_extern_callback_export_bad_stream)
+pilot v4_extern_callback_export_bad_hir = v4_hir_lower_tree(1, v4_extern_callback_export_bad_tree)
+pilot v4_extern_callback_export_bad_resolve = v4_resolve_lower_hir(1, v4_extern_callback_export_bad_hir)
+pilot v4_extern_callback_export_bad_ty = v4_ty_lower_resolve(1, v4_extern_callback_export_bad_resolve)
+
+say "extern-callback-export-bad-diag-count=" + word_from_int(v4_ty_diag_count(v4_extern_callback_export_bad_ty))
+say "extern-callback-export-bad-diag0-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_export_bad_ty, 0))
+say "extern-callback-export-bad-diag0-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_export_bad_ty, 0))
+say "extern-callback-export-bad-diag1-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_export_bad_ty, 1))
+say "extern-callback-export-bad-diag1-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_export_bad_ty, 1))
+say "extern-callback-export-bad-diag2-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_export_bad_ty, 2))
+say "extern-callback-export-bad-diag2-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_export_bad_ty, 2))
+say "extern-callback-export-bad-diag3-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_export_bad_ty, 3))
+say "extern-callback-export-bad-diag3-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_export_bad_ty, 3))
+say "extern-callback-export-bad-diag4-message=" + v4_diag_message(v4_ty_diag(v4_extern_callback_export_bad_ty, 4))
+say "extern-callback-export-bad-diag4-help=" + v4_diag_help(v4_ty_diag(v4_extern_callback_export_bad_ty, 4))
