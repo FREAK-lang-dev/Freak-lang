@@ -67,6 +67,10 @@ callback-boundary diagnostics instead of silently flowing into foreign
 callback slots. Foreign LLVM declarations and call sites now carry `nounwind`
 as groundwork for the extern/callback panic-boundary contract. Full
 panic-abort guarantees across callback boundaries remain later FFI work.
+The current smoke lane now also proves the full core calling-convention matrix
+(`fastcall`, `thiscall`, `vectorcall`, `win64`, `sysv64`, plus the existing
+`C`/`cdecl`/`stdcall`/`system`) through direct extern calls, indirect callback
+calls, and LLVM declaration/call lowering.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 
