@@ -2985,6 +2985,48 @@ task v4_ty_signature_param_surface_type(ty_id: int, sig_id: int, param_id: int) 
     give back v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
 }
 
+task v4_ty_signature_function_value_type(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+
+    pilot out = ""
+    pilot call_abi = v4_ty_signature_call_abi(ty_id, sig_id)
+    if call_abi != "" {
+        out = "extern[" + call_abi + "]"
+    }
+    out = out + "task("
+
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        if param_id > 0 {
+            out = out + ","
+        }
+        pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
+        pilot param_surface = v4_ty_signature_param_surface_type(ty_id, sig_id, param_id)
+        if param_surface == "" {
+            param_surface = v4_ty_unknown
+        }
+        if param_surface == "..." {
+            out = out + "..."
+        } else {
+            if param_name != "" {
+                out = out + param_name + ":"
+            }
+            out = out + param_surface
+        }
+        param_id += 1
+    }
+
+    out = out + ")->"
+    pilot return_surface = v4_ty_signature_return_surface_type(ty_id, sig_id)
+    if return_surface == "" {
+        return_surface = v4_ty_unknown
+    }
+    give back out + return_surface
+}
+
 task v4_ty_signature_param_type_span(ty_id: int, sig_id: int, param_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
