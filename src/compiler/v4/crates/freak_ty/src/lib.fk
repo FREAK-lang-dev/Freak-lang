@@ -1789,6 +1789,125 @@ task v4_ty_signature_attribute_span_for_name(ty_id: int, sig_id: int, wanted_nam
     give back V4_NO_SPAN
 }
 
+task v4_ty_signature_extern_callback_abi_raw(ty_id: int, sig_id: int) -> word {
+    give back v4_ty_signature_attribute_arg_for_name(ty_id, sig_id, "extern_callback")
+}
+
+task v4_ty_signature_extern_callback_abi(ty_id: int, sig_id: int) -> word {
+    pilot raw = v4_ty_signature_extern_callback_abi_raw(ty_id, sig_id)
+    if raw == "" {
+        give back ""
+    }
+    pilot first_arg = v4_ty_layout_arg(raw, 0)
+    if first_arg == "" {
+        give back ""
+    }
+    pilot unquoted = v4_ty_strip_string_quotes(first_arg)
+    if unquoted == "" {
+        unquoted = first_arg
+    }
+    give back v4_ty_normalize_call_abi(unquoted)
+}
+
+task v4_ty_signature_extern_callback_arg_count(ty_id: int, sig_id: int) -> int {
+    pilot raw = v4_ty_signature_extern_callback_abi_raw(ty_id, sig_id)
+    if raw == "" {
+        give back 0
+    }
+    give back v4_ty_layout_arg_count(raw)
+}
+
+task v4_ty_signature_has_extern_callback(ty_id: int, sig_id: int) -> bool {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back false
+    }
+    pilot attr_idx = 0
+    pilot attr_count = v4_hir_item_attribute_count(hir_id, hir_item)
+    repeat until attr_idx >= attr_count {
+        if v4_hir_item_attribute_name(hir_id, hir_item, attr_idx) == "extern_callback" {
+            give back true
+        }
+        attr_idx += 1
+    }
+    give back false
+}
+
+task v4_ty_extern_callback_trampoline_name(task_name: word) -> word {
+    give back "__freak_callback_" + task_name
+}
+
+task v4_ty_task_callback_value_type(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+    pilot abi = v4_ty_signature_extern_callback_abi(ty_id, sig_id)
+    if abi == "" {
+        give back v4_ty_unknown
+    }
+    if v4_ty_is_language_abi(abi) == false and v4_ty_is_calling_convention_abi(abi) == false {
+        give back v4_ty_unknown
+    }
+    if v4_ty_signature_is_variadic(ty_id, sig_id) {
+        give back v4_ty_unknown
+    }
+
+    pilot out = "extern[" + abi + "]task("
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        if param_id > 0 {
+            out = out + ","
+        }
+        pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
+        pilot param_surface = v4_ty_signature_param_surface_type(ty_id, sig_id, param_id)
+        if param_name != "" {
+            out = out + param_name + ":"
+        }
+        out = out + param_surface
+        param_id += 1
+    }
+    pilot return_surface = v4_ty_signature_return_surface_type(ty_id, sig_id)
+    if return_surface == "" or return_surface == v4_ty_unknown {
+        return_surface = v4_ty_void
+    }
+    out = out + ")->" + return_surface
+    give back out
+}
+
+task v4_ty_task_callback_value_type_for_name(ty_id: int, task_name: word) -> word {
+    pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, task_name)
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+    if v4_ty_signature_has_extern_callback(ty_id, sig_id) == false {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_task_callback_value_type(ty_id, sig_id)
+}
+
+task v4_ty_extern_callback_export_symbol_name(ty_id: int, task_name: word) -> word {
+    pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, task_name)
+    if sig_id < 0 {
+        give back ""
+    }
+    if v4_ty_signature_has_extern_callback(ty_id, sig_id) == false {
+        give back ""
+    }
+    pilot abi = v4_ty_signature_extern_callback_abi(ty_id, sig_id)
+    if abi == "" {
+        give back ""
+    }
+    if v4_ty_is_language_abi(abi) == false and v4_ty_is_calling_convention_abi(abi) == false {
+        give back ""
+    }
+    if v4_ty_signature_is_variadic(ty_id, sig_id) {
+        give back ""
+    }
+    give back v4_ty_extern_callback_trampoline_name(task_name)
+}
+
 task v4_ty_normalize_call_abi(abi: word) -> word {
     if abi == "" {
         give back ""
@@ -6979,6 +7098,80 @@ task v4_ty_validate_extern_ffi_contracts(ty_id: int) -> void {
     }
 }
 
+task v4_ty_validate_extern_callback_export_contract(ty_id: int, sig_id: int) -> void {
+    if v4_ty_signature_has_extern_callback(ty_id, sig_id) == false {
+        give back
+    }
+
+    pilot attr_span = v4_ty_signature_attribute_span_for_name(ty_id, sig_id, "extern_callback")
+    pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
+    if sig_kind != v4_ty_task_sig {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback applies only to tasks", "remove @extern_callback from " + v4_ty_signature_name(ty_id, sig_id) + " or move it to a task declaration")
+        give back
+    }
+
+    pilot task_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot arg_count = v4_ty_signature_extern_callback_arg_count(ty_id, sig_id)
+    if arg_count == 0 {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback needs an ABI", "write @extern_callback(\"C\") or @extern_callback(\"system\") on " + task_name)
+        give back
+    }
+    if arg_count > 1 {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback takes one ABI", task_name + " uses extra arguments; @extern_callback accepts exactly one ABI string like \"C\" or \"system\"")
+        give back
+    }
+
+    pilot abi = v4_ty_signature_extern_callback_abi(ty_id, sig_id)
+    if abi == "" {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback needs an ABI", "write @extern_callback(\"C\") or @extern_callback(\"system\") on " + task_name)
+        give back
+    }
+    if v4_ty_is_language_abi(abi) == false and v4_ty_is_calling_convention_abi(abi) == false {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback ABI is invalid", task_name + " uses @extern_callback(" + v4_ty_signature_extern_callback_abi_raw(ty_id, sig_id) + "); use \"C\", \"system\", or a supported calling convention like \"cdecl\"/\"stdcall\"/\"win64\"/\"sysv64\"")
+        give back
+    }
+
+    if v4_ty_signature_is_variadic(ty_id, sig_id) {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback tasks cannot be variadic", "remove args: ... from " + task_name + " before exposing it as an FFI callback")
+        give back
+    }
+
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        pilot param_surface = v4_ty_signature_param_surface_type(ty_id, sig_id, param_id)
+        if v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, "") == false {
+            pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
+            pilot param_context = task_name + " argument " + word_from_int(param_id + 1)
+            if param_name != "" {
+                param_context = task_name + "." + param_name
+            }
+            v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "@extern_callback parameter type is not FFI-safe", v4_ty_ffi_boundary_help(param_surface, param_context))
+            give back
+        }
+        param_id += 1
+    }
+
+    pilot return_surface = v4_ty_signature_return_surface_type(ty_id, sig_id)
+    if return_surface == "" or return_surface == v4_ty_unknown {
+        v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "@extern_callback return type is not FFI-safe", task_name + " must return an explicit FFI-safe type")
+        give back
+    }
+    if v4_ty_surface_ffi_safe_type_seen(ty_id, return_surface, true, "") == false {
+        v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "@extern_callback return type is not FFI-safe", v4_ty_ffi_boundary_help(return_surface, task_name + " return"))
+        give back
+    }
+}
+
+task v4_ty_validate_extern_callback_export_contracts(ty_id: int) -> void {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        v4_ty_validate_extern_callback_export_contract(ty_id, sig_id)
+        sig_id += 1
+    }
+}
+
 task v4_ty_type_depth_after_char(depth: int, ch: word) -> int {
     pilot next_depth = depth
     if ch == "(" or ch == "[" or ch == "{" or ch == "<" {
@@ -7591,6 +7784,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
     v4_ty_validate_lifetime_contracts(ty_id)
     v4_ty_validate_layout_contracts(ty_id)
     v4_ty_validate_extern_ffi_contracts(ty_id)
+    v4_ty_validate_extern_callback_export_contracts(ty_id)
     v4_ty_validate_alias_cycles(ty_id)
     v4_ty_validate_const_cycles(ty_id)
     v4_ty_validate_const_initializers(ty_id)

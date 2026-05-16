@@ -65,8 +65,18 @@ indirect FFI calls from locals, returned callback values, and `@layout(C)`
 field places. Plain FREAK task values now stop at that fence with dedicated
 callback-boundary diagnostics instead of silently flowing into foreign
 callback slots. Foreign LLVM declarations and call sites now carry `nounwind`
-as groundwork for the extern/callback panic-boundary contract. Full
-panic-abort guarantees across callback boundaries remain later FFI work.
+as groundwork for the extern/callback panic-boundary contract. The inbound
+callback surface is now opened via `@extern_callback("C")` /
+`@extern_callback("system")` on FREAK tasks: TY validates the ABI, FFI-safe
+parameters/return, rejects variadics, and diagnoses missing/extra/invalid ABI
+arguments, while codegen emits a `nounwind` LLVM trampoline
+(`@__freak_callback_<task>`) that tail-calls the FREAK body. Bare references
+to those tasks now type as the matching `extern [ABI] task(...) -> T`
+function pointer, so they coerce into FFI callback slots end-to-end and
+codegen rewrites the call-site symbol to the trampoline. ABI/signature
+mismatches between the FREAK task and the callback slot still trip the
+boundary-bridge `callback value must use extern ABI` diagnostic. The
+runtime panic-catch inside the trampoline body remains later FFI work.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 
