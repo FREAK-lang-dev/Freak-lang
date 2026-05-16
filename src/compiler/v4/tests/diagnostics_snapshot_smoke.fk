@@ -185,10 +185,17 @@ task v4_diagnostics_snapshot_extern_callback_source() -> word {
 }
 
 task v4_diagnostics_snapshot_extern_callback_call_source() -> word {
-    pilot src = "task run(cb: int, miss: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int, texty: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> int {\n"
+    pilot src = "extern [C] {\n"
+    src = src + "    task install(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task bridge(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    give back seed\n"
+    src = src + "}\n"
+    src = src + "task run(cb: int, miss: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int, texty: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> int {\n"
     src = src + "    pilot first = cb(1)\n"
     src = src + "    pilot second = miss()\n"
     src = src + "    pilot third = texty(\"ace\")\n"
+    src = src + "    pilot fourth = install(bridge)\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
     give back src
@@ -253,6 +260,7 @@ say "extern-callback-diagnostic6-span=" + v4_diag_span(v4_diagnostics_diag(v4_di
 say "extern-callback-call-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_callback_call_id, 0))
 say "extern-callback-call-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_callback_call_id, 1))
 say "extern-callback-call-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_callback_call_id, 2))
+say "extern-callback-call-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_callback_call_id, 3))
 say v4_parse_snapshot_restore(v4_parse_snapshot())
 say v4_hir_snapshot_restore(v4_hir_snapshot())
 say v4_resolve_snapshot_restore(v4_resolve_snapshot())
@@ -387,4 +395,6 @@ say "restored-extern-callback-call-diagnostic1=" + v4_diag_message(v4_diagnostic
 say "restored-extern-callback-call-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_callback_call_restored_id, 1))
 say "restored-extern-callback-call-diagnostic2=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_callback_call_restored_id, 2))
 say "restored-extern-callback-call-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_callback_call_restored_id, 2))
+say "restored-extern-callback-call-diagnostic3=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_callback_call_restored_id, 3))
+say "restored-extern-callback-call-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_callback_call_restored_id, 3))
 say v4_driver_confirm_restored_document_text("diagnostics-snapshot.fk", "task changed() => 7\n")
