@@ -1,0 +1,156 @@
+-- V4 extern ABI matrix smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_abi_matrix_find_local_stmt(mir_id: int, body_id: int, wanted: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            if v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == wanted {
+                give back stmt_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_abi_matrix_source() -> word {
+    pilot src = "extern [fastcall] {\n"
+    src = src + "    task fast_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "extern [thiscall] {\n"
+    src = src + "    task this_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "extern [vectorcall] {\n"
+    src = src + "    task vector_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "extern [win64] {\n"
+    src = src + "    task win64_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "extern [sysv64] {\n"
+    src = src + "    task sysv_tick(seed: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task drive_direct() -> int {\n"
+    src = src + "    pilot a = fast_tick(1)\n"
+    src = src + "    pilot b = this_tick(2)\n"
+    src = src + "    pilot c = vector_tick(3)\n"
+    src = src + "    pilot d = win64_tick(4)\n"
+    src = src + "    pilot e = sysv_tick(5)\n"
+    src = src + "    give back a + b + c + d + e\n"
+    src = src + "}\n"
+    src = src + "task drive_callbacks(fc: extern [fastcall] task(seed: std::ffi::c_int) -> std::ffi::c_int, tc: extern [thiscall] task(seed: std::ffi::c_int) -> std::ffi::c_int, vc: extern [vectorcall] task(seed: std::ffi::c_int) -> std::ffi::c_int, w64: extern [win64] task(seed: std::ffi::c_int) -> std::ffi::c_int, s64: extern [sysv64] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> int {\n"
+    src = src + "    pilot fa = fc(6)\n"
+    src = src + "    pilot ta = tc(7)\n"
+    src = src + "    pilot va = vc(8)\n"
+    src = src + "    pilot wa = w64(9)\n"
+    src = src + "    pilot sa = s64(10)\n"
+    src = src + "    give back fa + ta + va + wa + sa\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_abi_matrix_src = v4_abi_matrix_source()
+pilot v4_abi_matrix_stream = v4_lex_text(0, v4_abi_matrix_src)
+pilot v4_abi_matrix_tree = v4_parse_stream(0, v4_abi_matrix_stream)
+pilot v4_abi_matrix_hir = v4_hir_lower_tree(0, v4_abi_matrix_tree)
+pilot v4_abi_matrix_resolve = v4_resolve_lower_hir(0, v4_abi_matrix_hir)
+pilot v4_abi_matrix_ty = v4_ty_lower_resolve(0, v4_abi_matrix_resolve)
+pilot v4_abi_matrix_mir = v4_mir_lower_ty(0, v4_abi_matrix_ty)
+pilot v4_abi_matrix_llvm = v4_codegen_llvm_lower_mir(0, v4_abi_matrix_mir)
+
+pilot v4_abi_matrix_fast_def = v4_resolve_def_for_name(v4_abi_matrix_resolve, "fast_tick")
+pilot v4_abi_matrix_this_def = v4_resolve_def_for_name(v4_abi_matrix_resolve, "this_tick")
+pilot v4_abi_matrix_vector_def = v4_resolve_def_for_name(v4_abi_matrix_resolve, "vector_tick")
+pilot v4_abi_matrix_win64_def = v4_resolve_def_for_name(v4_abi_matrix_resolve, "win64_tick")
+pilot v4_abi_matrix_sysv_def = v4_resolve_def_for_name(v4_abi_matrix_resolve, "sysv_tick")
+
+pilot v4_abi_matrix_fast_sig = v4_ty_lookup_signature(v4_abi_matrix_ty, v4_abi_matrix_fast_def)
+pilot v4_abi_matrix_this_sig = v4_ty_lookup_signature(v4_abi_matrix_ty, v4_abi_matrix_this_def)
+pilot v4_abi_matrix_vector_sig = v4_ty_lookup_signature(v4_abi_matrix_ty, v4_abi_matrix_vector_def)
+pilot v4_abi_matrix_win64_sig = v4_ty_lookup_signature(v4_abi_matrix_ty, v4_abi_matrix_win64_def)
+pilot v4_abi_matrix_sysv_sig = v4_ty_lookup_signature(v4_abi_matrix_ty, v4_abi_matrix_sysv_def)
+
+pilot v4_abi_matrix_direct_def = v4_resolve_def_for_name(v4_abi_matrix_resolve, "drive_direct")
+pilot v4_abi_matrix_direct_body = v4_mir_lookup_body(v4_abi_matrix_mir, v4_abi_matrix_direct_def)
+pilot v4_abi_matrix_direct_a_stmt = v4_abi_matrix_find_local_stmt(v4_abi_matrix_mir, v4_abi_matrix_direct_body, "a")
+pilot v4_abi_matrix_direct_b_stmt = v4_abi_matrix_find_local_stmt(v4_abi_matrix_mir, v4_abi_matrix_direct_body, "b")
+pilot v4_abi_matrix_direct_c_stmt = v4_abi_matrix_find_local_stmt(v4_abi_matrix_mir, v4_abi_matrix_direct_body, "c")
+pilot v4_abi_matrix_direct_d_stmt = v4_abi_matrix_find_local_stmt(v4_abi_matrix_mir, v4_abi_matrix_direct_body, "d")
+pilot v4_abi_matrix_direct_e_stmt = v4_abi_matrix_find_local_stmt(v4_abi_matrix_mir, v4_abi_matrix_direct_body, "e")
+
+pilot v4_abi_matrix_direct_a = v4_mir_stmt_rvalue(v4_abi_matrix_mir, v4_abi_matrix_direct_body, v4_abi_matrix_direct_a_stmt)
+pilot v4_abi_matrix_direct_b = v4_mir_stmt_rvalue(v4_abi_matrix_mir, v4_abi_matrix_direct_body, v4_abi_matrix_direct_b_stmt)
+pilot v4_abi_matrix_direct_c = v4_mir_stmt_rvalue(v4_abi_matrix_mir, v4_abi_matrix_direct_body, v4_abi_matrix_direct_c_stmt)
+pilot v4_abi_matrix_direct_d = v4_mir_stmt_rvalue(v4_abi_matrix_mir, v4_abi_matrix_direct_body, v4_abi_matrix_direct_d_stmt)
+pilot v4_abi_matrix_direct_e = v4_mir_stmt_rvalue(v4_abi_matrix_mir, v4_abi_matrix_direct_body, v4_abi_matrix_direct_e_stmt)
+
+pilot v4_abi_matrix_callback_def = v4_resolve_def_for_name(v4_abi_matrix_resolve, "drive_callbacks")
+pilot v4_abi_matrix_callback_body = v4_mir_lookup_body(v4_abi_matrix_mir, v4_abi_matrix_callback_def)
+pilot v4_abi_matrix_callback_fa_stmt = v4_abi_matrix_find_local_stmt(v4_abi_matrix_mir, v4_abi_matrix_callback_body, "fa")
+pilot v4_abi_matrix_callback_ta_stmt = v4_abi_matrix_find_local_stmt(v4_abi_matrix_mir, v4_abi_matrix_callback_body, "ta")
+pilot v4_abi_matrix_callback_va_stmt = v4_abi_matrix_find_local_stmt(v4_abi_matrix_mir, v4_abi_matrix_callback_body, "va")
+pilot v4_abi_matrix_callback_wa_stmt = v4_abi_matrix_find_local_stmt(v4_abi_matrix_mir, v4_abi_matrix_callback_body, "wa")
+pilot v4_abi_matrix_callback_sa_stmt = v4_abi_matrix_find_local_stmt(v4_abi_matrix_mir, v4_abi_matrix_callback_body, "sa")
+
+pilot v4_abi_matrix_callback_fa = v4_mir_stmt_rvalue(v4_abi_matrix_mir, v4_abi_matrix_callback_body, v4_abi_matrix_callback_fa_stmt)
+pilot v4_abi_matrix_callback_ta = v4_mir_stmt_rvalue(v4_abi_matrix_mir, v4_abi_matrix_callback_body, v4_abi_matrix_callback_ta_stmt)
+pilot v4_abi_matrix_callback_va = v4_mir_stmt_rvalue(v4_abi_matrix_mir, v4_abi_matrix_callback_body, v4_abi_matrix_callback_va_stmt)
+pilot v4_abi_matrix_callback_wa = v4_mir_stmt_rvalue(v4_abi_matrix_mir, v4_abi_matrix_callback_body, v4_abi_matrix_callback_wa_stmt)
+pilot v4_abi_matrix_callback_sa = v4_mir_stmt_rvalue(v4_abi_matrix_mir, v4_abi_matrix_callback_body, v4_abi_matrix_callback_sa_stmt)
+
+pilot v4_abi_matrix_fast_decl = v4_codegen_llvm_find_decl(v4_abi_matrix_llvm, "fast_tick")
+pilot v4_abi_matrix_this_decl = v4_codegen_llvm_find_decl(v4_abi_matrix_llvm, "this_tick")
+pilot v4_abi_matrix_vector_decl = v4_codegen_llvm_find_decl(v4_abi_matrix_llvm, "vector_tick")
+pilot v4_abi_matrix_win64_decl = v4_codegen_llvm_find_decl(v4_abi_matrix_llvm, "win64_tick")
+pilot v4_abi_matrix_sysv_decl = v4_codegen_llvm_find_decl(v4_abi_matrix_llvm, "sysv_tick")
+
+pilot v4_abi_matrix_fast_call = v4_codegen_llvm_find_call(v4_abi_matrix_llvm, "drive_direct", "fast_tick")
+pilot v4_abi_matrix_this_call = v4_codegen_llvm_find_call(v4_abi_matrix_llvm, "drive_direct", "this_tick")
+pilot v4_abi_matrix_vector_call = v4_codegen_llvm_find_call(v4_abi_matrix_llvm, "drive_direct", "vector_tick")
+pilot v4_abi_matrix_win64_call = v4_codegen_llvm_find_call(v4_abi_matrix_llvm, "drive_direct", "win64_tick")
+pilot v4_abi_matrix_sysv_call = v4_codegen_llvm_find_call(v4_abi_matrix_llvm, "drive_direct", "sysv_tick")
+
+pilot v4_abi_matrix_cb_fast_call = v4_codegen_llvm_find_call(v4_abi_matrix_llvm, "drive_callbacks", "fc")
+pilot v4_abi_matrix_cb_this_call = v4_codegen_llvm_find_call(v4_abi_matrix_llvm, "drive_callbacks", "tc")
+pilot v4_abi_matrix_cb_vector_call = v4_codegen_llvm_find_call(v4_abi_matrix_llvm, "drive_callbacks", "vc")
+pilot v4_abi_matrix_cb_win64_call = v4_codegen_llvm_find_call(v4_abi_matrix_llvm, "drive_callbacks", "w64")
+pilot v4_abi_matrix_cb_sysv_call = v4_codegen_llvm_find_call(v4_abi_matrix_llvm, "drive_callbacks", "s64")
+
+say "abi-matrix-fast-sig=" + v4_ty_signature_call_abi(v4_abi_matrix_ty, v4_abi_matrix_fast_sig)
+say "abi-matrix-this-sig=" + v4_ty_signature_call_abi(v4_abi_matrix_ty, v4_abi_matrix_this_sig)
+say "abi-matrix-vector-sig=" + v4_ty_signature_call_abi(v4_abi_matrix_ty, v4_abi_matrix_vector_sig)
+say "abi-matrix-win64-sig=" + v4_ty_signature_call_abi(v4_abi_matrix_ty, v4_abi_matrix_win64_sig)
+say "abi-matrix-sysv-sig=" + v4_ty_signature_call_abi(v4_abi_matrix_ty, v4_abi_matrix_sysv_sig)
+
+say "abi-matrix-direct-fast-abi=" + v4_mir_rvalue_abi(v4_abi_matrix_mir, v4_abi_matrix_direct_body, v4_abi_matrix_direct_a)
+say "abi-matrix-direct-this-abi=" + v4_mir_rvalue_abi(v4_abi_matrix_mir, v4_abi_matrix_direct_body, v4_abi_matrix_direct_b)
+say "abi-matrix-direct-vector-abi=" + v4_mir_rvalue_abi(v4_abi_matrix_mir, v4_abi_matrix_direct_body, v4_abi_matrix_direct_c)
+say "abi-matrix-direct-win64-abi=" + v4_mir_rvalue_abi(v4_abi_matrix_mir, v4_abi_matrix_direct_body, v4_abi_matrix_direct_d)
+say "abi-matrix-direct-sysv-abi=" + v4_mir_rvalue_abi(v4_abi_matrix_mir, v4_abi_matrix_direct_body, v4_abi_matrix_direct_e)
+
+say "abi-matrix-callback-fast-abi=" + v4_mir_rvalue_abi(v4_abi_matrix_mir, v4_abi_matrix_callback_body, v4_abi_matrix_callback_fa)
+say "abi-matrix-callback-this-abi=" + v4_mir_rvalue_abi(v4_abi_matrix_mir, v4_abi_matrix_callback_body, v4_abi_matrix_callback_ta)
+say "abi-matrix-callback-vector-abi=" + v4_mir_rvalue_abi(v4_abi_matrix_mir, v4_abi_matrix_callback_body, v4_abi_matrix_callback_va)
+say "abi-matrix-callback-win64-abi=" + v4_mir_rvalue_abi(v4_abi_matrix_mir, v4_abi_matrix_callback_body, v4_abi_matrix_callback_wa)
+say "abi-matrix-callback-sysv-abi=" + v4_mir_rvalue_abi(v4_abi_matrix_mir, v4_abi_matrix_callback_body, v4_abi_matrix_callback_sa)
+
+say "abi-matrix-fast-decl-line=" + v4_codegen_llvm_decl_line(v4_abi_matrix_llvm, v4_abi_matrix_fast_decl)
+say "abi-matrix-this-decl-line=" + v4_codegen_llvm_decl_line(v4_abi_matrix_llvm, v4_abi_matrix_this_decl)
+say "abi-matrix-vector-decl-line=" + v4_codegen_llvm_decl_line(v4_abi_matrix_llvm, v4_abi_matrix_vector_decl)
+say "abi-matrix-win64-decl-line=" + v4_codegen_llvm_decl_line(v4_abi_matrix_llvm, v4_abi_matrix_win64_decl)
+say "abi-matrix-sysv-decl-line=" + v4_codegen_llvm_decl_line(v4_abi_matrix_llvm, v4_abi_matrix_sysv_decl)
+
+say "abi-matrix-fast-call-line=" + v4_codegen_llvm_call_line(v4_abi_matrix_llvm, v4_abi_matrix_fast_call)
+say "abi-matrix-this-call-line=" + v4_codegen_llvm_call_line(v4_abi_matrix_llvm, v4_abi_matrix_this_call)
+say "abi-matrix-vector-call-line=" + v4_codegen_llvm_call_line(v4_abi_matrix_llvm, v4_abi_matrix_vector_call)
+say "abi-matrix-win64-call-line=" + v4_codegen_llvm_call_line(v4_abi_matrix_llvm, v4_abi_matrix_win64_call)
+say "abi-matrix-sysv-call-line=" + v4_codegen_llvm_call_line(v4_abi_matrix_llvm, v4_abi_matrix_sysv_call)
+
+say "abi-matrix-cb-fast-call-line=" + v4_codegen_llvm_call_line(v4_abi_matrix_llvm, v4_abi_matrix_cb_fast_call)
+say "abi-matrix-cb-this-call-line=" + v4_codegen_llvm_call_line(v4_abi_matrix_llvm, v4_abi_matrix_cb_this_call)
+say "abi-matrix-cb-vector-call-line=" + v4_codegen_llvm_call_line(v4_abi_matrix_llvm, v4_abi_matrix_cb_vector_call)
+say "abi-matrix-cb-win64-call-line=" + v4_codegen_llvm_call_line(v4_abi_matrix_llvm, v4_abi_matrix_cb_win64_call)
+say "abi-matrix-cb-sysv-call-line=" + v4_codegen_llvm_call_line(v4_abi_matrix_llvm, v4_abi_matrix_cb_sysv_call)
+
+say "abi-matrix-diag-count=" + word_from_int(v4_mir_diag_count(v4_abi_matrix_mir))

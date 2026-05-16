@@ -82,7 +82,12 @@ diagnostic. Coercion through intermediate `pilot slot: extern [ABI]... = my_hook
 let-bindings still hits a pre-existing V4 phantom-local-IR issue that
 applies to any `pilot x: T = some_symbol`, so that surface is handled by
 a follow-up rather than the FFI lane. The runtime panic-catch inside the
-trampoline body remains later FFI work.
+trampoline body remains later FFI work. Full panic-abort guarantees across
+callback boundaries remain later FFI work.
+The current smoke lane now also proves the full core calling-convention matrix
+(`fastcall`, `thiscall`, `vectorcall`, `win64`, `sysv64`, plus the existing
+`C`/`cdecl`/`stdcall`/`system`) through direct extern calls, indirect callback
+calls, and LLVM declaration/call lowering.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 
