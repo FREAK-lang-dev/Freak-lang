@@ -2086,6 +2086,10 @@ task v4_mir_symbol_value_type(mir_id: int, symbol_name: word) -> word {
         give back v4_ty_unknown
     }
     if symbol_kind == v4_hir_task {
+        pilot callback_ty = v4_ty_task_callback_value_type(ty_id, sig_id)
+        if callback_ty != v4_ty_unknown {
+            give back callback_ty
+        }
         give back v4_ty_signature_function_value_type(ty_id, sig_id)
     }
     give back v4_ty_const_value_type_for_sig(ty_id, sig_id)
