@@ -2944,6 +2944,23 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "extern unwinder imports",
+        "fixture": "extern_unwinder_smoke.fk",
+        "expect": [
+            "extern-unwinder-good-diag-count=0",
+            "extern-unwinder-bad-diag-count=4",
+            "extern-unwinder-bad-diag0-severity=warning",
+            "extern-unwinder-bad-diag0-message=extern import unwinds across the FFI boundary",
+            "extern-unwinder-bad-diag0-help=longjmp can transfer control past FREAK destructors",
+            "extern-unwinder-bad-diag1-severity=warning",
+            "extern-unwinder-bad-diag1-help=setjmp can transfer control past FREAK destructors",
+            "extern-unwinder-bad-diag2-severity=warning",
+            "extern-unwinder-bad-diag2-help=_Unwind_RaiseException can transfer control past FREAK destructors",
+            "extern-unwinder-bad-diag3-severity=warning",
+            "extern-unwinder-bad-diag3-help=__cxa_throw can transfer control past FREAK destructors",
+        ],
+    },
+    {
         "name": "extern link metadata",
         "fixture": "extern_link_smoke.fk",
         "expect": [

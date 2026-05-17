@@ -776,6 +776,40 @@ def audit_conformance(paths: List[Path]) -> int:
     if ec_missing:
         failures.append("V4 @extern_callback surface regressed: " + "; ".join(ec_missing))
 
+    # ── Check 9: V4 stack-unwinder extern-import diagnostic ──
+    # Bible §16.5 promises panics never cross extern boundaries; V4 enforces
+    # the inbound side by warning on known C unwinder primitives declared
+    # in extern blocks. Lock in the validator + smoke fixture + EXECUTABLE_SMOKES
+    # entry so the surface cannot silently regress.
+    v4_ty_lib_unw = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_unwinder_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_unwinder_smoke.fk"
+    v4_check_harness_unw = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    unw_missing: List[str] = []
+    if v4_ty_lib_unw.exists():
+        ty_src = v4_ty_lib_unw.read_text(encoding="utf-8")
+        for needle in (
+            "v4_ty_is_known_unwinder_symbol",
+            "v4_ty_validate_extern_member_unwinder_contract",
+            "v4_ty_add_warning_diag",
+        ):
+            if needle not in ty_src:
+                unw_missing.append(f"freak_ty: {needle}")
+    else:
+        unw_missing.append("freak_ty/src/lib.fk missing")
+    if not v4_unwinder_smoke.exists():
+        unw_missing.append("smoke fixture: extern_unwinder_smoke.fk")
+    if v4_check_harness_unw.exists():
+        harness_src = v4_check_harness_unw.read_text(encoding="utf-8")
+        if "extern_unwinder_smoke.fk" not in harness_src:
+            unw_missing.append("EXECUTABLE_SMOKES: extern_unwinder_smoke entry")
+    add(
+        "V4 unwinder diag",
+        not unw_missing,
+        "TY validator + smoke wired" if not unw_missing else f"{len(unw_missing)} gap(s)",
+    )
+    if unw_missing:
+        failures.append("V4 unwinder-import diagnostic regressed: " + "; ".join(unw_missing))
+
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")
