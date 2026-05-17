@@ -2973,6 +2973,18 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "extern allow_unwinder opt-out",
+        "fixture": "extern_allow_unwinder_smoke.fk",
+        "expect": [
+            "allow-unwinder-member-diag-count=1",
+            "allow-unwinder-member-diag0-severity=warning",
+            "allow-unwinder-member-diag0-help=longjmp can transfer control past FREAK destructors",
+            "allow-unwinder-block-diag-count=0",
+            "allow-unwinder-no-optout-diag-count=3",
+            "allow-unwinder-no-optout-diag0-severity=warning",
+        ],
+    },
+    {
         "name": "extern link metadata",
         "fixture": "extern_link_smoke.fk",
         "expect": [
