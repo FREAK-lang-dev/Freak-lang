@@ -63,7 +63,7 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 12 | `tiny`, `uint`, `char`, `big`, `float32`, fixed `[T; N]` | Type checker knows int/num/word/bool/void only | 🔴 | 📖 V4 (add minimal aliases now) |
 | 13 | Audit commands in native CLI | Python-only; `build/freak.exe` doesn't dispatch | 🟡 | 🛠 wire native CLI |
 | 14 | Error voices (Meiya/Yuuko/Sagiri/Kasumi/Takeru/Mana/Hayase/Sumika/00-Unit) | Mostly generic errors | 🟡 | 📖 V4 |
-| 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 now carries `extern` ABI metadata, `link="..."` / `@link_name("...")` metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage plus pointee-safety diagnostics, `extern [C]/[system] task(...) -> T` callback surfaces, indirect callback calls through MIR/LLVM, `@layout(C)` / `packed` / `transparent` validation plus basic FFI-safety checks, `@extern_callback("ABI")` task export with `nounwind` LLVM trampolines plus bare-reference coercion into FFI callback slots, a warning on known stack-unwinder extern imports (`setjmp`/`longjmp`/`_Unwind_*`/`__cxa_*`/`RaiseException`) with an `@allow_unwinder` member/block opt-out, and the trust-me-free raw-pointer `.is_null()` method lowered to LLVM `icmp eq ptr %p, null`; trust-me-gated raw pointer ops (`*ptr`, `.read()`, `.write()`, `.offset()`, `.cast<U>()`), runtime panic-catch in trampoline bodies, and deeper ABI coverage still expand | 🟡 | 📖 V4 |
+| 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 has landed substantial section-16 work; per-landing breakdown lives in [§16 below](#§16-system-boundaries-ffi). Trust-me-gated raw pointer ops, runtime panic-catch in trampoline bodies, and deeper ABI coverage still expand | 🟡 | 📖 V4 |
 | 16 | Bible-promised stdlib (`std::thread`, `std::anime`, `std::narrative`, `std::test`) | Listed planned, no `.fk` files | 🔴 | 📖 confirm Planned |
 | 17 | `freak vibe`, `freak test` CLI subcommands | Not in native CLI | 🟡 | 📖 OR 🛠 (`freak test` shim possible) |
 | 18 | Test coverage gap (~50% of bible has zero tests) | See Appendix B | 🟡 | Out of scope; surfaced |
@@ -548,7 +548,32 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 ### §16 SYSTEM BOUNDARIES — FFI ([freak-full-bible.md:2198-2390](freak-full-bible.md))
 
-**Section verdict: ⚠️ partial in V4.** `extern` ABI metadata, core `std::ffi` alias normalization, raw-pointer LLVM carriage plus pointee-safety diagnostics, `link="..."` library metadata, `@link_name("...")` symbol overrides, final extern-only `args: ...` variadics with scalar vararg promotion, `extern [C]/[system] task(...) -> T` callback surface validation with specific missing-`extern` / bad-ABI / bad-payload diagnostics, explicit plain-task-to-extern callback boundary diagnostics, indirect callback call lowering, `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation, `@extern_callback("ABI")` task export with `nounwind` LLVM trampolines plus bare-reference coercion into FFI callback slots, a teaching warning on known stack-unwinder extern imports (`setjmp`/`longjmp`/`_Unwind_*`/`__cxa_*`/`RaiseException`) with `@allow_unwinder` member-level and block-level opt-outs, and the trust-me-free raw-pointer `.is_null()` method now exist. The runtime panic-catch inside the trampoline body, trust-me-gated raw pointer ops (`*ptr`, `.read()`, `.write()`, `.offset()`, `.cast<U>()`), and deeper ABI/runtime guarantees are still V4 work.
+**Section verdict: ⚠️ partial in V4.**
+
+**Landed (V4):**
+
+- `extern` ABI metadata + calling conventions
+- core `std::ffi` alias normalization
+- raw-pointer LLVM carriage plus pointee-safety diagnostics
+- `link="..."` library metadata
+- `@link_name("...")` symbol overrides
+- final extern-only `args: ...` variadics with scalar vararg promotion
+- `extern [C]/[system] task(...) -> T` callback surface validation with missing-`extern` / bad-ABI / bad-payload diagnostics
+- explicit plain-task-to-extern callback boundary diagnostics
+- indirect callback call lowering
+- `@layout(C)` / `@layout(C, packed=N)` / `@layout(transparent)` validation
+- `@extern_callback("ABI")` task export with `nounwind` LLVM trampolines plus bare-reference coercion into FFI callback slots at call-arg and return-site positions
+- teaching warning on known stack-unwinder extern imports (`setjmp`/`longjmp`/`_Unwind_*`/`__cxa_*`/`RaiseException`)
+- `@allow_unwinder` member-level and block-level opt-out for the stack-unwinder warning
+- trust-me-free raw-pointer `.is_null()` method lowered to LLVM `icmp eq ptr %p, null`
+
+**Still V4:**
+
+- runtime panic-catch inside the trampoline body
+- trust-me-gated raw pointer ops (`*ptr`, `.read()`, `.write()`, `.offset()`, `.cast<U>()`)
+- `std::os` platform modules
+- error-code translation
+- deeper ABI/runtime guarantees
 
 | Contract | Status | Verdict |
 |---|---|---|
