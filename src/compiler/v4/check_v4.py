@@ -2938,6 +2938,9 @@ EXECUTABLE_SMOKES = [
             "extern-callback-export-coerce-bad-mir-diag-count=2",
             "extern-callback-export-coerce-bad-diag0-message=callback value must use extern ABI",
             "extern-callback-export-coerce-bad-diag1-message=callback value must use extern ABI",
+            "extern-callback-export-return-ty-diag-count=0",
+            "extern-callback-export-return-mir-diag-count=0",
+            "ret ptr @__freak_callback_my_hook",
         ],
     },
     {
