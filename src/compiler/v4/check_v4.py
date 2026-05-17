@@ -2961,6 +2961,18 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "raw pointer is_null",
+        "fixture": "raw_pointer_is_null_smoke.fk",
+        "expect": [
+            "raw-ptr-is-null-good-ty-diag-count=0",
+            "raw-ptr-is-null-good-mir-diag-count=0",
+            "= icmp eq ptr %p, null",
+            "raw-ptr-is-null-bad-mir-diag-count=1",
+            "raw-ptr-is-null-bad-diag0-message=is_null takes no arguments",
+            "raw-ptr-is-null-bad-diag0-help=*constint.is_null() must be called without arguments",
+        ],
+    },
+    {
         "name": "extern link metadata",
         "fixture": "extern_link_smoke.fk",
         "expect": [

@@ -727,6 +727,45 @@ def audit_conformance(paths: List[Path]) -> int:
     if not dem_ok:
         warnings.append("deus_ex_machina 20-word rule not visibly enforced in parser.py")
 
+    # ── Check 7c: V4 raw-pointer .is_null() lowering (regression guard) ──
+    # Bible §16.4 permits .is_null() checks outside trust-me; V4 lowers them
+    # to LLVM icmp eq ptr %p, null. Lock in the MIR opcode + codegen path +
+    # smoke fixture so regressions surface immediately.
+    v4_mir_lib_isn = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_codegen_lib_isn = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
+    v4_isn_smoke = repo / "src" / "compiler" / "v4" / "tests" / "raw_pointer_is_null_smoke.fk"
+    v4_check_harness_isn = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    isn_missing: List[str] = []
+    if v4_mir_lib_isn.exists():
+        mir_src = v4_mir_lib_isn.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_unary_ptr_is_null",
+            "is_null takes no arguments",
+        ):
+            if needle not in mir_src:
+                isn_missing.append(f"freak_mir: {needle}")
+    else:
+        isn_missing.append("freak_mir/src/lib.fk missing")
+    if v4_codegen_lib_isn.exists():
+        cg_src = v4_codegen_lib_isn.read_text(encoding="utf-8")
+        if "icmp eq ptr" not in cg_src:
+            isn_missing.append("freak_codegen_llvm: icmp eq ptr lowering")
+    else:
+        isn_missing.append("freak_codegen_llvm/src/lib.fk missing")
+    if not v4_isn_smoke.exists():
+        isn_missing.append("smoke fixture: raw_pointer_is_null_smoke.fk")
+    if v4_check_harness_isn.exists():
+        harness_src = v4_check_harness_isn.read_text(encoding="utf-8")
+        if "raw_pointer_is_null_smoke.fk" not in harness_src:
+            isn_missing.append("EXECUTABLE_SMOKES: raw_pointer_is_null_smoke entry")
+    add(
+        "V4 raw-ptr is_null",
+        not isn_missing,
+        "MIR opcode + LLVM lowering + smoke wired" if not isn_missing else f"{len(isn_missing)} gap(s)",
+    )
+    if isn_missing:
+        failures.append("V4 raw-pointer is_null lowering regressed: " + "; ".join(isn_missing))
+
     # ── Check 8: V4 @extern_callback FFI surface (regression guard) ──
     # Once a 🔜 V4 row promotes to ⚠️/✅ in bible §0.2, audit_conformance
     # grows a check so the contract cannot silently regress. The
