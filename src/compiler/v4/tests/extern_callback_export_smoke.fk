@@ -163,3 +163,29 @@ say "extern-callback-export-coerce-bad-diag0-message=" + v4_diag_message(v4_mir_
 say "extern-callback-export-coerce-bad-diag0-help=" + v4_diag_help(v4_mir_diag(v4_extern_callback_export_coerce_bad_mir, 0))
 say "extern-callback-export-coerce-bad-diag1-message=" + v4_diag_message(v4_mir_diag(v4_extern_callback_export_coerce_bad_mir, 1))
 say "extern-callback-export-coerce-bad-diag1-help=" + v4_diag_help(v4_mir_diag(v4_extern_callback_export_coerce_bad_mir, 1))
+
+task v4_extern_callback_export_return_source() -> word {
+    pilot src = "@extern_callback(\"C\")\n"
+    src = src + "task my_hook(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    give back seed\n"
+    src = src + "}\n"
+    src = src + "task expose() -> extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    give back my_hook\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_extern_callback_export_return_text = v4_extern_callback_export_return_source()
+pilot v4_extern_callback_export_return_stream = v4_lex_text(4, v4_extern_callback_export_return_text)
+pilot v4_extern_callback_export_return_tree = v4_parse_stream(4, v4_extern_callback_export_return_stream)
+pilot v4_extern_callback_export_return_hir = v4_hir_lower_tree(4, v4_extern_callback_export_return_tree)
+pilot v4_extern_callback_export_return_resolve = v4_resolve_lower_hir(4, v4_extern_callback_export_return_hir)
+pilot v4_extern_callback_export_return_ty = v4_ty_lower_resolve(4, v4_extern_callback_export_return_resolve)
+pilot v4_extern_callback_export_return_mir = v4_mir_lower_ty(4, v4_extern_callback_export_return_ty)
+pilot v4_extern_callback_export_return_llvm = v4_codegen_llvm_lower_mir(4, v4_extern_callback_export_return_mir)
+
+pilot v4_extern_callback_export_return_expose_body = v4_codegen_llvm_find_body(v4_extern_callback_export_return_llvm, "expose")
+
+say "extern-callback-export-return-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_extern_callback_export_return_ty))
+say "extern-callback-export-return-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_extern_callback_export_return_mir))
+say "extern-callback-export-return-expose-body=" + v4_codegen_llvm_body_line(v4_extern_callback_export_return_llvm, v4_extern_callback_export_return_expose_body)

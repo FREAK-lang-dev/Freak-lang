@@ -72,11 +72,17 @@ parameters/return, rejects variadics, and diagnoses missing/extra/invalid ABI
 arguments, while codegen emits a `nounwind` LLVM trampoline
 (`@__freak_callback_<task>`) that tail-calls the FREAK body. Bare references
 to those tasks now type as the matching `extern [ABI] task(...) -> T`
-function pointer, so they coerce into FFI callback slots end-to-end and
-codegen rewrites the call-site symbol to the trampoline. ABI/signature
-mismatches between the FREAK task and the callback slot still trip the
-boundary-bridge `callback value must use extern ABI` diagnostic. The
-runtime panic-catch inside the trampoline body remains later FFI work.
+function pointer, so they coerce into FFI callback slots at both call-arg
+and return-site positions, and codegen rewrites the use-symbol to the
+trampoline (so a `give back my_hook` from a function returning
+`extern [C] task(...) -> T` emits `ret ptr @__freak_callback_my_hook`).
+ABI/signature mismatches between the FREAK task and the callback slot
+still trip the boundary-bridge `callback value must use extern ABI`
+diagnostic. Coercion through intermediate `pilot slot: extern [ABI]... = my_hook`
+let-bindings still hits a pre-existing V4 phantom-local-IR issue that
+applies to any `pilot x: T = some_symbol`, so that surface is handled by
+a follow-up rather than the FFI lane. The runtime panic-catch inside the
+trampoline body remains later FFI work.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 
