@@ -913,6 +913,9 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
         if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_not {
             give back target + " = xor i1 " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ", true"
         }
+        if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_ptr_is_null {
+            give back target + " = icmp eq ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ", null"
+        }
         if operand_ty == "double" or operand_ty == "float" {
             give back target + " = fsub " + operand_ty + " 0.0, " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand)
         }

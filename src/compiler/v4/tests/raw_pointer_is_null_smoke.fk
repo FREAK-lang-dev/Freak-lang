@@ -1,0 +1,56 @@
+-- V4 raw-pointer .is_null() smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_raw_ptr_is_null_good_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task lookup() -> *const std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task probe() -> bool {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    give back p.is_null()\n"
+    src = src + "}\n"
+    src = src + "task probe_mut(p: *mut std::ffi::c_int) -> bool {\n"
+    src = src + "    give back p.is_null()\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_raw_ptr_is_null_bad_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task lookup() -> *const std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task probe_bad() -> bool {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    give back p.is_null(0)\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_raw_ptr_is_null_good_text = v4_raw_ptr_is_null_good_source()
+pilot v4_raw_ptr_is_null_good_stream = v4_lex_text(0, v4_raw_ptr_is_null_good_text)
+pilot v4_raw_ptr_is_null_good_tree = v4_parse_stream(0, v4_raw_ptr_is_null_good_stream)
+pilot v4_raw_ptr_is_null_good_hir = v4_hir_lower_tree(0, v4_raw_ptr_is_null_good_tree)
+pilot v4_raw_ptr_is_null_good_resolve = v4_resolve_lower_hir(0, v4_raw_ptr_is_null_good_hir)
+pilot v4_raw_ptr_is_null_good_ty = v4_ty_lower_resolve(0, v4_raw_ptr_is_null_good_resolve)
+pilot v4_raw_ptr_is_null_good_mir = v4_mir_lower_ty(0, v4_raw_ptr_is_null_good_ty)
+pilot v4_raw_ptr_is_null_good_llvm = v4_codegen_llvm_lower_mir(0, v4_raw_ptr_is_null_good_mir)
+
+pilot v4_raw_ptr_is_null_probe_body_idx = v4_codegen_llvm_find_body(v4_raw_ptr_is_null_good_llvm, "probe")
+pilot v4_raw_ptr_is_null_probe_mut_body_idx = v4_codegen_llvm_find_body(v4_raw_ptr_is_null_good_llvm, "probe_mut")
+
+say "raw-ptr-is-null-good-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_raw_ptr_is_null_good_ty))
+say "raw-ptr-is-null-good-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_is_null_good_mir))
+say "raw-ptr-is-null-probe-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_is_null_good_llvm, v4_raw_ptr_is_null_probe_body_idx)
+say "raw-ptr-is-null-probe-mut-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_is_null_good_llvm, v4_raw_ptr_is_null_probe_mut_body_idx)
+
+pilot v4_raw_ptr_is_null_bad_text = v4_raw_ptr_is_null_bad_source()
+pilot v4_raw_ptr_is_null_bad_stream = v4_lex_text(1, v4_raw_ptr_is_null_bad_text)
+pilot v4_raw_ptr_is_null_bad_tree = v4_parse_stream(1, v4_raw_ptr_is_null_bad_stream)
+pilot v4_raw_ptr_is_null_bad_hir = v4_hir_lower_tree(1, v4_raw_ptr_is_null_bad_tree)
+pilot v4_raw_ptr_is_null_bad_resolve = v4_resolve_lower_hir(1, v4_raw_ptr_is_null_bad_hir)
+pilot v4_raw_ptr_is_null_bad_ty = v4_ty_lower_resolve(1, v4_raw_ptr_is_null_bad_resolve)
+pilot v4_raw_ptr_is_null_bad_mir = v4_mir_lower_ty(1, v4_raw_ptr_is_null_bad_ty)
+
+say "raw-ptr-is-null-bad-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_is_null_bad_mir))
+say "raw-ptr-is-null-bad-diag0-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_is_null_bad_mir, 0))
+say "raw-ptr-is-null-bad-diag0-help=" + v4_diag_help(v4_mir_diag(v4_raw_ptr_is_null_bad_mir, 0))

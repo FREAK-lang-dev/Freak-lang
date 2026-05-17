@@ -52,6 +52,7 @@ pilot v4_mir_rvalue_unknown = "Unknown"
 
 pilot v4_mir_unary_neg = "Neg"
 pilot v4_mir_unary_not = "Not"
+pilot v4_mir_unary_ptr_is_null = "PtrIsNull"
 
 pilot v4_mir_bin_add = "Add"
 pilot v4_mir_bin_sub = "Sub"
@@ -3322,6 +3323,16 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     pilot receiver_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first, dot_token)
     pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
     pilot method_name = v4_lex_token_value(stream_id, method_token)
+    if v4_ty_is_raw_pointer_type(receiver_ty) and method_name == "is_null" {
+        pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+        pilot args_token = v4_mir_skip_trivia(stream_id, open_token + 1)
+        if args_token < last {
+            if v4_lex_token_value(stream_id, args_token) != ")" {
+                v4_mir_add_type_error(mir_id, expr_span, "is_null takes no arguments", receiver_ty + ".is_null() must be called without arguments")
+            }
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_is_null, receiver_rvalue, 0 - 1, expr_span, v4_ty_bool)
+    }
     pilot field_callback_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir_id), receiver_ty, method_name))
     if v4_ty_is_surface_extern_function_pointer_type(field_callback_ty) {
         pilot field_place = v4_mir_lower_place(mir_id, body_id, stream_id, first, open_token)
