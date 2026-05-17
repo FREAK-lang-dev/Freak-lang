@@ -178,6 +178,14 @@ task v4_ty_add_error_diag(ty_id: int, span: word, message: word, help: word) -> 
     v4_ty_add_diag(ty_id, v4_diag_new(v4_diag_error, diag_span, message, help))
 }
 
+task v4_ty_add_warning_diag(ty_id: int, span: word, message: word, help: word) -> void {
+    pilot diag_span = span
+    if diag_span == "" {
+        diag_span = V4_NO_SPAN
+    }
+    v4_ty_add_diag(ty_id, v4_diag_new(v4_diag_warning, diag_span, message, help))
+}
+
 task v4_ty_copy_resolve_diags(ty_id: int, resolve_id: int) -> void {
     pilot diag_idx = 0
     pilot diag_count = v4_resolve_diag_count(resolve_id)
@@ -7085,6 +7093,54 @@ task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void 
     }
 }
 
+task v4_ty_is_known_unwinder_symbol(name: word) -> bool {
+    -- C non-local-jump primitives. Calling these from FREAK can transfer
+    -- control past FREAK destructors and the panic-boundary contract that
+    -- @extern_callback trampolines enforce. The bible (section 16) promises
+    -- panics never cross the FFI boundary; longjmp-style unwinds violate
+    -- that promise from the foreign side.
+    if name == "setjmp" or name == "_setjmp" or name == "sigsetjmp" or name == "__sigsetjmp" {
+        give back true
+    }
+    if name == "longjmp" or name == "_longjmp" or name == "siglongjmp" {
+        give back true
+    }
+    -- Itanium C++ ABI exception primitives.
+    if name == "_Unwind_RaiseException" or name == "_Unwind_Resume" or name == "_Unwind_ForcedUnwind" {
+        give back true
+    }
+    if name == "__cxa_throw" or name == "__cxa_rethrow" or name == "__cxa_begin_catch" or name == "__cxa_end_catch" {
+        give back true
+    }
+    -- Windows Structured Exception Handling primitive.
+    if name == "RaiseException" {
+        give back true
+    }
+    give back false
+}
+
+task v4_ty_unwinder_help(name: word) -> word {
+    pilot tail = " can transfer control past FREAK destructors and the @extern_callback panic-boundary contract; wrap it in a C shim that converts the non-local jump into an integer error code, or expose only a result<T, E>-returning safe wrapper."
+    give back name + tail
+}
+
+task v4_ty_validate_extern_member_unwinder_contract(ty_id: int, sig_id: int) -> void {
+    if v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 {
+        give back
+    }
+    pilot member_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot link_name = v4_ty_extern_member_link_name(ty_id, v4_ty_signature_extern_block_sig(ty_id, sig_id), v4_ty_signature_extern_member_id(ty_id, sig_id))
+    pilot effective_name = link_name
+    if effective_name == "" {
+        effective_name = member_name
+    }
+    if v4_ty_is_known_unwinder_symbol(effective_name) == false {
+        give back
+    }
+    pilot span = v4_hir_item_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
+    v4_ty_add_warning_diag(ty_id, span, "extern import unwinds across the FFI boundary", v4_ty_unwinder_help(effective_name))
+}
+
 task v4_ty_validate_extern_ffi_contracts(ty_id: int) -> void {
     pilot sig_id = 0
     pilot sig_count = v4_ty_signature_count(ty_id)
@@ -7094,6 +7150,7 @@ task v4_ty_validate_extern_ffi_contracts(ty_id: int) -> void {
         }
         v4_ty_validate_extern_member_link_name_contract(ty_id, sig_id)
         v4_ty_validate_extern_member_ffi_contract(ty_id, sig_id)
+        v4_ty_validate_extern_member_unwinder_contract(ty_id, sig_id)
         sig_id += 1
     }
 }
