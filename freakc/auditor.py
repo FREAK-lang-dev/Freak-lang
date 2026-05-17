@@ -727,6 +727,55 @@ def audit_conformance(paths: List[Path]) -> int:
     if not dem_ok:
         warnings.append("deus_ex_machina 20-word rule not visibly enforced in parser.py")
 
+    # ── Check 8: V4 @extern_callback FFI surface (regression guard) ──
+    # Once a 🔜 V4 row promotes to ⚠️/✅ in bible §0.2, audit_conformance
+    # grows a check so the contract cannot silently regress. The
+    # @extern_callback("ABI") inbound callback surface landed in V4 with
+    # validators in freak_ty, LLVM trampolines in freak_codegen_llvm, a
+    # smoke fixture, and an EXECUTABLE_SMOKES entry.
+    v4_ty_lib = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_codegen_lib = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
+    v4_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_callback_export_smoke.fk"
+    v4_check_harness = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    ec_missing: List[str] = []
+    if v4_ty_lib.exists():
+        ty_src = v4_ty_lib.read_text(encoding="utf-8")
+        for needle in (
+            "v4_ty_signature_has_extern_callback",
+            "v4_ty_extern_callback_trampoline_name",
+            "v4_ty_task_callback_value_type",
+        ):
+            if needle not in ty_src:
+                ec_missing.append(f"freak_ty: {needle}")
+    else:
+        ec_missing.append("freak_ty/src/lib.fk missing")
+    if v4_codegen_lib.exists():
+        cg_src = v4_codegen_lib.read_text(encoding="utf-8")
+        for needle in (
+            "v4_codegen_llvm_callback_trampoline_name",
+            "v4_codegen_llvm_lower_callback_trampolines",
+            "v4_codegen_llvm_use_symbol_value",
+        ):
+            if needle not in cg_src:
+                ec_missing.append(f"freak_codegen_llvm: {needle}")
+    else:
+        ec_missing.append("freak_codegen_llvm/src/lib.fk missing")
+    if not v4_smoke.exists():
+        ec_missing.append("smoke fixture: extern_callback_export_smoke.fk")
+    if v4_check_harness.exists():
+        harness_src = v4_check_harness.read_text(encoding="utf-8")
+        if "extern_callback_export_smoke.fk" not in harness_src:
+            ec_missing.append("EXECUTABLE_SMOKES: extern_callback_export_smoke entry")
+    else:
+        ec_missing.append("check_v4.py harness missing")
+    add(
+        "V4 @extern_callback",
+        not ec_missing,
+        "TY validators, LLVM trampoline, smoke wired" if not ec_missing else f"{len(ec_missing)} gap(s)",
+    )
+    if ec_missing:
+        failures.append("V4 @extern_callback surface regressed: " + "; ".join(ec_missing))
+
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")

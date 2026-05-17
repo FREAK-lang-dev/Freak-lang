@@ -59,7 +59,7 @@ Pipeline (full compiler):
 | §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`. V4: `freak vibe`, `freak test`, `--voice=…`, `--clearance=…`, `--build-mode=…`, `-o output_path`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
 | §15 Cheatsheet | ⚠️ Partial | Reflects §1-§14 status. |
-| §16 FFI | ⚠️ Partial | V4 carries `extern` calling-convention metadata, `link="..."` library metadata, `@link_name("...")` symbol overrides, core `std::ffi` alias normalization, raw-pointer LLVM carriage plus pointee-safety diagnostics, `extern [C]/[system] task(...) -> T` callback surface validation with specific missing-`extern` / bad-ABI / bad-payload diagnostics, explicit plain-task-to-extern callback boundary diagnostics, indirect callback call lowering, final extern-only `args: ...` variadics with scalar vararg promotion, and `@layout(C)`, `@layout(C, packed=N)`, and `@layout(transparent)` query-validation support. Raw pointer ops, panic-boundary callback guarantees, `std::os` platform modules, error-code translation, and deeper FFI/runtime guarantees remain V4 work. |
+| §16 FFI | ⚠️ Partial | V4 carries `extern` calling-convention metadata, `link="..."` library metadata, `@link_name("...")` symbol overrides, core `std::ffi` alias normalization, raw-pointer LLVM carriage plus pointee-safety diagnostics, `extern [C]/[system] task(...) -> T` callback surface validation with specific missing-`extern` / bad-ABI / bad-payload diagnostics, explicit plain-task-to-extern callback boundary diagnostics, indirect callback call lowering, final extern-only `args: ...` variadics with scalar vararg promotion, `@layout(C)`, `@layout(C, packed=N)`, and `@layout(transparent)` query-validation support, and `@extern_callback("C")`/`@extern_callback("system")` task export with `nounwind` LLVM trampolines (`@__freak_callback_<task>`) plus bare-reference coercion into `extern [ABI] task(...) -> T` slots at call-arg and return-site positions. The runtime panic-catch inside the trampoline body, raw pointer ops, `std::os` platform modules, error-code translation, and deeper FFI/runtime guarantees remain V4 work. |
 | §17 Compiler Internals + IDE | 🔜 V4 | Panic infrastructure, tolerant parsing, AST node IDs, incremental parsing, autocomplete, IDE-mode error reporting are V4. V4 TY now diagnoses alias-cycle loops; the broader 00-Unit IDE/compiler-internals surface remains in progress. |
 
 ### 0.3 V4 roadmap and conformance
@@ -2635,6 +2635,30 @@ Rules:
 - Public cross-platform libraries should hide OS handles behind `@layout(transparent)` newtypes or safe shapes.
 - OS callbacks must use an extern function type:
   `extern [system] task(hwnd: Hwnd, msg: c_uint, w: std::ffi::usize, l: std::ffi::isize) -> std::ffi::isize`.
+- A FREAK task may be exposed as an FFI callback by annotating it
+  `@extern_callback("C")` or `@extern_callback("system")` (or any supported
+  calling convention). The compiler synthesizes a panic-abort trampoline that
+  takes the foreign ABI, tail-calls the FREAK body, and is the symbol
+  delivered when a bare reference to the task is passed into a matching
+  `extern [ABI] task(...) -> T` slot. The annotated task's parameter and
+  return types must already be FFI-safe; the compiler rejects the annotation
+  with the same diagnostics it raises for extern signatures.
+
+  ```
+  @extern_callback("C")
+  task on_tick(seed: std::ffi::c_int) -> std::ffi::c_int {
+      give back seed + 1
+  }
+
+  extern [C] {
+      task install(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int
+  }
+
+  task wire() -> std::ffi::c_int {
+      give back install(on_tick)   -- on_tick coerces to extern [C] task(...)
+  }
+  ```
+
 - A callback must catch FREAK panics before returning to the OS. If a panic reaches a foreign callback boundary, the process aborts.
 - OS handles are resources. Wrap them in shapes with explicit `drop` behavior or standard-library RAII wrappers.
 
