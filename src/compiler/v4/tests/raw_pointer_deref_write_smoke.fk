@@ -1,0 +1,102 @@
+-- V4 raw-pointer deref write (*ptr = v) smoke fixture.
+-- Verification prepends the V4 crates before this file.
+-- Bible section 16.4: *ptr = value writes the pointee. It requires
+-- *mut T (not *const T or *T), AND must appear inside a trust me block.
+
+task v4_raw_ptr_write_good_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task lookup_mut() -> *mut std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task stash(value: std::ffi::c_int) -> void {\n"
+    src = src + "    pilot p = lookup_mut()\n"
+    src = src + "    trust me \"persist value\" on my honor as .pilot {\n"
+    src = src + "        *p = value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_raw_ptr_write_outside_trust_source() -> word {
+    -- Write outside trust me should diagnose.
+    pilot src = "extern [C] {\n"
+    src = src + "    task lookup_mut() -> *mut std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task stash_bad(value: std::ffi::c_int) -> void {\n"
+    src = src + "    pilot p = lookup_mut()\n"
+    src = src + "    *p = value\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_raw_ptr_write_const_source() -> word {
+    -- Write through *const T should diagnose mutability.
+    pilot src = "extern [C] {\n"
+    src = src + "    task lookup_const() -> *const std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task stash_const(value: std::ffi::c_int) -> void {\n"
+    src = src + "    pilot p = lookup_const()\n"
+    src = src + "    trust me \"misuse\" on my honor as .pilot {\n"
+    src = src + "        *p = value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_raw_ptr_write_wrong_type_source() -> word {
+    -- Write to non-pointer should diagnose.
+    pilot src = "task stash_wrong(value: int) -> void {\n"
+    src = src + "    pilot x = 5\n"
+    src = src + "    trust me \"misuse\" on my honor as .pilot {\n"
+    src = src + "        *x = value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_raw_ptr_write_good_text = v4_raw_ptr_write_good_source()
+pilot v4_raw_ptr_write_good_stream = v4_lex_text(0, v4_raw_ptr_write_good_text)
+pilot v4_raw_ptr_write_good_tree = v4_parse_stream(0, v4_raw_ptr_write_good_stream)
+pilot v4_raw_ptr_write_good_hir = v4_hir_lower_tree(0, v4_raw_ptr_write_good_tree)
+pilot v4_raw_ptr_write_good_resolve = v4_resolve_lower_hir(0, v4_raw_ptr_write_good_hir)
+pilot v4_raw_ptr_write_good_ty = v4_ty_lower_resolve(0, v4_raw_ptr_write_good_resolve)
+pilot v4_raw_ptr_write_good_mir = v4_mir_lower_ty(0, v4_raw_ptr_write_good_ty)
+pilot v4_raw_ptr_write_good_llvm = v4_codegen_llvm_lower_mir(0, v4_raw_ptr_write_good_mir)
+
+pilot v4_raw_ptr_write_stash_body = v4_codegen_llvm_find_body(v4_raw_ptr_write_good_llvm, "stash")
+
+say "raw-ptr-write-good-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_raw_ptr_write_good_ty))
+say "raw-ptr-write-good-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_write_good_mir))
+say "raw-ptr-write-stash-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_write_good_llvm, v4_raw_ptr_write_stash_body)
+
+pilot v4_raw_ptr_write_outside_text = v4_raw_ptr_write_outside_trust_source()
+pilot v4_raw_ptr_write_outside_stream = v4_lex_text(1, v4_raw_ptr_write_outside_text)
+pilot v4_raw_ptr_write_outside_tree = v4_parse_stream(1, v4_raw_ptr_write_outside_stream)
+pilot v4_raw_ptr_write_outside_hir = v4_hir_lower_tree(1, v4_raw_ptr_write_outside_tree)
+pilot v4_raw_ptr_write_outside_resolve = v4_resolve_lower_hir(1, v4_raw_ptr_write_outside_hir)
+pilot v4_raw_ptr_write_outside_ty = v4_ty_lower_resolve(1, v4_raw_ptr_write_outside_resolve)
+pilot v4_raw_ptr_write_outside_mir = v4_mir_lower_ty(1, v4_raw_ptr_write_outside_ty)
+
+say "raw-ptr-write-outside-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_write_outside_mir))
+say "raw-ptr-write-outside-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_write_outside_mir, 0))
+
+pilot v4_raw_ptr_write_const_text = v4_raw_ptr_write_const_source()
+pilot v4_raw_ptr_write_const_stream = v4_lex_text(2, v4_raw_ptr_write_const_text)
+pilot v4_raw_ptr_write_const_tree = v4_parse_stream(2, v4_raw_ptr_write_const_stream)
+pilot v4_raw_ptr_write_const_hir = v4_hir_lower_tree(2, v4_raw_ptr_write_const_tree)
+pilot v4_raw_ptr_write_const_resolve = v4_resolve_lower_hir(2, v4_raw_ptr_write_const_hir)
+pilot v4_raw_ptr_write_const_ty = v4_ty_lower_resolve(2, v4_raw_ptr_write_const_resolve)
+pilot v4_raw_ptr_write_const_mir = v4_mir_lower_ty(2, v4_raw_ptr_write_const_ty)
+
+say "raw-ptr-write-const-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_write_const_mir))
+say "raw-ptr-write-const-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_write_const_mir, 0))
+
+pilot v4_raw_ptr_write_wrong_text = v4_raw_ptr_write_wrong_type_source()
+pilot v4_raw_ptr_write_wrong_stream = v4_lex_text(3, v4_raw_ptr_write_wrong_text)
+pilot v4_raw_ptr_write_wrong_tree = v4_parse_stream(3, v4_raw_ptr_write_wrong_stream)
+pilot v4_raw_ptr_write_wrong_hir = v4_hir_lower_tree(3, v4_raw_ptr_write_wrong_tree)
+pilot v4_raw_ptr_write_wrong_resolve = v4_resolve_lower_hir(3, v4_raw_ptr_write_wrong_hir)
+pilot v4_raw_ptr_write_wrong_ty = v4_ty_lower_resolve(3, v4_raw_ptr_write_wrong_resolve)
+pilot v4_raw_ptr_write_wrong_mir = v4_mir_lower_ty(3, v4_raw_ptr_write_wrong_ty)
+
+say "raw-ptr-write-wrong-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_write_wrong_mir))
+say "raw-ptr-write-wrong-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_write_wrong_mir, 0))

@@ -1118,6 +1118,18 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
     if kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign {
         pilot target_name = v4_mir_stmt_lhs(mir_id, body_id, stmt_id)
         pilot target = "%" + v4_codegen_llvm_mangle_name(target_name)
+        if kind == v4_mir_stmt_assign {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            if place_id >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_deref {
+                pilot ptr_rvalue = v4_mir_place_index(mir_id, body_id, place_id)
+                pilot pointee_ty = v4_codegen_llvm_type(v4_mir_place_ty(mir_id, body_id, place_id))
+                pilot value_lines = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
+                pilot ptr_lines = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, ptr_rvalue, v4_codegen_llvm_temp_value(body_id, ptr_rvalue))
+                pilot value_text = v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id)
+                pilot ptr_text = v4_codegen_llvm_rvalue_value(mir_id, body_id, ptr_rvalue)
+                give back value_lines + ptr_lines + "  store " + pointee_ty + " " + value_text + ", ptr " + ptr_text + "\n"
+            }
+        }
         if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rvalue_id) {
             give back v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, target)
         }
