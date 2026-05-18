@@ -758,6 +758,8 @@ def audit_conformance(paths: List[Path]) -> int:
         harness_src = v4_check_harness_isn.read_text(encoding="utf-8")
         if "raw_pointer_is_null_smoke.fk" not in harness_src:
             isn_missing.append("EXECUTABLE_SMOKES: raw_pointer_is_null_smoke entry")
+    else:
+        isn_missing.append("check_v4.py harness missing")
     add(
         "V4 raw-ptr is_null",
         not isn_missing,
@@ -792,6 +794,8 @@ def audit_conformance(paths: List[Path]) -> int:
         harness_src = v4_check_harness_tm.read_text(encoding="utf-8")
         if "trust_me_block_smoke.fk" not in harness_src:
             tm_missing.append("EXECUTABLE_SMOKES: trust_me_block_smoke entry")
+    else:
+        tm_missing.append("check_v4.py harness missing")
     add(
         "V4 trust me block",
         not tm_missing,
@@ -899,6 +903,8 @@ def audit_conformance(paths: List[Path]) -> int:
             unw_missing.append("EXECUTABLE_SMOKES: extern_allow_unwinder_smoke entry")
         if "extern_unwinder_call_site_smoke.fk" not in harness_src:
             unw_missing.append("EXECUTABLE_SMOKES: extern_unwinder_call_site_smoke entry")
+    else:
+        unw_missing.append("check_v4.py harness missing")
     add(
         "V4 unwinder diag",
         not unw_missing,
