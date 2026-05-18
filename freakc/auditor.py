@@ -774,7 +774,9 @@ def audit_conformance(paths: List[Path]) -> int:
     # integration. Lock in the MIR lowering + smoke fixture so the parse
     # surface cannot silently regress.
     v4_mir_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_codegen_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
     v4_trust_me_smoke = repo / "src" / "compiler" / "v4" / "tests" / "trust_me_block_smoke.fk"
+    v4_deref_smoke = repo / "src" / "compiler" / "v4" / "tests" / "raw_pointer_deref_smoke.fk"
     v4_check_harness_tm = repo / "src" / "compiler" / "v4" / "check_v4.py"
     tm_missing: List[str] = []
     if v4_mir_lib_tm.exists():
@@ -783,23 +785,37 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_mir_lower_trust_me_stmt",
             "trust me block needs me keyword",
             "trust me block needs body",
+            "v4_mir_push_trust_me",
+            "v4_mir_inside_trust_me",
+            "v4_mir_unary_deref",
+            "raw-pointer deref needs trust me block",
         ):
             if needle not in mir_src:
                 tm_missing.append(f"freak_mir: {needle}")
     else:
         tm_missing.append("freak_mir/src/lib.fk missing")
+    if v4_codegen_lib_tm.exists():
+        cg_src = v4_codegen_lib_tm.read_text(encoding="utf-8")
+        if "v4_mir_unary_deref" not in cg_src:
+            tm_missing.append("freak_codegen_llvm: deref load lowering")
+    else:
+        tm_missing.append("freak_codegen_llvm/src/lib.fk missing")
     if not v4_trust_me_smoke.exists():
         tm_missing.append("smoke fixture: trust_me_block_smoke.fk")
+    if not v4_deref_smoke.exists():
+        tm_missing.append("smoke fixture: raw_pointer_deref_smoke.fk")
     if v4_check_harness_tm.exists():
         harness_src = v4_check_harness_tm.read_text(encoding="utf-8")
         if "trust_me_block_smoke.fk" not in harness_src:
             tm_missing.append("EXECUTABLE_SMOKES: trust_me_block_smoke entry")
+        if "raw_pointer_deref_smoke.fk" not in harness_src:
+            tm_missing.append("EXECUTABLE_SMOKES: raw_pointer_deref_smoke entry")
     else:
         tm_missing.append("check_v4.py harness missing")
     add(
         "V4 trust me block",
         not tm_missing,
-        "MIR lowering + smoke wired" if not tm_missing else f"{len(tm_missing)} gap(s)",
+        "parse + deref gating + smokes wired" if not tm_missing else f"{len(tm_missing)} gap(s)",
     )
     if tm_missing:
         failures.append("V4 trust me block parsing regressed: " + "; ".join(tm_missing))

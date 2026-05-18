@@ -1281,6 +1281,9 @@ task v4_ty_unary_valid(op: word, operand_ty: word) -> bool {
     if op == "Not" {
         give back operand_ty == v4_ty_bool
     }
+    if op == "Deref" {
+        give back v4_ty_is_raw_pointer_type(operand_ty)
+    }
     give back true
 }
 
@@ -1296,6 +1299,11 @@ task v4_ty_unary_result(op: word, operand_ty: word) -> word {
     if op == "Not" {
         if operand_ty == v4_ty_bool {
             give back v4_ty_bool
+        }
+    }
+    if op == "Deref" {
+        if v4_ty_is_raw_pointer_type(operand_ty) {
+            give back v4_ty_raw_pointer_target_type(operand_ty)
         }
     }
     give back v4_ty_unknown

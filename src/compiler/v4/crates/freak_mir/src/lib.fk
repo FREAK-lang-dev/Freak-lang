@@ -53,6 +53,7 @@ pilot v4_mir_rvalue_unknown = "Unknown"
 pilot v4_mir_unary_neg = "Neg"
 pilot v4_mir_unary_not = "Not"
 pilot v4_mir_unary_ptr_is_null = "PtrIsNull"
+pilot v4_mir_unary_deref = "Deref"
 
 pilot v4_mir_bin_add = "Add"
 pilot v4_mir_bin_sub = "Sub"
@@ -114,6 +115,7 @@ pilot v4_mir_loop_continue_targets = 0
 pilot v4_mir_loop_depth = 0
 pilot v4_mir_scope_spans = 0
 pilot v4_mir_scope_depth = 0
+pilot v4_mir_trust_me_depth = 0
 pilot v4_mir_ready = 0
 
 task v4_mir_init() -> void {
@@ -157,6 +159,7 @@ task v4_mir_init() -> void {
         v4_mir_loop_depth = 0
         v4_mir_scope_spans = array_new()
         v4_mir_scope_depth = 0
+        v4_mir_trust_me_depth = 0
         v4_mir_ready = 1
     }
 }
@@ -170,6 +173,21 @@ task v4_mir_clear_loop_context() -> void {
 task v4_mir_clear_scope_context() -> void {
     v4_mir_scope_spans = array_new()
     v4_mir_scope_depth = 0
+    v4_mir_trust_me_depth = 0
+}
+
+task v4_mir_push_trust_me() -> void {
+    v4_mir_trust_me_depth += 1
+}
+
+task v4_mir_pop_trust_me() -> void {
+    if v4_mir_trust_me_depth > 0 {
+        v4_mir_trust_me_depth -= 1
+    }
+}
+
+task v4_mir_inside_trust_me() -> bool {
+    give back v4_mir_trust_me_depth > 0
 }
 
 task v4_mir_push_scope_span(span: word) -> void {
@@ -1766,6 +1784,7 @@ task v4_mir_operator_kind(op: word) -> word {
 task v4_mir_unary_op_kind(op: word) -> word {
     if op == "-" { give back v4_mir_unary_neg }
     if op == "not" or op == "!" { give back v4_mir_unary_not }
+    if op == "*" { give back v4_mir_unary_deref }
     give back ""
 }
 
@@ -1795,6 +1814,16 @@ task v4_mir_check_binary_types(mir_id: int, expr_span: word, op_kind: word, left
 }
 
 task v4_mir_check_unary_type(mir_id: int, expr_span: word, op_kind: word, operand_ty: word) -> void {
+    if op_kind == v4_mir_unary_deref {
+        if v4_ty_is_known(operand_ty) and v4_ty_is_raw_pointer_type(operand_ty) == false {
+            v4_mir_add_type_error(mir_id, expr_span, "raw-pointer deref needs *T or *mut T", "got " + operand_ty + "; only raw pointers can be dereferenced with *")
+            give back
+        }
+        if v4_mir_inside_trust_me() == false {
+            v4_mir_add_type_error(mir_id, expr_span, "raw-pointer deref needs trust me block", "wrap the deref in a trust me block; bible section 16.4 forbids dereferencing raw pointers outside trust me")
+        }
+        give back
+    }
     if v4_ty_unary_valid(op_kind, operand_ty) {
         give back
     }
@@ -3021,6 +3050,7 @@ task v4_mir_operator_display(op_kind: word) -> word {
     if op_kind == v4_mir_bin_ne { give back "!=" }
     if op_kind == v4_mir_unary_neg { give back "-" }
     if op_kind == v4_mir_unary_not { give back "not" }
+    if op_kind == v4_mir_unary_deref { give back "*" }
     give back op_kind
 }
 
@@ -7443,7 +7473,9 @@ task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream
 
     pilot body_scope = v4_mir_span_from_tokens(stream_id, cursor, stmt_end)
     v4_mir_push_scope_span(body_scope)
+    v4_mir_push_trust_me()
     pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, block_id, stream_id, cursor, stmt_end)
+    v4_mir_pop_trust_me()
     v4_mir_pop_scope_span()
     give back body_tail
 }

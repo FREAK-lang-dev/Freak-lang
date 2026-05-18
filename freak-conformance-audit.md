@@ -567,12 +567,13 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 - `@allow_unwinder` member-level and block-level opt-out for the stack-unwinder warning
 - call-site warning when a FREAK task invokes a known unwinder extern, sharing the same `@allow_unwinder` opt-out
 - trust-me-free raw-pointer `.is_null()` method lowered to LLVM `icmp eq ptr %p, null`
-- `trust me "reason" on my honor as .level { ... }` block parses (reason and honor clauses optional); body lowers transparently through MIR with malformed-form diagnostics. Raw-pointer deref gating and `freak audit-trust` V4 integration land in follow-up slices.
+- `trust me "reason" on my honor as .level { ... }` block parses (reason and honor clauses optional); body lowers transparently through MIR with malformed-form diagnostics
+- `*ptr` raw-pointer deref read: requires `*T`/`*mut T` operand, gated on being inside a trust-me block (bible §16.4), lowers to LLVM `load <pointee>, ptr %op`; diagnoses both wrong-type derefs and outside-trust-me derefs
 
 **Still V4:**
 
 - runtime panic-catch inside the trampoline body
-- trust-me-gated raw pointer ops (`*ptr`, `.read()`, `.write()`, `.offset()`, `.cast<U>()`)
+- trust-me-gated raw pointer writes (`*ptr = v`), method forms (`.read()`, `.write()`, `.offset()`, `.cast<U>()`)
 - `std::os` platform modules
 - error-code translation
 - deeper ABI/runtime guarantees
@@ -590,7 +591,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | Stack-unwinder import diagnostic | ⚠️ | 📖 V4 | V4 TY emits a warning when an extern block declares `setjmp`/`_setjmp`/`sigsetjmp`/`__sigsetjmp`, `longjmp`/`_longjmp`/`siglongjmp`, an Itanium `_Unwind_*` or `__cxa_*` primitive, or Windows `RaiseException` — matched by member name or `@link_name("...")` override; help text points users at C shims that translate to integer error codes; `@allow_unwinder` on the member or the enclosing extern block silences the warning for low-level code (kernels, JITs, coroutine engines) that genuinely needs the primitive |
 | Stack-unwinder call-site warning | ⚠️ | 📖 V4 | V4 MIR fires a second warning at every call site that invokes a known unwinder extern, sharing the same `@allow_unwinder` opt-out as the declaration warning; the call-site help text mentions both the C-shim fix and the opt-out attribute |
 | `@repr(u32)` discriminant size | ❌ | 📖 V4 |
-| Raw pointer ops (`*ptr`, `.read()`, `.offset()`, `.cast<U>()`, `.is_null()`) | ⚠️ | 📖 V4 | V4 lowers `.is_null()` to LLVM `icmp eq ptr %p, null` outside `trust me` (bible §16.4 explicitly permits null-checks anywhere); `*ptr`, `.read()`, `.write()`, `.offset()`, `.cast<U>()` still require the `trust me` block + raw-pointer-op lowering, both 🔜 V4 |
+| Raw pointer ops (`*ptr`, `.read()`, `.offset()`, `.cast<U>()`, `.is_null()`) | ⚠️ | 📖 V4 | V4 lowers `.is_null()` to LLVM `icmp eq ptr %p, null` outside `trust me` (bible §16.4 explicitly permits null-checks anywhere) and `*ptr` reads to LLVM `load <pointee>, ptr %op` gated on a surrounding `trust me` block (a `raw-pointer deref needs trust me block` diagnostic fires for derefs outside one); `*ptr = v` writes, the method forms `.read()`/`.write()`/`.offset()`/`.cast<U>()`, allocation, and freeing are still 🔜 V4 |
 | `std::os` platform modules | ❌ | 📖 V4 |
 | Error code → `result<T, OsError>` wrapping | ❌ | 📖 V4 |
 | errno/GetLastError preservation | ❌ | 📖 V4 |
