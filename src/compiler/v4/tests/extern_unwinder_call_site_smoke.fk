@@ -1,0 +1,70 @@
+-- V4 call-site unwinder warning smoke fixture.
+-- Verification prepends the V4 crates before this file.
+-- Asserts that invoking a known unwinder import fires a second warning
+-- at the call site (in addition to the declaration warning from PR #17),
+-- and that @allow_unwinder on the extern silences both.
+
+task v4_unwinder_call_site_bad_source() -> word {
+    -- Declares longjmp + setjmp (decl warnings) and calls each from FREAK.
+    -- Expect 4 warnings total: 2 declaration warnings + 2 call-site warnings.
+    pilot src = "extern [C] {\n"
+    src = src + "    task setjmp(buf: *mut std::ffi::c_void) -> std::ffi::c_int\n"
+    src = src + "    task longjmp(buf: *mut std::ffi::c_void, val: std::ffi::c_int) -> void\n"
+    src = src + "}\n"
+    src = src + "task jump_around(buf: *mut std::ffi::c_void) -> std::ffi::c_int {\n"
+    src = src + "    pilot rc = setjmp(buf)\n"
+    src = src + "    longjmp(buf, 1)\n"
+    src = src + "    give back rc\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_unwinder_call_site_optout_source() -> word {
+    -- Same shape, but block-level @allow_unwinder silences both decl
+    -- warnings AND both call-site warnings. Expect 0 warnings.
+    pilot src = "@allow_unwinder\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task setjmp(buf: *mut std::ffi::c_void) -> std::ffi::c_int\n"
+    src = src + "    task longjmp(buf: *mut std::ffi::c_void, val: std::ffi::c_int) -> void\n"
+    src = src + "}\n"
+    src = src + "task jump_around(buf: *mut std::ffi::c_void) -> std::ffi::c_int {\n"
+    src = src + "    pilot rc = setjmp(buf)\n"
+    src = src + "    longjmp(buf, 1)\n"
+    src = src + "    give back rc\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_unwinder_call_site_bad_text = v4_unwinder_call_site_bad_source()
+pilot v4_unwinder_call_site_bad_stream = v4_lex_text(0, v4_unwinder_call_site_bad_text)
+pilot v4_unwinder_call_site_bad_tree = v4_parse_stream(0, v4_unwinder_call_site_bad_stream)
+pilot v4_unwinder_call_site_bad_hir = v4_hir_lower_tree(0, v4_unwinder_call_site_bad_tree)
+pilot v4_unwinder_call_site_bad_resolve = v4_resolve_lower_hir(0, v4_unwinder_call_site_bad_hir)
+pilot v4_unwinder_call_site_bad_ty = v4_ty_lower_resolve(0, v4_unwinder_call_site_bad_resolve)
+pilot v4_unwinder_call_site_bad_mir = v4_mir_lower_ty(0, v4_unwinder_call_site_bad_ty)
+
+say "unwinder-call-site-bad-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_unwinder_call_site_bad_ty))
+say "unwinder-call-site-bad-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_unwinder_call_site_bad_mir))
+say "unwinder-call-site-bad-mir-diag0-severity=" + v4_diag_severity_name(v4_diag_severity(v4_mir_diag(v4_unwinder_call_site_bad_mir, 0)))
+say "unwinder-call-site-bad-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_unwinder_call_site_bad_mir, 0))
+say "unwinder-call-site-bad-mir-diag0-help=" + v4_diag_help(v4_mir_diag(v4_unwinder_call_site_bad_mir, 0))
+say "unwinder-call-site-bad-mir-diag1-severity=" + v4_diag_severity_name(v4_diag_severity(v4_mir_diag(v4_unwinder_call_site_bad_mir, 1)))
+say "unwinder-call-site-bad-mir-diag1-message=" + v4_diag_message(v4_mir_diag(v4_unwinder_call_site_bad_mir, 1))
+say "unwinder-call-site-bad-mir-diag1-help=" + v4_diag_help(v4_mir_diag(v4_unwinder_call_site_bad_mir, 1))
+say "unwinder-call-site-bad-mir-diag2-severity=" + v4_diag_severity_name(v4_diag_severity(v4_mir_diag(v4_unwinder_call_site_bad_mir, 2)))
+say "unwinder-call-site-bad-mir-diag2-message=" + v4_diag_message(v4_mir_diag(v4_unwinder_call_site_bad_mir, 2))
+say "unwinder-call-site-bad-mir-diag2-help=" + v4_diag_help(v4_mir_diag(v4_unwinder_call_site_bad_mir, 2))
+say "unwinder-call-site-bad-mir-diag3-severity=" + v4_diag_severity_name(v4_diag_severity(v4_mir_diag(v4_unwinder_call_site_bad_mir, 3)))
+say "unwinder-call-site-bad-mir-diag3-message=" + v4_diag_message(v4_mir_diag(v4_unwinder_call_site_bad_mir, 3))
+say "unwinder-call-site-bad-mir-diag3-help=" + v4_diag_help(v4_mir_diag(v4_unwinder_call_site_bad_mir, 3))
+
+pilot v4_unwinder_call_site_optout_text = v4_unwinder_call_site_optout_source()
+pilot v4_unwinder_call_site_optout_stream = v4_lex_text(1, v4_unwinder_call_site_optout_text)
+pilot v4_unwinder_call_site_optout_tree = v4_parse_stream(1, v4_unwinder_call_site_optout_stream)
+pilot v4_unwinder_call_site_optout_hir = v4_hir_lower_tree(1, v4_unwinder_call_site_optout_tree)
+pilot v4_unwinder_call_site_optout_resolve = v4_resolve_lower_hir(1, v4_unwinder_call_site_optout_hir)
+pilot v4_unwinder_call_site_optout_ty = v4_ty_lower_resolve(1, v4_unwinder_call_site_optout_resolve)
+pilot v4_unwinder_call_site_optout_mir = v4_mir_lower_ty(1, v4_unwinder_call_site_optout_ty)
+
+say "unwinder-call-site-optout-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_unwinder_call_site_optout_ty))
+say "unwinder-call-site-optout-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_unwinder_call_site_optout_mir))

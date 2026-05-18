@@ -821,8 +821,10 @@ def audit_conformance(paths: List[Path]) -> int:
     # in extern blocks. Lock in the validator + smoke fixture + EXECUTABLE_SMOKES
     # entry so the surface cannot silently regress.
     v4_ty_lib_unw = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_mir_lib_unw = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     v4_unwinder_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_unwinder_smoke.fk"
     v4_allow_unwinder_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_allow_unwinder_smoke.fk"
+    v4_unwinder_call_site_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_unwinder_call_site_smoke.fk"
     v4_check_harness_unw = repo / "src" / "compiler" / "v4" / "check_v4.py"
     unw_missing: List[str] = []
     if v4_ty_lib_unw.exists():
@@ -833,25 +835,40 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_ty_add_warning_diag",
             "v4_ty_extern_member_has_allow_unwinder",
             "v4_ty_extern_block_has_allow_unwinder",
+            "v4_ty_signature_is_warned_unwinder",
         ):
             if needle not in ty_src:
                 unw_missing.append(f"freak_ty: {needle}")
     else:
         unw_missing.append("freak_ty/src/lib.fk missing")
+    if v4_mir_lib_unw.exists():
+        mir_src = v4_mir_lib_unw.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_warn_unwinder_call_site",
+            "v4_mir_add_type_warning",
+        ):
+            if needle not in mir_src:
+                unw_missing.append(f"freak_mir: {needle}")
+    else:
+        unw_missing.append("freak_mir/src/lib.fk missing")
     if not v4_unwinder_smoke.exists():
         unw_missing.append("smoke fixture: extern_unwinder_smoke.fk")
     if not v4_allow_unwinder_smoke.exists():
         unw_missing.append("smoke fixture: extern_allow_unwinder_smoke.fk")
+    if not v4_unwinder_call_site_smoke.exists():
+        unw_missing.append("smoke fixture: extern_unwinder_call_site_smoke.fk")
     if v4_check_harness_unw.exists():
         harness_src = v4_check_harness_unw.read_text(encoding="utf-8")
         if "extern_unwinder_smoke.fk" not in harness_src:
             unw_missing.append("EXECUTABLE_SMOKES: extern_unwinder_smoke entry")
         if "extern_allow_unwinder_smoke.fk" not in harness_src:
             unw_missing.append("EXECUTABLE_SMOKES: extern_allow_unwinder_smoke entry")
+        if "extern_unwinder_call_site_smoke.fk" not in harness_src:
+            unw_missing.append("EXECUTABLE_SMOKES: extern_unwinder_call_site_smoke entry")
     add(
         "V4 unwinder diag",
         not unw_missing,
-        "TY validator + opt-out + smokes wired" if not unw_missing else f"{len(unw_missing)} gap(s)",
+        "decl + call-site + opt-out + smokes wired" if not unw_missing else f"{len(unw_missing)} gap(s)",
     )
     if unw_missing:
         failures.append("V4 unwinder-import diagnostic regressed: " + "; ".join(unw_missing))

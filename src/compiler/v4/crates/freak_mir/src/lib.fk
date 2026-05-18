@@ -703,6 +703,20 @@ task v4_mir_add_type_error(mir_id: int, span: word, message: word, help: word) -
     v4_mir_add_diag(mir_id, v4_diag_new(v4_diag_error, span, message, help))
 }
 
+task v4_mir_add_type_warning(mir_id: int, span: word, message: word, help: word) -> void {
+    v4_mir_add_diag(mir_id, v4_diag_new(v4_diag_warning, span, message, help))
+}
+
+task v4_mir_warn_unwinder_call_site(mir_id: int, expr_span: word, sig_id: int) -> void {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_signature_is_warned_unwinder(ty_id, sig_id) == false {
+        give back
+    }
+    pilot effective_name = v4_ty_signature_unwinder_effective_name(ty_id, sig_id)
+    pilot help_text = "this call invokes " + effective_name + " which can transfer control past FREAK destructors and the @extern_callback panic-boundary contract; replace it with a C shim that returns a result<T, E> error code, or annotate the extern import with @allow_unwinder if you are intentionally bridging a low-level unwinder."
+    v4_mir_add_type_warning(mir_id, expr_span, "call invokes stack-unwinder extern", help_text)
+}
+
 task v4_mir_is_callback_boundary_mismatch(mir_id: int, expected_ty: word, actual_ty: word) -> bool {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot expected_surface = v4_ty_canonical_type(ty_id, expected_ty)
@@ -3546,6 +3560,7 @@ task v4_mir_try_lower_named_call(mir_id: int, body_id: int, stream_id: int, firs
     }
 
     pilot target_name = v4_mir_resolved_callee_name(mir_id, callee_name)
+    v4_mir_warn_unwinder_call_site(mir_id, expr_span, sig_id)
     pilot call_check = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, callee_name, sig_id, open_token, last)
     pilot generic_env = v4_mir_call_check_result_env(call_check)
     pilot args_payload = v4_mir_call_check_result_args(call_check)
@@ -4790,6 +4805,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         pilot sig_id = v4_mir_signature_id_for_name(mir_id, first_value)
         if sig_id >= 0 {
             pilot target_name = v4_mir_resolved_callee_name(mir_id, first_value)
+            v4_mir_warn_unwinder_call_site(mir_id, expr_span, sig_id)
             pilot call_check = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, first_value, sig_id, next_token, close_token)
             pilot generic_env = v4_mir_call_check_result_env(call_check)
             pilot args_payload = v4_mir_call_check_result_args(call_check)
