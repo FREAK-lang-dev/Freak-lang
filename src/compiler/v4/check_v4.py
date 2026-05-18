@@ -2987,6 +2987,21 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "raw pointer deref write",
+        "fixture": "raw_pointer_deref_write_smoke.fk",
+        "expect": [
+            "raw-ptr-write-good-ty-diag-count=0",
+            "raw-ptr-write-good-mir-diag-count=0",
+            "store i64 %value, ptr %p",
+            "raw-ptr-write-outside-mir-diag-count=1",
+            "raw-ptr-write-outside-mir-diag0-message=raw-pointer deref needs trust me block",
+            "raw-ptr-write-const-mir-diag-count=1",
+            "raw-ptr-write-const-mir-diag0-message=raw-pointer write needs *mut T",
+            "raw-ptr-write-wrong-mir-diag-count=1",
+            "raw-ptr-write-wrong-mir-diag0-message=raw-pointer deref needs *T or *mut T",
+        ],
+    },
+    {
         "name": "extern allow_unwinder opt-out",
         "fixture": "extern_allow_unwinder_smoke.fk",
         "expect": [

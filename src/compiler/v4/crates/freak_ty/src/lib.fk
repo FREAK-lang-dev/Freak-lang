@@ -307,6 +307,10 @@ task v4_ty_is_raw_pointer_type(type_text: word) -> bool {
     give back v4_ty_raw_pointer_prefix(type_text) != ""
 }
 
+task v4_ty_is_mutable_raw_pointer_type(type_text: word) -> bool {
+    give back v4_ty_raw_pointer_prefix(type_text) == "*mut"
+}
+
 task v4_ty_raw_pointer_target_type(type_text: word) -> word {
     pilot prefix = v4_ty_raw_pointer_prefix(type_text)
     if prefix == "" {
