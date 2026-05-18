@@ -7159,9 +7159,9 @@ task v4_ty_extern_block_has_allow_unwinder(ty_id: int, block_sig: int) -> bool {
     give back false
 }
 
-task v4_ty_validate_extern_member_unwinder_contract(ty_id: int, sig_id: int) -> void {
+task v4_ty_signature_unwinder_effective_name(ty_id: int, sig_id: int) -> word {
     if v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 {
-        give back
+        give back ""
     }
     pilot block_sig = v4_ty_signature_extern_block_sig(ty_id, sig_id)
     pilot member_id = v4_ty_signature_extern_member_id(ty_id, sig_id)
@@ -7171,15 +7171,33 @@ task v4_ty_validate_extern_member_unwinder_contract(ty_id: int, sig_id: int) -> 
     if effective_name == "" {
         effective_name = member_name
     }
-    if v4_ty_is_known_unwinder_symbol(effective_name) == false {
-        give back
+    give back effective_name
+}
+
+task v4_ty_signature_is_warned_unwinder(ty_id: int, sig_id: int) -> bool {
+    pilot effective_name = v4_ty_signature_unwinder_effective_name(ty_id, sig_id)
+    if effective_name == "" {
+        give back false
     }
+    if v4_ty_is_known_unwinder_symbol(effective_name) == false {
+        give back false
+    }
+    pilot block_sig = v4_ty_signature_extern_block_sig(ty_id, sig_id)
+    pilot member_id = v4_ty_signature_extern_member_id(ty_id, sig_id)
     if v4_ty_extern_member_has_allow_unwinder(ty_id, block_sig, member_id) {
-        give back
+        give back false
     }
     if v4_ty_extern_block_has_allow_unwinder(ty_id, block_sig) {
+        give back false
+    }
+    give back true
+}
+
+task v4_ty_validate_extern_member_unwinder_contract(ty_id: int, sig_id: int) -> void {
+    if v4_ty_signature_is_warned_unwinder(ty_id, sig_id) == false {
         give back
     }
+    pilot effective_name = v4_ty_signature_unwinder_effective_name(ty_id, sig_id)
     pilot span = v4_hir_item_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
     v4_ty_add_warning_diag(ty_id, span, "extern import unwinds across the FFI boundary", v4_ty_unwinder_help(effective_name))
 }

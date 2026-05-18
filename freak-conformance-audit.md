@@ -565,6 +565,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 - `@extern_callback("ABI")` task export with `nounwind` LLVM trampolines plus bare-reference coercion into FFI callback slots at call-arg and return-site positions
 - teaching warning on known stack-unwinder extern imports (`setjmp`/`longjmp`/`_Unwind_*`/`__cxa_*`/`RaiseException`)
 - `@allow_unwinder` member-level and block-level opt-out for the stack-unwinder warning
+- call-site warning when a FREAK task invokes a known unwinder extern, sharing the same `@allow_unwinder` opt-out
 - trust-me-free raw-pointer `.is_null()` method lowered to LLVM `icmp eq ptr %p, null`
 
 **Still V4:**
@@ -586,6 +587,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)` | ⚠️ | 📖 V4 | V4 parses and carries all three through TY queries; it validates packed positivity, transparent single-field rules, and field-level FFI safety, but deeper ABI-stability checks still expand |
 | `@extern_callback("ABI")` task export | ⚠️ | 📖 V4 | V4 validates ABI, FFI-safe parameters/return, and rejects variadics; codegen emits a `nounwind` LLVM trampoline (`@__freak_callback_<task>`) that tail-calls the FREAK body; bare references coerce into matching `extern [ABI] task(...) -> T` slots at call-arg and return-site positions; runtime panic-catch in the trampoline body remains later FFI work |
 | Stack-unwinder import diagnostic | ⚠️ | 📖 V4 | V4 TY emits a warning when an extern block declares `setjmp`/`_setjmp`/`sigsetjmp`/`__sigsetjmp`, `longjmp`/`_longjmp`/`siglongjmp`, an Itanium `_Unwind_*` or `__cxa_*` primitive, or Windows `RaiseException` — matched by member name or `@link_name("...")` override; help text points users at C shims that translate to integer error codes; `@allow_unwinder` on the member or the enclosing extern block silences the warning for low-level code (kernels, JITs, coroutine engines) that genuinely needs the primitive |
+| Stack-unwinder call-site warning | ⚠️ | 📖 V4 | V4 MIR fires a second warning at every call site that invokes a known unwinder extern, sharing the same `@allow_unwinder` opt-out as the declaration warning; the call-site help text mentions both the C-shim fix and the opt-out attribute |
 | `@repr(u32)` discriminant size | ❌ | 📖 V4 |
 | Raw pointer ops (`*ptr`, `.read()`, `.offset()`, `.cast<U>()`, `.is_null()`) | ⚠️ | 📖 V4 | V4 lowers `.is_null()` to LLVM `icmp eq ptr %p, null` outside `trust me` (bible §16.4 explicitly permits null-checks anywhere); `*ptr`, `.read()`, `.write()`, `.offset()`, `.cast<U>()` still require the `trust me` block + raw-pointer-op lowering, both 🔜 V4 |
 | `std::os` platform modules | ❌ | 📖 V4 |

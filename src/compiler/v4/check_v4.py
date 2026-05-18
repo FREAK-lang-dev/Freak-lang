@@ -2985,6 +2985,24 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "extern unwinder call site",
+        "fixture": "extern_unwinder_call_site_smoke.fk",
+        "expect": [
+            "unwinder-call-site-bad-ty-diag-count=2",
+            "unwinder-call-site-bad-mir-diag-count=4",
+            "unwinder-call-site-bad-mir-diag0-message=extern import unwinds across the FFI boundary",
+            "unwinder-call-site-bad-mir-diag1-message=extern import unwinds across the FFI boundary",
+            "unwinder-call-site-bad-mir-diag2-severity=warning",
+            "unwinder-call-site-bad-mir-diag2-message=call invokes stack-unwinder extern",
+            "unwinder-call-site-bad-mir-diag2-help=this call invokes setjmp which can transfer control",
+            "unwinder-call-site-bad-mir-diag3-severity=warning",
+            "unwinder-call-site-bad-mir-diag3-message=call invokes stack-unwinder extern",
+            "unwinder-call-site-bad-mir-diag3-help=this call invokes longjmp which can transfer control",
+            "unwinder-call-site-optout-ty-diag-count=0",
+            "unwinder-call-site-optout-mir-diag-count=0",
+        ],
+    },
+    {
         "name": "extern link metadata",
         "fixture": "extern_link_smoke.fk",
         "expect": [
