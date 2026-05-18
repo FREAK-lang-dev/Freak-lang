@@ -7375,6 +7375,59 @@ task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_
     give back after_block
 }
 
+task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, trust_token: int, stmt_end: int) -> int {
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, trust_token, stmt_end)
+    pilot me_token = v4_mir_skip_trivia(stream_id, trust_token + 1)
+    if me_token >= stmt_end or v4_lex_token_value(stream_id, me_token) != "me" {
+        v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs me keyword", "write 'trust me \"reason\" on my honor as .level' followed by a braced body")
+        give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, trust_token, stmt_end)
+    }
+
+    pilot cursor = v4_mir_skip_trivia(stream_id, me_token + 1)
+    if cursor < stmt_end and v4_lex_token_type(stream_id, cursor) == v4_tok_string {
+        cursor = v4_mir_skip_trivia(stream_id, cursor + 1)
+    }
+    if cursor < stmt_end and v4_lex_token_value(stream_id, cursor) == "on" {
+        pilot my_token = v4_mir_skip_trivia(stream_id, cursor + 1)
+        if my_token < stmt_end and v4_lex_token_value(stream_id, my_token) == "my" {
+            pilot honor_token = v4_mir_skip_trivia(stream_id, my_token + 1)
+            if honor_token < stmt_end and v4_lex_token_value(stream_id, honor_token) == "honor" {
+                pilot as_token = v4_mir_skip_trivia(stream_id, honor_token + 1)
+                if as_token < stmt_end and v4_lex_token_value(stream_id, as_token) == "as" {
+                    pilot dot_token = v4_mir_skip_trivia(stream_id, as_token + 1)
+                    if dot_token < stmt_end and v4_lex_token_value(stream_id, dot_token) == "." {
+                        pilot level_token = v4_mir_skip_trivia(stream_id, dot_token + 1)
+                        if level_token < stmt_end {
+                            cursor = v4_mir_skip_trivia(stream_id, level_token + 1)
+                        } else {
+                            v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs honor level", "name the honor level after the dot, e.g. .pilot")
+                        }
+                    } else {
+                        v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs honor level", "follow as with .level, e.g. as .pilot")
+                    }
+                } else {
+                    v4_mir_add_type_error(mir_id, stmt_span, "trust me honor clause malformed", "use on my honor as .level")
+                }
+            } else {
+                v4_mir_add_type_error(mir_id, stmt_span, "trust me honor clause malformed", "use on my honor as .level")
+            }
+        } else {
+            v4_mir_add_type_error(mir_id, stmt_span, "trust me honor clause malformed", "use on my honor as .level")
+        }
+    }
+
+    if cursor >= stmt_end or v4_lex_token_value(stream_id, cursor) != "{" {
+        v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs body", "open the trust me block with a brace after the optional reason and honor clause")
+        give back block_id
+    }
+
+    pilot body_scope = v4_mir_span_from_tokens(stream_id, cursor, stmt_end)
+    v4_mir_push_scope_span(body_scope)
+    pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, block_id, stream_id, cursor, stmt_end)
+    v4_mir_pop_scope_span()
+    give back body_tail
+}
+
 task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, when_token: int, stmt_end: int) -> int {
     pilot open_token = v4_mir_find_token_value(stream_id, when_token, stmt_end, "{")
     if open_token < 0 {
@@ -7601,6 +7654,8 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
         give back v4_mir_lower_when_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "only" {
         give back v4_mir_lower_only_on_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+    } else if first_val == "trust" {
+        give back v4_mir_lower_trust_me_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     }

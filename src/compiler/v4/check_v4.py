@@ -3003,6 +3003,20 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "trust me block parses",
+        "fixture": "trust_me_block_smoke.fk",
+        "expect": [
+            "trust-me-full-ty-diag-count=0",
+            "trust-me-full-mir-diag-count=0",
+            "trust-me-bare-ty-diag-count=0",
+            "trust-me-bare-mir-diag-count=0",
+            "trust-me-reason-only-ty-diag-count=0",
+            "trust-me-reason-only-mir-diag-count=0",
+            "trust-me-missing-me-mir-diag0-message=trust me block needs me keyword",
+            "trust-me-missing-brace-mir-diag0-message=trust me block needs body",
+        ],
+    },
+    {
         "name": "extern link metadata",
         "fixture": "extern_link_smoke.fk",
         "expect": [

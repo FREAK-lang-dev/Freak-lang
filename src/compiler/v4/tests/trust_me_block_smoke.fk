@@ -1,0 +1,116 @@
+-- V4 trust me block parsing smoke fixture.
+-- Verification prepends the V4 crates before this file.
+-- First slice: parse the form, lower the body as a transparent block.
+-- Future slices will gate raw pointer deref + audit-trust integration on it.
+
+task v4_trust_me_full_source() -> word {
+    -- Full form: reason + honor clause + body.
+    pilot src = "task work() -> int {\n"
+    src = src + "    pilot tally = 0\n"
+    src = src + "    trust me \"read OS message\" on my honor as .pilot {\n"
+    src = src + "        tally = tally + 1\n"
+    src = src + "        tally = tally + 2\n"
+    src = src + "    }\n"
+    src = src + "    give back tally\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_trust_me_bare_source() -> word {
+    -- Minimal form: no reason, no honor clause, just the block.
+    pilot src = "task work() -> int {\n"
+    src = src + "    pilot tally = 0\n"
+    src = src + "    trust me {\n"
+    src = src + "        tally = tally + 5\n"
+    src = src + "    }\n"
+    src = src + "    give back tally\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_trust_me_reason_only_source() -> word {
+    -- Reason but no honor clause.
+    pilot src = "task work() -> int {\n"
+    src = src + "    pilot tally = 0\n"
+    src = src + "    trust me \"audit me\" {\n"
+    src = src + "        tally = tally + 3\n"
+    src = src + "    }\n"
+    src = src + "    give back tally\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_trust_me_missing_me_source() -> word {
+    -- 'trust' without 'me' should diagnose.
+    pilot src = "task work() -> int {\n"
+    src = src + "    trust {\n"
+    src = src + "        pilot x = 0\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_trust_me_missing_brace_source() -> word {
+    -- Malformed honor clause without the opening brace.
+    pilot src = "task work() -> int {\n"
+    src = src + "    trust me on my honor as .pilot\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_trust_me_full_text = v4_trust_me_full_source()
+pilot v4_trust_me_full_stream = v4_lex_text(0, v4_trust_me_full_text)
+pilot v4_trust_me_full_tree = v4_parse_stream(0, v4_trust_me_full_stream)
+pilot v4_trust_me_full_hir = v4_hir_lower_tree(0, v4_trust_me_full_tree)
+pilot v4_trust_me_full_resolve = v4_resolve_lower_hir(0, v4_trust_me_full_hir)
+pilot v4_trust_me_full_ty = v4_ty_lower_resolve(0, v4_trust_me_full_resolve)
+pilot v4_trust_me_full_mir = v4_mir_lower_ty(0, v4_trust_me_full_ty)
+
+say "trust-me-full-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_trust_me_full_ty))
+say "trust-me-full-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_trust_me_full_mir))
+
+pilot v4_trust_me_bare_text = v4_trust_me_bare_source()
+pilot v4_trust_me_bare_stream = v4_lex_text(1, v4_trust_me_bare_text)
+pilot v4_trust_me_bare_tree = v4_parse_stream(1, v4_trust_me_bare_stream)
+pilot v4_trust_me_bare_hir = v4_hir_lower_tree(1, v4_trust_me_bare_tree)
+pilot v4_trust_me_bare_resolve = v4_resolve_lower_hir(1, v4_trust_me_bare_hir)
+pilot v4_trust_me_bare_ty = v4_ty_lower_resolve(1, v4_trust_me_bare_resolve)
+pilot v4_trust_me_bare_mir = v4_mir_lower_ty(1, v4_trust_me_bare_ty)
+
+say "trust-me-bare-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_trust_me_bare_ty))
+say "trust-me-bare-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_trust_me_bare_mir))
+
+pilot v4_trust_me_reason_only_text = v4_trust_me_reason_only_source()
+pilot v4_trust_me_reason_only_stream = v4_lex_text(2, v4_trust_me_reason_only_text)
+pilot v4_trust_me_reason_only_tree = v4_parse_stream(2, v4_trust_me_reason_only_stream)
+pilot v4_trust_me_reason_only_hir = v4_hir_lower_tree(2, v4_trust_me_reason_only_tree)
+pilot v4_trust_me_reason_only_resolve = v4_resolve_lower_hir(2, v4_trust_me_reason_only_hir)
+pilot v4_trust_me_reason_only_ty = v4_ty_lower_resolve(2, v4_trust_me_reason_only_resolve)
+pilot v4_trust_me_reason_only_mir = v4_mir_lower_ty(2, v4_trust_me_reason_only_ty)
+
+say "trust-me-reason-only-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_trust_me_reason_only_ty))
+say "trust-me-reason-only-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_trust_me_reason_only_mir))
+
+pilot v4_trust_me_missing_me_text = v4_trust_me_missing_me_source()
+pilot v4_trust_me_missing_me_stream = v4_lex_text(3, v4_trust_me_missing_me_text)
+pilot v4_trust_me_missing_me_tree = v4_parse_stream(3, v4_trust_me_missing_me_stream)
+pilot v4_trust_me_missing_me_hir = v4_hir_lower_tree(3, v4_trust_me_missing_me_tree)
+pilot v4_trust_me_missing_me_resolve = v4_resolve_lower_hir(3, v4_trust_me_missing_me_hir)
+pilot v4_trust_me_missing_me_ty = v4_ty_lower_resolve(3, v4_trust_me_missing_me_resolve)
+pilot v4_trust_me_missing_me_mir = v4_mir_lower_ty(3, v4_trust_me_missing_me_ty)
+
+say "trust-me-missing-me-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_trust_me_missing_me_mir, 0))
+say "trust-me-missing-me-mir-diag0-help=" + v4_diag_help(v4_mir_diag(v4_trust_me_missing_me_mir, 0))
+
+pilot v4_trust_me_missing_brace_text = v4_trust_me_missing_brace_source()
+pilot v4_trust_me_missing_brace_stream = v4_lex_text(4, v4_trust_me_missing_brace_text)
+pilot v4_trust_me_missing_brace_tree = v4_parse_stream(4, v4_trust_me_missing_brace_stream)
+pilot v4_trust_me_missing_brace_hir = v4_hir_lower_tree(4, v4_trust_me_missing_brace_tree)
+pilot v4_trust_me_missing_brace_resolve = v4_resolve_lower_hir(4, v4_trust_me_missing_brace_hir)
+pilot v4_trust_me_missing_brace_ty = v4_ty_lower_resolve(4, v4_trust_me_missing_brace_resolve)
+pilot v4_trust_me_missing_brace_mir = v4_mir_lower_ty(4, v4_trust_me_missing_brace_ty)
+
+say "trust-me-missing-brace-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_trust_me_missing_brace_mir, 0))
+say "trust-me-missing-brace-mir-diag0-help=" + v4_diag_help(v4_mir_diag(v4_trust_me_missing_brace_mir, 0))
