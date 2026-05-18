@@ -52,6 +52,8 @@ pilot v4_mir_rvalue_unknown = "Unknown"
 
 pilot v4_mir_unary_neg = "Neg"
 pilot v4_mir_unary_not = "Not"
+pilot v4_mir_unary_ptr_is_null = "PtrIsNull"
+pilot v4_mir_unary_deref = "Deref"
 
 pilot v4_mir_bin_add = "Add"
 pilot v4_mir_bin_sub = "Sub"
@@ -70,6 +72,7 @@ pilot v4_mir_bin_or = "Or"
 pilot v4_mir_place_local = "Local"
 pilot v4_mir_place_field = "Field"
 pilot v4_mir_place_index = "Index"
+pilot v4_mir_place_deref = "Deref"
 pilot v4_mir_place_return = "Return"
 pilot v4_mir_place_unknown = "Unknown"
 pilot v4_mir_snapshot_format = "freak-mir-snapshot-v3"
@@ -113,6 +116,7 @@ pilot v4_mir_loop_continue_targets = 0
 pilot v4_mir_loop_depth = 0
 pilot v4_mir_scope_spans = 0
 pilot v4_mir_scope_depth = 0
+pilot v4_mir_trust_me_depth = 0
 pilot v4_mir_ready = 0
 
 task v4_mir_init() -> void {
@@ -156,6 +160,7 @@ task v4_mir_init() -> void {
         v4_mir_loop_depth = 0
         v4_mir_scope_spans = array_new()
         v4_mir_scope_depth = 0
+        v4_mir_trust_me_depth = 0
         v4_mir_ready = 1
     }
 }
@@ -169,6 +174,21 @@ task v4_mir_clear_loop_context() -> void {
 task v4_mir_clear_scope_context() -> void {
     v4_mir_scope_spans = array_new()
     v4_mir_scope_depth = 0
+    v4_mir_trust_me_depth = 0
+}
+
+task v4_mir_push_trust_me() -> void {
+    v4_mir_trust_me_depth += 1
+}
+
+task v4_mir_pop_trust_me() -> void {
+    if v4_mir_trust_me_depth > 0 {
+        v4_mir_trust_me_depth -= 1
+    }
+}
+
+task v4_mir_inside_trust_me() -> bool {
+    give back v4_mir_trust_me_depth > 0
 }
 
 task v4_mir_push_scope_span(span: word) -> void {
@@ -700,6 +720,20 @@ task v4_mir_add_diag(mir_id: int, diag: word) -> void {
 
 task v4_mir_add_type_error(mir_id: int, span: word, message: word, help: word) -> void {
     v4_mir_add_diag(mir_id, v4_diag_new(v4_diag_error, span, message, help))
+}
+
+task v4_mir_add_type_warning(mir_id: int, span: word, message: word, help: word) -> void {
+    v4_mir_add_diag(mir_id, v4_diag_new(v4_diag_warning, span, message, help))
+}
+
+task v4_mir_warn_unwinder_call_site(mir_id: int, expr_span: word, sig_id: int) -> void {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_signature_is_warned_unwinder(ty_id, sig_id) == false {
+        give back
+    }
+    pilot effective_name = v4_ty_signature_unwinder_effective_name(ty_id, sig_id)
+    pilot help_text = "this call invokes " + effective_name + " which can transfer control past FREAK destructors and the @extern_callback panic-boundary contract; replace it with a C shim that returns a result<T, E> error code, or annotate the extern import with @allow_unwinder if you are intentionally bridging a low-level unwinder."
+    v4_mir_add_type_warning(mir_id, expr_span, "call invokes stack-unwinder extern", help_text)
 }
 
 task v4_mir_is_callback_boundary_mismatch(mir_id: int, expected_ty: word, actual_ty: word) -> bool {
@@ -1751,6 +1785,7 @@ task v4_mir_operator_kind(op: word) -> word {
 task v4_mir_unary_op_kind(op: word) -> word {
     if op == "-" { give back v4_mir_unary_neg }
     if op == "not" or op == "!" { give back v4_mir_unary_not }
+    if op == "*" { give back v4_mir_unary_deref }
     give back ""
 }
 
@@ -1780,6 +1815,16 @@ task v4_mir_check_binary_types(mir_id: int, expr_span: word, op_kind: word, left
 }
 
 task v4_mir_check_unary_type(mir_id: int, expr_span: word, op_kind: word, operand_ty: word) -> void {
+    if op_kind == v4_mir_unary_deref {
+        if v4_ty_is_known(operand_ty) and v4_ty_is_raw_pointer_type(operand_ty) == false {
+            v4_mir_add_type_error(mir_id, expr_span, "raw-pointer deref needs *T or *mut T", "got " + operand_ty + "; only raw pointers can be dereferenced with *")
+            give back
+        }
+        if v4_mir_inside_trust_me() == false {
+            v4_mir_add_type_error(mir_id, expr_span, "raw-pointer deref needs trust me block", "wrap the deref in a trust me block; bible section 16.4 forbids dereferencing raw pointers outside trust me")
+        }
+        give back
+    }
     if v4_ty_unary_valid(op_kind, operand_ty) {
         give back
     }
@@ -3006,6 +3051,7 @@ task v4_mir_operator_display(op_kind: word) -> word {
     if op_kind == v4_mir_bin_ne { give back "!=" }
     if op_kind == v4_mir_unary_neg { give back "-" }
     if op_kind == v4_mir_unary_not { give back "not" }
+    if op_kind == v4_mir_unary_deref { give back "*" }
     give back op_kind
 }
 
@@ -3322,6 +3368,16 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     pilot receiver_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first, dot_token)
     pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
     pilot method_name = v4_lex_token_value(stream_id, method_token)
+    if v4_ty_is_raw_pointer_type(receiver_ty) and method_name == "is_null" {
+        pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+        pilot args_token = v4_mir_skip_trivia(stream_id, open_token + 1)
+        if args_token < last {
+            if v4_lex_token_value(stream_id, args_token) != ")" {
+                v4_mir_add_type_error(mir_id, expr_span, "is_null takes no arguments", receiver_ty + ".is_null() must be called without arguments")
+            }
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_is_null, receiver_rvalue, 0 - 1, expr_span, v4_ty_bool)
+    }
     pilot field_callback_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir_id), receiver_ty, method_name))
     if v4_ty_is_surface_extern_function_pointer_type(field_callback_ty) {
         pilot field_place = v4_mir_lower_place(mir_id, body_id, stream_id, first, open_token)
@@ -3535,6 +3591,7 @@ task v4_mir_try_lower_named_call(mir_id: int, body_id: int, stream_id: int, firs
     }
 
     pilot target_name = v4_mir_resolved_callee_name(mir_id, callee_name)
+    v4_mir_warn_unwinder_call_site(mir_id, expr_span, sig_id)
     pilot call_check = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, callee_name, sig_id, open_token, last)
     pilot generic_env = v4_mir_call_check_result_env(call_check)
     pilot args_payload = v4_mir_call_check_result_args(call_check)
@@ -4779,6 +4836,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         pilot sig_id = v4_mir_signature_id_for_name(mir_id, first_value)
         if sig_id >= 0 {
             pilot target_name = v4_mir_resolved_callee_name(mir_id, first_value)
+            v4_mir_warn_unwinder_call_site(mir_id, expr_span, sig_id)
             pilot call_check = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, first_value, sig_id, next_token, close_token)
             pilot generic_env = v4_mir_call_check_result_env(call_check)
             pilot args_payload = v4_mir_call_check_result_args(call_check)
@@ -4920,6 +4978,25 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
     pilot place_span = v4_mir_span_from_tokens(stream_id, start_token, end_token)
     if first >= end_token or last < first {
         give back v4_mir_add_place(mir_id, body_id, v4_mir_place_unknown, "", 0 - 1, "", 0 - 1, place_span, v4_ty_unknown)
+    }
+
+    if v4_lex_token_value(stream_id, first) == "*" and first < last {
+        pilot ptr_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first + 1, last + 1)
+        pilot ptr_ty = v4_mir_rvalue_ty(mir_id, body_id, ptr_rvalue)
+        pilot deref_text = v4_mir_expr_text(stream_id, first, last + 1)
+        pilot pointee_ty = v4_ty_unknown
+        if v4_ty_is_known(ptr_ty) and v4_ty_is_raw_pointer_type(ptr_ty) == false {
+            v4_mir_add_type_error(mir_id, place_span, "raw-pointer deref needs *T or *mut T", "got " + ptr_ty + "; only raw pointers can be dereferenced with *")
+        } else if v4_ty_is_known(ptr_ty) {
+            pointee_ty = v4_ty_raw_pointer_target_type(ptr_ty)
+            if v4_ty_is_mutable_raw_pointer_type(ptr_ty) == false {
+                v4_mir_add_type_error(mir_id, place_span, "raw-pointer write needs *mut T", "got " + ptr_ty + "; only *mut T pointers can be written through, *const T and *T are read-only")
+            }
+        }
+        if v4_mir_inside_trust_me() == false {
+            v4_mir_add_type_error(mir_id, place_span, "raw-pointer deref needs trust me block", "wrap the deref in a trust me block; bible section 16.4 forbids dereferencing raw pointers outside trust me")
+        }
+        give back v4_mir_add_place(mir_id, body_id, v4_mir_place_deref, deref_text, 0 - 1, "", ptr_rvalue, place_span, pointee_ty)
     }
 
     pilot place_text = v4_mir_expr_text(stream_id, first, last + 1)
@@ -7348,6 +7425,81 @@ task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_
     give back after_block
 }
 
+task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, trust_token: int, stmt_end: int) -> int {
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, trust_token, stmt_end)
+    pilot me_token = v4_mir_skip_trivia(stream_id, trust_token + 1)
+    if me_token >= stmt_end or v4_lex_token_value(stream_id, me_token) != "me" {
+        v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs me keyword", "write 'trust me \"reason\" on my honor as .level' followed by a braced body")
+        give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, trust_token, stmt_end)
+    }
+
+    pilot cursor = v4_mir_skip_trivia(stream_id, me_token + 1)
+    if cursor < stmt_end and v4_lex_token_type(stream_id, cursor) == v4_tok_string {
+        cursor = v4_mir_skip_trivia(stream_id, cursor + 1)
+    }
+    if cursor < stmt_end and v4_lex_token_value(stream_id, cursor) == "on" {
+        pilot honor_diag = ""
+        pilot my_token = v4_mir_skip_trivia(stream_id, cursor + 1)
+        if my_token >= stmt_end or v4_lex_token_value(stream_id, my_token) != "my" {
+            honor_diag = "use on my honor as .level"
+        }
+        pilot honor_token = v4_mir_skip_trivia(stream_id, my_token + 1)
+        if honor_diag == "" and (honor_token >= stmt_end or v4_lex_token_value(stream_id, honor_token) != "honor") {
+            honor_diag = "use on my honor as .level"
+        }
+        pilot as_token = v4_mir_skip_trivia(stream_id, honor_token + 1)
+        if honor_diag == "" and (as_token >= stmt_end or v4_lex_token_value(stream_id, as_token) != "as") {
+            honor_diag = "use on my honor as .level"
+        }
+        pilot dot_token = v4_mir_skip_trivia(stream_id, as_token + 1)
+        if honor_diag == "" and (dot_token >= stmt_end or v4_lex_token_value(stream_id, dot_token) != ".") {
+            honor_diag = "follow as with .level, e.g. as .pilot"
+        }
+        pilot level_token = v4_mir_skip_trivia(stream_id, dot_token + 1)
+        pilot level_type = ""
+        if level_token < stmt_end {
+            level_type = v4_lex_token_type(stream_id, level_token)
+        }
+        pilot level_ok = false
+        if level_token < stmt_end {
+            if level_type == v4_tok_ident or level_type == v4_tok_keyword {
+                level_ok = true
+            }
+        }
+        if honor_diag == "" and level_ok == false {
+            honor_diag = "name the honor level after the dot, e.g. .pilot"
+        }
+        if honor_diag != "" {
+            pilot honor_msg = "trust me honor clause malformed"
+            if honor_diag == "name the honor level after the dot, e.g. .pilot" or honor_diag == "follow as with .level, e.g. as .pilot" {
+                honor_msg = "trust me block needs honor level"
+            }
+            v4_mir_add_type_error(mir_id, stmt_span, honor_msg, honor_diag)
+            -- Skip past the malformed honor clause to the next opening brace so the body still lowers.
+            pilot brace_scan = cursor
+            repeat until brace_scan >= stmt_end or v4_lex_token_value(stream_id, brace_scan) == "{" {
+                brace_scan += 1
+            }
+            cursor = brace_scan
+        } else {
+            cursor = v4_mir_skip_trivia(stream_id, level_token + 1)
+        }
+    }
+
+    if cursor >= stmt_end or v4_lex_token_value(stream_id, cursor) != "{" {
+        v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs body", "open the trust me block with a brace after the optional reason and honor clause")
+        give back block_id
+    }
+
+    pilot body_scope = v4_mir_span_from_tokens(stream_id, cursor, stmt_end)
+    v4_mir_push_scope_span(body_scope)
+    v4_mir_push_trust_me()
+    pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, block_id, stream_id, cursor, stmt_end)
+    v4_mir_pop_trust_me()
+    v4_mir_pop_scope_span()
+    give back body_tail
+}
+
 task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, when_token: int, stmt_end: int) -> int {
     pilot open_token = v4_mir_find_token_value(stream_id, when_token, stmt_end, "{")
     if open_token < 0 {
@@ -7574,6 +7726,8 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
         give back v4_mir_lower_when_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "only" {
         give back v4_mir_lower_only_on_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+    } else if first_val == "trust" {
+        give back v4_mir_lower_trust_me_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     }
