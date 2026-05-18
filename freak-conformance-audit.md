@@ -567,6 +567,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 - `@allow_unwinder` member-level and block-level opt-out for the stack-unwinder warning
 - call-site warning when a FREAK task invokes a known unwinder extern, sharing the same `@allow_unwinder` opt-out
 - trust-me-free raw-pointer `.is_null()` method lowered to LLVM `icmp eq ptr %p, null`
+- `trust me "reason" on my honor as .level { ... }` block parses (reason and honor clauses optional); body lowers transparently through MIR with malformed-form diagnostics. Raw-pointer deref gating and `freak audit-trust` V4 integration land in follow-up slices.
 
 **Still V4:**
 

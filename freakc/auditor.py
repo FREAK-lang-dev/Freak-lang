@@ -758,6 +758,8 @@ def audit_conformance(paths: List[Path]) -> int:
         harness_src = v4_check_harness_isn.read_text(encoding="utf-8")
         if "raw_pointer_is_null_smoke.fk" not in harness_src:
             isn_missing.append("EXECUTABLE_SMOKES: raw_pointer_is_null_smoke entry")
+    else:
+        isn_missing.append("check_v4.py harness missing")
     add(
         "V4 raw-ptr is_null",
         not isn_missing,
@@ -765,6 +767,42 @@ def audit_conformance(paths: List[Path]) -> int:
     )
     if isn_missing:
         failures.append("V4 raw-pointer is_null lowering regressed: " + "; ".join(isn_missing))
+
+    # ── Check 7d: V4 trust me block parsing (regression guard) ──
+    # Bible §16.4 gates raw-pointer dereferencing on `trust me` blocks. The
+    # first slice parses the form; future slices wire the gating + audit-trust
+    # integration. Lock in the MIR lowering + smoke fixture so the parse
+    # surface cannot silently regress.
+    v4_mir_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_trust_me_smoke = repo / "src" / "compiler" / "v4" / "tests" / "trust_me_block_smoke.fk"
+    v4_check_harness_tm = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    tm_missing: List[str] = []
+    if v4_mir_lib_tm.exists():
+        mir_src = v4_mir_lib_tm.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_lower_trust_me_stmt",
+            "trust me block needs me keyword",
+            "trust me block needs body",
+        ):
+            if needle not in mir_src:
+                tm_missing.append(f"freak_mir: {needle}")
+    else:
+        tm_missing.append("freak_mir/src/lib.fk missing")
+    if not v4_trust_me_smoke.exists():
+        tm_missing.append("smoke fixture: trust_me_block_smoke.fk")
+    if v4_check_harness_tm.exists():
+        harness_src = v4_check_harness_tm.read_text(encoding="utf-8")
+        if "trust_me_block_smoke.fk" not in harness_src:
+            tm_missing.append("EXECUTABLE_SMOKES: trust_me_block_smoke entry")
+    else:
+        tm_missing.append("check_v4.py harness missing")
+    add(
+        "V4 trust me block",
+        not tm_missing,
+        "MIR lowering + smoke wired" if not tm_missing else f"{len(tm_missing)} gap(s)",
+    )
+    if tm_missing:
+        failures.append("V4 trust me block parsing regressed: " + "; ".join(tm_missing))
 
     # ── Check 8: V4 @extern_callback FFI surface (regression guard) ──
     # Once a 🔜 V4 row promotes to ⚠️/✅ in bible §0.2, audit_conformance
@@ -865,6 +903,8 @@ def audit_conformance(paths: List[Path]) -> int:
             unw_missing.append("EXECUTABLE_SMOKES: extern_allow_unwinder_smoke entry")
         if "extern_unwinder_call_site_smoke.fk" not in harness_src:
             unw_missing.append("EXECUTABLE_SMOKES: extern_unwinder_call_site_smoke entry")
+    else:
+        unw_missing.append("check_v4.py harness missing")
     add(
         "V4 unwinder diag",
         not unw_missing,
