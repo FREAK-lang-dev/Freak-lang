@@ -7388,31 +7388,51 @@ task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream
         cursor = v4_mir_skip_trivia(stream_id, cursor + 1)
     }
     if cursor < stmt_end and v4_lex_token_value(stream_id, cursor) == "on" {
+        pilot honor_diag = ""
         pilot my_token = v4_mir_skip_trivia(stream_id, cursor + 1)
-        if my_token < stmt_end and v4_lex_token_value(stream_id, my_token) == "my" {
-            pilot honor_token = v4_mir_skip_trivia(stream_id, my_token + 1)
-            if honor_token < stmt_end and v4_lex_token_value(stream_id, honor_token) == "honor" {
-                pilot as_token = v4_mir_skip_trivia(stream_id, honor_token + 1)
-                if as_token < stmt_end and v4_lex_token_value(stream_id, as_token) == "as" {
-                    pilot dot_token = v4_mir_skip_trivia(stream_id, as_token + 1)
-                    if dot_token < stmt_end and v4_lex_token_value(stream_id, dot_token) == "." {
-                        pilot level_token = v4_mir_skip_trivia(stream_id, dot_token + 1)
-                        if level_token < stmt_end {
-                            cursor = v4_mir_skip_trivia(stream_id, level_token + 1)
-                        } else {
-                            v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs honor level", "name the honor level after the dot, e.g. .pilot")
-                        }
-                    } else {
-                        v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs honor level", "follow as with .level, e.g. as .pilot")
-                    }
-                } else {
-                    v4_mir_add_type_error(mir_id, stmt_span, "trust me honor clause malformed", "use on my honor as .level")
-                }
-            } else {
-                v4_mir_add_type_error(mir_id, stmt_span, "trust me honor clause malformed", "use on my honor as .level")
+        if my_token >= stmt_end or v4_lex_token_value(stream_id, my_token) != "my" {
+            honor_diag = "use on my honor as .level"
+        }
+        pilot honor_token = v4_mir_skip_trivia(stream_id, my_token + 1)
+        if honor_diag == "" and (honor_token >= stmt_end or v4_lex_token_value(stream_id, honor_token) != "honor") {
+            honor_diag = "use on my honor as .level"
+        }
+        pilot as_token = v4_mir_skip_trivia(stream_id, honor_token + 1)
+        if honor_diag == "" and (as_token >= stmt_end or v4_lex_token_value(stream_id, as_token) != "as") {
+            honor_diag = "use on my honor as .level"
+        }
+        pilot dot_token = v4_mir_skip_trivia(stream_id, as_token + 1)
+        if honor_diag == "" and (dot_token >= stmt_end or v4_lex_token_value(stream_id, dot_token) != ".") {
+            honor_diag = "follow as with .level, e.g. as .pilot"
+        }
+        pilot level_token = v4_mir_skip_trivia(stream_id, dot_token + 1)
+        pilot level_type = ""
+        if level_token < stmt_end {
+            level_type = v4_lex_token_type(stream_id, level_token)
+        }
+        pilot level_ok = false
+        if level_token < stmt_end {
+            if level_type == v4_tok_ident or level_type == v4_tok_keyword {
+                level_ok = true
             }
+        }
+        if honor_diag == "" and level_ok == false {
+            honor_diag = "name the honor level after the dot, e.g. .pilot"
+        }
+        if honor_diag != "" {
+            pilot honor_msg = "trust me honor clause malformed"
+            if honor_diag == "name the honor level after the dot, e.g. .pilot" or honor_diag == "follow as with .level, e.g. as .pilot" {
+                honor_msg = "trust me block needs honor level"
+            }
+            v4_mir_add_type_error(mir_id, stmt_span, honor_msg, honor_diag)
+            -- Skip past the malformed honor clause to the next opening brace so the body still lowers.
+            pilot brace_scan = cursor
+            repeat until brace_scan >= stmt_end or v4_lex_token_value(stream_id, brace_scan) == "{" {
+                brace_scan += 1
+            }
+            cursor = brace_scan
         } else {
-            v4_mir_add_type_error(mir_id, stmt_span, "trust me honor clause malformed", "use on my honor as .level")
+            cursor = v4_mir_skip_trivia(stream_id, level_token + 1)
         }
     }
 

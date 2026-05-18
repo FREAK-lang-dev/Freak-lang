@@ -3014,6 +3014,9 @@ EXECUTABLE_SMOKES = [
             "trust-me-reason-only-mir-diag-count=0",
             "trust-me-missing-me-mir-diag0-message=trust me block needs me keyword",
             "trust-me-missing-brace-mir-diag0-message=trust me block needs body",
+            "trust-me-missing-level-mir-diag-count=1",
+            "trust-me-missing-level-mir-diag0-message=trust me block needs honor level",
+            "trust-me-missing-level-mir-diag0-help=name the honor level after the dot, e.g. .pilot",
         ],
     },
     {

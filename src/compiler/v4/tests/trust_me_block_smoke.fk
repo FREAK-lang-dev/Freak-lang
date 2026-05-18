@@ -60,6 +60,20 @@ task v4_trust_me_missing_brace_source() -> word {
     give back src
 }
 
+task v4_trust_me_missing_level_source() -> word {
+    -- 'as .' followed directly by '{' should diagnose the missing
+    -- honor level once, then still lower the body (so the brace
+    -- isn't mistakenly consumed as the level).
+    pilot src = "task work() -> int {\n"
+    src = src + "    pilot tally = 0\n"
+    src = src + "    trust me on my honor as . {\n"
+    src = src + "        tally = tally + 7\n"
+    src = src + "    }\n"
+    src = src + "    give back tally\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_trust_me_full_text = v4_trust_me_full_source()
 pilot v4_trust_me_full_stream = v4_lex_text(0, v4_trust_me_full_text)
 pilot v4_trust_me_full_tree = v4_parse_stream(0, v4_trust_me_full_stream)
@@ -114,3 +128,15 @@ pilot v4_trust_me_missing_brace_mir = v4_mir_lower_ty(4, v4_trust_me_missing_bra
 
 say "trust-me-missing-brace-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_trust_me_missing_brace_mir, 0))
 say "trust-me-missing-brace-mir-diag0-help=" + v4_diag_help(v4_mir_diag(v4_trust_me_missing_brace_mir, 0))
+
+pilot v4_trust_me_missing_level_text = v4_trust_me_missing_level_source()
+pilot v4_trust_me_missing_level_stream = v4_lex_text(5, v4_trust_me_missing_level_text)
+pilot v4_trust_me_missing_level_tree = v4_parse_stream(5, v4_trust_me_missing_level_stream)
+pilot v4_trust_me_missing_level_hir = v4_hir_lower_tree(5, v4_trust_me_missing_level_tree)
+pilot v4_trust_me_missing_level_resolve = v4_resolve_lower_hir(5, v4_trust_me_missing_level_hir)
+pilot v4_trust_me_missing_level_ty = v4_ty_lower_resolve(5, v4_trust_me_missing_level_resolve)
+pilot v4_trust_me_missing_level_mir = v4_mir_lower_ty(5, v4_trust_me_missing_level_ty)
+
+say "trust-me-missing-level-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_trust_me_missing_level_mir))
+say "trust-me-missing-level-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_trust_me_missing_level_mir, 0))
+say "trust-me-missing-level-mir-diag0-help=" + v4_diag_help(v4_mir_diag(v4_trust_me_missing_level_mir, 0))
