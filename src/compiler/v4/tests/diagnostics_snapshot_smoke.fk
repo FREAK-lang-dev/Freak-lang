@@ -95,6 +95,29 @@ task v4_diagnostics_snapshot_layout_source() -> word {
     give back src
 }
 
+task v4_diagnostics_snapshot_repr_source() -> word {
+    pilot src = "@repr(bytes)\n"
+    src = src + "variant BadRepr {\n"
+    src = src + "    A\n"
+    src = src + "}\n"
+    src = src + "@repr(u16)\n"
+    src = src + "variant PayloadKind {\n"
+    src = src + "    Data " + v4_diagnostics_snapshot_braces(" value: int ") + "\n"
+    src = src + "}\n"
+    src = src + "@repr(u8)\n"
+    src = src + "shape Nope {\n"
+    src = src + "    value: std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "@repr(i16)\n"
+    src = src + "variant BadExpr {\n"
+    src = src + "    A = nope\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_diagnostics_snapshot_extern_source() -> word {
     pilot src = "@layout(C)\n"
     src = src + "shape BadHeader {\n"
@@ -107,6 +130,22 @@ task v4_diagnostics_snapshot_extern_source() -> word {
     src = src + "shape PlainVec {\n"
     src = src + "    x: int\n"
     src = src + "}\n"
+    src = src + "variant PlainPaint {\n"
+    src = src + "    Idle\n"
+    src = src + "    Fire\n"
+    src = src + "}\n"
+    src = src + "@repr(u32)\n"
+    src = src + "variant PayloadPaint {\n"
+    src = src + "    Fire " + v4_diagnostics_snapshot_braces(" power: std::ffi::c_int ") + "\n"
+    src = src + "}\n"
+    src = src + "@layout(C)\n"
+    src = src + "shape BadRouteFrame {\n"
+    src = src + "    mode: PlainPaint\n"
+    src = src + "}\n"
+    src = src + "@layout(C)\n"
+    src = src + "shape BadPayloadFrame {\n"
+    src = src + "    mode: PayloadPaint\n"
+    src = src + "}\n"
     src = src + "extern [C] {\n"
     src = src + "    task puts(text: word) -> int\n"
     src = src + "    task ship(header: BadHeader) -> void\n"
@@ -114,6 +153,11 @@ task v4_diagnostics_snapshot_extern_source() -> word {
     src = src + "    task scan(text: *const word) -> std::ffi::c_int\n"
     src = src + "    task trace(points: *const PlainVec) -> std::ffi::c_int\n"
     src = src + "    task send(box: BadPointer) -> std::ffi::c_int\n"
+    src = src + "    task tint(mode: PlainPaint) -> std::ffi::c_int\n"
+    src = src + "    task current() -> PlainPaint\n"
+    src = src + "    task payload(mode: PayloadPaint) -> std::ffi::c_int\n"
+    src = src + "    task palette(modes: *const PlainPaint) -> std::ffi::c_int\n"
+    src = src + "    task payloads(modes: *const PayloadPaint) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back 0\n"
@@ -217,6 +261,7 @@ pilot v4_diagnostics_snapshot_lifetime_id = v4_diagnostics_text_cached("diagnost
 pilot v4_diagnostics_snapshot_const_id = v4_diagnostics_text_cached("diagnostics-snapshot-const.fk", v4_diagnostics_snapshot_const_source())
 pilot v4_diagnostics_snapshot_const_task_id = v4_diagnostics_text_cached("diagnostics-snapshot-const-task.fk", v4_diagnostics_snapshot_const_task_source())
 pilot v4_diagnostics_snapshot_layout_id = v4_diagnostics_text_cached("diagnostics-snapshot-layout.fk", v4_diagnostics_snapshot_layout_source())
+pilot v4_diagnostics_snapshot_repr_id = v4_diagnostics_text_cached("diagnostics-snapshot-repr.fk", v4_diagnostics_snapshot_repr_source())
 pilot v4_diagnostics_snapshot_extern_id = v4_diagnostics_text_cached("diagnostics-snapshot-extern.fk", v4_diagnostics_snapshot_extern_source())
 pilot v4_diagnostics_snapshot_extern_link_id = v4_diagnostics_text_cached("diagnostics-snapshot-extern-link.fk", v4_diagnostics_snapshot_extern_link_source())
 pilot v4_diagnostics_snapshot_extern_variadic_id = v4_diagnostics_text_cached("diagnostics-snapshot-extern-variadic.fk", v4_diagnostics_snapshot_extern_variadic_source())
@@ -244,10 +289,19 @@ say "const-task-diagnostic7-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnos
 say "layout-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_layout_id, 0))
 say "layout-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_layout_id, 1))
 say "layout-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_layout_id, 2))
+say "repr-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_repr_id, 0))
+say "repr-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_repr_id, 1))
+say "repr-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_repr_id, 2))
+say "repr-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_repr_id, 3))
 say "extern-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 0))
 say "extern-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 1))
 say "extern-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 2))
 say "extern-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 3))
+say "extern-diagnostic11-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 11))
+say "extern-diagnostic12-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 12))
+say "extern-diagnostic13-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 13))
+say "extern-diagnostic14-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 14))
+say "extern-diagnostic15-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_id, 15))
 say "extern-link-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_link_id, 0))
 say "extern-link-diagnostic5-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_link_id, 5))
 say "extern-variadic-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_snapshot_extern_variadic_id, 0))
@@ -329,6 +383,18 @@ say "restored-layout-diagnostic1=" + v4_diag_message(v4_diagnostics_diag(v4_diag
 say "restored-layout-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_layout_restored_id, 1))
 say "restored-layout-diagnostic2=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_layout_restored_id, 2))
 say "restored-layout-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_layout_restored_id, 2))
+say v4_driver_confirm_restored_document_text("diagnostics-snapshot-repr.fk", v4_diagnostics_snapshot_repr_source())
+pilot v4_diagnostics_repr_file = v4_source_find("diagnostics-snapshot-repr.fk")
+pilot v4_diagnostics_repr_fingerprint = v4_source_fingerprint(v4_diagnostics_repr_file)
+pilot v4_diagnostics_repr_restored_id = word_to_int(v4_query_get(v4_diagnostics_query_key("diagnostics-snapshot-repr.fk"), v4_diagnostics_repr_fingerprint))
+say "restored-repr-diagnostic0=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_repr_restored_id, 0))
+say "restored-repr-diagnostic0-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_repr_restored_id, 0))
+say "restored-repr-diagnostic1=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_repr_restored_id, 1))
+say "restored-repr-diagnostic1-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_repr_restored_id, 1))
+say "restored-repr-diagnostic2=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_repr_restored_id, 2))
+say "restored-repr-diagnostic2-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_repr_restored_id, 2))
+say "restored-repr-diagnostic3=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_repr_restored_id, 3))
+say "restored-repr-diagnostic3-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_repr_restored_id, 3))
 say v4_driver_confirm_restored_document_text("diagnostics-snapshot-extern.fk", v4_diagnostics_snapshot_extern_source())
 pilot v4_diagnostics_extern_file = v4_source_find("diagnostics-snapshot-extern.fk")
 pilot v4_diagnostics_extern_fingerprint = v4_source_fingerprint(v4_diagnostics_extern_file)
@@ -347,6 +413,16 @@ say "restored-extern-diagnostic6=" + v4_diag_message(v4_diagnostics_diag(v4_diag
 say "restored-extern-diagnostic6-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 6))
 say "restored-extern-diagnostic7=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 7))
 say "restored-extern-diagnostic7-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 7))
+say "restored-extern-diagnostic11=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 11))
+say "restored-extern-diagnostic11-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 11))
+say "restored-extern-diagnostic12=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 12))
+say "restored-extern-diagnostic12-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 12))
+say "restored-extern-diagnostic13=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 13))
+say "restored-extern-diagnostic13-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 13))
+say "restored-extern-diagnostic14=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 14))
+say "restored-extern-diagnostic14-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 14))
+say "restored-extern-diagnostic15=" + v4_diag_message(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 15))
+say "restored-extern-diagnostic15-span=" + v4_diag_span(v4_diagnostics_diag(v4_diagnostics_extern_restored_id, 15))
 say v4_driver_confirm_restored_document_text("diagnostics-snapshot-extern-link.fk", v4_diagnostics_snapshot_extern_link_source())
 pilot v4_diagnostics_extern_link_file = v4_source_find("diagnostics-snapshot-extern-link.fk")
 pilot v4_diagnostics_extern_link_fingerprint = v4_source_fingerprint(v4_diagnostics_extern_link_file)
