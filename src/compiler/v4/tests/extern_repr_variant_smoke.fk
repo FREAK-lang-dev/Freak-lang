@@ -1,0 +1,80 @@
+-- V4 repr variant smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_repr_variant_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_repr_variant_good_source() -> word {
+    pilot src = "@repr(u32)\n"
+    src = src + "variant MessageKind {\n"
+    src = src + "    Paint = 15\n"
+    src = src + "    Destroy = 2\n"
+    src = src + "    Idle\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_repr_variant_bad_source() -> word {
+    pilot src = "@repr(bytes)\n"
+    src = src + "variant BadRepr {\n"
+    src = src + "    A\n"
+    src = src + "}\n"
+    src = src + "@repr(u16)\n"
+    src = src + "variant PayloadKind {\n"
+    src = src + "    Data " + v4_repr_variant_braces(" value: int ") + "\n"
+    src = src + "}\n"
+    src = src + "@repr(u8)\n"
+    src = src + "shape Nope {\n"
+    src = src + "    value: std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "@repr(i16)\n"
+    src = src + "variant BadExpr {\n"
+    src = src + "    A = nope\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_repr_variant_good_text = v4_repr_variant_good_source()
+pilot v4_repr_variant_good_stream = v4_lex_text(0, v4_repr_variant_good_text)
+pilot v4_repr_variant_good_tree = v4_parse_stream(0, v4_repr_variant_good_stream)
+pilot v4_repr_variant_good_hir = v4_hir_lower_tree(0, v4_repr_variant_good_tree)
+pilot v4_repr_variant_good_resolve = v4_resolve_lower_hir(0, v4_repr_variant_good_hir)
+pilot v4_repr_variant_good_ty = v4_ty_lower_resolve(0, v4_repr_variant_good_resolve)
+pilot v4_repr_variant_good_sig = v4_ty_route_signature_id_for_name(v4_repr_variant_good_ty, "MessageKind")
+
+pilot v4_repr_variant_bad_text = v4_repr_variant_bad_source()
+pilot v4_repr_variant_bad_stream = v4_lex_text(0, v4_repr_variant_bad_text)
+pilot v4_repr_variant_bad_tree = v4_parse_stream(0, v4_repr_variant_bad_stream)
+pilot v4_repr_variant_bad_hir = v4_hir_lower_tree(0, v4_repr_variant_bad_tree)
+pilot v4_repr_variant_bad_resolve = v4_resolve_lower_hir(0, v4_repr_variant_bad_hir)
+pilot v4_repr_variant_bad_ty = v4_ty_lower_resolve(0, v4_repr_variant_bad_resolve)
+
+say v4_hir_summary(v4_repr_variant_good_hir)
+say "repr-variant-good-attr=" + v4_ty_signature_repr(v4_repr_variant_good_ty, v4_repr_variant_good_sig)
+say "repr-variant-good-kind=" + v4_ty_signature_repr_kind(v4_repr_variant_good_ty, v4_repr_variant_good_sig)
+say "repr-variant-good-case-count=" + word_from_int(v4_ty_route_case_count(v4_repr_variant_good_ty, v4_repr_variant_good_sig))
+say "repr-variant-good-paint-explicit=" + v4_ty_route_case_explicit_discriminant_text(v4_repr_variant_good_ty, "MessageKind", "Paint")
+say "repr-variant-good-paint-value=" + v4_ty_route_case_discriminant_value(v4_repr_variant_good_ty, "MessageKind", "Paint")
+say "repr-variant-good-destroy-explicit=" + v4_ty_route_case_explicit_discriminant_text(v4_repr_variant_good_ty, "MessageKind", "Destroy")
+say "repr-variant-good-destroy-value=" + v4_ty_route_case_discriminant_value(v4_repr_variant_good_ty, "MessageKind", "Destroy")
+say "repr-variant-good-idle-explicit=" + v4_ty_route_case_explicit_discriminant_text(v4_repr_variant_good_ty, "MessageKind", "Idle")
+say "repr-variant-good-idle-value=" + v4_ty_route_case_discriminant_value(v4_repr_variant_good_ty, "MessageKind", "Idle")
+say "repr-variant-good-diag-count=" + word_from_int(v4_ty_diag_count(v4_repr_variant_good_ty))
+
+say v4_ty_summary(v4_repr_variant_bad_ty)
+say "repr-variant-bad-diag-count=" + word_from_int(v4_ty_diag_count(v4_repr_variant_bad_ty))
+say "repr-variant-bad-diag0-message=" + v4_diag_message(v4_ty_diag(v4_repr_variant_bad_ty, 0))
+say "repr-variant-bad-diag0-help=" + v4_diag_help(v4_ty_diag(v4_repr_variant_bad_ty, 0))
+say "repr-variant-bad-diag1-message=" + v4_diag_message(v4_ty_diag(v4_repr_variant_bad_ty, 1))
+say "repr-variant-bad-diag1-help=" + v4_diag_help(v4_ty_diag(v4_repr_variant_bad_ty, 1))
+say "repr-variant-bad-diag2-message=" + v4_diag_message(v4_ty_diag(v4_repr_variant_bad_ty, 2))
+say "repr-variant-bad-diag2-help=" + v4_diag_help(v4_ty_diag(v4_repr_variant_bad_ty, 2))
+say "repr-variant-bad-diag3-message=" + v4_diag_message(v4_ty_diag(v4_repr_variant_bad_ty, 3))
+say "repr-variant-bad-diag3-help=" + v4_diag_help(v4_ty_diag(v4_repr_variant_bad_ty, 3))

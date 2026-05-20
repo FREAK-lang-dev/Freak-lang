@@ -748,7 +748,7 @@ task v4_mir_add_type_mismatch_error(mir_id: int, span: word, message: word, help
         pilot ty_id = v4_mir_ty_id(mir_id)
         pilot expected_surface = v4_ty_canonical_type(ty_id, expected_ty)
         pilot actual_surface = v4_ty_canonical_type(ty_id, actual_ty)
-        v4_mir_add_type_error(mir_id, span, "callback value must use extern ABI", context + " expects " + expected_surface + "; " + v4_ty_ffi_boundary_help(actual_surface, context))
+        v4_mir_add_type_error(mir_id, span, "callback value must use extern ABI", context + " expects " + expected_surface + "; " + v4_ty_ffi_boundary_help(v4_mir_ty_id(mir_id), actual_surface, context))
         give back
     }
     v4_mir_add_type_error(mir_id, span, message, help)

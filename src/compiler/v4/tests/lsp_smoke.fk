@@ -104,6 +104,29 @@ task v4_lsp_layout_diag_source() -> word {
     give back src
 }
 
+task v4_lsp_repr_diag_source() -> word {
+    pilot src = "@repr(bytes)\n"
+    src = src + "variant BadRepr {\n"
+    src = src + "    A\n"
+    src = src + "}\n"
+    src = src + "@repr(u16)\n"
+    src = src + "variant PayloadKind {\n"
+    src = src + "    Data " + v4_lsp_braces(" value: int ") + "\n"
+    src = src + "}\n"
+    src = src + "@repr(u8)\n"
+    src = src + "shape Nope {\n"
+    src = src + "    value: std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "@repr(i16)\n"
+    src = src + "variant BadExpr {\n"
+    src = src + "    A = nope\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_lsp_extern_diag_source() -> word {
     pilot src = "@layout(C)\n"
     src = src + "shape BadHeader {\n"
@@ -116,6 +139,22 @@ task v4_lsp_extern_diag_source() -> word {
     src = src + "shape PlainVec {\n"
     src = src + "    x: int\n"
     src = src + "}\n"
+    src = src + "variant PlainPaint {\n"
+    src = src + "    Idle\n"
+    src = src + "    Fire\n"
+    src = src + "}\n"
+    src = src + "@repr(u32)\n"
+    src = src + "variant PayloadPaint {\n"
+    src = src + "    Fire " + v4_lsp_braces(" power: std::ffi::c_int ") + "\n"
+    src = src + "}\n"
+    src = src + "@layout(C)\n"
+    src = src + "shape BadRouteFrame {\n"
+    src = src + "    mode: PlainPaint\n"
+    src = src + "}\n"
+    src = src + "@layout(C)\n"
+    src = src + "shape BadPayloadFrame {\n"
+    src = src + "    mode: PayloadPaint\n"
+    src = src + "}\n"
     src = src + "extern [C] {\n"
     src = src + "    task puts(text: word) -> int\n"
     src = src + "    task ship(header: BadHeader) -> void\n"
@@ -123,6 +162,11 @@ task v4_lsp_extern_diag_source() -> word {
     src = src + "    task scan(text: *const word) -> std::ffi::c_int\n"
     src = src + "    task trace(points: *const PlainVec) -> std::ffi::c_int\n"
     src = src + "    task send(box: BadPointer) -> std::ffi::c_int\n"
+    src = src + "    task tint(mode: PlainPaint) -> std::ffi::c_int\n"
+    src = src + "    task current() -> PlainPaint\n"
+    src = src + "    task payload(mode: PayloadPaint) -> std::ffi::c_int\n"
+    src = src + "    task palette(modes: *const PlainPaint) -> std::ffi::c_int\n"
+    src = src + "    task payloads(modes: *const PayloadPaint) -> std::ffi::c_int\n"
     src = src + "}\n"
     src = src + "task main() -> int {\n"
     src = src + "    give back 0\n"
@@ -443,6 +487,7 @@ say v4_lsp_diagnostics_text("lsp_lifetime.fk", v4_lsp_lifetime_diag_source())
 say v4_lsp_diagnostics_text("lsp_const_diag.fk", v4_lsp_const_diag_source())
 say v4_lsp_diagnostics_text("lsp_const_task_diag.fk", v4_lsp_const_task_diag_source())
 say v4_lsp_diagnostics_text("lsp_layout_diag.fk", v4_lsp_layout_diag_source())
+say v4_lsp_diagnostics_text("lsp_repr_diag.fk", v4_lsp_repr_diag_source())
 say v4_lsp_diagnostics_text("lsp_extern_diag.fk", v4_lsp_extern_diag_source())
 say v4_lsp_diagnostics_text("lsp_extern_link_diag.fk", v4_lsp_extern_link_diag_source())
 say v4_lsp_diagnostics_text("lsp_extern_variadic_diag.fk", v4_lsp_extern_variadic_diag_source())

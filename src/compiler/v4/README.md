@@ -50,9 +50,14 @@ compile-time lengths with root-constant integer arithmetic,
 generic doctrine bounds plus multi-bound method/editor enforcement, and named
 call-site arguments across task calls plus instance/associated method calls.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
-carriage, `@layout(C)`, `@layout(C, packed=N)`, and `@layout(transparent)`
+carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
+fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts
 through TY queries with boundary-safety diagnostics for non-FFI extern types,
-raw-pointer pointee targets, and non-FFI layout fields. Extern blocks also carry `link="..."` library
+raw-pointer pointee targets, non-FFI layout fields, bad repr kinds, payload
+cases under repr, and non-constant explicit discriminants. Fieldless
+`@repr(...)` routes and variants are now accepted as FFI-safe extern
+parameters, returns, raw-pointer targets, and `@layout(C)` fields; payload or
+unrepr'd variants stop with route-specific diagnostics. Extern blocks also carry `link="..."` library
 metadata, member-level `@link_name("...")` symbol overrides, and final
 extern-only `args: ...` variadics through TY, MIR, LLVM declaration/call
 plans, scalar vararg promotion for `tiny`/`bool`/`char`/`float32` tails, query
@@ -82,7 +87,12 @@ diagnostic. Coercion through intermediate `pilot slot: extern [ABI]... = my_hook
 let-bindings still hits a pre-existing V4 phantom-local-IR issue that
 applies to any `pilot x: T = some_symbol`, so that surface is handled by
 a follow-up rather than the FFI lane. The runtime panic-catch inside the
-trampoline body remains later FFI work.
+trampoline body remains later FFI work. Full panic-abort guarantees across
+callback boundaries remain later FFI work.
+The current smoke lane now also proves the full core calling-convention matrix
+(`fastcall`, `thiscall`, `vectorcall`, `win64`, `sysv64`, plus the existing
+`C`/`cdecl`/`stdcall`/`system`) through direct extern calls, indirect callback
+calls, and LLVM declaration/call lowering.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 
