@@ -76,23 +76,15 @@ task cli_doctor(fix_mode: bool) -> void {
 
     -- ── 1. clang ──────────────────────────────────────────
     say "  " + C_BWHITE + "[1/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " clang"
-    pilot clang_exit = process::exec("clang --version")
-    if clang_exit == 0 {
-        pilot clang_ver: word = process::exec_capture("clang --version")
-        -- First line of clang version output
-        pilot cv_line = ""
-        pilot cvi = 0
-        pilot cv_done = false
-        repeat until cv_done {
-            if cvi >= clang_ver.length() { cv_done = true }
-            else {
-                pilot cch: word = clang_ver.char_at(cvi)
-                if cch == "\n" or cch == "\r" { cv_done = true }
-                else { cv_line = cv_line + cch }
-            }
-            cvi += 1
-        }
+    pilot clang_cmd = cli_find_clang_command()
+    pilot clang_ok = false
+    if cli_clang_command_works(clang_cmd) {
+        clang_ok = true
+        pilot cv_line: word = cli_clang_version_line(clang_cmd)
         say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + cv_line + C_RESET
+        if clang_cmd != "clang" {
+            say "        " + C_DIM + "using: " + clang_cmd + C_RESET
+        }
         checks_passed += 1
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " clang " + C_RED + "not found" + C_RESET
@@ -101,9 +93,23 @@ task cli_doctor(fix_mode: bool) -> void {
             say "        " + C_DIM + "Attempting auto-install..." + C_RESET
             pilot clang_fix = cli_install_clang(os_tag)
             if clang_fix == 0 {
-                say "        " + C_BGREEN + SYM_CHECK + C_RESET + " clang installed!"
-                checks_passed += 1
-                all_ok = true
+                clang_cmd = cli_find_clang_command()
+                if cli_clang_command_works(clang_cmd) {
+                    clang_ok = true
+                    pilot cv_line2: word = cli_clang_version_line(clang_cmd)
+                    say "        " + C_BGREEN + SYM_CHECK + C_RESET + " clang installed: " + C_DIM + cv_line2 + C_RESET
+                    if clang_cmd != "clang" {
+                        say "        " + C_DIM + "using: " + clang_cmd + C_RESET
+                    }
+                    checks_passed += 1
+                    all_ok = true
+                } else {
+                    say "        " + C_BYELLOW + SYM_RING + C_RESET + " LLVM installer finished, but this terminal still cannot run clang."
+                    if is_win {
+                        say "        " + C_DIM + "Close and reopen the terminal so PATH refreshes, then rerun freak doctor." + C_RESET
+                    }
+                    all_ok = false
+                }
             }
         } else {
             say "        " + C_DIM + "Fix: " + C_RESET + "run " + C_BWHITE + "freak doctor --fix" + C_RESET
@@ -123,10 +129,10 @@ task cli_doctor(fix_mode: bool) -> void {
     pilot lld_found = false
     if is_win {
         -- "where" checks PATH without running the binary
-        pilot lld_exit = process::exec("where lld-link")
+        pilot lld_exit = process::exec("where lld-link >nul 2>nul")
         if lld_exit == 0 { lld_found = true }
     } else {
-        pilot lld_exit = process::exec("ld.lld --version")
+        pilot lld_exit = process::exec("ld.lld --version >/dev/null 2>/dev/null")
         if lld_exit == 0 { lld_found = true }
     }
     if lld_found {
@@ -202,7 +208,7 @@ task cli_doctor(fix_mode: bool) -> void {
 
     -- ── 5. Compile pipeline test ──────────────────────────
     say "  " + C_BWHITE + "[5/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " compile pipeline"
-    if clang_exit == 0 and rt_dir != "" {
+    if clang_ok and rt_dir != "" {
         pilot test_src = "say \"FREAK doctor test\""
         pilot test_path = "_freak_doctor_test.fk"
         fs::write(test_path, test_src)

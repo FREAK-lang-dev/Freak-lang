@@ -71,6 +71,96 @@ pilot SYM_ROCKET = "\xf0\x9f\x9a\x80"
 pilot SYM_FIRE   = "\xf0\x9f\x94\xa5"
 
 -- ── RGB Helper ───────────────────────────────────────
+pilot CLI_ASCII_ART = false
+
+task cli_truthy_env(value: word) -> bool {
+    if value == "1" or value == "true" or value == "TRUE" or value == "yes" or value == "YES" {
+        give back true
+    }
+    give back false
+}
+
+task cli_disable_colors() -> void {
+    C_RESET = ""
+    C_BOLD = ""
+    C_DIM = ""
+    C_ITALIC = ""
+    C_ULINE = ""
+    C_BLINK = ""
+    C_STRIKE = ""
+    C_RED = ""
+    C_GREEN = ""
+    C_YELLOW = ""
+    C_BLUE = ""
+    C_MAGENTA = ""
+    C_CYAN = ""
+    C_WHITE = ""
+    C_BRED = ""
+    C_BGREEN = ""
+    C_BYELLOW = ""
+    C_BBLUE = ""
+    C_BMAGENTA = ""
+    C_BCYAN = ""
+    C_BWHITE = ""
+    C_G1 = ""
+    C_G2 = ""
+    C_G3 = ""
+    C_G4 = ""
+    C_G5 = ""
+    C_G6 = ""
+    C_BG_DARK = ""
+}
+
+task cli_use_ascii_decorations() -> void {
+    CLI_ASCII_ART = true
+    BOX_TL = "+"
+    BOX_TR = "+"
+    BOX_BL = "+"
+    BOX_BR = "+"
+    BOX_H = "-"
+    BOX_V = "|"
+    BOX_VR = "+"
+    BOX_VL = "+"
+    SYM_CHECK = "OK"
+    SYM_CROSS = "X"
+    SYM_SPARK = "*"
+    SYM_BOLT = "!"
+    SYM_GEAR = "*"
+    SYM_ARROW = ">"
+    SYM_DOT = "."
+    SYM_RING = "o"
+    SYM_STAR = "*"
+    SYM_SKULL = "X"
+    SYM_ROCKET = "^"
+    SYM_FIRE = "!"
+}
+
+task cli_configure_output() -> void {
+    if process::env("NO_COLOR") != "" or cli_truthy_env(process::env("FREAK_NO_COLOR")) {
+        cli_disable_colors()
+    }
+
+    pilot force_ascii = cli_truthy_env(process::env("FREAK_ASCII"))
+    pilot force_unicode = cli_truthy_env(process::env("FREAK_UNICODE"))
+
+    if not force_ascii and not force_unicode {
+        if process::env("WINDIR") != "" {
+            pilot modern_terminal = false
+            if process::env("WT_SESSION") != "" { modern_terminal = true }
+            if process::env("TERM_PROGRAM") != "" { modern_terminal = true }
+            if process::env("ANSICON") != "" { modern_terminal = true }
+            if process::env("ConEmuANSI") != "" { modern_terminal = true }
+            if not modern_terminal {
+                force_ascii = true
+            }
+        }
+    }
+
+    if force_ascii {
+        cli_use_ascii_decorations()
+    }
+}
+
 task cli_rgb(r: int, g: int, b: int) -> word {
     give back "\x1b[38;2;" + word_from_int(r) + ";" + word_from_int(g) + ";" + word_from_int(b) + "m"
 }
@@ -140,6 +230,20 @@ task cli_show_version() -> void {
 
 -- ── Gradient Banner ──────────────────────────────────
 task cli_show_banner() -> void {
+    if CLI_ASCII_ART {
+        say ""
+        say "  " + C_G1 + "FFFFFF  RRRRR   EEEEE   AAA   K   K" + C_RESET
+        say "  " + C_G2 + "F       R    R  E      A   A  K  K " + C_RESET
+        say "  " + C_G3 + "FFFF    RRRRR   EEEE   AAAAA  KKK  " + C_RESET
+        say "  " + C_G4 + "F       R   R   E      A   A  K  K " + C_RESET
+        say "  " + C_G5 + "F       R    R  EEEEE  A   A  K   K" + C_RESET
+        say ""
+        pilot ascii_tag = "  " + C_DIM + "v" + CLI_VERSION + C_RESET + " " + C_G1 + CLI_CODENAME + C_RESET + C_DIM + " " + BOX_V + " self-hosting compiler " + BOX_V + " LLVM backend" + C_RESET
+        say ascii_tag
+        say ""
+        give back
+    }
+
     say ""
     say "  " + C_G1 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_G2 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97 " + C_G3 + "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_G4 + " \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97 " + C_G5 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97  " + C_G6 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_RESET
     say "  " + C_G1 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d" + C_G2 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_G3 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d" + C_G4 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97" + C_G5 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x91 " + C_G6 + "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x9d" + C_RESET

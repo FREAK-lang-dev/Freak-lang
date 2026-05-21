@@ -192,6 +192,91 @@ task cli_is_windows() -> bool {
     give back false
 }
 
+task cli_first_line(text: word) -> word {
+    pilot line = ""
+    pilot i = 0
+    pilot finished = false
+    repeat until finished {
+        if i >= text.length() { finished = true }
+        else {
+            pilot ch: word = text.char_at(i)
+            if ch == "\n" or ch == "\r" { finished = true }
+            else { line = line + ch }
+        }
+        i += 1
+    }
+    give back line
+}
+
+task cli_quote_cmd_path(path: word) -> word {
+    give back "\"" + path + "\""
+}
+
+task cli_find_clang_command() -> word {
+    pilot override: word = process::env("FREAK_CLANG")
+    if override != "" {
+        give back override
+    }
+
+    if cli_is_windows() {
+        if process::exec("where clang >nul 2>nul") == 0 { give back "clang" }
+        if process::exec("where clang.exe >nul 2>nul") == 0 { give back "clang" }
+
+        pilot llvm_home: word = process::env("LLVM_HOME")
+        if llvm_home != "" {
+            pilot llvm_home_clang = llvm_home + "/bin/clang.exe"
+            if fs::exists(llvm_home_clang) { give back cli_quote_cmd_path(llvm_home_clang) }
+        }
+
+        pilot program_files: word = process::env("ProgramFiles")
+        if program_files != "" {
+            pilot pf_clang = program_files + "/LLVM/bin/clang.exe"
+            if fs::exists(pf_clang) { give back cli_quote_cmd_path(pf_clang) }
+        }
+
+        pilot program_w6432: word = process::env("ProgramW6432")
+        if program_w6432 != "" {
+            pilot pw_clang = program_w6432 + "/LLVM/bin/clang.exe"
+            if fs::exists(pw_clang) { give back cli_quote_cmd_path(pw_clang) }
+        }
+
+        pilot program_files_x86: word = process::env("ProgramFiles(x86)")
+        if program_files_x86 != "" {
+            pilot pfx_clang = program_files_x86 + "/LLVM/bin/clang.exe"
+            if fs::exists(pfx_clang) { give back cli_quote_cmd_path(pfx_clang) }
+        }
+
+        pilot local_appdata: word = process::env("LOCALAPPDATA")
+        if local_appdata != "" {
+            pilot local_clang = local_appdata + "/Programs/LLVM/bin/clang.exe"
+            if fs::exists(local_clang) { give back cli_quote_cmd_path(local_clang) }
+        }
+    } else {
+        if process::exec("clang --version >/dev/null 2>/dev/null") == 0 { give back "clang" }
+        if process::exec("clang-18 --version >/dev/null 2>/dev/null") == 0 { give back "clang-18" }
+        if process::exec("clang-17 --version >/dev/null 2>/dev/null") == 0 { give back "clang-17" }
+        if process::exec("clang-16 --version >/dev/null 2>/dev/null") == 0 { give back "clang-16" }
+    }
+
+    give back ""
+}
+
+task cli_clang_version_line(clang_cmd: word) -> word {
+    if clang_cmd == "" { give back "" }
+    pilot clang_ver: word = process::exec_capture(clang_cmd + " --version")
+    give back cli_first_line(clang_ver)
+}
+
+task cli_clang_command_works(clang_cmd: word) -> bool {
+    if clang_cmd == "" { give back false }
+    if cli_is_windows() {
+        if process::exec(clang_cmd + " --version >nul 2>nul") == 0 { give back true }
+    } else {
+        if process::exec(clang_cmd + " --version >/dev/null 2>/dev/null") == 0 { give back true }
+    }
+    give back false
+}
+
 task cli_has_precompiled_runtime(runtime_dir: word) -> bool {
     -- Check if pre-compiled .obj/.o runtime files exist (bundle mode)
     pilot rt_obj = runtime_dir + "/freak_runtime.obj"
@@ -249,7 +334,9 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
 
         -- Step 1: Compile LLVM IR to object file
         pilot user_obj = cli_strip_fk(src_file) + obj_ext
-        pilot cc_cmd = "clang -c -g -o " + user_obj + " " + transpiled_file + " -O" + opt + " -w"
+        pilot clang_cmd = cli_find_clang_command()
+        if clang_cmd == "" { clang_cmd = "clang" }
+        pilot cc_cmd = clang_cmd + " -c -g -o " + user_obj + " " + transpiled_file + " -O" + opt + " -w"
         if cross != "" { cc_cmd = cc_cmd + " --target=" + cross }
 
         say "  " + C_DIM + SYM_GEAR + "  Compiling IR..." + C_RESET
@@ -315,7 +402,9 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         runtime_file = runtime_dir + "/freak_runtime.c"
     }
 
-    pilot cmd = "clang -g -o " + out_bin + " " + transpiled_file + " " + runtime_file
+    pilot clang_cmd = cli_find_clang_command()
+    if clang_cmd == "" { clang_cmd = "clang" }
+    pilot cmd = clang_cmd + " -g -o " + out_bin + " " + transpiled_file + " " + runtime_file
     cmd = cmd + " -I" + runtime_dir + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
 
     if not is_win {
