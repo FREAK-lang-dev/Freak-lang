@@ -1,7 +1,7 @@
 class Freak < Formula
   desc "FREAK programming language compiler and package manager"
   homepage "https://github.com/FREAK-lang-dev/Freak-lang"
-  version "0.13.3"
+  version "0.14.0"
   license "MIT"
 
   on_macos do
