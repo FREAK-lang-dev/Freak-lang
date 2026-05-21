@@ -273,8 +273,17 @@ task freakc_cli_main() -> void {
     -- Doctor (setup diagnostics)
     if subcmd == "doctor" {
         pilot fix_mode = false
-        if args_cnt >= 3 {
-            if process::arg(2) == "--fix" { fix_mode = true }
+        pilot json_mode = false
+        pilot doctor_arg_i = 2
+        repeat until doctor_arg_i >= args_cnt {
+            pilot doctor_arg: word = process::arg(doctor_arg_i)
+            if doctor_arg == "--fix" { fix_mode = true }
+            if doctor_arg == "--json" { json_mode = true }
+            doctor_arg_i += 1
+        }
+        if json_mode {
+            cli_doctor_json()
+            give back
         }
         cli_doctor(fix_mode)
         give back

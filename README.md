@@ -144,6 +144,13 @@ This downloads the latest `freak` binary and runtime to `~/.freak` (or `%APPDATA
 
 > **Requires:** [Clang](https://releases.llvm.org/) for native compilation. Most systems have it already — run `clang --version` to check.
 
+Verify the install:
+
+```bash
+freak doctor
+freak doctor --json   # passive machine-readable report for editors and scripts
+```
+
 ### Your First Program
 
 Create `hello.fk`:

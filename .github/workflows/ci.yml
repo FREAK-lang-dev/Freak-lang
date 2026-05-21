@@ -95,6 +95,19 @@ jobs:
         shell: bash
         run: ./build/freak$EXT version
 
+      - name: CLI smoke test - doctor JSON
+        shell: bash
+        run: |
+          ./build/freak$EXT doctor --json > doctor.json
+          python - <<'PY'
+          import json
+          with open("doctor.json", "r", encoding="utf-8") as handle:
+              doc = json.load(handle)
+          assert doc["schema"] == "freak.doctor.v1"
+          assert doc["checks"]["stdlib"]["modules_expected"] == 10
+          assert "clang" in doc["checks"]
+          PY
+
       - name: CLI smoke test — build + run hello.fk
         shell: bash
         run: |
