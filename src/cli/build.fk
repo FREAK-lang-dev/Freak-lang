@@ -212,10 +212,17 @@ task cli_quote_cmd_path(path: word) -> word {
     give back "\"" + path + "\""
 }
 
+task cli_normalize_cmd_override(cmd: word) -> word {
+    if cmd == "" { give back "" }
+    if cmd.char_at(0) == "\"" { give back cmd }
+    if cmd.contains(" ") { give back cli_quote_cmd_path(cmd) }
+    give back cmd
+}
+
 task cli_find_clang_command() -> word {
     pilot override: word = process::env("FREAK_CLANG")
     if override != "" {
-        give back override
+        give back cli_normalize_cmd_override(override)
     }
 
     if cli_is_windows() {
