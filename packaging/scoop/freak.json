@@ -1,9 +1,9 @@
 {
-  "version": "0.13.3",
+  "version": "0.14.0",
   "description": "FREAK programming language compiler and package manager",
   "homepage": "https://github.com/FREAK-lang-dev/Freak-lang",
   "license": "MIT",
-  "url": "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v0.13.3/freak-windows-x64.zip",
+  "url": "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v0.14.0/freak-windows-x64.zip",
   "hash": "SCOOP_HASH_PLACEHOLDER",
   "extract_dir": "freak",
   "bin": [
@@ -14,7 +14,7 @@
   "env_set": {
     "FREAK_HOME": "$dir"
   },
-  "post_install": "Write-Output 'FREAK $version (\"Shiranui\") installed. Run: freak version'",
+  "post_install": "Write-Output 'FREAK $version (\"Maverick\") installed. Run: freak version'",
   "checkver": {
     "github": "https://github.com/FREAK-lang-dev/Freak-lang",
     "regex": "v([\\d.]+)"
