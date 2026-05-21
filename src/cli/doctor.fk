@@ -31,6 +31,38 @@ task cli_doctor_json_bool(value: bool) -> word {
     give back "false"
 }
 
+task cli_doctor_normalize_cmd_override(cmd: word) -> word {
+    if cmd == "" { give back "" }
+    if cmd.char_at(0) == "\"" { give back cmd }
+    if cmd.contains(" ") { give back "\"" + cmd + "\"" }
+    give back cmd
+}
+
+task cli_doctor_find_clang_command() -> word {
+    pilot override: word = process::env("FREAK_CLANG")
+    if override != "" {
+        give back cli_doctor_normalize_cmd_override(override)
+    }
+    give back "clang"
+}
+
+task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
+    if clang_cmd == "" { give back false }
+    pilot windir: word = process::env("WINDIR")
+    if windir != "" {
+        if process::exec(clang_cmd + " --version >nul 2>nul") == 0 { give back true }
+    } else {
+        if process::exec(clang_cmd + " --version >/dev/null 2>/dev/null") == 0 { give back true }
+    }
+    give back false
+}
+
+task cli_doctor_clang_version_line(clang_cmd: word) -> word {
+    if clang_cmd == "" { give back "" }
+    pilot clang_ver: word = process::exec_capture(clang_cmd + " --version")
+    give back cli_doctor_first_line(clang_ver)
+}
+
 task cli_doctor_first_line(text: word) -> word {
     pilot line = ""
     pilot i = 0
@@ -80,11 +112,12 @@ task cli_doctor_json() -> void {
         else { os_tag = "linux" }
     }
 
-    pilot clang_cmd = "clang --version 2>/dev/null"
-    if is_win { clang_cmd = "clang --version 2>nul" }
-    pilot clang_out: word = process::exec_capture(clang_cmd)
-    pilot clang_ok = clang_out != ""
-    pilot clang_version = cli_doctor_first_line(clang_out)
+    pilot clang_cmd = cli_doctor_find_clang_command()
+    pilot clang_ok = cli_doctor_clang_command_works(clang_cmd)
+    pilot clang_version = ""
+    if clang_ok {
+        clang_version = cli_doctor_clang_version_line(clang_cmd)
+    }
 
     pilot lld_cmd = "ld.lld --version 2>/dev/null"
     if is_win { lld_cmd = "where lld-link 2>nul" }
@@ -125,6 +158,7 @@ task cli_doctor_json() -> void {
     say "  \"checks\": {"
     say "    \"clang\": {"
     say "      \"ok\": " + cli_doctor_json_bool(clang_ok) + ","
+    say "      \"command\": \"" + cli_doctor_json_escape(clang_cmd) + "\","
     say "      \"version\": \"" + cli_doctor_json_escape(clang_version) + "\""
     say "    },"
     say "    \"lld\": {"
