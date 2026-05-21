@@ -5,6 +5,154 @@
 -- freak doctor --fix  — diagnose AND auto-install missing tools
 -- ===================================================================
 
+task cli_doctor_json_escape(input: word) -> word {
+    pilot out = ""
+    pilot i = 0
+    repeat until i >= input.length() {
+        pilot ch: word = input.char_at(i)
+        if ch == "\\" {
+            out = out + "\\\\"
+        } else if ch == "\"" {
+            out = out + "\\\""
+        } else if ch == "\n" {
+            out = out + "\\n"
+        } else if ch == "\r" {
+            out = out + "\\r"
+        } else {
+            out = out + ch
+        }
+        i += 1
+    }
+    give back out
+}
+
+task cli_doctor_json_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task cli_doctor_first_line(text: word) -> word {
+    pilot line = ""
+    pilot i = 0
+    pilot finished = false
+    repeat until finished {
+        if i >= text.length() {
+            finished = true
+        } else {
+            pilot ch: word = text.char_at(i)
+            if ch == "\n" or ch == "\r" {
+                finished = true
+            } else {
+                line = line + ch
+            }
+        }
+        i += 1
+    }
+    give back line
+}
+
+task cli_doctor_std_module_count(std_dir: word) -> int {
+    if std_dir == "" { give back 0 }
+    pilot mod_count = 0
+    if fs::exists(std_dir + "/math.fk")      { mod_count += 1 }
+    if fs::exists(std_dir + "/math3d.fk")    { mod_count += 1 }
+    if fs::exists(std_dir + "/zip.fk")       { mod_count += 1 }
+    if fs::exists(std_dir + "/string.fk")    { mod_count += 1 }
+    if fs::exists(std_dir + "/convert.fk")   { mod_count += 1 }
+    if fs::exists(std_dir + "/algorithm.fk") { mod_count += 1 }
+    if fs::exists(std_dir + "/json.fk")      { mod_count += 1 }
+    if fs::exists(std_dir + "/http.fk")      { mod_count += 1 }
+    if fs::exists(std_dir + "/version.fk")   { mod_count += 1 }
+    if fs::exists(std_dir + "/runtime.fk")   { mod_count += 1 }
+    give back mod_count
+}
+
+task cli_doctor_json() -> void {
+    pilot os_tag = "unix"
+    pilot is_win = false
+    pilot windir_env: word = process::env("WINDIR")
+    if windir_env != "" {
+        os_tag = "windows"
+        is_win = true
+    } else {
+        pilot uname_out: word = process::exec_capture("uname -s 2>/dev/null")
+        if uname_out.contains("Darwin") { os_tag = "macos" }
+        else { os_tag = "linux" }
+    }
+
+    pilot clang_cmd = "clang --version 2>/dev/null"
+    if is_win { clang_cmd = "clang --version 2>nul" }
+    pilot clang_out: word = process::exec_capture(clang_cmd)
+    pilot clang_ok = clang_out != ""
+    pilot clang_version = cli_doctor_first_line(clang_out)
+
+    pilot lld_cmd = "ld.lld --version 2>/dev/null"
+    if is_win { lld_cmd = "where lld-link 2>nul" }
+    pilot lld_out: word = process::exec_capture(lld_cmd)
+    pilot lld_ok = lld_out != ""
+    pilot lld_version = cli_doctor_first_line(lld_out)
+
+    pilot rt_dir: word = cli_find_runtime_dir()
+    pilot runtime_ok = rt_dir != ""
+    pilot runtime_obj = false
+    pilot llvm_runtime = false
+    if runtime_ok {
+        if is_win {
+            runtime_obj = fs::exists(rt_dir + "/freak_runtime.obj")
+        } else {
+            runtime_obj = fs::exists(rt_dir + "/freak_runtime.o")
+        }
+        llvm_runtime = fs::exists(rt_dir + "/freak_llvm_runtime.c")
+    }
+
+    pilot std_dir: word = cli_find_std_dir()
+    pilot std_modules = cli_doctor_std_module_count(std_dir)
+    pilot std_ok = std_modules >= 10
+
+    pilot all_ok = clang_ok and runtime_ok and std_ok
+    pilot status = "issues"
+    if all_ok { status = "ok" }
+
+    say "{"
+    say "  \"schema\": \"freak.doctor.v1\","
+    say "  \"version\": \"" + cli_doctor_json_escape(CLI_VERSION) + "\","
+    say "  \"codename\": \"" + cli_doctor_json_escape(CLI_CODENAME) + "\","
+    say "  \"status\": \"" + status + "\","
+    say "  \"platform\": {"
+    say "    \"os\": \"" + cli_doctor_json_escape(os_tag) + "\","
+    say "    \"windows\": " + cli_doctor_json_bool(is_win)
+    say "  },"
+    say "  \"checks\": {"
+    say "    \"clang\": {"
+    say "      \"ok\": " + cli_doctor_json_bool(clang_ok) + ","
+    say "      \"version\": \"" + cli_doctor_json_escape(clang_version) + "\""
+    say "    },"
+    say "    \"lld\": {"
+    say "      \"ok\": " + cli_doctor_json_bool(lld_ok) + ","
+    say "      \"optional\": true,"
+    say "      \"version\": \"" + cli_doctor_json_escape(lld_version) + "\""
+    say "    },"
+    say "    \"runtime\": {"
+    say "      \"ok\": " + cli_doctor_json_bool(runtime_ok) + ","
+    say "      \"path\": \"" + cli_doctor_json_escape(rt_dir) + "\","
+    say "      \"precompiled_objects\": " + cli_doctor_json_bool(runtime_obj) + ","
+    say "      \"llvm_runtime\": " + cli_doctor_json_bool(llvm_runtime)
+    say "    },"
+    say "    \"stdlib\": {"
+    say "      \"ok\": " + cli_doctor_json_bool(std_ok) + ","
+    say "      \"path\": \"" + cli_doctor_json_escape(std_dir) + "\","
+    say "      \"modules_found\": " + word_from_int(std_modules) + ","
+    say "      \"modules_expected\": 10"
+    say "    },"
+    say "    \"compile_pipeline\": {"
+    say "      \"ok\": null,"
+    say "      \"skipped\": true,"
+    say "      \"reason\": \"json mode is passive; run freak doctor for the full compile probe\""
+    say "    }"
+    say "  }"
+    say "}"
+}
+
 -- Try to install clang/lld on the current platform.
 -- Returns 0 if installation succeeded (or already installed).
 task cli_install_clang(os_tag: word) -> int {
@@ -181,17 +329,7 @@ task cli_doctor(fix_mode: bool) -> void {
     say "  " + C_BWHITE + "[4/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " standard library"
     pilot std_dir: word = cli_find_std_dir()
     if std_dir != "" {
-        pilot mod_count = 0
-        if fs::exists(std_dir + "/math.fk")      { mod_count += 1 }
-        if fs::exists(std_dir + "/math3d.fk")    { mod_count += 1 }
-        if fs::exists(std_dir + "/zip.fk")       { mod_count += 1 }
-        if fs::exists(std_dir + "/string.fk")    { mod_count += 1 }
-        if fs::exists(std_dir + "/convert.fk")   { mod_count += 1 }
-        if fs::exists(std_dir + "/algorithm.fk") { mod_count += 1 }
-        if fs::exists(std_dir + "/json.fk")      { mod_count += 1 }
-        if fs::exists(std_dir + "/http.fk")      { mod_count += 1 }
-        if fs::exists(std_dir + "/version.fk")   { mod_count += 1 }
-        if fs::exists(std_dir + "/runtime.fk")   { mod_count += 1 }
+        pilot mod_count = cli_doctor_std_module_count(std_dir)
         say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/10 modules in " + C_DIM + std_dir + C_RESET
         checks_passed += 1
     } else {
