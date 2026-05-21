@@ -1079,9 +1079,9 @@ task hangar_install_freak() -> int {
     say cli_box_bot(48)
     say ""
 
-    -- Check if clang is available; suggest install if not
-    pilot clang_test = process::exec("clang --version")
-    if clang_test != 0 {
+    -- Check if clang is available; suggest install if not.
+    pilot clang_cmd: word = cli_find_clang_command()
+    if not cli_clang_command_works(clang_cmd) {
         say "  " + C_BYELLOW + SYM_BOLT + " clang not found" + C_RESET + " — needed to compile .fk programs."
         if is_win {
             say "  Install with: " + C_CYAN + "winget install LLVM.LLVM" + C_RESET

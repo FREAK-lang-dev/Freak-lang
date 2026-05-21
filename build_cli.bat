@@ -6,7 +6,7 @@ if not exist build mkdir build
 if exist build\freakc_cli.fk del build\freakc_cli.fk
 
 rem Standard library
-type std\version.fk >> build\freakc_cli.fk
+type std\version.fk > build\freakc_cli.fk
 
 rem V3 Compiler internals
 type src\compiler\v3\globals.fk >> build\freakc_cli.fk
