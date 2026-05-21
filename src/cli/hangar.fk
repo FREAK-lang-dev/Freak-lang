@@ -834,6 +834,44 @@ task hangar_extract_release_tag_from_text(text: word) -> word {
     give back ""
 }
 
+task hangar_extract_release_download_tag_from_text(text: word) -> word {
+    pilot needle = "/releases/download/"
+    pilot tlen = text.length()
+    pilot nlen = needle.length()
+    pilot i = 0
+    repeat until i >= tlen {
+        pilot found = true
+        pilot ni = 0
+        repeat until ni >= nlen {
+            if i + ni >= tlen {
+                found = false
+            }
+            if found {
+                if text.char_at(i + ni) != needle.char_at(ni) {
+                    found = false
+                }
+            }
+            ni += 1
+        }
+
+        if found {
+            pilot vi = i + nlen
+            pilot tag = ""
+            repeat until vi >= tlen {
+                pilot ch: word = text.char_at(vi)
+                if ch == "\n" or ch == "\r" or ch == "/" or ch == "?" or ch == "#" or ch == "\"" {
+                    give back tag
+                }
+                tag = tag + ch
+                vi += 1
+            }
+            give back tag
+        }
+        i += 1
+    }
+    give back ""
+}
+
 task hangar_fetch_latest_release_tag(is_win: bool) -> word {
     pilot api_resp: word = hangar_fetch_url(HANGAR_RELEASE_API_LATEST, is_win)
     pilot version: word = hangar_extract_json_field(api_resp, "tag_name")
@@ -850,6 +888,22 @@ task hangar_fetch_latest_release_tag(is_win: bool) -> word {
     }
 
     pilot headers2: word = process::exec_capture("curl -fsSI -A \"freak-upgrade\" \"" + HANGAR_RELEASE_LATEST + "\" 2>/dev/null")
+    give back hangar_extract_release_tag_from_text(headers2)
+}
+
+task hangar_fetch_latest_download_release_tag(artifact: word, is_win: bool) -> word {
+    pilot latest_url = HANGAR_RELEASE_LATEST + "/download/" + artifact
+
+    if is_win {
+        pilot headers: word = process::exec_capture("curl.exe -fsSI -A \"freak-upgrade\" \"" + latest_url + "\" 2>nul")
+        pilot version: word = hangar_extract_release_download_tag_from_text(headers)
+        if version != "" { give back version }
+        give back hangar_extract_release_tag_from_text(headers)
+    }
+
+    pilot headers2: word = process::exec_capture("curl -fsSI -A \"freak-upgrade\" \"" + latest_url + "\" 2>/dev/null")
+    pilot version2: word = hangar_extract_release_download_tag_from_text(headers2)
+    if version2 != "" { give back version2 }
     give back hangar_extract_release_tag_from_text(headers2)
 }
 
@@ -922,14 +976,19 @@ task hangar_install_freak() -> int {
     pilot binary_path = bin_dir + "/freak" + ext
     pilot hangar_path = bin_dir + "/hangar" + ext
 
-    -- Fetch latest release tag via GitHub API
+    pilot artifact = "freak-" + platform + ext
+
+    -- Fetch latest release tag via GitHub API, release redirects, or asset redirects.
     say "  Checking latest version..."
     pilot version: word = hangar_fetch_latest_release_tag(is_win)
-    pilot use_latest_redirect = false
     if version == "" {
-        use_latest_redirect = true
-        version = "latest"
-        say "  " + C_BYELLOW + SYM_RING + C_RESET + " latest metadata unavailable; using GitHub latest/download redirect."
+        version = hangar_fetch_latest_download_release_tag(artifact, is_win)
+    }
+    if version == "" {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " Could not resolve latest release tag."
+        say "  " + C_DIM + "Refusing to install a latest/download binary without matching runtime/std refs." + C_RESET
+        say "  Manual download: https://github.com/FREAK-lang-dev/Freak-lang/releases"
+        give back 1
     }
     say "  Latest: " + C_BGREEN + version + C_RESET
 
@@ -940,11 +999,7 @@ task hangar_install_freak() -> int {
     hangar_mkdir(std_dir, is_win)
 
     -- Download freak binary
-    pilot artifact = "freak-" + platform + ext
     pilot base_url = "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/" + version
-    if use_latest_redirect {
-        base_url = HANGAR_RELEASE_LATEST + "/download"
-    }
     pilot freak_url = base_url + "/" + artifact
     say "  Downloading " + C_BWHITE + artifact + C_RESET + "..."
     pilot dl_res = hangar_download_file(freak_url, binary_path, is_win)
@@ -969,9 +1024,6 @@ task hangar_install_freak() -> int {
     -- Download runtime files (prefer .o pre-compiled for bundle mode; fall back to .c)
     say "  Downloading runtime..."
     pilot raw_ref = version
-    if use_latest_redirect {
-        raw_ref = "main"
-    }
     pilot raw_base = "https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/" + raw_ref
 
     -- Pre-compiled object files (needed for bundle mode — no clang for linking)
