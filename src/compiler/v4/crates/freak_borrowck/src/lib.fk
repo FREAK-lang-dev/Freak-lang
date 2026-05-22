@@ -449,6 +449,78 @@ task v4_borrowck_paths_overlap(left: word, right: word) -> bool {
     give back false
 }
 
+task v4_borrowck_path_root(path_text: word) -> word {
+    pilot canon = v4_borrowck_path_canon(path_text)
+    if canon == "" {
+        give back ""
+    }
+    pilot idx = 0
+    repeat until idx >= canon.length() {
+        pilot ch = canon.char_at(idx)
+        if ch == "." or ch == "[" {
+            give back v4_slice(canon, 0, idx)
+        }
+        idx += 1
+    }
+    give back canon
+}
+
+task v4_borrowck_local_mode_for_path(mir_id: int, body_id: int, path_text: word) -> word {
+    pilot root = v4_borrowck_path_root(path_text)
+    if root == "" {
+        give back v4_ty_param_mode_value
+    }
+    give back v4_mir_local_mode_for_name(mir_id, body_id, root)
+}
+
+task v4_borrowck_path_is_lent(mir_id: int, body_id: int, path_text: word) -> bool {
+    pilot mode = v4_borrowck_local_mode_for_path(mir_id, body_id, path_text)
+    give back mode == v4_ty_param_mode_lend or mode == v4_ty_param_mode_lend_mut
+}
+
+task v4_borrowck_lend_contract_help(path_text: word, mode: word, path_kind: word, stmt_id: int, block_id: int) -> word {
+    pilot root = v4_borrowck_path_root(path_text)
+    pilot out = root + " is a " + mode + " parameter"
+    out = out + " in block " + word_from_int(block_id)
+    out = out + " at statement " + word_from_int(stmt_id)
+    if path_kind == v4_borrowck_path_write {
+        out = out + "; use lend mut only when the caller grants exclusive mutation"
+    } else if path_kind == v4_borrowck_path_move {
+        out = out + "; borrowed parameters stay owned by the caller"
+    }
+    give back out
+}
+
+task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
+    pilot conflicts = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    pilot path_idx = 0
+    repeat until path_idx >= path_count {
+        pilot path_kind = v4_borrowck_path_kind(borrow_id, result_id, path_idx)
+        pilot path_text = v4_borrowck_path_text(borrow_id, result_id, path_idx)
+        pilot mode = v4_borrowck_local_mode_for_path(mir_id, body_id, path_text)
+        if mode == v4_ty_param_mode_lend or mode == v4_ty_param_mode_lend_mut {
+            pilot stmt_id = v4_borrowck_path_stmt(borrow_id, result_id, path_idx)
+            pilot block_id = v4_borrowck_path_block(borrow_id, result_id, path_idx)
+            if path_kind == v4_borrowck_path_move {
+                pilot stmt_span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
+                pilot help = v4_borrowck_lend_contract_help(path_text, mode, path_kind, stmt_id, block_id)
+                v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, stmt_span, "Meiya refuses to move out of a borrowed parameter", help))
+                v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                conflicts += 1
+            } else if path_kind == v4_borrowck_path_write and mode == v4_ty_param_mode_lend {
+                pilot write_span = v4_borrowck_write_diag_span(mir_id, body_id, stmt_id)
+                pilot write_help = v4_borrowck_lend_contract_help(path_text, mode, path_kind, stmt_id, block_id)
+                v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, write_span, "Meiya refuses to mutate an immutable lend parameter", write_help))
+                v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                conflicts += 1
+            }
+        }
+        path_idx += 1
+    }
+    give back conflicts
+}
+
 task v4_borrowck_mutable_conflict_help(loan_text: word, loan_stmt: int, block_id: int, write_text: word, write_stmt: int) -> word {
     pilot loan_canon = v4_borrowck_path_canon(loan_text)
     pilot write_canon = v4_borrowck_path_canon(write_text)
@@ -676,7 +748,10 @@ task v4_borrowck_collect_drop_paths(borrow_id: int, result_id: int, mir_id: int,
     pilot local_count = v4_mir_body_local_count(mir_id, body_id)
     pilot local_idx = local_count - 1
     repeat until local_idx < 0 {
-        v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_drop, v4_mir_local_name(mir_id, body_id, local_idx), 0 - 1, 0 - 1)
+        pilot local_mode = v4_mir_local_mode(mir_id, body_id, local_idx)
+        if local_mode != v4_ty_param_mode_lend and local_mode != v4_ty_param_mode_lend_mut {
+            v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_drop, v4_mir_local_name(mir_id, body_id, local_idx), 0 - 1, 0 - 1)
+        }
         local_idx -= 1
     }
 }
@@ -826,6 +901,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         }
         pilot result_id = v4_borrowck_add_result(borrow_id, def_id, body_name, status, 0, 0, 0)
         v4_borrowck_collect_body_paths(borrow_id, result_id, mir_id, body_idx)
+        v4_borrowck_check_lend_contracts(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_mutable_exclusivity(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_partial_moves(borrow_id, result_id, mir_id, body_idx)
         pilot loan_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_loan)

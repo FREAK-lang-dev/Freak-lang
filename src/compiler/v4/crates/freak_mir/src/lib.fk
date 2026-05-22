@@ -75,7 +75,7 @@ pilot v4_mir_place_index = "Index"
 pilot v4_mir_place_deref = "Deref"
 pilot v4_mir_place_return = "Return"
 pilot v4_mir_place_unknown = "Unknown"
-pilot v4_mir_snapshot_format = "freak-mir-snapshot-v3"
+pilot v4_mir_snapshot_format = "freak-mir-snapshot-v4"
 
 pilot v4_mir_files = 0
 pilot v4_mir_tys = 0
@@ -85,6 +85,7 @@ pilot v4_mir_body_sigs = 0
 pilot v4_mir_body_blocks = 0
 pilot v4_mir_body_local_names = 0
 pilot v4_mir_body_local_tys = 0
+pilot v4_mir_body_local_modes = 0
 pilot v4_mir_body_local_spans = 0
 pilot v4_mir_body_local_scope_spans = 0
 pilot v4_mir_body_stmt_kinds = 0
@@ -129,6 +130,7 @@ task v4_mir_init() -> void {
         v4_mir_body_blocks = array_new()
         v4_mir_body_local_names = array_new()
         v4_mir_body_local_tys = array_new()
+        v4_mir_body_local_modes = array_new()
         v4_mir_body_local_spans = array_new()
         v4_mir_body_local_scope_spans = array_new()
         v4_mir_body_stmt_kinds = array_new()
@@ -255,6 +257,7 @@ task v4_mir_file_new(file_id: int, ty_id: int) -> int {
     array_push(v4_mir_body_blocks, word_from_int(array_new()))
     array_push(v4_mir_body_local_names, word_from_int(array_new()))
     array_push(v4_mir_body_local_tys, word_from_int(array_new()))
+    array_push(v4_mir_body_local_modes, word_from_int(array_new()))
     array_push(v4_mir_body_local_spans, word_from_int(array_new()))
     array_push(v4_mir_body_local_scope_spans, word_from_int(array_new()))
     array_push(v4_mir_body_stmt_kinds, word_from_int(array_new()))
@@ -306,6 +309,10 @@ task v4_mir_local_names_index_handle(mir_id: int) -> int {
 
 task v4_mir_local_tys_index_handle(mir_id: int) -> int {
     give back word_to_int(array_get(v4_mir_body_local_tys, mir_id))
+}
+
+task v4_mir_local_modes_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_local_modes, mir_id))
 }
 
 task v4_mir_local_spans_index_handle(mir_id: int) -> int {
@@ -468,6 +475,10 @@ task v4_mir_body_local_tys_handle(mir_id: int, body_id: int) -> int {
     give back word_to_int(array_get(v4_mir_local_tys_index_handle(mir_id), body_id))
 }
 
+task v4_mir_body_local_modes_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_local_modes_index_handle(mir_id), body_id))
+}
+
 task v4_mir_body_local_spans_handle(mir_id: int, body_id: int) -> int {
     give back word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body_id))
 }
@@ -594,6 +605,10 @@ task v4_mir_local_name(mir_id: int, body_id: int, local_id: int) -> word {
 
 task v4_mir_local_ty(mir_id: int, body_id: int, local_id: int) -> word {
     give back array_get(v4_mir_body_local_tys_handle(mir_id, body_id), local_id)
+}
+
+task v4_mir_local_mode(mir_id: int, body_id: int, local_id: int) -> word {
+    give back array_get(v4_mir_body_local_modes_handle(mir_id, body_id), local_id)
 }
 
 task v4_mir_local_span(mir_id: int, body_id: int, local_id: int) -> word {
@@ -1278,12 +1293,39 @@ task v4_mir_set_local_ty(mir_id: int, body_id: int, local_id: int, local_ty: wor
     array_set(v4_mir_body_local_tys_handle(mir_id, body_id), local_id, local_ty)
 }
 
+task v4_mir_set_local_mode(mir_id: int, body_id: int, local_id: int, local_mode: word) -> void {
+    if local_id < 0 {
+        give back
+    }
+    if local_mode == "" {
+        local_mode = v4_ty_param_mode_value
+    }
+    array_set(v4_mir_body_local_modes_handle(mir_id, body_id), local_id, local_mode)
+}
+
 task v4_mir_local_ty_for_name(mir_id: int, body_id: int, local_name: word) -> word {
     pilot local_id = v4_mir_find_local(mir_id, body_id, local_name)
     if local_id < 0 {
         give back v4_ty_unknown
     }
     give back v4_mir_local_ty(mir_id, body_id, local_id)
+}
+
+task v4_mir_local_mode_for_name(mir_id: int, body_id: int, local_name: word) -> word {
+    pilot local_id = v4_mir_find_local(mir_id, body_id, local_name)
+    if local_id < 0 {
+        give back v4_ty_param_mode_value
+    }
+    give back v4_mir_local_mode(mir_id, body_id, local_id)
+}
+
+task v4_mir_local_type_display(mir_id: int, body_id: int, local_id: int) -> word {
+    pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_id)
+    pilot local_mode = v4_mir_local_mode(mir_id, body_id, local_id)
+    if local_mode == v4_ty_param_mode_lend or local_mode == v4_ty_param_mode_lend_mut {
+        give back local_mode + " " + local_ty
+    }
+    give back local_ty
 }
 
 task v4_mir_add_place(mir_id: int, body_id: int, place_kind: word, text: word, base: int, field: word, index: int, span: word, place_ty: word) -> int {
@@ -1351,6 +1393,7 @@ task v4_mir_add_local(mir_id: int, body_id: int, local_name: word, local_ty: wor
     pilot local_id = array_len(v4_mir_body_local_names_handle(mir_id, body_id))
     array_push(v4_mir_body_local_names_handle(mir_id, body_id), local_name)
     array_push(v4_mir_body_local_tys_handle(mir_id, body_id), local_ty)
+    array_push(v4_mir_body_local_modes_handle(mir_id, body_id), v4_ty_param_mode_value)
     array_push(v4_mir_body_local_spans_handle(mir_id, body_id), span)
     array_push(v4_mir_body_local_scope_spans_handle(mir_id, body_id), v4_mir_current_scope_span(span))
     give back local_id
@@ -1373,6 +1416,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     pilot blocks_handle = array_new()
     pilot local_names_handle = array_new()
     pilot local_tys_handle = array_new()
+    pilot local_modes_handle = array_new()
     pilot local_spans_handle = array_new()
     pilot local_scope_spans_handle = array_new()
     pilot stmt_kinds_handle = array_new()
@@ -1405,6 +1449,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     array_push(v4_mir_blocks_handle(mir_id), word_from_int(blocks_handle))
     array_push(v4_mir_local_names_index_handle(mir_id), word_from_int(local_names_handle))
     array_push(v4_mir_local_tys_index_handle(mir_id), word_from_int(local_tys_handle))
+    array_push(v4_mir_local_modes_index_handle(mir_id), word_from_int(local_modes_handle))
     array_push(v4_mir_local_spans_index_handle(mir_id), word_from_int(local_spans_handle))
     array_push(v4_mir_local_scope_spans_index_handle(mir_id), word_from_int(local_scope_spans_handle))
     array_push(v4_mir_stmt_kinds_index_handle(mir_id), word_from_int(stmt_kinds_handle))
@@ -7801,7 +7846,7 @@ task v4_mir_lower_task_body_tokens(mir_id: int, body_id: int, stream_id: int, it
     v4_mir_lower_task_body_token_range(mir_id, body_id, stream_id, start_token, end_token, item_span)
 }
 
-task v4_mir_seed_param_local(mir_id: int, body_id: int, param_name: word, param_ty: word, item_span: word, duplicate_help: word) -> void {
+task v4_mir_seed_param_local(mir_id: int, body_id: int, param_name: word, param_ty: word, param_mode: word, item_span: word, duplicate_help: word) -> void {
     if param_name == "" {
         give back
     }
@@ -7809,7 +7854,8 @@ task v4_mir_seed_param_local(mir_id: int, body_id: int, param_name: word, param_
         v4_mir_add_type_error(mir_id, item_span, "duplicate parameter binding", param_name + " already exists in " + duplicate_help)
         give back
     }
-    v4_mir_add_local(mir_id, body_id, param_name, param_ty, item_span)
+    pilot local_id = v4_mir_add_local(mir_id, body_id, param_name, param_ty, item_span)
+    v4_mir_set_local_mode(mir_id, body_id, local_id, param_mode)
 }
 
 task v4_mir_seed_signature_params(mir_id: int, body_id: int, ty_id: int, sig_id: int, item_span: word) -> void {
@@ -7819,7 +7865,8 @@ task v4_mir_seed_signature_params(mir_id: int, body_id: int, ty_id: int, sig_id:
         pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_idx)
         if param_name != "" {
             pilot param_ty = v4_ty_signature_param_type(ty_id, sig_id, param_idx)
-            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, item_span, "this signature")
+            pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_idx)
+            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, param_mode, item_span, "this signature")
         }
         param_idx += 1
     }
@@ -7832,7 +7879,8 @@ task v4_mir_seed_impl_method_params(mir_id: int, body_id: int, ty_id: int, hir_i
         pilot param_name = v4_ty_impl_method_param_name(ty_id, hir_item, method_id, param_idx)
         if param_name != "" {
             pilot param_ty = v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_idx)
-            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, item_span, "this method signature")
+            pilot param_mode = v4_ty_impl_method_param_mode(ty_id, hir_item, method_id, param_idx)
+            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, param_mode, item_span, "this method signature")
         }
         param_idx += 1
     }
@@ -8149,6 +8197,7 @@ task v4_mir_snapshot_local_line(mir_id: int, body_id: int, local_id: int) -> wor
     out = out + "|" + word_from_int(local_id)
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_name(mir_id, body_id, local_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_ty(mir_id, body_id, local_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_mode(mir_id, body_id, local_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_span(mir_id, body_id, local_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_scope_span(mir_id, body_id, local_id))
     give back out
@@ -8275,7 +8324,7 @@ task v4_mir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "mir" { give back 6 }
     if kind == "mir-body" { give back 11 }
     if kind == "mir-block" { give back 5 }
-    if kind == "mir-local" { give back 8 }
+    if kind == "mir-local" { give back 9 }
     if kind == "mir-stmt" { give back 11 }
     if kind == "mir-place" { give back 11 }
     if kind == "mir-rvalue" { give back 13 }
@@ -8387,6 +8436,7 @@ task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
     array_set(v4_mir_body_blocks, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_local_names, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_local_tys, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_local_modes, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_local_spans, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_local_scope_spans, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_stmt_kinds, mir_id, word_from_int(array_new()))
@@ -8430,6 +8480,7 @@ task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name
     array_set(v4_mir_blocks_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_local_names_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_local_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_local_modes_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_local_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_local_scope_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_stmt_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
@@ -8477,18 +8528,23 @@ task v4_mir_restore_block_slot(mir_id: int, body_id: int, block_id: int, block_r
     give back 1
 }
 
-task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_name: word, local_ty: word, span: word, scope_span: word) -> int {
+task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_name: word, local_ty: word, local_mode: word, span: word, scope_span: word) -> int {
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
+    }
+    if local_mode == "" {
+        local_mode = v4_ty_param_mode_value
     }
     repeat until v4_mir_body_local_count(mir_id, body_id) > local_id {
         array_push(v4_mir_body_local_names_handle(mir_id, body_id), "")
         array_push(v4_mir_body_local_tys_handle(mir_id, body_id), v4_ty_unknown)
+        array_push(v4_mir_body_local_modes_handle(mir_id, body_id), v4_ty_param_mode_value)
         array_push(v4_mir_body_local_spans_handle(mir_id, body_id), V4_NO_SPAN)
         array_push(v4_mir_body_local_scope_spans_handle(mir_id, body_id), V4_NO_SPAN)
     }
     array_set(v4_mir_body_local_names_handle(mir_id, body_id), local_id, local_name)
     array_set(v4_mir_body_local_tys_handle(mir_id, body_id), local_id, local_ty)
+    array_set(v4_mir_body_local_modes_handle(mir_id, body_id), local_id, local_mode)
     array_set(v4_mir_body_local_spans_handle(mir_id, body_id), local_id, span)
     array_set(v4_mir_body_local_scope_spans_handle(mir_id, body_id), local_id, scope_span)
     give back 1
@@ -8615,7 +8671,7 @@ task v4_mir_snapshot_restore_local_line(line: word) -> int {
     pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
     pilot body_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
     pilot local_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
-    give back v4_mir_restore_local_slot(mir_id, body_id, local_id, v4_mir_snapshot_field(line, 4), v4_mir_snapshot_field(line, 5), v4_mir_snapshot_field(line, 6), v4_mir_snapshot_field(line, 7))
+    give back v4_mir_restore_local_slot(mir_id, body_id, local_id, v4_mir_snapshot_field(line, 4), v4_mir_snapshot_field(line, 5), v4_mir_snapshot_field(line, 6), v4_mir_snapshot_field(line, 7), v4_mir_snapshot_field(line, 8))
 }
 
 task v4_mir_snapshot_restore_stmt_line(line: word) -> int {
