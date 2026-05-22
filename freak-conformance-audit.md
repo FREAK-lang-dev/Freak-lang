@@ -278,10 +278,10 @@ V4 (not implemented):
 
 | §4 contract | Status | Verdict |
 |---|---|---|
-| `lend p: T` immutable borrow parameter | ❌ | 📖 V4 |
-| `lend mut p: T` exclusive mutable borrow | ❌ | 📖 V4 |
-| Borrow-vs-move rules | ❌ | 📖 V4 |
-| Lifetime parameters `'a` | ❌ | 📖 V4 |
+| `lend p: T` immutable borrow parameter | ⚠️ | 📖 V4 — TY/MIR carry the contract; Meiya rejects immutable-lend writes and moves out of borrowed params |
+| `lend mut p: T` exclusive mutable borrow | ⚠️ | 📖 V4 — TY/MIR carry the contract; mutable lends may write but still cannot be moved/dropped by the callee |
+| Borrow-vs-move rules | ⚠️ | 📖 V4 — initial borrowed-parameter move blocking exists; full region/loan interaction still expands |
+| Lifetime parameters `'a` | ⚠️ | 📖 V4 — lex/TY/editor diagnostics exist; full region inference remains |
 | Inferred lifetimes / elision | ❌ | 📖 V4 |
 | `Shared<T>` ref-counted | ❌ | 📖 V4 |
 | `Weak<T>` non-owning observer | ❌ | 📖 V4 |
