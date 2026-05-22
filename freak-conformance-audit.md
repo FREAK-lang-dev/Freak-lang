@@ -280,7 +280,8 @@ V4 (not implemented):
 |---|---|---|
 | `lend p: T` immutable borrow parameter | ⚠️ | 📖 V4 — TY/MIR carry the contract; Meiya rejects immutable-lend writes and moves out of borrowed params |
 | `lend mut p: T` exclusive mutable borrow | ⚠️ | 📖 V4 — TY/MIR carry the contract; mutable lends may write but still cannot be moved/dropped by the callee |
-| Borrow-vs-move rules | ⚠️ | 📖 V4 — initial borrowed-parameter move blocking exists; full region/loan interaction still expands |
+| `lend value` / `lend mut value` expressions | ⚠️ | 📖 V4 — MIR lowers explicit borrow rvalues and Meiya records loan paths for locals and task calls |
+| Borrow-vs-move rules | ⚠️ | 📖 V4 — initial borrowed-parameter move blocking and explicit borrow loan conflicts exist; full region inference still expands |
 | Lifetime parameters `'a` | ⚠️ | 📖 V4 — lex/TY/editor diagnostics exist; full region inference remains |
 | Inferred lifetimes / elision | ❌ | 📖 V4 |
 | `Shared<T>` ref-counted | ❌ | 📖 V4 |

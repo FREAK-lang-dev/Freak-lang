@@ -848,6 +848,14 @@ task v4_ty_canonical_type_depth_seen(ty_id: int, type_text: word, seen_aliases: 
         give back ffi_alias
     }
 
+    if v4_ty_is_lend_type(type_text) {
+        pilot lend_target = v4_ty_canonical_type_depth_seen(ty_id, v4_ty_lend_target_type(type_text), seen_aliases, depth + 1)
+        if lend_target == "" or lend_target == v4_ty_unknown {
+            give back v4_ty_unknown
+        }
+        give back v4_ty_lend_type(lend_target, v4_ty_lend_mode(type_text))
+    }
+
     if v4_ty_is_raw_pointer_type(type_text) {
         pilot pointer_prefix = v4_ty_raw_pointer_prefix(type_text)
         pilot pointer_target = v4_ty_canonical_type_depth_seen(ty_id, v4_ty_raw_pointer_target_type(type_text), seen_aliases, depth + 1)
@@ -921,6 +929,9 @@ task v4_ty_is_integer_text_literal(value: word) -> bool {
 }
 
 task v4_ty_is_copy_type(ty_name: word) -> bool {
+    if v4_ty_is_lend_type(ty_name) {
+        give back v4_ty_is_lend_mut_type(ty_name) == false
+    }
     if ty_name == v4_ty_int or ty_name == v4_ty_uint or ty_name == v4_ty_tiny or ty_name == v4_ty_num {
         give back true
     }
@@ -1026,6 +1037,47 @@ task v4_ty_is_known(ty_name: word) -> bool {
     give back ty_name != "" and ty_name != v4_ty_unknown
 }
 
+task v4_ty_lend_type(target_ty: word, mode: word) -> word {
+    if not v4_ty_is_known(target_ty) {
+        give back v4_ty_unknown
+    }
+    if mode == v4_ty_param_mode_lend_mut {
+        give back "lend mut " + target_ty
+    }
+    give back "lend " + target_ty
+}
+
+task v4_ty_is_lend_mut_type(ty_name: word) -> bool {
+    give back ty_name.starts_with("lend mut ") and ty_name.length() > 9
+}
+
+task v4_ty_is_lend_type(ty_name: word) -> bool {
+    if v4_ty_is_lend_mut_type(ty_name) {
+        give back true
+    }
+    give back ty_name.starts_with("lend ") and ty_name.length() > 5
+}
+
+task v4_ty_lend_mode(ty_name: word) -> word {
+    if v4_ty_is_lend_mut_type(ty_name) {
+        give back v4_ty_param_mode_lend_mut
+    }
+    if v4_ty_is_lend_type(ty_name) {
+        give back v4_ty_param_mode_lend
+    }
+    give back v4_ty_param_mode_value
+}
+
+task v4_ty_lend_target_type(ty_name: word) -> word {
+    if v4_ty_is_lend_mut_type(ty_name) {
+        give back v4_slice(ty_name, 9, ty_name.length())
+    }
+    if v4_ty_is_lend_type(ty_name) {
+        give back v4_slice(ty_name, 5, ty_name.length())
+    }
+    give back v4_ty_unknown
+}
+
 task v4_ty_is_lifetime_name(ty_name: word) -> bool {
     give back ty_name.length() > 1 and ty_name.char_at(0) == "'"
 }
@@ -1120,6 +1172,15 @@ task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
     }
     if v4_ty_is_lifetime_name(expected_ty) and v4_ty_is_lifetime_name(actual_ty) {
         give back true
+    }
+    if v4_ty_is_lend_type(expected_ty) or v4_ty_is_lend_type(actual_ty) {
+        if not v4_ty_is_lend_type(expected_ty) or not v4_ty_is_lend_type(actual_ty) {
+            give back false
+        }
+        if v4_ty_lend_mode(expected_ty) != v4_ty_lend_mode(actual_ty) {
+            give back false
+        }
+        give back v4_ty_types_compatible(v4_ty_lend_target_type(expected_ty), v4_ty_lend_target_type(actual_ty))
     }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
         give back true
