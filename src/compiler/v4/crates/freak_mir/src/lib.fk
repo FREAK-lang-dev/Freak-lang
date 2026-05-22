@@ -48,6 +48,8 @@ pilot v4_mir_rvalue_err = "Err"
 pilot v4_mir_rvalue_check = "Check"
 pilot v4_mir_rvalue_or_else = "OrElse"
 pilot v4_mir_rvalue_try = "Try"
+pilot v4_mir_rvalue_lend = "Lend"
+pilot v4_mir_rvalue_lend_mut = "LendMut"
 pilot v4_mir_rvalue_unknown = "Unknown"
 
 pilot v4_mir_unary_neg = "Neg"
@@ -1104,7 +1106,7 @@ task v4_mir_validate_body_cfg(mir_id: int, body_id: int, item_span: word) -> voi
 }
 
 task v4_mir_rvalue_can_contain_child_tries(kind: word) -> bool {
-    give back kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_try
+    give back kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut
 }
 
 task v4_mir_rvalue_find_try_except(mir_id: int, body_id: int, rvalue_id: int, wired_tries: word) -> int {
@@ -2648,6 +2650,37 @@ task v4_mir_check_call_generic_bounds(mir_id: int, expr_span: word, callee_name:
     }
 }
 
+task v4_mir_expected_call_arg_type(expected_ty: word, param_mode: word) -> word {
+    if param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut {
+        give back v4_ty_lend_type(expected_ty, param_mode)
+    }
+    give back expected_ty
+}
+
+task v4_mir_check_lend_call_arg(mir_id: int, expr_span: word, callee_name: word, param_name: word, param_mode: word, actual_ty: word) -> word {
+    if param_mode != v4_ty_param_mode_lend and param_mode != v4_ty_param_mode_lend_mut {
+        give back actual_ty
+    }
+
+    if not v4_ty_is_lend_type(actual_ty) {
+        if not v4_ty_is_known(actual_ty) {
+            give back actual_ty
+        }
+        v4_mir_add_type_error(mir_id, expr_span, "borrowed call argument needs lend", callee_name + "." + param_name + " expects " + param_mode + "; pass lend " + param_name + " or lend mut " + param_name + " explicitly")
+        give back actual_ty
+    }
+
+    if param_mode == v4_ty_param_mode_lend_mut and not v4_ty_is_lend_mut_type(actual_ty) {
+        v4_mir_add_type_error(mir_id, expr_span, "mutable borrowed call argument needs lend mut", callee_name + "." + param_name + " expects lend mut but got " + actual_ty)
+    }
+    if param_mode == v4_ty_param_mode_lend and v4_ty_is_lend_mut_type(actual_ty) {
+        -- A mutable lend may satisfy an immutable lend call, but the explicit
+        -- rvalue remains visible so Meiya can enforce the loan range.
+    }
+
+    give back v4_ty_lend_target_type(actual_ty)
+}
+
 task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, callee_name: word, sig_id: int, open_token: int, close_token: int) -> word {
     if sig_id < 0 or open_token < 0 or close_token <= open_token {
         give back v4_mir_call_check_result("", "")
@@ -2722,13 +2755,17 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
         pilot planned_end = v4_mir_call_arg_slot_end(planned_slots, lower_arg_idx)
         if planned_start >= 0 and planned_end > planned_start {
             pilot expected_ty = v4_ty_signature_param_type(ty_id, sig_id, lower_arg_idx)
-            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
+            pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, lower_arg_idx)
+            pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, lower_arg_idx)
+            pilot expected_arg_ty = v4_mir_expected_call_arg_type(expected_ty, param_mode)
+            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_arg_ty)
             args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
-            pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_ty, generic_env)
+            pilot actual_match_ty = v4_mir_check_lend_call_arg(mir_id, expr_span, callee_name, param_name, param_mode, actual_ty)
+            pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_match_ty, generic_env)
             if next_env == v4_ty_generic_env_fail {
                 pilot context = callee_name + " argument " + word_from_int(lower_arg_idx + 1)
-                v4_mir_add_type_mismatch_error(mir_id, expr_span, "call argument type mismatch", context + " expects " + expected_ty + " but got " + actual_ty, context, expected_ty, actual_ty)
+                v4_mir_add_type_mismatch_error(mir_id, expr_span, "call argument type mismatch", context + " expects " + expected_ty + " but got " + actual_match_ty, context, expected_ty, actual_match_ty)
             } else {
                 generic_env = next_env
             }
@@ -4737,6 +4774,51 @@ task v4_mir_try_lower_or_else_expr(mir_id: int, body_id: int, stream_id: int, fi
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_or_else, expr_text, "OrElse", source_id, fallback_id, expr_span, result_ty)
 }
 
+task v4_mir_lend_operand_expected_ty(expected_ty: word) -> word {
+    if v4_ty_is_lend_type(expected_ty) {
+        give back v4_ty_lend_target_type(expected_ty)
+    }
+    give back v4_ty_unknown
+}
+
+task v4_mir_lend_source_is_place(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if rvalue_id < 0 {
+        give back false
+    }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    give back kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place
+}
+
+task v4_mir_try_lower_lend_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
+    if v4_lex_token_value(stream_id, first) != "lend" {
+        give back 0 - 1
+    }
+
+    pilot mode = v4_ty_param_mode_lend
+    pilot rvalue_kind = v4_mir_rvalue_lend
+    pilot operand_start = v4_mir_next_nontrivia(stream_id, first + 1, last + 1)
+    if operand_start <= last and v4_lex_token_value(stream_id, operand_start) == "mut" {
+        mode = v4_ty_param_mode_lend_mut
+        rvalue_kind = v4_mir_rvalue_lend_mut
+        operand_start = v4_mir_next_nontrivia(stream_id, operand_start + 1, last + 1)
+    }
+
+    if operand_start > last {
+        v4_mir_add_type_error(mir_id, expr_span, "lend expression needs a source", "write lend value or lend mut value so Meiya knows which place is on loan")
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, v4_mir_expr_text(stream_id, first, last + 1), "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+    }
+
+    pilot operand_expected_ty = v4_mir_lend_operand_expected_ty(expected_ty)
+    pilot operand_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, operand_start, last + 1, operand_expected_ty)
+    pilot operand_ty = v4_mir_rvalue_ty(mir_id, body_id, operand_id)
+    if not v4_mir_lend_source_is_place(mir_id, body_id, operand_id) {
+        v4_mir_add_type_error(mir_id, expr_span, "lend source must be a place", "Meiya can only loan a named local, field, index, or deref place; store the value first")
+    }
+
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    give back v4_mir_add_rvalue(mir_id, body_id, rvalue_kind, expr_text, mode, operand_id, 0 - 1, expr_span, v4_ty_lend_type(operand_ty, mode))
+}
+
 task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, expected_ty: word) -> int {
     pilot first = v4_mir_skip_trivia(stream_id, start_token)
     pilot last = v4_mir_last_nontrivia_before(stream_id, end_token)
@@ -4765,6 +4847,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot or_else_rvalue = v4_mir_try_lower_or_else_expr(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
     if or_else_rvalue >= 0 {
         give back or_else_rvalue
+    }
+
+    pilot lend_rvalue = v4_mir_try_lower_lend_expr(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
+    if lend_rvalue >= 0 {
+        give back lend_rvalue
     }
 
     pilot route_ctor_rvalue = v4_mir_try_lower_route_payload_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)

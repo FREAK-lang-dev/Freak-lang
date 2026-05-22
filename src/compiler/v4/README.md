@@ -50,10 +50,12 @@ compile-time lengths with root-constant integer arithmetic,
 generic doctrine bounds plus multi-bound method/editor enforcement, and named
 call-site arguments across task calls plus instance/associated method calls.
 The Borrow Checker gate has now started with `lend` / `lend mut` parameter
-contracts carried through TY and MIR into Meiya: immutable lends cannot be
-written, borrowed params cannot be moved out of, and borrowed params are not
-dropped by the callee. That is a contract-carriage slice, not full region
-inference.
+contracts and explicit `lend value` / `lend mut value` expressions carried
+through TY and MIR into Meiya: immutable lends cannot be written, borrowed
+params cannot be moved out of, borrowed params are not dropped by the callee,
+and explicit borrow expressions create loan paths that block later rewrites
+until region solving can narrow the range. That is contract and loan-carriage,
+not full region inference.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
 fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts

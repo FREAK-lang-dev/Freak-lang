@@ -1,0 +1,109 @@
+-- V4 explicit lend / lend mut expression smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lend_expr_path_count(borrow_id: int, result_id: int, kind: word, text: word) -> int {
+    pilot total = 0
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == kind {
+            if v4_borrowck_path_text(borrow_id, result_id, path_id) == text {
+                total += 1
+            }
+        }
+        path_id += 1
+    }
+    give back total
+}
+
+task v4_lend_expr_mir_diag_count(mir_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+task v4_lend_expr_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task inspect(lend ship: Ship) -> int {\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task retarget(lend mut ship: Ship) -> int {\n"
+    src = src + "    ship.hp = 9\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task local_conflict(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    ship.hp = 7\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task call_conflict(ship: Ship) -> int {\n"
+    src = src + "    inspect(lend ship)\n"
+    src = src + "    ship.hp = 8\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task call_clean(ship: Ship) -> int {\n"
+    src = src + "    retarget(lend mut ship)\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task call_missing(ship: Ship) -> int {\n"
+    src = src + "    inspect(ship)\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task call_wrong_mut(ship: Ship) -> int {\n"
+    src = src + "    retarget(lend ship)\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_lend_expr_src = v4_lend_expr_source()
+pilot v4_lend_expr_stream = v4_lex_text(0, v4_lend_expr_src)
+pilot v4_lend_expr_tree = v4_parse_stream(0, v4_lend_expr_stream)
+pilot v4_lend_expr_hir = v4_hir_lower_tree(0, v4_lend_expr_tree)
+pilot v4_lend_expr_resolve = v4_resolve_lower_hir(0, v4_lend_expr_hir)
+pilot v4_lend_expr_ty = v4_ty_lower_resolve(0, v4_lend_expr_resolve)
+pilot v4_lend_expr_mir = v4_mir_lower_ty(0, v4_lend_expr_ty)
+pilot v4_lend_expr_borrow = v4_borrowck_check_mir(0, v4_lend_expr_mir)
+
+pilot v4_lend_expr_local_def = v4_resolve_def_for_name(v4_lend_expr_resolve, "local_conflict")
+pilot v4_lend_expr_call_def = v4_resolve_def_for_name(v4_lend_expr_resolve, "call_conflict")
+pilot v4_lend_expr_clean_def = v4_resolve_def_for_name(v4_lend_expr_resolve, "call_clean")
+pilot v4_lend_expr_local_body = v4_mir_lookup_body(v4_lend_expr_mir, v4_lend_expr_local_def)
+pilot v4_lend_expr_call_body = v4_mir_lookup_body(v4_lend_expr_mir, v4_lend_expr_call_def)
+pilot v4_lend_expr_clean_body = v4_mir_lookup_body(v4_lend_expr_mir, v4_lend_expr_clean_def)
+pilot v4_lend_expr_view_local = v4_mir_find_local(v4_lend_expr_mir, v4_lend_expr_local_body, "view")
+pilot v4_lend_expr_local_rvalue = v4_mir_stmt_rvalue(v4_lend_expr_mir, v4_lend_expr_local_body, 0)
+pilot v4_lend_expr_local_source = v4_mir_rvalue_lhs(v4_lend_expr_mir, v4_lend_expr_local_body, v4_lend_expr_local_rvalue)
+pilot v4_lend_expr_call_rvalue = v4_mir_stmt_rvalue(v4_lend_expr_mir, v4_lend_expr_call_body, 0)
+pilot v4_lend_expr_call_arg = v4_mir_rvalue_call_arg(v4_lend_expr_mir, v4_lend_expr_call_body, v4_lend_expr_call_rvalue, 0)
+pilot v4_lend_expr_clean_rvalue = v4_mir_stmt_rvalue(v4_lend_expr_mir, v4_lend_expr_clean_body, 0)
+pilot v4_lend_expr_clean_arg = v4_mir_rvalue_call_arg(v4_lend_expr_mir, v4_lend_expr_clean_body, v4_lend_expr_clean_rvalue, 0)
+pilot v4_lend_expr_local_result = v4_borrowck_lookup_result(v4_lend_expr_borrow, v4_lend_expr_local_def)
+pilot v4_lend_expr_call_result = v4_borrowck_lookup_result(v4_lend_expr_borrow, v4_lend_expr_call_def)
+pilot v4_lend_expr_clean_result = v4_borrowck_lookup_result(v4_lend_expr_borrow, v4_lend_expr_clean_def)
+
+say "lend-expr-local-rvalue-kind=" + v4_mir_rvalue_kind(v4_lend_expr_mir, v4_lend_expr_local_body, v4_lend_expr_local_rvalue)
+say "lend-expr-local-rvalue-op=" + v4_mir_rvalue_op(v4_lend_expr_mir, v4_lend_expr_local_body, v4_lend_expr_local_rvalue)
+say "lend-expr-local-rvalue-ty=" + v4_mir_rvalue_ty(v4_lend_expr_mir, v4_lend_expr_local_body, v4_lend_expr_local_rvalue)
+say "lend-expr-local-source-kind=" + v4_mir_rvalue_kind(v4_lend_expr_mir, v4_lend_expr_local_body, v4_lend_expr_local_source)
+say "lend-expr-local-type=" + v4_mir_local_type_display(v4_lend_expr_mir, v4_lend_expr_local_body, v4_lend_expr_view_local)
+say "lend-expr-local-status=" + v4_borrowck_result_status(v4_lend_expr_borrow, v4_lend_expr_local_result)
+say "lend-expr-local-loans=" + word_from_int(v4_lend_expr_path_count(v4_lend_expr_borrow, v4_lend_expr_local_result, v4_borrowck_path_loan, "ship"))
+say "lend-expr-local-drops=" + word_from_int(v4_borrowck_result_drops(v4_lend_expr_borrow, v4_lend_expr_local_result))
+say "lend-expr-call-rvalue-kind=" + v4_mir_rvalue_kind(v4_lend_expr_mir, v4_lend_expr_call_body, v4_lend_expr_call_rvalue)
+say "lend-expr-call-arg-kind=" + v4_mir_rvalue_kind(v4_lend_expr_mir, v4_lend_expr_call_body, v4_lend_expr_call_arg)
+say "lend-expr-call-arg-ty=" + v4_mir_rvalue_ty(v4_lend_expr_mir, v4_lend_expr_call_body, v4_lend_expr_call_arg)
+say "lend-expr-call-status=" + v4_borrowck_result_status(v4_lend_expr_borrow, v4_lend_expr_call_result)
+say "lend-expr-call-loans=" + word_from_int(v4_lend_expr_path_count(v4_lend_expr_borrow, v4_lend_expr_call_result, v4_borrowck_path_loan, "ship"))
+say "lend-expr-clean-arg-kind=" + v4_mir_rvalue_kind(v4_lend_expr_mir, v4_lend_expr_clean_body, v4_lend_expr_clean_arg)
+say "lend-expr-clean-arg-ty=" + v4_mir_rvalue_ty(v4_lend_expr_mir, v4_lend_expr_clean_body, v4_lend_expr_clean_arg)
+say "lend-expr-clean-status=" + v4_borrowck_result_status(v4_lend_expr_borrow, v4_lend_expr_clean_result)
+say "lend-expr-missing-diags=" + word_from_int(v4_lend_expr_mir_diag_count(v4_lend_expr_mir, "borrowed call argument needs lend"))
+say "lend-expr-mut-diags=" + word_from_int(v4_lend_expr_mir_diag_count(v4_lend_expr_mir, "mutable borrowed call argument needs lend mut"))

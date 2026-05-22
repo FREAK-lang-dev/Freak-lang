@@ -343,6 +343,9 @@ task v4_borrowck_rvalue_move_count(mir_id: int, body_id: int, rvalue_id: int) ->
     if kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_use_symbol or kind == v4_mir_rvalue_loop_item {
         give back 0
     }
+    if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+        give back 0
+    }
     if v4_borrowck_rvalue_transfer_kind(mir_id, body_id, rvalue_id) == v4_borrowck_path_move {
         give back 1
     }
@@ -698,6 +701,50 @@ task v4_borrowck_add_place_path(borrow_id: int, result_id: int, mir_id: int, bod
     v4_borrowck_add_path(borrow_id, result_id, path_kind, v4_mir_place_text(mir_id, body_id, place_id), stmt_id, block_id)
 }
 
+task v4_borrowck_lend_source_text(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if rvalue_id < 0 {
+        give back ""
+    }
+    pilot source_id = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    if source_id >= 0 {
+        pilot source_text = v4_mir_rvalue_text(mir_id, body_id, source_id)
+        if source_text != "" {
+            give back source_text
+        }
+    }
+    give back v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
+}
+
+task v4_borrowck_collect_call_lend_transfer_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int, block_id: int, call_rvalue: int) -> void {
+    pilot arg_id = 0
+    pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, call_rvalue)
+    repeat until arg_id >= arg_count {
+        pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, arg_id)
+        if arg_rvalue >= 0 {
+            pilot arg_kind = v4_mir_rvalue_kind(mir_id, body_id, arg_rvalue)
+            if arg_kind == v4_mir_rvalue_lend or arg_kind == v4_mir_rvalue_lend_mut {
+                v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, arg_rvalue)
+            }
+        }
+        arg_id += 1
+    }
+}
+
+task v4_borrowck_collect_call_lend_read_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int, block_id: int, call_rvalue: int) -> void {
+    pilot arg_id = 0
+    pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, call_rvalue)
+    repeat until arg_id >= arg_count {
+        pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, arg_id)
+        if arg_rvalue >= 0 {
+            pilot arg_kind = v4_mir_rvalue_kind(mir_id, body_id, arg_rvalue)
+            if arg_kind == v4_mir_rvalue_lend or arg_kind == v4_mir_rvalue_lend_mut {
+                v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, arg_rvalue)
+            }
+        }
+        arg_id += 1
+    }
+}
+
 task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int, block_id: int, rvalue_id: int) -> void {
     if rvalue_id < 0 {
         give back
@@ -707,6 +754,8 @@ task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: 
     pilot transfer_kind = v4_borrowck_rvalue_transfer_kind(mir_id, body_id, rvalue_id)
     if transfer_kind != "" {
         v4_borrowck_add_path(borrow_id, result_id, transfer_kind, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+    } else if rvalue_kind == v4_mir_rvalue_lend or rvalue_kind == v4_mir_rvalue_lend_mut {
+        v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_loan, v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
     } else if rvalue_kind == v4_mir_rvalue_binary or rvalue_kind == v4_mir_rvalue_or_else {
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id))
@@ -716,6 +765,7 @@ task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: 
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     } else if rvalue_kind == v4_mir_rvalue_call {
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+        v4_borrowck_collect_call_lend_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
     }
 }
 
@@ -727,6 +777,8 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
     pilot rvalue_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if rvalue_kind == v4_mir_rvalue_use_local or rvalue_kind == v4_mir_rvalue_use_place {
         v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_loan, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+    } else if rvalue_kind == v4_mir_rvalue_lend or rvalue_kind == v4_mir_rvalue_lend_mut {
+        v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_loan, v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
     } else if rvalue_kind == v4_mir_rvalue_binary or rvalue_kind == v4_mir_rvalue_or_else {
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id))
@@ -736,6 +788,7 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     } else if rvalue_kind == v4_mir_rvalue_call {
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+        v4_borrowck_collect_call_lend_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
     } else if rvalue_kind == v4_mir_rvalue_unknown {
         pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
         if v4_borrowck_rhs_needs_move(text) {
@@ -749,7 +802,8 @@ task v4_borrowck_collect_drop_paths(borrow_id: int, result_id: int, mir_id: int,
     pilot local_idx = local_count - 1
     repeat until local_idx < 0 {
         pilot local_mode = v4_mir_local_mode(mir_id, body_id, local_idx)
-        if local_mode != v4_ty_param_mode_lend and local_mode != v4_ty_param_mode_lend_mut {
+        pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_idx)
+        if local_mode != v4_ty_param_mode_lend and local_mode != v4_ty_param_mode_lend_mut and not v4_ty_is_lend_type(local_ty) {
             v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_drop, v4_mir_local_name(mir_id, body_id, local_idx), 0 - 1, 0 - 1)
         }
         local_idx -= 1
