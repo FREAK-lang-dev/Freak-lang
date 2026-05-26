@@ -1,0 +1,133 @@
+-- V4 explicit lend mut exclusivity smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lend_exclusive_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task duel(lend left: Ship, lend mut right: Ship) -> int {\n"
+    src = src + "    give back left.hp\n"
+    src = src + "}\n"
+    src = src + "task observe(lend left: Ship, lend right: Ship) -> int {\n"
+    src = src + "    give back left.hp\n"
+    src = src + "}\n"
+    src = src + "task mut_then_shared(ship: Ship) -> int {\n"
+    src = src + "    pilot edit = lend mut ship\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    edit\n"
+    src = src + "    view\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task shared_then_mut(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    pilot edit = lend mut ship\n"
+    src = src + "    view\n"
+    src = src + "    edit\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task released_then_mut(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    view\n"
+    src = src + "    pilot edit = lend mut ship\n"
+    src = src + "    edit\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task two_shared(ship: Ship) -> int {\n"
+    src = src + "    pilot left = lend ship\n"
+    src = src + "    pilot right = lend ship\n"
+    src = src + "    left\n"
+    src = src + "    right\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task same_call(ship: Ship) -> int {\n"
+    src = src + "    duel(lend ship, lend mut ship)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task shared_call(ship: Ship) -> int {\n"
+    src = src + "    observe(lend ship, lend ship)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task mut_rewrite(ship: Ship) -> int {\n"
+    src = src + "    pilot edit = lend mut ship\n"
+    src = src + "    ship.hp = 8\n"
+    src = src + "    edit\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task cross_live(ship: Ship, ready: bool) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    if ready {\n"
+    src = src + "        pilot edit = lend mut ship\n"
+    src = src + "        edit\n"
+    src = src + "    }\n"
+    src = src + "    view\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_lend_exclusive_diag_count(borrow_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+task v4_lend_exclusive_first_path_kind(borrow_id: int, result_id: int, path_text: word) -> word {
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_text(borrow_id, result_id, path_id) == path_text {
+            if v4_borrowck_path_is_loan_kind(v4_borrowck_path_kind(borrow_id, result_id, path_id)) {
+                give back v4_borrowck_path_kind(borrow_id, result_id, path_id)
+            }
+        }
+        path_id += 1
+    }
+    give back ""
+}
+
+pilot v4_lend_exclusive_src = v4_lend_exclusive_source()
+pilot v4_lend_exclusive_stream = v4_lex_text(0, v4_lend_exclusive_src)
+pilot v4_lend_exclusive_tree = v4_parse_stream(0, v4_lend_exclusive_stream)
+pilot v4_lend_exclusive_hir = v4_hir_lower_tree(0, v4_lend_exclusive_tree)
+pilot v4_lend_exclusive_resolve = v4_resolve_lower_hir(0, v4_lend_exclusive_hir)
+pilot v4_lend_exclusive_ty = v4_ty_lower_resolve(0, v4_lend_exclusive_resolve)
+pilot v4_lend_exclusive_mir = v4_mir_lower_ty(0, v4_lend_exclusive_ty)
+pilot v4_lend_exclusive_borrow = v4_borrowck_check_mir(0, v4_lend_exclusive_mir)
+
+pilot v4_lend_exclusive_mut_first_def = v4_resolve_def_for_name(v4_lend_exclusive_resolve, "mut_then_shared")
+pilot v4_lend_exclusive_shared_first_def = v4_resolve_def_for_name(v4_lend_exclusive_resolve, "shared_then_mut")
+pilot v4_lend_exclusive_released_def = v4_resolve_def_for_name(v4_lend_exclusive_resolve, "released_then_mut")
+pilot v4_lend_exclusive_two_shared_def = v4_resolve_def_for_name(v4_lend_exclusive_resolve, "two_shared")
+pilot v4_lend_exclusive_same_call_def = v4_resolve_def_for_name(v4_lend_exclusive_resolve, "same_call")
+pilot v4_lend_exclusive_shared_call_def = v4_resolve_def_for_name(v4_lend_exclusive_resolve, "shared_call")
+pilot v4_lend_exclusive_mut_rewrite_def = v4_resolve_def_for_name(v4_lend_exclusive_resolve, "mut_rewrite")
+pilot v4_lend_exclusive_cross_def = v4_resolve_def_for_name(v4_lend_exclusive_resolve, "cross_live")
+pilot v4_lend_exclusive_mut_first_result = v4_borrowck_lookup_result(v4_lend_exclusive_borrow, v4_lend_exclusive_mut_first_def)
+pilot v4_lend_exclusive_shared_first_result = v4_borrowck_lookup_result(v4_lend_exclusive_borrow, v4_lend_exclusive_shared_first_def)
+pilot v4_lend_exclusive_released_result = v4_borrowck_lookup_result(v4_lend_exclusive_borrow, v4_lend_exclusive_released_def)
+pilot v4_lend_exclusive_two_shared_result = v4_borrowck_lookup_result(v4_lend_exclusive_borrow, v4_lend_exclusive_two_shared_def)
+pilot v4_lend_exclusive_same_call_result = v4_borrowck_lookup_result(v4_lend_exclusive_borrow, v4_lend_exclusive_same_call_def)
+pilot v4_lend_exclusive_shared_call_result = v4_borrowck_lookup_result(v4_lend_exclusive_borrow, v4_lend_exclusive_shared_call_def)
+pilot v4_lend_exclusive_mut_rewrite_result = v4_borrowck_lookup_result(v4_lend_exclusive_borrow, v4_lend_exclusive_mut_rewrite_def)
+pilot v4_lend_exclusive_cross_result = v4_borrowck_lookup_result(v4_lend_exclusive_borrow, v4_lend_exclusive_cross_def)
+
+say "exclusive-mut-path-kind=" + v4_lend_exclusive_first_path_kind(v4_lend_exclusive_borrow, v4_lend_exclusive_mut_first_result, "ship")
+say "exclusive-mut-first-status=" + v4_borrowck_result_status(v4_lend_exclusive_borrow, v4_lend_exclusive_mut_first_result)
+say "exclusive-shared-first-status=" + v4_borrowck_result_status(v4_lend_exclusive_borrow, v4_lend_exclusive_shared_first_result)
+say "exclusive-released-status=" + v4_borrowck_result_status(v4_lend_exclusive_borrow, v4_lend_exclusive_released_result)
+say "exclusive-two-shared-status=" + v4_borrowck_result_status(v4_lend_exclusive_borrow, v4_lend_exclusive_two_shared_result)
+say "exclusive-same-call-status=" + v4_borrowck_result_status(v4_lend_exclusive_borrow, v4_lend_exclusive_same_call_result)
+say "exclusive-shared-call-status=" + v4_borrowck_result_status(v4_lend_exclusive_borrow, v4_lend_exclusive_shared_call_result)
+say "exclusive-mut-rewrite-status=" + v4_borrowck_result_status(v4_lend_exclusive_borrow, v4_lend_exclusive_mut_rewrite_result)
+say "exclusive-cross-status=" + v4_borrowck_result_status(v4_lend_exclusive_borrow, v4_lend_exclusive_cross_result)
+say "exclusive-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_lend_exclusive_borrow))
+say "exclusive-same-message-count=" + word_from_int(v4_lend_exclusive_diag_count(v4_lend_exclusive_borrow, "Meiya refuses overlapping mutable lends"))
+say "exclusive-cross-message-count=" + word_from_int(v4_lend_exclusive_diag_count(v4_lend_exclusive_borrow, "Meiya carries an exclusive lend across another loan boundary"))
+say "exclusive-rewrite-message-count=" + word_from_int(v4_lend_exclusive_diag_count(v4_lend_exclusive_borrow, "Meiya refuses this rewrite while the value is borrowed"))
+say "exclusive-diag0=" + v4_diag_message(v4_borrowck_diag(v4_lend_exclusive_borrow, 0))
+say "exclusive-diag4=" + v4_diag_message(v4_borrowck_diag(v4_lend_exclusive_borrow, 4))
