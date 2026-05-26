@@ -40,14 +40,14 @@ Pipeline (full compiler):
 > (`freak audit-conformance`) skips V4-tagged contracts so v0.13.x stays
 > green even while V4 features land.
 
-### 0.2 Section status (v0.13.3 "Shiranui")
+### 0.2 Section status (v0.14.0 "Maverick")
 
 | Section | Status | Summary |
 |---|---|---|
 | §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). Missing: `variant`, pattern destructuring, named call args, lifetime annotations, `prob_when`, several primitive types (`tiny`, `uint`, `char`, `big`, `float32`, fixed `[T;N]`), tuples. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. Full rules (`lend`, lifetimes, `Shared<T>`/`Weak<T>`, honor levels, `direct_order`) are V4. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries lifetime tokens/type contracts, `lend` / `lend mut` parameter contracts, explicit expression loan paths, and first-pass non-lexical release for bound/call-only lends through TY/MIR/Meiya; full region solving, `Shared<T>`/`Weak<T>`, honor levels, and `direct_order` remain V4. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
@@ -59,7 +59,7 @@ Pipeline (full compiler):
 | §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`. V4: `freak vibe`, `freak test`, `--voice=…`, `--clearance=…`, `--build-mode=…`, `-o output_path`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
 | §15 Cheatsheet | ⚠️ Partial | Reflects §1-§14 status. |
-| §16 FFI | ⚠️ Partial | V4 carries `extern` calling-convention metadata, `link="..."` library metadata, `@link_name("...")` symbol overrides, core `std::ffi` alias normalization, raw-pointer LLVM carriage plus pointee-safety diagnostics, `extern [C]/[system] task(...) -> T` callback surface validation with specific missing-`extern` / bad-ABI / bad-payload diagnostics, explicit plain-task-to-extern callback boundary diagnostics, indirect callback call lowering, final extern-only `args: ...` variadics with scalar vararg promotion, and `@layout(C)`, `@layout(C, packed=N)`, and `@layout(transparent)` query-validation support. Raw pointer ops, panic-boundary callback guarantees, `std::os` platform modules, error-code translation, and deeper FFI/runtime guarantees remain V4 work. |
+| §16 FFI | ⚠️ Partial | V4 has landed substantial section-16 work (extern ABI metadata, layout attributes, callback surface validation + `@extern_callback` task export with trampolines, stack-unwinder import diagnostics, raw-pointer `.is_null()`, trust-me-gated `*ptr` read/write, fieldless `@repr(...)` route/variant FFI safety, and more). Per-landing breakdown lives in [freak-conformance-audit.md §16](freak-conformance-audit.md#§16-system-boundaries-ffi). Still V4: runtime panic-catch in trampoline bodies, raw pointer method forms, `std::os` platform modules, error-code translation. |
 | §17 Compiler Internals + IDE | 🔜 V4 | Panic infrastructure, tolerant parsing, AST node IDs, incremental parsing, autocomplete, IDE-mode error reporting are V4. V4 TY now diagnoses alias-cycle loops; the broader 00-Unit IDE/compiler-internals surface remains in progress. |
 
 ### 0.3 V4 roadmap and conformance
@@ -90,9 +90,9 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 
 ## SECTION 1: SYNTAX — COMPLETE REFERENCE
 
-**Status (v0.13.3): ⚠️ Partial.** Core syntax works; gaps tagged inline below.
+**Status (v0.14.0): ⚠️ Partial.** Core syntax works; gaps tagged inline below.
 
-| Sub-section | v0.13.3 status |
+| Sub-section | v0.14.0 status |
 |---|---|
 | §1.1 Variables | ✅ Implemented (note: `pilot mut` only matters under `--strict-borrow`) |
 | §1.2 Functions | ✅ Implemented (named call-site arguments are 🔜 V4) |
@@ -580,7 +580,7 @@ Module-level constants are immutable compile-time bindings declared with
 ```
 fixed pilot MAX_WIDGETS: uint = 4096u
 fixed pilot SORTIE_NAME: word = "Sortie"
-launch fixed pilot VERSION: word = "0.13.3"
+launch fixed pilot VERSION: word = "0.14.0"
 ```
 
 Rules:
@@ -947,7 +947,7 @@ pilot all = tracker.report()
 
 ## SECTION 4: BORROW CHECKER — FULL RULES
 
-**Status (v0.13.3): ⚠️ Partial.** Phase-1 ships behind `--strict-borrow`;
+**Status (v0.14.0): ⚠️ Partial.** Phase-1 ships behind `--strict-borrow`;
 the rest is V4.
 
 > **What ships in v0.13.x (Phase-1):**
@@ -960,13 +960,19 @@ the rest is V4.
 > - Default mode (no flag) is leak-everything — Phase-1 BC only runs
 >   under `--strict-borrow`. This will tighten over time.
 >
-> **🔜 V4 — the rest of this section:** `lend p: T` / `lend mut p: T`
-> parameters, lifetimes (`'a`), `Shared<T>` / `Weak<T>` / `.borrow()` /
+> **⚠️ V4 partial — Meiya is waking up:** V4 carries `lend p: T` /
+> `lend mut p: T` parameter contracts through TY/MIR, blocks immutable-lend
+> writes, blocks moves out of borrowed parameters, keeps borrowed params out of
+> callee drop tracking, and lowers explicit `lend value` / `lend mut value`
+> expressions into Meiya loan paths visible to call checking and snapshots.
+> Explicit lends bound to locals now remain live through later reachable uses
+> when checking rewrites; call-only lends expire at the call boundary.
+> Lifetime tokens and signature contracts exist, but full region inference,
+> `Shared<T>` / `Weak<T>` / `.borrow()` /
 > `.borrow_mut()` / `.get_mut()`, the full honor-level system inside
 > `trust me ... on my honor as .level`, and `direct_order [arch] { asm }`
-> inline assembly are V4 work. The current parser accepts `lend` as a
-> keyword (so the syntax compiles in declarations) but the type checker
-> does not enforce borrow rules around it.
+> inline assembly are V4 work. This is first-pass non-lexical loan liveness,
+> not full reference lifetime proof.
 
 The borrow checker enforces memory safety without a garbage collector.
 It runs as a separate pass after type checking, before code generation.
@@ -1120,10 +1126,10 @@ direct_order [x86_64] (in: rax = value, out: rbx = result) {
 
 ## SECTION 5: ANIME LAYER — FULL SPECIFICATION
 
-**Status (v0.13.3): ⚠️ Partial.** Syntax parses across the whole section;
+**Status (v0.14.0): ⚠️ Partial.** Syntax parses across the whole section;
 strict semantic enforcement is mostly V4.
 
-| Sub-section | v0.13.3 status |
+| Sub-section | v0.14.0 status |
 |---|---|
 | §5.1 Annotations (`@protagonist`, `@nakige`, `@experiment`, `@classified`, `@season_finale`, `@deprecated`, `@rival`, `@fixed_fate`, `@side_character`) | ⚠️ Partial — parsed; only `@deprecated` semantically enforced. Caller-prefix rules (`knowing this will hurt,`, `for science,`), death-flag tier analysis, classified redaction, season-finale uniqueness check are 🔜 V4. |
 | §5.2 Foreshadowing (`foreshadow` / `payoff` / `freak foreshadow-audit`) | ✅ Implemented — auditor reports unpaid debt and exits nonzero. Strict compile-time error for unpaid foreshadow inside the type checker is 🔜 V4. |
@@ -1397,7 +1403,7 @@ eventually if mission_failed {
 
 ## SECTION 6: MODULE SYSTEM AND HANGAR
 
-**Status (v0.13.3): ⚠️ Partial.** `launch`, `use module::{names}`, and
+**Status (v0.14.0): ⚠️ Partial.** `launch`, `use module::{names}`, and
 the core Hangar commands (`init`, `add`, `remove`, `install`, `version`,
 `install freak`) ship. **🔜 V4:** `launch(package)` package-private
 visibility, `use module::*` glob imports, and `hangar search` against a
@@ -1466,9 +1472,9 @@ freak hangar clean         -- clear cache
 
 ## SECTION 7: STD LIBRARY — COMPLETE REFERENCE
 
-**Status (v0.13.3): ⚠️ Partial.**
+**Status (v0.14.0): ⚠️ Partial.**
 
-| Module | v0.13.3 status |
+| Module | v0.14.0 status |
 |---|---|
 | `std::math`, `std::math3d` | ✅ Implemented (pure FREAK) |
 | `std::string`, `std::convert`, `std::algorithm`, `std::version`, `std::zip` | ✅ Implemented (pure FREAK) |
@@ -1840,7 +1846,7 @@ Rules:
 
 ## SECTION 8: FULL LEXER SPECIFICATION
 
-**Status (v0.13.3): ⚠️ Partial.** All v0.13.x keywords lex correctly
+**Status (v0.14.0): ⚠️ Partial.** All v0.13.x keywords lex correctly
 (verified by `freak audit-conformance`). **🔜 V4:** lifetime tokens
 (`'a`), numeric suffixes (`42u`, `3.14f`, `42t`, `999b`), the `\|\|`
 xm3 branch separator (currently lexed as logical OR), and tolerant-
@@ -1923,7 +1929,7 @@ fixed pilot / launch(package) / launch(universe)
 
 ## SECTION 9: FULL PARSER — AST NODES
 
-**Status (v0.13.3): ⚠️ Partial.** Core AST nodes (variables, tasks,
+**Status (v0.14.0): ⚠️ Partial.** Core AST nodes (variables, tasks,
 shapes, doctrines, control flow, error handling, anime constructs that
 ship) are implemented. **🔜 V4:** tolerant parsing with `ErrorNode` /
 `IncompleteNode`, recovery boundaries, AST node-id stability across
@@ -2140,7 +2146,7 @@ class DirectOrder:           # direct_order [arch] (bindings) { asm }
 
 ## SECTION 10: TYPE CHECKER — FULL RULES
 
-**Status (v0.13.3): ⚠️ Partial.** Basic type inference and shape/
+**Status (v0.14.0): ⚠️ Partial.** Basic type inference and shape/
 function/maybe/result checking ship. **🔜 V4 — most of the rules
 listed below:** `power<N>` arithmetic, `prob[lo..hi]` range tracking,
 `causality<T>` write broadcasts, mood compound verification, route
@@ -2194,7 +2200,7 @@ on §1.14), and root-`fixed pilot` cycle detection. The
 
 ## SECTION 11: CODE GENERATION NOTES (Full Compiler)
 
-**Status (v0.13.3): ⚠️ Partial.** LLVM IR and C backends both ship and
+**Status (v0.14.0): ⚠️ Partial.** LLVM IR and C backends both ship and
 handle core control flow, shapes/impl, arrays (LLVM-compatible pool),
 strings, fs/process/math/UI/TCP/JSON/HTTP. The LLVM backend emits
 LineTablesOnly DWARF — `DISubprogram` per function plus per-instruction
@@ -2251,9 +2257,9 @@ alternative     -- special mode. enables ALL anime features. full causality.
 
 ## SECTION 13: COMPILER CLI — FULL COMMANDS
 
-**Status (v0.13.3): ⚠️ Partial.**
+**Status (v0.14.0): ⚠️ Partial.**
 
-| Subcommand / flag | v0.13.3 status |
+| Subcommand / flag | v0.14.0 status |
 |---|---|
 | `freak run`, `freak build`, `freak check`, `freak transpile` | ✅ Implemented |
 | `freak version`, `freak help`, `freak init`, `freak flex`, `freak doctor`, `freak upgrade` | ✅ Implemented |
@@ -2321,7 +2327,7 @@ freak timeline-diff           -- show causality divergence between timelines
 
 ## SECTION 15: COMPLETE SYNTAX CHEATSHEET
 
-**Status (v0.13.3): ⚠️ Partial.** This cheatsheet reflects the *full*
+**Status (v0.14.0): ⚠️ Partial.** This cheatsheet reflects the *full*
 language. Cross-reference §0.2 for what currently ships vs. 🔜 V4.
 
 ```
@@ -2635,7 +2641,32 @@ Rules:
 - Public cross-platform libraries should hide OS handles behind `@layout(transparent)` newtypes or safe shapes.
 - OS callbacks must use an extern function type:
   `extern [system] task(hwnd: Hwnd, msg: c_uint, w: std::ffi::usize, l: std::ffi::isize) -> std::ffi::isize`.
+- A FREAK task may be exposed as an FFI callback by annotating it
+  `@extern_callback("C")` or `@extern_callback("system")` (or any supported
+  calling convention). The compiler synthesizes a panic-abort trampoline that
+  takes the foreign ABI, tail-calls the FREAK body, and is the symbol
+  delivered when a bare reference to the task is passed into a matching
+  `extern [ABI] task(...) -> T` slot. The annotated task's parameter and
+  return types must already be FFI-safe; the compiler rejects the annotation
+  with the same diagnostics it raises for extern signatures.
+
+  ```
+  @extern_callback("C")
+  task on_tick(seed: std::ffi::c_int) -> std::ffi::c_int {
+      give back seed + 1
+  }
+
+  extern [C] {
+      task install(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int
+  }
+
+  task wire() -> std::ffi::c_int {
+      give back install(on_tick)   -- on_tick coerces to extern [C] task(...)
+  }
+  ```
+
 - A callback must catch FREAK panics before returning to the OS. If a panic reaches a foreign callback boundary, the process aborts.
+- The compiler emits a warning when an `extern` block declares a known stack-unwinder import — `setjmp`/`_setjmp`/`sigsetjmp`/`__sigsetjmp`, `longjmp`/`_longjmp`/`siglongjmp`, the Itanium `_Unwind_*` and `__cxa_*` primitives, or the Windows `RaiseException` — detected either by the member name or by an `@link_name("...")` override. These primitives can transfer control past FREAK destructors and the `@extern_callback` panic-boundary contract. Wrap them in a C shim that converts the non-local jump into an integer error code and expose only a `result<T, E>`-returning safe wrapper. Low-level code that genuinely needs these primitives (kernel modules, JIT trampolines, coroutine engines) may opt out of the warning with `@allow_unwinder` on the individual extern member or on the entire extern block.
 - OS handles are resources. Wrap them in shapes with explicit `drop` behavior or standard-library RAII wrappers.
 
 ### 16.6 Boundary Wrappers

@@ -6,7 +6,7 @@
 and not enough sleep, but somehow it compiles.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-pink?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/v0.13.3-Shiranui--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
+[![Version](https://img.shields.io/badge/v0.14.0-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/FREAK-lang-dev/Freak-lang/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/FREAK-lang-dev/Freak-lang/actions)
 [![Status](https://img.shields.io/badge/status-self--hosting-brightgreen?style=flat-square)](#)
 [![Vibes](https://img.shields.io/badge/vibes-MONO__NO__AWARE-blueviolet?style=flat-square)](#)
@@ -143,6 +143,13 @@ irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1
 This downloads the latest `freak` binary and runtime to `~/.freak` (or `%APPDATA%\freak` on Windows) and adds it to your PATH. Open a new terminal and you're ready.
 
 > **Requires:** [Clang](https://releases.llvm.org/) for native compilation. Most systems have it already — run `clang --version` to check.
+
+Verify the install:
+
+```bash
+freak doctor
+freak doctor --json   # passive machine-readable report for editors and scripts
+```
 
 ### Your First Program
 
@@ -344,7 +351,7 @@ impl Displayable for Point {
 | `std::version` | Semver parsing, comparison, bumping, constraints |
 | `std::zip` | ZIP archive read/write |
 
-### `std::ramen` — Shiranui Recipe (For When Tests Are Running)
+### `std::ramen` — Maverick Recipe (For When Tests Are Running)
 
 Not actually a module. The official FREAK-developer snack. Serves one compiler. Total weight ≈ 274g (1 line ≈ 1 milligram; see §Freakium above for the formula).
 

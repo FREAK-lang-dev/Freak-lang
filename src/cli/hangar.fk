@@ -8,6 +8,8 @@
 -- ===================================================================
 
 pilot HANGAR_DEFAULT_REGISTRY = "https://index.hangar.dev"
+pilot HANGAR_RELEASE_API_LATEST = "https://api.github.com/repos/FREAK-lang-dev/Freak-lang/releases/latest"
+pilot HANGAR_RELEASE_LATEST = "https://github.com/FREAK-lang-dev/Freak-lang/releases/latest"
 
 -- Arg offset for standalone mode: when invoked as "hangar <cmd>",
 -- args are shifted by 1 compared to "freak hangar <cmd>".
@@ -759,17 +761,150 @@ task hangar_version_cmd(project_dir: word, bump: word) -> int {
 -- Returns 0 on success, non-zero on failure.
 task hangar_download_file(url: word, dest: word, is_win: bool) -> int {
     if is_win {
-        -- Try PowerShell first (ships with all Windows versions, handles HTTPS/redirects)
-        pilot ps_cmd = "powershell -NoProfile -NonInteractive -Command \"(New-Object Net.WebClient).DownloadFile('" + url + "', '" + dest + "')\""
+        -- Prefer curl.exe so PowerShell's curl alias and old Net.WebClient stay out of the path.
+        pilot curl_cmd = "curl.exe -fsSL --retry 2 -A \"freak-upgrade\" -o \"" + dest + "\" \"" + url + "\" 2>nul"
+        pilot curl_res = process::exec(curl_cmd)
+        if curl_res == 0 { give back 0 }
+
+        -- Fallback: Invoke-WebRequest handles locked-down Windows images better than WebClient.
+        pilot ps_cmd = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -UserAgent 'freak-upgrade' -ErrorAction SilentlyContinue -Uri '" + url + "' -OutFile '" + dest + "'\" 2>nul"
         pilot ps_res = process::exec(ps_cmd)
-        if ps_res == 0 { give back 0 }
-        -- Fallback: curl (available on Windows 10 1803+)
-        pilot curl_cmd = "curl -fsSL -o \"" + dest + "\" \"" + url + "\""
-        give back process::exec(curl_cmd)
+        if ps_res == 0 {
+            if fs::exists(dest) { give back 0 }
+        }
+        give back 1
     } else {
-        pilot curl_cmd = "curl -fsSL -o \"" + dest + "\" \"" + url + "\""
+        pilot curl_cmd = "curl -fsSL --retry 2 -A \"freak-upgrade\" -o \"" + dest + "\" \"" + url + "\" 2>/dev/null"
         give back process::exec(curl_cmd)
     }
+}
+
+task hangar_fetch_url(url: word, is_win: bool) -> word {
+    if is_win {
+        pilot curl_cmd = "curl.exe -fsSL --retry 2 -A \"freak-upgrade\" \"" + url + "\" 2>nul"
+        pilot curl_resp: word = process::exec_capture(curl_cmd)
+        if curl_resp != "" { give back curl_resp }
+
+        pilot ps_cmd = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'SilentlyContinue'; (Invoke-WebRequest -UseBasicParsing -UserAgent 'freak-upgrade' -ErrorAction SilentlyContinue -Uri '" + url + "').Content\" 2>nul"
+        pilot ps_resp: word = process::exec_capture(ps_cmd)
+        if ps_resp != "" { give back ps_resp }
+
+        give back ""
+    }
+
+    pilot curl_cmd = "curl -fsSL --retry 2 -A \"freak-upgrade\" \"" + url + "\" 2>/dev/null"
+    give back process::exec_capture(curl_cmd)
+}
+
+task hangar_extract_release_tag_from_text(text: word) -> word {
+    pilot needle = "/releases/tag/"
+    pilot tlen = text.length()
+    pilot nlen = needle.length()
+    pilot i = 0
+    repeat until i >= tlen {
+        pilot found = true
+        pilot ni = 0
+        repeat until ni >= nlen {
+            if i + ni >= tlen {
+                found = false
+            }
+            if found {
+                if text.char_at(i + ni) != needle.char_at(ni) {
+                    found = false
+                }
+            }
+            ni += 1
+        }
+
+        if found {
+            pilot vi = i + nlen
+            pilot tag = ""
+            repeat until vi >= tlen {
+                pilot ch: word = text.char_at(vi)
+                if ch == "\n" or ch == "\r" or ch == "/" or ch == "?" or ch == "#" or ch == "\"" {
+                    give back tag
+                }
+                tag = tag + ch
+                vi += 1
+            }
+            give back tag
+        }
+        i += 1
+    }
+    give back ""
+}
+
+task hangar_extract_release_download_tag_from_text(text: word) -> word {
+    pilot needle = "/releases/download/"
+    pilot tlen = text.length()
+    pilot nlen = needle.length()
+    pilot i = 0
+    repeat until i >= tlen {
+        pilot found = true
+        pilot ni = 0
+        repeat until ni >= nlen {
+            if i + ni >= tlen {
+                found = false
+            }
+            if found {
+                if text.char_at(i + ni) != needle.char_at(ni) {
+                    found = false
+                }
+            }
+            ni += 1
+        }
+
+        if found {
+            pilot vi = i + nlen
+            pilot tag = ""
+            repeat until vi >= tlen {
+                pilot ch: word = text.char_at(vi)
+                if ch == "\n" or ch == "\r" or ch == "/" or ch == "?" or ch == "#" or ch == "\"" {
+                    give back tag
+                }
+                tag = tag + ch
+                vi += 1
+            }
+            give back tag
+        }
+        i += 1
+    }
+    give back ""
+}
+
+task hangar_fetch_latest_release_tag(is_win: bool) -> word {
+    pilot api_resp: word = hangar_fetch_url(HANGAR_RELEASE_API_LATEST, is_win)
+    pilot version: word = hangar_extract_json_field(api_resp, "tag_name")
+    if version != "" { give back version }
+
+    if is_win {
+        pilot ps_cmd = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'SilentlyContinue'; (Invoke-WebRequest -UseBasicParsing -UserAgent 'freak-upgrade' -ErrorAction SilentlyContinue -Uri '" + HANGAR_RELEASE_LATEST + "').BaseResponse.ResponseUri.AbsoluteUri\" 2>nul"
+        pilot final_url: word = process::exec_capture(ps_cmd)
+        version = hangar_extract_release_tag_from_text(final_url)
+        if version != "" { give back version }
+
+        pilot headers: word = process::exec_capture("curl.exe -fsSI -A \"freak-upgrade\" \"" + HANGAR_RELEASE_LATEST + "\" 2>nul")
+        give back hangar_extract_release_tag_from_text(headers)
+    }
+
+    pilot headers2: word = process::exec_capture("curl -fsSI -A \"freak-upgrade\" \"" + HANGAR_RELEASE_LATEST + "\" 2>/dev/null")
+    give back hangar_extract_release_tag_from_text(headers2)
+}
+
+task hangar_fetch_latest_download_release_tag(artifact: word, is_win: bool) -> word {
+    pilot latest_url = HANGAR_RELEASE_LATEST + "/download/" + artifact
+
+    if is_win {
+        pilot headers: word = process::exec_capture("curl.exe -fsSI -A \"freak-upgrade\" \"" + latest_url + "\" 2>nul")
+        pilot version: word = hangar_extract_release_download_tag_from_text(headers)
+        if version != "" { give back version }
+        give back hangar_extract_release_tag_from_text(headers)
+    }
+
+    pilot headers2: word = process::exec_capture("curl -fsSI -A \"freak-upgrade\" \"" + latest_url + "\" 2>/dev/null")
+    pilot version2: word = hangar_extract_release_download_tag_from_text(headers2)
+    if version2 != "" { give back version2 }
+    give back hangar_extract_release_tag_from_text(headers2)
 }
 
 -- Ensure a directory exists (cross-platform).
@@ -841,23 +976,17 @@ task hangar_install_freak() -> int {
     pilot binary_path = bin_dir + "/freak" + ext
     pilot hangar_path = bin_dir + "/hangar" + ext
 
-    -- Fetch latest release tag via GitHub API
-    say "  Checking latest version..."
-    pilot api_resp: word = ""
-    if is_win {
-        pilot ps_api = "powershell -NoProfile -NonInteractive -Command \"(New-Object Net.WebClient).DownloadString('https://api.github.com/repos/FREAK-lang-dev/Freak-lang/releases/latest')\""
-        api_resp = process::exec_capture(ps_api)
-        if api_resp == "" {
-            api_resp = process::exec_capture("curl -fsSL \"https://api.github.com/repos/FREAK-lang-dev/Freak-lang/releases/latest\"")
-        }
-    } else {
-        api_resp = process::exec_capture("curl -fsSL \"https://api.github.com/repos/FREAK-lang-dev/Freak-lang/releases/latest\"")
-    }
+    pilot artifact = "freak-" + platform + ext
 
-    pilot version: word = hangar_extract_json_field(api_resp, "tag_name")
+    -- Fetch latest release tag via GitHub API, release redirects, or asset redirects.
+    say "  Checking latest version..."
+    pilot version: word = hangar_fetch_latest_release_tag(is_win)
     if version == "" {
-        say "  " + C_BRED + SYM_CROSS + C_RESET + " Could not fetch latest release."
-        say "  Check your internet connection and try again."
+        version = hangar_fetch_latest_download_release_tag(artifact, is_win)
+    }
+    if version == "" {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " Could not resolve latest release tag."
+        say "  " + C_DIM + "Refusing to install a latest/download binary without matching runtime/std refs." + C_RESET
         say "  Manual download: https://github.com/FREAK-lang-dev/Freak-lang/releases"
         give back 1
     }
@@ -870,7 +999,6 @@ task hangar_install_freak() -> int {
     hangar_mkdir(std_dir, is_win)
 
     -- Download freak binary
-    pilot artifact = "freak-" + platform + ext
     pilot base_url = "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/" + version
     pilot freak_url = base_url + "/" + artifact
     say "  Downloading " + C_BWHITE + artifact + C_RESET + "..."
@@ -895,7 +1023,8 @@ task hangar_install_freak() -> int {
 
     -- Download runtime files (prefer .o pre-compiled for bundle mode; fall back to .c)
     say "  Downloading runtime..."
-    pilot raw_base = "https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/" + version
+    pilot raw_ref = version
+    pilot raw_base = "https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/" + raw_ref
 
     -- Pre-compiled object files (needed for bundle mode — no clang for linking)
     pilot rt_o_ext = ".o"
@@ -950,9 +1079,9 @@ task hangar_install_freak() -> int {
     say cli_box_bot(48)
     say ""
 
-    -- Check if clang is available; suggest install if not
-    pilot clang_test = process::exec("clang --version")
-    if clang_test != 0 {
+    -- Check if clang is available; suggest install if not.
+    pilot clang_cmd: word = cli_find_clang_command()
+    if not cli_clang_command_works(clang_cmd) {
         say "  " + C_BYELLOW + SYM_BOLT + " clang not found" + C_RESET + " — needed to compile .fk programs."
         if is_win {
             say "  Install with: " + C_CYAN + "winget install LLVM.LLVM" + C_RESET

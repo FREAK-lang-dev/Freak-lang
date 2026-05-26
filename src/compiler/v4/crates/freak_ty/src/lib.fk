@@ -36,6 +36,9 @@ pilot v4_ty_snapshot_format = "freak-ty-snapshot-v1"
 pilot v4_ty_generic_env_fail = "#fail"
 pilot v4_ty_generic_kind_type = "type"
 pilot v4_ty_generic_kind_lifetime = "lifetime"
+pilot v4_ty_param_mode_value = "value"
+pilot v4_ty_param_mode_lend = "lend"
+pilot v4_ty_param_mode_lend_mut = "lend mut"
 
 pilot v4_ty_files = 0
 pilot v4_ty_resolves = 0
@@ -178,6 +181,14 @@ task v4_ty_add_error_diag(ty_id: int, span: word, message: word, help: word) -> 
     v4_ty_add_diag(ty_id, v4_diag_new(v4_diag_error, diag_span, message, help))
 }
 
+task v4_ty_add_warning_diag(ty_id: int, span: word, message: word, help: word) -> void {
+    pilot diag_span = span
+    if diag_span == "" {
+        diag_span = V4_NO_SPAN
+    }
+    v4_ty_add_diag(ty_id, v4_diag_new(v4_diag_warning, diag_span, message, help))
+}
+
 task v4_ty_copy_resolve_diags(ty_id: int, resolve_id: int) -> void {
     pilot diag_idx = 0
     pilot diag_count = v4_resolve_diag_count(resolve_id)
@@ -297,6 +308,10 @@ task v4_ty_raw_pointer_prefix(type_text: word) -> word {
 
 task v4_ty_is_raw_pointer_type(type_text: word) -> bool {
     give back v4_ty_raw_pointer_prefix(type_text) != ""
+}
+
+task v4_ty_is_mutable_raw_pointer_type(type_text: word) -> bool {
+    give back v4_ty_raw_pointer_prefix(type_text) == "*mut"
 }
 
 task v4_ty_raw_pointer_target_type(type_text: word) -> word {
@@ -611,7 +626,7 @@ task v4_ty_surface_extern_function_pointer_ffi_safe(ty_id: int, type_text: word,
 task v4_ty_validate_callback_surface_contract(ty_id: int, surface_type: word, span: word, context: word, seen_types: word) -> bool {
     if v4_ty_is_surface_extern_function_pointer_type(surface_type) == false {
         if v4_ty_is_surface_task_function_type(surface_type) {
-            v4_ty_add_error_diag(ty_id, span, "callback type must use extern ABI", v4_ty_ffi_boundary_help(surface_type, context))
+            v4_ty_add_error_diag(ty_id, span, "callback type must use extern ABI", v4_ty_ffi_boundary_help(ty_id, surface_type, context))
             give back true
         }
         give back false
@@ -643,7 +658,7 @@ task v4_ty_validate_callback_surface_contract(ty_id: int, surface_type: word, sp
             if param_name != "" {
                 param_context = context + "." + param_name
             }
-            v4_ty_add_error_diag(ty_id, span, "callback parameter type is not FFI-safe", v4_ty_ffi_boundary_help(param_surface, param_context))
+            v4_ty_add_error_diag(ty_id, span, "callback parameter type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, param_surface, param_context))
             give back true
         }
         param_id += 1
@@ -655,7 +670,7 @@ task v4_ty_validate_callback_surface_contract(ty_id: int, surface_type: word, sp
         give back true
     }
     if v4_ty_surface_ffi_safe_type_seen(ty_id, return_surface, true, seen_types) == false {
-        v4_ty_add_error_diag(ty_id, span, "callback return type is not FFI-safe", v4_ty_ffi_boundary_help(return_surface, context + " return"))
+        v4_ty_add_error_diag(ty_id, span, "callback return type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, return_surface, context + " return"))
         give back true
     }
 
@@ -833,6 +848,14 @@ task v4_ty_canonical_type_depth_seen(ty_id: int, type_text: word, seen_aliases: 
         give back ffi_alias
     }
 
+    if v4_ty_is_lend_type(type_text) {
+        pilot lend_target = v4_ty_canonical_type_depth_seen(ty_id, v4_ty_lend_target_type(type_text), seen_aliases, depth + 1)
+        if lend_target == "" or lend_target == v4_ty_unknown {
+            give back v4_ty_unknown
+        }
+        give back v4_ty_lend_type(lend_target, v4_ty_lend_mode(type_text))
+    }
+
     if v4_ty_is_raw_pointer_type(type_text) {
         pilot pointer_prefix = v4_ty_raw_pointer_prefix(type_text)
         pilot pointer_target = v4_ty_canonical_type_depth_seen(ty_id, v4_ty_raw_pointer_target_type(type_text), seen_aliases, depth + 1)
@@ -906,6 +929,9 @@ task v4_ty_is_integer_text_literal(value: word) -> bool {
 }
 
 task v4_ty_is_copy_type(ty_name: word) -> bool {
+    if v4_ty_is_lend_type(ty_name) {
+        give back v4_ty_is_lend_mut_type(ty_name) == false
+    }
     if ty_name == v4_ty_int or ty_name == v4_ty_uint or ty_name == v4_ty_tiny or ty_name == v4_ty_num {
         give back true
     }
@@ -1011,6 +1037,47 @@ task v4_ty_is_known(ty_name: word) -> bool {
     give back ty_name != "" and ty_name != v4_ty_unknown
 }
 
+task v4_ty_lend_type(target_ty: word, mode: word) -> word {
+    if not v4_ty_is_known(target_ty) {
+        give back v4_ty_unknown
+    }
+    if mode == v4_ty_param_mode_lend_mut {
+        give back "lend mut " + target_ty
+    }
+    give back "lend " + target_ty
+}
+
+task v4_ty_is_lend_mut_type(ty_name: word) -> bool {
+    give back ty_name.starts_with("lend mut ") and ty_name.length() > 9
+}
+
+task v4_ty_is_lend_type(ty_name: word) -> bool {
+    if v4_ty_is_lend_mut_type(ty_name) {
+        give back true
+    }
+    give back ty_name.starts_with("lend ") and ty_name.length() > 5
+}
+
+task v4_ty_lend_mode(ty_name: word) -> word {
+    if v4_ty_is_lend_mut_type(ty_name) {
+        give back v4_ty_param_mode_lend_mut
+    }
+    if v4_ty_is_lend_type(ty_name) {
+        give back v4_ty_param_mode_lend
+    }
+    give back v4_ty_param_mode_value
+}
+
+task v4_ty_lend_target_type(ty_name: word) -> word {
+    if v4_ty_is_lend_mut_type(ty_name) {
+        give back v4_slice(ty_name, 9, ty_name.length())
+    }
+    if v4_ty_is_lend_type(ty_name) {
+        give back v4_slice(ty_name, 5, ty_name.length())
+    }
+    give back v4_ty_unknown
+}
+
 task v4_ty_is_lifetime_name(ty_name: word) -> bool {
     give back ty_name.length() > 1 and ty_name.char_at(0) == "'"
 }
@@ -1105,6 +1172,15 @@ task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
     }
     if v4_ty_is_lifetime_name(expected_ty) and v4_ty_is_lifetime_name(actual_ty) {
         give back true
+    }
+    if v4_ty_is_lend_type(expected_ty) or v4_ty_is_lend_type(actual_ty) {
+        if not v4_ty_is_lend_type(expected_ty) or not v4_ty_is_lend_type(actual_ty) {
+            give back false
+        }
+        if v4_ty_lend_mode(expected_ty) != v4_ty_lend_mode(actual_ty) {
+            give back false
+        }
+        give back v4_ty_types_compatible(v4_ty_lend_target_type(expected_ty), v4_ty_lend_target_type(actual_ty))
     }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
         give back true
@@ -1273,6 +1349,9 @@ task v4_ty_unary_valid(op: word, operand_ty: word) -> bool {
     if op == "Not" {
         give back operand_ty == v4_ty_bool
     }
+    if op == "Deref" {
+        give back v4_ty_is_raw_pointer_type(operand_ty)
+    }
     give back true
 }
 
@@ -1288,6 +1367,11 @@ task v4_ty_unary_result(op: word, operand_ty: word) -> word {
     if op == "Not" {
         if operand_ty == v4_ty_bool {
             give back v4_ty_bool
+        }
+    }
+    if op == "Deref" {
+        if v4_ty_is_raw_pointer_type(operand_ty) {
+            give back v4_ty_raw_pointer_target_type(operand_ty)
         }
     }
     give back v4_ty_unknown
@@ -1468,6 +1552,10 @@ task v4_ty_signature_attribute_arg_for_name(ty_id: int, sig_id: int, wanted_name
 
 task v4_ty_signature_layout(ty_id: int, sig_id: int) -> word {
     give back v4_ty_signature_attribute_arg_for_name(ty_id, sig_id, "layout")
+}
+
+task v4_ty_signature_repr(ty_id: int, sig_id: int) -> word {
+    give back v4_ty_signature_attribute_arg_for_name(ty_id, sig_id, "repr")
 }
 
 task v4_ty_is_space_char(ch: word) -> bool {
@@ -1754,6 +1842,14 @@ task v4_ty_signature_layout_kind(ty_id: int, sig_id: int) -> word {
     give back ""
 }
 
+task v4_ty_signature_repr_kind(ty_id: int, sig_id: int) -> word {
+    pilot repr_text = v4_ty_trim_spaces(v4_ty_signature_repr(ty_id, sig_id)).to_lower()
+    if repr_text == "u8" or repr_text == "u16" or repr_text == "u32" or repr_text == "u64" or repr_text == "i8" or repr_text == "i16" or repr_text == "i32" or repr_text == "i64" {
+        give back repr_text
+    }
+    give back ""
+}
+
 task v4_ty_signature_layout_packed(ty_id: int, sig_id: int) -> word {
     pilot layout_text = v4_ty_signature_layout(ty_id, sig_id)
     pilot arg_idx = 1
@@ -1787,6 +1883,125 @@ task v4_ty_signature_attribute_span_for_name(ty_id: int, sig_id: int, wanted_nam
         attr_idx += 1
     }
     give back V4_NO_SPAN
+}
+
+task v4_ty_signature_extern_callback_abi_raw(ty_id: int, sig_id: int) -> word {
+    give back v4_ty_signature_attribute_arg_for_name(ty_id, sig_id, "extern_callback")
+}
+
+task v4_ty_signature_extern_callback_abi(ty_id: int, sig_id: int) -> word {
+    pilot raw = v4_ty_signature_extern_callback_abi_raw(ty_id, sig_id)
+    if raw == "" {
+        give back ""
+    }
+    pilot first_arg = v4_ty_layout_arg(raw, 0)
+    if first_arg == "" {
+        give back ""
+    }
+    pilot unquoted = v4_ty_strip_string_quotes(first_arg)
+    if unquoted == "" {
+        unquoted = first_arg
+    }
+    give back v4_ty_normalize_call_abi(unquoted)
+}
+
+task v4_ty_signature_extern_callback_arg_count(ty_id: int, sig_id: int) -> int {
+    pilot raw = v4_ty_signature_extern_callback_abi_raw(ty_id, sig_id)
+    if raw == "" {
+        give back 0
+    }
+    give back v4_ty_layout_arg_count(raw)
+}
+
+task v4_ty_signature_has_extern_callback(ty_id: int, sig_id: int) -> bool {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back false
+    }
+    pilot attr_idx = 0
+    pilot attr_count = v4_hir_item_attribute_count(hir_id, hir_item)
+    repeat until attr_idx >= attr_count {
+        if v4_hir_item_attribute_name(hir_id, hir_item, attr_idx) == "extern_callback" {
+            give back true
+        }
+        attr_idx += 1
+    }
+    give back false
+}
+
+task v4_ty_extern_callback_trampoline_name(task_name: word) -> word {
+    give back "__freak_callback_" + task_name
+}
+
+task v4_ty_task_callback_value_type(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+    pilot abi = v4_ty_signature_extern_callback_abi(ty_id, sig_id)
+    if abi == "" {
+        give back v4_ty_unknown
+    }
+    if v4_ty_is_language_abi(abi) == false and v4_ty_is_calling_convention_abi(abi) == false {
+        give back v4_ty_unknown
+    }
+    if v4_ty_signature_is_variadic(ty_id, sig_id) {
+        give back v4_ty_unknown
+    }
+
+    pilot out = "extern[" + abi + "]task("
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        if param_id > 0 {
+            out = out + ","
+        }
+        pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
+        pilot param_surface = v4_ty_signature_param_surface_type(ty_id, sig_id, param_id)
+        if param_name != "" {
+            out = out + v4_ty_param_mode_prefix(v4_ty_signature_param_mode(ty_id, sig_id, param_id)) + param_name + ":"
+        }
+        out = out + param_surface
+        param_id += 1
+    }
+    pilot return_surface = v4_ty_signature_return_surface_type(ty_id, sig_id)
+    if return_surface == "" or return_surface == v4_ty_unknown {
+        return_surface = v4_ty_void
+    }
+    out = out + ")->" + return_surface
+    give back out
+}
+
+task v4_ty_task_callback_value_type_for_name(ty_id: int, task_name: word) -> word {
+    pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, task_name)
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+    if v4_ty_signature_has_extern_callback(ty_id, sig_id) == false {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_task_callback_value_type(ty_id, sig_id)
+}
+
+task v4_ty_extern_callback_export_symbol_name(ty_id: int, task_name: word) -> word {
+    pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, task_name)
+    if sig_id < 0 {
+        give back ""
+    }
+    if v4_ty_signature_has_extern_callback(ty_id, sig_id) == false {
+        give back ""
+    }
+    pilot abi = v4_ty_signature_extern_callback_abi(ty_id, sig_id)
+    if abi == "" {
+        give back ""
+    }
+    if v4_ty_is_language_abi(abi) == false and v4_ty_is_calling_convention_abi(abi) == false {
+        give back ""
+    }
+    if v4_ty_signature_is_variadic(ty_id, sig_id) {
+        give back ""
+    }
+    give back v4_ty_extern_callback_trampoline_name(task_name)
 }
 
 task v4_ty_normalize_call_abi(abi: word) -> word {
@@ -2949,7 +3164,55 @@ task v4_ty_param_name_from_tokens(stream_id: int, start_token: int, end_token: i
     if first >= end_token {
         give back ""
     }
-    give back v4_lex_token_value(stream_id, first)
+    if v4_lex_token_value(stream_id, first) == "lend" {
+        first = v4_ty_skip_trivia(stream_id, first + 1)
+        if first < end_token and v4_lex_token_value(stream_id, first) == "mut" {
+            first = v4_ty_skip_trivia(stream_id, first + 1)
+        }
+    }
+    if first >= end_token {
+        give back ""
+    }
+    pilot param_name = v4_lex_token_value(stream_id, first)
+    if param_name == ":" or param_name == "," or param_name == ")" {
+        give back ""
+    }
+    give back param_name
+}
+
+task v4_ty_param_mode_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back v4_ty_param_mode_value
+    }
+    pilot first = v4_ty_skip_trivia(stream_id, start_token)
+    if first >= end_token {
+        give back v4_ty_param_mode_value
+    }
+    if v4_lex_token_value(stream_id, first) != "lend" {
+        give back v4_ty_param_mode_value
+    }
+    pilot after_lend = v4_ty_skip_trivia(stream_id, first + 1)
+    if after_lend < end_token and v4_lex_token_value(stream_id, after_lend) == "mut" {
+        give back v4_ty_param_mode_lend_mut
+    }
+    give back v4_ty_param_mode_lend
+}
+
+task v4_ty_param_mode_prefix(mode: word) -> word {
+    if mode == v4_ty_param_mode_lend {
+        give back "lend "
+    }
+    if mode == v4_ty_param_mode_lend_mut {
+        give back "lend mut "
+    }
+    give back ""
+}
+
+task v4_ty_signature_param_mode(ty_id: int, sig_id: int, param_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    give back v4_ty_param_mode_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_param_type_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
@@ -3012,7 +3275,7 @@ task v4_ty_signature_function_value_type(ty_id: int, sig_id: int) -> word {
             out = out + "..."
         } else {
             if param_name != "" {
-                out = out + param_name + ":"
+                out = out + v4_ty_param_mode_prefix(v4_ty_signature_param_mode(ty_id, sig_id, param_id)) + param_name + ":"
             }
             out = out + param_surface
         }
@@ -5023,6 +5286,20 @@ task v4_ty_impl_method_param_name(ty_id: int, hir_item: int, method_id: int, par
     give back v4_ty_param_name_from_tokens(stream_id, start_token, end_token)
 }
 
+task v4_ty_impl_method_param_mode(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back v4_ty_param_mode_value
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot open_token = v4_ty_impl_method_param_open_token(ty_id, hir_item, method_id)
+    pilot close_token = v4_ty_impl_method_param_close_token(ty_id, hir_item, method_id)
+    pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
+    pilot end_token = v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
+    give back v4_ty_param_mode_from_tokens(stream_id, start_token, end_token)
+}
+
 task v4_ty_impl_method_param_type(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 {
@@ -5072,6 +5349,14 @@ task v4_ty_impl_method_explicit_param_type(ty_id: int, hir_item: int, method_id:
         shift = 1
     }
     give back v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_id + shift)
+}
+
+task v4_ty_impl_method_explicit_param_mode(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+    pilot shift = 0
+    if v4_ty_impl_method_is_instance(ty_id, hir_item, method_id) {
+        shift = 1
+    }
+    give back v4_ty_impl_method_param_mode(ty_id, hir_item, method_id, param_id + shift)
 }
 
 task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word, env: word) -> word {
@@ -5772,6 +6057,13 @@ task v4_ty_route_case_segment_end(ty_id: int, sig_id: int, case_id: int) -> int 
     give back close_token
 }
 
+task v4_ty_route_case_segment_span(ty_id: int, sig_id: int, case_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_route_case_segment_start(ty_id, sig_id, case_id)
+    pilot end_token = v4_ty_route_case_segment_end(ty_id, sig_id, case_id)
+    give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+}
+
 task v4_ty_route_case_name(ty_id: int, sig_id: int, case_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_route_case_segment_start(ty_id, sig_id, case_id)
@@ -5784,6 +6076,51 @@ task v4_ty_route_case_name(ty_id: int, sig_id: int, case_id: int) -> word {
         give back ""
     }
     give back v4_lex_token_value(stream_id, first)
+}
+
+task v4_ty_route_case_discriminant_equals_token(ty_id: int, sig_id: int, case_id: int) -> int {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig or case_id < 0 {
+        give back 0 - 1
+    }
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_route_case_segment_start(ty_id, sig_id, case_id)
+    pilot end_token = v4_ty_route_case_segment_end(ty_id, sig_id, case_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back 0 - 1
+    }
+    pilot name_token = v4_ty_skip_trivia(stream_id, start_token)
+    if name_token >= end_token {
+        give back 0 - 1
+    }
+    give back v4_ty_find_top_level_token(stream_id, name_token + 1, end_token, "=")
+}
+
+task v4_ty_route_case_explicit_discriminant_text_by_sig(ty_id: int, sig_id: int, case_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot eq_token = v4_ty_route_case_discriminant_equals_token(ty_id, sig_id, case_id)
+    pilot end_token = v4_ty_route_case_segment_end(ty_id, sig_id, case_id)
+    if stream_id < 0 or eq_token < 0 or end_token <= eq_token {
+        give back ""
+    }
+    pilot value_token = v4_ty_skip_trivia(stream_id, eq_token + 1)
+    if value_token >= end_token {
+        give back ""
+    }
+    give back v4_ty_type_text(stream_id, value_token, end_token)
+}
+
+task v4_ty_route_case_explicit_discriminant_span_by_sig(ty_id: int, sig_id: int, case_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot eq_token = v4_ty_route_case_discriminant_equals_token(ty_id, sig_id, case_id)
+    pilot end_token = v4_ty_route_case_segment_end(ty_id, sig_id, case_id)
+    if stream_id < 0 or eq_token < 0 or end_token <= eq_token {
+        give back V4_NO_SPAN
+    }
+    pilot value_token = v4_ty_skip_trivia(stream_id, eq_token + 1)
+    if value_token >= end_token {
+        give back v4_lex_token_span(stream_id, eq_token)
+    }
+    give back v4_ty_span_from_tokens(stream_id, value_token, end_token)
 }
 
 task v4_ty_route_case_id_for_name(ty_id: int, route_name: word, case_name: word) -> int {
@@ -5805,6 +6142,48 @@ task v4_ty_route_case_id_for_name(ty_id: int, route_name: word, case_name: word)
 
 task v4_ty_route_has_case(ty_id: int, route_name: word, case_name: word) -> bool {
     give back v4_ty_route_case_id_for_name(ty_id, route_name, case_name) >= 0
+}
+
+task v4_ty_route_case_explicit_discriminant_text(ty_id: int, route_name: word, case_name: word) -> word {
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    pilot case_id = v4_ty_route_case_id_for_name(ty_id, route_name, case_name)
+    if sig_id < 0 or case_id < 0 {
+        give back ""
+    }
+    give back v4_ty_route_case_explicit_discriminant_text_by_sig(ty_id, sig_id, case_id)
+}
+
+task v4_ty_route_case_discriminant_value_by_sig(ty_id: int, sig_id: int, case_id: int) -> word {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig or case_id < 0 {
+        give back ""
+    }
+    pilot current = 0
+    pilot scan_id = 0
+    repeat until scan_id > case_id {
+        pilot explicit_text = v4_ty_route_case_explicit_discriminant_text_by_sig(ty_id, sig_id, scan_id)
+        if explicit_text != "" {
+            pilot resolved = v4_ty_const_integer_text_from_expr(ty_id, explicit_text)
+            if resolved == "" or resolved == v4_ty_unknown {
+                give back ""
+            }
+            current = word_to_int(resolved)
+        }
+        if scan_id == case_id {
+            give back word_from_int(current)
+        }
+        current += 1
+        scan_id += 1
+    }
+    give back ""
+}
+
+task v4_ty_route_case_discriminant_value(ty_id: int, route_name: word, case_name: word) -> word {
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    pilot case_id = v4_ty_route_case_id_for_name(ty_id, route_name, case_name)
+    if sig_id < 0 or case_id < 0 {
+        give back ""
+    }
+    give back v4_ty_route_case_discriminant_value_by_sig(ty_id, sig_id, case_id)
 }
 
 task v4_ty_route_case_payload_open_token(ty_id: int, sig_id: int, case_id: int) -> int {
@@ -6616,7 +6995,83 @@ task v4_ty_ffi_seen_append(seen_types: word, type_name: word) -> word {
     give back v4_ty_alias_cycle_seen_append(seen_types, type_name)
 }
 
-task v4_ty_ffi_boundary_help(surface_type: word, context: word) -> word {
+task v4_ty_surface_ffi_safe_repr_route_seen(ty_id: int, surface_type: word, seen_types: word) -> bool {
+    if surface_type == "" or surface_type == v4_ty_unknown {
+        give back false
+    }
+
+    if v4_ty_ffi_seen_contains(seen_types, surface_type) {
+        give back false
+    }
+
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, surface_type)
+    if sig_id < 0 {
+        give back false
+    }
+
+    if v4_ty_signature_repr_kind(ty_id, sig_id) == "" {
+        give back false
+    }
+
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot case_id = 0
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    repeat until case_id >= case_count {
+        pilot case_name = v4_ty_route_case_name(ty_id, sig_id, case_id)
+        if v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+            give back false
+        }
+        pilot explicit_text = v4_ty_route_case_explicit_discriminant_text_by_sig(ty_id, sig_id, case_id)
+        if explicit_text != "" {
+            pilot resolved = v4_ty_const_integer_text_from_expr(ty_id, explicit_text)
+            if resolved == "" or resolved == v4_ty_unknown {
+                give back false
+            }
+        }
+        case_id += 1
+    }
+
+    give back true
+}
+
+task v4_ty_ffi_route_boundary_help(ty_id: int, surface_type: word, context: word, pointer_context: bool) -> word {
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, surface_type)
+    if sig_id < 0 {
+        give back ""
+    }
+
+    pilot prefix = context + " uses " + surface_type + "; "
+    if pointer_context {
+        prefix = context + " points at " + surface_type + "; "
+    }
+
+    pilot repr_kind = v4_ty_signature_repr_kind(ty_id, sig_id)
+    if repr_kind == "" {
+        give back prefix + "fieldless routes and variants cross FFI only with @repr(u8), @repr(u16), @repr(u32), @repr(u64), @repr(i8), @repr(i16), @repr(i32), or @repr(i64)."
+    }
+
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot case_id = 0
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    repeat until case_id >= case_count {
+        pilot case_name = v4_ty_route_case_name(ty_id, sig_id, case_id)
+        if v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+            give back prefix + route_name + "::" + case_name + " carries payload fields; payload routes are not FFI-safe even with @repr(...). Wrap them in an explicit @layout(C) tagged shape."
+        }
+        pilot explicit_text = v4_ty_route_case_explicit_discriminant_text_by_sig(ty_id, sig_id, case_id)
+        if explicit_text != "" {
+            pilot resolved = v4_ty_const_integer_text_from_expr(ty_id, explicit_text)
+            if resolved == "" or resolved == v4_ty_unknown {
+                give back prefix + route_name + "::" + case_name + " needs a compile-time integer discriminant before the route can cross FFI."
+            }
+        }
+        case_id += 1
+    }
+
+    give back prefix + "only fieldless @repr(...) routes and variants may cross FFI directly."
+}
+
+task v4_ty_ffi_boundary_help(ty_id: int, surface_type: word, context: word) -> word {
     if v4_ty_is_raw_pointer_type(surface_type) {
         pilot target_type = v4_ty_raw_pointer_target_type(surface_type)
         if target_type == "word" {
@@ -6630,6 +7085,10 @@ task v4_ty_ffi_boundary_help(surface_type: word, context: word) -> word {
         }
         if target_type == "void" {
             give back context + " may point at void only as *const void, *mut void, or *const std::ffi::c_void."
+        }
+        pilot route_help = v4_ty_ffi_route_boundary_help(ty_id, target_type, context, true)
+        if route_help != "" {
+            give back route_help
         }
         give back context + " points at " + target_type + "; raw pointers crossing FFI must target std::ffi aliases, tiny/char buffers, extern callbacks, fixed arrays, or @layout(C) / @layout(transparent) shapes."
     }
@@ -6645,7 +7104,11 @@ task v4_ty_ffi_boundary_help(surface_type: word, context: word) -> word {
     if surface_type == "void" or surface_type == "c_void" or surface_type == "std::ffi::c_void" {
         give back context + " may use void only as an extern return or behind a raw pointer."
     }
-    give back context + " must use std::ffi aliases, raw pointers, fixed arrays, or @layout(C) / @layout(transparent) shapes; got " + surface_type
+    pilot route_help = v4_ty_ffi_route_boundary_help(ty_id, surface_type, context, false)
+    if route_help != "" {
+        give back route_help
+    }
+    give back context + " must use std::ffi aliases, raw pointers, fixed arrays, fieldless @repr(...) variants, or @layout(C) / @layout(transparent) shapes; got " + surface_type
 }
 
 task v4_ty_surface_ffi_safe_pointer_target_seen(ty_id: int, surface_type: word, seen_types: word) -> bool {
@@ -6680,6 +7143,10 @@ task v4_ty_surface_ffi_safe_pointer_target_seen(ty_id: int, surface_type: word, 
 
     if v4_ty_is_tuple_type(surface_type) {
         give back false
+    }
+
+    if v4_ty_surface_ffi_safe_repr_route_seen(ty_id, surface_type, seen_types) {
+        give back true
     }
 
     pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, surface_type)
@@ -6762,6 +7229,10 @@ task v4_ty_surface_ffi_safe_type_seen(ty_id: int, surface_type: word, allow_bare
         give back v4_ty_surface_ffi_safe_type_seen(ty_id, alias_target, allow_bare_void, v4_ty_ffi_seen_append(seen_types, surface_type))
     }
 
+    if v4_ty_surface_ffi_safe_repr_route_seen(ty_id, surface_type, seen_types) {
+        give back true
+    }
+
     pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, surface_type)
     if shape_sig >= 0 {
         if v4_ty_signature_layout_kind(ty_id, shape_sig) == "" {
@@ -6841,7 +7312,7 @@ task v4_ty_validate_shape_layout_contract(ty_id: int, sig_id: int) -> void {
         pilot field_name = v4_ty_shape_field_name(ty_id, sig_id, field_id)
         pilot field_context = v4_ty_signature_name(ty_id, sig_id) + "." + field_name
         if v4_ty_validate_callback_surface_contract(ty_id, field_surface, v4_ty_shape_field_type_span(ty_id, sig_id, field_id), field_context, v4_ty_signature_name(ty_id, sig_id)) == false and v4_ty_surface_ffi_safe_type_seen(ty_id, field_surface, false, v4_ty_signature_name(ty_id, sig_id)) == false {
-            v4_ty_add_error_diag(ty_id, v4_ty_shape_field_type_span(ty_id, sig_id, field_id), "layout field type is not FFI-safe", v4_ty_ffi_boundary_help(field_surface, field_context))
+            v4_ty_add_error_diag(ty_id, v4_ty_shape_field_type_span(ty_id, sig_id, field_id), "layout field type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, field_surface, field_context))
         }
         field_id += 1
     }
@@ -6854,6 +7325,53 @@ task v4_ty_validate_layout_contracts(ty_id: int) -> void {
         if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_shape_sig {
             v4_ty_validate_shape_layout_contract(ty_id, sig_id)
         }
+        sig_id += 1
+    }
+}
+
+task v4_ty_validate_signature_repr_contract(ty_id: int, sig_id: int) -> void {
+    pilot repr_text = v4_ty_signature_repr(ty_id, sig_id)
+    if repr_text == "" {
+        give back
+    }
+
+    pilot repr_span = v4_ty_signature_attribute_span_for_name(ty_id, sig_id, "repr")
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
+        v4_ty_add_error_diag(ty_id, repr_span, "repr contract needs route", "@repr(...) currently applies only to fieldless routes and variants")
+        give back
+    }
+
+    pilot repr_kind = v4_ty_signature_repr_kind(ty_id, sig_id)
+    if repr_kind == "" {
+        v4_ty_add_error_diag(ty_id, repr_span, "unknown repr contract", "use @repr(u8), @repr(u16), @repr(u32), @repr(u64), @repr(i8), @repr(i16), @repr(i32), or @repr(i64)")
+        give back
+    }
+
+    pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot case_id = 0
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    repeat until case_id >= case_count {
+        pilot case_name = v4_ty_route_case_name(ty_id, sig_id, case_id)
+        if v4_ty_route_case_has_payload(ty_id, route_name, case_name) {
+            v4_ty_add_error_diag(ty_id, v4_ty_route_case_segment_span(ty_id, sig_id, case_id), "repr variants must be fieldless", route_name + "::" + case_name + " carries payload fields")
+        } else {
+            pilot explicit_text = v4_ty_route_case_explicit_discriminant_text_by_sig(ty_id, sig_id, case_id)
+            if explicit_text != "" {
+                pilot resolved = v4_ty_const_integer_text_from_expr(ty_id, explicit_text)
+                if resolved == "" or resolved == v4_ty_unknown {
+                    v4_ty_add_error_diag(ty_id, v4_ty_route_case_explicit_discriminant_span_by_sig(ty_id, sig_id, case_id), "repr discriminant must use compile-time integer", route_name + "::" + case_name + " writes " + explicit_text)
+                }
+            }
+        }
+        case_id += 1
+    }
+}
+
+task v4_ty_validate_repr_contracts(ty_id: int) -> void {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        v4_ty_validate_signature_repr_contract(ty_id, sig_id)
         sig_id += 1
     }
 }
@@ -6952,7 +7470,7 @@ task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void 
                 param_context = member_name + "." + param_name
             }
             if v4_ty_validate_callback_surface_contract(ty_id, param_surface, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), param_context, "") == false and v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, "") == false {
-                v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", v4_ty_ffi_boundary_help(param_surface, param_context))
+                v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "extern parameter type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, param_surface, param_context))
             }
         }
         param_id += 1
@@ -6961,9 +7479,118 @@ task v4_ty_validate_extern_member_ffi_contract(ty_id: int, sig_id: int) -> void 
     pilot return_surface = v4_ty_signature_return_surface_type(ty_id, sig_id)
     if return_surface != "" and return_surface != v4_ty_unknown {
         if v4_ty_validate_callback_surface_contract(ty_id, return_surface, v4_ty_signature_return_span(ty_id, sig_id), member_name, "") == false and v4_ty_surface_ffi_safe_type_seen(ty_id, return_surface, true, "") == false {
-            v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "extern return type is not FFI-safe", v4_ty_ffi_boundary_help(return_surface, member_name + " return"))
+            v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "extern return type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, return_surface, member_name + " return"))
         }
     }
+}
+
+task v4_ty_is_known_unwinder_symbol(name: word) -> bool {
+    -- C non-local-jump primitives. Calling these from FREAK can transfer
+    -- control past FREAK destructors and the panic-boundary contract that
+    -- @extern_callback trampolines enforce. The bible (section 16) promises
+    -- panics never cross the FFI boundary; longjmp-style unwinds violate
+    -- that promise from the foreign side.
+    if name == "setjmp" or name == "_setjmp" or name == "sigsetjmp" or name == "__sigsetjmp" {
+        give back true
+    }
+    if name == "longjmp" or name == "_longjmp" or name == "siglongjmp" {
+        give back true
+    }
+    -- Itanium C++ ABI exception primitives.
+    if name == "_Unwind_RaiseException" or name == "_Unwind_Resume" or name == "_Unwind_ForcedUnwind" {
+        give back true
+    }
+    if name == "__cxa_throw" or name == "__cxa_rethrow" or name == "__cxa_begin_catch" or name == "__cxa_end_catch" {
+        give back true
+    }
+    -- Windows Structured Exception Handling primitive.
+    if name == "RaiseException" {
+        give back true
+    }
+    give back false
+}
+
+task v4_ty_unwinder_help(name: word) -> word {
+    pilot tail = " can transfer control past FREAK destructors and the @extern_callback panic-boundary contract; wrap it in a C shim that converts the non-local jump into an integer error code, or expose only a result<T, E>-returning safe wrapper."
+    give back name + tail
+}
+
+task v4_ty_extern_member_has_allow_unwinder(ty_id: int, block_sig: int, member_id: int) -> bool {
+    if block_sig < 0 or member_id < 0 {
+        give back false
+    }
+    pilot attr_idx = 0
+    pilot attr_count = v4_ty_extern_member_attribute_count(ty_id, block_sig, member_id)
+    repeat until attr_idx >= attr_count {
+        if v4_ty_extern_member_attribute_name(ty_id, block_sig, member_id, attr_idx) == "allow_unwinder" {
+            give back true
+        }
+        attr_idx += 1
+    }
+    give back false
+}
+
+task v4_ty_extern_block_has_allow_unwinder(ty_id: int, block_sig: int) -> bool {
+    if block_sig < 0 {
+        give back false
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, block_sig)
+    if hir_id < 0 or hir_item < 0 {
+        give back false
+    }
+    pilot attr_idx = 0
+    pilot attr_count = v4_hir_item_attribute_count(hir_id, hir_item)
+    repeat until attr_idx >= attr_count {
+        if v4_hir_item_attribute_name(hir_id, hir_item, attr_idx) == "allow_unwinder" {
+            give back true
+        }
+        attr_idx += 1
+    }
+    give back false
+}
+
+task v4_ty_signature_unwinder_effective_name(ty_id: int, sig_id: int) -> word {
+    if v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 {
+        give back ""
+    }
+    pilot block_sig = v4_ty_signature_extern_block_sig(ty_id, sig_id)
+    pilot member_id = v4_ty_signature_extern_member_id(ty_id, sig_id)
+    pilot member_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot link_name = v4_ty_extern_member_link_name(ty_id, block_sig, member_id)
+    pilot effective_name = link_name
+    if effective_name == "" {
+        effective_name = member_name
+    }
+    give back effective_name
+}
+
+task v4_ty_signature_is_warned_unwinder(ty_id: int, sig_id: int) -> bool {
+    pilot effective_name = v4_ty_signature_unwinder_effective_name(ty_id, sig_id)
+    if effective_name == "" {
+        give back false
+    }
+    if v4_ty_is_known_unwinder_symbol(effective_name) == false {
+        give back false
+    }
+    pilot block_sig = v4_ty_signature_extern_block_sig(ty_id, sig_id)
+    pilot member_id = v4_ty_signature_extern_member_id(ty_id, sig_id)
+    if v4_ty_extern_member_has_allow_unwinder(ty_id, block_sig, member_id) {
+        give back false
+    }
+    if v4_ty_extern_block_has_allow_unwinder(ty_id, block_sig) {
+        give back false
+    }
+    give back true
+}
+
+task v4_ty_validate_extern_member_unwinder_contract(ty_id: int, sig_id: int) -> void {
+    if v4_ty_signature_is_warned_unwinder(ty_id, sig_id) == false {
+        give back
+    }
+    pilot effective_name = v4_ty_signature_unwinder_effective_name(ty_id, sig_id)
+    pilot span = v4_hir_item_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
+    v4_ty_add_warning_diag(ty_id, span, "extern import unwinds across the FFI boundary", v4_ty_unwinder_help(effective_name))
 }
 
 task v4_ty_validate_extern_ffi_contracts(ty_id: int) -> void {
@@ -6975,6 +7602,81 @@ task v4_ty_validate_extern_ffi_contracts(ty_id: int) -> void {
         }
         v4_ty_validate_extern_member_link_name_contract(ty_id, sig_id)
         v4_ty_validate_extern_member_ffi_contract(ty_id, sig_id)
+        v4_ty_validate_extern_member_unwinder_contract(ty_id, sig_id)
+        sig_id += 1
+    }
+}
+
+task v4_ty_validate_extern_callback_export_contract(ty_id: int, sig_id: int) -> void {
+    if v4_ty_signature_has_extern_callback(ty_id, sig_id) == false {
+        give back
+    }
+
+    pilot attr_span = v4_ty_signature_attribute_span_for_name(ty_id, sig_id, "extern_callback")
+    pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
+    if sig_kind != v4_ty_task_sig {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback applies only to tasks", "remove @extern_callback from " + v4_ty_signature_name(ty_id, sig_id) + " or move it to a task declaration")
+        give back
+    }
+
+    pilot task_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot arg_count = v4_ty_signature_extern_callback_arg_count(ty_id, sig_id)
+    if arg_count == 0 {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback needs an ABI", "write @extern_callback(\"C\") or @extern_callback(\"system\") on " + task_name)
+        give back
+    }
+    if arg_count > 1 {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback takes one ABI", task_name + " uses extra arguments; @extern_callback accepts exactly one ABI string like \"C\" or \"system\"")
+        give back
+    }
+
+    pilot abi = v4_ty_signature_extern_callback_abi(ty_id, sig_id)
+    if abi == "" {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback needs an ABI", "write @extern_callback(\"C\") or @extern_callback(\"system\") on " + task_name)
+        give back
+    }
+    if v4_ty_is_language_abi(abi) == false and v4_ty_is_calling_convention_abi(abi) == false {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback ABI is invalid", task_name + " uses @extern_callback(" + v4_ty_signature_extern_callback_abi_raw(ty_id, sig_id) + "); use \"C\", \"system\", or a supported calling convention like \"cdecl\"/\"stdcall\"/\"win64\"/\"sysv64\"")
+        give back
+    }
+
+    if v4_ty_signature_is_variadic(ty_id, sig_id) {
+        v4_ty_add_error_diag(ty_id, attr_span, "@extern_callback tasks cannot be variadic", "remove args: ... from " + task_name + " before exposing it as an FFI callback")
+        give back
+    }
+
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        pilot param_surface = v4_ty_signature_param_surface_type(ty_id, sig_id, param_id)
+        if v4_ty_surface_ffi_safe_type_seen(ty_id, param_surface, false, "") == false {
+            pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_id)
+            pilot param_context = task_name + " argument " + word_from_int(param_id + 1)
+            if param_name != "" {
+                param_context = task_name + "." + param_name
+            }
+            v4_ty_add_error_diag(ty_id, v4_ty_signature_param_type_span(ty_id, sig_id, param_id), "@extern_callback parameter type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, param_surface, param_context))
+            give back
+        }
+        param_id += 1
+    }
+
+    pilot return_surface = v4_ty_signature_return_surface_type(ty_id, sig_id)
+    if return_surface == "" or return_surface == v4_ty_unknown {
+        v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "@extern_callback return type is not FFI-safe", task_name + " must return an explicit FFI-safe type")
+        give back
+    }
+    if v4_ty_surface_ffi_safe_type_seen(ty_id, return_surface, true, "") == false {
+        v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "@extern_callback return type is not FFI-safe", v4_ty_ffi_boundary_help(ty_id, return_surface, task_name + " return"))
+        give back
+    }
+}
+
+task v4_ty_validate_extern_callback_export_contracts(ty_id: int) -> void {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        v4_ty_validate_extern_callback_export_contract(ty_id, sig_id)
         sig_id += 1
     }
 }
@@ -7589,8 +8291,10 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
     }
 
     v4_ty_validate_lifetime_contracts(ty_id)
+    v4_ty_validate_repr_contracts(ty_id)
     v4_ty_validate_layout_contracts(ty_id)
     v4_ty_validate_extern_ffi_contracts(ty_id)
+    v4_ty_validate_extern_callback_export_contracts(ty_id)
     v4_ty_validate_alias_cycles(ty_id)
     v4_ty_validate_const_cycles(ty_id)
     v4_ty_validate_const_initializers(ty_id)

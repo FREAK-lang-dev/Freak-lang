@@ -727,6 +727,224 @@ def audit_conformance(paths: List[Path]) -> int:
     if not dem_ok:
         warnings.append("deus_ex_machina 20-word rule not visibly enforced in parser.py")
 
+    # ── Check 7c: V4 raw-pointer .is_null() lowering (regression guard) ──
+    # Bible §16.4 permits .is_null() checks outside trust-me; V4 lowers them
+    # to LLVM icmp eq ptr %p, null. Lock in the MIR opcode + codegen path +
+    # smoke fixture so regressions surface immediately.
+    v4_mir_lib_isn = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_codegen_lib_isn = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
+    v4_isn_smoke = repo / "src" / "compiler" / "v4" / "tests" / "raw_pointer_is_null_smoke.fk"
+    v4_check_harness_isn = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    isn_missing: List[str] = []
+    if v4_mir_lib_isn.exists():
+        mir_src = v4_mir_lib_isn.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_unary_ptr_is_null",
+            "is_null takes no arguments",
+        ):
+            if needle not in mir_src:
+                isn_missing.append(f"freak_mir: {needle}")
+    else:
+        isn_missing.append("freak_mir/src/lib.fk missing")
+    if v4_codegen_lib_isn.exists():
+        cg_src = v4_codegen_lib_isn.read_text(encoding="utf-8")
+        if "icmp eq ptr" not in cg_src:
+            isn_missing.append("freak_codegen_llvm: icmp eq ptr lowering")
+    else:
+        isn_missing.append("freak_codegen_llvm/src/lib.fk missing")
+    if not v4_isn_smoke.exists():
+        isn_missing.append("smoke fixture: raw_pointer_is_null_smoke.fk")
+    if v4_check_harness_isn.exists():
+        harness_src = v4_check_harness_isn.read_text(encoding="utf-8")
+        if "raw_pointer_is_null_smoke.fk" not in harness_src:
+            isn_missing.append("EXECUTABLE_SMOKES: raw_pointer_is_null_smoke entry")
+    else:
+        isn_missing.append("check_v4.py harness missing")
+    add(
+        "V4 raw-ptr is_null",
+        not isn_missing,
+        "MIR opcode + LLVM lowering + smoke wired" if not isn_missing else f"{len(isn_missing)} gap(s)",
+    )
+    if isn_missing:
+        failures.append("V4 raw-pointer is_null lowering regressed: " + "; ".join(isn_missing))
+
+    # ── Check 7d: V4 trust me block parsing (regression guard) ──
+    # Bible §16.4 gates raw-pointer dereferencing on `trust me` blocks. The
+    # first slice parses the form; future slices wire the gating + audit-trust
+    # integration. Lock in the MIR lowering + smoke fixture so the parse
+    # surface cannot silently regress.
+    v4_mir_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_codegen_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
+    v4_ty_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_trust_me_smoke = repo / "src" / "compiler" / "v4" / "tests" / "trust_me_block_smoke.fk"
+    v4_deref_smoke = repo / "src" / "compiler" / "v4" / "tests" / "raw_pointer_deref_smoke.fk"
+    v4_deref_write_smoke = repo / "src" / "compiler" / "v4" / "tests" / "raw_pointer_deref_write_smoke.fk"
+    v4_check_harness_tm = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    tm_missing: List[str] = []
+    if v4_mir_lib_tm.exists():
+        mir_src = v4_mir_lib_tm.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_lower_trust_me_stmt",
+            "trust me block needs me keyword",
+            "trust me block needs body",
+            "v4_mir_push_trust_me",
+            "v4_mir_inside_trust_me",
+            "v4_mir_unary_deref",
+            "raw-pointer deref needs trust me block",
+            "v4_mir_place_deref",
+            "raw-pointer write needs *mut T",
+        ):
+            if needle not in mir_src:
+                tm_missing.append(f"freak_mir: {needle}")
+    else:
+        tm_missing.append("freak_mir/src/lib.fk missing")
+    if v4_ty_lib_tm.exists():
+        ty_src = v4_ty_lib_tm.read_text(encoding="utf-8")
+        if "v4_ty_is_mutable_raw_pointer_type" not in ty_src:
+            tm_missing.append("freak_ty: v4_ty_is_mutable_raw_pointer_type")
+    else:
+        tm_missing.append("freak_ty/src/lib.fk missing")
+    if v4_codegen_lib_tm.exists():
+        cg_src = v4_codegen_lib_tm.read_text(encoding="utf-8")
+        if "v4_mir_unary_deref" not in cg_src:
+            tm_missing.append("freak_codegen_llvm: deref load lowering")
+        if "v4_mir_place_deref" not in cg_src:
+            tm_missing.append("freak_codegen_llvm: deref store lowering")
+    else:
+        tm_missing.append("freak_codegen_llvm/src/lib.fk missing")
+    if not v4_trust_me_smoke.exists():
+        tm_missing.append("smoke fixture: trust_me_block_smoke.fk")
+    if not v4_deref_smoke.exists():
+        tm_missing.append("smoke fixture: raw_pointer_deref_smoke.fk")
+    if not v4_deref_write_smoke.exists():
+        tm_missing.append("smoke fixture: raw_pointer_deref_write_smoke.fk")
+    if v4_check_harness_tm.exists():
+        harness_src = v4_check_harness_tm.read_text(encoding="utf-8")
+        if "trust_me_block_smoke.fk" not in harness_src:
+            tm_missing.append("EXECUTABLE_SMOKES: trust_me_block_smoke entry")
+        if "raw_pointer_deref_smoke.fk" not in harness_src:
+            tm_missing.append("EXECUTABLE_SMOKES: raw_pointer_deref_smoke entry")
+        if "raw_pointer_deref_write_smoke.fk" not in harness_src:
+            tm_missing.append("EXECUTABLE_SMOKES: raw_pointer_deref_write_smoke entry")
+    else:
+        tm_missing.append("check_v4.py harness missing")
+    add(
+        "V4 trust me block",
+        not tm_missing,
+        "parse + deref read/write gating + smokes wired" if not tm_missing else f"{len(tm_missing)} gap(s)",
+    )
+    if tm_missing:
+        failures.append("V4 trust me block parsing regressed: " + "; ".join(tm_missing))
+
+    # ── Check 8: V4 @extern_callback FFI surface (regression guard) ──
+    # Once a 🔜 V4 row promotes to ⚠️/✅ in bible §0.2, audit_conformance
+    # grows a check so the contract cannot silently regress. The
+    # @extern_callback("ABI") inbound callback surface landed in V4 with
+    # validators in freak_ty, LLVM trampolines in freak_codegen_llvm, a
+    # smoke fixture, and an EXECUTABLE_SMOKES entry.
+    v4_ty_lib = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_codegen_lib = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
+    v4_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_callback_export_smoke.fk"
+    v4_check_harness = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    ec_missing: List[str] = []
+    if v4_ty_lib.exists():
+        ty_src = v4_ty_lib.read_text(encoding="utf-8")
+        for needle in (
+            "v4_ty_signature_has_extern_callback",
+            "v4_ty_extern_callback_trampoline_name",
+            "v4_ty_task_callback_value_type",
+        ):
+            if needle not in ty_src:
+                ec_missing.append(f"freak_ty: {needle}")
+    else:
+        ec_missing.append("freak_ty/src/lib.fk missing")
+    if v4_codegen_lib.exists():
+        cg_src = v4_codegen_lib.read_text(encoding="utf-8")
+        for needle in (
+            "v4_codegen_llvm_callback_trampoline_name",
+            "v4_codegen_llvm_lower_callback_trampolines",
+            "v4_codegen_llvm_use_symbol_value",
+        ):
+            if needle not in cg_src:
+                ec_missing.append(f"freak_codegen_llvm: {needle}")
+    else:
+        ec_missing.append("freak_codegen_llvm/src/lib.fk missing")
+    if not v4_smoke.exists():
+        ec_missing.append("smoke fixture: extern_callback_export_smoke.fk")
+    if v4_check_harness.exists():
+        harness_src = v4_check_harness.read_text(encoding="utf-8")
+        if "extern_callback_export_smoke.fk" not in harness_src:
+            ec_missing.append("EXECUTABLE_SMOKES: extern_callback_export_smoke entry")
+    else:
+        ec_missing.append("check_v4.py harness missing")
+    add(
+        "V4 @extern_callback",
+        not ec_missing,
+        "TY validators, LLVM trampoline, smoke wired" if not ec_missing else f"{len(ec_missing)} gap(s)",
+    )
+    if ec_missing:
+        failures.append("V4 @extern_callback surface regressed: " + "; ".join(ec_missing))
+
+    # ── Check 9: V4 stack-unwinder extern-import diagnostic ──
+    # Bible §16.5 promises panics never cross extern boundaries; V4 enforces
+    # the inbound side by warning on known C unwinder primitives declared
+    # in extern blocks. Lock in the validator + smoke fixture + EXECUTABLE_SMOKES
+    # entry so the surface cannot silently regress.
+    v4_ty_lib_unw = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_mir_lib_unw = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_unwinder_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_unwinder_smoke.fk"
+    v4_allow_unwinder_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_allow_unwinder_smoke.fk"
+    v4_unwinder_call_site_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_unwinder_call_site_smoke.fk"
+    v4_check_harness_unw = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    unw_missing: List[str] = []
+    if v4_ty_lib_unw.exists():
+        ty_src = v4_ty_lib_unw.read_text(encoding="utf-8")
+        for needle in (
+            "v4_ty_is_known_unwinder_symbol",
+            "v4_ty_validate_extern_member_unwinder_contract",
+            "v4_ty_add_warning_diag",
+            "v4_ty_extern_member_has_allow_unwinder",
+            "v4_ty_extern_block_has_allow_unwinder",
+            "v4_ty_signature_is_warned_unwinder",
+        ):
+            if needle not in ty_src:
+                unw_missing.append(f"freak_ty: {needle}")
+    else:
+        unw_missing.append("freak_ty/src/lib.fk missing")
+    if v4_mir_lib_unw.exists():
+        mir_src = v4_mir_lib_unw.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_warn_unwinder_call_site",
+            "v4_mir_add_type_warning",
+        ):
+            if needle not in mir_src:
+                unw_missing.append(f"freak_mir: {needle}")
+    else:
+        unw_missing.append("freak_mir/src/lib.fk missing")
+    if not v4_unwinder_smoke.exists():
+        unw_missing.append("smoke fixture: extern_unwinder_smoke.fk")
+    if not v4_allow_unwinder_smoke.exists():
+        unw_missing.append("smoke fixture: extern_allow_unwinder_smoke.fk")
+    if not v4_unwinder_call_site_smoke.exists():
+        unw_missing.append("smoke fixture: extern_unwinder_call_site_smoke.fk")
+    if v4_check_harness_unw.exists():
+        harness_src = v4_check_harness_unw.read_text(encoding="utf-8")
+        if "extern_unwinder_smoke.fk" not in harness_src:
+            unw_missing.append("EXECUTABLE_SMOKES: extern_unwinder_smoke entry")
+        if "extern_allow_unwinder_smoke.fk" not in harness_src:
+            unw_missing.append("EXECUTABLE_SMOKES: extern_allow_unwinder_smoke entry")
+        if "extern_unwinder_call_site_smoke.fk" not in harness_src:
+            unw_missing.append("EXECUTABLE_SMOKES: extern_unwinder_call_site_smoke entry")
+    else:
+        unw_missing.append("check_v4.py harness missing")
+    add(
+        "V4 unwinder diag",
+        not unw_missing,
+        "decl + call-site + opt-out + smokes wired" if not unw_missing else f"{len(unw_missing)} gap(s)",
+    )
+    if unw_missing:
+        failures.append("V4 unwinder-import diagnostic regressed: " + "; ".join(unw_missing))
+
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")

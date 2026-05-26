@@ -48,10 +48,14 @@ pilot v4_mir_rvalue_err = "Err"
 pilot v4_mir_rvalue_check = "Check"
 pilot v4_mir_rvalue_or_else = "OrElse"
 pilot v4_mir_rvalue_try = "Try"
+pilot v4_mir_rvalue_lend = "Lend"
+pilot v4_mir_rvalue_lend_mut = "LendMut"
 pilot v4_mir_rvalue_unknown = "Unknown"
 
 pilot v4_mir_unary_neg = "Neg"
 pilot v4_mir_unary_not = "Not"
+pilot v4_mir_unary_ptr_is_null = "PtrIsNull"
+pilot v4_mir_unary_deref = "Deref"
 
 pilot v4_mir_bin_add = "Add"
 pilot v4_mir_bin_sub = "Sub"
@@ -70,9 +74,10 @@ pilot v4_mir_bin_or = "Or"
 pilot v4_mir_place_local = "Local"
 pilot v4_mir_place_field = "Field"
 pilot v4_mir_place_index = "Index"
+pilot v4_mir_place_deref = "Deref"
 pilot v4_mir_place_return = "Return"
 pilot v4_mir_place_unknown = "Unknown"
-pilot v4_mir_snapshot_format = "freak-mir-snapshot-v3"
+pilot v4_mir_snapshot_format = "freak-mir-snapshot-v4"
 
 pilot v4_mir_files = 0
 pilot v4_mir_tys = 0
@@ -82,6 +87,7 @@ pilot v4_mir_body_sigs = 0
 pilot v4_mir_body_blocks = 0
 pilot v4_mir_body_local_names = 0
 pilot v4_mir_body_local_tys = 0
+pilot v4_mir_body_local_modes = 0
 pilot v4_mir_body_local_spans = 0
 pilot v4_mir_body_local_scope_spans = 0
 pilot v4_mir_body_stmt_kinds = 0
@@ -113,6 +119,7 @@ pilot v4_mir_loop_continue_targets = 0
 pilot v4_mir_loop_depth = 0
 pilot v4_mir_scope_spans = 0
 pilot v4_mir_scope_depth = 0
+pilot v4_mir_trust_me_depth = 0
 pilot v4_mir_ready = 0
 
 task v4_mir_init() -> void {
@@ -125,6 +132,7 @@ task v4_mir_init() -> void {
         v4_mir_body_blocks = array_new()
         v4_mir_body_local_names = array_new()
         v4_mir_body_local_tys = array_new()
+        v4_mir_body_local_modes = array_new()
         v4_mir_body_local_spans = array_new()
         v4_mir_body_local_scope_spans = array_new()
         v4_mir_body_stmt_kinds = array_new()
@@ -156,6 +164,7 @@ task v4_mir_init() -> void {
         v4_mir_loop_depth = 0
         v4_mir_scope_spans = array_new()
         v4_mir_scope_depth = 0
+        v4_mir_trust_me_depth = 0
         v4_mir_ready = 1
     }
 }
@@ -169,6 +178,21 @@ task v4_mir_clear_loop_context() -> void {
 task v4_mir_clear_scope_context() -> void {
     v4_mir_scope_spans = array_new()
     v4_mir_scope_depth = 0
+    v4_mir_trust_me_depth = 0
+}
+
+task v4_mir_push_trust_me() -> void {
+    v4_mir_trust_me_depth += 1
+}
+
+task v4_mir_pop_trust_me() -> void {
+    if v4_mir_trust_me_depth > 0 {
+        v4_mir_trust_me_depth -= 1
+    }
+}
+
+task v4_mir_inside_trust_me() -> bool {
+    give back v4_mir_trust_me_depth > 0
 }
 
 task v4_mir_push_scope_span(span: word) -> void {
@@ -235,6 +259,7 @@ task v4_mir_file_new(file_id: int, ty_id: int) -> int {
     array_push(v4_mir_body_blocks, word_from_int(array_new()))
     array_push(v4_mir_body_local_names, word_from_int(array_new()))
     array_push(v4_mir_body_local_tys, word_from_int(array_new()))
+    array_push(v4_mir_body_local_modes, word_from_int(array_new()))
     array_push(v4_mir_body_local_spans, word_from_int(array_new()))
     array_push(v4_mir_body_local_scope_spans, word_from_int(array_new()))
     array_push(v4_mir_body_stmt_kinds, word_from_int(array_new()))
@@ -286,6 +311,10 @@ task v4_mir_local_names_index_handle(mir_id: int) -> int {
 
 task v4_mir_local_tys_index_handle(mir_id: int) -> int {
     give back word_to_int(array_get(v4_mir_body_local_tys, mir_id))
+}
+
+task v4_mir_local_modes_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_local_modes, mir_id))
 }
 
 task v4_mir_local_spans_index_handle(mir_id: int) -> int {
@@ -448,6 +477,10 @@ task v4_mir_body_local_tys_handle(mir_id: int, body_id: int) -> int {
     give back word_to_int(array_get(v4_mir_local_tys_index_handle(mir_id), body_id))
 }
 
+task v4_mir_body_local_modes_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_local_modes_index_handle(mir_id), body_id))
+}
+
 task v4_mir_body_local_spans_handle(mir_id: int, body_id: int) -> int {
     give back word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body_id))
 }
@@ -576,6 +609,10 @@ task v4_mir_local_ty(mir_id: int, body_id: int, local_id: int) -> word {
     give back array_get(v4_mir_body_local_tys_handle(mir_id, body_id), local_id)
 }
 
+task v4_mir_local_mode(mir_id: int, body_id: int, local_id: int) -> word {
+    give back array_get(v4_mir_body_local_modes_handle(mir_id, body_id), local_id)
+}
+
 task v4_mir_local_span(mir_id: int, body_id: int, local_id: int) -> word {
     give back array_get(v4_mir_body_local_spans_handle(mir_id, body_id), local_id)
 }
@@ -702,6 +739,20 @@ task v4_mir_add_type_error(mir_id: int, span: word, message: word, help: word) -
     v4_mir_add_diag(mir_id, v4_diag_new(v4_diag_error, span, message, help))
 }
 
+task v4_mir_add_type_warning(mir_id: int, span: word, message: word, help: word) -> void {
+    v4_mir_add_diag(mir_id, v4_diag_new(v4_diag_warning, span, message, help))
+}
+
+task v4_mir_warn_unwinder_call_site(mir_id: int, expr_span: word, sig_id: int) -> void {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_signature_is_warned_unwinder(ty_id, sig_id) == false {
+        give back
+    }
+    pilot effective_name = v4_ty_signature_unwinder_effective_name(ty_id, sig_id)
+    pilot help_text = "this call invokes " + effective_name + " which can transfer control past FREAK destructors and the @extern_callback panic-boundary contract; replace it with a C shim that returns a result<T, E> error code, or annotate the extern import with @allow_unwinder if you are intentionally bridging a low-level unwinder."
+    v4_mir_add_type_warning(mir_id, expr_span, "call invokes stack-unwinder extern", help_text)
+}
+
 task v4_mir_is_callback_boundary_mismatch(mir_id: int, expected_ty: word, actual_ty: word) -> bool {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot expected_surface = v4_ty_canonical_type(ty_id, expected_ty)
@@ -714,7 +765,7 @@ task v4_mir_add_type_mismatch_error(mir_id: int, span: word, message: word, help
         pilot ty_id = v4_mir_ty_id(mir_id)
         pilot expected_surface = v4_ty_canonical_type(ty_id, expected_ty)
         pilot actual_surface = v4_ty_canonical_type(ty_id, actual_ty)
-        v4_mir_add_type_error(mir_id, span, "callback value must use extern ABI", context + " expects " + expected_surface + "; " + v4_ty_ffi_boundary_help(actual_surface, context))
+        v4_mir_add_type_error(mir_id, span, "callback value must use extern ABI", context + " expects " + expected_surface + "; " + v4_ty_ffi_boundary_help(v4_mir_ty_id(mir_id), actual_surface, context))
         give back
     }
     v4_mir_add_type_error(mir_id, span, message, help)
@@ -1055,7 +1106,7 @@ task v4_mir_validate_body_cfg(mir_id: int, body_id: int, item_span: word) -> voi
 }
 
 task v4_mir_rvalue_can_contain_child_tries(kind: word) -> bool {
-    give back kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_try
+    give back kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut
 }
 
 task v4_mir_rvalue_find_try_except(mir_id: int, body_id: int, rvalue_id: int, wired_tries: word) -> int {
@@ -1244,12 +1295,39 @@ task v4_mir_set_local_ty(mir_id: int, body_id: int, local_id: int, local_ty: wor
     array_set(v4_mir_body_local_tys_handle(mir_id, body_id), local_id, local_ty)
 }
 
+task v4_mir_set_local_mode(mir_id: int, body_id: int, local_id: int, local_mode: word) -> void {
+    if local_id < 0 {
+        give back
+    }
+    if local_mode == "" {
+        local_mode = v4_ty_param_mode_value
+    }
+    array_set(v4_mir_body_local_modes_handle(mir_id, body_id), local_id, local_mode)
+}
+
 task v4_mir_local_ty_for_name(mir_id: int, body_id: int, local_name: word) -> word {
     pilot local_id = v4_mir_find_local(mir_id, body_id, local_name)
     if local_id < 0 {
         give back v4_ty_unknown
     }
     give back v4_mir_local_ty(mir_id, body_id, local_id)
+}
+
+task v4_mir_local_mode_for_name(mir_id: int, body_id: int, local_name: word) -> word {
+    pilot local_id = v4_mir_find_local(mir_id, body_id, local_name)
+    if local_id < 0 {
+        give back v4_ty_param_mode_value
+    }
+    give back v4_mir_local_mode(mir_id, body_id, local_id)
+}
+
+task v4_mir_local_type_display(mir_id: int, body_id: int, local_id: int) -> word {
+    pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_id)
+    pilot local_mode = v4_mir_local_mode(mir_id, body_id, local_id)
+    if local_mode == v4_ty_param_mode_lend or local_mode == v4_ty_param_mode_lend_mut {
+        give back local_mode + " " + local_ty
+    }
+    give back local_ty
 }
 
 task v4_mir_add_place(mir_id: int, body_id: int, place_kind: word, text: word, base: int, field: word, index: int, span: word, place_ty: word) -> int {
@@ -1317,6 +1395,7 @@ task v4_mir_add_local(mir_id: int, body_id: int, local_name: word, local_ty: wor
     pilot local_id = array_len(v4_mir_body_local_names_handle(mir_id, body_id))
     array_push(v4_mir_body_local_names_handle(mir_id, body_id), local_name)
     array_push(v4_mir_body_local_tys_handle(mir_id, body_id), local_ty)
+    array_push(v4_mir_body_local_modes_handle(mir_id, body_id), v4_ty_param_mode_value)
     array_push(v4_mir_body_local_spans_handle(mir_id, body_id), span)
     array_push(v4_mir_body_local_scope_spans_handle(mir_id, body_id), v4_mir_current_scope_span(span))
     give back local_id
@@ -1339,6 +1418,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     pilot blocks_handle = array_new()
     pilot local_names_handle = array_new()
     pilot local_tys_handle = array_new()
+    pilot local_modes_handle = array_new()
     pilot local_spans_handle = array_new()
     pilot local_scope_spans_handle = array_new()
     pilot stmt_kinds_handle = array_new()
@@ -1371,6 +1451,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     array_push(v4_mir_blocks_handle(mir_id), word_from_int(blocks_handle))
     array_push(v4_mir_local_names_index_handle(mir_id), word_from_int(local_names_handle))
     array_push(v4_mir_local_tys_index_handle(mir_id), word_from_int(local_tys_handle))
+    array_push(v4_mir_local_modes_index_handle(mir_id), word_from_int(local_modes_handle))
     array_push(v4_mir_local_spans_index_handle(mir_id), word_from_int(local_spans_handle))
     array_push(v4_mir_local_scope_spans_index_handle(mir_id), word_from_int(local_scope_spans_handle))
     array_push(v4_mir_stmt_kinds_index_handle(mir_id), word_from_int(stmt_kinds_handle))
@@ -1751,6 +1832,7 @@ task v4_mir_operator_kind(op: word) -> word {
 task v4_mir_unary_op_kind(op: word) -> word {
     if op == "-" { give back v4_mir_unary_neg }
     if op == "not" or op == "!" { give back v4_mir_unary_not }
+    if op == "*" { give back v4_mir_unary_deref }
     give back ""
 }
 
@@ -1780,6 +1862,16 @@ task v4_mir_check_binary_types(mir_id: int, expr_span: word, op_kind: word, left
 }
 
 task v4_mir_check_unary_type(mir_id: int, expr_span: word, op_kind: word, operand_ty: word) -> void {
+    if op_kind == v4_mir_unary_deref {
+        if v4_ty_is_known(operand_ty) and v4_ty_is_raw_pointer_type(operand_ty) == false {
+            v4_mir_add_type_error(mir_id, expr_span, "raw-pointer deref needs *T or *mut T", "got " + operand_ty + "; only raw pointers can be dereferenced with *")
+            give back
+        }
+        if v4_mir_inside_trust_me() == false {
+            v4_mir_add_type_error(mir_id, expr_span, "raw-pointer deref needs trust me block", "wrap the deref in a trust me block; bible section 16.4 forbids dereferencing raw pointers outside trust me")
+        }
+        give back
+    }
     if v4_ty_unary_valid(op_kind, operand_ty) {
         give back
     }
@@ -2086,6 +2178,10 @@ task v4_mir_symbol_value_type(mir_id: int, symbol_name: word) -> word {
         give back v4_ty_unknown
     }
     if symbol_kind == v4_hir_task {
+        pilot callback_ty = v4_ty_task_callback_value_type(ty_id, sig_id)
+        if callback_ty != v4_ty_unknown {
+            give back callback_ty
+        }
         give back v4_ty_signature_function_value_type(ty_id, sig_id)
     }
     give back v4_ty_const_value_type_for_sig(ty_id, sig_id)
@@ -2554,6 +2650,37 @@ task v4_mir_check_call_generic_bounds(mir_id: int, expr_span: word, callee_name:
     }
 }
 
+task v4_mir_expected_call_arg_type(expected_ty: word, param_mode: word) -> word {
+    if param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut {
+        give back v4_ty_lend_type(expected_ty, param_mode)
+    }
+    give back expected_ty
+}
+
+task v4_mir_check_lend_call_arg(mir_id: int, expr_span: word, callee_name: word, param_name: word, param_mode: word, actual_ty: word) -> word {
+    if param_mode != v4_ty_param_mode_lend and param_mode != v4_ty_param_mode_lend_mut {
+        give back actual_ty
+    }
+
+    if not v4_ty_is_lend_type(actual_ty) {
+        if not v4_ty_is_known(actual_ty) {
+            give back actual_ty
+        }
+        v4_mir_add_type_error(mir_id, expr_span, "borrowed call argument needs lend", callee_name + "." + param_name + " expects " + param_mode + "; pass lend " + param_name + " or lend mut " + param_name + " explicitly")
+        give back actual_ty
+    }
+
+    if param_mode == v4_ty_param_mode_lend_mut and not v4_ty_is_lend_mut_type(actual_ty) {
+        v4_mir_add_type_error(mir_id, expr_span, "mutable borrowed call argument needs lend mut", callee_name + "." + param_name + " expects lend mut but got " + actual_ty)
+    }
+    if param_mode == v4_ty_param_mode_lend and v4_ty_is_lend_mut_type(actual_ty) {
+        -- A mutable lend may satisfy an immutable lend call, but the explicit
+        -- rvalue remains visible so Meiya can enforce the loan range.
+    }
+
+    give back v4_ty_lend_target_type(actual_ty)
+}
+
 task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, callee_name: word, sig_id: int, open_token: int, close_token: int) -> word {
     if sig_id < 0 or open_token < 0 or close_token <= open_token {
         give back v4_mir_call_check_result("", "")
@@ -2628,13 +2755,17 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
         pilot planned_end = v4_mir_call_arg_slot_end(planned_slots, lower_arg_idx)
         if planned_start >= 0 and planned_end > planned_start {
             pilot expected_ty = v4_ty_signature_param_type(ty_id, sig_id, lower_arg_idx)
-            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
+            pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, lower_arg_idx)
+            pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, lower_arg_idx)
+            pilot expected_arg_ty = v4_mir_expected_call_arg_type(expected_ty, param_mode)
+            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_arg_ty)
             args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
-            pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_ty, generic_env)
+            pilot actual_match_ty = v4_mir_check_lend_call_arg(mir_id, expr_span, callee_name, param_name, param_mode, actual_ty)
+            pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_match_ty, generic_env)
             if next_env == v4_ty_generic_env_fail {
                 pilot context = callee_name + " argument " + word_from_int(lower_arg_idx + 1)
-                v4_mir_add_type_mismatch_error(mir_id, expr_span, "call argument type mismatch", context + " expects " + expected_ty + " but got " + actual_ty, context, expected_ty, actual_ty)
+                v4_mir_add_type_mismatch_error(mir_id, expr_span, "call argument type mismatch", context + " expects " + expected_ty + " but got " + actual_match_ty, context, expected_ty, actual_match_ty)
             } else {
                 generic_env = next_env
             }
@@ -3002,6 +3133,7 @@ task v4_mir_operator_display(op_kind: word) -> word {
     if op_kind == v4_mir_bin_ne { give back "!=" }
     if op_kind == v4_mir_unary_neg { give back "-" }
     if op_kind == v4_mir_unary_not { give back "not" }
+    if op_kind == v4_mir_unary_deref { give back "*" }
     give back op_kind
 }
 
@@ -3318,6 +3450,16 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     pilot receiver_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first, dot_token)
     pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
     pilot method_name = v4_lex_token_value(stream_id, method_token)
+    if v4_ty_is_raw_pointer_type(receiver_ty) and method_name == "is_null" {
+        pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+        pilot args_token = v4_mir_skip_trivia(stream_id, open_token + 1)
+        if args_token < last {
+            if v4_lex_token_value(stream_id, args_token) != ")" {
+                v4_mir_add_type_error(mir_id, expr_span, "is_null takes no arguments", receiver_ty + ".is_null() must be called without arguments")
+            }
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_is_null, receiver_rvalue, 0 - 1, expr_span, v4_ty_bool)
+    }
     pilot field_callback_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir_id), receiver_ty, method_name))
     if v4_ty_is_surface_extern_function_pointer_type(field_callback_ty) {
         pilot field_place = v4_mir_lower_place(mir_id, body_id, stream_id, first, open_token)
@@ -3531,6 +3673,7 @@ task v4_mir_try_lower_named_call(mir_id: int, body_id: int, stream_id: int, firs
     }
 
     pilot target_name = v4_mir_resolved_callee_name(mir_id, callee_name)
+    v4_mir_warn_unwinder_call_site(mir_id, expr_span, sig_id)
     pilot call_check = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, callee_name, sig_id, open_token, last)
     pilot generic_env = v4_mir_call_check_result_env(call_check)
     pilot args_payload = v4_mir_call_check_result_args(call_check)
@@ -4631,6 +4774,51 @@ task v4_mir_try_lower_or_else_expr(mir_id: int, body_id: int, stream_id: int, fi
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_or_else, expr_text, "OrElse", source_id, fallback_id, expr_span, result_ty)
 }
 
+task v4_mir_lend_operand_expected_ty(expected_ty: word) -> word {
+    if v4_ty_is_lend_type(expected_ty) {
+        give back v4_ty_lend_target_type(expected_ty)
+    }
+    give back v4_ty_unknown
+}
+
+task v4_mir_lend_source_is_place(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if rvalue_id < 0 {
+        give back false
+    }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    give back kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place
+}
+
+task v4_mir_try_lower_lend_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
+    if v4_lex_token_value(stream_id, first) != "lend" {
+        give back 0 - 1
+    }
+
+    pilot mode = v4_ty_param_mode_lend
+    pilot rvalue_kind = v4_mir_rvalue_lend
+    pilot operand_start = v4_mir_next_nontrivia(stream_id, first + 1, last + 1)
+    if operand_start <= last and v4_lex_token_value(stream_id, operand_start) == "mut" {
+        mode = v4_ty_param_mode_lend_mut
+        rvalue_kind = v4_mir_rvalue_lend_mut
+        operand_start = v4_mir_next_nontrivia(stream_id, operand_start + 1, last + 1)
+    }
+
+    if operand_start > last {
+        v4_mir_add_type_error(mir_id, expr_span, "lend expression needs a source", "write lend value or lend mut value so Meiya knows which place is on loan")
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, v4_mir_expr_text(stream_id, first, last + 1), "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+    }
+
+    pilot operand_expected_ty = v4_mir_lend_operand_expected_ty(expected_ty)
+    pilot operand_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, operand_start, last + 1, operand_expected_ty)
+    pilot operand_ty = v4_mir_rvalue_ty(mir_id, body_id, operand_id)
+    if not v4_mir_lend_source_is_place(mir_id, body_id, operand_id) {
+        v4_mir_add_type_error(mir_id, expr_span, "lend source must be a place", "Meiya can only loan a named local, field, index, or deref place; store the value first")
+    }
+
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    give back v4_mir_add_rvalue(mir_id, body_id, rvalue_kind, expr_text, mode, operand_id, 0 - 1, expr_span, v4_ty_lend_type(operand_ty, mode))
+}
+
 task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, expected_ty: word) -> int {
     pilot first = v4_mir_skip_trivia(stream_id, start_token)
     pilot last = v4_mir_last_nontrivia_before(stream_id, end_token)
@@ -4659,6 +4847,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot or_else_rvalue = v4_mir_try_lower_or_else_expr(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
     if or_else_rvalue >= 0 {
         give back or_else_rvalue
+    }
+
+    pilot lend_rvalue = v4_mir_try_lower_lend_expr(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
+    if lend_rvalue >= 0 {
+        give back lend_rvalue
     }
 
     pilot route_ctor_rvalue = v4_mir_try_lower_route_payload_ctor(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
@@ -4775,6 +4968,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         pilot sig_id = v4_mir_signature_id_for_name(mir_id, first_value)
         if sig_id >= 0 {
             pilot target_name = v4_mir_resolved_callee_name(mir_id, first_value)
+            v4_mir_warn_unwinder_call_site(mir_id, expr_span, sig_id)
             pilot call_check = v4_mir_check_call_args(mir_id, body_id, stream_id, expr_span, first_value, sig_id, next_token, close_token)
             pilot generic_env = v4_mir_call_check_result_env(call_check)
             pilot args_payload = v4_mir_call_check_result_args(call_check)
@@ -4916,6 +5110,25 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
     pilot place_span = v4_mir_span_from_tokens(stream_id, start_token, end_token)
     if first >= end_token or last < first {
         give back v4_mir_add_place(mir_id, body_id, v4_mir_place_unknown, "", 0 - 1, "", 0 - 1, place_span, v4_ty_unknown)
+    }
+
+    if v4_lex_token_value(stream_id, first) == "*" and first < last {
+        pilot ptr_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first + 1, last + 1)
+        pilot ptr_ty = v4_mir_rvalue_ty(mir_id, body_id, ptr_rvalue)
+        pilot deref_text = v4_mir_expr_text(stream_id, first, last + 1)
+        pilot pointee_ty = v4_ty_unknown
+        if v4_ty_is_known(ptr_ty) and v4_ty_is_raw_pointer_type(ptr_ty) == false {
+            v4_mir_add_type_error(mir_id, place_span, "raw-pointer deref needs *T or *mut T", "got " + ptr_ty + "; only raw pointers can be dereferenced with *")
+        } else if v4_ty_is_known(ptr_ty) {
+            pointee_ty = v4_ty_raw_pointer_target_type(ptr_ty)
+            if v4_ty_is_mutable_raw_pointer_type(ptr_ty) == false {
+                v4_mir_add_type_error(mir_id, place_span, "raw-pointer write needs *mut T", "got " + ptr_ty + "; only *mut T pointers can be written through, *const T and *T are read-only")
+            }
+        }
+        if v4_mir_inside_trust_me() == false {
+            v4_mir_add_type_error(mir_id, place_span, "raw-pointer deref needs trust me block", "wrap the deref in a trust me block; bible section 16.4 forbids dereferencing raw pointers outside trust me")
+        }
+        give back v4_mir_add_place(mir_id, body_id, v4_mir_place_deref, deref_text, 0 - 1, "", ptr_rvalue, place_span, pointee_ty)
     }
 
     pilot place_text = v4_mir_expr_text(stream_id, first, last + 1)
@@ -7344,6 +7557,81 @@ task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_
     give back after_block
 }
 
+task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, trust_token: int, stmt_end: int) -> int {
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, trust_token, stmt_end)
+    pilot me_token = v4_mir_skip_trivia(stream_id, trust_token + 1)
+    if me_token >= stmt_end or v4_lex_token_value(stream_id, me_token) != "me" {
+        v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs me keyword", "write 'trust me \"reason\" on my honor as .level' followed by a braced body")
+        give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, trust_token, stmt_end)
+    }
+
+    pilot cursor = v4_mir_skip_trivia(stream_id, me_token + 1)
+    if cursor < stmt_end and v4_lex_token_type(stream_id, cursor) == v4_tok_string {
+        cursor = v4_mir_skip_trivia(stream_id, cursor + 1)
+    }
+    if cursor < stmt_end and v4_lex_token_value(stream_id, cursor) == "on" {
+        pilot honor_diag = ""
+        pilot my_token = v4_mir_skip_trivia(stream_id, cursor + 1)
+        if my_token >= stmt_end or v4_lex_token_value(stream_id, my_token) != "my" {
+            honor_diag = "use on my honor as .level"
+        }
+        pilot honor_token = v4_mir_skip_trivia(stream_id, my_token + 1)
+        if honor_diag == "" and (honor_token >= stmt_end or v4_lex_token_value(stream_id, honor_token) != "honor") {
+            honor_diag = "use on my honor as .level"
+        }
+        pilot as_token = v4_mir_skip_trivia(stream_id, honor_token + 1)
+        if honor_diag == "" and (as_token >= stmt_end or v4_lex_token_value(stream_id, as_token) != "as") {
+            honor_diag = "use on my honor as .level"
+        }
+        pilot dot_token = v4_mir_skip_trivia(stream_id, as_token + 1)
+        if honor_diag == "" and (dot_token >= stmt_end or v4_lex_token_value(stream_id, dot_token) != ".") {
+            honor_diag = "follow as with .level, e.g. as .pilot"
+        }
+        pilot level_token = v4_mir_skip_trivia(stream_id, dot_token + 1)
+        pilot level_type = ""
+        if level_token < stmt_end {
+            level_type = v4_lex_token_type(stream_id, level_token)
+        }
+        pilot level_ok = false
+        if level_token < stmt_end {
+            if level_type == v4_tok_ident or level_type == v4_tok_keyword {
+                level_ok = true
+            }
+        }
+        if honor_diag == "" and level_ok == false {
+            honor_diag = "name the honor level after the dot, e.g. .pilot"
+        }
+        if honor_diag != "" {
+            pilot honor_msg = "trust me honor clause malformed"
+            if honor_diag == "name the honor level after the dot, e.g. .pilot" or honor_diag == "follow as with .level, e.g. as .pilot" {
+                honor_msg = "trust me block needs honor level"
+            }
+            v4_mir_add_type_error(mir_id, stmt_span, honor_msg, honor_diag)
+            -- Skip past the malformed honor clause to the next opening brace so the body still lowers.
+            pilot brace_scan = cursor
+            repeat until brace_scan >= stmt_end or v4_lex_token_value(stream_id, brace_scan) == "{" {
+                brace_scan += 1
+            }
+            cursor = brace_scan
+        } else {
+            cursor = v4_mir_skip_trivia(stream_id, level_token + 1)
+        }
+    }
+
+    if cursor >= stmt_end or v4_lex_token_value(stream_id, cursor) != "{" {
+        v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs body", "open the trust me block with a brace after the optional reason and honor clause")
+        give back block_id
+    }
+
+    pilot body_scope = v4_mir_span_from_tokens(stream_id, cursor, stmt_end)
+    v4_mir_push_scope_span(body_scope)
+    v4_mir_push_trust_me()
+    pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, block_id, stream_id, cursor, stmt_end)
+    v4_mir_pop_trust_me()
+    v4_mir_pop_scope_span()
+    give back body_tail
+}
+
 task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, when_token: int, stmt_end: int) -> int {
     pilot open_token = v4_mir_find_token_value(stream_id, when_token, stmt_end, "{")
     if open_token < 0 {
@@ -7570,6 +7858,8 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
         give back v4_mir_lower_when_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "only" {
         give back v4_mir_lower_only_on_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+    } else if first_val == "trust" {
+        give back v4_mir_lower_trust_me_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     }
@@ -7643,7 +7933,7 @@ task v4_mir_lower_task_body_tokens(mir_id: int, body_id: int, stream_id: int, it
     v4_mir_lower_task_body_token_range(mir_id, body_id, stream_id, start_token, end_token, item_span)
 }
 
-task v4_mir_seed_param_local(mir_id: int, body_id: int, param_name: word, param_ty: word, item_span: word, duplicate_help: word) -> void {
+task v4_mir_seed_param_local(mir_id: int, body_id: int, param_name: word, param_ty: word, param_mode: word, item_span: word, duplicate_help: word) -> void {
     if param_name == "" {
         give back
     }
@@ -7651,7 +7941,8 @@ task v4_mir_seed_param_local(mir_id: int, body_id: int, param_name: word, param_
         v4_mir_add_type_error(mir_id, item_span, "duplicate parameter binding", param_name + " already exists in " + duplicate_help)
         give back
     }
-    v4_mir_add_local(mir_id, body_id, param_name, param_ty, item_span)
+    pilot local_id = v4_mir_add_local(mir_id, body_id, param_name, param_ty, item_span)
+    v4_mir_set_local_mode(mir_id, body_id, local_id, param_mode)
 }
 
 task v4_mir_seed_signature_params(mir_id: int, body_id: int, ty_id: int, sig_id: int, item_span: word) -> void {
@@ -7661,7 +7952,8 @@ task v4_mir_seed_signature_params(mir_id: int, body_id: int, ty_id: int, sig_id:
         pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_idx)
         if param_name != "" {
             pilot param_ty = v4_ty_signature_param_type(ty_id, sig_id, param_idx)
-            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, item_span, "this signature")
+            pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_idx)
+            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, param_mode, item_span, "this signature")
         }
         param_idx += 1
     }
@@ -7674,7 +7966,8 @@ task v4_mir_seed_impl_method_params(mir_id: int, body_id: int, ty_id: int, hir_i
         pilot param_name = v4_ty_impl_method_param_name(ty_id, hir_item, method_id, param_idx)
         if param_name != "" {
             pilot param_ty = v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_idx)
-            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, item_span, "this method signature")
+            pilot param_mode = v4_ty_impl_method_param_mode(ty_id, hir_item, method_id, param_idx)
+            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, param_mode, item_span, "this method signature")
         }
         param_idx += 1
     }
@@ -7991,6 +8284,7 @@ task v4_mir_snapshot_local_line(mir_id: int, body_id: int, local_id: int) -> wor
     out = out + "|" + word_from_int(local_id)
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_name(mir_id, body_id, local_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_ty(mir_id, body_id, local_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_mode(mir_id, body_id, local_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_span(mir_id, body_id, local_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_local_scope_span(mir_id, body_id, local_id))
     give back out
@@ -8117,7 +8411,7 @@ task v4_mir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "mir" { give back 6 }
     if kind == "mir-body" { give back 11 }
     if kind == "mir-block" { give back 5 }
-    if kind == "mir-local" { give back 8 }
+    if kind == "mir-local" { give back 9 }
     if kind == "mir-stmt" { give back 11 }
     if kind == "mir-place" { give back 11 }
     if kind == "mir-rvalue" { give back 13 }
@@ -8229,6 +8523,7 @@ task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
     array_set(v4_mir_body_blocks, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_local_names, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_local_tys, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_local_modes, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_local_spans, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_local_scope_spans, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_stmt_kinds, mir_id, word_from_int(array_new()))
@@ -8272,6 +8567,7 @@ task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name
     array_set(v4_mir_blocks_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_local_names_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_local_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_local_modes_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_local_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_local_scope_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_stmt_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
@@ -8319,18 +8615,23 @@ task v4_mir_restore_block_slot(mir_id: int, body_id: int, block_id: int, block_r
     give back 1
 }
 
-task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_name: word, local_ty: word, span: word, scope_span: word) -> int {
+task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_name: word, local_ty: word, local_mode: word, span: word, scope_span: word) -> int {
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
+    }
+    if local_mode == "" {
+        local_mode = v4_ty_param_mode_value
     }
     repeat until v4_mir_body_local_count(mir_id, body_id) > local_id {
         array_push(v4_mir_body_local_names_handle(mir_id, body_id), "")
         array_push(v4_mir_body_local_tys_handle(mir_id, body_id), v4_ty_unknown)
+        array_push(v4_mir_body_local_modes_handle(mir_id, body_id), v4_ty_param_mode_value)
         array_push(v4_mir_body_local_spans_handle(mir_id, body_id), V4_NO_SPAN)
         array_push(v4_mir_body_local_scope_spans_handle(mir_id, body_id), V4_NO_SPAN)
     }
     array_set(v4_mir_body_local_names_handle(mir_id, body_id), local_id, local_name)
     array_set(v4_mir_body_local_tys_handle(mir_id, body_id), local_id, local_ty)
+    array_set(v4_mir_body_local_modes_handle(mir_id, body_id), local_id, local_mode)
     array_set(v4_mir_body_local_spans_handle(mir_id, body_id), local_id, span)
     array_set(v4_mir_body_local_scope_spans_handle(mir_id, body_id), local_id, scope_span)
     give back 1
@@ -8457,7 +8758,7 @@ task v4_mir_snapshot_restore_local_line(line: word) -> int {
     pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
     pilot body_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
     pilot local_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
-    give back v4_mir_restore_local_slot(mir_id, body_id, local_id, v4_mir_snapshot_field(line, 4), v4_mir_snapshot_field(line, 5), v4_mir_snapshot_field(line, 6), v4_mir_snapshot_field(line, 7))
+    give back v4_mir_restore_local_slot(mir_id, body_id, local_id, v4_mir_snapshot_field(line, 4), v4_mir_snapshot_field(line, 5), v4_mir_snapshot_field(line, 6), v4_mir_snapshot_field(line, 7), v4_mir_snapshot_field(line, 8))
 }
 
 task v4_mir_snapshot_restore_stmt_line(line: word) -> int {

@@ -1,0 +1,79 @@
+-- V4 raw-pointer deref (*ptr) smoke fixture.
+-- Verification prepends the V4 crates before this file.
+-- Bible section 16.4: *ptr reads the pointee. It requires *T or *mut T
+-- AND must appear inside a trust me block. Outside trust me is a hard
+-- error.
+
+task v4_raw_ptr_deref_good_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task lookup() -> *const std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task probe() -> std::ffi::c_int {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"first read\" on my honor as .pilot {\n"
+    src = src + "        give back *p\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_raw_ptr_deref_bad_source() -> word {
+    -- Same deref but OUTSIDE trust me. Should diagnose.
+    pilot src = "extern [C] {\n"
+    src = src + "    task lookup() -> *const std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task probe_bad() -> std::ffi::c_int {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    give back *p\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_raw_ptr_deref_wrong_type_source() -> word {
+    -- Deref of a non-pointer should diagnose the type error.
+    pilot src = "task probe_wrong() -> int {\n"
+    src = src + "    pilot x = 5\n"
+    src = src + "    trust me \"misuse\" on my honor as .pilot {\n"
+    src = src + "        give back *x\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_raw_ptr_deref_good_text = v4_raw_ptr_deref_good_source()
+pilot v4_raw_ptr_deref_good_stream = v4_lex_text(0, v4_raw_ptr_deref_good_text)
+pilot v4_raw_ptr_deref_good_tree = v4_parse_stream(0, v4_raw_ptr_deref_good_stream)
+pilot v4_raw_ptr_deref_good_hir = v4_hir_lower_tree(0, v4_raw_ptr_deref_good_tree)
+pilot v4_raw_ptr_deref_good_resolve = v4_resolve_lower_hir(0, v4_raw_ptr_deref_good_hir)
+pilot v4_raw_ptr_deref_good_ty = v4_ty_lower_resolve(0, v4_raw_ptr_deref_good_resolve)
+pilot v4_raw_ptr_deref_good_mir = v4_mir_lower_ty(0, v4_raw_ptr_deref_good_ty)
+pilot v4_raw_ptr_deref_good_llvm = v4_codegen_llvm_lower_mir(0, v4_raw_ptr_deref_good_mir)
+
+pilot v4_raw_ptr_deref_probe_body = v4_codegen_llvm_find_body(v4_raw_ptr_deref_good_llvm, "probe")
+
+say "raw-ptr-deref-good-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_raw_ptr_deref_good_ty))
+say "raw-ptr-deref-good-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_deref_good_mir))
+say "raw-ptr-deref-probe-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_deref_good_llvm, v4_raw_ptr_deref_probe_body)
+
+pilot v4_raw_ptr_deref_bad_text = v4_raw_ptr_deref_bad_source()
+pilot v4_raw_ptr_deref_bad_stream = v4_lex_text(1, v4_raw_ptr_deref_bad_text)
+pilot v4_raw_ptr_deref_bad_tree = v4_parse_stream(1, v4_raw_ptr_deref_bad_stream)
+pilot v4_raw_ptr_deref_bad_hir = v4_hir_lower_tree(1, v4_raw_ptr_deref_bad_tree)
+pilot v4_raw_ptr_deref_bad_resolve = v4_resolve_lower_hir(1, v4_raw_ptr_deref_bad_hir)
+pilot v4_raw_ptr_deref_bad_ty = v4_ty_lower_resolve(1, v4_raw_ptr_deref_bad_resolve)
+pilot v4_raw_ptr_deref_bad_mir = v4_mir_lower_ty(1, v4_raw_ptr_deref_bad_ty)
+
+say "raw-ptr-deref-bad-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_deref_bad_mir))
+say "raw-ptr-deref-bad-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_deref_bad_mir, 0))
+say "raw-ptr-deref-bad-mir-diag0-help=" + v4_diag_help(v4_mir_diag(v4_raw_ptr_deref_bad_mir, 0))
+
+pilot v4_raw_ptr_deref_wrong_text = v4_raw_ptr_deref_wrong_type_source()
+pilot v4_raw_ptr_deref_wrong_stream = v4_lex_text(2, v4_raw_ptr_deref_wrong_text)
+pilot v4_raw_ptr_deref_wrong_tree = v4_parse_stream(2, v4_raw_ptr_deref_wrong_stream)
+pilot v4_raw_ptr_deref_wrong_hir = v4_hir_lower_tree(2, v4_raw_ptr_deref_wrong_tree)
+pilot v4_raw_ptr_deref_wrong_resolve = v4_resolve_lower_hir(2, v4_raw_ptr_deref_wrong_hir)
+pilot v4_raw_ptr_deref_wrong_ty = v4_ty_lower_resolve(2, v4_raw_ptr_deref_wrong_resolve)
+pilot v4_raw_ptr_deref_wrong_mir = v4_mir_lower_ty(2, v4_raw_ptr_deref_wrong_ty)
+
+say "raw-ptr-deref-wrong-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_deref_wrong_mir))
+say "raw-ptr-deref-wrong-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_deref_wrong_mir, 0))

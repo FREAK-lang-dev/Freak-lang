@@ -405,6 +405,55 @@ task v4_codegen_llvm_ffi_call_suffix(abi: word) -> word {
     give back " nounwind"
 }
 
+task v4_codegen_llvm_callback_trampoline_name(task_name: word) -> word {
+    give back v4_ty_extern_callback_trampoline_name(task_name)
+}
+
+task v4_codegen_llvm_callback_trampoline_symbol(task_name: word) -> word {
+    give back v4_codegen_llvm_symbol(v4_codegen_llvm_callback_trampoline_name(task_name))
+}
+
+task v4_codegen_llvm_callback_trampoline_call_args(ty_id: int, sig_id: int) -> word {
+    pilot count = v4_ty_signature_param_count(ty_id, sig_id)
+    if count <= 0 {
+        give back ""
+    }
+    pilot out = ""
+    pilot param_idx = 0
+    repeat until param_idx >= count {
+        if param_idx > 0 {
+            out = out + ", "
+        }
+        pilot param_ty = v4_codegen_llvm_type(v4_ty_signature_param_type(ty_id, sig_id, param_idx))
+        pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_idx)
+        out = out + param_ty + " %" + v4_codegen_llvm_mangle_name(param_name)
+        param_idx += 1
+    }
+    give back out
+}
+
+task v4_codegen_llvm_callback_trampoline_line(ty_id: int, sig_id: int, abi: word) -> word {
+    pilot cc = v4_codegen_llvm_calling_convention(abi)
+    pilot return_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_id))
+    pilot named_params = v4_codegen_llvm_signature_named_params(ty_id, sig_id)
+    pilot task_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot tramp_symbol = v4_codegen_llvm_callback_trampoline_symbol(task_name)
+    pilot target_symbol = v4_codegen_llvm_symbol(v4_codegen_llvm_signature_symbol_name(ty_id, sig_id))
+    pilot call_args = v4_codegen_llvm_callback_trampoline_call_args(ty_id, sig_id)
+    pilot freak_cc = v4_codegen_llvm_calling_convention(v4_ty_signature_call_abi(ty_id, sig_id))
+
+    pilot header = "define " + cc + " " + return_ty + " " + tramp_symbol + "(" + named_params + ") nounwind {\n"
+    pilot body = "entry:\n"
+    if return_ty == "void" {
+        body = body + "  tail call " + freak_cc + " void " + target_symbol + "(" + call_args + ")\n"
+        body = body + "  ret void\n"
+    } else {
+        body = body + "  %r = tail call " + freak_cc + " " + return_ty + " " + target_symbol + "(" + call_args + ")\n"
+        body = body + "  ret " + return_ty + " %r\n"
+    }
+    give back header + body + "}"
+}
+
 task v4_codegen_llvm_type(ty_name: word) -> word {
     pilot ffi_alias = v4_ty_normalize_ffi_alias_type(ty_name)
     if ffi_alias != "" {
@@ -630,9 +679,18 @@ task v4_codegen_llvm_rvalue_operand(mir_id: int, body_id: int, rvalue_id: int) -
         give back operand_ty + " %" + v4_codegen_llvm_mangle_name(v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
     }
     if kind == v4_mir_rvalue_use_symbol {
-        give back operand_ty + " " + v4_codegen_llvm_symbol(text)
+        give back operand_ty + " " + v4_codegen_llvm_use_symbol_value(mir_id, text)
     }
     give back operand_ty + " " + v4_codegen_llvm_temp_value(body_id, rvalue_id)
+}
+
+task v4_codegen_llvm_use_symbol_value(mir_id: int, text: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot trampoline = v4_ty_extern_callback_export_symbol_name(ty_id, text)
+    if trampoline != "" {
+        give back v4_codegen_llvm_symbol(trampoline)
+    }
+    give back v4_codegen_llvm_symbol(text)
 }
 
 task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> word {
@@ -655,7 +713,7 @@ task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> 
         give back "%" + v4_codegen_llvm_mangle_name(v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
     }
     if kind == v4_mir_rvalue_use_symbol {
-        give back v4_codegen_llvm_symbol(text)
+        give back v4_codegen_llvm_use_symbol_value(mir_id, text)
     }
     give back v4_codegen_llvm_temp_value(body_id, rvalue_id)
 }
@@ -855,6 +913,13 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
         if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_not {
             give back target + " = xor i1 " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ", true"
         }
+        if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_ptr_is_null {
+            give back target + " = icmp eq ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ", null"
+        }
+        if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_deref {
+            pilot pointee_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+            give back target + " = load " + pointee_ty + ", ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand)
+        }
         if operand_ty == "double" or operand_ty == "float" {
             give back target + " = fsub " + operand_ty + " 0.0, " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand)
         }
@@ -1053,6 +1118,18 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
     if kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign {
         pilot target_name = v4_mir_stmt_lhs(mir_id, body_id, stmt_id)
         pilot target = "%" + v4_codegen_llvm_mangle_name(target_name)
+        if kind == v4_mir_stmt_assign {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            if place_id >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_deref {
+                pilot ptr_rvalue = v4_mir_place_index(mir_id, body_id, place_id)
+                pilot pointee_ty = v4_codegen_llvm_type(v4_mir_place_ty(mir_id, body_id, place_id))
+                pilot value_lines = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
+                pilot ptr_lines = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, ptr_rvalue, v4_codegen_llvm_temp_value(body_id, ptr_rvalue))
+                pilot value_text = v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id)
+                pilot ptr_text = v4_codegen_llvm_rvalue_value(mir_id, body_id, ptr_rvalue)
+                give back value_lines + ptr_lines + "  store " + pointee_ty + " " + value_text + ", ptr " + ptr_text + "\n"
+            }
+        }
         if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rvalue_id) {
             give back v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, target)
         }
@@ -1125,6 +1202,42 @@ task v4_codegen_llvm_lower_bodies(codegen_id: int, mir_id: int) -> void {
     }
 }
 
+task v4_codegen_llvm_should_emit_callback_trampoline(ty_id: int, sig_id: int) -> bool {
+    if v4_ty_signature_has_extern_callback(ty_id, sig_id) == false {
+        give back false
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig {
+        give back false
+    }
+    pilot abi = v4_ty_signature_extern_callback_abi(ty_id, sig_id)
+    if abi == "" {
+        give back false
+    }
+    if v4_ty_is_language_abi(abi) == false and v4_ty_is_calling_convention_abi(abi) == false {
+        give back false
+    }
+    if v4_ty_signature_is_variadic(ty_id, sig_id) {
+        give back false
+    }
+    give back true
+}
+
+task v4_codegen_llvm_lower_callback_trampolines(codegen_id: int, mir_id: int, ty_id: int) -> void {
+    pilot sig_idx = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_idx >= sig_count {
+        if v4_codegen_llvm_should_emit_callback_trampoline(ty_id, sig_idx) {
+            pilot task_name = v4_ty_signature_name(ty_id, sig_idx)
+            pilot tramp_name = v4_codegen_llvm_callback_trampoline_name(task_name)
+            pilot tramp_symbol = v4_codegen_llvm_callback_trampoline_symbol(task_name)
+            pilot tramp_abi = v4_ty_signature_extern_callback_abi(ty_id, sig_idx)
+            pilot tramp_line = v4_codegen_llvm_callback_trampoline_line(ty_id, sig_idx, tramp_abi)
+            v4_codegen_llvm_add_body(codegen_id, tramp_name, tramp_symbol, tramp_line)
+        }
+        sig_idx += 1
+    }
+}
+
 task v4_codegen_llvm_lower_mir(file_id: int, mir_id: int) -> int {
     v4_codegen_llvm_init()
     pilot codegen_id = v4_codegen_llvm_file_new(file_id, mir_id)
@@ -1137,6 +1250,7 @@ task v4_codegen_llvm_lower_mir(file_id: int, mir_id: int) -> int {
     v4_codegen_llvm_lower_signatures(codegen_id, mir_id, ty_id)
     v4_codegen_llvm_lower_calls(codegen_id, mir_id)
     v4_codegen_llvm_lower_bodies(codegen_id, mir_id)
+    v4_codegen_llvm_lower_callback_trampolines(codegen_id, mir_id, ty_id)
     give back codegen_id
 }
 

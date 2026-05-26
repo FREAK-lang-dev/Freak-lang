@@ -49,10 +49,23 @@ diagnostics, and declared-initializer mismatch diagnostics, fixed-array
 compile-time lengths with root-constant integer arithmetic,
 generic doctrine bounds plus multi-bound method/editor enforcement, and named
 call-site arguments across task calls plus instance/associated method calls.
+The Borrow Checker gate has now started with `lend` / `lend mut` parameter
+contracts and explicit `lend value` / `lend mut value` expressions carried
+through TY and MIR into Meiya: immutable lends cannot be written, borrowed
+params cannot be moved out of, borrowed params are not dropped by the callee,
+and explicit borrow expressions create loan paths. Explicit loans bound to a
+local now block later rewrites only while that local has a later reachable use;
+call-only loans expire at the call boundary. That is the first non-lexical
+liveness slice, not full region inference.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
-carriage, `@layout(C)`, `@layout(C, packed=N)`, and `@layout(transparent)`
+carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
+fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts
 through TY queries with boundary-safety diagnostics for non-FFI extern types,
-raw-pointer pointee targets, and non-FFI layout fields. Extern blocks also carry `link="..."` library
+raw-pointer pointee targets, non-FFI layout fields, bad repr kinds, payload
+cases under repr, and non-constant explicit discriminants. Fieldless
+`@repr(...)` routes and variants are now accepted as FFI-safe extern
+parameters, returns, raw-pointer targets, and `@layout(C)` fields; payload or
+unrepr'd variants stop with route-specific diagnostics. Extern blocks also carry `link="..."` library
 metadata, member-level `@link_name("...")` symbol overrides, and final
 extern-only `args: ...` variadics through TY, MIR, LLVM declaration/call
 plans, scalar vararg promotion for `tiny`/`bool`/`char`/`float32` tails, query
@@ -65,8 +78,29 @@ indirect FFI calls from locals, returned callback values, and `@layout(C)`
 field places. Plain FREAK task values now stop at that fence with dedicated
 callback-boundary diagnostics instead of silently flowing into foreign
 callback slots. Foreign LLVM declarations and call sites now carry `nounwind`
-as groundwork for the extern/callback panic-boundary contract. Full
-panic-abort guarantees across callback boundaries remain later FFI work.
+as groundwork for the extern/callback panic-boundary contract. The inbound
+callback surface is now opened via `@extern_callback("C")` /
+`@extern_callback("system")` on FREAK tasks: TY validates the ABI, FFI-safe
+parameters/return, rejects variadics, and diagnoses missing/extra/invalid ABI
+arguments, while codegen emits a `nounwind` LLVM trampoline
+(`@__freak_callback_<task>`) that tail-calls the FREAK body. Bare references
+to those tasks now type as the matching `extern [ABI] task(...) -> T`
+function pointer, so they coerce into FFI callback slots at both call-arg
+and return-site positions, and codegen rewrites the use-symbol to the
+trampoline (so a `give back my_hook` from a function returning
+`extern [C] task(...) -> T` emits `ret ptr @__freak_callback_my_hook`).
+ABI/signature mismatches between the FREAK task and the callback slot
+still trip the boundary-bridge `callback value must use extern ABI`
+diagnostic. Coercion through intermediate `pilot slot: extern [ABI]... = my_hook`
+let-bindings still hits a pre-existing V4 phantom-local-IR issue that
+applies to any `pilot x: T = some_symbol`, so that surface is handled by
+a follow-up rather than the FFI lane. The runtime panic-catch inside the
+trampoline body remains later FFI work. Full panic-abort guarantees across
+callback boundaries remain later FFI work.
+The current smoke lane now also proves the full core calling-convention matrix
+(`fastcall`, `thiscall`, `vectorcall`, `win64`, `sysv64`, plus the existing
+`C`/`cdecl`/`stdcall`/`system`) through direct extern calls, indirect callback
+calls, and LLVM declaration/call lowering.
 
 The first landing is intentionally small and isolated from the V3 compiler:
 

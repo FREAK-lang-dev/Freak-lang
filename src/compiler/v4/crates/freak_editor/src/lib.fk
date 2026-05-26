@@ -1634,7 +1634,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                                         name = token_value
                                         kind = "Local"
                                         def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
-                                        type_display = v4_mir_local_ty(mir_id, body_id, local_id)
+                                        type_display = v4_mir_local_type_display(mir_id, body_id, local_id)
                                     }
                                 }
                             }
@@ -1664,7 +1664,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                                 name = token_value
                                 kind = "Local"
                                 def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
-                                type_display = v4_mir_local_ty(mir_id, body_id, local_id)
+                                type_display = v4_mir_local_type_display(mir_id, body_id, local_id)
                             }
                         }
                     }
@@ -2462,7 +2462,7 @@ task v4_completion_add_locals_for_offset(completion_id: int, path: word, text: w
         pilot label = v4_mir_local_name(mir_id, body_id, local_id)
         if label != "" and v4_editor_local_is_source_declared(stream_id, mir_id, body_id, local_id) and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
             if not v4_completion_has_label(completion_id, label) {
-                v4_completion_add(completion_id, label, "local", v4_mir_local_ty(mir_id, body_id, local_id), label)
+                v4_completion_add(completion_id, label, "local", v4_mir_local_type_display(mir_id, body_id, local_id), label)
             }
         }
         local_id += 1
