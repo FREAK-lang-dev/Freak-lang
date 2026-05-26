@@ -1060,7 +1060,9 @@ task v4_borrowck_check_explicit_loan_moves(borrow_id: int, result_id: int, mir_i
                     if holder != "" and loan_stmt >= 0 and move_stmt >= 0 and v4_borrowck_paths_overlap(loan_text, move_text) {
                         -- A later loan statement can still be live at the next loop iteration.
                         if loan_block == move_block {
-                            if loan_stmt < move_stmt or v4_borrowck_block_can_cycle(mir_id, body_id, move_block) {
+                            if loan_stmt == move_stmt {
+                                loan_conflicts = true
+                            } else if loan_stmt < move_stmt or v4_borrowck_block_can_cycle(mir_id, body_id, move_block) {
                                 loan_conflicts = v4_borrowck_explicit_loan_live_at_move(mir_id, body_id, loan_stmt, loan_text, move_stmt, move_block)
                             }
                         } else if loan_block != move_block and loan_block >= 0 and move_block >= 0 {
