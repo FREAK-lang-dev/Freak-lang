@@ -1052,7 +1052,7 @@ task v4_borrowck_exclusive_loan_message(active_block: int, new_block: int) -> wo
     give back "Meiya carries an exclusive lend across another loan boundary"
 }
 
-task v4_borrowck_explicit_loan_reaches_loan(mir_id: int, body_id: int, active_stmt: int, active_block: int, active_text: word, new_stmt: int, new_block: int, new_text: word) -> bool {
+task v4_borrowck_explicit_loan_reaches_access(mir_id: int, body_id: int, active_stmt: int, active_block: int, active_text: word, new_stmt: int, new_block: int, new_text: word) -> bool {
     if active_stmt < 0 or new_stmt < 0 or not v4_borrowck_paths_overlap(active_text, new_text) {
         give back false
     }
@@ -1094,10 +1094,10 @@ task v4_borrowck_check_exclusive_loans(borrow_id: int, result_id: int, mir_id: i
                     pilot first_holder = v4_borrowck_explicit_loan_holder(mir_id, body_id, first_stmt, first_text)
                     pilot second_holder = v4_borrowck_explicit_loan_holder(mir_id, body_id, second_stmt, second_text)
                     if first_holder != "" and second_holder != "" {
-                        pilot conflicts_at_second = v4_borrowck_explicit_loan_reaches_loan(mir_id, body_id, first_stmt, first_block, first_text, second_stmt, second_block, second_text)
+                        pilot conflicts_at_second = v4_borrowck_explicit_loan_reaches_access(mir_id, body_id, first_stmt, first_block, first_text, second_stmt, second_block, second_text)
                         pilot conflicts_at_first = false
                         if not conflicts_at_second {
-                            conflicts_at_first = v4_borrowck_explicit_loan_reaches_loan(mir_id, body_id, second_stmt, second_block, second_text, first_stmt, first_block, first_text)
+                            conflicts_at_first = v4_borrowck_explicit_loan_reaches_access(mir_id, body_id, second_stmt, second_block, second_text, first_stmt, first_block, first_text)
                         }
                         if conflicts_at_second or conflicts_at_first {
                             pilot active_text = first_text
@@ -1128,6 +1128,70 @@ task v4_borrowck_check_exclusive_loans(borrow_id: int, result_id: int, mir_id: i
             }
         }
         first_idx += 1
+    }
+    give back conflicts
+}
+
+task v4_borrowck_exclusive_read_help(loan_text: word, loan_stmt: int, loan_block: int, read_text: word, read_stmt: int, read_block: int) -> word {
+    pilot loan_canon = v4_borrowck_path_canon(loan_text)
+    pilot read_canon = v4_borrowck_path_canon(read_text)
+    pilot out = loan_canon + " is exclusively borrowed in block " + word_from_int(loan_block)
+    out = out + " from statement " + word_from_int(loan_stmt)
+    if loan_block != read_block {
+        out = out + " and remains live into block " + word_from_int(read_block)
+    }
+    out = out + ", so statement " + word_from_int(read_stmt)
+    out = out + " cannot observe " + read_canon + " through its owner"
+    give back out
+}
+
+task v4_borrowck_exclusive_read_message(loan_block: int, read_block: int) -> word {
+    if loan_block == read_block {
+        give back "Meiya refuses observation through an exclusive lend"
+    }
+    give back "Meiya carries an exclusive lend across an observation boundary"
+}
+
+task v4_borrowck_path_is_owner_observation(path_kind: word) -> bool {
+    give back path_kind == v4_borrowck_path_loan or path_kind == v4_borrowck_path_copy
+}
+
+task v4_borrowck_check_mutable_loan_reads(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
+    pilot conflicts = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    pilot loan_idx = 0
+    repeat until loan_idx >= path_count {
+        if v4_borrowck_path_kind(borrow_id, result_id, loan_idx) == v4_borrowck_path_loan_mut {
+            pilot loan_stmt = v4_borrowck_path_stmt(borrow_id, result_id, loan_idx)
+            pilot loan_block = v4_borrowck_path_block(borrow_id, result_id, loan_idx)
+            pilot loan_text = v4_borrowck_path_text(borrow_id, result_id, loan_idx)
+            if v4_borrowck_explicit_loan_holder(mir_id, body_id, loan_stmt, loan_text) != "" {
+                pilot read_idx = 0
+                repeat until read_idx >= path_count {
+                    pilot read_kind = v4_borrowck_path_kind(borrow_id, result_id, read_idx)
+                    if read_idx != loan_idx and v4_borrowck_path_is_owner_observation(read_kind) {
+                        pilot read_stmt = v4_borrowck_path_stmt(borrow_id, result_id, read_idx)
+                        pilot read_block = v4_borrowck_path_block(borrow_id, result_id, read_idx)
+                        pilot read_text = v4_borrowck_path_text(borrow_id, result_id, read_idx)
+                        pilot read_is_explicit_loan = false
+                        if read_kind == v4_borrowck_path_loan {
+                            read_is_explicit_loan = v4_borrowck_explicit_loan_holder(mir_id, body_id, read_stmt, read_text) != ""
+                        }
+                        if not read_is_explicit_loan and v4_borrowck_explicit_loan_reaches_access(mir_id, body_id, loan_stmt, loan_block, loan_text, read_stmt, read_block, read_text) {
+                            pilot stmt_span = v4_borrowck_use_diag_span(mir_id, body_id, read_stmt)
+                            pilot message = v4_borrowck_exclusive_read_message(loan_block, read_block)
+                            pilot help = v4_borrowck_exclusive_read_help(loan_text, loan_stmt, loan_block, read_text, read_stmt, read_block)
+                            v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, stmt_span, message, help))
+                            v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                            conflicts += 1
+                            read_idx = path_count
+                        }
+                    }
+                    read_idx += 1
+                }
+            }
+        }
+        loan_idx += 1
     }
     give back conflicts
 }
@@ -1276,6 +1340,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         v4_borrowck_check_lend_contracts(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_mutable_exclusivity(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_exclusive_loans(borrow_id, result_id, mir_id, body_idx)
+        v4_borrowck_check_mutable_loan_reads(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_explicit_loan_moves(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_partial_moves(borrow_id, result_id, mir_id, body_idx)
         pilot loan_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_loan)

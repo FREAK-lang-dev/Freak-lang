@@ -59,8 +59,10 @@ later reachable use; owned call arguments participate in move checking, while
 call-only loans expire at the call boundary. Mutable explicit loans now retain
 their `LoanMut` identity and cannot overlap another live explicit loan,
 including aliased arguments in one call; a call-only mutable loan remains
-exclusive during that call. That is the first non-lexical liveness slice, not
-full region inference.
+exclusive during that call. A live `LoanMut` also blocks reading the original
+owner, including Copy-valued call arguments and reads in successor blocks,
+until the loan holder's final reachable use. That is the first non-lexical
+liveness slice, not full region inference.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
 fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts
