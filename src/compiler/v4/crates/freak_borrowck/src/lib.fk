@@ -1058,6 +1058,7 @@ task v4_borrowck_check_explicit_loan_moves(borrow_id: int, result_id: int, mir_i
                     pilot holder = v4_borrowck_explicit_loan_holder(mir_id, body_id, loan_stmt, loan_text)
                     pilot loan_conflicts = false
                     if holder != "" and loan_stmt >= 0 and move_stmt >= 0 and v4_borrowck_paths_overlap(loan_text, move_text) {
+                        -- A later loan statement can still be live at the next loop iteration.
                         if loan_block == move_block {
                             if loan_stmt < move_stmt or v4_borrowck_block_can_cycle(mir_id, body_id, move_block) {
                                 loan_conflicts = v4_borrowck_explicit_loan_live_at_move(mir_id, body_id, loan_stmt, loan_text, move_stmt, move_block)
@@ -1111,6 +1112,7 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                             }
                         }
                     } else if move_stmt >= 0 and use_stmt >= 0 and move_block >= 0 and use_block >= 0 {
+                        -- Earlier same-block uses are only after the move through a loop backedge.
                         if move_block != use_block or v4_borrowck_block_can_cycle(mir_id, body_id, move_block) {
                             if not v4_borrowck_move_repaired_before_use(borrow_id, result_id, move_stmt, move_block, move_text, use_stmt, use_block) {
                                 if v4_borrowck_block_reaches(mir_id, body_id, move_block, use_block) {
