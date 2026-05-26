@@ -488,6 +488,19 @@ task v4_borrowck_local_mode_for_path(mir_id: int, body_id: int, path_text: word)
     give back v4_mir_local_mode_for_name(mir_id, body_id, root)
 }
 
+task v4_borrowck_lend_holder_mode_for_projection(mir_id: int, body_id: int, path_text: word) -> word {
+    pilot canon = v4_borrowck_path_canon(path_text)
+    pilot root = v4_borrowck_path_root(canon)
+    if root == "" or canon == root {
+        give back v4_ty_param_mode_value
+    }
+    pilot local_ty = v4_mir_local_ty_for_name(mir_id, body_id, root)
+    if v4_ty_is_lend_type(local_ty) {
+        give back v4_ty_lend_mode(local_ty)
+    }
+    give back v4_ty_param_mode_value
+}
+
 task v4_borrowck_path_is_lent(mir_id: int, body_id: int, path_text: word) -> bool {
     pilot mode = v4_borrowck_local_mode_for_path(mir_id, body_id, path_text)
     give back mode == v4_ty_param_mode_lend or mode == v4_ty_param_mode_lend_mut
@@ -506,6 +519,14 @@ task v4_borrowck_lend_contract_help(path_text: word, mode: word, path_kind: word
     give back out
 }
 
+task v4_borrowck_lend_holder_write_help(path_text: word, stmt_id: int, block_id: int) -> word {
+    pilot root = v4_borrowck_path_root(path_text)
+    pilot out = root + " is an immutable loan holder in block " + word_from_int(block_id)
+    out = out + " at statement " + word_from_int(stmt_id)
+    out = out + "; use lend mut when writing through " + v4_borrowck_path_canon(path_text)
+    give back out
+}
+
 task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
@@ -514,6 +535,11 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
         pilot path_kind = v4_borrowck_path_kind(borrow_id, result_id, path_idx)
         pilot path_text = v4_borrowck_path_text(borrow_id, result_id, path_idx)
         pilot mode = v4_borrowck_local_mode_for_path(mir_id, body_id, path_text)
+        pilot holder_projection = false
+        if path_kind == v4_borrowck_path_write and mode == v4_ty_param_mode_value {
+            mode = v4_borrowck_lend_holder_mode_for_projection(mir_id, body_id, path_text)
+            holder_projection = mode != v4_ty_param_mode_value
+        }
         if mode == v4_ty_param_mode_lend or mode == v4_ty_param_mode_lend_mut {
             pilot stmt_id = v4_borrowck_path_stmt(borrow_id, result_id, path_idx)
             pilot block_id = v4_borrowck_path_block(borrow_id, result_id, path_idx)
@@ -525,8 +551,13 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
                 conflicts += 1
             } else if path_kind == v4_borrowck_path_write and mode == v4_ty_param_mode_lend {
                 pilot write_span = v4_borrowck_write_diag_span(mir_id, body_id, stmt_id)
+                pilot write_message = "Meiya refuses to mutate an immutable lend parameter"
                 pilot write_help = v4_borrowck_lend_contract_help(path_text, mode, path_kind, stmt_id, block_id)
-                v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, write_span, "Meiya refuses to mutate an immutable lend parameter", write_help))
+                if holder_projection {
+                    write_message = "Meiya refuses to mutate through an immutable lend"
+                    write_help = v4_borrowck_lend_holder_write_help(path_text, stmt_id, block_id)
+                }
+                v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, write_span, write_message, write_help))
                 v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
                 conflicts += 1
             }
@@ -846,6 +877,13 @@ task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder
             reaches_use = true
         }
         if reaches_use {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            if place_id >= 0 {
+                pilot place_text = v4_mir_place_text(mir_id, body_id, place_id)
+                if place_text != holder and v4_borrowck_paths_overlap(holder, place_text) {
+                    give back true
+                }
+            }
             pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
             if v4_borrowck_rvalue_uses_holder(mir_id, body_id, rvalue_id, holder) {
                 give back true
