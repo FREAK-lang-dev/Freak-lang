@@ -279,8 +279,8 @@ V4 (not implemented):
 | §4 contract | Status | Verdict |
 |---|---|---|
 | `lend p: T` immutable borrow parameter | ⚠️ | 📖 V4 — TY/MIR carry the contract; Meiya rejects immutable-lend writes and moves out of borrowed params |
-| `lend mut p: T` exclusive mutable borrow | ⚠️ | 📖 V4 — TY/MIR carry the contract; mutable lends may write but still cannot be moved/dropped by the callee; explicit `LoanMut` paths reject overlapping live explicit loans |
-| `lend value` / `lend mut value` expressions | ⚠️ | 📖 V4 — MIR lowers explicit borrow rvalues; Meiya tracks bound-local uses for rewrite/move/exclusive-loan conflicts, rejects aliased `lend mut` call arguments, and expires sequential call-only lends at the call boundary |
+| `lend mut p: T` exclusive mutable borrow | ⚠️ | 📖 V4 — TY/MIR carry the contract; mutable lends may write but still cannot be moved/dropped by the callee; explicit `LoanMut` paths reject overlapping live explicit loans and owner-side observations |
+| `lend value` / `lend mut value` expressions | ⚠️ | 📖 V4 — MIR lowers explicit borrow rvalues; Meiya tracks bound-local uses for rewrite/move/exclusive-loan/read conflicts, rejects aliased `lend mut` call arguments and owner reads during live mutable loans, and expires sequential call-only lends at the call boundary |
 | Borrow-vs-move rules | ⚠️ | 📖 V4 — borrowed-parameter move blocking plus first-pass non-lexical explicit-loan rewrite and owned-move conflicts, including call arguments, exist; full region inference still expands |
 | Lifetime parameters `'a` | ⚠️ | 📖 V4 — lex/TY/editor diagnostics exist; full region inference remains |
 | Inferred lifetimes / elision | ❌ | 📖 V4 |

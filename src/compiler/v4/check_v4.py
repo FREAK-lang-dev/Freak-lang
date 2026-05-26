@@ -5620,6 +5620,23 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "Meiya mutable lend owner reads",
+        "fixture": "lend_mut_read_conflict_smoke.fk",
+        "expect": [
+            "mut-read-local-status=blocked",
+            "mut-read-copy-status=blocked",
+            "mut-read-released-status=clean",
+            "mut-read-same-call-status=blocked",
+            "mut-read-cross-status=blocked",
+            "mut-read-immutable-status=clean",
+            "mut-read-diagnostics=4",
+            "mut-read-same-message-count=3",
+            "mut-read-cross-message-count=1",
+            "mut-read-diag0=Meiya refuses observation through an exclusive lend",
+            "mut-read-diag3=Meiya carries an exclusive lend across an observation boundary",
+        ],
+    },
+    {
         "name": "Meiya composite rvalue paths",
         "fixture": "borrowck_rvalue_paths_smoke.fk",
         "expect": [
