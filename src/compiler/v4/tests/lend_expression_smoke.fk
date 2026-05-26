@@ -41,6 +41,7 @@ task v4_lend_expr_source() -> word {
     src = src + "task local_conflict(ship: Ship) -> int {\n"
     src = src + "    pilot view = lend ship\n"
     src = src + "    ship.hp = 7\n"
+    src = src + "    view\n"
     src = src + "    give back ship.hp\n"
     src = src + "}\n"
     src = src + "task call_conflict(ship: Ship) -> int {\n"
