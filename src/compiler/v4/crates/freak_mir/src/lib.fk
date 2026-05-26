@@ -5138,16 +5138,20 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
             pilot base_place = v4_mir_lower_place(mir_id, body_id, stream_id, first, open_index)
             pilot index_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, open_index + 1, last)
             pilot base_ty = v4_mir_place_ty(mir_id, body_id, base_place)
+            pilot indexed_ty = base_ty
+            if v4_ty_is_lend_type(indexed_ty) {
+                indexed_ty = v4_ty_lend_target_type(indexed_ty)
+            }
             pilot index_ty = v4_mir_rvalue_ty(mir_id, body_id, index_rvalue)
-            pilot element_ty = v4_ty_index_element_type(base_ty)
-            pilot map_key_ty = v4_ty_map_key_type(base_ty)
-            if v4_ty_is_known(base_ty) and not v4_ty_is_known(element_ty) {
-                v4_mir_add_type_error(mir_id, place_span, "index target not indexable", base_ty + " is not indexable")
+            pilot element_ty = v4_ty_index_element_type(indexed_ty)
+            pilot map_key_ty = v4_ty_map_key_type(indexed_ty)
+            if v4_ty_is_known(indexed_ty) and not v4_ty_is_known(element_ty) {
+                v4_mir_add_type_error(mir_id, place_span, "index target not indexable", indexed_ty + " is not indexable")
             }
             if v4_ty_is_known(index_ty) {
                 if v4_ty_is_known(map_key_ty) {
                     if not v4_ty_types_compatible(map_key_ty, index_ty) {
-                        v4_mir_add_type_error(mir_id, place_span, "map key type mismatch", base_ty + " wants key " + map_key_ty + " but got " + index_ty)
+                        v4_mir_add_type_error(mir_id, place_span, "map key type mismatch", indexed_ty + " wants key " + map_key_ty + " but got " + index_ty)
                     }
                 } else if not v4_ty_is_numeric(index_ty) {
                     v4_mir_add_type_error(mir_id, place_span, "index expression must be numeric", "got " + index_ty)
@@ -5166,11 +5170,15 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
             field_name = v4_lex_token_value(stream_id, field_token)
         }
         pilot base_ty = v4_mir_place_ty(mir_id, body_id, base_place)
+        pilot projected_ty = base_ty
+        if v4_ty_is_lend_type(projected_ty) {
+            projected_ty = v4_ty_lend_target_type(projected_ty)
+        }
         pilot field_ty = v4_ty_unknown
-        if v4_ty_is_tuple_type(base_ty) {
+        if v4_ty_is_tuple_type(projected_ty) {
             if v4_mir_is_tuple_slot_chain(field_name) {
                 pilot current_place = base_place
-                pilot current_ty = base_ty
+                pilot current_ty = projected_ty
                 pilot current_text = v4_mir_place_text(mir_id, body_id, base_place)
                 pilot segment_start = 0
                 repeat until segment_start >= field_name.length() {
@@ -5195,17 +5203,17 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
                 }
                 give back current_place
             } else {
-                v4_mir_add_type_error(mir_id, place_span, "tuple slot must be int literal", "use .0, .1, ... on " + base_ty)
+                v4_mir_add_type_error(mir_id, place_span, "tuple slot must be int literal", "use .0, .1, ... on " + projected_ty)
             }
         } else {
-            field_ty = v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir_id), base_ty, field_name)
-            if v4_ty_is_known(base_ty) and not v4_ty_is_known(field_ty) {
+            field_ty = v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir_id), projected_ty, field_name)
+            if v4_ty_is_known(projected_ty) and not v4_ty_is_known(field_ty) {
                 if v4_mir_is_tuple_slot_chain(field_name) {
-                    v4_mir_add_type_error(mir_id, place_span, "tuple slot access on non-tuple type", base_ty + " has no tuple slots")
-                } else if v4_ty_shape_signature_id_for_name(v4_mir_ty_id(mir_id), base_ty) >= 0 {
-                    v4_mir_add_type_error(mir_id, place_span, "unknown field access", base_ty + " has no field " + field_name)
+                    v4_mir_add_type_error(mir_id, place_span, "tuple slot access on non-tuple type", projected_ty + " has no tuple slots")
+                } else if v4_ty_shape_signature_id_for_name(v4_mir_ty_id(mir_id), projected_ty) >= 0 {
+                    v4_mir_add_type_error(mir_id, place_span, "unknown field access", projected_ty + " has no field " + field_name)
                 } else {
-                    v4_mir_add_type_error(mir_id, place_span, "field access on non-shape type", base_ty + " has no fields")
+                    v4_mir_add_type_error(mir_id, place_span, "field access on non-shape type", projected_ty + " has no fields")
                 }
             }
         }
