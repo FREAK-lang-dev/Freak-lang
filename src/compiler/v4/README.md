@@ -56,8 +56,11 @@ params cannot be moved out of, borrowed params are not dropped by the callee,
 and explicit borrow expressions create loan paths. Explicit loans bound to a
 local now block later rewrites and ownership moves only while that local has a
 later reachable use; owned call arguments participate in move checking, while
-call-only loans expire at the call boundary. That is the first non-lexical
-liveness slice, not full region inference.
+call-only loans expire at the call boundary. Mutable explicit loans now retain
+their `LoanMut` identity and cannot overlap another live explicit loan,
+including aliased arguments in one call; a call-only mutable loan remains
+exclusive during that call. That is the first non-lexical liveness slice, not
+full region inference.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
 fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts

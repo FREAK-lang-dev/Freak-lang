@@ -967,7 +967,9 @@ the rest is V4.
 > expressions into Meiya loan paths visible to call checking and snapshots.
 > Explicit lends bound to locals now remain live through later reachable uses
 > when checking rewrites or owned-value moves, including moves passed as call
-> arguments; call-only lends expire at the call boundary.
+> arguments; explicit `lend mut` paths retain exclusive identity and reject
+> overlapping live explicit loans, including aliased arguments in one call,
+> while sequential call-only lends expire at their call boundary.
 > Lifetime tokens and signature contracts exist, but full region inference,
 > `Shared<T>` / `Weak<T>` / `.borrow()` /
 > `.borrow_mut()` / `.get_mut()`, the full honor-level system inside

@@ -5599,6 +5599,27 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "Meiya exclusive lend conflicts",
+        "fixture": "lend_exclusive_conflict_smoke.fk",
+        "expect": [
+            "exclusive-mut-path-kind=LoanMut",
+            "exclusive-mut-first-status=blocked",
+            "exclusive-shared-first-status=blocked",
+            "exclusive-released-status=clean",
+            "exclusive-two-shared-status=clean",
+            "exclusive-same-call-status=blocked",
+            "exclusive-shared-call-status=clean",
+            "exclusive-mut-rewrite-status=blocked",
+            "exclusive-cross-status=blocked",
+            "exclusive-diagnostics=5",
+            "exclusive-same-message-count=3",
+            "exclusive-cross-message-count=1",
+            "exclusive-rewrite-message-count=1",
+            "exclusive-diag0=Meiya refuses overlapping mutable lends",
+            "exclusive-diag4=Meiya carries an exclusive lend across another loan boundary",
+        ],
+    },
+    {
         "name": "Meiya composite rvalue paths",
         "fixture": "borrowck_rvalue_paths_smoke.fk",
         "expect": [
