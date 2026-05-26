@@ -361,7 +361,14 @@ task v4_borrowck_rvalue_move_count(mir_id: int, body_id: int, rvalue_id: int) ->
         give back v4_borrowck_rvalue_move_count(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     }
     if kind == v4_mir_rvalue_call {
-        give back v4_borrowck_rvalue_move_count(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+        pilot moves = v4_borrowck_rvalue_move_count(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+        pilot arg_id = 0
+        pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+        repeat until arg_id >= arg_count {
+            moves = moves + v4_borrowck_rvalue_move_count(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id))
+            arg_id += 1
+        }
+        give back moves
     }
     give back 0
 }
@@ -848,31 +855,17 @@ task v4_borrowck_explicit_loan_live_at_write(mir_id: int, body_id: int, loan_stm
     give back v4_borrowck_holder_used_at_or_after_write(mir_id, body_id, holder, write_stmt, write_block)
 }
 
-task v4_borrowck_collect_call_lend_transfer_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int, block_id: int, call_rvalue: int) -> void {
-    pilot arg_id = 0
-    pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, call_rvalue)
-    repeat until arg_id >= arg_count {
-        pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, arg_id)
-        if arg_rvalue >= 0 {
-            pilot arg_kind = v4_mir_rvalue_kind(mir_id, body_id, arg_rvalue)
-            if arg_kind == v4_mir_rvalue_lend or arg_kind == v4_mir_rvalue_lend_mut {
-                v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, arg_rvalue)
-            }
-        }
-        arg_id += 1
-    }
+task v4_borrowck_explicit_loan_live_at_move(mir_id: int, body_id: int, loan_stmt: int, loan_text: word, move_stmt: int, move_block: int) -> bool {
+    give back v4_borrowck_explicit_loan_live_at_write(mir_id, body_id, loan_stmt, loan_text, move_stmt, move_block)
 }
 
-task v4_borrowck_collect_call_lend_read_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int, block_id: int, call_rvalue: int) -> void {
+task v4_borrowck_collect_call_transfer_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int, block_id: int, call_rvalue: int) -> void {
     pilot arg_id = 0
     pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, call_rvalue)
     repeat until arg_id >= arg_count {
         pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, arg_id)
         if arg_rvalue >= 0 {
-            pilot arg_kind = v4_mir_rvalue_kind(mir_id, body_id, arg_rvalue)
-            if arg_kind == v4_mir_rvalue_lend or arg_kind == v4_mir_rvalue_lend_mut {
-                v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, arg_rvalue)
-            }
+            v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, arg_rvalue)
         }
         arg_id += 1
     }
@@ -898,7 +891,7 @@ task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: 
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     } else if rvalue_kind == v4_mir_rvalue_call {
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
-        v4_borrowck_collect_call_lend_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
+        v4_borrowck_collect_call_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
     }
 }
 
@@ -921,7 +914,7 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     } else if rvalue_kind == v4_mir_rvalue_call {
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
-        v4_borrowck_collect_call_lend_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
+        v4_borrowck_collect_call_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
     } else if rvalue_kind == v4_mir_rvalue_unknown {
         pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
         if v4_borrowck_rhs_needs_move(text) {
@@ -1027,6 +1020,72 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
     give back conflicts
 }
 
+task v4_borrowck_loan_move_conflict_help(loan_text: word, loan_stmt: int, loan_block: int, move_text: word, move_stmt: int, move_block: int) -> word {
+    pilot loan_canon = v4_borrowck_path_canon(loan_text)
+    pilot move_canon = v4_borrowck_path_canon(move_text)
+    pilot out = loan_canon + " is borrowed in block " + word_from_int(loan_block)
+    out = out + " from statement " + word_from_int(loan_stmt)
+    if loan_block != move_block {
+        out = out + " and remains live into block " + word_from_int(move_block)
+    }
+    out = out + ", so statement " + word_from_int(move_stmt)
+    out = out + " cannot move " + move_canon + " while its lend is live"
+    give back out
+}
+
+task v4_borrowck_loan_move_conflict_message(loan_block: int, move_block: int) -> word {
+    if loan_block == move_block {
+        give back "Meiya refuses this move while the value is borrowed"
+    }
+    give back "Meiya carries this loan across a move boundary"
+}
+
+task v4_borrowck_check_explicit_loan_moves(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
+    pilot conflicts = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    pilot move_idx = 0
+    repeat until move_idx >= path_count {
+        if v4_borrowck_path_kind(borrow_id, result_id, move_idx) == v4_borrowck_path_move {
+            pilot move_stmt = v4_borrowck_path_stmt(borrow_id, result_id, move_idx)
+            pilot move_block = v4_borrowck_path_block(borrow_id, result_id, move_idx)
+            pilot move_text = v4_borrowck_path_text(borrow_id, result_id, move_idx)
+            pilot loan_idx = 0
+            repeat until loan_idx >= path_count {
+                if v4_borrowck_path_kind(borrow_id, result_id, loan_idx) == v4_borrowck_path_loan {
+                    pilot loan_stmt = v4_borrowck_path_stmt(borrow_id, result_id, loan_idx)
+                    pilot loan_block = v4_borrowck_path_block(borrow_id, result_id, loan_idx)
+                    pilot loan_text = v4_borrowck_path_text(borrow_id, result_id, loan_idx)
+                    pilot holder = v4_borrowck_explicit_loan_holder(mir_id, body_id, loan_stmt, loan_text)
+                    pilot loan_conflicts = false
+                    if holder != "" and loan_stmt >= 0 and move_stmt >= 0 and v4_borrowck_paths_overlap(loan_text, move_text) {
+                        if loan_block == move_block {
+                            if loan_stmt < move_stmt or v4_borrowck_block_can_cycle(mir_id, body_id, move_block) {
+                                loan_conflicts = v4_borrowck_explicit_loan_live_at_move(mir_id, body_id, loan_stmt, loan_text, move_stmt, move_block)
+                            }
+                        } else if loan_block != move_block and loan_block >= 0 and move_block >= 0 {
+                            if v4_borrowck_block_reaches(mir_id, body_id, loan_block, move_block) {
+                                loan_conflicts = v4_borrowck_explicit_loan_live_at_move(mir_id, body_id, loan_stmt, loan_text, move_stmt, move_block)
+                            }
+                        }
+                    }
+                    if loan_conflicts {
+                        pilot stmt_span = v4_borrowck_use_diag_span(mir_id, body_id, move_stmt)
+                        pilot message = v4_borrowck_loan_move_conflict_message(loan_block, move_block)
+                        pilot help = v4_borrowck_loan_move_conflict_help(loan_text, loan_stmt, loan_block, move_text, move_stmt, move_block)
+                        v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, stmt_span, message, help))
+                        v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                        conflicts += 1
+                        loan_idx = path_count
+                    }
+                }
+                loan_idx += 1
+            }
+        }
+        move_idx += 1
+    }
+    give back conflicts
+}
+
 task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
@@ -1052,11 +1111,13 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
                             }
                         }
                     } else if move_stmt >= 0 and use_stmt >= 0 and move_block >= 0 and use_block >= 0 {
-                        if not v4_borrowck_move_repaired_before_use(borrow_id, result_id, move_stmt, move_block, move_text, use_stmt, use_block) {
-                            if v4_borrowck_block_reaches(mir_id, body_id, move_block, use_block) {
-                                if v4_borrowck_paths_overlap(move_text, use_text) {
-                                    move_conflicts = true
-                                    help = v4_borrowck_cross_block_partial_move_help(move_text, move_stmt, move_block, use_text, use_stmt, use_block)
+                        if move_block != use_block or v4_borrowck_block_can_cycle(mir_id, body_id, move_block) {
+                            if not v4_borrowck_move_repaired_before_use(borrow_id, result_id, move_stmt, move_block, move_text, use_stmt, use_block) {
+                                if v4_borrowck_block_reaches(mir_id, body_id, move_block, use_block) {
+                                    if v4_borrowck_paths_overlap(move_text, use_text) {
+                                        move_conflicts = true
+                                        help = v4_borrowck_cross_block_partial_move_help(move_text, move_stmt, move_block, use_text, use_stmt, use_block)
+                                    }
                                 }
                             }
                         }
@@ -1098,6 +1159,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         v4_borrowck_collect_body_paths(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_lend_contracts(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_mutable_exclusivity(borrow_id, result_id, mir_id, body_idx)
+        v4_borrowck_check_explicit_loan_moves(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_partial_moves(borrow_id, result_id, mir_id, body_idx)
         pilot loan_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_loan)
         pilot move_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_move)

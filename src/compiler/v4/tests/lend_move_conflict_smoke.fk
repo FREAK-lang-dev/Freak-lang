@@ -1,0 +1,111 @@
+-- V4 explicit-lend versus ownership-move smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lend_move_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task consume(ship: Ship) -> int {\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task inspect(lend ship: Ship) -> int {\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task same_live(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    view\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task same_released(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    view\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task call_live(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    consume(ship)\n"
+    src = src + "    view\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task call_released(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    view\n"
+    src = src + "    consume(ship)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task cross_live(ship: Ship, ready: bool) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    if ready {\n"
+    src = src + "        pilot moved = ship\n"
+    src = src + "    }\n"
+    src = src + "    view\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task call_scoped(ship: Ship) -> int {\n"
+    src = src + "    inspect(lend ship)\n"
+    src = src + "    consume(ship)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task cycle_late_loan(ship: Ship, ready: bool) -> int {\n"
+    src = src + "    repeat until ready {\n"
+    src = src + "        consume(ship)\n"
+    src = src + "        pilot view = lend ship\n"
+    src = src + "        view\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_lend_move_diag_count(borrow_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+pilot v4_lend_move_src = v4_lend_move_source()
+pilot v4_lend_move_stream = v4_lex_text(0, v4_lend_move_src)
+pilot v4_lend_move_tree = v4_parse_stream(0, v4_lend_move_stream)
+pilot v4_lend_move_hir = v4_hir_lower_tree(0, v4_lend_move_tree)
+pilot v4_lend_move_resolve = v4_resolve_lower_hir(0, v4_lend_move_hir)
+pilot v4_lend_move_ty = v4_ty_lower_resolve(0, v4_lend_move_resolve)
+pilot v4_lend_move_mir = v4_mir_lower_ty(0, v4_lend_move_ty)
+pilot v4_lend_move_borrow = v4_borrowck_check_mir(0, v4_lend_move_mir)
+
+pilot v4_lend_move_same_live_def = v4_resolve_def_for_name(v4_lend_move_resolve, "same_live")
+pilot v4_lend_move_same_released_def = v4_resolve_def_for_name(v4_lend_move_resolve, "same_released")
+pilot v4_lend_move_call_live_def = v4_resolve_def_for_name(v4_lend_move_resolve, "call_live")
+pilot v4_lend_move_call_released_def = v4_resolve_def_for_name(v4_lend_move_resolve, "call_released")
+pilot v4_lend_move_cross_live_def = v4_resolve_def_for_name(v4_lend_move_resolve, "cross_live")
+pilot v4_lend_move_call_scoped_def = v4_resolve_def_for_name(v4_lend_move_resolve, "call_scoped")
+pilot v4_lend_move_cycle_late_def = v4_resolve_def_for_name(v4_lend_move_resolve, "cycle_late_loan")
+pilot v4_lend_move_same_live_result = v4_borrowck_lookup_result(v4_lend_move_borrow, v4_lend_move_same_live_def)
+pilot v4_lend_move_same_released_result = v4_borrowck_lookup_result(v4_lend_move_borrow, v4_lend_move_same_released_def)
+pilot v4_lend_move_call_live_result = v4_borrowck_lookup_result(v4_lend_move_borrow, v4_lend_move_call_live_def)
+pilot v4_lend_move_call_released_result = v4_borrowck_lookup_result(v4_lend_move_borrow, v4_lend_move_call_released_def)
+pilot v4_lend_move_cross_live_result = v4_borrowck_lookup_result(v4_lend_move_borrow, v4_lend_move_cross_live_def)
+pilot v4_lend_move_call_scoped_result = v4_borrowck_lookup_result(v4_lend_move_borrow, v4_lend_move_call_scoped_def)
+pilot v4_lend_move_cycle_late_result = v4_borrowck_lookup_result(v4_lend_move_borrow, v4_lend_move_cycle_late_def)
+
+say "lend-move-same-live-status=" + v4_borrowck_result_status(v4_lend_move_borrow, v4_lend_move_same_live_result)
+say "lend-move-same-released-status=" + v4_borrowck_result_status(v4_lend_move_borrow, v4_lend_move_same_released_result)
+say "lend-move-call-live-status=" + v4_borrowck_result_status(v4_lend_move_borrow, v4_lend_move_call_live_result)
+say "lend-move-call-released-status=" + v4_borrowck_result_status(v4_lend_move_borrow, v4_lend_move_call_released_result)
+say "lend-move-cross-live-status=" + v4_borrowck_result_status(v4_lend_move_borrow, v4_lend_move_cross_live_result)
+say "lend-move-call-scoped-status=" + v4_borrowck_result_status(v4_lend_move_borrow, v4_lend_move_call_scoped_result)
+say "lend-move-cycle-late-status=" + v4_borrowck_result_status(v4_lend_move_borrow, v4_lend_move_cycle_late_result)
+say "lend-move-call-live-moves=" + word_from_int(v4_borrowck_result_moves(v4_lend_move_borrow, v4_lend_move_call_live_result))
+say "lend-move-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_lend_move_borrow))
+say "lend-move-same-message-count=" + word_from_int(v4_lend_move_diag_count(v4_lend_move_borrow, "Meiya refuses this move while the value is borrowed"))
+say "lend-move-cross-message-count=" + word_from_int(v4_lend_move_diag_count(v4_lend_move_borrow, "Meiya carries this loan across a move boundary"))
+say "lend-move-diag0=" + v4_diag_message(v4_borrowck_diag(v4_lend_move_borrow, 0))
+say "lend-move-diag1=" + v4_diag_message(v4_borrowck_diag(v4_lend_move_borrow, 1))
+say "lend-move-diag2=" + v4_diag_message(v4_borrowck_diag(v4_lend_move_borrow, 2))

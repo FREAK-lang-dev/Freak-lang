@@ -54,7 +54,8 @@ contracts and explicit `lend value` / `lend mut value` expressions carried
 through TY and MIR into Meiya: immutable lends cannot be written, borrowed
 params cannot be moved out of, borrowed params are not dropped by the callee,
 and explicit borrow expressions create loan paths. Explicit loans bound to a
-local now block later rewrites only while that local has a later reachable use;
+local now block later rewrites and ownership moves only while that local has a
+later reachable use; owned call arguments participate in move checking, while
 call-only loans expire at the call boundary. That is the first non-lexical
 liveness slice, not full region inference.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
