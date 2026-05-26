@@ -1,0 +1,100 @@
+-- V4 explicit-lend non-lexical liveness smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lend_liveness_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task inspect(lend ship: Ship) -> int {\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task touch<T>(value: T) -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task same_live(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    ship.hp = 1\n"
+    src = src + "    view\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task same_released(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    view\n"
+    src = src + "    ship.hp = 2\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task cross_live(ship: Ship, ready: bool) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    if ready {\n"
+    src = src + "        ship.hp = 3\n"
+    src = src + "    }\n"
+    src = src + "    view\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task cross_released(ship: Ship, ready: bool) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    view\n"
+    src = src + "    if ready {\n"
+    src = src + "        ship.hp = 4\n"
+    src = src + "    }\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task call_scoped(ship: Ship) -> int {\n"
+    src = src + "    inspect(lend ship)\n"
+    src = src + "    ship.hp = 5\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task call_holder_live(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    ship.hp = 6\n"
+    src = src + "    touch(view)\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    src = src + "task cycle_live(ship: Ship, ready: bool) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    repeat until ready {\n"
+    src = src + "        view\n"
+    src = src + "        ship.hp = 7\n"
+    src = src + "    }\n"
+    src = src + "    give back ship.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_lend_liveness_src = v4_lend_liveness_source()
+pilot v4_lend_liveness_stream = v4_lex_text(0, v4_lend_liveness_src)
+pilot v4_lend_liveness_tree = v4_parse_stream(0, v4_lend_liveness_stream)
+pilot v4_lend_liveness_hir = v4_hir_lower_tree(0, v4_lend_liveness_tree)
+pilot v4_lend_liveness_resolve = v4_resolve_lower_hir(0, v4_lend_liveness_hir)
+pilot v4_lend_liveness_ty = v4_ty_lower_resolve(0, v4_lend_liveness_resolve)
+pilot v4_lend_liveness_mir = v4_mir_lower_ty(0, v4_lend_liveness_ty)
+pilot v4_lend_liveness_borrow = v4_borrowck_check_mir(0, v4_lend_liveness_mir)
+
+pilot v4_lend_liveness_same_live_def = v4_resolve_def_for_name(v4_lend_liveness_resolve, "same_live")
+pilot v4_lend_liveness_same_released_def = v4_resolve_def_for_name(v4_lend_liveness_resolve, "same_released")
+pilot v4_lend_liveness_cross_live_def = v4_resolve_def_for_name(v4_lend_liveness_resolve, "cross_live")
+pilot v4_lend_liveness_cross_released_def = v4_resolve_def_for_name(v4_lend_liveness_resolve, "cross_released")
+pilot v4_lend_liveness_call_def = v4_resolve_def_for_name(v4_lend_liveness_resolve, "call_scoped")
+pilot v4_lend_liveness_call_holder_def = v4_resolve_def_for_name(v4_lend_liveness_resolve, "call_holder_live")
+pilot v4_lend_liveness_cycle_def = v4_resolve_def_for_name(v4_lend_liveness_resolve, "cycle_live")
+pilot v4_lend_liveness_same_live_result = v4_borrowck_lookup_result(v4_lend_liveness_borrow, v4_lend_liveness_same_live_def)
+pilot v4_lend_liveness_same_released_result = v4_borrowck_lookup_result(v4_lend_liveness_borrow, v4_lend_liveness_same_released_def)
+pilot v4_lend_liveness_cross_live_result = v4_borrowck_lookup_result(v4_lend_liveness_borrow, v4_lend_liveness_cross_live_def)
+pilot v4_lend_liveness_cross_released_result = v4_borrowck_lookup_result(v4_lend_liveness_borrow, v4_lend_liveness_cross_released_def)
+pilot v4_lend_liveness_call_result = v4_borrowck_lookup_result(v4_lend_liveness_borrow, v4_lend_liveness_call_def)
+pilot v4_lend_liveness_call_holder_result = v4_borrowck_lookup_result(v4_lend_liveness_borrow, v4_lend_liveness_call_holder_def)
+pilot v4_lend_liveness_cycle_result = v4_borrowck_lookup_result(v4_lend_liveness_borrow, v4_lend_liveness_cycle_def)
+
+say "lend-live-same-status=" + v4_borrowck_result_status(v4_lend_liveness_borrow, v4_lend_liveness_same_live_result)
+say "lend-release-same-status=" + v4_borrowck_result_status(v4_lend_liveness_borrow, v4_lend_liveness_same_released_result)
+say "lend-live-cross-status=" + v4_borrowck_result_status(v4_lend_liveness_borrow, v4_lend_liveness_cross_live_result)
+say "lend-release-cross-status=" + v4_borrowck_result_status(v4_lend_liveness_borrow, v4_lend_liveness_cross_released_result)
+say "lend-release-call-status=" + v4_borrowck_result_status(v4_lend_liveness_borrow, v4_lend_liveness_call_result)
+say "lend-live-call-holder-status=" + v4_borrowck_result_status(v4_lend_liveness_borrow, v4_lend_liveness_call_holder_result)
+say "lend-live-cycle-status=" + v4_borrowck_result_status(v4_lend_liveness_borrow, v4_lend_liveness_cycle_result)
+say "lend-live-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_lend_liveness_borrow))
+say "lend-live-diag0=" + v4_diag_message(v4_borrowck_diag(v4_lend_liveness_borrow, 0))
+say "lend-live-diag1=" + v4_diag_message(v4_borrowck_diag(v4_lend_liveness_borrow, 1))
+say "lend-live-diag2=" + v4_diag_message(v4_borrowck_diag(v4_lend_liveness_borrow, 2))
+say "lend-live-diag3=" + v4_diag_message(v4_borrowck_diag(v4_lend_liveness_borrow, 3))
+say "lend-live-diag4=" + v4_diag_message(v4_borrowck_diag(v4_lend_liveness_borrow, 4))

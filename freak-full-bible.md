@@ -47,7 +47,7 @@ Pipeline (full compiler):
 | §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). Missing: `variant`, pattern destructuring, named call args, lifetime annotations, `prob_when`, several primitive types (`tiny`, `uint`, `char`, `big`, `float32`, fixed `[T;N]`), tuples. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries lifetime tokens/type contracts, `lend` / `lend mut` parameter contracts, and explicit `lend value` / `lend mut value` expression loan paths through TY/MIR/Meiya; full region solving, `Shared<T>`/`Weak<T>`, honor levels, and `direct_order` remain V4. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries lifetime tokens/type contracts, `lend` / `lend mut` parameter contracts, explicit expression loan paths, and first-pass non-lexical release for bound/call-only lends through TY/MIR/Meiya; full region solving, `Shared<T>`/`Weak<T>`, honor levels, and `direct_order` remain V4. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
@@ -965,12 +965,14 @@ the rest is V4.
 > writes, blocks moves out of borrowed parameters, keeps borrowed params out of
 > callee drop tracking, and lowers explicit `lend value` / `lend mut value`
 > expressions into Meiya loan paths visible to call checking and snapshots.
+> Explicit lends bound to locals now remain live through later reachable uses
+> when checking rewrites; call-only lends expire at the call boundary.
 > Lifetime tokens and signature contracts exist, but full region inference,
 > `Shared<T>` / `Weak<T>` / `.borrow()` /
 > `.borrow_mut()` / `.get_mut()`, the full honor-level system inside
 > `trust me ... on my honor as .level`, and `direct_order [arch] { asm }`
-> inline assembly are V4 work. This is contract and loan-carriage, not full
-> reference lifetime proof.
+> inline assembly are V4 work. This is first-pass non-lexical loan liveness,
+> not full reference lifetime proof.
 
 The borrow checker enforces memory safety without a garbage collector.
 It runs as a separate pass after type checking, before code generation.
