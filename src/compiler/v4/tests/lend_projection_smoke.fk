@@ -4,6 +4,7 @@
 task v4_lend_projection_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
+    src = src + "    callsign: word\n"
     src = src + "}\n"
     src = src + "task field_read(ship: Ship) -> int {\n"
     src = src + "    pilot view = lend ship\n"
@@ -31,6 +32,26 @@ task v4_lend_projection_source() -> word {
     src = src + "task index_write_denied(items: List<int>) -> int {\n"
     src = src + "    pilot view = lend items\n"
     src = src + "    view[0] = 9\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task field_move_denied(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    pilot stolen = view.callsign\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task field_mut_move_denied(ship: Ship) -> int {\n"
+    src = src + "    pilot edit = lend mut ship\n"
+    src = src + "    pilot stolen = edit.callsign\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task index_move_denied(items: List<word>) -> int {\n"
+    src = src + "    pilot view = lend items\n"
+    src = src + "    pilot stolen = view[0]\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task index_mut_move_denied(items: List<word>) -> int {\n"
+    src = src + "    pilot edit = lend mut items\n"
+    src = src + "    pilot stolen = edit[0]\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
     src = src + "task read_before_write(ship: Ship) -> int {\n"
@@ -75,6 +96,10 @@ pilot v4_lend_projection_field_denied_def = v4_resolve_def_for_name(v4_lend_proj
 pilot v4_lend_projection_index_read_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "index_read")
 pilot v4_lend_projection_index_write_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "index_write")
 pilot v4_lend_projection_index_denied_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "index_write_denied")
+pilot v4_lend_projection_field_move_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "field_move_denied")
+pilot v4_lend_projection_field_mut_move_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "field_mut_move_denied")
+pilot v4_lend_projection_index_move_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "index_move_denied")
+pilot v4_lend_projection_index_mut_move_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "index_mut_move_denied")
 pilot v4_lend_projection_before_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "read_before_write")
 pilot v4_lend_projection_after_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "read_after_write")
 
@@ -94,6 +119,10 @@ pilot v4_lend_projection_field_denied_result = v4_borrowck_lookup_result(v4_lend
 pilot v4_lend_projection_index_read_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_index_read_def)
 pilot v4_lend_projection_index_write_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_index_write_def)
 pilot v4_lend_projection_index_denied_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_index_denied_def)
+pilot v4_lend_projection_field_move_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_field_move_def)
+pilot v4_lend_projection_field_mut_move_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_field_mut_move_def)
+pilot v4_lend_projection_index_move_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_index_move_def)
+pilot v4_lend_projection_index_mut_move_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_index_mut_move_def)
 pilot v4_lend_projection_before_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_before_def)
 pilot v4_lend_projection_after_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_after_def)
 
@@ -111,8 +140,13 @@ say "projection-field-denied-status=" + v4_borrowck_result_status(v4_lend_projec
 say "projection-index-read-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_index_read_result)
 say "projection-index-write-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_index_write_result)
 say "projection-index-denied-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_index_denied_result)
+say "projection-field-move-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_field_move_result)
+say "projection-field-mut-move-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_field_mut_move_result)
+say "projection-index-move-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_index_move_result)
+say "projection-index-mut-move-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_index_mut_move_result)
 say "projection-before-write-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_before_result)
 say "projection-after-write-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_after_result)
 say "projection-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_lend_projection_borrow))
 say "projection-immutable-write-diagnostics=" + word_from_int(v4_lend_projection_diag_count(v4_lend_projection_borrow, "Meiya refuses to mutate through an immutable lend"))
+say "projection-holder-move-diagnostics=" + word_from_int(v4_lend_projection_diag_count(v4_lend_projection_borrow, "Meiya refuses to move out through a lend holder"))
 say "projection-owner-read-diagnostics=" + word_from_int(v4_lend_projection_diag_count(v4_lend_projection_borrow, "Meiya refuses observation through an exclusive lend"))
