@@ -1,0 +1,95 @@
+-- V4 returned-loan provenance smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lend_return_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    callsign: word\n"
+    src = src + "}\n"
+    src = src + "task shared_reloan(lend ship: Ship) -> lend Ship {\n"
+    src = src + "    give back lend ship\n"
+    src = src + "}\n"
+    src = src + "task mutable_reloan(lend mut ship: Ship) -> lend mut Ship {\n"
+    src = src + "    give back lend mut ship\n"
+    src = src + "}\n"
+    src = src + "task downgrade_reloan(lend mut ship: Ship) -> lend Ship {\n"
+    src = src + "    give back lend ship\n"
+    src = src + "}\n"
+    src = src + "task holder_reloan(lend ship: Ship) -> lend Ship {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task owned_escape(ship: Ship) -> lend Ship {\n"
+    src = src + "    give back lend ship\n"
+    src = src + "}\n"
+    src = src + "task holder_owned_escape(ship: Ship) -> lend Ship {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task mutable_upgrade(lend ship: Ship) -> lend mut Ship {\n"
+    src = src + "    give back lend mut ship\n"
+    src = src + "}\n"
+    src = src + "task forward(lend ship: Ship) -> lend Ship {\n"
+    src = src + "    give back shared_reloan(lend ship)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_lend_return_diag_count(borrow_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+pilot v4_lend_return_src = v4_lend_return_source()
+pilot v4_lend_return_stream = v4_lex_text(0, v4_lend_return_src)
+pilot v4_lend_return_tree = v4_parse_stream(0, v4_lend_return_stream)
+pilot v4_lend_return_hir = v4_hir_lower_tree(0, v4_lend_return_tree)
+pilot v4_lend_return_resolve = v4_resolve_lower_hir(0, v4_lend_return_hir)
+pilot v4_lend_return_ty = v4_ty_lower_resolve(0, v4_lend_return_resolve)
+pilot v4_lend_return_mir = v4_mir_lower_ty(0, v4_lend_return_ty)
+pilot v4_lend_return_borrow = v4_borrowck_check_mir(0, v4_lend_return_mir)
+
+pilot v4_lend_return_shared_def = v4_resolve_def_for_name(v4_lend_return_resolve, "shared_reloan")
+pilot v4_lend_return_mutable_def = v4_resolve_def_for_name(v4_lend_return_resolve, "mutable_reloan")
+pilot v4_lend_return_downgrade_def = v4_resolve_def_for_name(v4_lend_return_resolve, "downgrade_reloan")
+pilot v4_lend_return_holder_def = v4_resolve_def_for_name(v4_lend_return_resolve, "holder_reloan")
+pilot v4_lend_return_owned_def = v4_resolve_def_for_name(v4_lend_return_resolve, "owned_escape")
+pilot v4_lend_return_holder_owned_def = v4_resolve_def_for_name(v4_lend_return_resolve, "holder_owned_escape")
+pilot v4_lend_return_upgrade_def = v4_resolve_def_for_name(v4_lend_return_resolve, "mutable_upgrade")
+pilot v4_lend_return_forward_def = v4_resolve_def_for_name(v4_lend_return_resolve, "forward")
+
+pilot v4_lend_return_shared_sig = v4_ty_lookup_signature(v4_lend_return_ty, v4_lend_return_shared_def)
+pilot v4_lend_return_shared_body = v4_mir_lookup_body(v4_lend_return_mir, v4_lend_return_shared_def)
+pilot v4_lend_return_shared_rvalue = v4_mir_stmt_rvalue(v4_lend_return_mir, v4_lend_return_shared_body, 0)
+pilot v4_lend_return_shared_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_shared_def)
+pilot v4_lend_return_mutable_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_mutable_def)
+pilot v4_lend_return_downgrade_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_downgrade_def)
+pilot v4_lend_return_holder_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_holder_def)
+pilot v4_lend_return_owned_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_owned_def)
+pilot v4_lend_return_holder_owned_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_holder_owned_def)
+pilot v4_lend_return_upgrade_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_upgrade_def)
+pilot v4_lend_return_forward_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_forward_def)
+
+say "lend-return-signature-return=" + v4_ty_signature_return_type(v4_lend_return_ty, v4_lend_return_shared_sig)
+say "lend-return-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_lend_return_ty))
+say "lend-return-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_lend_return_mir))
+say "lend-return-rvalue-kind=" + v4_mir_rvalue_kind(v4_lend_return_mir, v4_lend_return_shared_body, v4_lend_return_shared_rvalue)
+say "lend-return-rvalue-ty=" + v4_mir_rvalue_ty(v4_lend_return_mir, v4_lend_return_shared_body, v4_lend_return_shared_rvalue)
+say "lend-return-shared-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_shared_result)
+say "lend-return-mutable-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_mutable_result)
+say "lend-return-downgrade-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_downgrade_result)
+say "lend-return-holder-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_holder_result)
+say "lend-return-owned-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_owned_result)
+say "lend-return-holder-owned-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_holder_owned_result)
+say "lend-return-upgrade-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_upgrade_result)
+say "lend-return-forward-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_forward_result)
+say "lend-return-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_lend_return_borrow))
+say "lend-return-owned-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses to return a loan of an owned value"))
+say "lend-return-upgrade-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses a mutable reloan from an immutable lend"))
+say "lend-return-unproven-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya cannot establish the origin of this returned loan"))

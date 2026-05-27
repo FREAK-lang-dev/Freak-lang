@@ -2411,7 +2411,14 @@ task v4_ty_type_text(stream_id: int, start_token: int, end_token: int) -> word {
     pilot idx = start_token
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            out = out + v4_lex_token_value(stream_id, idx)
+            pilot value = v4_lex_token_value(stream_id, idx)
+            if out == "lend" and value == "mut" {
+                out = "lend mut"
+            } else if out == "lend" or out == "lend mut" {
+                out = out + " " + value
+            } else {
+                out = out + value
+            }
         }
         idx += 1
     }

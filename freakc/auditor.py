@@ -945,6 +945,54 @@ def audit_conformance(paths: List[Path]) -> int:
     if unw_missing:
         failures.append("V4 unwinder-import diagnostic regressed: " + "; ".join(unw_missing))
 
+    # ── Check 10: V4 borrowed-return provenance ──
+    # Borrowed return signatures and the first elision slice are now a
+    # promoted V4 contract. Require TY surface carriage, Meiya's return
+    # validation, and its executable smoke whenever conformance is audited.
+    v4_ty_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_borrowck_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_borrowck" / "src" / "lib.fk"
+    v4_lend_return_smoke = repo / "src" / "compiler" / "v4" / "tests" / "lend_return_smoke.fk"
+    v4_check_harness_return = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    return_missing: List[str] = []
+    if v4_ty_lib_return.exists():
+        ty_src = v4_ty_lib_return.read_text(encoding="utf-8")
+        for needle in (
+            "v4_ty_lend_type",
+            'out == "lend" and value == "mut"',
+            "v4_ty_is_lend_type",
+        ):
+            if needle not in ty_src:
+                return_missing.append(f"freak_ty: {needle}")
+    else:
+        return_missing.append("freak_ty/src/lib.fk missing")
+    if v4_borrowck_lib_return.exists():
+        borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
+        for needle in (
+            "v4_borrowck_return_lend_origin",
+            "v4_borrowck_check_returned_lends",
+            "Meiya refuses to return a loan of an owned value",
+            "Meiya refuses a mutable reloan from an immutable lend",
+        ):
+            if needle not in borrowck_src:
+                return_missing.append(f"freak_borrowck: {needle}")
+    else:
+        return_missing.append("freak_borrowck/src/lib.fk missing")
+    if not v4_lend_return_smoke.exists():
+        return_missing.append("smoke fixture: lend_return_smoke.fk")
+    if v4_check_harness_return.exists():
+        harness_src = v4_check_harness_return.read_text(encoding="utf-8")
+        if "lend_return_smoke.fk" not in harness_src:
+            return_missing.append("EXECUTABLE_SMOKES: lend_return_smoke entry")
+    else:
+        return_missing.append("check_v4.py harness missing")
+    add(
+        "V4 lend returns",
+        not return_missing,
+        "TY surface + provenance + smoke wired" if not return_missing else f"{len(return_missing)} gap(s)",
+    )
+    if return_missing:
+        failures.append("V4 borrowed-return provenance regressed: " + "; ".join(return_missing))
+
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")

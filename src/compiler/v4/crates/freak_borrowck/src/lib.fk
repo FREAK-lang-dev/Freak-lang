@@ -580,6 +580,108 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
     give back conflicts
 }
 
+task v4_borrowck_return_lend_origin(mir_id: int, body_id: int, return_stmt: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 {
+        give back 0 - 1
+    }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+        give back rvalue_id
+    }
+    if kind != v4_mir_rvalue_use_local {
+        give back 0 - 1
+    }
+
+    pilot holder = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
+    pilot return_block = v4_mir_stmt_block(mir_id, body_id, return_stmt)
+    pilot stmt_id = return_stmt - 1
+    repeat until stmt_id < 0 {
+        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == return_block {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            if place_id >= 0 and v4_mir_place_text(mir_id, body_id, place_id) == holder {
+                pilot origin_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+                if origin_id >= 0 {
+                    pilot origin_kind = v4_mir_rvalue_kind(mir_id, body_id, origin_id)
+                    if origin_kind == v4_mir_rvalue_lend or origin_kind == v4_mir_rvalue_lend_mut {
+                        give back origin_id
+                    }
+                }
+                give back 0 - 1
+            }
+        }
+        stmt_id -= 1
+    }
+    give back 0 - 1
+}
+
+task v4_borrowck_return_unproven_help(body_name: word) -> word {
+    pilot out = body_name + " returns a lend whose source is not a direct or same-block explicit reloan"
+    out = out + "; return lend input directly until Meiya's full region solver can prove wider forwarding"
+    give back out
+}
+
+task v4_borrowck_return_owned_help(body_name: word, source_text: word) -> word {
+    pilot out = v4_borrowck_path_canon(source_text) + " is owned by " + body_name
+    out = out + "; returning a lend would let it survive the owner's drop"
+    give back out
+}
+
+task v4_borrowck_return_mut_upgrade_help(source_text: word) -> word {
+    pilot out = v4_borrowck_path_canon(source_text) + " arrived through lend"
+    out = out + "; only a lend mut input can be returned as lend mut"
+    give back out
+}
+
+task v4_borrowck_check_returned_lends(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
+    pilot expected_ty = v4_mir_expected_return_type(mir_id, body_id)
+    if not v4_ty_is_lend_type(expected_ty) {
+        give back 0
+    }
+
+    pilot conflicts = 0
+    pilot body_name = v4_mir_body_name(mir_id, body_id)
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+            pilot return_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+            if return_rvalue >= 0 and v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, return_rvalue)) {
+                pilot message = ""
+                pilot help = ""
+                pilot origin_id = v4_borrowck_return_lend_origin(mir_id, body_id, stmt_id, return_rvalue)
+                if origin_id < 0 {
+                    message = "Meiya cannot establish the origin of this returned loan"
+                    help = v4_borrowck_return_unproven_help(body_name)
+                } else {
+                    pilot source_text = v4_borrowck_lend_source_text(mir_id, body_id, origin_id)
+                    pilot source_root = v4_borrowck_path_root(source_text)
+                    pilot source_ty = v4_mir_local_ty_for_name(mir_id, body_id, source_root)
+                    pilot source_mode = v4_borrowck_local_mode_for_path(mir_id, body_id, source_text)
+                    pilot origin_kind = v4_mir_rvalue_kind(mir_id, body_id, origin_id)
+                    if v4_ty_is_lend_type(source_ty) {
+                        message = "Meiya cannot establish the origin of this returned loan"
+                        help = v4_borrowck_return_unproven_help(body_name)
+                    } else if source_mode == v4_ty_param_mode_value {
+                        message = "Meiya refuses to return a loan of an owned value"
+                        help = v4_borrowck_return_owned_help(body_name, source_text)
+                    } else if origin_kind == v4_mir_rvalue_lend_mut and source_mode != v4_ty_param_mode_lend_mut {
+                        message = "Meiya refuses a mutable reloan from an immutable lend"
+                        help = v4_borrowck_return_mut_upgrade_help(source_text)
+                    }
+                }
+                if message != "" {
+                    pilot span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
+                    v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, message, help))
+                    v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                    conflicts += 1
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    give back conflicts
+}
+
 task v4_borrowck_mutable_conflict_help(loan_text: word, loan_stmt: int, block_id: int, write_text: word, write_stmt: int) -> word {
     pilot loan_canon = v4_borrowck_path_canon(loan_text)
     pilot write_canon = v4_borrowck_path_canon(write_text)
@@ -1389,6 +1491,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         pilot result_id = v4_borrowck_add_result(borrow_id, def_id, body_name, status, 0, 0, 0)
         v4_borrowck_collect_body_paths(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_lend_contracts(borrow_id, result_id, mir_id, body_idx)
+        v4_borrowck_check_returned_lends(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_mutable_exclusivity(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_exclusive_loans(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_mutable_loan_reads(borrow_id, result_id, mir_id, body_idx)
