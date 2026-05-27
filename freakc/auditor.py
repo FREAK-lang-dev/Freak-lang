@@ -970,8 +970,10 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "v4_borrowck_return_lend_origin",
             "v4_borrowck_check_returned_lends",
+            "v4_borrowck_check_stored_call_lends",
             "Meiya refuses to return a loan of an owned value",
             "Meiya refuses a mutable reloan from an immutable lend",
+            "Meiya cannot store a borrowed call result yet",
         ):
             if needle not in borrowck_src:
                 return_missing.append(f"freak_borrowck: {needle}")

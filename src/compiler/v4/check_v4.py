@@ -5683,10 +5683,12 @@ EXECUTABLE_SMOKES = [
             "lend-return-holder-owned-status=blocked",
             "lend-return-upgrade-status=blocked",
             "lend-return-forward-status=blocked",
-            "lend-return-diagnostics=4",
+            "lend-return-stored-call-status=blocked",
+            "lend-return-diagnostics=5",
             "lend-return-owned-diagnostics=2",
             "lend-return-upgrade-diagnostics=1",
             "lend-return-unproven-diagnostics=1",
+            "lend-return-stored-call-diagnostics=1",
         ],
     },
     {

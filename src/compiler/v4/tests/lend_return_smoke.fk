@@ -31,6 +31,11 @@ task v4_lend_return_source() -> word {
     src = src + "task forward(lend ship: Ship) -> lend Ship {\n"
     src = src + "    give back shared_reloan(lend ship)\n"
     src = src + "}\n"
+    src = src + "task stored_call_reloan(ship: Ship) -> int {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -63,6 +68,7 @@ pilot v4_lend_return_owned_def = v4_resolve_def_for_name(v4_lend_return_resolve,
 pilot v4_lend_return_holder_owned_def = v4_resolve_def_for_name(v4_lend_return_resolve, "holder_owned_escape")
 pilot v4_lend_return_upgrade_def = v4_resolve_def_for_name(v4_lend_return_resolve, "mutable_upgrade")
 pilot v4_lend_return_forward_def = v4_resolve_def_for_name(v4_lend_return_resolve, "forward")
+pilot v4_lend_return_stored_call_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_reloan")
 
 pilot v4_lend_return_shared_sig = v4_ty_lookup_signature(v4_lend_return_ty, v4_lend_return_shared_def)
 pilot v4_lend_return_shared_body = v4_mir_lookup_body(v4_lend_return_mir, v4_lend_return_shared_def)
@@ -75,6 +81,7 @@ pilot v4_lend_return_owned_result = v4_borrowck_lookup_result(v4_lend_return_bor
 pilot v4_lend_return_holder_owned_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_holder_owned_def)
 pilot v4_lend_return_upgrade_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_upgrade_def)
 pilot v4_lend_return_forward_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_forward_def)
+pilot v4_lend_return_stored_call_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_def)
 
 say "lend-return-signature-return=" + v4_ty_signature_return_type(v4_lend_return_ty, v4_lend_return_shared_sig)
 say "lend-return-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_lend_return_ty))
@@ -89,7 +96,9 @@ say "lend-return-owned-status=" + v4_borrowck_result_status(v4_lend_return_borro
 say "lend-return-holder-owned-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_holder_owned_result)
 say "lend-return-upgrade-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_upgrade_result)
 say "lend-return-forward-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_forward_result)
+say "lend-return-stored-call-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_result)
 say "lend-return-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_lend_return_borrow))
 say "lend-return-owned-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses to return a loan of an owned value"))
 say "lend-return-upgrade-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses a mutable reloan from an immutable lend"))
 say "lend-return-unproven-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya cannot establish the origin of this returned loan"))
+say "lend-return-stored-call-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya cannot store a borrowed call result yet"))

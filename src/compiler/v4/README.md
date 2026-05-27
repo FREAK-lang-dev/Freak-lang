@@ -69,8 +69,9 @@ mutable write keeps the exclusive loan live against earlier owner
 observations. Borrowed return types now carry through TY/MIR: Meiya accepts a
 direct or same-block local reloan of a borrowed parameter, rejects returning
 a loan of callee-owned storage, and rejects upgrading `lend` to returned
-`lend mut`. Borrowed results forwarded through calls remain rejected until
-the region solver can prove their source lifetime. That is the first
+`lend mut`. Borrowed results stored from or returned through calls remain
+rejected until the region solver can propagate and prove their source
+lifetime. That is the first
 non-lexical liveness slice, not full region inference.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and

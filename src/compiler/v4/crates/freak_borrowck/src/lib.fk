@@ -682,6 +682,37 @@ task v4_borrowck_check_returned_lends(borrow_id: int, result_id: int, mir_id: in
     give back conflicts
 }
 
+task v4_borrowck_stored_call_loan_help(body_name: word) -> word {
+    pilot out = body_name + " stores a lend returned by a call"
+    out = out + "; keep borrowed call results temporary until Meiya can propagate their source lifetime into the caller"
+    give back out
+}
+
+task v4_borrowck_check_stored_call_lends(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
+    pilot conflicts = 0
+    pilot body_name = v4_mir_body_name(mir_id, body_id)
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+        if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
+            pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+            if rvalue_id >= 0 and v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call {
+                if v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+                    pilot span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
+                    pilot message = "Meiya cannot store a borrowed call result yet"
+                    pilot help = v4_borrowck_stored_call_loan_help(body_name)
+                    v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, message, help))
+                    v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                    conflicts += 1
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    give back conflicts
+}
+
 task v4_borrowck_mutable_conflict_help(loan_text: word, loan_stmt: int, block_id: int, write_text: word, write_stmt: int) -> word {
     pilot loan_canon = v4_borrowck_path_canon(loan_text)
     pilot write_canon = v4_borrowck_path_canon(write_text)
@@ -1492,6 +1523,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         v4_borrowck_collect_body_paths(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_lend_contracts(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_returned_lends(borrow_id, result_id, mir_id, body_idx)
+        v4_borrowck_check_stored_call_lends(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_mutable_exclusivity(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_exclusive_loans(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_mutable_loan_reads(borrow_id, result_id, mir_id, body_idx)
