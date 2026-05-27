@@ -973,8 +973,9 @@ the rest is V4.
 > including Copy-valued call arguments and successor-block reads, while
 > sequential call-only lends expire at their call boundary. Loan holders now
 > project typed shape fields and indexed elements; Meiya allows writes through
-> `lend mut` holders, rejects writes through immutable `lend` holders, and
-> keeps later projected mutable writes live against earlier owner observations.
+> `lend mut` holders, rejects writes through immutable `lend` holders, rejects
+> moving non-Copy projected values through either holder mode, and keeps later
+> projected mutable writes live against earlier owner observations.
 > Lifetime tokens and signature contracts exist, but full region inference,
 > `Shared<T>` / `Weak<T>` / `.borrow()` /
 > `.borrow_mut()` / `.get_mut()`, the full honor-level system inside

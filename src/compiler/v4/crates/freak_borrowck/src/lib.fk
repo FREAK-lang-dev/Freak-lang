@@ -527,6 +527,14 @@ task v4_borrowck_lend_holder_write_help(path_text: word, stmt_id: int, block_id:
     give back out
 }
 
+task v4_borrowck_lend_holder_move_help(path_text: word, mode: word, stmt_id: int, block_id: int) -> word {
+    pilot root = v4_borrowck_path_root(path_text)
+    pilot out = root + " is a " + mode + " loan holder in block " + word_from_int(block_id)
+    out = out + " at statement " + word_from_int(stmt_id)
+    out = out + "; " + v4_borrowck_path_canon(path_text) + " remains owned behind the loan"
+    give back out
+}
+
 task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
@@ -536,7 +544,7 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
         pilot path_text = v4_borrowck_path_text(borrow_id, result_id, path_idx)
         pilot mode = v4_borrowck_local_mode_for_path(mir_id, body_id, path_text)
         pilot holder_projection = false
-        if path_kind == v4_borrowck_path_write and mode == v4_ty_param_mode_value {
+        if (path_kind == v4_borrowck_path_write or path_kind == v4_borrowck_path_move) and mode == v4_ty_param_mode_value {
             mode = v4_borrowck_lend_holder_mode_for_projection(mir_id, body_id, path_text)
             holder_projection = mode != v4_ty_param_mode_value
         }
@@ -545,8 +553,13 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
             pilot block_id = v4_borrowck_path_block(borrow_id, result_id, path_idx)
             if path_kind == v4_borrowck_path_move {
                 pilot stmt_span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
+                pilot move_message = "Meiya refuses to move out of a borrowed parameter"
                 pilot help = v4_borrowck_lend_contract_help(path_text, mode, path_kind, stmt_id, block_id)
-                v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, stmt_span, "Meiya refuses to move out of a borrowed parameter", help))
+                if holder_projection {
+                    move_message = "Meiya refuses to move out through a lend holder"
+                    help = v4_borrowck_lend_holder_move_help(path_text, mode, stmt_id, block_id)
+                }
+                v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, stmt_span, move_message, help))
                 v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
                 conflicts += 1
             } else if path_kind == v4_borrowck_path_write and mode == v4_ty_param_mode_lend {
