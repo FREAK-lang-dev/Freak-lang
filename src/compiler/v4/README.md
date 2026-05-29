@@ -72,6 +72,8 @@ a loan of callee-owned storage, and rejects upgrading `lend` to returned
 `lend mut`. Borrowed results stored from calls now carry the explicit
 `lend`/`lend mut` argument sources into the receiving local, so the owner
 cannot be moved or rewritten while that returned view is still reachable.
+Copied shared view holders retain that source provenance through local alias
+chains, so Meiya keeps the owner loan live until the final alias use.
 Borrowed results returned through calls remain rejected until the region
 solver can prove interprocedural source lifetime. That is the first
 non-lexical liveness slice, not full region inference.

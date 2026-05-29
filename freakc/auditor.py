@@ -972,6 +972,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_borrowck_check_returned_lends",
             "v4_borrowck_check_stored_call_lends",
             "v4_borrowck_stored_call_return_holder",
+            "v4_borrowck_holder_alias_from_stmt",
             "Meiya refuses to return a loan of an owned value",
             "Meiya refuses a mutable reloan from an immutable lend",
             "Meiya cannot store this borrowed call result yet",
