@@ -979,8 +979,11 @@ the rest is V4.
 > Borrowed return types now flow through TY/MIR; Meiya accepts direct and
 > same-block local reloan returns from borrowed parameters, rejects a returned
 > loan into callee-owned storage, and rejects upgrading an immutable lend to a
-> returned mutable lend. Storing or forwarding a borrowed result from a call
-> still requires the later region solver and is conservatively rejected.
+> returned mutable lend. Storing a borrowed result from a call now propagates
+> explicit lend-argument provenance into the receiving local so owner moves and
+> rewrites stay blocked while that view is live. Forwarding a borrowed result
+> through a call still requires the later region solver and is conservatively
+> rejected.
 > Lifetime tokens and signature contracts exist, but full region inference,
 > `Shared<T>` / `Weak<T>` / `.borrow()` /
 > `.borrow_mut()` / `.get_mut()`, the full honor-level system inside

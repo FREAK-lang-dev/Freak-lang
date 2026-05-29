@@ -688,6 +688,25 @@ task v4_borrowck_stored_call_loan_help(body_name: word) -> word {
     give back out
 }
 
+task v4_borrowck_call_has_lend_arg(mir_id: int, body_id: int, call_rvalue: int) -> bool {
+    if call_rvalue < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_rvalue) != v4_mir_rvalue_call {
+        give back false
+    }
+    pilot arg_id = 0
+    pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, call_rvalue)
+    repeat until arg_id >= arg_count {
+        pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, arg_id)
+        if arg_rvalue >= 0 {
+            pilot arg_kind = v4_mir_rvalue_kind(mir_id, body_id, arg_rvalue)
+            if arg_kind == v4_mir_rvalue_lend or arg_kind == v4_mir_rvalue_lend_mut {
+                give back true
+            }
+        }
+        arg_id += 1
+    }
+    give back false
+}
+
 task v4_borrowck_check_stored_call_lends(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot body_name = v4_mir_body_name(mir_id, body_id)
@@ -699,12 +718,21 @@ task v4_borrowck_check_stored_call_lends(borrow_id: int, result_id: int, mir_id:
             pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
             if rvalue_id >= 0 and v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call {
                 if v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
-                    pilot span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
-                    pilot message = "Meiya cannot store a borrowed call result yet"
-                    pilot help = v4_borrowck_stored_call_loan_help(body_name)
-                    v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, message, help))
-                    v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
-                    conflicts += 1
+                    pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+                    pilot has_local_holder = false
+                    if place_id >= 0 {
+                        if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
+                            has_local_holder = true
+                        }
+                    }
+                    if not has_local_holder or not v4_borrowck_call_has_lend_arg(mir_id, body_id, rvalue_id) {
+                        pilot span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
+                        pilot message = "Meiya cannot store this borrowed call result yet"
+                        pilot help = v4_borrowck_stored_call_loan_help(body_name)
+                        v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, message, help))
+                        v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                        conflicts += 1
+                    }
                 }
             }
         }
@@ -937,6 +965,30 @@ task v4_borrowck_call_lends_source(mir_id: int, body_id: int, call_rvalue: int, 
     give back false
 }
 
+task v4_borrowck_stored_call_return_holder(mir_id: int, body_id: int, loan_stmt: int, loan_text: word) -> word {
+    if loan_stmt < 0 {
+        give back ""
+    }
+    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
+    if rvalue_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call {
+        give back ""
+    }
+    if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        give back ""
+    }
+    if not v4_borrowck_call_lends_source(mir_id, body_id, rvalue_id, loan_text) {
+        give back ""
+    }
+    pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, loan_stmt)
+    pilot place_id = v4_mir_stmt_place(mir_id, body_id, loan_stmt)
+    if (stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign) and place_id >= 0 {
+        if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
+            give back v4_mir_place_text(mir_id, body_id, place_id)
+        }
+    }
+    give back ""
+}
+
 task v4_borrowck_explicit_loan_holder(mir_id: int, body_id: int, loan_stmt: int, loan_text: word) -> word {
     if loan_stmt < 0 {
         give back ""
@@ -951,6 +1003,10 @@ task v4_borrowck_explicit_loan_holder(mir_id: int, body_id: int, loan_stmt: int,
             }
         }
         give back "@temporary"
+    }
+    pilot call_holder = v4_borrowck_stored_call_return_holder(mir_id, body_id, loan_stmt, loan_text)
+    if call_holder != "" {
+        give back call_holder
     }
     if v4_borrowck_call_lends_source(mir_id, body_id, rvalue_id, loan_text) {
         give back "@temporary"
