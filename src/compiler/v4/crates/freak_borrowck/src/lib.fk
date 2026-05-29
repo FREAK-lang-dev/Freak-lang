@@ -1065,7 +1065,64 @@ task v4_borrowck_block_can_cycle(mir_id: int, body_id: int, block_id: int) -> bo
     give back false
 }
 
-task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder: word, write_stmt: int, write_block: int) -> bool {
+task v4_borrowck_holder_alias_from_stmt(mir_id: int, body_id: int, stmt_id: int, holder: word) -> word {
+    pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+    if stmt_kind != v4_mir_stmt_local and stmt_kind != v4_mir_stmt_assign {
+        give back ""
+    }
+    pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+    if place_id < 0 or v4_mir_place_kind(mir_id, body_id, place_id) != v4_mir_place_local {
+        give back ""
+    }
+    pilot alias = v4_mir_place_text(mir_id, body_id, place_id)
+    if v4_borrowck_path_canon(alias) == v4_borrowck_path_canon(holder) {
+        give back ""
+    }
+    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+    if rvalue_id < 0 or not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        give back ""
+    }
+    pilot rvalue_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if rvalue_kind != v4_mir_rvalue_use_local and rvalue_kind != v4_mir_rvalue_use_place {
+        give back ""
+    }
+    if v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) != v4_borrowck_path_canon(holder) {
+        give back ""
+    }
+    give back alias
+}
+
+task v4_borrowck_holder_seen(seen: word, holder: word) -> bool {
+    give back ("|" + seen + "|").contains("|" + v4_borrowck_path_canon(holder) + "|")
+}
+
+task v4_borrowck_holder_seen_append(seen: word, holder: word) -> word {
+    pilot canon = v4_borrowck_path_canon(holder)
+    if seen == "" {
+        give back canon
+    }
+    give back seen + "|" + canon
+}
+
+task v4_borrowck_holder_alias_relevant_to_write(mir_id: int, body_id: int, alias_stmt: int, write_block: int) -> bool {
+    pilot alias_block = v4_mir_stmt_block(mir_id, body_id, alias_stmt)
+    if alias_block == write_block {
+        give back true
+    }
+    if alias_block < 0 or write_block < 0 {
+        give back false
+    }
+    if v4_borrowck_block_reaches(mir_id, body_id, alias_block, write_block) {
+        give back true
+    }
+    give back v4_borrowck_block_reaches(mir_id, body_id, write_block, alias_block)
+}
+
+task v4_borrowck_holder_used_at_or_after_write_seen(mir_id: int, body_id: int, holder: word, write_stmt: int, write_block: int, seen: word) -> bool {
+    if holder == "" or holder == "@temporary" or v4_borrowck_holder_seen(seen, holder) {
+        give back false
+    }
+    pilot next_seen = v4_borrowck_holder_seen_append(seen, holder)
     pilot stmt_id = 0
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
     repeat until stmt_id >= stmt_count {
@@ -1091,9 +1148,19 @@ task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder
                 give back true
             }
         }
+        if v4_borrowck_holder_alias_relevant_to_write(mir_id, body_id, stmt_id, write_block) {
+            pilot alias = v4_borrowck_holder_alias_from_stmt(mir_id, body_id, stmt_id, holder)
+            if alias != "" and v4_borrowck_holder_used_at_or_after_write_seen(mir_id, body_id, alias, write_stmt, write_block, next_seen) {
+                give back true
+            }
+        }
         stmt_id += 1
     }
     give back false
+}
+
+task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder: word, write_stmt: int, write_block: int) -> bool {
+    give back v4_borrowck_holder_used_at_or_after_write_seen(mir_id, body_id, holder, write_stmt, write_block, "")
 }
 
 task v4_borrowck_explicit_loan_live_at_write(mir_id: int, body_id: int, loan_stmt: int, loan_text: word, write_stmt: int, write_block: int) -> bool {
