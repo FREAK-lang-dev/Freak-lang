@@ -1092,16 +1092,20 @@ task v4_borrowck_holder_alias_from_stmt(mir_id: int, body_id: int, stmt_id: int,
     give back alias
 }
 
-task v4_borrowck_holder_seen(seen: word, holder: word) -> bool {
-    give back ("|" + seen + "|").contains("|" + v4_borrowck_path_canon(holder) + "|")
+task v4_borrowck_holder_state(holder: word, holder_stmt: int) -> word {
+    give back v4_borrowck_path_canon(holder) + "@" + word_from_int(holder_stmt)
 }
 
-task v4_borrowck_holder_seen_append(seen: word, holder: word) -> word {
-    pilot canon = v4_borrowck_path_canon(holder)
+task v4_borrowck_holder_seen(seen: word, holder: word, holder_stmt: int) -> bool {
+    give back ("|" + seen + "|").contains("|" + v4_borrowck_holder_state(holder, holder_stmt) + "|")
+}
+
+task v4_borrowck_holder_seen_append(seen: word, holder: word, holder_stmt: int) -> word {
+    pilot state = v4_borrowck_holder_state(holder, holder_stmt)
     if seen == "" {
-        give back canon
+        give back state
     }
-    give back seen + "|" + canon
+    give back seen + "|" + state
 }
 
 task v4_borrowck_stmt_rebinds_holder(mir_id: int, body_id: int, stmt_id: int, holder: word) -> bool {
@@ -1169,10 +1173,10 @@ task v4_borrowck_holder_reaches_stmt_without_rebind(mir_id: int, body_id: int, h
 }
 
 task v4_borrowck_holder_used_at_or_after_write_seen(mir_id: int, body_id: int, holder: word, holder_stmt: int, write_stmt: int, write_block: int, seen: word) -> bool {
-    if holder == "" or holder == "@temporary" or v4_borrowck_holder_seen(seen, holder) {
+    if holder == "" or holder == "@temporary" or v4_borrowck_holder_seen(seen, holder, holder_stmt) {
         give back false
     }
-    pilot next_seen = v4_borrowck_holder_seen_append(seen, holder)
+    pilot next_seen = v4_borrowck_holder_seen_append(seen, holder, holder_stmt)
     pilot holder_block = v4_mir_stmt_block(mir_id, body_id, holder_stmt)
     pilot holder_live_at_write = v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, holder, holder_stmt, holder_stmt, holder_block, write_stmt, write_block)
     pilot stmt_id = 0
