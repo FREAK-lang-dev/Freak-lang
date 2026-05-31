@@ -1117,7 +1117,20 @@ task v4_borrowck_stmt_rebinds_holder(mir_id: int, body_id: int, stmt_id: int, ho
     if place_id < 0 or v4_mir_place_kind(mir_id, body_id, place_id) != v4_mir_place_local {
         give back false
     }
-    give back v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id)) == v4_borrowck_path_canon(holder)
+    pilot holder_canon = v4_borrowck_path_canon(holder)
+    if v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id)) != holder_canon {
+        give back false
+    }
+    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+    if rvalue_id >= 0 {
+        pilot rvalue_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+        if rvalue_kind == v4_mir_rvalue_use_local or rvalue_kind == v4_mir_rvalue_use_place {
+            if v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) == holder_canon {
+                give back false
+            }
+        }
+    }
+    give back true
 }
 
 task v4_borrowck_holder_reaches_stmt_without_rebind_seen(mir_id: int, body_id: int, holder: word, provenance_stmt: int, start_stmt: int, start_block: int, wanted_stmt: int, wanted_block: int, seen: word) -> bool {

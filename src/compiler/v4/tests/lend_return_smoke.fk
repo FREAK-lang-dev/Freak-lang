@@ -115,6 +115,12 @@ task v4_lend_return_source() -> word {
     src = src + "    pilot moved = ship\n"
     src = src + "    give back view.hp\n"
     src = src + "}\n"
+    src = src + "task stored_call_alias_self_assign(ship: Ship) -> int {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    view = view\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -158,6 +164,7 @@ pilot v4_lend_return_stored_call_source_rebound_alias_def = v4_resolve_def_for_n
 pilot v4_lend_return_stored_call_alias_rebound_all_routes_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_rebound_all_routes")
 pilot v4_lend_return_stored_call_alias_rebound_one_route_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_rebound_one_route")
 pilot v4_lend_return_stored_call_alias_restored_source_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_restored_source")
+pilot v4_lend_return_stored_call_alias_self_assign_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_self_assign")
 
 pilot v4_lend_return_shared_sig = v4_ty_lookup_signature(v4_lend_return_ty, v4_lend_return_shared_def)
 pilot v4_lend_return_shared_body = v4_mir_lookup_body(v4_lend_return_mir, v4_lend_return_shared_def)
@@ -181,6 +188,7 @@ pilot v4_lend_return_stored_call_source_rebound_alias_result = v4_borrowck_looku
 pilot v4_lend_return_stored_call_alias_rebound_all_routes_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_all_routes_def)
 pilot v4_lend_return_stored_call_alias_rebound_one_route_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_one_route_def)
 pilot v4_lend_return_stored_call_alias_restored_source_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_restored_source_def)
+pilot v4_lend_return_stored_call_alias_self_assign_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_self_assign_def)
 
 say "lend-return-signature-return=" + v4_ty_signature_return_type(v4_lend_return_ty, v4_lend_return_shared_sig)
 say "lend-return-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_lend_return_ty))
@@ -206,6 +214,7 @@ say "lend-return-stored-call-source-rebound-alias-status=" + v4_borrowck_result_
 say "lend-return-stored-call-alias-rebound-all-routes-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_all_routes_result)
 say "lend-return-stored-call-alias-rebound-one-route-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_one_route_result)
 say "lend-return-stored-call-alias-restored-source-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_restored_source_result)
+say "lend-return-stored-call-alias-self-assign-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_self_assign_result)
 say "lend-return-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_lend_return_borrow))
 say "lend-return-owned-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses to return a loan of an owned value"))
 say "lend-return-upgrade-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses a mutable reloan from an immutable lend"))

@@ -975,6 +975,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_borrowck_holder_alias_from_stmt",
             "v4_borrowck_holder_state",
             "v4_borrowck_holder_reaches_stmt_without_rebind",
+            "v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) == holder_canon",
             "Meiya refuses to return a loan of an owned value",
             "Meiya refuses a mutable reloan from an immutable lend",
             "Meiya cannot store this borrowed call result yet",
