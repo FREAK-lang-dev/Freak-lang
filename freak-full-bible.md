@@ -983,7 +983,11 @@ the rest is V4.
 > explicit lend-argument provenance into the receiving local so owner moves and
 > rewrites stay blocked while that view is live. Copied shared view holders
 > retain that provenance through local alias chains, so the source loan remains
-> live until the final alias use. Forwarding a borrowed result
+> live until the final alias use. Rebinding a local holder kills only that
+> holder's provenance; aliases copied earlier remain linked to the source,
+> restoring a holder from one of those aliases restores its provenance, and
+> exact holder self-assignment preserves the existing loan edge.
+> Forwarding a borrowed result
 > through a call still requires the later region solver and is conservatively
 > rejected.
 > Lifetime tokens and signature contracts exist, but full region inference,

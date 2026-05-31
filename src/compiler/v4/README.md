@@ -73,7 +73,12 @@ a loan of callee-owned storage, and rejects upgrading `lend` to returned
 `lend`/`lend mut` argument sources into the receiving local, so the owner
 cannot be moved or rewritten while that returned view is still reachable.
 Copied shared view holders retain that source provenance through local alias
-chains, so Meiya keeps the owner loan live until the final alias use.
+chains, so Meiya keeps the owner loan live until the final alias use. Local
+rebinding kills only that holder's provenance: earlier descendant aliases
+remain tied to the source, while later uses of the rebound holder do not.
+Restoring a holder from one of those descendants restores its source
+provenance as a new tracked state. Exact holder self-assignment preserves
+the existing provenance rather than killing the loan edge.
 Borrowed results returned through calls remain rejected until the region
 solver can prove interprocedural source lifetime. That is the first
 non-lexical liveness slice, not full region inference.

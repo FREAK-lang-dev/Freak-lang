@@ -60,6 +60,67 @@ task v4_lend_return_source() -> word {
     src = src + "    pilot moved = ship\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "task stored_call_alias_rebound_before_move(ship: Ship, backup: Ship) -> int {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    pilot backup_view = shared_reloan(lend backup)\n"
+    src = src + "    pilot alias = view\n"
+    src = src + "    alias = backup_view\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    give back alias.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_call_alias_rebound_after_move(ship: Ship, backup: Ship) -> int {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    pilot backup_view = shared_reloan(lend backup)\n"
+    src = src + "    pilot alias = view\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    alias = backup_view\n"
+    src = src + "    give back alias.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_call_source_rebound_alias_live(ship: Ship, backup: Ship) -> int {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    pilot backup_view = shared_reloan(lend backup)\n"
+    src = src + "    pilot alias = view\n"
+    src = src + "    view = backup_view\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    give back alias.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_call_alias_rebound_all_routes(ship: Ship, backup: Ship, choose: bool) -> int {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    pilot backup_view = shared_reloan(lend backup)\n"
+    src = src + "    pilot alias = view\n"
+    src = src + "    if choose {\n"
+    src = src + "        alias = backup_view\n"
+    src = src + "    } else {\n"
+    src = src + "        alias = backup_view\n"
+    src = src + "    }\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    give back alias.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_call_alias_rebound_one_route(ship: Ship, backup: Ship, choose: bool) -> int {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    pilot backup_view = shared_reloan(lend backup)\n"
+    src = src + "    pilot alias = view\n"
+    src = src + "    if choose {\n"
+    src = src + "        alias = backup_view\n"
+    src = src + "    }\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    give back alias.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_call_alias_restored_source(ship: Ship, backup: Ship) -> int {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    pilot backup_view = shared_reloan(lend backup)\n"
+    src = src + "    pilot saved = view\n"
+    src = src + "    view = backup_view\n"
+    src = src + "    view = saved\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_call_alias_self_assign(ship: Ship) -> int {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    view = view\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -97,6 +158,13 @@ pilot v4_lend_return_stored_call_move_def = v4_resolve_def_for_name(v4_lend_retu
 pilot v4_lend_return_stored_call_write_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_live_write")
 pilot v4_lend_return_stored_call_alias_move_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_live_move")
 pilot v4_lend_return_stored_call_alias_released_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_released")
+pilot v4_lend_return_stored_call_alias_rebound_before_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_rebound_before_move")
+pilot v4_lend_return_stored_call_alias_rebound_after_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_rebound_after_move")
+pilot v4_lend_return_stored_call_source_rebound_alias_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_source_rebound_alias_live")
+pilot v4_lend_return_stored_call_alias_rebound_all_routes_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_rebound_all_routes")
+pilot v4_lend_return_stored_call_alias_rebound_one_route_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_rebound_one_route")
+pilot v4_lend_return_stored_call_alias_restored_source_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_restored_source")
+pilot v4_lend_return_stored_call_alias_self_assign_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_alias_self_assign")
 
 pilot v4_lend_return_shared_sig = v4_ty_lookup_signature(v4_lend_return_ty, v4_lend_return_shared_def)
 pilot v4_lend_return_shared_body = v4_mir_lookup_body(v4_lend_return_mir, v4_lend_return_shared_def)
@@ -114,6 +182,13 @@ pilot v4_lend_return_stored_call_move_result = v4_borrowck_lookup_result(v4_lend
 pilot v4_lend_return_stored_call_write_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_write_def)
 pilot v4_lend_return_stored_call_alias_move_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_move_def)
 pilot v4_lend_return_stored_call_alias_released_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_released_def)
+pilot v4_lend_return_stored_call_alias_rebound_before_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_before_def)
+pilot v4_lend_return_stored_call_alias_rebound_after_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_after_def)
+pilot v4_lend_return_stored_call_source_rebound_alias_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_source_rebound_alias_def)
+pilot v4_lend_return_stored_call_alias_rebound_all_routes_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_all_routes_def)
+pilot v4_lend_return_stored_call_alias_rebound_one_route_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_one_route_def)
+pilot v4_lend_return_stored_call_alias_restored_source_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_restored_source_def)
+pilot v4_lend_return_stored_call_alias_self_assign_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_self_assign_def)
 
 say "lend-return-signature-return=" + v4_ty_signature_return_type(v4_lend_return_ty, v4_lend_return_shared_sig)
 say "lend-return-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_lend_return_ty))
@@ -133,10 +208,18 @@ say "lend-return-stored-call-move-status=" + v4_borrowck_result_status(v4_lend_r
 say "lend-return-stored-call-write-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_write_result)
 say "lend-return-stored-call-alias-move-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_move_result)
 say "lend-return-stored-call-alias-released-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_released_result)
+say "lend-return-stored-call-alias-rebound-before-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_before_result)
+say "lend-return-stored-call-alias-rebound-after-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_after_result)
+say "lend-return-stored-call-source-rebound-alias-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_source_rebound_alias_result)
+say "lend-return-stored-call-alias-rebound-all-routes-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_all_routes_result)
+say "lend-return-stored-call-alias-rebound-one-route-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_one_route_result)
+say "lend-return-stored-call-alias-restored-source-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_restored_source_result)
+say "lend-return-stored-call-alias-self-assign-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_alias_self_assign_result)
 say "lend-return-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_lend_return_borrow))
 say "lend-return-owned-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses to return a loan of an owned value"))
 say "lend-return-upgrade-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses a mutable reloan from an immutable lend"))
 say "lend-return-unproven-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya cannot establish the origin of this returned loan"))
 say "lend-return-stored-call-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya cannot store this borrowed call result yet"))
 say "lend-return-call-move-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses this move while the value is borrowed"))
+say "lend-return-call-cross-move-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya carries this loan across a move boundary"))
 say "lend-return-call-write-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses this rewrite while the value is borrowed"))
