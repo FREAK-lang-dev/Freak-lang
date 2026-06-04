@@ -1000,6 +1000,45 @@ def audit_conformance(paths: List[Path]) -> int:
     if return_missing:
         failures.append("V4 borrowed-return provenance regressed: " + "; ".join(return_missing))
 
+    # Check 11: V4 partial-move CFG repairs
+    partial_move_missing: List[str] = []
+    v4_partial_move_smoke = repo / "src" / "compiler" / "v4" / "tests" / "borrowck_partial_move_smoke.fk"
+    if v4_borrowck_lib_return.exists():
+        borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
+        for needle in (
+            "v4_borrowck_move_repaired_on_all_paths_seen",
+            "v4_borrowck_stmt_repairs_move",
+            "v4_borrowck_repair_state_key",
+        ):
+            if needle not in borrowck_src:
+                partial_move_missing.append(f"freak_borrowck: {needle}")
+    else:
+        partial_move_missing.append("freak_borrowck/src/lib.fk missing")
+    if v4_partial_move_smoke.exists():
+        smoke_src = v4_partial_move_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "cross_repaired",
+            "partial-move-cross-unrepaired-status=",
+            "partial-move-cross-message=",
+        ):
+            if needle not in smoke_src:
+                partial_move_missing.append(f"borrowck_partial_move_smoke: {needle}")
+    else:
+        partial_move_missing.append("smoke fixture: borrowck_partial_move_smoke.fk")
+    if v4_check_harness_return.exists():
+        harness_src = v4_check_harness_return.read_text(encoding="utf-8")
+        if "partial-move-cross-unrepaired-status=blocked" not in harness_src:
+            partial_move_missing.append("check_v4.py: partial-move cross-block expectation")
+    else:
+        partial_move_missing.append("check_v4.py harness missing")
+    add(
+        "V4 partial moves",
+        not partial_move_missing,
+        "CFG repair proof + smoke wired" if not partial_move_missing else f"{len(partial_move_missing)} gap(s)",
+    )
+    if partial_move_missing:
+        failures.append("V4 partial-move CFG repair regressed: " + "; ".join(partial_move_missing))
+
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")
