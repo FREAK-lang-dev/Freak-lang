@@ -1378,28 +1378,38 @@ task v4_borrowck_path_exact_local(path_text: word, local_name: word) -> bool {
     give back v4_borrowck_path_canon(path_text) == v4_borrowck_path_canon(local_name)
 }
 
+task v4_borrowck_stmt_has_exact_local_path(borrow_id: int, result_id: int, stmt_id: int, local_name: word, wanted_kind: word) -> bool {
+    pilot path_id = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    repeat until path_id >= path_count {
+        if v4_borrowck_path_stmt(borrow_id, result_id, path_id) == stmt_id {
+            if v4_borrowck_path_kind(borrow_id, result_id, path_id) == wanted_kind {
+                if v4_borrowck_path_exact_local(v4_borrowck_path_text(borrow_id, result_id, path_id), local_name) {
+                    give back true
+                }
+            }
+        }
+        path_id += 1
+    }
+    give back false
+}
+
 task v4_borrowck_local_moved_without_reinit_linear(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word) -> bool {
     if v4_mir_body_block_count(mir_id, body_id) != 1 {
         give back false
     }
 
     pilot initialized = true
-    pilot path_id = 0
-    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
-    repeat until path_id >= path_count {
-        pilot path_stmt = v4_borrowck_path_stmt(borrow_id, result_id, path_id)
-        if path_stmt >= 0 {
-            pilot path_kind = v4_borrowck_path_kind(borrow_id, result_id, path_id)
-            pilot path_text = v4_borrowck_path_text(borrow_id, result_id, path_id)
-            if v4_borrowck_path_exact_local(path_text, local_name) {
-                if path_kind == v4_borrowck_path_write {
-                    initialized = true
-                } else if path_kind == v4_borrowck_path_move {
-                    initialized = false
-                }
-            }
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
+            initialized = false
         }
-        path_id += 1
+        if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
+            initialized = true
+        }
+        stmt_id += 1
     }
     give back not initialized
 }

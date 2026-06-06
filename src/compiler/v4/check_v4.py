@@ -5787,6 +5787,10 @@ EXECUTABLE_SMOKES = [
             "drop-reinit-count=2",
             "drop-reinit-0=y",
             "drop-reinit-1=x",
+            "drop-move-reassign-status=clean",
+            "drop-move-reassign-count=1",
+            "drop-move-reassign-0=x",
+            "drop-move-reassign-1=",
         ],
     },
     {

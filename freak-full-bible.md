@@ -981,7 +981,8 @@ the rest is V4.
 > field or a covering parent path first; one unrepaired branch stays blocked.
 > Linear bodies also carry first static drop flags: a full-local move removes
 > that local from final drop tracking until an exact local reassignment
-> reinitializes it. Multi-block dynamic drop flags remain future Meiya work.
+> reinitializes it, with same-statement RHS move-before-LHS write ordering.
+> Multi-block dynamic drop flags remain future Meiya work.
 > Borrowed return types now flow through TY/MIR; Meiya accepts direct and
 > same-block local reloan returns from borrowed parameters, rejects a returned
 > loan into callee-owned storage, and rejects upgrading an immutable lend to a

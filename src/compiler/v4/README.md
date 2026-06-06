@@ -70,8 +70,9 @@ observations. Partial moves now recognize repair writes across CFG branches
 only when every route to the later whole-owner use restores the moved field;
 one unrepaired branch remains blocked. Linear bodies now get first static
 drop flags: a full-local move removes that local from final drop tracking
-until an exact local reassignment reinitializes it. Borrowed return types now
-carry through TY/MIR: Meiya accepts a
+until an exact local reassignment reinitializes it, including same-statement
+move-and-reassign forms that evaluate the RHS before the destination write.
+Borrowed return types now carry through TY/MIR: Meiya accepts a
 direct or same-block local reloan of a borrowed parameter, rejects returning
 a loan of callee-owned storage, and rejects upgrading `lend` to returned
 `lend mut`. Borrowed results stored from calls now carry the explicit
