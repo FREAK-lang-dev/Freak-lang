@@ -22,6 +22,25 @@ task v4_borrowck_drop_order_source() -> word {
     src = src + "    pilot y = \"y\"\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "task take(value: word) -> word {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task moved_local() -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    pilot y = x\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task reinit_local() -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    pilot y = x\n"
+    src = src + "    x = \"again\"\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task move_reassign() -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    x = take(x)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -33,7 +52,13 @@ pilot v4_borrowck_drop_order_ty = v4_ty_lower_resolve(0, v4_borrowck_drop_order_
 pilot v4_borrowck_drop_order_mir = v4_mir_lower_ty(0, v4_borrowck_drop_order_ty)
 pilot v4_borrowck_drop_order_check = v4_borrowck_check_mir(0, v4_borrowck_drop_order_mir)
 pilot v4_borrowck_drop_order_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "order")
+pilot v4_borrowck_drop_order_moved_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "moved_local")
+pilot v4_borrowck_drop_order_reinit_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "reinit_local")
+pilot v4_borrowck_drop_order_move_reassign_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "move_reassign")
 pilot v4_borrowck_drop_order_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_def)
+pilot v4_borrowck_drop_order_moved_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_moved_def)
+pilot v4_borrowck_drop_order_reinit_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_reinit_def)
+pilot v4_borrowck_drop_order_move_reassign_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_def)
 
 say v4_borrowck_summary(v4_borrowck_drop_order_check)
 say "drop-order-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result)
@@ -42,3 +67,15 @@ say "drop-order-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_orde
 say "drop-order-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result, 1)
 say "drop-order-2=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result, 2)
 say "drop-order-3=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result, 3)
+say "drop-moved-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_moved_result)
+say "drop-moved-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_moved_result))
+say "drop-moved-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_moved_result, 0)
+say "drop-moved-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_moved_result, 1)
+say "drop-reinit-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_reinit_result)
+say "drop-reinit-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_reinit_result))
+say "drop-reinit-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_reinit_result, 0)
+say "drop-reinit-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_reinit_result, 1)
+say "drop-move-reassign-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_result)
+say "drop-move-reassign-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_result))
+say "drop-move-reassign-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_result, 0)
+say "drop-move-reassign-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_result, 1)

@@ -3,8 +3,8 @@
 -- ===================================================================
 -- Depends on freak_span, freak_diag, and freak_mir.
 -- This first Meiya layer creates borrow-check result records for MIR
--- bodies. Real move paths, loans, regions, and drop flags will fill in
--- these counters once body lowering becomes real.
+-- bodies. Move paths, loans, linear drop flags, and first region-adjacent
+-- checks now fill in these counters; full region solving still expands.
 
 pilot v4_borrowck_clean = "clean"
 pilot v4_borrowck_blocked = "blocked"
@@ -1371,14 +1371,60 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
     }
 }
 
+task v4_borrowck_path_exact_local(path_text: word, local_name: word) -> bool {
+    if path_text == "" or local_name == "" {
+        give back false
+    }
+    give back v4_borrowck_path_canon(path_text) == v4_borrowck_path_canon(local_name)
+}
+
+task v4_borrowck_stmt_has_exact_local_path(borrow_id: int, result_id: int, stmt_id: int, local_name: word, wanted_kind: word) -> bool {
+    pilot path_id = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    repeat until path_id >= path_count {
+        if v4_borrowck_path_stmt(borrow_id, result_id, path_id) == stmt_id {
+            if v4_borrowck_path_kind(borrow_id, result_id, path_id) == wanted_kind {
+                if v4_borrowck_path_exact_local(v4_borrowck_path_text(borrow_id, result_id, path_id), local_name) {
+                    give back true
+                }
+            }
+        }
+        path_id += 1
+    }
+    give back false
+}
+
+task v4_borrowck_local_moved_without_reinit_linear(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word) -> bool {
+    if v4_mir_body_block_count(mir_id, body_id) != 1 {
+        give back false
+    }
+
+    pilot initialized = true
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
+            initialized = false
+        }
+        if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
+            initialized = true
+        }
+        stmt_id += 1
+    }
+    give back not initialized
+}
+
 task v4_borrowck_collect_drop_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> void {
     pilot local_count = v4_mir_body_local_count(mir_id, body_id)
     pilot local_idx = local_count - 1
     repeat until local_idx < 0 {
         pilot local_mode = v4_mir_local_mode(mir_id, body_id, local_idx)
         pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_idx)
+        pilot local_name = v4_mir_local_name(mir_id, body_id, local_idx)
         if local_mode != v4_ty_param_mode_lend and local_mode != v4_ty_param_mode_lend_mut and not v4_ty_is_lend_type(local_ty) {
-            v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_drop, v4_mir_local_name(mir_id, body_id, local_idx), 0 - 1, 0 - 1)
+            if not v4_borrowck_local_moved_without_reinit_linear(borrow_id, result_id, mir_id, body_id, local_name) {
+                v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_drop, local_name, 0 - 1, 0 - 1)
+            }
         }
         local_idx -= 1
     }
