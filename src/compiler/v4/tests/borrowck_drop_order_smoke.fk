@@ -25,6 +25,9 @@ task v4_borrowck_drop_order_source() -> word {
     src = src + "task take(value: word) -> word {\n"
     src = src + "    give back value\n"
     src = src + "}\n"
+    src = src + "task consume(value: word) -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     src = src + "task moved_local() -> int {\n"
     src = src + "    pilot x = \"x\"\n"
     src = src + "    pilot y = x\n"
@@ -41,6 +44,22 @@ task v4_borrowck_drop_order_source() -> word {
     src = src + "    x = take(x)\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "task branch_moved(ready: bool) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    if ready {\n"
+    src = src + "        consume(x)\n"
+    src = src + "    } else {\n"
+    src = src + "        consume(x)\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task branch_partial(ready: bool) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    if ready {\n"
+    src = src + "        consume(x)\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -55,10 +74,14 @@ pilot v4_borrowck_drop_order_def = v4_resolve_def_for_name(v4_borrowck_drop_orde
 pilot v4_borrowck_drop_order_moved_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "moved_local")
 pilot v4_borrowck_drop_order_reinit_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "reinit_local")
 pilot v4_borrowck_drop_order_move_reassign_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "move_reassign")
+pilot v4_borrowck_drop_order_branch_moved_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "branch_moved")
+pilot v4_borrowck_drop_order_branch_partial_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "branch_partial")
 pilot v4_borrowck_drop_order_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_def)
 pilot v4_borrowck_drop_order_moved_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_moved_def)
 pilot v4_borrowck_drop_order_reinit_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_reinit_def)
 pilot v4_borrowck_drop_order_move_reassign_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_def)
+pilot v4_borrowck_drop_order_branch_moved_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_moved_def)
+pilot v4_borrowck_drop_order_branch_partial_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_def)
 
 say v4_borrowck_summary(v4_borrowck_drop_order_check)
 say "drop-order-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result)
@@ -79,3 +102,11 @@ say "drop-move-reassign-status=" + v4_borrowck_result_status(v4_borrowck_drop_or
 say "drop-move-reassign-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_result))
 say "drop-move-reassign-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_result, 0)
 say "drop-move-reassign-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_result, 1)
+say "drop-branch-moved-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_moved_result)
+say "drop-branch-moved-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_moved_result))
+say "drop-branch-moved-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_moved_result, 0)
+say "drop-branch-moved-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_moved_result, 1)
+say "drop-branch-partial-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result)
+say "drop-branch-partial-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result))
+say "drop-branch-partial-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, 0)
+say "drop-branch-partial-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, 1)

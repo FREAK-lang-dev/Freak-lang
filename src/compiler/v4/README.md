@@ -72,6 +72,9 @@ one unrepaired branch remains blocked. Linear bodies now get first static
 drop flags: a full-local move removes that local from final drop tracking
 until an exact local reassignment reinitializes it, including same-statement
 move-and-reassign forms that evaluate the RHS before the destination write.
+Multi-block bodies now suppress final drops only when every reachable CFG
+exit has moved the local without reinitializing it; partial-branch moves stay
+conservative until conditional runtime drop flags land.
 Borrowed return types now carry through TY/MIR: Meiya accepts a
 direct or same-block local reloan of a borrowed parameter, rejects returning
 a loan of callee-owned storage, and rejects upgrading `lend` to returned

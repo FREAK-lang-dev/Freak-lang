@@ -1046,6 +1046,8 @@ def audit_conformance(paths: List[Path]) -> int:
         borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
         for needle in (
             "v4_borrowck_local_moved_without_reinit_linear",
+            "v4_borrowck_local_moved_on_all_exits_seen",
+            "v4_borrowck_drop_state_key",
             "v4_borrowck_path_exact_local",
             "v4_borrowck_stmt_has_exact_local_path",
         ):
@@ -1058,9 +1060,13 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "moved_local",
             "move_reassign",
+            "branch_moved",
+            "branch_partial",
             "drop-moved-count=",
             "drop-reinit-count=",
             "drop-move-reassign-count=",
+            "drop-branch-moved-count=",
+            "drop-branch-partial-count=",
         ):
             if needle not in smoke_src:
                 drop_flag_missing.append(f"borrowck_drop_order_smoke: {needle}")
@@ -1068,14 +1074,14 @@ def audit_conformance(paths: List[Path]) -> int:
         drop_flag_missing.append("smoke fixture: borrowck_drop_order_smoke.fk")
     if v4_check_harness_return.exists():
         harness_src = v4_check_harness_return.read_text(encoding="utf-8")
-        if "drop-move-reassign-count=1" not in harness_src:
+        if "drop-branch-partial-count=2" not in harness_src:
             drop_flag_missing.append("check_v4.py: moved-local drop expectation")
     else:
         drop_flag_missing.append("check_v4.py harness missing")
     add(
         "V4 drop flags",
         not drop_flag_missing,
-        "linear moved-local suppression wired" if not drop_flag_missing else f"{len(drop_flag_missing)} gap(s)",
+        "linear + all-exit moved-local suppression wired" if not drop_flag_missing else f"{len(drop_flag_missing)} gap(s)",
     )
     if drop_flag_missing:
         failures.append("V4 moved-local drop flags regressed: " + "; ".join(drop_flag_missing))
