@@ -1418,7 +1418,7 @@ task v4_borrowck_local_moved_on_all_exits_seen(borrow_id: int, result_id: int, m
 
     pilot key = v4_borrowck_drop_state_key(block_id, initialized)
     if v4_mir_name_list_contains(seen, key) {
-        give back not initialized
+        give back true
     }
     seen = v4_mir_name_list_add(seen, key)
 

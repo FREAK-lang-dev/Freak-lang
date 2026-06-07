@@ -1063,12 +1063,14 @@ def audit_conformance(paths: List[Path]) -> int:
             "move_reassign",
             "branch_moved",
             "branch_partial",
+            "loop_before_move",
             "route_branch_moved",
             "drop-moved-count=",
             "drop-reinit-count=",
             "drop-move-reassign-count=",
             "drop-branch-moved-count=",
             "drop-branch-partial-count=",
+            "drop-loop-before-move-count=",
             "drop-route-branch-moved-count=",
         ):
             if needle not in smoke_src:
@@ -1079,6 +1081,8 @@ def audit_conformance(paths: List[Path]) -> int:
         harness_src = v4_check_harness_return.read_text(encoding="utf-8")
         if "drop-branch-partial-count=2" not in harness_src:
             drop_flag_missing.append("check_v4.py: moved-local drop expectation")
+        if "drop-loop-before-move-count=1" not in harness_src:
+            drop_flag_missing.append("check_v4.py: loop-backedge drop expectation")
         if "drop-route-branch-moved-count=1" not in harness_src:
             drop_flag_missing.append("check_v4.py: unreachable-tail drop expectation")
     else:
@@ -1086,7 +1090,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 drop flags",
         not drop_flag_missing,
-        "linear + all-exit moved-local suppression wired, unreachable tails excluded" if not drop_flag_missing else f"{len(drop_flag_missing)} gap(s)",
+        "linear + all-exit moved-local suppression wired, cycles and unreachable tails excluded" if not drop_flag_missing else f"{len(drop_flag_missing)} gap(s)",
     )
     if drop_flag_missing:
         failures.append("V4 moved-local drop flags regressed: " + "; ".join(drop_flag_missing))
