@@ -5799,6 +5799,11 @@ EXECUTABLE_SMOKES = [
             "drop-branch-partial-count=2",
             "drop-branch-partial-0=x",
             "drop-branch-partial-1=ready",
+            "drop-route-branch-moved-status=clean",
+            "drop-route-branch-moved-count=1",
+            "drop-route-branch-moved-0=_when_subject",
+            "drop-route-branch-moved-1=",
+            "drop-route-branch-moved-2=",
         ],
     },
     {

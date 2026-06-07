@@ -1410,6 +1410,12 @@ task v4_borrowck_local_moved_on_all_exits_seen(borrow_id: int, result_id: int, m
         give back false
     }
 
+    pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+    pilot terminator = v4_mir_block_terminator(block_record)
+    if terminator == v4_mir_term_unreachable {
+        give back true
+    }
+
     pilot key = v4_borrowck_drop_state_key(block_id, initialized)
     if v4_mir_name_list_contains(seen, key) {
         give back not initialized
@@ -1431,8 +1437,6 @@ task v4_borrowck_local_moved_on_all_exits_seen(borrow_id: int, result_id: int, m
         stmt_id += 1
     }
 
-    pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
-    pilot terminator = v4_mir_block_terminator(block_record)
     if terminator == v4_mir_term_goto {
         give back v4_borrowck_local_moved_on_all_exits_seen(borrow_id, result_id, mir_id, body_id, local_name, v4_mir_block_target(block_record), current_initialized, seen)
     }
