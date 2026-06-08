@@ -16,6 +16,21 @@ task v4_borrowck_drop_order_nth_drop_text(borrow_id: int, result_id: int, wanted
     give back ""
 }
 
+task v4_borrowck_drop_order_nth_path_text(borrow_id: int, result_id: int, wanted_kind: word, wanted: int) -> word {
+    pilot seen = 0
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == wanted_kind {
+            if seen == wanted {
+                give back v4_borrowck_path_text(borrow_id, result_id, path_id)
+            }
+            seen += 1
+        }
+        path_id += 1
+    }
+    give back ""
+}
+
 task v4_borrowck_drop_order_source() -> word {
     pilot src = "route Outcome {\n"
     src = src + "    Victory / Defeat / Retreat\n"
@@ -63,6 +78,14 @@ task v4_borrowck_drop_order_source() -> word {
     src = src + "    }\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "task branch_reinit(ready: bool) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    if ready {\n"
+    src = src + "        consume(x)\n"
+    src = src + "        x = \"again\"\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     src = src + "task loop_before_move(ready: bool) -> int {\n"
     src = src + "    pilot x = \"x\"\n"
     src = src + "    repeat until ready {\n"
@@ -95,6 +118,7 @@ pilot v4_borrowck_drop_order_reinit_def = v4_resolve_def_for_name(v4_borrowck_dr
 pilot v4_borrowck_drop_order_move_reassign_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "move_reassign")
 pilot v4_borrowck_drop_order_branch_moved_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "branch_moved")
 pilot v4_borrowck_drop_order_branch_partial_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "branch_partial")
+pilot v4_borrowck_drop_order_branch_reinit_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "branch_reinit")
 pilot v4_borrowck_drop_order_loop_before_move_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "loop_before_move")
 pilot v4_borrowck_drop_order_route_branch_moved_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "route_branch_moved")
 pilot v4_borrowck_drop_order_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_def)
@@ -103,6 +127,7 @@ pilot v4_borrowck_drop_order_reinit_result = v4_borrowck_lookup_result(v4_borrow
 pilot v4_borrowck_drop_order_move_reassign_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_def)
 pilot v4_borrowck_drop_order_branch_moved_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_moved_def)
 pilot v4_borrowck_drop_order_branch_partial_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_def)
+pilot v4_borrowck_drop_order_branch_reinit_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_def)
 pilot v4_borrowck_drop_order_loop_before_move_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_before_move_def)
 pilot v4_borrowck_drop_order_route_branch_moved_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_route_branch_moved_def)
 
@@ -133,6 +158,14 @@ say "drop-branch-partial-status=" + v4_borrowck_result_status(v4_borrowck_drop_o
 say "drop-branch-partial-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result))
 say "drop-branch-partial-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, 0)
 say "drop-branch-partial-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, 1)
+say "drop-branch-partial-if-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, v4_borrowck_path_drop_if))
+say "drop-branch-partial-if-0=" + v4_borrowck_drop_order_nth_path_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, v4_borrowck_path_drop_if, 0)
+say "drop-branch-partial-if-1=" + v4_borrowck_drop_order_nth_path_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, v4_borrowck_path_drop_if, 1)
+say "drop-branch-reinit-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_result)
+say "drop-branch-reinit-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_result))
+say "drop-branch-reinit-if-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_result, v4_borrowck_path_drop_if))
+say "drop-branch-reinit-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_result, 0)
+say "drop-branch-reinit-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_result, 1)
 say "drop-loop-before-move-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_before_move_result)
 say "drop-loop-before-move-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_before_move_result))
 say "drop-loop-before-move-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_before_move_result, 0)

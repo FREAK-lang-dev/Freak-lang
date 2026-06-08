@@ -15,6 +15,7 @@ pilot v4_borrowck_path_move = "Move"
 pilot v4_borrowck_path_loan = "Loan"
 pilot v4_borrowck_path_loan_mut = "LoanMut"
 pilot v4_borrowck_path_drop = "Drop"
+pilot v4_borrowck_path_drop_if = "DropIf"
 pilot v4_borrowck_path_return = "Return"
 pilot v4_borrowck_snapshot_format = "freak-borrowck-snapshot-v1"
 
@@ -1475,6 +1476,57 @@ task v4_borrowck_local_moved_without_reinit(borrow_id: int, result_id: int, mir_
     give back v4_borrowck_local_moved_on_all_exits_seen(borrow_id, result_id, mir_id, body_id, local_name, 0, true, "")
 }
 
+task v4_borrowck_local_has_exit_state_seen(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word, block_id: int, initialized: bool, wanted_initialized: bool, seen: word) -> bool {
+    if block_id < 0 {
+        give back false
+    }
+    if block_id >= v4_mir_body_block_count(mir_id, body_id) {
+        give back false
+    }
+
+    pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+    pilot terminator = v4_mir_block_terminator(block_record)
+    if terminator == v4_mir_term_unreachable {
+        give back false
+    }
+
+    pilot key = v4_borrowck_drop_state_key(block_id, initialized)
+    if v4_mir_name_list_contains(seen, key) {
+        give back false
+    }
+    seen = v4_mir_name_list_add(seen, key)
+
+    pilot current_initialized = initialized
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
+            if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
+                current_initialized = false
+            }
+            if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
+                current_initialized = true
+            }
+        }
+        stmt_id += 1
+    }
+
+    if terminator == v4_mir_term_goto {
+        give back v4_borrowck_local_has_exit_state_seen(borrow_id, result_id, mir_id, body_id, local_name, v4_mir_block_target(block_record), current_initialized, wanted_initialized, seen)
+    }
+    if terminator == v4_mir_term_if {
+        if v4_borrowck_local_has_exit_state_seen(borrow_id, result_id, mir_id, body_id, local_name, v4_mir_block_target(block_record), current_initialized, wanted_initialized, seen) {
+            give back true
+        }
+        give back v4_borrowck_local_has_exit_state_seen(borrow_id, result_id, mir_id, body_id, local_name, v4_mir_block_else_target(block_record), current_initialized, wanted_initialized, seen)
+    }
+    give back current_initialized == wanted_initialized
+}
+
+task v4_borrowck_local_moved_on_any_exit(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word) -> bool {
+    give back v4_borrowck_local_has_exit_state_seen(borrow_id, result_id, mir_id, body_id, local_name, 0, true, false, "")
+}
+
 task v4_borrowck_collect_drop_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> void {
     pilot local_count = v4_mir_body_local_count(mir_id, body_id)
     pilot local_idx = local_count - 1
@@ -1484,7 +1536,11 @@ task v4_borrowck_collect_drop_paths(borrow_id: int, result_id: int, mir_id: int,
         pilot local_name = v4_mir_local_name(mir_id, body_id, local_idx)
         if local_mode != v4_ty_param_mode_lend and local_mode != v4_ty_param_mode_lend_mut and not v4_ty_is_lend_type(local_ty) {
             if not v4_borrowck_local_moved_without_reinit(borrow_id, result_id, mir_id, body_id, local_name) {
-                v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_drop, local_name, 0 - 1, 0 - 1)
+                pilot drop_kind = v4_borrowck_path_drop
+                if v4_borrowck_local_moved_on_any_exit(borrow_id, result_id, mir_id, body_id, local_name) {
+                    drop_kind = v4_borrowck_path_drop_if
+                }
+                v4_borrowck_add_path(borrow_id, result_id, drop_kind, local_name, 0 - 1, 0 - 1)
             }
         }
         local_idx -= 1
@@ -1892,6 +1948,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         loan_count = loan_count + v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_loan_mut)
         pilot move_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_move)
         pilot drop_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_drop)
+        drop_count = drop_count + v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_drop_if)
         v4_borrowck_set_result_counts(borrow_id, result_id, loan_count, move_count, drop_count)
         body_idx += 1
     }
