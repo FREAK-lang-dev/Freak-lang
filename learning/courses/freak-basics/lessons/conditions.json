@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "conditions",
+  "courseId": "freak-basics",
+  "title": "Conditions",
+  "order": 5,
+  "languageVersion": "0.13.3",
+  "compilerTrack": "v3",
+  "supportLevel": "v3-mvp",
+  "prerequisites": ["arithmetic"],
+  "conceptIds": [
+    "if-expression",
+    "comparison",
+    "else-branch"
+  ],
+  "objectives": [
+    "Use `if` to branch on a condition.",
+    "Compare numbers.",
+    "Provide an `else` branch."
+  ],
+  "sections": [
+    {
+      "id": "intro",
+      "type": "introduction",
+      "title": "Choose a route",
+      "body": "`if` chooses which block runs based on a boolean condition."
+    },
+    {
+      "id": "power-demo",
+      "type": "demonstration",
+      "title": "Check power",
+      "source": "pilot power = 9001\nif power > 9000 {\n    say \"over\"\n} else {\n    say \"normal\"\n}\n",
+      "expectedOutput": "over\n"
+    },
+    {
+      "id": "power-exercise",
+      "type": "exercise",
+      "title": "Print the high-power route",
+      "prompt": "Use an `if` condition so power over `9000` prints `over`.",
+      "starter": "pilot power = 9001\nif _____ {\n    say \"over\"\n} else {\n    say \"normal\"\n}\n",
+      "requirements": [
+        {
+          "id": "parses",
+          "kind": "parses"
+        },
+        {
+          "id": "compiles",
+          "kind": "compiles"
+        },
+        {
+          "id": "output",
+          "kind": "expected_output",
+          "expected": "over\n"
+        }
+      ]
+    },
+    {
+      "id": "quiz",
+      "type": "quiz",
+      "title": "Quick check",
+      "questions": [
+        {
+          "id": "branch-keyword",
+          "prompt": "Which keyword starts a conditional branch?",
+          "choices": ["if", "when", "route"],
+          "answer": 0
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "type": "summary",
+      "title": "Summary",
+      "body": "`if` runs one block when a condition is true and another when it is false."
+    }
+  ]
+}

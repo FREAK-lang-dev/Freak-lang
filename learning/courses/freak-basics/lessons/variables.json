@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "variables",
+  "courseId": "freak-basics",
+  "title": "Variables",
+  "order": 2,
+  "languageVersion": "0.13.3",
+  "compilerTrack": "v3",
+  "supportLevel": "v3-mvp",
+  "prerequisites": ["hello-freak"],
+  "conceptIds": [
+    "variable-declaration",
+    "say-statement",
+    "int-literal"
+  ],
+  "objectives": [
+    "Declare a value with `pilot`.",
+    "Use a variable after declaration.",
+    "Print a variable with `say`."
+  ],
+  "sections": [
+    {
+      "id": "intro",
+      "type": "introduction",
+      "title": "Give a value a name",
+      "body": "`pilot` declares a local value. The V3 learner starts by checking programs through compile and output requirements."
+    },
+    {
+      "id": "score-demo",
+      "type": "demonstration",
+      "title": "Store and print a score",
+      "source": "pilot score = 100\nsay score\n",
+      "expectedOutput": "100\n"
+    },
+    {
+      "id": "score-exercise",
+      "type": "exercise",
+      "title": "Print the score",
+      "prompt": "Declare `score` with value `100`, then print it.",
+      "starter": "pilot score = _____\nsay _____\n",
+      "requirements": [
+        {
+          "id": "parses",
+          "kind": "parses"
+        },
+        {
+          "id": "compiles",
+          "kind": "compiles"
+        },
+        {
+          "id": "output",
+          "kind": "expected_output",
+          "expected": "100\n"
+        }
+      ]
+    },
+    {
+      "id": "quiz",
+      "type": "quiz",
+      "title": "Quick check",
+      "questions": [
+        {
+          "id": "keyword",
+          "prompt": "Which keyword declares a variable in FREAK?",
+          "choices": ["pilot", "let", "var"],
+          "answer": 0
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "type": "summary",
+      "title": "Summary",
+      "body": "`pilot` gives a value a name so later statements can reuse it."
+    }
+  ]
+}

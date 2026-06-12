@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "loops",
+  "courseId": "freak-basics",
+  "title": "Loops",
+  "order": 6,
+  "languageVersion": "0.13.3",
+  "compilerTrack": "v3",
+  "supportLevel": "v3-mvp",
+  "prerequisites": ["conditions"],
+  "conceptIds": [
+    "repeat-loop",
+    "counted-loop",
+    "block"
+  ],
+  "objectives": [
+    "Use `repeat N times`.",
+    "Run a block more than once.",
+    "Predict repeated output."
+  ],
+  "sections": [
+    {
+      "id": "intro",
+      "type": "introduction",
+      "title": "Do it again",
+      "body": "`repeat N times` runs a block a fixed number of times."
+    },
+    {
+      "id": "repeat-demo",
+      "type": "demonstration",
+      "title": "Repeat a line",
+      "source": "repeat 3 times {\n    say \"FREAK\"\n}\n",
+      "expectedOutput": "FREAK\nFREAK\nFREAK\n"
+    },
+    {
+      "id": "repeat-exercise",
+      "type": "exercise",
+      "title": "Print three lines",
+      "prompt": "Use a counted repeat loop to print `FREAK` three times.",
+      "starter": "repeat _____ times {\n    say \"FREAK\"\n}\n",
+      "requirements": [
+        {
+          "id": "parses",
+          "kind": "parses"
+        },
+        {
+          "id": "compiles",
+          "kind": "compiles"
+        },
+        {
+          "id": "output",
+          "kind": "expected_output",
+          "expected": "FREAK\nFREAK\nFREAK\n"
+        }
+      ]
+    },
+    {
+      "id": "quiz",
+      "type": "quiz",
+      "title": "Quick check",
+      "questions": [
+        {
+          "id": "loop-form",
+          "prompt": "Which form runs a block a fixed number of times?",
+          "choices": ["repeat N times", "if", "pilot"],
+          "answer": 0
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "type": "summary",
+      "title": "Summary",
+      "body": "Counted loops are the simplest way to repeat known work."
+    }
+  ]
+}

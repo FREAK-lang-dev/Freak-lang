@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "functions",
+  "courseId": "freak-basics",
+  "title": "Functions",
+  "order": 7,
+  "languageVersion": "0.13.3",
+  "compilerTrack": "v3",
+  "supportLevel": "v3-mvp",
+  "prerequisites": ["loops"],
+  "conceptIds": [
+    "task-declaration",
+    "parameter",
+    "return-value"
+  ],
+  "objectives": [
+    "Declare a reusable `task`.",
+    "Pass a value as a parameter.",
+    "Return a value with `give back`."
+  ],
+  "sections": [
+    {
+      "id": "intro",
+      "type": "introduction",
+      "title": "Name a piece of work",
+      "body": "`task` declares reusable behavior. A task can receive parameters and give back a result."
+    },
+    {
+      "id": "double-demo",
+      "type": "demonstration",
+      "title": "Double a number",
+      "source": "task double(x: int) -> int {\n    give back x * 2\n}\n\nsay double(21)\n",
+      "expectedOutput": "42\n"
+    },
+    {
+      "id": "double-exercise",
+      "type": "exercise",
+      "title": "Call a task",
+      "prompt": "Implement `double` so `double(21)` prints `42`.",
+      "starter": "task double(x: int) -> int {\n    give back _____\n}\n\nsay double(21)\n",
+      "requirements": [
+        {
+          "id": "parses",
+          "kind": "parses"
+        },
+        {
+          "id": "compiles",
+          "kind": "compiles"
+        },
+        {
+          "id": "output",
+          "kind": "expected_output",
+          "expected": "42\n"
+        }
+      ]
+    },
+    {
+      "id": "quiz",
+      "type": "quiz",
+      "title": "Quick check",
+      "questions": [
+        {
+          "id": "function-keyword",
+          "prompt": "Which keyword declares a function-like unit of work in FREAK?",
+          "choices": ["task", "func", "fn"],
+          "answer": 0
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "type": "summary",
+      "title": "Summary",
+      "body": "`task` lets one piece of logic be called from more than one place."
+    }
+  ]
+}

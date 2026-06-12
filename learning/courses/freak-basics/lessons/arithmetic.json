@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "arithmetic",
+  "courseId": "freak-basics",
+  "title": "Arithmetic",
+  "order": 4,
+  "languageVersion": "0.13.3",
+  "compilerTrack": "v3",
+  "supportLevel": "v3-mvp",
+  "prerequisites": ["primitive-types"],
+  "conceptIds": [
+    "binary-operator",
+    "multiplication",
+    "expression"
+  ],
+  "objectives": [
+    "Combine numeric values with operators.",
+    "Use multiplication in an expression.",
+    "Print the result of an expression."
+  ],
+  "sections": [
+    {
+      "id": "intro",
+      "type": "introduction",
+      "title": "Expressions do work",
+      "body": "Arithmetic expressions let the program calculate values instead of only repeating literals."
+    },
+    {
+      "id": "area-demo",
+      "type": "demonstration",
+      "title": "Calculate an area",
+      "source": "pilot width = 8\npilot height = 4\nsay width * height\n",
+      "expectedOutput": "32\n"
+    },
+    {
+      "id": "area-exercise",
+      "type": "exercise",
+      "title": "Print an area",
+      "prompt": "Use `width` and `height` to print `32`.",
+      "starter": "pilot width = 8\npilot height = 4\nsay _____\n",
+      "requirements": [
+        {
+          "id": "parses",
+          "kind": "parses"
+        },
+        {
+          "id": "compiles",
+          "kind": "compiles"
+        },
+        {
+          "id": "output",
+          "kind": "expected_output",
+          "expected": "32\n"
+        }
+      ]
+    },
+    {
+      "id": "quiz",
+      "type": "quiz",
+      "title": "Quick check",
+      "questions": [
+        {
+          "id": "operator",
+          "prompt": "Which operator multiplies values?",
+          "choices": ["*", "+", "-"],
+          "answer": 0
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "type": "summary",
+      "title": "Summary",
+      "body": "Expressions can combine values with operators before `say` prints the result."
+    }
+  ]
+}

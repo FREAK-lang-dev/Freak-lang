@@ -27,7 +27,15 @@ def test_seed_course_loads():
     course = load_course("freak-basics")
 
     assert course["compilerTrack"] == "v3"
-    assert course["lessons"] == ["hello-freak"]
+    assert course["lessons"] == [
+        "hello-freak",
+        "variables",
+        "primitive-types",
+        "arithmetic",
+        "conditions",
+        "loops",
+        "functions",
+    ]
 
 
 def test_seed_lesson_has_v3_exercise_contracts():
@@ -48,6 +56,7 @@ def test_course_listing_mentions_seed_lesson():
 
     assert "freak-basics" in listing
     assert "hello-freak" in listing
+    assert "functions" in listing
     assert "python -m freakc learn check <lesson-id> <file.fk>" in listing
 
 

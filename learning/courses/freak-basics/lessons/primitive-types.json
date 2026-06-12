@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "primitive-types",
+  "courseId": "freak-basics",
+  "title": "Primitive Types",
+  "order": 3,
+  "languageVersion": "0.13.3",
+  "compilerTrack": "v3",
+  "supportLevel": "v3-mvp",
+  "prerequisites": ["variables"],
+  "conceptIds": [
+    "word-literal",
+    "int-literal",
+    "type-annotation"
+  ],
+  "objectives": [
+    "Recognize `word` values.",
+    "Recognize `int` values.",
+    "Use an explicit primitive type annotation."
+  ],
+  "sections": [
+    {
+      "id": "intro",
+      "type": "introduction",
+      "title": "Small values, clear types",
+      "body": "FREAK can infer many primitive types, and V3 also supports explicit annotations for common primitives."
+    },
+    {
+      "id": "types-demo",
+      "type": "demonstration",
+      "title": "Words and integers",
+      "source": "pilot callsign: word = \"Shiranui\"\npilot power: int = 9001\nsay callsign\nsay power\n",
+      "expectedOutput": "Shiranui\n9001\n"
+    },
+    {
+      "id": "types-exercise",
+      "type": "exercise",
+      "title": "Print a callsign and power",
+      "prompt": "Declare a `word` callsign of `Shiranui` and an `int` power of `9001`, then print both.",
+      "starter": "pilot callsign: word = \"_____\"\npilot power: int = _____\nsay callsign\nsay power\n",
+      "requirements": [
+        {
+          "id": "parses",
+          "kind": "parses"
+        },
+        {
+          "id": "compiles",
+          "kind": "compiles"
+        },
+        {
+          "id": "output",
+          "kind": "expected_output",
+          "expected": "Shiranui\n9001\n"
+        }
+      ]
+    },
+    {
+      "id": "quiz",
+      "type": "quiz",
+      "title": "Quick check",
+      "questions": [
+        {
+          "id": "text-type",
+          "prompt": "Which primitive type represents text in FREAK?",
+          "choices": ["word", "string", "text"],
+          "answer": 0
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "type": "summary",
+      "title": "Summary",
+      "body": "`word` stores text and `int` stores whole numbers."
+    }
+  ]
+}

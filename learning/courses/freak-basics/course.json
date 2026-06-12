@@ -8,6 +8,12 @@
   "repositoryPhase": "main-repo",
   "websitePath": "/learn/course/freak-basics",
   "lessons": [
-    "hello-freak"
+    "hello-freak",
+    "variables",
+    "primitive-types",
+    "arithmetic",
+    "conditions",
+    "loops",
+    "functions"
   ]
 }
