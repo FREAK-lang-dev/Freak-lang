@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "freak-basics",
+  "title": "FREAK Basics",
+  "description": "A V3-first introduction to FREAK syntax, compilation, and small programs.",
+  "languageVersion": "0.13.3",
+  "compilerTrack": "v3",
+  "repositoryPhase": "main-repo",
+  "websitePath": "/learn/course/freak-basics",
+  "lessons": [
+    "hello-freak"
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "id": "hello-freak",
+  "courseId": "freak-basics",
+  "title": "Hello, FREAK",
+  "order": 1,
+  "languageVersion": "0.13.3",
+  "compilerTrack": "v3",
+  "supportLevel": "v3-mvp",
+  "prerequisites": [],
+  "conceptIds": [
+    "program-output",
+    "say-statement",
+    "word-literal"
+  ],
+  "objectives": [
+    "Run a one-line FREAK program.",
+    "Use `say` to print a word literal.",
+    "Recognize `.fk` as the FREAK source file extension."
+  ],
+  "sections": [
+    {
+      "id": "welcome",
+      "type": "introduction",
+      "title": "Welcome",
+      "body": "FREAK programs use `.fk` files. The first Academy release teaches the V3 compiler before the V4 query compiler is ready."
+    },
+    {
+      "id": "hello-demo",
+      "type": "demonstration",
+      "title": "Print a line",
+      "source": "say \"Hello, FREAK Academy!\"\n",
+      "expectedOutput": "Hello, FREAK Academy!\n"
+    },
+    {
+      "id": "hello-exercise",
+      "type": "exercise",
+      "title": "Say hello",
+      "prompt": "Print `Hello, FREAK Academy!` exactly.",
+      "starter": "say \"_____\"\n",
+      "requirements": [
+        {
+          "id": "parses",
+          "kind": "parses"
+        },
+        {
+          "id": "compiles",
+          "kind": "compiles"
+        },
+        {
+          "id": "output",
+          "kind": "expected_output",
+          "expected": "Hello, FREAK Academy!\n"
+        }
+      ]
+    },
+    {
+      "id": "hello-quiz",
+      "type": "quiz",
+      "title": "Quick check",
+      "questions": [
+        {
+          "id": "extension",
+          "prompt": "What file extension do FREAK source files use?",
+          "choices": [".fk", ".frk", ".freak"],
+          "answer": 0
+        },
+        {
+          "id": "print-keyword",
+          "prompt": "Which keyword prints a value in FREAK?",
+          "choices": ["say", "print", "echo"],
+          "answer": 0
+        }
+      ]
+    },
+    {
+      "id": "summary",
+      "type": "summary",
+      "title": "Summary",
+      "body": "You wrote the smallest useful FREAK program: one `.fk` file with a `say` statement."
+    }
+  ]
+}
