@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import subprocess
@@ -304,6 +305,24 @@ def test_worker_fixtures_match_host():
     assert result.returncode == 0, result.stdout + result.stderr
     assert "evaluate_hello.request.json: OK" in result.stdout
     assert "package_info.request.json: OK" in result.stdout
+
+
+def test_browser_worker_fixtures_match_golden_contract():
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    result = subprocess.run(
+        [node, "tools/academy/verify_browser_worker_fixtures.mjs"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "evaluate_hello.request.json: OK" in result.stdout
+    assert "demo functions/double-demo: OK" in result.stdout
 
 
 def test_learn_worker_cli_runs_protocol_request():

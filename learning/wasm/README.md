@@ -32,6 +32,18 @@ echo '{"protocolVersion":1,"requestId":"req-1","method":"package.info","params":
 
 The local host is not the final browser implementation. It is the executable contract that the WASM worker must match.
 
+The first browser-safe reference worker lives at `learning/wasm/academy-worker.mjs`.
+It is not the final WASM compiler. It is a small, dependency-free JavaScript
+adapter for the current `v3-mvp` basics-course subset so `freaklang.dev` can
+integrate against the worker protocol before the compiler-owned WASM artifact
+exists.
+
+Run one request through the browser-safe host:
+
+```bash
+node tools/academy/browser_worker_host.mjs learning/wasm/fixtures/run_hello.request.json
+```
+
 Protocol methods currently exercised by the local host:
 
 - `package.info`
@@ -44,6 +56,7 @@ Golden fixtures live in `learning/wasm/fixtures`:
 
 ```bash
 python tools/academy/verify_worker_fixtures.py
+node tools/academy/verify_browser_worker_fixtures.mjs
 ```
 
 Future WASM/browser workers must match these fixtures before the website connector depends on them.
