@@ -14,13 +14,16 @@ if str(ROOT) not in sys.path:
 
 from freakc.__main__ import main
 from freakc.academy import (
+    export_progress,
     first_exercise,
     format_course_listing,
     format_progress,
+    import_progress,
     load_course,
     load_lesson,
     load_progress,
     mark_lesson_complete,
+    reset_progress,
 )
 
 
@@ -97,6 +100,32 @@ def test_progress_records_completed_lesson():
         assert "[DONE] 1. hello-freak" in format_progress(path=progress_path)
 
 
+def test_progress_export_import_and_reset():
+    lesson = load_lesson("hello-freak")
+    variables = load_lesson("variables")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        progress_path = Path(tmp) / "progress.json"
+        export_path = Path(tmp) / "export.freaklearn"
+        imported_path = Path(tmp) / "imported.json"
+
+        mark_lesson_complete(lesson, path=progress_path)
+        mark_lesson_complete(variables, path=progress_path)
+        export_progress(export_path, path=progress_path)
+        import_progress(export_path, path=imported_path)
+
+        imported = load_progress(imported_path)
+        assert imported["completedLessons"] == [
+            "freak-basics/hello-freak",
+            "freak-basics/variables",
+        ]
+
+        assert reset_progress("hello-freak", path=imported_path) == 1
+        assert load_progress(imported_path)["completedLessons"] == ["freak-basics/variables"]
+        assert reset_progress("freak-basics", path=imported_path) == 1
+        assert load_progress(imported_path)["completedLessons"] == []
+
+
 def test_learn_status_cli_uses_progress_override():
     with tempfile.TemporaryDirectory() as tmp:
         progress_path = Path(tmp) / "progress.json"
@@ -115,6 +144,41 @@ def test_learn_status_cli_uses_progress_override():
     assert code == 0
     assert "FREAK Academy Progress" in out.getvalue()
     assert "[TODO] 1. hello-freak" in out.getvalue()
+
+
+def test_learn_progress_cli_export_import_reset():
+    lesson = load_lesson("hello-freak")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        progress_path = Path(tmp) / "progress.json"
+        export_path = Path(tmp) / "progress.freaklearn"
+        old_progress = os.environ.get("FREAK_ACADEMY_PROGRESS")
+        os.environ["FREAK_ACADEMY_PROGRESS"] = str(progress_path)
+        try:
+            mark_lesson_complete(lesson)
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                export_code = main(["learn", "export", str(export_path)])
+            assert export_code == 0
+            assert export_path.exists()
+
+            reset_out = io.StringIO()
+            with redirect_stdout(reset_out):
+                reset_code = main(["learn", "reset", "all"])
+            assert reset_code == 0
+            assert load_progress(progress_path)["completedLessons"] == []
+
+            import_out = io.StringIO()
+            with redirect_stdout(import_out):
+                import_code = main(["learn", "import", str(export_path)])
+            assert import_code == 0
+            assert load_progress(progress_path)["completedLessons"] == ["freak-basics/hello-freak"]
+        finally:
+            if old_progress is None:
+                os.environ.pop("FREAK_ACADEMY_PROGRESS", None)
+            else:
+                os.environ["FREAK_ACADEMY_PROGRESS"] = old_progress
 
 
 def test_learn_start_collects_submission_and_records_progress():

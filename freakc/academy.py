@@ -132,6 +132,9 @@ def format_course_listing(root: Path | None = None) -> str:
             "  python -m freakc learn demo <lesson-id>",
             "  python -m freakc learn check <lesson-id> <file.fk>",
             "  python -m freakc learn status",
+            "  python -m freakc learn export <path>",
+            "  python -m freakc learn import <path>",
+            "  python -m freakc learn reset [all|course-id|lesson-id]",
         ]
     )
     return "\n".join(lines)
@@ -169,19 +172,36 @@ def load_progress(path: Path | None = None) -> dict[str, Any]:
     target = path or progress_path()
     if not target.exists():
         return default_progress()
-    data = _load_json(target)
-    if data.get("schemaVersion") != 1:
-        raise AcademyError(f"Unsupported Academy progress schema in {target}")
-    completed = data.get("completedLessons", [])
-    if not isinstance(completed, list):
-        raise AcademyError(f"Invalid completedLessons in {target}")
-    return data
+    try:
+        return normalize_progress(_load_json(target))
+    except AcademyError as exc:
+        raise AcademyError(f"{target}: {exc}") from exc
 
 
 def save_progress(progress: dict[str, Any], path: Path | None = None) -> None:
     target = path or progress_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(progress, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    target.write_text(json.dumps(normalize_progress(progress), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def normalize_progress(progress: dict[str, Any]) -> dict[str, Any]:
+    if progress.get("schemaVersion") != 1:
+        raise AcademyError("unsupported Academy progress schema")
+    completed = progress.get("completedLessons", [])
+    if not isinstance(completed, list):
+        raise AcademyError("completedLessons must be a list")
+
+    normalized: list[str] = []
+    for item in completed:
+        if not isinstance(item, str) or "/" not in item:
+            raise AcademyError("completed lesson entries must be course/lesson strings")
+        if item not in normalized:
+            normalized.append(item)
+
+    return {
+        "schemaVersion": 1,
+        "completedLessons": sorted(normalized),
+    }
 
 
 def progress_key(course_id: str, lesson_id: str) -> str:
@@ -198,6 +218,44 @@ def mark_lesson_complete(lesson: dict[str, Any], path: Path | None = None) -> bo
     completed.sort()
     save_progress(progress, path)
     return True
+
+
+def export_progress(destination: Path, path: Path | None = None) -> None:
+    progress = load_progress(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(progress, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def import_progress(source: Path, path: Path | None = None) -> None:
+    progress = normalize_progress(_load_json(source))
+    save_progress(progress, path)
+
+
+def reset_progress(scope: str = "all", root: Path | None = None, path: Path | None = None) -> int:
+    progress = load_progress(path)
+    completed = set(str(item) for item in progress.get("completedLessons", []))
+
+    if scope in ("", "all"):
+        removed = len(completed)
+        save_progress(default_progress(), path)
+        return removed
+
+    removed_keys: set[str] = set()
+    course_ids = {str(course["id"]) for course in iter_courses(root)}
+    if scope in course_ids:
+        removed_keys = {key for key in completed if key.startswith(f"{scope}/")}
+    else:
+        for course in iter_courses(root):
+            for lesson in iter_course_lessons(course, root=root):
+                if lesson["id"] == scope:
+                    removed_keys.add(progress_key(str(course["id"]), str(lesson["id"])))
+
+    if not removed_keys:
+        raise AcademyError(f"No progress entries match `{scope}`")
+
+    progress["completedLessons"] = sorted(completed - removed_keys)
+    save_progress(progress, path)
+    return len(removed_keys)
 
 
 def format_progress(root: Path | None = None, path: Path | None = None) -> str:

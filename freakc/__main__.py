@@ -1092,12 +1092,15 @@ def cmd_learn(argv: list[str]) -> int:
     """FREAK Academy terminal entry point."""
     from .academy import (
         AcademyError,
+        export_progress,
         first_exercise,
         format_course_listing,
         format_lesson,
         format_progress,
+        import_progress,
         lesson_sections,
         load_lesson,
+        reset_progress,
         section_by_id,
     )
 
@@ -1142,6 +1145,30 @@ def cmd_learn(argv: list[str]) -> int:
             print(format_progress())
             return 0
 
+        if sub == "export":
+            if len(argv) < 2:
+                print(_red("x Usage: python -m freakc learn export <path>"), file=sys.stderr)
+                return 1
+            target = Path(argv[1])
+            export_progress(target)
+            print(f"Progress exported to {target}")
+            return 0
+
+        if sub == "import":
+            if len(argv) < 2:
+                print(_red("x Usage: python -m freakc learn import <path>"), file=sys.stderr)
+                return 1
+            source = Path(argv[1])
+            import_progress(source)
+            print(f"Progress imported from {source}")
+            return 0
+
+        if sub == "reset":
+            scope = argv[1] if len(argv) > 1 else "all"
+            removed = reset_progress(scope)
+            print(f"Progress reset for {scope}: removed {removed} completion record(s).")
+            return 0
+
         if sub in ("check", "review"):
             if len(argv) < 3:
                 print(_red("x Usage: python -m freakc learn check <lesson-id> <file.fk> [--exercise=<id>]"), file=sys.stderr)
@@ -1167,7 +1194,7 @@ def cmd_learn(argv: list[str]) -> int:
             return 1
 
         print(_red(f"x Unknown learn subcommand: '{sub}'"), file=sys.stderr)
-        print("Usage: python -m freakc learn [list|show|demo|check|status]")
+        print("Usage: python -m freakc learn [list|show|demo|check|status|export|import|reset]")
         return 1
     except AcademyError as exc:
         print(_red(f"x {exc}"), file=sys.stderr)
