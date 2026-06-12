@@ -115,6 +115,32 @@ def iter_course_lessons(course: dict[str, Any], root: Path | None = None) -> Ite
         yield load_lesson(str(lesson_id), course_id=course_id, root=root)
 
 
+def build_academy_package(root: Path | None = None) -> dict[str, Any]:
+    package_root = root or repository_root()
+    courses: list[dict[str, Any]] = []
+    for course in iter_courses(package_root):
+        packaged_course = dict(course)
+        packaged_course["lessonData"] = list(iter_course_lessons(course, root=package_root))
+        courses.append(packaged_course)
+
+    return {
+        "schemaVersion": 1,
+        "packageId": "freak-academy-v3-mvp",
+        "languageVersion": "0.13.3",
+        "compilerTrack": "v3",
+        "repositoryPhase": "main-repo",
+        "websiteConnector": "freaklang.dev",
+        "workerProtocolVersion": 1,
+        "courses": courses,
+    }
+
+
+def export_academy_package(destination: Path, root: Path | None = None) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    package = build_academy_package(root=root)
+    destination.write_text(json.dumps(package, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def format_course_listing(root: Path | None = None) -> str:
     lines = ["FREAK Academy", "", "Courses:"]
     for course in iter_courses(root):
@@ -135,6 +161,7 @@ def format_course_listing(root: Path | None = None) -> str:
             "  python -m freakc learn export <path>",
             "  python -m freakc learn import <path>",
             "  python -m freakc learn reset [all|course-id|lesson-id]",
+            "  python -m freakc learn package <path>",
         ]
     )
     return "\n".join(lines)

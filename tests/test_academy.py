@@ -211,6 +211,21 @@ def test_academy_package_exporter_outputs_browser_package():
     assert len(package["courses"][0]["lessonData"]) == 7
 
 
+def test_learn_package_cli_exports_browser_package():
+    with tempfile.TemporaryDirectory() as tmp:
+        package_path = Path(tmp) / "academy-package.json"
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["learn", "package", str(package_path)])
+
+        assert code == 0
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+
+    assert "Academy package exported" in out.getvalue()
+    assert package["packageId"] == "freak-academy-v3-mvp"
+    assert package["courses"][0]["id"] == "freak-basics"
+
+
 def run_worker_request(request: dict) -> dict:
     result = subprocess.run(
         [sys.executable, "-B", "tools/academy/worker_host.py"],
@@ -275,6 +290,20 @@ def test_worker_host_reports_bad_request():
     assert response["ok"] is False
     assert response["requestId"] == "req-bad"
     assert response["error"]["code"] == "bad_request"
+
+
+def test_worker_fixtures_match_host():
+    result = subprocess.run(
+        [sys.executable, "-B", "tools/academy/verify_worker_fixtures.py"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "evaluate_hello.request.json: OK" in result.stdout
+    assert "package_info.request.json: OK" in result.stdout
 
 
 def test_learn_start_collects_submission_and_records_progress():

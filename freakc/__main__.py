@@ -1092,6 +1092,7 @@ def cmd_learn(argv: list[str]) -> int:
     """FREAK Academy terminal entry point."""
     from .academy import (
         AcademyError,
+        export_academy_package,
         export_progress,
         first_exercise,
         format_course_listing,
@@ -1169,6 +1170,15 @@ def cmd_learn(argv: list[str]) -> int:
             print(f"Progress reset for {scope}: removed {removed} completion record(s).")
             return 0
 
+        if sub == "package":
+            if len(argv) < 2:
+                print(_red("x Usage: python -m freakc learn package <path>"), file=sys.stderr)
+                return 1
+            target = Path(argv[1])
+            export_academy_package(target)
+            print(f"Academy package exported to {target}")
+            return 0
+
         if sub in ("check", "review"):
             if len(argv) < 3:
                 print(_red("x Usage: python -m freakc learn check <lesson-id> <file.fk> [--exercise=<id>]"), file=sys.stderr)
@@ -1194,7 +1204,7 @@ def cmd_learn(argv: list[str]) -> int:
             return 1
 
         print(_red(f"x Unknown learn subcommand: '{sub}'"), file=sys.stderr)
-        print("Usage: python -m freakc learn [list|show|demo|check|status|export|import|reset]")
+        print("Usage: python -m freakc learn [list|show|demo|check|status|export|import|reset|package]")
         return 1
     except AcademyError as exc:
         print(_red(f"x {exc}"), file=sys.stderr)

@@ -25,8 +25,7 @@ from freakc.__main__ import (
     _academy_evaluate_submission,
     _academy_parse_submission,
 )
-from freakc.academy import AcademyError, first_exercise, load_lesson, section_by_id
-from tools.academy.export_academy_package import build_package
+from freakc.academy import AcademyError, build_academy_package, first_exercise, load_lesson, section_by_id
 
 
 PROTOCOL_VERSION = 1
@@ -78,7 +77,7 @@ def source_to_temp_file(source: str, file_id: str = "worker.fk") -> tuple[tempfi
 
 
 def handle_package_info(_: dict[str, Any]) -> dict[str, Any]:
-    package = build_package(ROOT)
+    package = build_academy_package(ROOT)
     return {
         "packageId": package["packageId"],
         "languageVersion": package["languageVersion"],

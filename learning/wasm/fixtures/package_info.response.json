@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "fixture-package-info",
+  "result": {
+    "compilerTrack": "v3",
+    "courseCount": 1,
+    "languageVersion": "0.13.3",
+    "packageId": "freak-academy-v3-mvp",
+    "workerProtocolVersion": 1
+  }
+}

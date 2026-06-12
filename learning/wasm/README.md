@@ -15,6 +15,12 @@ The first artifact is the exportable Academy package:
 python tools/academy/export_academy_package.py --output dist/academy/freak-academy-package.json
 ```
 
+The same package can be exported through the terminal learner:
+
+```bash
+python -m freakc learn package dist/academy/freak-academy-package.json
+```
+
 The future worker should accept `schemas/academy-worker-protocol.schema.json` request envelopes and return versioned response envelopes with deterministic evaluation results.
 
 Until the browser/WASM backend exists, use the local V3-backed worker host to exercise the protocol:
@@ -33,3 +39,11 @@ Protocol methods currently exercised by the local host:
 - `run`
 - `evaluateExercise`
 - `cancel`
+
+Golden fixtures live in `learning/wasm/fixtures`:
+
+```bash
+python tools/academy/verify_worker_fixtures.py
+```
+
+Future WASM/browser workers must match these fixtures before the website connector depends on them.

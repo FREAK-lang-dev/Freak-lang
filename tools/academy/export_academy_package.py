@@ -7,33 +7,12 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
-
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from freakc.academy import iter_course_lessons, iter_courses
-
-
-def build_package(root: Path = ROOT) -> dict[str, Any]:
-    courses: list[dict[str, Any]] = []
-    for course in iter_courses(root):
-        packaged_course = dict(course)
-        packaged_course["lessonData"] = list(iter_course_lessons(course, root=root))
-        courses.append(packaged_course)
-
-    return {
-        "schemaVersion": 1,
-        "packageId": "freak-academy-v3-mvp",
-        "languageVersion": "0.13.3",
-        "compilerTrack": "v3",
-        "repositoryPhase": "main-repo",
-        "websiteConnector": "freaklang.dev",
-        "workerProtocolVersion": 1,
-        "courses": courses,
-    }
+from freakc.academy import build_academy_package
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,7 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", "-o", help="Write package JSON to this path instead of stdout.")
     args = parser.parse_args(argv)
 
-    package = build_package()
+    package = build_academy_package(ROOT)
     payload = json.dumps(package, indent=2, sort_keys=True) + "\n"
 
     if args.output:
