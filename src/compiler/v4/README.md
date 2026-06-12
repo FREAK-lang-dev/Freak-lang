@@ -74,8 +74,10 @@ until an exact local reassignment reinitializes it, including same-statement
 move-and-reassign forms that evaluate the RHS before the destination write.
 Multi-block bodies now suppress final drops only when every real CFG exit
 has moved the local without reinitializing it; loop backedges and unreachable
-checker tails are no-exit edges. Partial-branch moves stay conservative until
-conditional runtime drop flags land.
+checker tails are no-exit edges. Mixed exits now produce `DropIf` paths,
+marking the runtime drop-flag site for locals moved on only some branches;
+loop re-entry preserves the incoming drop state instead of replaying one-time
+header declarations.
 Borrowed return types now carry through TY/MIR: Meiya accepts a
 direct or same-block local reloan of a borrowed parameter, rejects returning
 a loan of callee-owned storage, and rejects upgrading `lend` to returned
