@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freak-lang.dev/schemas/academy-package.schema.json",
+  "title": "FREAK Academy Package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "packageId",
+    "languageVersion",
+    "compilerTrack",
+    "repositoryPhase",
+    "websiteConnector",
+    "workerProtocolVersion",
+    "courses"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "packageId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "languageVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "compilerTrack": {
+      "type": "string",
+      "enum": ["v3", "v4"]
+    },
+    "repositoryPhase": {
+      "type": "string",
+      "enum": ["main-repo", "split-ready", "dedicated-repo"]
+    },
+    "websiteConnector": {
+      "type": "string",
+      "const": "freaklang.dev"
+    },
+    "workerProtocolVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "courses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object"
+      }
+    }
+  }
+}

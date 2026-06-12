@@ -82,7 +82,12 @@ def expect_string(value: Any, path: Path, field: str) -> None:
 
 
 def validate_schema_files() -> None:
-    required = ["course.schema.json", "lesson.schema.json"]
+    required = [
+        "academy-package.schema.json",
+        "academy-worker-protocol.schema.json",
+        "course.schema.json",
+        "lesson.schema.json",
+    ]
     for name in required:
         path = SCHEMA_DIR / name
         expect(path.exists(), path, "schema file is missing")

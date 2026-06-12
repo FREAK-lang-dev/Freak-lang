@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import sys
 import tempfile
+import subprocess
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
@@ -179,6 +181,34 @@ def test_learn_progress_cli_export_import_reset():
                 os.environ.pop("FREAK_ACADEMY_PROGRESS", None)
             else:
                 os.environ["FREAK_ACADEMY_PROGRESS"] = old_progress
+
+
+def test_academy_package_exporter_outputs_browser_package():
+    with tempfile.TemporaryDirectory() as tmp:
+        package_path = Path(tmp) / "academy-package.json"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "tools/academy/export_academy_package.py",
+                "--output",
+                str(package_path),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+
+        assert result.returncode == 0, result.stderr
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+
+    assert package["schemaVersion"] == 1
+    assert package["packageId"] == "freak-academy-v3-mvp"
+    assert package["websiteConnector"] == "freaklang.dev"
+    assert package["workerProtocolVersion"] == 1
+    assert package["courses"][0]["id"] == "freak-basics"
+    assert len(package["courses"][0]["lessonData"]) == 7
 
 
 def test_learn_start_collects_submission_and_records_progress():

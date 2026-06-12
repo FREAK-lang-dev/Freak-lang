@@ -1762,6 +1762,7 @@ Run the required compiler subset entirely in the browser as soon as the terminal
 ### Deliverables
 
 - WASM build target or browser-safe interpreter target.
+- Exportable Academy lesson package and worker protocol contract.
 - Browser-compatible query/evaluation boundary.
 - Worker initialization.
 - Incremental check where supported.

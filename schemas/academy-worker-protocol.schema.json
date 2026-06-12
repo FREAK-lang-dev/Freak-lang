@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freak-lang.dev/schemas/academy-worker-protocol.schema.json",
+  "title": "FREAK Academy Worker Protocol Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocolVersion",
+    "requestId",
+    "method",
+    "params"
+  ],
+  "properties": {
+    "protocolVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "package.info",
+        "check",
+        "run",
+        "evaluateExercise",
+        "cancel"
+      ]
+    },
+    "params": {
+      "type": "object"
+    }
+  }
+}
