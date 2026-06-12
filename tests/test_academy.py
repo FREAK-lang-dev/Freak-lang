@@ -306,6 +306,19 @@ def test_worker_fixtures_match_host():
     assert "package_info.request.json: OK" in result.stdout
 
 
+def test_learn_worker_cli_runs_protocol_request():
+    request_path = ROOT / "learning" / "wasm" / "fixtures" / "package_info.request.json"
+    out = io.StringIO()
+
+    with redirect_stdout(out):
+        code = main(["learn", "worker", str(request_path)])
+
+    response = json.loads(out.getvalue())
+    assert code == 0
+    assert response["ok"] is True
+    assert response["result"]["packageId"] == "freak-academy-v3-mvp"
+
+
 def test_learn_start_collects_submission_and_records_progress():
     captured: dict[str, str] = {}
 

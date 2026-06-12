@@ -162,6 +162,7 @@ def format_course_listing(root: Path | None = None) -> str:
             "  python -m freakc learn import <path>",
             "  python -m freakc learn reset [all|course-id|lesson-id]",
             "  python -m freakc learn package <path>",
+            "  python -m freakc learn worker [request.json]",
         ]
     )
     return "\n".join(lines)

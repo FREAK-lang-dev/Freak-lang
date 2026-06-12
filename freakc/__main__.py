@@ -17,6 +17,7 @@ Options:
 from __future__ import annotations
 
 import glob
+import json
 
 # ── Colour helpers ──────────────────────────────────────────────────
 # Force UTF-8 on Windows
@@ -44,7 +45,7 @@ from .emitter import CEmitter, EmitError
 from .parser import ParseError, Parser
 from .type_checker import TypeChecker
 
-if sys.platform == "win32":
+if sys.platform == "win32" and __name__ == "__main__":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
@@ -1179,6 +1180,28 @@ def cmd_learn(argv: list[str]) -> int:
             print(f"Academy package exported to {target}")
             return 0
 
+        if sub == "worker":
+            from tools.academy.worker_host import handle_envelope, response_error
+
+            if len(argv) > 1:
+                raw = Path(argv[1]).read_text(encoding="utf-8")
+            else:
+                raw = sys.stdin.read()
+            raw = raw.lstrip("\ufeff")
+            if raw.startswith("\u00ef\u00bb\u00bf"):
+                raw = raw[3:]
+
+            try:
+                envelope = json.loads(raw)
+                if not isinstance(envelope, dict):
+                    raise ValueError("request JSON must be an object")
+                response = handle_envelope(envelope)
+            except Exception as exc:
+                response = response_error("", "bad_json", str(exc))
+
+            print(json.dumps(response, indent=2, sort_keys=True))
+            return 0 if response.get("ok") else 1
+
         if sub in ("check", "review"):
             if len(argv) < 3:
                 print(_red("x Usage: python -m freakc learn check <lesson-id> <file.fk> [--exercise=<id>]"), file=sys.stderr)
@@ -1204,7 +1227,7 @@ def cmd_learn(argv: list[str]) -> int:
             return 1
 
         print(_red(f"x Unknown learn subcommand: '{sub}'"), file=sys.stderr)
-        print("Usage: python -m freakc learn [list|show|demo|check|status|export|import|reset|package]")
+        print("Usage: python -m freakc learn [list|show|demo|check|status|export|import|reset|package|worker]")
         return 1
     except AcademyError as exc:
         print(_red(f"x {exc}"), file=sys.stderr)
