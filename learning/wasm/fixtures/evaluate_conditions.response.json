@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "fixture-evaluate-conditions",
+  "result": {
+    "exerciseId": "power-exercise",
+    "lessonId": "conditions",
+    "passed": true,
+    "requirements": [
+      {
+        "id": "parses",
+        "kind": "parses",
+        "message": "source parses",
+        "passed": true
+      },
+      {
+        "id": "compiles",
+        "kind": "compiles",
+        "message": "source compiles",
+        "passed": true
+      },
+      {
+        "id": "output",
+        "kind": "expected_output",
+        "message": "output matches",
+        "passed": true
+      }
+    ]
+  }
+}

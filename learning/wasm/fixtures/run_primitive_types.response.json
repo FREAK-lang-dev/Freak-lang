@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "fixture-run-primitive_types",
+  "result": {
+    "messages": [],
+    "ok": true,
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "Shiranui\n9001\n"
+  }
+}

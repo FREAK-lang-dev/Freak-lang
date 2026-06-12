@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "fixture-run-conditions",
+  "result": {
+    "messages": [],
+    "ok": true,
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "over\n"
+  }
+}

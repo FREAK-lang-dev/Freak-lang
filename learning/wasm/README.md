@@ -55,8 +55,12 @@ Protocol methods currently exercised by the local host:
 Golden fixtures live in `learning/wasm/fixtures`:
 
 ```bash
+python tools/academy/generate_worker_fixtures.py
 python tools/academy/verify_worker_fixtures.py
 node tools/academy/verify_browser_worker_fixtures.mjs
 ```
 
-Future WASM/browser workers must match these fixtures before the website connector depends on them.
+The generator uses the native V3-backed worker host as the source of truth and
+currently writes package info plus check/run/evaluate fixtures for every lesson
+in `freak-basics`. Future WASM/browser workers must match these fixtures before
+the website connector depends on them.

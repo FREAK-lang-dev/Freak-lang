@@ -37,7 +37,7 @@ Current implementation checkpoint:
 - Goal A is staged: V3-first disclaimer, schemas, seed content, package export, and validation tooling exist.
 - Goal B is staged: `freak learn` can list/show/demo/check/start lessons, require quizzes, and persist progress locally.
 - Goal D basics content is staged: the first `freak-basics` course has seven V3 MVP lessons.
-- Goal E has started: the worker protocol, native V3 host, golden fixtures, CLI bridge, and browser-safe JavaScript reference worker exist. The final compiler-owned WASM artifact is still pending.
+- Goal E has started: the worker protocol, native V3 host, all-basics golden fixtures, CLI bridge, and browser-safe JavaScript reference worker exist. The final compiler-owned WASM artifact is still pending.
 
 The next active goal should continue Goal E until the browser-safe worker can check all initial lesson exercises with the same results as the native V3 host.
 

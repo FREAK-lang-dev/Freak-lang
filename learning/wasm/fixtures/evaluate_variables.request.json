@@ -1,0 +1,10 @@
+{
+  "method": "evaluateExercise",
+  "params": {
+    "exerciseId": "score-exercise",
+    "lessonId": "variables",
+    "source": "pilot score = 100\nsay score\n"
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-evaluate-variables"
+}

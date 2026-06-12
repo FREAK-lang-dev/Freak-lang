@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "fixture-check-arithmetic",
+  "result": {
+    "messages": [],
+    "ok": true
+  }
+}

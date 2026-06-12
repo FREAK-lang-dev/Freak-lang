@@ -1,0 +1,10 @@
+{
+  "method": "evaluateExercise",
+  "params": {
+    "exerciseId": "area-exercise",
+    "lessonId": "arithmetic",
+    "source": "pilot width = 8\npilot height = 4\nsay width * height\n"
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-evaluate-arithmetic"
+}

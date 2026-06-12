@@ -1,9 +1,9 @@
 {
-  "protocolVersion": 1,
-  "requestId": "fixture-run-hello",
   "method": "run",
   "params": {
     "fileId": "hello-freak.fk",
     "source": "say \"Hello, FREAK Academy!\"\n"
-  }
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-run-hello"
 }

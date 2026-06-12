@@ -1,0 +1,9 @@
+{
+  "method": "run",
+  "params": {
+    "fileId": "variables.fk",
+    "source": "pilot score = 100\nsay score\n"
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-run-variables"
+}

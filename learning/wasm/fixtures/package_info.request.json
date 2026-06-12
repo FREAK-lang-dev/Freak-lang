@@ -1,6 +1,6 @@
 {
-  "protocolVersion": 1,
-  "requestId": "fixture-package-info",
   "method": "package.info",
-  "params": {}
+  "params": {},
+  "protocolVersion": 1,
+  "requestId": "fixture-package-info"
 }

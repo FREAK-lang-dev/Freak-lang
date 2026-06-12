@@ -1,9 +1,10 @@
 {
-  "protocolVersion": 1,
-  "requestId": "fixture-evaluate-hello",
   "method": "evaluateExercise",
   "params": {
+    "exerciseId": "hello-exercise",
     "lessonId": "hello-freak",
     "source": "say \"Hello, FREAK Academy!\"\n"
-  }
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-evaluate-hello"
 }

@@ -1,0 +1,9 @@
+{
+  "method": "check",
+  "params": {
+    "fileId": "loops.fk",
+    "source": "repeat 3 times {\n    say \"FREAK\"\n}\n"
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-check-loops"
+}

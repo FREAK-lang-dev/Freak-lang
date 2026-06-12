@@ -1,0 +1,10 @@
+{
+  "method": "evaluateExercise",
+  "params": {
+    "exerciseId": "power-exercise",
+    "lessonId": "conditions",
+    "source": "pilot power = 9001\nif power > 9000 {\n    say \"over\"\n} else {\n    say \"normal\"\n}\n"
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-evaluate-conditions"
+}

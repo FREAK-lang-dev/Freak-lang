@@ -1,0 +1,10 @@
+{
+  "method": "evaluateExercise",
+  "params": {
+    "exerciseId": "types-exercise",
+    "lessonId": "primitive-types",
+    "source": "pilot callsign: word = \"Shiranui\"\npilot power: int = 9001\nsay callsign\nsay power\n"
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-evaluate-primitive_types"
+}

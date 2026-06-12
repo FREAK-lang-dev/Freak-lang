@@ -1,0 +1,10 @@
+{
+  "method": "evaluateExercise",
+  "params": {
+    "exerciseId": "double-exercise",
+    "lessonId": "functions",
+    "source": "task double(x: int) -> int {\n    give back x * 2\n}\n\nsay double(21)\n"
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-evaluate-functions"
+}

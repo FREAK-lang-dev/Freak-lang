@@ -1,0 +1,10 @@
+{
+  "method": "evaluateExercise",
+  "params": {
+    "exerciseId": "repeat-exercise",
+    "lessonId": "loops",
+    "source": "repeat 3 times {\n    say \"FREAK\"\n}\n"
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-evaluate-loops"
+}

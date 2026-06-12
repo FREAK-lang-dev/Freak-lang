@@ -1,0 +1,9 @@
+{
+  "method": "run",
+  "params": {
+    "fileId": "primitive-types.fk",
+    "source": "pilot callsign: word = \"Shiranui\"\npilot power: int = 9001\nsay callsign\nsay power\n"
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-run-primitive_types"
+}

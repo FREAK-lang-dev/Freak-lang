@@ -1,0 +1,9 @@
+{
+  "method": "run",
+  "params": {
+    "fileId": "arithmetic.fk",
+    "source": "pilot width = 8\npilot height = 4\nsay width * height\n"
+  },
+  "protocolVersion": 1,
+  "requestId": "fixture-run-arithmetic"
+}

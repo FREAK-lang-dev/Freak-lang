@@ -304,6 +304,8 @@ def test_worker_fixtures_match_host():
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "evaluate_hello.request.json: OK" in result.stdout
+    assert "evaluate_functions.request.json: OK" in result.stdout
+    assert "run_loops.request.json: OK" in result.stdout
     assert "package_info.request.json: OK" in result.stdout
 
 
@@ -322,6 +324,8 @@ def test_browser_worker_fixtures_match_golden_contract():
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "evaluate_hello.request.json: OK" in result.stdout
+    assert "evaluate_functions.request.json: OK" in result.stdout
+    assert "run_loops.request.json: OK" in result.stdout
     assert "demo functions/double-demo: OK" in result.stdout
 
 
