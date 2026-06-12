@@ -912,6 +912,115 @@ def _academy_evaluate_submission(exercise: dict, path: Path) -> list[dict[str, o
     return results
 
 
+def _academy_print_review(
+    lesson: dict,
+    exercise: dict,
+    results: list[dict[str, object]],
+) -> bool:
+    passed_all = all(bool(result["passed"]) for result in results)
+
+    print(f"Review: {lesson['id']} / {exercise['id']}")
+    for result in results:
+        status = "PASS" if result["passed"] else "FAIL"
+        print(f"  [{status}] {result['id']} ({result['kind']}): {result['message']}")
+
+    if passed_all:
+        return True
+    print(_red("x Lesson requirements failed"))
+    return False
+
+
+def _academy_save_submission_and_review(lesson: dict, exercise: dict, source: str) -> int:
+    with tempfile.TemporaryDirectory(prefix="freak_academy_submit_") as tmp_name:
+        tmp = Path(tmp_name)
+        submission = tmp / f"{lesson['id']}.fk"
+        submission.write_text(source, encoding="utf-8")
+        results = _academy_evaluate_submission(exercise, submission)
+
+    if _academy_print_review(lesson, exercise, results):
+        from .academy import mark_lesson_complete
+
+        was_new = mark_lesson_complete(lesson)
+        print(_green("OK Lesson requirements passed"))
+        if was_new:
+            print("Progress saved.")
+        else:
+            print("Progress already recorded.")
+        return 0
+    return 1
+
+
+def _academy_read_interactive_submission() -> str | None:
+    print()
+    print("Enter your FREAK program below.")
+    print("Type .submit on its own line to evaluate it, .hint for a nudge, or .exit to leave.")
+    print()
+
+    lines: list[str] = []
+    while True:
+        try:
+            line = input("> ")
+        except EOFError:
+            break
+
+        command = line.strip()
+        if command == ".submit":
+            break
+        if command == ".exit":
+            print("Lesson left without submitting.")
+            return None
+        if command == ".hint":
+            print("Hint: fill the starter program so its output matches the lesson prompt.")
+            continue
+        if not lines:
+            line = line.lstrip("\ufeff")
+            if line.startswith("\u00ef\u00bb\u00bf"):
+                line = line[3:]
+        lines.append(line)
+
+    if not lines:
+        print("No submission received.")
+        return None
+    return "\n".join(lines) + "\n"
+
+
+def _academy_start_lesson(lesson: dict) -> int:
+    from .academy import first_exercise, lesson_sections
+
+    print(f"Starting: {lesson['title']} ({lesson['id']})")
+    print()
+    print("Objectives:")
+    for objective in lesson.get("objectives", []):
+        print(f"  - {objective}")
+
+    for section in lesson_sections(lesson):
+        section_type = section.get("type")
+        if section_type == "introduction":
+            print()
+            print(str(section["title"]))
+            print(str(section.get("body", "")).strip())
+        elif section_type == "demonstration":
+            print()
+            print(f"Demo: {section['title']}")
+            print(str(section.get("source", "")).rstrip())
+            print("Expected output:")
+            print(str(section.get("expectedOutput", "")).rstrip())
+        elif section_type == "exercise":
+            print()
+            print(f"Exercise: {section['title']}")
+            print(str(section.get("prompt", "")).strip())
+            print()
+            print("Starter:")
+            print(str(section.get("starter", "")).rstrip())
+            break
+
+    exercise = first_exercise(lesson)
+    source = _academy_read_interactive_submission()
+    if source is None:
+        return 1
+    return _academy_save_submission_and_review(lesson, exercise, source)
+
+
 def cmd_learn(argv: list[str]) -> int:
     """FREAK Academy terminal entry point."""
     from .academy import (
@@ -932,12 +1041,18 @@ def cmd_learn(argv: list[str]) -> int:
             return 0
 
         sub = argv[0]
-        if sub in ("show", "start"):
+        if sub == "show":
             if len(argv) < 2:
                 print(_red("x Usage: python -m freakc learn show <lesson-id>"), file=sys.stderr)
                 return 1
             print(format_lesson(load_lesson(argv[1])))
             return 0
+
+        if sub == "start":
+            if len(argv) < 2:
+                print(_red("x Usage: python -m freakc learn start <lesson-id>"), file=sys.stderr)
+                return 1
+            return _academy_start_lesson(load_lesson(argv[1]))
 
         if sub == "demo":
             if len(argv) < 2:
@@ -978,14 +1093,8 @@ def cmd_learn(argv: list[str]) -> int:
 
             exercise = section_by_id(lesson, exercise_id) if exercise_id else first_exercise(lesson)
             results = _academy_evaluate_submission(exercise, submission)
-            passed_all = all(bool(result["passed"]) for result in results)
 
-            print(f"Review: {lesson['id']} / {exercise['id']}")
-            for result in results:
-                status = "PASS" if result["passed"] else "FAIL"
-                print(f"  [{status}] {result['id']} ({result['kind']}): {result['message']}")
-
-            if passed_all:
+            if _academy_print_review(lesson, exercise, results):
                 was_new = mark_lesson_complete(lesson)
                 print(_green("OK Lesson requirements passed"))
                 if was_new:
@@ -993,7 +1102,6 @@ def cmd_learn(argv: list[str]) -> int:
                 else:
                     print("Progress already recorded.")
                 return 0
-            print(_red("x Lesson requirements failed"))
             return 1
 
         print(_red(f"x Unknown learn subcommand: '{sub}'"), file=sys.stderr)

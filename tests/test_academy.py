@@ -6,6 +6,7 @@ import sys
 import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -114,6 +115,50 @@ def test_learn_status_cli_uses_progress_override():
     assert code == 0
     assert "FREAK Academy Progress" in out.getvalue()
     assert "[TODO] 1. hello-freak" in out.getvalue()
+
+
+def test_learn_start_collects_submission_and_records_progress():
+    captured: dict[str, str] = {}
+
+    def fake_evaluate(exercise, path):
+        captured["exercise"] = exercise["id"]
+        captured["source"] = Path(path).read_text(encoding="utf-8")
+        return [
+            {
+                "id": "parses",
+                "kind": "parses",
+                "passed": True,
+                "message": "source parses",
+            }
+        ]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        progress_path = Path(tmp) / "progress.json"
+        old_progress = os.environ.get("FREAK_ACADEMY_PROGRESS")
+        os.environ["FREAK_ACADEMY_PROGRESS"] = str(progress_path)
+        try:
+            out = io.StringIO()
+            stdin = io.StringIO('\ufeffsay "Hello, FREAK Academy!"\n.submit\n')
+            with (
+                redirect_stdout(out),
+                patch("sys.stdin", stdin),
+                patch("freakc.__main__._academy_evaluate_submission", side_effect=fake_evaluate),
+            ):
+                code = main(["learn", "start", "hello-freak"])
+        finally:
+            if old_progress is None:
+                os.environ.pop("FREAK_ACADEMY_PROGRESS", None)
+            else:
+                os.environ["FREAK_ACADEMY_PROGRESS"] = old_progress
+
+        progress = load_progress(progress_path)
+
+    assert code == 0
+    assert captured["exercise"] == "hello-exercise"
+    assert captured["source"] == 'say "Hello, FREAK Academy!"\n'
+    assert progress["completedLessons"] == ["freak-basics/hello-freak"]
+    assert "Starting: Hello, FREAK" in out.getvalue()
+    assert "Progress saved." in out.getvalue()
 
 
 if __name__ == "__main__":

@@ -2298,7 +2298,42 @@ The ecosystem is successful when:
 
 ---
 
-## 30. Final Architectural Rule
+## 30. FREAK Rewrite Endgame
+
+The bootstrapping implementation may use Python and other host-language tooling while V3 and V4 are still maturing. That is a temporary implementation strategy, not the final identity of the project.
+
+The actual FREAK Academy should eventually be written in FREAK:
+
+- The lesson engine, progress model, requirement evaluators, content validators, exporters, and terminal learner should move to FREAK after V4 can support them cleanly.
+- The WASM/browser-safe compiler adapter should become a FREAK-owned artifact, not a permanent Python or JavaScript reimplementation.
+- The dedicated FREAK Academy repository should treat FREAK source as the primary implementation once the rewrite begins.
+- The `freaklang.dev` site remains the web connector unless and until the FREAK web stack can host the Academy UI itself.
+- Host-language shims are allowed only at platform boundaries such as browser APIs, filesystem packaging, process execution, or deployment glue.
+
+### Rewrite readiness criteria
+
+Do not start the rewrite merely for aesthetics. Start it when:
+
+- V4 has the semantic/query APIs needed by lessons.
+- FREAK can read/write JSON or the chosen lesson format robustly.
+- FREAK can run the terminal learner with acceptable startup time.
+- The browser/WASM path has a stable serialization boundary.
+- Existing Python/bootstrap tests can be reused as compatibility fixtures.
+- The rewrite can happen module by module without stopping Academy releases.
+
+### Rewrite acceptance criteria
+
+The rewrite is successful when:
+
+- The FREAK implementation can validate all lesson packages.
+- The FREAK terminal learner can complete the full basics course.
+- Progress import/export remains compatible with the bootstrapped implementation.
+- Browser and native evaluation results still match golden tests.
+- The old host-language implementation is either removed or clearly marked as bootstrap-only.
+
+---
+
+## 31. Final Architectural Rule
 
 The compiler should not merely compile Freak programs. It should be the semantic service that the rest of the Freak ecosystem depends on.
 
