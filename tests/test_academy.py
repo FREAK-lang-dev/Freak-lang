@@ -138,7 +138,7 @@ def test_learn_start_collects_submission_and_records_progress():
         os.environ["FREAK_ACADEMY_PROGRESS"] = str(progress_path)
         try:
             out = io.StringIO()
-            stdin = io.StringIO('\ufeffsay "Hello, FREAK Academy!"\n.submit\n')
+            stdin = io.StringIO('\ufeffsay "Hello, FREAK Academy!"\n.submit\n1\n1\n')
             with (
                 redirect_stdout(out),
                 patch("sys.stdin", stdin),
@@ -158,6 +158,7 @@ def test_learn_start_collects_submission_and_records_progress():
     assert captured["source"] == 'say "Hello, FREAK Academy!"\n'
     assert progress["completedLessons"] == ["freak-basics/hello-freak"]
     assert "Starting: Hello, FREAK" in out.getvalue()
+    assert "Quiz passed." in out.getvalue()
     assert "Progress saved." in out.getvalue()
 
 

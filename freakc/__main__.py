@@ -930,7 +930,22 @@ def _academy_print_review(
     return False
 
 
-def _academy_save_submission_and_review(lesson: dict, exercise: dict, source: str) -> int:
+def _academy_record_lesson_completion(lesson: dict) -> None:
+    from .academy import mark_lesson_complete
+
+    was_new = mark_lesson_complete(lesson)
+    if was_new:
+        print("Progress saved.")
+    else:
+        print("Progress already recorded.")
+
+
+def _academy_save_submission_and_review(
+    lesson: dict,
+    exercise: dict,
+    source: str,
+    record_progress: bool = True,
+) -> int:
     with tempfile.TemporaryDirectory(prefix="freak_academy_submit_") as tmp_name:
         tmp = Path(tmp_name)
         submission = tmp / f"{lesson['id']}.fk"
@@ -938,14 +953,9 @@ def _academy_save_submission_and_review(lesson: dict, exercise: dict, source: st
         results = _academy_evaluate_submission(exercise, submission)
 
     if _academy_print_review(lesson, exercise, results):
-        from .academy import mark_lesson_complete
-
-        was_new = mark_lesson_complete(lesson)
         print(_green("OK Lesson requirements passed"))
-        if was_new:
-            print("Progress saved.")
-        else:
-            print("Progress already recorded.")
+        if record_progress:
+            _academy_record_lesson_completion(lesson)
         return 0
     return 1
 
@@ -984,6 +994,58 @@ def _academy_read_interactive_submission() -> str | None:
     return "\n".join(lines) + "\n"
 
 
+def _academy_run_quiz(lesson: dict) -> bool:
+    from .academy import lesson_sections
+
+    quiz_sections = lesson_sections(lesson, "quiz")
+    if not quiz_sections:
+        return True
+
+    print()
+    print("Quiz:")
+    for section in quiz_sections:
+        questions = section.get("questions", [])
+        if not isinstance(questions, list):
+            print(_red("x Quiz data is invalid."))
+            return False
+
+        for question in questions:
+            choices = question.get("choices", [])
+            answer = question.get("answer")
+            if not isinstance(choices, list) or not isinstance(answer, int):
+                print(_red("x Quiz question data is invalid."))
+                return False
+
+            print()
+            print(str(question.get("prompt", "")).strip())
+            for idx, choice in enumerate(choices, start=1):
+                print(f"  {idx}. {choice}")
+
+            try:
+                raw = input("Answer: ").strip()
+            except EOFError:
+                print(_red("x Quiz cancelled."))
+                return False
+
+            if raw.isdigit():
+                selected = int(raw) - 1
+            else:
+                lowered = raw.lower()
+                selected = next(
+                    (idx for idx, choice in enumerate(choices) if str(choice).lower() == lowered),
+                    -1,
+                )
+
+            if selected != answer:
+                expected = choices[answer] if 0 <= answer < len(choices) else "<unknown>"
+                print(_red(f"x Incorrect. Expected: {expected}"))
+                return False
+            print("Correct.")
+
+    print("Quiz passed.")
+    return True
+
+
 def _academy_start_lesson(lesson: dict) -> int:
     from .academy import first_exercise, lesson_sections
 
@@ -1018,7 +1080,12 @@ def _academy_start_lesson(lesson: dict) -> int:
     source = _academy_read_interactive_submission()
     if source is None:
         return 1
-    return _academy_save_submission_and_review(lesson, exercise, source)
+    if _academy_save_submission_and_review(lesson, exercise, source, record_progress=False) != 0:
+        return 1
+    if not _academy_run_quiz(lesson):
+        return 1
+    _academy_record_lesson_completion(lesson)
+    return 0
 
 
 def cmd_learn(argv: list[str]) -> int:
@@ -1031,7 +1098,6 @@ def cmd_learn(argv: list[str]) -> int:
         format_progress,
         lesson_sections,
         load_lesson,
-        mark_lesson_complete,
         section_by_id,
     )
 
@@ -1095,12 +1161,8 @@ def cmd_learn(argv: list[str]) -> int:
             results = _academy_evaluate_submission(exercise, submission)
 
             if _academy_print_review(lesson, exercise, results):
-                was_new = mark_lesson_complete(lesson)
                 print(_green("OK Lesson requirements passed"))
-                if was_new:
-                    print("Progress saved.")
-                else:
-                    print("Progress already recorded.")
+                _academy_record_lesson_completion(lesson)
                 return 0
             return 1
 
