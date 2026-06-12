@@ -6,6 +6,7 @@ Usage:
     python -m freakc build <file.fk>   Transpile + compile only
     python -m freakc check <file.fk>   Type-check only (no compilation)
     python -m freakc test              Run all tests/*.fk files
+    python -m freakc learn             FREAK Academy terminal learner
     python -m freakc <file.fk>         Same as 'run' (default)
 
 Options:
@@ -24,6 +25,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from .auditor import (
@@ -790,6 +792,207 @@ def cmd_hangar(argv: list[str]) -> int:
     return 1
 
 
+def _academy_parse_submission(path: Path) -> tuple[bool, list[str]]:
+    source = path.read_text(encoding="utf-8")
+    try:
+        combined, _ = resolve_imports(source, path)
+        Parser.from_source(combined)
+    except ParseError as exc:
+        return False, [format_parse_error(str(exc), source=source, file_path=str(path))]
+    return True, []
+
+
+def _academy_compile_submission(path: Path, run_after: bool = False) -> dict[str, object]:
+    source = path.read_text(encoding="utf-8")
+    c_source, diags, uses_ui = transpile(source, path)
+    if c_source is None:
+        return {"ok": False, "messages": diags, "stdout": "", "stderr": ""}
+
+    runtime_dir = Path(__file__).parent / "runtime"
+    with tempfile.TemporaryDirectory(prefix="freak_academy_") as tmp_name:
+        tmp = Path(tmp_name)
+        c_path = tmp / f"{path.stem}.c"
+        out_bin = tmp / (f"{path.stem}.exe" if sys.platform == "win32" else path.stem)
+        c_path.write_text(c_source, encoding="utf-8")
+
+        ok, err_msg = compile_c(c_path, out_bin, runtime_dir, opt_level="0", uses_ui=uses_ui)
+        if not ok:
+            return {"ok": False, "messages": diags + [err_msg], "stdout": "", "stderr": err_msg}
+
+        if not run_after:
+            return {"ok": True, "messages": diags, "stdout": "", "stderr": ""}
+
+        try:
+            result = subprocess.run(
+                [str(out_bin)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "ok": False,
+                "messages": diags + ["Program timed out after 5 seconds."],
+                "stdout": "",
+                "stderr": "timeout",
+            }
+
+        return {
+            "ok": result.returncode == 0,
+            "messages": diags,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode,
+        }
+
+
+def _academy_evaluate_submission(exercise: dict, path: Path) -> list[dict[str, object]]:
+    requirements = exercise.get("requirements", [])
+    results: list[dict[str, object]] = []
+    parse_result: tuple[bool, list[str]] | None = None
+    compile_result: dict[str, object] | None = None
+    run_result: dict[str, object] | None = None
+
+    for requirement in requirements:
+        kind = requirement.get("kind")
+        req_id = requirement.get("id", kind)
+
+        if kind == "parses":
+            if parse_result is None:
+                parse_result = _academy_parse_submission(path)
+            passed, messages = parse_result
+            results.append({
+                "id": req_id,
+                "kind": kind,
+                "passed": passed,
+                "message": "source parses" if passed else "\n".join(messages),
+            })
+            continue
+
+        if kind == "compiles":
+            if compile_result is None:
+                compile_result = _academy_compile_submission(path, run_after=False)
+            passed = bool(compile_result["ok"])
+            message = "source compiles" if passed else "\n".join(str(m) for m in compile_result["messages"])
+            results.append({
+                "id": req_id,
+                "kind": kind,
+                "passed": passed,
+                "message": message,
+            })
+            continue
+
+        if kind == "expected_output":
+            if run_result is None:
+                run_result = _academy_compile_submission(path, run_after=True)
+            expected = str(requirement.get("expected", ""))
+            actual = str(run_result.get("stdout", ""))
+            passed = bool(run_result["ok"]) and actual == expected
+            if passed:
+                message = "output matches"
+            elif not run_result["ok"]:
+                message = "\n".join(str(m) for m in run_result["messages"])
+            else:
+                message = f"expected output {expected!r}, got {actual!r}"
+            results.append({
+                "id": req_id,
+                "kind": kind,
+                "passed": passed,
+                "message": message,
+            })
+            continue
+
+        results.append({
+            "id": req_id,
+            "kind": kind,
+            "passed": False,
+            "message": f"requirement `{kind}` is not implemented in the V3 learner yet",
+        })
+
+    return results
+
+
+def cmd_learn(argv: list[str]) -> int:
+    """FREAK Academy terminal entry point."""
+    from .academy import (
+        AcademyError,
+        first_exercise,
+        format_course_listing,
+        format_lesson,
+        lesson_sections,
+        load_lesson,
+        section_by_id,
+    )
+
+    try:
+        if not argv or argv[0] == "list":
+            print(format_course_listing())
+            return 0
+
+        sub = argv[0]
+        if sub in ("show", "start"):
+            if len(argv) < 2:
+                print(_red("x Usage: python -m freakc learn show <lesson-id>"), file=sys.stderr)
+                return 1
+            print(format_lesson(load_lesson(argv[1])))
+            return 0
+
+        if sub == "demo":
+            if len(argv) < 2:
+                print(_red("x Usage: python -m freakc learn demo <lesson-id> [section-id]"), file=sys.stderr)
+                return 1
+            lesson = load_lesson(argv[1])
+            demos = [section_by_id(lesson, argv[2])] if len(argv) > 2 else lesson_sections(lesson, "demonstration")
+            if not demos:
+                print(_yellow(f"No demonstration sections in lesson `{argv[1]}`."))
+                return 0
+            for demo in demos:
+                print(f"{demo['title']} ({demo['id']})")
+                print()
+                print(str(demo.get("source", "")).rstrip())
+                print()
+                print("Expected output:")
+                print(str(demo.get("expectedOutput", "")).rstrip())
+            return 0
+
+        if sub in ("check", "review"):
+            if len(argv) < 3:
+                print(_red("x Usage: python -m freakc learn check <lesson-id> <file.fk> [--exercise=<id>]"), file=sys.stderr)
+                return 1
+            lesson = load_lesson(argv[1])
+            submission = Path(argv[2])
+            if not submission.exists():
+                print(_red(f"x File not found: {submission}"), file=sys.stderr)
+                return 1
+
+            exercise_id = ""
+            for arg in argv[3:]:
+                if arg.startswith("--exercise="):
+                    exercise_id = arg.split("=", 1)[1]
+
+            exercise = section_by_id(lesson, exercise_id) if exercise_id else first_exercise(lesson)
+            results = _academy_evaluate_submission(exercise, submission)
+            passed_all = all(bool(result["passed"]) for result in results)
+
+            print(f"Review: {lesson['id']} / {exercise['id']}")
+            for result in results:
+                status = "PASS" if result["passed"] else "FAIL"
+                print(f"  [{status}] {result['id']} ({result['kind']}): {result['message']}")
+
+            if passed_all:
+                print(_green("OK Lesson requirements passed"))
+                return 0
+            print(_red("x Lesson requirements failed"))
+            return 1
+
+        print(_red(f"x Unknown learn subcommand: '{sub}'"), file=sys.stderr)
+        print("Usage: python -m freakc learn [list|show|demo|check]")
+        return 1
+    except AcademyError as exc:
+        print(_red(f"x {exc}"), file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
@@ -849,6 +1052,7 @@ def main(argv: list[str] | None = None) -> int:
         print("  python -m freakc jit <file.fk>       Compile to LLVM IR and JIT execute")
         print("  python -m freakc check <file.fk>     Type check only")
         print("  python -m freakc test                Run all tests/*.fk")
+        print("  python -m freakc learn               FREAK Academy terminal learner")
         print("  python -m freakc hangar <cmd>        Package manager")
         print()
         print("Backend flags (for v2 command):")
@@ -877,6 +1081,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if cmd == "hangar":
         return cmd_hangar(argv[1:])
+
+    if cmd == "learn":
+        return cmd_learn(argv[1:])
 
     if cmd in (
         "audit-science",

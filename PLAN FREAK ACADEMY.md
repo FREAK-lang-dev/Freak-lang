@@ -4,8 +4,9 @@ This plan is intentionally ambitious, but the first FREAK Academy release must b
 
 - **First implementation target:** V3 / v0.13.x. Use the current native `freak` CLI, the V3 LLVM pipeline, and small helper tools where the V4 query compiler does not exist yet.
 - **Future implementation target:** V4. Query APIs, incremental semantic services, browser WASM execution, richer IDE/model integrations, and full semantic exercise grading are V4-era work unless a small V3-compatible slice is explicitly called out.
-- **Working location:** build the shared learning data, schemas, validators, and terminal MVP in this main `Freak-lang` repository first. The work can be split into a dedicated FREAK Academy repository later after the contracts stabilize.
-- **Website location:** do not create a separate website app in this repository. The web Academy should reuse the existing `C:\Users\razva\Documents\GitHub\freaklang.dev` Nx/Angular site and consume exported lesson packages from this repo.
+- **Working location:** stage the shared learning data, schemas, validators, terminal MVP, and WASM work in this main `Freak-lang` repository only until a dedicated FREAK Academy repository exists. Those files must stay split-ready and avoid unnecessary coupling to compiler internals.
+- **Future repository target:** all Academy internals except the website connector belong in the future dedicated FREAK Academy repository.
+- **Website location:** only the web connector, routes, and rendering integration should live in `C:\Users\razva\Documents\GitHub\freaklang.dev`. The site should consume exported Academy packages; it should not become the source of truth for lessons, schemas, engine code, or compiler adapters.
 - **Scope rule:** when this document describes a V4-only architecture, treat it as a destination, not as a blocker for the first V3 Academy release.
 
 ---
@@ -27,8 +28,9 @@ Use these as separate `./goal` objectives when the work spans multiple sessions:
 2. **Goal B - V3 terminal MVP:** build `freak learn` around V3-compatible checks, output comparison, and conservative structural requirements.
 3. **Goal C - V3 compiler surface:** add structured `freak check` output and small public result types without waiting for the V4 query engine.
 4. **Goal D - Content and docs:** create the first seven lessons, the Book skeleton, and example checking.
-5. **Goal E - Website integration:** add Academy routes/components to `C:\Users\razva\Documents\GitHub\freaklang.dev` and load the same lesson packages exported from this repo.
-6. **Goal F - V4 upgrade path:** replace V3 adapters with V4 query APIs, richer semantic grading, WASM, and model tooling when V4 is ready.
+5. **Goal E - WASM immediately after terminal:** build the browser-safe compiler/interpreter target as soon as the terminal MVP proves the lesson/evaluation contracts.
+6. **Goal F - Website connector:** add routes/components to `C:\Users\razva\Documents\GitHub\freaklang.dev` that load exported Academy packages and call the WASM/browser adapter.
+7. **Goal G - V4 upgrade path:** replace V3 adapters with V4 query APIs, richer semantic grading, and model tooling when V4 is ready.
 
 The first active goal is Goal A plus the smallest usable start of Goal B.
 
@@ -45,7 +47,7 @@ Freak should grow into more than a compiler. The proposed ecosystem has five pub
    An interactive terminal course built into the CLI. It demonstrates concepts, explains them, asks the learner to complete guided and independent exercises, reviews submissions semantically, administers quizzes, tracks progress, and awards achievements.
 
 3. **Freak Academy for the web**  
-   A no-install browser version of Learning Mode built inside the existing `freaklang.dev` app. The long-term implementation runs the compiler or interpreter in WebAssembly inside a Web Worker. A temporary server-backed implementation is allowed only if properly sandboxed.
+   A no-install browser version of Learning Mode surfaced through the existing `freaklang.dev` app. Only the website connector belongs there; Academy content, schemas, engines, and compiler adapters belong in the future Academy repo after they are staged here. The near-term implementation should prioritize WebAssembly or a browser-safe interpreter immediately after the terminal MVP.
 
 4. **The Freak Book and Reference**  
    A Rust-style book for humans, plus a precise language reference. All Freak examples should be compiler-checked in continuous integration.
@@ -235,7 +237,7 @@ freak learn import progress.freaklearn
 
 ### 5.3 Web Learning Mode
 
-The web implementation belongs in `C:\Users\razva\Documents\GitHub\freaklang.dev`, not in a new `web/` app inside this repository. This repo should publish or copy validated Academy lesson packages that the site can consume.
+The website connector belongs in `C:\Users\razva\Documents\GitHub\freaklang.dev`, not in a new `web/` app inside this repository. This repository is a temporary staging area for Academy internals until they move to the dedicated Academy repo. `freaklang.dev` should consume exported lesson packages and browser compiler artifacts; it should not own them.
 
 Suggested route structure:
 
@@ -272,7 +274,7 @@ Suggested route structure:
 
 ## 6. Proposed Repository Layout
 
-Adapt names to the existing repository, but preserve the boundaries. For the V3-first phase, keep shared Academy contracts in this repository and implement the website surface in the existing sibling `freaklang.dev` repo.
+Adapt names to the existing repository, but preserve the boundaries. For the V3-first phase, stage shared Academy contracts in this repository with a clean transfer path to a dedicated Academy repo. Implement only the website connector/surface in the existing sibling `freaklang.dev` repo.
 
 ```text
 /
@@ -1751,11 +1753,47 @@ Publish canonical human documentation with compiler-checked examples.
 
 ---
 
-## Milestone 6: Web prototype
+## Milestone 6: WebAssembly compiler integration
 
 ### Objective
 
-Provide no-install interactive lessons with a temporary compiler adapter.
+Run the required compiler subset entirely in the browser as soon as the terminal MVP proves the lesson and evaluation contracts.
+
+### Deliverables
+
+- WASM build target or browser-safe interpreter target.
+- Browser-compatible query/evaluation boundary.
+- Worker initialization.
+- Incremental check where supported.
+- Browser execution path for initial lessons.
+- Bundle size reporting.
+- Cancellation and timeout handling.
+
+### Acceptance criteria
+
+- All initial terminal lessons can be checked in a browser worker without a server.
+- Repeated edits reuse compiler state where supported.
+- A long-running program is terminated safely.
+- UI remains responsive.
+- Browser and native evaluation results match golden tests for supported lessons.
+
+### Suggested Codex tasks
+
+- `WASM-001`: Minimal browser-safe compiler or interpreter target.
+- `WASM-002`: Serialization boundary.
+- `WASM-003`: Worker state manager.
+- `WASM-004`: Incremental check integration.
+- `WASM-005`: Browser execution adapter.
+- `WASM-006`: Resource limits.
+- `WASM-007`: Cross-target conformance tests.
+
+---
+
+## Milestone 7: Web connector prototype
+
+### Objective
+
+Provide no-install interactive lessons through `freaklang.dev` using the shared Academy package and browser compiler adapter.
 
 ### Deliverables
 
@@ -1767,7 +1805,7 @@ Provide no-install interactive lessons with a temporary compiler adapter.
 - Web Worker wrapper.
 - Progress storage in IndexedDB.
 - Import/export.
-- Initial browser-compatible compiler or interpreter.
+- Integration with the WASM/browser-safe compiler artifact.
 
 ### Acceptance criteria
 
@@ -1788,42 +1826,6 @@ Provide no-install interactive lessons with a temporary compiler adapter.
 - `WEB-007`: IndexedDB storage.
 - `WEB-008`: Progress import/export.
 - `WEB-009`: Browser execution adapter.
-
----
-
-## Milestone 7: WebAssembly compiler integration
-
-### Objective
-
-Run the required compiler subset entirely in the browser.
-
-### Deliverables
-
-- WASM build target.
-- Browser-compatible query database.
-- Worker initialization.
-- Incremental check.
-- Browser interpreter or WASM execution.
-- Bundle size reporting.
-- Cancellation and timeout handling.
-
-### Acceptance criteria
-
-- All initial lessons run without a server.
-- Repeated edits reuse compiler state where supported.
-- A long-running program is terminated safely.
-- UI remains responsive.
-- Browser and native evaluation results match golden tests.
-
-### Suggested Codex tasks
-
-- `WASM-001`: Minimal compiler WASM target.
-- `WASM-002`: Serialization boundary.
-- `WASM-003`: Worker state manager.
-- `WASM-004`: Incremental check integration.
-- `WASM-005`: Browser interpreter.
-- `WASM-006`: Resource limits.
-- `WASM-007`: Cross-target conformance tests.
 
 ---
 
@@ -2258,7 +2260,7 @@ Until resolved, use interfaces that do not force irreversible answers.
 ### Risk: Too many simultaneous products
 
 **Impact:** None reach usable quality.  
-**Mitigation:** Follow milestones; terminal engine first, then docs, then web, then model kit.
+**Mitigation:** Follow milestones; terminal engine first, then WASM/browser compiler, then the website connector, then docs/model kit.
 
 ---
 
@@ -2270,11 +2272,11 @@ Until resolved, use interfaces that do not force irreversible answers.
 4. One excellent terminal lesson.
 5. Progress persistence.
 6. Seven-lesson terminal course.
-7. Documentation testing.
-8. Initial Book.
-9. Achievements.
-10. Web prototype.
-11. WASM compiler.
+7. WASM or browser-safe compiler/interpreter for initial lessons.
+8. `freaklang.dev` web connector prototype.
+9. Documentation testing.
+10. Initial Book.
+11. Achievements.
 12. Model Kit.
 13. Optional accounts and synchronization.
 14. Global competitive features only after the core is mature.
