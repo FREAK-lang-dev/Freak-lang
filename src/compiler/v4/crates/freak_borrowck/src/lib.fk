@@ -1403,6 +1403,13 @@ task v4_borrowck_drop_state_key(block_id: int, initialized: bool) -> word {
     give back word_from_int(block_id) + "#" + state
 }
 
+task v4_borrowck_drop_seen_block(seen: word, block_id: int) -> bool {
+    if v4_mir_name_list_contains(seen, v4_borrowck_drop_state_key(block_id, true)) {
+        give back true
+    }
+    give back v4_mir_name_list_contains(seen, v4_borrowck_drop_state_key(block_id, false))
+}
+
 task v4_borrowck_local_moved_on_all_exits_seen(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word, block_id: int, initialized: bool, seen: word) -> bool {
     if block_id < 0 {
         give back false
@@ -1417,6 +1424,7 @@ task v4_borrowck_local_moved_on_all_exits_seen(borrow_id: int, result_id: int, m
         give back true
     }
 
+    pilot seen_block = v4_borrowck_drop_seen_block(seen, block_id)
     pilot key = v4_borrowck_drop_state_key(block_id, initialized)
     if v4_mir_name_list_contains(seen, key) {
         give back true
@@ -1424,18 +1432,20 @@ task v4_borrowck_local_moved_on_all_exits_seen(borrow_id: int, result_id: int, m
     seen = v4_mir_name_list_add(seen, key)
 
     pilot current_initialized = initialized
-    pilot stmt_id = 0
-    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
-    repeat until stmt_id >= stmt_count {
-        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
-            if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
-                current_initialized = false
+    if not seen_block {
+        pilot stmt_id = 0
+        pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+        repeat until stmt_id >= stmt_count {
+            if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
+                if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
+                    current_initialized = false
+                }
+                if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
+                    current_initialized = true
+                }
             }
-            if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
-                current_initialized = true
-            }
+            stmt_id += 1
         }
-        stmt_id += 1
     }
 
     if terminator == v4_mir_term_goto {
@@ -1490,6 +1500,7 @@ task v4_borrowck_local_has_exit_state_seen(borrow_id: int, result_id: int, mir_i
         give back false
     }
 
+    pilot seen_block = v4_borrowck_drop_seen_block(seen, block_id)
     pilot key = v4_borrowck_drop_state_key(block_id, initialized)
     if v4_mir_name_list_contains(seen, key) {
         give back false
@@ -1497,18 +1508,20 @@ task v4_borrowck_local_has_exit_state_seen(borrow_id: int, result_id: int, mir_i
     seen = v4_mir_name_list_add(seen, key)
 
     pilot current_initialized = initialized
-    pilot stmt_id = 0
-    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
-    repeat until stmt_id >= stmt_count {
-        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
-            if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
-                current_initialized = false
+    if not seen_block {
+        pilot stmt_id = 0
+        pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+        repeat until stmt_id >= stmt_count {
+            if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
+                if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
+                    current_initialized = false
+                }
+                if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
+                    current_initialized = true
+                }
             }
-            if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
-                current_initialized = true
-            }
+            stmt_id += 1
         }
-        stmt_id += 1
     }
 
     if terminator == v4_mir_term_goto {

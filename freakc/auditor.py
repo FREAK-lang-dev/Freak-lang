@@ -1050,6 +1050,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_borrowck_local_moved_on_any_exit",
             "v4_borrowck_local_has_exit_state_seen",
             "v4_borrowck_path_drop_if",
+            "v4_borrowck_drop_seen_block",
             "v4_borrowck_drop_state_key",
             "terminator == v4_mir_term_unreachable",
             "v4_borrowck_path_exact_local",
@@ -1068,6 +1069,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "branch_partial",
             "branch_reinit",
             "loop_before_move",
+            "loop_moves_inside",
             "route_branch_moved",
             "drop-moved-count=",
             "drop-reinit-count=",
@@ -1077,6 +1079,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "drop-branch-partial-if-count=",
             "drop-branch-reinit-if-count=",
             "drop-loop-before-move-count=",
+            "drop-loop-moves-inside-if-count=",
             "drop-route-branch-moved-count=",
         ):
             if needle not in smoke_src:
@@ -1093,6 +1096,8 @@ def audit_conformance(paths: List[Path]) -> int:
             drop_flag_missing.append("check_v4.py: branch reinit drop expectation")
         if "drop-loop-before-move-count=1" not in harness_src:
             drop_flag_missing.append("check_v4.py: loop-backedge drop expectation")
+        if "drop-loop-moves-inside-if-count=1" not in harness_src:
+            drop_flag_missing.append("check_v4.py: loop move DropIf expectation")
         if "drop-route-branch-moved-count=1" not in harness_src:
             drop_flag_missing.append("check_v4.py: unreachable-tail drop expectation")
     else:
@@ -1100,7 +1105,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 drop flags",
         not drop_flag_missing,
-        "linear + all-exit moved-local suppression wired, DropIf marks mixed exits" if not drop_flag_missing else f"{len(drop_flag_missing)} gap(s)",
+        "linear + all-exit moved-local suppression wired, DropIf preserves mixed exits and loop backedges" if not drop_flag_missing else f"{len(drop_flag_missing)} gap(s)",
     )
     if drop_flag_missing:
         failures.append("V4 moved-local drop flags regressed: " + "; ".join(drop_flag_missing))

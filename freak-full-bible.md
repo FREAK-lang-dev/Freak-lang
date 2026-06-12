@@ -985,7 +985,9 @@ the rest is V4.
 > Multi-block bodies suppress a final drop only when every real CFG exit has
 > moved the local without reinitializing it; loop backedges and unreachable
 > checker tails are no-exit edges. Mixed exits now emit `DropIf` paths, marking
-> the runtime drop-flag site for locals moved on only some branches.
+> the runtime drop-flag site for locals moved on only some branches, and loop
+> re-entry preserves incoming drop state instead of replaying header
+> declarations.
 > Borrowed return types now flow through TY/MIR; Meiya accepts direct and
 > same-block local reloan returns from borrowed parameters, rejects a returned
 > loan into callee-owned storage, and rejects upgrading an immutable lend to a
