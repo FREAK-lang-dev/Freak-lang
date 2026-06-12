@@ -1042,6 +1042,7 @@ def audit_conformance(paths: List[Path]) -> int:
     # Check 12: V4 moved-local drop flags
     drop_flag_missing: List[str] = []
     v4_drop_order_smoke = repo / "src" / "compiler" / "v4" / "tests" / "borrowck_drop_order_smoke.fk"
+    v4_borrowck_snapshot_smoke = repo / "src" / "compiler" / "v4" / "tests" / "borrowck_snapshot_smoke.fk"
     if v4_borrowck_lib_return.exists():
         borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
         for needle in (
@@ -1086,6 +1087,20 @@ def audit_conformance(paths: List[Path]) -> int:
                 drop_flag_missing.append(f"borrowck_drop_order_smoke: {needle}")
     else:
         drop_flag_missing.append("smoke fixture: borrowck_drop_order_smoke.fk")
+    if v4_borrowck_snapshot_smoke.exists():
+        snapshot_src = v4_borrowck_snapshot_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "v4_borrowck_snapshot_dropif_source",
+            "borrowck-snapshot-dropif-count=",
+            "borrowck-snapshot-dropif-kind=",
+            "borrowck-snapshot-dropif-line=",
+            "restored-dropif-count=",
+            "restored-dropif-kind=",
+        ):
+            if needle not in snapshot_src:
+                drop_flag_missing.append(f"borrowck_snapshot_smoke: {needle}")
+    else:
+        drop_flag_missing.append("smoke fixture: borrowck_snapshot_smoke.fk")
     if v4_check_harness_return.exists():
         harness_src = v4_check_harness_return.read_text(encoding="utf-8")
         if "drop-branch-partial-count=2" not in harness_src:
@@ -1100,12 +1115,16 @@ def audit_conformance(paths: List[Path]) -> int:
             drop_flag_missing.append("check_v4.py: loop move DropIf expectation")
         if "drop-route-branch-moved-count=1" not in harness_src:
             drop_flag_missing.append("check_v4.py: unreachable-tail drop expectation")
+        if "borrowck-snapshot-dropif-count=1" not in harness_src:
+            drop_flag_missing.append("check_v4.py: DropIf snapshot expectation")
+        if "restored-dropif-count=1" not in harness_src:
+            drop_flag_missing.append("check_v4.py: restored DropIf snapshot expectation")
     else:
         drop_flag_missing.append("check_v4.py harness missing")
     add(
         "V4 drop flags",
         not drop_flag_missing,
-        "linear + all-exit moved-local suppression wired, DropIf preserves mixed exits and loop backedges" if not drop_flag_missing else f"{len(drop_flag_missing)} gap(s)",
+        "linear + all-exit moved-local suppression wired, DropIf survives mixed exits, loop backedges, and snapshots" if not drop_flag_missing else f"{len(drop_flag_missing)} gap(s)",
     )
     if drop_flag_missing:
         failures.append("V4 moved-local drop flags regressed: " + "; ".join(drop_flag_missing))
