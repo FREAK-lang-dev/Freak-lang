@@ -919,8 +919,10 @@ def cmd_learn(argv: list[str]) -> int:
         first_exercise,
         format_course_listing,
         format_lesson,
+        format_progress,
         lesson_sections,
         load_lesson,
+        mark_lesson_complete,
         section_by_id,
     )
 
@@ -955,6 +957,10 @@ def cmd_learn(argv: list[str]) -> int:
                 print(str(demo.get("expectedOutput", "")).rstrip())
             return 0
 
+        if sub == "status":
+            print(format_progress())
+            return 0
+
         if sub in ("check", "review"):
             if len(argv) < 3:
                 print(_red("x Usage: python -m freakc learn check <lesson-id> <file.fk> [--exercise=<id>]"), file=sys.stderr)
@@ -980,13 +986,18 @@ def cmd_learn(argv: list[str]) -> int:
                 print(f"  [{status}] {result['id']} ({result['kind']}): {result['message']}")
 
             if passed_all:
+                was_new = mark_lesson_complete(lesson)
                 print(_green("OK Lesson requirements passed"))
+                if was_new:
+                    print("Progress saved.")
+                else:
+                    print("Progress already recorded.")
                 return 0
             print(_red("x Lesson requirements failed"))
             return 1
 
         print(_red(f"x Unknown learn subcommand: '{sub}'"), file=sys.stderr)
-        print("Usage: python -m freakc learn [list|show|demo|check]")
+        print("Usage: python -m freakc learn [list|show|demo|check|status]")
         return 1
     except AcademyError as exc:
         print(_red(f"x {exc}"), file=sys.stderr)

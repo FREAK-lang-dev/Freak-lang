@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import io
+import os
 import sys
+import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -10,7 +12,15 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from freakc.__main__ import main
-from freakc.academy import first_exercise, format_course_listing, load_course, load_lesson
+from freakc.academy import (
+    first_exercise,
+    format_course_listing,
+    format_progress,
+    load_course,
+    load_lesson,
+    load_progress,
+    mark_lesson_complete,
+)
 
 
 def test_seed_course_loads():
@@ -61,6 +71,40 @@ def test_learn_show_cli_outputs_lesson_outline():
     assert code == 0
     assert "Hello, FREAK" in out.getvalue()
     assert "Compiler track: v3 / v3-mvp" in out.getvalue()
+
+
+def test_progress_records_completed_lesson():
+    lesson = load_lesson("hello-freak")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        progress_path = Path(tmp) / "progress.json"
+
+        assert mark_lesson_complete(lesson, path=progress_path) is True
+        assert mark_lesson_complete(lesson, path=progress_path) is False
+
+        progress = load_progress(progress_path)
+        assert progress["completedLessons"] == ["freak-basics/hello-freak"]
+        assert "[DONE] 1. hello-freak" in format_progress(path=progress_path)
+
+
+def test_learn_status_cli_uses_progress_override():
+    with tempfile.TemporaryDirectory() as tmp:
+        progress_path = Path(tmp) / "progress.json"
+        old_progress = os.environ.get("FREAK_ACADEMY_PROGRESS")
+        os.environ["FREAK_ACADEMY_PROGRESS"] = str(progress_path)
+        try:
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = main(["learn", "status"])
+        finally:
+            if old_progress is None:
+                os.environ.pop("FREAK_ACADEMY_PROGRESS", None)
+            else:
+                os.environ["FREAK_ACADEMY_PROGRESS"] = old_progress
+
+    assert code == 0
+    assert "FREAK Academy Progress" in out.getvalue()
+    assert "[TODO] 1. hello-freak" in out.getvalue()
 
 
 if __name__ == "__main__":

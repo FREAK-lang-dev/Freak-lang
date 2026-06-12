@@ -8,6 +8,8 @@ Academy repository later.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -22,6 +24,15 @@ def repository_root() -> Path:
 
 def courses_root(root: Path | None = None) -> Path:
     return (root or repository_root()) / "learning" / "courses"
+
+
+def progress_path() -> Path:
+    override = os.environ.get("FREAK_ACADEMY_PROGRESS")
+    if override:
+        return Path(override).expanduser()
+    if sys.platform == "win32" and os.environ.get("APPDATA"):
+        return Path(os.environ["APPDATA"]) / "FREAK" / "Academy" / "progress.json"
+    return Path.home() / ".freak" / "academy" / "progress.json"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -120,6 +131,7 @@ def format_course_listing(root: Path | None = None) -> str:
             "  python -m freakc learn show <lesson-id>",
             "  python -m freakc learn demo <lesson-id>",
             "  python -m freakc learn check <lesson-id> <file.fk>",
+            "  python -m freakc learn status",
         ]
     )
     return "\n".join(lines)
@@ -144,3 +156,67 @@ def format_lesson(lesson: dict[str, Any]) -> str:
             for source_line in str(section["starter"]).splitlines():
                 lines.append(f"      {source_line}")
     return "\n".join(lines)
+
+
+def default_progress() -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "completedLessons": [],
+    }
+
+
+def load_progress(path: Path | None = None) -> dict[str, Any]:
+    target = path or progress_path()
+    if not target.exists():
+        return default_progress()
+    data = _load_json(target)
+    if data.get("schemaVersion") != 1:
+        raise AcademyError(f"Unsupported Academy progress schema in {target}")
+    completed = data.get("completedLessons", [])
+    if not isinstance(completed, list):
+        raise AcademyError(f"Invalid completedLessons in {target}")
+    return data
+
+
+def save_progress(progress: dict[str, Any], path: Path | None = None) -> None:
+    target = path or progress_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(progress, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def progress_key(course_id: str, lesson_id: str) -> str:
+    return f"{course_id}/{lesson_id}"
+
+
+def mark_lesson_complete(lesson: dict[str, Any], path: Path | None = None) -> bool:
+    progress = load_progress(path)
+    key = progress_key(str(lesson["courseId"]), str(lesson["id"]))
+    completed = progress.setdefault("completedLessons", [])
+    if key in completed:
+        return False
+    completed.append(key)
+    completed.sort()
+    save_progress(progress, path)
+    return True
+
+
+def format_progress(root: Path | None = None, path: Path | None = None) -> str:
+    progress = load_progress(path)
+    completed = set(str(item) for item in progress.get("completedLessons", []))
+
+    lines = ["FREAK Academy Progress", ""]
+    for course in iter_courses(root):
+        lessons = list(iter_course_lessons(course, root=root))
+        done_count = 0
+        lines.append(f"{course['title']} ({course['id']})")
+        for lesson in lessons:
+            key = progress_key(str(course["id"]), str(lesson["id"]))
+            done = key in completed
+            done_count += 1 if done else 0
+            status = "DONE" if done else "TODO"
+            lines.append(f"  [{status}] {lesson['order']}. {lesson['id']} - {lesson['title']}")
+        lines.append(f"  Progress: {done_count}/{len(lessons)} lessons")
+        lines.append("")
+
+    lines.append(f"Progress file: {progress_path() if path is None else path}")
+    return "\n".join(lines).rstrip()
