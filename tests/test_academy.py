@@ -211,6 +211,72 @@ def test_academy_package_exporter_outputs_browser_package():
     assert len(package["courses"][0]["lessonData"]) == 7
 
 
+def run_worker_request(request: dict) -> dict:
+    result = subprocess.run(
+        [sys.executable, "-B", "tools/academy/worker_host.py"],
+        cwd=ROOT,
+        input=json.dumps(request),
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    response = json.loads(result.stdout)
+    assert result.returncode == (0 if response["ok"] else 1), result.stderr
+    return response
+
+
+def test_worker_host_package_info():
+    response = run_worker_request({
+        "protocolVersion": 1,
+        "requestId": "req-package",
+        "method": "package.info",
+        "params": {},
+    })
+
+    assert response["ok"] is True
+    assert response["requestId"] == "req-package"
+    assert response["result"]["packageId"] == "freak-academy-v3-mvp"
+    assert response["result"]["workerProtocolVersion"] == 1
+
+
+def test_worker_host_evaluate_exercise():
+    response = run_worker_request({
+        "protocolVersion": 1,
+        "requestId": "req-eval",
+        "method": "evaluateExercise",
+        "params": {
+            "lessonId": "hello-freak",
+            "source": 'say "Hello, FREAK Academy!"\n',
+        },
+    })
+
+    result = response["result"]
+    assert response["ok"] is True
+    assert result["lessonId"] == "hello-freak"
+    assert result["exerciseId"] == "hello-exercise"
+    assert result["passed"] is True
+    assert [item["kind"] for item in result["requirements"]] == [
+        "parses",
+        "compiles",
+        "expected_output",
+    ]
+
+
+def test_worker_host_reports_bad_request():
+    response = run_worker_request({
+        "protocolVersion": 1,
+        "requestId": "req-bad",
+        "method": "evaluateExercise",
+        "params": {
+            "lessonId": "hello-freak"
+        },
+    })
+
+    assert response["ok"] is False
+    assert response["requestId"] == "req-bad"
+    assert response["error"]["code"] == "bad_request"
+
+
 def test_learn_start_collects_submission_and_records_progress():
     captured: dict[str, str] = {}
 

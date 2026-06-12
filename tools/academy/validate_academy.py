@@ -85,6 +85,7 @@ def validate_schema_files() -> None:
     required = [
         "academy-package.schema.json",
         "academy-worker-protocol.schema.json",
+        "academy-worker-response.schema.json",
         "course.schema.json",
         "lesson.schema.json",
     ]
