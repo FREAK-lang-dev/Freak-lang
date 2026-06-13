@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import hashlib
 import shutil
 import sys
 import tempfile
@@ -65,6 +66,8 @@ def test_course_listing_mentions_seed_lesson():
     assert "hello-freak" in listing
     assert "functions" in listing
     assert "freak learn check <lesson-id> <file.fk>" in listing
+    assert "freak learn web-assets <dir>" in listing
+    assert "freak learn worker-parity" in listing
     assert "Bootstrap fallback: python -m freakc learn <cmd>" in listing
 
 
@@ -246,6 +249,36 @@ def test_learn_package_cli_exports_browser_package():
     assert package["courses"][0]["id"] == "freak-basics"
 
 
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_learn_web_assets_cli_exports_browser_manifest():
+    with tempfile.TemporaryDirectory() as tmp:
+        assets_dir = Path(tmp) / "academy-assets"
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["learn", "web-assets", str(assets_dir)])
+
+        package_path = assets_dir / "freak-academy-package.json"
+        worker_path = assets_dir / "academy-worker.mjs"
+        manifest_path = assets_dir / "academy-assets-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        assert code == 0
+        assert "Academy browser assets exported" in out.getvalue()
+        assert package_path.exists()
+        assert worker_path.exists()
+        assert manifest["artifactStatus"] == "browser-safe-js-reference"
+        assert manifest["wasmStatus"] == "pending-v4-compiler-owned-artifact"
+        assert manifest["packagePath"] == "freak-academy-package.json"
+        assert manifest["workerPath"] == "academy-worker.mjs"
+
+        assets = {item["role"]: item for item in manifest["assets"]}
+        assert assets["academy-package"]["sha256"] == sha256_file(package_path)
+        assert assets["worker-entrypoint"]["sha256"] == sha256_file(worker_path)
+
+
 def run_worker_request(request: dict) -> dict:
     result = subprocess.run(
         [sys.executable, "-B", "tools/academy/worker_host.py"],
@@ -346,6 +379,20 @@ def test_browser_worker_fixtures_match_golden_contract():
     assert "evaluate_functions.request.json: OK" in result.stdout
     assert "run_loops.request.json: OK" in result.stdout
     assert "demo functions/double-demo: OK" in result.stdout
+
+
+def test_learn_worker_parity_cli_compares_native_and_browser_reference():
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        code = main(["learn", "worker-parity", "--limit", "2"])
+
+    assert code == 0
+    assert "native/browser OK" in out.getvalue()
+    assert "Academy worker parity passed: 2 request(s)." in out.getvalue()
 
 
 def test_learn_worker_cli_runs_protocol_request():

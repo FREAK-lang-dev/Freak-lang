@@ -83,6 +83,7 @@ def expect_string(value: Any, path: Path, field: str) -> None:
 
 def validate_schema_files() -> None:
     required = [
+        "academy-browser-assets.schema.json",
         "academy-package.schema.json",
         "academy-worker-protocol.schema.json",
         "academy-worker-response.schema.json",

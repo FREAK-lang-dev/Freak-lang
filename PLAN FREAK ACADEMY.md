@@ -39,8 +39,9 @@ Current implementation checkpoint:
 - Goal D basics content is staged: the first `freak-basics` course has seven V3 MVP lessons.
 - Goal E has started: the worker protocol, native V3 host, all-basics golden fixtures, CLI bridge, and browser-safe JavaScript reference worker exist. The final compiler-owned WASM artifact is still pending.
 - Goal F has started in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/learn` consumes exported Academy package and browser-safe worker assets generated from this repository.
+- Goal E/B bundled slice is staged: `freak learn web-assets` now exports the package, browser worker, and manifest with hashes; `freak learn worker-parity` verifies native V3 and browser-safe worker responses match across the basics fixture set.
 
-The next active goal should continue Goal E until the browser-safe worker can check all initial lesson exercises with the same results as the native V3 host.
+The next active goal should continue Goal E toward the compiler-owned WASM artifact that can replace the browser-safe JavaScript reference behind the same manifest and worker protocol.
 
 ---
 

@@ -21,6 +21,24 @@ The same package can be exported through the terminal learner:
 python -m freakc learn package dist/academy/freak-academy-package.json
 ```
 
+Build the complete browser connector asset set from this repository:
+
+```bash
+python tools/academy/build_browser_assets.py dist/academy
+python -m freakc learn web-assets dist/academy
+```
+
+This writes:
+
+- `freak-academy-package.json`
+- `academy-worker.mjs`
+- `academy-assets-manifest.json`
+
+The manifest identifies the current worker as `browser-safe-js-reference` and
+keeps `wasmStatus` at `pending-v4-compiler-owned-artifact`. When the real WASM
+artifact exists, it should replace the worker behind the same manifest and
+worker protocol boundary.
+
 The future worker should accept `schemas/academy-worker-protocol.schema.json` request envelopes and return versioned response envelopes with deterministic evaluation results.
 
 Until the browser/WASM backend exists, use the local V3-backed worker host to exercise the protocol:
@@ -58,6 +76,8 @@ Golden fixtures live in `learning/wasm/fixtures`:
 python tools/academy/generate_worker_fixtures.py
 python tools/academy/verify_worker_fixtures.py
 node tools/academy/verify_browser_worker_fixtures.mjs
+python tools/academy/verify_worker_parity.py
+python -m freakc learn worker-parity
 ```
 
 The generator uses the native V3-backed worker host as the source of truth and

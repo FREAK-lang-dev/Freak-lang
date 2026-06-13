@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Iterable
@@ -16,6 +18,14 @@ from typing import Any, Iterable
 
 class AcademyError(Exception):
     """Raised when Academy content cannot be found or loaded."""
+
+
+ACADEMY_PACKAGE_ID = "freak-academy-v3-mvp"
+ACADEMY_LANGUAGE_VERSION = "0.13.3"
+ACADEMY_COMPILER_TRACK = "v3"
+ACADEMY_REPOSITORY_PHASE = "main-repo"
+ACADEMY_WEBSITE_CONNECTOR = "freaklang.dev"
+ACADEMY_WORKER_PROTOCOL_VERSION = 1
 
 
 def repository_root() -> Path:
@@ -125,12 +135,12 @@ def build_academy_package(root: Path | None = None) -> dict[str, Any]:
 
     return {
         "schemaVersion": 1,
-        "packageId": "freak-academy-v3-mvp",
-        "languageVersion": "0.13.3",
-        "compilerTrack": "v3",
-        "repositoryPhase": "main-repo",
-        "websiteConnector": "freaklang.dev",
-        "workerProtocolVersion": 1,
+        "packageId": ACADEMY_PACKAGE_ID,
+        "languageVersion": ACADEMY_LANGUAGE_VERSION,
+        "compilerTrack": ACADEMY_COMPILER_TRACK,
+        "repositoryPhase": ACADEMY_REPOSITORY_PHASE,
+        "websiteConnector": ACADEMY_WEBSITE_CONNECTOR,
+        "workerProtocolVersion": ACADEMY_WORKER_PROTOCOL_VERSION,
         "courses": courses,
     }
 
@@ -139,6 +149,66 @@ def export_academy_package(destination: Path, root: Path | None = None) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     package = build_academy_package(root=root)
     destination.write_text(json.dumps(package, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def academy_worker_path(root: Path | None = None) -> Path:
+    return (root or repository_root()) / "learning" / "wasm" / "academy-worker.mjs"
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _asset_record(path: Path, role: str, artifact_type: str) -> dict[str, Any]:
+    return {
+        "path": path.name,
+        "role": role,
+        "artifactType": artifact_type,
+        "sha256": _sha256_file(path),
+        "bytes": path.stat().st_size,
+    }
+
+
+def build_browser_assets(destination: Path, root: Path | None = None) -> dict[str, Any]:
+    """Export the browser-consumable Academy package, worker, and manifest."""
+
+    package_root = root or repository_root()
+    destination.mkdir(parents=True, exist_ok=True)
+
+    package_path = destination / "freak-academy-package.json"
+    worker_source = academy_worker_path(package_root)
+    worker_path = destination / "academy-worker.mjs"
+    manifest_path = destination / "academy-assets-manifest.json"
+
+    if not worker_source.exists():
+        raise AcademyError(f"Academy browser worker not found: {worker_source}")
+
+    export_academy_package(package_path, root=package_root)
+    shutil.copyfile(worker_source, worker_path)
+
+    manifest = {
+        "schemaVersion": 1,
+        "packageId": ACADEMY_PACKAGE_ID,
+        "languageVersion": ACADEMY_LANGUAGE_VERSION,
+        "compilerTrack": ACADEMY_COMPILER_TRACK,
+        "repositoryPhase": ACADEMY_REPOSITORY_PHASE,
+        "websiteConnector": ACADEMY_WEBSITE_CONNECTOR,
+        "workerProtocolVersion": ACADEMY_WORKER_PROTOCOL_VERSION,
+        "artifactStatus": "browser-safe-js-reference",
+        "wasmStatus": "pending-v4-compiler-owned-artifact",
+        "packagePath": package_path.name,
+        "workerPath": worker_path.name,
+        "assets": [
+            _asset_record(package_path, "academy-package", "json"),
+            _asset_record(worker_path, "worker-entrypoint", "browser-safe-js-reference"),
+        ],
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return manifest
 
 
 def format_course_listing(root: Path | None = None) -> str:
@@ -163,7 +233,9 @@ def format_course_listing(root: Path | None = None) -> str:
             "  freak learn import <path>",
             "  freak learn reset [all|course-id|lesson-id]",
             "  freak learn package <path>",
+            "  freak learn web-assets <dir>",
             "  freak learn worker [request.json]",
+            "  freak learn worker-parity",
             "",
             "Bootstrap fallback: python -m freakc learn <cmd>",
         ]

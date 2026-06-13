@@ -1093,6 +1093,7 @@ def cmd_learn(argv: list[str]) -> int:
     """FREAK Academy terminal entry point."""
     from .academy import (
         AcademyError,
+        build_browser_assets,
         export_academy_package,
         export_progress,
         first_exercise,
@@ -1180,6 +1181,18 @@ def cmd_learn(argv: list[str]) -> int:
             print(f"Academy package exported to {target}")
             return 0
 
+        if sub in ("web-assets", "assets"):
+            if len(argv) < 2:
+                print(_red("x Usage: python -m freakc learn web-assets <dir>"), file=sys.stderr)
+                return 1
+            target = Path(argv[1])
+            manifest = build_browser_assets(target)
+            print(f"Academy browser assets exported to {target}")
+            print(f"  package: {manifest['packagePath']}")
+            print(f"  worker: {manifest['workerPath']} ({manifest['artifactStatus']})")
+            print("  manifest: academy-assets-manifest.json")
+            return 0
+
         if sub == "worker":
             from tools.academy.worker_host import handle_envelope, response_error
 
@@ -1201,6 +1214,11 @@ def cmd_learn(argv: list[str]) -> int:
 
             print(json.dumps(response, indent=2, sort_keys=True))
             return 0 if response.get("ok") else 1
+
+        if sub in ("worker-parity", "parity"):
+            from tools.academy.verify_worker_parity import main as verify_worker_parity_main
+
+            return verify_worker_parity_main(argv[1:])
 
         if sub in ("check", "review"):
             if len(argv) < 3:
@@ -1227,7 +1245,10 @@ def cmd_learn(argv: list[str]) -> int:
             return 1
 
         print(_red(f"x Unknown learn subcommand: '{sub}'"), file=sys.stderr)
-        print("Usage: python -m freakc learn [list|show|demo|check|status|export|import|reset|package|worker]")
+        print(
+            "Usage: python -m freakc learn "
+            "[list|show|demo|check|status|export|import|reset|package|web-assets|worker|worker-parity]"
+        )
         return 1
     except AcademyError as exc:
         print(_red(f"x {exc}"), file=sys.stderr)

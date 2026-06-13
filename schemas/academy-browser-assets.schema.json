@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freak-lang.dev/schemas/academy-browser-assets.schema.json",
+  "title": "FREAK Academy Browser Assets Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "packageId",
+    "languageVersion",
+    "compilerTrack",
+    "repositoryPhase",
+    "websiteConnector",
+    "workerProtocolVersion",
+    "artifactStatus",
+    "wasmStatus",
+    "packagePath",
+    "workerPath",
+    "assets"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "packageId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "languageVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "compilerTrack": {
+      "type": "string",
+      "enum": ["v3", "v4"]
+    },
+    "repositoryPhase": {
+      "type": "string",
+      "enum": ["main-repo", "split-ready", "dedicated-repo"]
+    },
+    "websiteConnector": {
+      "type": "string",
+      "const": "freaklang.dev"
+    },
+    "workerProtocolVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "artifactStatus": {
+      "type": "string",
+      "enum": ["browser-safe-js-reference", "wasm-preview", "wasm-stable"]
+    },
+    "wasmStatus": {
+      "type": "string",
+      "enum": ["pending-v4-compiler-owned-artifact", "preview", "stable"]
+    },
+    "packagePath": {
+      "type": "string",
+      "const": "freak-academy-package.json"
+    },
+    "workerPath": {
+      "type": "string",
+      "const": "academy-worker.mjs"
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "role", "artifactType", "sha256", "bytes"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": ["academy-package", "worker-entrypoint"]
+          },
+          "artifactType": {
+            "type": "string",
+            "enum": ["json", "browser-safe-js-reference", "wasm"]
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}
