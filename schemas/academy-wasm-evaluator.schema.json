@@ -60,10 +60,18 @@
         {
           "type": "string",
           "const": "variables"
+        },
+        {
+          "type": "string",
+          "const": "primitive-types"
+        },
+        {
+          "type": "string",
+          "const": "arithmetic"
         }
       ],
-      "minItems": 2,
-      "maxItems": 2
+      "minItems": 4,
+      "maxItems": 4
     },
     "toolchain": {
       "type": "object",
@@ -85,7 +93,7 @@
     },
     "exports": {
       "type": "array",
-      "minItems": 12,
+      "minItems": 14,
       "items": {
         "type": "string",
         "enum": [
@@ -100,7 +108,9 @@
           "academy_last_message_offset",
           "academy_last_message_length",
           "academy_evaluate_hello_freak",
-          "academy_evaluate_variables"
+          "academy_evaluate_variables",
+          "academy_evaluate_primitive_types",
+          "academy_evaluate_arithmetic"
         ]
       }
     }

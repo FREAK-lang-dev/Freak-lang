@@ -445,15 +445,31 @@ export function createAcademyWasmEvaluator(wasmInstanceOrExports) {
       if (lessonId === "hello-freak") {
         return exports.academy_supported_lesson_count() >= 1;
       }
-      return lessonId === "variables" &&
-        exports.academy_supported_lesson_count() >= 2 &&
-        typeof exports.academy_evaluate_variables === "function";
+      const supportedByCount = {
+        "variables": 2,
+        "primitive-types": 3,
+        "arithmetic": 4,
+      };
+      const supportedExports = {
+        "variables": "academy_evaluate_variables",
+        "primitive-types": "academy_evaluate_primitive_types",
+        "arithmetic": "academy_evaluate_arithmetic",
+      };
+      return Object.hasOwn(supportedByCount, lessonId) &&
+        exports.academy_supported_lesson_count() >= supportedByCount[lessonId] &&
+        typeof exports[supportedExports[lessonId]] === "function";
     },
     runHelloFreak(source) {
       return runLessonWasm(exports, source, "hello-freak");
     },
     runVariables(source) {
       return runLessonWasm(exports, source, "variables");
+    },
+    runPrimitiveTypes(source) {
+      return runLessonWasm(exports, source, "primitive-types");
+    },
+    runArithmetic(source) {
+      return runLessonWasm(exports, source, "arithmetic");
     },
   };
 }
@@ -801,7 +817,9 @@ function maybeRunLessonWasm(source, options, fileId) {
 function isWasmBackedExercise(lesson, exercise) {
   return (
     (lesson?.id === "hello-freak" && exercise?.id === "hello-exercise") ||
-    (lesson?.id === "variables" && exercise?.id === "score-exercise")
+    (lesson?.id === "variables" && exercise?.id === "score-exercise") ||
+    (lesson?.id === "primitive-types" && exercise?.id === "types-exercise") ||
+    (lesson?.id === "arithmetic" && exercise?.id === "area-exercise")
   );
 }
 
@@ -812,6 +830,12 @@ function lessonIdFromFileId(fileId) {
   if (fileId === "variables.fk") {
     return "variables";
   }
+  if (fileId === "primitive-types.fk") {
+    return "primitive-types";
+  }
+  if (fileId === "arithmetic.fk") {
+    return "arithmetic";
+  }
   return null;
 }
 
@@ -821,6 +845,12 @@ function runLessonThroughEvaluator(evaluator, lessonId, source) {
   }
   if (lessonId === "variables") {
     return evaluator.runVariables(source);
+  }
+  if (lessonId === "primitive-types") {
+    return evaluator.runPrimitiveTypes(source);
+  }
+  if (lessonId === "arithmetic") {
+    return evaluator.runArithmetic(source);
   }
   throw new WorkerProtocolError("academy_error", `unsupported WASM lesson: ${lessonId}`);
 }
@@ -870,9 +900,17 @@ function runLessonWasm(exports, source, lessonId) {
   new Uint8Array(exports.memory.buffer, inputOffset, inputCapacity).fill(0);
   new Uint8Array(exports.memory.buffer, inputOffset, encoded.length).set(encoded);
 
-  const status = lessonId === "variables"
-    ? exports.academy_evaluate_variables(encoded.length)
-    : exports.academy_evaluate_hello_freak(encoded.length);
+  const lessonEvaluators = {
+    "hello-freak": exports.academy_evaluate_hello_freak,
+    "variables": exports.academy_evaluate_variables,
+    "primitive-types": exports.academy_evaluate_primitive_types,
+    "arithmetic": exports.academy_evaluate_arithmetic,
+  };
+  const evaluate = lessonEvaluators[lessonId];
+  if (typeof evaluate !== "function") {
+    throw new WorkerProtocolError("academy_error", `unsupported WASM lesson: ${lessonId}`);
+  }
+  const status = evaluate(encoded.length);
   const stdout = readWasmString(
     exports.memory,
     exports.academy_last_stdout_offset(),

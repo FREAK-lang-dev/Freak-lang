@@ -338,10 +338,17 @@ def test_learn_wasm_evaluator_cli_builds_basics_worker_artifact():
         assert wasm_path.exists()
         assert manifest["artifactStatus"] == "wasm-preview-basics-evaluator"
         assert manifest["workerProtocolVersion"] == 1
-        assert manifest["supportedLessons"] == ["hello-freak", "variables"]
+        assert manifest["supportedLessons"] == [
+            "hello-freak",
+            "variables",
+            "primitive-types",
+            "arithmetic",
+        ]
         assert manifest["sha256"] == sha256_file(wasm_path)
         assert "academy_evaluate_hello_freak" in manifest["exports"]
         assert "academy_evaluate_variables" in manifest["exports"]
+        assert "academy_evaluate_primitive_types" in manifest["exports"]
+        assert "academy_evaluate_arithmetic" in manifest["exports"]
 
         node = shutil.which("node")
         if node is not None:

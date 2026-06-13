@@ -1,15 +1,15 @@
 // First FREAK Academy WASM-backed evaluator.
 //
-// Scope: the `hello-freak` and `variables` lessons. This module intentionally
-// implements a tiny browser-safe evaluator for the first Academy basics
-// exercises so the worker can use a real WASM artifact before the full
-// compiler-owned evaluator exists.
+// Scope: the first four basics lessons. This module intentionally implements a
+// tiny browser-safe evaluator for the first Academy basics exercises so the
+// worker can use a real WASM artifact before the full compiler-owned evaluator
+// exists.
 
 #include <stdint.h>
 
 #define ACADEMY_WORKER_PROTOCOL_VERSION 1
 #define ACADEMY_WASM_EVALUATOR_VERSION 1
-#define ACADEMY_SUPPORTED_LESSON_COUNT 2
+#define ACADEMY_SUPPORTED_LESSON_COUNT 4
 
 #define STATUS_PARSES 1
 #define STATUS_COMPILES 2
@@ -20,12 +20,25 @@
 #define STDOUT_CAPACITY 1024
 #define MESSAGE_CAPACITY 256
 #define IDENT_CAPACITY 64
+#define VAR_CAPACITY 8
+#define WORD_STORAGE_CAPACITY 2048
+#define VALUE_INT 1
+#define VALUE_WORD 2
 
 static unsigned char academy_input[INPUT_CAPACITY];
 static unsigned char academy_stdout[STDOUT_CAPACITY];
 static unsigned char academy_message[MESSAGE_CAPACITY];
+static unsigned char academy_word_storage[WORD_STORAGE_CAPACITY];
 static int academy_stdout_len = 0;
 static int academy_message_len = 0;
+static int academy_word_storage_len = 0;
+static int var_count = 0;
+static unsigned char var_names[VAR_CAPACITY][IDENT_CAPACITY];
+static int var_name_lens[VAR_CAPACITY];
+static int var_types[VAR_CAPACITY];
+static int var_int_values[VAR_CAPACITY];
+static int var_word_offsets[VAR_CAPACITY];
+static int var_word_lens[VAR_CAPACITY];
 
 static int is_space(unsigned char ch) {
     return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
@@ -82,6 +95,49 @@ static void set_message(const char *message) {
         i += 1;
     }
     academy_message_len = i;
+}
+
+static void reset_eval_state(void) {
+    academy_stdout_len = 0;
+    academy_message_len = 0;
+    academy_word_storage_len = 0;
+    var_count = 0;
+}
+
+static int find_var(const unsigned char *name, int name_len) {
+    for (int i = var_count - 1; i >= 0; i -= 1) {
+        if (names_equal(name, name_len, var_names[i], var_name_lens[i])) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int declare_var(const unsigned char *name, int name_len) {
+    if (name_len <= 0 || name_len >= IDENT_CAPACITY) {
+        set_message("invalid variable name");
+        return -1;
+    }
+    if (var_count >= VAR_CAPACITY) {
+        set_message("too many variables for WASM evaluator");
+        return -1;
+    }
+    if (find_var(name, name_len) >= 0) {
+        set_message("duplicate variable in WASM evaluator");
+        return -1;
+    }
+
+    int slot = var_count;
+    for (int i = 0; i < name_len; i += 1) {
+        var_names[slot][i] = name[i];
+    }
+    var_name_lens[slot] = name_len;
+    var_types[slot] = 0;
+    var_int_values[slot] = 0;
+    var_word_offsets[slot] = 0;
+    var_word_lens[slot] = 0;
+    var_count += 1;
+    return slot;
 }
 
 static int skip_trivia(int index, int len) {
@@ -155,15 +211,7 @@ static int parse_int_literal(int *index, int len, int *value) {
     return 1;
 }
 
-static int parse_int_primary(
-    int *index,
-    int len,
-    int has_var,
-    const unsigned char *var_name,
-    int var_name_len,
-    int var_value,
-    int *value
-) {
+static int parse_int_primary(int *index, int len, int *value) {
     int current = skip_trivia(*index, len);
     if (parse_int_literal(&current, len, value)) {
         *index = current;
@@ -176,26 +224,54 @@ static int parse_int_primary(
     if (!parse_identifier(&current, len, name, &name_len, "expected int expression")) {
         return 0;
     }
-    if (!has_var || !names_equal(name, name_len, var_name, var_name_len)) {
+    int slot = find_var(name, name_len);
+    if (slot < 0) {
         set_message("unknown symbol in WASM evaluator");
         return 0;
     }
+    if (var_types[slot] != VALUE_INT) {
+        set_message("expected int value in WASM evaluator");
+        return 0;
+    }
 
-    *value = var_value;
+    *value = var_int_values[slot];
     *index = current;
     return 1;
 }
 
-static int parse_int_expression(
-    int *index,
-    int len,
-    int has_var,
-    const unsigned char *var_name,
-    int var_name_len,
-    int var_value,
-    int *value
-) {
-    if (!parse_int_primary(index, len, has_var, var_name, var_name_len, var_value, value)) {
+static int parse_int_term(int *index, int len, int *value) {
+    if (!parse_int_primary(index, len, value)) {
+        return 0;
+    }
+
+    while (1) {
+        int current = skip_trivia(*index, len);
+        unsigned char op = 0;
+        int rhs = 0;
+        if (current < len && (academy_input[current] == '*' || academy_input[current] == '/')) {
+            op = academy_input[current];
+            current += 1;
+        } else {
+            return 1;
+        }
+        if (!parse_int_primary(&current, len, &rhs)) {
+            return 0;
+        }
+        if (op == '*') {
+            *value *= rhs;
+        } else {
+            if (rhs == 0) {
+                set_message("division by zero in WASM evaluator");
+                return 0;
+            }
+            *value /= rhs;
+        }
+        *index = current;
+    }
+}
+
+static int parse_int_expression(int *index, int len, int *value) {
+    if (!parse_int_term(index, len, value)) {
         return 0;
     }
 
@@ -209,7 +285,7 @@ static int parse_int_expression(
         } else {
             return 1;
         }
-        if (!parse_int_primary(&current, len, has_var, var_name, var_name_len, var_value, &rhs)) {
+        if (!parse_int_term(&current, len, &rhs)) {
             return 0;
         }
         if (op == '+') {
@@ -302,14 +378,63 @@ static int parse_word_literal_to_stdout(int *index, int len) {
     return 0;
 }
 
-static int parse_say_value_statement(
-    int *index,
-    int len,
-    int has_var,
-    const unsigned char *var_name,
-    int var_name_len,
-    int var_value
-) {
+static int parse_word_literal_to_storage(int *index, int len, int *offset, int *word_len) {
+    int current = skip_trivia(*index, len);
+    int start_offset = academy_word_storage_len;
+    if (current >= len || academy_input[current] != '"') {
+        set_message("expected word literal");
+        return 0;
+    }
+    current += 1;
+
+    while (current < len) {
+        unsigned char ch = academy_input[current];
+        if (ch == '"') {
+            *offset = start_offset;
+            *word_len = academy_word_storage_len - start_offset;
+            *index = current + 1;
+            return 1;
+        }
+        if (ch == '\\') {
+            current += 1;
+            if (current >= len) {
+                set_message("unterminated escape in word literal");
+                return 0;
+            }
+            ch = academy_input[current];
+            if (ch == 'n') {
+                ch = '\n';
+            } else if (ch == 'r') {
+                ch = '\r';
+            } else if (ch == 't') {
+                ch = '\t';
+            }
+        }
+        if (academy_word_storage_len >= WORD_STORAGE_CAPACITY) {
+            set_message("word storage exceeds WASM evaluator capacity");
+            return 0;
+        }
+        academy_word_storage[academy_word_storage_len] = ch;
+        academy_word_storage_len += 1;
+        current += 1;
+    }
+
+    set_message("unterminated word literal");
+    return 0;
+}
+
+static int append_output_word_var(int slot) {
+    int offset = var_word_offsets[slot];
+    int len = var_word_lens[slot];
+    for (int i = 0; i < len; i += 1) {
+        if (!append_output_byte(academy_word_storage[offset + i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int parse_say_value_statement(int *index, int len) {
     int current = skip_trivia(*index, len);
     int int_value = 0;
 
@@ -325,11 +450,41 @@ static int parse_say_value_statement(
             return 0;
         }
     } else {
-        if (!parse_int_expression(&current, len, has_var, var_name, var_name_len, var_value, &int_value)) {
-            return 0;
-        }
-        if (!append_output_int(int_value)) {
-            return 0;
+        unsigned char name[IDENT_CAPACITY];
+        int name_len = 0;
+        int name_cursor = current;
+        if (parse_identifier(&name_cursor, len, name, &name_len, "expected value after say")) {
+            int after_name = skip_trivia(name_cursor, len);
+            int slot = find_var(name, name_len);
+            if (
+                slot >= 0 &&
+                var_types[slot] == VALUE_WORD &&
+                (after_name >= len || (
+                    academy_input[after_name] != '+' &&
+                    academy_input[after_name] != '-' &&
+                    academy_input[after_name] != '*' &&
+                    academy_input[after_name] != '/'
+                ))
+            ) {
+                if (!append_output_word_var(slot)) {
+                    return 0;
+                }
+                current = name_cursor;
+            } else {
+                if (!parse_int_expression(&current, len, &int_value)) {
+                    return 0;
+                }
+                if (!append_output_int(int_value)) {
+                    return 0;
+                }
+            }
+        } else {
+            if (!parse_int_expression(&current, len, &int_value)) {
+                return 0;
+            }
+            if (!append_output_int(int_value)) {
+                return 0;
+            }
         }
     }
 
@@ -415,50 +570,112 @@ static int parse_say_string_program(int len) {
     return 0;
 }
 
-static int parse_variables_program(int len) {
-    unsigned char var_name[IDENT_CAPACITY];
+static int type_name_is(const unsigned char *name, int name_len, const char *expected, int expected_len) {
+    if (name_len != expected_len) {
+        return 0;
+    }
+    for (int i = 0; i < expected_len; i += 1) {
+        if (name[i] != (unsigned char)expected[i]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int parse_pilot_statement(int *index, int len) {
+    unsigned char name[IDENT_CAPACITY];
     unsigned char type_name[IDENT_CAPACITY];
-    int var_name_len = 0;
+    int name_len = 0;
     int type_name_len = 0;
-    int var_value = 0;
-    int has_var = 0;
+    int int_value = 0;
+    int word_offset = 0;
+    int word_len = 0;
+    int slot = -1;
+    int current = skip_trivia(*index, len);
+
+    if (!match_keyword(current, len, "pilot", 5)) {
+        set_message("expected pilot declaration");
+        return 0;
+    }
+    current += 5;
+    if (!parse_identifier(&current, len, name, &name_len, "expected pilot name")) {
+        return 0;
+    }
+    slot = declare_var(name, name_len);
+    if (slot < 0) {
+        return 0;
+    }
+
+    current = skip_trivia(current, len);
+    if (current < len && academy_input[current] == ':') {
+        current += 1;
+        if (!parse_identifier(&current, len, type_name, &type_name_len, "expected type annotation")) {
+            return 0;
+        }
+        current = skip_trivia(current, len);
+    }
+
+    if (current >= len || academy_input[current] != '=') {
+        set_message("expected '=' in pilot declaration");
+        return 0;
+    }
+    current += 1;
+    current = skip_trivia(current, len);
+
+    if (current < len && academy_input[current] == '"') {
+        if (type_name_len > 0 && !type_name_is(type_name, type_name_len, "word", 4)) {
+            set_message("word literal does not match type annotation");
+            return 0;
+        }
+        if (!parse_word_literal_to_storage(&current, len, &word_offset, &word_len)) {
+            return 0;
+        }
+        var_types[slot] = VALUE_WORD;
+        var_word_offsets[slot] = word_offset;
+        var_word_lens[slot] = word_len;
+    } else {
+        if (type_name_len > 0 && !type_name_is(type_name, type_name_len, "int", 3)) {
+            set_message("int expression does not match type annotation");
+            return 0;
+        }
+        if (!parse_int_expression(&current, len, &int_value)) {
+            return 0;
+        }
+        var_types[slot] = VALUE_INT;
+        var_int_values[slot] = int_value;
+    }
+
+    *index = current;
+    return 1;
+}
+
+static int parse_basics_program(int len) {
     int index = skip_trivia(0, len);
+    int say_count = 0;
 
-    academy_stdout_len = 0;
-    academy_message_len = 0;
+    reset_eval_state();
 
-    if (match_keyword(index, len, "pilot", 5)) {
-        index += 5;
-        if (!parse_identifier(&index, len, var_name, &var_name_len, "expected pilot name")) {
+    while (match_keyword(index, len, "pilot", 5)) {
+        if (!parse_pilot_statement(&index, len)) {
             return 0;
         }
         index = skip_trivia(index, len);
-        if (index < len && academy_input[index] == ':') {
-            index += 1;
-            if (!parse_identifier(&index, len, type_name, &type_name_len, "expected type annotation")) {
-                return 0;
-            }
-            (void)type_name;
-            (void)type_name_len;
-            index = skip_trivia(index, len);
-        }
-        if (index >= len || academy_input[index] != '=') {
-            set_message("expected '=' in pilot declaration");
-            return 0;
-        }
-        index += 1;
-        if (!parse_int_expression(&index, len, 0, var_name, var_name_len, 0, &var_value)) {
-            return 0;
-        }
-        has_var = 1;
     }
 
-    if (!parse_say_value_statement(&index, len, has_var, var_name, var_name_len, var_value)) {
+    while (match_keyword(index, len, "say", 3)) {
+        if (!parse_say_value_statement(&index, len)) {
+            return 0;
+        }
+        say_count += 1;
+        index = skip_trivia(index, len);
+    }
+
+    if (say_count == 0) {
+        set_message("expected say statement");
         return 0;
     }
-    index = skip_trivia(index, len);
     if (index != len) {
-        set_message("expected end of source after variables lesson program");
+        set_message("expected end of source after basics lesson program");
         return 0;
     }
     return 1;
@@ -551,7 +768,63 @@ int academy_evaluate_variables(int source_len) {
         return status;
     }
 
-    if (!parse_variables_program(source_len)) {
+    if (!parse_basics_program(source_len)) {
+        return status;
+    }
+
+    status |= STATUS_PARSES;
+    status |= STATUS_COMPILES;
+    status |= STATUS_RUNS;
+
+    if (academy_stdout_len == (int)(sizeof(expected) - 1) &&
+        bytes_equal(academy_stdout, expected, academy_stdout_len)) {
+        status |= STATUS_OUTPUT_MATCHES;
+    }
+
+    return status;
+}
+
+__attribute__((visibility("default")))
+int academy_evaluate_primitive_types(int source_len) {
+    static const unsigned char expected[] = "Shiranui\n9001\n";
+    int status = 0;
+
+    reset_eval_state();
+
+    if (source_len < 0 || source_len > INPUT_CAPACITY) {
+        set_message("source exceeds WASM input capacity");
+        return status;
+    }
+
+    if (!parse_basics_program(source_len)) {
+        return status;
+    }
+
+    status |= STATUS_PARSES;
+    status |= STATUS_COMPILES;
+    status |= STATUS_RUNS;
+
+    if (academy_stdout_len == (int)(sizeof(expected) - 1) &&
+        bytes_equal(academy_stdout, expected, academy_stdout_len)) {
+        status |= STATUS_OUTPUT_MATCHES;
+    }
+
+    return status;
+}
+
+__attribute__((visibility("default")))
+int academy_evaluate_arithmetic(int source_len) {
+    static const unsigned char expected[] = "32\n";
+    int status = 0;
+
+    reset_eval_state();
+
+    if (source_len < 0 || source_len > INPUT_CAPACITY) {
+        set_message("source exceeds WASM input capacity");
+        return status;
+    }
+
+    if (!parse_basics_program(source_len)) {
         return status;
     }
 

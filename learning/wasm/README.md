@@ -60,9 +60,10 @@ python -m freakc learn wasm-evaluator build/academy-wasm
 node tools/academy/verify_wasm_evaluator.mjs build/academy-wasm/academy-wasm-evaluator.wasm
 ```
 
-This artifact currently supports `hello-freak` and `variables`. The browser
-worker accepts it through the `wasmEvaluator` option and falls back to the
-JavaScript reference evaluator for the rest of the basics course.
+This artifact currently supports `hello-freak`, `variables`, `primitive-types`,
+and `arithmetic`. The browser worker accepts it through the `wasmEvaluator`
+option and falls back to the JavaScript reference evaluator for the rest of the
+basics course.
 
 The future worker should accept `schemas/academy-worker-protocol.schema.json` request envelopes and return versioned response envelopes with deterministic evaluation results.
 

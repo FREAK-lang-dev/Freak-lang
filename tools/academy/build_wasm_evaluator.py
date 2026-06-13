@@ -32,6 +32,8 @@ EXPORTS = [
     "academy_last_message_length",
     "academy_evaluate_hello_freak",
     "academy_evaluate_variables",
+    "academy_evaluate_primitive_types",
+    "academy_evaluate_arithmetic",
 ]
 
 
@@ -86,7 +88,7 @@ def build_wasm_evaluator(output_dir: Path, compiler: str = "clang") -> dict[str,
         "sha256": sha256_file(wasm_path),
         "bytes": wasm_path.stat().st_size,
         "target": "wasm32",
-        "supportedLessons": ["hello-freak", "variables"],
+        "supportedLessons": ["hello-freak", "variables", "primitive-types", "arithmetic"],
         "toolchain": {
             "compiler": compiler_path,
             "command": cmd,
@@ -134,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  wasm: {manifest['wasmPath']} ({manifest['bytes']} bytes)")
     print(f"  manifest: {MANIFEST_NAME}")
     print("  status: wasm-preview-basics-evaluator")
-    print("  supported lessons: hello-freak, variables")
+    print("  supported lessons: hello-freak, variables, primitive-types, arithmetic")
     return 0
 
 

@@ -20,6 +20,8 @@ async function main(argv) {
 
   assert(evaluator.supportsLesson("hello-freak"), "WASM evaluator must support hello-freak");
   assert(evaluator.supportsLesson("variables"), "WASM evaluator must support variables");
+  assert(evaluator.supportsLesson("primitive-types"), "WASM evaluator must support primitive-types");
+  assert(evaluator.supportsLesson("arithmetic"), "WASM evaluator must support arithmetic");
 
   const passing = evaluator.runHelloFreak('-- comment allowed\nsay "Hello, FREAK Academy!"\n');
   assert(passing.ok, `passing hello source should run: ${passing.message}`);
@@ -48,6 +50,20 @@ async function main(argv) {
   const variablesUnknown = evaluator.runVariables("say score\n");
   assert(!variablesUnknown.ok, "unknown variable should fail the variables evaluator");
   assert(variablesUnknown.message === "unknown symbol in WASM evaluator", `unexpected variables error: ${variablesUnknown.message}`);
+
+  const primitivePassing = evaluator.runPrimitiveTypes(
+    'pilot callsign: word = "Shiranui"\npilot power: int = 9001\nsay callsign\nsay power\n',
+  );
+  assert(primitivePassing.ok, `primitive-types source should run: ${primitivePassing.message}`);
+  assert(primitivePassing.stdout === "Shiranui\n9001\n", `unexpected primitive stdout: ${JSON.stringify(primitivePassing.stdout)}`);
+
+  const arithmeticPassing = evaluator.runArithmetic("pilot width = 8\npilot height = 4\nsay width * height\n");
+  assert(arithmeticPassing.ok, `arithmetic source should run: ${arithmeticPassing.message}`);
+  assert(arithmeticPassing.stdout === "32\n", `unexpected arithmetic stdout: ${JSON.stringify(arithmeticPassing.stdout)}`);
+
+  const arithmeticExpression = evaluator.runArithmetic("pilot width = 10 - 2\npilot height = 2 + 2\nsay width * height\n");
+  assert(arithmeticExpression.ok, `arithmetic expression source should run: ${arithmeticExpression.message}`);
+  assert(arithmeticExpression.stdout === "32\n", `unexpected arithmetic expression stdout: ${JSON.stringify(arithmeticExpression.stdout)}`);
 
   const academyPackage = await buildAcademyPackage(process.cwd());
   const evaluateResponse = handleAcademyWorkerEnvelope(
@@ -116,7 +132,41 @@ async function main(argv) {
   assert(variablesRunResponse.ok, JSON.stringify(variablesRunResponse));
   assert(variablesRunResponse.result?.stdout === "100\n", "variables run stdout should match");
 
-  console.log("Academy WASM evaluator verified: hello-freak and variables pass through worker protocol");
+  const primitiveResponse = handleAcademyWorkerEnvelope(
+    {
+      protocolVersion: 1,
+      requestId: "wasm-evaluate-primitive-types",
+      method: "evaluateExercise",
+      params: {
+        lessonId: "primitive-types",
+        exerciseId: "types-exercise",
+        source: 'pilot callsign: word = "Shiranui"\npilot power: int = 9001\nsay callsign\nsay power\n',
+      },
+    },
+    academyPackage,
+    { wasmEvaluator: evaluator },
+  );
+  assert(primitiveResponse.ok, JSON.stringify(primitiveResponse));
+  assert(primitiveResponse.result?.passed === true, "primitive-types exercise should pass through WASM-backed worker");
+
+  const arithmeticResponse = handleAcademyWorkerEnvelope(
+    {
+      protocolVersion: 1,
+      requestId: "wasm-evaluate-arithmetic",
+      method: "evaluateExercise",
+      params: {
+        lessonId: "arithmetic",
+        exerciseId: "area-exercise",
+        source: "pilot width = 8\npilot height = 4\nsay width * height\n",
+      },
+    },
+    academyPackage,
+    { wasmEvaluator: evaluator },
+  );
+  assert(arithmeticResponse.ok, JSON.stringify(arithmeticResponse));
+  assert(arithmeticResponse.result?.passed === true, "arithmetic exercise should pass through WASM-backed worker");
+
+  console.log("Academy WASM evaluator verified: first four basics lessons pass through worker protocol");
   return 0;
 }
 

@@ -41,9 +41,9 @@ Current implementation checkpoint:
 - Goal F has started in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/learn` consumes exported Academy package and browser-safe worker assets generated from this repository.
 - Goal E/B bundled slice is staged: `freak learn web-assets` now exports the package, browser worker, and manifest with hashes; `freak learn worker-parity` verifies native V3 and browser-safe worker responses match across the basics fixture set.
 - Goal E WASM probe is staged: `freak learn wasm-status` can build a freestanding browser-loadable `academy-wasm-probe.wasm` and verify the local LLVM toolchain path before the real lesson evaluator exists.
-- Goal E first WASM evaluator is staged: `freak learn wasm-evaluator` builds `academy-wasm-evaluator.wasm`, the browser worker can consume it through `wasmEvaluator`, and `hello-freak` plus `variables` can be evaluated through WASM while other lessons keep the JavaScript reference fallback.
+- Goal E first WASM evaluator is staged: `freak learn wasm-evaluator` builds `academy-wasm-evaluator.wasm`, the browser worker can consume it through `wasmEvaluator`, and the first four basics lessons (`hello-freak`, `variables`, `primitive-types`, `arithmetic`) can be evaluated through WASM while later lessons keep the JavaScript reference fallback.
 
-The next active goal should continue Goal E by expanding the WASM evaluator beyond `variables`, then package the evaluator in the browser asset manifest once it covers enough of the basics course to be useful on `freaklang.dev`.
+The next active goal should continue Goal E by expanding the WASM evaluator into conditions and loops, then package the evaluator in the browser asset manifest once it covers enough of the basics course to be useful on `freaklang.dev`.
 
 ---
 
