@@ -39,6 +39,19 @@ keeps `wasmStatus` at `pending-v4-compiler-owned-artifact`. When the real WASM
 artifact exists, it should replace the worker behind the same manifest and
 worker protocol boundary.
 
+Build the first browser-loadable WASM probe:
+
+```bash
+python tools/academy/build_wasm_probe.py build/academy-wasm
+python -m freakc learn wasm-status build/academy-wasm
+node tools/academy/verify_wasm_probe.mjs build/academy-wasm/academy-wasm-probe.wasm
+```
+
+The probe is a freestanding `wasm32` artifact built from
+`learning/wasm/academy-wasm-probe.c`. It exports protocol/status functions
+only. It does not evaluate lessons yet; that remains the next compiler-owned
+WASM milestone.
+
 The future worker should accept `schemas/academy-worker-protocol.schema.json` request envelopes and return versioned response envelopes with deterministic evaluation results.
 
 Until the browser/WASM backend exists, use the local V3-backed worker host to exercise the protocol:

@@ -279,6 +279,45 @@ def test_learn_web_assets_cli_exports_browser_manifest():
         assert assets["worker-entrypoint"]["sha256"] == sha256_file(worker_path)
 
 
+def test_learn_wasm_status_cli_builds_browser_loadable_probe():
+    if shutil.which("clang") is None:
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out_dir = Path(tmp) / "wasm"
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["learn", "wasm-status", str(out_dir)])
+
+        wasm_path = out_dir / "academy-wasm-probe.wasm"
+        manifest_path = out_dir / "academy-wasm-probe-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        assert code == 0
+        assert "Academy WASM probe built" in out.getvalue()
+        assert wasm_path.exists()
+        assert manifest["artifactStatus"] == "wasm-preview-probe"
+        assert manifest["workerProtocolVersion"] == 1
+        assert manifest["sha256"] == sha256_file(wasm_path)
+        assert manifest["exports"] == [
+            "academy_protocol_version",
+            "academy_wasm_probe_version",
+            "academy_supported_lesson_count",
+        ]
+
+        node = shutil.which("node")
+        if node is not None:
+            result = subprocess.run(
+                [node, "tools/academy/verify_wasm_probe.mjs", str(wasm_path)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                timeout=10,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert "Academy WASM probe verified" in result.stdout
+
+
 def run_worker_request(request: dict) -> dict:
     result = subprocess.run(
         [sys.executable, "-B", "tools/academy/worker_host.py"],

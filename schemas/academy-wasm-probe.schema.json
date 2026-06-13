@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freak-lang.dev/schemas/academy-wasm-probe.schema.json",
+  "title": "FREAK Academy WASM Probe Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "artifactStatus",
+    "workerProtocolVersion",
+    "sourcePath",
+    "wasmPath",
+    "sha256",
+    "bytes",
+    "target",
+    "toolchain",
+    "exports"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "artifactStatus": {
+      "type": "string",
+      "const": "wasm-preview-probe"
+    },
+    "workerProtocolVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "sourcePath": {
+      "type": "string",
+      "const": "learning/wasm/academy-wasm-probe.c"
+    },
+    "wasmPath": {
+      "type": "string",
+      "const": "academy-wasm-probe.wasm"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "target": {
+      "type": "string",
+      "const": "wasm32"
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compiler", "command"],
+      "properties": {
+        "compiler": {
+          "type": "string",
+          "minLength": 1
+        },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "exports": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "string",
+        "enum": [
+          "academy_protocol_version",
+          "academy_wasm_probe_version",
+          "academy_supported_lesson_count"
+        ]
+      }
+    }
+  }
+}

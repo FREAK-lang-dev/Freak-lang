@@ -1193,6 +1193,11 @@ def cmd_learn(argv: list[str]) -> int:
             print("  manifest: academy-assets-manifest.json")
             return 0
 
+        if sub in ("wasm-status", "wasm-probe"):
+            from tools.academy.build_wasm_probe import main as build_wasm_probe_main
+
+            return build_wasm_probe_main(argv[1:])
+
         if sub == "worker":
             from tools.academy.worker_host import handle_envelope, response_error
 
@@ -1247,7 +1252,7 @@ def cmd_learn(argv: list[str]) -> int:
         print(_red(f"x Unknown learn subcommand: '{sub}'"), file=sys.stderr)
         print(
             "Usage: python -m freakc learn "
-            "[list|show|demo|check|status|export|import|reset|package|web-assets|worker|worker-parity]"
+            "[list|show|demo|check|status|export|import|reset|package|web-assets|wasm-status|worker|worker-parity]"
         )
         return 1
     except AcademyError as exc:
