@@ -35,7 +35,7 @@ Use these as separate `./goal` objectives when the work spans multiple sessions:
 Current implementation checkpoint:
 
 - Goal A is staged: V3-first disclaimer, schemas, seed content, package export, and validation tooling exist.
-- Goal B is staged: `freak learn` can list/show/demo/check/start lessons, require quizzes, and persist progress locally.
+- Goal B is staged: native `freak learn` dispatch can list/show/demo/check/start lessons through the V3 Academy shim, require quizzes, and persist progress locally.
 - Goal D basics content is staged: the first `freak-basics` course has seven V3 MVP lessons.
 - Goal E has started: the worker protocol, native V3 host, all-basics golden fixtures, CLI bridge, and browser-safe JavaScript reference worker exist. The final compiler-owned WASM artifact is still pending.
 

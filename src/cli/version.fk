@@ -166,6 +166,7 @@ task cli_show_help() -> void {
     say cli_box_mid("  " + C_G4 + "transpile" + C_RESET + " <file.fk> [opts]  " + C_DIM + "Emit .c or .ll" + C_RESET, 45)
     say cli_box_mid("  " + C_G5 + "hangar" + C_RESET + "    <cmd>              " + C_DIM + "Package manager" + C_RESET, 45)
     say cli_box_mid("  " + C_G6 + "doctor" + C_RESET + "    [--fix]              " + C_DIM + "Check setup, auto-fix" + C_RESET, 45)
+    say cli_box_mid("  " + C_G1 + "learn" + C_RESET + "     [cmd]              " + C_DIM + "FREAK Academy" + C_RESET, 45)
     say cli_box_mid("  " + C_G1 + "test" + C_RESET + "                          " + C_DIM + "Run regression suite" + C_RESET, 45)
     say cli_box_mid("  " + C_G2 + "audit-*" + C_RESET + "                       " + C_DIM + "audit-conformance/science/trust/miracles" + C_RESET, 45)
     say cli_box_mid("  " + C_G1 + "upgrade" + C_RESET + "                      " + C_DIM + "Download latest FREAK" + C_RESET, 45)
@@ -189,6 +190,7 @@ task cli_show_help() -> void {
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak run" + C_RESET + " hello.fk " + C_BYELLOW + "--c --opt=3" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--target=x86_64-linux-gnu" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak hangar" + C_RESET + " init my-project"
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak learn" + C_RESET + " list"
     say ""
     say "  " + C_DIM + C_ITALIC + cli_random_quote(42) + C_RESET
     say ""

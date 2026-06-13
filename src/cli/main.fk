@@ -2,7 +2,7 @@
 -- FREAK CLI — Main Entry Point
 -- ===================================================================
 -- Replaces the Python `python -m freakc` CLI with a native FREAK binary.
--- Dispatches to subcommands: build, run, check, transpile, version, help.
+-- Dispatches to subcommands: build, run, check, transpile, learn, version, help.
 -- ===================================================================
 
 task cli_parse_flags(start_idx: int, args_cnt: int) -> word {
@@ -283,6 +283,15 @@ task freakc_cli_main() -> void {
     -- Hangar package manager
     if subcmd == "hangar" {
         hangar_dispatch(args_cnt)
+        give back
+    }
+
+    -- FREAK Academy terminal learner (V3 shim; native rewrite is V4+)
+    if subcmd == "learn" {
+        pilot learn_exit = cli_learn_dispatch(args_cnt)
+        if learn_exit != 0 {
+            process::exit(learn_exit)
+        }
         give back
     }
 

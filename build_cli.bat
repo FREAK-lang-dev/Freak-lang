@@ -26,6 +26,7 @@ type src\cli\run.fk >> build\freakc_cli.fk
 type src\cli\hangar.fk >> build\freakc_cli.fk
 type src\cli\doctor.fk >> build\freakc_cli.fk
 type src\cli\audit.fk >> build\freakc_cli.fk
+type src\cli\learn.fk >> build\freakc_cli.fk
 type src\cli\main.fk >> build\freakc_cli.fk
 
 echo [Stage 2] Building V3 bootstrap compiler...
@@ -80,6 +81,7 @@ echo Usage:
 echo   build\freak.exe build file.fk          Compile to native binary
 echo   build\freak.exe run file.fk            Build and run
 echo   build\freak.exe check file.fk          Type-check only
+echo   build\freak.exe learn list             FREAK Academy lessons
 echo   build\freak.exe hangar init            Initialize project
 echo   build\hangar.exe init                  Standalone package manager
 echo   build\freak.exe --version              Show version

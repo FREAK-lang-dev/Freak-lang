@@ -429,7 +429,7 @@ task version_matches_constraint(version: word, constraint: word) -> bool {
 -- All global state in one file. Keeps other files pure logic.
 
 -- ===================== VERSION =====================================
-pilot FREAKC_VERSION = "0.13.2"
+pilot FREAKC_VERSION = "0.13.3"
 pilot FREAKC_CODENAME = "Shiranui"
 
 -- ===================== TOKENS ======================================
@@ -459,6 +459,9 @@ pilot EXPR_CALL = "8"
 pilot EXPR_METHOD = "9"
 pilot EXPR_FIELD = "10"
 pilot EXPR_INDEX = "11"
+-- `[a, b, c]` — value is unused, left holds the comma-separated list of
+-- element expr ids (same encoding as call args).
+pilot EXPR_ARRAY_LIT = "12"
 
 pilot ast_expr_kinds = 0
 pilot ast_expr_vals = 0
@@ -494,6 +497,28 @@ pilot ast_task_returns = 0
 pilot ast_stmt_lines = 0
 
 pilot ast_top_stmts = 0
+
+-- Mutability flag per stmt_id. "1" iff the stmt is `pilot mut <name> = ...`.
+-- Always pushed alongside the other ast_stmt_* arrays (see alloc_stmt).
+pilot ast_pilot_is_mut = 0
+
+-- ===================== BORROW CHECKER STATE ========================
+-- Phase-1 borrow checker (Bible §4.1: ownership + mutability).
+-- Off by default; enabled via --strict-borrow on the CLI.
+
+pilot strict_borrow = false
+
+-- Symbol table (parallel arrays, scope-stack discipline).
+-- bc_sym_kinds: "copy" | "owned"
+-- bc_sym_state: "live" | "moved"
+pilot bc_sym_names  = 0
+pilot bc_sym_kinds  = 0
+pilot bc_sym_is_mut = 0
+pilot bc_sym_state  = 0
+pilot bc_sym_scopes = 0
+pilot bc_sym_lines  = 0
+pilot bc_sym_count  = 0
+pilot bc_scope_depth = 0
 
 -- ===================== SHAPE REGISTRY ==============================
 pilot shape_registry_names = 0
@@ -589,6 +614,13 @@ task init_arrays() -> void {
     ast_task_returns = array_new()
     ast_stmt_lines = array_new()
     ast_top_stmts = array_new()
+    ast_pilot_is_mut = array_new()
+    bc_sym_names  = array_new()
+    bc_sym_kinds  = array_new()
+    bc_sym_is_mut = array_new()
+    bc_sym_state  = array_new()
+    bc_sym_scopes = array_new()
+    bc_sym_lines  = array_new()
     shape_registry_names = array_new()
     shape_registry_fields = array_new()
     emt_var_names = array_new()
@@ -622,6 +654,9 @@ task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body:
     array_push(ast_task_params, params)
     array_push(ast_task_returns, returns)
     array_push(ast_stmt_lines, line_no)
+    -- Default mutability: immutable. The `pilot mut` parser path overrides
+    -- via array_set after this returns. All other stmt kinds keep "0".
+    array_push(ast_pilot_is_mut, "0")
     give back id
 }
 
@@ -1234,14 +1269,12 @@ task current_source_line() -> word {
     if parse_idx < 0 or parse_idx >= tokens_count {
         give back "1"
     }
+    -- tok_lines is already in user-file coordinates: adjust_token_lines()
+    -- subtracts source_line_offset right after tokenize when the CLI has
+    -- prepended std. Standalone freakc_v3 leaves source_line_offset at 0
+    -- so adjust is a no-op. Don't subtract again here — that doubles the
+    -- offset and clamps every stmt to line 1.
     pilot line_no = word_to_int(array_get(tok_lines, parse_idx))
-    if source_line_offset > 0 {
-        if line_no > source_line_offset {
-            line_no -= source_line_offset
-        } else {
-            line_no = 1
-        }
-    }
     if line_no <= 0 { line_no = 1 }
     give back word_from_int(line_no)
 }
@@ -1343,6 +1376,33 @@ task parse_primary() -> int {
         pilot inner = parse_expr()
         expect_tok(TOK_PUNCT, ")")
         give back inner
+    }
+
+    -- Array literal: `[expr, expr, ...]`.  Stored as EXPR_ARRAY_LIT with
+    -- the element expr ids encoded the same way call args are: comma-
+    -- separated list of word-from-int ids in `left`.  Lowering happens
+    -- in the emitters: array_new() then array_push() per element.
+    if ttype == TOK_PUNCT and tval == "[" {
+        advance_tok()
+        pilot elem_ids = ""
+        pilot afin = false
+        pilot afirst = true
+        if match_tok(TOK_PUNCT, "]") { afin = true }
+        repeat until afin {
+            if cur_tok_type() == TOK_EOF or cur_tok_type() == "" { afin = true }
+            else {
+                pilot e_id = parse_expr()
+                if afirst {
+                    elem_ids = word_from_int(e_id)
+                    afirst = false
+                } else {
+                    elem_ids = elem_ids + "," + word_from_int(e_id)
+                }
+                if match_tok(TOK_PUNCT, "]") { afin = true }
+                else { expect_tok(TOK_PUNCT, ",") }
+            }
+        }
+        give back alloc_expr(EXPR_ARRAY_LIT, "", elem_ids, "")
     }
 
     diag_error("unexpected " + friendly_tok(ttype, tval) + " — this token cannot start an expression", "")
@@ -1580,8 +1640,31 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_EVENTUALLY, "", "", ev_body, "", "", "", "", stmt_line)
     }
 
-    -- pilot name = expr
+    -- fixed pilot name = expr  (immutable binding; treated identically to
+    --                            `pilot` here since the v3 emitter doesn't
+    --                            track mutability — the type checker will
+    --                            eventually enforce the `fixed` half.)
+    if match_tok(TOK_KW, "fixed") {
+        if not match_tok(TOK_KW, "pilot") {
+            diag_error("expected 'pilot' after 'fixed'", "")
+        }
+        pilot fname = cur_tok_val()
+        advance_tok()
+        pilot ftype_ann = ""
+        if cur_tok_type() == TOK_PUNCT and cur_tok_val() == ":" {
+            advance_tok()
+            ftype_ann = cur_tok_val()
+            advance_tok()
+        }
+        expect_tok(TOK_PUNCT, "=")
+        pilot fexpr_id = parse_expr()
+        give back alloc_stmt(STMT_PILOT, fname, word_from_int(fexpr_id), "", "", ftype_ann, "", "", stmt_line)
+    }
+
+    -- pilot [mut] name = expr
     if match_tok(TOK_KW, "pilot") {
+        pilot is_mut = false
+        if match_tok(TOK_KW, "mut") { is_mut = true }
         pilot name = cur_tok_val()
         advance_tok()
         pilot type_ann = ""
@@ -1592,7 +1675,9 @@ task parse_stmt() -> int {
         }
         expect_tok(TOK_PUNCT, "=")
         pilot expr_id = parse_expr()
-        give back alloc_stmt(STMT_PILOT, name, word_from_int(expr_id), "", "", type_ann, "", "", stmt_line)
+        pilot stmt_id = alloc_stmt(STMT_PILOT, name, word_from_int(expr_id), "", "", type_ann, "", "", stmt_line)
+        if is_mut { array_set(ast_pilot_is_mut, stmt_id, "1") }
+        give back stmt_id
     }
 
     -- give back expr
@@ -1903,7 +1988,460 @@ task parse_program() -> void {
 }
 
 task check_program() -> void {
-    -- Type checker stub (v3 Phase 1)
+    -- v3 has no full type checker yet. The borrow checker (Bible §4.1)
+    -- runs only when --strict-borrow is on the CLI; otherwise this is
+    -- a no-op so existing code keeps building.
+    if strict_borrow {
+        bc_run_program()
+    }
+}
+-- ===================================================================
+-- FREAK v3 COMPILER — BORROW CHECKER (Phase 1)
+-- ===================================================================
+-- Bible §4.1 enforcement: single-owner ownership + mutability.
+-- Runs only when --strict-borrow is on; otherwise check_program() in
+-- parser.fk skips this entire pass.
+--
+-- v1 scope:
+--   * `pilot x = e`        → immutable binding. Reassign is an error.
+--   * `pilot mut x = e`    → mutable binding.   Reassign is fine.
+--   * Move types (word, shape values, etc.): the binding moves on use,
+--     subsequent uses are use-after-move.
+--   * Copy types (int, num, bool, char, tiny, float, float32): unmoved.
+--
+-- Out of scope (later phases):
+--   * lend / lend mut     — Phase 2.
+--   * lifetimes           — Phase 3.
+--   * drop emission       — Phase 4.
+--   * Shared<T>, Weak<T>  — Phase 5.
+--   * trust me honor      — Phase 6.
+--   * partial-field moves — treated as full-parent move for v1.
+--   * closure captures    — body-level treatment, no per-capture move.
+-- ===================================================================
+
+-- ---------- Type kind classification --------------------------------
+
+-- Returns true iff the named type annotation is a primitive Copy type.
+task bc_is_copy_type(type_ann: word) -> bool {
+    if type_ann == "int"     { give back true }
+    if type_ann == "uint"    { give back true }
+    if type_ann == "num"     { give back true }
+    if type_ann == "tiny"    { give back true }
+    if type_ann == "bool"    { give back true }
+    if type_ann == "char"    { give back true }
+    if type_ann == "float"   { give back true }
+    if type_ann == "float32" { give back true }
+    if type_ann == "big"     { give back true }
+    give back false
+}
+
+-- Best-effort kind classification when the binding has no type annotation.
+-- Conservative: if the RHS is a literal primitive, "copy"; otherwise "owned".
+task bc_classify_rhs(expr_id: int) -> word {
+    if expr_id < 0 { give back "owned" }
+    pilot k: word = array_get(ast_expr_kinds, expr_id)
+    if k == EXPR_INT   { give back "copy" }
+    if k == EXPR_FLOAT { give back "copy" }
+    if k == EXPR_BOOL  { give back "copy" }
+    -- EXPR_STR, EXPR_IDENT (of unknown type), EXPR_CALL, EXPR_METHOD,
+    -- EXPR_FIELD, EXPR_INDEX, EXPR_BINOP, EXPR_UNARYOP all default to owned.
+    -- That over-reports, but Phase 1 errs on the safe side for moves.
+    give back "owned"
+}
+
+task bc_classify_binding(type_ann: word, expr_id: int) -> word {
+    if type_ann != "" {
+        if bc_is_copy_type(type_ann) { give back "copy" }
+        give back "owned"
+    }
+    give back bc_classify_rhs(expr_id)
+}
+
+-- ---------- Symbol-table helpers ------------------------------------
+
+task bc_push_sym(name: word, kind: word, is_mut: word, line: int) -> void {
+    pilot phys_len = array_len(bc_sym_names)
+    if bc_sym_count < phys_len {
+        array_set(bc_sym_names,  bc_sym_count, name)
+        array_set(bc_sym_kinds,  bc_sym_count, kind)
+        array_set(bc_sym_is_mut, bc_sym_count, is_mut)
+        array_set(bc_sym_state,  bc_sym_count, "live")
+        array_set(bc_sym_scopes, bc_sym_count, word_from_int(bc_scope_depth))
+        array_set(bc_sym_lines,  bc_sym_count, word_from_int(line))
+    } else {
+        array_push(bc_sym_names,  name)
+        array_push(bc_sym_kinds,  kind)
+        array_push(bc_sym_is_mut, is_mut)
+        array_push(bc_sym_state,  "live")
+        array_push(bc_sym_scopes, word_from_int(bc_scope_depth))
+        array_push(bc_sym_lines,  word_from_int(line))
+    }
+    bc_sym_count += 1
+}
+
+-- Latest binding of `name` visible in any active scope. -1 if none.
+task bc_lookup_idx(name: word) -> int {
+    pilot j = bc_sym_count - 1
+    repeat until j < 0 {
+        if array_get(bc_sym_names, j) == name { give back j }
+        j -= 1
+    }
+    give back 0 - 1
+}
+
+task bc_pop_to_depth(target_depth: int) -> void {
+    repeat until bc_sym_count == 0 {
+        pilot top = bc_sym_count - 1
+        pilot d = word_to_int(array_get(bc_sym_scopes, top))
+        if d <= target_depth { give back }
+        bc_sym_count -= 1
+    }
+}
+
+task bc_enter_scope() -> void {
+    bc_scope_depth += 1
+}
+
+task bc_leave_scope() -> void {
+    pilot prev = bc_scope_depth - 1
+    bc_pop_to_depth(prev)
+    bc_scope_depth = prev
+}
+
+-- ---------- Diagnostic emission -------------------------------------
+-- diag_error in helpers.fk reads the current parse_idx to point at a
+-- token. The borrow checker runs after parsing, so parse_idx is past
+-- the end. We emit a free-form line so the user gets the message even
+-- without a caret, and bump error_count directly.
+
+task bc_diag(msg: word, name: word, line: int) -> void {
+    error_count += 1
+    pilot loc: word = ""
+    if line > 0 { loc = " (line " + word_from_int(line) + ")" }
+    pilot at_name: word = ""
+    if name != "" { at_name = " '" + name + "'" }
+    say "\x1b[1;31mborrowck\x1b[0m: " + msg + at_name + loc
+}
+
+-- Anime-voiced canonical messages from Bible §4.1, §4.2.
+task bc_err_use_after_move(name: word, line: int) -> void {
+    bc_diag("Shirogane. You gave this away. It no longer belongs to you.", name, line)
+}
+
+task bc_err_assign_immut(name: word, line: int) -> void {
+    bc_diag("This binding was sworn to silence. It cannot be reassigned.", name, line)
+}
+
+-- ---------- Expression walk -----------------------------------------
+-- Walking an expression with `consume = true` means the value flows
+-- into a position that takes ownership (RHS of pilot/assign, call arg).
+-- For owned-kind ident leaves under consume, we mark the binding moved.
+
+task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
+    if expr_id < 0 { give back }
+    pilot k: word = array_get(ast_expr_kinds, expr_id)
+
+    if k == EXPR_INT or k == EXPR_FLOAT or k == EXPR_STR or k == EXPR_BOOL {
+        give back
+    }
+
+    if k == EXPR_IDENT {
+        pilot name: word = array_get(ast_expr_vals, expr_id)
+        pilot idx = bc_lookup_idx(name)
+        if idx < 0 { give back }
+        pilot state: word = array_get(bc_sym_state, idx)
+        pilot kind: word  = array_get(bc_sym_kinds, idx)
+        if state == "moved" {
+            bc_err_use_after_move(name, use_line)
+            give back
+        }
+        if consume and kind == "owned" {
+            array_set(bc_sym_state, idx, "moved")
+        }
+        give back
+    }
+
+    if k == EXPR_BINOP {
+        pilot lft: word = array_get(ast_expr_lefts,  expr_id)
+        pilot rht: word = array_get(ast_expr_rights, expr_id)
+        bc_walk_expr(word_to_int(lft), false, use_line)
+        bc_walk_expr(word_to_int(rht), false, use_line)
+        give back
+    }
+
+    if k == EXPR_UNARYOP {
+        pilot inner: word = array_get(ast_expr_lefts, expr_id)
+        bc_walk_expr(word_to_int(inner), false, use_line)
+        give back
+    }
+
+    if k == EXPR_CALL {
+        -- ast_expr_lefts holds a string of comma-separated arg expr ids.
+        pilot args: word = array_get(ast_expr_lefts, expr_id)
+        bc_walk_call_args(args, use_line)
+        give back
+    }
+
+    if k == EXPR_METHOD {
+        -- Receiver + args. ast_expr_lefts = receiver expr id (as word).
+        -- ast_expr_rights = comma-separated arg expr ids.
+        pilot recv: word = array_get(ast_expr_lefts, expr_id)
+        pilot margs: word = array_get(ast_expr_rights, expr_id)
+        bc_walk_expr(word_to_int(recv), false, use_line)
+        bc_walk_call_args(margs, use_line)
+        give back
+    }
+
+    if k == EXPR_FIELD {
+        pilot base: word = array_get(ast_expr_lefts, expr_id)
+        -- Touching a field counts as a use of the parent. v1 treats as
+        -- read-only; if the parent was moved, this is use-after-move.
+        bc_walk_expr(word_to_int(base), false, use_line)
+        give back
+    }
+
+    if k == EXPR_INDEX {
+        pilot base: word = array_get(ast_expr_lefts, expr_id)
+        pilot idxe: word = array_get(ast_expr_rights, expr_id)
+        bc_walk_expr(word_to_int(base), false, use_line)
+        bc_walk_expr(word_to_int(idxe), false, use_line)
+        give back
+    }
+}
+
+-- Parse a comma-separated list of expr ids and walk each as a consumed arg.
+task bc_walk_call_args(args: word, use_line: int) -> void {
+    if args == "" { give back }
+    pilot cur: word = ""
+    pilot i = 0
+    pilot n = args.length()
+    repeat n times {
+        pilot c: word = args.char_at(i)
+        if c == "," {
+            if cur != "" { bc_walk_expr(word_to_int(cur), true, use_line) }
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        i += 1
+    }
+    if cur != "" { bc_walk_expr(word_to_int(cur), true, use_line) }
+}
+
+-- ---------- Statement walk ------------------------------------------
+
+task bc_walk_stmt(stmt_id: int) -> void {
+    if stmt_id < 0 { give back }
+    pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
+    pilot line = word_to_int(array_get(ast_stmt_lines, stmt_id))
+    -- adjust_token_lines clamps every prepended-std token to line 1
+    -- when the CLI auto-loads std (source_line_offset > 0). Skip BC on
+    -- those stmts so the user's file is the only thing checked. The
+    -- corner case of user-file line 1 sharing the clamp value is the
+    -- price; phases past v1 will track origin via stmt-id range
+    -- instead of line number.
+    if source_line_offset > 0 {
+        if line <= 1 { give back }
+    }
+
+    if kind == STMT_PILOT {
+        pilot name: word = array_get(ast_stmt_names, stmt_id)
+        pilot expr_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot type_ann: word = array_get(ast_stmt_extras, stmt_id)
+        pilot expr_id = word_to_int(expr_w)
+        -- Walk RHS first so RHS may move other owned bindings.
+        bc_walk_expr(expr_id, true, line)
+        pilot k: word = bc_classify_binding(type_ann, expr_id)
+        pilot is_mut: word = array_get(ast_pilot_is_mut, stmt_id)
+        bc_push_sym(name, k, is_mut, line)
+        give back
+    }
+
+    if kind == STMT_ASSIGN {
+        pilot op: word = array_get(ast_stmt_names, stmt_id)
+        pilot lhs_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot rhs_w: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot lhs = word_to_int(lhs_w)
+        pilot rhs = word_to_int(rhs_w)
+        -- Walk RHS first (may move other bindings).
+        bc_walk_expr(rhs, true, line)
+        -- Mutability check: only when LHS is a bare identifier. Field /
+        -- index writes are treated as field-level mutation and are not
+        -- yet tracked in v1 (full-parent treatment lands later).
+        pilot lk: word = array_get(ast_expr_kinds, lhs)
+        if lk == EXPR_IDENT {
+            pilot lname: word = array_get(ast_expr_vals, lhs)
+            pilot idx = bc_lookup_idx(lname)
+            if idx >= 0 {
+                pilot is_mut: word = array_get(bc_sym_is_mut, idx)
+                if is_mut != "1" {
+                    bc_err_assign_immut(lname, line)
+                }
+                -- Reassignment re-establishes liveness for the binding.
+                array_set(bc_sym_state, idx, "live")
+            }
+        } else {
+            -- Non-ident LHS: walk as a read for now.
+            bc_walk_expr(lhs, false, line)
+        }
+        give back
+    }
+
+    if kind == STMT_SAY {
+        pilot expr_w: word = array_get(ast_stmt_exprs, stmt_id)
+        bc_walk_expr(word_to_int(expr_w), false, line)
+        give back
+    }
+
+    if kind == STMT_GIVE_BACK {
+        pilot expr_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot eid = word_to_int(expr_w)
+        if eid >= 0 { bc_walk_expr(eid, true, line) }
+        give back
+    }
+
+    if kind == STMT_EXPR {
+        pilot expr_w: word = array_get(ast_stmt_exprs, stmt_id)
+        bc_walk_expr(word_to_int(expr_w), false, line)
+        give back
+    }
+
+    if kind == STMT_IF {
+        pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot then_w: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot else_w: word = array_get(ast_stmt_else_bodies, stmt_id)
+        bc_walk_expr(word_to_int(cond_w), false, line)
+        bc_enter_scope()
+        bc_walk_block(then_w)
+        bc_leave_scope()
+        if else_w != "" {
+            bc_enter_scope()
+            bc_walk_block(else_w)
+            bc_leave_scope()
+        }
+        give back
+    }
+
+    if kind == STMT_REPEAT {
+        pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
+        bc_walk_expr(word_to_int(cond_w), false, line)
+        bc_enter_scope()
+        bc_walk_block(body_w)
+        bc_leave_scope()
+        give back
+    }
+
+    if kind == STMT_TRAINING_ARC {
+        pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
+        pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
+        bc_walk_expr(word_to_int(cond_w), false, line)
+        bc_enter_scope()
+        bc_walk_block(body_w)
+        bc_leave_scope()
+        give back
+    }
+
+    if kind == STMT_BLOCK {
+        pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
+        bc_enter_scope()
+        bc_walk_block(body_w)
+        bc_leave_scope()
+        give back
+    }
+
+    if kind == STMT_EVENTUALLY {
+        pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
+        bc_enter_scope()
+        bc_walk_block(body_w)
+        bc_leave_scope()
+        give back
+    }
+
+    if kind == STMT_TASK {
+        -- Body lives in its own scope. Params are in scope during body.
+        pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot params: word = array_get(ast_task_params, stmt_id)
+        bc_enter_scope()
+        bc_register_task_params(params, line)
+        bc_walk_block(body_w)
+        bc_leave_scope()
+        give back
+    }
+
+    if kind == STMT_SHAPE        { give back }
+    if kind == STMT_BREAK        { give back }
+    if kind == STMT_CONTINUE     { give back }
+    if kind == STMT_EXTERN       { give back }
+    if kind == STMT_WHEN         { give back }
+}
+
+-- Walk a comma-separated list of stmt ids, in order.
+task bc_walk_block(block_str: word) -> void {
+    if block_str == "" { give back }
+    pilot cur: word = ""
+    pilot i = 0
+    pilot n = block_str.length()
+    repeat n times {
+        pilot c: word = block_str.char_at(i)
+        if c == "," {
+            if cur != "" { bc_walk_stmt(word_to_int(cur)) }
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        i += 1
+    }
+    if cur != "" { bc_walk_stmt(word_to_int(cur)) }
+}
+
+-- Param string format used by the v3 parser is "name:type,name:type,...".
+-- Each param becomes a fresh, live, mutable binding for the body.
+-- (Param immutability is a Phase 2 feature alongside `lend`.)
+task bc_register_task_params(params: word, line: int) -> void {
+    if params == "" { give back }
+    pilot cur_name: word = ""
+    pilot cur_type: word = ""
+    pilot in_type = false
+    pilot i = 0
+    pilot n = params.length()
+    repeat n times {
+        pilot c: word = params.char_at(i)
+        if c == "," {
+            if cur_name != "" {
+                pilot k: word = "owned"
+                if bc_is_copy_type(cur_type) { k = "copy" }
+                bc_push_sym(cur_name, k, "1", line)
+            }
+            cur_name = ""
+            cur_type = ""
+            in_type = false
+        } else if c == ":" {
+            in_type = true
+        } else {
+            if in_type { cur_type = cur_type + c } else { cur_name = cur_name + c }
+        }
+        i += 1
+    }
+    if cur_name != "" {
+        pilot k2: word = "owned"
+        if bc_is_copy_type(cur_type) { k2 = "copy" }
+        bc_push_sym(cur_name, k2, "1", line)
+    }
+}
+
+-- ---------- Top-level entry -----------------------------------------
+
+task bc_run_program() -> void {
+    bc_sym_count = 0
+    bc_scope_depth = 0
+    pilot top_count = array_len(ast_top_stmts)
+    pilot i = 0
+    repeat top_count times {
+        pilot stmt_id = word_to_int(array_get(ast_top_stmts, i))
+        bc_walk_stmt(stmt_id)
+        i += 1
+    }
 }
 -- ===================================================================
 -- FREAK v3 COMPILER — C BACKEND EMITTER
@@ -2072,6 +2610,40 @@ task emit_expr(id: word) -> void {
             emit_expr(right)
             emit("]")
         }
+        give back
+    }
+
+    if kind == EXPR_ARRAY_LIT {
+        -- `[a, b, c]` lowers to a clang/gcc statement-expression:
+        --   ({ int64_t arr = freak_llvm_array_new();
+        --      freak_llvm_array_push(arr, a);
+        --      freak_llvm_array_push(arr, b);
+        --      arr; })
+        -- Element ids live in `left`, comma-separated.
+        emit("({ int64_t __arr = freak_llvm_array_new(); ")
+        pilot ali = 0
+        pilot alen2 = left.length()
+        pilot cur_eid_c = ""
+        repeat alen2 times {
+            pilot acc = left.char_at(ali)
+            if acc == "," {
+                if cur_eid_c.length() > 0 {
+                    emit("freak_llvm_array_push(__arr, ")
+                    emit_expr(cur_eid_c)
+                    emit("); ")
+                    cur_eid_c = ""
+                }
+            } else {
+                cur_eid_c = cur_eid_c + acc
+            }
+            ali += 1
+        }
+        if cur_eid_c.length() > 0 {
+            emit("freak_llvm_array_push(__arr, ")
+            emit_expr(cur_eid_c)
+            emit("); ")
+        }
+        emit("__arr; })")
         give back
     }
 
@@ -2371,6 +2943,51 @@ task emit_stmt(eid: word) -> void {
     if kind == STMT_ASSIGN {
         pilot op_w = name_w
         pilot rhs_w: word = array_get(ast_stmt_bodies, i)
+        pilot lhs_idx = word_to_int(expr_id_w)
+        pilot lhs_kind: word = array_get(ast_expr_kinds, lhs_idx)
+
+        -- Field assignment: self.field = rhs  ->  shape_set(self, fidx, rhs)
+        -- For compound ops we re-evaluate the receiver (acceptable for the
+        --  common `self.field +=` case; nested side-effecting receivers are
+        --  rare and can be lifted to a temp by the caller).
+        if lhs_kind == EXPR_FIELD {
+            pilot field_name: word = array_get(ast_expr_vals, lhs_idx)
+            pilot recv_id: word = array_get(ast_expr_lefts, lhs_idx)
+            pilot fidx = 0 - 1
+            pilot si = 0
+            repeat shape_registry_count times {
+                pilot tmpidx = get_shape_field_index(array_get(shape_registry_names, si), field_name)
+                if tmpidx >= 0 { fidx = tmpidx }
+                si += 1
+            }
+            if fidx < 0 { fidx = 0 }
+            pilot fidx_w = word_from_int(fidx)
+
+            if op_w == "=" {
+                emit("freak_llvm_shape_set(")
+                emit_expr(recv_id)
+                emit(", " + fidx_w + ", ")
+                emit_expr(rhs_w)
+                emit_line(");")
+                give back
+            }
+
+            pilot bin_op = "+"
+            if op_w == "-=" { bin_op = "-" }
+            if op_w == "*=" { bin_op = "*" }
+            if op_w == "/=" { bin_op = "/" }
+            if op_w == "%=" { bin_op = "%" }
+
+            emit("freak_llvm_shape_set(")
+            emit_expr(recv_id)
+            emit(", " + fidx_w + ", freak_llvm_shape_get(")
+            emit_expr(recv_id)
+            emit(", " + fidx_w + ") " + bin_op + " ")
+            emit_expr(rhs_w)
+            emit_line(");")
+            give back
+        }
+
         emit_expr(expr_id_w)
         emit(" " + op_w + " ")
         emit_expr(rhs_w)
@@ -2848,7 +3465,7 @@ task llvm_dbg_init() -> void {
     pilot file_name = llvm_dbg_escape(llvm_dbg_current_file)
     pilot dir_name = llvm_dbg_escape(llvm_dbg_current_dir)
     llvm_dbg_file_id = llvm_dbg_append("!DIFile(filename: \"" + file_name + "\", directory: \"" + dir_name + "\")")
-    llvm_dbg_cu_id = llvm_dbg_append("distinct !DICompileUnit(language: DW_LANG_C, file: !" + word_from_int(llvm_dbg_file_id) + ", producer: \"FREAK v3\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)")
+    llvm_dbg_cu_id = llvm_dbg_append("distinct !DICompileUnit(language: DW_LANG_C, file: !" + word_from_int(llvm_dbg_file_id) + ", producer: \"FREAK v3\", isOptimized: false, runtimeVersion: 0, emissionKind: LineTablesOnly)")
     llvm_dbg_empty_id = llvm_dbg_append("!{}")
     llvm_dbg_subroutine_type_id = llvm_dbg_append("!DISubroutineType(types: !" + word_from_int(llvm_dbg_empty_id) + ")")
 }
@@ -2874,9 +3491,17 @@ task llvm_dbg_set_stmt_line(eid: word) -> void {
 }
 
 task llvm_dbg_begin_func(name: word, line_no: int) -> word {
-    llvm_dbg_current_scope_id = llvm_dbg_emit_subprogram(name, line_no)
+    -- LB10 minimal: emit a DISubprogram for this function, set the
+    -- current scope so llvm_emit_line attaches `!dbg !N` to every
+    -- instruction, and return the function-level attribute that
+    -- links the definition to the subprogram. The `lineTablesOnly`
+    -- emission kind in llvm_dbg_init keeps the metadata footprint
+    -- bounded — no variable info, no type info, just enough for
+    -- source-line backtraces in gdb/lldb.
+    pilot sp_id = llvm_dbg_emit_subprogram(name, line_no)
+    llvm_dbg_current_scope_id = sp_id
     llvm_dbg_current_line = line_no
-    give back " !dbg !" + word_from_int(llvm_dbg_current_scope_id)
+    give back " !dbg !" + word_from_int(sp_id)
 }
 
 task register_string_literal(val: word) -> word {
@@ -3047,7 +3672,11 @@ task llvm_var_ptr(vname: word) -> word {
     if llvm_is_global(vname) { give back "@g_" + vname }
     pilot unique = llvm_get_llvm_name(vname)
     if unique != "" { give back "%" + unique }
-    give back "%" + vname
+    -- Unknown name: assume it's an unresolved top-level global. Emitting
+    -- "%vname" would produce an undefined SSA register and a confusing
+    -- clang error. "@g_vname" surfaces a clean linker-time missing-symbol
+    -- error instead.
+    give back "@g_" + vname
 }
 
 task llvm_is_runtime_func(fname: word) -> bool {
@@ -3071,6 +3700,8 @@ task llvm_infer_expr_type(expr_id: word) -> word {
 
     if kind == EXPR_METHOD {
         if val == "trim" or val == "to_upper" or val == "to_lower" or val == "replace" or val == "char_at" { give back "w" }
+        if val == "to_word" { give back "w" }
+        if val == "to_num" { give back "n" }
         if val == "length" or val == "to_int" or val == "contains" or val == "starts_with" or val == "ends_with" { give back "i" }
         pilot mi = 0
         repeat shape_registry_count times {
@@ -3185,6 +3816,7 @@ task llvm_map_call_name(val: word) -> word {
     if val == "word_from_int" { give back "@freak_llvm_word_from_int" }
     if val == "word_from_bool" { give back "@freak_llvm_word_from_bool" }
     if val == "word_to_int" { give back "@freak_llvm_word_to_int" }
+    if val == "char_to_word" { give back "@freak_llvm_char_to_word" }
     if val == "fs::read" { give back "@freak_llvm_fs_read" }
     if val == "fs::write" { give back "@freak_llvm_fs_write" }
     if val == "fs::append" { give back "@freak_llvm_fs_append" }
@@ -3214,6 +3846,13 @@ task llvm_map_call_name(val: word) -> word {
     if val == "ui::event_mouse_x" { give back "@freak_llvm_ui_event_mouse_x" }
     if val == "ui::event_mouse_y" { give back "@freak_llvm_ui_event_mouse_y" }
     if val == "ui::event_button" { give back "@freak_llvm_ui_event_button" }
+    if val == "ui::event_repeat" { give back "@freak_llvm_ui_event_repeat" }
+    if val == "ui::event_scroll_dy" { give back "@freak_llvm_ui_event_scroll_dy" }
+    if val == "ui::event_width" { give back "@freak_llvm_ui_event_width" }
+    if val == "ui::event_height" { give back "@freak_llvm_ui_event_height" }
+    if val == "ui::event_gained" { give back "@freak_llvm_ui_event_gained" }
+    if val == "ui::get_width" { give back "@freak_llvm_ui_get_width" }
+    if val == "ui::get_height" { give back "@freak_llvm_ui_get_height" }
     if val == "ui::clear" { give back "@freak_llvm_ui_clear" }
     if val == "ui::fill_rect" { give back "@freak_llvm_ui_fill_rect" }
     if val == "ui::stroke_rect" { give back "@freak_llvm_ui_stroke_rect" }
@@ -3335,6 +3974,38 @@ task llvm_emit_expr(id: word) -> word {
         llvm_emit_line("    " + char_reg + " = load i8, i8* " + gep_reg)
         llvm_emit_line("    " + res_reg + " = zext i8 " + char_reg + " to i64")
         give back res_reg
+    }
+    if kind == EXPR_ARRAY_LIT {
+        -- Lower `[a, b, c]` to:
+        --   %arr = call i64 @freak_llvm_array_new()
+        --   call void @freak_llvm_array_push(i64 %arr, i64 %a)
+        --   call void @freak_llvm_array_push(i64 %arr, i64 %b)
+        --   ...
+        -- and return %arr.  `left` is a comma-separated list of element
+        -- expr ids (same encoding as call args / shape ctor args).
+        pilot arr_reg = next_reg()
+        llvm_emit_line("    " + arr_reg + " = call i64 @freak_llvm_array_new()")
+        pilot ai = 0
+        pilot alen = left.length()
+        pilot cur_eid = ""
+        repeat alen times {
+            pilot ac = left.char_at(ai)
+            if ac == "," {
+                if cur_eid.length() > 0 {
+                    pilot er = llvm_emit_expr(cur_eid)
+                    llvm_emit_line("    call void @freak_llvm_array_push(i64 " + arr_reg + ", i64 " + er + ")")
+                    cur_eid = ""
+                }
+            } else {
+                cur_eid = cur_eid + ac
+            }
+            ai += 1
+        }
+        if cur_eid.length() > 0 {
+            pilot er2 = llvm_emit_expr(cur_eid)
+            llvm_emit_line("    call void @freak_llvm_array_push(i64 " + arr_reg + ", i64 " + er2 + ")")
+        }
+        give back arr_reg
     }
     give back "0"
 }
@@ -3566,23 +4237,76 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
     if val == "to_lower" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_lower(i64 " + obj_reg + ")") give back res_reg }
     if val == "trim" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_trim(i64 " + obj_reg + ")") give back res_reg }
     if val == "replace" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_replace(i64 " + obj_reg + ", i64 " + a + ", i64 0)") give back res_reg }
-    if val == "to_int" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_int(i64 " + obj_reg + ")") give back res_reg }
+    -- to_int / to_num / to_word — receiver-type-dispatched primitive
+    -- conversions.  The receiver's inferred type picks which runtime
+    -- helper to call.  Without these, calls like `font_size.to_num()`
+    -- in cockpit landed on the unsupported-method branch and returned
+    -- 0, which collapsed every layout rect to zero size.
+    pilot recv_ty = llvm_infer_expr_type(left)
+    if val == "to_int" {
+        if recv_ty.starts_with("n") {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_num_to_int(i64 " + obj_reg + ")")
+        } else {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_int(i64 " + obj_reg + ")")
+        }
+        give back res_reg
+    }
+    if val == "to_num" {
+        if recv_ty.starts_with("w") {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_parse_num(i64 " + obj_reg + ")")
+        } else {
+            -- Default: treat as int → num (covers int and unknown-typed
+            -- locals that hold integer values, e.g. shape fields).
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_int_to_num(i64 " + obj_reg + ")")
+        }
+        give back res_reg
+    }
+    if val == "to_word" {
+        if recv_ty.starts_with("n") {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_from_num(i64 " + obj_reg + ")")
+        } else if recv_ty.starts_with("b") {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_from_bool(i64 " + obj_reg + ")")
+        } else {
+            llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_from_int(i64 " + obj_reg + ")")
+        }
+        give back res_reg
+    }
     -- User-defined impl methods
+    -- Args are stored in `right` as a comma-separated list of expr id words.
+    -- Thread them through llvm_emit_args so user methods receive every arg
+    -- after `self`, not just `self` alone.
+    pilot extra_args = ""
+    if right.length() > 0 {
+        extra_args = ", " + llvm_emit_args(right)
+    }
+    -- Pick the LAST shape that has a matching method, not the first.
+    -- Without proper receiver-type inference we can't know which shape
+    -- the `self` is, but in practice the public widget shapes are
+    -- declared after their internal helpers (e.g. `LayoutStack` after
+    -- `LayoutContext`), so last-match is a useful heuristic.  This is
+    -- a pragmatic fix; a real shape-typed receiver inference belongs
+    -- in a follow-up.
+    pilot best_sname = ""
+    pilot best_ret = ""
     pilot si = 0
     repeat shape_registry_count times {
         pilot sname: word = "" + array_get(shape_registry_names, si)
         pilot call_ret: word = llvm_get_task_ret_type(sname + "_" + val)
         if call_ret.length() > 0 {
-            pilot impl_fname = "freak_" + sname + "_" + val
-            if call_ret == "v" {
-                llvm_emit_line("    call void @" + impl_fname + "(i64 " + obj_reg + ")")
-                llvm_emit_line("    " + res_reg + " = add i64 0, 0")
-            } else {
-                llvm_emit_line("    " + res_reg + " = call i64 @" + impl_fname + "(i64 " + obj_reg + ")")
-            }
-            give back res_reg
+            best_sname = sname
+            best_ret = call_ret
         }
         si += 1
+    }
+    if best_sname.length() > 0 {
+        pilot impl_fname = "freak_" + best_sname + "_" + val
+        if best_ret == "v" {
+            llvm_emit_line("    call void @" + impl_fname + "(i64 " + obj_reg + extra_args + ")")
+            llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+        } else {
+            llvm_emit_line("    " + res_reg + " = call i64 @" + impl_fname + "(i64 " + obj_reg + extra_args + ")")
+        }
+        give back res_reg
     }
     llvm_emit_line("    ; unsupported method " + val)
     llvm_emit_line("    " + res_reg + " = add i64 0, 0")
@@ -3867,7 +4591,49 @@ task llvm_emit_stmt_assign(eid: word) -> void {
     pilot name_w: word = array_get(ast_stmt_names, i)
     pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
     pilot rhs_w: word = array_get(ast_stmt_bodies, i)
-    pilot var_name_expr: word = array_get(ast_expr_vals, word_to_int(expr_id_w))
+    pilot lhs_idx = word_to_int(expr_id_w)
+    pilot lhs_kind: word = array_get(ast_expr_kinds, lhs_idx)
+
+    -- Field assignment: self.field = rhs  ->  shape_set(self, fidx, rhs)
+    -- (Receiver evaluated once and reused for compound ops to avoid
+    --  re-running side effects.)
+    if lhs_kind == EXPR_FIELD {
+        pilot field_name: word = array_get(ast_expr_vals, lhs_idx)
+        pilot recv_id: word = array_get(ast_expr_lefts, lhs_idx)
+        pilot recv_reg = llvm_emit_expr(recv_id)
+
+        pilot fidx = 0 - 1
+        pilot si = 0
+        repeat shape_registry_count times {
+            pilot tmpidx = get_shape_field_index(array_get(shape_registry_names, si), field_name)
+            if tmpidx >= 0 { fidx = tmpidx }
+            si += 1
+        }
+        if fidx < 0 { fidx = 0 }
+
+        pilot rhs_reg = llvm_emit_expr(rhs_w)
+        pilot fidx_w = word_from_int(fidx)
+
+        if name_w == "=" {
+            llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + rhs_reg + ")")
+            give back
+        }
+
+        -- Compound op on field: read, combine, write
+        pilot cur_reg = next_reg()
+        llvm_emit_line("    " + cur_reg + " = call i64 @freak_llvm_shape_get(i64 " + recv_reg + ", i64 " + fidx_w + ")")
+        pilot op_reg = next_reg()
+        if name_w == "+=" { llvm_emit_line("    " + op_reg + " = add i64 " + cur_reg + ", " + rhs_reg) }
+        if name_w == "-=" { llvm_emit_line("    " + op_reg + " = sub i64 " + cur_reg + ", " + rhs_reg) }
+        if name_w == "*=" { llvm_emit_line("    " + op_reg + " = mul i64 " + cur_reg + ", " + rhs_reg) }
+        if name_w == "/=" { llvm_emit_line("    " + op_reg + " = sdiv i64 " + cur_reg + ", " + rhs_reg) }
+        if name_w == "%=" { llvm_emit_line("    " + op_reg + " = srem i64 " + cur_reg + ", " + rhs_reg) }
+        llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + op_reg + ")")
+        give back
+    }
+
+    -- Plain variable / global assignment
+    pilot var_name_expr: word = array_get(ast_expr_vals, lhs_idx)
     pilot reg = llvm_emit_expr(rhs_w)
     pilot var_ptr = llvm_var_ptr(var_name_expr)
     if name_w == "=" {
@@ -4058,6 +4824,10 @@ task llvm_allocate_params(p: word) -> void {
             if cur_type == "num" { pt = "n" }
             if cur_type == "bool" { pt = "b" }
             llvm_set_var_type(cur_name, pt)
+            -- Register the param in the llvm-name map so later references
+            -- to `cur_name` resolve to `%cur_name` rather than falling
+            -- through to the unknown-name path.
+            llvm_reg_var(cur_name, cur_name)
             cur_name = ""
             cur_type = ""
             in_type = false
@@ -4075,6 +4845,7 @@ task llvm_allocate_params(p: word) -> void {
         if cur_type == "num" { pt = "n" }
         if cur_type == "bool" { pt = "b" }
         llvm_set_var_type(cur_name, pt)
+        llvm_reg_var(cur_name, cur_name)
     }
 }
 
@@ -4117,6 +4888,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @strlen(i8*)")
     llvm_emit_line("declare i64 @freak_llvm_word_from_int(i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_from_bool(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_char_to_word(i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_concat(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_eq(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_neq(i64, i64)")
@@ -4163,6 +4935,13 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_llvm_ui_event_mouse_x(i64)")
     llvm_emit_line("declare i64 @freak_llvm_ui_event_mouse_y(i64)")
     llvm_emit_line("declare i64 @freak_llvm_ui_event_button(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_repeat(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_scroll_dy(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_width(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_height(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_event_gained(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_get_width(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_ui_get_height(i64)")
     llvm_emit_line("declare void @freak_llvm_ui_clear(i64, i64, i64, i64, i64)")
     llvm_emit_line("declare void @freak_llvm_ui_fill_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
     llvm_emit_line("declare void @freak_llvm_ui_stroke_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
@@ -4383,7 +5162,7 @@ task emit_llvm_program() -> void {
 -- The visual identity of FREAK. Make it beautiful.
 -- ===================================================================
 
-pilot CLI_VERSION = "0.13.2"
+pilot CLI_VERSION = "0.13.3"
 pilot CLI_CODENAME = "Shiranui"
 
 -- ── ANSI Reset & Styles ──────────────────────────────
@@ -4545,6 +5324,9 @@ task cli_show_help() -> void {
     say cli_box_mid("  " + C_G4 + "transpile" + C_RESET + " <file.fk> [opts]  " + C_DIM + "Emit .c or .ll" + C_RESET, 45)
     say cli_box_mid("  " + C_G5 + "hangar" + C_RESET + "    <cmd>              " + C_DIM + "Package manager" + C_RESET, 45)
     say cli_box_mid("  " + C_G6 + "doctor" + C_RESET + "    [--fix]              " + C_DIM + "Check setup, auto-fix" + C_RESET, 45)
+    say cli_box_mid("  " + C_G1 + "learn" + C_RESET + "     [cmd]              " + C_DIM + "FREAK Academy" + C_RESET, 45)
+    say cli_box_mid("  " + C_G1 + "test" + C_RESET + "                          " + C_DIM + "Run regression suite" + C_RESET, 45)
+    say cli_box_mid("  " + C_G2 + "audit-*" + C_RESET + "                       " + C_DIM + "audit-conformance/science/trust/miracles" + C_RESET, 45)
     say cli_box_mid("  " + C_G1 + "upgrade" + C_RESET + "                      " + C_DIM + "Download latest FREAK" + C_RESET, 45)
     say cli_box_mid("  " + C_BCYAN + "version" + C_RESET + "                      " + C_DIM + "Show version" + C_RESET, 45)
     say cli_box_mid("  " + C_BCYAN + "help" + C_RESET + "                         " + C_DIM + "This screen" + C_RESET, 45)
@@ -4566,6 +5348,7 @@ task cli_show_help() -> void {
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak run" + C_RESET + " hello.fk " + C_BYELLOW + "--c --opt=3" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--target=x86_64-linux-gnu" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak hangar" + C_RESET + " init my-project"
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak learn" + C_RESET + " list"
     say ""
     say "  " + C_DIM + C_ITALIC + cli_random_quote(42) + C_RESET
     say ""
@@ -5343,14 +6126,27 @@ task cli_strip_resolved_use_lines(source: word) -> word {
     pilot line = ""
     pilot i = 0
     pilot slen = source.length()
+    -- When `in_use_block` is set we're inside a multi-line `use std::x::{ ... }`
+    -- that spans newlines. Keep stripping until we see the closing brace.
+    pilot in_use_block = false
     repeat until i >= slen {
         pilot ch = source.char_at(i)
         if ch == "\n" {
             pilot trimmed = line.trim()
-            if trimmed.starts_with("use std::math3d") or trimmed.starts_with("use std::zip") {
-                out = out + "-- [resolved] " + trimmed + "\n"
+            if in_use_block {
+                out = out + "-- [resolved cont] " + trimmed + "\n"
+                if trimmed.contains("}") { in_use_block = false }
             } else {
-                out = out + line + "\n"
+                if trimmed.starts_with("use ") {
+                    out = out + "-- [resolved] " + trimmed + "\n"
+                    -- Multi-line use? Look for `{` without a matching `}` on
+                    -- the same line — keep eating lines until we see `}`.
+                    if trimmed.contains("{") and not trimmed.contains("}") {
+                        in_use_block = true
+                    }
+                } else {
+                    out = out + line + "\n"
+                }
             }
             line = ""
         } else if ch != "\r" {
@@ -5360,7 +6156,7 @@ task cli_strip_resolved_use_lines(source: word) -> word {
     }
     if line != "" {
         pilot trimmed_last = line.trim()
-        if trimmed_last.starts_with("use std::math3d") or trimmed_last.starts_with("use std::zip") {
+        if in_use_block or trimmed_last.starts_with("use ") {
             out = out + "-- [resolved] " + trimmed_last
         } else {
             out = out + line
@@ -5385,7 +6181,15 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
 
     cli_step_start()
     check_program()
-    cli_step_done("Type checking")
+    if strict_borrow {
+        cli_step_done("Borrow checking")
+        if error_count > 0 {
+            say "  " + C_BRED + SYM_CROSS + " " + word_from_int(error_count) + " borrow-check error(s)" + C_RESET
+            give back ""
+        }
+    } else {
+        cli_step_done("Type checking")
+    }
 
     cli_step_start()
     if target == "llvm" {
@@ -5610,11 +6414,13 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         cmd = cmd + " -lws2_32"
     }
 
-    -- Add UI runtime if source file uses ui:: functions
+    -- Add UI runtime if source file uses ui:: functions.
+    -- -DFREAK_HAS_UI activates the LLVM-side bridge wrappers
+    -- (freak_llvm_ui_*) inside freak_llvm_runtime.c.
     pilot ui_c = runtime_dir + "/ui/win32_backend.c"
     if is_win {
         if fs::exists(ui_c) {
-            cmd = cmd + " " + ui_c + " -luser32 -lgdi32 -lmsimg32"
+            cmd = cmd + " " + ui_c + " -DFREAK_HAS_UI -luser32 -lgdi32 -lmsimg32"
         }
     }
 
@@ -5714,6 +6520,39 @@ task cli_load_std(source: word, target: word) -> word {
     if fs::exists(version_path) {
         std_src = std_src + fs::read(version_path) + "\n"
     }
+    -- std::ui — window and canvas types. Loaded conditionally because most
+    -- programs don't need it, and pulling its shape definitions into every
+    -- compile would slow plain CLI builds. Without it, programs that
+    -- `use std::ui` would parse `WindowConfig { ... }` as an identifier
+    -- followed by an unrecognized block, since `is_shape_name` looks at
+    -- the current shape registry only.
+    pilot need_ui = false
+    if source.contains("use std::ui") {
+        need_ui = true
+    }
+    pilot ui_path = std_dir + "/ui/window.fk"
+    if need_ui and fs::exists(ui_path) {
+        std_src = std_src + fs::read(ui_path) + "\n"
+    }
+    -- cockpit — UI framework Hangar package. Mirrors the std::ui pattern:
+    -- if the source mentions `use cockpit`, append the cockpit src files
+    -- so its shapes (UI, Theme) and module-level pilots (btn_*, label_*)
+    -- are in scope. Order matters: containers first, then theme, layout,
+    -- widgets, ui (the dispatcher).
+    pilot need_cockpit = false
+    if source.contains("use cockpit") {
+        need_cockpit = true
+    }
+    if need_cockpit {
+        pilot cockpit_root = "packages/cockpit/src"
+        if fs::exists(cockpit_root + "/containers.fk") {
+            std_src = std_src + fs::read(cockpit_root + "/containers.fk") + "\n"
+            std_src = std_src + fs::read(cockpit_root + "/theme.fk") + "\n"
+            std_src = std_src + fs::read(cockpit_root + "/layout.fk") + "\n"
+            std_src = std_src + fs::read(cockpit_root + "/widgets.fk") + "\n"
+            std_src = std_src + fs::read(cockpit_root + "/ui.fk") + "\n"
+        }
+    }
     -- http.fk uses TCP socket functions (tcp_recv_all returns freak_word)
     -- which only work correctly with the LLVM backend's i64 representation.
     -- The C backend's freak_word struct type causes type mismatches.
@@ -5763,6 +6602,7 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     pilot std_source: word = cli_load_std(source, target)
     source_line_offset = 0
     if std_source != "" {
+        std_source = cli_strip_resolved_use_lines(std_source)
         source_line_offset = cli_count_lines(std_source)
         source = cli_strip_resolved_use_lines(source)
         source = std_source + source
@@ -7684,18 +8524,88 @@ task cli_doctor(fix_mode: bool) -> void {
     say ""
 }
 -- ===================================================================
+-- FREAK CLI — Audit Command Shims
+-- ===================================================================
+-- Bridges native CLI audit subcommands to the Python implementation in
+-- freakc/auditor.py. A native FREAK port of the audit logic is planned
+-- for V4; this shim closes the v0.13.x conformance gap (bible §13).
+-- Subcommands handled:
+--   audit-science      list 'for science,' call sites
+--   audit-trust        list 'trust me' blocks with honor levels
+--   audit-miracles     list 'deus_ex_machina' blocks (>3 warn, >10 err)
+--   foreshadow-audit   foreshadow/payoff pairs and unpaid debt
+--   audit-conformance  v0.13.x conformance check vs the bible
+-- ===================================================================
+
+task cli_audit_dispatch(subcmd: word, args_cnt: int) -> int {
+    -- Build the Python invocation from arg(1) (the subcommand) onwards.
+    -- Native CLI argv: arg(0)=binary, arg(1)=subcmd, arg(2..)=user args.
+    pilot cmd = "python -m freakc " + subcmd
+
+    pilot ai = 2
+    repeat until ai >= args_cnt {
+        pilot extra: word = process::arg(ai)
+        cmd = cmd + " " + extra
+        ai += 1
+    }
+
+    pilot exit_code = process::exec(cmd)
+    if exit_code != 0 {
+        say ""
+        say "  " + C_DIM + "Note: audit commands currently shell out to the Python CLI." + C_RESET
+        say "  " + C_DIM + "If Python is missing, install Python 3.10+ and try again." + C_RESET
+        say "  " + C_DIM + "(Native FREAK port of the auditor lands in V4.)" + C_RESET
+    }
+    give back exit_code
+}
+-- ===================================================================
+-- FREAK CLI - Academy Learning Mode Shim
+-- ===================================================================
+-- Bridges native `freak learn` to the V3-first Python Academy
+-- implementation. The Academy engine is still staged in Python until the
+-- V4 query compiler and eventual FREAK rewrite can own it cleanly.
+-- ===================================================================
+
+task cli_learn_quote_arg(arg: word) -> word {
+    give back "\"" + arg.replace("\"", "\\\"") + "\""
+}
+
+task cli_learn_dispatch(args_cnt: int) -> int {
+    -- Native CLI argv: arg(0)=binary, arg(1)=learn, arg(2..)=learn args.
+    pilot cmd = "python -m freakc learn"
+
+    pilot ai = 2
+    repeat until ai >= args_cnt {
+        pilot extra: word = process::arg(ai)
+        cmd = cmd + " " + cli_learn_quote_arg(extra)
+        ai += 1
+    }
+
+    pilot exit_code = process::exec(cmd)
+    if exit_code != 0 {
+        say ""
+        say "  " + C_DIM + "Note: `freak learn` currently shells out to the Python Academy CLI." + C_RESET
+        say "  " + C_DIM + "If Python is missing, install Python 3.10+ and try again." + C_RESET
+        say "  " + C_DIM + "(The FREAK-native Academy rewrite lands after the V4 query surface is ready.)" + C_RESET
+    }
+    give back exit_code
+}
+-- ===================================================================
 -- FREAK CLI — Main Entry Point
 -- ===================================================================
 -- Replaces the Python `python -m freakc` CLI with a native FREAK binary.
--- Dispatches to subcommands: build, run, check, transpile, version, help.
+-- Dispatches to subcommands: build, run, check, transpile, learn, version, help.
 -- ===================================================================
 
 task cli_parse_flags(start_idx: int, args_cnt: int) -> word {
     -- Parse flags from command line args starting at start_idx.
     -- Returns a colon-delimited string: "target:opt:cross"
+    -- Side effect: --strict-borrow flips the global `strict_borrow`
+    -- so check_program() runs the borrow checker in-process.
     pilot target = "llvm"
     pilot opt = "2"
     pilot cross = ""
+    strict_borrow = false
 
     pilot fi = start_idx
     repeat until fi >= args_cnt {
@@ -7704,6 +8614,8 @@ task cli_parse_flags(start_idx: int, args_cnt: int) -> word {
             target = "c"
         } else if flag == "--llvm" {
             target = "llvm"
+        } else if flag == "--strict-borrow" {
+            strict_borrow = true
         } else if flag.starts_with("--opt=") {
             opt = flag.char_at(6)
         } else if flag.starts_with("--target=") {
@@ -7963,6 +8875,33 @@ task freakc_cli_main() -> void {
     -- Hangar package manager
     if subcmd == "hangar" {
         hangar_dispatch(args_cnt)
+        give back
+    }
+
+    -- FREAK Academy terminal learner (V3 shim; native rewrite is V4+)
+    if subcmd == "learn" {
+        pilot learn_exit = cli_learn_dispatch(args_cnt)
+        if learn_exit != 0 {
+            process::exit(learn_exit)
+        }
+        give back
+    }
+
+    -- Audit commands (shell out to Python; native port lands in V4)
+    if subcmd == "audit-science" or subcmd == "audit-trust" or subcmd == "audit-miracles" or subcmd == "foreshadow-audit" or subcmd == "audit-conformance" {
+        pilot audit_exit = cli_audit_dispatch(subcmd, args_cnt)
+        if audit_exit != 0 {
+            process::exit(audit_exit)
+        }
+        give back
+    }
+
+    -- Test runner shim (wraps the Python suite runner; native runner is V4)
+    if subcmd == "test" {
+        pilot test_exit = process::exec("python tests/suite/run_tests.py")
+        if test_exit != 0 {
+            process::exit(test_exit)
+        }
         give back
     }
 

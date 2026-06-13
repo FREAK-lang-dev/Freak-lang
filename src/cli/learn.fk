@@ -1,0 +1,32 @@
+-- ===================================================================
+-- FREAK CLI - Academy Learning Mode Shim
+-- ===================================================================
+-- Bridges native `freak learn` to the V3-first Python Academy
+-- implementation. The Academy engine is still staged in Python until the
+-- V4 query compiler and eventual FREAK rewrite can own it cleanly.
+-- ===================================================================
+
+task cli_learn_quote_arg(arg: word) -> word {
+    give back "\"" + arg.replace("\"", "\\\"") + "\""
+}
+
+task cli_learn_dispatch(args_cnt: int) -> int {
+    -- Native CLI argv: arg(0)=binary, arg(1)=learn, arg(2..)=learn args.
+    pilot cmd = "python -m freakc learn"
+
+    pilot ai = 2
+    repeat until ai >= args_cnt {
+        pilot extra: word = process::arg(ai)
+        cmd = cmd + " " + cli_learn_quote_arg(extra)
+        ai += 1
+    }
+
+    pilot exit_code = process::exec(cmd)
+    if exit_code != 0 {
+        say ""
+        say "  " + C_DIM + "Note: `freak learn` currently shells out to the Python Academy CLI." + C_RESET
+        say "  " + C_DIM + "If Python is missing, install Python 3.10+ and try again." + C_RESET
+        say "  " + C_DIM + "(The FREAK-native Academy rewrite lands after the V4 query surface is ready.)" + C_RESET
+    }
+    give back exit_code
+}

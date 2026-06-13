@@ -15,4 +15,16 @@ Validate the Academy contracts with:
 python tools/academy/validate_academy.py
 ```
 
+Try the terminal learner with the native CLI:
+
+```bash
+build\freak.exe learn list
+build\freak.exe learn start hello-freak
+build\freak.exe learn status
+```
+
+The native CLI currently delegates Learning Mode to the V3-first Python Academy
+implementation. The FREAK-native Academy rewrite is planned after the V4 query
+surface is ready.
+
 The validator intentionally uses only Python's standard library so it can run in CI before a dedicated Academy toolchain exists.

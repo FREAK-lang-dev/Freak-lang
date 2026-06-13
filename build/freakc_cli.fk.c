@@ -87,6 +87,23 @@ int64_t freak_parse_extern(void);
 int64_t freak_parse_task_def(void);
 void freak_parse_program(void);
 void freak_check_program(void);
+bool freak_bc_is_copy_type(freak_word type_ann);
+freak_word freak_bc_classify_rhs(int64_t expr_id);
+freak_word freak_bc_classify_binding(freak_word type_ann, int64_t expr_id);
+void freak_bc_push_sym(freak_word name, freak_word kind, freak_word is_mut, int64_t line);
+int64_t freak_bc_lookup_idx(freak_word name);
+void freak_bc_pop_to_depth(int64_t target_depth);
+void freak_bc_enter_scope(void);
+void freak_bc_leave_scope(void);
+void freak_bc_diag(freak_word msg, freak_word name, int64_t line);
+void freak_bc_err_use_after_move(freak_word name, int64_t line);
+void freak_bc_err_assign_immut(freak_word name, int64_t line);
+void freak_bc_walk_expr(int64_t expr_id, bool consume, int64_t use_line);
+void freak_bc_walk_call_args(freak_word args, int64_t use_line);
+void freak_bc_walk_stmt(int64_t stmt_id);
+void freak_bc_walk_block(freak_word block_str);
+void freak_bc_register_task_params(freak_word params, int64_t line);
+void freak_bc_run_program(void);
 freak_word freak_c_safe_ident(freak_word s);
 void freak_emit_args(freak_word args);
 freak_word freak_c_map_call(freak_word val);
@@ -260,6 +277,9 @@ freak_word freak_hangar_extract_colon(freak_word s, int64_t idx);
 void freak_hangar_dispatch(int64_t args_cnt);
 int64_t freak_cli_install_clang(freak_word os_tag);
 void freak_cli_doctor(bool fix_mode);
+int64_t freak_cli_audit_dispatch(freak_word subcmd, int64_t args_cnt);
+freak_word freak_cli_learn_quote_arg(freak_word arg);
+int64_t freak_cli_learn_dispatch(int64_t args_cnt);
 freak_word freak_cli_parse_flags(int64_t start_idx, int64_t args_cnt);
 freak_word freak_cli_extract_flag(freak_word flags, int64_t idx);
 void freak_cli_flex(void);
@@ -291,6 +311,7 @@ freak_word EXPR_CALL = FREAK_WORD_EMPTY;
 freak_word EXPR_METHOD = FREAK_WORD_EMPTY;
 freak_word EXPR_FIELD = FREAK_WORD_EMPTY;
 freak_word EXPR_INDEX = FREAK_WORD_EMPTY;
+freak_word EXPR_ARRAY_LIT = FREAK_WORD_EMPTY;
 int64_t ast_expr_kinds = 0;
 int64_t ast_expr_vals = 0;
 int64_t ast_expr_lefts = 0;
@@ -321,6 +342,16 @@ int64_t ast_task_params = 0;
 int64_t ast_task_returns = 0;
 int64_t ast_stmt_lines = 0;
 int64_t ast_top_stmts = 0;
+int64_t ast_pilot_is_mut = 0;
+bool strict_borrow = false;
+int64_t bc_sym_names = 0;
+int64_t bc_sym_kinds = 0;
+int64_t bc_sym_is_mut = 0;
+int64_t bc_sym_state = 0;
+int64_t bc_sym_scopes = 0;
+int64_t bc_sym_lines = 0;
+int64_t bc_sym_count = 0;
+int64_t bc_scope_depth = 0;
 int64_t shape_registry_names = 0;
 int64_t shape_registry_fields = 0;
 int64_t shape_registry_count = 0;
@@ -856,6 +887,13 @@ ast_task_params = freak_array_new();
 ast_task_returns = freak_array_new();
 ast_stmt_lines = freak_array_new();
 ast_top_stmts = freak_array_new();
+ast_pilot_is_mut = freak_array_new();
+bc_sym_names = freak_array_new();
+bc_sym_kinds = freak_array_new();
+bc_sym_is_mut = freak_array_new();
+bc_sym_state = freak_array_new();
+bc_sym_scopes = freak_array_new();
+bc_sym_lines = freak_array_new();
 shape_registry_names = freak_array_new();
 shape_registry_fields = freak_array_new();
 emt_var_names = freak_array_new();
@@ -885,6 +923,7 @@ freak_array_push(ast_stmt_extras, extra);
 freak_array_push(ast_task_params, params);
 freak_array_push(ast_task_returns, returns);
 freak_array_push(ast_stmt_lines, line_no);
+freak_array_push(ast_pilot_is_mut, freak_word_lit("0"));
 return id;
 }
 void freak_register_shape(freak_word name, freak_word fields) {
@@ -1510,7 +1549,7 @@ res = freak_word_concat(res, esc);
 }
 else {
 if (freak_word_eq(c, freak_word_lit("|"))) {
-res = freak_word_concat(res, freak_word_lit("<<PIPE>>"));
+res = freak_word_concat(res, freak_word_lit("|"));
 }
 else {
 res = freak_word_concat(res, c);
@@ -1673,14 +1712,6 @@ if (((parse_idx < 0) || (parse_idx >= tokens_count))) {
 return freak_word_lit("1");
 }
 int64_t line_no = freak_word_to_int(freak_array_get(tok_lines, parse_idx));
-if ((source_line_offset > 0)) {
-if ((line_no > source_line_offset)) {
-line_no -= source_line_offset;
-}
-else {
-line_no = 1;
-}
-}
 if ((line_no <= 0)) {
 line_no = 1;
 }
@@ -1792,6 +1823,37 @@ freak_advance_tok();
 int64_t inner = freak_parse_expr();
 freak_expect_tok(TOK_PUNCT, freak_word_lit(")"));
 return inner;
+}
+if ((freak_word_eq(ttype, TOK_PUNCT) && freak_word_eq(tval, freak_word_lit("[")))) {
+freak_advance_tok();
+freak_word elem_ids = freak_word_lit("");
+bool afin = false;
+bool afirst = true;
+if (freak_match_tok(TOK_PUNCT, freak_word_lit("]"))) {
+afin = true;
+}
+while (!(afin)) {
+if ((freak_word_eq(freak_cur_tok_type(), TOK_EOF) || freak_word_eq(freak_cur_tok_type(), freak_word_lit("")))) {
+afin = true;
+}
+else {
+int64_t e_id = freak_parse_expr();
+if (afirst) {
+elem_ids = freak_word_from_int(e_id);
+afirst = false;
+}
+else {
+elem_ids = freak_word_concat(freak_word_concat(elem_ids, freak_word_lit(",")), freak_word_from_int(e_id));
+}
+if (freak_match_tok(TOK_PUNCT, freak_word_lit("]"))) {
+afin = true;
+}
+else {
+freak_expect_tok(TOK_PUNCT, freak_word_lit(","));
+}
+}
+}
+return freak_alloc_expr(EXPR_ARRAY_LIT, freak_word_lit(""), elem_ids, freak_word_lit(""));
 }
 freak_diag_error(freak_word_concat(freak_word_concat(freak_word_lit("unexpected "), freak_friendly_tok(ttype, tval)), freak_word_lit(" — this token cannot start an expression")), freak_word_lit(""));
 if (((!freak_word_eq(ttype, TOK_EOF)) && (!freak_word_eq(ttype, freak_word_lit(""))))) {
@@ -2033,7 +2095,27 @@ if (freak_match_tok(TOK_KW, freak_word_lit("eventually"))) {
 freak_word ev_body = freak_parse_block();
 return freak_alloc_stmt(STMT_EVENTUALLY, freak_word_lit(""), freak_word_lit(""), ev_body, freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), freak_word_lit(""), stmt_line);
 }
+if (freak_match_tok(TOK_KW, freak_word_lit("fixed"))) {
+if ((!freak_match_tok(TOK_KW, freak_word_lit("pilot")))) {
+freak_diag_error(freak_word_lit("expected 'pilot' after 'fixed'"), freak_word_lit(""));
+}
+freak_word fname = freak_cur_tok_val();
+freak_advance_tok();
+freak_word ftype_ann = freak_word_lit("");
+if ((freak_word_eq(freak_cur_tok_type(), TOK_PUNCT) && freak_word_eq(freak_cur_tok_val(), freak_word_lit(":")))) {
+freak_advance_tok();
+ftype_ann = freak_cur_tok_val();
+freak_advance_tok();
+}
+freak_expect_tok(TOK_PUNCT, freak_word_lit("="));
+int64_t fexpr_id = freak_parse_expr();
+return freak_alloc_stmt(STMT_PILOT, fname, freak_word_from_int(fexpr_id), freak_word_lit(""), freak_word_lit(""), ftype_ann, freak_word_lit(""), freak_word_lit(""), stmt_line);
+}
 if (freak_match_tok(TOK_KW, freak_word_lit("pilot"))) {
+bool is_mut = false;
+if (freak_match_tok(TOK_KW, freak_word_lit("mut"))) {
+is_mut = true;
+}
 freak_word name = freak_cur_tok_val();
 freak_advance_tok();
 freak_word type_ann = freak_word_lit("");
@@ -2044,7 +2126,11 @@ freak_advance_tok();
 }
 freak_expect_tok(TOK_PUNCT, freak_word_lit("="));
 int64_t expr_id = freak_parse_expr();
-return freak_alloc_stmt(STMT_PILOT, name, freak_word_from_int(expr_id), freak_word_lit(""), freak_word_lit(""), type_ann, freak_word_lit(""), freak_word_lit(""), stmt_line);
+int64_t stmt_id = freak_alloc_stmt(STMT_PILOT, name, freak_word_from_int(expr_id), freak_word_lit(""), freak_word_lit(""), type_ann, freak_word_lit(""), freak_word_lit(""), stmt_line);
+if (is_mut) {
+freak_array_set(ast_pilot_is_mut, stmt_id, freak_word_lit("1"));
+}
+return stmt_id;
 }
 if (freak_match_tok(TOK_KW, freak_word_lit("give back"))) {
 int64_t expr_id = (0 - 1);
@@ -2351,6 +2437,433 @@ freak_array_push(ast_top_stmts, freak_word_from_int(stmt_id));
 }
 }
 void freak_check_program(void) {
+if (strict_borrow) {
+freak_bc_run_program();
+}
+}
+bool freak_bc_is_copy_type(freak_word type_ann) {
+if (freak_word_eq(type_ann, freak_word_lit("int"))) {
+return true;
+}
+if (freak_word_eq(type_ann, freak_word_lit("uint"))) {
+return true;
+}
+if (freak_word_eq(type_ann, freak_word_lit("num"))) {
+return true;
+}
+if (freak_word_eq(type_ann, freak_word_lit("tiny"))) {
+return true;
+}
+if (freak_word_eq(type_ann, freak_word_lit("bool"))) {
+return true;
+}
+if (freak_word_eq(type_ann, freak_word_lit("char"))) {
+return true;
+}
+if (freak_word_eq(type_ann, freak_word_lit("float"))) {
+return true;
+}
+if (freak_word_eq(type_ann, freak_word_lit("float32"))) {
+return true;
+}
+if (freak_word_eq(type_ann, freak_word_lit("big"))) {
+return true;
+}
+return false;
+}
+freak_word freak_bc_classify_rhs(int64_t expr_id) {
+if ((expr_id < 0)) {
+return freak_word_lit("owned");
+}
+freak_word k = freak_array_get(ast_expr_kinds, expr_id);
+if (freak_word_eq(k, EXPR_INT)) {
+return freak_word_lit("copy");
+}
+if (freak_word_eq(k, EXPR_FLOAT)) {
+return freak_word_lit("copy");
+}
+if (freak_word_eq(k, EXPR_BOOL)) {
+return freak_word_lit("copy");
+}
+return freak_word_lit("owned");
+}
+freak_word freak_bc_classify_binding(freak_word type_ann, int64_t expr_id) {
+if ((!freak_word_eq(type_ann, freak_word_lit("")))) {
+if (freak_bc_is_copy_type(type_ann)) {
+return freak_word_lit("copy");
+}
+return freak_word_lit("owned");
+}
+return freak_bc_classify_rhs(expr_id);
+}
+void freak_bc_push_sym(freak_word name, freak_word kind, freak_word is_mut, int64_t line) {
+int64_t phys_len = freak_array_len(bc_sym_names);
+if ((bc_sym_count < phys_len)) {
+freak_array_set(bc_sym_names, bc_sym_count, name);
+freak_array_set(bc_sym_kinds, bc_sym_count, kind);
+freak_array_set(bc_sym_is_mut, bc_sym_count, is_mut);
+freak_array_set(bc_sym_state, bc_sym_count, freak_word_lit("live"));
+freak_array_set(bc_sym_scopes, bc_sym_count, freak_word_from_int(bc_scope_depth));
+freak_array_set(bc_sym_lines, bc_sym_count, freak_word_from_int(line));
+}
+else {
+freak_array_push(bc_sym_names, name);
+freak_array_push(bc_sym_kinds, kind);
+freak_array_push(bc_sym_is_mut, is_mut);
+freak_array_push(bc_sym_state, freak_word_lit("live"));
+freak_array_push(bc_sym_scopes, freak_word_from_int(bc_scope_depth));
+freak_array_push(bc_sym_lines, freak_word_from_int(line));
+}
+bc_sym_count += 1;
+}
+int64_t freak_bc_lookup_idx(freak_word name) {
+int64_t j = (bc_sym_count - 1);
+while (!((j < 0))) {
+if (freak_word_eq(freak_array_get(bc_sym_names, j), name)) {
+return j;
+}
+j -= 1;
+}
+return (0 - 1);
+}
+void freak_bc_pop_to_depth(int64_t target_depth) {
+while (!((bc_sym_count == 0))) {
+int64_t top = (bc_sym_count - 1);
+int64_t d = freak_word_to_int(freak_array_get(bc_sym_scopes, top));
+if ((d <= target_depth)) {
+return ;
+}
+bc_sym_count -= 1;
+}
+}
+void freak_bc_enter_scope(void) {
+bc_scope_depth += 1;
+}
+void freak_bc_leave_scope(void) {
+int64_t prev = (bc_scope_depth - 1);
+freak_bc_pop_to_depth(prev);
+bc_scope_depth = prev;
+}
+void freak_bc_diag(freak_word msg, freak_word name, int64_t line) {
+error_count += 1;
+freak_word loc = freak_word_lit("");
+if ((line > 0)) {
+loc = freak_word_concat(freak_word_concat(freak_word_lit(" (line "), freak_word_from_int(line)), freak_word_lit(")"));
+}
+freak_word at_name = freak_word_lit("");
+if ((!freak_word_eq(name, freak_word_lit("")))) {
+at_name = freak_word_concat(freak_word_concat(freak_word_lit(" '"), name), freak_word_lit("'"));
+}
+freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("\x1b[1;31mborrowck\x1b[0m: "), msg), at_name), loc));
+}
+void freak_bc_err_use_after_move(freak_word name, int64_t line) {
+freak_bc_diag(freak_word_lit("Shirogane. You gave this away. It no longer belongs to you."), name, line);
+}
+void freak_bc_err_assign_immut(freak_word name, int64_t line) {
+freak_bc_diag(freak_word_lit("This binding was sworn to silence. It cannot be reassigned."), name, line);
+}
+void freak_bc_walk_expr(int64_t expr_id, bool consume, int64_t use_line) {
+if ((expr_id < 0)) {
+return ;
+}
+freak_word k = freak_array_get(ast_expr_kinds, expr_id);
+if ((((freak_word_eq(k, EXPR_INT) || freak_word_eq(k, EXPR_FLOAT)) || freak_word_eq(k, EXPR_STR)) || freak_word_eq(k, EXPR_BOOL))) {
+return ;
+}
+if (freak_word_eq(k, EXPR_IDENT)) {
+freak_word name = freak_array_get(ast_expr_vals, expr_id);
+int64_t idx = freak_bc_lookup_idx(name);
+if ((idx < 0)) {
+return ;
+}
+freak_word state = freak_array_get(bc_sym_state, idx);
+freak_word kind = freak_array_get(bc_sym_kinds, idx);
+if (freak_word_eq(state, freak_word_lit("moved"))) {
+freak_bc_err_use_after_move(name, use_line);
+return ;
+}
+if ((consume && freak_word_eq(kind, freak_word_lit("owned")))) {
+freak_array_set(bc_sym_state, idx, freak_word_lit("moved"));
+}
+return ;
+}
+if (freak_word_eq(k, EXPR_BINOP)) {
+freak_word lft = freak_array_get(ast_expr_lefts, expr_id);
+freak_word rht = freak_array_get(ast_expr_rights, expr_id);
+freak_bc_walk_expr(freak_word_to_int(lft), false, use_line);
+freak_bc_walk_expr(freak_word_to_int(rht), false, use_line);
+return ;
+}
+if (freak_word_eq(k, EXPR_UNARYOP)) {
+freak_word inner = freak_array_get(ast_expr_lefts, expr_id);
+freak_bc_walk_expr(freak_word_to_int(inner), false, use_line);
+return ;
+}
+if (freak_word_eq(k, EXPR_CALL)) {
+freak_word args = freak_array_get(ast_expr_lefts, expr_id);
+freak_bc_walk_call_args(args, use_line);
+return ;
+}
+if (freak_word_eq(k, EXPR_METHOD)) {
+freak_word recv = freak_array_get(ast_expr_lefts, expr_id);
+freak_word margs = freak_array_get(ast_expr_rights, expr_id);
+freak_bc_walk_expr(freak_word_to_int(recv), false, use_line);
+freak_bc_walk_call_args(margs, use_line);
+return ;
+}
+if (freak_word_eq(k, EXPR_FIELD)) {
+freak_word base = freak_array_get(ast_expr_lefts, expr_id);
+freak_bc_walk_expr(freak_word_to_int(base), false, use_line);
+return ;
+}
+if (freak_word_eq(k, EXPR_INDEX)) {
+freak_word base = freak_array_get(ast_expr_lefts, expr_id);
+freak_word idxe = freak_array_get(ast_expr_rights, expr_id);
+freak_bc_walk_expr(freak_word_to_int(base), false, use_line);
+freak_bc_walk_expr(freak_word_to_int(idxe), false, use_line);
+return ;
+}
+}
+void freak_bc_walk_call_args(freak_word args, int64_t use_line) {
+if (freak_word_eq(args, freak_word_lit(""))) {
+return ;
+}
+freak_word cur = freak_word_lit("");
+int64_t i = 0;
+int64_t n = freak_word_length(args);
+for (int64_t __rep = 0; __rep < n; __rep++) {
+freak_word c = freak_word_char_at(args, i);
+if (freak_word_eq(c, freak_word_lit(","))) {
+if ((!freak_word_eq(cur, freak_word_lit("")))) {
+freak_bc_walk_expr(freak_word_to_int(cur), true, use_line);
+}
+cur = freak_word_lit("");
+}
+else {
+cur = freak_word_concat(cur, c);
+}
+i += 1;
+}
+if ((!freak_word_eq(cur, freak_word_lit("")))) {
+freak_bc_walk_expr(freak_word_to_int(cur), true, use_line);
+}
+}
+void freak_bc_walk_stmt(int64_t stmt_id) {
+if ((stmt_id < 0)) {
+return ;
+}
+freak_word kind = freak_array_get(ast_stmt_kinds, stmt_id);
+int64_t line = freak_word_to_int(freak_array_get(ast_stmt_lines, stmt_id));
+if ((source_line_offset > 0)) {
+if ((line <= 1)) {
+return ;
+}
+}
+if (freak_word_eq(kind, STMT_PILOT)) {
+freak_word name = freak_array_get(ast_stmt_names, stmt_id);
+freak_word expr_w = freak_array_get(ast_stmt_exprs, stmt_id);
+freak_word type_ann = freak_array_get(ast_stmt_extras, stmt_id);
+int64_t expr_id = freak_word_to_int(expr_w);
+freak_bc_walk_expr(expr_id, true, line);
+freak_word k = freak_bc_classify_binding(type_ann, expr_id);
+freak_word is_mut = freak_array_get(ast_pilot_is_mut, stmt_id);
+freak_bc_push_sym(name, k, is_mut, line);
+return ;
+}
+if (freak_word_eq(kind, STMT_ASSIGN)) {
+freak_word op = freak_array_get(ast_stmt_names, stmt_id);
+freak_word lhs_w = freak_array_get(ast_stmt_exprs, stmt_id);
+freak_word rhs_w = freak_array_get(ast_stmt_bodies, stmt_id);
+int64_t lhs = freak_word_to_int(lhs_w);
+int64_t rhs = freak_word_to_int(rhs_w);
+freak_bc_walk_expr(rhs, true, line);
+freak_word lk = freak_array_get(ast_expr_kinds, lhs);
+if (freak_word_eq(lk, EXPR_IDENT)) {
+freak_word lname = freak_array_get(ast_expr_vals, lhs);
+int64_t idx = freak_bc_lookup_idx(lname);
+if ((idx >= 0)) {
+freak_word is_mut = freak_array_get(bc_sym_is_mut, idx);
+if ((!freak_word_eq(is_mut, freak_word_lit("1")))) {
+freak_bc_err_assign_immut(lname, line);
+}
+freak_array_set(bc_sym_state, idx, freak_word_lit("live"));
+}
+}
+else {
+freak_bc_walk_expr(lhs, false, line);
+}
+return ;
+}
+if (freak_word_eq(kind, STMT_SAY)) {
+freak_word expr_w = freak_array_get(ast_stmt_exprs, stmt_id);
+freak_bc_walk_expr(freak_word_to_int(expr_w), false, line);
+return ;
+}
+if (freak_word_eq(kind, STMT_GIVE_BACK)) {
+freak_word expr_w = freak_array_get(ast_stmt_exprs, stmt_id);
+int64_t eid = freak_word_to_int(expr_w);
+if ((eid >= 0)) {
+freak_bc_walk_expr(eid, true, line);
+}
+return ;
+}
+if (freak_word_eq(kind, STMT_EXPR)) {
+freak_word expr_w = freak_array_get(ast_stmt_exprs, stmt_id);
+freak_bc_walk_expr(freak_word_to_int(expr_w), false, line);
+return ;
+}
+if (freak_word_eq(kind, STMT_IF)) {
+freak_word cond_w = freak_array_get(ast_stmt_exprs, stmt_id);
+freak_word then_w = freak_array_get(ast_stmt_bodies, stmt_id);
+freak_word else_w = freak_array_get(ast_stmt_else_bodies, stmt_id);
+freak_bc_walk_expr(freak_word_to_int(cond_w), false, line);
+freak_bc_enter_scope();
+freak_bc_walk_block(then_w);
+freak_bc_leave_scope();
+if ((!freak_word_eq(else_w, freak_word_lit("")))) {
+freak_bc_enter_scope();
+freak_bc_walk_block(else_w);
+freak_bc_leave_scope();
+}
+return ;
+}
+if (freak_word_eq(kind, STMT_REPEAT)) {
+freak_word cond_w = freak_array_get(ast_stmt_exprs, stmt_id);
+freak_word body_w = freak_array_get(ast_stmt_bodies, stmt_id);
+freak_bc_walk_expr(freak_word_to_int(cond_w), false, line);
+freak_bc_enter_scope();
+freak_bc_walk_block(body_w);
+freak_bc_leave_scope();
+return ;
+}
+if (freak_word_eq(kind, STMT_TRAINING_ARC)) {
+freak_word cond_w = freak_array_get(ast_stmt_exprs, stmt_id);
+freak_word body_w = freak_array_get(ast_stmt_bodies, stmt_id);
+freak_bc_walk_expr(freak_word_to_int(cond_w), false, line);
+freak_bc_enter_scope();
+freak_bc_walk_block(body_w);
+freak_bc_leave_scope();
+return ;
+}
+if (freak_word_eq(kind, STMT_BLOCK)) {
+freak_word body_w = freak_array_get(ast_stmt_bodies, stmt_id);
+freak_bc_enter_scope();
+freak_bc_walk_block(body_w);
+freak_bc_leave_scope();
+return ;
+}
+if (freak_word_eq(kind, STMT_EVENTUALLY)) {
+freak_word body_w = freak_array_get(ast_stmt_bodies, stmt_id);
+freak_bc_enter_scope();
+freak_bc_walk_block(body_w);
+freak_bc_leave_scope();
+return ;
+}
+if (freak_word_eq(kind, STMT_TASK)) {
+freak_word body_w = freak_array_get(ast_stmt_bodies, stmt_id);
+freak_word params = freak_array_get(ast_task_params, stmt_id);
+freak_bc_enter_scope();
+freak_bc_register_task_params(params, line);
+freak_bc_walk_block(body_w);
+freak_bc_leave_scope();
+return ;
+}
+if (freak_word_eq(kind, STMT_SHAPE)) {
+return ;
+}
+if (freak_word_eq(kind, STMT_BREAK)) {
+return ;
+}
+if (freak_word_eq(kind, STMT_CONTINUE)) {
+return ;
+}
+if (freak_word_eq(kind, STMT_EXTERN)) {
+return ;
+}
+if (freak_word_eq(kind, STMT_WHEN)) {
+return ;
+}
+}
+void freak_bc_walk_block(freak_word block_str) {
+if (freak_word_eq(block_str, freak_word_lit(""))) {
+return ;
+}
+freak_word cur = freak_word_lit("");
+int64_t i = 0;
+int64_t n = freak_word_length(block_str);
+for (int64_t __rep = 0; __rep < n; __rep++) {
+freak_word c = freak_word_char_at(block_str, i);
+if (freak_word_eq(c, freak_word_lit(","))) {
+if ((!freak_word_eq(cur, freak_word_lit("")))) {
+freak_bc_walk_stmt(freak_word_to_int(cur));
+}
+cur = freak_word_lit("");
+}
+else {
+cur = freak_word_concat(cur, c);
+}
+i += 1;
+}
+if ((!freak_word_eq(cur, freak_word_lit("")))) {
+freak_bc_walk_stmt(freak_word_to_int(cur));
+}
+}
+void freak_bc_register_task_params(freak_word params, int64_t line) {
+if (freak_word_eq(params, freak_word_lit(""))) {
+return ;
+}
+freak_word cur_name = freak_word_lit("");
+freak_word cur_type = freak_word_lit("");
+bool in_type = false;
+int64_t i = 0;
+int64_t n = freak_word_length(params);
+for (int64_t __rep = 0; __rep < n; __rep++) {
+freak_word c = freak_word_char_at(params, i);
+if (freak_word_eq(c, freak_word_lit(","))) {
+if ((!freak_word_eq(cur_name, freak_word_lit("")))) {
+freak_word k = freak_word_lit("owned");
+if (freak_bc_is_copy_type(cur_type)) {
+k = freak_word_lit("copy");
+}
+freak_bc_push_sym(cur_name, k, freak_word_lit("1"), line);
+}
+cur_name = freak_word_lit("");
+cur_type = freak_word_lit("");
+in_type = false;
+}
+else {
+if (freak_word_eq(c, freak_word_lit(":"))) {
+in_type = true;
+}
+else {
+if (in_type) {
+cur_type = freak_word_concat(cur_type, c);
+}
+else {
+cur_name = freak_word_concat(cur_name, c);
+}
+}
+}
+i += 1;
+}
+if ((!freak_word_eq(cur_name, freak_word_lit("")))) {
+freak_word k2 = freak_word_lit("owned");
+if (freak_bc_is_copy_type(cur_type)) {
+k2 = freak_word_lit("copy");
+}
+freak_bc_push_sym(cur_name, k2, freak_word_lit("1"), line);
+}
+}
+void freak_bc_run_program(void) {
+bc_sym_count = 0;
+bc_scope_depth = 0;
+int64_t top_count = freak_array_len(ast_top_stmts);
+int64_t i = 0;
+for (int64_t __rep = 0; __rep < top_count; __rep++) {
+int64_t stmt_id = freak_word_to_int(freak_array_get(ast_top_stmts, i));
+freak_bc_walk_stmt(stmt_id);
+i += 1;
+}
 }
 freak_word freak_c_safe_ident(freak_word s) {
 freak_word res = freak_word_lit("");
@@ -2636,6 +3149,34 @@ freak_emit(freak_word_lit("]"));
 }
 return ;
 }
+if (freak_word_eq(kind, EXPR_ARRAY_LIT)) {
+freak_emit(freak_word_lit("({ int64_t __arr = freak_llvm_array_new(); "));
+int64_t ali = 0;
+int64_t alen2 = freak_word_length(left);
+freak_word cur_eid_c = freak_word_lit("");
+for (int64_t __rep = 0; __rep < alen2; __rep++) {
+freak_word acc = freak_word_char_at(left, ali);
+if (freak_word_eq(acc, freak_word_lit(","))) {
+if ((freak_word_length(cur_eid_c) > 0)) {
+freak_emit(freak_word_lit("freak_llvm_array_push(__arr, "));
+freak_emit_expr(cur_eid_c);
+freak_emit(freak_word_lit("); "));
+cur_eid_c = freak_word_lit("");
+}
+}
+else {
+cur_eid_c = freak_word_concat(cur_eid_c, acc);
+}
+ali += 1;
+}
+if ((freak_word_length(cur_eid_c) > 0)) {
+freak_emit(freak_word_lit("freak_llvm_array_push(__arr, "));
+freak_emit_expr(cur_eid_c);
+freak_emit(freak_word_lit("); "));
+}
+freak_emit(freak_word_lit("__arr; })"));
+return ;
+}
 if (freak_word_eq(kind, EXPR_BINOP)) {
 freak_emit_c_binop(val, left, right);
 return ;
@@ -2648,7 +3189,7 @@ freak_emit(freak_word_lit("/* Unknown Expr */"));
 }
 void freak_emit_c_string(freak_word val) {
 freak_word tmp = freak_word_lit("freak_word_lit(\"");
-freak_word str_val = freak_word_replace(val, freak_word_lit("<<PIPE>>"), freak_word_lit("|"));
+freak_word str_val = freak_word_replace(val, freak_word_lit("|"), freak_word_lit("|"));
 int64_t si = 0;
 int64_t sslen = freak_word_length(str_val);
 while (!((si >= sslen))) {
@@ -2988,6 +3529,54 @@ return ;
 if (freak_word_eq(kind, STMT_ASSIGN)) {
 freak_word op_w = name_w;
 freak_word rhs_w = freak_array_get(ast_stmt_bodies, i);
+int64_t lhs_idx = freak_word_to_int(expr_id_w);
+freak_word lhs_kind = freak_array_get(ast_expr_kinds, lhs_idx);
+if (freak_word_eq(lhs_kind, EXPR_FIELD)) {
+freak_word field_name = freak_array_get(ast_expr_vals, lhs_idx);
+freak_word recv_id = freak_array_get(ast_expr_lefts, lhs_idx);
+int64_t fidx = (0 - 1);
+int64_t si = 0;
+for (int64_t __rep = 0; __rep < shape_registry_count; __rep++) {
+int64_t tmpidx = freak_get_shape_field_index(freak_array_get(shape_registry_names, si), field_name);
+if ((tmpidx >= 0)) {
+fidx = tmpidx;
+}
+si += 1;
+}
+if ((fidx < 0)) {
+fidx = 0;
+}
+freak_word fidx_w = freak_word_from_int(fidx);
+if (freak_word_eq(op_w, freak_word_lit("="))) {
+freak_emit(freak_word_lit("freak_llvm_shape_set("));
+freak_emit_expr(recv_id);
+freak_emit(freak_word_concat(freak_word_concat(freak_word_lit(", "), fidx_w), freak_word_lit(", ")));
+freak_emit_expr(rhs_w);
+freak_emit_line(freak_word_lit(");"));
+return ;
+}
+freak_word bin_op = freak_word_lit("+");
+if (freak_word_eq(op_w, freak_word_lit("-="))) {
+bin_op = freak_word_lit("-");
+}
+if (freak_word_eq(op_w, freak_word_lit("*="))) {
+bin_op = freak_word_lit("*");
+}
+if (freak_word_eq(op_w, freak_word_lit("/="))) {
+bin_op = freak_word_lit("/");
+}
+if (freak_word_eq(op_w, freak_word_lit("%="))) {
+bin_op = freak_word_lit("%");
+}
+freak_emit(freak_word_lit("freak_llvm_shape_set("));
+freak_emit_expr(recv_id);
+freak_emit(freak_word_concat(freak_word_concat(freak_word_lit(", "), fidx_w), freak_word_lit(", freak_llvm_shape_get(")));
+freak_emit_expr(recv_id);
+freak_emit(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit(", "), fidx_w), freak_word_lit(") ")), bin_op), freak_word_lit(" ")));
+freak_emit_expr(rhs_w);
+freak_emit_line(freak_word_lit(");"));
+return ;
+}
 freak_emit_expr(expr_id_w);
 freak_emit(freak_word_concat(freak_word_concat(freak_word_lit(" "), op_w), freak_word_lit(" ")));
 freak_emit_expr(rhs_w);
@@ -3594,7 +4183,7 @@ llvm_dbg_current_dir = dir;
 freak_word file_name = freak_llvm_dbg_escape(llvm_dbg_current_file);
 freak_word dir_name = freak_llvm_dbg_escape(llvm_dbg_current_dir);
 llvm_dbg_file_id = freak_llvm_dbg_append(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("!DIFile(filename: \""), file_name), freak_word_lit("\", directory: \"")), dir_name), freak_word_lit("\")")));
-llvm_dbg_cu_id = freak_llvm_dbg_append(freak_word_concat(freak_word_concat(freak_word_lit("distinct !DICompileUnit(language: DW_LANG_C, file: !"), freak_word_from_int(llvm_dbg_file_id)), freak_word_lit(", producer: \"FREAK v3\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)")));
+llvm_dbg_cu_id = freak_llvm_dbg_append(freak_word_concat(freak_word_concat(freak_word_lit("distinct !DICompileUnit(language: DW_LANG_C, file: !"), freak_word_from_int(llvm_dbg_file_id)), freak_word_lit(", producer: \"FREAK v3\", isOptimized: false, runtimeVersion: 0, emissionKind: LineTablesOnly)")));
 llvm_dbg_empty_id = freak_llvm_dbg_append(freak_word_lit("!{}"));
 llvm_dbg_subroutine_type_id = freak_llvm_dbg_append(freak_word_concat(freak_word_concat(freak_word_lit("!DISubroutineType(types: !"), freak_word_from_int(llvm_dbg_empty_id)), freak_word_lit(")")));
 }
@@ -3622,14 +4211,15 @@ line_no = 1;
 llvm_dbg_current_line = line_no;
 }
 freak_word freak_llvm_dbg_begin_func(freak_word name, int64_t line_no) {
-llvm_dbg_current_scope_id = freak_llvm_dbg_emit_subprogram(name, line_no);
+int64_t sp_id = freak_llvm_dbg_emit_subprogram(name, line_no);
+llvm_dbg_current_scope_id = sp_id;
 llvm_dbg_current_line = line_no;
-return freak_word_concat(freak_word_lit(" !dbg !"), freak_word_from_int(llvm_dbg_current_scope_id));
+return freak_word_concat(freak_word_lit(" !dbg !"), freak_word_from_int(sp_id));
 }
 freak_word freak_register_string_literal(freak_word val) {
 freak_word id = freak_word_concat(freak_word_lit("@.str."), freak_word_from_int(string_literals_count));
 string_literals_count += 1;
-freak_word real_val = freak_word_replace(val, freak_word_lit("<<PIPE>>"), freak_word_lit("|"));
+freak_word real_val = freak_word_replace(val, freak_word_lit("|"), freak_word_lit("|"));
 int64_t len = freak_word_length(real_val);
 int64_t adj_i = 0;
 while (!((adj_i >= len))) {
@@ -3833,7 +4423,7 @@ freak_word unique = freak_llvm_get_llvm_name(vname);
 if ((!freak_word_eq(unique, freak_word_lit("")))) {
 return freak_word_concat(freak_word_lit("%"), unique);
 }
-return freak_word_concat(freak_word_lit("%"), vname);
+return freak_word_concat(freak_word_lit("@g_"), vname);
 }
 bool freak_llvm_is_runtime_func(freak_word fname) {
 freak_word needle = freak_word_concat(freak_word_concat(freak_word_lit("|"), fname), freak_word_lit("|"));
@@ -3864,6 +4454,12 @@ return freak_llvm_get_var_type(val);
 if (freak_word_eq(kind, EXPR_METHOD)) {
 if (((((freak_word_eq(val, freak_word_lit("trim")) || freak_word_eq(val, freak_word_lit("to_upper"))) || freak_word_eq(val, freak_word_lit("to_lower"))) || freak_word_eq(val, freak_word_lit("replace"))) || freak_word_eq(val, freak_word_lit("char_at")))) {
 return freak_word_lit("w");
+}
+if (freak_word_eq(val, freak_word_lit("to_word"))) {
+return freak_word_lit("w");
+}
+if (freak_word_eq(val, freak_word_lit("to_num"))) {
+return freak_word_lit("n");
 }
 if (((((freak_word_eq(val, freak_word_lit("length")) || freak_word_eq(val, freak_word_lit("to_int"))) || freak_word_eq(val, freak_word_lit("contains"))) || freak_word_eq(val, freak_word_lit("starts_with"))) || freak_word_eq(val, freak_word_lit("ends_with")))) {
 return freak_word_lit("i");
@@ -4019,6 +4615,9 @@ return freak_word_lit("@freak_llvm_word_from_bool");
 if (freak_word_eq(val, freak_word_lit("word_to_int"))) {
 return freak_word_lit("@freak_llvm_word_to_int");
 }
+if (freak_word_eq(val, freak_word_lit("char_to_word"))) {
+return freak_word_lit("@freak_llvm_char_to_word");
+}
 if (freak_word_eq(val, freak_word_lit("fs::read"))) {
 return freak_word_lit("@freak_llvm_fs_read");
 }
@@ -4105,6 +4704,27 @@ return freak_word_lit("@freak_llvm_ui_event_mouse_y");
 }
 if (freak_word_eq(val, freak_word_lit("ui::event_button"))) {
 return freak_word_lit("@freak_llvm_ui_event_button");
+}
+if (freak_word_eq(val, freak_word_lit("ui::event_repeat"))) {
+return freak_word_lit("@freak_llvm_ui_event_repeat");
+}
+if (freak_word_eq(val, freak_word_lit("ui::event_scroll_dy"))) {
+return freak_word_lit("@freak_llvm_ui_event_scroll_dy");
+}
+if (freak_word_eq(val, freak_word_lit("ui::event_width"))) {
+return freak_word_lit("@freak_llvm_ui_event_width");
+}
+if (freak_word_eq(val, freak_word_lit("ui::event_height"))) {
+return freak_word_lit("@freak_llvm_ui_event_height");
+}
+if (freak_word_eq(val, freak_word_lit("ui::event_gained"))) {
+return freak_word_lit("@freak_llvm_ui_event_gained");
+}
+if (freak_word_eq(val, freak_word_lit("ui::get_width"))) {
+return freak_word_lit("@freak_llvm_ui_get_width");
+}
+if (freak_word_eq(val, freak_word_lit("ui::get_height"))) {
+return freak_word_lit("@freak_llvm_ui_get_height");
 }
 if (freak_word_eq(val, freak_word_lit("ui::clear"))) {
 return freak_word_lit("@freak_llvm_ui_clear");
@@ -4265,7 +4885,7 @@ return cast_reg;
 }
 if (freak_word_eq(kind, EXPR_STR)) {
 freak_word str_id = freak_register_string_literal(val);
-int64_t len = (freak_word_length(freak_word_replace(val, freak_word_lit("<<PIPE>>"), freak_word_lit("|"))) + 1);
+int64_t len = (freak_word_length(freak_word_replace(val, freak_word_lit("|"), freak_word_lit("|"))) + 1);
 freak_word get_ptr = freak_next_reg();
 freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), get_ptr), freak_word_lit(" = getelementptr inbounds [")), freak_word_from_int(len)), freak_word_lit(" x i8], [")), freak_word_from_int(len)), freak_word_lit(" x i8]* ")), str_id), freak_word_lit(", i64 0, i64 0")));
 freak_word cast_reg = freak_next_reg();
@@ -4304,6 +4924,32 @@ freak_word char_reg = freak_next_reg();
 freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), char_reg), freak_word_lit(" = load i8, i8* ")), gep_reg));
 freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = zext i8 ")), char_reg), freak_word_lit(" to i64")));
 return res_reg;
+}
+if (freak_word_eq(kind, EXPR_ARRAY_LIT)) {
+freak_word arr_reg = freak_next_reg();
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_lit("    "), arr_reg), freak_word_lit(" = call i64 @freak_llvm_array_new()")));
+int64_t ai = 0;
+int64_t alen = freak_word_length(left);
+freak_word cur_eid = freak_word_lit("");
+for (int64_t __rep = 0; __rep < alen; __rep++) {
+freak_word ac = freak_word_char_at(left, ai);
+if (freak_word_eq(ac, freak_word_lit(","))) {
+if ((freak_word_length(cur_eid) > 0)) {
+freak_word er = freak_llvm_emit_expr(cur_eid);
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    call void @freak_llvm_array_push(i64 "), arr_reg), freak_word_lit(", i64 ")), er), freak_word_lit(")")));
+cur_eid = freak_word_lit("");
+}
+}
+else {
+cur_eid = freak_word_concat(cur_eid, ac);
+}
+ai += 1;
+}
+if ((freak_word_length(cur_eid) > 0)) {
+freak_word er2 = freak_llvm_emit_expr(cur_eid);
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    call void @freak_llvm_array_push(i64 "), arr_reg), freak_word_lit(", i64 ")), er2), freak_word_lit(")")));
+}
+return arr_reg;
 }
 return freak_word_lit("0");
 }
@@ -4583,26 +5229,65 @@ freak_word a = freak_llvm_emit_expr(right);
 freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = call i64 @freak_llvm_word_replace(i64 ")), obj_reg), freak_word_lit(", i64 ")), a), freak_word_lit(", i64 0)")));
 return res_reg;
 }
+freak_word recv_ty = freak_llvm_infer_expr_type(left);
 if (freak_word_eq(val, freak_word_lit("to_int"))) {
+if (freak_word_starts_with(recv_ty, freak_word_lit("n"))) {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = call i64 @freak_llvm_num_to_int(i64 ")), obj_reg), freak_word_lit(")")));
+}
+else {
 freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = call i64 @freak_llvm_word_to_int(i64 ")), obj_reg), freak_word_lit(")")));
+}
 return res_reg;
 }
+if (freak_word_eq(val, freak_word_lit("to_num"))) {
+if (freak_word_starts_with(recv_ty, freak_word_lit("w"))) {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = call i64 @freak_llvm_parse_num(i64 ")), obj_reg), freak_word_lit(")")));
+}
+else {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = call i64 @freak_llvm_int_to_num(i64 ")), obj_reg), freak_word_lit(")")));
+}
+return res_reg;
+}
+if (freak_word_eq(val, freak_word_lit("to_word"))) {
+if (freak_word_starts_with(recv_ty, freak_word_lit("n"))) {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = call i64 @freak_llvm_word_from_num(i64 ")), obj_reg), freak_word_lit(")")));
+}
+else {
+if (freak_word_starts_with(recv_ty, freak_word_lit("b"))) {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = call i64 @freak_llvm_word_from_bool(i64 ")), obj_reg), freak_word_lit(")")));
+}
+else {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = call i64 @freak_llvm_word_from_int(i64 ")), obj_reg), freak_word_lit(")")));
+}
+}
+return res_reg;
+}
+freak_word extra_args = freak_word_lit("");
+if ((freak_word_length(right) > 0)) {
+extra_args = freak_word_concat(freak_word_lit(", "), freak_llvm_emit_args(right));
+}
+freak_word best_sname = freak_word_lit("");
+freak_word best_ret = freak_word_lit("");
 int64_t si = 0;
 for (int64_t __rep = 0; __rep < shape_registry_count; __rep++) {
 freak_word sname = freak_word_concat(freak_word_lit(""), freak_array_get(shape_registry_names, si));
 freak_word call_ret = freak_llvm_get_task_ret_type(freak_word_concat(freak_word_concat(sname, freak_word_lit("_")), val));
 if ((freak_word_length(call_ret) > 0)) {
-freak_word impl_fname = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("freak_"), sname), freak_word_lit("_")), val);
-if (freak_word_eq(call_ret, freak_word_lit("v"))) {
-freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    call void @"), impl_fname), freak_word_lit("(i64 ")), obj_reg), freak_word_lit(")")));
+best_sname = sname;
+best_ret = call_ret;
+}
+si += 1;
+}
+if ((freak_word_length(best_sname) > 0)) {
+freak_word impl_fname = freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("freak_"), best_sname), freak_word_lit("_")), val);
+if (freak_word_eq(best_ret, freak_word_lit("v"))) {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    call void @"), impl_fname), freak_word_lit("(i64 ")), obj_reg), extra_args), freak_word_lit(")")));
 freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = add i64 0, 0")));
 }
 else {
-freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = call i64 @")), impl_fname), freak_word_lit("(i64 ")), obj_reg), freak_word_lit(")")));
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = call i64 @")), impl_fname), freak_word_lit("(i64 ")), obj_reg), extra_args), freak_word_lit(")")));
 }
 return res_reg;
-}
-si += 1;
 }
 freak_llvm_emit_line(freak_word_concat(freak_word_lit("    ; unsupported method "), val));
 freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_lit("    "), res_reg), freak_word_lit(" = add i64 0, 0")));
@@ -4912,7 +5597,52 @@ int64_t i = freak_word_to_int(eid);
 freak_word name_w = freak_array_get(ast_stmt_names, i);
 freak_word expr_id_w = freak_array_get(ast_stmt_exprs, i);
 freak_word rhs_w = freak_array_get(ast_stmt_bodies, i);
-freak_word var_name_expr = freak_array_get(ast_expr_vals, freak_word_to_int(expr_id_w));
+int64_t lhs_idx = freak_word_to_int(expr_id_w);
+freak_word lhs_kind = freak_array_get(ast_expr_kinds, lhs_idx);
+if (freak_word_eq(lhs_kind, EXPR_FIELD)) {
+freak_word field_name = freak_array_get(ast_expr_vals, lhs_idx);
+freak_word recv_id = freak_array_get(ast_expr_lefts, lhs_idx);
+freak_word recv_reg = freak_llvm_emit_expr(recv_id);
+int64_t fidx = (0 - 1);
+int64_t si = 0;
+for (int64_t __rep = 0; __rep < shape_registry_count; __rep++) {
+int64_t tmpidx = freak_get_shape_field_index(freak_array_get(shape_registry_names, si), field_name);
+if ((tmpidx >= 0)) {
+fidx = tmpidx;
+}
+si += 1;
+}
+if ((fidx < 0)) {
+fidx = 0;
+}
+freak_word rhs_reg = freak_llvm_emit_expr(rhs_w);
+freak_word fidx_w = freak_word_from_int(fidx);
+if (freak_word_eq(name_w, freak_word_lit("="))) {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    call void @freak_llvm_shape_set(i64 "), recv_reg), freak_word_lit(", i64 ")), fidx_w), freak_word_lit(", i64 ")), rhs_reg), freak_word_lit(")")));
+return ;
+}
+freak_word cur_reg = freak_next_reg();
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), cur_reg), freak_word_lit(" = call i64 @freak_llvm_shape_get(i64 ")), recv_reg), freak_word_lit(", i64 ")), fidx_w), freak_word_lit(")")));
+freak_word op_reg = freak_next_reg();
+if (freak_word_eq(name_w, freak_word_lit("+="))) {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), op_reg), freak_word_lit(" = add i64 ")), cur_reg), freak_word_lit(", ")), rhs_reg));
+}
+if (freak_word_eq(name_w, freak_word_lit("-="))) {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), op_reg), freak_word_lit(" = sub i64 ")), cur_reg), freak_word_lit(", ")), rhs_reg));
+}
+if (freak_word_eq(name_w, freak_word_lit("*="))) {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), op_reg), freak_word_lit(" = mul i64 ")), cur_reg), freak_word_lit(", ")), rhs_reg));
+}
+if (freak_word_eq(name_w, freak_word_lit("/="))) {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), op_reg), freak_word_lit(" = sdiv i64 ")), cur_reg), freak_word_lit(", ")), rhs_reg));
+}
+if (freak_word_eq(name_w, freak_word_lit("%="))) {
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    "), op_reg), freak_word_lit(" = srem i64 ")), cur_reg), freak_word_lit(", ")), rhs_reg));
+}
+freak_llvm_emit_line(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("    call void @freak_llvm_shape_set(i64 "), recv_reg), freak_word_lit(", i64 ")), fidx_w), freak_word_lit(", i64 ")), op_reg), freak_word_lit(")")));
+return ;
+}
+freak_word var_name_expr = freak_array_get(ast_expr_vals, lhs_idx);
 freak_word reg = freak_llvm_emit_expr(rhs_w);
 freak_word var_ptr = freak_llvm_var_ptr(var_name_expr);
 if (freak_word_eq(name_w, freak_word_lit("="))) {
@@ -5145,6 +5875,7 @@ if (freak_word_eq(cur_type, freak_word_lit("bool"))) {
 pt = freak_word_lit("b");
 }
 freak_llvm_set_var_type(cur_name, pt);
+freak_llvm_reg_var(cur_name, cur_name);
 cur_name = freak_word_lit("");
 cur_type = freak_word_lit("");
 in_type = false;
@@ -5174,6 +5905,7 @@ if (freak_word_eq(cur_type, freak_word_lit("bool"))) {
 pt = freak_word_lit("b");
 }
 freak_llvm_set_var_type(cur_name, pt);
+freak_llvm_reg_var(cur_name, cur_name);
 }
 }
 void freak_llvm_emit_task(freak_word eid) {
@@ -5221,6 +5953,7 @@ freak_llvm_emit_line(freak_word_lit("declare i32 @printf(i8*, ...)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @strlen(i8*)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_word_from_int(i64)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_word_from_bool(i64)"));
+freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_char_to_word(i64)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_word_concat(i64, i64)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_word_eq(i64, i64)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_word_neq(i64, i64)"));
@@ -5266,6 +5999,13 @@ freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_ui_event_character(
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_ui_event_mouse_x(i64)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_ui_event_mouse_y(i64)"));
 freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_ui_event_button(i64)"));
+freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_ui_event_repeat(i64)"));
+freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_ui_event_scroll_dy(i64)"));
+freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_ui_event_width(i64)"));
+freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_ui_event_height(i64)"));
+freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_ui_event_gained(i64)"));
+freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_ui_get_width(i64)"));
+freak_llvm_emit_line(freak_word_lit("declare i64 @freak_llvm_ui_get_height(i64)"));
 freak_llvm_emit_line(freak_word_lit("declare void @freak_llvm_ui_clear(i64, i64, i64, i64, i64)"));
 freak_llvm_emit_line(freak_word_lit("declare void @freak_llvm_ui_fill_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)"));
 freak_llvm_emit_line(freak_word_lit("declare void @freak_llvm_ui_stroke_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)"));
@@ -5581,6 +6321,9 @@ freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_conca
 freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_G4), freak_word_lit("transpile")), C_RESET), freak_word_lit(" <file.fk> [opts]  ")), C_DIM), freak_word_lit("Emit .c or .ll")), C_RESET), 45));
 freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_G5), freak_word_lit("hangar")), C_RESET), freak_word_lit("    <cmd>              ")), C_DIM), freak_word_lit("Package manager")), C_RESET), 45));
 freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_G6), freak_word_lit("doctor")), C_RESET), freak_word_lit("    [--fix]              ")), C_DIM), freak_word_lit("Check setup, auto-fix")), C_RESET), 45));
+freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_G1), freak_word_lit("learn")), C_RESET), freak_word_lit("     [cmd]              ")), C_DIM), freak_word_lit("FREAK Academy")), C_RESET), 45));
+freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_G1), freak_word_lit("test")), C_RESET), freak_word_lit("                          ")), C_DIM), freak_word_lit("Run regression suite")), C_RESET), 45));
+freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_G2), freak_word_lit("audit-*")), C_RESET), freak_word_lit("                       ")), C_DIM), freak_word_lit("audit-conformance/science/trust/miracles")), C_RESET), 45));
 freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_G1), freak_word_lit("upgrade")), C_RESET), freak_word_lit("                      ")), C_DIM), freak_word_lit("Download latest FREAK")), C_RESET), 45));
 freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_BCYAN), freak_word_lit("version")), C_RESET), freak_word_lit("                      ")), C_DIM), freak_word_lit("Show version")), C_RESET), 45));
 freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_BCYAN), freak_word_lit("help")), C_RESET), freak_word_lit("                         ")), C_DIM), freak_word_lit("This screen")), C_RESET), 45));
@@ -5600,6 +6343,7 @@ freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_conca
 freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), freak_word_lit("  $ ")), C_RESET), C_BWHITE), freak_word_lit("freak run")), C_RESET), freak_word_lit(" hello.fk ")), C_BYELLOW), freak_word_lit("--c --opt=3")), C_RESET));
 freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), freak_word_lit("  $ ")), C_RESET), C_BWHITE), freak_word_lit("freak build")), C_RESET), freak_word_lit(" game.fk ")), C_BYELLOW), freak_word_lit("--target=x86_64-linux-gnu")), C_RESET));
 freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), freak_word_lit("  $ ")), C_RESET), C_BWHITE), freak_word_lit("freak hangar")), C_RESET), freak_word_lit(" init my-project")));
+freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), freak_word_lit("  $ ")), C_RESET), C_BWHITE), freak_word_lit("freak learn")), C_RESET), freak_word_lit(" list")));
 freak_say(freak_word_lit(""));
 freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), C_ITALIC), freak_cli_random_quote(42)), C_RESET));
 freak_say(freak_word_lit(""));
@@ -6278,15 +7022,27 @@ freak_word out = freak_word_lit("");
 freak_word line = freak_word_lit("");
 int64_t i = 0;
 int64_t slen = freak_word_length(source);
+bool in_use_block = false;
 while (!((i >= slen))) {
 freak_word ch = freak_word_char_at(source, i);
 if (freak_word_eq(ch, freak_word_lit("\n"))) {
 freak_word trimmed = freak_word_trim(line);
-if ((freak_word_starts_with(trimmed, freak_word_lit("use std::math3d")) || freak_word_starts_with(trimmed, freak_word_lit("use std::zip")))) {
+if (in_use_block) {
+out = freak_word_concat(freak_word_concat(freak_word_concat(out, freak_word_lit("-- [resolved cont] ")), trimmed), freak_word_lit("\n"));
+if (freak_word_contains(trimmed, freak_word_lit("}"))) {
+in_use_block = false;
+}
+}
+else {
+if (freak_word_starts_with(trimmed, freak_word_lit("use "))) {
 out = freak_word_concat(freak_word_concat(freak_word_concat(out, freak_word_lit("-- [resolved] ")), trimmed), freak_word_lit("\n"));
+if ((freak_word_contains(trimmed, freak_word_lit("{")) && (!freak_word_contains(trimmed, freak_word_lit("}"))))) {
+in_use_block = true;
+}
 }
 else {
 out = freak_word_concat(freak_word_concat(out, line), freak_word_lit("\n"));
+}
 }
 line = freak_word_lit("");
 }
@@ -6299,7 +7055,7 @@ i += 1;
 }
 if ((!freak_word_eq(line, freak_word_lit("")))) {
 freak_word trimmed_last = freak_word_trim(line);
-if ((freak_word_starts_with(trimmed_last, freak_word_lit("use std::math3d")) || freak_word_starts_with(trimmed_last, freak_word_lit("use std::zip")))) {
+if ((in_use_block || freak_word_starts_with(trimmed_last, freak_word_lit("use ")))) {
 out = freak_word_concat(freak_word_concat(out, freak_word_lit("-- [resolved] ")), trimmed_last);
 }
 else {
@@ -6320,7 +7076,16 @@ freak_parse_program();
 freak_cli_step_done(freak_word_lit("Parsing"));
 freak_cli_step_start();
 freak_check_program();
+if (strict_borrow) {
+freak_cli_step_done(freak_word_lit("Borrow checking"));
+if ((error_count > 0)) {
+freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_BRED), SYM_CROSS), freak_word_lit(" ")), freak_word_from_int(error_count)), freak_word_lit(" borrow-check error(s)")), C_RESET));
+return freak_word_lit("");
+}
+}
+else {
 freak_cli_step_done(freak_word_lit("Type checking"));
+}
 freak_cli_step_start();
 if (freak_word_eq(target, freak_word_lit("llvm"))) {
 freak_word out_ll = freak_word_concat(src_file, freak_word_lit(".ll"));
@@ -6519,7 +7284,7 @@ cmd = freak_word_concat(cmd, freak_word_lit(" -lws2_32"));
 freak_word ui_c = freak_word_concat(runtime_dir, freak_word_lit("/ui/win32_backend.c"));
 if (is_win) {
 if (freak_fs_exists(ui_c)) {
-cmd = freak_word_concat(freak_word_concat(freak_word_concat(cmd, freak_word_lit(" ")), ui_c), freak_word_lit(" -luser32 -lgdi32 -lmsimg32"));
+cmd = freak_word_concat(freak_word_concat(freak_word_concat(cmd, freak_word_lit(" ")), ui_c), freak_word_lit(" -DFREAK_HAS_UI -luser32 -lgdi32 -lmsimg32"));
 }
 }
 if ((!freak_word_eq(cross, freak_word_lit("")))) {
@@ -6620,6 +7385,28 @@ freak_word version_path = freak_word_concat(std_dir, freak_word_lit("/version.fk
 if (freak_fs_exists(version_path)) {
 std_src = freak_word_concat(freak_word_concat(std_src, freak_fs_read(version_path)), freak_word_lit("\n"));
 }
+bool need_ui = false;
+if (freak_word_contains(source, freak_word_lit("use std::ui"))) {
+need_ui = true;
+}
+freak_word ui_path = freak_word_concat(std_dir, freak_word_lit("/ui/window.fk"));
+if ((need_ui && freak_fs_exists(ui_path))) {
+std_src = freak_word_concat(freak_word_concat(std_src, freak_fs_read(ui_path)), freak_word_lit("\n"));
+}
+bool need_cockpit = false;
+if (freak_word_contains(source, freak_word_lit("use cockpit"))) {
+need_cockpit = true;
+}
+if (need_cockpit) {
+freak_word cockpit_root = freak_word_lit("packages/cockpit/src");
+if (freak_fs_exists(freak_word_concat(cockpit_root, freak_word_lit("/containers.fk")))) {
+std_src = freak_word_concat(freak_word_concat(std_src, freak_fs_read(freak_word_concat(cockpit_root, freak_word_lit("/containers.fk")))), freak_word_lit("\n"));
+std_src = freak_word_concat(freak_word_concat(std_src, freak_fs_read(freak_word_concat(cockpit_root, freak_word_lit("/theme.fk")))), freak_word_lit("\n"));
+std_src = freak_word_concat(freak_word_concat(std_src, freak_fs_read(freak_word_concat(cockpit_root, freak_word_lit("/layout.fk")))), freak_word_lit("\n"));
+std_src = freak_word_concat(freak_word_concat(std_src, freak_fs_read(freak_word_concat(cockpit_root, freak_word_lit("/widgets.fk")))), freak_word_lit("\n"));
+std_src = freak_word_concat(freak_word_concat(std_src, freak_fs_read(freak_word_concat(cockpit_root, freak_word_lit("/ui.fk")))), freak_word_lit("\n"));
+}
+}
 if (freak_word_eq(target, freak_word_lit("llvm"))) {
 freak_word http_path = freak_word_concat(std_dir, freak_word_lit("/http.fk"));
 if (freak_fs_exists(http_path)) {
@@ -6655,6 +7442,7 @@ freak_say(freak_word_lit(""));
 freak_word std_source = freak_cli_load_std(source, target);
 source_line_offset = 0;
 if ((!freak_word_eq(std_source, freak_word_lit("")))) {
+std_source = freak_cli_strip_resolved_use_lines(std_source);
 source_line_offset = freak_cli_count_lines(std_source);
 source = freak_cli_strip_resolved_use_lines(source);
 source = freak_word_concat(std_source, source);
@@ -8387,10 +9175,48 @@ freak_say(freak_cli_box_mid(freak_word_concat(freak_word_concat(freak_word_conca
 freak_say(freak_cli_box_bot(50));
 freak_say(freak_word_lit(""));
 }
+int64_t freak_cli_audit_dispatch(freak_word subcmd, int64_t args_cnt) {
+freak_word cmd = freak_word_concat(freak_word_lit("python -m freakc "), subcmd);
+int64_t ai = 2;
+while (!((ai >= args_cnt))) {
+freak_word extra = freak_process_arg(ai);
+cmd = freak_word_concat(freak_word_concat(cmd, freak_word_lit(" ")), extra);
+ai += 1;
+}
+int64_t exit_code = freak_process_exec(cmd);
+if ((exit_code != 0)) {
+freak_say(freak_word_lit(""));
+freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), freak_word_lit("Note: audit commands currently shell out to the Python CLI.")), C_RESET));
+freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), freak_word_lit("If Python is missing, install Python 3.10+ and try again.")), C_RESET));
+freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), freak_word_lit("(Native FREAK port of the auditor lands in V4.)")), C_RESET));
+}
+return exit_code;
+}
+freak_word freak_cli_learn_quote_arg(freak_word arg) {
+return freak_word_concat(freak_word_concat(freak_word_lit("\""), freak_word_replace(arg, freak_word_lit("\""), freak_word_lit("\\\""))), freak_word_lit("\""));
+}
+int64_t freak_cli_learn_dispatch(int64_t args_cnt) {
+freak_word cmd = freak_word_lit("python -m freakc learn");
+int64_t ai = 2;
+while (!((ai >= args_cnt))) {
+freak_word extra = freak_process_arg(ai);
+cmd = freak_word_concat(freak_word_concat(cmd, freak_word_lit(" ")), freak_cli_learn_quote_arg(extra));
+ai += 1;
+}
+int64_t exit_code = freak_process_exec(cmd);
+if ((exit_code != 0)) {
+freak_say(freak_word_lit(""));
+freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), freak_word_lit("Note: `freak learn` currently shells out to the Python Academy CLI.")), C_RESET));
+freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), freak_word_lit("If Python is missing, install Python 3.10+ and try again.")), C_RESET));
+freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_lit("  "), C_DIM), freak_word_lit("(The FREAK-native Academy rewrite lands after the V4 query surface is ready.)")), C_RESET));
+}
+return exit_code;
+}
 freak_word freak_cli_parse_flags(int64_t start_idx, int64_t args_cnt) {
 freak_word target = freak_word_lit("llvm");
 freak_word opt = freak_word_lit("2");
 freak_word cross = freak_word_lit("");
+strict_borrow = false;
 int64_t fi = start_idx;
 while (!((fi >= args_cnt))) {
 freak_word flag = freak_process_arg(fi);
@@ -8400,6 +9226,10 @@ target = freak_word_lit("c");
 else {
 if (freak_word_eq(flag, freak_word_lit("--llvm"))) {
 target = freak_word_lit("llvm");
+}
+else {
+if (freak_word_eq(flag, freak_word_lit("--strict-borrow"))) {
+strict_borrow = true;
 }
 else {
 if (freak_word_starts_with(flag, freak_word_lit("--opt="))) {
@@ -8414,6 +9244,7 @@ tval = freak_word_concat(tval, freak_word_char_at(flag, ti));
 ti += 1;
 }
 cross = tval;
+}
 }
 }
 }
@@ -8628,6 +9459,27 @@ if (freak_word_eq(subcmd, freak_word_lit("hangar"))) {
 freak_hangar_dispatch(args_cnt);
 return ;
 }
+if (freak_word_eq(subcmd, freak_word_lit("learn"))) {
+int64_t learn_exit = freak_cli_learn_dispatch(args_cnt);
+if ((learn_exit != 0)) {
+freak_process_exit(learn_exit);
+}
+return ;
+}
+if (((((freak_word_eq(subcmd, freak_word_lit("audit-science")) || freak_word_eq(subcmd, freak_word_lit("audit-trust"))) || freak_word_eq(subcmd, freak_word_lit("audit-miracles"))) || freak_word_eq(subcmd, freak_word_lit("foreshadow-audit"))) || freak_word_eq(subcmd, freak_word_lit("audit-conformance")))) {
+int64_t audit_exit = freak_cli_audit_dispatch(subcmd, args_cnt);
+if ((audit_exit != 0)) {
+freak_process_exit(audit_exit);
+}
+return ;
+}
+if (freak_word_eq(subcmd, freak_word_lit("test"))) {
+int64_t test_exit = freak_process_exec(freak_word_lit("python tests/suite/run_tests.py"));
+if ((test_exit != 0)) {
+freak_process_exit(test_exit);
+}
+return ;
+}
 if (freak_word_ends_with(subcmd, freak_word_lit(".fk"))) {
 freak_word flags = freak_cli_parse_flags(2, args_cnt);
 freak_word target = freak_cli_extract_flag(flags, 0);
@@ -8652,7 +9504,7 @@ freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_conca
 freak_say(freak_word_lit(""));
 }
 void freak_main(void) {
-FREAKC_VERSION = freak_word_lit("0.13.2");
+FREAKC_VERSION = freak_word_lit("0.13.3");
 FREAKC_CODENAME = freak_word_lit("Shiranui");
 TOK_EOF = freak_word_lit("0");
 TOK_IDENT = freak_word_lit("1");
@@ -8677,6 +9529,7 @@ EXPR_CALL = freak_word_lit("8");
 EXPR_METHOD = freak_word_lit("9");
 EXPR_FIELD = freak_word_lit("10");
 EXPR_INDEX = freak_word_lit("11");
+EXPR_ARRAY_LIT = freak_word_lit("12");
 ast_expr_kinds = 0;
 ast_expr_vals = 0;
 ast_expr_lefts = 0;
@@ -8707,6 +9560,16 @@ ast_task_params = 0;
 ast_task_returns = 0;
 ast_stmt_lines = 0;
 ast_top_stmts = 0;
+ast_pilot_is_mut = 0;
+strict_borrow = false;
+bc_sym_names = 0;
+bc_sym_kinds = 0;
+bc_sym_is_mut = 0;
+bc_sym_state = 0;
+bc_sym_scopes = 0;
+bc_sym_lines = 0;
+bc_sym_count = 0;
+bc_scope_depth = 0;
 shape_registry_names = 0;
 shape_registry_fields = 0;
 shape_registry_count = 0;
@@ -8762,7 +9625,7 @@ input_file = freak_word_lit("");
 opt_level = freak_word_lit("2");
 cross_target = freak_word_lit("");
 source_line_offset = 0;
-CLI_VERSION = freak_word_lit("0.13.2");
+CLI_VERSION = freak_word_lit("0.13.3");
 CLI_CODENAME = freak_word_lit("Shiranui");
 C_RESET = freak_word_lit("\x1b[0m");
 C_BOLD = freak_word_lit("\x1b[1m");
@@ -8835,6 +9698,7 @@ freak_freakc_cli_main();
 int main(int argc, char** argv) {
     freak_argc = argc;
     freak_argv = argv;
+    freak_enable_ansi();
     freak_main();
     return 0;
 }

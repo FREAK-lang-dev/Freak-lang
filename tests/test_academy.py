@@ -64,7 +64,8 @@ def test_course_listing_mentions_seed_lesson():
     assert "freak-basics" in listing
     assert "hello-freak" in listing
     assert "functions" in listing
-    assert "python -m freakc learn check <lesson-id> <file.fk>" in listing
+    assert "freak learn check <lesson-id> <file.fk>" in listing
+    assert "Bootstrap fallback: python -m freakc learn <cmd>" in listing
 
 
 def test_learn_list_cli_outputs_seed_course():
@@ -76,6 +77,24 @@ def test_learn_list_cli_outputs_seed_course():
     assert code == 0
     assert "FREAK Academy" in out.getvalue()
     assert "hello-freak" in out.getvalue()
+
+
+def test_native_cli_learn_list_dispatches_to_academy():
+    native_cli = ROOT / "build" / "freak.exe"
+    if sys.platform != "win32" or not native_cli.exists():
+        return
+
+    result = subprocess.run(
+        [str(native_cli), "learn", "list"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "FREAK Academy" in result.stdout
+    assert "hello-freak" in result.stdout
 
 
 def test_learn_show_cli_outputs_lesson_outline():
