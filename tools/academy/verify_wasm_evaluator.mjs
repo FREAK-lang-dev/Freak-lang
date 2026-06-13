@@ -19,6 +19,7 @@ async function main(argv) {
   const evaluator = createAcademyWasmEvaluator(wasm.instance);
 
   assert(evaluator.supportsLesson("hello-freak"), "WASM evaluator must support hello-freak");
+  assert(evaluator.supportsLesson("variables"), "WASM evaluator must support variables");
 
   const passing = evaluator.runHelloFreak('-- comment allowed\nsay "Hello, FREAK Academy!"\n');
   assert(passing.ok, `passing hello source should run: ${passing.message}`);
@@ -31,6 +32,22 @@ async function main(argv) {
   const parseFailure = evaluator.runHelloFreak('pilot greeting = "Hello"\n');
   assert(!parseFailure.ok, "non-say source should fail the hello evaluator");
   assert(parseFailure.message === "expected say statement", `unexpected parse message: ${parseFailure.message}`);
+
+  const variablesPassing = evaluator.runVariables("pilot score = 100\nsay score\n");
+  assert(variablesPassing.ok, `passing variables source should run: ${variablesPassing.message}`);
+  assert(variablesPassing.stdout === "100\n", `unexpected variables stdout: ${JSON.stringify(variablesPassing.stdout)}`);
+
+  const variablesExpression = evaluator.runVariables("pilot score: int = 50 + 50\nsay score\n");
+  assert(variablesExpression.ok, `typed variables expression should run: ${variablesExpression.message}`);
+  assert(variablesExpression.stdout === "100\n", `unexpected expression stdout: ${JSON.stringify(variablesExpression.stdout)}`);
+
+  const variablesDirectOutput = evaluator.runVariables("say 100\n");
+  assert(variablesDirectOutput.ok, `direct output source should run: ${variablesDirectOutput.message}`);
+  assert(variablesDirectOutput.stdout === "100\n", `unexpected direct stdout: ${JSON.stringify(variablesDirectOutput.stdout)}`);
+
+  const variablesUnknown = evaluator.runVariables("say score\n");
+  assert(!variablesUnknown.ok, "unknown variable should fail the variables evaluator");
+  assert(variablesUnknown.message === "unknown symbol in WASM evaluator", `unexpected variables error: ${variablesUnknown.message}`);
 
   const academyPackage = await buildAcademyPackage(process.cwd());
   const evaluateResponse = handleAcademyWorkerEnvelope(
@@ -66,7 +83,40 @@ async function main(argv) {
   assert(runResponse.ok, JSON.stringify(runResponse));
   assert(runResponse.result?.stdout === "Hello, FREAK Academy!\n", "hello run stdout should match");
 
-  console.log("Academy WASM evaluator verified: hello-freak evaluation passes through worker protocol");
+  const variablesResponse = handleAcademyWorkerEnvelope(
+    {
+      protocolVersion: 1,
+      requestId: "wasm-evaluate-variables",
+      method: "evaluateExercise",
+      params: {
+        lessonId: "variables",
+        exerciseId: "score-exercise",
+        source: "pilot score = 100\nsay score\n",
+      },
+    },
+    academyPackage,
+    { wasmEvaluator: evaluator },
+  );
+  assert(variablesResponse.ok, JSON.stringify(variablesResponse));
+  assert(variablesResponse.result?.passed === true, "variables exercise should pass through WASM-backed worker");
+
+  const variablesRunResponse = handleAcademyWorkerEnvelope(
+    {
+      protocolVersion: 1,
+      requestId: "wasm-run-variables",
+      method: "run",
+      params: {
+        fileId: "variables.fk",
+        source: "pilot score = 100\nsay score\n",
+      },
+    },
+    academyPackage,
+    { wasmEvaluator: evaluator },
+  );
+  assert(variablesRunResponse.ok, JSON.stringify(variablesRunResponse));
+  assert(variablesRunResponse.result?.stdout === "100\n", "variables run stdout should match");
+
+  console.log("Academy WASM evaluator verified: hello-freak and variables pass through worker protocol");
   return 0;
 }
 

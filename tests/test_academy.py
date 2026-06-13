@@ -319,7 +319,7 @@ def test_learn_wasm_status_cli_builds_browser_loadable_probe():
             assert "Academy WASM probe verified" in result.stdout
 
 
-def test_learn_wasm_evaluator_cli_builds_hello_backed_worker_artifact():
+def test_learn_wasm_evaluator_cli_builds_basics_worker_artifact():
     if shutil.which("clang") is None:
         return
 
@@ -336,11 +336,12 @@ def test_learn_wasm_evaluator_cli_builds_hello_backed_worker_artifact():
         assert code == 0
         assert "Academy WASM evaluator built" in out.getvalue()
         assert wasm_path.exists()
-        assert manifest["artifactStatus"] == "wasm-preview-hello-evaluator"
+        assert manifest["artifactStatus"] == "wasm-preview-basics-evaluator"
         assert manifest["workerProtocolVersion"] == 1
-        assert manifest["supportedLessons"] == ["hello-freak"]
+        assert manifest["supportedLessons"] == ["hello-freak", "variables"]
         assert manifest["sha256"] == sha256_file(wasm_path)
         assert "academy_evaluate_hello_freak" in manifest["exports"]
+        assert "academy_evaluate_variables" in manifest["exports"]
 
         node = shutil.which("node")
         if node is not None:

@@ -60,7 +60,7 @@ python -m freakc learn wasm-evaluator build/academy-wasm
 node tools/academy/verify_wasm_evaluator.mjs build/academy-wasm/academy-wasm-evaluator.wasm
 ```
 
-This artifact currently supports only the `hello-freak` lesson. The browser
+This artifact currently supports `hello-freak` and `variables`. The browser
 worker accepts it through the `wasmEvaluator` option and falls back to the
 JavaScript reference evaluator for the rest of the basics course.
 

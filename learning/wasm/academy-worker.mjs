@@ -442,10 +442,18 @@ export function createAcademyWasmEvaluator(wasmInstanceOrExports) {
 
   return {
     supportsLesson(lessonId) {
-      return lessonId === "hello-freak" && exports.academy_supported_lesson_count() >= 1;
+      if (lessonId === "hello-freak") {
+        return exports.academy_supported_lesson_count() >= 1;
+      }
+      return lessonId === "variables" &&
+        exports.academy_supported_lesson_count() >= 2 &&
+        typeof exports.academy_evaluate_variables === "function";
     },
     runHelloFreak(source) {
-      return runHelloFreakWasm(exports, source);
+      return runLessonWasm(exports, source, "hello-freak");
+    },
+    runVariables(source) {
+      return runLessonWasm(exports, source, "variables");
     },
   };
 }
@@ -578,7 +586,7 @@ function handlePackageInfo(academyPackage) {
 
 function handleCheck(params, options) {
   const source = requireString(params.source, "check requires string source");
-  const wasmResult = maybeRunHelloFreakWasm(source, options, String(params.fileId ?? ""));
+  const wasmResult = maybeRunLessonWasm(source, options, String(params.fileId ?? ""));
   if (wasmResult !== null) {
     return {
       ok: wasmResult.ok,
@@ -594,7 +602,7 @@ function handleCheck(params, options) {
 
 function handleRun(params, options) {
   const source = requireString(params.source, "run requires string source");
-  const wasmResult = maybeRunHelloFreakWasm(source, options, String(params.fileId ?? ""));
+  const wasmResult = maybeRunLessonWasm(source, options, String(params.fileId ?? ""));
   if (wasmResult !== null) {
     return wasmResult;
   }
@@ -659,7 +667,7 @@ function sectionById(lesson, sectionId) {
 
 function evaluateRequirements(lesson, exercise, source, options) {
   const requirements = Array.isArray(exercise.requirements) ? exercise.requirements : [];
-  const wasmResult = maybeEvaluateHelloFreakWasm(lesson, exercise, source, options, requirements);
+  const wasmResult = maybeEvaluateLessonWasm(lesson, exercise, source, options, requirements);
   if (wasmResult !== null) {
     return wasmResult;
   }
@@ -718,16 +726,16 @@ function evaluateRequirements(lesson, exercise, source, options) {
   });
 }
 
-function maybeEvaluateHelloFreakWasm(lesson, exercise, source, options, requirements) {
-  if (lesson?.id !== "hello-freak" || exercise?.id !== "hello-exercise") {
+function maybeEvaluateLessonWasm(lesson, exercise, source, options, requirements) {
+  if (!isWasmBackedExercise(lesson, exercise)) {
     return null;
   }
   const evaluator = academyWasmEvaluatorFromOptions(options);
-  if (evaluator === null || !evaluator.supportsLesson("hello-freak")) {
+  if (evaluator === null || !evaluator.supportsLesson(lesson.id)) {
     return null;
   }
 
-  const result = evaluator.runHelloFreak(source);
+  const result = runLessonThroughEvaluator(evaluator, lesson.id, source);
   return requirements.map((requirement) => {
     const kind = requirement.kind;
     const id = requirement.id ?? kind;
@@ -770,16 +778,17 @@ function maybeEvaluateHelloFreakWasm(lesson, exercise, source, options, requirem
   });
 }
 
-function maybeRunHelloFreakWasm(source, options, fileId) {
-  if (fileId !== "hello-freak.fk") {
+function maybeRunLessonWasm(source, options, fileId) {
+  const lessonId = lessonIdFromFileId(fileId);
+  if (lessonId === null) {
     return null;
   }
   const evaluator = academyWasmEvaluatorFromOptions(options);
-  if (evaluator === null || !evaluator.supportsLesson("hello-freak")) {
+  if (evaluator === null || !evaluator.supportsLesson(lessonId)) {
     return null;
   }
 
-  const result = evaluator.runHelloFreak(source);
+  const result = runLessonThroughEvaluator(evaluator, lessonId, source);
   return {
     ok: result.ok,
     stdout: result.stdout,
@@ -787,6 +796,33 @@ function maybeRunHelloFreakWasm(source, options, fileId) {
     returncode: result.ok ? 0 : 1,
     messages: result.ok ? [] : [result.message],
   };
+}
+
+function isWasmBackedExercise(lesson, exercise) {
+  return (
+    (lesson?.id === "hello-freak" && exercise?.id === "hello-exercise") ||
+    (lesson?.id === "variables" && exercise?.id === "score-exercise")
+  );
+}
+
+function lessonIdFromFileId(fileId) {
+  if (fileId === "hello-freak.fk") {
+    return "hello-freak";
+  }
+  if (fileId === "variables.fk") {
+    return "variables";
+  }
+  return null;
+}
+
+function runLessonThroughEvaluator(evaluator, lessonId, source) {
+  if (lessonId === "hello-freak") {
+    return evaluator.runHelloFreak(source);
+  }
+  if (lessonId === "variables") {
+    return evaluator.runVariables(source);
+  }
+  throw new WorkerProtocolError("academy_error", `unsupported WASM lesson: ${lessonId}`);
 }
 
 function academyWasmEvaluatorFromOptions(options) {
@@ -815,7 +851,7 @@ function isAcademyWasmEvaluatorExports(exports) {
   );
 }
 
-function runHelloFreakWasm(exports, source) {
+function runLessonWasm(exports, source, lessonId) {
   const encoded = TEXT_ENCODER.encode(source);
   const inputOffset = exports.academy_input_offset();
   const inputCapacity = exports.academy_input_capacity();
@@ -834,7 +870,9 @@ function runHelloFreakWasm(exports, source) {
   new Uint8Array(exports.memory.buffer, inputOffset, inputCapacity).fill(0);
   new Uint8Array(exports.memory.buffer, inputOffset, encoded.length).set(encoded);
 
-  const status = exports.academy_evaluate_hello_freak(encoded.length);
+  const status = lessonId === "variables"
+    ? exports.academy_evaluate_variables(encoded.length)
+    : exports.academy_evaluate_hello_freak(encoded.length);
   const stdout = readWasmString(
     exports.memory,
     exports.academy_last_stdout_offset(),
