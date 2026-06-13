@@ -38,6 +38,7 @@ Current implementation checkpoint:
 - Goal B is staged: native `freak learn` dispatch can list/show/demo/check/start lessons through the V3 Academy shim, require quizzes, and persist progress locally.
 - Goal D basics content is staged: the first `freak-basics` course has seven V3 MVP lessons.
 - Goal E has started: the worker protocol, native V3 host, all-basics golden fixtures, CLI bridge, and browser-safe JavaScript reference worker exist. The final compiler-owned WASM artifact is still pending.
+- Goal F has started in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/learn` consumes exported Academy package and browser-safe worker assets generated from this repository.
 
 The next active goal should continue Goal E until the browser-safe worker can check all initial lesson exercises with the same results as the native V3 host.
 
