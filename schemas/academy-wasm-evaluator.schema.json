@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freak-lang.dev/schemas/academy-wasm-evaluator.schema.json",
+  "title": "FREAK Academy WASM Evaluator Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "artifactStatus",
+    "workerProtocolVersion",
+    "sourcePath",
+    "wasmPath",
+    "sha256",
+    "bytes",
+    "target",
+    "supportedLessons",
+    "toolchain",
+    "exports"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "artifactStatus": {
+      "type": "string",
+      "const": "wasm-preview-hello-evaluator"
+    },
+    "workerProtocolVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "sourcePath": {
+      "type": "string",
+      "const": "learning/wasm/academy-wasm-evaluator.c"
+    },
+    "wasmPath": {
+      "type": "string",
+      "const": "academy-wasm-evaluator.wasm"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "target": {
+      "type": "string",
+      "const": "wasm32"
+    },
+    "supportedLessons": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string",
+          "const": "hello-freak"
+        }
+      ],
+      "minItems": 1,
+      "maxItems": 1
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compiler", "command"],
+      "properties": {
+        "compiler": {
+          "type": "string",
+          "minLength": 1
+        },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "exports": {
+      "type": "array",
+      "minItems": 11,
+      "items": {
+        "type": "string",
+        "enum": [
+          "memory",
+          "academy_protocol_version",
+          "academy_wasm_evaluator_version",
+          "academy_supported_lesson_count",
+          "academy_input_offset",
+          "academy_input_capacity",
+          "academy_last_stdout_offset",
+          "academy_last_stdout_length",
+          "academy_last_message_offset",
+          "academy_last_message_length",
+          "academy_evaluate_hello_freak"
+        ]
+      }
+    }
+  }
+}

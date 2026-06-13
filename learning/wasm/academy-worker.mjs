@@ -5,6 +5,13 @@ const DEFAULT_LIMITS = Object.freeze({
   maxLoopIterations: 1000,
 });
 
+const WASM_STATUS_PARSES = 1;
+const WASM_STATUS_COMPILES = 2;
+const WASM_STATUS_RUNS = 4;
+const WASM_STATUS_OUTPUT_MATCHES = 8;
+const TEXT_ENCODER = new TextEncoder();
+const TEXT_DECODER = new TextDecoder();
+
 class WorkerProtocolError extends Error {
   constructor(code, message) {
     super(message);
@@ -424,6 +431,25 @@ export function createAcademyWorker(academyPackage, options = {}) {
   };
 }
 
+export function createAcademyWasmEvaluator(wasmInstanceOrExports) {
+  const exports = wasmInstanceOrExports?.exports ?? wasmInstanceOrExports?.instance?.exports ?? wasmInstanceOrExports;
+  if (!isAcademyWasmEvaluatorExports(exports)) {
+    throw new WorkerProtocolError("bad_request", "invalid Academy WASM evaluator exports");
+  }
+  if (exports.academy_protocol_version() !== PROTOCOL_VERSION) {
+    throw new WorkerProtocolError("bad_protocol", "unsupported Academy WASM evaluator protocol version");
+  }
+
+  return {
+    supportsLesson(lessonId) {
+      return lessonId === "hello-freak" && exports.academy_supported_lesson_count() >= 1;
+    },
+    runHelloFreak(source) {
+      return runHelloFreakWasm(exports, source);
+    },
+  };
+}
+
 export function handleAcademyWorkerEnvelope(envelope, academyPackage, options = {}) {
   const requestId = String(envelope?.requestId ?? "");
   if (envelope?.protocolVersion !== PROTOCOL_VERSION) {
@@ -552,6 +578,13 @@ function handlePackageInfo(academyPackage) {
 
 function handleCheck(params, options) {
   const source = requireString(params.source, "check requires string source");
+  const wasmResult = maybeRunHelloFreakWasm(source, options, String(params.fileId ?? ""));
+  if (wasmResult !== null) {
+    return {
+      ok: wasmResult.ok,
+      messages: wasmResult.ok ? [] : wasmResult.messages,
+    };
+  }
   const result = runFreakSubset(source, options);
   return {
     ok: result.ok,
@@ -561,6 +594,10 @@ function handleCheck(params, options) {
 
 function handleRun(params, options) {
   const source = requireString(params.source, "run requires string source");
+  const wasmResult = maybeRunHelloFreakWasm(source, options, String(params.fileId ?? ""));
+  if (wasmResult !== null) {
+    return wasmResult;
+  }
   return runFreakSubset(source, options);
 }
 
@@ -572,7 +609,7 @@ function handleEvaluateExercise(params, academyPackage, options) {
     ? sectionById(lesson, params.exerciseId)
     : firstExercise(lesson);
 
-  const results = evaluateRequirements(exercise, source, options);
+  const results = evaluateRequirements(lesson, exercise, source, options);
   return {
     lessonId: lesson.id,
     exerciseId: exercise.id,
@@ -620,8 +657,13 @@ function sectionById(lesson, sectionId) {
   return section;
 }
 
-function evaluateRequirements(exercise, source, options) {
+function evaluateRequirements(lesson, exercise, source, options) {
   const requirements = Array.isArray(exercise.requirements) ? exercise.requirements : [];
+  const wasmResult = maybeEvaluateHelloFreakWasm(lesson, exercise, source, options, requirements);
+  if (wasmResult !== null) {
+    return wasmResult;
+  }
+
   const parsed = parseFreakSubset(source);
   let runResult = null;
   const ensureRun = () => {
@@ -674,6 +716,156 @@ function evaluateRequirements(exercise, source, options) {
       message: `requirement \`${kind}\` is not implemented in the browser-safe learner yet`,
     };
   });
+}
+
+function maybeEvaluateHelloFreakWasm(lesson, exercise, source, options, requirements) {
+  if (lesson?.id !== "hello-freak" || exercise?.id !== "hello-exercise") {
+    return null;
+  }
+  const evaluator = academyWasmEvaluatorFromOptions(options);
+  if (evaluator === null || !evaluator.supportsLesson("hello-freak")) {
+    return null;
+  }
+
+  const result = evaluator.runHelloFreak(source);
+  return requirements.map((requirement) => {
+    const kind = requirement.kind;
+    const id = requirement.id ?? kind;
+    if (kind === "parses") {
+      return {
+        id,
+        kind,
+        passed: result.parsed,
+        message: result.parsed ? "source parses" : result.message,
+      };
+    }
+    if (kind === "compiles") {
+      return {
+        id,
+        kind,
+        passed: result.compiled,
+        message: result.compiled ? "source compiles" : result.message,
+      };
+    }
+    if (kind === "expected_output") {
+      const expected = String(requirement.expected ?? "");
+      const passed = result.ok && result.stdout === expected;
+      let message;
+      if (passed) {
+        message = "output matches";
+      } else if (!result.ok && !result.ran) {
+        message = result.message;
+      } else {
+        message = `expected output ${JSON.stringify(expected)}, got ${JSON.stringify(result.stdout)}`;
+        message = message.replaceAll('"', "'");
+      }
+      return { id, kind, passed, message };
+    }
+    return {
+      id,
+      kind,
+      passed: false,
+      message: `requirement \`${kind}\` is not implemented in the WASM learner yet`,
+    };
+  });
+}
+
+function maybeRunHelloFreakWasm(source, options, fileId) {
+  if (fileId !== "hello-freak.fk") {
+    return null;
+  }
+  const evaluator = academyWasmEvaluatorFromOptions(options);
+  if (evaluator === null || !evaluator.supportsLesson("hello-freak")) {
+    return null;
+  }
+
+  const result = evaluator.runHelloFreak(source);
+  return {
+    ok: result.ok,
+    stdout: result.stdout,
+    stderr: result.ok ? "" : result.message,
+    returncode: result.ok ? 0 : 1,
+    messages: result.ok ? [] : [result.message],
+  };
+}
+
+function academyWasmEvaluatorFromOptions(options) {
+  if (!options?.wasmEvaluator) {
+    return null;
+  }
+  if (typeof options.wasmEvaluator.runHelloFreak === "function") {
+    return options.wasmEvaluator;
+  }
+  return createAcademyWasmEvaluator(options.wasmEvaluator);
+}
+
+function isAcademyWasmEvaluatorExports(exports) {
+  return Boolean(
+    exports &&
+    exports.memory instanceof WebAssembly.Memory &&
+    typeof exports.academy_protocol_version === "function" &&
+    typeof exports.academy_supported_lesson_count === "function" &&
+    typeof exports.academy_input_offset === "function" &&
+    typeof exports.academy_input_capacity === "function" &&
+    typeof exports.academy_last_stdout_offset === "function" &&
+    typeof exports.academy_last_stdout_length === "function" &&
+    typeof exports.academy_last_message_offset === "function" &&
+    typeof exports.academy_last_message_length === "function" &&
+    typeof exports.academy_evaluate_hello_freak === "function"
+  );
+}
+
+function runHelloFreakWasm(exports, source) {
+  const encoded = TEXT_ENCODER.encode(source);
+  const inputOffset = exports.academy_input_offset();
+  const inputCapacity = exports.academy_input_capacity();
+  if (encoded.length > inputCapacity) {
+    return {
+      ok: false,
+      parsed: false,
+      compiled: false,
+      ran: false,
+      outputMatched: false,
+      stdout: "",
+      message: "source exceeds WASM input capacity",
+    };
+  }
+
+  new Uint8Array(exports.memory.buffer, inputOffset, inputCapacity).fill(0);
+  new Uint8Array(exports.memory.buffer, inputOffset, encoded.length).set(encoded);
+
+  const status = exports.academy_evaluate_hello_freak(encoded.length);
+  const stdout = readWasmString(
+    exports.memory,
+    exports.academy_last_stdout_offset(),
+    exports.academy_last_stdout_length(),
+  );
+  const message = readWasmString(
+    exports.memory,
+    exports.academy_last_message_offset(),
+    exports.academy_last_message_length(),
+  );
+  const parsed = (status & WASM_STATUS_PARSES) !== 0;
+  const compiled = (status & WASM_STATUS_COMPILES) !== 0;
+  const ran = (status & WASM_STATUS_RUNS) !== 0;
+  const outputMatched = (status & WASM_STATUS_OUTPUT_MATCHES) !== 0;
+
+  return {
+    ok: parsed && compiled && ran,
+    parsed,
+    compiled,
+    ran,
+    outputMatched,
+    stdout,
+    message,
+  };
+}
+
+function readWasmString(memory, offset, length) {
+  if (length <= 0) {
+    return "";
+  }
+  return TEXT_DECODER.decode(new Uint8Array(memory.buffer, offset, length));
 }
 
 function executeStatements(statements, env, state) {

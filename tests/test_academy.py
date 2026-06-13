@@ -68,6 +68,7 @@ def test_course_listing_mentions_seed_lesson():
     assert "freak learn check <lesson-id> <file.fk>" in listing
     assert "freak learn web-assets <dir>" in listing
     assert "freak learn worker-parity" in listing
+    assert "freak learn wasm-evaluator [dir]" in listing
     assert "Bootstrap fallback: python -m freakc learn <cmd>" in listing
 
 
@@ -316,6 +317,42 @@ def test_learn_wasm_status_cli_builds_browser_loadable_probe():
             )
             assert result.returncode == 0, result.stdout + result.stderr
             assert "Academy WASM probe verified" in result.stdout
+
+
+def test_learn_wasm_evaluator_cli_builds_hello_backed_worker_artifact():
+    if shutil.which("clang") is None:
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out_dir = Path(tmp) / "wasm"
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["learn", "wasm-evaluator", str(out_dir)])
+
+        wasm_path = out_dir / "academy-wasm-evaluator.wasm"
+        manifest_path = out_dir / "academy-wasm-evaluator-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        assert code == 0
+        assert "Academy WASM evaluator built" in out.getvalue()
+        assert wasm_path.exists()
+        assert manifest["artifactStatus"] == "wasm-preview-hello-evaluator"
+        assert manifest["workerProtocolVersion"] == 1
+        assert manifest["supportedLessons"] == ["hello-freak"]
+        assert manifest["sha256"] == sha256_file(wasm_path)
+        assert "academy_evaluate_hello_freak" in manifest["exports"]
+
+        node = shutil.which("node")
+        if node is not None:
+            result = subprocess.run(
+                [node, "tools/academy/verify_wasm_evaluator.mjs", str(wasm_path)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                timeout=10,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert "Academy WASM evaluator verified" in result.stdout
 
 
 def run_worker_request(request: dict) -> dict:

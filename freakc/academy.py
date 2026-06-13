@@ -235,6 +235,7 @@ def format_course_listing(root: Path | None = None) -> str:
             "  freak learn package <path>",
             "  freak learn web-assets <dir>",
             "  freak learn wasm-status [dir]",
+            "  freak learn wasm-evaluator [dir]",
             "  freak learn worker [request.json]",
             "  freak learn worker-parity",
             "",

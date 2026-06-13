@@ -52,6 +52,18 @@ The probe is a freestanding `wasm32` artifact built from
 only. It does not evaluate lessons yet; that remains the next compiler-owned
 WASM milestone.
 
+Build the first lesson-capable WASM evaluator:
+
+```bash
+python tools/academy/build_wasm_evaluator.py build/academy-wasm
+python -m freakc learn wasm-evaluator build/academy-wasm
+node tools/academy/verify_wasm_evaluator.mjs build/academy-wasm/academy-wasm-evaluator.wasm
+```
+
+This artifact currently supports only the `hello-freak` lesson. The browser
+worker accepts it through the `wasmEvaluator` option and falls back to the
+JavaScript reference evaluator for the rest of the basics course.
+
 The future worker should accept `schemas/academy-worker-protocol.schema.json` request envelopes and return versioned response envelopes with deterministic evaluation results.
 
 Until the browser/WASM backend exists, use the local V3-backed worker host to exercise the protocol:
