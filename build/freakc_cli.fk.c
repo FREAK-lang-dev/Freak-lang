@@ -9504,7 +9504,7 @@ freak_say(freak_word_concat(freak_word_concat(freak_word_concat(freak_word_conca
 freak_say(freak_word_lit(""));
 }
 void freak_main(void) {
-FREAKC_VERSION = freak_word_lit("0.13.3");
+FREAKC_VERSION = freak_word_lit("0.14.0");
 FREAKC_CODENAME = freak_word_lit("Shiranui");
 TOK_EOF = freak_word_lit("0");
 TOK_IDENT = freak_word_lit("1");
@@ -9625,7 +9625,7 @@ input_file = freak_word_lit("");
 opt_level = freak_word_lit("2");
 cross_target = freak_word_lit("");
 source_line_offset = 0;
-CLI_VERSION = freak_word_lit("0.13.3");
+CLI_VERSION = freak_word_lit("0.14.0");
 CLI_CODENAME = freak_word_lit("Shiranui");
 C_RESET = freak_word_lit("\x1b[0m");
 C_BOLD = freak_word_lit("\x1b[1m");
