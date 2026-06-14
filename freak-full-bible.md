@@ -47,7 +47,7 @@ Pipeline (full compiler):
 | §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). Missing: `variant`, pattern destructuring, named call args, lifetime annotations, `prob_when`, several primitive types (`tiny`, `uint`, `char`, `big`, `float32`, fixed `[T;N]`), tuples. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries lifetime tokens/type contracts, `lend` / `lend mut` parameter contracts, explicit expression loan paths, typed field/index loan-holder projections, borrowed-return provenance for direct/local reloan paths and stored-call local alias chains, all-path CFG repair proof for partial moves, linear/all-exit moved-local drop suppression with conditional `DropIf` markers, and first-pass non-lexical rewrite/move/exclusive-read rejection plus release for bound/call-only lends through TY/MIR/Meiya; full region solving, `Shared<T>`/`Weak<T>`, honor levels, and `direct_order` remain V4. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries lifetime tokens/type contracts, `lend` / `lend mut` parameter contracts, explicit expression loan paths, typed field/index loan-holder projections, borrowed-return provenance for direct/local reloan paths and stored-call local alias chains, all-path CFG repair proof for partial moves, linear/all-exit moved-local drop suppression with conditional `DropIf` markers, first-pass `Shared<T>`/`Weak<T>` method surfaces with guard-escape diagnostics, and first-pass non-lexical rewrite/move/exclusive-read rejection plus release for bound/call-only lends through TY/MIR/Meiya; full region solving, runtime ref-count/borrow-state implementation, honor levels, and `direct_order` remain V4. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
@@ -1002,9 +1002,10 @@ the rest is V4.
 > Forwarding a borrowed result
 > through a call still requires the later region solver and is conservatively
 > rejected.
-> Lifetime tokens and signature contracts exist, but full region inference,
-> `Shared<T>` / `Weak<T>` / `.borrow()` /
-> `.borrow_mut()` / `.get_mut()`, the full honor-level system inside
+> Lifetime tokens and signature contracts exist, and the first
+> `Shared<T>` / `Weak<T>` method surface now lowers through TY/MIR/Meiya with
+> direct weak-borrow and escaping-guard diagnostics, but full region inference,
+> runtime ref-count/borrow-state guards, `Send`/`Sync`, the full honor-level system inside
 > `trust me ... on my honor as .level`, and `direct_order [arch] { asm }`
 > inline assembly are V4 work. This is first-pass non-lexical loan liveness,
 > not full reference lifetime proof.
@@ -1111,6 +1112,8 @@ Rules:
 - Mutable access requires proof of exclusivity or a runtime guard:
   `.get_mut()` succeeds only when the strong count is one;
   `.borrow_mut()` returns `result<SharedMut<T>, BorrowError>` and fails if active borrows conflict.
+- A live `SharedMut<T>` guard may not escape its scope. Returning an error arm from
+  `result<SharedMut<T>, BorrowError>` is legal because no guard value escapes.
 - Shared mutable state across sorties must use `Shared<Mutex<T>>`, `Shared<RwLock<T>>`, atomics, channels, or another synchronization type. `Shared<T>` alone is shared ownership, not shared permission to mutate.
 - `Shared<T>` may cross sorties only when `T: Send + Sync`. Otherwise it is confined to the sortie that created it.
 - Cycles made entirely of `Shared<T>` leak by design. Parent links in UI trees should be `Weak<T>`.
@@ -1520,7 +1523,7 @@ freak hangar clean         -- clear cache
 | `std::anime` (mood arithmetic, power checks) | 🔜 V4 (depends on §2 types) |
 | `std::narrative` (death-flag analysis, foreshadow logs) | 🔜 V4 (depends on §5 enforcement) |
 | `std::test` (`test "..." { expect ... }`) | 🔜 V4 (currently use `python tests/suite/run_tests.py`) |
-| `std::ffi`, `std::os`, `std::panic`, `std::regex`, `std::crypto`, `Shared<T>` / `Weak<T>` / `size_of<T>()` | ⚠️ Partial — V4 normalizes core `std::ffi` boundary aliases and uses them in extern/layout safety checks; the rest remain V4 |
+| `std::ffi`, `std::os`, `std::panic`, `std::regex`, `std::crypto`, `Shared<T>` / `Weak<T>` / `size_of<T>()` | ⚠️ Partial — V4 normalizes core `std::ffi` boundary aliases and uses them in extern/layout safety checks; `Shared<T>` / `Weak<T>` type and method surfaces now lower through TY/MIR/Meiya, while runtime allocation, platform modules, panic, regex, crypto, and `size_of<T>()` still expand |
 
 The prelude (always-available types and `say`/`ask`/`panic`) ships in v0.13.x
 but several primitive types listed below (`tiny`, `uint`, `char`, `big`,

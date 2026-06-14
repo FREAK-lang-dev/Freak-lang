@@ -1078,6 +1078,95 @@ task v4_ty_lend_target_type(ty_name: word) -> word {
     give back v4_ty_unknown
 }
 
+task v4_ty_shared_type(target_ty: word) -> word {
+    if not v4_ty_is_known(target_ty) {
+        give back v4_ty_unknown
+    }
+    give back "Shared<" + target_ty + ">"
+}
+
+task v4_ty_weak_type(target_ty: word) -> word {
+    if not v4_ty_is_known(target_ty) {
+        give back v4_ty_unknown
+    }
+    give back "Weak<" + target_ty + ">"
+}
+
+task v4_ty_shared_mut_type(target_ty: word) -> word {
+    if not v4_ty_is_known(target_ty) {
+        give back v4_ty_unknown
+    }
+    give back "SharedMut<" + target_ty + ">"
+}
+
+task v4_ty_generic_base_is(type_text: word, base_name: word) -> bool {
+    if not v4_ty_is_generic_instance_type(type_text) {
+        give back false
+    }
+    if v4_ty_generic_base_name(type_text) != base_name {
+        give back false
+    }
+    give back v4_ty_generic_arg_count(type_text) == 1
+}
+
+task v4_ty_is_shared_type(type_text: word) -> bool {
+    give back v4_ty_generic_base_is(type_text, "Shared")
+}
+
+task v4_ty_is_weak_type(type_text: word) -> bool {
+    give back v4_ty_generic_base_is(type_text, "Weak")
+}
+
+task v4_ty_is_shared_mut_type(type_text: word) -> bool {
+    give back v4_ty_generic_base_is(type_text, "SharedMut")
+}
+
+task v4_ty_shared_target_type(type_text: word) -> word {
+    if v4_ty_is_shared_type(type_text) or v4_ty_is_weak_type(type_text) or v4_ty_is_shared_mut_type(type_text) {
+        give back v4_ty_generic_arg(type_text, 0)
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_type_contains_shared_mut(type_text: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back false
+    }
+    if v4_ty_is_shared_mut_type(type_text) {
+        give back true
+    }
+    if v4_ty_is_lend_type(type_text) {
+        give back v4_ty_type_contains_shared_mut(v4_ty_lend_target_type(type_text))
+    }
+    if v4_ty_is_raw_pointer_type(type_text) {
+        give back v4_ty_type_contains_shared_mut(v4_ty_raw_pointer_target_type(type_text))
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            if v4_ty_type_contains_shared_mut(v4_ty_tuple_slot_type(type_text, slot_id)) {
+                give back true
+            }
+            slot_id += 1
+        }
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_type_contains_shared_mut(v4_ty_fixed_array_element_type(type_text))
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot arg_id = 0
+        pilot arg_count = v4_ty_generic_arg_count(type_text)
+        repeat until arg_id >= arg_count {
+            if v4_ty_type_contains_shared_mut(v4_ty_generic_arg(type_text, arg_id)) {
+                give back true
+            }
+            arg_id += 1
+        }
+    }
+    give back false
+}
+
 task v4_ty_is_lifetime_name(ty_name: word) -> bool {
     give back ty_name.length() > 1 and ty_name.char_at(0) == "'"
 }
@@ -1221,6 +1310,9 @@ task v4_ty_is_declared_simple_type_name(ty_id: int, type_name: word) -> bool {
     if type_name == "maybe" or type_name == "result" or type_name == "List" or type_name == "Map" or type_name == "Set" or type_name == "Lineup" {
         give back true
     }
+    if type_name == "Shared" or type_name == "Weak" or type_name == "SharedMut" or type_name == "BorrowError" {
+        give back true
+    }
 
     pilot sig_id = 0
     pilot sig_count = v4_ty_signature_count(ty_id)
@@ -1235,6 +1327,9 @@ task v4_ty_is_declared_simple_type_name(ty_id: int, type_name: word) -> bool {
 
 task v4_ty_builtin_generic_arg_count(type_name: word) -> int {
     if type_name == "maybe" or type_name == "List" or type_name == "Set" or type_name == "Lineup" {
+        give back 1
+    }
+    if type_name == "Shared" or type_name == "Weak" or type_name == "SharedMut" {
         give back 1
     }
     if type_name == "result" or type_name == "Map" {

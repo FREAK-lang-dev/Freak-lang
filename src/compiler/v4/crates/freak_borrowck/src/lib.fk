@@ -683,6 +683,58 @@ task v4_borrowck_check_returned_lends(borrow_id: int, result_id: int, mir_id: in
     give back conflicts
 }
 
+task v4_borrowck_shared_guard_escape_help(body_name: word, return_ty: word) -> word {
+    pilot out = body_name + " tries to return " + return_ty
+    out = out + "; SharedMut<T> is a runtime mutable-borrow guard and must drop before the shared allocation leaves this scope"
+    give back out
+}
+
+task v4_borrowck_rvalue_returns_shared_mut_guard(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if rvalue_id < 0 {
+        give back false
+    }
+
+    pilot return_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if v4_ty_is_shared_mut_type(return_ty) {
+        give back true
+    }
+
+    pilot return_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if return_kind == v4_mir_rvalue_some or return_kind == v4_mir_rvalue_ok {
+        give back v4_borrowck_rvalue_returns_shared_mut_guard(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+    }
+    if return_kind == v4_mir_rvalue_err {
+        give back false
+    }
+
+    give back false
+}
+
+task v4_borrowck_check_shared_guard_escapes(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
+    pilot conflicts = 0
+    pilot body_name = v4_mir_body_name(mir_id, body_id)
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+            pilot return_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+            if return_rvalue >= 0 {
+                pilot return_ty = v4_mir_rvalue_ty(mir_id, body_id, return_rvalue)
+                if v4_borrowck_rvalue_returns_shared_mut_guard(mir_id, body_id, return_rvalue) {
+                    pilot span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
+                    pilot message = "Meiya refuses to let a SharedMut guard escape"
+                    pilot help = v4_borrowck_shared_guard_escape_help(body_name, return_ty)
+                    v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, message, help))
+                    v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                    conflicts += 1
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    give back conflicts
+}
+
 task v4_borrowck_stored_call_loan_help(body_name: word) -> word {
     pilot out = body_name + " stores a lend returned by a call"
     out = out + "; keep borrowed call results temporary until Meiya can propagate their source lifetime into the caller"
@@ -1951,6 +2003,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         v4_borrowck_collect_body_paths(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_lend_contracts(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_returned_lends(borrow_id, result_id, mir_id, body_idx)
+        v4_borrowck_check_shared_guard_escapes(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_stored_call_lends(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_mutable_exclusivity(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_exclusive_loans(borrow_id, result_id, mir_id, body_idx)

@@ -1,0 +1,140 @@
+-- V4 Shared/Weak ownership surface smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_shared_weak_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task shared_new(ship: Ship) -> int {\n"
+    src = src + "    pilot root = Shared<Ship>::new(ship)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task shared_handles(root: Shared<Ship>) -> int {\n"
+    src = src + "    pilot copy_root = root.clone()\n"
+    src = src + "    pilot weak = root.downgrade()\n"
+    src = src + "    pilot revived = weak.upgrade()\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task shared_borrow(root: Shared<Ship>) -> int {\n"
+    src = src + "    pilot view = root.borrow()\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task shared_mut(root: Shared<Ship>) -> int {\n"
+    src = src + "    pilot guard = root.borrow_mut()\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task shared_unique(root: Shared<Ship>) -> int {\n"
+    src = src + "    pilot unique = root.get_mut()\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task weak_direct(weak: Weak<Ship>) -> int {\n"
+    src = src + "    pilot view = weak.borrow()\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task return_borrow_result(root: Shared<Ship>) -> result<SharedMut<Ship>,BorrowError> {\n"
+    src = src + "    give back root.borrow_mut()\n"
+    src = src + "}\n"
+    src = src + "task return_borrow_error(problem: BorrowError) -> result<SharedMut<Ship>,BorrowError> {\n"
+    src = src + "    give back err(problem)\n"
+    src = src + "}\n"
+    src = src + "task leak_actual_guard(guard: SharedMut<Ship>) -> SharedMut<Ship> {\n"
+    src = src + "    give back guard\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_shared_weak_mir_diag_count(mir_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+task v4_shared_weak_borrow_diag_count(borrow_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+pilot v4_shared_weak_src = v4_shared_weak_source()
+pilot v4_shared_weak_stream = v4_lex_text(0, v4_shared_weak_src)
+pilot v4_shared_weak_tree = v4_parse_stream(0, v4_shared_weak_stream)
+pilot v4_shared_weak_hir = v4_hir_lower_tree(0, v4_shared_weak_tree)
+pilot v4_shared_weak_resolve = v4_resolve_lower_hir(0, v4_shared_weak_hir)
+pilot v4_shared_weak_ty = v4_ty_lower_resolve(0, v4_shared_weak_resolve)
+pilot v4_shared_weak_mir = v4_mir_lower_ty(0, v4_shared_weak_ty)
+pilot v4_shared_weak_borrow = v4_borrowck_check_mir(0, v4_shared_weak_mir)
+
+pilot v4_shared_weak_new_def = v4_resolve_def_for_name(v4_shared_weak_resolve, "shared_new")
+pilot v4_shared_weak_handles_def = v4_resolve_def_for_name(v4_shared_weak_resolve, "shared_handles")
+pilot v4_shared_weak_borrow_def = v4_resolve_def_for_name(v4_shared_weak_resolve, "shared_borrow")
+pilot v4_shared_weak_mut_def = v4_resolve_def_for_name(v4_shared_weak_resolve, "shared_mut")
+pilot v4_shared_weak_unique_def = v4_resolve_def_for_name(v4_shared_weak_resolve, "shared_unique")
+pilot v4_shared_weak_direct_def = v4_resolve_def_for_name(v4_shared_weak_resolve, "weak_direct")
+pilot v4_shared_weak_result_def = v4_resolve_def_for_name(v4_shared_weak_resolve, "return_borrow_result")
+pilot v4_shared_weak_error_def = v4_resolve_def_for_name(v4_shared_weak_resolve, "return_borrow_error")
+pilot v4_shared_weak_leak_def = v4_resolve_def_for_name(v4_shared_weak_resolve, "leak_actual_guard")
+
+pilot v4_shared_weak_new_body = v4_mir_lookup_body(v4_shared_weak_mir, v4_shared_weak_new_def)
+pilot v4_shared_weak_handles_body = v4_mir_lookup_body(v4_shared_weak_mir, v4_shared_weak_handles_def)
+pilot v4_shared_weak_borrow_body = v4_mir_lookup_body(v4_shared_weak_mir, v4_shared_weak_borrow_def)
+pilot v4_shared_weak_mut_body = v4_mir_lookup_body(v4_shared_weak_mir, v4_shared_weak_mut_def)
+pilot v4_shared_weak_unique_body = v4_mir_lookup_body(v4_shared_weak_mir, v4_shared_weak_unique_def)
+pilot v4_shared_weak_clone_rvalue = v4_mir_stmt_rvalue(v4_shared_weak_mir, v4_shared_weak_handles_body, 0)
+pilot v4_shared_weak_downgrade_rvalue = v4_mir_stmt_rvalue(v4_shared_weak_mir, v4_shared_weak_handles_body, 1)
+pilot v4_shared_weak_upgrade_rvalue = v4_mir_stmt_rvalue(v4_shared_weak_mir, v4_shared_weak_handles_body, 2)
+pilot v4_shared_weak_clone_arg = v4_mir_rvalue_call_arg(v4_shared_weak_mir, v4_shared_weak_handles_body, v4_shared_weak_clone_rvalue, 0)
+pilot v4_shared_weak_downgrade_arg = v4_mir_rvalue_call_arg(v4_shared_weak_mir, v4_shared_weak_handles_body, v4_shared_weak_downgrade_rvalue, 0)
+pilot v4_shared_weak_upgrade_arg = v4_mir_rvalue_call_arg(v4_shared_weak_mir, v4_shared_weak_handles_body, v4_shared_weak_upgrade_rvalue, 0)
+
+pilot v4_shared_weak_new_result = v4_borrowck_lookup_result(v4_shared_weak_borrow, v4_shared_weak_new_def)
+pilot v4_shared_weak_handles_result = v4_borrowck_lookup_result(v4_shared_weak_borrow, v4_shared_weak_handles_def)
+pilot v4_shared_weak_borrow_result = v4_borrowck_lookup_result(v4_shared_weak_borrow, v4_shared_weak_borrow_def)
+pilot v4_shared_weak_mut_result = v4_borrowck_lookup_result(v4_shared_weak_borrow, v4_shared_weak_mut_def)
+pilot v4_shared_weak_unique_result = v4_borrowck_lookup_result(v4_shared_weak_borrow, v4_shared_weak_unique_def)
+pilot v4_shared_weak_direct_result = v4_borrowck_lookup_result(v4_shared_weak_borrow, v4_shared_weak_direct_def)
+pilot v4_shared_weak_result_result = v4_borrowck_lookup_result(v4_shared_weak_borrow, v4_shared_weak_result_def)
+pilot v4_shared_weak_error_result = v4_borrowck_lookup_result(v4_shared_weak_borrow, v4_shared_weak_error_def)
+pilot v4_shared_weak_leak_result = v4_borrowck_lookup_result(v4_shared_weak_borrow, v4_shared_weak_leak_def)
+
+say "shared-weak-ty-shared=" + word_from_int(v4_ty_builtin_generic_arg_count("Shared"))
+say "shared-weak-ty-weak=" + word_from_int(v4_ty_builtin_generic_arg_count("Weak"))
+say "shared-weak-ty-shared-mut=" + word_from_int(v4_ty_builtin_generic_arg_count("SharedMut"))
+say "shared-weak-root-ty=" + v4_mir_local_ty_for_name(v4_shared_weak_mir, v4_shared_weak_new_body, "root")
+say "shared-weak-copy-ty=" + v4_mir_local_ty_for_name(v4_shared_weak_mir, v4_shared_weak_handles_body, "copy_root")
+say "shared-weak-weak-ty=" + v4_mir_local_ty_for_name(v4_shared_weak_mir, v4_shared_weak_handles_body, "weak")
+say "shared-weak-revived-ty=" + v4_mir_local_ty_for_name(v4_shared_weak_mir, v4_shared_weak_handles_body, "revived")
+say "shared-weak-clone-args=" + word_from_int(v4_mir_rvalue_call_arg_count(v4_shared_weak_mir, v4_shared_weak_handles_body, v4_shared_weak_clone_rvalue))
+say "shared-weak-clone-arg-text=" + v4_mir_rvalue_text(v4_shared_weak_mir, v4_shared_weak_handles_body, v4_shared_weak_clone_arg)
+say "shared-weak-downgrade-args=" + word_from_int(v4_mir_rvalue_call_arg_count(v4_shared_weak_mir, v4_shared_weak_handles_body, v4_shared_weak_downgrade_rvalue))
+say "shared-weak-downgrade-arg-text=" + v4_mir_rvalue_text(v4_shared_weak_mir, v4_shared_weak_handles_body, v4_shared_weak_downgrade_arg)
+say "shared-weak-upgrade-args=" + word_from_int(v4_mir_rvalue_call_arg_count(v4_shared_weak_mir, v4_shared_weak_handles_body, v4_shared_weak_upgrade_rvalue))
+say "shared-weak-upgrade-arg-text=" + v4_mir_rvalue_text(v4_shared_weak_mir, v4_shared_weak_handles_body, v4_shared_weak_upgrade_arg)
+say "shared-weak-view-ty=" + v4_mir_local_ty_for_name(v4_shared_weak_mir, v4_shared_weak_borrow_body, "view")
+say "shared-weak-guard-ty=" + v4_mir_local_ty_for_name(v4_shared_weak_mir, v4_shared_weak_mut_body, "guard")
+say "shared-weak-unique-ty=" + v4_mir_local_ty_for_name(v4_shared_weak_mir, v4_shared_weak_unique_body, "unique")
+say "shared-weak-new-status=" + v4_borrowck_result_status(v4_shared_weak_borrow, v4_shared_weak_new_result)
+say "shared-weak-handles-status=" + v4_borrowck_result_status(v4_shared_weak_borrow, v4_shared_weak_handles_result)
+say "shared-weak-borrow-status=" + v4_borrowck_result_status(v4_shared_weak_borrow, v4_shared_weak_borrow_result)
+say "shared-weak-mut-status=" + v4_borrowck_result_status(v4_shared_weak_borrow, v4_shared_weak_mut_result)
+say "shared-weak-unique-status=" + v4_borrowck_result_status(v4_shared_weak_borrow, v4_shared_weak_unique_result)
+say "shared-weak-direct-status=" + v4_borrowck_result_status(v4_shared_weak_borrow, v4_shared_weak_direct_result)
+say "shared-weak-result-status=" + v4_borrowck_result_status(v4_shared_weak_borrow, v4_shared_weak_result_result)
+say "shared-weak-error-status=" + v4_borrowck_result_status(v4_shared_weak_borrow, v4_shared_weak_error_result)
+say "shared-weak-leak-status=" + v4_borrowck_result_status(v4_shared_weak_borrow, v4_shared_weak_leak_result)
+say "shared-weak-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_shared_weak_ty))
+say "shared-weak-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_shared_weak_mir))
+say "shared-weak-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_shared_weak_borrow))
+say "shared-weak-direct-diagnostics=" + word_from_int(v4_shared_weak_mir_diag_count(v4_shared_weak_mir, "Weak must upgrade before borrow"))
+say "shared-weak-guard-escape-diagnostics=" + word_from_int(v4_shared_weak_borrow_diag_count(v4_shared_weak_borrow, "Meiya refuses to let a SharedMut guard escape"))
