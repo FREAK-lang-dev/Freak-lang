@@ -1183,13 +1183,41 @@ def cmd_learn(argv: list[str]) -> int:
 
         if sub in ("web-assets", "assets"):
             if len(argv) < 2:
-                print(_red("x Usage: python -m freakc learn web-assets <dir>"), file=sys.stderr)
+                print(_red("x Usage: python -m freakc learn web-assets <dir> [--with-wasm-evaluator] [--wasm-compiler <cmd>]"), file=sys.stderr)
                 return 1
             target = Path(argv[1])
-            manifest = build_browser_assets(target)
+            include_wasm_evaluator = False
+            wasm_compiler = "clang"
+            option_index = 2
+            while option_index < len(argv):
+                option = argv[option_index]
+                if option == "--with-wasm-evaluator":
+                    include_wasm_evaluator = True
+                    option_index += 1
+                    continue
+                if option == "--wasm-compiler":
+                    if option_index + 1 >= len(argv):
+                        print(_red("x --wasm-compiler requires a command"), file=sys.stderr)
+                        return 1
+                    wasm_compiler = argv[option_index + 1]
+                    option_index += 2
+                    continue
+                if option.startswith("--wasm-compiler="):
+                    wasm_compiler = option.split("=", 1)[1]
+                    option_index += 1
+                    continue
+                print(_red(f"x Unknown web-assets option: {option}"), file=sys.stderr)
+                return 1
+            manifest = build_browser_assets(
+                target,
+                include_wasm_evaluator=include_wasm_evaluator,
+                wasm_compiler=wasm_compiler,
+            )
             print(f"Academy browser assets exported to {target}")
             print(f"  package: {manifest['packagePath']}")
             print(f"  worker: {manifest['workerPath']} ({manifest['artifactStatus']})")
+            if "wasmEvaluatorPath" in manifest:
+                print(f"  wasm: {manifest['wasmEvaluatorPath']} ({manifest['wasmStatus']})")
             print("  manifest: academy-assets-manifest.json")
             return 0
 

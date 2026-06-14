@@ -173,7 +173,13 @@ def _asset_record(path: Path, role: str, artifact_type: str) -> dict[str, Any]:
     }
 
 
-def build_browser_assets(destination: Path, root: Path | None = None) -> dict[str, Any]:
+def build_browser_assets(
+    destination: Path,
+    root: Path | None = None,
+    *,
+    include_wasm_evaluator: bool = False,
+    wasm_compiler: str = "clang",
+) -> dict[str, Any]:
     """Export the browser-consumable Academy package, worker, and manifest."""
 
     package_root = root or repository_root()
@@ -190,6 +196,18 @@ def build_browser_assets(destination: Path, root: Path | None = None) -> dict[st
     export_academy_package(package_path, root=package_root)
     shutil.copyfile(worker_source, worker_path)
 
+    assets = [
+        _asset_record(package_path, "academy-package", "json"),
+        _asset_record(worker_path, "worker-entrypoint", "browser-safe-js-reference"),
+    ]
+    wasm_evaluator_manifest: dict[str, Any] | None = None
+    if include_wasm_evaluator:
+        from tools.academy.build_wasm_evaluator import MANIFEST_NAME, WASM_NAME, build_wasm_evaluator
+
+        wasm_evaluator_manifest = build_wasm_evaluator(destination, compiler=wasm_compiler)
+        assets.append(_asset_record(destination / WASM_NAME, "wasm-evaluator", "wasm"))
+        assets.append(_asset_record(destination / MANIFEST_NAME, "wasm-evaluator-manifest", "json"))
+
     manifest = {
         "schemaVersion": 1,
         "packageId": ACADEMY_PACKAGE_ID,
@@ -198,15 +216,22 @@ def build_browser_assets(destination: Path, root: Path | None = None) -> dict[st
         "repositoryPhase": ACADEMY_REPOSITORY_PHASE,
         "websiteConnector": ACADEMY_WEBSITE_CONNECTOR,
         "workerProtocolVersion": ACADEMY_WORKER_PROTOCOL_VERSION,
-        "artifactStatus": "browser-safe-js-reference",
-        "wasmStatus": "pending-v4-compiler-owned-artifact",
+        "artifactStatus": "wasm-preview" if include_wasm_evaluator else "browser-safe-js-reference",
+        "wasmStatus": "preview" if include_wasm_evaluator else "pending-v4-compiler-owned-artifact",
         "packagePath": package_path.name,
         "workerPath": worker_path.name,
-        "assets": [
-            _asset_record(package_path, "academy-package", "json"),
-            _asset_record(worker_path, "worker-entrypoint", "browser-safe-js-reference"),
-        ],
+        "assets": assets,
     }
+    if wasm_evaluator_manifest is not None:
+        manifest["wasmEvaluatorPath"] = wasm_evaluator_manifest["wasmPath"]
+        manifest["wasmEvaluatorManifestPath"] = "academy-wasm-evaluator-manifest.json"
+        manifest["wasmEvaluator"] = {
+            "artifactStatus": wasm_evaluator_manifest["artifactStatus"],
+            "supportedLessons": wasm_evaluator_manifest["supportedLessons"],
+            "sha256": wasm_evaluator_manifest["sha256"],
+            "bytes": wasm_evaluator_manifest["bytes"],
+            "target": wasm_evaluator_manifest["target"],
+        }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return manifest
 
@@ -233,7 +258,7 @@ def format_course_listing(root: Path | None = None) -> str:
             "  freak learn import <path>",
             "  freak learn reset [all|course-id|lesson-id]",
             "  freak learn package <path>",
-            "  freak learn web-assets <dir>",
+            "  freak learn web-assets <dir> [--with-wasm-evaluator]",
             "  freak learn wasm-status [dir]",
             "  freak learn wasm-evaluator [dir]",
             "  freak learn worker [request.json]",

@@ -24,10 +24,25 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print the generated manifest JSON instead of a human summary.",
     )
+    parser.add_argument(
+        "--with-wasm-evaluator",
+        action="store_true",
+        help="Build and include the preview WASM evaluator artifact in the browser asset manifest.",
+    )
+    parser.add_argument(
+        "--wasm-compiler",
+        default="clang",
+        help="C compiler command for --with-wasm-evaluator. Defaults to clang.",
+    )
     args = parser.parse_args(argv)
 
     output_dir = Path(args.output)
-    manifest = build_browser_assets(output_dir, root=ROOT)
+    manifest = build_browser_assets(
+        output_dir,
+        root=ROOT,
+        include_wasm_evaluator=args.with_wasm_evaluator,
+        wasm_compiler=args.wasm_compiler,
+    )
 
     if args.json:
         print(json.dumps(manifest, indent=2, sort_keys=True))
@@ -36,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Academy browser assets exported to {output_dir}")
     print(f"  package: {manifest['packagePath']}")
     print(f"  worker:  {manifest['workerPath']} ({manifest['artifactStatus']})")
+    if "wasmEvaluatorPath" in manifest:
+        print(f"  wasm:    {manifest['wasmEvaluatorPath']} ({manifest['wasmStatus']})")
     print(f"  manifest: academy-assets-manifest.json")
     return 0
 

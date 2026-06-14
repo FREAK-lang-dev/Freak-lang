@@ -274,10 +274,71 @@ def test_learn_web_assets_cli_exports_browser_manifest():
         assert manifest["wasmStatus"] == "pending-v4-compiler-owned-artifact"
         assert manifest["packagePath"] == "freak-academy-package.json"
         assert manifest["workerPath"] == "academy-worker.mjs"
+        assert "wasmEvaluatorPath" not in manifest
+        assert not (assets_dir / "academy-wasm-evaluator.wasm").exists()
 
         assets = {item["role"]: item for item in manifest["assets"]}
         assert assets["academy-package"]["sha256"] == sha256_file(package_path)
         assert assets["worker-entrypoint"]["sha256"] == sha256_file(worker_path)
+
+
+def test_learn_web_assets_cli_can_include_wasm_evaluator():
+    if shutil.which("clang") is None:
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        assets_dir = Path(tmp) / "academy-assets"
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["learn", "web-assets", str(assets_dir), "--with-wasm-evaluator"])
+
+        package_path = assets_dir / "freak-academy-package.json"
+        worker_path = assets_dir / "academy-worker.mjs"
+        wasm_path = assets_dir / "academy-wasm-evaluator.wasm"
+        wasm_manifest_path = assets_dir / "academy-wasm-evaluator-manifest.json"
+        manifest_path = assets_dir / "academy-assets-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        wasm_manifest = json.loads(wasm_manifest_path.read_text(encoding="utf-8"))
+
+        assert code == 0
+        assert "wasm: academy-wasm-evaluator.wasm (preview)" in out.getvalue()
+        assert package_path.exists()
+        assert worker_path.exists()
+        assert wasm_path.exists()
+        assert wasm_manifest_path.exists()
+        assert manifest["artifactStatus"] == "wasm-preview"
+        assert manifest["wasmStatus"] == "preview"
+        assert manifest["wasmEvaluatorPath"] == "academy-wasm-evaluator.wasm"
+        assert manifest["wasmEvaluatorManifestPath"] == "academy-wasm-evaluator-manifest.json"
+        assert manifest["wasmEvaluator"]["supportedLessons"] == [
+            "hello-freak",
+            "variables",
+            "primitive-types",
+            "arithmetic",
+            "conditions",
+            "loops",
+        ]
+        assert manifest["wasmEvaluator"]["sha256"] == sha256_file(wasm_path)
+        assert manifest["wasmEvaluator"]["bytes"] == wasm_path.stat().st_size
+        assert manifest["wasmEvaluator"]["target"] == "wasm32"
+        assert wasm_manifest["sha256"] == sha256_file(wasm_path)
+
+        assets = {item["role"]: item for item in manifest["assets"]}
+        assert assets["academy-package"]["sha256"] == sha256_file(package_path)
+        assert assets["worker-entrypoint"]["sha256"] == sha256_file(worker_path)
+        assert assets["wasm-evaluator"]["sha256"] == sha256_file(wasm_path)
+        assert assets["wasm-evaluator-manifest"]["sha256"] == sha256_file(wasm_manifest_path)
+
+        node = shutil.which("node")
+        if node is not None:
+            result = subprocess.run(
+                [node, "tools/academy/verify_wasm_evaluator.mjs", str(wasm_path)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                timeout=10,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_learn_wasm_status_cli_builds_browser_loadable_probe():

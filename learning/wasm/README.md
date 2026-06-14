@@ -35,9 +35,18 @@ This writes:
 - `academy-assets-manifest.json`
 
 The manifest identifies the current worker as `browser-safe-js-reference` and
-keeps `wasmStatus` at `pending-v4-compiler-owned-artifact`. When the real WASM
-artifact exists, it should replace the worker behind the same manifest and
-worker protocol boundary.
+keeps `wasmStatus` at `pending-v4-compiler-owned-artifact` by default. To bundle
+the preview evaluator for the first six basics lessons, build the same browser
+asset set with:
+
+```bash
+python tools/academy/build_browser_assets.py dist/academy --with-wasm-evaluator
+python -m freakc learn web-assets dist/academy --with-wasm-evaluator
+```
+
+That export copies `academy-wasm-evaluator.wasm`, writes
+`academy-wasm-evaluator-manifest.json`, marks `wasmStatus` as `preview`, and
+keeps the JavaScript worker available as the fallback path.
 
 Build the first browser-loadable WASM probe:
 

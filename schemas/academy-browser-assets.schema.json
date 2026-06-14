@@ -63,6 +63,45 @@
       "type": "string",
       "const": "academy-worker.mjs"
     },
+    "wasmEvaluatorPath": {
+      "type": "string",
+      "const": "academy-wasm-evaluator.wasm"
+    },
+    "wasmEvaluatorManifestPath": {
+      "type": "string",
+      "const": "academy-wasm-evaluator-manifest.json"
+    },
+    "wasmEvaluator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactStatus", "supportedLessons", "sha256", "bytes", "target"],
+      "properties": {
+        "artifactStatus": {
+          "type": "string",
+          "const": "wasm-preview-basics-evaluator"
+        },
+        "supportedLessons": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          }
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "target": {
+          "type": "string",
+          "const": "wasm32"
+        }
+      }
+    },
     "assets": {
       "type": "array",
       "minItems": 2,
@@ -77,7 +116,7 @@
           },
           "role": {
             "type": "string",
-            "enum": ["academy-package", "worker-entrypoint"]
+            "enum": ["academy-package", "worker-entrypoint", "wasm-evaluator", "wasm-evaluator-manifest"]
           },
           "artifactType": {
             "type": "string",
