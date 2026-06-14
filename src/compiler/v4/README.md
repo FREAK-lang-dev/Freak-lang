@@ -100,8 +100,11 @@ The first `Shared<T>` / `Weak<T>` ownership surface now exists in TY/MIR:
 `Shared<T>::new`, `.clone()`, `.downgrade()`, `.borrow()`, `.borrow_mut()`,
 `.get_mut()`, and `Weak<T>.upgrade()` lower to stable wrapper types, while
 direct `Weak<T>.borrow()` and escaping `SharedMut<T>` guards produce targeted
-diagnostics. Runtime reference counters, borrow-state guards, `Send`/`Sync`,
-and backend allocation layout remain later slices.
+diagnostics. Guard escape checks are value-sensitive: an actual
+`SharedMut<T>` return is blocked, while `result<SharedMut<T>, BorrowError>`
+failure paths are not rejected just because the success arm could carry a
+guard. Runtime reference counters, borrow-state guards, `Send`/`Sync`, and
+backend allocation layout remain later slices.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
 fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts

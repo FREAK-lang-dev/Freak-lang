@@ -1137,8 +1137,8 @@ def audit_conformance(paths: List[Path]) -> int:
         borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
         for needle in (
             "v4_borrowck_check_shared_guard_escapes",
+            "v4_borrowck_rvalue_returns_shared_mut_guard",
             "Meiya refuses to let a SharedMut guard escape",
-            "v4_ty_type_contains_shared_mut",
         ):
             if needle not in borrowck_src:
                 shared_weak_missing.append(f"freak_borrowck: {needle}")
@@ -1149,6 +1149,7 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "v4_mir_try_lower_builtin_shared_instance_method",
             "v4_mir_try_lower_builtin_shared_associated_method",
+            "v4_mir_builtin_shared_receiver_loan_payload",
             "Weak must upgrade before borrow",
             "v4_ty_shared_mut_type",
         ):
@@ -1164,6 +1165,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "root.borrow_mut()",
             "weak.upgrade()",
             "weak.borrow()",
+            "return_borrow_error",
+            "leak_actual_guard",
             "shared-weak-guard-escape-diagnostics=",
         ):
             if needle not in smoke_src:
@@ -1176,6 +1179,12 @@ def audit_conformance(paths: List[Path]) -> int:
             shared_weak_missing.append("check_v4.py: SharedMut type expectation")
         if "shared-weak-direct-diagnostics=1" not in harness_src:
             shared_weak_missing.append("check_v4.py: weak direct borrow expectation")
+        if "shared-weak-error-status=clean" not in harness_src:
+            shared_weak_missing.append("check_v4.py: SharedMut result error expectation")
+        if "shared-weak-clone-args=1" not in harness_src:
+            shared_weak_missing.append("check_v4.py: Shared clone receiver argument expectation")
+        if "shared-weak-upgrade-args=1" not in harness_src:
+            shared_weak_missing.append("check_v4.py: Weak upgrade receiver argument expectation")
         if "shared-weak-guard-escape-diagnostics=1" not in harness_src:
             shared_weak_missing.append("check_v4.py: guard escape expectation")
     else:

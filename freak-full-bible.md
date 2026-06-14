@@ -1112,6 +1112,8 @@ Rules:
 - Mutable access requires proof of exclusivity or a runtime guard:
   `.get_mut()` succeeds only when the strong count is one;
   `.borrow_mut()` returns `result<SharedMut<T>, BorrowError>` and fails if active borrows conflict.
+- A live `SharedMut<T>` guard may not escape its scope. Returning an error arm from
+  `result<SharedMut<T>, BorrowError>` is legal because no guard value escapes.
 - Shared mutable state across sorties must use `Shared<Mutex<T>>`, `Shared<RwLock<T>>`, atomics, channels, or another synchronization type. `Shared<T>` alone is shared ownership, not shared permission to mutate.
 - `Shared<T>` may cross sorties only when `T: Send + Sync`. Otherwise it is confined to the sortie that created it.
 - Cycles made entirely of `Shared<T>` leak by design. Parent links in UI trees should be `Weak<T>`.

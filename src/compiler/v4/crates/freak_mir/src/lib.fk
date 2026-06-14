@@ -3476,9 +3476,11 @@ task v4_mir_try_lower_builtin_shared_instance_method(mir_id: int, body_id: int, 
     if v4_ty_is_shared_type(receiver_ty) {
         if method_name == "clone" {
             result_ty = receiver_ty
+            args_payload = v4_mir_builtin_shared_receiver_loan_payload(mir_id, body_id, receiver_rvalue, receiver_ty, v4_ty_param_mode_lend, expr_span)
             recognized = true
         } else if method_name == "downgrade" {
             result_ty = v4_ty_weak_type(target_ty)
+            args_payload = v4_mir_builtin_shared_receiver_loan_payload(mir_id, body_id, receiver_rvalue, receiver_ty, v4_ty_param_mode_lend, expr_span)
             recognized = true
         } else if method_name == "borrow" {
             result_ty = v4_ty_lend_type(target_ty, v4_ty_param_mode_lend)
@@ -3496,6 +3498,7 @@ task v4_mir_try_lower_builtin_shared_instance_method(mir_id: int, body_id: int, 
     } else if v4_ty_is_weak_type(receiver_ty) {
         if method_name == "upgrade" {
             result_ty = "maybe<" + v4_ty_shared_type(target_ty) + ">"
+            args_payload = v4_mir_builtin_shared_receiver_loan_payload(mir_id, body_id, receiver_rvalue, receiver_ty, v4_ty_param_mode_lend, expr_span)
             recognized = true
         } else if method_name == "borrow" or method_name == "borrow_mut" or method_name == "get_mut" {
             v4_mir_add_type_error(mir_id, expr_span, "Weak must upgrade before borrow", receiver_ty + "." + method_name + " cannot produce a live view; call upgrade() and check the maybe<Shared<T>> first")
