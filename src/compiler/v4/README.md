@@ -96,6 +96,12 @@ the existing provenance rather than killing the loan edge.
 Borrowed results returned through calls remain rejected until the region
 solver can prove interprocedural source lifetime. That is the first
 non-lexical liveness slice, not full region inference.
+The first `Shared<T>` / `Weak<T>` ownership surface now exists in TY/MIR:
+`Shared<T>::new`, `.clone()`, `.downgrade()`, `.borrow()`, `.borrow_mut()`,
+`.get_mut()`, and `Weak<T>.upgrade()` lower to stable wrapper types, while
+direct `Weak<T>.borrow()` and escaping `SharedMut<T>` guards produce targeted
+diagnostics. Runtime reference counters, borrow-state guards, `Send`/`Sync`,
+and backend allocation layout remain later slices.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
 fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts

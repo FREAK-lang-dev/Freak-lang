@@ -1129,6 +1129,65 @@ def audit_conformance(paths: List[Path]) -> int:
     if drop_flag_missing:
         failures.append("V4 moved-local drop flags regressed: " + "; ".join(drop_flag_missing))
 
+    # Check 13: V4 Shared/Weak ownership surface
+    shared_weak_missing: List[str] = []
+    v4_shared_smoke = repo / "src" / "compiler" / "v4" / "tests" / "shared_weak_smoke.fk"
+    v4_mir_lib_shared = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    if v4_borrowck_lib_return.exists():
+        borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
+        for needle in (
+            "v4_borrowck_check_shared_guard_escapes",
+            "Meiya refuses to let a SharedMut guard escape",
+            "v4_ty_type_contains_shared_mut",
+        ):
+            if needle not in borrowck_src:
+                shared_weak_missing.append(f"freak_borrowck: {needle}")
+    else:
+        shared_weak_missing.append("freak_borrowck/src/lib.fk missing")
+    if v4_mir_lib_shared.exists():
+        mir_src = v4_mir_lib_shared.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_try_lower_builtin_shared_instance_method",
+            "v4_mir_try_lower_builtin_shared_associated_method",
+            "Weak must upgrade before borrow",
+            "v4_ty_shared_mut_type",
+        ):
+            if needle not in mir_src:
+                shared_weak_missing.append(f"freak_mir: {needle}")
+    else:
+        shared_weak_missing.append("freak_mir/src/lib.fk missing")
+    if v4_shared_smoke.exists():
+        smoke_src = v4_shared_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "Shared<Ship>::new",
+            "root.borrow()",
+            "root.borrow_mut()",
+            "weak.upgrade()",
+            "weak.borrow()",
+            "shared-weak-guard-escape-diagnostics=",
+        ):
+            if needle not in smoke_src:
+                shared_weak_missing.append(f"shared_weak_smoke: {needle}")
+    else:
+        shared_weak_missing.append("smoke fixture: shared_weak_smoke.fk")
+    if v4_check_harness_return.exists():
+        harness_src = v4_check_harness_return.read_text(encoding="utf-8")
+        if "shared-weak-guard-ty=result<SharedMut<Ship>,BorrowError>" not in harness_src:
+            shared_weak_missing.append("check_v4.py: SharedMut type expectation")
+        if "shared-weak-direct-diagnostics=1" not in harness_src:
+            shared_weak_missing.append("check_v4.py: weak direct borrow expectation")
+        if "shared-weak-guard-escape-diagnostics=1" not in harness_src:
+            shared_weak_missing.append("check_v4.py: guard escape expectation")
+    else:
+        shared_weak_missing.append("check_v4.py harness missing")
+    add(
+        "V4 Shared/Weak",
+        not shared_weak_missing,
+        "TY/MIR Shared/Weak method surface plus weak-borrow and guard-escape diagnostics wired" if not shared_weak_missing else f"{len(shared_weak_missing)} gap(s)",
+    )
+    if shared_weak_missing:
+        failures.append("V4 Shared/Weak ownership surface regressed: " + "; ".join(shared_weak_missing))
+
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")

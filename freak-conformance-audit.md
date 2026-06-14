@@ -285,9 +285,9 @@ V4 (partially implemented unless marked otherwise):
 | Borrow-vs-move rules | ⚠️ | 📖 V4 — borrowed-parameter move blocking plus first-pass non-lexical explicit-loan rewrite and owned-move conflicts, including call arguments, all-path CFG repair proof for partial moves, statement-order-aware linear moved-local drop suppression, all-exit CFG drop suppression, and conditional `DropIf` markers for mixed moved/initialized exits with loop backedge state preservation, exist; full region inference still expands |
 | Lifetime parameters `'a` | ⚠️ | 📖 V4 — lex/TY/editor diagnostics exist; full region inference remains |
 | Inferred lifetimes / elision | ⚠️ | 📖 V4 — direct/same-block reloan returns use first-pass elision; ambiguous and forwarded return relationships still require explicit region solving |
-| `Shared<T>` ref-counted | ❌ | 📖 V4 |
-| `Weak<T>` non-owning observer | ❌ | 📖 V4 |
-| `.borrow()` / `.borrow_mut()` / `.get_mut()` | ❌ | 📖 V4 |
+| `Shared<T>` ref-counted | ⚠️ | 📖 V4 — TY/MIR recognize `Shared<T>`, `Shared<T>::new`, `.clone()`, and `.downgrade()`; runtime counters/drop glue still expand |
+| `Weak<T>` non-owning observer | ⚠️ | 📖 V4 — TY/MIR recognize `Weak<T>` and `.upgrade()`; direct `.borrow()` / `.borrow_mut()` / `.get_mut()` on `Weak<T>` now diagnose before Meiya trusts a view |
+| `.borrow()` / `.borrow_mut()` / `.get_mut()` | ⚠️ | 📖 V4 — Shared methods lower to `lend T`, `result<SharedMut<T>,BorrowError>`, and `maybe<lend mut T>`; escaping `SharedMut<T>` guards are rejected, runtime guard state remains |
 | `trust me "reason" on my honor as .level { }` honor levels (cadet/pilot/ace/commander/humanity) | ⚠️ | 📖 V4 (parsed for audit, not enforced) |
 | `direct_order [arch] { asm }` inline assembly | ❌ | 📖 V4 |
 
