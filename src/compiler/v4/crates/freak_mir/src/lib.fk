@@ -120,6 +120,7 @@ pilot v4_mir_loop_depth = 0
 pilot v4_mir_scope_spans = 0
 pilot v4_mir_scope_depth = 0
 pilot v4_mir_trust_me_depth = 0
+pilot v4_mir_trust_me_honor_ranks = 0
 pilot v4_mir_ready = 0
 
 task v4_mir_init() -> void {
@@ -165,6 +166,7 @@ task v4_mir_init() -> void {
         v4_mir_scope_spans = array_new()
         v4_mir_scope_depth = 0
         v4_mir_trust_me_depth = 0
+        v4_mir_trust_me_honor_ranks = array_new()
         v4_mir_ready = 1
     }
 }
@@ -179,10 +181,38 @@ task v4_mir_clear_scope_context() -> void {
     v4_mir_scope_spans = array_new()
     v4_mir_scope_depth = 0
     v4_mir_trust_me_depth = 0
+    v4_mir_trust_me_honor_ranks = array_new()
+}
+
+task v4_mir_honor_rank(level: word) -> int {
+    if level == "cadet" { give back 1 }
+    if level == "pilot" { give back 2 }
+    if level == "ace" { give back 3 }
+    if level == "commander" { give back 4 }
+    if level == "humanity" { give back 5 }
+    give back 0
+}
+
+task v4_mir_honor_name(rank: int) -> word {
+    if rank == 1 { give back "cadet" }
+    if rank == 2 { give back "pilot" }
+    if rank == 3 { give back "ace" }
+    if rank == 4 { give back "commander" }
+    if rank == 5 { give back "humanity" }
+    give back "unknown"
+}
+
+task v4_mir_push_trust_me_honor(honor_rank: int) -> void {
+    if array_len(v4_mir_trust_me_honor_ranks) > v4_mir_trust_me_depth {
+        array_set(v4_mir_trust_me_honor_ranks, v4_mir_trust_me_depth, word_from_int(honor_rank))
+    } else {
+        array_push(v4_mir_trust_me_honor_ranks, word_from_int(honor_rank))
+    }
+    v4_mir_trust_me_depth += 1
 }
 
 task v4_mir_push_trust_me() -> void {
-    v4_mir_trust_me_depth += 1
+    v4_mir_push_trust_me_honor(v4_mir_honor_rank("cadet"))
 }
 
 task v4_mir_pop_trust_me() -> void {
@@ -193,6 +223,35 @@ task v4_mir_pop_trust_me() -> void {
 
 task v4_mir_inside_trust_me() -> bool {
     give back v4_mir_trust_me_depth > 0
+}
+
+task v4_mir_current_trust_honor_rank() -> int {
+    if v4_mir_trust_me_depth <= 0 {
+        give back 0
+    }
+    give back word_to_int(array_get(v4_mir_trust_me_honor_ranks, v4_mir_trust_me_depth - 1))
+}
+
+task v4_mir_current_trust_honor_name() -> word {
+    give back v4_mir_honor_name(v4_mir_current_trust_honor_rank())
+}
+
+task v4_mir_trust_honor_allows(required_rank: int) -> bool {
+    give back v4_mir_current_trust_honor_rank() >= required_rank
+}
+
+task v4_mir_trust_honor_help(operation: word, required_level: word) -> word {
+    give back operation + " requires ." + required_level + " or higher; current honor is ." + v4_mir_current_trust_honor_name()
+}
+
+task v4_mir_check_trust_honor(mir_id: int, span: word, operation: word, required_level: word) -> void {
+    pilot required_rank = v4_mir_honor_rank(required_level)
+    if v4_mir_inside_trust_me() == false {
+        give back
+    }
+    if v4_mir_trust_honor_allows(required_rank) == false {
+        v4_mir_add_type_error(mir_id, span, "trust me honor level too low", v4_mir_trust_honor_help(operation, required_level))
+    }
 }
 
 task v4_mir_push_scope_span(span: word) -> void {
@@ -1869,6 +1928,8 @@ task v4_mir_check_unary_type(mir_id: int, expr_span: word, op_kind: word, operan
         }
         if v4_mir_inside_trust_me() == false {
             v4_mir_add_type_error(mir_id, expr_span, "raw-pointer deref needs trust me block", "wrap the deref in a trust me block; bible section 16.4 forbids dereferencing raw pointers outside trust me")
+        } else {
+            v4_mir_check_trust_honor(mir_id, expr_span, "raw-pointer deref", "cadet")
         }
         give back
     }
@@ -5239,6 +5300,8 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
         }
         if v4_mir_inside_trust_me() == false {
             v4_mir_add_type_error(mir_id, place_span, "raw-pointer deref needs trust me block", "wrap the deref in a trust me block; bible section 16.4 forbids dereferencing raw pointers outside trust me")
+        } else {
+            v4_mir_check_trust_honor(mir_id, place_span, "raw-pointer write", "pilot")
         }
         give back v4_mir_add_place(mir_id, body_id, v4_mir_place_deref, deref_text, 0 - 1, "", ptr_rvalue, place_span, pointee_ty)
     }
@@ -7689,8 +7752,10 @@ task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream
     if cursor < stmt_end and v4_lex_token_type(stream_id, cursor) == v4_tok_string {
         cursor = v4_mir_skip_trivia(stream_id, cursor + 1)
     }
+    pilot honor_rank = v4_mir_honor_rank("cadet")
     if cursor < stmt_end and v4_lex_token_value(stream_id, cursor) == "on" {
         pilot honor_diag = ""
+        pilot honor_msg = "trust me honor clause malformed"
         pilot my_token = v4_mir_skip_trivia(stream_id, cursor + 1)
         if my_token >= stmt_end or v4_lex_token_value(stream_id, my_token) != "my" {
             honor_diag = "use on my honor as .level"
@@ -7721,11 +7786,19 @@ task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream
         if honor_diag == "" and level_ok == false {
             honor_diag = "name the honor level after the dot, e.g. .pilot"
         }
+        if honor_diag == "" {
+            pilot parsed_level = v4_lex_token_value(stream_id, level_token)
+            honor_rank = v4_mir_honor_rank(parsed_level)
+            if honor_rank == 0 {
+                honor_msg = "trust me honor level unknown"
+                honor_diag = "valid honor levels: .cadet, .pilot, .ace, .commander, .humanity"
+            }
+        }
         if honor_diag != "" {
-            pilot honor_msg = "trust me honor clause malformed"
             if honor_diag == "name the honor level after the dot, e.g. .pilot" or honor_diag == "follow as with .level, e.g. as .pilot" {
                 honor_msg = "trust me block needs honor level"
             }
+            honor_rank = 0
             v4_mir_add_type_error(mir_id, stmt_span, honor_msg, honor_diag)
             -- Skip past the malformed honor clause to the next opening brace so the body still lowers.
             pilot brace_scan = cursor
@@ -7745,7 +7818,7 @@ task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream
 
     pilot body_scope = v4_mir_span_from_tokens(stream_id, cursor, stmt_end)
     v4_mir_push_scope_span(body_scope)
-    v4_mir_push_trust_me()
+    v4_mir_push_trust_me_honor(honor_rank)
     pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, block_id, stream_id, cursor, stmt_end)
     v4_mir_pop_trust_me()
     v4_mir_pop_scope_span()

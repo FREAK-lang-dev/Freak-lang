@@ -47,7 +47,7 @@ Pipeline (full compiler):
 | §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). Missing: `variant`, pattern destructuring, named call args, lifetime annotations, `prob_when`, several primitive types (`tiny`, `uint`, `char`, `big`, `float32`, fixed `[T;N]`), tuples. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries lifetime tokens/type contracts, `lend` / `lend mut` parameter contracts, explicit expression loan paths, typed field/index loan-holder projections, borrowed-return provenance for direct/local reloan paths and stored-call local alias chains, all-path CFG repair proof for partial moves, linear/all-exit moved-local drop suppression with conditional `DropIf` markers, first-pass `Shared<T>`/`Weak<T>` method surfaces with guard-escape diagnostics, and first-pass non-lexical rewrite/move/exclusive-read rejection plus release for bound/call-only lends through TY/MIR/Meiya; full region solving, runtime ref-count/borrow-state implementation, honor levels, and `direct_order` remain V4. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries lifetime tokens/type contracts, `lend` / `lend mut` parameter contracts, explicit expression loan paths, typed field/index loan-holder projections, borrowed-return provenance for direct/local reloan paths and stored-call local alias chains, all-path CFG repair proof for partial moves, linear/all-exit moved-local drop suppression with conditional `DropIf` markers, first-pass `Shared<T>`/`Weak<T>` method surfaces with guard-escape diagnostics, first-pass trust-me honor validation/gating, and first-pass non-lexical rewrite/move/exclusive-read rejection plus release for bound/call-only lends through TY/MIR/Meiya; full region solving, runtime ref-count/borrow-state implementation, the complete honor operation matrix, and `direct_order` remain V4. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
@@ -1004,10 +1004,13 @@ the rest is V4.
 > rejected.
 > Lifetime tokens and signature contracts exist, and the first
 > `Shared<T>` / `Weak<T>` method surface now lowers through TY/MIR/Meiya with
-> direct weak-borrow and escaping-guard diagnostics, but full region inference,
-> runtime ref-count/borrow-state guards, `Send`/`Sync`, the full honor-level system inside
-> `trust me ... on my honor as .level`, and `direct_order [arch] { asm }`
-> inline assembly are V4 work. This is first-pass non-lexical loan liveness,
+> direct weak-borrow and escaping-guard diagnostics. `trust me ... on my honor
+> as .level` now validates `.cadet` / `.pilot` / `.ace` / `.commander` /
+> `.humanity`; raw-pointer reads require `.cadet` or higher and raw-pointer
+> writes require `.pilot` or higher. Full region inference, runtime
+> ref-count/borrow-state guards, `Send`/`Sync`, pointer arithmetic,
+> `direct_order [arch] { asm }`, and the full higher-rank operation matrix
+> remain V4 work. This is first-pass non-lexical loan liveness,
 > not full reference lifetime proof.
 
 The borrow checker enforces memory safety without a garbage collector.

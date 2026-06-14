@@ -105,6 +105,11 @@ diagnostics. Guard escape checks are value-sensitive: an actual
 failure paths are not rejected just because the success arm could carry a
 guard. Runtime reference counters, borrow-state guards, `Send`/`Sync`, and
 backend allocation layout remain later slices.
+`trust me "..." on my honor as .level` now carries the honor ladder in MIR:
+`.cadet`, `.pilot`, `.ace`, `.commander`, and `.humanity` are validated,
+unknown levels diagnose, raw-pointer reads require at least `.cadet`, and
+raw-pointer writes require at least `.pilot`. Pointer arithmetic,
+`direct_order`, and the higher-rank operation matrix remain later slices.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
 fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts
