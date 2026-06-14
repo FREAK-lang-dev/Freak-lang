@@ -45,8 +45,9 @@ Current implementation checkpoint:
 - Goal E browser packaging is staged: `freak learn web-assets <dir> --with-wasm-evaluator` exports the package, browser worker, `academy-wasm-evaluator.wasm`, the evaluator manifest, and an asset manifest that marks `wasmStatus` as `preview` for the website connector.
 - Goal F WASM connector is staged in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/learn` reads `academy-assets-manifest.json`, loads `academy-wasm-evaluator.wasm` when advertised, shows WASM/JS runtime coverage, and keeps the JavaScript worker fallback.
 - Goal F browser progress is staged in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/learn` stores completed lesson IDs in browser local storage under the Academy package ID, shows completion counts and per-lesson completion badges, and keeps learner state separate from exported lesson content.
+- Goal F/D browser guidance is staged in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/learn` renders a lesson path from exported `sections` and an exercise contract from exported `requirements`, so the website can guide learners without duplicating lesson content or grading semantics.
 
-The next active goal should continue Goal F/D by adding browser-side Book/reference navigation or richer exercise requirement summaries that still consume exported Academy data instead of duplicating lesson content in the website repo.
+The next active goal should continue Goal D/F by adding a real Book/reference export artifact to the Academy package, then wiring `/learn` or a sibling route in `freaklang.dev` to navigate that exported reference data instead of hardcoding docs in the website repo.
 
 ---
 
