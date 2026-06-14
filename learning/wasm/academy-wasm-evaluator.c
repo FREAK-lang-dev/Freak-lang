@@ -1,6 +1,6 @@
 // First FREAK Academy WASM-backed evaluator.
 //
-// Scope: the first four basics lessons. This module intentionally implements a
+// Scope: the first six basics lessons. This module intentionally implements a
 // tiny browser-safe evaluator for the first Academy basics exercises so the
 // worker can use a real WASM artifact before the full compiler-owned evaluator
 // exists.
@@ -9,7 +9,7 @@
 
 #define ACADEMY_WORKER_PROTOCOL_VERSION 1
 #define ACADEMY_WASM_EVALUATOR_VERSION 1
-#define ACADEMY_SUPPORTED_LESSON_COUNT 4
+#define ACADEMY_SUPPORTED_LESSON_COUNT 6
 
 #define STATUS_PARSES 1
 #define STATUS_COMPILES 2
@@ -24,6 +24,12 @@
 #define WORD_STORAGE_CAPACITY 2048
 #define VALUE_INT 1
 #define VALUE_WORD 2
+#define CMP_EQ 1
+#define CMP_NE 2
+#define CMP_GT 3
+#define CMP_GE 4
+#define CMP_LT 5
+#define CMP_LE 6
 
 static unsigned char academy_input[INPUT_CAPACITY];
 static unsigned char academy_stdout[STDOUT_CAPACITY];
@@ -32,6 +38,7 @@ static unsigned char academy_word_storage[WORD_STORAGE_CAPACITY];
 static int academy_stdout_len = 0;
 static int academy_message_len = 0;
 static int academy_word_storage_len = 0;
+static int academy_output_enabled = 1;
 static int var_count = 0;
 static unsigned char var_names[VAR_CAPACITY][IDENT_CAPACITY];
 static int var_name_lens[VAR_CAPACITY];
@@ -101,6 +108,7 @@ static void reset_eval_state(void) {
     academy_stdout_len = 0;
     academy_message_len = 0;
     academy_word_storage_len = 0;
+    academy_output_enabled = 1;
     var_count = 0;
 }
 
@@ -297,7 +305,78 @@ static int parse_int_expression(int *index, int len, int *value) {
     }
 }
 
+static int parse_comparison_operator(int *index, int len, int *op) {
+    int current = skip_trivia(*index, len);
+    if (current + 1 < len && academy_input[current] == '=' && academy_input[current + 1] == '=') {
+        *op = CMP_EQ;
+        *index = current + 2;
+        return 1;
+    }
+    if (current + 1 < len && academy_input[current] == '!' && academy_input[current + 1] == '=') {
+        *op = CMP_NE;
+        *index = current + 2;
+        return 1;
+    }
+    if (current + 1 < len && academy_input[current] == '>' && academy_input[current + 1] == '=') {
+        *op = CMP_GE;
+        *index = current + 2;
+        return 1;
+    }
+    if (current + 1 < len && academy_input[current] == '<' && academy_input[current + 1] == '=') {
+        *op = CMP_LE;
+        *index = current + 2;
+        return 1;
+    }
+    if (current < len && academy_input[current] == '>') {
+        *op = CMP_GT;
+        *index = current + 1;
+        return 1;
+    }
+    if (current < len && academy_input[current] == '<') {
+        *op = CMP_LT;
+        *index = current + 1;
+        return 1;
+    }
+
+    set_message("expected comparison operator");
+    return 0;
+}
+
+static int parse_bool_expression(int *index, int len, int *value) {
+    int lhs = 0;
+    int rhs = 0;
+    int op = 0;
+
+    if (!parse_int_expression(index, len, &lhs)) {
+        return 0;
+    }
+    if (!parse_comparison_operator(index, len, &op)) {
+        return 0;
+    }
+    if (!parse_int_expression(index, len, &rhs)) {
+        return 0;
+    }
+
+    if (op == CMP_EQ) {
+        *value = lhs == rhs;
+    } else if (op == CMP_NE) {
+        *value = lhs != rhs;
+    } else if (op == CMP_GT) {
+        *value = lhs > rhs;
+    } else if (op == CMP_GE) {
+        *value = lhs >= rhs;
+    } else if (op == CMP_LT) {
+        *value = lhs < rhs;
+    } else {
+        *value = lhs <= rhs;
+    }
+    return 1;
+}
+
 static int append_output_byte(unsigned char ch) {
+    if (!academy_output_enabled) {
+        return 1;
+    }
     if (academy_stdout_len >= STDOUT_CAPACITY) {
         set_message("program output exceeds WASM stdout capacity");
         return 0;
@@ -681,6 +760,206 @@ static int parse_basics_program(int len) {
     return 1;
 }
 
+static int find_block_range(int *index, int len, int *body_start, int *body_end, int *after_block) {
+    int current = skip_trivia(*index, len);
+    int depth = 1;
+
+    if (current >= len || academy_input[current] != '{') {
+        set_message("expected block");
+        return 0;
+    }
+    current += 1;
+    *body_start = current;
+
+    while (current < len) {
+        unsigned char ch = academy_input[current];
+        if (ch == '"') {
+            current += 1;
+            while (current < len) {
+                if (academy_input[current] == '\\') {
+                    current += 2;
+                    continue;
+                }
+                if (academy_input[current] == '"') {
+                    current += 1;
+                    break;
+                }
+                current += 1;
+            }
+            continue;
+        }
+        if (current + 1 < len && academy_input[current] == '-' && academy_input[current + 1] == '-') {
+            current += 2;
+            while (current < len && academy_input[current] != '\n') {
+                current += 1;
+            }
+            continue;
+        }
+        if (ch == '{') {
+            depth += 1;
+        } else if (ch == '}') {
+            depth -= 1;
+            if (depth == 0) {
+                *body_end = current;
+                *after_block = current + 1;
+                *index = current + 1;
+                return 1;
+            }
+        }
+        current += 1;
+    }
+
+    set_message("unterminated block");
+    return 0;
+}
+
+static int parse_say_statements_range(int start, int end) {
+    int index = skip_trivia(start, end);
+    int statement_count = 0;
+
+    while (index < end) {
+        if (!parse_say_value_statement(&index, end)) {
+            return 0;
+        }
+        statement_count += 1;
+        index = skip_trivia(index, end);
+    }
+
+    if (statement_count == 0) {
+        set_message("expected say statement in block");
+        return 0;
+    }
+    return 1;
+}
+
+static int validate_say_block(int start, int end) {
+    int previous_output_enabled = academy_output_enabled;
+    int ok = 0;
+
+    academy_output_enabled = 0;
+    ok = parse_say_statements_range(start, end);
+    academy_output_enabled = previous_output_enabled;
+    return ok;
+}
+
+static int parse_conditions_program(int len) {
+    int index = skip_trivia(0, len);
+    int condition_value = 0;
+    int then_start = 0;
+    int then_end = 0;
+    int then_after = 0;
+    int else_start = 0;
+    int else_end = 0;
+    int else_after = 0;
+
+    reset_eval_state();
+
+    while (match_keyword(index, len, "pilot", 5)) {
+        if (!parse_pilot_statement(&index, len)) {
+            return 0;
+        }
+        index = skip_trivia(index, len);
+    }
+
+    if (!match_keyword(index, len, "if", 2)) {
+        set_message("expected if statement");
+        return 0;
+    }
+    index += 2;
+
+    if (!parse_bool_expression(&index, len, &condition_value)) {
+        return 0;
+    }
+    if (!find_block_range(&index, len, &then_start, &then_end, &then_after)) {
+        return 0;
+    }
+
+    index = skip_trivia(then_after, len);
+    if (!match_keyword(index, len, "else", 4)) {
+        set_message("expected else branch");
+        return 0;
+    }
+    index += 4;
+    if (!find_block_range(&index, len, &else_start, &else_end, &else_after)) {
+        return 0;
+    }
+
+    index = skip_trivia(else_after, len);
+    if (index != len) {
+        set_message("expected end of source after condition lesson program");
+        return 0;
+    }
+
+    if (!validate_say_block(then_start, then_end)) {
+        return 0;
+    }
+    if (!validate_say_block(else_start, else_end)) {
+        return 0;
+    }
+
+    if (condition_value) {
+        return parse_say_statements_range(then_start, then_end);
+    }
+    return parse_say_statements_range(else_start, else_end);
+}
+
+static int parse_loops_program(int len) {
+    int index = skip_trivia(0, len);
+    int count = 0;
+    int body_start = 0;
+    int body_end = 0;
+    int after_block = 0;
+
+    reset_eval_state();
+
+    while (match_keyword(index, len, "pilot", 5)) {
+        if (!parse_pilot_statement(&index, len)) {
+            return 0;
+        }
+        index = skip_trivia(index, len);
+    }
+
+    if (!match_keyword(index, len, "repeat", 6)) {
+        set_message("expected repeat loop");
+        return 0;
+    }
+    index += 6;
+
+    if (!parse_int_expression(&index, len, &count)) {
+        return 0;
+    }
+    if (count < 0) {
+        set_message("repeat count cannot be negative");
+        return 0;
+    }
+    index = skip_trivia(index, len);
+    if (!match_keyword(index, len, "times", 5)) {
+        set_message("expected times keyword");
+        return 0;
+    }
+    index += 5;
+
+    if (!find_block_range(&index, len, &body_start, &body_end, &after_block)) {
+        return 0;
+    }
+    index = skip_trivia(after_block, len);
+    if (index != len) {
+        set_message("expected end of source after loop lesson program");
+        return 0;
+    }
+
+    if (!validate_say_block(body_start, body_end)) {
+        return 0;
+    }
+
+    for (int i = 0; i < count; i += 1) {
+        if (!parse_say_statements_range(body_start, body_end)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 __attribute__((visibility("default")))
 int academy_protocol_version(void) {
     return ACADEMY_WORKER_PROTOCOL_VERSION;
@@ -825,6 +1104,62 @@ int academy_evaluate_arithmetic(int source_len) {
     }
 
     if (!parse_basics_program(source_len)) {
+        return status;
+    }
+
+    status |= STATUS_PARSES;
+    status |= STATUS_COMPILES;
+    status |= STATUS_RUNS;
+
+    if (academy_stdout_len == (int)(sizeof(expected) - 1) &&
+        bytes_equal(academy_stdout, expected, academy_stdout_len)) {
+        status |= STATUS_OUTPUT_MATCHES;
+    }
+
+    return status;
+}
+
+__attribute__((visibility("default")))
+int academy_evaluate_conditions(int source_len) {
+    static const unsigned char expected[] = "over\n";
+    int status = 0;
+
+    reset_eval_state();
+
+    if (source_len < 0 || source_len > INPUT_CAPACITY) {
+        set_message("source exceeds WASM input capacity");
+        return status;
+    }
+
+    if (!parse_conditions_program(source_len)) {
+        return status;
+    }
+
+    status |= STATUS_PARSES;
+    status |= STATUS_COMPILES;
+    status |= STATUS_RUNS;
+
+    if (academy_stdout_len == (int)(sizeof(expected) - 1) &&
+        bytes_equal(academy_stdout, expected, academy_stdout_len)) {
+        status |= STATUS_OUTPUT_MATCHES;
+    }
+
+    return status;
+}
+
+__attribute__((visibility("default")))
+int academy_evaluate_loops(int source_len) {
+    static const unsigned char expected[] = "FREAK\nFREAK\nFREAK\n";
+    int status = 0;
+
+    reset_eval_state();
+
+    if (source_len < 0 || source_len > INPUT_CAPACITY) {
+        set_message("source exceeds WASM input capacity");
+        return status;
+    }
+
+    if (!parse_loops_program(source_len)) {
         return status;
     }
 

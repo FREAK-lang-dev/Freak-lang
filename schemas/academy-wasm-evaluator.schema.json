@@ -68,10 +68,18 @@
         {
           "type": "string",
           "const": "arithmetic"
+        },
+        {
+          "type": "string",
+          "const": "conditions"
+        },
+        {
+          "type": "string",
+          "const": "loops"
         }
       ],
-      "minItems": 4,
-      "maxItems": 4
+      "minItems": 6,
+      "maxItems": 6
     },
     "toolchain": {
       "type": "object",
@@ -93,7 +101,7 @@
     },
     "exports": {
       "type": "array",
-      "minItems": 14,
+      "minItems": 16,
       "items": {
         "type": "string",
         "enum": [
@@ -110,7 +118,9 @@
           "academy_evaluate_hello_freak",
           "academy_evaluate_variables",
           "academy_evaluate_primitive_types",
-          "academy_evaluate_arithmetic"
+          "academy_evaluate_arithmetic",
+          "academy_evaluate_conditions",
+          "academy_evaluate_loops"
         ]
       }
     }

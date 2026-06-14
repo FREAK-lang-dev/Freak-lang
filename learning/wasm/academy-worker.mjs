@@ -449,11 +449,15 @@ export function createAcademyWasmEvaluator(wasmInstanceOrExports) {
         "variables": 2,
         "primitive-types": 3,
         "arithmetic": 4,
+        "conditions": 5,
+        "loops": 6,
       };
       const supportedExports = {
         "variables": "academy_evaluate_variables",
         "primitive-types": "academy_evaluate_primitive_types",
         "arithmetic": "academy_evaluate_arithmetic",
+        "conditions": "academy_evaluate_conditions",
+        "loops": "academy_evaluate_loops",
       };
       return Object.hasOwn(supportedByCount, lessonId) &&
         exports.academy_supported_lesson_count() >= supportedByCount[lessonId] &&
@@ -470,6 +474,12 @@ export function createAcademyWasmEvaluator(wasmInstanceOrExports) {
     },
     runArithmetic(source) {
       return runLessonWasm(exports, source, "arithmetic");
+    },
+    runConditions(source) {
+      return runLessonWasm(exports, source, "conditions");
+    },
+    runLoops(source) {
+      return runLessonWasm(exports, source, "loops");
     },
   };
 }
@@ -819,7 +829,9 @@ function isWasmBackedExercise(lesson, exercise) {
     (lesson?.id === "hello-freak" && exercise?.id === "hello-exercise") ||
     (lesson?.id === "variables" && exercise?.id === "score-exercise") ||
     (lesson?.id === "primitive-types" && exercise?.id === "types-exercise") ||
-    (lesson?.id === "arithmetic" && exercise?.id === "area-exercise")
+    (lesson?.id === "arithmetic" && exercise?.id === "area-exercise") ||
+    (lesson?.id === "conditions" && exercise?.id === "power-exercise") ||
+    (lesson?.id === "loops" && exercise?.id === "repeat-exercise")
   );
 }
 
@@ -836,6 +848,12 @@ function lessonIdFromFileId(fileId) {
   if (fileId === "arithmetic.fk") {
     return "arithmetic";
   }
+  if (fileId === "conditions.fk") {
+    return "conditions";
+  }
+  if (fileId === "loops.fk") {
+    return "loops";
+  }
   return null;
 }
 
@@ -851,6 +869,12 @@ function runLessonThroughEvaluator(evaluator, lessonId, source) {
   }
   if (lessonId === "arithmetic") {
     return evaluator.runArithmetic(source);
+  }
+  if (lessonId === "conditions") {
+    return evaluator.runConditions(source);
+  }
+  if (lessonId === "loops") {
+    return evaluator.runLoops(source);
   }
   throw new WorkerProtocolError("academy_error", `unsupported WASM lesson: ${lessonId}`);
 }
@@ -905,6 +929,8 @@ function runLessonWasm(exports, source, lessonId) {
     "variables": exports.academy_evaluate_variables,
     "primitive-types": exports.academy_evaluate_primitive_types,
     "arithmetic": exports.academy_evaluate_arithmetic,
+    "conditions": exports.academy_evaluate_conditions,
+    "loops": exports.academy_evaluate_loops,
   };
   const evaluate = lessonEvaluators[lessonId];
   if (typeof evaluate !== "function") {

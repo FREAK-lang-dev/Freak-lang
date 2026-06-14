@@ -22,6 +22,8 @@ async function main(argv) {
   assert(evaluator.supportsLesson("variables"), "WASM evaluator must support variables");
   assert(evaluator.supportsLesson("primitive-types"), "WASM evaluator must support primitive-types");
   assert(evaluator.supportsLesson("arithmetic"), "WASM evaluator must support arithmetic");
+  assert(evaluator.supportsLesson("conditions"), "WASM evaluator must support conditions");
+  assert(evaluator.supportsLesson("loops"), "WASM evaluator must support loops");
 
   const passing = evaluator.runHelloFreak('-- comment allowed\nsay "Hello, FREAK Academy!"\n');
   assert(passing.ok, `passing hello source should run: ${passing.message}`);
@@ -64,6 +66,26 @@ async function main(argv) {
   const arithmeticExpression = evaluator.runArithmetic("pilot width = 10 - 2\npilot height = 2 + 2\nsay width * height\n");
   assert(arithmeticExpression.ok, `arithmetic expression source should run: ${arithmeticExpression.message}`);
   assert(arithmeticExpression.stdout === "32\n", `unexpected arithmetic expression stdout: ${JSON.stringify(arithmeticExpression.stdout)}`);
+
+  const conditionsPassing = evaluator.runConditions(
+    'pilot power = 9001\nif power > 9000 {\n    say "over"\n} else {\n    say "normal"\n}\n',
+  );
+  assert(conditionsPassing.ok, `conditions source should run: ${conditionsPassing.message}`);
+  assert(conditionsPassing.stdout === "over\n", `unexpected conditions stdout: ${JSON.stringify(conditionsPassing.stdout)}`);
+
+  const conditionsElseBranch = evaluator.runConditions(
+    'pilot power = 20\nif power > 9000 {\n    say "over"\n} else {\n    say "normal"\n}\n',
+  );
+  assert(conditionsElseBranch.ok, `conditions else source should run: ${conditionsElseBranch.message}`);
+  assert(conditionsElseBranch.stdout === "normal\n", `unexpected conditions else stdout: ${JSON.stringify(conditionsElseBranch.stdout)}`);
+
+  const loopsPassing = evaluator.runLoops('repeat 3 times {\n    say "FREAK"\n}\n');
+  assert(loopsPassing.ok, `loops source should run: ${loopsPassing.message}`);
+  assert(loopsPassing.stdout === "FREAK\nFREAK\nFREAK\n", `unexpected loops stdout: ${JSON.stringify(loopsPassing.stdout)}`);
+
+  const loopsExpression = evaluator.runLoops('pilot count = 1 + 2\nrepeat count times {\n    say "FREAK"\n}\n');
+  assert(loopsExpression.ok, `loops expression source should run: ${loopsExpression.message}`);
+  assert(loopsExpression.stdout === "FREAK\nFREAK\nFREAK\n", `unexpected loops expression stdout: ${JSON.stringify(loopsExpression.stdout)}`);
 
   const academyPackage = await buildAcademyPackage(process.cwd());
   const evaluateResponse = handleAcademyWorkerEnvelope(
@@ -166,7 +188,73 @@ async function main(argv) {
   assert(arithmeticResponse.ok, JSON.stringify(arithmeticResponse));
   assert(arithmeticResponse.result?.passed === true, "arithmetic exercise should pass through WASM-backed worker");
 
-  console.log("Academy WASM evaluator verified: first four basics lessons pass through worker protocol");
+  const conditionsResponse = handleAcademyWorkerEnvelope(
+    {
+      protocolVersion: 1,
+      requestId: "wasm-evaluate-conditions",
+      method: "evaluateExercise",
+      params: {
+        lessonId: "conditions",
+        exerciseId: "power-exercise",
+        source: 'pilot power = 9001\nif power > 9000 {\n    say "over"\n} else {\n    say "normal"\n}\n',
+      },
+    },
+    academyPackage,
+    { wasmEvaluator: evaluator },
+  );
+  assert(conditionsResponse.ok, JSON.stringify(conditionsResponse));
+  assert(conditionsResponse.result?.passed === true, "conditions exercise should pass through WASM-backed worker");
+
+  const conditionsRunResponse = handleAcademyWorkerEnvelope(
+    {
+      protocolVersion: 1,
+      requestId: "wasm-run-conditions",
+      method: "run",
+      params: {
+        fileId: "conditions.fk",
+        source: 'pilot power = 9001\nif power > 9000 {\n    say "over"\n} else {\n    say "normal"\n}\n',
+      },
+    },
+    academyPackage,
+    { wasmEvaluator: evaluator },
+  );
+  assert(conditionsRunResponse.ok, JSON.stringify(conditionsRunResponse));
+  assert(conditionsRunResponse.result?.stdout === "over\n", "conditions run stdout should match");
+
+  const loopsResponse = handleAcademyWorkerEnvelope(
+    {
+      protocolVersion: 1,
+      requestId: "wasm-evaluate-loops",
+      method: "evaluateExercise",
+      params: {
+        lessonId: "loops",
+        exerciseId: "repeat-exercise",
+        source: 'repeat 3 times {\n    say "FREAK"\n}\n',
+      },
+    },
+    academyPackage,
+    { wasmEvaluator: evaluator },
+  );
+  assert(loopsResponse.ok, JSON.stringify(loopsResponse));
+  assert(loopsResponse.result?.passed === true, "loops exercise should pass through WASM-backed worker");
+
+  const loopsRunResponse = handleAcademyWorkerEnvelope(
+    {
+      protocolVersion: 1,
+      requestId: "wasm-run-loops",
+      method: "run",
+      params: {
+        fileId: "loops.fk",
+        source: 'repeat 3 times {\n    say "FREAK"\n}\n',
+      },
+    },
+    academyPackage,
+    { wasmEvaluator: evaluator },
+  );
+  assert(loopsRunResponse.ok, JSON.stringify(loopsRunResponse));
+  assert(loopsRunResponse.result?.stdout === "FREAK\nFREAK\nFREAK\n", "loops run stdout should match");
+
+  console.log("Academy WASM evaluator verified: first six basics lessons pass through worker protocol");
   return 0;
 }
 
