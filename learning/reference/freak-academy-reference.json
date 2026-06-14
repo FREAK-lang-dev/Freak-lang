@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "packageId": "freak-academy-v3-mvp",
+  "languageVersion": "0.13.3",
+  "compilerTrack": "v3",
+  "repositoryPhase": "main-repo",
+  "websiteConnector": "freaklang.dev",
+  "title": "FREAK Academy Reference",
+  "description": "V3-first reference skeleton for the browser Academy connector. This artifact is intentionally compact until the full Book and Reference routes exist.",
+  "entries": [
+    {
+      "id": "program-output",
+      "title": "Program Output",
+      "status": "v3-mvp",
+      "since": "0.13.3",
+      "conceptIds": ["program-output", "say-statement"],
+      "lessonIds": ["hello-freak", "variables"],
+      "summary": "`say` writes a value followed by a newline in the V3 Academy subset.",
+      "grammar": ["say <expression>"],
+      "staticSemantics": [
+        "The expression must parse and type-check before the program can run.",
+        "The V3 Academy worker currently checks output through exact expected-output requirements."
+      ],
+      "dynamicSemantics": [
+        "At runtime, `say` evaluates its expression and writes the rendered value to standard output.",
+        "The learner compares the complete stdout text against the lesson's expected output."
+      ],
+      "examples": [
+        {
+          "title": "Print a word literal",
+          "source": "say \"Hello, FREAK Academy!\"\n",
+          "expectedOutput": "Hello, FREAK Academy!\n"
+        }
+      ],
+      "related": ["word-literal"]
+    },
+    {
+      "id": "word-literal",
+      "title": "Word Literals",
+      "status": "v3-mvp",
+      "since": "0.13.3",
+      "conceptIds": ["word-literal"],
+      "lessonIds": ["hello-freak", "primitive-types"],
+      "summary": "A `word` literal is UTF-8 text enclosed in double quotes.",
+      "grammar": ["\"text\""],
+      "staticSemantics": [
+        "A double-quoted literal has type `word` in the current Academy subset."
+      ],
+      "dynamicSemantics": [
+        "The runtime preserves the literal text and prints it without the surrounding quotes."
+      ],
+      "examples": [
+        {
+          "title": "Bind and print text",
+          "source": "pilot message: word = \"ready\"\nsay message\n",
+          "expectedOutput": "ready\n"
+        }
+      ],
+      "related": ["program-output", "primitive-types"]
+    },
+    {
+      "id": "variable-declaration",
+      "title": "Variable Declarations",
+      "status": "v3-mvp",
+      "since": "0.13.3",
+      "conceptIds": ["variable-declaration"],
+      "lessonIds": ["variables"],
+      "summary": "`pilot` declares a local value that can be reused by later expressions.",
+      "grammar": ["pilot <name> = <expression>", "pilot <name>: <type> = <expression>"],
+      "staticSemantics": [
+        "The initializer expression determines the value assigned to the local name.",
+        "An optional annotation constrains the inferred type."
+      ],
+      "dynamicSemantics": [
+        "The initializer runs once when the declaration is reached."
+      ],
+      "examples": [
+        {
+          "title": "Bind a score",
+          "source": "pilot score = 7\nsay score\n",
+          "expectedOutput": "7\n"
+        }
+      ],
+      "related": ["primitive-types"]
+    },
+    {
+      "id": "primitive-types",
+      "title": "Primitive Types",
+      "status": "v3-mvp",
+      "since": "0.13.3",
+      "conceptIds": ["int-literal", "type-annotation"],
+      "lessonIds": ["variables", "primitive-types"],
+      "summary": "The first Academy lessons use `int` and `word` as the practical V3 starter types.",
+      "grammar": ["<integer-literal>", "<name>: <type>"],
+      "staticSemantics": [
+        "`int` represents signed integer values in the V3 Academy subset.",
+        "`word` represents text values.",
+        "A type annotation makes the intended type explicit."
+      ],
+      "dynamicSemantics": [
+        "Primitive values can be printed directly with `say` in the starter lessons."
+      ],
+      "examples": [
+        {
+          "title": "Use explicit types",
+          "source": "pilot label: word = \"power\"\npilot amount: int = 42\nsay label\nsay amount\n",
+          "expectedOutput": "power\n42\n"
+        }
+      ],
+      "related": ["word-literal", "variable-declaration"]
+    },
+    {
+      "id": "expressions-and-operators",
+      "title": "Expressions and Operators",
+      "status": "v3-mvp",
+      "since": "0.13.3",
+      "conceptIds": ["binary-operator", "multiplication", "expression"],
+      "lessonIds": ["arithmetic"],
+      "summary": "Binary operators combine expressions into a new value.",
+      "grammar": ["<expression> + <expression>", "<expression> * <expression>"],
+      "staticSemantics": [
+        "The operands must be valid expressions for the operator being used."
+      ],
+      "dynamicSemantics": [
+        "Arithmetic expressions evaluate before their result is printed or assigned."
+      ],
+      "examples": [
+        {
+          "title": "Calculate before printing",
+          "source": "pilot answer = 6 * 7\nsay answer\n",
+          "expectedOutput": "42\n"
+        }
+      ],
+      "related": ["primitive-types"]
+    },
+    {
+      "id": "conditionals",
+      "title": "Conditionals",
+      "status": "v3-mvp",
+      "since": "0.13.3",
+      "conceptIds": ["if-expression", "comparison", "else-branch"],
+      "lessonIds": ["conditions"],
+      "summary": "`if` chooses a branch from a boolean condition.",
+      "grammar": ["if <condition> { <statements> } else { <statements> }"],
+      "staticSemantics": [
+        "The condition must be a valid boolean expression.",
+        "The current Academy lessons use comparison expressions for the condition."
+      ],
+      "dynamicSemantics": [
+        "Only the selected branch runs."
+      ],
+      "examples": [
+        {
+          "title": "Choose a branch",
+          "source": "pilot score = 9\nif score > 5 {\n    say \"pass\"\n} else {\n    say \"retry\"\n}\n",
+          "expectedOutput": "pass\n"
+        }
+      ],
+      "related": ["expressions-and-operators"]
+    },
+    {
+      "id": "repeat-loops",
+      "title": "Repeat Loops",
+      "status": "v3-mvp",
+      "since": "0.13.3",
+      "conceptIds": ["repeat-loop", "counted-loop", "block"],
+      "lessonIds": ["loops"],
+      "summary": "`repeat N times` runs a block a fixed number of times.",
+      "grammar": ["repeat <count> times { <statements> }"],
+      "staticSemantics": [
+        "The count must be valid for the V3 counted-loop subset."
+      ],
+      "dynamicSemantics": [
+        "The loop body runs once per count, in order."
+      ],
+      "examples": [
+        {
+          "title": "Print three lines",
+          "source": "repeat 3 times {\n    say \"again\"\n}\n",
+          "expectedOutput": "again\nagain\nagain\n"
+        }
+      ],
+      "related": ["program-output"]
+    },
+    {
+      "id": "task-declarations",
+      "title": "Task Declarations",
+      "status": "v3-mvp",
+      "since": "0.13.3",
+      "conceptIds": ["task-declaration", "parameter", "return-value"],
+      "lessonIds": ["functions"],
+      "summary": "`task` declares reusable behavior with optional parameters and a return value.",
+      "grammar": ["task <name>(<param>: <type>) -> <type> { <statements> }", "give back <expression>"],
+      "staticSemantics": [
+        "Parameter and return annotations describe the task boundary.",
+        "`give back` must provide a value compatible with the task return type."
+      ],
+      "dynamicSemantics": [
+        "Calling a task evaluates its body and returns the value from `give back`."
+      ],
+      "examples": [
+        {
+          "title": "Double an integer",
+          "source": "task double(x: int) -> int {\n    give back x * 2\n}\n\nsay double(21)\n",
+          "expectedOutput": "42\n"
+        }
+      ],
+      "related": ["expressions-and-operators"]
+    }
+  ]
+}

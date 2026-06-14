@@ -18,6 +18,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_DIR = ROOT / "schemas"
 COURSES_DIR = ROOT / "learning" / "courses"
+REFERENCE_PATH = ROOT / "learning" / "reference" / "freak-academy-reference.json"
 
 ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -85,6 +86,7 @@ def validate_schema_files() -> None:
     required = [
         "academy-browser-assets.schema.json",
         "academy-package.schema.json",
+        "academy-reference.schema.json",
         "academy-wasm-evaluator.schema.json",
         "academy-wasm-probe.schema.json",
         "academy-worker-protocol.schema.json",
@@ -226,15 +228,113 @@ def validate_courses() -> tuple[int, int]:
     return len(courses), lesson_count
 
 
+def collect_lesson_index() -> tuple[set[str], set[str]]:
+    lesson_ids: set[str] = set()
+    concept_ids: set[str] = set()
+    for course_path in sorted(COURSES_DIR.glob("*/course.json")):
+        course = load_json(course_path)
+        lessons_dir = course_path.parent / "lessons"
+        for lesson_id in course.get("lessons", []):
+            lesson_path = lessons_dir / f"{lesson_id}.json"
+            lesson = load_json(lesson_path)
+            lesson_ids.add(str(lesson["id"]))
+            for concept_id in lesson.get("conceptIds", []):
+                concept_ids.add(str(concept_id))
+    return lesson_ids, concept_ids
+
+
+def validate_reference(lesson_ids: set[str], concept_ids: set[str]) -> int:
+    expect(REFERENCE_PATH.exists(), REFERENCE_PATH, "reference artifact is missing")
+    reference = load_json(REFERENCE_PATH)
+    expect(reference.get("schemaVersion") == 1, REFERENCE_PATH, "`schemaVersion` must be 1")
+    expect(reference.get("packageId") == "freak-academy-v3-mvp", REFERENCE_PATH, "`packageId` is invalid")
+    expect_version(reference.get("languageVersion"), REFERENCE_PATH, "languageVersion")
+    expect(reference.get("compilerTrack") in {"v3", "v4"}, REFERENCE_PATH, "`compilerTrack` must be `v3` or `v4`")
+    expect(reference.get("repositoryPhase") in {"main-repo", "split-ready", "dedicated-repo"}, REFERENCE_PATH, "`repositoryPhase` is invalid")
+    expect(reference.get("websiteConnector") == "freaklang.dev", REFERENCE_PATH, "`websiteConnector` must be freaklang.dev")
+    expect_string(reference.get("title"), REFERENCE_PATH, "title")
+    expect_string(reference.get("description"), REFERENCE_PATH, "description")
+
+    entries = reference.get("entries")
+    expect(isinstance(entries, list) and entries, REFERENCE_PATH, "`entries` must be a non-empty list")
+    entry_ids: set[str] = set()
+    covered_concepts: set[str] = set()
+    for entry in entries:
+        validate_reference_entry(entry, entry_ids, lesson_ids, covered_concepts)
+
+    for entry in entries:
+        for related_id in entry.get("related", []):
+            expect(related_id in entry_ids, REFERENCE_PATH, f"unknown related reference `{related_id}`")
+
+    missing_concepts = sorted(concept_ids - covered_concepts)
+    expect(not missing_concepts, REFERENCE_PATH, f"reference missing lesson concepts: {', '.join(missing_concepts)}")
+    return len(entries)
+
+
+def validate_reference_entry(
+    entry: Any,
+    entry_ids: set[str],
+    lesson_ids: set[str],
+    covered_concepts: set[str],
+) -> None:
+    expect(isinstance(entry, dict), REFERENCE_PATH, "each reference entry must be an object")
+    expect_id(entry.get("id"), REFERENCE_PATH, "entries[].id")
+    expect(entry["id"] not in entry_ids, REFERENCE_PATH, f"duplicate reference id `{entry['id']}`")
+    entry_ids.add(entry["id"])
+    expect_string(entry.get("title"), REFERENCE_PATH, "entries[].title")
+    expect(entry.get("status") in {"v3-mvp", "v4-planned", "stable"}, REFERENCE_PATH, f"invalid reference status `{entry.get('status')}`")
+    expect_version(entry.get("since"), REFERENCE_PATH, "entries[].since")
+    expect_string(entry.get("summary"), REFERENCE_PATH, "entries[].summary")
+
+    concepts = entry.get("conceptIds")
+    expect(isinstance(concepts, list) and concepts, REFERENCE_PATH, f"reference `{entry['id']}` needs conceptIds")
+    expect(len(concepts) == len(set(concepts)), REFERENCE_PATH, f"reference `{entry['id']}` has duplicate conceptIds")
+    for concept_id in concepts:
+        expect_id(concept_id, REFERENCE_PATH, "entries[].conceptIds[]")
+        covered_concepts.add(concept_id)
+
+    lessons = entry.get("lessonIds")
+    expect(isinstance(lessons, list) and lessons, REFERENCE_PATH, f"reference `{entry['id']}` needs lessonIds")
+    expect(len(lessons) == len(set(lessons)), REFERENCE_PATH, f"reference `{entry['id']}` has duplicate lessonIds")
+    for lesson_id in lessons:
+        expect_id(lesson_id, REFERENCE_PATH, "entries[].lessonIds[]")
+        expect(lesson_id in lesson_ids, REFERENCE_PATH, f"reference `{entry['id']}` points to unknown lesson `{lesson_id}`")
+
+    for list_field in ("grammar", "staticSemantics", "dynamicSemantics"):
+        values = entry.get(list_field)
+        expect(isinstance(values, list) and values, REFERENCE_PATH, f"reference `{entry['id']}` needs `{list_field}`")
+        for value in values:
+            expect_string(value, REFERENCE_PATH, f"entries[].{list_field}[]")
+
+    related = entry.get("related")
+    expect(isinstance(related, list), REFERENCE_PATH, f"reference `{entry['id']}` needs related list")
+    expect(len(related) == len(set(related)), REFERENCE_PATH, f"reference `{entry['id']}` has duplicate related ids")
+    for related_id in related:
+        expect_id(related_id, REFERENCE_PATH, "entries[].related[]")
+
+    examples = entry.get("examples")
+    expect(isinstance(examples, list) and examples, REFERENCE_PATH, f"reference `{entry['id']}` needs examples")
+    for example in examples:
+        expect(isinstance(example, dict), REFERENCE_PATH, "each reference example must be an object")
+        expect_string(example.get("title"), REFERENCE_PATH, "entries[].examples[].title")
+        validate_freak_snippet(example.get("source"), REFERENCE_PATH, f"reference `{entry['id']}` example source")
+        expect(isinstance(example.get("expectedOutput"), str), REFERENCE_PATH, "entries[].examples[].expectedOutput")
+
+
 def main() -> int:
     try:
         validate_schema_files()
         course_count, lesson_count = validate_courses()
+        lesson_ids, concept_ids = collect_lesson_index()
+        reference_count = validate_reference(lesson_ids, concept_ids)
     except ValidationError as exc:
         print(f"Academy validation failed: {exc}", file=sys.stderr)
         return 1
 
-    print(f"Academy validation passed: {course_count} course(s), {lesson_count} lesson(s).")
+    print(
+        f"Academy validation passed: {course_count} course(s), "
+        f"{lesson_count} lesson(s), {reference_count} reference entry(s)."
+    )
     return 0
 
 

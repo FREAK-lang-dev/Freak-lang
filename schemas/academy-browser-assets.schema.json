@@ -15,6 +15,7 @@
     "artifactStatus",
     "wasmStatus",
     "packagePath",
+    "referencePath",
     "workerPath",
     "assets"
   ],
@@ -58,6 +59,10 @@
     "packagePath": {
       "type": "string",
       "const": "freak-academy-package.json"
+    },
+    "referencePath": {
+      "type": "string",
+      "const": "freak-academy-reference.json"
     },
     "workerPath": {
       "type": "string",
@@ -116,7 +121,7 @@
           },
           "role": {
             "type": "string",
-            "enum": ["academy-package", "worker-entrypoint", "wasm-evaluator", "wasm-evaluator-manifest"]
+            "enum": ["academy-package", "academy-reference", "worker-entrypoint", "wasm-evaluator", "wasm-evaluator-manifest"]
           },
           "artifactType": {
             "type": "string",

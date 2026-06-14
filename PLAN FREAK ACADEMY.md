@@ -46,8 +46,9 @@ Current implementation checkpoint:
 - Goal F WASM connector is staged in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/learn` reads `academy-assets-manifest.json`, loads `academy-wasm-evaluator.wasm` when advertised, shows WASM/JS runtime coverage, and keeps the JavaScript worker fallback.
 - Goal F browser progress is staged in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/learn` stores completed lesson IDs in browser local storage under the Academy package ID, shows completion counts and per-lesson completion badges, and keeps learner state separate from exported lesson content.
 - Goal F/D browser guidance is staged in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/learn` renders a lesson path from exported `sections` and an exercise contract from exported `requirements`, so the website can guide learners without duplicating lesson content or grading semantics.
+- Goal D/F reference export is staged: this repository now owns `learning/reference/freak-academy-reference.json`, validates it against `schemas/academy-reference.schema.json`, exports it through `freak learn web-assets` as `freak-academy-reference.json`, and `freaklang.dev` consumes it on `/learn` as lesson-linked reference material.
 
-The next active goal should continue Goal D/F by adding a real Book/reference export artifact to the Academy package, then wiring `/learn` or a sibling route in `freaklang.dev` to navigate that exported reference data instead of hardcoding docs in the website repo.
+The next active goal should continue Goal D/F by promoting the exported reference artifact into a dedicated `/reference` website route or by adding the first Book skeleton artifact beside it, while keeping all reference/book source data in this repository until the Academy repo split.
 
 ---
 
