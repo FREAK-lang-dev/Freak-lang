@@ -56,6 +56,7 @@ pilot v4_mir_unary_neg = "Neg"
 pilot v4_mir_unary_not = "Not"
 pilot v4_mir_unary_ptr_is_null = "PtrIsNull"
 pilot v4_mir_unary_deref = "Deref"
+pilot v4_mir_call_raw_ptr_write = "RawPtrWrite"
 
 pilot v4_mir_bin_add = "Add"
 pilot v4_mir_bin_sub = "Sub"
@@ -3593,6 +3594,77 @@ task v4_mir_try_lower_builtin_shared_associated_method(mir_id: int, body_id: int
     give back call_rvalue
 }
 
+task v4_mir_raw_pointer_method_arg_count_error(mir_id: int, body_id: int, stream_id: int, expr_span: word, receiver_ty: word, method_name: word, open_token: int, close_token: int, expected_count: int) -> void {
+    pilot actual_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    if actual_count == expected_count {
+        give back
+    }
+    pilot label = receiver_ty + "." + method_name + "()"
+    if method_name == "is_null" and expected_count == 0 {
+        v4_mir_add_type_error(mir_id, expr_span, "is_null takes no arguments", receiver_ty + ".is_null() must be called without arguments")
+        v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, close_token)
+        give back
+    }
+    if expected_count == 0 {
+        v4_mir_add_type_error(mir_id, expr_span, "raw-pointer method arity mismatch", label + " takes no arguments but got " + word_from_int(actual_count))
+    } else {
+        v4_mir_add_type_error(mir_id, expr_span, "raw-pointer method arity mismatch", label + " takes " + word_from_int(expected_count) + " argument but got " + word_from_int(actual_count))
+    }
+    v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, close_token)
+}
+
+task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: int, stream_id: int, receiver_rvalue: int, receiver_ty: word, method_name: word, open_token: int, close_token: int, expr_span: word, expr_text: word) -> int {
+    if v4_ty_is_raw_pointer_type(receiver_ty) == false {
+        give back 0 - 1
+    }
+
+    if method_name == "is_null" {
+        v4_mir_raw_pointer_method_arg_count_error(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, open_token, close_token, 0)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_is_null, receiver_rvalue, 0 - 1, expr_span, v4_ty_bool)
+    }
+
+    if method_name == "read" {
+        v4_mir_raw_pointer_method_arg_count_error(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, open_token, close_token, 0)
+        v4_mir_check_unary_type(mir_id, expr_span, v4_mir_unary_deref, receiver_ty)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_deref, receiver_rvalue, 0 - 1, expr_span, v4_ty_raw_pointer_target_type(receiver_ty))
+    }
+
+    if method_name == "write" {
+        pilot actual_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
+        if actual_count != 1 {
+            v4_mir_raw_pointer_method_arg_count_error(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, open_token, close_token, 1)
+            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, v4_mir_call_raw_ptr_write, receiver_rvalue, 0 - 1, expr_span, v4_ty_void)
+        }
+
+        pilot pointee_ty = v4_ty_raw_pointer_target_type(receiver_ty)
+        if v4_ty_is_mutable_raw_pointer_type(receiver_ty) == false {
+            v4_mir_add_type_error(mir_id, expr_span, "raw-pointer write needs *mut T", "got " + receiver_ty + "; only *mut T pointers can be written through, *const T and *T are read-only")
+        }
+        if v4_mir_inside_trust_me() == false {
+            v4_mir_add_type_error(mir_id, expr_span, "raw-pointer deref needs trust me block", "wrap the write in a trust me block; bible section 16.4 forbids writing through raw pointers outside trust me")
+        } else {
+            v4_mir_check_trust_honor(mir_id, expr_span, "raw-pointer write", "pilot")
+        }
+
+        pilot arg_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+        pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
+        pilot value_start = v4_mir_call_arg_value_start(stream_id, arg_start, arg_end)
+        pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, value_start, arg_end, pointee_ty)
+        pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
+        if not v4_ty_types_compatible(pointee_ty, value_ty) {
+            v4_mir_add_type_mismatch_error(mir_id, expr_span, "raw-pointer write type mismatch", receiver_ty + ".write expects " + pointee_ty + " but got " + value_ty, receiver_ty + ".write argument", pointee_ty, value_ty)
+        }
+
+        pilot args_payload = v4_mir_call_args_payload_append("", receiver_rvalue)
+        args_payload = v4_mir_call_args_payload_append(args_payload, value_rvalue)
+        pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, v4_mir_call_raw_ptr_write, receiver_rvalue, 0 - 1, expr_span, v4_ty_void)
+        v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, args_payload)
+        give back call_rvalue
+    }
+
+    give back 0 - 1
+}
+
 task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
     if v4_lex_token_value(stream_id, last) != ")" {
         give back 0 - 1
@@ -3617,14 +3689,9 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
     pilot method_name = v4_lex_token_value(stream_id, method_token)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-    if v4_ty_is_raw_pointer_type(receiver_ty) and method_name == "is_null" {
-        pilot args_token = v4_mir_skip_trivia(stream_id, open_token + 1)
-        if args_token < last {
-            if v4_lex_token_value(stream_id, args_token) != ")" {
-                v4_mir_add_type_error(mir_id, expr_span, "is_null takes no arguments", receiver_ty + ".is_null() must be called without arguments")
-            }
-        }
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_is_null, receiver_rvalue, 0 - 1, expr_span, v4_ty_bool)
+    pilot raw_pointer_builtin = v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id, body_id, stream_id, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
+    if raw_pointer_builtin >= 0 {
+        give back raw_pointer_builtin
     }
     pilot shared_builtin = v4_mir_try_lower_builtin_shared_instance_method(mir_id, body_id, stream_id, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
     if shared_builtin >= 0 {
