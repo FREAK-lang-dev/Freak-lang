@@ -1,7 +1,6 @@
 -- V4 trust me block parsing smoke fixture.
 -- Verification prepends the V4 crates before this file.
--- First slice: parse the form, lower the body as a transparent block.
--- Future slices will gate raw pointer deref + audit-trust integration on it.
+-- Covers parser recovery plus first-pass honor-rank validation in MIR.
 
 task v4_trust_me_full_source() -> word {
     -- Full form: reason + honor clause + body.
@@ -74,6 +73,18 @@ task v4_trust_me_missing_level_source() -> word {
     give back src
 }
 
+task v4_trust_me_unknown_level_source() -> word {
+    -- Unknown honor levels diagnose but still lower the body for recovery.
+    pilot src = "task work() -> int {\n"
+    src = src + "    pilot tally = 0\n"
+    src = src + "    trust me \"not on the ladder\" on my honor as .rookie {\n"
+    src = src + "        tally = tally + 11\n"
+    src = src + "    }\n"
+    src = src + "    give back tally\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_trust_me_full_text = v4_trust_me_full_source()
 pilot v4_trust_me_full_stream = v4_lex_text(0, v4_trust_me_full_text)
 pilot v4_trust_me_full_tree = v4_parse_stream(0, v4_trust_me_full_stream)
@@ -140,3 +151,21 @@ pilot v4_trust_me_missing_level_mir = v4_mir_lower_ty(5, v4_trust_me_missing_lev
 say "trust-me-missing-level-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_trust_me_missing_level_mir))
 say "trust-me-missing-level-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_trust_me_missing_level_mir, 0))
 say "trust-me-missing-level-mir-diag0-help=" + v4_diag_help(v4_mir_diag(v4_trust_me_missing_level_mir, 0))
+
+pilot v4_trust_me_unknown_level_text = v4_trust_me_unknown_level_source()
+pilot v4_trust_me_unknown_level_stream = v4_lex_text(6, v4_trust_me_unknown_level_text)
+pilot v4_trust_me_unknown_level_tree = v4_parse_stream(6, v4_trust_me_unknown_level_stream)
+pilot v4_trust_me_unknown_level_hir = v4_hir_lower_tree(6, v4_trust_me_unknown_level_tree)
+pilot v4_trust_me_unknown_level_resolve = v4_resolve_lower_hir(6, v4_trust_me_unknown_level_hir)
+pilot v4_trust_me_unknown_level_ty = v4_ty_lower_resolve(6, v4_trust_me_unknown_level_resolve)
+pilot v4_trust_me_unknown_level_mir = v4_mir_lower_ty(6, v4_trust_me_unknown_level_ty)
+
+say "trust-me-honor-rank-cadet=" + word_from_int(v4_mir_honor_rank("cadet"))
+say "trust-me-honor-rank-pilot=" + word_from_int(v4_mir_honor_rank("pilot"))
+say "trust-me-honor-rank-ace=" + word_from_int(v4_mir_honor_rank("ace"))
+say "trust-me-honor-rank-commander=" + word_from_int(v4_mir_honor_rank("commander"))
+say "trust-me-honor-rank-humanity=" + word_from_int(v4_mir_honor_rank("humanity"))
+say "trust-me-honor-rank-rookie=" + word_from_int(v4_mir_honor_rank("rookie"))
+say "trust-me-unknown-level-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_trust_me_unknown_level_mir))
+say "trust-me-unknown-level-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_trust_me_unknown_level_mir, 0))
+say "trust-me-unknown-level-mir-diag0-help=" + v4_diag_help(v4_mir_diag(v4_trust_me_unknown_level_mir, 0))

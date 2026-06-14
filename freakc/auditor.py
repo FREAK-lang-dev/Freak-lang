@@ -769,10 +769,9 @@ def audit_conformance(paths: List[Path]) -> int:
         failures.append("V4 raw-pointer is_null lowering regressed: " + "; ".join(isn_missing))
 
     # ── Check 7d: V4 trust me block parsing (regression guard) ──
-    # Bible §16.4 gates raw-pointer dereferencing on `trust me` blocks. The
-    # first slice parses the form; future slices wire the gating + audit-trust
-    # integration. Lock in the MIR lowering + smoke fixture so the parse
-    # surface cannot silently regress.
+    # Bible §16.4 gates raw-pointer dereferencing on `trust me` blocks. V4 now
+    # parses the honor ladder, validates known ranks, and uses that rank for
+    # first-pass raw-pointer read/write gates.
     v4_mir_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     v4_codegen_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
     v4_ty_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
@@ -788,11 +787,16 @@ def audit_conformance(paths: List[Path]) -> int:
             "trust me block needs me keyword",
             "trust me block needs body",
             "v4_mir_push_trust_me",
+            "v4_mir_push_trust_me_honor",
             "v4_mir_inside_trust_me",
+            "v4_mir_honor_rank",
+            "trust me honor level unknown",
+            "trust me honor level too low",
             "v4_mir_unary_deref",
             "raw-pointer deref needs trust me block",
             "v4_mir_place_deref",
             "raw-pointer write needs *mut T",
+            "v4_mir_trust_honor_help",
         ):
             if needle not in mir_src:
                 tm_missing.append(f"freak_mir: {needle}")
@@ -826,6 +830,12 @@ def audit_conformance(paths: List[Path]) -> int:
             tm_missing.append("EXECUTABLE_SMOKES: raw_pointer_deref_smoke entry")
         if "raw_pointer_deref_write_smoke.fk" not in harness_src:
             tm_missing.append("EXECUTABLE_SMOKES: raw_pointer_deref_write_smoke entry")
+        if "trust-me-honor-rank-humanity=5" not in harness_src:
+            tm_missing.append("check_v4.py: trust-me honor rank expectations")
+        if "trust-me-unknown-level-mir-diag0-message=trust me honor level unknown" not in harness_src:
+            tm_missing.append("check_v4.py: unknown honor expectation")
+        if "raw-ptr-write-cadet-mir-diag0-message=trust me honor level too low" not in harness_src:
+            tm_missing.append("check_v4.py: low honor raw-pointer write expectation")
     else:
         tm_missing.append("check_v4.py harness missing")
     add(
