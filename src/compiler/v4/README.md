@@ -111,8 +111,10 @@ unknown levels diagnose, raw-pointer reads require at least `.cadet`, and
 raw-pointer writes require at least `.pilot`. The method forms `.read()` and
 `.write(value)` now lower through MIR/LLVM as the same load/store operations as
 `*ptr` and `*ptr = value`, including arity, mutability, and honor diagnostics.
-Pointer arithmetic, `.offset()`, `.cast<U>()`, `direct_order`, and the
-higher-rank operation matrix remain later slices.
+Pointer arithmetic and raw retyping are now opened through `.offset(n)` and
+`.cast<U>()`, lowering to LLVM `getelementptr` with preserved `*const`/`*mut`
+shape and `.ace+` honor diagnostics. Raw allocation/freeing, `direct_order`,
+and the higher-rank operation matrix remain later slices.
 The FFI/type lane also carries `std::ffi` alias normalization, raw-pointer LLVM
 carriage, `@layout(C)`, `@layout(C, packed=N)`, `@layout(transparent)`, and
 fieldless route/variant `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` contracts

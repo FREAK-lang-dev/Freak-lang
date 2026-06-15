@@ -322,6 +322,14 @@ task v4_ty_raw_pointer_target_type(type_text: word) -> word {
     give back v4_slice(type_text, prefix.length(), type_text.length())
 }
 
+task v4_ty_raw_pointer_with_target_type(type_text: word, target_type: word) -> word {
+    pilot prefix = v4_ty_raw_pointer_prefix(type_text)
+    if prefix == "" or target_type == "" {
+        give back v4_ty_unknown
+    }
+    give back prefix + target_type
+}
+
 task v4_ty_function_type_task_pos(type_text: word) -> int {
     if type_text.starts_with("task(") {
         give back 0

@@ -118,7 +118,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | `never` (bottom type) | ❌ | 📖 V4 | no never-type inference |
 | `[T; N]` fixed-size array | ⚠️ | 📖 V4 | dynamic List<T> exists; fixed arrays not stack-allocated |
 | `(A, B, ...)` tuple | ❌ | 📖 V4 | parser doesn't handle tuple types |
-| `*T`, `*const T`, `*mut T` raw pointers | ⚠️ | 📖 V4 | only via `extern`; no in-language pointer arithmetic |
+| `*T`, `*const T`, `*mut T` raw pointers | ⚠️ | 📖 V4 | via `extern` plus trust-me-gated deref/read/write/offset/cast operations; raw allocation/freeing still expand |
 
 #### §1.4 Types — Compound
 
@@ -288,7 +288,7 @@ V4 (partially implemented unless marked otherwise):
 | `Shared<T>` ref-counted | ⚠️ | 📖 V4 — TY/MIR recognize `Shared<T>`, `Shared<T>::new`, `.clone()`, and `.downgrade()` with receiver operands preserved as read-only call arguments; runtime counters/drop glue still expand |
 | `Weak<T>` non-owning observer | ⚠️ | 📖 V4 — TY/MIR recognize `Weak<T>` and `.upgrade()` with receiver operands preserved; direct `.borrow()` / `.borrow_mut()` / `.get_mut()` on `Weak<T>` now diagnose before Meiya trusts a view |
 | `.borrow()` / `.borrow_mut()` / `.get_mut()` | ⚠️ | 📖 V4 — Shared methods lower to `lend T`, `result<SharedMut<T>,BorrowError>`, and `maybe<lend mut T>`; escaping actual `SharedMut<T>` guards are rejected without rejecting `result<SharedMut<T>,BorrowError>` error paths, runtime guard state remains |
-| `trust me "reason" on my honor as .level { }` honor levels (cadet/pilot/ace/commander/humanity) | ⚠️ | 📖 V4 — MIR validates the known honor ladder, rejects unknown levels, permits raw-pointer reads at `.cadet+`, and requires `.pilot+` for raw-pointer writes; pointer arithmetic, inline asm, and the full higher-rank operation matrix still expand |
+| `trust me "reason" on my honor as .level { }` honor levels (cadet/pilot/ace/commander/humanity) | ⚠️ | 📖 V4 — MIR validates the known honor ladder, rejects unknown levels, permits raw-pointer reads at `.cadet+`, requires `.pilot+` for raw-pointer writes, and requires `.ace+` for pointer offset/cast; inline asm and the full higher-rank operation matrix still expand |
 | `direct_order [arch] { asm }` inline assembly | ❌ | 📖 V4 |
 
 ---
@@ -573,12 +573,13 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 - `*ptr` raw-pointer deref read: requires `*T`/`*mut T` operand, gated on being inside a trust-me block (bible §16.4), lowers to LLVM `load <pointee>, ptr %op`; diagnoses both wrong-type derefs and outside-trust-me derefs
 - `*ptr = value` raw-pointer deref write: requires `*mut T` operand (not `*T`/`*const T`), gated on being inside a trust-me block, lowers to LLVM `store <pointee> <value>, ptr <ptr>`; diagnoses non-pointer LHS, `*const`/`*` mutability mismatch, and outside-trust-me writes
 - raw-pointer `.read()` and `.write(value)` method forms: lower to the same LLVM `load`/`store` operations as `*ptr` / `*ptr = value`, preserve `.cadet+` read and `.pilot+` write honor gates, diagnose const-write and arity errors, and stay out of the normal LLVM call index
+- raw-pointer `.offset(n)` and `.cast<U>()` method forms: lower to LLVM `getelementptr`, preserve raw-pointer const/mut shape, require `.ace+` honor, diagnose outside-trust, low-honor, arity, missing target type, and non-integer offset cases, and disambiguate generic method calls before binary `<` / `>` lowering
 - fieldless `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` route/variant validation plus FFI-safe boundary acceptance
 
 **Still V4:**
 
 - runtime panic-catch inside the trampoline body
-- trust-me-gated raw pointer method forms for pointer arithmetic and casts (`.offset()`, `.cast<U>()`)
+- raw pointer allocation/freeing helpers beyond the existing method surface
 - `std::os` platform modules
 - error-code translation
 - deeper ABI/runtime guarantees
@@ -596,7 +597,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | Stack-unwinder import diagnostic | ⚠️ | 📖 V4 | V4 TY emits a warning when an extern block declares `setjmp`/`_setjmp`/`sigsetjmp`/`__sigsetjmp`, `longjmp`/`_longjmp`/`siglongjmp`, an Itanium `_Unwind_*` or `__cxa_*` primitive, or Windows `RaiseException` — matched by member name or `@link_name("...")` override; help text points users at C shims that translate to integer error codes; `@allow_unwinder` on the member or the enclosing extern block silences the warning for low-level code (kernels, JITs, coroutine engines) that genuinely needs the primitive |
 | Stack-unwinder call-site warning | ⚠️ | 📖 V4 | V4 MIR fires a second warning at every call site that invokes a known unwinder extern, sharing the same `@allow_unwinder` opt-out as the declaration warning; the call-site help text mentions both the C-shim fix and the opt-out attribute |
 | `@repr(u32)` discriminant size | ⚠️ | 📖 V4 | V4 now carries `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` through TY, rejects bad repr kinds, payload cases, and non-constant explicit discriminants, accepts valid fieldless repr routes/variants in FFI-safe type positions, and exposes discriminant text/value plus boundary diagnostics through the smoke/query/tooling lanes; codegen-level tagged-layout guarantees still expand |
-| Raw pointer ops (`*ptr`, `.read()`, `.write(value)`, `.offset()`, `.cast<U>()`, `.is_null()`) | ⚠️ | 📖 V4 | V4 lowers `.is_null()` to LLVM `icmp eq ptr %p, null` outside `trust me` (bible §16.4 explicitly permits null-checks anywhere), `*ptr` and `.read()` reads to LLVM `load <pointee>, ptr %op` gated on a surrounding `.cadet+` `trust me` block (`raw-pointer deref needs trust me block` diagnostic for derefs outside one), and `*ptr = value` / `.write(value)` writes to LLVM `store <pointee> <value>, ptr <ptr>` with `.pilot+` honor gating plus `raw-pointer write needs *mut T`, type-mismatch, and method-arity diagnostics; `.offset()`/`.cast<U>()`, allocation, and freeing are still 🔜 V4 |
+| Raw pointer ops (`*ptr`, `.read()`, `.write(value)`, `.offset()`, `.cast<U>()`, `.is_null()`) | ⚠️ | 📖 V4 | V4 lowers `.is_null()` to LLVM `icmp eq ptr %p, null` outside `trust me` (bible §16.4 explicitly permits null-checks anywhere), `*ptr` and `.read()` reads to LLVM `load <pointee>, ptr %op` gated on a surrounding `.cadet+` `trust me` block (`raw-pointer deref needs trust me block` diagnostic for derefs outside one), `*ptr = value` / `.write(value)` writes to LLVM `store <pointee> <value>, ptr <ptr>` with `.pilot+` honor gating plus `raw-pointer write needs *mut T`, type-mismatch, and method-arity diagnostics, and `.offset(n)` / `.cast<U>()` lower to LLVM `getelementptr` with `.ace+` honor gating plus arity, missing-target, and non-integer-offset diagnostics; allocation and freeing are still 🔜 V4 |
 | `std::os` platform modules | ❌ | 📖 V4 |
 | Error code → `result<T, OsError>` wrapping | ❌ | 📖 V4 |
 | errno/GetLastError preservation | ❌ | 📖 V4 |
@@ -678,7 +679,7 @@ K. **§17 Internals/IDE** — wholesale V4 tag.
 
 ### Out-of-scope (V4 work, surfaced for tracking)
 
-Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, `std::test`, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer ops, broader layout-stability enforcement, panic infrastructure, IDE-grade tolerant parser.
+Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, `std::test`, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer allocation/freeing, broader layout-stability enforcement, panic infrastructure, IDE-grade tolerant parser.
 
 ---
 
