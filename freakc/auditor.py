@@ -806,8 +806,10 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_mir_unary_ptr_cast",
             "raw-pointer offset needs trust me block",
             "raw-pointer cast needs trust me block",
-            "offset argument must be integer",
+            "offset argument must be int or uint",
             "cast needs a target type parameter",
+            "cast target type is invalid",
+            "v4_mir_generic_method_type_arg_open_for_close",
             "v4_mir_is_generic_instance_method_call_shape",
         ):
             if needle not in mir_src:

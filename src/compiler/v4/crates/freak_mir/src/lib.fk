@@ -1810,6 +1810,39 @@ task v4_mir_binary_candidate_has_left_operand(stream_id: int, start_token: int, 
     give back v4_mir_token_can_end_expr(stream_id, prev)
 }
 
+task v4_mir_generic_method_type_arg_open_for_close(stream_id: int, start_token: int, close_token: int, end_token: int) -> int {
+    pilot call_open = v4_mir_next_nontrivia(stream_id, close_token + 1, end_token)
+    if call_open >= end_token or v4_lex_token_value(stream_id, call_open) != "(" {
+        give back 0 - 1
+    }
+
+    pilot idx = close_token
+    pilot depth = 0
+    repeat until idx < start_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if val == ">" {
+                depth += 1
+            } else if val == "<" {
+                depth -= 1
+                if depth == 0 {
+                    pilot method_token = v4_mir_prev_nontrivia(stream_id, idx - 1, start_token)
+                    pilot dot_token = v4_mir_prev_nontrivia(stream_id, method_token - 1, start_token)
+                    if method_token >= start_token and dot_token >= start_token and v4_lex_token_value(stream_id, dot_token) == "." {
+                        pilot method_tok_type = v4_lex_token_type(stream_id, method_token)
+                        if method_tok_type == v4_tok_ident or method_tok_type == v4_tok_keyword {
+                            give back idx
+                        }
+                    }
+                    give back 0 - 1
+                }
+            }
+        }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
 task v4_mir_binary_tier_matches(op: word, tier: int) -> bool {
     if tier == 1 {
         give back op == "or"
@@ -1840,6 +1873,13 @@ task v4_mir_find_binary_op(stream_id: int, start_token: int, end_token: int, tie
             } else if val == "(" or val == "[" or val == "{" {
                 if depth > 0 {
                     depth -= 1
+                }
+            } else if depth == 0 and val == ">" {
+                pilot type_open = v4_mir_generic_method_type_arg_open_for_close(stream_id, start_token, idx, end_token)
+                if type_open >= start_token {
+                    idx = type_open
+                } else if v4_mir_binary_tier_matches(val, tier) and v4_mir_binary_candidate_has_left_operand(stream_id, start_token, idx) {
+                    give back idx
                 }
             } else if depth == 0 and v4_mir_binary_tier_matches(val, tier) and v4_mir_binary_candidate_has_left_operand(stream_id, start_token, idx) {
                 give back idx
@@ -3677,6 +3717,96 @@ task v4_mir_raw_pointer_method_type_arg_close(stream_id: int, type_open: int, op
     give back 0 - 1
 }
 
+task v4_mir_cast_target_starts_like_type(stream_id: int, target_start: int, type_close: int) -> bool {
+    if target_start < 0 or target_start >= type_close {
+        give back false
+    }
+    pilot token_type = v4_lex_token_type(stream_id, target_start)
+    if token_type == v4_tok_ident or token_type == v4_tok_keyword or token_type == v4_tok_lifetime {
+        give back true
+    }
+    pilot token_value = v4_lex_token_value(stream_id, target_start)
+    give back token_value == "*" or token_value == "(" or token_value == "["
+}
+
+task v4_mir_type_reference_is_declared(mir_id: int, sig_id: int, type_text: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back false
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
+    if canonical != "" and canonical != v4_ty_unknown {
+        type_text = canonical
+    }
+
+    if v4_ty_is_lifetime_name(type_text) {
+        give back false
+    }
+    if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text) {
+        give back true
+    }
+    if v4_ty_is_lend_type(type_text) {
+        give back v4_mir_type_reference_is_declared(mir_id, sig_id, v4_ty_lend_target_type(type_text))
+    }
+    if v4_ty_is_raw_pointer_type(type_text) {
+        give back v4_mir_type_reference_is_declared(mir_id, sig_id, v4_ty_raw_pointer_target_type(type_text))
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            if not v4_mir_type_reference_is_declared(mir_id, sig_id, v4_ty_tuple_slot_type(type_text, slot_id)) {
+                give back false
+            }
+            slot_id += 1
+        }
+        give back true
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_mir_type_reference_is_declared(mir_id, sig_id, v4_ty_fixed_array_element_type(type_text))
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot base_name = v4_ty_generic_base_name(type_text)
+        if not v4_mir_is_type_like_owner(ty_id, base_name) {
+            give back false
+        }
+        pilot arg_id = 0
+        pilot arg_count = v4_ty_generic_arg_count(type_text)
+        repeat until arg_id >= arg_count {
+            pilot arg_text = v4_ty_generic_arg(type_text, arg_id)
+            if v4_ty_is_lifetime_name(arg_text) {
+                if not v4_ty_generic_slot_accepts_lifetime(ty_id, base_name, arg_id) {
+                    give back false
+                }
+            } else if not v4_mir_type_reference_is_declared(mir_id, sig_id, arg_text) {
+                give back false
+            }
+            arg_id += 1
+        }
+        give back true
+    }
+    give back v4_mir_is_type_like_owner(ty_id, type_text)
+}
+
+task v4_mir_validate_raw_pointer_cast_target(mir_id: int, body_id: int, stream_id: int, target_start: int, type_close: int, target_pointee: word, expr_span: word) -> bool {
+    if not v4_mir_cast_target_starts_like_type(stream_id, target_start, type_close) {
+        v4_mir_add_type_error(mir_id, expr_span, "cast target type is invalid", ".cast<T>() needs a type name, raw pointer, tuple, fixed array, or generic instance between the angle brackets")
+        give back false
+    }
+
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot valid = true
+    if not v4_mir_type_reference_is_declared(mir_id, sig_id, target_pointee) {
+        v4_mir_add_type_error(mir_id, expr_span, "cast target type is invalid", target_pointee + " is not a declared value type Yuuko can track through a raw-pointer cast")
+        valid = false
+    }
+    if not v4_mir_validate_type_contract(mir_id, sig_id, expr_span, target_pointee, "cast target type is invalid", "raw-pointer cast target " + target_pointee) {
+        valid = false
+    }
+    give back valid
+}
+
 task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: int, stream_id: int, receiver_rvalue: int, receiver_ty: word, method_name: word, method_token: int, open_token: int, close_token: int, expr_span: word, expr_text: word) -> int {
     if v4_ty_is_raw_pointer_type(receiver_ty) == false {
         give back 0 - 1
@@ -3743,8 +3873,8 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
             pilot value_start = v4_mir_call_arg_value_start(stream_id, arg_start, arg_end)
             offset_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, value_start, arg_end, v4_ty_int)
             pilot offset_ty = v4_mir_rvalue_ty(mir_id, body_id, offset_rvalue)
-            if v4_ty_is_known(offset_ty) and v4_ty_is_integer(offset_ty) == false {
-                v4_mir_add_type_error(mir_id, expr_span, "offset argument must be integer", receiver_ty + ".offset(n) needs an integer element offset, got " + offset_ty)
+            if v4_ty_is_known(offset_ty) and offset_ty != v4_ty_int and offset_ty != v4_ty_uint {
+                v4_mir_add_type_error(mir_id, expr_span, "offset argument must be int or uint", receiver_ty + ".offset(n) lowers to an LLVM GEP index, so V4 currently accepts only int or uint offsets; got " + offset_ty)
             }
         }
 
@@ -3782,6 +3912,10 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
         pilot target_pointee = v4_mir_compact_type_text(v4_ty_type_text(stream_id, target_start, type_close))
         target_pointee = v4_ty_canonical_type(v4_mir_ty_id(mir_id), target_pointee)
         pilot result_ty = v4_ty_raw_pointer_with_target_type(receiver_ty, target_pointee)
+        pilot valid_cast_target = v4_mir_validate_raw_pointer_cast_target(mir_id, body_id, stream_id, target_start, type_close, target_pointee, expr_span)
+        if not valid_cast_target {
+            result_ty = v4_ty_unknown
+        }
         v4_mir_raw_pointer_method_arg_count_error(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, open_token, close_token, 0)
 
         if v4_mir_inside_trust_me() == false {
