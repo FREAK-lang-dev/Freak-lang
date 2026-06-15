@@ -18,6 +18,12 @@ task v4_raw_ptr_methods_good_source() -> word {
     src = src + "        p.write(value)\n"
     src = src + "    }\n"
     src = src + "}\n"
+    src = src + "task RawPtrWrite(value: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task collide() -> std::ffi::c_int {\n"
+    src = src + "    give back RawPtrWrite(41)\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -68,6 +74,8 @@ pilot v4_raw_ptr_methods_good_llvm = v4_codegen_llvm_lower_mir(0, v4_raw_ptr_met
 
 pilot v4_raw_ptr_methods_read_body = v4_codegen_llvm_find_body(v4_raw_ptr_methods_good_llvm, "read_method")
 pilot v4_raw_ptr_methods_write_body = v4_codegen_llvm_find_body(v4_raw_ptr_methods_good_llvm, "write_method")
+pilot v4_raw_ptr_methods_collide_body = v4_codegen_llvm_find_body(v4_raw_ptr_methods_good_llvm, "collide")
+pilot v4_raw_ptr_methods_collide_call = v4_codegen_llvm_find_call(v4_raw_ptr_methods_good_llvm, "collide", "RawPtrWrite")
 pilot v4_raw_ptr_methods_read_def = v4_resolve_def_for_name(v4_raw_ptr_methods_good_resolve, "read_method")
 pilot v4_raw_ptr_methods_write_def = v4_resolve_def_for_name(v4_raw_ptr_methods_good_resolve, "write_method")
 pilot v4_raw_ptr_methods_read_mir_body = v4_mir_lookup_body(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_read_def)
@@ -78,6 +86,8 @@ say "raw-ptr-method-good-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_r
 say "raw-ptr-method-good-call-count=" + word_from_int(v4_codegen_llvm_call_count(v4_raw_ptr_methods_good_llvm))
 say "raw-ptr-method-read-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_methods_good_llvm, v4_raw_ptr_methods_read_body)
 say "raw-ptr-method-write-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_methods_good_llvm, v4_raw_ptr_methods_write_body)
+say "raw-ptr-method-collide-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_methods_good_llvm, v4_raw_ptr_methods_collide_body)
+say "raw-ptr-method-collide-call-line=" + v4_codegen_llvm_call_line(v4_raw_ptr_methods_good_llvm, v4_raw_ptr_methods_collide_call)
 say "raw-ptr-method-read-rvalue-kind=" + v4_mir_rvalue_kind(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_read_mir_body, v4_mir_stmt_rvalue(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_read_mir_body, 1))
 say "raw-ptr-method-read-rvalue-op=" + v4_mir_rvalue_op(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_read_mir_body, v4_mir_stmt_rvalue(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_read_mir_body, 1))
 say "raw-ptr-method-write-rvalue-kind=" + v4_mir_rvalue_kind(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_write_mir_body, v4_mir_stmt_rvalue(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_write_mir_body, 1))
