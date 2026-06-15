@@ -778,6 +778,7 @@ def audit_conformance(paths: List[Path]) -> int:
     v4_trust_me_smoke = repo / "src" / "compiler" / "v4" / "tests" / "trust_me_block_smoke.fk"
     v4_deref_smoke = repo / "src" / "compiler" / "v4" / "tests" / "raw_pointer_deref_smoke.fk"
     v4_deref_write_smoke = repo / "src" / "compiler" / "v4" / "tests" / "raw_pointer_deref_write_smoke.fk"
+    v4_raw_methods_smoke = repo / "src" / "compiler" / "v4" / "tests" / "raw_pointer_methods_smoke.fk"
     v4_check_harness_tm = repo / "src" / "compiler" / "v4" / "check_v4.py"
     tm_missing: List[str] = []
     if v4_mir_lib_tm.exists():
@@ -797,6 +798,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_mir_place_deref",
             "raw-pointer write needs *mut T",
             "v4_mir_trust_honor_help",
+            "v4_mir_try_lower_builtin_raw_pointer_instance_method",
+            "v4_mir_call_raw_ptr_write",
+            "raw-pointer method arity mismatch",
         ):
             if needle not in mir_src:
                 tm_missing.append(f"freak_mir: {needle}")
@@ -814,6 +818,8 @@ def audit_conformance(paths: List[Path]) -> int:
             tm_missing.append("freak_codegen_llvm: deref load lowering")
         if "v4_mir_place_deref" not in cg_src:
             tm_missing.append("freak_codegen_llvm: deref store lowering")
+        if "v4_mir_call_raw_ptr_write" not in cg_src:
+            tm_missing.append("freak_codegen_llvm: raw pointer method write store lowering")
     else:
         tm_missing.append("freak_codegen_llvm/src/lib.fk missing")
     if not v4_trust_me_smoke.exists():
@@ -822,6 +828,8 @@ def audit_conformance(paths: List[Path]) -> int:
         tm_missing.append("smoke fixture: raw_pointer_deref_smoke.fk")
     if not v4_deref_write_smoke.exists():
         tm_missing.append("smoke fixture: raw_pointer_deref_write_smoke.fk")
+    if not v4_raw_methods_smoke.exists():
+        tm_missing.append("smoke fixture: raw_pointer_methods_smoke.fk")
     if v4_check_harness_tm.exists():
         harness_src = v4_check_harness_tm.read_text(encoding="utf-8")
         if "trust_me_block_smoke.fk" not in harness_src:
@@ -830,18 +838,24 @@ def audit_conformance(paths: List[Path]) -> int:
             tm_missing.append("EXECUTABLE_SMOKES: raw_pointer_deref_smoke entry")
         if "raw_pointer_deref_write_smoke.fk" not in harness_src:
             tm_missing.append("EXECUTABLE_SMOKES: raw_pointer_deref_write_smoke entry")
+        if "raw_pointer_methods_smoke.fk" not in harness_src:
+            tm_missing.append("EXECUTABLE_SMOKES: raw_pointer_methods_smoke entry")
         if "trust-me-honor-rank-humanity=5" not in harness_src:
             tm_missing.append("check_v4.py: trust-me honor rank expectations")
         if "trust-me-unknown-level-mir-diag0-message=trust me honor level unknown" not in harness_src:
             tm_missing.append("check_v4.py: unknown honor expectation")
         if "raw-ptr-write-cadet-mir-diag0-message=trust me honor level too low" not in harness_src:
             tm_missing.append("check_v4.py: low honor raw-pointer write expectation")
+        if "raw-ptr-method-write-rvalue-op=RawPtrWrite" not in harness_src:
+            tm_missing.append("check_v4.py: raw pointer method write expectation")
+        if "raw-ptr-method-good-call-count=2" not in harness_src:
+            tm_missing.append("check_v4.py: raw pointer method call index expectation")
     else:
         tm_missing.append("check_v4.py harness missing")
     add(
         "V4 trust me block",
         not tm_missing,
-        "parse + deref read/write gating + smokes wired" if not tm_missing else f"{len(tm_missing)} gap(s)",
+        "parse + deref/method read/write gating + smokes wired" if not tm_missing else f"{len(tm_missing)} gap(s)",
     )
     if tm_missing:
         failures.append("V4 trust me block parsing regressed: " + "; ".join(tm_missing))

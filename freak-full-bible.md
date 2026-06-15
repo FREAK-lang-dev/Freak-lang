@@ -59,7 +59,7 @@ Pipeline (full compiler):
 | §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`. V4: `freak vibe`, `freak test`, `--voice=…`, `--clearance=…`, `--build-mode=…`, `-o output_path`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
 | §15 Cheatsheet | ⚠️ Partial | Reflects §1-§14 status. |
-| §16 FFI | ⚠️ Partial | V4 has landed substantial section-16 work (extern ABI metadata, layout attributes, callback surface validation + `@extern_callback` task export with trampolines, stack-unwinder import diagnostics, raw-pointer `.is_null()`, trust-me-gated `*ptr` read/write, fieldless `@repr(...)` route/variant FFI safety, and more). Per-landing breakdown lives in [freak-conformance-audit.md §16](freak-conformance-audit.md#§16-system-boundaries-ffi). Still V4: runtime panic-catch in trampoline bodies, raw pointer method forms, `std::os` platform modules, error-code translation. |
+| §16 FFI | ⚠️ Partial | V4 has landed substantial section-16 work (extern ABI metadata, layout attributes, callback surface validation + `@extern_callback` task export with trampolines, stack-unwinder import diagnostics, raw-pointer `.is_null()`, trust-me-gated `*ptr`/`.read()` read and `*ptr = value`/`.write(value)` write, fieldless `@repr(...)` route/variant FFI safety, and more). Per-landing breakdown lives in [freak-conformance-audit.md §16](freak-conformance-audit.md#§16-system-boundaries-ffi). Still V4: runtime panic-catch in trampoline bodies, raw pointer `.offset()`/`.cast<U>()`, `std::os` platform modules, error-code translation. |
 | §17 Compiler Internals + IDE | 🔜 V4 | Panic infrastructure, tolerant parsing, AST node IDs, incremental parsing, autocomplete, IDE-mode error reporting are V4. V4 TY now diagnoses alias-cycle loops; the broader 00-Unit IDE/compiler-internals surface remains in progress. |
 
 ### 0.3 V4 roadmap and conformance
@@ -1006,8 +1006,9 @@ the rest is V4.
 > `Shared<T>` / `Weak<T>` method surface now lowers through TY/MIR/Meiya with
 > direct weak-borrow and escaping-guard diagnostics. `trust me ... on my honor
 > as .level` now validates `.cadet` / `.pilot` / `.ace` / `.commander` /
-> `.humanity`; raw-pointer reads require `.cadet` or higher and raw-pointer
-> writes require `.pilot` or higher. Full region inference, runtime
+> `.humanity`; raw-pointer reads, including `.read()`, require `.cadet` or
+> higher and raw-pointer writes, including `.write(value)`, require `.pilot`
+> or higher. Full region inference, runtime
 > ref-count/borrow-state guards, `Send`/`Sync`, pointer arithmetic,
 > `direct_order [arch] { asm }`, and the full higher-rank operation matrix
 > remain V4 work. This is first-pass non-lexical loan liveness,
@@ -2503,9 +2504,12 @@ only on TrueRoute from result { }
 > `stdcall`, `fastcall`, `thiscall`, `vectorcall`, `win64`, `sysv64`,
 > `system`), `link="…"` library binding, `@link_name`, `@layout(C)` /
 > `@layout(C, packed=N)` / `@layout(transparent)`, `@repr(uN)`,
-> raw-pointer ops (`*ptr`, `.read()`, `.offset()`, `.cast<U>()`,
-> `.is_null()`), `std::os` platform modules, error-code translation,
-> and panic-across-extern guarantees are V4 work.
+> raw-pointer ops (`*ptr`, `.read()`, `.write(value)`, `.offset()`,
+> `.cast<U>()`, `.is_null()`), `std::os` platform modules,
+> error-code translation, and panic-across-extern guarantees are V4 work.
+> The V4 compiler already lowers `.is_null()`, `*ptr`, `*ptr = value`,
+> `.read()`, and `.write(value)` through MIR/LLVM; pointer arithmetic,
+> casts, allocation, freeing, and the deeper panic/OS boundary remain open.
 >
 > **v0.13.x today:** a minimal `extern` form for direct C calls works
 > via the V3 compiler in `tests/extern_test.fk` and
@@ -2658,7 +2662,7 @@ Rules:
 
 - `*ptr` reads the pointee. It requires `ptr: *T` or `ptr: *mut T`.
 - `*ptr = value` writes the pointee. It requires `ptr: *mut T`.
-- `ptr.read()` and `ptr.write(value)` are method forms of the same operations.
+- `ptr.read()` and `ptr.write(value)` are method forms of the same operations and obey the same trust/honor gates.
 - `ptr.offset(n)` moves by `n * size_of<T>()` bytes and keeps type `*T` or `*mut T`.
 - `ptr.cast<U>()` changes pointer type without changing address.
 - `ptr.is_null()` checks for null. Dereferencing null is immediate undefined behavior.

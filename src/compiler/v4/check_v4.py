@@ -3081,6 +3081,28 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "raw pointer methods",
+        "fixture": "raw_pointer_methods_smoke.fk",
+        "expect": [
+            "raw-ptr-method-good-ty-diag-count=0",
+            "raw-ptr-method-good-mir-diag-count=0",
+            "raw-ptr-method-good-call-count=2",
+            "= load i64, ptr",
+            "store i64 %value, ptr %p",
+            "raw-ptr-method-read-rvalue-kind=Unary",
+            "raw-ptr-method-read-rvalue-op=Deref",
+            "raw-ptr-method-write-rvalue-kind=Call",
+            "raw-ptr-method-write-rvalue-op=RawPtrWrite",
+            "raw-ptr-method-bad-mir-diag-count=5",
+            "raw-ptr-method-bad-diag0-message=raw-pointer deref needs trust me block",
+            "raw-ptr-method-bad-diag1-message=trust me honor level too low",
+            "raw-ptr-method-bad-diag1-help=raw-pointer write requires .pilot or higher; current honor is .cadet",
+            "raw-ptr-method-bad-diag2-message=raw-pointer write needs *mut T",
+            "raw-ptr-method-bad-diag3-message=raw-pointer method arity mismatch",
+            "raw-ptr-method-bad-diag4-message=raw-pointer method arity mismatch",
+        ],
+    },
+    {
         "name": "extern allow_unwinder opt-out",
         "fixture": "extern_allow_unwinder_smoke.fk",
         "expect": [

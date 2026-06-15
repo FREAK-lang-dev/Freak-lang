@@ -867,6 +867,17 @@ task v4_codegen_llvm_binary_opcode(op: word, llvm_ty: word) -> word {
 
 task v4_codegen_llvm_call_instruction(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
     pilot call_name = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    if call_name == v4_mir_call_raw_ptr_write {
+        pilot ptr_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
+        pilot value_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 1)
+        if ptr_rvalue < 0 or value_rvalue < 0 {
+            give back ""
+        }
+        pilot pointee_ty = v4_codegen_llvm_type(v4_ty_raw_pointer_target_type(v4_mir_rvalue_ty(mir_id, body_id, ptr_rvalue)))
+        pilot value_text = v4_codegen_llvm_rvalue_value(mir_id, body_id, value_rvalue)
+        pilot ptr_text = v4_codegen_llvm_rvalue_value(mir_id, body_id, ptr_rvalue)
+        give back "store " + pointee_ty + " " + value_text + ", ptr " + ptr_text
+    }
     pilot call_abi = v4_mir_rvalue_abi(mir_id, body_id, rvalue_id)
     pilot call_cc = v4_codegen_llvm_calling_convention(call_abi)
     pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
@@ -1047,27 +1058,29 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
         repeat until rvalue_idx >= rvalue_count {
             if v4_mir_rvalue_kind(mir_id, body_idx, rvalue_idx) == v4_mir_rvalue_call {
                 pilot call_name = v4_mir_rvalue_op(mir_id, body_idx, rvalue_idx)
-                pilot call_abi = v4_mir_rvalue_abi(mir_id, body_idx, rvalue_idx)
-                pilot call_cc = v4_codegen_llvm_calling_convention(call_abi)
-                pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_idx, rvalue_idx))
-                pilot call_sig = v4_mir_signature_id_for_name(mir_id, call_name)
-                pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_idx, rvalue_idx)
-                pilot call_symbol_name = call_name
-                pilot call_link = ""
-                pilot call_symbol = ""
-                if target_rvalue >= 0 {
-                    call_symbol = v4_codegen_llvm_rvalue_value(mir_id, body_idx, target_rvalue)
-                } else {
-                    if call_sig >= 0 {
-                        call_symbol_name = v4_codegen_llvm_signature_symbol_name(v4_mir_ty_id(mir_id), call_sig)
-                        call_link = v4_codegen_llvm_signature_link_name(v4_mir_ty_id(mir_id), call_sig)
+                if call_name != v4_mir_call_raw_ptr_write {
+                    pilot call_abi = v4_mir_rvalue_abi(mir_id, body_idx, rvalue_idx)
+                    pilot call_cc = v4_codegen_llvm_calling_convention(call_abi)
+                    pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_idx, rvalue_idx))
+                    pilot call_sig = v4_mir_signature_id_for_name(mir_id, call_name)
+                    pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_idx, rvalue_idx)
+                    pilot call_symbol_name = call_name
+                    pilot call_link = ""
+                    pilot call_symbol = ""
+                    if target_rvalue >= 0 {
+                        call_symbol = v4_codegen_llvm_rvalue_value(mir_id, body_idx, target_rvalue)
+                    } else {
+                        if call_sig >= 0 {
+                            call_symbol_name = v4_codegen_llvm_signature_symbol_name(v4_mir_ty_id(mir_id), call_sig)
+                            call_link = v4_codegen_llvm_signature_link_name(v4_mir_ty_id(mir_id), call_sig)
+                        }
+                        call_symbol = v4_codegen_llvm_symbol(call_symbol_name)
                     }
-                    call_symbol = v4_codegen_llvm_symbol(call_symbol_name)
+                    pilot call_expr = v4_mir_rvalue_text(mir_id, body_idx, rvalue_idx)
+                    pilot call_args = v4_codegen_llvm_call_args(mir_id, body_idx, rvalue_idx)
+                    pilot call_line = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")" + v4_codegen_llvm_ffi_call_suffix(call_abi)
+                    v4_codegen_llvm_add_call(codegen_id, body_name, call_name, call_symbol, call_link, call_abi, call_cc, call_return, call_expr, call_line)
                 }
-                pilot call_expr = v4_mir_rvalue_text(mir_id, body_idx, rvalue_idx)
-                pilot call_args = v4_codegen_llvm_call_args(mir_id, body_idx, rvalue_idx)
-                pilot call_line = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")" + v4_codegen_llvm_ffi_call_suffix(call_abi)
-                v4_codegen_llvm_add_call(codegen_id, body_name, call_name, call_symbol, call_link, call_abi, call_cc, call_return, call_expr, call_line)
             }
             rvalue_idx += 1
         }
