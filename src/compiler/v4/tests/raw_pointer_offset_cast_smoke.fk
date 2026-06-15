@@ -37,6 +37,7 @@ task v4_raw_ptr_oc_good_source() -> word {
 task v4_raw_ptr_oc_bad_source() -> word {
     pilot src = "extern [C] {\n"
     src = src + "    task lookup() -> *const std::ffi::c_int\n"
+    src = src + "    task lookup_void() -> *const std::ffi::c_void\n"
     src = src + "}\n"
     src = src + "task small_offset() -> tiny {\n"
     src = src + "    give back 1t\n"
@@ -80,6 +81,12 @@ task v4_raw_ptr_oc_bad_source() -> word {
     src = src + "        give back p.cast<tiny>()\n"
     src = src + "    }\n"
     src = src + "}\n"
+    src = src + "task cast_gap() -> *const tiny {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"bad cast\" on my honor as .ace {\n"
+    src = src + "        give back p.cast<tiny>junk()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
     src = src + "task cast_missing_target() -> *const tiny {\n"
     src = src + "    pilot p = lookup()\n"
     src = src + "    trust me \"bad cast\" on my honor as .ace {\n"
@@ -96,6 +103,12 @@ task v4_raw_ptr_oc_bad_source() -> word {
     src = src + "    pilot p = lookup()\n"
     src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
     src = src + "        give back p.offset(small_offset())\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_void() -> *const std::ffi::c_void {\n"
+    src = src + "    pilot p = lookup_void()\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(1)\n"
     src = src + "    }\n"
     src = src + "}\n"
     give back src
@@ -151,3 +164,5 @@ say "raw-ptr-oc-bad-diag6-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_
 say "raw-ptr-oc-bad-diag7-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 7))
 say "raw-ptr-oc-bad-diag8-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 8))
 say "raw-ptr-oc-bad-diag9-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 9))
+say "raw-ptr-oc-bad-diag10-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 10))
+say "raw-ptr-oc-bad-diag11-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 11))

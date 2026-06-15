@@ -807,8 +807,11 @@ def audit_conformance(paths: List[Path]) -> int:
             "raw-pointer offset needs trust me block",
             "raw-pointer cast needs trust me block",
             "offset argument must be int or uint",
+            "offset target type must not be void",
             "cast needs a target type parameter",
             "cast target type is invalid",
+            "cast target syntax is invalid",
+            "method takes no type arguments",
             "v4_mir_generic_method_type_arg_open_for_close",
             "v4_mir_is_generic_instance_method_call_shape",
         ):

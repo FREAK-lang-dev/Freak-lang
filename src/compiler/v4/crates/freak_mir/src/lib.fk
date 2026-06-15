@@ -3689,12 +3689,16 @@ task v4_mir_raw_pointer_method_arg_count_error(mir_id: int, body_id: int, stream
     v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, close_token)
 }
 
-task v4_mir_raw_pointer_method_type_arg_open(stream_id: int, method_token: int, open_token: int) -> int {
+task v4_mir_method_type_arg_open(stream_id: int, method_token: int, open_token: int) -> int {
     pilot next_token = v4_mir_skip_trivia(stream_id, method_token + 1)
     if next_token < open_token and v4_lex_token_value(stream_id, next_token) == "<" {
         give back next_token
     }
     give back 0 - 1
+}
+
+task v4_mir_raw_pointer_method_type_arg_open(stream_id: int, method_token: int, open_token: int) -> int {
+    give back v4_mir_method_type_arg_open(stream_id, method_token, open_token)
 }
 
 task v4_mir_raw_pointer_method_type_arg_close(stream_id: int, type_open: int, open_token: int) -> int {
@@ -3715,6 +3719,21 @@ task v4_mir_raw_pointer_method_type_arg_close(stream_id: int, type_open: int, op
         idx += 1
     }
     give back 0 - 1
+}
+
+task v4_mir_reject_method_type_args(mir_id: int, stream_id: int, expr_span: word, owner_ty: word, method_name: word, call_glyph: word, method_token: int, open_token: int) -> bool {
+    pilot type_open = v4_mir_method_type_arg_open(stream_id, method_token, open_token)
+    if type_open < 0 {
+        give back false
+    }
+
+    pilot type_text = "..."
+    pilot type_close = v4_mir_raw_pointer_method_type_arg_close(stream_id, type_open, open_token)
+    if type_close > type_open {
+        type_text = v4_mir_compact_type_text(v4_ty_type_text(stream_id, type_open + 1, type_close))
+    }
+    v4_mir_add_type_error(mir_id, expr_span, "method takes no type arguments", owner_ty + call_glyph + method_name + " is not a generic method; remove <" + type_text + "> before the call parentheses")
+    give back true
 }
 
 task v4_mir_cast_target_starts_like_type(stream_id: int, target_start: int, type_close: int) -> bool {
@@ -3813,17 +3832,20 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
     }
 
     if method_name == "is_null" {
+        v4_mir_reject_method_type_args(mir_id, stream_id, expr_span, receiver_ty, method_name, ".", method_token, open_token)
         v4_mir_raw_pointer_method_arg_count_error(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, open_token, close_token, 0)
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_is_null, receiver_rvalue, 0 - 1, expr_span, v4_ty_bool)
     }
 
     if method_name == "read" {
+        v4_mir_reject_method_type_args(mir_id, stream_id, expr_span, receiver_ty, method_name, ".", method_token, open_token)
         v4_mir_raw_pointer_method_arg_count_error(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, open_token, close_token, 0)
         v4_mir_check_unary_type(mir_id, expr_span, v4_mir_unary_deref, receiver_ty)
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_deref, receiver_rvalue, 0 - 1, expr_span, v4_ty_raw_pointer_target_type(receiver_ty))
     }
 
     if method_name == "write" {
+        v4_mir_reject_method_type_args(mir_id, stream_id, expr_span, receiver_ty, method_name, ".", method_token, open_token)
         pilot actual_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
         if actual_count != 1 {
             v4_mir_raw_pointer_method_arg_count_error(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, open_token, close_token, 1)
@@ -3860,6 +3882,10 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
         pilot type_open = v4_mir_raw_pointer_method_type_arg_open(stream_id, method_token, open_token)
         if type_open >= 0 {
             v4_mir_add_type_error(mir_id, expr_span, "offset takes no type arguments", receiver_ty + ".offset(n) moves by element count; pass the offset as the only value argument")
+        }
+        pilot offset_target_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_raw_pointer_target_type(receiver_ty))
+        if offset_target_ty == v4_ty_void {
+            v4_mir_add_type_error(mir_id, expr_span, "offset target type must not be void", receiver_ty + ".offset(n) needs a sized pointee; cast to *const tiny or *mut tiny first for byte-wise FFI pointer arithmetic")
         }
 
         pilot actual_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
@@ -3898,6 +3924,12 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
         pilot type_close = v4_mir_raw_pointer_method_type_arg_close(stream_id, type_open, open_token)
         if type_close < 0 {
             v4_mir_add_type_error(mir_id, expr_span, "cast needs a target type parameter", "close the cast target with '>' before the call parentheses")
+            v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, close_token)
+            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_cast, receiver_rvalue, 0 - 1, expr_span, v4_ty_unknown)
+        }
+        pilot after_type_close = v4_mir_skip_trivia(stream_id, type_close + 1)
+        if after_type_close != open_token {
+            v4_mir_add_type_error(mir_id, expr_span, "cast target syntax is invalid", "call .cast<T>() directly after the target type; remove tokens between '>' and '('")
             v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, close_token)
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, v4_mir_unary_ptr_cast, receiver_rvalue, 0 - 1, expr_span, v4_ty_unknown)
         }
@@ -3958,6 +3990,7 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     if raw_pointer_builtin >= 0 {
         give back raw_pointer_builtin
     }
+    v4_mir_reject_method_type_args(mir_id, stream_id, expr_span, receiver_ty, method_name, ".", method_token, open_token)
     pilot shared_builtin = v4_mir_try_lower_builtin_shared_instance_method(mir_id, body_id, stream_id, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
     if shared_builtin >= 0 {
         give back shared_builtin
@@ -4039,6 +4072,7 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
     }
     pilot method_name = v4_lex_token_value(stream_id, method_token)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    v4_mir_reject_method_type_args(mir_id, stream_id, expr_span, owner_ty, method_name, "::", method_token, open_token)
     pilot shared_builtin = v4_mir_try_lower_builtin_shared_associated_method(mir_id, body_id, stream_id, lookup_owner_ty, method_name, open_token, last, expr_span, expr_text)
     if shared_builtin >= 0 {
         give back shared_builtin
