@@ -47,8 +47,9 @@ Current implementation checkpoint:
 - Goal F browser progress is staged in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/learn` stores completed lesson IDs in browser local storage under the Academy package ID, shows completion counts and per-lesson completion badges, and keeps learner state separate from exported lesson content.
 - Goal F/D browser guidance is staged in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/learn` renders a lesson path from exported `sections` and an exercise contract from exported `requirements`, so the website can guide learners without duplicating lesson content or grading semantics.
 - Goal D/F reference export is staged: this repository now owns `learning/reference/freak-academy-reference.json`, validates it against `schemas/academy-reference.schema.json`, exports it through `freak learn web-assets` as `freak-academy-reference.json`, and `freaklang.dev` consumes it on `/learn` as lesson-linked reference material.
+- Goal F dedicated reference route is staged in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/reference` loads the exported `freak-academy-reference.json`, renders the full V3-first reference index/detail view, is linked from nav/footer and `/learn`, and remains a website connector rather than a content source.
 
-The next active goal should continue Goal D/F by promoting the exported reference artifact into a dedicated `/reference` website route or by adding the first Book skeleton artifact beside it, while keeping all reference/book source data in this repository until the Academy repo split.
+The next active goal should continue Goal D/F by adding the first Book skeleton artifact beside the reference export, then exposing it through generated Academy assets and a dedicated website connector route.
 
 ---
 
