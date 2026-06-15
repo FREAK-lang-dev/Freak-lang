@@ -50,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Academy browser assets exported to {output_dir}")
     print(f"  package: {manifest['packagePath']}")
+    print(f"  book:    {manifest['bookPath']}")
     print(f"  reference: {manifest['referencePath']}")
     print(f"  worker:  {manifest['workerPath']} ({manifest['artifactStatus']})")
     if "wasmEvaluatorPath" in manifest:

@@ -18,6 +18,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_DIR = ROOT / "schemas"
 COURSES_DIR = ROOT / "learning" / "courses"
+BOOK_PATH = ROOT / "learning" / "book" / "freak-academy-book.json"
 REFERENCE_PATH = ROOT / "learning" / "reference" / "freak-academy-reference.json"
 
 ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -85,6 +86,7 @@ def expect_string(value: Any, path: Path, field: str) -> None:
 def validate_schema_files() -> None:
     required = [
         "academy-browser-assets.schema.json",
+        "academy-book.schema.json",
         "academy-package.schema.json",
         "academy-reference.schema.json",
         "academy-wasm-evaluator.schema.json",
@@ -243,7 +245,7 @@ def collect_lesson_index() -> tuple[set[str], set[str]]:
     return lesson_ids, concept_ids
 
 
-def validate_reference(lesson_ids: set[str], concept_ids: set[str]) -> int:
+def validate_reference(lesson_ids: set[str], concept_ids: set[str]) -> tuple[int, set[str]]:
     expect(REFERENCE_PATH.exists(), REFERENCE_PATH, "reference artifact is missing")
     reference = load_json(REFERENCE_PATH)
     expect(reference.get("schemaVersion") == 1, REFERENCE_PATH, "`schemaVersion` must be 1")
@@ -268,7 +270,7 @@ def validate_reference(lesson_ids: set[str], concept_ids: set[str]) -> int:
 
     missing_concepts = sorted(concept_ids - covered_concepts)
     expect(not missing_concepts, REFERENCE_PATH, f"reference missing lesson concepts: {', '.join(missing_concepts)}")
-    return len(entries)
+    return len(entries), entry_ids
 
 
 def validate_reference_entry(
@@ -321,19 +323,106 @@ def validate_reference_entry(
         expect(isinstance(example.get("expectedOutput"), str), REFERENCE_PATH, "entries[].examples[].expectedOutput")
 
 
+def validate_book(lesson_ids: set[str], concept_ids: set[str], reference_ids: set[str]) -> int:
+    expect(BOOK_PATH.exists(), BOOK_PATH, "book artifact is missing")
+    book = load_json(BOOK_PATH)
+    expect(book.get("schemaVersion") == 1, BOOK_PATH, "`schemaVersion` must be 1")
+    expect(book.get("packageId") == "freak-academy-v3-mvp", BOOK_PATH, "`packageId` is invalid")
+    expect_version(book.get("languageVersion"), BOOK_PATH, "languageVersion")
+    expect(book.get("compilerTrack") in {"v3", "v4"}, BOOK_PATH, "`compilerTrack` must be `v3` or `v4`")
+    expect(book.get("repositoryPhase") in {"main-repo", "split-ready", "dedicated-repo"}, BOOK_PATH, "`repositoryPhase` is invalid")
+    expect(book.get("websiteConnector") == "freaklang.dev", BOOK_PATH, "`websiteConnector` must be freaklang.dev")
+    expect_string(book.get("title"), BOOK_PATH, "title")
+    expect_string(book.get("description"), BOOK_PATH, "description")
+
+    parts = book.get("parts")
+    expect(isinstance(parts, list) and parts, BOOK_PATH, "`parts` must be a non-empty list")
+    part_ids: set[str] = set()
+    chapter_ids: set[str] = set()
+    chapter_slugs: set[str] = set()
+    chapter_count = 0
+    for part in parts:
+        expect(isinstance(part, dict), BOOK_PATH, "each part must be an object")
+        expect_id(part.get("id"), BOOK_PATH, "parts[].id")
+        expect(part["id"] not in part_ids, BOOK_PATH, f"duplicate part id `{part['id']}`")
+        part_ids.add(part["id"])
+        expect_string(part.get("title"), BOOK_PATH, "parts[].title")
+        expect_string(part.get("summary"), BOOK_PATH, "parts[].summary")
+        chapters = part.get("chapters")
+        expect(isinstance(chapters, list) and chapters, BOOK_PATH, f"part `{part['id']}` needs chapters")
+        for chapter in chapters:
+            validate_book_chapter(chapter, chapter_ids, chapter_slugs, lesson_ids, concept_ids, reference_ids)
+            chapter_count += 1
+
+    return chapter_count
+
+
+def validate_book_chapter(
+    chapter: Any,
+    chapter_ids: set[str],
+    chapter_slugs: set[str],
+    lesson_ids: set[str],
+    concept_ids: set[str],
+    reference_ids: set[str],
+) -> None:
+    expect(isinstance(chapter, dict), BOOK_PATH, "each book chapter must be an object")
+    expect_id(chapter.get("id"), BOOK_PATH, "chapters[].id")
+    expect(chapter["id"] not in chapter_ids, BOOK_PATH, f"duplicate chapter id `{chapter['id']}`")
+    chapter_ids.add(chapter["id"])
+    expect_string(chapter.get("title"), BOOK_PATH, "chapters[].title")
+    expect_string(chapter.get("slug"), BOOK_PATH, "chapters[].slug")
+    expect(chapter["slug"] not in chapter_slugs, BOOK_PATH, f"duplicate chapter slug `{chapter['slug']}`")
+    chapter_slugs.add(chapter["slug"])
+    expect(chapter.get("status") in {"v3-mvp", "v4-placeholder", "stable"}, BOOK_PATH, f"invalid chapter status `{chapter.get('status')}`")
+    expect_version(chapter.get("since"), BOOK_PATH, "chapters[].since")
+    expect_string(chapter.get("summary"), BOOK_PATH, "chapters[].summary")
+
+    for field, known_ids in (
+        ("conceptIds", concept_ids),
+        ("lessonIds", lesson_ids),
+        ("referenceIds", reference_ids),
+    ):
+        values = chapter.get(field)
+        expect(isinstance(values, list) and values, BOOK_PATH, f"chapter `{chapter['id']}` needs {field}")
+        expect(len(values) == len(set(values)), BOOK_PATH, f"chapter `{chapter['id']}` has duplicate {field}")
+        for value in values:
+            expect_id(value, BOOK_PATH, f"chapters[].{field}[]")
+            expect(value in known_ids, BOOK_PATH, f"chapter `{chapter['id']}` points to unknown {field} `{value}`")
+
+    sections = chapter.get("sections")
+    expect(isinstance(sections, list) and sections, BOOK_PATH, f"chapter `{chapter['id']}` needs sections")
+    section_ids: set[str] = set()
+    for section in sections:
+        expect(isinstance(section, dict), BOOK_PATH, "each book section must be an object")
+        expect_id(section.get("id"), BOOK_PATH, "chapters[].sections[].id")
+        expect(section["id"] not in section_ids, BOOK_PATH, f"chapter `{chapter['id']}` has duplicate section id `{section['id']}`")
+        section_ids.add(section["id"])
+        expect_string(section.get("title"), BOOK_PATH, "chapters[].sections[].title")
+        expect_string(section.get("body"), BOOK_PATH, "chapters[].sections[].body")
+        examples = section.get("examples", [])
+        expect(isinstance(examples, list), BOOK_PATH, "chapters[].sections[].examples must be a list")
+        for example in examples:
+            expect(isinstance(example, dict), BOOK_PATH, "each book example must be an object")
+            expect_string(example.get("title"), BOOK_PATH, "chapters[].sections[].examples[].title")
+            validate_freak_snippet(example.get("source"), BOOK_PATH, f"chapter `{chapter['id']}` example source")
+            expect(isinstance(example.get("expectedOutput"), str), BOOK_PATH, "chapters[].sections[].examples[].expectedOutput")
+
+
 def main() -> int:
     try:
         validate_schema_files()
         course_count, lesson_count = validate_courses()
         lesson_ids, concept_ids = collect_lesson_index()
-        reference_count = validate_reference(lesson_ids, concept_ids)
+        reference_count, reference_ids = validate_reference(lesson_ids, concept_ids)
+        chapter_count = validate_book(lesson_ids, concept_ids, reference_ids)
     except ValidationError as exc:
         print(f"Academy validation failed: {exc}", file=sys.stderr)
         return 1
 
     print(
         f"Academy validation passed: {course_count} course(s), "
-        f"{lesson_count} lesson(s), {reference_count} reference entry(s)."
+        f"{lesson_count} lesson(s), {reference_count} reference entry(s), "
+        f"{chapter_count} book chapter(s)."
     )
     return 0
 

@@ -1215,6 +1215,8 @@ def cmd_learn(argv: list[str]) -> int:
             )
             print(f"Academy browser assets exported to {target}")
             print(f"  package: {manifest['packagePath']}")
+            print(f"  book: {manifest['bookPath']}")
+            print(f"  reference: {manifest['referencePath']}")
             print(f"  worker: {manifest['workerPath']} ({manifest['artifactStatus']})")
             if "wasmEvaluatorPath" in manifest:
                 print(f"  wasm: {manifest['wasmEvaluatorPath']} ({manifest['wasmStatus']})")

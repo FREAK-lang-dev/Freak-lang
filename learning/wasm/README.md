@@ -31,15 +31,17 @@ python -m freakc learn web-assets dist/academy
 This writes:
 
 - `freak-academy-package.json`
+- `freak-academy-book.json`
 - `freak-academy-reference.json`
 - `academy-worker.mjs`
 - `academy-assets-manifest.json`
 
 The manifest identifies the current worker as `browser-safe-js-reference` and
 keeps `wasmStatus` at `pending-v4-compiler-owned-artifact` by default. It also
-advertises `referencePath` so `freaklang.dev` can render lesson-linked reference
-material without owning that content. To bundle the preview evaluator for the
-first six basics lessons, build the same browser asset set with:
+advertises `bookPath` and `referencePath` so `freaklang.dev` can render
+lesson-linked Book and reference material without owning that content. To bundle
+the preview evaluator for the first six basics lessons, build the same browser
+asset set with:
 
 ```bash
 python tools/academy/build_browser_assets.py dist/academy --with-wasm-evaluator

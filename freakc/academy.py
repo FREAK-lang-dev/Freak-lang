@@ -27,6 +27,7 @@ ACADEMY_REPOSITORY_PHASE = "main-repo"
 ACADEMY_WEBSITE_CONNECTOR = "freaklang.dev"
 ACADEMY_WORKER_PROTOCOL_VERSION = 1
 ACADEMY_REFERENCE_NAME = "freak-academy-reference.json"
+ACADEMY_BOOK_NAME = "freak-academy-book.json"
 
 
 def repository_root() -> Path:
@@ -39,6 +40,10 @@ def courses_root(root: Path | None = None) -> Path:
 
 def reference_path(root: Path | None = None) -> Path:
     return (root or repository_root()) / "learning" / "reference" / ACADEMY_REFERENCE_NAME
+
+
+def book_path(root: Path | None = None) -> Path:
+    return (root or repository_root()) / "learning" / "book" / ACADEMY_BOOK_NAME
 
 
 def progress_path() -> Path:
@@ -166,6 +171,16 @@ def export_academy_reference(destination: Path, root: Path | None = None) -> Non
     destination.write_text(json.dumps(reference, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def build_academy_book(root: Path | None = None) -> dict[str, Any]:
+    return _load_json(book_path(root))
+
+
+def export_academy_book(destination: Path, root: Path | None = None) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    book = build_academy_book(root=root)
+    destination.write_text(json.dumps(book, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def academy_worker_path(root: Path | None = None) -> Path:
     return (root or repository_root()) / "learning" / "wasm" / "academy-worker.mjs"
 
@@ -201,6 +216,7 @@ def build_browser_assets(
     destination.mkdir(parents=True, exist_ok=True)
 
     package_path = destination / "freak-academy-package.json"
+    book_output_path = destination / ACADEMY_BOOK_NAME
     reference_output_path = destination / ACADEMY_REFERENCE_NAME
     worker_source = academy_worker_path(package_root)
     worker_path = destination / "academy-worker.mjs"
@@ -210,11 +226,13 @@ def build_browser_assets(
         raise AcademyError(f"Academy browser worker not found: {worker_source}")
 
     export_academy_package(package_path, root=package_root)
+    export_academy_book(book_output_path, root=package_root)
     export_academy_reference(reference_output_path, root=package_root)
     shutil.copyfile(worker_source, worker_path)
 
     assets = [
         _asset_record(package_path, "academy-package", "json"),
+        _asset_record(book_output_path, "academy-book", "json"),
         _asset_record(reference_output_path, "academy-reference", "json"),
         _asset_record(worker_path, "worker-entrypoint", "browser-safe-js-reference"),
     ]
@@ -237,6 +255,7 @@ def build_browser_assets(
         "artifactStatus": "wasm-preview" if include_wasm_evaluator else "browser-safe-js-reference",
         "wasmStatus": "preview" if include_wasm_evaluator else "pending-v4-compiler-owned-artifact",
         "packagePath": package_path.name,
+        "bookPath": book_output_path.name,
         "referencePath": reference_output_path.name,
         "workerPath": worker_path.name,
         "assets": assets,

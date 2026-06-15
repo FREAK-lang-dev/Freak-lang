@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "packageId": "freak-academy-v3-mvp",
+  "languageVersion": "0.13.3",
+  "compilerTrack": "v3",
+  "repositoryPhase": "main-repo",
+  "websiteConnector": "freaklang.dev",
+  "title": "The Freak Book",
+  "description": "A V3-first Book skeleton for the FREAK Academy connector. It introduces implemented basics only and cross-links each chapter to lessons and reference entries owned by this repository.",
+  "parts": [
+    {
+      "id": "getting-started",
+      "title": "Part I: Getting Started",
+      "summary": "The first path through FREAK: files, output, and the smallest useful program.",
+      "chapters": [
+        {
+          "id": "hello-freak",
+          "title": "Hello, FREAK",
+          "slug": "getting-started/hello-freak",
+          "status": "v3-mvp",
+          "since": "0.13.3",
+          "summary": "Start with a `.fk` file and the `say` statement, then connect the terminal lesson to the browser Academy flow.",
+          "conceptIds": ["program-output", "say-statement", "word-literal"],
+          "lessonIds": ["hello-freak"],
+          "referenceIds": ["program-output", "word-literal"],
+          "sections": [
+            {
+              "id": "smallest-program",
+              "title": "The smallest useful program",
+              "body": "A FREAK program can start as a single statement. The first Academy release uses the V3 compiler path, so this chapter teaches only syntax that the current terminal and browser workers can evaluate.",
+              "examples": [
+                {
+                  "title": "Print a line",
+                  "source": "say \"Hello, FREAK Academy!\"\n",
+                  "expectedOutput": "Hello, FREAK Academy!\n"
+                }
+              ]
+            },
+            {
+              "id": "what-say-does",
+              "title": "What `say` does",
+              "body": "`say` evaluates one expression and writes the rendered value followed by a newline. In the current Academy subset, exact output is the simplest reliable check shared by terminal and browser exercises."
+            }
+          ]
+        },
+        {
+          "id": "words-and-output",
+          "title": "Words and Output",
+          "slug": "getting-started/words-and-output",
+          "status": "v3-mvp",
+          "since": "0.13.3",
+          "summary": "Use double-quoted `word` literals as the first visible values in a program.",
+          "conceptIds": ["word-literal", "program-output"],
+          "lessonIds": ["hello-freak", "primitive-types"],
+          "referenceIds": ["word-literal", "program-output"],
+          "sections": [
+            {
+              "id": "word-values",
+              "title": "Word values",
+              "body": "A `word` literal is text between double quotes. Printing words first keeps the beginner path focused on observable behavior before introducing declarations and types.",
+              "examples": [
+                {
+                  "title": "Print text",
+                  "source": "say \"ready\"\n",
+                  "expectedOutput": "ready\n"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "core-language",
+      "title": "Part II: Core Language",
+      "summary": "The implemented V3 Academy subset: values, expressions, control flow, loops, and tasks.",
+      "chapters": [
+        {
+          "id": "variables-and-types",
+          "title": "Variables and Types",
+          "slug": "core-language/variables-and-types",
+          "status": "v3-mvp",
+          "since": "0.13.3",
+          "summary": "`pilot` gives a value a local name. Type annotations make intent explicit when a lesson needs that clarity.",
+          "conceptIds": ["variable-declaration", "int-literal", "type-annotation", "word-literal"],
+          "lessonIds": ["variables", "primitive-types"],
+          "referenceIds": ["variable-declaration", "primitive-types", "word-literal"],
+          "sections": [
+            {
+              "id": "declare-a-value",
+              "title": "Declare a value",
+              "body": "Use `pilot` for a local binding. The initializer runs once, and later expressions can use the name.",
+              "examples": [
+                {
+                  "title": "Bind and print an integer",
+                  "source": "pilot score: int = 7\nsay score\n",
+                  "expectedOutput": "7\n"
+                }
+              ]
+            },
+            {
+              "id": "starter-types",
+              "title": "Starter types",
+              "body": "The first Academy pass uses `int` and `word` because they are enough to explain declarations, output, arithmetic, and basic control flow without reaching into V4-only language services."
+            }
+          ]
+        },
+        {
+          "id": "expressions-and-control-flow",
+          "title": "Expressions and Control Flow",
+          "slug": "core-language/expressions-and-control-flow",
+          "status": "v3-mvp",
+          "since": "0.13.3",
+          "summary": "Combine values with operators, branch with `if` and `else`, and repeat a block with the counted loop form.",
+          "conceptIds": ["binary-operator", "multiplication", "expression", "if-expression", "comparison", "else-branch", "repeat-loop", "counted-loop", "block"],
+          "lessonIds": ["arithmetic", "conditions", "loops"],
+          "referenceIds": ["expressions-and-operators", "conditionals", "repeat-loops"],
+          "sections": [
+            {
+              "id": "combine-values",
+              "title": "Combine values",
+              "body": "Expressions produce values. Operators such as `+` and `*` make new values from smaller expressions.",
+              "examples": [
+                {
+                  "title": "Calculate before printing",
+                  "source": "pilot width = 8\npilot height = 4\nsay width * height\n",
+                  "expectedOutput": "32\n"
+                }
+              ]
+            },
+            {
+              "id": "choose-and-repeat",
+              "title": "Choose and repeat",
+              "body": "The current Academy lessons keep control flow direct: use a boolean comparison for `if`, provide an `else` branch, and use `repeat N times` when the number of iterations is known."
+            }
+          ]
+        },
+        {
+          "id": "tasks",
+          "title": "Tasks",
+          "slug": "core-language/tasks",
+          "status": "v3-mvp",
+          "since": "0.13.3",
+          "summary": "A `task` names a reusable unit of work with parameters and a return value.",
+          "conceptIds": ["task-declaration", "parameter", "return-value"],
+          "lessonIds": ["functions"],
+          "referenceIds": ["task-declarations"],
+          "sections": [
+            {
+              "id": "name-work",
+              "title": "Name work",
+              "body": "Tasks make repeated logic explicit. In the V3 Academy subset, a task can take typed parameters, return a value, and be called from a later expression.",
+              "examples": [
+                {
+                  "title": "Double an integer",
+                  "source": "task double(x: int) -> int {\n    give back x * 2\n}\n\nsay double(6)\n",
+                  "expectedOutput": "12\n"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
