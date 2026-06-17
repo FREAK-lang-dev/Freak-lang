@@ -15,6 +15,13 @@ Validate the Academy contracts with:
 python tools/academy/validate_academy.py
 ```
 
+Run the compiler-backed Academy example checks with:
+
+```bash
+python tools/academy/check_academy_examples.py
+python -m freakc learn check-examples
+```
+
 Try the terminal learner with the native CLI:
 
 ```bash

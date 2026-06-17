@@ -29,6 +29,7 @@ from freakc.academy import (
     mark_lesson_complete,
     reset_progress,
 )
+from tools.academy.check_academy_examples import iter_academy_examples
 
 
 def test_seed_course_loads():
@@ -67,6 +68,7 @@ def test_course_listing_mentions_seed_lesson():
     assert "functions" in listing
     assert "freak learn check <lesson-id> <file.fk>" in listing
     assert "freak learn web-assets <dir>" in listing
+    assert "freak learn check-examples" in listing
     assert "freak learn worker-parity" in listing
     assert "freak learn wasm-evaluator [dir]" in listing
     assert "Bootstrap fallback: python -m freakc learn <cmd>" in listing
@@ -262,23 +264,33 @@ def test_learn_web_assets_cli_exports_browser_manifest():
             code = main(["learn", "web-assets", str(assets_dir)])
 
         package_path = assets_dir / "freak-academy-package.json"
+        book_path = assets_dir / "freak-academy-book.json"
+        reference_path = assets_dir / "freak-academy-reference.json"
         worker_path = assets_dir / "academy-worker.mjs"
         manifest_path = assets_dir / "academy-assets-manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         assert code == 0
         assert "Academy browser assets exported" in out.getvalue()
+        assert "book: freak-academy-book.json" in out.getvalue()
+        assert "reference: freak-academy-reference.json" in out.getvalue()
         assert package_path.exists()
+        assert book_path.exists()
+        assert reference_path.exists()
         assert worker_path.exists()
         assert manifest["artifactStatus"] == "browser-safe-js-reference"
         assert manifest["wasmStatus"] == "pending-v4-compiler-owned-artifact"
         assert manifest["packagePath"] == "freak-academy-package.json"
+        assert manifest["bookPath"] == "freak-academy-book.json"
+        assert manifest["referencePath"] == "freak-academy-reference.json"
         assert manifest["workerPath"] == "academy-worker.mjs"
         assert "wasmEvaluatorPath" not in manifest
         assert not (assets_dir / "academy-wasm-evaluator.wasm").exists()
 
         assets = {item["role"]: item for item in manifest["assets"]}
         assert assets["academy-package"]["sha256"] == sha256_file(package_path)
+        assert assets["academy-book"]["sha256"] == sha256_file(book_path)
+        assert assets["academy-reference"]["sha256"] == sha256_file(reference_path)
         assert assets["worker-entrypoint"]["sha256"] == sha256_file(worker_path)
 
 
@@ -293,6 +305,8 @@ def test_learn_web_assets_cli_can_include_wasm_evaluator():
             code = main(["learn", "web-assets", str(assets_dir), "--with-wasm-evaluator"])
 
         package_path = assets_dir / "freak-academy-package.json"
+        book_path = assets_dir / "freak-academy-book.json"
+        reference_path = assets_dir / "freak-academy-reference.json"
         worker_path = assets_dir / "academy-worker.mjs"
         wasm_path = assets_dir / "academy-wasm-evaluator.wasm"
         wasm_manifest_path = assets_dir / "academy-wasm-evaluator-manifest.json"
@@ -301,13 +315,19 @@ def test_learn_web_assets_cli_can_include_wasm_evaluator():
         wasm_manifest = json.loads(wasm_manifest_path.read_text(encoding="utf-8"))
 
         assert code == 0
+        assert "book: freak-academy-book.json" in out.getvalue()
+        assert "reference: freak-academy-reference.json" in out.getvalue()
         assert "wasm: academy-wasm-evaluator.wasm (preview)" in out.getvalue()
         assert package_path.exists()
+        assert book_path.exists()
+        assert reference_path.exists()
         assert worker_path.exists()
         assert wasm_path.exists()
         assert wasm_manifest_path.exists()
         assert manifest["artifactStatus"] == "wasm-preview"
         assert manifest["wasmStatus"] == "preview"
+        assert manifest["bookPath"] == "freak-academy-book.json"
+        assert manifest["referencePath"] == "freak-academy-reference.json"
         assert manifest["wasmEvaluatorPath"] == "academy-wasm-evaluator.wasm"
         assert manifest["wasmEvaluatorManifestPath"] == "academy-wasm-evaluator-manifest.json"
         assert manifest["wasmEvaluator"]["supportedLessons"] == [
@@ -325,6 +345,8 @@ def test_learn_web_assets_cli_can_include_wasm_evaluator():
 
         assets = {item["role"]: item for item in manifest["assets"]}
         assert assets["academy-package"]["sha256"] == sha256_file(package_path)
+        assert assets["academy-book"]["sha256"] == sha256_file(book_path)
+        assert assets["academy-reference"]["sha256"] == sha256_file(reference_path)
         assert assets["worker-entrypoint"]["sha256"] == sha256_file(worker_path)
         assert assets["wasm-evaluator"]["sha256"] == sha256_file(wasm_path)
         assert assets["wasm-evaluator-manifest"]["sha256"] == sha256_file(wasm_manifest_path)
@@ -555,6 +577,33 @@ def test_learn_worker_cli_runs_protocol_request():
     assert code == 0
     assert response["ok"] is True
     assert response["result"]["packageId"] == "freak-academy-v3-mvp"
+
+
+def test_academy_example_extraction_covers_lessons_reference_and_book():
+    examples = iter_academy_examples(ROOT)
+    by_source = {}
+    for example in examples:
+        by_source[example.source_name] = by_source.get(example.source_name, 0) + 1
+
+    assert by_source == {
+        "lesson": 7,
+        "reference": 8,
+        "book": 5,
+    }
+    assert "book:getting-started/hello-freak:smallest-program:1" in {
+        example.stable_id for example in examples
+    }
+
+
+def test_learn_check_examples_cli_runs_book_examples():
+    out = io.StringIO()
+
+    with redirect_stdout(out):
+        code = main(["learn", "check-examples", "--source", "book"])
+
+    assert code == 0
+    assert "book book:getting-started/hello-freak:smallest-program:1: OK" in out.getvalue()
+    assert "Academy example checks passed: 5/5 example(s)." in out.getvalue()
 
 
 def test_learn_start_collects_submission_and_records_progress():
