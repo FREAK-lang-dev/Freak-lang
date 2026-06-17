@@ -125,6 +125,21 @@ task v4_mir_method_bad_type_arg_source() -> word {
     give back src
 }
 
+task v4_mir_method_bad_associated_type_arg_binary_source() -> word {
+    pilot src = "shape Meter {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "impl Meter {\n"
+    src = src + "    task level() -> int {\n"
+    src = src + "        give back 7\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task bad() -> bool {\n"
+    src = src + "    give back Meter::level<tiny>() == Meter::level<tiny>()\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_mir_method_find_impl_item(hir_id: int, ty_id: int, owner_ty: word) -> int {
     pilot hir_item = 0
     pilot hir_count = v4_hir_item_count(hir_id)
@@ -338,3 +353,14 @@ pilot v4_mir_method_bad_type_arg_mir = v4_mir_lower_ty(8, v4_mir_method_bad_type
 say "bad-method-type-arg-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_bad_type_arg_mir))
 say "bad-method-type-arg-message=" + v4_diag_message(v4_mir_diag(v4_mir_method_bad_type_arg_mir, 0))
 say "bad-method-type-arg-help=" + v4_diag_help(v4_mir_diag(v4_mir_method_bad_type_arg_mir, 0))
+
+pilot v4_mir_method_bad_assoc_type_arg_binary_stream = v4_lex_text(9, v4_mir_method_bad_associated_type_arg_binary_source())
+pilot v4_mir_method_bad_assoc_type_arg_binary_tree = v4_parse_stream(9, v4_mir_method_bad_assoc_type_arg_binary_stream)
+pilot v4_mir_method_bad_assoc_type_arg_binary_hir = v4_hir_lower_tree(9, v4_mir_method_bad_assoc_type_arg_binary_tree)
+pilot v4_mir_method_bad_assoc_type_arg_binary_resolve = v4_resolve_lower_hir(9, v4_mir_method_bad_assoc_type_arg_binary_hir)
+pilot v4_mir_method_bad_assoc_type_arg_binary_ty = v4_ty_lower_resolve(9, v4_mir_method_bad_assoc_type_arg_binary_resolve)
+pilot v4_mir_method_bad_assoc_type_arg_binary_mir = v4_mir_lower_ty(9, v4_mir_method_bad_assoc_type_arg_binary_ty)
+
+say "bad-associated-type-arg-binary-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_bad_assoc_type_arg_binary_mir))
+say "bad-associated-type-arg-binary-message=" + v4_diag_message(v4_mir_diag(v4_mir_method_bad_assoc_type_arg_binary_mir, 0))
+say "bad-associated-type-arg-binary-help=" + v4_diag_help(v4_mir_diag(v4_mir_method_bad_assoc_type_arg_binary_mir, 0))

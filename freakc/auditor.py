@@ -808,6 +808,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "raw-pointer cast needs trust me block",
             "offset argument must be int or uint",
             "offset target type must not be void",
+            "offset target type must be concrete",
+            "offset target type must be scalar",
             "cast needs a target type parameter",
             "cast target type is invalid",
             "cast target syntax is invalid",

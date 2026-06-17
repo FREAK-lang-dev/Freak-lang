@@ -3115,7 +3115,7 @@ EXECUTABLE_SMOKES = [
             "raw-ptr-oc-cast-rvalue-op=PtrCast",
             "raw-ptr-oc-cast-rvalue-ty=*consttiny",
             "raw-ptr-oc-cast-mut-rvalue-ty=*muttiny",
-            "raw-ptr-oc-bad-mir-diag-count=12",
+            "raw-ptr-oc-bad-mir-diag-count=14",
             "raw-ptr-oc-bad-diag0-message=raw-pointer offset needs trust me block",
             "raw-ptr-oc-bad-diag1-message=trust me honor level too low",
             "raw-ptr-oc-bad-diag1-help=raw-pointer offset requires .ace or higher; current honor is .pilot",
@@ -3130,6 +3130,8 @@ EXECUTABLE_SMOKES = [
             "raw-ptr-oc-bad-diag9-message=offset argument must be int or uint",
             "raw-ptr-oc-bad-diag10-message=offset argument must be int or uint",
             "raw-ptr-oc-bad-diag11-message=offset target type must not be void",
+            "raw-ptr-oc-bad-diag12-message=offset target type must be concrete",
+            "raw-ptr-oc-bad-diag13-message=offset target type must be scalar",
         ],
     },
     {
@@ -5488,6 +5490,9 @@ EXECUTABLE_SMOKES = [
             "bad-method-type-arg-diagnostics=1",
             "bad-method-type-arg-message=method takes no type arguments",
             "bad-method-type-arg-help=Box<int>.take is not a generic method; remove <tiny> before the call parentheses",
+            "bad-associated-type-arg-binary-diagnostics=2",
+            "bad-associated-type-arg-binary-message=method takes no type arguments",
+            "bad-associated-type-arg-binary-help=Meter::level is not a generic method; remove <tiny> before the call parentheses",
         ],
     },
     {
