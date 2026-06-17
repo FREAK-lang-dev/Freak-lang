@@ -2207,6 +2207,18 @@ task v4_mir_validate_type_contract(mir_id: int, sig_id: int, stmt_span: word, ty
         give back valid
     }
 
+    pilot bare_is_scope_generic = false
+    if sig_id >= 0 {
+        bare_is_scope_generic = v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text)
+    }
+    if not bare_is_scope_generic {
+        pilot bare_expected_count = v4_ty_expected_generic_arg_count(ty_id, type_text)
+        if bare_expected_count > 0 {
+            v4_mir_add_type_error(mir_id, stmt_span, message, "Meiya lifetime debt: " + type_text + " expects " + word_from_int(bare_expected_count) + " generic arguments in " + context + " but received 0")
+            valid = false
+        }
+    }
+
     if v4_ty_is_tuple_type(type_text) {
         pilot slot_id = 0
         pilot slot_count = v4_ty_tuple_slot_count(type_text)
@@ -3891,7 +3903,7 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
             pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
             if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(v4_mir_ty_id(mir_id), sig_id, offset_target_ty) {
                 v4_mir_add_type_error(mir_id, expr_span, "offset target type must be concrete", receiver_ty + ".offset(n) needs a concrete pointee layout before LLVM GEP lowering; generic pointee " + offset_target_ty + " is not sized in V4 yet")
-            } else if v4_ty_is_tuple_type(offset_target_ty) or v4_ty_is_fixed_array_type(offset_target_ty) {
+            } else if v4_ty_is_tuple_type(offset_target_ty) or v4_ty_is_fixed_array_type(offset_target_ty) or v4_ty_shape_signature_id_for_name(v4_mir_ty_id(mir_id), offset_target_ty) >= 0 or v4_ty_is_route_type(v4_mir_ty_id(mir_id), offset_target_ty) {
                 v4_mir_add_type_error(mir_id, expr_span, "offset target type must be scalar", receiver_ty + ".offset(n) currently supports scalar pointees only; cast to *const tiny or wait for aggregate layout-aware GEP lowering")
             }
         }
@@ -5421,10 +5433,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back associated_method_rvalue
     }
 
-    if v4_mir_is_generic_instance_method_call_shape(stream_id, first, last) {
-        pilot generic_instance_method_rvalue = v4_mir_try_lower_instance_method_call(mir_id, body_id, stream_id, first, last, expr_span)
-        if generic_instance_method_rvalue >= 0 {
-            give back generic_instance_method_rvalue
+    pilot early_first_value = v4_lex_token_value(stream_id, first)
+    if v4_mir_unary_op_kind(early_first_value) == "" and v4_mir_is_generic_instance_method_call_shape(stream_id, first, last) {
+        pilot early_generic_instance_method_rvalue = v4_mir_try_lower_instance_method_call(mir_id, body_id, stream_id, first, last, expr_span)
+        if early_generic_instance_method_rvalue >= 0 {
+            give back early_generic_instance_method_rvalue
         }
     }
 
@@ -5466,6 +5479,14 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         }
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, unary_kind, operand_id, 0 - 1, expr_span, result_ty)
     }
+
+    if v4_mir_is_generic_instance_method_call_shape(stream_id, first, last) {
+        pilot generic_instance_method_rvalue = v4_mir_try_lower_instance_method_call(mir_id, body_id, stream_id, first, last, expr_span)
+        if generic_instance_method_rvalue >= 0 {
+            give back generic_instance_method_rvalue
+        }
+    }
+
     if first_type == v4_tok_int {
         pilot literal_ty = v4_ty_int_literal_type(first_value, expected_ty)
         pilot literal_value = v4_ty_numeric_literal_value(first_value)

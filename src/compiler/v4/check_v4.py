@@ -3115,7 +3115,7 @@ EXECUTABLE_SMOKES = [
             "raw-ptr-oc-cast-rvalue-op=PtrCast",
             "raw-ptr-oc-cast-rvalue-ty=*consttiny",
             "raw-ptr-oc-cast-mut-rvalue-ty=*muttiny",
-            "raw-ptr-oc-bad-mir-diag-count=14",
+            "raw-ptr-oc-bad-mir-diag-count=16",
             "raw-ptr-oc-bad-diag0-message=raw-pointer offset needs trust me block",
             "raw-ptr-oc-bad-diag1-message=trust me honor level too low",
             "raw-ptr-oc-bad-diag1-help=raw-pointer offset requires .ace or higher; current honor is .pilot",
@@ -3132,6 +3132,8 @@ EXECUTABLE_SMOKES = [
             "raw-ptr-oc-bad-diag11-message=offset target type must not be void",
             "raw-ptr-oc-bad-diag12-message=offset target type must be concrete",
             "raw-ptr-oc-bad-diag13-message=offset target type must be scalar",
+            "raw-ptr-oc-bad-diag14-message=offset target type must be scalar",
+            "raw-ptr-oc-bad-diag15-message=cast target type is invalid",
         ],
     },
     {
