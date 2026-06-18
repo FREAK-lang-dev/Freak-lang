@@ -27,6 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install Clang (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang lld
@@ -83,6 +93,14 @@ jobs:
           clang -o build/freak$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           # Create hangar binary (BusyBox pattern)
           cp build/freak$EXT build/hangar$EXT
+
+      - name: Academy contracts
+        shell: bash
+        run: |
+          python -B tools/academy/validate_academy.py
+          python -B tools/academy/verify_worker_parity.py
+          python -B tools/academy/check_academy_examples.py
+          python -B tests/test_academy.py
 
       - name: Self-hosting test (V3 compiles itself)
         shell: bash

@@ -606,6 +606,15 @@ def test_learn_check_examples_cli_runs_book_examples():
     assert "Academy example checks passed: 5/5 example(s)." in out.getvalue()
 
 
+def test_ci_runs_all_academy_contract_checks():
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert "python -B tools/academy/validate_academy.py" in workflow
+    assert "python -B tools/academy/verify_worker_parity.py" in workflow
+    assert "python -B tools/academy/check_academy_examples.py" in workflow
+    assert "python -B tests/test_academy.py" in workflow
+
+
 def test_learn_start_collects_submission_and_records_progress():
     captured: dict[str, str] = {}
 

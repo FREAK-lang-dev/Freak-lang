@@ -50,8 +50,9 @@ Current implementation checkpoint:
 - Goal F dedicated reference route is staged in `C:\Users\razva\Documents\GitHub\freaklang.dev`: `/reference` loads the exported `freak-academy-reference.json`, renders the full V3-first reference index/detail view, is linked from nav/footer and `/learn`, and remains a website connector rather than a content source.
 - Goal D/F Book skeleton is staged: this repository now owns `learning/book/freak-academy-book.json`, validates it against `schemas/academy-book.schema.json`, exports it through `freak learn web-assets` as `freak-academy-book.json`, and `freaklang.dev` consumes it on `/book` as a generated connector route.
 - Goal D example checking is staged: `tools/academy/check_academy_examples.py` and `freak learn check-examples` extract lesson demonstrations, reference examples, and Book examples, run them through the V3 Academy worker, and require exact expected output matches.
+- Goal D CI enforcement is staged: the Linux, macOS, and Windows CI matrix now runs Academy schema/content validation, native/browser worker parity, all lesson/reference/Book examples, and the focused Academy test suite on every pull request.
 
-The next active goal should continue Goal D by adding CI wiring for Academy validation, worker parity, and example checking so the contracts run automatically on pull requests.
+The next active goal should return to high-priority Goal E by extending the WASM evaluator to the `functions` lesson, giving all seven V3 basics lessons browser-owned evaluation coverage and removing the final lesson-level JavaScript fallback.
 
 ---
 
