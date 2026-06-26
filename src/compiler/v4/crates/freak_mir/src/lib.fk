@@ -56,7 +56,7 @@ pilot v4_mir_unary_neg = "Neg"
 pilot v4_mir_unary_not = "Not"
 pilot v4_mir_unary_ptr_is_null = "PtrIsNull"
 pilot v4_mir_unary_deref = "Deref"
-pilot v4_mir_call_raw_ptr_write = "RawPtrWrite"
+pilot v4_mir_call_raw_ptr_write = "#RawPtrWrite"
 
 pilot v4_mir_bin_add = "Add"
 pilot v4_mir_bin_sub = "Sub"
