@@ -3978,10 +3978,16 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
         pilot offset_target_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_raw_pointer_target_type(receiver_ty))
         if offset_target_ty == v4_ty_void {
             v4_mir_add_type_error(mir_id, expr_span, "offset target type must not be void", receiver_ty + ".offset(n) needs a sized pointee; cast to *const tiny or *mut tiny first for byte-wise FFI pointer arithmetic")
+        } else if offset_target_ty == v4_ty_never {
+            v4_mir_add_type_error(mir_id, expr_span, "offset target type must not be never", receiver_ty + ".offset(n) needs an inhabited pointee layout; never has no runtime element Yuuko can advance across")
         } else {
             pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
             if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(v4_mir_ty_id(mir_id), sig_id, offset_target_ty) {
                 v4_mir_add_type_error(mir_id, expr_span, "offset target type must be concrete", receiver_ty + ".offset(n) needs a concrete pointee layout before LLVM GEP lowering; generic pointee " + offset_target_ty + " is not sized in V4 yet")
+            } else if v4_mir_body_impl_declares_type_generic_name(mir_id, body_id, offset_target_ty) {
+                v4_mir_add_type_error(mir_id, expr_span, "offset target type must be concrete", receiver_ty + ".offset(n) needs a concrete pointee layout before LLVM GEP lowering; impl generic pointee " + offset_target_ty + " is not sized in V4 yet")
+            } else if not v4_mir_type_reference_is_declared_for_body(mir_id, body_id, sig_id, offset_target_ty) {
+                v4_mir_add_type_error(mir_id, expr_span, "offset target type must be declared", offset_target_ty + " is not a declared value type Yuuko can lower into an LLVM GEP element")
             } else if offset_target_ty == v4_ty_word or offset_target_ty == v4_ty_big or v4_ty_is_generic_instance_type(offset_target_ty) or v4_ty_is_tuple_type(offset_target_ty) or v4_ty_is_fixed_array_type(offset_target_ty) or v4_ty_shape_signature_id_for_name(v4_mir_ty_id(mir_id), offset_target_ty) >= 0 or v4_ty_is_route_type(v4_mir_ty_id(mir_id), offset_target_ty) {
                 v4_mir_add_type_error(mir_id, expr_span, "offset target type must be scalar", receiver_ty + ".offset(n) currently supports scalar pointees only; cast to *const tiny or wait for aggregate layout-aware GEP lowering")
             }
