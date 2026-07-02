@@ -3756,7 +3756,84 @@ task v4_mir_cast_target_starts_like_type(stream_id: int, target_start: int, type
     give back token_value == "*" or token_value == "(" or token_value == "["
 }
 
-task v4_mir_type_reference_is_declared(mir_id: int, sig_id: int, type_text: word) -> bool {
+task v4_mir_body_impl_hir_item(mir_id: int, body_id: int) -> int {
+    if body_id < 0 {
+        give back 0 - 1
+    }
+    pilot body_def = v4_mir_body_def(mir_id, body_id)
+    if not body_def.contains("::Method::") {
+        give back 0 - 1
+    }
+    pilot hash_pos = 0 - 1
+    pilot idx = 0
+    repeat until idx >= body_def.length() {
+        if body_def.char_at(idx) == "#" {
+            hash_pos = idx
+        }
+        idx += 1
+    }
+    if hash_pos < 0 or hash_pos + 1 >= body_def.length() {
+        give back 0 - 1
+    }
+    pilot end_pos = hash_pos + 1
+    repeat until end_pos >= body_def.length() or body_def.char_at(end_pos) == ":" {
+        end_pos += 1
+    }
+    if end_pos <= hash_pos + 1 {
+        give back 0 - 1
+    }
+    give back word_to_int(v4_slice(body_def, hash_pos + 1, end_pos))
+}
+
+task v4_mir_type_pattern_declares_type_generic_name(pattern_ty: word, type_name: word) -> bool {
+    if pattern_ty == "" or type_name == "" or v4_ty_is_lifetime_name(pattern_ty) {
+        give back false
+    }
+    if pattern_ty == type_name {
+        give back true
+    }
+    if v4_ty_is_lend_type(pattern_ty) {
+        give back v4_mir_type_pattern_declares_type_generic_name(v4_ty_lend_target_type(pattern_ty), type_name)
+    }
+    if v4_ty_is_raw_pointer_type(pattern_ty) {
+        give back v4_mir_type_pattern_declares_type_generic_name(v4_ty_raw_pointer_target_type(pattern_ty), type_name)
+    }
+    if v4_ty_is_tuple_type(pattern_ty) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(pattern_ty)
+        repeat until slot_id >= slot_count {
+            if v4_mir_type_pattern_declares_type_generic_name(v4_ty_tuple_slot_type(pattern_ty, slot_id), type_name) {
+                give back true
+            }
+            slot_id += 1
+        }
+        give back false
+    }
+    if v4_ty_is_fixed_array_type(pattern_ty) {
+        give back v4_mir_type_pattern_declares_type_generic_name(v4_ty_fixed_array_element_type(pattern_ty), type_name)
+    }
+    if v4_ty_is_generic_instance_type(pattern_ty) {
+        pilot arg_id = 0
+        pilot arg_count = v4_ty_generic_arg_count(pattern_ty)
+        repeat until arg_id >= arg_count {
+            if v4_mir_type_pattern_declares_type_generic_name(v4_ty_generic_arg(pattern_ty, arg_id), type_name) {
+                give back true
+            }
+            arg_id += 1
+        }
+    }
+    give back false
+}
+
+task v4_mir_body_impl_declares_type_generic_name(mir_id: int, body_id: int, type_name: word) -> bool {
+    pilot hir_item = v4_mir_body_impl_hir_item(mir_id, body_id)
+    if hir_item < 0 {
+        give back false
+    }
+    give back v4_mir_type_pattern_declares_type_generic_name(v4_ty_impl_target_type_from_hir(v4_mir_ty_id(mir_id), hir_item), type_name)
+}
+
+task v4_mir_type_reference_is_declared_for_body(mir_id: int, body_id: int, sig_id: int, type_text: word) -> bool {
     if type_text == "" or type_text == v4_ty_unknown {
         give back false
     }
@@ -3773,17 +3850,20 @@ task v4_mir_type_reference_is_declared(mir_id: int, sig_id: int, type_text: word
     if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text) {
         give back true
     }
+    if v4_mir_body_impl_declares_type_generic_name(mir_id, body_id, type_text) {
+        give back true
+    }
     if v4_ty_is_lend_type(type_text) {
-        give back v4_mir_type_reference_is_declared(mir_id, sig_id, v4_ty_lend_target_type(type_text))
+        give back v4_mir_type_reference_is_declared_for_body(mir_id, body_id, sig_id, v4_ty_lend_target_type(type_text))
     }
     if v4_ty_is_raw_pointer_type(type_text) {
-        give back v4_mir_type_reference_is_declared(mir_id, sig_id, v4_ty_raw_pointer_target_type(type_text))
+        give back v4_mir_type_reference_is_declared_for_body(mir_id, body_id, sig_id, v4_ty_raw_pointer_target_type(type_text))
     }
     if v4_ty_is_tuple_type(type_text) {
         pilot slot_id = 0
         pilot slot_count = v4_ty_tuple_slot_count(type_text)
         repeat until slot_id >= slot_count {
-            if not v4_mir_type_reference_is_declared(mir_id, sig_id, v4_ty_tuple_slot_type(type_text, slot_id)) {
+            if not v4_mir_type_reference_is_declared_for_body(mir_id, body_id, sig_id, v4_ty_tuple_slot_type(type_text, slot_id)) {
                 give back false
             }
             slot_id += 1
@@ -3791,7 +3871,7 @@ task v4_mir_type_reference_is_declared(mir_id: int, sig_id: int, type_text: word
         give back true
     }
     if v4_ty_is_fixed_array_type(type_text) {
-        give back v4_mir_type_reference_is_declared(mir_id, sig_id, v4_ty_fixed_array_element_type(type_text))
+        give back v4_mir_type_reference_is_declared_for_body(mir_id, body_id, sig_id, v4_ty_fixed_array_element_type(type_text))
     }
     if v4_ty_is_generic_instance_type(type_text) {
         pilot base_name = v4_ty_generic_base_name(type_text)
@@ -3806,7 +3886,7 @@ task v4_mir_type_reference_is_declared(mir_id: int, sig_id: int, type_text: word
                 if not v4_ty_generic_slot_accepts_lifetime(ty_id, base_name, arg_id) {
                     give back false
                 }
-            } else if not v4_mir_type_reference_is_declared(mir_id, sig_id, arg_text) {
+            } else if not v4_mir_type_reference_is_declared_for_body(mir_id, body_id, sig_id, arg_text) {
                 give back false
             }
             arg_id += 1
@@ -3814,6 +3894,10 @@ task v4_mir_type_reference_is_declared(mir_id: int, sig_id: int, type_text: word
         give back true
     }
     give back v4_mir_is_type_like_owner(ty_id, type_text)
+}
+
+task v4_mir_type_reference_is_declared(mir_id: int, sig_id: int, type_text: word) -> bool {
+    give back v4_mir_type_reference_is_declared_for_body(mir_id, 0 - 1, sig_id, type_text)
 }
 
 task v4_mir_validate_raw_pointer_cast_target(mir_id: int, body_id: int, stream_id: int, target_start: int, type_close: int, target_pointee: word, expr_span: word) -> bool {
@@ -3824,7 +3908,7 @@ task v4_mir_validate_raw_pointer_cast_target(mir_id: int, body_id: int, stream_i
 
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     pilot valid = true
-    if not v4_mir_type_reference_is_declared(mir_id, sig_id, target_pointee) {
+    if not v4_mir_type_reference_is_declared_for_body(mir_id, body_id, sig_id, target_pointee) {
         v4_mir_add_type_error(mir_id, expr_span, "cast target type is invalid", target_pointee + " is not a declared value type Yuuko can track through a raw-pointer cast")
         valid = false
     }
@@ -3898,7 +3982,7 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
             pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
             if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(v4_mir_ty_id(mir_id), sig_id, offset_target_ty) {
                 v4_mir_add_type_error(mir_id, expr_span, "offset target type must be concrete", receiver_ty + ".offset(n) needs a concrete pointee layout before LLVM GEP lowering; generic pointee " + offset_target_ty + " is not sized in V4 yet")
-            } else if v4_ty_is_generic_instance_type(offset_target_ty) or v4_ty_is_tuple_type(offset_target_ty) or v4_ty_is_fixed_array_type(offset_target_ty) or v4_ty_shape_signature_id_for_name(v4_mir_ty_id(mir_id), offset_target_ty) >= 0 or v4_ty_is_route_type(v4_mir_ty_id(mir_id), offset_target_ty) {
+            } else if offset_target_ty == v4_ty_word or offset_target_ty == v4_ty_big or v4_ty_is_generic_instance_type(offset_target_ty) or v4_ty_is_tuple_type(offset_target_ty) or v4_ty_is_fixed_array_type(offset_target_ty) or v4_ty_shape_signature_id_for_name(v4_mir_ty_id(mir_id), offset_target_ty) >= 0 or v4_ty_is_route_type(v4_mir_ty_id(mir_id), offset_target_ty) {
                 v4_mir_add_type_error(mir_id, expr_span, "offset target type must be scalar", receiver_ty + ".offset(n) currently supports scalar pointees only; cast to *const tiny or wait for aggregate layout-aware GEP lowering")
             }
         }
