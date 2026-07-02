@@ -931,6 +931,17 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
             pilot pointee_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
             give back target + " = load " + pointee_ty + ", ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand)
         }
+        if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_ptr_offset {
+            pilot offset_rvalue = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
+            if offset_rvalue < 0 {
+                give back ""
+            }
+            pilot pointee_ty = v4_codegen_llvm_type(v4_ty_raw_pointer_target_type(v4_mir_rvalue_ty(mir_id, body_id, operand)))
+            give back target + " = getelementptr " + pointee_ty + ", ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ", i64 " + v4_codegen_llvm_rvalue_value(mir_id, body_id, offset_rvalue)
+        }
+        if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_unary_ptr_cast {
+            give back target + " = getelementptr i8, ptr " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand) + ", i64 0"
+        }
         if operand_ty == "double" or operand_ty == "float" {
             give back target + " = fsub " + operand_ty + " 0.0, " + v4_codegen_llvm_rvalue_value(mir_id, body_id, operand)
         }

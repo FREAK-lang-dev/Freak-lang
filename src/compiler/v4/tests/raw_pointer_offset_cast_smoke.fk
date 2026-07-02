@@ -1,0 +1,249 @@
+-- V4 raw-pointer .offset(n) and .cast<T>() smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_raw_ptr_oc_good_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task lookup() -> *const std::ffi::c_int\n"
+    src = src + "    task lookup_mut() -> *mut std::ffi::c_int\n"
+    src = src + "    task lookup_tiny() -> *const tiny\n"
+    src = src + "}\n"
+    src = src + "task offset_read() -> std::ffi::c_int {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"walk C array\" on my honor as .ace {\n"
+    src = src + "        pilot q = p.offset(2)\n"
+    src = src + "        give back q.read()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_tiny() -> *const tiny {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"reinterpret byte view\" on my honor as .ace {\n"
+    src = src + "        give back p.cast<tiny>()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_mut() -> *mut tiny {\n"
+    src = src + "    pilot p = lookup_mut()\n"
+    src = src + "    trust me \"reinterpret mutable byte view\" on my honor as .ace {\n"
+    src = src + "        give back p.cast<tiny>()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_deref() -> tiny {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"deref byte view\" on my honor as .ace {\n"
+    src = src + "        give back *p.cast<tiny>()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_compare() -> bool {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"compare byte views\" on my honor as .ace {\n"
+    src = src + "        give back p.cast<tiny>() == p.cast<tiny>()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_compare_lookup() -> bool {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"compare byte view against C pointer\" on my honor as .ace {\n"
+    src = src + "        give back p.cast<tiny>() == lookup_tiny()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "impl Box<T> {\n"
+    src = src + "    task retarget(self, p: *const int) -> *const T {\n"
+    src = src + "        trust me \"generic retarget\" on my honor as .ace {\n"
+    src = src + "            give back p.cast<T>()\n"
+    src = src + "        }\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_raw_ptr_oc_bad_source() -> word {
+    pilot src = "shape Pilot {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task lookup() -> *const std::ffi::c_int\n"
+    src = src + "    task lookup_void() -> *const std::ffi::c_void\n"
+    src = src + "}\n"
+    src = src + "task small_offset() -> tiny {\n"
+    src = src + "    give back 1t\n"
+    src = src + "}\n"
+    src = src + "task offset_outside() -> *const std::ffi::c_int {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    give back p.offset(1)\n"
+    src = src + "}\n"
+    src = src + "task offset_pilot() -> *const std::ffi::c_int {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"too junior\" on my honor as .pilot {\n"
+    src = src + "        give back p.offset(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_outside() -> *const tiny {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    give back p.cast<tiny>()\n"
+    src = src + "}\n"
+    src = src + "task cast_pilot() -> *const tiny {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"too junior\" on my honor as .pilot {\n"
+    src = src + "        give back p.cast<tiny>()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_noarg() -> *const std::ffi::c_int {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_value_arg() -> *const tiny {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"bad cast\" on my honor as .ace {\n"
+    src = src + "        give back p.cast<tiny>(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_bad_target() -> *const tiny {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"bad cast\" on my honor as .ace {\n"
+    src = src + "        pilot q = p.cast<1>()\n"
+    src = src + "        give back p.cast<tiny>()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_gap() -> *const tiny {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"bad cast\" on my honor as .ace {\n"
+    src = src + "        give back p.cast<tiny>junk()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_missing_target() -> *const tiny {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"bad cast\" on my honor as .ace {\n"
+    src = src + "        give back p.cast()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_float(value: num) -> *const std::ffi::c_int {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(value)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_tiny() -> *const std::ffi::c_int {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(small_offset())\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_void() -> *const std::ffi::c_void {\n"
+    src = src + "    pilot p = lookup_void()\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_generic<T>(p: *const T) -> *const T {\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_array(p: *const [int; 4]) -> *const [int; 4] {\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_shape(p: *const Pilot) -> *const Pilot {\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_list(p: *const List<int>) -> *const List<int> {\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_word(p: *const word) -> *const word {\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_big(p: *const big) -> *const big {\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_never(p: *const never) -> *const never {\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task offset_missing(p: *const Missing) -> *const Missing {\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_bare_generic() -> void {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"bad cast\" on my honor as .ace {\n"
+    src = src + "        pilot q = p.cast<List>()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_raw_ptr_oc_good_text = v4_raw_ptr_oc_good_source()
+pilot v4_raw_ptr_oc_good_stream = v4_lex_text(0, v4_raw_ptr_oc_good_text)
+pilot v4_raw_ptr_oc_good_tree = v4_parse_stream(0, v4_raw_ptr_oc_good_stream)
+pilot v4_raw_ptr_oc_good_hir = v4_hir_lower_tree(0, v4_raw_ptr_oc_good_tree)
+pilot v4_raw_ptr_oc_good_resolve = v4_resolve_lower_hir(0, v4_raw_ptr_oc_good_hir)
+pilot v4_raw_ptr_oc_good_ty = v4_ty_lower_resolve(0, v4_raw_ptr_oc_good_resolve)
+pilot v4_raw_ptr_oc_good_mir = v4_mir_lower_ty(0, v4_raw_ptr_oc_good_ty)
+pilot v4_raw_ptr_oc_good_llvm = v4_codegen_llvm_lower_mir(0, v4_raw_ptr_oc_good_mir)
+
+pilot v4_raw_ptr_oc_offset_def = v4_resolve_def_for_name(v4_raw_ptr_oc_good_resolve, "offset_read")
+pilot v4_raw_ptr_oc_cast_def = v4_resolve_def_for_name(v4_raw_ptr_oc_good_resolve, "cast_tiny")
+pilot v4_raw_ptr_oc_cast_mut_def = v4_resolve_def_for_name(v4_raw_ptr_oc_good_resolve, "cast_mut")
+pilot v4_raw_ptr_oc_offset_body = v4_mir_lookup_body(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_offset_def)
+pilot v4_raw_ptr_oc_cast_body = v4_mir_lookup_body(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_cast_def)
+pilot v4_raw_ptr_oc_cast_mut_body = v4_mir_lookup_body(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_cast_mut_def)
+pilot v4_raw_ptr_oc_offset_stmt_rvalue = v4_mir_stmt_rvalue(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_offset_body, 1)
+pilot v4_raw_ptr_oc_cast_stmt_rvalue = v4_mir_stmt_rvalue(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_cast_body, 1)
+pilot v4_raw_ptr_oc_cast_mut_stmt_rvalue = v4_mir_stmt_rvalue(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_cast_mut_body, 1)
+
+say "raw-ptr-oc-good-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_raw_ptr_oc_good_ty))
+say "raw-ptr-oc-good-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_oc_good_mir))
+say "raw-ptr-oc-offset-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_oc_good_llvm, v4_codegen_llvm_find_body(v4_raw_ptr_oc_good_llvm, "offset_read"))
+say "raw-ptr-oc-cast-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_oc_good_llvm, v4_codegen_llvm_find_body(v4_raw_ptr_oc_good_llvm, "cast_tiny"))
+say "raw-ptr-oc-offset-rvalue-op=" + v4_mir_rvalue_op(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_offset_body, v4_raw_ptr_oc_offset_stmt_rvalue)
+say "raw-ptr-oc-offset-rvalue-ty=" + v4_mir_rvalue_ty(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_offset_body, v4_raw_ptr_oc_offset_stmt_rvalue)
+say "raw-ptr-oc-cast-rvalue-op=" + v4_mir_rvalue_op(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_cast_body, v4_raw_ptr_oc_cast_stmt_rvalue)
+say "raw-ptr-oc-cast-rvalue-ty=" + v4_mir_rvalue_ty(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_cast_body, v4_raw_ptr_oc_cast_stmt_rvalue)
+say "raw-ptr-oc-cast-mut-rvalue-ty=" + v4_mir_rvalue_ty(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_cast_mut_body, v4_raw_ptr_oc_cast_mut_stmt_rvalue)
+
+pilot v4_raw_ptr_oc_bad_text = v4_raw_ptr_oc_bad_source()
+pilot v4_raw_ptr_oc_bad_stream = v4_lex_text(1, v4_raw_ptr_oc_bad_text)
+pilot v4_raw_ptr_oc_bad_tree = v4_parse_stream(1, v4_raw_ptr_oc_bad_stream)
+pilot v4_raw_ptr_oc_bad_hir = v4_hir_lower_tree(1, v4_raw_ptr_oc_bad_tree)
+pilot v4_raw_ptr_oc_bad_resolve = v4_resolve_lower_hir(1, v4_raw_ptr_oc_bad_hir)
+pilot v4_raw_ptr_oc_bad_ty = v4_ty_lower_resolve(1, v4_raw_ptr_oc_bad_resolve)
+pilot v4_raw_ptr_oc_bad_mir = v4_mir_lower_ty(1, v4_raw_ptr_oc_bad_ty)
+
+say "raw-ptr-oc-bad-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_oc_bad_mir))
+say "raw-ptr-oc-bad-diag0-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 0))
+say "raw-ptr-oc-bad-diag1-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 1))
+say "raw-ptr-oc-bad-diag1-help=" + v4_diag_help(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 1))
+say "raw-ptr-oc-bad-diag2-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 2))
+say "raw-ptr-oc-bad-diag3-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 3))
+say "raw-ptr-oc-bad-diag3-help=" + v4_diag_help(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 3))
+say "raw-ptr-oc-bad-diag4-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 4))
+say "raw-ptr-oc-bad-diag5-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 5))
+say "raw-ptr-oc-bad-diag6-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 6))
+say "raw-ptr-oc-bad-diag7-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 7))
+say "raw-ptr-oc-bad-diag8-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 8))
+say "raw-ptr-oc-bad-diag9-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 9))
+say "raw-ptr-oc-bad-diag10-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 10))
+say "raw-ptr-oc-bad-diag11-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 11))
+say "raw-ptr-oc-bad-diag12-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 12))
+say "raw-ptr-oc-bad-diag13-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 13))
+say "raw-ptr-oc-bad-diag14-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 14))
+say "raw-ptr-oc-bad-diag15-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 15))
+say "raw-ptr-oc-bad-diag16-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 16))
+say "raw-ptr-oc-bad-diag17-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 17))
+say "raw-ptr-oc-bad-diag18-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 18))
+say "raw-ptr-oc-bad-diag19-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 19))
+say "raw-ptr-oc-bad-diag20-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 20))
