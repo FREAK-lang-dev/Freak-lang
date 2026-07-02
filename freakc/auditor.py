@@ -801,6 +801,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_mir_trust_honor_help",
             "v4_mir_try_lower_builtin_raw_pointer_instance_method",
             "v4_mir_call_raw_ptr_write",
+            "#RawPtrWrite",
             "raw-pointer method arity mismatch",
             "v4_mir_unary_ptr_offset",
             "v4_mir_unary_ptr_cast",
@@ -871,9 +872,9 @@ def audit_conformance(paths: List[Path]) -> int:
             tm_missing.append("check_v4.py: unknown honor expectation")
         if "raw-ptr-write-cadet-mir-diag0-message=trust me honor level too low" not in harness_src:
             tm_missing.append("check_v4.py: low honor raw-pointer write expectation")
-        if "raw-ptr-method-write-rvalue-op=RawPtrWrite" not in harness_src:
+        if "raw-ptr-method-write-rvalue-op=#RawPtrWrite" not in harness_src:
             tm_missing.append("check_v4.py: raw pointer method write expectation")
-        if "raw-ptr-method-good-call-count=2" not in harness_src:
+        if "raw-ptr-method-good-call-count=3" not in harness_src:
             tm_missing.append("check_v4.py: raw pointer method call index expectation")
         if "raw-ptr-oc-offset-rvalue-op=PtrOffset" not in harness_src:
             tm_missing.append("check_v4.py: raw pointer offset expectation")
@@ -881,6 +882,8 @@ def audit_conformance(paths: List[Path]) -> int:
             tm_missing.append("check_v4.py: raw pointer cast expectation")
         if "raw-ptr-oc-bad-diag1-help=raw-pointer offset requires .ace or higher; current honor is .pilot" not in harness_src:
             tm_missing.append("check_v4.py: low honor raw-pointer offset expectation")
+        if "raw-ptr-method-collide-call-line=call ccc i64 @RawPtrWrite(i64 41)" not in harness_src:
+            tm_missing.append("check_v4.py: RawPtrWrite user call collision expectation")
     else:
         tm_missing.append("check_v4.py harness missing")
     add(

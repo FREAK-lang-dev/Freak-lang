@@ -5,6 +5,7 @@ task v4_raw_ptr_oc_good_source() -> word {
     pilot src = "extern [C] {\n"
     src = src + "    task lookup() -> *const std::ffi::c_int\n"
     src = src + "    task lookup_mut() -> *mut std::ffi::c_int\n"
+    src = src + "    task lookup_tiny() -> *const tiny\n"
     src = src + "}\n"
     src = src + "task offset_read() -> std::ffi::c_int {\n"
     src = src + "    pilot p = lookup()\n"
@@ -35,6 +36,12 @@ task v4_raw_ptr_oc_good_source() -> word {
     src = src + "    pilot p = lookup()\n"
     src = src + "    trust me \"compare byte views\" on my honor as .ace {\n"
     src = src + "        give back p.cast<tiny>() == p.cast<tiny>()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task cast_compare_lookup() -> bool {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"compare byte view against C pointer\" on my honor as .ace {\n"
+    src = src + "        give back p.cast<tiny>() == lookup_tiny()\n"
     src = src + "    }\n"
     src = src + "}\n"
     give back src
@@ -135,6 +142,11 @@ task v4_raw_ptr_oc_bad_source() -> word {
     src = src + "        give back p.offset(1)\n"
     src = src + "    }\n"
     src = src + "}\n"
+    src = src + "task offset_list(p: *const List<int>) -> *const List<int> {\n"
+    src = src + "    trust me \"bad offset\" on my honor as .ace {\n"
+    src = src + "        give back p.offset(1)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
     src = src + "task cast_bare_generic() -> void {\n"
     src = src + "    pilot p = lookup()\n"
     src = src + "    trust me \"bad cast\" on my honor as .ace {\n"
@@ -200,3 +212,4 @@ say "raw-ptr-oc-bad-diag12-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc
 say "raw-ptr-oc-bad-diag13-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 13))
 say "raw-ptr-oc-bad-diag14-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 14))
 say "raw-ptr-oc-bad-diag15-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 15))
+say "raw-ptr-oc-bad-diag16-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_oc_bad_mir, 16))
