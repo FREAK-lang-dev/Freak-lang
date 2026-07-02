@@ -167,7 +167,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | `repeat N times` | ✅ | ✅ | |
 | `repeat until condition` | ✅ | ✅ | |
 | `training arc until cond max N sessions` | ✅ | ✅ | parsed and emitted as bounded while |
-| `training arc with growth` variant | ❌ | 📖 V4 | not enforced |
+| `training arc with growth` variant | ⚠️ | 📖 V4 | V4 MIR enforces condition-subject mutation for local and projected places; full production backend parity still pending |
 | `prob_when expr { >= 0.9 -> ... }` | ❌ | 📖 V4 | not parsed |
 | `break`/`continue` | ✅ | ✅ | |
 

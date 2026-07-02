@@ -28,6 +28,34 @@ task v4_mir_loop_make_bad_growth_source() -> word {
     give back src
 }
 
+task v4_mir_loop_make_field_growth_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    power: int\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task train(ship: Ship) -> int {\n"
+    src = src + "    training arc until ship.power >= 8 max 4 sessions with growth {\n"
+    src = src + "        ship.power += 1\n"
+    src = src + "    }\n"
+    src = src + "    give back ship.power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_loop_make_bad_field_growth_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    power: int\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task train(ship: Ship) -> int {\n"
+    src = src + "    training arc until ship.power >= 8 max 4 sessions with growth {\n"
+    src = src + "        ship.hp += 1\n"
+    src = src + "    }\n"
+    src = src + "    give back ship.power\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_mir_loop_source = v4_mir_loop_make_source()
 pilot v4_mir_loop_stream = v4_lex_text(0, v4_mir_loop_source)
 pilot v4_mir_loop_tree = v4_parse_stream(0, v4_mir_loop_stream)
@@ -77,3 +105,28 @@ pilot v4_mir_bad_growth_mir = v4_mir_lower_ty(1, v4_mir_bad_growth_ty)
 
 say "bad-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_growth_mir))
 say "bad-growth-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_growth_mir, 0))
+
+pilot v4_mir_field_growth_source = v4_mir_loop_make_field_growth_source()
+pilot v4_mir_field_growth_stream = v4_lex_text(2, v4_mir_field_growth_source)
+pilot v4_mir_field_growth_tree = v4_parse_stream(2, v4_mir_field_growth_stream)
+pilot v4_mir_field_growth_hir = v4_hir_lower_tree(2, v4_mir_field_growth_tree)
+pilot v4_mir_field_growth_resolve = v4_resolve_lower_hir(2, v4_mir_field_growth_hir)
+pilot v4_mir_field_growth_ty = v4_ty_lower_resolve(2, v4_mir_field_growth_resolve)
+pilot v4_mir_field_growth_mir = v4_mir_lower_ty(2, v4_mir_field_growth_ty)
+pilot v4_mir_field_growth_def = v4_resolve_def_for_name(v4_mir_field_growth_resolve, "train")
+pilot v4_mir_field_growth_body = v4_mir_lookup_body(v4_mir_field_growth_mir, v4_mir_field_growth_def)
+pilot v4_mir_field_growth_block = v4_mir_body_block(v4_mir_field_growth_mir, v4_mir_field_growth_body, 0)
+
+say "field-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_field_growth_mir))
+say "field-growth-block-cond=" + v4_mir_block_condition(v4_mir_field_growth_block)
+
+pilot v4_mir_bad_field_growth_source = v4_mir_loop_make_bad_field_growth_source()
+pilot v4_mir_bad_field_growth_stream = v4_lex_text(3, v4_mir_bad_field_growth_source)
+pilot v4_mir_bad_field_growth_tree = v4_parse_stream(3, v4_mir_bad_field_growth_stream)
+pilot v4_mir_bad_field_growth_hir = v4_hir_lower_tree(3, v4_mir_bad_field_growth_tree)
+pilot v4_mir_bad_field_growth_resolve = v4_resolve_lower_hir(3, v4_mir_bad_field_growth_hir)
+pilot v4_mir_bad_field_growth_ty = v4_ty_lower_resolve(3, v4_mir_bad_field_growth_resolve)
+pilot v4_mir_bad_field_growth_mir = v4_mir_lower_ty(3, v4_mir_bad_field_growth_ty)
+
+say "bad-field-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_field_growth_mir))
+say "bad-field-growth-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_field_growth_mir, 0))

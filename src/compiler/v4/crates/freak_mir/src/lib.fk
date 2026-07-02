@@ -6738,24 +6738,59 @@ task v4_mir_find_assignment_operator_token(stream_id: int, start_token: int, end
     give back 0 - 1
 }
 
-task v4_mir_condition_subject(stream_id: int, condition_start: int, condition_end: int) -> word {
+task v4_mir_growth_condition_boundary(value: word) -> bool {
+    give back value == "==" or value == "!=" or value == "<" or value == "<=" or value == ">" or value == ">=" or value == "and" or value == "or" or value == "&&" or value == "||"
+}
+
+task v4_mir_condition_subject_place(stream_id: int, condition_start: int, condition_end: int) -> word {
     pilot first = v4_mir_skip_trivia(stream_id, condition_start)
     if first >= condition_end {
         give back ""
     }
-    give back v4_lex_token_value(stream_id, first)
+    pilot idx = first
+    pilot depth = 0
+    repeat until idx >= condition_end {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot val = v4_lex_token_value(stream_id, idx)
+            if depth == 0 and v4_mir_growth_condition_boundary(val) {
+                give back v4_mir_compact_type_text(v4_mir_expr_text(stream_id, first, idx))
+            }
+            depth = v4_mir_depth_after_token(depth, val)
+        }
+        idx += 1
+    }
+    give back v4_mir_compact_type_text(v4_mir_expr_text(stream_id, first, condition_end))
 }
 
-task v4_mir_body_mutates_local(stream_id: int, open_token: int, close_token: int, local_name: word) -> bool {
-    if local_name == "" {
+task v4_mir_assignment_lhs_start(stream_id: int, lower_bound: int, op_token: int) -> int {
+    pilot idx = op_token - 1
+    repeat until idx < lower_bound {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        pilot val = v4_lex_token_value(stream_id, idx)
+        if tok_type == v4_tok_trivia {
+            if val == "\n" {
+                give back idx + 1
+            }
+        } else if val == ";" or val == "{" or val == "}" or val == "=>" {
+            give back idx + 1
+        }
+        idx -= 1
+    }
+    give back lower_bound
+}
+
+task v4_mir_body_mutates_place(stream_id: int, open_token: int, close_token: int, place_text: word) -> bool {
+    pilot wanted = v4_mir_compact_type_text(place_text)
+    if wanted == "" {
         give back false
     }
 
     pilot idx = open_token + 1
     repeat until idx >= close_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_value(stream_id, idx) == local_name {
-            pilot op_token = v4_mir_next_nontrivia(stream_id, idx + 1, close_token)
-            if op_token < close_token and v4_mir_assignment_operator(v4_lex_token_value(stream_id, op_token)) {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_mir_assignment_operator(v4_lex_token_value(stream_id, idx)) {
+            pilot lhs_start = v4_mir_assignment_lhs_start(stream_id, open_token + 1, idx)
+            pilot lhs_text = v4_mir_compact_type_text(v4_mir_expr_text(stream_id, lhs_start, idx))
+            if lhs_text == wanted {
                 give back true
             }
         }
@@ -6804,8 +6839,8 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
         }
     }
     if has_growth {
-        pilot growth_subject = v4_mir_condition_subject(stream_id, condition_start, max_token)
-        if v4_mir_body_mutates_local(stream_id, open_token, close_token, growth_subject) == false {
+        pilot growth_subject = v4_mir_condition_subject_place(stream_id, condition_start, max_token)
+        if v4_mir_body_mutates_place(stream_id, open_token, close_token, growth_subject) == false {
             v4_mir_add_type_error(mir_id, stmt_span, "training arc with growth must mutate condition subject", "Yuuko found no progress for " + growth_subject)
         }
     }
