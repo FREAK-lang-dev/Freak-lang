@@ -41,7 +41,8 @@ Semantic Core forms are still moving. Each new source form must become a full
 vertical slice before the next dependency gate opens.
 
 Current Phase 1 landings already cover routes/variants, alias-backed pattern
-surfaces, tuple and fixed-array local/editor facts, module/glob import call
+surfaces, exhaustive route/variant `when` and `check route` diagnostics through
+alias-backed scrutinee types, tuple and fixed-array local/editor facts, module/glob import call
 resolution, root `fixed pilot` constants with cycle diagnostics plus composite
 tuple/list/repeat-fill inference, generic shape/route constructor inference,
 constructor-payload validation, const-task-call type inference plus

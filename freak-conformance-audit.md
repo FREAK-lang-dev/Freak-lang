@@ -49,10 +49,10 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 
 | # | Bible promise | Reality | Severity | Verdict |
 |---|---|---|---|---|
-| 1 | `variant` sum types with destructuring patterns | Not in lexer/parser/checker | 🔴 | 📖 V4 |
+| 1 | `variant` sum types with destructuring patterns | V4 parses `variant` through the route representation, carries payload constructors/patterns through TY/MIR/editor, and now pins alias-backed exhaustiveness diagnostics; backend layout still expands | 🟡 | 📖 V4 |
 | 2 | `mood`, `prob`, `power`, `causality` types | No layer | 🔴 | 📖 V4 |
 | 3 | `prob_when` branching | Not parsed | 🔴 | 📖 V4 |
-| 4 | Pattern destructuring in `when` | Literal patterns only | 🔴 | 📖 V4 |
+| 4 | Pattern destructuring in `when` | V4 lowers tuple, fixed-array, and route/variant payload patterns with refutable-pattern and exhaustiveness diagnostics; broader pattern forms still expand | 🟡 | 📖 V4 |
 | 5 | Squadron concurrency: `xm3`, `sortie`, `formation`, `briefing room`, `wingman` | Only `std::thread` | 🔴 | 📖 V4 |
 | 6 | Full borrow checker: `lend`/`lend mut`, `'a` lifetimes, `Shared<T>`/`Weak<T>` | Phase-1 BC only (mut + move), behind `--strict-borrow` | 🟡 | 📖 split into Phase-1 (current) + V4 sections |
 | 7 | `dyn Doctrine` dynamic dispatch | Not implemented | 🔴 | 📖 V4 |
@@ -161,8 +161,8 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
 | `if`/`else` | ✅ | ✅ | |
-| `when` pattern matching with literal patterns | ⚠️ | 📖 V4 | only literals, no destructuring |
-| `when` pattern destructuring `Variant::Case { field }` | ❌ | 📖 V4 | core gap |
+| `when` pattern matching with literal patterns | ⚠️ | 📖 V4 | V4 also lowers tuple, fixed-array, and route/variant payload patterns; production V3 remains narrower |
+| `when` pattern destructuring `Variant::Case { field }` | ⚠️ | 📖 V4 | V4 carries payload destructuring, refutable-pattern checks, exhaustive route/variant `when`, and alias-backed duplicate/unreachable diagnostics; broader pattern ergonomics still expand |
 | `for each item in list` | ✅ | ✅ | |
 | `repeat N times` | ✅ | ✅ | |
 | `repeat until condition` | ✅ | ✅ | |
@@ -210,9 +210,9 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `variant Foo { Case1, Case2 { fields } }` sum types | ❌ | 📖 V4 | parser has no variant production |
-| Pattern matching on variants exhaustive | ❌ | 📖 V4 | depends on variants |
-| `alias Matrix = [[num; 4]; 4]` type aliases | ❌ | 📖 V4 | not parsed |
+| `variant Foo { Case1, Case2 { fields } }` sum types | ⚠️ | 📖 V4 | V4 parses `variant` as the route-family sum-type representation and carries cases through TY/MIR/editor/snapshot queries; final backend layout remains later |
+| Pattern matching on variants exhaustive | ⚠️ | 📖 V4 | V4 diagnoses missing and unreachable route/variant arms, including alias-backed scrutinee types |
+| `alias Matrix = [[num; 4]; 4]` type aliases | ⚠️ | 📖 V4 | V4 parses aliases, canonicalizes through TY/MIR, diagnoses alias cycles, and preserves editor/query facts; production V3 remains narrower |
 | `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; integer const chains/arithmetic, tuple/list/repeat-fill plus generic shape/route-constructor type inference, const task calls, constructor payload validation, and declared initializer mismatch diagnostics are in V4, full const-eval remains |
 
 #### §1.15 Literals
