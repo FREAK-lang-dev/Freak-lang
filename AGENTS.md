@@ -246,20 +246,136 @@ Agents must not:
 - mark work complete with failing required checks
 - rewrite shared architecture rules to fit their local patch
 
+### Agent Roles
+
+Use named agent roles so parallel work has review pressure, not just more edits.
+
+| Role | Owns | Writes? | Required Output |
+|---|---|---|---|
+| **Lead** | task decomposition, integration branch, final PR | yes | plan, merged commits, final validation, PR |
+| **Worker** | one bounded implementation slice | yes | commit hash, files changed, checks run, risks |
+| **Reviewer** | code review of a branch or diff | no by default | findings with file/line references, severity, test gaps |
+| **Conformance Agent** | bible/audit/status/check alignment | docs/checks only if assigned | contract verdict, required doc/check updates, gaps |
+| **CI Agent** | failing GitHub Actions or slow check investigation | yes, only in CI/tooling scope | failing job, root cause, fix commit or blocker |
+| **Release Agent** | version, packaging, installer, tag readiness | yes, only in release scope | version matrix, artifact/check evidence |
+
+Do not use workers as reviewers of their own patch. A worker may explain tradeoffs, but a separate reviewer or the lead must verify the diff.
+
+### Review Agents
+
+Spawn a reviewer agent when any of these are true:
+
+- the patch touches parser, HIR, TY, MIR, borrowck, LLVM, snapshots, LSP, CI, release, or installer logic
+- two or more workers contributed to one integration branch
+- the change modifies public language behavior, diagnostics, wire protocols, or bible/audit status
+- the lead feels tempted to merge based only on passing tests
+
+Reviewer prompt template:
+
+```text
+Review branch/diff: <branch or path>.
+
+Scope:
+- inspect only the changed files and directly related call sites
+- prioritize bugs, regressions, missing tests, boundary violations, and stale docs
+- do not rewrite code unless explicitly asked
+- stay read-only: do not switch branches, stage files, commit, push, or resolve conflicts
+
+Output:
+- findings first, ordered by severity
+- file/line references
+- open questions
+- residual test risk
+```
+
+Reviewer findings are not automatically binding. The lead decides, but must explicitly address or reject every high-severity finding before opening or updating a PR.
+
+### Conformance Agents
+
+Spawn a conformance agent when a slice changes language semantics or promotes a bible/audit contract.
+
+The conformance agent checks:
+
+1. `freak-full-bible.md` status rows and nearby normative text.
+2. `freak-conformance-audit.md` contract rows and divergence counts.
+3. `freakc/auditor.py` if the contract should become a regression guard.
+4. V4 smoke coverage in `src/compiler/v4/tests/` and `src/compiler/v4/check_v4.py`.
+5. Whether docs claim more than the implementation proves.
+
+Conformance prompt template:
+
+```text
+Conformance pass for <feature>.
+
+Read:
+- freak-full-bible.md relevant section
+- freak-conformance-audit.md relevant rows
+- changed implementation files
+- changed V4 smoke/check files
+
+Output:
+- bible status verdict: unchanged / partial / promoted
+- audit doc updates required
+- audit-conformance guard required: yes/no
+- missing happy-path, diagnostic, editor/query, or snapshot smoke
+- exact files to patch if changes are required
+```
+
+For V4 semantic slices, the conformance agent should run or request at least one focused smoke. If a full V4 gate is too slow, it must say which focused checks are enough and what CI still needs to prove.
+
+If the slice changes `freak-full-bible.md`, `freak-conformance-audit.md`, or `freakc/auditor.py`, the conformance agent must run or request `python -m freakc audit-conformance`.
+
+### Spawning More Workers
+
+The lead may spawn more workers after the initial split only when the new work has a clean ownership boundary.
+
+Good reasons:
+
+- a review finding exposes a localized fix in files no current worker owns
+- a conformance gap needs docs/audit/check updates separate from implementation
+- CI fails in a platform-specific path unrelated to the feature logic
+- a large feature naturally splits into more independent vertical slices
+
+Bad reasons:
+
+- the task is unclear
+- the lead has not reviewed current worker output
+- two workers would edit the same parser/typechecker block without a merge plan
+- checks are failing and nobody understands why
+
+When adding workers mid-flight, update the lane table in the working notes or PR body:
+
+```text
+Lane | Agent | Branch/worktree | Owned files | Status | Required checks
+```
+
+No more than one write-capable agent should own a file at the same time. This applies to workers, conformance agents, CI agents, release agents, and the lead. If ownership must transfer, say so explicitly in the handoff.
+
 ### Integration Workflow
 
 The lead integrates lanes in this order:
 
 1. Fetch or inspect each lane branch.
 2. Review `git diff origin/main...lane`.
-3. Reject noisy or out-of-scope changes before merge.
-4. Merge/cherry-pick one lane at a time into an integration branch.
-5. Resolve conflicts intentionally.
-6. Run targeted checks after each merge if the lane changed compiler behavior.
-7. Run broader checks after all lanes are integrated.
-8. Do the docs/audit/check harness pass last.
+3. Send diffs matching the review-agent trigger list to a reviewer agent before merge.
+4. Send semantic/status changes to a conformance agent before or during merge.
+5. Reject noisy or out-of-scope changes before merge.
+6. Confirm `git status --short --branch` is clean and points at the intended integration branch.
+7. Merge/cherry-pick one lane at a time into an integration branch.
+8. Resolve conflicts intentionally.
+9. Run targeted checks after each merge if the lane changed compiler behavior.
+10. Run broader checks after all lanes are integrated.
+11. Do the docs/audit/check harness pass last.
 
 For V4, prefer an integration branch when lanes together form one user-visible feature. Prefer separate PRs when lanes are independently useful and CI-stable.
+
+Before opening a PR, the lead should have:
+
+- worker commit evidence
+- reviewer verdict when the review-agent trigger list applies
+- conformance verdict for language semantics
+- focused local checks
+- explicit note for any broad gate skipped because it is too slow or CI-owned
 
 ### Parallel Sprint Patterns
 
