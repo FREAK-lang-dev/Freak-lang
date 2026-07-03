@@ -100,7 +100,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.4 Compound types (`maybe<T>`, `result<T,E>`) | ✅ Implemented |
 | §1.5 Shapes | ✅ Implemented |
 | §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships; V4 also parses and enforces doctrine bounds plus multi-bound generics across TY/MIR/editor; `Ord`/`Index`/`IndexMut`/`dyn` still expand |
-| §1.7 Control flow | ⚠️ Partial — V4 carries tuple, fixed-array, and route/variant payload pattern destructuring with exhaustiveness diagnostics; `prob_when`, `training arc with growth`, and broader pattern ergonomics remain 🔜 V4 |
+| §1.7 Control flow | ⚠️ Partial — V4 carries tuple, fixed-array, and route/variant payload pattern destructuring with exhaustiveness diagnostics plus `training arc with growth` mutation checks for local and projected places; `prob_when` and broader pattern ergonomics remain 🔜 V4 |
 | §1.8 Closures | ⚠️ Partial — `copy`/`move`/`mut` closure modes parsed, semantics 🔜 V4 |
 | §1.9 Pipe operator `\|>` | ✅ Implemented |
 | §1.10 Error handling (`?`, `or else`, `check`) | ✅ Implemented |
@@ -1179,7 +1179,7 @@ strict semantic enforcement is mostly V4.
 | §5.3 Route system (`route`, `check route`, `only on … from`) | 🔜 V4 — `route` lexes as a keyword but the route declaration grammar and route-locked scopes are V4. |
 | §5.4 Anime operators (`PLUS ULTRA`, `NAKAMA`, `FINAL FORM`, `TSUNDERE`) | ⚠️ Partial — multi-word tokens lex; codegen and the `FINAL FORM` 5-second build pause are 🔜 V4. |
 | §5.5 `deus_ex_machina` block | ⚠️ Partial — 20-word minimum is enforced (compile error if shorter). The "all safety checks suspended within the block" semantic, the `>3 = warning` / `>10 = error` codebase-wide limit, and pragma-level optimization codegen are 🔜 V4. `freak audit-miracles` reports every block. |
-| §5.6 Training arc loop | ⚠️ Partial — `training arc until cond max N sessions` parses and emits as a bounded while loop. `with growth` variant (compile-time mutation check) is 🔜 V4. |
+| §5.6 Training arc loop | ⚠️ Partial — `training arc until cond max N sessions` parses and emits as a bounded while loop. V4 enforces the `with growth` compile-time mutation check for local and projected condition subjects; production backend parity still expands. |
 | §5.7 Isekai and Eventually | ⚠️ Partial — both parse; `isekai { } bringing back { vars }` emits as a nested scope but does not strictly validate exports. `eventually { }` emits inline rather than LIFO-deferred (it does not run on `give back` / `panic` / `break` reliably). True deferred semantics are 🔜 V4. |
 
 ### 5.1 Annotations
