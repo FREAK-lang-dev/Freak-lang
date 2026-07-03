@@ -1255,6 +1255,60 @@ def audit_conformance(paths: List[Path]) -> int:
     if shared_weak_missing:
         failures.append("V4 Shared/Weak ownership surface regressed: " + "; ".join(shared_weak_missing))
 
+    # Check 14: V4 training arc growth checks
+    growth_missing: List[str] = []
+    v4_growth_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_loop_desugar_smoke.fk"
+    v4_mir_lib_growth = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_check_harness_growth = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    if v4_mir_lib_growth.exists():
+        mir_src = v4_mir_lib_growth.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_condition_subject_place",
+            "v4_mir_condition_place_prefix_end",
+            "v4_mir_body_mutates_place",
+            "v4_mir_growth_place_base",
+            'or val == "->"',
+            "lhs_text == wanted_base",
+        ):
+            if needle not in mir_src:
+                growth_missing.append(f"freak_mir: {needle}")
+    else:
+        growth_missing.append("freak_mir/src/lib.fk missing")
+    if v4_growth_smoke.exists():
+        smoke_src = v4_growth_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_loop_make_field_growth_source",
+            "v4_mir_loop_make_bad_field_growth_source",
+            "v4_mir_loop_make_arm_growth_source",
+            "v4_mir_loop_make_base_growth_source",
+            "v4_mir_loop_make_expr_growth_source",
+            "bad-field-growth-help=",
+        ):
+            if needle not in smoke_src:
+                growth_missing.append(f"mir_loop_desugar_smoke: {needle}")
+    else:
+        growth_missing.append("smoke fixture: mir_loop_desugar_smoke.fk")
+    if v4_check_harness_growth.exists():
+        harness_src = v4_check_harness_growth.read_text(encoding="utf-8")
+        for needle in (
+            "field-growth-diagnostics=0",
+            "bad-field-growth-help=Yuuko found no progress for ship.power",
+            "arm-growth-diagnostics=0",
+            "base-growth-diagnostics=0",
+            "expr-growth-diagnostics=0",
+        ):
+            if needle not in harness_src:
+                growth_missing.append(f"check_v4.py: {needle}")
+    else:
+        growth_missing.append("check_v4.py harness missing")
+    add(
+        "V4 growth checks",
+        not growth_missing,
+        "MIR projected/base/arm/expression growth smokes wired" if not growth_missing else f"{len(growth_missing)} gap(s)",
+    )
+    if growth_missing:
+        failures.append("V4 training arc growth checks regressed: " + "; ".join(growth_missing))
+
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")

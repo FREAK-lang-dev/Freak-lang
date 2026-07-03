@@ -1546,6 +1546,8 @@ EXECUTABLE_SMOKES = [
             "bad-field-growth-diagnostics=1",
             "bad-field-growth-help=Yuuko found no progress for ship.power",
             "arm-growth-diagnostics=0",
+            "base-growth-diagnostics=0",
+            "expr-growth-diagnostics=0",
         ],
     },
     {
