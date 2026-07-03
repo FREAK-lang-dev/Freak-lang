@@ -1751,6 +1751,21 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "alias nominality doctrine impl diagnostics",
+        "fixture": "alias_nominality_smoke.fk",
+        "expect": [
+            "alias-nominality-bad-parse-diagnostics=0",
+            "alias-nominality-bad-ty-diagnostics=1",
+            "alias-nominality-bad-message=Yuuko nominality breach: alias Name cannot receive doctrine Display",
+            "alias-nominality-bad-help=Name aliases int; use a one-field shape when Name needs its own doctrine impl",
+            "alias-nominality-bad-name-satisfies=false",
+            "alias-nominality-bad-int-satisfies=false",
+            "alias-nominality-shape-parse-diagnostics=0",
+            "alias-nominality-shape-ty-diagnostics=0",
+            "alias-nominality-shape-satisfies=true",
+        ],
+    },
+    {
         "name": "MIR generic alias-backed route patterns",
         "fixture": "mir_generic_alias_route_smoke.fk",
         "expect": [

@@ -1,0 +1,61 @@
+-- V4 alias nominality smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_alias_nominality_bool_text(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_alias_nominality_bad_source() -> word {
+    pilot src = "doctrine Display {\n"
+    src = src + "    task display(self) -> word\n"
+    src = src + "}\n"
+    src = src + "alias Name = int\n"
+    src = src + "impl Display for Name {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back \"bad\"\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_alias_nominality_shape_source() -> word {
+    pilot src = "doctrine Display {\n"
+    src = src + "    task display(self) -> word\n"
+    src = src + "}\n"
+    src = src + "shape Name {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "impl Display for Name {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back \"shape\"\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_alias_nominality_bad_text = v4_alias_nominality_bad_source()
+pilot v4_alias_nominality_bad_stream = v4_lex_text(0, v4_alias_nominality_bad_text)
+pilot v4_alias_nominality_bad_tree = v4_parse_stream(0, v4_alias_nominality_bad_stream)
+pilot v4_alias_nominality_bad_hir = v4_hir_lower_tree(0, v4_alias_nominality_bad_tree)
+pilot v4_alias_nominality_bad_resolve = v4_resolve_lower_hir(0, v4_alias_nominality_bad_hir)
+pilot v4_alias_nominality_bad_ty = v4_ty_lower_resolve(0, v4_alias_nominality_bad_resolve)
+
+pilot v4_alias_nominality_shape_text = v4_alias_nominality_shape_source()
+pilot v4_alias_nominality_shape_stream = v4_lex_text(1, v4_alias_nominality_shape_text)
+pilot v4_alias_nominality_shape_tree = v4_parse_stream(1, v4_alias_nominality_shape_stream)
+pilot v4_alias_nominality_shape_hir = v4_hir_lower_tree(1, v4_alias_nominality_shape_tree)
+pilot v4_alias_nominality_shape_resolve = v4_resolve_lower_hir(1, v4_alias_nominality_shape_hir)
+pilot v4_alias_nominality_shape_ty = v4_ty_lower_resolve(1, v4_alias_nominality_shape_resolve)
+
+say "alias-nominality-bad-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_alias_nominality_bad_tree))
+say "alias-nominality-bad-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_alias_nominality_bad_ty))
+say "alias-nominality-bad-message=" + v4_diag_message(v4_ty_diag(v4_alias_nominality_bad_ty, 0))
+say "alias-nominality-bad-help=" + v4_diag_help(v4_ty_diag(v4_alias_nominality_bad_ty, 0))
+say "alias-nominality-bad-name-satisfies=" + v4_alias_nominality_bool_text(v4_ty_type_satisfies_doctrine(v4_alias_nominality_bad_ty, "Name", "Display"))
+say "alias-nominality-bad-int-satisfies=" + v4_alias_nominality_bool_text(v4_ty_type_satisfies_doctrine(v4_alias_nominality_bad_ty, "int", "Display"))
+say "alias-nominality-shape-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_alias_nominality_shape_tree))
+say "alias-nominality-shape-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_alias_nominality_shape_ty))
+say "alias-nominality-shape-satisfies=" + v4_alias_nominality_bool_text(v4_ty_type_satisfies_doctrine(v4_alias_nominality_shape_ty, "Name", "Display"))
