@@ -1548,6 +1548,7 @@ EXECUTABLE_SMOKES = [
             "arm-growth-diagnostics=0",
             "base-growth-diagnostics=0",
             "expr-growth-diagnostics=0",
+            "paren-growth-diagnostics=0",
         ],
     },
     {

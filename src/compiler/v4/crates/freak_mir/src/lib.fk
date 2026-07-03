@@ -6804,6 +6804,12 @@ task v4_mir_condition_subject_place(stream_id: int, condition_start: int, condit
     if first >= condition_end {
         give back ""
     }
+    if v4_lex_token_value(stream_id, first) == "(" {
+        pilot close_paren = v4_mir_find_matching_paren(stream_id, first, condition_end)
+        if close_paren > first {
+            give back v4_mir_condition_subject_place(stream_id, first + 1, close_paren)
+        }
+    }
     pilot place_end = v4_mir_condition_place_prefix_end(stream_id, first, condition_end)
     if place_end > first {
         give back v4_mir_compact_type_text(v4_mir_expr_text(stream_id, first, place_end))

@@ -95,6 +95,17 @@ task v4_mir_loop_make_expr_growth_source() -> word {
     give back src
 }
 
+task v4_mir_loop_make_paren_growth_source() -> word {
+    pilot src = "task train() -> int {\n"
+    src = src + "    pilot power = 1\n"
+    src = src + "    training arc until (power >= 8) max 4 sessions with growth {\n"
+    src = src + "        power += 1\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_mir_loop_source = v4_mir_loop_make_source()
 pilot v4_mir_loop_stream = v4_lex_text(0, v4_mir_loop_source)
 pilot v4_mir_loop_tree = v4_parse_stream(0, v4_mir_loop_stream)
@@ -199,3 +210,13 @@ pilot v4_mir_expr_growth_ty = v4_ty_lower_resolve(6, v4_mir_expr_growth_resolve)
 pilot v4_mir_expr_growth_mir = v4_mir_lower_ty(6, v4_mir_expr_growth_ty)
 
 say "expr-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_expr_growth_mir))
+
+pilot v4_mir_paren_growth_source = v4_mir_loop_make_paren_growth_source()
+pilot v4_mir_paren_growth_stream = v4_lex_text(7, v4_mir_paren_growth_source)
+pilot v4_mir_paren_growth_tree = v4_parse_stream(7, v4_mir_paren_growth_stream)
+pilot v4_mir_paren_growth_hir = v4_hir_lower_tree(7, v4_mir_paren_growth_tree)
+pilot v4_mir_paren_growth_resolve = v4_resolve_lower_hir(7, v4_mir_paren_growth_hir)
+pilot v4_mir_paren_growth_ty = v4_ty_lower_resolve(7, v4_mir_paren_growth_resolve)
+pilot v4_mir_paren_growth_mir = v4_mir_lower_ty(7, v4_mir_paren_growth_ty)
+
+say "paren-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_paren_growth_mir))

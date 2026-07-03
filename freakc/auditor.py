@@ -1282,6 +1282,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_mir_loop_make_arm_growth_source",
             "v4_mir_loop_make_base_growth_source",
             "v4_mir_loop_make_expr_growth_source",
+            "v4_mir_loop_make_paren_growth_source",
             "bad-field-growth-help=",
         ):
             if needle not in smoke_src:
@@ -1296,6 +1297,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "arm-growth-diagnostics=0",
             "base-growth-diagnostics=0",
             "expr-growth-diagnostics=0",
+            "paren-growth-diagnostics=0",
         ):
             if needle not in harness_src:
                 growth_missing.append(f"check_v4.py: {needle}")
