@@ -7121,7 +7121,8 @@ task v4_ty_validate_alias_cycles(ty_id: int) -> void {
     }
 }
 
-task v4_ty_validate_impl_alias_nominality(ty_id: int) -> void {
+-- alias nominality: aliases are substitutions, not fresh doctrine impl targets.
+task v4_ty_validate_alias_nominality(ty_id: int) -> void {
     pilot resolve_id = v4_ty_resolve_id(ty_id)
     pilot hir_id = v4_resolve_hir_id(resolve_id)
     if hir_id < 0 {
@@ -8486,7 +8487,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
     v4_ty_validate_extern_ffi_contracts(ty_id)
     v4_ty_validate_extern_callback_export_contracts(ty_id)
     v4_ty_validate_alias_cycles(ty_id)
-    v4_ty_validate_impl_alias_nominality(ty_id)
+    v4_ty_validate_alias_nominality(ty_id)
     v4_ty_validate_const_cycles(ty_id)
     v4_ty_validate_const_initializers(ty_id)
     give back ty_id

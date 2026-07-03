@@ -1,4 +1,5 @@
 -- V4 alias nominality smoke fixture.
+-- expected aggregate marker: alias-nominality-diagnostics=1
 -- Verification prepends the V4 crates before this file.
 
 task v4_alias_nominality_bool_text(value: bool) -> word {
@@ -51,6 +52,7 @@ pilot v4_alias_nominality_shape_resolve = v4_resolve_lower_hir(1, v4_alias_nomin
 pilot v4_alias_nominality_shape_ty = v4_ty_lower_resolve(1, v4_alias_nominality_shape_resolve)
 
 say "alias-nominality-bad-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_alias_nominality_bad_tree))
+say "alias-nominality-diagnostics=" + word_from_int(v4_ty_diag_count(v4_alias_nominality_bad_ty))
 say "alias-nominality-bad-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_alias_nominality_bad_ty))
 say "alias-nominality-bad-message=" + v4_diag_message(v4_ty_diag(v4_alias_nominality_bad_ty, 0))
 say "alias-nominality-bad-help=" + v4_diag_help(v4_ty_diag(v4_alias_nominality_bad_ty, 0))

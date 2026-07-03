@@ -1755,6 +1755,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "alias_nominality_smoke.fk",
         "expect": [
             "alias-nominality-bad-parse-diagnostics=0",
+            "alias-nominality-diagnostics=1",
             "alias-nominality-bad-ty-diagnostics=1",
             "alias-nominality-bad-message=Yuuko nominality breach: alias Name cannot receive doctrine Display",
             "alias-nominality-bad-help=Name aliases int; use a one-field shape when Name needs its own doctrine impl",
