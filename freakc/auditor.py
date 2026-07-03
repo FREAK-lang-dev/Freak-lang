@@ -1314,6 +1314,55 @@ def audit_conformance(paths: List[Path]) -> int:
     if growth_missing:
         failures.append("V4 training arc growth checks regressed: " + "; ".join(growth_missing))
 
+    # Check 15: V4 alias nominality for doctrine impl targets
+    # Aliases are compile-time substitutions. The V4 TY layer must reject
+    # `impl Doctrine for Alias` instead of treating the alias as a fresh
+    # nominal type. Keep the markers stable so the implementation lane can
+    # satisfy this guard without broad alias-completeness overclaims.
+    alias_nominality_missing: List[str] = []
+    v4_ty_lib_alias_nominality = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_alias_nominality_smoke = repo / "src" / "compiler" / "v4" / "tests" / "alias_nominality_smoke.fk"
+    v4_check_harness_alias_nominality = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    if v4_ty_lib_alias_nominality.exists():
+        ty_src = v4_ty_lib_alias_nominality.read_text(encoding="utf-8")
+        for needle in (
+            "v4_ty_validate_alias_nominality",
+            "alias nominality",
+            "one-field shape",
+        ):
+            if needle not in ty_src:
+                alias_nominality_missing.append(f"freak_ty: {needle}")
+    else:
+        alias_nominality_missing.append("freak_ty/src/lib.fk missing")
+    if v4_alias_nominality_smoke.exists():
+        smoke_src = v4_alias_nominality_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "alias-nominality-diagnostics=1",
+            "alias nominality",
+        ):
+            if needle not in smoke_src:
+                alias_nominality_missing.append(f"alias_nominality_smoke: {needle}")
+    else:
+        alias_nominality_missing.append("smoke fixture: alias_nominality_smoke.fk")
+    if v4_check_harness_alias_nominality.exists():
+        harness_src = v4_check_harness_alias_nominality.read_text(encoding="utf-8")
+        for needle in (
+            "alias_nominality_smoke.fk",
+            "alias-nominality-diagnostics=1",
+            "alias nominality",
+        ):
+            if needle not in harness_src:
+                alias_nominality_missing.append(f"check_v4.py: {needle}")
+    else:
+        alias_nominality_missing.append("check_v4.py harness missing")
+    add(
+        "V4 alias nominality",
+        not alias_nominality_missing,
+        "TY alias impl diagnostic + smoke wired" if not alias_nominality_missing else f"{len(alias_nominality_missing)} gap(s)",
+    )
+    if alias_nominality_missing:
+        failures.append("V4 alias nominality doctrine-impl guard regressed: " + "; ".join(alias_nominality_missing))
+
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")
