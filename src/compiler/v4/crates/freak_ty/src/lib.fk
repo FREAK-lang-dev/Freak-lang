@@ -5248,21 +5248,49 @@ task v4_ty_impl_target_span_from_hir(ty_id: int, hir_item: int) -> word {
     give back v4_ty_span_from_tokens(stream_id, type_start, open_token)
 }
 
-task v4_ty_alias_name_from_surface_type(ty_id: int, type_text: word) -> word {
+task v4_ty_alias_lookup_name_from_surface_name(ty_id: int, surface_name: word) -> word {
+    if surface_name == "" or surface_name == v4_ty_unknown {
+        give back ""
+    }
+    if v4_ty_alias_signature_id_for_name(ty_id, surface_name) >= 0 {
+        give back surface_name
+    }
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    if resolve_id >= 0 {
+        pilot expanded = v4_resolve_expand_import_name(resolve_id, surface_name)
+        if expanded != "" and expanded != surface_name {
+            if v4_ty_alias_signature_id_for_name(ty_id, expanded) >= 0 {
+                give back expanded
+            }
+        }
+    }
+    give back ""
+}
+
+task v4_ty_alias_lookup_type_from_surface_type(ty_id: int, type_text: word) -> word {
     if type_text == "" or type_text == v4_ty_unknown {
         give back ""
     }
     if v4_ty_is_generic_instance_type(type_text) {
         pilot base_name = v4_ty_generic_base_name(type_text)
-        if v4_ty_alias_signature_id_for_name(ty_id, base_name) >= 0 {
-            give back base_name
+        pilot lookup_base = v4_ty_alias_lookup_name_from_surface_name(ty_id, base_name)
+        if lookup_base != "" {
+            give back lookup_base + v4_slice(type_text, base_name.length(), type_text.length())
         }
         give back ""
     }
-    if v4_ty_alias_signature_id_for_name(ty_id, type_text) >= 0 {
-        give back type_text
+    give back v4_ty_alias_lookup_name_from_surface_name(ty_id, type_text)
+}
+
+task v4_ty_alias_name_from_surface_type(ty_id: int, type_text: word) -> word {
+    pilot lookup_type = v4_ty_alias_lookup_type_from_surface_type(ty_id, type_text)
+    if lookup_type == "" {
+        give back ""
     }
-    give back ""
+    if v4_ty_is_generic_instance_type(lookup_type) {
+        give back v4_ty_generic_base_name(lookup_type)
+    }
+    give back lookup_type
 }
 
 task v4_ty_impl_target_alias_name_from_hir(ty_id: int, hir_item: int) -> word {
@@ -5600,6 +5628,9 @@ task v4_ty_impl_generic_env_for_owner(ty_id: int, hir_item: int, owner_ty: word)
 }
 
 task v4_ty_impl_matches_owner(ty_id: int, hir_item: int, owner_ty: word) -> bool {
+    if v4_ty_impl_target_alias_name_from_hir(ty_id, hir_item) != "" {
+        give back false
+    }
     give back v4_ty_impl_generic_env_for_owner(ty_id, hir_item, owner_ty) != v4_ty_generic_env_fail
 }
 
@@ -7138,7 +7169,8 @@ task v4_ty_validate_alias_nominality(ty_id: int) -> void {
                 pilot target_type = v4_ty_impl_target_type_from_hir(ty_id, hir_item)
                 pilot alias_name = v4_ty_alias_name_from_surface_type(ty_id, target_type)
                 if alias_name != "" {
-                    pilot alias_target = v4_ty_alias_target_type(ty_id, target_type)
+                    pilot alias_lookup_type = v4_ty_alias_lookup_type_from_surface_type(ty_id, target_type)
+                    pilot alias_target = v4_ty_alias_target_type(ty_id, alias_lookup_type)
                     pilot target_help = ""
                     if alias_target != "" and alias_target != v4_ty_unknown {
                         target_help = alias_name + " aliases " + alias_target + "; "
