@@ -2,6 +2,8 @@
 -- expected aggregate marker: alias-nominality-diagnostics=1
 -- expected method marker: alias-nominality-bad-method-ref-empty=true
 -- expected import marker: alias-nominality-imported-ty-diagnostics=1
+-- expected glob marker: alias-nominality-glob-ty-diagnostics=1
+-- expected inherent marker: alias-nominality-inherent-name-method-ref-present=true
 -- Verification prepends the V4 crates before this file.
 
 task v4_alias_nominality_bool_text(value: bool) -> word {
@@ -53,6 +55,33 @@ task v4_alias_nominality_imported_source() -> word {
     give back src
 }
 
+task v4_alias_nominality_glob_source() -> word {
+    pilot src = "doctrine Display {\n"
+    src = src + "    task display(self) -> word\n"
+    src = src + "}\n"
+    src = src + "alias util::Name = int\n"
+    src = src + "use util::*\n"
+    src = src + "impl Display for Name {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back \"bad\"\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_alias_nominality_inherent_source() -> word {
+    pilot src = "shape Box {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "alias Name = Box\n"
+    src = src + "impl Name {\n"
+    src = src + "    task get(self) -> int {\n"
+    src = src + "        give back 7\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_alias_nominality_bad_text = v4_alias_nominality_bad_source()
 pilot v4_alias_nominality_bad_stream = v4_lex_text(0, v4_alias_nominality_bad_text)
 pilot v4_alias_nominality_bad_tree = v4_parse_stream(0, v4_alias_nominality_bad_stream)
@@ -77,6 +106,22 @@ pilot v4_alias_nominality_imported_resolve = v4_resolve_lower_hir(2, v4_alias_no
 pilot v4_alias_nominality_imported_ty = v4_ty_lower_resolve(2, v4_alias_nominality_imported_resolve)
 pilot v4_alias_nominality_imported_mir = v4_mir_lower_ty(2, v4_alias_nominality_imported_ty)
 
+pilot v4_alias_nominality_glob_text = v4_alias_nominality_glob_source()
+pilot v4_alias_nominality_glob_stream = v4_lex_text(3, v4_alias_nominality_glob_text)
+pilot v4_alias_nominality_glob_tree = v4_parse_stream(3, v4_alias_nominality_glob_stream)
+pilot v4_alias_nominality_glob_hir = v4_hir_lower_tree(3, v4_alias_nominality_glob_tree)
+pilot v4_alias_nominality_glob_resolve = v4_resolve_lower_hir(3, v4_alias_nominality_glob_hir)
+pilot v4_alias_nominality_glob_ty = v4_ty_lower_resolve(3, v4_alias_nominality_glob_resolve)
+pilot v4_alias_nominality_glob_mir = v4_mir_lower_ty(3, v4_alias_nominality_glob_ty)
+
+pilot v4_alias_nominality_inherent_text = v4_alias_nominality_inherent_source()
+pilot v4_alias_nominality_inherent_stream = v4_lex_text(4, v4_alias_nominality_inherent_text)
+pilot v4_alias_nominality_inherent_tree = v4_parse_stream(4, v4_alias_nominality_inherent_stream)
+pilot v4_alias_nominality_inherent_hir = v4_hir_lower_tree(4, v4_alias_nominality_inherent_tree)
+pilot v4_alias_nominality_inherent_resolve = v4_resolve_lower_hir(4, v4_alias_nominality_inherent_hir)
+pilot v4_alias_nominality_inherent_ty = v4_ty_lower_resolve(4, v4_alias_nominality_inherent_resolve)
+pilot v4_alias_nominality_inherent_mir = v4_mir_lower_ty(4, v4_alias_nominality_inherent_ty)
+
 say "alias-nominality-bad-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_alias_nominality_bad_tree))
 say "alias-nominality-diagnostics=" + word_from_int(v4_ty_diag_count(v4_alias_nominality_bad_ty))
 say "alias-nominality-bad-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_alias_nominality_bad_ty))
@@ -98,3 +143,15 @@ say "alias-nominality-imported-name-satisfies=" + v4_alias_nominality_bool_text(
 say "alias-nominality-imported-expanded-satisfies=" + v4_alias_nominality_bool_text(v4_ty_type_satisfies_doctrine(v4_alias_nominality_imported_ty, "util::Name", "Display"))
 say "alias-nominality-imported-method-ref-empty=" + v4_alias_nominality_bool_text(v4_mir_find_method_ref(v4_alias_nominality_imported_mir, "Name", "display", true) == "")
 say "alias-nominality-imported-doctrine-method-ref-empty=" + v4_alias_nominality_bool_text(v4_mir_find_doctrine_impl_method_ref(v4_alias_nominality_imported_mir, "Name", "Display", "display") == "")
+say "alias-nominality-glob-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_alias_nominality_glob_tree))
+say "alias-nominality-glob-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_alias_nominality_glob_ty))
+say "alias-nominality-glob-message=" + v4_diag_message(v4_ty_diag(v4_alias_nominality_glob_ty, 0))
+say "alias-nominality-glob-help=" + v4_diag_help(v4_ty_diag(v4_alias_nominality_glob_ty, 0))
+say "alias-nominality-glob-name-satisfies=" + v4_alias_nominality_bool_text(v4_ty_type_satisfies_doctrine(v4_alias_nominality_glob_ty, "Name", "Display"))
+say "alias-nominality-glob-expanded-satisfies=" + v4_alias_nominality_bool_text(v4_ty_type_satisfies_doctrine(v4_alias_nominality_glob_ty, "util::Name", "Display"))
+say "alias-nominality-glob-method-ref-empty=" + v4_alias_nominality_bool_text(v4_mir_find_method_ref(v4_alias_nominality_glob_mir, "Name", "display", true) == "")
+say "alias-nominality-glob-doctrine-method-ref-empty=" + v4_alias_nominality_bool_text(v4_mir_find_doctrine_impl_method_ref(v4_alias_nominality_glob_mir, "Name", "Display", "display") == "")
+say "alias-nominality-inherent-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_alias_nominality_inherent_tree))
+say "alias-nominality-inherent-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_alias_nominality_inherent_ty))
+say "alias-nominality-inherent-name-method-ref-present=" + v4_alias_nominality_bool_text(v4_mir_find_method_ref(v4_alias_nominality_inherent_mir, "Name", "get", true) != "")
+say "alias-nominality-inherent-box-method-ref-present=" + v4_alias_nominality_bool_text(v4_mir_find_method_ref(v4_alias_nominality_inherent_mir, "Box", "get", true) != "")

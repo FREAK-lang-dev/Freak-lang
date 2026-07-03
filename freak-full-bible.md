@@ -2851,7 +2851,7 @@ Rules:
 - `ErrorType` unifies with any type only to continue analysis; it must not reach codegen.
 - Type identity for shapes, variants, and doctrines is nominal and includes the defining package and module.
 - Type identity for aliases is structural after expansion.
-- A doctrine impl target must resolve to a nominal type. Naming an alias in `impl D for Alias` does not create a separate impl slot; use a one-field `shape` when nominal distinction is required.
+- Naming an alias in `impl D for Alias` does not create a separate doctrine impl slot. V4 rejects doctrine impls whose target resolves to an alias; use a one-field `shape` when nominal distinction is required.
 
 ### 17.4 Module Resolution Edge Cases
 

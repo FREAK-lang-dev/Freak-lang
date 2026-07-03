@@ -5257,6 +5257,17 @@ task v4_ty_alias_lookup_name_from_surface_name(ty_id: int, surface_name: word) -
     }
     pilot resolve_id = v4_ty_resolve_id(ty_id)
     if resolve_id >= 0 {
+        pilot direct_symbol = v4_resolve_lookup_any(resolve_id, surface_name)
+        if direct_symbol >= 0 {
+            if v4_resolve_symbol_kind(resolve_id, direct_symbol) == v4_hir_alias {
+                pilot target_name = v4_resolve_symbol_target_name(resolve_id, direct_symbol)
+                if target_name != "" and target_name != surface_name {
+                    if v4_ty_alias_signature_id_for_name(ty_id, target_name) >= 0 {
+                        give back target_name
+                    }
+                }
+            }
+        }
         pilot expanded = v4_resolve_expand_import_name(resolve_id, surface_name)
         if expanded != "" and expanded != surface_name {
             if v4_ty_alias_signature_id_for_name(ty_id, expanded) >= 0 {
@@ -5628,7 +5639,7 @@ task v4_ty_impl_generic_env_for_owner(ty_id: int, hir_item: int, owner_ty: word)
 }
 
 task v4_ty_impl_matches_owner(ty_id: int, hir_item: int, owner_ty: word) -> bool {
-    if v4_ty_impl_target_alias_name_from_hir(ty_id, hir_item) != "" {
+    if v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item) != "" and v4_ty_impl_target_alias_name_from_hir(ty_id, hir_item) != "" {
         give back false
     }
     give back v4_ty_impl_generic_env_for_owner(ty_id, hir_item, owner_ty) != v4_ty_generic_env_fail

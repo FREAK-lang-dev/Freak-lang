@@ -1327,6 +1327,8 @@ def audit_conformance(paths: List[Path]) -> int:
         ty_src = v4_ty_lib_alias_nominality.read_text(encoding="utf-8")
         for needle in (
             "v4_ty_alias_lookup_type_from_surface_type",
+            "v4_resolve_symbol_target_name",
+            "v4_ty_impl_doctrine_name_from_hir",
             "v4_ty_validate_alias_nominality",
             "alias nominality",
             "one-field shape",
@@ -1341,6 +1343,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "alias-nominality-diagnostics=1",
             "alias-nominality-bad-method-ref-empty=true",
             "alias-nominality-imported-ty-diagnostics=1",
+            "alias-nominality-glob-ty-diagnostics=1",
+            "alias-nominality-inherent-name-method-ref-present=true",
             "alias nominality",
         ):
             if needle not in smoke_src:
@@ -1354,6 +1358,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "alias-nominality-diagnostics=1",
             "alias-nominality-bad-method-ref-empty=true",
             "alias-nominality-imported-ty-diagnostics=1",
+            "alias-nominality-glob-ty-diagnostics=1",
+            "alias-nominality-inherent-name-method-ref-present=true",
             "alias nominality",
         ):
             if needle not in harness_src:
