@@ -1267,8 +1267,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_mir_condition_place_prefix_end",
             "v4_mir_body_mutates_place",
             "v4_mir_growth_place_base",
+            "v4_mir_growth_place_prefix_matches",
             'or val == "->"',
-            "lhs_text == wanted_base",
+            "v4_mir_growth_place_prefix_matches(lhs_text, wanted)",
         ):
             if needle not in mir_src:
                 growth_missing.append(f"freak_mir: {needle}")
@@ -1283,6 +1284,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_mir_loop_make_base_growth_source",
             "v4_mir_loop_make_expr_growth_source",
             "v4_mir_loop_make_paren_growth_source",
+            "v4_mir_loop_make_prefix_growth_source",
             "bad-field-growth-help=",
         ):
             if needle not in smoke_src:
@@ -1298,6 +1300,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "base-growth-diagnostics=0",
             "expr-growth-diagnostics=0",
             "paren-growth-diagnostics=0",
+            "prefix-growth-diagnostics=0",
         ):
             if needle not in harness_src:
                 growth_missing.append(f"check_v4.py: {needle}")

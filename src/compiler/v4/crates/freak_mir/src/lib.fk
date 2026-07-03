@@ -6842,6 +6842,26 @@ task v4_mir_growth_place_base(place_text: word) -> word {
     give back place_text
 }
 
+task v4_mir_growth_place_prefix_matches(lhs_text: word, wanted_text: word) -> bool {
+    lhs_text = v4_mir_compact_type_text(lhs_text)
+    wanted_text = v4_mir_compact_type_text(wanted_text)
+    if lhs_text == "" or wanted_text == "" {
+        give back false
+    }
+    if lhs_text == wanted_text {
+        give back true
+    }
+    if lhs_text.length() >= wanted_text.length() {
+        give back false
+    }
+    if wanted_text.starts_with(lhs_text) == false {
+        give back false
+    }
+
+    pilot next = wanted_text.char_at(lhs_text.length())
+    give back next == "." or next == "["
+}
+
 task v4_mir_assignment_lhs_start(stream_id: int, lower_bound: int, op_token: int) -> int {
     pilot idx = op_token - 1
     repeat until idx < lower_bound {
@@ -6864,17 +6884,13 @@ task v4_mir_body_mutates_place(stream_id: int, open_token: int, close_token: int
     if wanted == "" {
         give back false
     }
-    pilot wanted_base = v4_mir_growth_place_base(wanted)
 
     pilot idx = open_token + 1
     repeat until idx >= close_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_mir_assignment_operator(v4_lex_token_value(stream_id, idx)) {
             pilot lhs_start = v4_mir_assignment_lhs_start(stream_id, open_token + 1, idx)
             pilot lhs_text = v4_mir_compact_type_text(v4_mir_expr_text(stream_id, lhs_start, idx))
-            if lhs_text == wanted {
-                give back true
-            }
-            if wanted_base != "" and wanted_base != wanted and lhs_text == wanted_base {
+            if v4_mir_growth_place_prefix_matches(lhs_text, wanted) {
                 give back true
             }
         }
