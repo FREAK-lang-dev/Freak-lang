@@ -1545,6 +1545,7 @@ EXECUTABLE_SMOKES = [
             "field-growth-block-cond=training arc until ship . power >= 8 max 4 with growth",
             "bad-field-growth-diagnostics=1",
             "bad-field-growth-help=Yuuko found no progress for ship.power",
+            "arm-growth-diagnostics=0",
         ],
     },
     {

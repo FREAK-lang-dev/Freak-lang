@@ -56,6 +56,19 @@ task v4_mir_loop_make_bad_field_growth_source() -> word {
     give back src
 }
 
+task v4_mir_loop_make_arm_growth_source() -> word {
+    pilot src = "task train() -> int {\n"
+    src = src + "    pilot power = 1\n"
+    src = src + "    training arc until power >= 8 max 4 sessions with growth {\n"
+    src = src + "        when power {\n"
+    src = src + "            _ -> power += 1\n"
+    src = src + "        }\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_mir_loop_source = v4_mir_loop_make_source()
 pilot v4_mir_loop_stream = v4_lex_text(0, v4_mir_loop_source)
 pilot v4_mir_loop_tree = v4_parse_stream(0, v4_mir_loop_stream)
@@ -130,3 +143,13 @@ pilot v4_mir_bad_field_growth_mir = v4_mir_lower_ty(3, v4_mir_bad_field_growth_t
 
 say "bad-field-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_field_growth_mir))
 say "bad-field-growth-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_field_growth_mir, 0))
+
+pilot v4_mir_arm_growth_source = v4_mir_loop_make_arm_growth_source()
+pilot v4_mir_arm_growth_stream = v4_lex_text(4, v4_mir_arm_growth_source)
+pilot v4_mir_arm_growth_tree = v4_parse_stream(4, v4_mir_arm_growth_stream)
+pilot v4_mir_arm_growth_hir = v4_hir_lower_tree(4, v4_mir_arm_growth_tree)
+pilot v4_mir_arm_growth_resolve = v4_resolve_lower_hir(4, v4_mir_arm_growth_hir)
+pilot v4_mir_arm_growth_ty = v4_ty_lower_resolve(4, v4_mir_arm_growth_resolve)
+pilot v4_mir_arm_growth_mir = v4_mir_lower_ty(4, v4_mir_arm_growth_ty)
+
+say "arm-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_arm_growth_mir))
