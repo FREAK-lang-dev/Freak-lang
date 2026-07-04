@@ -212,7 +212,8 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 |---|---|---|---|
 | `variant Foo { Case1, Case2 { fields } }` sum types | ⚠️ | 📖 V4 | V4 parses `variant` as the route-family sum-type representation and carries cases through TY/MIR/editor/snapshot queries; final backend layout remains later |
 | Pattern matching on variants exhaustive | ⚠️ | 📖 V4 | V4 diagnoses missing and unreachable route/variant arms, including alias-backed scrutinee types |
-| `alias Matrix = [[num; 4]; 4]` type aliases | ⚠️ | 📖 V4 | V4 parses aliases, canonicalizes through TY/MIR, diagnoses alias cycles, and preserves editor/query facts; production V3 remains narrower |
+| `alias Matrix = [[num; 4]; 4]` type aliases | ⚠️ | 📖 V4 | V4 parses aliases, canonicalizes through TY/MIR, diagnoses alias cycles, and preserves editor/query facts; production V3 remains narrower. This does not make aliases nominal types. |
+| `impl Doctrine for Alias` rejected as alias nominality violation | ⚠️ | 📖 V4 | Promoted V4 Semantic Core contract: aliases remain compile-time substitutions, so naming an alias cannot create a fresh doctrine impl slot. Use a nominal `shape` / `variant` when distinct doctrine identity is required. The conformance guard expects `v4_ty_validate_alias_nominality`, `alias-nominality-diagnostics=1`, and `alias nominality` markers. |
 | `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; integer const chains/arithmetic, tuple/list/repeat-fill plus generic shape/route-constructor type inference, const task calls, constructor payload validation, and declared initializer mismatch diagnostics are in V4, full const-eval remains |
 
 #### §1.15 Literals
@@ -465,6 +466,7 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 | Isekai export validation | ❌ | 📖 V4 |
 | Variant exhaustiveness | ❌ | 📖 V4 (no variants) |
 | Type alias expansion | ❌ | 📖 V4 |
+| Alias nominality for doctrine impl targets | ⚠️ | 📖 V4 | V4 TY must reject `impl Doctrine for Alias` instead of giving aliases a fresh nominal identity; broader alias completeness remains tracked by the alias expansion row. |
 | Root-level `fixed pilot` cycle detection | ✅ | ✅ |
 | Fixed array length compile-time constants | ⚠️ | 📖 V4 (literal + integer root-const arithmetic works; broader const-eval remains) |
 | `dyn` object-safety rules | ❌ | 📖 V4 |

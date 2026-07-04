@@ -107,7 +107,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.11 Generics | ⚠️ Partial — basic `<T>` plus doctrine and multi-bound generic constraints work in V4 query slices; full backend/monomorphization depth still expands |
 | §1.12 Borrow checker | ⚠️ Partial — see §4 |
 | §1.13 Modules | ⚠️ Partial — see §6 |
-| §1.14 Variants & aliases | ⚠️ Partial — V4 parses aliases and `variant` declarations through the route-family sum-type representation, including payload constructors, exhaustive `when`, alias-backed diagnostics, and editor/query facts; final backend layout still expands |
+| §1.14 Variants & aliases | ⚠️ Partial — V4 parses aliases and `variant` declarations through the route-family sum-type representation, including payload constructors, exhaustive `when`, alias-backed diagnostics, alias nominality diagnostics for doctrine impl targets, and editor/query facts; final backend layout still expands |
 | §1.15 Literals | ⚠️ Partial — fixed-array `[T;N]` literals, repeat-fill `[0; 100]`, numeric suffixes, integer root-constant arithmetic for array lengths, and root-const tuple/list/repeat-fill plus generic shape/route-constructor and const-task-call type inference with constructor-payload and declared-initializer diagnostics work in V4; full const-expression evaluation remains 🔜 V4 |
 
 ### 1.1 Variables
@@ -572,6 +572,7 @@ Rules:
 - `alias A = B` is purely compile-time substitution for type checking and diagnostics.
 - Generic aliases are allowed.
 - You cannot implement a doctrine for an alias as though it were a new type. Use a one-field `shape` for nominal distinction.
+- V4 Semantic Core enforces that rule as an alias nominality diagnostic for doctrine impl targets; this is a narrow diagnostic contract, not a promise that aliases become nominal wrappers.
 - `launch alias` exports the alias using the visibility rules in Section 17.
 
 Module-level constants are immutable compile-time bindings declared with
@@ -2220,6 +2221,7 @@ on §1.14), and root-`fixed pilot` cycle detection. The
 - variant exhaustiveness: every `when` over a variant covers all cases or has `_`
 - variant payloads: destructuring names and field types must match the selected case
 - type aliases: expand aliases during type comparison but preserve alias names in diagnostics
+- alias nominality: reject doctrine impls whose target is an alias instead of a nominal `shape` / `variant`
 - root constants: evaluate root `fixed pilot` initializers at compile time and reject cycles
 - arrays: verify fixed array lengths are compile-time constants and repeat initializers are `Copy` or `Cloneable`
 - dynamic dispatch: verify object-safety for every `dyn D` and vtable availability for every erased type
@@ -2849,6 +2851,7 @@ Rules:
 - `ErrorType` unifies with any type only to continue analysis; it must not reach codegen.
 - Type identity for shapes, variants, and doctrines is nominal and includes the defining package and module.
 - Type identity for aliases is structural after expansion.
+- Naming an alias in `impl D for Alias` does not create a separate doctrine impl slot. V4 rejects doctrine impls whose target resolves to an alias; use a one-field `shape` when nominal distinction is required.
 
 ### 17.4 Module Resolution Edge Cases
 
