@@ -2691,11 +2691,11 @@ EXECUTABLE_SMOKES = [
         "name": "local scope-aware editor facts",
         "fixture": "local_scope_editor_smoke.fk",
         "expect": [
-            "local-scope-before-count=29",
+            "local-scope-before-count=30",
             "local-scope-before-seed-found=true",
             "local-scope-before-early-found=true",
             "local-scope-before-pair-found=false",
-            "local-scope-after-count=30",
+            "local-scope-after-count=31",
             "local-scope-after-pair-found=true",
             "local-scope-after-pair-kind=local",
             "local-scope-after-pair-detail=(int,word)",
