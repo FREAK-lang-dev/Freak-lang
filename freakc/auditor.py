@@ -894,6 +894,121 @@ def audit_conformance(paths: List[Path]) -> int:
     if tm_missing:
         failures.append("V4 trust me block parsing regressed: " + "; ".join(tm_missing))
 
+    # Check 7e: V4 semantic-core type/call carriers
+    # The Phase-1 semantic core now carries named call-site arguments,
+    # primitive carriers, tuple types, and fixed-array types through query
+    # slices. Keep this guard narrow: it proves TY/MIR/editor/codegen smoke
+    # carriage, plus scalar LLVM plans for primitive carriers; not final
+    # runtime, tuple/fixed-array layout, or production backend completeness.
+    semantic_core_missing: List[str] = []
+    v4_ty_lib_sc = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_mir_lib_sc = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_codegen_lib_sc = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
+    v4_check_harness_sc = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    v4_primitive_smoke = repo / "src" / "compiler" / "v4" / "tests" / "primitive_types_smoke.fk"
+    v4_named_call_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_named_call_smoke.fk"
+    v4_named_call_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "named_call_editor_smoke.fk"
+    v4_tuple_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_tuple_literal_smoke.fk"
+    v4_array_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_array_literal_smoke.fk"
+    if v4_ty_lib_sc.exists():
+        ty_src = v4_ty_lib_sc.read_text(encoding="utf-8")
+        for needle in (
+            'pilot v4_ty_uint = "uint"',
+            'pilot v4_ty_tiny = "tiny"',
+            'pilot v4_ty_float = "float"',
+            'pilot v4_ty_float32 = "float32"',
+            'pilot v4_ty_big = "big"',
+            'pilot v4_ty_char = "char"',
+            'pilot v4_ty_never = "never"',
+            "v4_ty_int_literal_type",
+            "v4_ty_float_literal_type",
+            "v4_ty_is_tuple_type",
+            "v4_ty_tuple_slot_type",
+            "v4_ty_is_fixed_array_type",
+            "v4_ty_fixed_array_length_normalized_text",
+        ):
+            if needle not in ty_src:
+                semantic_core_missing.append(f"freak_ty: {needle}")
+    else:
+        semantic_core_missing.append("freak_ty/src/lib.fk missing")
+    if v4_mir_lib_sc.exists():
+        mir_src = v4_mir_lib_sc.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_check_call_args",
+            "v4_mir_check_callback_call_args",
+            "unknown call argument",
+            "duplicate call argument",
+            "positional call argument after named",
+            "unknown method argument",
+            "duplicate method argument",
+            "positional method argument after named",
+            "v4_mir_try_lower_tuple_literal",
+            "v4_mir_check_fixed_array_literal",
+            "v4_mir_fixed_array_slot_count",
+        ):
+            if needle not in mir_src:
+                semantic_core_missing.append(f"freak_mir: {needle}")
+    else:
+        semantic_core_missing.append("freak_mir/src/lib.fk missing")
+    if v4_codegen_lib_sc.exists():
+        cg_src = v4_codegen_lib_sc.read_text(encoding="utf-8")
+        for needle in (
+            "ty_name == v4_ty_uint",
+            "ty_name == v4_ty_tiny",
+            "ty_name == v4_ty_float32",
+            "ty_name == v4_ty_char",
+            "ty_name == v4_ty_big",
+            "ty_name == v4_ty_never",
+        ):
+            if needle not in cg_src:
+                semantic_core_missing.append(f"freak_codegen_llvm: {needle}")
+    else:
+        semantic_core_missing.append("freak_codegen_llvm/src/lib.fk missing")
+    for smoke_path, label in (
+        (v4_primitive_smoke, "primitive_types_smoke.fk"),
+        (v4_named_call_smoke, "mir_named_call_smoke.fk"),
+        (v4_named_call_editor_smoke, "named_call_editor_smoke.fk"),
+        (v4_tuple_smoke, "mir_tuple_literal_smoke.fk"),
+        (v4_array_smoke, "mir_array_literal_smoke.fk"),
+    ):
+        if not smoke_path.exists():
+            semantic_core_missing.append(f"smoke fixture: {label}")
+    if v4_check_harness_sc.exists():
+        harness_src = v4_check_harness_sc.read_text(encoding="utf-8")
+        for needle in (
+            "primitive_types_smoke.fk",
+            "primitive-known-uint=true",
+            "primitive-known-tiny=true",
+            "primitive-known-float32=true",
+            "primitive-known-char=true",
+            "primitive-known-big=true",
+            "primitive-known-never=true",
+            "mir_named_call_smoke.fk",
+            "named-compose-arg0-text=localhost",
+            "named-unknown-message0=unknown call argument",
+            "named-duplicate-message1=duplicate method argument",
+            "named-positional-message0=positional call argument after named",
+            "named_call_editor_smoke.fk",
+            "named-call-editor-compose-timeout-found=true",
+            "mir_tuple_literal_smoke.fk",
+            "tuple-local0-ty=(int,word)",
+            "tuple-bad-mismatch-message=local declaration type mismatch",
+            "mir_array_literal_smoke.fk",
+            "array-trio-rvalue-ty=[int;3]",
+            "array-bad-length-message=array length mismatch",
+        ):
+            if needle not in harness_src:
+                semantic_core_missing.append(f"check_v4.py: {needle}")
+    else:
+        semantic_core_missing.append("check_v4.py harness missing")
+    add(
+        "V4 semantic core",
+        not semantic_core_missing,
+        "named calls + primitive/tuple/fixed-array carriers wired" if not semantic_core_missing else f"{len(semantic_core_missing)} gap(s)",
+    )
+    if semantic_core_missing:
+        failures.append("V4 semantic-core carrier surface regressed: " + "; ".join(semantic_core_missing))
+
     # ── Check 8: V4 @extern_callback FFI surface (regression guard) ──
     # Once a 🔜 V4 row promotes to ⚠️/✅ in bible §0.2, audit_conformance
     # grows a check so the contract cannot silently regress. The
