@@ -98,7 +98,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.2 Functions | ✅ Implemented — V4 also carries named call-site arguments through task, generic, instance-method, associated-method, editor, and diagnostic query slices |
 | §1.3 Primitive types | ⚠️ Partial — `num`/`int`/`word`/`bool`/`void` ship in production; V4 also carries `uint`/`tiny`/`char`/`big`/`float`/`float32`/`never`, `[T;N]`, tuple, and raw-pointer type forms through TY/MIR smokes, with scalar LLVM type plans for primitive carriers; full runtime/backend semantics still expand |
 | §1.4 Compound types (`maybe<T>`, `result<T,E>`) | ✅ Implemented |
-| §1.5 Shapes | ✅ Implemented |
+| §1.5 Shapes | ✅ Implemented — V4 also lowers concrete impl UFCS calls through MIR with receiver and argument diagnostics |
 | §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships; V4 also parses and enforces doctrine bounds plus multi-bound generics across TY/MIR/editor; `Ord`/`Index`/`IndexMut`/`dyn` still expand |
 | §1.7 Control flow | ⚠️ Partial — V4 carries tuple, fixed-array, and route/variant payload pattern destructuring with exhaustiveness diagnostics plus `training arc with growth` mutation checks for local and projected places; `prob_when` and broader pattern ergonomics remain 🔜 V4 |
 | §1.8 Closures | ⚠️ Partial — `copy`/`move`/`mut` closure modes parsed, semantics 🔜 V4 |

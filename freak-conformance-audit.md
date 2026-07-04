@@ -138,7 +138,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Field access `instance.field` | ✅ | ✅ | |
 | `Foo { field: value }` instantiation | ✅ | ✅ | |
 | Method calls `instance.method()` | ✅ | ✅ | |
-| `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | not commonly tested |
+| `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | V4 lowers concrete impl UFCS calls like `Pilot::boost(ship, bonus: 3)` and generic-owner `Box<int>::take(box)` into MIR calls with receiver/value arguments plus arity and receiver-type diagnostics; doctrine-bound UFCS and backend parity still expand |
 
 #### §1.6 Doctrines (Traits)
 
