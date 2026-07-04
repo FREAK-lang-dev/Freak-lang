@@ -627,7 +627,11 @@ task v4_editor_bound_method_ref_for_call_rvalue(mir_id: int, body_id: int, rvalu
     if owner_ty == "" {
         give back ""
     }
-    give back v4_mir_find_bound_method_ref(mir_id, body_id, v4_mir_compact_type_text(owner_ty), method_name, v4_editor_method_call_is_instance(call_op, method_name))
+    pilot lookup_owner_ty = v4_mir_compact_type_text(owner_ty)
+    if v4_ty_is_dyn_type(lookup_owner_ty) {
+        give back v4_mir_find_dyn_method_ref(mir_id, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(call_op, method_name))
+    }
+    give back v4_mir_find_bound_method_ref(mir_id, body_id, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(call_op, method_name))
 }
 
 task v4_editor_method_detail_for_owner(ty_id: int, owner_ty: word, method_ref: word) -> word {
@@ -1236,6 +1240,27 @@ task v4_editor_document_symbols_add_route_cases(doc_id: int, ty_id: int, sig_id:
             v4_document_symbols_add(doc_id, route_name + "::" + case_name, "RouteCase", v4_editor_route_case_def(ty_id, sig_id, case_name), hir_item, v4_editor_route_case_name_span(ty_id, sig_id, case_name), v4_editor_route_case_detail(ty_id, sig_id, case_name))
         }
         case_id += 1
+    }
+}
+
+task v4_editor_document_symbols_add_doctrine_methods(doc_id: int, ty_id: int, sig_id: int, hir_item: int) -> void {
+    if sig_id < 0 {
+        give back
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_doctrine_sig {
+        give back
+    }
+
+    pilot doctrine_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot method_id = 0
+    pilot method_count = v4_ty_doctrine_method_count(ty_id, sig_id)
+    repeat until method_id >= method_count {
+        pilot method_name = v4_ty_doctrine_method_name(ty_id, sig_id, method_id)
+        if method_name != "" {
+            pilot method_ref = v4_mir_bound_method_ref(sig_id, method_id)
+            v4_document_symbols_add(doc_id, doctrine_name + "::" + method_name, "Method", v4_editor_doctrine_method_def(ty_id, sig_id, method_id), hir_item, v4_editor_doctrine_method_name_span(ty_id, sig_id, method_id), v4_editor_bound_method_detail_for_owner(ty_id, doctrine_name, method_ref))
+        }
+        method_id += 1
     }
 }
 
@@ -2265,6 +2290,8 @@ task v4_document_symbols_text_cached(path: word, text: word) -> int {
         v4_document_symbols_add(doc_id, name, kind, def_id, hir_item, span, type_display)
         if raw_kind == v4_hir_route and sig_id >= 0 {
             v4_editor_document_symbols_add_route_cases(doc_id, ty_id, sig_id, hir_item)
+        } else if raw_kind == v4_hir_doctrine and sig_id >= 0 {
+            v4_editor_document_symbols_add_doctrine_methods(doc_id, ty_id, sig_id, hir_item)
         } else if raw_kind == v4_hir_impl and hir_item >= 0 {
             v4_editor_document_symbols_add_impl_methods(doc_id, ty_id, hir_item)
         }
@@ -2391,6 +2418,7 @@ task v4_completion_add_keywords(completion_id: int) -> void {
     v4_completion_add(completion_id, "impl", "keyword", "implement a shape or doctrine", "impl ")
     v4_completion_add(completion_id, "use", "keyword", "import a module", "use ")
     v4_completion_add(completion_id, "extern", "keyword", "declare native bindings", "extern ")
+    v4_completion_add(completion_id, "dyn", "keyword", "erase a value behind a doctrine vtable", "dyn ")
     v4_completion_add(completion_id, "pilot", "keyword", "declare a local pilot", "pilot ")
     v4_completion_add(completion_id, "give back", "keyword", "return from a task", "give back ")
     v4_completion_add(completion_id, "if", "keyword", "conditional branch", "if ")
@@ -2523,6 +2551,26 @@ task v4_completion_add_bound_methods_for_owner(completion_id: int, ty_id: int, m
         give back
     }
     pilot generic_name = v4_mir_compact_type_text(owner_ty)
+    if v4_ty_is_dyn_type(generic_name) {
+        pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(ty_id, v4_ty_dyn_doctrine_lookup_name(generic_name))
+        if doctrine_sig < 0 {
+            give back
+        }
+        pilot method_id = 0
+        pilot method_count = v4_ty_doctrine_method_count(ty_id, doctrine_sig)
+        repeat until method_id >= method_count {
+            if v4_ty_doctrine_method_is_instance(ty_id, doctrine_sig, method_id) == want_instance {
+                pilot label = v4_ty_doctrine_method_name(ty_id, doctrine_sig, method_id)
+                if label != "" and not v4_completion_has_label(completion_id, label) {
+                    pilot method_ref = v4_mir_bound_method_ref(doctrine_sig, method_id)
+                    v4_completion_add(completion_id, label, "method", v4_editor_bound_method_detail_for_owner(ty_id, generic_name, method_ref), label)
+                }
+            }
+            method_id += 1
+        }
+        give back
+    }
+
     pilot generic_id = v4_ty_signature_generic_id_for_name(ty_id, sig_id, generic_name)
     if generic_id < 0 {
         give back

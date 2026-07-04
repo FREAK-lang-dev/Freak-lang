@@ -1,0 +1,76 @@
+-- V4 dyn doctrine MIR smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_dyn_mir_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_dyn_mir_source() -> word {
+    pilot src = "doctrine Widget {\n"
+    src = src + "    task draw(self) -> word\n"
+    src = src + "}\n"
+    src = src + "shape Button {\n"
+    src = src + "    label: word\n"
+    src = src + "}\n"
+    src = src + "shape Rock {\n"
+    src = src + "    mass: int\n"
+    src = src + "}\n"
+    src = src + "impl Widget for Button {\n"
+    src = src + "    task draw(self) -> word {\n"
+    src = src + "        give back self.label\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task paint(button: Button) -> word {\n"
+    src = src + "    pilot widget: dyn Widget = button\n"
+    src = src + "    give back widget.draw()\n"
+    src = src + "}\n"
+    src = src + "task erase<T: Widget>(value: T) -> dyn Widget {\n"
+    src = src + "    pilot widget: dyn Widget = value\n"
+    src = src + "    give back widget\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_dyn_mir_bad_source() -> word {
+    pilot src = v4_dyn_mir_source()
+    src = src + "task bad(rock: Rock) -> void {\n"
+    src = src + "    pilot widget: dyn Widget = rock\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_dyn_mir_text = v4_dyn_mir_source()
+pilot v4_dyn_mir_stream = v4_lex_text(0, v4_dyn_mir_text)
+pilot v4_dyn_mir_tree = v4_parse_stream(0, v4_dyn_mir_stream)
+pilot v4_dyn_mir_hir = v4_hir_lower_tree(0, v4_dyn_mir_tree)
+pilot v4_dyn_mir_resolve = v4_resolve_lower_hir(0, v4_dyn_mir_hir)
+pilot v4_dyn_mir_ty = v4_ty_lower_resolve(0, v4_dyn_mir_resolve)
+pilot v4_dyn_mir_id = v4_mir_lower_ty(0, v4_dyn_mir_ty)
+pilot v4_dyn_mir_paint_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "paint")
+pilot v4_dyn_mir_paint_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_paint_def)
+pilot v4_dyn_mir_widget_local = v4_mir_find_local(v4_dyn_mir_id, v4_dyn_mir_paint_body, "widget")
+pilot v4_dyn_mir_paint_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_paint_body, 1)
+pilot v4_dyn_mir_erase_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "erase")
+pilot v4_dyn_mir_erase_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_erase_def)
+pilot v4_dyn_mir_erase_widget = v4_mir_find_local(v4_dyn_mir_id, v4_dyn_mir_erase_body, "widget")
+pilot v4_dyn_mir_bad_text = v4_dyn_mir_bad_source()
+pilot v4_dyn_mir_bad_stream = v4_lex_text(1, v4_dyn_mir_bad_text)
+pilot v4_dyn_mir_bad_tree = v4_parse_stream(1, v4_dyn_mir_bad_stream)
+pilot v4_dyn_mir_bad_hir = v4_hir_lower_tree(1, v4_dyn_mir_bad_tree)
+pilot v4_dyn_mir_bad_resolve = v4_resolve_lower_hir(1, v4_dyn_mir_bad_hir)
+pilot v4_dyn_mir_bad_ty = v4_ty_lower_resolve(1, v4_dyn_mir_bad_resolve)
+pilot v4_dyn_mir_bad_id = v4_mir_lower_ty(1, v4_dyn_mir_bad_ty)
+
+say v4_mir_summary(v4_dyn_mir_id)
+say "dyn-mir-paint-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_mir_id))
+say "dyn-mir-widget-local-type=" + v4_mir_local_type_display(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_widget_local)
+say "dyn-mir-return-kind=" + v4_mir_rvalue_kind(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_paint_return)
+say "dyn-mir-return-op=" + v4_mir_rvalue_op(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_paint_return)
+say "dyn-mir-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_paint_return)
+say "dyn-mir-erase-widget-local-type=" + v4_mir_local_type_display(v4_dyn_mir_id, v4_dyn_mir_erase_body, v4_dyn_mir_erase_widget)
+say "dyn-mir-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_mir_bad_id))
+say "dyn-mir-bad-message=" + v4_diag_message(v4_mir_diag(v4_dyn_mir_bad_id, 0))
+say "dyn-mir-bad-help=" + v4_diag_help(v4_mir_diag(v4_dyn_mir_bad_id, 0))

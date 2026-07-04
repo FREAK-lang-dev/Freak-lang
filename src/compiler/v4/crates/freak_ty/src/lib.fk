@@ -790,6 +790,9 @@ task v4_ty_alias_cycle_path_in_type(ty_id: int, type_text: word, seen_aliases: w
     if v4_ty_is_raw_pointer_type(type_text) {
         give back v4_ty_alias_cycle_path_in_type(ty_id, v4_ty_raw_pointer_target_type(type_text), seen_aliases)
     }
+    if v4_ty_is_dyn_type(type_text) {
+        give back v4_ty_alias_cycle_path_in_type(ty_id, v4_ty_dyn_doctrine_name(type_text), seen_aliases)
+    }
     if v4_ty_is_primitive_type(type_text) or v4_ty_is_lifetime_name(type_text) {
         give back ""
     }
@@ -862,6 +865,14 @@ task v4_ty_canonical_type_depth_seen(ty_id: int, type_text: word, seen_aliases: 
             give back v4_ty_unknown
         }
         give back v4_ty_lend_type(lend_target, v4_ty_lend_mode(type_text))
+    }
+
+    if v4_ty_is_dyn_type(type_text) {
+        pilot dyn_doctrine = v4_ty_canonical_type_depth_seen(ty_id, v4_ty_dyn_doctrine_name(type_text), seen_aliases, depth + 1)
+        if dyn_doctrine == "" or dyn_doctrine == v4_ty_unknown {
+            give back v4_ty_unknown
+        }
+        give back v4_ty_dyn_type(dyn_doctrine)
     }
 
     if v4_ty_is_raw_pointer_type(type_text) {
@@ -1084,6 +1095,35 @@ task v4_ty_lend_target_type(ty_name: word) -> word {
         give back v4_slice(ty_name, 5, ty_name.length())
     }
     give back v4_ty_unknown
+}
+
+task v4_ty_dyn_type(doctrine_name: word) -> word {
+    if doctrine_name == "" or doctrine_name == v4_ty_unknown {
+        give back v4_ty_unknown
+    }
+    give back "dyn " + doctrine_name
+}
+
+task v4_ty_is_dyn_type(type_text: word) -> bool {
+    give back type_text.starts_with("dyn ") and type_text.length() > 4
+}
+
+task v4_ty_dyn_doctrine_name(type_text: word) -> word {
+    if not v4_ty_is_dyn_type(type_text) {
+        give back v4_ty_unknown
+    }
+    give back v4_slice(type_text, 4, type_text.length())
+}
+
+task v4_ty_dyn_doctrine_lookup_name(type_text: word) -> word {
+    pilot doctrine_name = v4_ty_dyn_doctrine_name(type_text)
+    if doctrine_name == "" or doctrine_name == v4_ty_unknown {
+        give back ""
+    }
+    if v4_ty_is_generic_instance_type(doctrine_name) {
+        give back v4_ty_generic_base_name(doctrine_name)
+    }
+    give back doctrine_name
 }
 
 task v4_ty_shared_type(target_ty: word) -> word {
@@ -2517,7 +2557,9 @@ task v4_ty_type_text(stream_id: int, start_token: int, end_token: int) -> word {
             pilot value = v4_lex_token_value(stream_id, idx)
             if out == "lend" and value == "mut" {
                 out = "lend mut"
-            } else if out == "lend" or out == "lend mut" {
+            } else if out == "lend" or out == "lend mut" or out == "dyn" {
+                out = out + " " + value
+            } else if out.length() >= 4 and v4_slice(out, out.length() - 4, out.length()) == " dyn" {
                 out = out + " " + value
             } else {
                 out = out + value
@@ -5937,6 +5979,107 @@ task v4_ty_doctrine_method_return_type_for_self(ty_id: int, sig_id: int, method_
     give back v4_ty_canonical_type(ty_id, v4_ty_apply_self_type(v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id), self_ty))
 }
 
+task v4_ty_type_mentions_self(type_text: word) -> bool {
+    if type_text == "Self" {
+        give back true
+    }
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back false
+    }
+    if v4_ty_is_lend_type(type_text) {
+        give back v4_ty_type_mentions_self(v4_ty_lend_target_type(type_text))
+    }
+    if v4_ty_is_dyn_type(type_text) {
+        give back v4_ty_type_mentions_self(v4_ty_dyn_doctrine_name(type_text))
+    }
+    if v4_ty_is_raw_pointer_type(type_text) {
+        give back v4_ty_type_mentions_self(v4_ty_raw_pointer_target_type(type_text))
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            if v4_ty_type_mentions_self(v4_ty_tuple_slot_type(type_text, slot_id)) {
+                give back true
+            }
+            slot_id += 1
+        }
+        give back false
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_type_mentions_self(v4_ty_fixed_array_element_type(type_text))
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        if v4_ty_generic_base_name(type_text) == "Self" {
+            give back true
+        }
+        pilot arg_id = 0
+        pilot arg_count = v4_ty_generic_arg_count(type_text)
+        repeat until arg_id >= arg_count {
+            if v4_ty_type_mentions_self(v4_ty_generic_arg(type_text, arg_id)) {
+                give back true
+            }
+            arg_id += 1
+        }
+    }
+    give back false
+}
+
+task v4_ty_doctrine_method_object_safety_issue(ty_id: int, sig_id: int, method_id: int) -> word {
+    pilot method_name = v4_ty_doctrine_method_name(ty_id, sig_id, method_id)
+    if not v4_ty_doctrine_method_is_instance(ty_id, sig_id, method_id) {
+        give back "method " + method_name + " has no receiver"
+    }
+
+    pilot explicit_id = 0
+    pilot explicit_count = v4_ty_doctrine_method_explicit_param_count(ty_id, sig_id, method_id)
+    repeat until explicit_id >= explicit_count {
+        pilot param_ty = v4_ty_doctrine_method_explicit_param_type(ty_id, sig_id, method_id, explicit_id)
+        if v4_ty_type_mentions_self(param_ty) {
+            pilot param_name = v4_ty_doctrine_method_explicit_param_name(ty_id, sig_id, method_id, explicit_id)
+            if param_name == "" {
+                param_name = word_from_int(explicit_id + 1)
+            }
+            give back "method " + method_name + " parameter " + param_name + " mentions Self"
+        }
+        explicit_id += 1
+    }
+
+    if v4_ty_type_mentions_self(v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id)) {
+        give back "method " + method_name + " return mentions Self"
+    }
+    give back ""
+}
+
+task v4_ty_dyn_object_safety_issue(ty_id: int, dyn_ty: word) -> word {
+    if not v4_ty_is_dyn_type(dyn_ty) {
+        give back ""
+    }
+    pilot doctrine_name = v4_ty_dyn_doctrine_lookup_name(dyn_ty)
+    if doctrine_name == "" {
+        give back "dyn doctrine is malformed"
+    }
+    pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(ty_id, doctrine_name)
+    if doctrine_sig < 0 {
+        give back "dyn " + doctrine_name + " needs a declared doctrine"
+    }
+
+    pilot method_id = 0
+    pilot method_count = v4_ty_doctrine_method_count(ty_id, doctrine_sig)
+    repeat until method_id >= method_count {
+        pilot issue = v4_ty_doctrine_method_object_safety_issue(ty_id, doctrine_sig, method_id)
+        if issue != "" {
+            give back doctrine_name + "::" + issue
+        }
+        method_id += 1
+    }
+    give back ""
+}
+
+task v4_ty_dyn_type_is_object_safe(ty_id: int, dyn_ty: word) -> bool {
+    give back v4_ty_dyn_object_safety_issue(ty_id, dyn_ty) == ""
+}
+
 task v4_ty_type_satisfies_doctrine(ty_id: int, actual_ty: word, doctrine_name: word) -> bool {
     if not v4_ty_is_known(actual_ty) or doctrine_name == "" {
         give back true
@@ -5973,6 +6116,55 @@ task v4_ty_type_satisfies_doctrine(ty_id: int, actual_ty: word, doctrine_name: w
             }
         }
         hir_item += 1
+    }
+    give back false
+}
+
+task v4_ty_signature_type_satisfies_doctrine(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word) -> bool {
+    if v4_ty_type_satisfies_doctrine(ty_id, actual_ty, doctrine_name) {
+        give back true
+    }
+    if sig_id < 0 or actual_ty == "" or doctrine_name == "" {
+        give back false
+    }
+    pilot generic_id = v4_ty_signature_generic_id_for_name(ty_id, sig_id, actual_ty)
+    if generic_id < 0 {
+        give back false
+    }
+    pilot bound_idx = 0
+    pilot bound_count = v4_ty_signature_generic_bound_count(ty_id, sig_id, generic_id)
+    repeat until bound_idx >= bound_count {
+        pilot bound_name = v4_ty_signature_generic_bound_name(ty_id, sig_id, generic_id, bound_idx)
+        if v4_ty_is_generic_instance_type(bound_name) {
+            bound_name = v4_ty_generic_base_name(bound_name)
+        }
+        if bound_name == doctrine_name {
+            give back true
+        }
+        bound_idx += 1
+    }
+    give back false
+}
+
+task v4_ty_type_can_coerce_to_dyn_in_signature(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word) -> bool {
+    if not v4_ty_is_dyn_type(expected_ty) {
+        give back false
+    }
+    if not v4_ty_dyn_type_is_object_safe(ty_id, expected_ty) {
+        give back false
+    }
+    if v4_ty_is_dyn_type(actual_ty) {
+        give back v4_ty_dyn_doctrine_lookup_name(expected_ty) == v4_ty_dyn_doctrine_lookup_name(actual_ty)
+    }
+    give back v4_ty_signature_type_satisfies_doctrine(ty_id, sig_id, actual_ty, v4_ty_dyn_doctrine_lookup_name(expected_ty))
+}
+
+task v4_ty_types_compatible_with_context(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word) -> bool {
+    if v4_ty_types_compatible(expected_ty, actual_ty) {
+        give back true
+    }
+    if v4_ty_type_can_coerce_to_dyn_in_signature(ty_id, sig_id, expected_ty, actual_ty) {
+        give back true
     }
     give back false
 }
@@ -6981,6 +7173,21 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
         } else {
             v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, target_type, "pointer target of " + context, context_span)
         }
+        give back
+    }
+
+    if v4_ty_is_dyn_type(type_text) {
+        pilot doctrine_type = v4_ty_dyn_doctrine_name(type_text)
+        pilot doctrine_name = v4_ty_dyn_doctrine_lookup_name(type_text)
+        if doctrine_name == "" or v4_ty_doctrine_signature_id_for_name(ty_id, doctrine_name) < 0 {
+            v4_ty_add_error_diag(ty_id, context_span, "dyn doctrine is unknown", "dyn " + doctrine_name + " needs a declared doctrine before Yuuko can build a vtable")
+        } else {
+            pilot dyn_issue = v4_ty_dyn_object_safety_issue(ty_id, type_text)
+            if dyn_issue != "" {
+                v4_ty_add_error_diag(ty_id, context_span, "dyn doctrine is not object safe", dyn_issue)
+            }
+        }
+        v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, doctrine_type, "dyn doctrine of " + context, context_span)
         give back
     }
 
@@ -8069,6 +8276,12 @@ task v4_ty_match_signature_type_env(ty_id: int, sig_id: int, expected_ty: word, 
     if v4_ty_signature_declares_type_generic_name(ty_id, sig_id, expected_ty) {
         give back v4_ty_generic_env_bind(env, expected_ty, actual_ty)
     }
+    if v4_ty_is_dyn_type(expected_ty) {
+        if v4_ty_type_can_coerce_to_dyn_in_signature(ty_id, sig_id, expected_ty, actual_ty) {
+            give back env
+        }
+        give back v4_ty_generic_env_fail
+    }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
         give back env
     }
@@ -8138,6 +8351,9 @@ task v4_ty_apply_generic_env(type_text: word, env: word) -> word {
     if mapped != "" {
         give back mapped
     }
+    if v4_ty_is_dyn_type(type_text) {
+        give back v4_ty_dyn_type(v4_ty_apply_generic_env(v4_ty_dyn_doctrine_name(type_text), env))
+    }
     if v4_ty_is_generic_instance_type(type_text) {
         pilot out = v4_ty_generic_base_name(type_text) + "<"
         pilot arg_idx = 0
@@ -8178,6 +8394,9 @@ task v4_ty_type_mentions_signature_generics(ty_id: int, sig_id: int, type_text: 
     }
     if v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text) {
         give back true
+    }
+    if v4_ty_is_dyn_type(type_text) {
+        give back v4_ty_type_mentions_signature_generics(ty_id, sig_id, v4_ty_dyn_doctrine_name(type_text))
     }
     if v4_ty_is_generic_instance_type(type_text) {
         pilot arg_idx = 0

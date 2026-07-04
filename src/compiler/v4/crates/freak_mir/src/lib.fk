@@ -2057,8 +2057,12 @@ task v4_mir_assignment_target_context(mir_id: int, body_id: int, place_id: int) 
     give back v4_mir_place_text(mir_id, body_id, place_id)
 }
 
+task v4_mir_types_compatible(mir_id: int, body_id: int, expected_ty: word, actual_ty: word) -> bool {
+    give back v4_ty_types_compatible_with_context(v4_mir_ty_id(mir_id), v4_mir_body_signature_id(mir_id, body_id), expected_ty, actual_ty)
+}
+
 task v4_mir_check_assignment_types(mir_id: int, body_id: int, stmt_span: word, place_id: int, place_ty: word, value_ty: word) -> void {
-    if not v4_ty_types_compatible(place_ty, value_ty) {
+    if not v4_mir_types_compatible(mir_id, body_id, place_ty, value_ty) {
         pilot place_kind = v4_mir_place_unknown
         if place_id >= 0 {
             place_kind = v4_mir_place_kind(mir_id, body_id, place_id)
@@ -2123,8 +2127,8 @@ task v4_mir_place_read_rvalue(mir_id: int, body_id: int, place_id: int, span: wo
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, place_text, "", 0 - 1, 0 - 1, span, v4_ty_unknown)
 }
 
-task v4_mir_check_local_decl_type(mir_id: int, stmt_span: word, local_name: word, declared_ty: word, inferred_ty: word) -> void {
-    if not v4_ty_types_compatible(declared_ty, inferred_ty) {
+task v4_mir_check_local_decl_type(mir_id: int, body_id: int, stmt_span: word, local_name: word, declared_ty: word, inferred_ty: word) -> void {
+    if not v4_mir_types_compatible(mir_id, body_id, declared_ty, inferred_ty) {
         v4_mir_add_type_mismatch_error(mir_id, stmt_span, "local declaration type mismatch", local_name + " expects " + declared_ty + " but got " + inferred_ty, local_name, declared_ty, inferred_ty)
     }
 }
@@ -2164,6 +2168,24 @@ task v4_mir_validate_type_contract(mir_id: int, sig_id: int, stmt_span: word, ty
             valid = false
         }
         lifetime_id += 1
+    }
+
+    if v4_ty_is_dyn_type(type_text) {
+        pilot doctrine_name = v4_ty_dyn_doctrine_lookup_name(type_text)
+        if doctrine_name == "" or v4_ty_doctrine_signature_id_for_name(ty_id, doctrine_name) < 0 {
+            v4_mir_add_type_error(mir_id, stmt_span, message, "dyn " + doctrine_name + " needs a declared doctrine before Yuuko can build a vtable in " + context)
+            valid = false
+        } else {
+            pilot dyn_issue = v4_ty_dyn_object_safety_issue(ty_id, type_text)
+            if dyn_issue != "" {
+                v4_mir_add_type_error(mir_id, stmt_span, message, "dyn doctrine is not object safe: " + dyn_issue)
+                valid = false
+            }
+        }
+        if not v4_mir_validate_type_contract(mir_id, sig_id, stmt_span, v4_ty_dyn_doctrine_name(type_text), message, "dyn doctrine of " + context) {
+            valid = false
+        }
+        give back valid
     }
 
     if v4_ty_is_generic_instance_type(type_text) {
@@ -2347,7 +2369,7 @@ task v4_mir_body_signature_id(mir_id: int, body_id: int) -> int {
 
 task v4_mir_check_return_type(mir_id: int, body_id: int, stmt_span: word, actual_ty: word) -> void {
     pilot expected_ty = v4_mir_expected_return_type(mir_id, body_id)
-    if not v4_ty_types_compatible(expected_ty, actual_ty) {
+    if not v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty) {
         pilot context = v4_mir_body_name(mir_id, body_id) + " return"
         v4_mir_add_type_mismatch_error(mir_id, stmt_span, "return type mismatch", v4_mir_body_name(mir_id, body_id) + " expects " + expected_ty + " but got " + actual_ty, context, expected_ty, actual_ty)
     }
@@ -3186,6 +3208,29 @@ task v4_mir_find_bound_method_ref(mir_id: int, body_id: int, owner_ty: word, met
     give back ""
 }
 
+task v4_mir_find_dyn_method_ref(mir_id: int, owner_ty: word, method_name: word, want_instance: bool) -> word {
+    if not v4_ty_is_dyn_type(owner_ty) {
+        give back ""
+    }
+    pilot doctrine_name = v4_ty_dyn_doctrine_lookup_name(owner_ty)
+    pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(v4_mir_ty_id(mir_id), doctrine_name)
+    if doctrine_sig < 0 {
+        give back ""
+    }
+
+    pilot method_id = 0
+    pilot method_count = v4_ty_doctrine_method_count(v4_mir_ty_id(mir_id), doctrine_sig)
+    repeat until method_id >= method_count {
+        if v4_ty_doctrine_method_name(v4_mir_ty_id(mir_id), doctrine_sig, method_id) == method_name {
+            if v4_ty_doctrine_method_is_instance(v4_mir_ty_id(mir_id), doctrine_sig, method_id) == want_instance {
+                give back v4_mir_bound_method_ref(doctrine_sig, method_id)
+            }
+        }
+        method_id += 1
+    }
+    give back ""
+}
+
 task v4_mir_find_any_method_ref(mir_id: int, owner_ty: word, method_name: word) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot resolve_id = v4_ty_resolve_id(ty_id)
@@ -3455,7 +3500,7 @@ task v4_mir_check_method_args(mir_id: int, body_id: int, stream_id: int, expr_sp
             pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
             args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
-            if not v4_ty_types_compatible(expected_ty, actual_ty) {
+            if not v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty) {
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             }
@@ -3564,7 +3609,7 @@ task v4_mir_check_ufcs_method_args(mir_id: int, body_id: int, stream_id: int, ex
             pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
             call_args = v4_mir_call_args_payload_append(call_args, arg_rvalue)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
-            if not v4_ty_types_compatible(expected_ty, actual_ty) {
+            if not v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty) {
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             }
@@ -3982,6 +4027,10 @@ task v4_mir_type_reference_is_declared_for_body(mir_id: int, body_id: int, sig_i
     if v4_ty_is_fixed_array_type(type_text) {
         give back v4_mir_type_reference_is_declared_for_body(mir_id, body_id, sig_id, v4_ty_fixed_array_element_type(type_text))
     }
+    if v4_ty_is_dyn_type(type_text) {
+        give back v4_mir_type_reference_is_declared_for_body(mir_id, body_id, sig_id, v4_ty_dyn_doctrine_name(type_text))
+    }
+
     if v4_ty_is_generic_instance_type(type_text) {
         pilot base_name = v4_ty_generic_base_name(type_text)
         if not v4_mir_is_type_like_owner(ty_id, base_name) {
@@ -4227,7 +4276,10 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     pilot any_ref = ""
     pilot explicit_args_payload = ""
     if method_ref == "" {
-        bound_method_ref = v4_mir_find_bound_method_ref(mir_id, body_id, receiver_ty, method_name, true)
+        bound_method_ref = v4_mir_find_dyn_method_ref(mir_id, receiver_ty, method_name, true)
+        if bound_method_ref == "" {
+            bound_method_ref = v4_mir_find_bound_method_ref(mir_id, body_id, receiver_ty, method_name, true)
+        }
         if bound_method_ref != "" {
             explicit_args_payload = v4_mir_check_bound_method_args(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, bound_method_ref, open_token, last, ".")
         } else {
@@ -5069,6 +5121,28 @@ task v4_mir_route_case_text(route_name: word, case_name: word) -> word {
 }
 
 task v4_mir_compact_type_text(type_text: word) -> word {
+    pilot first = 0
+    repeat until first >= type_text.length() or (type_text.char_at(first) != " " and type_text.char_at(first) != "\n" and type_text.char_at(first) != "\t" and type_text.char_at(first) != "\r") {
+        first += 1
+    }
+    if first + 3 <= type_text.length() and v4_slice(type_text, first, first + 3) == "dyn" {
+        pilot after_dyn = first + 3
+        repeat until after_dyn >= type_text.length() or (type_text.char_at(after_dyn) != " " and type_text.char_at(after_dyn) != "\n" and type_text.char_at(after_dyn) != "\t" and type_text.char_at(after_dyn) != "\r") {
+            after_dyn += 1
+        }
+        pilot dyn_rest = ""
+        repeat until after_dyn >= type_text.length() {
+            pilot rest_ch = type_text.char_at(after_dyn)
+            if rest_ch != " " and rest_ch != "\n" and rest_ch != "\t" and rest_ch != "\r" {
+                dyn_rest = dyn_rest + rest_ch
+            }
+            after_dyn += 1
+        }
+        if dyn_rest != "" {
+            give back "dyn " + dyn_rest
+        }
+    }
+
     pilot out = ""
     pilot idx = 0
     repeat until idx >= type_text.length() {
@@ -7125,7 +7199,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         }
         pilot local_ty = inferred_ty
         if v4_ty_is_known(declared_ty) {
-            v4_mir_check_local_decl_type(mir_id, stmt_span, pattern, declared_ty, inferred_ty)
+            v4_mir_check_local_decl_type(mir_id, body_id, stmt_span, pattern, declared_ty, inferred_ty)
             local_ty = declared_ty
         }
         pilot local_id = v4_mir_add_local(mir_id, body_id, pattern, local_ty, stmt_span)

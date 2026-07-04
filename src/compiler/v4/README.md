@@ -48,9 +48,11 @@ tuple/list/repeat-fill inference, generic shape/route constructor inference,
 constructor-payload validation, const-task-call type inference plus
 diagnostics, and declared-initializer mismatch diagnostics, fixed-array
 compile-time lengths with root-constant integer arithmetic,
-generic doctrine bounds plus multi-bound method/editor enforcement, named
-call-site arguments across task calls plus instance/associated method calls,
-and concrete impl UFCS lowering for `Type::method(receiver, ...)`.
+generic doctrine bounds plus multi-bound method/editor enforcement, first-pass
+`dyn Doctrine` type positions with object-safety/coercion diagnostics and
+MIR/editor method facts, named call-site arguments across task calls plus
+instance/associated method calls, and concrete impl UFCS lowering for
+`Type::method(receiver, ...)`.
 The Borrow Checker gate has now started with `lend` / `lend mut` parameter
 contracts and explicit `lend value` / `lend mut value` expressions carried
 through TY and MIR into Meiya: immutable lends cannot be written, borrowed

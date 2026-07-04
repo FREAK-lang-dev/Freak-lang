@@ -1,5 +1,5 @@
 """
-FREAK Auditor — static analysis commands for Phase 8.
+FREAK Auditor Ã¢â‚¬â€ static analysis commands for Phase 8.
 
 Commands:
     freak audit-science     list every 'for science,' call site
@@ -75,7 +75,7 @@ class TrustMeEntry:
     def __str__(self) -> str:
         return (
             f"  {self.file}:{self.line}: "
-            f'trust me (honor: .{self.honor_level}) — "{self.reason}"'
+            f'trust me (honor: .{self.honor_level}) Ã¢â‚¬â€ "{self.reason}"'
         )
 
 
@@ -89,7 +89,7 @@ class MiracleEntry:
     def __str__(self) -> str:
         wc = f"{self.word_count} words"
         preview = self.monologue_preview
-        return f'  {self.file}:{self.line}: deus_ex_machina ({wc}) — "{preview}"'
+        return f'  {self.file}:{self.line}: deus_ex_machina ({wc}) Ã¢â‚¬â€ "{preview}"'
 
 
 @dataclass
@@ -104,9 +104,9 @@ class ForeshadowEntry:
         if self.paid_off:
             return (
                 f"  {self.file}:{self.line}: foreshadow '{self.name}'"
-                f" → paid off at line {self.payoff_line}"
+                f" Ã¢â€ â€™ paid off at line {self.payoff_line}"
             )
-        return f"  {self.file}:{self.line}: foreshadow '{self.name}' ← UNPAID ✗"
+        return f"  {self.file}:{self.line}: foreshadow '{self.name}' Ã¢â€ Â UNPAID Ã¢Å“â€”"
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +129,7 @@ def _scan_tokens_for_science(source: str, file: str) -> List[ScienceCallSite]:
 
 def _scan_tokens_line_map(source: str) -> Dict[str, int]:
     """
-    Build a map of {lexeme_lower → first line} by scanning every token.
+    Build a map of {lexeme_lower Ã¢â€ â€™ first line} by scanning every token.
     Used to correlate AST nodes (which lack line numbers) back to their
     approximate source location.
     """
@@ -459,19 +459,19 @@ def audit_miracles(paths: List[Path]) -> int:
     for entry in all_miracles:
         print(entry)
         if entry.word_count < 20:
-            print(f"    ✗ Monologue too short ({entry.word_count} words, need 20)")
+            print(f"    Ã¢Å“â€” Monologue too short ({entry.word_count} words, need 20)")
 
     exit_code = 0
     if len(all_miracles) > 10:
         print(
-            f"\n✗ ERROR: {len(all_miracles)} miracles is too many. "
+            f"\nÃ¢Å“â€” ERROR: {len(all_miracles)} miracles is too many. "
             f"(Yuuko voice: \"At this point you're not bending the rules,"
             f" you're snapping them in half.\")"
         )
         exit_code = 1
     elif len(all_miracles) > 3:
         print(
-            f"\n⚠ WARNING: {len(all_miracles)} miracles found. "
+            f"\nÃ¢Å¡Â  WARNING: {len(all_miracles)} miracles found. "
             f'(Sagiri voice: "Three is a coincidence. Four is a habit.")'
         )
 
@@ -520,21 +520,21 @@ def foreshadow_audit(paths: List[Path]) -> int:
 
     if unpaid:
         print(
-            f"\n✗ {len(unpaid)} unpaid foreshadow(s). "
+            f"\nÃ¢Å“â€” {len(unpaid)} unpaid foreshadow(s). "
             f'(Takeru voice: "Every promise you make, you keep. '
             f"That's what it means to be a pilot.\")"
         )
         return 1
 
     print(
-        "\n✓ All foreshadows paid off. "
+        "\nÃ¢Å“â€œ All foreshadows paid off. "
         '(Yuuko voice: "Good. Loose ends are for lesser writers.")'
     )
     return 0
 
 
 # ---------------------------------------------------------------------------
-#  audit_conformance — verify v0.13.x bible-vs-implementation conformance
+#  audit_conformance Ã¢â‚¬â€ verify v0.13.x bible-vs-implementation conformance
 # ---------------------------------------------------------------------------
 
 
@@ -554,13 +554,13 @@ def _find_repo_root(start: Path) -> Optional[Path]:
 def audit_conformance(paths: List[Path]) -> int:
     """
     Verify v0.13.x implementation conforms to the contracts the bible
-    promises for this release. Checks every "✅ aligned" claim from
+    promises for this release. Checks every "Ã¢Å“â€¦ aligned" claim from
     freak-conformance-audit.md is still backed by code or files.
 
     Returns 1 if any v0.13.x contract is broken, 0 otherwise.
 
     The check set is hardcoded to the v0.13.x baseline. V4-tagged contracts
-    are intentionally not checked — once Phase D bible amendments add
+    are intentionally not checked Ã¢â‚¬â€ once Phase D bible amendments add
     Status tags, this function can be extended to read them directly.
     """
     import sys as _sys
@@ -568,7 +568,7 @@ def audit_conformance(paths: List[Path]) -> int:
     start = paths[0] if paths else Path(".")
     repo = _find_repo_root(start)
     if repo is None:
-        print("✗ Cannot locate repo root (freak-full-bible.md not found).")
+        print("Ã¢Å“â€” Cannot locate repo root (freak-full-bible.md not found).")
         return 1
 
     failures: List[str] = []
@@ -578,7 +578,7 @@ def audit_conformance(paths: List[Path]) -> int:
     def add(label: str, ok: bool, detail: str = "") -> None:
         summary.append((label, ok, detail))
 
-    # ── Check 1: bible + audit doc present ─────────────────────
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 1: bible + audit doc present Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     bible = repo / "freak-full-bible.md"
     audit_doc = repo / "freak-conformance-audit.md"
     bible_size = bible.stat().st_size if bible.exists() else 0
@@ -591,16 +591,16 @@ def audit_conformance(paths: List[Path]) -> int:
     add("Audit doc", audit_doc.exists(),
         "freak-conformance-audit.md" if audit_doc.exists() else "missing (run audit first)")
     if not audit_doc.exists():
-        warnings.append("freak-conformance-audit.md missing — run conformance audit first.")
+        warnings.append("freak-conformance-audit.md missing Ã¢â‚¬â€ run conformance audit first.")
 
-    # ── Check 2: native CLI binary present ─────────────────────
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 2: native CLI binary present Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     freak_exe_name = "freak.exe" if _sys.platform == "win32" else "freak"
     freak_exe = repo / "build" / freak_exe_name
     add("Native CLI", freak_exe.exists(), str(freak_exe.relative_to(repo)) if freak_exe.exists() else "not built")
     if not freak_exe.exists():
         warnings.append(f"Native CLI not built ({freak_exe}). Run build_cli.bat or CI.")
 
-    # ── Check 3: lexer has v0.13.x keywords ───────────────────
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 3: lexer has v0.13.x keywords Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     lexer_path = repo / "freakc" / "lexer.py"
     required_keywords = [
         # Core
@@ -634,7 +634,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if missing_kw:
         failures.append(f"Lexer missing keywords: {', '.join(missing_kw)}")
 
-    # ── Check 4: audit dispatch consistency (Python + native) ──
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 4: audit dispatch consistency (Python + native) Ã¢â€â‚¬Ã¢â€â‚¬
     audit_subs = [
         "audit-science",
         "audit-trust",
@@ -662,7 +662,7 @@ def audit_conformance(paths: List[Path]) -> int:
         cli_src = cli_main.read_text(encoding="utf-8")
         cli_missing = [s for s in audit_subs if s not in cli_src]
     else:
-        warnings.append("src/cli/main.fk missing — native CLI source not present")
+        warnings.append("src/cli/main.fk missing Ã¢â‚¬â€ native CLI source not present")
     add("Native CLI audits",
         cli_main.exists() and not cli_missing,
         f"{len(audit_subs) - len(cli_missing)}/{len(audit_subs)} dispatched")
@@ -672,9 +672,9 @@ def audit_conformance(paths: List[Path]) -> int:
         if non_self:
             failures.append(f"Native CLI missing dispatch: {', '.join(non_self)}")
         else:
-            warnings.append("Native CLI missing audit-conformance dispatch — rebuild via build_cli.bat.")
+            warnings.append("Native CLI missing audit-conformance dispatch Ã¢â‚¬â€ rebuild via build_cli.bat.")
 
-    # ── Check 5: stdlib modules present ────────────────────────
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 5: stdlib modules present Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     expected_fk = {
         "std::math": "std/math.fk",
         "std::string": "std/string.fk",
@@ -709,26 +709,26 @@ def audit_conformance(paths: List[Path]) -> int:
     if missing_stdlib:
         failures.append(f"Stdlib missing: {'; '.join(missing_stdlib)}")
 
-    # ── Check 6: borrow checker --strict-borrow flag ──────────
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 6: borrow checker --strict-borrow flag Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     cli_src = cli_main.read_text(encoding="utf-8") if cli_main.exists() else ""
     bc_ok = "--strict-borrow" in cli_src
     add("Borrow checker", bc_ok, "--strict-borrow flag handled" if bc_ok else "flag missing")
     if not bc_ok:
         failures.append("--strict-borrow not handled in src/cli/main.fk")
 
-    # ── Check 7: deus_ex_machina 20-word rule still enforced ──
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 7: deus_ex_machina 20-word rule still enforced Ã¢â€â‚¬Ã¢â€â‚¬
     parser_path = repo / "freakc" / "parser.py"
     dem_ok = False
     if parser_path.exists():
         parser_src = parser_path.read_text(encoding="utf-8")
         # Look for any reference to the 20-word minimum near deus_ex_machina
         dem_ok = "20" in parser_src and "deus_ex_machina" in parser_src.lower()
-    add("deus_ex_machina ≥20", dem_ok, "monologue word count enforced" if dem_ok else "rule missing")
+    add("deus_ex_machina Ã¢â€°Â¥20", dem_ok, "monologue word count enforced" if dem_ok else "rule missing")
     if not dem_ok:
         warnings.append("deus_ex_machina 20-word rule not visibly enforced in parser.py")
 
-    # ── Check 7c: V4 raw-pointer .is_null() lowering (regression guard) ──
-    # Bible §16.4 permits .is_null() checks outside trust-me; V4 lowers them
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 7c: V4 raw-pointer .is_null() lowering (regression guard) Ã¢â€â‚¬Ã¢â€â‚¬
+    # Bible Ã‚Â§16.4 permits .is_null() checks outside trust-me; V4 lowers them
     # to LLVM icmp eq ptr %p, null. Lock in the MIR opcode + codegen path +
     # smoke fixture so regressions surface immediately.
     v4_mir_lib_isn = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
@@ -768,8 +768,8 @@ def audit_conformance(paths: List[Path]) -> int:
     if isn_missing:
         failures.append("V4 raw-pointer is_null lowering regressed: " + "; ".join(isn_missing))
 
-    # ── Check 7d: V4 trust me block parsing (regression guard) ──
-    # Bible §16.4 gates raw-pointer dereferencing on `trust me` blocks. V4 now
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 7d: V4 trust me block parsing (regression guard) Ã¢â€â‚¬Ã¢â€â‚¬
+    # Bible Ã‚Â§16.4 gates raw-pointer dereferencing on `trust me` blocks. V4 now
     # parses the honor ladder, validates known ranks, and uses that rank for
     # first-pass raw-pointer read/write/offset/cast gates.
     v4_mir_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
@@ -1017,8 +1017,8 @@ def audit_conformance(paths: List[Path]) -> int:
     if semantic_core_missing:
         failures.append("V4 semantic-core carrier surface regressed: " + "; ".join(semantic_core_missing))
 
-    # ── Check 8: V4 @extern_callback FFI surface (regression guard) ──
-    # Once a 🔜 V4 row promotes to ⚠️/✅ in bible §0.2, audit_conformance
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 8: V4 @extern_callback FFI surface (regression guard) Ã¢â€â‚¬Ã¢â€â‚¬
+    # Once a Ã°Å¸â€Å“ V4 row promotes to Ã¢Å¡Â Ã¯Â¸Â/Ã¢Å“â€¦ in bible Ã‚Â§0.2, audit_conformance
     # grows a check so the contract cannot silently regress. The
     # @extern_callback("ABI") inbound callback surface landed in V4 with
     # validators in freak_ty, LLVM trampolines in freak_codegen_llvm, a
@@ -1066,8 +1066,8 @@ def audit_conformance(paths: List[Path]) -> int:
     if ec_missing:
         failures.append("V4 @extern_callback surface regressed: " + "; ".join(ec_missing))
 
-    # ── Check 9: V4 stack-unwinder extern-import diagnostic ──
-    # Bible §16.5 promises panics never cross extern boundaries; V4 enforces
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 9: V4 stack-unwinder extern-import diagnostic Ã¢â€â‚¬Ã¢â€â‚¬
+    # Bible Ã‚Â§16.5 promises panics never cross extern boundaries; V4 enforces
     # the inbound side by warning on known C unwinder primitives declared
     # in extern blocks. Lock in the validator + smoke fixture + EXECUTABLE_SMOKES
     # entry so the surface cannot silently regress.
@@ -1126,7 +1126,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if unw_missing:
         failures.append("V4 unwinder-import diagnostic regressed: " + "; ".join(unw_missing))
 
-    # ── Check 10: V4 borrowed-return provenance ──
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Check 10: V4 borrowed-return provenance Ã¢â€â‚¬Ã¢â€â‚¬
     # Borrowed return signatures and the first elision slice are now a
     # promoted V4 contract. Require TY surface carriage, Meiya's return
     # validation, and its executable smoke whenever conformance is audited.
@@ -1497,12 +1497,121 @@ def audit_conformance(paths: List[Path]) -> int:
     if alias_nominality_missing:
         failures.append("V4 alias nominality doctrine-impl guard regressed: " + "; ".join(alias_nominality_missing))
 
-    # ── Print summary ────────────────────────────────────────
+    # Check 16: V4 dyn Doctrine semantic/editor surface
+    # This is intentionally a semantic/query guard, not a vtable-codegen claim.
+    dyn_doctrine_missing: List[str] = []
+    v4_lex_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_lex" / "src" / "lib.fk"
+    v4_ty_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_mir_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_editor_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
+    v4_dyn_ty_smoke = repo / "src" / "compiler" / "v4" / "tests" / "dyn_doctrine_ty_smoke.fk"
+    v4_dyn_mir_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_dyn_doctrine_smoke.fk"
+    v4_dyn_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "dyn_doctrine_editor_smoke.fk"
+    v4_check_harness_dyn = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    if v4_lex_dyn.exists():
+        lex_src = v4_lex_dyn.read_text(encoding="utf-8")
+        if 'lower == "dyn"' not in lex_src:
+            dyn_doctrine_missing.append('freak_lex: lower == "dyn"')
+    else:
+        dyn_doctrine_missing.append("freak_lex/src/lib.fk missing")
+    if v4_ty_dyn.exists():
+        ty_src = v4_ty_dyn.read_text(encoding="utf-8")
+        for needle in (
+            "task v4_ty_dyn_type",
+            "task v4_ty_dyn_object_safety_issue",
+            "task v4_ty_type_can_coerce_to_dyn_in_signature",
+            "task v4_ty_types_compatible_with_context",
+            "dyn doctrine is unknown",
+            "dyn doctrine is not object safe",
+        ):
+            if needle not in ty_src:
+                dyn_doctrine_missing.append(f"freak_ty: {needle}")
+    else:
+        dyn_doctrine_missing.append("freak_ty/src/lib.fk missing")
+    if v4_mir_dyn.exists():
+        mir_src = v4_mir_dyn.read_text(encoding="utf-8")
+        for needle in (
+            "task v4_mir_find_dyn_method_ref",
+            "v4_ty_is_dyn_type(type_text)",
+            'give back "dyn " + dyn_rest',
+            "v4_mir_find_dyn_method_ref(mir_id, receiver_ty, method_name, true)",
+        ):
+            if needle not in mir_src:
+                dyn_doctrine_missing.append(f"freak_mir: {needle}")
+    else:
+        dyn_doctrine_missing.append("freak_mir/src/lib.fk missing")
+    if v4_editor_dyn.exists():
+        editor_src = v4_editor_dyn.read_text(encoding="utf-8")
+        for needle in (
+            "v4_editor_document_symbols_add_doctrine_methods",
+            "v4_mir_find_dyn_method_ref(mir_id, lookup_owner_ty, method_name",
+            'v4_completion_add(completion_id, "dyn"',
+            "v4_completion_add_bound_methods_for_owner",
+        ):
+            if needle not in editor_src:
+                dyn_doctrine_missing.append(f"freak_editor: {needle}")
+    else:
+        dyn_doctrine_missing.append("freak_editor/src/lib.fk missing")
+    if v4_dyn_ty_smoke.exists():
+        smoke_src = v4_dyn_ty_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "dyn-ty-param=",
+            "dyn-ty-widget-object-safe=",
+            "dyn-ty-button-coerces=",
+            "dyn-ty-diag0-message=",
+        ):
+            if needle not in smoke_src:
+                dyn_doctrine_missing.append(f"dyn_doctrine_ty_smoke: {needle}")
+    else:
+        dyn_doctrine_missing.append("smoke fixture: dyn_doctrine_ty_smoke.fk")
+    if v4_dyn_mir_smoke.exists():
+        smoke_src = v4_dyn_mir_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "dyn-mir-return-op=",
+            "dyn-mir-widget-local-type=",
+            "dyn-mir-bad-message=",
+        ):
+            if needle not in smoke_src:
+                dyn_doctrine_missing.append(f"mir_dyn_doctrine_smoke: {needle}")
+    else:
+        dyn_doctrine_missing.append("smoke fixture: mir_dyn_doctrine_smoke.fk")
+    if v4_dyn_editor_smoke.exists():
+        smoke_src = v4_dyn_editor_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "dyn-editor-call-kind=",
+            "dyn-editor-definition-found=",
+            "dyn-editor-completion-draw-found=",
+            "dyn-editor-completion-dyn-kind=",
+        ):
+            if needle not in smoke_src:
+                dyn_doctrine_missing.append(f"dyn_doctrine_editor_smoke: {needle}")
+    else:
+        dyn_doctrine_missing.append("smoke fixture: dyn_doctrine_editor_smoke.fk")
+    if v4_check_harness_dyn.exists():
+        harness_src = v4_check_harness_dyn.read_text(encoding="utf-8")
+        for needle in (
+            "dyn_doctrine_ty_smoke.fk",
+            "mir_dyn_doctrine_smoke.fk",
+            "dyn_doctrine_editor_smoke.fk",
+            "dyn-editor-call-kind=Method",
+        ):
+            if needle not in harness_src:
+                dyn_doctrine_missing.append(f"check_v4.py: {needle}")
+    else:
+        dyn_doctrine_missing.append("check_v4.py harness missing")
+    add(
+        "V4 dyn Doctrine",
+        not dyn_doctrine_missing,
+        "TY/MIR/editor dyn Doctrine smokes wired" if not dyn_doctrine_missing else f"{len(dyn_doctrine_missing)} gap(s)",
+    )
+    if dyn_doctrine_missing:
+        failures.append("V4 dyn Doctrine semantic/editor surface regressed: " + "; ".join(dyn_doctrine_missing))
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Print summary Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")
     print("=" * 56)
     for label, ok, detail in summary:
-        marker = "✓" if ok else "✗"
+        marker = "Ã¢Å“â€œ" if ok else "Ã¢Å“â€”"
         print(f"  {marker}  {label:<20} {detail}")
     print("=" * 56)
 
@@ -1510,16 +1619,16 @@ def audit_conformance(paths: List[Path]) -> int:
         print()
         print("Warnings:")
         for w in warnings:
-            print(f"  ⚠  {w}")
+            print(f"  Ã¢Å¡Â   {w}")
 
     if failures:
         print()
         print("Failures:")
         for f in failures:
-            print(f"  ✗  {f}")
+            print(f"  Ã¢Å“â€”  {f}")
         print()
         print(
-            f"✗ {len(failures)} divergence(s) found. v0.13.x conformance NOT clean. "
+            f"Ã¢Å“â€” {len(failures)} divergence(s) found. v0.13.x conformance NOT clean. "
             '(Sagiri voice: "I told you the bible was overpromising.")'
         )
         return 1
@@ -1527,12 +1636,12 @@ def audit_conformance(paths: List[Path]) -> int:
     print()
     if warnings:
         print(
-            f"⚠  {len(warnings)} warning(s); no failures. Conformance clean with caveats. "
+            f"Ã¢Å¡Â   {len(warnings)} warning(s); no failures. Conformance clean with caveats. "
             '(Yuuko voice: "Acceptable. Barely.")'
         )
     else:
         print(
-            "✓ All v0.13.x conformance checks passed. "
+            "Ã¢Å“â€œ All v0.13.x conformance checks passed. "
             '(Meiya voice: "I knew you would not disappoint.")'
         )
     return 0

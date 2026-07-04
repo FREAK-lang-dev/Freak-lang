@@ -44,7 +44,7 @@ Pipeline (full compiler):
 
 | Section | Status | Summary |
 |---|---|---|
-| §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, and raw-pointer type forms through query slices. Still expanding: lifetime annotations, `prob_when`, dyn object surfaces, and production backend depth for V4-only forms. |
+| §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer type forms, and first-pass `dyn Doctrine` type/object-safety/coercion/editor facts through query slices. Still expanding: lifetime annotations, `prob_when`, full dyn vtable lowering, and production backend depth for V4-only forms. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
 | §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries lifetime tokens/type contracts, `lend` / `lend mut` parameter contracts, explicit expression loan paths, typed field/index loan-holder projections, borrowed-return provenance for direct/local reloan paths and stored-call local alias chains, all-path CFG repair proof for partial moves, linear/all-exit moved-local drop suppression with conditional `DropIf` markers, first-pass `Shared<T>`/`Weak<T>` method surfaces with guard-escape diagnostics, first-pass trust-me honor validation/gating, and first-pass non-lexical rewrite/move/exclusive-read rejection plus release for bound/call-only lends through TY/MIR/Meiya; full region solving, runtime ref-count/borrow-state implementation, the complete honor operation matrix, and `direct_order` remain V4. |
@@ -53,8 +53,8 @@ Pipeline (full compiler):
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
 | §8 Lexer | ⚠️ Partial | All v0.13.x keywords lex. `'a` lifetimes, number suffixes (`42u`/`3.14f`/`42t`/`999b`), `\|\|` xm3 separator are V4. |
 | §9 Parser | ⚠️ Partial | Tolerant parsing (`ErrorNode`/`IncompleteNode`, recovery boundaries, IDE-grade incremental parsing) is V4. v1 (Python) parser fails on V3-superset syntax — V3 self-hosting compiler is the bible-conformant parser. |
-| §10 Type Checker | ⚠️ Partial | Most semantic checks listed (power arithmetic, prob ranges, route exhaustiveness, foreshadow strict enforcement, classified redaction, dyn object-safety, FFI safety) are V4. V4 now validates the basic `@layout(C)` / `packed` / `transparent` contracts; deeper FFI layout-stability checks still expand. |
-| §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. LLVM emits LineTablesOnly DWARF (DISubprogram per function + per-instruction `!dbg`). Special codegen for `mood`/variants/`dyn`/`Shared<T>`/extern ABIs/optimization pragmas/classified symbol stripping is V4. JIT (OrcJIT) is V4. |
+| §10 Type Checker | ⚠️ Partial | Most semantic checks listed (power arithmetic, prob ranges, foreshadow strict enforcement, classified redaction, full FFI safety) are V4. V4 now validates route exhaustiveness, first-pass `dyn Doctrine` object-safety/coercion contracts, and the basic `@layout(C)` / `packed` / `transparent` contracts; deeper layout and backend guarantees still expand. |
+| §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. LLVM emits LineTablesOnly DWARF (DISubprogram per function + per-instruction `!dbg`). Special codegen for `mood`/variants/`dyn` fat-pointer vtables/`Shared<T>` runtime headers/optimization pragmas/classified symbol stripping is V4; extern ABI lowering is partial in V4. JIT (OrcJIT) is V4. |
 | §12 Build Modes | 🔜 V4 | `slice_of_life`/`mecha`/`shonen_jump`/`final_form`/`alternative` modes are V4. v0.13.x has only LLVM `--opt=0..3` and `--c`/`--llvm` backend selection. |
 | §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`. V4: `freak vibe`, `freak test`, `--voice=…`, `--clearance=…`, `--build-mode=…`, `-o output_path`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
@@ -99,7 +99,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.3 Primitive types | ⚠️ Partial — `num`/`int`/`word`/`bool`/`void` ship in production; V4 also carries `uint`/`tiny`/`char`/`big`/`float`/`float32`/`never`, `[T;N]`, tuple, and raw-pointer type forms through TY/MIR smokes, with scalar LLVM type plans for primitive carriers; full runtime/backend semantics still expand |
 | §1.4 Compound types (`maybe<T>`, `result<T,E>`) | ✅ Implemented |
 | §1.5 Shapes | ✅ Implemented — V4 also lowers concrete impl UFCS calls through MIR with receiver and argument diagnostics |
-| §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships; V4 also parses and enforces doctrine bounds plus multi-bound generics across TY/MIR/editor; `Ord`/`Index`/`IndexMut`/`dyn` still expand |
+| §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships; V4 also parses and enforces doctrine bounds plus multi-bound generics across TY/MIR/editor, and carries first-pass `dyn Doctrine` type positions, object-safety diagnostics, coercion checks, MIR method dispatch facts, and editor facts; `Ord`/`Index`/`IndexMut` plus dyn fat-pointer/vtable codegen still expand |
 | §1.7 Control flow | ⚠️ Partial — V4 carries tuple, fixed-array, and route/variant payload pattern destructuring with exhaustiveness diagnostics plus `training arc with growth` mutation checks for local and projected places; `prob_when` and broader pattern ergonomics remain 🔜 V4 |
 | §1.8 Closures | ⚠️ Partial — `copy`/`move`/`mut` closure modes parsed, semantics 🔜 V4 |
 | §1.9 Pipe operator `\|>` | ✅ Implemented |
@@ -295,6 +295,8 @@ for each w in widgets {
     w.draw(lend mut canvas)    -- vtable call
 }
 ```
+
+V4 00-Unit status: the query stack now validates unknown doctrines, first-pass object-safety, concrete/generic coercion into `dyn Doctrine`, MIR method-call facts, and editor hover/definition/completion facts. The backend still has to lower `dyn` into the fat-pointer/vtable representation below before this becomes a production dispatch feature.
 
 Object-safety rules for `dyn`:
 

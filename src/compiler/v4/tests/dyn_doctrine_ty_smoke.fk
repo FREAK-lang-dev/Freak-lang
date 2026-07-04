@@ -1,0 +1,75 @@
+-- V4 dyn doctrine type and object-safety smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_dyn_ty_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_dyn_ty_source() -> word {
+    pilot src = "doctrine Widget {\n"
+    src = src + "    task draw(self) -> word\n"
+    src = src + "}\n"
+    src = src + "doctrine Factory {\n"
+    src = src + "    task make() -> Widget\n"
+    src = src + "}\n"
+    src = src + "doctrine Cloner {\n"
+    src = src + "    task clone(self) -> Self\n"
+    src = src + "}\n"
+    src = src + "shape Button {\n"
+    src = src + "    label: word\n"
+    src = src + "}\n"
+    src = src + "shape Rock {\n"
+    src = src + "    mass: int\n"
+    src = src + "}\n"
+    src = src + "impl Widget for Button {\n"
+    src = src + "    task draw(self) -> word {\n"
+    src = src + "        give back self.label\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task take(w: dyn Widget) -> dyn Widget {\n"
+    src = src + "    give back w\n"
+    src = src + "}\n"
+    src = src + "task missing(x: dyn Ghost) -> void {\n"
+    src = src + "}\n"
+    src = src + "task bad_factory(x: dyn Factory) -> void {\n"
+    src = src + "}\n"
+    src = src + "task bad_self(x: dyn Cloner) -> void {\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_dyn_ty_text = v4_dyn_ty_source()
+pilot v4_dyn_ty_stream = v4_lex_text(0, v4_dyn_ty_text)
+pilot v4_dyn_ty_tree = v4_parse_stream(0, v4_dyn_ty_stream)
+pilot v4_dyn_ty_hir = v4_hir_lower_tree(0, v4_dyn_ty_tree)
+pilot v4_dyn_ty_resolve = v4_resolve_lower_hir(0, v4_dyn_ty_hir)
+pilot v4_dyn_ty_id = v4_ty_lower_resolve(0, v4_dyn_ty_resolve)
+pilot v4_dyn_ty_take_sig = v4_ty_task_signature_id_for_name(v4_dyn_ty_id, "take")
+pilot v4_dyn_ty_param = v4_ty_signature_param_type(v4_dyn_ty_id, v4_dyn_ty_take_sig, 0)
+pilot v4_dyn_ty_return = v4_ty_signature_return_type(v4_dyn_ty_id, v4_dyn_ty_take_sig)
+pilot v4_dyn_ty_widget = v4_ty_dyn_type("Widget")
+pilot v4_dyn_ty_factory = v4_ty_dyn_type("Factory")
+pilot v4_dyn_ty_cloner = v4_ty_dyn_type("Cloner")
+
+say v4_ty_summary(v4_dyn_ty_id)
+say "dyn-ty-param=" + v4_dyn_ty_param
+say "dyn-ty-return=" + v4_dyn_ty_return
+say "dyn-ty-is-dyn=" + v4_dyn_ty_bool_word(v4_ty_is_dyn_type(v4_dyn_ty_param))
+say "dyn-ty-doctrine=" + v4_ty_dyn_doctrine_name(v4_dyn_ty_param)
+say "dyn-ty-widget-object-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object_safe(v4_dyn_ty_id, v4_dyn_ty_widget))
+say "dyn-ty-factory-object-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object_safe(v4_dyn_ty_id, v4_dyn_ty_factory))
+say "dyn-ty-factory-issue=" + v4_ty_dyn_object_safety_issue(v4_dyn_ty_id, v4_dyn_ty_factory)
+say "dyn-ty-cloner-object-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object_safe(v4_dyn_ty_id, v4_dyn_ty_cloner))
+say "dyn-ty-cloner-issue=" + v4_ty_dyn_object_safety_issue(v4_dyn_ty_id, v4_dyn_ty_cloner)
+say "dyn-ty-button-coerces=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_widget, "Button"))
+say "dyn-ty-rock-coerces=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_widget, "Rock"))
+say "dyn-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_dyn_ty_id))
+say "dyn-ty-diag0-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 0))
+say "dyn-ty-diag0-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 0))
+say "dyn-ty-diag1-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 1))
+say "dyn-ty-diag1-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 1))
+say "dyn-ty-diag2-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 2))
+say "dyn-ty-diag2-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 2))
