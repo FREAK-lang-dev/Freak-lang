@@ -3477,6 +3477,115 @@ task v4_mir_check_method_args(mir_id: int, body_id: int, stream_id: int, expr_sp
     give back args_payload
 }
 
+task v4_mir_check_ufcs_method_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, owner_ty: word, receiver_ty: word, method_name: word, method_ref: word, open_token: int, close_token: int) -> word {
+    if method_ref == "" or open_token < 0 or close_token <= open_token {
+        give back ""
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
+    pilot method_id = v4_mir_method_ref_method_id(method_ref)
+    pilot expected_count = v4_ty_impl_method_explicit_param_count(ty_id, hir_item, method_id)
+    pilot actual_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    pilot label = owner_ty + "::" + method_name
+    if actual_count != expected_count + 1 {
+        v4_mir_add_type_error(mir_id, expr_span, "UFCS method call arity drift", label + " takes receiver plus " + word_from_int(expected_count) + " explicit arguments but got " + word_from_int(actual_count))
+    }
+
+    pilot call_args = ""
+    pilot first_start = v4_mir_skip_trivia(stream_id, open_token + 1)
+    pilot first_end = first_start
+    if first_start < close_token {
+        first_end = v4_mir_call_arg_end(stream_id, first_start, close_token)
+        pilot receiver_label = v4_mir_call_arg_label(stream_id, first_start, first_end)
+        pilot receiver_start = first_start
+        if receiver_label != "" {
+            receiver_start = v4_mir_call_arg_value_start(stream_id, first_start, first_end)
+            if receiver_label != "self" {
+                v4_mir_add_type_error(mir_id, expr_span, "UFCS receiver must be first", label + " expects the receiver first; " + receiver_label + " names a method argument before self")
+            }
+        }
+        pilot receiver_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, receiver_start, first_end, receiver_ty)
+        call_args = v4_mir_call_args_payload_append(call_args, receiver_rvalue)
+        pilot actual_receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
+        if not v4_ty_types_compatible(receiver_ty, actual_receiver_ty) {
+            v4_mir_add_type_mismatch_error(mir_id, expr_span, "UFCS receiver type mismatch", label + " receiver expects " + receiver_ty + " but got " + actual_receiver_ty, label + " receiver", receiver_ty, actual_receiver_ty)
+        }
+    }
+
+    pilot planned_slots = v4_mir_call_arg_slot_payload_new(expected_count)
+    pilot extra_payload = ""
+    pilot named_seen = false
+    pilot next_positional = 0
+    pilot plan_arg_idx = 1
+    pilot arg_start = v4_mir_skip_trivia(stream_id, first_end + 1)
+    repeat until plan_arg_idx >= actual_count {
+        pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
+        pilot arg_label = v4_mir_call_arg_label(stream_id, arg_start, arg_end)
+        pilot value_start = arg_start
+        if arg_label != "" {
+            named_seen = true
+            value_start = v4_mir_call_arg_value_start(stream_id, arg_start, arg_end)
+            pilot param_idx = v4_mir_method_param_index_for_name(mir_id, hir_item, method_id, arg_label)
+            if param_idx < 0 {
+                v4_mir_add_type_error(mir_id, expr_span, "unknown method argument", label + " has no parameter " + arg_label)
+                extra_payload = v4_mir_call_arg_segment_payload_append(extra_payload, value_start, arg_end)
+            } else if v4_mir_call_arg_slot_assigned(planned_slots, param_idx) {
+                v4_mir_add_type_error(mir_id, expr_span, "duplicate method argument", arg_label + " already has an assignment in " + label)
+                extra_payload = v4_mir_call_arg_segment_payload_append(extra_payload, value_start, arg_end)
+            } else {
+                planned_slots = v4_mir_call_arg_slot_set(planned_slots, expected_count, param_idx, value_start, arg_end)
+            }
+        } else {
+            if named_seen {
+                v4_mir_add_type_error(mir_id, expr_span, "positional method argument after named", "place positional arguments before named ones in " + label)
+                extra_payload = v4_mir_call_arg_segment_payload_append(extra_payload, arg_start, arg_end)
+            } else if next_positional < expected_count {
+                planned_slots = v4_mir_call_arg_slot_set(planned_slots, expected_count, next_positional, arg_start, arg_end)
+                next_positional += 1
+            } else {
+                extra_payload = v4_mir_call_arg_segment_payload_append(extra_payload, arg_start, arg_end)
+            }
+        }
+        plan_arg_idx += 1
+        arg_start = v4_mir_skip_trivia(stream_id, arg_end + 1)
+    }
+
+    pilot lower_arg_idx = 0
+    repeat until lower_arg_idx >= expected_count {
+        if named_seen and not v4_mir_call_arg_slot_assigned(planned_slots, lower_arg_idx) {
+            pilot param_name = v4_ty_impl_method_explicit_param_name(ty_id, hir_item, method_id, lower_arg_idx)
+            v4_mir_add_type_error(mir_id, expr_span, "missing method argument", label + " still needs parameter " + param_name)
+        }
+        pilot planned_start = v4_mir_call_arg_slot_start(planned_slots, lower_arg_idx)
+        pilot planned_end = v4_mir_call_arg_slot_end(planned_slots, lower_arg_idx)
+        if planned_start >= 0 and planned_end > planned_start {
+            pilot expected_ty = v4_ty_impl_method_explicit_param_type_for_owner(ty_id, hir_item, method_id, lower_arg_idx, receiver_ty)
+            pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
+            call_args = v4_mir_call_args_payload_append(call_args, arg_rvalue)
+            pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+            if not v4_ty_types_compatible(expected_ty, actual_ty) {
+                pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
+                v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
+            }
+        }
+        lower_arg_idx += 1
+    }
+
+    pilot extra_idx = 0
+    pilot extra_count = v4_mir_call_arg_segment_payload_count(extra_payload)
+    repeat until extra_idx >= extra_count {
+        pilot segment = v4_mir_call_arg_segment_payload_at(extra_payload, extra_idx)
+        pilot extra_start = v4_mir_call_arg_segment_start(segment)
+        pilot extra_end = v4_mir_call_arg_segment_end(segment)
+        if extra_start >= 0 and extra_end > extra_start {
+            pilot ignored = v4_mir_lower_expr(mir_id, body_id, stream_id, extra_start, extra_end)
+        }
+        extra_idx += 1
+    }
+    give back call_args
+}
+
 task v4_mir_check_bound_method_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, owner_ty: word, method_name: word, method_ref: word, open_token: int, close_token: int, call_glyph: word) -> word {
     if method_ref == "" or open_token < 0 or close_token <= open_token {
         give back ""
@@ -4183,12 +4292,16 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
         give back shared_builtin
     }
     pilot method_ref = v4_mir_find_method_ref(mir_id, lookup_owner_ty, method_name, false)
-    pilot any_ref = ""
+    pilot ufcs_ref = ""
     pilot explicit_args_payload = ""
+    pilot receiver_rvalue = 0 - 1
     if method_ref == "" {
-        any_ref = v4_mir_find_any_method_ref(mir_id, lookup_owner_ty, method_name)
-        if any_ref != "" {
-            v4_mir_add_type_error(mir_id, expr_span, "associated call needs a receiver", owner_ty + "::" + method_name + " is an instance method; call it through a value")
+        ufcs_ref = v4_mir_find_method_ref(mir_id, lookup_owner_ty, method_name, true)
+        if ufcs_ref != "" {
+            explicit_args_payload = v4_mir_check_ufcs_method_args(mir_id, body_id, stream_id, expr_span, owner_ty, lookup_owner_ty, method_name, ufcs_ref, open_token, last)
+            if v4_mir_call_args_payload_count(explicit_args_payload) > 0 {
+                receiver_rvalue = v4_mir_call_args_payload_at(explicit_args_payload, 0)
+            }
         } else {
             v4_mir_add_type_error(mir_id, expr_span, "associated method lookup failed", owner_ty + " exposes no static method " + method_name)
         }
@@ -4197,10 +4310,10 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
     }
 
     pilot result_ty = v4_mir_method_return_type(mir_id, lookup_owner_ty, method_ref)
-    if method_ref == "" and any_ref != "" {
-        result_ty = v4_mir_method_return_type(mir_id, lookup_owner_ty, any_ref)
+    if method_ref == "" and ufcs_ref != "" {
+        result_ty = v4_mir_method_return_type(mir_id, lookup_owner_ty, ufcs_ref)
     }
-    pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, owner_ty + "::" + method_name, 0 - 1, 0 - 1, expr_span, result_ty)
+    pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, owner_ty + "::" + method_name, receiver_rvalue, 0 - 1, expr_span, result_ty)
     v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, explicit_args_payload)
     give back call_rvalue
 }

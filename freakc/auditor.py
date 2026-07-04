@@ -908,6 +908,7 @@ def audit_conformance(paths: List[Path]) -> int:
     v4_primitive_smoke = repo / "src" / "compiler" / "v4" / "tests" / "primitive_types_smoke.fk"
     v4_named_call_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_named_call_smoke.fk"
     v4_named_call_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "named_call_editor_smoke.fk"
+    v4_method_call_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_method_call_smoke.fk"
     v4_tuple_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_tuple_literal_smoke.fk"
     v4_array_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_array_literal_smoke.fk"
     if v4_ty_lib_sc.exists():
@@ -942,6 +943,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "unknown method argument",
             "duplicate method argument",
             "positional method argument after named",
+            "v4_mir_check_ufcs_method_args",
+            "UFCS receiver type mismatch",
             "v4_mir_try_lower_tuple_literal",
             "v4_mir_check_fixed_array_literal",
             "v4_mir_fixed_array_slot_count",
@@ -968,6 +971,7 @@ def audit_conformance(paths: List[Path]) -> int:
         (v4_primitive_smoke, "primitive_types_smoke.fk"),
         (v4_named_call_smoke, "mir_named_call_smoke.fk"),
         (v4_named_call_editor_smoke, "named_call_editor_smoke.fk"),
+        (v4_method_call_smoke, "mir_method_call_smoke.fk"),
         (v4_tuple_smoke, "mir_tuple_literal_smoke.fk"),
         (v4_array_smoke, "mir_array_literal_smoke.fk"),
     ):
@@ -990,6 +994,10 @@ def audit_conformance(paths: List[Path]) -> int:
             "named-positional-message0=positional call argument after named",
             "named_call_editor_smoke.fk",
             "named-call-editor-compose-timeout-found=true",
+            "mir_method_call_smoke.fk",
+            "ufcs-boost-call-op=Pilot::boost",
+            "ufcs-take-call-op=Box<int>::take",
+            "bad-ufcs-receiver-message=UFCS receiver type mismatch",
             "mir_tuple_literal_smoke.fk",
             "tuple-local0-ty=(int,word)",
             "tuple-bad-mismatch-message=local declaration type mismatch",
@@ -1004,7 +1012,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 semantic core",
         not semantic_core_missing,
-        "named calls + primitive/tuple/fixed-array carriers wired" if not semantic_core_missing else f"{len(semantic_core_missing)} gap(s)",
+        "named calls + UFCS methods + primitive/tuple/fixed-array carriers wired" if not semantic_core_missing else f"{len(semantic_core_missing)} gap(s)",
     )
     if semantic_core_missing:
         failures.append("V4 semantic-core carrier surface regressed: " + "; ".join(semantic_core_missing))
