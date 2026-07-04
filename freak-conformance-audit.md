@@ -16,8 +16,8 @@
 | Bible sections audited | 17 (§1–§17) | + cheatsheet §15 |
 | Testable contracts identified | ~445 | derived from Phase-1 exploration |
 | Contracts ✅ aligned | ~150 (34%) | core syntax, primitives, basic stdlib, audit suite, Phase-1 BC, LB10 line-table DWARF |
-| Contracts ⚠️ stubbed | ~108 (24%) | parsed but not enforced (anime layer, partial doctrines, Phase-1 BC default-off) |
-| Contracts ❌ missing | ~187 (42%) | variants, mood/prob/power/causality, squadron, full BC, dyn dispatch, FFI surface, error voices |
+| Contracts ⚠️ stubbed | ~116 (26%) | parsed/carried but not yet production-complete (anime layer, V4 semantic-core carriers, partial doctrines, Phase-1 BC default-off) |
+| Contracts ❌ missing | ~179 (40%) | mood/prob/power/causality, squadron, full BC, dyn dispatch, remaining FFI/runtime surface, error voices |
 | Verdict 🛠 fix code | 0 remaining | all 11 cheap fixes shipped (audit cmds, audit-conformance, Ord/Index, freak test, test_maybe + test_pipe, winget, LB10) |
 | Verdict 📖 amend bible (V4 tag) | ~140 | bulk of the gaps — bible §0.2 reflects |
 | Verdict ✅ already aligned | ~150 | preserved as-is |
@@ -60,7 +60,7 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 9 | `eventually` LIFO deferred execution | Emitted as inline block | 🟡 | 📖 clarify current; full deferred V4 |
 | 10 | `payoff` strict enforcement, `isekai` export validation | Comments only | 🟡 | 📖 V4 strict mode |
 | 11 | Death-flag tiers, `@nakige`/`@experiment` caller-prefix enforcement | Annotations parsed, enforcement absent | 🟡 | 📖 V4 |
-| 12 | `tiny`, `uint`, `char`, `big`, `float32`, fixed `[T; N]` | Type checker knows int/num/word/bool/void only | 🔴 | 📖 V4 (add minimal aliases now) |
+| 12 | `tiny`, `uint`, `char`, `big`, `float32`, fixed `[T; N]`, tuples | V4 carries primitive carriers, tuple/fixed-array type text, numeric suffixes, TY/MIR facts, and scalar LLVM type plans for primitive carriers; runtime semantics, tuple/fixed-array layout, and full production backend depth still expand | 🟡 | 📖 V4 |
 | 13 | Audit commands in native CLI | Python-only; `build/freak.exe` doesn't dispatch | 🟡 | 🛠 wire native CLI |
 | 14 | Error voices (Meiya/Yuuko/Sagiri/Kasumi/Takeru/Mana/Hayase/Sumika/00-Unit) | Mostly generic errors | 🟡 | 📖 V4 |
 | 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 has landed substantial section-16 work; per-landing breakdown lives in [§16 below](#§16-system-boundaries-ffi). Trust-me-gated raw pointer ops, runtime panic-catch in trampoline bodies, and deeper ABI coverage still expand | 🟡 | 📖 V4 |
@@ -98,7 +98,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | String interpolation `"{expr}"` | ✅ | ✅ | [freakc/emitter.py:1050-1100](freakc/emitter.py) |
 | Arrow shorthand `task square(x) => x*x` | ✅ | ✅ | parsed and emitted |
 | `done` synonym for `}` | ✅ | ✅ | |
-| Named parameters at call site `connect(host: "x", port: 80)` | ❌ | 📖 V4 | not parsed; bible promises it |
+| Named parameters at call site `connect(host: "x", port: 80)` | ⚠️ | 📖 V4 | V4 lowers named call-site arguments for task calls, generic calls, instance methods, associated methods, and extern/callback calls, with unknown/duplicate/missing/positional-after-named diagnostics plus editor completion/definition facts; production backend parity still expands |
 
 #### §1.3 Types — Primitive ([freak-full-bible.md:73-93](freak-full-bible.md))
 
@@ -106,18 +106,18 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 |---|---|---|---|
 | `num` | ✅ | ✅ | |
 | `int` | ✅ | ✅ | |
-| `uint` | ❌ | 📖 V4 | type checker treats as `int`; no unsigned semantics |
-| `tiny` (u8) | ❌ | 📖 V4 | not in checker |
-| `float` (f64) | ⚠️ | 📖 V4 | aliased to num at codegen |
-| `float32` | ❌ | 📖 V4 | not in checker |
-| `big` (arbitrary precision) | ❌ | 📖 V4 | no big-int runtime |
+| `uint` | ⚠️ | 📖 V4 | V4 carries `uint` through TY/MIR/LLVM type plans and numeric suffix inference; complete unsigned runtime/backend semantics still expand |
+| `tiny` (u8) | ⚠️ | 📖 V4 | V4 carries `tiny` through TY/MIR/LLVM type plans, numeric suffix inference, and FFI scalar checks; complete runtime/backend semantics still expand |
+| `float` (f64) | ⚠️ | 📖 V4 | V4 carries `float` as distinct surface text with LLVM double mapping; broader numeric semantics still expand |
+| `float32` | ⚠️ | 📖 V4 | V4 carries `float32` through TY/MIR/LLVM type plans and variadic promotion checks; complete runtime/backend semantics still expand |
+| `big` (arbitrary precision) | ⚠️ | 📖 V4 | V4 carries `big` through TY/MIR/codegen placeholders and numeric suffix inference; arbitrary-precision runtime remains later |
 | `word` (UTF-8 string fat pointer) | ✅ | ✅ | runtime fat pointer; |
 | `bool` (true/false/yes/no/hai/iie) | ✅ | ✅ | [freakc/lexer.py:130-137](freakc/lexer.py) |
-| `char` (Unicode scalar 32-bit) | ❌ | 📖 V4 | no codepoint type |
+| `char` (Unicode scalar 32-bit) | ⚠️ | 📖 V4 | V4 carries char literals and `char` through TY/MIR/LLVM type plans; full Unicode scalar validation/runtime remains later |
 | `void` | ✅ | ✅ | |
-| `never` (bottom type) | ❌ | 📖 V4 | no never-type inference |
-| `[T; N]` fixed-size array | ⚠️ | 📖 V4 | dynamic List<T> exists; fixed arrays not stack-allocated |
-| `(A, B, ...)` tuple | ❌ | 📖 V4 | parser doesn't handle tuple types |
+| `never` (bottom type) | ⚠️ | 📖 V4 | V4 carries the bottom type and compatibility rule in TY; full divergence/control-flow inference still expands |
+| `[T; N]` fixed-size array | ⚠️ | 📖 V4 | V4 parses/carries fixed-array type text, literal/repeat-fill MIR facts, const length arithmetic, destructuring, and LLVM type plans; stack layout/runtime depth still expands |
+| `(A, B, ...)` tuple | ⚠️ | 📖 V4 | V4 parses/carries tuple type text, tuple literals, slot access, destructuring, and TY/MIR/editor facts; final backend layout still expands |
 | `*T`, `*const T`, `*mut T` raw pointers | ⚠️ | 📖 V4 | via `extern` plus trust-me-gated deref/read/write/offset/cast operations; raw allocation/freeing still expand |
 
 #### §1.4 Types — Compound
@@ -745,9 +745,9 @@ Phase-1 BC working as advertised.
 This is where V4 will need test coverage. **Out of scope for this audit; surfaced for V4 milestone planning.**
 
 - §1.6 doctrines: 0 standalone tests
-- §1.11 generics: 0 tests
+- §1.11 generics: V4 TY/MIR/editor smokes now cover generic calls, constructors, alias-backed shapes/routes, and multi-bound doctrine constraints; production monomorphization depth still expands
 - §1.13 module imports: 0 tests
-- §1.14 variants/aliases: 0 tests (variants don't exist)
+- §1.14 variants/aliases: V4 smokes now cover route-family variants, payload patterns, alias cycles, alias-backed exhaustiveness, editor facts, and alias nominality; backend layout still expands
 - §2.1 power<N>: 0 tests
 - §2.2 prob[lo..hi]: 0 tests
 - §2.3 causality<T>: 0 tests
@@ -756,7 +756,7 @@ This is where V4 will need test coverage. **Out of scope for this audit; surface
 - §3.2 squadron: 0 tests
 - §4 borrow checker: 5 tests, **not in CI**
 - §5.2 foreshadow: only `audit_demo.fk`, no error cases
-- §5.3 routes: 0 tests
+- §5.3 routes: V4 smokes now cover route/variant constructors, exhaustive `when`, `check route`, alias-backed diagnostics, and route-locked `only on`; full visual-novel route semantics still expand
 - §5.4 anime operators: `tests/anime.fk` only
 - §5.5 deus_ex_machina: only `audit_demo.fk`
 - §5.7 isekai/eventually: 2 files, no error cases
