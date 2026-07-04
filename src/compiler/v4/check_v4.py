@@ -5610,7 +5610,8 @@ EXECUTABLE_SMOKES = [
             "generic-alias-method-bad-arg-diagnostics=1",
             "generic-alias-method-bad-arg-message=method argument drift",
             "generic-alias-method-bad-associated-diagnostics=1",
-            "generic-alias-method-bad-associated-message=associated call needs a receiver",
+            "generic-alias-method-bad-associated-message=UFCS method call arity drift",
+            "generic-alias-method-bad-associated-help=IntCrate::take takes receiver plus 0 explicit arguments but got 0",
         ],
     },
     {
