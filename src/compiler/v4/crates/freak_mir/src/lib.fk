@@ -2375,6 +2375,13 @@ task v4_mir_check_return_type(mir_id: int, body_id: int, stmt_span: word, actual
     }
 }
 
+task v4_mir_coerced_value_type(mir_id: int, body_id: int, expected_ty: word, actual_ty: word) -> word {
+    if v4_ty_is_dyn_type(expected_ty) and v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty) {
+        give back expected_ty
+    }
+    give back actual_ty
+}
+
 task v4_mir_depth_after_token(depth: int, val: word) -> int {
     pilot next_depth = depth
     if val == "(" or val == "[" or val == "{" or val == "<" {
@@ -7268,7 +7275,8 @@ task v4_mir_lower_return_stmt(mir_id: int, body_id: int, block_id: int, stream_i
     pilot rvalue_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, rhs_start, stmt_end, v4_mir_expected_return_type(mir_id, body_id))
     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     v4_mir_check_return_type(mir_id, body_id, stmt_span, actual_ty)
-    pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_return, "_return", 0 - 1, "_return", 0 - 1, stmt_span, actual_ty)
+    pilot return_ty = v4_mir_coerced_value_type(mir_id, body_id, v4_mir_expected_return_type(mir_id, body_id), actual_ty)
+    pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_return, "_return", 0 - 1, "_return", 0 - 1, stmt_span, return_ty)
     pilot return_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, rvalue_id)
     v4_mir_add_stmt(mir_id, body_id, return_block, v4_mir_stmt_return, "_return", rhs, stmt_span, place_id, rvalue_id)
     v4_mir_set_body_block(mir_id, body_id, return_block, v4_mir_block_new_full(return_block, v4_mir_term_return, 0 - 1, 0 - 1, ""))

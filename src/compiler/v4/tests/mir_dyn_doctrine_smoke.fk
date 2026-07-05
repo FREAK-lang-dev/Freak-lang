@@ -9,8 +9,15 @@ task v4_dyn_mir_bool_word(flag: bool) -> word {
 }
 
 task v4_dyn_mir_source() -> word {
-    pilot src = "doctrine Widget {\n"
+    pilot src = "alias Score = int\n"
+    src = src + "doctrine Widget {\n"
     src = src + "    task draw(self) -> word\n"
+    src = src + "}\n"
+    src = src + "doctrine Displayable<T> {\n"
+    src = src + "    task display(self) -> word\n"
+    src = src + "}\n"
+    src = src + "doctrine Holder<T> {\n"
+    src = src + "    task get(self) -> T\n"
     src = src + "}\n"
     src = src + "shape Button {\n"
     src = src + "    label: word\n"
@@ -18,9 +25,25 @@ task v4_dyn_mir_source() -> word {
     src = src + "shape Rock {\n"
     src = src + "    mass: int\n"
     src = src + "}\n"
+    src = src + "shape NumberLabel {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "shape IntBox {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
     src = src + "impl Widget for Button {\n"
     src = src + "    task draw(self) -> word {\n"
     src = src + "        give back self.label\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Displayable<Score> for NumberLabel {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back \"number\"\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Holder<int> for IntBox {\n"
+    src = src + "    task get(self) -> int {\n"
+    src = src + "        give back self.value\n"
     src = src + "    }\n"
     src = src + "}\n"
     src = src + "task paint(button: Button) -> word {\n"
@@ -31,11 +54,23 @@ task v4_dyn_mir_source() -> word {
     src = src + "    pilot widget: dyn Widget = value\n"
     src = src + "    give back widget\n"
     src = src + "}\n"
+    src = src + "task erase_direct(button: Button) -> dyn Widget {\n"
+    src = src + "    give back button\n"
+    src = src + "}\n"
     src = src + "task consume(w: dyn Widget) -> word {\n"
     src = src + "    give back w.draw()\n"
     src = src + "}\n"
     src = src + "task forward<T: Widget>(value: T) -> word {\n"
     src = src + "    give back consume(value)\n"
+    src = src + "}\n"
+    src = src + "task accept<T>(d: dyn Displayable<T>, sample: T) -> T {\n"
+    src = src + "    give back sample\n"
+    src = src + "}\n"
+    src = src + "task use_accept(label: NumberLabel) -> int {\n"
+    src = src + "    give back accept(label, 1)\n"
+    src = src + "}\n"
+    src = src + "task read_box(h: dyn Holder<int>) -> int {\n"
+    src = src + "    give back h.get()\n"
     src = src + "}\n"
     give back src
 }
@@ -44,6 +79,16 @@ task v4_dyn_mir_bad_source() -> word {
     pilot src = v4_dyn_mir_source()
     src = src + "task bad(rock: Rock) -> void {\n"
     src = src + "    pilot widget: dyn Widget = rock\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_dyn_mir_bad_list_source() -> word {
+    pilot src = v4_dyn_mir_source()
+    src = src + "task take_list(items: List<dyn Widget>) -> void {\n"
+    src = src + "}\n"
+    src = src + "task bad_list(buttons: List<Button>) -> void {\n"
+    src = src + "    take_list(buttons)\n"
     src = src + "}\n"
     give back src
 }
@@ -62,6 +107,15 @@ pilot v4_dyn_mir_paint_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_pai
 pilot v4_dyn_mir_erase_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "erase")
 pilot v4_dyn_mir_erase_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_erase_def)
 pilot v4_dyn_mir_erase_widget = v4_mir_find_local(v4_dyn_mir_id, v4_dyn_mir_erase_body, "widget")
+pilot v4_dyn_mir_erase_direct_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "erase_direct")
+pilot v4_dyn_mir_erase_direct_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_erase_direct_def)
+pilot v4_dyn_mir_erase_direct_return_place = v4_mir_stmt_place(v4_dyn_mir_id, v4_dyn_mir_erase_direct_body, 0)
+pilot v4_dyn_mir_use_accept_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "use_accept")
+pilot v4_dyn_mir_use_accept_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_use_accept_def)
+pilot v4_dyn_mir_use_accept_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_use_accept_body, 0)
+pilot v4_dyn_mir_read_box_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "read_box")
+pilot v4_dyn_mir_read_box_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_read_box_def)
+pilot v4_dyn_mir_read_box_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_read_box_body, 0)
 pilot v4_dyn_mir_bad_text = v4_dyn_mir_bad_source()
 pilot v4_dyn_mir_bad_stream = v4_lex_text(1, v4_dyn_mir_bad_text)
 pilot v4_dyn_mir_bad_tree = v4_parse_stream(1, v4_dyn_mir_bad_stream)
@@ -69,6 +123,13 @@ pilot v4_dyn_mir_bad_hir = v4_hir_lower_tree(1, v4_dyn_mir_bad_tree)
 pilot v4_dyn_mir_bad_resolve = v4_resolve_lower_hir(1, v4_dyn_mir_bad_hir)
 pilot v4_dyn_mir_bad_ty = v4_ty_lower_resolve(1, v4_dyn_mir_bad_resolve)
 pilot v4_dyn_mir_bad_id = v4_mir_lower_ty(1, v4_dyn_mir_bad_ty)
+pilot v4_dyn_mir_bad_list_text = v4_dyn_mir_bad_list_source()
+pilot v4_dyn_mir_bad_list_stream = v4_lex_text(2, v4_dyn_mir_bad_list_text)
+pilot v4_dyn_mir_bad_list_tree = v4_parse_stream(2, v4_dyn_mir_bad_list_stream)
+pilot v4_dyn_mir_bad_list_hir = v4_hir_lower_tree(2, v4_dyn_mir_bad_list_tree)
+pilot v4_dyn_mir_bad_list_resolve = v4_resolve_lower_hir(2, v4_dyn_mir_bad_list_hir)
+pilot v4_dyn_mir_bad_list_ty = v4_ty_lower_resolve(2, v4_dyn_mir_bad_list_resolve)
+pilot v4_dyn_mir_bad_list_id = v4_mir_lower_ty(2, v4_dyn_mir_bad_list_ty)
 
 say v4_mir_summary(v4_dyn_mir_id)
 say "dyn-mir-paint-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_mir_id))
@@ -77,8 +138,14 @@ say "dyn-mir-return-kind=" + v4_mir_rvalue_kind(v4_dyn_mir_id, v4_dyn_mir_paint_
 say "dyn-mir-return-op=" + v4_mir_rvalue_op(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_paint_return)
 say "dyn-mir-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_paint_return)
 say "dyn-mir-erase-widget-local-type=" + v4_mir_local_type_display(v4_dyn_mir_id, v4_dyn_mir_erase_body, v4_dyn_mir_erase_widget)
+say "dyn-mir-erase-direct-return-place-ty=" + v4_mir_place_ty(v4_dyn_mir_id, v4_dyn_mir_erase_direct_body, v4_dyn_mir_erase_direct_return_place)
+say "dyn-mir-use-accept-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_use_accept_body, v4_dyn_mir_use_accept_return)
+say "dyn-mir-read-box-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_read_box_body, v4_dyn_mir_read_box_return)
 say "dyn-mir-compact-dynwidget=" + v4_mir_compact_type_text("dynWidget")
 say "dyn-mir-compact-list-dyn=" + v4_mir_compact_type_text("List<dyn Widget>")
 say "dyn-mir-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_mir_bad_id))
 say "dyn-mir-bad-message=" + v4_diag_message(v4_mir_diag(v4_dyn_mir_bad_id, 0))
 say "dyn-mir-bad-help=" + v4_diag_help(v4_mir_diag(v4_dyn_mir_bad_id, 0))
+say "dyn-mir-bad-list-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_mir_bad_list_id))
+say "dyn-mir-bad-list-message=" + v4_diag_message(v4_mir_diag(v4_dyn_mir_bad_list_id, 0))
+say "dyn-mir-bad-list-help=" + v4_diag_help(v4_mir_diag(v4_dyn_mir_bad_list_id, 0))
