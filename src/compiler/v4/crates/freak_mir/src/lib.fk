@@ -3087,8 +3087,13 @@ task v4_mir_check_callback_call_args(mir_id: int, body_id: int, stream_id: int, 
             pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
             args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
-            if not v4_ty_types_compatible(expected_ty, actual_ty) {
+            if not v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty) {
                 v4_mir_add_type_error(mir_id, expr_span, "call argument type mismatch", callee_text + " argument " + word_from_int(lower_arg_idx + 1) + " expects " + expected_ty + " but got " + actual_ty)
+            } else {
+                pilot coerced_ty = v4_mir_coerced_value_type(mir_id, body_id, expected_ty, actual_ty)
+                if coerced_ty != actual_ty {
+                    v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, coerced_ty)
+                }
             }
         }
         lower_arg_idx += 1
