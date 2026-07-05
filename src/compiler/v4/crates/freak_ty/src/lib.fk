@@ -1137,6 +1137,47 @@ task v4_ty_dyn_doctrine_base_name(type_text: word) -> word {
     give back v4_ty_doctrine_lookup_base_name(v4_ty_dyn_doctrine_name(type_text))
 }
 
+task v4_ty_type_contains_dyn(type_text: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back false
+    }
+    if v4_ty_is_dyn_type(type_text) {
+        give back true
+    }
+    if v4_ty_is_lend_type(type_text) {
+        give back v4_ty_type_contains_dyn(v4_ty_lend_target_type(type_text))
+    }
+    if v4_ty_is_raw_pointer_type(type_text) {
+        give back v4_ty_type_contains_dyn(v4_ty_raw_pointer_target_type(type_text))
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot arg_idx = 0
+        pilot arg_count = v4_ty_generic_arg_count(type_text)
+        repeat until arg_idx >= arg_count {
+            if v4_ty_type_contains_dyn(v4_ty_generic_arg(type_text, arg_idx)) {
+                give back true
+            }
+            arg_idx += 1
+        }
+        give back false
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_idx = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_idx >= slot_count {
+            if v4_ty_type_contains_dyn(v4_ty_tuple_slot_type(type_text, slot_idx)) {
+                give back true
+            }
+            slot_idx += 1
+        }
+        give back false
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_type_contains_dyn(v4_ty_fixed_array_element_type(type_text))
+    }
+    give back false
+}
+
 task v4_ty_doctrine_refs_match(wanted_doctrine: word, candidate_doctrine: word) -> bool {
     if wanted_doctrine == "" or candidate_doctrine == "" {
         give back false
@@ -6393,7 +6434,10 @@ task v4_ty_match_type_can_coerce_to_dyn_env(ty_id: int, sig_id: int, expected_ty
 }
 
 task v4_ty_type_can_coerce_to_dyn_in_signature(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word) -> bool {
-    give back v4_ty_match_type_can_coerce_to_dyn_env(ty_id, sig_id, expected_ty, actual_ty, "") != v4_ty_generic_env_fail
+    if not v4_ty_type_contains_dyn(expected_ty) {
+        give back false
+    }
+    give back v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_ty, "") != v4_ty_generic_env_fail
 }
 
 task v4_ty_type_can_coerce_to_dyn_between_signatures(ty_id: int, primary_sig_id: int, fallback_sig_id: int, expected_ty: word, actual_ty: word) -> bool {
@@ -8568,7 +8612,7 @@ task v4_ty_match_signature_type_env_mode(ty_id: int, sig_id: int, expected_ty: w
             pilot expected_arg = v4_ty_generic_arg(expected_ty, arg_idx)
             pilot actual_arg = v4_ty_generic_arg(actual_ty, arg_idx)
             if v4_ty_is_dyn_type(expected_arg) and not v4_ty_is_dyn_type(actual_arg) {
-                if allow_dyn_coerce and base_name == "Shared" {
+                if allow_dyn_coerce and (base_name == "Shared" or base_name == "Weak") {
                     next_env = v4_ty_match_signature_type_env_mode(ty_id, sig_id, expected_arg, actual_arg, next_env, true)
                 } else {
                     give back v4_ty_generic_env_fail
