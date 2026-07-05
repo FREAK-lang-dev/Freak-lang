@@ -19,6 +19,9 @@ task v4_dyn_ty_source() -> word {
     src = src + "doctrine Cloner {\n"
     src = src + "    task clone(self) -> Self\n"
     src = src + "}\n"
+    src = src + "doctrine Visitor {\n"
+    src = src + "    task visit(self, cb: extern [C] task(x: Self) -> void) -> void\n"
+    src = src + "}\n"
     src = src + "doctrine Displayable<T> {\n"
     src = src + "    task display(self) -> word\n"
     src = src + "}\n"
@@ -70,6 +73,8 @@ task v4_dyn_ty_source() -> word {
     src = src + "}\n"
     src = src + "task bad_self(x: dyn Cloner) -> void {\n"
     src = src + "}\n"
+    src = src + "task bad_visitor(x: dyn Visitor) -> void {\n"
+    src = src + "}\n"
     src = src + "task bad_holder(x: dyn Holder) -> void {\n"
     src = src + "}\n"
     give back src
@@ -95,6 +100,7 @@ pilot v4_dyn_ty_accept_env = v4_ty_match_signature_type_env(v4_dyn_ty_id, v4_dyn
 pilot v4_dyn_ty_widget = v4_ty_dyn_type("Widget")
 pilot v4_dyn_ty_factory = v4_ty_dyn_type("Factory")
 pilot v4_dyn_ty_cloner = v4_ty_dyn_type("Cloner")
+pilot v4_dyn_ty_visitor = v4_ty_dyn_type("Visitor")
 pilot v4_dyn_ty_display_int = v4_ty_dyn_type("Displayable<int>")
 pilot v4_dyn_ty_display_word = v4_ty_dyn_type("Displayable<word>")
 
@@ -113,6 +119,8 @@ say "dyn-ty-factory-object-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object
 say "dyn-ty-factory-issue=" + v4_ty_dyn_object_safety_issue(v4_dyn_ty_id, v4_dyn_ty_factory)
 say "dyn-ty-cloner-object-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object_safe(v4_dyn_ty_id, v4_dyn_ty_cloner))
 say "dyn-ty-cloner-issue=" + v4_ty_dyn_object_safety_issue(v4_dyn_ty_id, v4_dyn_ty_cloner)
+say "dyn-ty-visitor-object-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object_safe(v4_dyn_ty_id, v4_dyn_ty_visitor))
+say "dyn-ty-visitor-issue=" + v4_ty_dyn_object_safety_issue(v4_dyn_ty_id, v4_dyn_ty_visitor)
 say "dyn-ty-button-coerces=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_widget, "Button"))
 say "dyn-ty-rock-coerces=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_widget, "Rock"))
 say "dyn-ty-display-int-coerces-number=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_display_int, "NumberLabel"))
@@ -133,3 +141,5 @@ say "dyn-ty-diag2-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 2))
 say "dyn-ty-diag2-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 2))
 say "dyn-ty-diag3-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 3))
 say "dyn-ty-diag3-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 3))
+say "dyn-ty-diag4-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 4))
+say "dyn-ty-diag4-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 4))

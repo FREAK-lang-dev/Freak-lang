@@ -781,6 +781,16 @@ task v4_mir_rvalue_ty(mir_id: int, body_id: int, rvalue_id: int) -> word {
     give back array_get(v4_mir_body_rvalue_tys_handle(mir_id, body_id), rvalue_id)
 }
 
+task v4_mir_set_rvalue_ty(mir_id: int, body_id: int, rvalue_id: int, rvalue_ty: word) -> void {
+    if rvalue_id < 0 {
+        give back
+    }
+    if rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        give back
+    }
+    array_set(v4_mir_body_rvalue_tys_handle(mir_id, body_id), rvalue_id, rvalue_ty)
+}
+
 task v4_mir_rvalue_abi(mir_id: int, body_id: int, rvalue_id: int) -> word {
     give back array_get(v4_mir_body_rvalue_abis_handle(mir_id, body_id), rvalue_id)
 }
@@ -2825,7 +2835,7 @@ task v4_mir_check_call_generic_bounds(mir_id: int, expr_span: word, callee_name:
             pilot bound_count = v4_ty_signature_generic_bound_count(ty_id, sig_id, generic_idx)
             repeat until bound_idx >= bound_count {
                 pilot bound_name = v4_ty_signature_generic_bound_name(ty_id, sig_id, generic_idx, bound_idx)
-                if not v4_ty_type_satisfies_doctrine(ty_id, actual_ty, bound_name) {
+                if not v4_ty_signature_type_satisfies_doctrine_env(ty_id, sig_id, actual_ty, bound_name, generic_env) {
                     v4_mir_add_type_error(mir_id, expr_span, "generic bound mismatch", callee_name + " requires " + generic_name + ": " + bound_name + " but got " + actual_ty)
                 }
                 bound_idx += 1
@@ -2945,13 +2955,13 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
             pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, lower_arg_idx)
             pilot expected_arg_ty = v4_mir_expected_call_arg_type(expected_ty, param_mode)
             pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_arg_ty)
-            args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
             pilot actual_match_ty = v4_mir_check_lend_call_arg(mir_id, expr_span, callee_name, param_name, param_mode, actual_ty)
             pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_match_ty, generic_env)
             if next_env == v4_ty_generic_env_fail {
-                if v4_ty_type_can_coerce_to_dyn_between_signatures(ty_id, sig_id, caller_sig_id, expected_ty, actual_match_ty) {
-                    next_env = generic_env
+                pilot fallback_env = v4_ty_match_type_can_coerce_to_dyn_between_signatures_env(ty_id, sig_id, caller_sig_id, expected_ty, actual_match_ty, generic_env)
+                if fallback_env != v4_ty_generic_env_fail {
+                    next_env = fallback_env
                 }
             }
             if next_env == v4_ty_generic_env_fail {
@@ -2959,7 +2969,13 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "call argument type mismatch", context + " expects " + expected_ty + " but got " + actual_match_ty, context, expected_ty, actual_match_ty)
             } else {
                 generic_env = next_env
+                pilot coerced_expected_ty = v4_ty_apply_generic_env(expected_ty, generic_env)
+                pilot coerced_arg_ty = v4_mir_expected_call_arg_type(coerced_expected_ty, param_mode)
+                if v4_ty_type_contains_dyn(coerced_arg_ty) {
+                    v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, coerced_arg_ty)
+                }
             }
+            args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
         }
         lower_arg_idx += 1
     }
