@@ -3248,10 +3248,14 @@ task v4_mir_find_bound_method_ref(mir_id: int, body_id: int, owner_ty: word, met
 }
 
 task v4_mir_find_dyn_method_ref(mir_id: int, owner_ty: word, method_name: word, want_instance: bool) -> word {
-    if not v4_ty_is_dyn_type(owner_ty) {
+    pilot lookup_owner_ty = owner_ty
+    if v4_ty_is_lend_type(lookup_owner_ty) {
+        lookup_owner_ty = v4_ty_lend_target_type(lookup_owner_ty)
+    }
+    if not v4_ty_is_dyn_type(lookup_owner_ty) {
         give back ""
     }
-    pilot doctrine_name = v4_ty_dyn_doctrine_base_name(owner_ty)
+    pilot doctrine_name = v4_ty_dyn_doctrine_base_name(lookup_owner_ty)
     pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(v4_mir_ty_id(mir_id), doctrine_name)
     if doctrine_sig < 0 {
         give back ""
@@ -3529,12 +3533,15 @@ task v4_mir_check_method_args(mir_id: int, body_id: int, stream_id: int, expr_sp
         if planned_start >= 0 and planned_end > planned_start {
             pilot expected_ty = v4_ty_impl_method_explicit_param_type_for_owner(ty_id, hir_item, method_id, lower_arg_idx, owner_ty)
             pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
-            args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
-            if not v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty) {
+            pilot types_ok = v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty)
+            if not types_ok {
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
+            } else if v4_ty_type_contains_dyn(expected_ty) {
+                v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, expected_ty)
             }
+            args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
         }
         lower_arg_idx += 1
     }
@@ -3638,12 +3645,15 @@ task v4_mir_check_ufcs_method_args(mir_id: int, body_id: int, stream_id: int, ex
         if planned_start >= 0 and planned_end > planned_start {
             pilot expected_ty = v4_ty_impl_method_explicit_param_type_for_owner(ty_id, hir_item, method_id, lower_arg_idx, receiver_ty)
             pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
-            call_args = v4_mir_call_args_payload_append(call_args, arg_rvalue)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
-            if not v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty) {
+            pilot types_ok = v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty)
+            if not types_ok {
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
+            } else if v4_ty_type_contains_dyn(expected_ty) {
+                v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, expected_ty)
             }
+            call_args = v4_mir_call_args_payload_append(call_args, arg_rvalue)
         }
         lower_arg_idx += 1
     }
@@ -3728,7 +3738,6 @@ task v4_mir_check_bound_method_args(mir_id: int, body_id: int, stream_id: int, e
         if planned_start >= 0 and planned_end > planned_start {
             pilot expected_ty = v4_ty_doctrine_method_explicit_param_type_for_self(ty_id, doctrine_sig, method_id, lower_arg_idx, owner_ty)
             pilot arg_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, planned_start, planned_end, expected_ty)
-            args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
             pilot types_ok = false
             if body_sig >= 0 {
@@ -3739,7 +3748,10 @@ task v4_mir_check_bound_method_args(mir_id: int, body_id: int, stream_id: int, e
             if not types_ok {
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
+            } else if v4_ty_type_contains_dyn(expected_ty) {
+                v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, expected_ty)
             }
+            args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
         }
         lower_arg_idx += 1
     }

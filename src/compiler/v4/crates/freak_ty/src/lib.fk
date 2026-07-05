@@ -5982,6 +5982,15 @@ task v4_ty_doctrine_method_name(ty_id: int, sig_id: int, method_id: int) -> word
     give back v4_lex_token_value(stream_id, v4_ty_skip_trivia(stream_id, start_token + 1))
 }
 
+task v4_ty_doctrine_method_name_token(ty_id: int, sig_id: int, method_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_doctrine_method_start_token(ty_id, sig_id, method_id)
+    if stream_id < 0 or start_token < 0 {
+        give back 0 - 1
+    }
+    give back v4_ty_skip_trivia(stream_id, start_token + 1)
+}
+
 task v4_ty_doctrine_method_param_open_token(ty_id: int, sig_id: int, method_id: int) -> int {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_doctrine_method_start_token(ty_id, sig_id, method_id)
@@ -5990,6 +5999,34 @@ task v4_ty_doctrine_method_param_open_token(ty_id: int, sig_id: int, method_id: 
         give back 0 - 1
     }
     give back v4_ty_find_token_value(stream_id, start_token, end_token, "(")
+}
+
+task v4_ty_doctrine_method_generic_open_token(ty_id: int, sig_id: int, method_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot name_token = v4_ty_doctrine_method_name_token(ty_id, sig_id, method_id)
+    pilot param_open = v4_ty_doctrine_method_param_open_token(ty_id, sig_id, method_id)
+    if stream_id < 0 or name_token < 0 or param_open <= name_token {
+        give back 0 - 1
+    }
+    give back v4_ty_find_top_level_token(stream_id, name_token + 1, param_open, "<")
+}
+
+task v4_ty_doctrine_method_generic_close_token(ty_id: int, sig_id: int, method_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_doctrine_method_generic_open_token(ty_id, sig_id, method_id)
+    pilot param_open = v4_ty_doctrine_method_param_open_token(ty_id, sig_id, method_id)
+    if stream_id < 0 or open_token < 0 or param_open <= open_token {
+        give back 0 - 1
+    }
+    give back v4_ty_find_matching_angle(stream_id, open_token, param_open)
+}
+
+task v4_ty_doctrine_method_generic_count(ty_id: int, sig_id: int, method_id: int) -> int {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    if stream_id < 0 {
+        give back 0
+    }
+    give back v4_ty_param_count_from_tokens(stream_id, v4_ty_doctrine_method_generic_open_token(ty_id, sig_id, method_id), v4_ty_doctrine_method_generic_close_token(ty_id, sig_id, method_id))
 }
 
 task v4_ty_doctrine_method_param_close_token(ty_id: int, sig_id: int, method_id: int) -> int {
@@ -6107,8 +6144,12 @@ task v4_ty_apply_self_type(type_text: word, self_ty: word) -> word {
 
 task v4_ty_apply_self_and_doctrine_type_args(ty_id: int, sig_id: int, type_text: word, self_ty: word) -> word {
     pilot applied = v4_ty_apply_self_type(type_text, self_ty)
-    if v4_ty_is_dyn_type(self_ty) {
-        pilot doctrine_instance = v4_ty_dyn_doctrine_name(self_ty)
+    pilot dyn_self_ty = self_ty
+    if v4_ty_is_lend_type(dyn_self_ty) {
+        dyn_self_ty = v4_ty_lend_target_type(dyn_self_ty)
+    }
+    if v4_ty_is_dyn_type(dyn_self_ty) {
+        pilot doctrine_instance = v4_ty_dyn_doctrine_name(dyn_self_ty)
         pilot doctrine_env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, doctrine_instance)
         if doctrine_env != "" and doctrine_env != v4_ty_generic_env_fail {
             applied = v4_ty_apply_generic_env(applied, doctrine_env)
@@ -6187,6 +6228,9 @@ task v4_ty_doctrine_method_object_safety_issue(ty_id: int, sig_id: int, method_i
     pilot method_name = v4_ty_doctrine_method_name(ty_id, sig_id, method_id)
     if not v4_ty_doctrine_method_is_instance(ty_id, sig_id, method_id) {
         give back "method " + method_name + " has no receiver"
+    }
+    if v4_ty_doctrine_method_generic_count(ty_id, sig_id, method_id) > 0 {
+        give back "method " + method_name + " has generic parameters"
     }
 
     pilot explicit_id = 0
@@ -8874,6 +8918,12 @@ task v4_ty_apply_generic_env(type_text: word, env: word) -> word {
     }
     if v4_ty_is_dyn_type(type_text) {
         give back v4_ty_dyn_type(v4_ty_apply_generic_env(v4_ty_dyn_doctrine_name(type_text), env))
+    }
+    if v4_ty_is_lend_type(type_text) {
+        give back v4_ty_lend_type(v4_ty_apply_generic_env(v4_ty_lend_target_type(type_text), env), v4_ty_lend_mode(type_text))
+    }
+    if v4_ty_is_raw_pointer_type(type_text) {
+        give back v4_ty_raw_pointer_with_target_type(type_text, v4_ty_apply_generic_env(v4_ty_raw_pointer_target_type(type_text), env))
     }
     if v4_ty_is_generic_instance_type(type_text) {
         pilot out = v4_ty_generic_base_name(type_text) + "<"
