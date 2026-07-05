@@ -608,6 +608,13 @@ task v4_editor_method_call_is_instance(call_op: word, method_name: word) -> bool
     give back false
 }
 
+task v4_editor_method_lookup_owner_ty(owner_ty: word) -> word {
+    if v4_ty_is_lend_type(owner_ty) {
+        give back v4_ty_lend_type(v4_mir_compact_type_text(v4_ty_lend_target_type(owner_ty)), v4_ty_lend_mode(owner_ty))
+    }
+    give back v4_mir_compact_type_text(owner_ty)
+}
+
 task v4_editor_method_ref_for_call_rvalue(ty_id: int, mir_id: int, body_id: int, rvalue_id: int, method_name: word) -> word {
     pilot owner_ty = v4_editor_method_call_owner(v4_mir_rvalue_op(mir_id, body_id, rvalue_id), method_name)
     if owner_ty == "" {
@@ -627,8 +634,8 @@ task v4_editor_bound_method_ref_for_call_rvalue(mir_id: int, body_id: int, rvalu
     if owner_ty == "" {
         give back ""
     }
-    pilot lookup_owner_ty = v4_mir_compact_type_text(owner_ty)
-    if v4_ty_is_dyn_type(lookup_owner_ty) {
+    pilot lookup_owner_ty = v4_editor_method_lookup_owner_ty(owner_ty)
+    if v4_ty_is_dyn_type(lookup_owner_ty) or (v4_ty_is_lend_type(lookup_owner_ty) and v4_ty_is_dyn_type(v4_ty_lend_target_type(lookup_owner_ty))) {
         give back v4_mir_find_dyn_method_ref(mir_id, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(call_op, method_name))
     }
     give back v4_mir_find_bound_method_ref(mir_id, body_id, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(call_op, method_name))
@@ -652,7 +659,7 @@ task v4_editor_bound_method_detail_for_owner(ty_id: int, owner_ty: word, method_
     if owner_ty == "" or method_ref == "" {
         give back v4_ty_unknown
     }
-    pilot lookup_owner_ty = v4_mir_compact_type_text(owner_ty)
+    pilot lookup_owner_ty = v4_editor_method_lookup_owner_ty(owner_ty)
     pilot canonical_owner_ty = v4_ty_canonical_type(ty_id, lookup_owner_ty)
     if canonical_owner_ty != "" and canonical_owner_ty != v4_ty_unknown {
         lookup_owner_ty = canonical_owner_ty
@@ -1523,7 +1530,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                     pilot method_name = v4_editor_call_op_method_name(call_op)
                     if method_name != "" {
                         pilot owner_ty = v4_editor_method_call_owner(call_op, method_name)
-                        pilot lookup_owner_ty = v4_mir_compact_type_text(owner_ty)
+                        pilot lookup_owner_ty = v4_editor_method_lookup_owner_ty(owner_ty)
                         pilot canonical_owner_ty = v4_ty_canonical_type(ty_id, lookup_owner_ty)
                         if canonical_owner_ty != "" and canonical_owner_ty != v4_ty_unknown {
                             lookup_owner_ty = canonical_owner_ty
@@ -1541,7 +1548,10 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                                 named_param_handled = true
                             }
                         } else {
-                            pilot bound_method_ref = v4_mir_find_bound_method_ref(mir_id, named_param_body, v4_mir_compact_type_text(owner_ty), method_name, v4_editor_method_call_is_instance(call_op, method_name))
+                            pilot bound_method_ref = v4_mir_find_dyn_method_ref(mir_id, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(call_op, method_name))
+                            if bound_method_ref == "" {
+                                bound_method_ref = v4_mir_find_bound_method_ref(mir_id, named_param_body, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(call_op, method_name))
+                            }
                             if bound_method_ref != "" {
                                 pilot doctrine_sig = v4_mir_bound_method_ref_sig_id(bound_method_ref)
                                 pilot doctrine_method_id = v4_mir_bound_method_ref_method_id(bound_method_ref)
@@ -1560,7 +1570,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                                     name = token_value
                                     kind = "Parameter"
                                     def_id = v4_editor_param_def(v4_editor_doctrine_method_def(ty_id, doctrine_sig, doctrine_method_id), token_value)
-                                    type_display = "parameter " + token_value + ": " + v4_ty_doctrine_method_explicit_param_type_for_self(ty_id, doctrine_sig, doctrine_method_id, param_id, owner_ty)
+                                    type_display = "parameter " + token_value + ": " + v4_ty_doctrine_method_explicit_param_type_for_self(ty_id, doctrine_sig, doctrine_method_id, param_id, lookup_owner_ty)
                                     named_param_handled = true
                                 }
                             }
@@ -2550,9 +2560,13 @@ task v4_completion_add_bound_methods_for_owner(completion_id: int, ty_id: int, m
     if sig_id < 0 {
         give back
     }
-    pilot generic_name = v4_mir_compact_type_text(owner_ty)
-    if v4_ty_is_dyn_type(generic_name) {
-        pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(ty_id, v4_ty_dyn_doctrine_base_name(generic_name))
+    pilot generic_name = v4_editor_method_lookup_owner_ty(owner_ty)
+    if v4_ty_is_dyn_type(generic_name) or (v4_ty_is_lend_type(generic_name) and v4_ty_is_dyn_type(v4_ty_lend_target_type(generic_name))) {
+        pilot dyn_owner_ty = generic_name
+        if v4_ty_is_lend_type(dyn_owner_ty) {
+            dyn_owner_ty = v4_ty_lend_target_type(dyn_owner_ty)
+        }
+        pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(ty_id, v4_ty_dyn_doctrine_base_name(dyn_owner_ty))
         if doctrine_sig < 0 {
             give back
         }
@@ -2685,7 +2699,7 @@ task v4_completion_add_named_call_params_for_offset(completion_id: int, path: wo
         if owner_ty == "" {
             give back
         }
-        pilot lookup_owner_ty = v4_mir_compact_type_text(owner_ty)
+        pilot lookup_owner_ty = v4_editor_method_lookup_owner_ty(owner_ty)
         pilot canonical_owner_ty = v4_ty_canonical_type(ty_id, lookup_owner_ty)
         if canonical_owner_ty != "" and canonical_owner_ty != v4_ty_unknown {
             lookup_owner_ty = canonical_owner_ty
@@ -2710,7 +2724,10 @@ task v4_completion_add_named_call_params_for_offset(completion_id: int, path: wo
             give back
         }
 
-        pilot bound_method_ref = v4_mir_find_bound_method_ref(mir_id, body_id, v4_mir_compact_type_text(owner_ty), method_name, v4_editor_method_call_is_instance(call_op, method_name))
+        pilot bound_method_ref = v4_mir_find_dyn_method_ref(mir_id, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(call_op, method_name))
+        if bound_method_ref == "" {
+            bound_method_ref = v4_mir_find_bound_method_ref(mir_id, body_id, lookup_owner_ty, method_name, v4_editor_method_call_is_instance(call_op, method_name))
+        }
         if bound_method_ref == "" {
             give back
         }
@@ -2723,7 +2740,7 @@ task v4_completion_add_named_call_params_for_offset(completion_id: int, path: wo
             if param_name != "" and not v4_editor_call_arg_uses_label(stream_id, open_token, close_token, param_name) {
                 pilot label = param_name + ":"
                 if not v4_completion_has_label(completion_id, label) {
-                    pilot detail = "parameter " + param_name + ": " + v4_ty_doctrine_method_explicit_param_type_for_self(ty_id, doctrine_sig, doctrine_method_id, doctrine_param_id, owner_ty)
+                    pilot detail = "parameter " + param_name + ": " + v4_ty_doctrine_method_explicit_param_type_for_self(ty_id, doctrine_sig, doctrine_method_id, doctrine_param_id, lookup_owner_ty)
                     v4_completion_add(completion_id, label, "parameter", detail, param_name + ": ")
                 }
             }

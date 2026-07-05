@@ -58,6 +58,11 @@ task v4_dyn_mir_source() -> word {
     src = src + "    pilot widget: dyn Widget = button\n"
     src = src + "    give back widget.draw()\n"
     src = src + "}\n"
+    src = src + "task repaint(button: Button) -> word {\n"
+    src = src + "    pilot widget: dyn Widget = button\n"
+    src = src + "    widget = button\n"
+    src = src + "    give back widget.draw()\n"
+    src = src + "}\n"
     src = src + "task erase<T: Widget>(value: T) -> dyn Widget {\n"
     src = src + "    pilot widget: dyn Widget = value\n"
     src = src + "    give back widget\n"
@@ -159,7 +164,11 @@ pilot v4_dyn_mir_id = v4_mir_lower_ty(0, v4_dyn_mir_ty)
 pilot v4_dyn_mir_paint_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "paint")
 pilot v4_dyn_mir_paint_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_paint_def)
 pilot v4_dyn_mir_widget_local = v4_mir_find_local(v4_dyn_mir_id, v4_dyn_mir_paint_body, "widget")
+pilot v4_dyn_mir_widget_init = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_paint_body, 0)
 pilot v4_dyn_mir_paint_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_paint_body, 1)
+pilot v4_dyn_mir_repaint_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "repaint")
+pilot v4_dyn_mir_repaint_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_repaint_def)
+pilot v4_dyn_mir_repaint_assign = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_repaint_body, 1)
 pilot v4_dyn_mir_erase_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "erase")
 pilot v4_dyn_mir_erase_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_erase_def)
 pilot v4_dyn_mir_erase_widget = v4_mir_find_local(v4_dyn_mir_id, v4_dyn_mir_erase_body, "widget")
@@ -232,6 +241,8 @@ pilot v4_dyn_mir_bad_holder_id = v4_mir_lower_ty(3, v4_dyn_mir_bad_holder_ty)
 say v4_mir_summary(v4_dyn_mir_id)
 say "dyn-mir-paint-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_mir_id))
 say "dyn-mir-widget-local-type=" + v4_mir_local_type_display(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_widget_local)
+say "dyn-mir-widget-init-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_widget_init)
+say "dyn-mir-repaint-assign-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_repaint_body, v4_dyn_mir_repaint_assign)
 say "dyn-mir-return-kind=" + v4_mir_rvalue_kind(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_paint_return)
 say "dyn-mir-return-op=" + v4_mir_rvalue_op(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_paint_return)
 say "dyn-mir-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_paint_return)

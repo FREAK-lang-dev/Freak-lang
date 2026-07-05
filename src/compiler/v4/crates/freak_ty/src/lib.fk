@@ -7693,6 +7693,24 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
         give back
     }
 
+    if v4_ty_is_surface_task_function_type(type_text) {
+        pilot param_id = 0
+        pilot param_count = v4_ty_function_type_param_count(type_text)
+        repeat until param_id >= param_count {
+            pilot param_surface = v4_ty_function_type_param_surface(type_text, param_id)
+            if param_surface != "..." {
+                v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, param_surface, "callback parameter " + word_from_int(param_id) + " of " + context, context_span)
+            }
+            param_id += 1
+        }
+
+        pilot return_surface = v4_ty_function_type_return_text(type_text)
+        if return_surface != "" and return_surface != v4_ty_unknown {
+            v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, return_surface, "callback return of " + context, context_span)
+        }
+        give back
+    }
+
     if v4_ty_is_raw_pointer_type(type_text) {
         pilot target_type = v4_ty_raw_pointer_target_type(type_text)
         if v4_ty_is_lifetime_name(target_type) {

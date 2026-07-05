@@ -7254,6 +7254,11 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         if v4_ty_is_known(declared_ty) {
             v4_mir_check_local_decl_type(mir_id, body_id, stmt_span, pattern, declared_ty, inferred_ty)
             local_ty = declared_ty
+            pilot coerced_ty = v4_mir_coerced_value_type(mir_id, body_id, declared_ty, inferred_ty)
+            if coerced_ty != inferred_ty {
+                v4_mir_set_rvalue_ty(mir_id, body_id, rvalue_id, coerced_ty)
+                inferred_ty = coerced_ty
+            }
         }
         pilot local_id = v4_mir_add_local(mir_id, body_id, pattern, local_ty, stmt_span)
         pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, pattern, local_id, pattern, 0 - 1, stmt_span, local_ty)
@@ -8828,6 +8833,11 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
         pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
         if op_text == "=" {
             v4_mir_check_assignment_types(mir_id, body_id, stmt_span, place_id, place_ty, value_ty)
+            pilot coerced_value_ty = v4_mir_coerced_value_type(mir_id, body_id, place_ty, value_ty)
+            if coerced_value_ty != value_ty {
+                v4_mir_set_rvalue_ty(mir_id, body_id, value_rvalue, coerced_value_ty)
+                value_ty = coerced_value_ty
+            }
         } else {
             pilot result_ty = v4_mir_compound_assignment_result_ty(mir_id, stmt_span, op_text, place_ty, value_ty)
             if v4_ty_is_known(result_ty) {

@@ -84,6 +84,8 @@ task v4_dyn_ty_source() -> word {
     src = src + "}\n"
     src = src + "task bad_holder(x: dyn Holder) -> void {\n"
     src = src + "}\n"
+    src = src + "task bad_callback(cb: task(x: dyn Ghost) -> void) -> void {\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -159,3 +161,5 @@ say "dyn-ty-diag4-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 4))
 say "dyn-ty-diag4-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 4))
 say "dyn-ty-diag5-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 5))
 say "dyn-ty-diag5-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 5))
+say "dyn-ty-diag6-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 6))
+say "dyn-ty-diag6-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 6))
