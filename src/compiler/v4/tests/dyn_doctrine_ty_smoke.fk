@@ -22,6 +22,9 @@ task v4_dyn_ty_source() -> word {
     src = src + "doctrine Displayable<T> {\n"
     src = src + "    task display(self) -> word\n"
     src = src + "}\n"
+    src = src + "doctrine Holder<T> {\n"
+    src = src + "    task get(self) -> T\n"
+    src = src + "}\n"
     src = src + "shape Button {\n"
     src = src + "    label: word\n"
     src = src + "}\n"
@@ -31,6 +34,9 @@ task v4_dyn_ty_source() -> word {
     src = src + "shape NumberLabel {\n"
     src = src + "    value: int\n"
     src = src + "}\n"
+    src = src + "shape FloatLabel {\n"
+    src = src + "    value: num\n"
+    src = src + "}\n"
     src = src + "impl Widget for Button {\n"
     src = src + "    task draw(self) -> word {\n"
     src = src + "        give back self.label\n"
@@ -39,6 +45,11 @@ task v4_dyn_ty_source() -> word {
     src = src + "impl Displayable<Score> for NumberLabel {\n"
     src = src + "    task display(self) -> word {\n"
     src = src + "        give back \"number\"\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Displayable<num> for FloatLabel {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back \"float\"\n"
     src = src + "    }\n"
     src = src + "}\n"
     src = src + "task take(w: dyn Widget) -> dyn Widget {\n"
@@ -56,6 +67,8 @@ task v4_dyn_ty_source() -> word {
     src = src + "task bad_factory(x: dyn Factory) -> void {\n"
     src = src + "}\n"
     src = src + "task bad_self(x: dyn Cloner) -> void {\n"
+    src = src + "}\n"
+    src = src + "task bad_holder(x: dyn Holder) -> void {\n"
     src = src + "}\n"
     give back src
 }
@@ -100,9 +113,12 @@ say "dyn-ty-cloner-issue=" + v4_ty_dyn_object_safety_issue(v4_dyn_ty_id, v4_dyn_
 say "dyn-ty-button-coerces=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_widget, "Button"))
 say "dyn-ty-rock-coerces=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_widget, "Rock"))
 say "dyn-ty-display-int-coerces-number=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_display_int, "NumberLabel"))
+say "dyn-ty-display-int-coerces-float=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_display_int, "FloatLabel"))
 say "dyn-ty-display-word-coerces-number=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_display_word, "NumberLabel"))
 say "dyn-ty-accept-env=" + v4_dyn_ty_accept_env
 say "dyn-ty-list-button-compatible=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_in_signature(v4_dyn_ty_id, v4_dyn_ty_take_list_sig, "List<dyn Widget>", "List<Button>"))
+say "dyn-ty-shared-button-compatible=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_in_signature(v4_dyn_ty_id, v4_dyn_ty_boxed_sig, "Shared<dyn Widget>", "Shared<Button>"))
+say "dyn-ty-lend-button-compatible=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_in_signature(v4_dyn_ty_id, v4_dyn_ty_take_sig, "lend dyn Widget", "lend Button"))
 say "dyn-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_dyn_ty_id))
 say "dyn-ty-diag0-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 0))
 say "dyn-ty-diag0-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 0))
@@ -110,3 +126,5 @@ say "dyn-ty-diag1-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 1))
 say "dyn-ty-diag1-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 1))
 say "dyn-ty-diag2-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 2))
 say "dyn-ty-diag2-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 2))
+say "dyn-ty-diag3-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 3))
+say "dyn-ty-diag3-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 3))

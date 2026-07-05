@@ -1197,7 +1197,7 @@ task v4_ty_doctrine_refs_match_canonical(ty_id: int, wanted_doctrine: word, cand
         repeat until arg_id >= arg_count {
             pilot wanted_arg = v4_ty_canonical_or_self(ty_id, v4_ty_generic_arg(wanted_doctrine, arg_id))
             pilot candidate_arg = v4_ty_canonical_or_self(ty_id, v4_ty_generic_arg(candidate_doctrine, arg_id))
-            if wanted_arg != candidate_arg and not v4_ty_types_compatible(wanted_arg, candidate_arg) {
+            if wanted_arg != candidate_arg {
                 give back false
             }
             arg_id += 1
@@ -6217,21 +6217,106 @@ task v4_ty_match_doctrine_ref_env(ty_id: int, sig_id: int, wanted_doctrine: word
         pilot arg_id = 0
         pilot arg_count = v4_ty_generic_arg_count(wanted_doctrine)
         repeat until arg_id >= arg_count {
-            pilot wanted_arg = v4_ty_generic_arg(wanted_doctrine, arg_id)
-            pilot candidate_arg = v4_ty_generic_arg(candidate_doctrine, arg_id)
-            if (sig_id < 0 or (not v4_ty_signature_declares_type_generic_name(ty_id, sig_id, wanted_arg) and not v4_ty_signature_declares_lifetime_name(ty_id, sig_id, wanted_arg))) {
-                wanted_arg = v4_ty_canonical_or_self(ty_id, wanted_arg)
-            }
-            if (sig_id < 0 or (not v4_ty_signature_declares_type_generic_name(ty_id, sig_id, candidate_arg) and not v4_ty_signature_declares_lifetime_name(ty_id, sig_id, candidate_arg))) {
-                candidate_arg = v4_ty_canonical_or_self(ty_id, candidate_arg)
-            }
-            next_env = v4_ty_match_signature_type_env_no_dyn_coerce(ty_id, sig_id, wanted_arg, candidate_arg, next_env)
+            next_env = v4_ty_match_doctrine_generic_arg_env(ty_id, sig_id, v4_ty_generic_arg(wanted_doctrine, arg_id), v4_ty_generic_arg(candidate_doctrine, arg_id), next_env)
             if next_env == v4_ty_generic_env_fail {
                 give back next_env
             }
             arg_id += 1
         }
         give back next_env
+    }
+    give back v4_ty_generic_env_fail
+}
+
+task v4_ty_match_doctrine_generic_arg_env(ty_id: int, sig_id: int, wanted_ty: word, candidate_ty: word, env: word) -> word {
+    if env == v4_ty_generic_env_fail {
+        give back env
+    }
+    if not v4_ty_is_known(wanted_ty) or not v4_ty_is_known(candidate_ty) {
+        give back env
+    }
+    if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(ty_id, sig_id, wanted_ty) {
+        give back v4_ty_generic_env_bind(env, wanted_ty, v4_ty_canonical_or_self(ty_id, candidate_ty))
+    }
+    if sig_id >= 0 and (v4_ty_signature_declares_lifetime_name(ty_id, sig_id, wanted_ty) or v4_ty_signature_declares_lifetime_name(ty_id, sig_id, candidate_ty)) {
+        if wanted_ty == candidate_ty {
+            give back env
+        }
+        give back v4_ty_generic_env_fail
+    }
+
+    pilot wanted = v4_ty_canonical_or_self(ty_id, wanted_ty)
+    pilot candidate = v4_ty_canonical_or_self(ty_id, candidate_ty)
+    if wanted == candidate {
+        give back env
+    }
+    if v4_ty_is_lend_type(wanted) or v4_ty_is_lend_type(candidate) {
+        if not v4_ty_is_lend_type(wanted) or not v4_ty_is_lend_type(candidate) {
+            give back v4_ty_generic_env_fail
+        }
+        if v4_ty_lend_mode(wanted) != v4_ty_lend_mode(candidate) {
+            give back v4_ty_generic_env_fail
+        }
+        give back v4_ty_match_doctrine_generic_arg_env(ty_id, sig_id, v4_ty_lend_target_type(wanted), v4_ty_lend_target_type(candidate), env)
+    }
+    if v4_ty_is_raw_pointer_type(wanted) or v4_ty_is_raw_pointer_type(candidate) {
+        if not v4_ty_is_raw_pointer_type(wanted) or not v4_ty_is_raw_pointer_type(candidate) {
+            give back v4_ty_generic_env_fail
+        }
+        if v4_ty_raw_pointer_prefix(wanted) != v4_ty_raw_pointer_prefix(candidate) {
+            give back v4_ty_generic_env_fail
+        }
+        give back v4_ty_match_doctrine_generic_arg_env(ty_id, sig_id, v4_ty_raw_pointer_target_type(wanted), v4_ty_raw_pointer_target_type(candidate), env)
+    }
+    if v4_ty_is_generic_instance_type(wanted) or v4_ty_is_generic_instance_type(candidate) {
+        if not v4_ty_is_generic_instance_type(wanted) or not v4_ty_is_generic_instance_type(candidate) {
+            give back v4_ty_generic_env_fail
+        }
+        if v4_ty_generic_base_name(wanted) != v4_ty_generic_base_name(candidate) {
+            give back v4_ty_generic_env_fail
+        }
+        if v4_ty_generic_arg_count(wanted) != v4_ty_generic_arg_count(candidate) {
+            give back v4_ty_generic_env_fail
+        }
+        pilot next_env = env
+        pilot arg_idx = 0
+        pilot arg_count = v4_ty_generic_arg_count(wanted)
+        repeat until arg_idx >= arg_count {
+            next_env = v4_ty_match_doctrine_generic_arg_env(ty_id, sig_id, v4_ty_generic_arg(wanted, arg_idx), v4_ty_generic_arg(candidate, arg_idx), next_env)
+            if next_env == v4_ty_generic_env_fail {
+                give back next_env
+            }
+            arg_idx += 1
+        }
+        give back next_env
+    }
+    if v4_ty_is_tuple_type(wanted) or v4_ty_is_tuple_type(candidate) {
+        if not v4_ty_is_tuple_type(wanted) or not v4_ty_is_tuple_type(candidate) {
+            give back v4_ty_generic_env_fail
+        }
+        if v4_ty_tuple_slot_count(wanted) != v4_ty_tuple_slot_count(candidate) {
+            give back v4_ty_generic_env_fail
+        }
+        pilot next_env = env
+        pilot slot_idx = 0
+        pilot slot_count = v4_ty_tuple_slot_count(wanted)
+        repeat until slot_idx >= slot_count {
+            next_env = v4_ty_match_doctrine_generic_arg_env(ty_id, sig_id, v4_ty_tuple_slot_type(wanted, slot_idx), v4_ty_tuple_slot_type(candidate, slot_idx), next_env)
+            if next_env == v4_ty_generic_env_fail {
+                give back next_env
+            }
+            slot_idx += 1
+        }
+        give back next_env
+    }
+    if v4_ty_is_fixed_array_type(wanted) or v4_ty_is_fixed_array_type(candidate) {
+        if not v4_ty_is_fixed_array_type(wanted) or not v4_ty_is_fixed_array_type(candidate) {
+            give back v4_ty_generic_env_fail
+        }
+        if v4_ty_fixed_array_length_normalized_text(ty_id, wanted) != v4_ty_fixed_array_length_normalized_text(ty_id, candidate) {
+            give back v4_ty_generic_env_fail
+        }
+        give back v4_ty_match_doctrine_generic_arg_env(ty_id, sig_id, v4_ty_fixed_array_element_type(wanted), v4_ty_fixed_array_element_type(candidate), env)
     }
     give back v4_ty_generic_env_fail
 }
@@ -6259,7 +6344,7 @@ task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty:
             if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl {
                 if v4_ty_impl_target_alias_name_from_hir(ty_id, hir_item) == "" {
                     if v4_ty_impl_matches_owner(ty_id, hir_item, actual_ty) {
-                        pilot impl_doctrine = v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item)
+                        pilot impl_doctrine = v4_ty_apply_impl_generics(ty_id, hir_item, actual_ty, v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item))
                         pilot next_env = v4_ty_match_doctrine_ref_env(ty_id, sig_id, wanted_doctrine, impl_doctrine, env)
                         if next_env != v4_ty_generic_env_fail {
                             give back next_env
@@ -6324,13 +6409,7 @@ task v4_ty_type_can_coerce_to_dyn_between_signatures(ty_id: int, primary_sig_id:
 }
 
 task v4_ty_types_compatible_with_context(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word) -> bool {
-    if v4_ty_types_compatible(expected_ty, actual_ty) {
-        give back true
-    }
-    if v4_ty_type_can_coerce_to_dyn_in_signature(ty_id, sig_id, expected_ty, actual_ty) {
-        give back true
-    }
-    give back false
+    give back v4_ty_types_compatible_in_signature(ty_id, sig_id, expected_ty, actual_ty)
 }
 
 task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, symbol_def: word, hir_id: int, hir_item: int) -> word {
@@ -7349,6 +7428,14 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
             pilot dyn_issue = v4_ty_dyn_object_safety_issue(ty_id, type_text)
             if dyn_issue != "" {
                 v4_ty_add_error_diag(ty_id, context_span, "dyn doctrine is not object safe", dyn_issue)
+            }
+            pilot expected_count = v4_ty_expected_generic_arg_count(ty_id, doctrine_name)
+            pilot actual_count = 0
+            if v4_ty_is_generic_instance_type(doctrine_type) {
+                actual_count = v4_ty_generic_arg_count(doctrine_type)
+            }
+            if expected_count >= 0 and expected_count != actual_count {
+                v4_ty_add_error_diag(ty_id, context_span, "Meiya lifetime debt: " + doctrine_name + " expects " + word_from_int(expected_count) + " generic arguments in dyn doctrine of " + context + " but received " + word_from_int(actual_count), "")
             }
         }
         v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, doctrine_type, "dyn doctrine of " + context, context_span)
@@ -8442,6 +8529,15 @@ task v4_ty_match_signature_type_env_mode(ty_id: int, sig_id: int, expected_ty: w
             give back v4_ty_generic_env_bind(env, expected_ty, actual_ty)
         }
     }
+    if v4_ty_is_lend_type(expected_ty) or v4_ty_is_lend_type(actual_ty) {
+        if not v4_ty_is_lend_type(expected_ty) or not v4_ty_is_lend_type(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        if v4_ty_lend_mode(expected_ty) != v4_ty_lend_mode(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        give back v4_ty_match_signature_type_env_mode(ty_id, sig_id, v4_ty_lend_target_type(expected_ty), v4_ty_lend_target_type(actual_ty), env, allow_dyn_coerce)
+    }
     if v4_ty_is_dyn_type(expected_ty) {
         if allow_dyn_coerce or v4_ty_is_dyn_type(actual_ty) {
             give back v4_ty_match_type_can_coerce_to_dyn_env(ty_id, sig_id, expected_ty, actual_ty, env)
@@ -8467,13 +8563,19 @@ task v4_ty_match_signature_type_env_mode(ty_id: int, sig_id: int, expected_ty: w
         pilot next_env = env
         pilot arg_idx = 0
         pilot arg_count = v4_ty_generic_arg_count(expected_ty)
+        pilot base_name = v4_ty_generic_base_name(expected_ty)
         repeat until arg_idx >= arg_count {
             pilot expected_arg = v4_ty_generic_arg(expected_ty, arg_idx)
             pilot actual_arg = v4_ty_generic_arg(actual_ty, arg_idx)
             if v4_ty_is_dyn_type(expected_arg) and not v4_ty_is_dyn_type(actual_arg) {
-                give back v4_ty_generic_env_fail
+                if allow_dyn_coerce and base_name == "Shared" {
+                    next_env = v4_ty_match_signature_type_env_mode(ty_id, sig_id, expected_arg, actual_arg, next_env, true)
+                } else {
+                    give back v4_ty_generic_env_fail
+                }
+            } else {
+                next_env = v4_ty_match_signature_type_env_mode(ty_id, sig_id, expected_arg, actual_arg, next_env, false)
             }
-            next_env = v4_ty_match_signature_type_env_mode(ty_id, sig_id, expected_arg, actual_arg, next_env, false)
             if next_env == v4_ty_generic_env_fail {
                 give back next_env
             }
