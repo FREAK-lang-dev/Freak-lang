@@ -2552,7 +2552,7 @@ task v4_completion_add_bound_methods_for_owner(completion_id: int, ty_id: int, m
     }
     pilot generic_name = v4_mir_compact_type_text(owner_ty)
     if v4_ty_is_dyn_type(generic_name) {
-        pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(ty_id, v4_ty_dyn_doctrine_lookup_name(generic_name))
+        pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(ty_id, v4_ty_dyn_doctrine_base_name(generic_name))
         if doctrine_sig < 0 {
             give back
         }

@@ -2171,7 +2171,7 @@ task v4_mir_validate_type_contract(mir_id: int, sig_id: int, stmt_span: word, ty
     }
 
     if v4_ty_is_dyn_type(type_text) {
-        pilot doctrine_name = v4_ty_dyn_doctrine_lookup_name(type_text)
+        pilot doctrine_name = v4_ty_dyn_doctrine_base_name(type_text)
         if doctrine_name == "" or v4_ty_doctrine_signature_id_for_name(ty_id, doctrine_name) < 0 {
             v4_mir_add_type_error(mir_id, stmt_span, message, "dyn " + doctrine_name + " needs a declared doctrine before Yuuko can build a vtable in " + context)
             valid = false
@@ -2855,6 +2855,7 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
     }
 
     pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot caller_sig_id = v4_mir_body_signature_id(mir_id, body_id)
     pilot expected_count = v4_ty_signature_fixed_param_count(ty_id, sig_id)
     pilot variadic = v4_ty_signature_is_variadic(ty_id, sig_id)
     pilot actual_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
@@ -2931,6 +2932,11 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
             pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
             pilot actual_match_ty = v4_mir_check_lend_call_arg(mir_id, expr_span, callee_name, param_name, param_mode, actual_ty)
             pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_match_ty, generic_env)
+            if next_env == v4_ty_generic_env_fail {
+                if v4_ty_type_can_coerce_to_dyn_between_signatures(ty_id, sig_id, caller_sig_id, expected_ty, actual_match_ty) {
+                    next_env = generic_env
+                }
+            }
             if next_env == v4_ty_generic_env_fail {
                 pilot context = callee_name + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "call argument type mismatch", context + " expects " + expected_ty + " but got " + actual_match_ty, context, expected_ty, actual_match_ty)
@@ -3212,7 +3218,7 @@ task v4_mir_find_dyn_method_ref(mir_id: int, owner_ty: word, method_name: word, 
     if not v4_ty_is_dyn_type(owner_ty) {
         give back ""
     }
-    pilot doctrine_name = v4_ty_dyn_doctrine_lookup_name(owner_ty)
+    pilot doctrine_name = v4_ty_dyn_doctrine_base_name(owner_ty)
     pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(v4_mir_ty_id(mir_id), doctrine_name)
     if doctrine_sig < 0 {
         give back ""
@@ -3267,20 +3273,12 @@ task v4_mir_find_doctrine_impl_method_ref(mir_id: int, owner_ty: word, doctrine_
         give back ""
     }
 
-    pilot wanted_doctrine = doctrine_name
-    if v4_ty_is_generic_instance_type(wanted_doctrine) {
-        wanted_doctrine = v4_ty_generic_base_name(wanted_doctrine)
-    }
-
     pilot hir_item = 0
     pilot hir_count = v4_hir_item_count(hir_id)
     repeat until hir_item >= hir_count {
         if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl {
             pilot impl_doctrine = v4_ty_impl_doctrine_name_from_hir(v4_mir_ty_id(mir_id), hir_item)
-            if v4_ty_is_generic_instance_type(impl_doctrine) {
-                impl_doctrine = v4_ty_generic_base_name(impl_doctrine)
-            }
-            if impl_doctrine == wanted_doctrine and v4_ty_impl_matches_owner(v4_mir_ty_id(mir_id), hir_item, owner_ty) {
+            if v4_ty_doctrine_refs_match(doctrine_name, impl_doctrine) and v4_ty_impl_matches_owner(v4_mir_ty_id(mir_id), hir_item, owner_ty) {
                 pilot method_id = 0
                 pilot method_count = v4_ty_impl_method_count(v4_mir_ty_id(mir_id), hir_item)
                 repeat until method_id >= method_count {
@@ -5120,37 +5118,47 @@ task v4_mir_route_case_text(route_name: word, case_name: word) -> word {
     give back route_name + "::" + case_name
 }
 
-task v4_mir_compact_type_text(type_text: word) -> word {
-    pilot first = 0
-    repeat until first >= type_text.length() or (type_text.char_at(first) != " " and type_text.char_at(first) != "\n" and type_text.char_at(first) != "\t" and type_text.char_at(first) != "\r") {
-        first += 1
-    }
-    if first + 3 <= type_text.length() and v4_slice(type_text, first, first + 3) == "dyn" {
-        pilot after_dyn = first + 3
-        repeat until after_dyn >= type_text.length() or (type_text.char_at(after_dyn) != " " and type_text.char_at(after_dyn) != "\n" and type_text.char_at(after_dyn) != "\t" and type_text.char_at(after_dyn) != "\r") {
-            after_dyn += 1
-        }
-        pilot dyn_rest = ""
-        repeat until after_dyn >= type_text.length() {
-            pilot rest_ch = type_text.char_at(after_dyn)
-            if rest_ch != " " and rest_ch != "\n" and rest_ch != "\t" and rest_ch != "\r" {
-                dyn_rest = dyn_rest + rest_ch
-            }
-            after_dyn += 1
-        }
-        if dyn_rest != "" {
-            give back "dyn " + dyn_rest
-        }
-    }
+task v4_mir_type_char_is_space(ch: word) -> bool {
+    give back ch == " " or ch == "\n" or ch == "\t" or ch == "\r"
+}
 
+task v4_mir_type_char_can_precede_dyn_keyword(ch: word) -> bool {
+    give back ch == " " or ch == "\n" or ch == "\t" or ch == "\r" or ch == "<" or ch == "," or ch == "(" or ch == "[" or ch == ":"
+}
+
+task v4_mir_type_has_dyn_keyword_at(type_text: word, idx: int) -> bool {
+    if idx < 0 or idx + 3 > type_text.length() {
+        give back false
+    }
+    if v4_slice(type_text, idx, idx + 3) != "dyn" {
+        give back false
+    }
+    if idx > 0 and not v4_mir_type_char_can_precede_dyn_keyword(type_text.char_at(idx - 1)) {
+        give back false
+    }
+    if idx + 3 >= type_text.length() {
+        give back false
+    }
+    give back v4_mir_type_char_is_space(type_text.char_at(idx + 3))
+}
+
+task v4_mir_compact_type_text(type_text: word) -> word {
     pilot out = ""
     pilot idx = 0
     repeat until idx >= type_text.length() {
         pilot ch = type_text.char_at(idx)
-        if ch != " " and ch != "\n" and ch != "\t" and ch != "\r" {
+        if v4_mir_type_has_dyn_keyword_at(type_text, idx) {
+            out = out + "dyn "
+            idx += 3
+            repeat until idx >= type_text.length() or not v4_mir_type_char_is_space(type_text.char_at(idx)) {
+                idx += 1
+            }
+        } else if not v4_mir_type_char_is_space(ch) {
             out = out + ch
+            idx += 1
+        } else {
+            idx += 1
         }
-        idx += 1
     }
     give back out
 }

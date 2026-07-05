@@ -1120,10 +1120,51 @@ task v4_ty_dyn_doctrine_lookup_name(type_text: word) -> word {
     if doctrine_name == "" or doctrine_name == v4_ty_unknown {
         give back ""
     }
+    give back doctrine_name
+}
+
+task v4_ty_doctrine_lookup_base_name(doctrine_name: word) -> word {
+    if doctrine_name == "" or doctrine_name == v4_ty_unknown {
+        give back ""
+    }
     if v4_ty_is_generic_instance_type(doctrine_name) {
         give back v4_ty_generic_base_name(doctrine_name)
     }
     give back doctrine_name
+}
+
+task v4_ty_dyn_doctrine_base_name(type_text: word) -> word {
+    give back v4_ty_doctrine_lookup_base_name(v4_ty_dyn_doctrine_name(type_text))
+}
+
+task v4_ty_doctrine_refs_match(wanted_doctrine: word, candidate_doctrine: word) -> bool {
+    if wanted_doctrine == "" or candidate_doctrine == "" {
+        give back false
+    }
+    if wanted_doctrine == candidate_doctrine {
+        give back true
+    }
+    if v4_ty_is_generic_instance_type(wanted_doctrine) or v4_ty_is_generic_instance_type(candidate_doctrine) {
+        if not v4_ty_is_generic_instance_type(wanted_doctrine) or not v4_ty_is_generic_instance_type(candidate_doctrine) {
+            give back false
+        }
+        if v4_ty_generic_base_name(wanted_doctrine) != v4_ty_generic_base_name(candidate_doctrine) {
+            give back false
+        }
+        if v4_ty_generic_arg_count(wanted_doctrine) != v4_ty_generic_arg_count(candidate_doctrine) {
+            give back false
+        }
+        pilot arg_id = 0
+        pilot arg_count = v4_ty_generic_arg_count(wanted_doctrine)
+        repeat until arg_id >= arg_count {
+            if v4_ty_generic_arg(wanted_doctrine, arg_id) != v4_ty_generic_arg(candidate_doctrine, arg_id) {
+                give back false
+            }
+            arg_id += 1
+        }
+        give back true
+    }
+    give back false
 }
 
 task v4_ty_shared_type(target_ty: word) -> word {
@@ -2549,6 +2590,20 @@ task v4_ty_find_token_value(stream_id: int, start_token: int, end_token: int, wa
     give back 0 - 1
 }
 
+task v4_ty_type_text_suffix_is_dyn_keyword(out: word) -> bool {
+    if out.length() < 3 {
+        give back false
+    }
+    if v4_slice(out, out.length() - 3, out.length()) != "dyn" {
+        give back false
+    }
+    if out.length() == 3 {
+        give back true
+    }
+    pilot before = out.char_at(out.length() - 4)
+    give back before == " " or before == "<" or before == "," or before == "(" or before == "[" or before == ":"
+}
+
 task v4_ty_type_text(stream_id: int, start_token: int, end_token: int) -> word {
     pilot out = ""
     pilot idx = start_token
@@ -2557,9 +2612,7 @@ task v4_ty_type_text(stream_id: int, start_token: int, end_token: int) -> word {
             pilot value = v4_lex_token_value(stream_id, idx)
             if out == "lend" and value == "mut" {
                 out = "lend mut"
-            } else if out == "lend" or out == "lend mut" or out == "dyn" {
-                out = out + " " + value
-            } else if out.length() >= 4 and v4_slice(out, out.length() - 4, out.length()) == " dyn" {
+            } else if out == "lend" or out == "lend mut" or v4_ty_type_text_suffix_is_dyn_keyword(out) {
                 out = out + " " + value
             } else {
                 out = out + value
@@ -6055,7 +6108,7 @@ task v4_ty_dyn_object_safety_issue(ty_id: int, dyn_ty: word) -> word {
     if not v4_ty_is_dyn_type(dyn_ty) {
         give back ""
     }
-    pilot doctrine_name = v4_ty_dyn_doctrine_lookup_name(dyn_ty)
+    pilot doctrine_name = v4_ty_dyn_doctrine_base_name(dyn_ty)
     if doctrine_name == "" {
         give back "dyn doctrine is malformed"
     }
@@ -6086,10 +6139,8 @@ task v4_ty_type_satisfies_doctrine(ty_id: int, actual_ty: word, doctrine_name: w
     }
 
     pilot wanted_doctrine = doctrine_name
-    if v4_ty_is_generic_instance_type(wanted_doctrine) {
-        wanted_doctrine = v4_ty_generic_base_name(wanted_doctrine)
-    }
-    if v4_ty_doctrine_signature_id_for_name(ty_id, wanted_doctrine) < 0 {
+    pilot wanted_lookup = v4_ty_doctrine_lookup_base_name(wanted_doctrine)
+    if v4_ty_doctrine_signature_id_for_name(ty_id, wanted_lookup) < 0 {
         give back false
     }
 
@@ -6104,10 +6155,7 @@ task v4_ty_type_satisfies_doctrine(ty_id: int, actual_ty: word, doctrine_name: w
     repeat until hir_item >= hir_count {
         if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl {
             pilot impl_doctrine = v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item)
-            if v4_ty_is_generic_instance_type(impl_doctrine) {
-                impl_doctrine = v4_ty_generic_base_name(impl_doctrine)
-            }
-            if impl_doctrine == wanted_doctrine {
+            if v4_ty_doctrine_refs_match(wanted_doctrine, impl_doctrine) {
                 if v4_ty_impl_target_alias_name_from_hir(ty_id, hir_item) == "" {
                     if v4_ty_impl_matches_owner(ty_id, hir_item, actual_ty) {
                         give back true
@@ -6135,10 +6183,7 @@ task v4_ty_signature_type_satisfies_doctrine(ty_id: int, sig_id: int, actual_ty:
     pilot bound_count = v4_ty_signature_generic_bound_count(ty_id, sig_id, generic_id)
     repeat until bound_idx >= bound_count {
         pilot bound_name = v4_ty_signature_generic_bound_name(ty_id, sig_id, generic_id, bound_idx)
-        if v4_ty_is_generic_instance_type(bound_name) {
-            bound_name = v4_ty_generic_base_name(bound_name)
-        }
-        if bound_name == doctrine_name {
+        if v4_ty_doctrine_refs_match(doctrine_name, bound_name) {
             give back true
         }
         bound_idx += 1
@@ -6154,9 +6199,21 @@ task v4_ty_type_can_coerce_to_dyn_in_signature(ty_id: int, sig_id: int, expected
         give back false
     }
     if v4_ty_is_dyn_type(actual_ty) {
-        give back v4_ty_dyn_doctrine_lookup_name(expected_ty) == v4_ty_dyn_doctrine_lookup_name(actual_ty)
+        give back v4_ty_doctrine_refs_match(v4_ty_dyn_doctrine_name(expected_ty), v4_ty_dyn_doctrine_name(actual_ty))
     }
     give back v4_ty_signature_type_satisfies_doctrine(ty_id, sig_id, actual_ty, v4_ty_dyn_doctrine_lookup_name(expected_ty))
+}
+
+task v4_ty_type_can_coerce_to_dyn_between_signatures(ty_id: int, primary_sig_id: int, fallback_sig_id: int, expected_ty: word, actual_ty: word) -> bool {
+    if v4_ty_type_can_coerce_to_dyn_in_signature(ty_id, primary_sig_id, expected_ty, actual_ty) {
+        give back true
+    }
+    if fallback_sig_id >= 0 and fallback_sig_id != primary_sig_id {
+        if v4_ty_type_can_coerce_to_dyn_in_signature(ty_id, fallback_sig_id, expected_ty, actual_ty) {
+            give back true
+        }
+    }
+    give back false
 }
 
 task v4_ty_types_compatible_with_context(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word) -> bool {
@@ -7178,7 +7235,7 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
 
     if v4_ty_is_dyn_type(type_text) {
         pilot doctrine_type = v4_ty_dyn_doctrine_name(type_text)
-        pilot doctrine_name = v4_ty_dyn_doctrine_lookup_name(type_text)
+        pilot doctrine_name = v4_ty_dyn_doctrine_base_name(type_text)
         if doctrine_name == "" or v4_ty_doctrine_signature_id_for_name(ty_id, doctrine_name) < 0 {
             v4_ty_add_error_diag(ty_id, context_span, "dyn doctrine is unknown", "dyn " + doctrine_name + " needs a declared doctrine before Yuuko can build a vtable")
         } else {

@@ -31,6 +31,12 @@ task v4_dyn_mir_source() -> word {
     src = src + "    pilot widget: dyn Widget = value\n"
     src = src + "    give back widget\n"
     src = src + "}\n"
+    src = src + "task consume(w: dyn Widget) -> word {\n"
+    src = src + "    give back w.draw()\n"
+    src = src + "}\n"
+    src = src + "task forward<T: Widget>(value: T) -> word {\n"
+    src = src + "    give back consume(value)\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -71,6 +77,8 @@ say "dyn-mir-return-kind=" + v4_mir_rvalue_kind(v4_dyn_mir_id, v4_dyn_mir_paint_
 say "dyn-mir-return-op=" + v4_mir_rvalue_op(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_paint_return)
 say "dyn-mir-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_paint_body, v4_dyn_mir_paint_return)
 say "dyn-mir-erase-widget-local-type=" + v4_mir_local_type_display(v4_dyn_mir_id, v4_dyn_mir_erase_body, v4_dyn_mir_erase_widget)
+say "dyn-mir-compact-dynwidget=" + v4_mir_compact_type_text("dynWidget")
+say "dyn-mir-compact-list-dyn=" + v4_mir_compact_type_text("List<dyn Widget>")
 say "dyn-mir-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_mir_bad_id))
 say "dyn-mir-bad-message=" + v4_diag_message(v4_mir_diag(v4_dyn_mir_bad_id, 0))
 say "dyn-mir-bad-help=" + v4_diag_help(v4_mir_diag(v4_dyn_mir_bad_id, 0))
