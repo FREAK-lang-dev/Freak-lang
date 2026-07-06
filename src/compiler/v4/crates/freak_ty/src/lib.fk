@@ -8022,6 +8022,217 @@ task v4_ty_validate_alias_nominality(ty_id: int) -> void {
     }
 }
 
+task v4_ty_type_recursion_is_indirect_carrier(type_text: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back false
+    }
+    if v4_ty_is_raw_pointer_type(type_text) or v4_ty_is_lend_type(type_text) {
+        give back true
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot base_name = v4_ty_generic_base_name(type_text)
+        if base_name == "Shared" or base_name == "Weak" or base_name == "SharedMut" {
+            give back true
+        }
+        if base_name == "List" or base_name == "Map" or base_name == "Set" or base_name == "Lineup" {
+            give back true
+        }
+    }
+    give back false
+}
+
+task v4_ty_type_recursion_nominal_sig(ty_id: int, type_text: word) -> int {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back 0 - 1
+    }
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, type_text)
+    if shape_sig >= 0 {
+        give back shape_sig
+    }
+    give back v4_ty_route_signature_id_for_name(ty_id, type_text)
+}
+
+task v4_ty_type_recursion_path_in_nominal(ty_id: int, owner_name: word, sig_id: int, instance_ty: word, seen_types: word) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back ""
+    }
+
+    pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
+    if sig_kind == v4_ty_shape_sig {
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
+        repeat until field_id >= field_count {
+            pilot field_ty = v4_ty_shape_field_surface_type(ty_id, sig_id, field_id)
+            field_ty = v4_ty_apply_signature_generics(ty_id, sig_id, instance_ty, field_ty)
+            pilot field_path = v4_ty_type_recursion_path_in_type(ty_id, owner_name, field_ty, seen_types)
+            if field_path != "" {
+                give back field_path
+            }
+            field_id += 1
+        }
+        give back ""
+    }
+
+    if sig_kind == v4_ty_route_sig {
+        pilot case_id = 0
+        pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+        repeat until case_id >= case_count {
+            pilot case_name = v4_ty_route_case_name(ty_id, sig_id, case_id)
+            pilot field_id = 0
+            pilot field_count = v4_ty_route_case_field_count(ty_id, instance_ty, case_name)
+            repeat until field_id >= field_count {
+                pilot field_ty = v4_ty_route_case_field_type(ty_id, instance_ty, case_name, field_id)
+                pilot field_path = v4_ty_type_recursion_path_in_type(ty_id, owner_name, field_ty, seen_types)
+                if field_path != "" {
+                    give back field_path
+                }
+                field_id += 1
+            }
+            case_id += 1
+        }
+    }
+
+    give back ""
+}
+
+task v4_ty_type_recursion_path_in_generic_args(ty_id: int, owner_name: word, type_text: word, seen_types: word) -> word {
+    pilot arg_id = 0
+    pilot arg_count = v4_ty_generic_arg_count(type_text)
+    repeat until arg_id >= arg_count {
+        pilot arg_path = v4_ty_type_recursion_path_in_type(ty_id, owner_name, v4_ty_generic_arg(type_text, arg_id), seen_types)
+        if arg_path != "" {
+            give back arg_path
+        }
+        arg_id += 1
+    }
+    give back ""
+}
+
+task v4_ty_type_recursion_path_in_type(ty_id: int, owner_name: word, type_text: word, seen_types: word) -> word {
+    if owner_name == "" or type_text == "" or type_text == v4_ty_unknown {
+        give back ""
+    }
+
+    pilot canonical_ty = v4_ty_canonical_type(ty_id, type_text)
+    if canonical_ty == "" or canonical_ty == v4_ty_unknown {
+        give back ""
+    }
+    if v4_ty_is_surface_ffi_alias_type(canonical_ty) or v4_ty_is_primitive_type(canonical_ty) or v4_ty_is_lifetime_name(canonical_ty) {
+        give back ""
+    }
+    if v4_ty_is_dyn_type(canonical_ty) or v4_ty_type_recursion_is_indirect_carrier(canonical_ty) {
+        give back ""
+    }
+
+    if v4_ty_is_tuple_type(canonical_ty) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(canonical_ty)
+        repeat until slot_id >= slot_count {
+            pilot slot_path = v4_ty_type_recursion_path_in_type(ty_id, owner_name, v4_ty_tuple_slot_type(canonical_ty, slot_id), seen_types)
+            if slot_path != "" {
+                give back slot_path
+            }
+            slot_id += 1
+        }
+        give back ""
+    }
+
+    if v4_ty_is_fixed_array_type(canonical_ty) {
+        give back v4_ty_type_recursion_path_in_type(ty_id, owner_name, v4_ty_fixed_array_element_type(canonical_ty), seen_types)
+    }
+
+    if v4_ty_is_generic_instance_type(canonical_ty) {
+        pilot base_name = v4_ty_generic_base_name(canonical_ty)
+        if base_name == owner_name {
+            give back v4_ty_alias_cycle_seen_append(seen_types, owner_name)
+        }
+
+        pilot nominal_sig = v4_ty_type_recursion_nominal_sig(ty_id, canonical_ty)
+        if nominal_sig >= 0 {
+            pilot nominal_name = v4_ty_signature_name(ty_id, nominal_sig)
+            if v4_ty_alias_cycle_seen_contains(seen_types, nominal_name) {
+                give back ""
+            }
+            give back v4_ty_type_recursion_path_in_nominal(ty_id, owner_name, nominal_sig, canonical_ty, v4_ty_alias_cycle_seen_append(seen_types, nominal_name))
+        }
+
+        give back v4_ty_type_recursion_path_in_generic_args(ty_id, owner_name, canonical_ty, seen_types)
+    }
+
+    if canonical_ty == owner_name {
+        give back v4_ty_alias_cycle_seen_append(seen_types, owner_name)
+    }
+
+    pilot nominal_sig = v4_ty_type_recursion_nominal_sig(ty_id, canonical_ty)
+    if nominal_sig >= 0 {
+        pilot nominal_name = v4_ty_signature_name(ty_id, nominal_sig)
+        if v4_ty_alias_cycle_seen_contains(seen_types, nominal_name) {
+            give back ""
+        }
+        give back v4_ty_type_recursion_path_in_nominal(ty_id, owner_name, nominal_sig, canonical_ty, v4_ty_alias_cycle_seen_append(seen_types, nominal_name))
+    }
+
+    give back ""
+}
+
+task v4_ty_validate_shape_direct_recursion(ty_id: int, sig_id: int) -> void {
+    pilot owner_name = v4_ty_signature_name(ty_id, sig_id)
+    if owner_name == "" {
+        give back
+    }
+
+    pilot field_id = 0
+    pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
+    repeat until field_id >= field_count {
+        pilot field_ty = v4_ty_shape_field_surface_type(ty_id, sig_id, field_id)
+        pilot cycle_path = v4_ty_type_recursion_path_in_type(ty_id, owner_name, field_ty, owner_name)
+        if cycle_path != "" {
+            v4_ty_add_error_diag(ty_id, v4_ty_shape_field_type_span(ty_id, sig_id, field_id), "Yuuko infinite shape: " + owner_name + " contains itself by value via " + v4_ty_alias_cycle_chain_display(cycle_path), "break the cycle with Shared<T>, Weak<T>, List<T>, or a raw pointer inside a trust-me boundary")
+            give back
+        }
+        field_id += 1
+    }
+}
+
+task v4_ty_validate_route_direct_recursion(ty_id: int, sig_id: int) -> void {
+    pilot owner_name = v4_ty_signature_name(ty_id, sig_id)
+    if owner_name == "" {
+        give back
+    }
+
+    pilot case_id = 0
+    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
+    repeat until case_id >= case_count {
+        pilot case_name = v4_ty_route_case_name(ty_id, sig_id, case_id)
+        pilot field_id = 0
+        pilot field_count = v4_ty_route_case_field_count(ty_id, owner_name, case_name)
+        repeat until field_id >= field_count {
+            pilot field_ty = v4_ty_route_case_field_type(ty_id, owner_name, case_name, field_id)
+            pilot cycle_path = v4_ty_type_recursion_path_in_type(ty_id, owner_name, field_ty, owner_name)
+            if cycle_path != "" {
+                v4_ty_add_error_diag(ty_id, v4_ty_route_case_field_type_span(ty_id, owner_name, case_name, field_id), "Yuuko infinite variant: " + owner_name + " contains itself by value via " + v4_ty_alias_cycle_chain_display(cycle_path), "break the cycle with Shared<T>, Weak<T>, List<T>, or a raw pointer inside a trust-me boundary")
+                give back
+            }
+            field_id += 1
+        }
+        case_id += 1
+    }
+}
+
+task v4_ty_validate_direct_type_recursion(ty_id: int) -> void {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
+        if sig_kind == v4_ty_shape_sig {
+            v4_ty_validate_shape_direct_recursion(ty_id, sig_id)
+        } else if sig_kind == v4_ty_route_sig {
+            v4_ty_validate_route_direct_recursion(ty_id, sig_id)
+        }
+        sig_id += 1
+    }
+}
+
 task v4_ty_validate_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     v4_ty_validate_signature_generic_names(ty_id, sig_id)
     v4_ty_validate_variadic_signature_contract(ty_id, sig_id)
@@ -9433,6 +9644,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
     v4_ty_validate_extern_callback_export_contracts(ty_id)
     v4_ty_validate_alias_cycles(ty_id)
     v4_ty_validate_alias_nominality(ty_id)
+    v4_ty_validate_direct_type_recursion(ty_id)
     v4_ty_validate_const_cycles(ty_id)
     v4_ty_validate_const_initializers(ty_id)
     give back ty_id

@@ -1,0 +1,74 @@
+-- V4 direct type recursion smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_type_recursion_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_type_recursion_source() -> word {
+    pilot src = "shape Direct {\n"
+    src = src + "    next: Direct\n"
+    src = src + "}\n"
+    src = src + "shape Left {\n"
+    src = src + "    right: Right\n"
+    src = src + "}\n"
+    src = src + "shape Right {\n"
+    src = src + "    left: Left\n"
+    src = src + "}\n"
+    src = src + "shape InlineBox<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "shape GenericNode {\n"
+    src = src + "    box: InlineBox<GenericNode>\n"
+    src = src + "}\n"
+    src = src + "alias AliasNode = AliasHolder\n"
+    src = src + "shape AliasHolder {\n"
+    src = src + "    next: AliasNode\n"
+    src = src + "}\n"
+    src = src + "variant BadRoute {\n"
+    src = src + "    Branch " + v4_type_recursion_braces(" child: BadRoute ") + "\n"
+    src = src + "    Leaf\n"
+    src = src + "}\n"
+    src = src + "variant GenericRoute {\n"
+    src = src + "    Wrap " + v4_type_recursion_braces(" inner: InlineBox<GenericRoute> ") + "\n"
+    src = src + "    Done\n"
+    src = src + "}\n"
+    src = src + "shape SafeNode {\n"
+    src = src + "    next: Shared<SafeNode>\n"
+    src = src + "    weak: Weak<SafeNode>\n"
+    src = src + "    many: List<SafeNode>\n"
+    src = src + "    raw: *SafeNode\n"
+    src = src + "}\n"
+    src = src + "variant SafeTree {\n"
+    src = src + "    Branch " + v4_type_recursion_braces(" left: Shared<SafeTree>, rest: List<SafeTree>, raw: *SafeTree ") + "\n"
+    src = src + "    Leaf\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_type_recursion_stream = v4_lex_text(0, v4_type_recursion_source())
+pilot v4_type_recursion_tree = v4_parse_stream(0, v4_type_recursion_stream)
+pilot v4_type_recursion_hir = v4_hir_lower_tree(0, v4_type_recursion_tree)
+pilot v4_type_recursion_resolve = v4_resolve_lower_hir(0, v4_type_recursion_hir)
+pilot v4_type_recursion_ty = v4_ty_lower_resolve(0, v4_type_recursion_resolve)
+pilot v4_type_recursion_mir = v4_mir_lower_ty(0, v4_type_recursion_ty)
+
+say "type-recursion-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_type_recursion_tree))
+say "type-recursion-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_type_recursion_ty))
+say "type-recursion-safe-shared-path=" + v4_ty_type_recursion_path_in_type(v4_type_recursion_ty, "SafeNode", "Shared<SafeNode>", "SafeNode")
+say "type-recursion-safe-weak-path=" + v4_ty_type_recursion_path_in_type(v4_type_recursion_ty, "SafeNode", "Weak<SafeNode>", "SafeNode")
+say "type-recursion-safe-list-path=" + v4_ty_type_recursion_path_in_type(v4_type_recursion_ty, "SafeNode", "List<SafeNode>", "SafeNode")
+say "type-recursion-safe-raw-path=" + v4_ty_type_recursion_path_in_type(v4_type_recursion_ty, "SafeNode", "*SafeNode", "SafeNode")
+
+pilot v4_type_recursion_diag_idx = 0
+repeat until v4_type_recursion_diag_idx >= v4_ty_diag_count(v4_type_recursion_ty) {
+    pilot v4_type_recursion_diag = v4_ty_diag(v4_type_recursion_ty, v4_type_recursion_diag_idx)
+    say "type-recursion-diag" + word_from_int(v4_type_recursion_diag_idx) + "=" + v4_diag_message(v4_type_recursion_diag)
+    say "type-recursion-diag" + word_from_int(v4_type_recursion_diag_idx) + "-span=" + v4_diag_span(v4_type_recursion_diag)
+    v4_type_recursion_diag_idx += 1
+}
+
+say "type-recursion-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_type_recursion_mir))

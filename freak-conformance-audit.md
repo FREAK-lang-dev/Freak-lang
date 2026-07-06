@@ -214,6 +214,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Pattern matching on variants exhaustive | ⚠️ | 📖 V4 | V4 diagnoses missing and unreachable route/variant arms, including alias-backed scrutinee types |
 | `alias Matrix = [[num; 4]; 4]` type aliases | ⚠️ | 📖 V4 | V4 parses aliases, canonicalizes through TY/MIR, diagnoses alias cycles, and preserves editor/query facts; production V3 remains narrower. This does not make aliases nominal types. |
 | `impl Doctrine for Alias` rejected as alias nominality violation | ⚠️ | 📖 V4 | Promoted V4 Semantic Core contract: aliases remain compile-time substitutions, so naming an alias cannot create a fresh doctrine impl slot. Use a nominal `shape` / `variant` when distinct doctrine identity is required. The conformance guard expects `v4_ty_validate_alias_nominality`, `alias-nominality-diagnostics=1`, and `alias nominality` markers. |
+| Direct recursive shapes/variants rejected unless indirection breaks the value cycle | ⚠️ | 📖 V4 | V4 TY now rejects direct, mutual, alias-mediated, and generic-wrapper owned recursion for shapes and variants, while allowing recursion through `Shared<T>`, `Weak<T>`, `List<T>`, and raw pointers. The conformance guard expects `v4_ty_validate_direct_type_recursion`, `type-recursion-ty-diagnostics=7`, and `Yuuko infinite shape` / `Yuuko infinite variant` smoke markers. |
 | `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; integer const chains/arithmetic, tuple/list/repeat-fill plus generic shape/route-constructor type inference, const task calls, constructor payload validation, and declared initializer mismatch diagnostics are in V4, full const-eval remains |
 
 #### §1.15 Literals
@@ -747,7 +748,7 @@ This is where V4 will need test coverage. **Out of scope for this audit; surface
 - §1.6 doctrines: 0 standalone tests
 - §1.11 generics: V4 TY/MIR/editor smokes now cover generic calls, constructors, alias-backed shapes/routes, multi-bound doctrine constraints, and generic coercion into `dyn Doctrine`; production monomorphization depth still expands
 - §1.13 module imports: 0 tests
-- §1.14 variants/aliases: V4 smokes now cover route-family variants, payload patterns, alias cycles, alias-backed exhaustiveness, editor facts, and alias nominality; backend layout still expands
+- §1.14 variants/aliases: V4 smokes now cover route-family variants, payload patterns, alias cycles, alias-backed exhaustiveness, direct recursive shape/variant rejection, editor facts, and alias nominality; backend layout still expands
 - §2.1 power<N>: 0 tests
 - §2.2 prob[lo..hi]: 0 tests
 - §2.3 causality<T>: 0 tests

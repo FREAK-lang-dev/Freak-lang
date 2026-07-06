@@ -1606,6 +1606,64 @@ def audit_conformance(paths: List[Path]) -> int:
     )
     if dyn_doctrine_missing:
         failures.append("V4 dyn Doctrine semantic/editor surface regressed: " + "; ".join(dyn_doctrine_missing))
+
+    # Check 17: V4 direct recursive shape/variant rejection
+    # Owned recursion must not create infinite-size values. This guard checks
+    # the semantic-core validator and smoke without claiming backend layout is complete.
+    type_recursion_missing: List[str] = []
+    v4_ty_type_recursion = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_type_recursion_smoke = repo / "src" / "compiler" / "v4" / "tests" / "type_recursion_smoke.fk"
+    v4_check_harness_type_recursion = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    if v4_ty_type_recursion.exists():
+        ty_src = v4_ty_type_recursion.read_text(encoding="utf-8")
+        for needle in (
+            "v4_ty_validate_direct_type_recursion",
+            "v4_ty_type_recursion_is_indirect_carrier",
+            "v4_ty_type_recursion_path_in_nominal",
+            "Yuuko infinite shape",
+            "Yuuko infinite variant",
+            "Shared<T>, Weak<T>, List<T>, or a raw pointer",
+        ):
+            if needle not in ty_src:
+                type_recursion_missing.append(f"freak_ty: {needle}")
+    else:
+        type_recursion_missing.append("freak_ty/src/lib.fk missing")
+    if v4_type_recursion_smoke.exists():
+        smoke_src = v4_type_recursion_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "shape Direct",
+            "shape Left",
+            "shape InlineBox<T>",
+            "alias AliasNode = AliasHolder",
+            "variant BadRoute",
+            "variant GenericRoute",
+            "type-recursion-safe-shared-path=",
+            "type-recursion-mir-diagnostics=",
+        ):
+            if needle not in smoke_src:
+                type_recursion_missing.append(f"type_recursion_smoke: {needle}")
+    else:
+        type_recursion_missing.append("smoke fixture: type_recursion_smoke.fk")
+    if v4_check_harness_type_recursion.exists():
+        harness_src = v4_check_harness_type_recursion.read_text(encoding="utf-8")
+        for needle in (
+            "type_recursion_smoke.fk",
+            "type-recursion-ty-diagnostics=7",
+            "Yuuko infinite shape: GenericNode contains itself by value via GenericNode -> InlineBox -> GenericNode",
+            "Yuuko infinite variant: GenericRoute contains itself by value via GenericRoute -> InlineBox -> GenericRoute",
+            "type-recursion-mir-diagnostics=7",
+        ):
+            if needle not in harness_src:
+                type_recursion_missing.append(f"check_v4.py: {needle}")
+    else:
+        type_recursion_missing.append("check_v4.py harness missing")
+    add(
+        "V4 type recursion",
+        not type_recursion_missing,
+        "TY direct shape/variant recursion guard + smoke wired" if not type_recursion_missing else f"{len(type_recursion_missing)} gap(s)",
+    )
+    if type_recursion_missing:
+        failures.append("V4 direct type-recursion guard regressed: " + "; ".join(type_recursion_missing))
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")
