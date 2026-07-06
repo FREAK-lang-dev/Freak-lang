@@ -1,0 +1,110 @@
+-- V4 dyn doctrine editor smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_dyn_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_dyn_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_dyn_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_dyn_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_dyn_editor_find_completion_label(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_dyn_editor_find_symbol(doc_id: int, name: word) -> int {
+    pilot symbol_id = 0
+    pilot symbol_count = v4_document_symbol_count(doc_id)
+    repeat until symbol_id >= symbol_count {
+        if v4_document_symbol_name(doc_id, symbol_id) == name {
+            give back symbol_id
+        }
+        symbol_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_dyn_editor_source() -> word {
+    pilot src = "doctrine Widget {\n"
+    src = src + "    task draw(self) -> word\n"
+    src = src + "}\n"
+    src = src + "task paint(w: dyn Widget) -> word {\n"
+    src = src + "    give back w.draw()\n"
+    src = src + "}\n"
+    src = src + "task paint_lend(lend w: dyn Widget) -> word {\n"
+    src = src + "    give back w.draw()\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_dyn_editor_text = v4_dyn_editor_source()
+pilot v4_dyn_editor_stream = v4_lex_text(0, v4_dyn_editor_text)
+pilot v4_dyn_editor_draw_decl_offset = v4_dyn_editor_token_offset(v4_dyn_editor_stream, "draw", 0)
+pilot v4_dyn_editor_draw_call_offset = v4_dyn_editor_token_offset(v4_dyn_editor_stream, "draw", 1)
+pilot v4_dyn_editor_lend_draw_call_offset = v4_dyn_editor_token_offset(v4_dyn_editor_stream, "draw", 2)
+pilot v4_dyn_editor_sem = v4_semantic_at_text_cached("dyn-editor.fk", v4_dyn_editor_text, v4_dyn_editor_draw_call_offset)
+pilot v4_dyn_editor_hover = v4_hover_text_cached("dyn-editor.fk", v4_dyn_editor_text, v4_dyn_editor_draw_call_offset)
+pilot v4_dyn_editor_definition = v4_definition_at_text_cached("dyn-editor.fk", v4_dyn_editor_text, v4_dyn_editor_draw_call_offset)
+pilot v4_dyn_editor_lend_sem = v4_semantic_at_text_cached("dyn-editor.fk", v4_dyn_editor_text, v4_dyn_editor_lend_draw_call_offset)
+pilot v4_dyn_editor_lend_hover = v4_hover_text_cached("dyn-editor.fk", v4_dyn_editor_text, v4_dyn_editor_lend_draw_call_offset)
+pilot v4_dyn_editor_lend_definition = v4_definition_at_text_cached("dyn-editor.fk", v4_dyn_editor_text, v4_dyn_editor_lend_draw_call_offset)
+pilot v4_dyn_editor_symbols = v4_document_symbols_text_cached("dyn-editor.fk", v4_dyn_editor_text)
+pilot v4_dyn_editor_completion = v4_completion_text_cached("dyn-editor.fk", v4_dyn_editor_text, v4_dyn_editor_draw_call_offset)
+pilot v4_dyn_editor_draw_symbol = v4_dyn_editor_find_symbol(v4_dyn_editor_symbols, "Widget::draw")
+pilot v4_dyn_editor_draw_completion = v4_dyn_editor_find_completion_label(v4_dyn_editor_completion, "draw")
+pilot v4_dyn_editor_dyn_completion = v4_dyn_editor_find_completion_label(v4_dyn_editor_completion, "dyn")
+
+say v4_semantic_at_summary(v4_dyn_editor_sem)
+say "dyn-editor-call-kind=" + v4_semantic_at_kind(v4_dyn_editor_sem)
+say "dyn-editor-call-type=" + v4_semantic_at_type(v4_dyn_editor_sem)
+say "dyn-editor-hover-kind=" + v4_hover_kind(v4_dyn_editor_hover)
+say "dyn-editor-hover-type=" + v4_hover_type(v4_dyn_editor_hover)
+say "dyn-editor-definition-kind=" + v4_definition_at_kind(v4_dyn_editor_definition)
+say "dyn-editor-definition-found=" + word_from_int(v4_definition_at_found(v4_dyn_editor_definition))
+say "dyn-editor-definition-matches-decl=" + v4_dyn_editor_bool_word(v4_span_start(v4_definition_at_span(v4_dyn_editor_definition)) == v4_dyn_editor_draw_decl_offset)
+say "dyn-editor-lend-call-kind=" + v4_semantic_at_kind(v4_dyn_editor_lend_sem)
+say "dyn-editor-lend-call-type=" + v4_semantic_at_type(v4_dyn_editor_lend_sem)
+say "dyn-editor-lend-hover-kind=" + v4_hover_kind(v4_dyn_editor_lend_hover)
+say "dyn-editor-lend-hover-type=" + v4_hover_type(v4_dyn_editor_lend_hover)
+say "dyn-editor-lend-definition-kind=" + v4_definition_at_kind(v4_dyn_editor_lend_definition)
+say "dyn-editor-lend-definition-found=" + word_from_int(v4_definition_at_found(v4_dyn_editor_lend_definition))
+say "dyn-editor-lend-definition-matches-decl=" + v4_dyn_editor_bool_word(v4_span_start(v4_definition_at_span(v4_dyn_editor_lend_definition)) == v4_dyn_editor_draw_decl_offset)
+say "dyn-editor-symbol-count=" + word_from_int(v4_document_symbol_count(v4_dyn_editor_symbols))
+say "dyn-editor-draw-symbol-kind=" + v4_document_symbol_kind(v4_dyn_editor_symbols, v4_dyn_editor_draw_symbol)
+say "dyn-editor-draw-symbol-type=" + v4_document_symbol_type(v4_dyn_editor_symbols, v4_dyn_editor_draw_symbol)
+say "dyn-editor-completion-draw-found=" + v4_dyn_editor_bool_word(v4_dyn_editor_draw_completion >= 0)
+say "dyn-editor-completion-draw-detail=" + v4_completion_detail(v4_dyn_editor_completion, v4_dyn_editor_draw_completion)
+say "dyn-editor-completion-dyn-found=" + v4_dyn_editor_bool_word(v4_dyn_editor_dyn_completion >= 0)
+say "dyn-editor-completion-dyn-kind=" + v4_completion_kind(v4_dyn_editor_completion, v4_dyn_editor_dyn_completion)

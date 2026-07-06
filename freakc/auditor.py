@@ -1497,6 +1497,115 @@ def audit_conformance(paths: List[Path]) -> int:
     if alias_nominality_missing:
         failures.append("V4 alias nominality doctrine-impl guard regressed: " + "; ".join(alias_nominality_missing))
 
+    # Check 16: V4 dyn Doctrine semantic/editor surface
+    # This is intentionally a semantic/query guard, not a vtable-codegen claim.
+    dyn_doctrine_missing: List[str] = []
+    v4_lex_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_lex" / "src" / "lib.fk"
+    v4_ty_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_mir_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_editor_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
+    v4_dyn_ty_smoke = repo / "src" / "compiler" / "v4" / "tests" / "dyn_doctrine_ty_smoke.fk"
+    v4_dyn_mir_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_dyn_doctrine_smoke.fk"
+    v4_dyn_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "dyn_doctrine_editor_smoke.fk"
+    v4_check_harness_dyn = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    if v4_lex_dyn.exists():
+        lex_src = v4_lex_dyn.read_text(encoding="utf-8")
+        if 'lower == "dyn"' not in lex_src:
+            dyn_doctrine_missing.append('freak_lex: lower == "dyn"')
+    else:
+        dyn_doctrine_missing.append("freak_lex/src/lib.fk missing")
+    if v4_ty_dyn.exists():
+        ty_src = v4_ty_dyn.read_text(encoding="utf-8")
+        for needle in (
+            "task v4_ty_dyn_type",
+            "task v4_ty_dyn_object_safety_issue",
+            "task v4_ty_type_can_coerce_to_dyn_in_signature",
+            "task v4_ty_types_compatible_with_context",
+            "dyn doctrine is unknown",
+            "dyn doctrine is not object safe",
+        ):
+            if needle not in ty_src:
+                dyn_doctrine_missing.append(f"freak_ty: {needle}")
+    else:
+        dyn_doctrine_missing.append("freak_ty/src/lib.fk missing")
+    if v4_mir_dyn.exists():
+        mir_src = v4_mir_dyn.read_text(encoding="utf-8")
+        for needle in (
+            "task v4_mir_find_dyn_method_ref",
+            "v4_ty_is_dyn_type(type_text)",
+            "task v4_mir_type_has_dyn_keyword_at",
+            "v4_mir_find_dyn_method_ref(mir_id, receiver_ty, method_name, true)",
+        ):
+            if needle not in mir_src:
+                dyn_doctrine_missing.append(f"freak_mir: {needle}")
+    else:
+        dyn_doctrine_missing.append("freak_mir/src/lib.fk missing")
+    if v4_editor_dyn.exists():
+        editor_src = v4_editor_dyn.read_text(encoding="utf-8")
+        for needle in (
+            "v4_editor_document_symbols_add_doctrine_methods",
+            "v4_mir_find_dyn_method_ref(mir_id, lookup_owner_ty, method_name",
+            'v4_completion_add(completion_id, "dyn"',
+            "v4_completion_add_bound_methods_for_owner",
+        ):
+            if needle not in editor_src:
+                dyn_doctrine_missing.append(f"freak_editor: {needle}")
+    else:
+        dyn_doctrine_missing.append("freak_editor/src/lib.fk missing")
+    if v4_dyn_ty_smoke.exists():
+        smoke_src = v4_dyn_ty_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "dyn-ty-param=",
+            "dyn-ty-widget-object-safe=",
+            "dyn-ty-button-coerces=",
+            "dyn-ty-diag0-message=",
+        ):
+            if needle not in smoke_src:
+                dyn_doctrine_missing.append(f"dyn_doctrine_ty_smoke: {needle}")
+    else:
+        dyn_doctrine_missing.append("smoke fixture: dyn_doctrine_ty_smoke.fk")
+    if v4_dyn_mir_smoke.exists():
+        smoke_src = v4_dyn_mir_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "dyn-mir-return-op=",
+            "dyn-mir-widget-local-type=",
+            "dyn-mir-bad-message=",
+        ):
+            if needle not in smoke_src:
+                dyn_doctrine_missing.append(f"mir_dyn_doctrine_smoke: {needle}")
+    else:
+        dyn_doctrine_missing.append("smoke fixture: mir_dyn_doctrine_smoke.fk")
+    if v4_dyn_editor_smoke.exists():
+        smoke_src = v4_dyn_editor_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "dyn-editor-call-kind=",
+            "dyn-editor-definition-found=",
+            "dyn-editor-completion-draw-found=",
+            "dyn-editor-completion-dyn-kind=",
+        ):
+            if needle not in smoke_src:
+                dyn_doctrine_missing.append(f"dyn_doctrine_editor_smoke: {needle}")
+    else:
+        dyn_doctrine_missing.append("smoke fixture: dyn_doctrine_editor_smoke.fk")
+    if v4_check_harness_dyn.exists():
+        harness_src = v4_check_harness_dyn.read_text(encoding="utf-8")
+        for needle in (
+            "dyn_doctrine_ty_smoke.fk",
+            "mir_dyn_doctrine_smoke.fk",
+            "dyn_doctrine_editor_smoke.fk",
+            "dyn-editor-call-kind=Method",
+        ):
+            if needle not in harness_src:
+                dyn_doctrine_missing.append(f"check_v4.py: {needle}")
+    else:
+        dyn_doctrine_missing.append("check_v4.py harness missing")
+    add(
+        "V4 dyn Doctrine",
+        not dyn_doctrine_missing,
+        "TY/MIR/editor dyn Doctrine smokes wired" if not dyn_doctrine_missing else f"{len(dyn_doctrine_missing)} gap(s)",
+    )
+    if dyn_doctrine_missing:
+        failures.append("V4 dyn Doctrine semantic/editor surface regressed: " + "; ".join(dyn_doctrine_missing))
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")

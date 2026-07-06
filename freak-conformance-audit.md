@@ -16,8 +16,8 @@
 | Bible sections audited | 17 (§1–§17) | + cheatsheet §15 |
 | Testable contracts identified | ~445 | derived from Phase-1 exploration |
 | Contracts ✅ aligned | ~150 (34%) | core syntax, primitives, basic stdlib, audit suite, Phase-1 BC, LB10 line-table DWARF |
-| Contracts ⚠️ stubbed | ~116 (26%) | parsed/carried but not yet production-complete (anime layer, V4 semantic-core carriers, partial doctrines, Phase-1 BC default-off) |
-| Contracts ❌ missing | ~179 (40%) | mood/prob/power/causality, squadron, full BC, dyn dispatch, remaining FFI/runtime surface, error voices |
+| Contracts ⚠️ stubbed | ~117 (26%) | parsed/carried but not yet production-complete (anime layer, V4 semantic-core carriers, partial doctrines including first-pass dyn Doctrine, Phase-1 BC default-off) |
+| Contracts ❌ missing | ~178 (40%) | mood/prob/power/causality, squadron, full BC, dyn vtable/codegen dispatch, remaining FFI/runtime surface, error voices |
 | Verdict 🛠 fix code | 0 remaining | all 11 cheap fixes shipped (audit cmds, audit-conformance, Ord/Index, freak test, test_maybe + test_pipe, winget, LB10) |
 | Verdict 📖 amend bible (V4 tag) | ~140 | bulk of the gaps — bible §0.2 reflects |
 | Verdict ✅ already aligned | ~150 | preserved as-is |
@@ -55,7 +55,7 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 4 | Pattern destructuring in `when` | V4 lowers tuple, fixed-array, and route/variant payload patterns with refutable-pattern and exhaustiveness diagnostics; broader pattern forms still expand | 🟡 | 📖 V4 |
 | 5 | Squadron concurrency: `xm3`, `sortie`, `formation`, `briefing room`, `wingman` | Only `std::thread` | 🔴 | 📖 V4 |
 | 6 | Full borrow checker: `lend`/`lend mut`, `'a` lifetimes, `Shared<T>`/`Weak<T>` | Phase-1 BC only (mut + move), behind `--strict-borrow` | 🟡 | 📖 split into Phase-1 (current) + V4 sections |
-| 7 | `dyn Doctrine` dynamic dispatch | Not implemented | 🔴 | 📖 V4 |
+| 7 | `dyn Doctrine` dynamic dispatch | V4 now carries `dyn Doctrine` type text, unknown-doctrine/object-safety diagnostics, concrete and generic coercion checks, MIR method-call facts, and editor facts; real fat-pointer/vtable backend dispatch still expands | 🟡 | 📖 V4 |
 | 8 | Operator doctrines `Ord`, `Index`, `IndexMut` | Only Add/Sub/Mul/Div/Neg/Eq wired | 🟡 | 🛠 fix if cheap, else 📖 V4 |
 | 9 | `eventually` LIFO deferred execution | Emitted as inline block | 🟡 | 📖 clarify current; full deferred V4 |
 | 10 | `payoff` strict enforcement, `isekai` export validation | Comments only | 🟡 | 📖 V4 strict mode |
@@ -152,9 +152,9 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Operator overloading: `Ord` (`<`, `>`, `<=`, `>=`) | ⚠️ | 🛠 wired in Python compiler (4 methods: lt/gt/le/ge); V3 emitter still missing — V4 |
 | Operator overloading: `Index` | ✅ | ✅ wired in Python compiler ([freakc/emitter.py:924-934](freakc/emitter.py)); V3 emitter still missing — V4 |
 | Operator overloading: `IndexMut` (`a[i] = x`) | ❌ | 📖 V4 | requires lvalue-assignment rewrite |
-| `dyn Doctrine` dynamic dispatch with vtable | ❌ | 📖 V4 | no vtable codegen |
-| Multi-bound generics `T: A + B` | ⚠️ | 📖 V4 | V4 parses top-level `+` bounds and carries them through TY/MIR/editor queries; dyn/object-safe surfaces still expand |
-| `dyn` object-safety rules | ❌ | 📖 V4 | not implemented |
+| `dyn Doctrine` dynamic dispatch with vtable | ⚠️ | 📖 V4 | V4 carries dyn type positions, coercion checks, MIR call facts, and editor facts; runtime fat-pointer/vtable codegen is still missing |
+| Multi-bound generics `T: A + B` | ⚠️ | 📖 V4 | V4 parses top-level `+` bounds and carries them through TY/MIR/editor queries, including generic coercion into `dyn Doctrine`; production monomorphization still expands |
+| `dyn` object-safety rules | ⚠️ | 📖 V4 | V4 TY/MIR now diagnose unknown dyn doctrines plus first-pass object-safety failures (`Self` in dispatched signatures and no-receiver methods), and validates concrete/generic coercion into dyn slots; richer `where Self: Sized` nuance and backend vtables still expand |
 
 #### §1.7 Control Flow
 
@@ -469,7 +469,7 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 | Alias nominality for doctrine impl targets | ⚠️ | 📖 V4 | V4 TY must reject `impl Doctrine for Alias` instead of giving aliases a fresh nominal identity; broader alias completeness remains tracked by the alias expansion row. |
 | Root-level `fixed pilot` cycle detection | ✅ | ✅ |
 | Fixed array length compile-time constants | ⚠️ | 📖 V4 (literal + integer root-const arithmetic works; broader const-eval remains) |
-| `dyn` object-safety rules | ❌ | 📖 V4 |
+| `dyn` object-safety rules | ⚠️ | 📖 V4 | V4 TY/MIR now diagnose unknown dyn doctrines plus first-pass object-safety failures (`Self` in dispatched signatures and no-receiver methods), and validates concrete/generic coercion into dyn slots; richer `where Self: Sized` nuance and backend vtables still expand |
 | FFI safety (FFI-safe types only in extern) | ⚠️ | 📖 V4 | V4 now rejects bare `word` / `int` extern boundaries, raw pointers to non-FFI pointees like `*const word` / `*const PlainShape`, and non-FFI-safe `@layout(...)` fields; fieldless `@repr(...)` routes/variants are accepted as FFI-safe boundary types; extern variadics now validate final-slot/ABI contracts plus scalar vararg promotion for `tiny`/`bool`/`char`/`float32`, extern callback values now invoke through MIR/LLVM, and plain task values now diagnose explicitly when they try to cross into foreign callback slots, while trust-me wrappers and panic-boundary callback rules still expand |
 | Layout annotations validation | ❌ | 📖 V4 |
 | Visibility rules enforcement | ⚠️ | 📖 V4 |
@@ -483,7 +483,7 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 | `power<N>` erased at runtime | N/A | 📖 V4 |
 | `mood` compiles to uint8_t | ❌ | 📖 V4 |
 | Variants → tag + payload | ❌ | 📖 V4 |
-| `dyn` → fat pointer + vtable | ❌ | 📖 V4 |
+| `dyn` → fat pointer + vtable | ❌ | 📖 V4 | TY/MIR/editor facts exist, but codegen has not emitted the runtime fat-pointer/vtable representation yet |
 | `Shared<T>` ref-count header | ❌ | 📖 V4 |
 | Extern calls emit target ABI | ⚠️ | 📖 V4 |
 | `deus_ex_machina` → pragma optimize | ❌ | 📖 V4 (currently plain block) |
@@ -745,7 +745,7 @@ Phase-1 BC working as advertised.
 This is where V4 will need test coverage. **Out of scope for this audit; surfaced for V4 milestone planning.**
 
 - §1.6 doctrines: 0 standalone tests
-- §1.11 generics: V4 TY/MIR/editor smokes now cover generic calls, constructors, alias-backed shapes/routes, and multi-bound doctrine constraints; production monomorphization depth still expands
+- §1.11 generics: V4 TY/MIR/editor smokes now cover generic calls, constructors, alias-backed shapes/routes, multi-bound doctrine constraints, and generic coercion into `dyn Doctrine`; production monomorphization depth still expands
 - §1.13 module imports: 0 tests
 - §1.14 variants/aliases: V4 smokes now cover route-family variants, payload patterns, alias cycles, alias-backed exhaustiveness, editor facts, and alias nominality; backend layout still expands
 - §2.1 power<N>: 0 tests

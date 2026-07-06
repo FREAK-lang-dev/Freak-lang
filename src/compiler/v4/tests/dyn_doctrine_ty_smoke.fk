@@ -1,0 +1,190 @@
+-- V4 dyn doctrine type and object-safety smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_dyn_ty_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_dyn_ty_source() -> word {
+    pilot src = "alias Score = int\n"
+    src = src + "doctrine Widget {\n"
+    src = src + "    task draw(self) -> word\n"
+    src = src + "}\n"
+    src = src + "doctrine Factory {\n"
+    src = src + "    task make() -> Widget\n"
+    src = src + "}\n"
+    src = src + "doctrine Cloner {\n"
+    src = src + "    task clone(self) -> Self\n"
+    src = src + "}\n"
+    src = src + "doctrine Visitor {\n"
+    src = src + "    task visit(self, cb: extern [C] task(x: Self) -> void) -> void\n"
+    src = src + "}\n"
+    src = src + "doctrine Mapper {\n"
+    src = src + "    task map<T>(self, value: T) -> T\n"
+    src = src + "}\n"
+    src = src + "doctrine Displayable<T> {\n"
+    src = src + "    task display(self) -> word\n"
+    src = src + "}\n"
+    src = src + "doctrine Holder<T> {\n"
+    src = src + "    task get(self) -> T\n"
+    src = src + "    task borrow(self) -> lend T\n"
+    src = src + "    task ptr(self) -> *const T\n"
+    src = src + "}\n"
+    src = src + "doctrine Handler<T> {\n"
+    src = src + "    task callback(self) -> extern [C] task(x: T) -> void\n"
+    src = src + "}\n"
+    src = src + "doctrine util::Panel {\n"
+    src = src + "    task render(self) -> word\n"
+    src = src + "}\n"
+    src = src + "use util::Panel as Panel\n"
+    src = src + "shape Button {\n"
+    src = src + "    label: word\n"
+    src = src + "}\n"
+    src = src + "shape Label {\n"
+    src = src + "    text: word\n"
+    src = src + "}\n"
+    src = src + "shape Rock {\n"
+    src = src + "    mass: int\n"
+    src = src + "}\n"
+    src = src + "shape NumberLabel {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "shape FloatLabel {\n"
+    src = src + "    value: num\n"
+    src = src + "}\n"
+    src = src + "impl Widget for Button {\n"
+    src = src + "    task draw(self) -> word {\n"
+    src = src + "        give back self.label\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl util::Panel for Label {\n"
+    src = src + "    task render(self) -> word {\n"
+    src = src + "        give back self.text\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Displayable<Score> for NumberLabel {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back \"number\"\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Displayable<num> for FloatLabel {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back \"float\"\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task take(w: dyn Widget) -> dyn Widget {\n"
+    src = src + "    give back w\n"
+    src = src + "}\n"
+    src = src + "task boxed(items: List<dyn Widget>, shared: Shared<dyn Widget>) -> void {\n"
+    src = src + "}\n"
+    src = src + "task take_panel(panel: dyn Panel) -> word {\n"
+    src = src + "    give back panel.render()\n"
+    src = src + "}\n"
+    src = src + "task take_list(items: List<dyn Widget>) -> void {\n"
+    src = src + "}\n"
+    src = src + "task accept<T>(d: dyn Displayable<T>, sample: T) -> T {\n"
+    src = src + "    give back sample\n"
+    src = src + "}\n"
+    src = src + "task caller<T: Widget>(value: T) -> void {\n"
+    src = src + "}\n"
+    src = src + "task missing(x: dyn Ghost) -> void {\n"
+    src = src + "}\n"
+    src = src + "task bad_factory(x: dyn Factory) -> void {\n"
+    src = src + "}\n"
+    src = src + "task bad_self(x: dyn Cloner) -> void {\n"
+    src = src + "}\n"
+    src = src + "task bad_visitor(x: dyn Visitor) -> void {\n"
+    src = src + "}\n"
+    src = src + "task bad_mapper(x: dyn Mapper) -> void {\n"
+    src = src + "}\n"
+    src = src + "task bad_holder(x: dyn Holder) -> void {\n"
+    src = src + "}\n"
+    src = src + "task bad_callback(cb: task(x: dyn Ghost) -> void) -> void {\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_dyn_ty_text = v4_dyn_ty_source()
+pilot v4_dyn_ty_stream = v4_lex_text(0, v4_dyn_ty_text)
+pilot v4_dyn_ty_tree = v4_parse_stream(0, v4_dyn_ty_stream)
+pilot v4_dyn_ty_hir = v4_hir_lower_tree(0, v4_dyn_ty_tree)
+pilot v4_dyn_ty_resolve = v4_resolve_lower_hir(0, v4_dyn_ty_hir)
+pilot v4_dyn_ty_id = v4_ty_lower_resolve(0, v4_dyn_ty_resolve)
+pilot v4_dyn_ty_take_sig = v4_ty_task_signature_id_for_name(v4_dyn_ty_id, "take")
+pilot v4_dyn_ty_boxed_sig = v4_ty_task_signature_id_for_name(v4_dyn_ty_id, "boxed")
+pilot v4_dyn_ty_take_list_sig = v4_ty_task_signature_id_for_name(v4_dyn_ty_id, "take_list")
+pilot v4_dyn_ty_accept_sig = v4_ty_task_signature_id_for_name(v4_dyn_ty_id, "accept")
+pilot v4_dyn_ty_caller_sig = v4_ty_task_signature_id_for_name(v4_dyn_ty_id, "caller")
+pilot v4_dyn_ty_param = v4_ty_signature_param_type(v4_dyn_ty_id, v4_dyn_ty_take_sig, 0)
+pilot v4_dyn_ty_return = v4_ty_signature_return_type(v4_dyn_ty_id, v4_dyn_ty_take_sig)
+pilot v4_dyn_ty_boxed_list = v4_ty_signature_param_type(v4_dyn_ty_id, v4_dyn_ty_boxed_sig, 0)
+pilot v4_dyn_ty_boxed_shared = v4_ty_signature_param_type(v4_dyn_ty_id, v4_dyn_ty_boxed_sig, 1)
+pilot v4_dyn_ty_accept_param = v4_ty_signature_param_type(v4_dyn_ty_id, v4_dyn_ty_accept_sig, 0)
+pilot v4_dyn_ty_accept_env = v4_ty_match_signature_type_env(v4_dyn_ty_id, v4_dyn_ty_accept_sig, v4_dyn_ty_accept_param, "NumberLabel", "")
+pilot v4_dyn_ty_widget = v4_ty_dyn_type("Widget")
+pilot v4_dyn_ty_factory = v4_ty_dyn_type("Factory")
+pilot v4_dyn_ty_cloner = v4_ty_dyn_type("Cloner")
+pilot v4_dyn_ty_visitor = v4_ty_dyn_type("Visitor")
+pilot v4_dyn_ty_mapper = v4_ty_dyn_type("Mapper")
+pilot v4_dyn_ty_holder_sig = v4_ty_doctrine_signature_id_for_name(v4_dyn_ty_id, "Holder")
+pilot v4_dyn_ty_handler_sig = v4_ty_doctrine_signature_id_for_name(v4_dyn_ty_id, "Handler")
+pilot v4_dyn_ty_holder_int = v4_ty_dyn_type("Holder<int>")
+pilot v4_dyn_ty_handler_int = v4_ty_dyn_type("Handler<int>")
+pilot v4_dyn_ty_display_int = v4_ty_dyn_type("Displayable<int>")
+pilot v4_dyn_ty_display_word = v4_ty_dyn_type("Displayable<word>")
+pilot v4_dyn_ty_panel = v4_ty_dyn_type("Panel")
+
+say v4_ty_summary(v4_dyn_ty_id)
+say "dyn-ty-param=" + v4_dyn_ty_param
+say "dyn-ty-return=" + v4_dyn_ty_return
+say "dyn-ty-boxed-list=" + v4_dyn_ty_boxed_list
+say "dyn-ty-boxed-shared=" + v4_dyn_ty_boxed_shared
+say "dyn-ty-is-dyn=" + v4_dyn_ty_bool_word(v4_ty_is_dyn_type(v4_dyn_ty_param))
+say "dyn-ty-doctrine=" + v4_ty_dyn_doctrine_name(v4_dyn_ty_param)
+say "dyn-ty-display-int-doctrine=" + v4_ty_dyn_doctrine_name(v4_dyn_ty_display_int)
+say "dyn-ty-display-int-lookup=" + v4_ty_dyn_doctrine_lookup_name(v4_dyn_ty_display_int)
+say "dyn-ty-display-int-base=" + v4_ty_dyn_doctrine_base_name(v4_dyn_ty_display_int)
+say "dyn-ty-widget-object-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object_safe(v4_dyn_ty_id, v4_dyn_ty_widget))
+say "dyn-ty-factory-object-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object_safe(v4_dyn_ty_id, v4_dyn_ty_factory))
+say "dyn-ty-factory-issue=" + v4_ty_dyn_object_safety_issue(v4_dyn_ty_id, v4_dyn_ty_factory)
+say "dyn-ty-cloner-object-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object_safe(v4_dyn_ty_id, v4_dyn_ty_cloner))
+say "dyn-ty-cloner-issue=" + v4_ty_dyn_object_safety_issue(v4_dyn_ty_id, v4_dyn_ty_cloner)
+say "dyn-ty-visitor-object-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object_safe(v4_dyn_ty_id, v4_dyn_ty_visitor))
+say "dyn-ty-visitor-issue=" + v4_ty_dyn_object_safety_issue(v4_dyn_ty_id, v4_dyn_ty_visitor)
+say "dyn-ty-mapper-object-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object_safe(v4_dyn_ty_id, v4_dyn_ty_mapper))
+say "dyn-ty-mapper-issue=" + v4_ty_dyn_object_safety_issue(v4_dyn_ty_id, v4_dyn_ty_mapper)
+say "dyn-ty-holder-borrow-return=" + v4_ty_doctrine_method_return_type_for_self(v4_dyn_ty_id, v4_dyn_ty_holder_sig, 1, v4_dyn_ty_holder_int)
+say "dyn-ty-holder-ptr-return=" + v4_ty_doctrine_method_return_type_for_self(v4_dyn_ty_id, v4_dyn_ty_holder_sig, 2, v4_dyn_ty_holder_int)
+say "dyn-ty-handler-callback-return=" + v4_ty_doctrine_method_return_type_for_self(v4_dyn_ty_id, v4_dyn_ty_handler_sig, 0, v4_dyn_ty_handler_int)
+say "dyn-ty-imported-panel-sig-found=" + v4_dyn_ty_bool_word(v4_ty_doctrine_signature_id_for_name(v4_dyn_ty_id, "Panel") >= 0)
+say "dyn-ty-imported-panel-safe=" + v4_dyn_ty_bool_word(v4_ty_dyn_type_is_object_safe(v4_dyn_ty_id, v4_dyn_ty_panel))
+say "dyn-ty-imported-panel-coerces-label=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_panel, "Label"))
+say "dyn-ty-button-coerces=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_widget, "Button"))
+say "dyn-ty-rock-coerces=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_widget, "Rock"))
+say "dyn-ty-display-int-coerces-number=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_display_int, "NumberLabel"))
+say "dyn-ty-display-int-coerces-float=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_display_int, "FloatLabel"))
+say "dyn-ty-display-word-coerces-number=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_with_context(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_display_word, "NumberLabel"))
+say "dyn-ty-accept-env=" + v4_dyn_ty_accept_env
+say "dyn-ty-list-button-compatible=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_in_signature(v4_dyn_ty_id, v4_dyn_ty_take_list_sig, "List<dyn Widget>", "List<Button>"))
+say "dyn-ty-shared-button-compatible=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_in_signature(v4_dyn_ty_id, v4_dyn_ty_boxed_sig, "Shared<dyn Widget>", "Shared<Button>"))
+say "dyn-ty-weak-button-compatible=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_in_signature(v4_dyn_ty_id, v4_dyn_ty_boxed_sig, "Weak<dyn Widget>", "Weak<Button>"))
+say "dyn-ty-lend-button-compatible=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_in_signature(v4_dyn_ty_id, v4_dyn_ty_take_sig, "lend dyn Widget", "lend Button"))
+say "dyn-ty-caller-bound-lend-compatible=" + v4_dyn_ty_bool_word(v4_ty_type_can_coerce_to_dyn_between_signatures(v4_dyn_ty_id, v4_dyn_ty_take_sig, v4_dyn_ty_caller_sig, "lend dyn Widget", "lend T"))
+say "dyn-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_dyn_ty_id))
+say "dyn-ty-diag0-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 0))
+say "dyn-ty-diag0-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 0))
+say "dyn-ty-diag1-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 1))
+say "dyn-ty-diag1-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 1))
+say "dyn-ty-diag2-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 2))
+say "dyn-ty-diag2-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 2))
+say "dyn-ty-diag3-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 3))
+say "dyn-ty-diag3-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 3))
+say "dyn-ty-diag4-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 4))
+say "dyn-ty-diag4-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 4))
+say "dyn-ty-diag5-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 5))
+say "dyn-ty-diag5-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 5))
+say "dyn-ty-diag6-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 6))
+say "dyn-ty-diag6-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 6))

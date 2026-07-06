@@ -287,7 +287,7 @@ task v4_lex_is_keyword_word(text_word: word) -> bool {
     if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "alias" or lower == "impl" or lower == "doctrine" or lower == "launch" {
         give back true
     }
-    if lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "break" or lower == "continue" {
+    if lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "dyn" or lower == "break" or lower == "continue" {
         give back true
     }
     if lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" {
