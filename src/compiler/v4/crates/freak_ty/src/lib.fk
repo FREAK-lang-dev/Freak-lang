@@ -830,6 +830,16 @@ task v4_ty_alias_cycle_path_in_type(ty_id: int, type_text: word, seen_aliases: w
                 }
             }
         }
+
+        pilot arg_id = 0
+        pilot arg_count = v4_ty_generic_arg_count(type_text)
+        repeat until arg_id >= arg_count {
+            pilot arg_path = v4_ty_alias_cycle_path_in_type(ty_id, v4_ty_generic_arg(type_text, arg_id), seen_aliases)
+            if arg_path != "" {
+                give back arg_path
+            }
+            arg_id += 1
+        }
         give back ""
     }
 
@@ -7977,6 +7987,7 @@ task v4_ty_validate_alias_signature_cycle(ty_id: int, sig_id: int) -> void {
     pilot cycle_path = v4_ty_alias_cycle_path_in_type(ty_id, alias_target, alias_name)
     if cycle_path != "" {
         v4_ty_add_error_diag(ty_id, v4_ty_alias_target_span(ty_id, sig_id), "Yuuko alias loop: alias " + alias_name + " expands forever via " + v4_ty_alias_cycle_chain_display(cycle_path), "")
+        give back
     }
 }
 
@@ -8022,7 +8033,7 @@ task v4_ty_validate_alias_nominality(ty_id: int) -> void {
     }
 }
 
-task v4_ty_type_recursion_is_indirect_carrier(type_text: word) -> bool {
+task v4_ty_type_recursion_is_indirect_carrier(ty_id: int, type_text: word) -> bool {
     if type_text == "" or type_text == v4_ty_unknown {
         give back false
     }
@@ -8031,6 +8042,9 @@ task v4_ty_type_recursion_is_indirect_carrier(type_text: word) -> bool {
     }
     if v4_ty_is_generic_instance_type(type_text) {
         pilot base_name = v4_ty_generic_base_name(type_text)
+        if v4_ty_type_signature_id_for_name(ty_id, base_name) >= 0 {
+            give back false
+        }
         if base_name == "Shared" or base_name == "Weak" or base_name == "SharedMut" {
             give back true
         }
@@ -8113,6 +8127,21 @@ task v4_ty_type_recursion_path_in_type(ty_id: int, owner_name: word, type_text: 
         give back ""
     }
 
+    if type_text == owner_name {
+        give back v4_ty_alias_cycle_seen_append(seen_types, owner_name)
+    }
+
+    pilot alias_lookup = v4_ty_alias_lookup_type_from_surface_type(ty_id, type_text)
+    if alias_lookup != "" {
+        if v4_ty_alias_cycle_seen_contains(seen_types, alias_lookup) {
+            give back ""
+        }
+        pilot alias_target = v4_ty_alias_target_type(ty_id, alias_lookup)
+        if alias_target != "" and alias_target != v4_ty_unknown {
+            give back v4_ty_type_recursion_path_in_type(ty_id, owner_name, alias_target, v4_ty_alias_cycle_seen_append(seen_types, alias_lookup))
+        }
+    }
+
     pilot canonical_ty = v4_ty_canonical_type(ty_id, type_text)
     if canonical_ty == "" or canonical_ty == v4_ty_unknown {
         give back ""
@@ -8120,7 +8149,7 @@ task v4_ty_type_recursion_path_in_type(ty_id: int, owner_name: word, type_text: 
     if v4_ty_is_surface_ffi_alias_type(canonical_ty) or v4_ty_is_primitive_type(canonical_ty) or v4_ty_is_lifetime_name(canonical_ty) {
         give back ""
     }
-    if v4_ty_is_dyn_type(canonical_ty) or v4_ty_type_recursion_is_indirect_carrier(canonical_ty) {
+    if v4_ty_is_dyn_type(canonical_ty) or v4_ty_type_recursion_is_indirect_carrier(ty_id, canonical_ty) {
         give back ""
     }
 
@@ -8149,11 +8178,10 @@ task v4_ty_type_recursion_path_in_type(ty_id: int, owner_name: word, type_text: 
 
         pilot nominal_sig = v4_ty_type_recursion_nominal_sig(ty_id, canonical_ty)
         if nominal_sig >= 0 {
-            pilot nominal_name = v4_ty_signature_name(ty_id, nominal_sig)
-            if v4_ty_alias_cycle_seen_contains(seen_types, nominal_name) {
+            if v4_ty_alias_cycle_seen_contains(seen_types, canonical_ty) {
                 give back ""
             }
-            give back v4_ty_type_recursion_path_in_nominal(ty_id, owner_name, nominal_sig, canonical_ty, v4_ty_alias_cycle_seen_append(seen_types, nominal_name))
+            give back v4_ty_type_recursion_path_in_nominal(ty_id, owner_name, nominal_sig, canonical_ty, v4_ty_alias_cycle_seen_append(seen_types, canonical_ty))
         }
 
         give back v4_ty_type_recursion_path_in_generic_args(ty_id, owner_name, canonical_ty, seen_types)
@@ -8166,10 +8194,14 @@ task v4_ty_type_recursion_path_in_type(ty_id: int, owner_name: word, type_text: 
     pilot nominal_sig = v4_ty_type_recursion_nominal_sig(ty_id, canonical_ty)
     if nominal_sig >= 0 {
         pilot nominal_name = v4_ty_signature_name(ty_id, nominal_sig)
-        if v4_ty_alias_cycle_seen_contains(seen_types, nominal_name) {
+        pilot seen_key = nominal_name
+        if v4_ty_is_generic_instance_type(canonical_ty) {
+            seen_key = canonical_ty
+        }
+        if v4_ty_alias_cycle_seen_contains(seen_types, seen_key) {
             give back ""
         }
-        give back v4_ty_type_recursion_path_in_nominal(ty_id, owner_name, nominal_sig, canonical_ty, v4_ty_alias_cycle_seen_append(seen_types, nominal_name))
+        give back v4_ty_type_recursion_path_in_nominal(ty_id, owner_name, nominal_sig, canonical_ty, v4_ty_alias_cycle_seen_append(seen_types, seen_key))
     }
 
     give back ""

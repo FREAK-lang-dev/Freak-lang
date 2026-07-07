@@ -18,13 +18,34 @@ task v4_type_recursion_source() -> word {
     src = src + "shape InlineBox<T> {\n"
     src = src + "    value: T\n"
     src = src + "}\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
     src = src + "shape GenericNode {\n"
     src = src + "    box: InlineBox<GenericNode>\n"
+    src = src + "}\n"
+    src = src + "alias GenericAlias = Box<Node>\n"
+    src = src + "shape Node {\n"
+    src = src + "    bad: Box<GenericAlias>\n"
     src = src + "}\n"
     src = src + "alias AliasNode = AliasHolder\n"
     src = src + "shape AliasHolder {\n"
     src = src + "    next: AliasNode\n"
     src = src + "}\n"
+    src = src + "alias DeepA1 = DeepA2\n"
+    src = src + "alias DeepA2 = DeepA3\n"
+    src = src + "alias DeepA3 = DeepA4\n"
+    src = src + "alias DeepA4 = DeepA5\n"
+    src = src + "alias DeepA5 = DeepA6\n"
+    src = src + "alias DeepA6 = DeepA7\n"
+    src = src + "alias DeepA7 = DeepA8\n"
+    src = src + "alias DeepA8 = DeepA9\n"
+    src = src + "alias DeepA9 = DeepA10\n"
+    src = src + "alias DeepA10 = DeepNode\n"
+    src = src + "shape DeepNode {\n"
+    src = src + "    next: DeepA1\n"
+    src = src + "}\n"
+    src = src + "alias BadAlias = Box<BadAlias>\n"
     src = src + "variant BadRoute {\n"
     src = src + "    Branch " + v4_type_recursion_braces(" child: BadRoute ") + "\n"
     src = src + "    Leaf\n"
@@ -49,12 +70,32 @@ task v4_type_recursion_source() -> word {
     give back src
 }
 
+task v4_type_recursion_shadow_source() -> word {
+    pilot src = "shape Shared<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "shape ShadowNode {\n"
+    src = src + "    next: Shared<ShadowNode>\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_type_recursion_stream = v4_lex_text(0, v4_type_recursion_source())
 pilot v4_type_recursion_tree = v4_parse_stream(0, v4_type_recursion_stream)
 pilot v4_type_recursion_hir = v4_hir_lower_tree(0, v4_type_recursion_tree)
 pilot v4_type_recursion_resolve = v4_resolve_lower_hir(0, v4_type_recursion_hir)
 pilot v4_type_recursion_ty = v4_ty_lower_resolve(0, v4_type_recursion_resolve)
 pilot v4_type_recursion_mir = v4_mir_lower_ty(0, v4_type_recursion_ty)
+
+pilot v4_type_recursion_shadow_stream = v4_lex_text(1, v4_type_recursion_shadow_source())
+pilot v4_type_recursion_shadow_tree = v4_parse_stream(1, v4_type_recursion_shadow_stream)
+pilot v4_type_recursion_shadow_hir = v4_hir_lower_tree(1, v4_type_recursion_shadow_tree)
+pilot v4_type_recursion_shadow_resolve = v4_resolve_lower_hir(1, v4_type_recursion_shadow_hir)
+pilot v4_type_recursion_shadow_ty = v4_ty_lower_resolve(1, v4_type_recursion_shadow_resolve)
+pilot v4_type_recursion_shadow_mir = v4_mir_lower_ty(1, v4_type_recursion_shadow_ty)
 
 say "type-recursion-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_type_recursion_tree))
 say "type-recursion-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_type_recursion_ty))
@@ -72,3 +113,10 @@ repeat until v4_type_recursion_diag_idx >= v4_ty_diag_count(v4_type_recursion_ty
 }
 
 say "type-recursion-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_type_recursion_mir))
+
+say "type-recursion-shadow-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_type_recursion_shadow_tree))
+say "type-recursion-shadow-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_type_recursion_shadow_ty))
+pilot v4_type_recursion_shadow_diag = v4_ty_diag(v4_type_recursion_shadow_ty, 0)
+say "type-recursion-shadow-diag0=" + v4_diag_message(v4_type_recursion_shadow_diag)
+say "type-recursion-shadow-diag0-span=" + v4_diag_span(v4_type_recursion_shadow_diag)
+say "type-recursion-shadow-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_type_recursion_shadow_mir))

@@ -1620,6 +1620,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_ty_validate_direct_type_recursion",
             "v4_ty_type_recursion_is_indirect_carrier",
             "v4_ty_type_recursion_path_in_nominal",
+            "v4_ty_alias_lookup_type_from_surface_type",
             "Yuuko infinite shape",
             "Yuuko infinite variant",
             "Shared<T>, Weak<T>, List<T>, or a raw pointer",
@@ -1633,11 +1634,15 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "shape Direct",
             "shape Left",
+            "shape Shared<T>",
             "shape InlineBox<T>",
             "alias AliasNode = AliasHolder",
+            "alias DeepA10 = DeepNode",
+            "alias BadAlias = Box<BadAlias>",
             "variant BadRoute",
             "variant GenericRoute",
             "type-recursion-safe-shared-path=",
+            "type-recursion-shadow-ty-diagnostics=",
             "type-recursion-mir-diagnostics=",
         ):
             if needle not in smoke_src:
@@ -1648,10 +1653,14 @@ def audit_conformance(paths: List[Path]) -> int:
         harness_src = v4_check_harness_type_recursion.read_text(encoding="utf-8")
         for needle in (
             "type_recursion_smoke.fk",
-            "type-recursion-ty-diagnostics=7",
-            "Yuuko infinite shape: GenericNode contains itself by value via GenericNode -> InlineBox -> GenericNode",
-            "Yuuko infinite variant: GenericRoute contains itself by value via GenericRoute -> InlineBox -> GenericRoute",
-            "type-recursion-mir-diagnostics=7",
+            "type-recursion-ty-diagnostics=10",
+            "Yuuko alias loop: alias BadAlias expands forever via BadAlias -> BadAlias",
+            "Yuuko infinite shape: GenericNode contains itself by value via GenericNode -> InlineBox<GenericNode> -> GenericNode",
+            "Yuuko infinite shape: Node contains itself by value via Node -> Box<GenericAlias> -> GenericAlias -> Box<Node> -> Node",
+            "Yuuko infinite shape: DeepNode contains itself by value via DeepNode -> DeepA1 -> DeepA2 -> DeepA3",
+            "Yuuko infinite shape: ShadowNode contains itself by value via ShadowNode -> Shared<ShadowNode> -> ShadowNode",
+            "Yuuko infinite variant: GenericRoute contains itself by value via GenericRoute -> InlineBox<GenericRoute> -> GenericRoute",
+            "type-recursion-mir-diagnostics=10",
         ):
             if needle not in harness_src:
                 type_recursion_missing.append(f"check_v4.py: {needle}")
