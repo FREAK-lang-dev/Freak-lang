@@ -828,6 +828,7 @@ task v4_ty_alias_cycle_path_in_type(ty_id: int, type_text: word, seen_aliases: w
                         give back alias_path
                     }
                 }
+                give back ""
             }
         }
 
@@ -2995,7 +2996,7 @@ task v4_ty_item_header_end_token_from_tokens(stream_id: int, start_token: int, e
                 give back idx
             }
         } else {
-            if depth == 0 and (val == "(" or val == "{" or val == "=>" or val == "->") {
+            if depth == 0 and (val == "(" or val == "{" or val == "=" or val == "=>" or val == "->") {
                 give back idx
             }
             depth = v4_ty_depth_after_token(depth, val)
@@ -7722,11 +7723,15 @@ task v4_ty_alias_target_span(ty_id: int, sig_id: int) -> word {
 task v4_ty_validate_signature_generic_names(ty_id: int, sig_id: int) -> void {
     pilot generic_id = 0
     pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    pilot owner_name = v4_ty_signature_name(ty_id, sig_id)
     repeat until generic_id >= generic_count {
         pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_id)
         pilot generic_span = v4_ty_signature_generic_segment_span(ty_id, sig_id, generic_id)
         if generic_name == "" {
             v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: empty generic slot on " + v4_ty_signature_name(ty_id, sig_id), "")
+        }
+        if owner_name != "" and generic_name == owner_name and v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) == false {
+            v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: generic " + generic_name + " shadows its owner " + owner_name + "; Yuuko needs one identity per timeline", "")
         }
 
         pilot previous_id = 0
@@ -8063,6 +8068,9 @@ task v4_ty_type_recursion_expand_import_name(ty_id: int, surface_name: word) -> 
     if surface_name == "" or surface_name == v4_ty_unknown {
         give back surface_name
     }
+    if v4_ty_type_signature_id_for_name(ty_id, surface_name) >= 0 {
+        give back surface_name
+    }
     pilot resolve_id = v4_ty_resolve_id(ty_id)
     if resolve_id >= 0 {
         pilot expanded = v4_resolve_expand_import_name(resolve_id, surface_name)
@@ -8086,6 +8094,16 @@ task v4_ty_type_recursion_expand_import_type(ty_id: int, type_text: word) -> wor
         give back type_text
     }
     give back v4_ty_type_recursion_expand_import_name(ty_id, type_text)
+}
+
+task v4_ty_type_recursion_seen_has_nominal(seen_types: word, nominal_name: word) -> bool {
+    if seen_types == "" or nominal_name == "" {
+        give back false
+    }
+    if v4_ty_alias_cycle_seen_contains(seen_types, nominal_name) {
+        give back true
+    }
+    give back ("|" + seen_types + "|").contains("|" + nominal_name + "<")
 }
 
 task v4_ty_type_recursion_nominal_sig(ty_id: int, type_text: word) -> int {
@@ -8212,6 +8230,10 @@ task v4_ty_type_recursion_path_in_type(ty_id: int, owner_name: word, type_text: 
 
         pilot nominal_sig = v4_ty_type_recursion_nominal_sig(ty_id, canonical_ty)
         if nominal_sig >= 0 {
+            pilot nominal_name = v4_ty_signature_name(ty_id, nominal_sig)
+            if v4_ty_type_recursion_seen_has_nominal(seen_types, nominal_name) {
+                give back v4_ty_type_recursion_path_in_generic_args(ty_id, owner_name, canonical_ty, v4_ty_alias_cycle_seen_append(seen_types, canonical_ty))
+            }
             if v4_ty_alias_cycle_seen_contains(seen_types, canonical_ty) {
                 give back ""
             }
@@ -8246,6 +8268,9 @@ task v4_ty_validate_shape_direct_recursion(ty_id: int, sig_id: int) -> void {
     if owner_name == "" {
         give back
     }
+    if v4_ty_signature_declares_type_generic_name(ty_id, sig_id, owner_name) {
+        give back
+    }
 
     pilot field_id = 0
     pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
@@ -8263,6 +8288,9 @@ task v4_ty_validate_shape_direct_recursion(ty_id: int, sig_id: int) -> void {
 task v4_ty_validate_route_direct_recursion(ty_id: int, sig_id: int) -> void {
     pilot owner_name = v4_ty_signature_name(ty_id, sig_id)
     if owner_name == "" {
+        give back
+    }
+    if v4_ty_signature_declares_type_generic_name(ty_id, sig_id, owner_name) {
         give back
     }
 

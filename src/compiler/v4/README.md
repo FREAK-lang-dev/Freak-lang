@@ -44,7 +44,8 @@ Current Phase 1 landings already cover routes/variants, alias-backed pattern
 surfaces, exhaustive route/variant `when` and `check route` diagnostics through
 alias-backed scrutinee types, direct recursive shape/variant rejection unless
 the cycle crosses a real builtin indirection carrier, import-expanded recursion
-checks with local/imported carrier shadows, tuple and fixed-array local/editor facts, module/glob import call
+checks with local/imported carrier shadows, local-name import precedence,
+phantom generic alias erasure, and bounded recursive generic walks, tuple and fixed-array local/editor facts, module/glob import call
 resolution, root `fixed pilot` constants with cycle diagnostics plus composite
 tuple/list/repeat-fill inference, generic shape/route constructor inference,
 constructor-payload validation, const-task-call type inference plus
