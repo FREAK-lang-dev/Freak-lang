@@ -30,6 +30,10 @@ pilot v4_codegen_llvm_body_names = 0
 pilot v4_codegen_llvm_body_symbols = 0
 pilot v4_codegen_llvm_body_lines = 0
 pilot v4_codegen_llvm_diags = 0
+pilot v4_codegen_llvm_link_plan_codegen_ids = 0
+pilot v4_codegen_llvm_link_plan_runtimes = 0
+pilot v4_codegen_llvm_link_plan_libraries = 0
+pilot v4_codegen_llvm_link_plan_diags = 0
 pilot v4_codegen_llvm_ready = 0
 
 task v4_codegen_llvm_init() -> void {
@@ -57,6 +61,10 @@ task v4_codegen_llvm_init() -> void {
         v4_codegen_llvm_body_symbols = array_new()
         v4_codegen_llvm_body_lines = array_new()
         v4_codegen_llvm_diags = array_new()
+        v4_codegen_llvm_link_plan_codegen_ids = array_new()
+        v4_codegen_llvm_link_plan_runtimes = array_new()
+        v4_codegen_llvm_link_plan_libraries = array_new()
+        v4_codegen_llvm_link_plan_diags = array_new()
         v4_codegen_llvm_ready = 1
     }
 }
@@ -305,6 +313,186 @@ task v4_codegen_llvm_add_body(codegen_id: int, body_name: word, symbol: word, li
     array_push(v4_codegen_llvm_body_names_handle(codegen_id), body_name)
     array_push(v4_codegen_llvm_body_symbols_handle(codegen_id), symbol)
     array_push(v4_codegen_llvm_body_lines_handle(codegen_id), line)
+}
+
+task v4_codegen_llvm_codegen_exists(codegen_id: int) -> bool {
+    v4_codegen_llvm_init()
+    if codegen_id < 0 {
+        give back false
+    }
+    if codegen_id >= array_len(v4_codegen_llvm_files) {
+        give back false
+    }
+    give back true
+}
+
+task v4_codegen_llvm_link_plan_slot_new(codegen_id: int) -> int {
+    v4_codegen_llvm_init()
+    pilot plan_id = array_len(v4_codegen_llvm_link_plan_codegen_ids)
+    array_push(v4_codegen_llvm_link_plan_codegen_ids, word_from_int(codegen_id))
+    array_push(v4_codegen_llvm_link_plan_runtimes, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_link_plan_libraries, word_from_int(array_new()))
+    array_push(v4_codegen_llvm_link_plan_diags, word_from_int(array_new()))
+    give back plan_id
+}
+
+task v4_codegen_llvm_link_plan_exists(plan_id: int) -> bool {
+    v4_codegen_llvm_init()
+    if plan_id < 0 {
+        give back false
+    }
+    if plan_id >= array_len(v4_codegen_llvm_link_plan_codegen_ids) {
+        give back false
+    }
+    give back true
+}
+
+task v4_codegen_llvm_link_plan_runtimes_handle(plan_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_link_plan_runtimes, plan_id))
+}
+
+task v4_codegen_llvm_link_plan_libraries_handle(plan_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_link_plan_libraries, plan_id))
+}
+
+task v4_codegen_llvm_link_plan_diags_handle(plan_id: int) -> int {
+    give back word_to_int(array_get(v4_codegen_llvm_link_plan_diags, plan_id))
+}
+
+task v4_codegen_llvm_link_plan_runtime_count(plan_id: int) -> int {
+    if v4_codegen_llvm_link_plan_exists(plan_id) == false {
+        give back 0
+    }
+    give back array_len(v4_codegen_llvm_link_plan_runtimes_handle(plan_id))
+}
+
+task v4_codegen_llvm_link_plan_runtime(plan_id: int, runtime_id: int) -> word {
+    if v4_codegen_llvm_link_plan_exists(plan_id) == false {
+        give back ""
+    }
+    if runtime_id < 0 {
+        give back ""
+    }
+    if runtime_id >= v4_codegen_llvm_link_plan_runtime_count(plan_id) {
+        give back ""
+    }
+    give back array_get(v4_codegen_llvm_link_plan_runtimes_handle(plan_id), runtime_id)
+}
+
+task v4_codegen_llvm_link_plan_library_count(plan_id: int) -> int {
+    if v4_codegen_llvm_link_plan_exists(plan_id) == false {
+        give back 0
+    }
+    give back array_len(v4_codegen_llvm_link_plan_libraries_handle(plan_id))
+}
+
+task v4_codegen_llvm_link_plan_library(plan_id: int, library_id: int) -> word {
+    if v4_codegen_llvm_link_plan_exists(plan_id) == false {
+        give back ""
+    }
+    if library_id < 0 {
+        give back ""
+    }
+    if library_id >= v4_codegen_llvm_link_plan_library_count(plan_id) {
+        give back ""
+    }
+    give back array_get(v4_codegen_llvm_link_plan_libraries_handle(plan_id), library_id)
+}
+
+task v4_codegen_llvm_link_plan_diag_count(plan_id: int) -> int {
+    if v4_codegen_llvm_link_plan_exists(plan_id) == false {
+        give back 0
+    }
+    give back array_len(v4_codegen_llvm_link_plan_diags_handle(plan_id))
+}
+
+task v4_codegen_llvm_link_plan_diag(plan_id: int, diag_id: int) -> word {
+    if v4_codegen_llvm_link_plan_exists(plan_id) == false {
+        give back ""
+    }
+    if diag_id < 0 {
+        give back ""
+    }
+    if diag_id >= v4_codegen_llvm_link_plan_diag_count(plan_id) {
+        give back ""
+    }
+    give back array_get(v4_codegen_llvm_link_plan_diags_handle(plan_id), diag_id)
+}
+
+task v4_codegen_llvm_link_plan_add_diag(plan_id: int, diag: word) -> void {
+    array_push(v4_codegen_llvm_link_plan_diags_handle(plan_id), diag)
+}
+
+task v4_codegen_llvm_link_plan_contains_runtime(plan_id: int, runtime: word) -> bool {
+    pilot runtime_id = 0
+    pilot runtime_count = v4_codegen_llvm_link_plan_runtime_count(plan_id)
+    repeat until runtime_id >= runtime_count {
+        if v4_codegen_llvm_link_plan_runtime(plan_id, runtime_id) == runtime {
+            give back true
+        }
+        runtime_id += 1
+    }
+    give back false
+}
+
+task v4_codegen_llvm_link_plan_contains_library(plan_id: int, library: word) -> bool {
+    pilot library_id = 0
+    pilot library_count = v4_codegen_llvm_link_plan_library_count(plan_id)
+    repeat until library_id >= library_count {
+        if v4_codegen_llvm_link_plan_library(plan_id, library_id) == library {
+            give back true
+        }
+        library_id += 1
+    }
+    give back false
+}
+
+task v4_codegen_llvm_link_plan_add_runtime(plan_id: int, runtime: word) -> void {
+    if runtime == "" {
+        give back
+    }
+    if v4_codegen_llvm_link_plan_contains_runtime(plan_id, runtime) {
+        give back
+    }
+    array_push(v4_codegen_llvm_link_plan_runtimes_handle(plan_id), runtime)
+}
+
+task v4_codegen_llvm_link_plan_add_library(plan_id: int, library: word) -> void {
+    if library == "" {
+        give back
+    }
+    if v4_codegen_llvm_link_plan_contains_library(plan_id, library) {
+        give back
+    }
+    array_push(v4_codegen_llvm_link_plan_libraries_handle(plan_id), library)
+}
+
+task v4_codegen_llvm_link_plan_new(codegen_id: int) -> int {
+    pilot plan_id = v4_codegen_llvm_link_plan_slot_new(codegen_id)
+    if v4_codegen_llvm_codegen_exists(codegen_id) == false {
+        v4_codegen_llvm_link_plan_add_diag(plan_id, "invalid codegen_id for llvm link plan")
+        give back plan_id
+    }
+
+    if v4_codegen_llvm_decl_count(codegen_id) > 0 or v4_codegen_llvm_call_count(codegen_id) > 0 or v4_codegen_llvm_body_count(codegen_id) > 0 {
+        v4_codegen_llvm_link_plan_add_runtime(plan_id, "v4rt_minimal_core")
+    }
+
+    pilot decl_id = 0
+    pilot decl_count = v4_codegen_llvm_decl_count(codegen_id)
+    repeat until decl_id >= decl_count {
+        v4_codegen_llvm_link_plan_add_library(plan_id, v4_codegen_llvm_decl_link(codegen_id, decl_id))
+        decl_id += 1
+    }
+
+    pilot call_id = 0
+    pilot call_count = v4_codegen_llvm_call_count(codegen_id)
+    repeat until call_id >= call_count {
+        v4_codegen_llvm_link_plan_add_library(plan_id, v4_codegen_llvm_call_link(codegen_id, call_id))
+        call_id += 1
+    }
+
+    give back plan_id
 }
 
 task v4_codegen_llvm_starts_with(text: word, prefix: word) -> bool {

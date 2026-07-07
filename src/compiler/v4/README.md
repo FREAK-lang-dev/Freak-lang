@@ -85,6 +85,7 @@ crates/
   freak_mir/       typed task MIR bodies, CFG blocks, locals, places, rvalues, diagnostics
   freak_borrowck/  Meiya borrow-check paths and result scaffold over MIR bodies
   freak_codegen_llvm/ LLVM-facing declaration and call-plan lowering over MIR/TY
+  freak_runtime/   minimal V4 runtime profile and component planning
   freak_query/     memoized query cache prototype
   freak_driver/    early driver facade over the V4 services
   freak_editor/    semantic-at, hover, definition, symbols, and completion analysis
@@ -95,8 +96,15 @@ crates/
 Current FREAK compilation still works best with concatenated source files, so these crates use globally unique `v4_` names and a dependency order that can be flattened by a later bootstrap script:
 
 ```text
-freak_span -> freak_diag -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
+freak_span -> freak_diag -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_borrowck -> freak_codegen_llvm -> freak_runtime -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
 ```
+
+Current runtime landing: `freak_runtime` is planning groundwork only. It models
+the minimal runtime profile for startup, allocator, panic-abort, word,
+list-array, shape, and say, while `freak_codegen_llvm` derives the
+`v4rt_minimal_core` link-plan entry and extern libraries. It does not implement
+`std::fs`, `std::net`, `std::process`, `std::thread`, `Shared<T>`, `Weak<T>`,
+or `std::panic::catch`.
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
 

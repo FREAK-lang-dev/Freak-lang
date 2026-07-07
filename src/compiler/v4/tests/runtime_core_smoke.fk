@@ -1,0 +1,28 @@
+-- V4 runtime core smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_runtime_core_source() -> word {
+    pilot src = "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_runtime_core_plan = v4_runtime_plan("host", v4_runtime_profile_minimal)
+pilot v4_runtime_core_src = v4_runtime_core_source()
+pilot v4_runtime_core_stream = v4_lex_text(0, v4_runtime_core_src)
+pilot v4_runtime_core_tree = v4_parse_stream(0, v4_runtime_core_stream)
+pilot v4_runtime_core_hir = v4_hir_lower_tree(0, v4_runtime_core_tree)
+pilot v4_runtime_core_resolve = v4_resolve_lower_hir(0, v4_runtime_core_hir)
+pilot v4_runtime_core_ty = v4_ty_lower_resolve(0, v4_runtime_core_resolve)
+pilot v4_runtime_core_mir = v4_mir_lower_ty(0, v4_runtime_core_ty)
+pilot v4_runtime_core_codegen = v4_codegen_llvm_lower_mir(0, v4_runtime_core_mir)
+pilot v4_runtime_core_link_plan = v4_codegen_llvm_link_plan_new(v4_runtime_core_codegen)
+
+say "runtime-core-profile=" + v4_runtime_plan_profile(v4_runtime_core_plan)
+say "runtime-core-components=" + word_from_int(v4_runtime_component_count(v4_runtime_core_plan))
+say "runtime-core-validate=" + v4_runtime_validate_plan(v4_runtime_core_plan)
+say "runtime-core-link-runtime-count=" + word_from_int(v4_codegen_llvm_link_plan_runtime_count(v4_runtime_core_link_plan))
+say "runtime-core-link-runtime=" + v4_codegen_llvm_link_plan_runtime(v4_runtime_core_link_plan, 0)
+say "runtime-core-link-library-count=" + word_from_int(v4_codegen_llvm_link_plan_library_count(v4_runtime_core_link_plan))
+say "runtime-core-link-diag-count=" + word_from_int(v4_codegen_llvm_link_plan_diag_count(v4_runtime_core_link_plan))

@@ -7,6 +7,13 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**V4 runtime-core groundwork update:** `src/compiler/v4/crates/freak_runtime`
+now records a minimal runtime plan for startup, allocator, panic-abort, word,
+list-array, shape, and say. `freak_codegen_llvm` derives `v4rt_minimal_core`
+and extern libraries for the link plan. This is partial V4 groundwork only; it
+does not claim `std::fs`, `std::net`, `std::process`, `std::thread`,
+`Shared<T>`, `Weak<T>`, `std::panic`, or catch/unwind support.
+
 ---
 
 ## 1. Executive summary
@@ -473,6 +480,12 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 ---
 
 ### §11 CODE GENERATION ([freak-full-bible.md:1988-2011](freak-full-bible.md))
+
+Runtime/link-plan status: partial V4 groundwork. `freak_runtime` exposes only
+the minimal runtime plan APIs and component inventory; `freak_codegen_llvm`
+derives `v4rt_minimal_core` and extern libraries for that plan. Broader
+runtime execution, stdlib, thread/concurrency, shared ownership, and
+panic-catching guarantees remain V4 work.
 
 | Contract | Status | Verdict |
 |---|---|---|

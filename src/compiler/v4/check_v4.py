@@ -22,6 +22,7 @@ CRATE_ORDER = [
     "freak_mir",
     "freak_borrowck",
     "freak_codegen_llvm",
+    "freak_runtime",
     "freak_query",
     "freak_driver",
     "freak_editor",
@@ -3083,6 +3084,19 @@ EXECUTABLE_SMOKES = [
             "%c = call ccc i64 @host_tick(i64 2)",
             "%d = call ccc i64 @util_math_double(i64 4)",
             "ret i64 %rv1_14",
+        ],
+    },
+    {
+        "name": "runtime core link plan",
+        "fixture": "runtime_core_smoke.fk",
+        "expect": [
+            "runtime-core-profile=minimal",
+            "runtime-core-components=7",
+            "runtime-core-validate=ok=1;profile=minimal;components=7;libs=none",
+            "runtime-core-link-runtime-count=1",
+            "runtime-core-link-runtime=v4rt_minimal_core",
+            "runtime-core-link-library-count=0",
+            "runtime-core-link-diag-count=0",
         ],
     },
     {

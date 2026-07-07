@@ -62,6 +62,14 @@ Pipeline (full compiler):
 | §16 FFI | ⚠️ Partial | V4 carries `extern` calling-convention metadata, `link="..."` library metadata, `@link_name("...")` symbol overrides, core `std::ffi` alias normalization, raw-pointer LLVM carriage plus pointee-safety diagnostics, `extern [C]/[system] task(...) -> T` callback surface validation with specific missing-`extern` / bad-ABI / bad-payload diagnostics, explicit plain-task-to-extern callback boundary diagnostics, indirect callback call lowering, final extern-only `args: ...` variadics with scalar vararg promotion, and `@layout(C)`, `@layout(C, packed=N)`, and `@layout(transparent)` query-validation support. Raw pointer ops, panic-boundary callback guarantees, `std::os` platform modules, error-code translation, and deeper FFI/runtime guarantees remain V4 work. |
 | §17 Compiler Internals + IDE | 🔜 V4 | Panic infrastructure, tolerant parsing, AST node IDs, incremental parsing, autocomplete, IDE-mode error reporting are V4. V4 TY now diagnoses alias-cycle loops; the broader 00-Unit IDE/compiler-internals surface remains in progress. |
 
+V4 runtime-core groundwork note: the current V4 tree has a narrow
+runtime-planning/link-plan slice. `src/compiler/v4/crates/freak_runtime`
+models only the minimal core runtime plan (startup, allocator, panic-abort,
+word, list-array, shape, say), and `freak_codegen_llvm` derives
+`v4rt_minimal_core` plus extern libraries for the link plan. This is partial
+groundwork only; it does not promote `std::fs`, `std::net`, `std::process`,
+`std::thread`, `Shared<T>`, `Weak<T>`, `std::panic`, or panic catching.
+
 ### 0.3 V4 roadmap and conformance
 
 The V4 self-hosting compiler is the destination for all 🔜 V4 contracts. The
@@ -2205,6 +2213,12 @@ ref-count headers, extern target ABI selection, `deus_ex_machina`
 pragma optimization, `isekai` fresh-frame isolation, `@classified`
 debug-symbol stripping. JIT (LB7) and FullDebug DWARF (variable / type
 metadata beyond LineTablesOnly) are V4.
+
+V4 runtime planning currently exists only as link-plan groundwork: the
+`freak_runtime` crate records the minimal runtime core components and the
+LLVM codegen crate derives `v4rt_minimal_core` plus extern libraries. This
+does not implement the broader stdlib, thread/concurrency runtime,
+`Shared<T>`/`Weak<T>`, or `std::panic::catch` surfaces described elsewhere.
 
 The full compiler targets native code via LLVM IR or direct assembly,
 not C. Key differences from FREAK Lite:

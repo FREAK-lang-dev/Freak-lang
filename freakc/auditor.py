@@ -559,9 +559,9 @@ def audit_conformance(paths: List[Path]) -> int:
 
     Returns 1 if any v0.13.x contract is broken, 0 otherwise.
 
-    The check set is hardcoded to the v0.13.x baseline. V4-tagged contracts
-    are intentionally not checked — once Phase D bible amendments add
-    Status tags, this function can be extended to read them directly.
+    The check set is hardcoded to the v0.13.x baseline plus narrow guards for
+    landed V4 groundwork. Broad V4-tagged contracts remain intentionally
+    unchecked until their rows promote from planned status.
     """
     import sys as _sys
 
@@ -727,9 +727,99 @@ def audit_conformance(paths: List[Path]) -> int:
     if not dem_ok:
         warnings.append("deus_ex_machina 20-word rule not visibly enforced in parser.py")
 
+    # -- Check 8: V4 runtime-core planning/link-plan guard ----------------
+    v4_root = repo / "src" / "compiler" / "v4"
+    v4_runtime_crate = v4_root / "crates" / "freak_runtime" / "src" / "lib.fk"
+    v4_codegen_crate = v4_root / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
+    v4_check = v4_root / "check_v4.py"
+    v4_runtime_smoke = v4_root / "tests" / "runtime_core_smoke.fk"
+
+    v4_runtime_src = v4_runtime_crate.read_text(encoding="utf-8") if v4_runtime_crate.exists() else ""
+    v4_codegen_src = v4_codegen_crate.read_text(encoding="utf-8") if v4_codegen_crate.exists() else ""
+    v4_check_src = v4_check.read_text(encoding="utf-8") if v4_check.exists() else ""
+    v4_smoke_src = v4_runtime_smoke.read_text(encoding="utf-8") if v4_runtime_smoke.exists() else ""
+
+    runtime_api = [
+        "v4_runtime_profile_minimal",
+        "v4_runtime_plan",
+        "v4_runtime_component_count",
+        "v4_runtime_component_name",
+        "v4_runtime_component_kind",
+        "v4_runtime_link_libraries",
+        "v4_runtime_validate_plan",
+        "startup",
+        "allocator",
+        "panic-abort",
+        "word",
+        "list-array",
+        "shape",
+        "say",
+    ]
+    codegen_link_api = [
+        "v4_codegen_llvm_link_plan_new",
+        "v4_codegen_llvm_link_plan_runtime_count",
+        "v4_codegen_llvm_link_plan_runtime",
+        "v4_codegen_llvm_link_plan_library_count",
+        "v4_codegen_llvm_link_plan_library",
+        "v4_codegen_llvm_link_plan_diag_count",
+        "v4_codegen_llvm_link_plan_diag",
+        "v4_codegen_llvm_link_plan_add_runtime",
+        "v4_codegen_llvm_link_plan_add_library",
+        "v4rt_minimal_core",
+    ]
+    smoke_terms = [
+        "v4_runtime_plan(",
+        "v4_runtime_profile_minimal",
+        "v4_codegen_llvm_link_plan_new",
+        "runtime-core-link-runtime",
+    ]
+
+    missing_v4_runtime = [name for name in runtime_api if name not in v4_runtime_src]
+    missing_v4_codegen = [name for name in codegen_link_api if name not in v4_codegen_src]
+    missing_v4_smoke = [name for name in smoke_terms if name not in v4_smoke_src]
+    normalized_v4_check_src = v4_check_src.replace("\r\n", "\n")
+    crate_order_ok = '"freak_codegen_llvm",\n    "freak_runtime",' in normalized_v4_check_src
+    smoke_inventory_ok = '"fixture": "runtime_core_smoke.fk"' in v4_check_src and "v4rt_minimal_core" in v4_check_src
+
+    v4_runtime_ok = (
+        v4_runtime_crate.exists()
+        and v4_codegen_crate.exists()
+        and v4_check.exists()
+        and v4_runtime_smoke.exists()
+        and not missing_v4_runtime
+        and not missing_v4_codegen
+        and not missing_v4_smoke
+        and crate_order_ok
+        and smoke_inventory_ok
+    )
+    add(
+        "V4 runtime core",
+        v4_runtime_ok,
+        "runtime crate/order/smoke/link-plan guarded" if v4_runtime_ok else "runtime core guard failed",
+    )
+    if not v4_runtime_ok:
+        if not v4_runtime_crate.exists():
+            failures.append(f"V4 runtime crate missing: {v4_runtime_crate.relative_to(repo)}")
+        if not v4_codegen_crate.exists():
+            failures.append(f"V4 codegen crate missing: {v4_codegen_crate.relative_to(repo)}")
+        if not v4_check.exists():
+            failures.append(f"V4 check harness missing: {v4_check.relative_to(repo)}")
+        if not v4_runtime_smoke.exists():
+            failures.append(f"V4 runtime smoke missing: {v4_runtime_smoke.relative_to(repo)}")
+        if missing_v4_runtime:
+            failures.append(f"V4 runtime crate missing APIs/components: {', '.join(missing_v4_runtime)}")
+        if missing_v4_codegen:
+            failures.append(f"V4 codegen link-plan missing APIs: {', '.join(missing_v4_codegen)}")
+        if missing_v4_smoke:
+            failures.append(f"V4 runtime smoke missing terms: {', '.join(missing_v4_smoke)}")
+        if not crate_order_ok:
+            failures.append("V4 CRATE_ORDER must place freak_runtime immediately after freak_codegen_llvm")
+        if not smoke_inventory_ok:
+            failures.append("V4 check_v4.py missing runtime_core_smoke.fk inventory or v4rt_minimal_core expectation")
+
     # ── Print summary ────────────────────────────────────────
     print()
-    print("FREAK Conformance Audit (v0.13.x baseline)")
+    print("FREAK Conformance Audit (v0.13.x baseline + V4 groundwork)")
     print("=" * 56)
     for label, ok, detail in summary:
         marker = "✓" if ok else "✗"

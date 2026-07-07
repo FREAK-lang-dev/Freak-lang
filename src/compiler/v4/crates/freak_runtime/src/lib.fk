@@ -1,0 +1,239 @@
+-- ===================================================================
+-- freak_runtime - V4 runtime planning crate
+-- ===================================================================
+-- Stores target/profile runtime plans without depending on driver,
+-- codegen, or existing runtime backends.
+
+pilot v4_runtime_profile_freestanding = "freestanding"
+pilot v4_runtime_profile_minimal = "minimal"
+pilot v4_runtime_profile_system = "system"
+pilot v4_runtime_profile_desktop = "desktop"
+pilot v4_runtime_profile_jit = "jit"
+
+pilot v4_runtime_plan_targets = 0
+pilot v4_runtime_plan_profiles = 0
+pilot v4_runtime_plan_component_names = 0
+pilot v4_runtime_plan_component_kinds = 0
+pilot v4_runtime_plan_link_sets = 0
+pilot v4_runtime_ready = 0
+
+task v4_runtime_init() -> void {
+    if v4_runtime_ready == 0 {
+        v4_runtime_plan_targets = array_new()
+        v4_runtime_plan_profiles = array_new()
+        v4_runtime_plan_component_names = array_new()
+        v4_runtime_plan_component_kinds = array_new()
+        v4_runtime_plan_link_sets = array_new()
+        v4_runtime_ready = 1
+    }
+}
+
+task v4_runtime_profile_is_known(profile: word) -> int {
+    if profile == v4_runtime_profile_freestanding {
+        give back 1
+    }
+    if profile == v4_runtime_profile_minimal {
+        give back 1
+    }
+    if profile == v4_runtime_profile_system {
+        give back 1
+    }
+    if profile == v4_runtime_profile_desktop {
+        give back 1
+    }
+    if profile == v4_runtime_profile_jit {
+        give back 1
+    }
+    give back 0
+}
+
+task v4_runtime_profile_is_supported(profile: word) -> int {
+    if profile == v4_runtime_profile_minimal {
+        give back 1
+    }
+    give back 0
+}
+
+task v4_runtime_plan_is_known(plan_id: int) -> int {
+    v4_runtime_init()
+    if plan_id < 0 {
+        give back 0
+    }
+    if plan_id >= array_len(v4_runtime_plan_profiles) {
+        give back 0
+    }
+    give back 1
+}
+
+task v4_runtime_plan_profile(plan_id: int) -> word {
+    if v4_runtime_plan_is_known(plan_id) == 0 {
+        give back ""
+    }
+    give back array_get(v4_runtime_plan_profiles, plan_id)
+}
+
+task v4_runtime_component_names_handle(plan_id: int) -> int {
+    if v4_runtime_plan_is_known(plan_id) == 0 {
+        give back 0
+    }
+    give back word_to_int(array_get(v4_runtime_plan_component_names, plan_id))
+}
+
+task v4_runtime_component_kinds_handle(plan_id: int) -> int {
+    if v4_runtime_plan_is_known(plan_id) == 0 {
+        give back 0
+    }
+    give back word_to_int(array_get(v4_runtime_plan_component_kinds, plan_id))
+}
+
+task v4_runtime_plan_add_component(plan_id: int, name: word, kind: word) -> int {
+    pilot names_handle = v4_runtime_component_names_handle(plan_id)
+    pilot kinds_handle = v4_runtime_component_kinds_handle(plan_id)
+    if names_handle == 0 {
+        give back 0 - 1
+    }
+    if kinds_handle == 0 {
+        give back 0 - 1
+    }
+
+    pilot component_id = array_len(names_handle)
+    array_push(names_handle, name)
+    array_push(kinds_handle, kind)
+    give back component_id
+}
+
+task v4_runtime_add_minimal_components(plan_id: int) -> void {
+    v4_runtime_plan_add_component(plan_id, "startup", "entry")
+    v4_runtime_plan_add_component(plan_id, "allocator", "memory")
+    v4_runtime_plan_add_component(plan_id, "panic-abort", "panic")
+    v4_runtime_plan_add_component(plan_id, "word", "core")
+    v4_runtime_plan_add_component(plan_id, "list-array", "collection")
+    v4_runtime_plan_add_component(plan_id, "shape", "layout")
+    v4_runtime_plan_add_component(plan_id, "say", "io")
+}
+
+task v4_runtime_plan(target: word, profile: word) -> int {
+    v4_runtime_init()
+
+    pilot plan_id = array_len(v4_runtime_plan_profiles)
+    pilot names_handle = array_new()
+    pilot kinds_handle = array_new()
+
+    array_push(v4_runtime_plan_targets, target)
+    array_push(v4_runtime_plan_profiles, profile)
+    array_push(v4_runtime_plan_component_names, word_from_int(names_handle))
+    array_push(v4_runtime_plan_component_kinds, word_from_int(kinds_handle))
+    array_push(v4_runtime_plan_link_sets, "none")
+
+    if profile == v4_runtime_profile_minimal {
+        v4_runtime_add_minimal_components(plan_id)
+    }
+
+    give back plan_id
+}
+
+task v4_runtime_component_count(plan_id: int) -> int {
+    pilot names_handle = v4_runtime_component_names_handle(plan_id)
+    if names_handle == 0 {
+        give back 0
+    }
+    give back array_len(names_handle)
+}
+
+task v4_runtime_component_name(plan_id: int, component_id: int) -> word {
+    pilot names_handle = v4_runtime_component_names_handle(plan_id)
+    if names_handle == 0 {
+        give back ""
+    }
+    if component_id < 0 {
+        give back ""
+    }
+    if component_id >= array_len(names_handle) {
+        give back ""
+    }
+    give back array_get(names_handle, component_id)
+}
+
+task v4_runtime_component_kind(plan_id: int, component_id: int) -> word {
+    pilot kinds_handle = v4_runtime_component_kinds_handle(plan_id)
+    if kinds_handle == 0 {
+        give back ""
+    }
+    if component_id < 0 {
+        give back ""
+    }
+    if component_id >= array_len(kinds_handle) {
+        give back ""
+    }
+    give back array_get(kinds_handle, component_id)
+}
+
+task v4_runtime_link_libraries(plan_id: int) -> word {
+    if v4_runtime_plan_is_known(plan_id) == 0 {
+        give back ""
+    }
+    give back array_get(v4_runtime_plan_link_sets, plan_id)
+}
+
+task v4_runtime_plan_has_component(plan_id: int, name: word) -> int {
+    pilot names_handle = v4_runtime_component_names_handle(plan_id)
+    if names_handle == 0 {
+        give back 0
+    }
+
+    pilot i = 0
+    pilot count = array_len(names_handle)
+    repeat until i >= count {
+        pilot component_name: word = array_get(names_handle, i)
+        if component_name == name {
+            give back 1
+        }
+        i += 1
+    }
+    give back 0
+}
+
+task v4_runtime_validate_minimal_components(plan_id: int) -> word {
+    if v4_runtime_plan_has_component(plan_id, "startup") == 0 {
+        give back "ok=0;reason=missing-component;component=startup"
+    }
+    if v4_runtime_plan_has_component(plan_id, "allocator") == 0 {
+        give back "ok=0;reason=missing-component;component=allocator"
+    }
+    if v4_runtime_plan_has_component(plan_id, "panic-abort") == 0 {
+        give back "ok=0;reason=missing-component;component=panic-abort"
+    }
+    if v4_runtime_plan_has_component(plan_id, "word") == 0 {
+        give back "ok=0;reason=missing-component;component=word"
+    }
+    if v4_runtime_plan_has_component(plan_id, "list-array") == 0 {
+        give back "ok=0;reason=missing-component;component=list-array"
+    }
+    if v4_runtime_plan_has_component(plan_id, "shape") == 0 {
+        give back "ok=0;reason=missing-component;component=shape"
+    }
+    if v4_runtime_plan_has_component(plan_id, "say") == 0 {
+        give back "ok=0;reason=missing-component;component=say"
+    }
+    give back "ok=1;profile=minimal;components=" + word_from_int(v4_runtime_component_count(plan_id)) + ";libs=" + v4_runtime_link_libraries(plan_id)
+}
+
+task v4_runtime_validate_plan(plan_id: int) -> word {
+    if v4_runtime_plan_is_known(plan_id) == 0 {
+        give back "ok=0;reason=unknown-plan"
+    }
+
+    pilot profile = v4_runtime_plan_profile(plan_id)
+    if v4_runtime_profile_is_supported(profile) == 0 {
+        if v4_runtime_profile_is_known(profile) == 0 {
+            give back "ok=0;reason=unsupported-profile;profile=unknown"
+        }
+        give back "ok=0;reason=unsupported-profile;profile=" + profile
+    }
+
+    if profile == v4_runtime_profile_minimal {
+        give back v4_runtime_validate_minimal_components(plan_id)
+    }
+
+    give back "ok=0;reason=unsupported-profile;profile=" + profile
+}
