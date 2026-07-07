@@ -4886,6 +4886,13 @@ EXECUTABLE_SMOKES = [
             "type-recursion-shadow-diag0=Yuuko infinite shape: ShadowNode contains itself by value via ShadowNode -> Shared<ShadowNode> -> ShadowNode",
             "type-recursion-shadow-diag0-span=1@62:80",
             "type-recursion-shadow-mir-diagnostics=1",
+            "type-recursion-import-parse-diagnostics=0",
+            "type-recursion-import-ty-diagnostics=2",
+            "type-recursion-import-diag0=Yuuko infinite shape: util::ImportedNode contains itself by value via util::ImportedNode -> util::ImportedNode",
+            "type-recursion-import-diag0-span=2@37:49",
+            "type-recursion-import-diag1=Yuuko infinite shape: ImportShadowNode contains itself by value via ImportShadowNode -> util::Shared<ImportShadowNode> -> ImportShadowNode",
+            "type-recursion-import-diag1-span=2@192:216",
+            "type-recursion-import-mir-diagnostics=2",
         ],
     },
     {

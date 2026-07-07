@@ -1619,6 +1619,7 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "v4_ty_validate_direct_type_recursion",
             "v4_ty_type_recursion_is_indirect_carrier",
+            "v4_ty_type_recursion_expand_import_type",
             "v4_ty_type_recursion_path_in_nominal",
             "v4_ty_alias_lookup_type_from_surface_type",
             "Yuuko infinite shape",
@@ -1639,10 +1640,13 @@ def audit_conformance(paths: List[Path]) -> int:
             "alias AliasNode = AliasHolder",
             "alias DeepA10 = DeepNode",
             "alias BadAlias = Box<BadAlias>",
+            "use util::ImportedNode as ImportedNode",
+            "use util::Shared as Shared",
             "variant BadRoute",
             "variant GenericRoute",
             "type-recursion-safe-shared-path=",
             "type-recursion-shadow-ty-diagnostics=",
+            "type-recursion-import-ty-diagnostics=",
             "type-recursion-mir-diagnostics=",
         ):
             if needle not in smoke_src:
@@ -1659,7 +1663,10 @@ def audit_conformance(paths: List[Path]) -> int:
             "Yuuko infinite shape: Node contains itself by value via Node -> Box<GenericAlias> -> GenericAlias -> Box<Node> -> Node",
             "Yuuko infinite shape: DeepNode contains itself by value via DeepNode -> DeepA1 -> DeepA2 -> DeepA3",
             "Yuuko infinite shape: ShadowNode contains itself by value via ShadowNode -> Shared<ShadowNode> -> ShadowNode",
+            "Yuuko infinite shape: util::ImportedNode contains itself by value via util::ImportedNode -> util::ImportedNode",
+            "Yuuko infinite shape: ImportShadowNode contains itself by value via ImportShadowNode -> util::Shared<ImportShadowNode> -> ImportShadowNode",
             "Yuuko infinite variant: GenericRoute contains itself by value via GenericRoute -> InlineBox<GenericRoute> -> GenericRoute",
+            "type-recursion-import-ty-diagnostics=2",
             "type-recursion-mir-diagnostics=10",
         ):
             if needle not in harness_src:

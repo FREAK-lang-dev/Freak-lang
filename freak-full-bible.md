@@ -107,7 +107,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.11 Generics | ⚠️ Partial — basic `<T>` plus doctrine and multi-bound generic constraints work in V4 query slices; full backend/monomorphization depth still expands |
 | §1.12 Borrow checker | ⚠️ Partial — see §4 |
 | §1.13 Modules | ⚠️ Partial — see §6 |
-| §1.14 Variants & aliases | ⚠️ Partial — V4 parses aliases and `variant` declarations through the route-family sum-type representation, including payload constructors, exhaustive `when`, alias-backed diagnostics, alias nominality diagnostics for doctrine impl targets, direct recursive shape/variant rejection unless recursion crosses a real builtin indirection carrier, and editor/query facts; final backend layout still expands |
+| §1.14 Variants & aliases | ⚠️ Partial — V4 parses aliases and `variant` declarations through the route-family sum-type representation, including payload constructors, exhaustive `when`, alias-backed diagnostics, alias nominality diagnostics for doctrine impl targets, direct recursive shape/variant rejection unless recursion crosses a real builtin indirection carrier, import-expanded recursion checks with local/imported carrier shadows, and editor/query facts; final backend layout still expands |
 | §1.15 Literals | ⚠️ Partial — fixed-array `[T;N]` literals, repeat-fill `[0; 100]`, numeric suffixes, integer root-constant arithmetic for array lengths, and root-const tuple/list/repeat-fill plus generic shape/route-constructor and const-task-call type inference with constructor-payload and declared-initializer diagnostics work in V4; full const-expression evaluation remains 🔜 V4 |
 
 ### 1.1 Variables

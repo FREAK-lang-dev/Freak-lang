@@ -8042,6 +8042,10 @@ task v4_ty_type_recursion_is_indirect_carrier(ty_id: int, type_text: word) -> bo
     }
     if v4_ty_is_generic_instance_type(type_text) {
         pilot base_name = v4_ty_generic_base_name(type_text)
+        pilot expanded_base = v4_ty_type_recursion_expand_import_name(ty_id, base_name)
+        if expanded_base != "" and expanded_base != base_name {
+            give back false
+        }
         if v4_ty_type_signature_id_for_name(ty_id, base_name) >= 0 {
             give back false
         }
@@ -8053,6 +8057,35 @@ task v4_ty_type_recursion_is_indirect_carrier(ty_id: int, type_text: word) -> bo
         }
     }
     give back false
+}
+
+task v4_ty_type_recursion_expand_import_name(ty_id: int, surface_name: word) -> word {
+    if surface_name == "" or surface_name == v4_ty_unknown {
+        give back surface_name
+    }
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    if resolve_id >= 0 {
+        pilot expanded = v4_resolve_expand_import_name(resolve_id, surface_name)
+        if expanded != "" {
+            give back expanded
+        }
+    }
+    give back surface_name
+}
+
+task v4_ty_type_recursion_expand_import_type(ty_id: int, type_text: word) -> word {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back type_text
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot base_name = v4_ty_generic_base_name(type_text)
+        pilot expanded_base = v4_ty_type_recursion_expand_import_name(ty_id, base_name)
+        if expanded_base != "" and expanded_base != base_name {
+            give back expanded_base + v4_slice(type_text, base_name.length(), type_text.length())
+        }
+        give back type_text
+    }
+    give back v4_ty_type_recursion_expand_import_name(ty_id, type_text)
 }
 
 task v4_ty_type_recursion_nominal_sig(ty_id: int, type_text: word) -> int {
@@ -8126,6 +8159,7 @@ task v4_ty_type_recursion_path_in_type(ty_id: int, owner_name: word, type_text: 
     if owner_name == "" or type_text == "" or type_text == v4_ty_unknown {
         give back ""
     }
+    type_text = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
 
     if type_text == owner_name {
         give back v4_ty_alias_cycle_seen_append(seen_types, owner_name)

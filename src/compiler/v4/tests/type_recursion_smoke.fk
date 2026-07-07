@@ -83,6 +83,24 @@ task v4_type_recursion_shadow_source() -> word {
     give back src
 }
 
+task v4_type_recursion_import_source() -> word {
+    pilot src = "shape util::ImportedNode {\n"
+    src = src + "    next: ImportedNode\n"
+    src = src + "}\n"
+    src = src + "use util::ImportedNode as ImportedNode\n"
+    src = src + "shape util::Shared<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "use util::Shared as Shared\n"
+    src = src + "shape ImportShadowNode {\n"
+    src = src + "    next: Shared<ImportShadowNode>\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_type_recursion_stream = v4_lex_text(0, v4_type_recursion_source())
 pilot v4_type_recursion_tree = v4_parse_stream(0, v4_type_recursion_stream)
 pilot v4_type_recursion_hir = v4_hir_lower_tree(0, v4_type_recursion_tree)
@@ -96,6 +114,13 @@ pilot v4_type_recursion_shadow_hir = v4_hir_lower_tree(1, v4_type_recursion_shad
 pilot v4_type_recursion_shadow_resolve = v4_resolve_lower_hir(1, v4_type_recursion_shadow_hir)
 pilot v4_type_recursion_shadow_ty = v4_ty_lower_resolve(1, v4_type_recursion_shadow_resolve)
 pilot v4_type_recursion_shadow_mir = v4_mir_lower_ty(1, v4_type_recursion_shadow_ty)
+
+pilot v4_type_recursion_import_stream = v4_lex_text(2, v4_type_recursion_import_source())
+pilot v4_type_recursion_import_tree = v4_parse_stream(2, v4_type_recursion_import_stream)
+pilot v4_type_recursion_import_hir = v4_hir_lower_tree(2, v4_type_recursion_import_tree)
+pilot v4_type_recursion_import_resolve = v4_resolve_lower_hir(2, v4_type_recursion_import_hir)
+pilot v4_type_recursion_import_ty = v4_ty_lower_resolve(2, v4_type_recursion_import_resolve)
+pilot v4_type_recursion_import_mir = v4_mir_lower_ty(2, v4_type_recursion_import_ty)
 
 say "type-recursion-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_type_recursion_tree))
 say "type-recursion-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_type_recursion_ty))
@@ -120,3 +145,14 @@ pilot v4_type_recursion_shadow_diag = v4_ty_diag(v4_type_recursion_shadow_ty, 0)
 say "type-recursion-shadow-diag0=" + v4_diag_message(v4_type_recursion_shadow_diag)
 say "type-recursion-shadow-diag0-span=" + v4_diag_span(v4_type_recursion_shadow_diag)
 say "type-recursion-shadow-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_type_recursion_shadow_mir))
+
+say "type-recursion-import-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_type_recursion_import_tree))
+say "type-recursion-import-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_type_recursion_import_ty))
+pilot v4_type_recursion_import_diag_idx = 0
+repeat until v4_type_recursion_import_diag_idx >= v4_ty_diag_count(v4_type_recursion_import_ty) {
+    pilot v4_type_recursion_import_diag = v4_ty_diag(v4_type_recursion_import_ty, v4_type_recursion_import_diag_idx)
+    say "type-recursion-import-diag" + word_from_int(v4_type_recursion_import_diag_idx) + "=" + v4_diag_message(v4_type_recursion_import_diag)
+    say "type-recursion-import-diag" + word_from_int(v4_type_recursion_import_diag_idx) + "-span=" + v4_diag_span(v4_type_recursion_import_diag)
+    v4_type_recursion_import_diag_idx += 1
+}
+say "type-recursion-import-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_type_recursion_import_mir))
