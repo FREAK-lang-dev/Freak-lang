@@ -1606,6 +1606,94 @@ def audit_conformance(paths: List[Path]) -> int:
     )
     if dyn_doctrine_missing:
         failures.append("V4 dyn Doctrine semantic/editor surface regressed: " + "; ".join(dyn_doctrine_missing))
+
+    # Check 17: V4 direct recursive shape/variant rejection
+    # Owned recursion must not create infinite-size values. This guard checks
+    # the semantic-core validator and smoke without claiming backend layout is complete.
+    type_recursion_missing: List[str] = []
+    v4_ty_type_recursion = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_type_recursion_smoke = repo / "src" / "compiler" / "v4" / "tests" / "type_recursion_smoke.fk"
+    v4_check_harness_type_recursion = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    if v4_ty_type_recursion.exists():
+        ty_src = v4_ty_type_recursion.read_text(encoding="utf-8")
+        for needle in (
+            "v4_ty_validate_direct_type_recursion",
+            "v4_ty_type_recursion_is_indirect_carrier",
+            "v4_ty_type_recursion_expand_import_type",
+            "v4_ty_type_recursion_seen_has_nominal",
+            "v4_ty_type_recursion_path_in_nominal",
+            "v4_ty_alias_lookup_type_from_surface_type",
+            "generic \" + generic_name + \" shadows its owner",
+            "Yuuko infinite shape",
+            "Yuuko infinite variant",
+            "Shared<T>, Weak<T>, List<T>, or a raw pointer",
+        ):
+            if needle not in ty_src:
+                type_recursion_missing.append(f"freak_ty: {needle}")
+    else:
+        type_recursion_missing.append("freak_ty/src/lib.fk missing")
+    if v4_type_recursion_smoke.exists():
+        smoke_src = v4_type_recursion_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "shape Direct",
+            "shape Left",
+            "shape Shared<T>",
+            "shape InlineBox<T>",
+            "alias AliasNode = AliasHolder",
+            "alias DeepA10 = DeepNode",
+            "alias BadAlias = Box<BadAlias>",
+            "use util::ImportedNode as ImportedNode",
+            "use util::Shared as Shared",
+            "alias Ignore<T> = int",
+            "shape Wrap<T>",
+            "shape Node<Node>",
+            "shape util::Node",
+            "variant BadRoute",
+            "variant GenericRoute",
+            "type-recursion-safe-shared-path=",
+            "type-recursion-shadow-ty-diagnostics=",
+            "type-recursion-import-ty-diagnostics=",
+            "type-recursion-alias-erased-ty-diagnostics=",
+            "type-recursion-generic-growth-ty-diagnostics=",
+            "type-recursion-generic-shadow-ty-diagnostics=",
+            "type-recursion-import-local-ty-diagnostics=",
+            "type-recursion-mir-diagnostics=",
+        ):
+            if needle not in smoke_src:
+                type_recursion_missing.append(f"type_recursion_smoke: {needle}")
+    else:
+        type_recursion_missing.append("smoke fixture: type_recursion_smoke.fk")
+    if v4_check_harness_type_recursion.exists():
+        harness_src = v4_check_harness_type_recursion.read_text(encoding="utf-8")
+        for needle in (
+            "type_recursion_smoke.fk",
+            "type-recursion-ty-diagnostics=10",
+            "Yuuko alias loop: alias BadAlias expands forever via BadAlias -> BadAlias",
+            "Yuuko infinite shape: GenericNode contains itself by value via GenericNode -> InlineBox<GenericNode> -> GenericNode",
+            "Yuuko infinite shape: Node contains itself by value via Node -> Box<GenericAlias> -> GenericAlias -> Box<Node> -> Node",
+            "Yuuko infinite shape: DeepNode contains itself by value via DeepNode -> DeepA1 -> DeepA2 -> DeepA3",
+            "Yuuko infinite shape: ShadowNode contains itself by value via ShadowNode -> Shared<ShadowNode> -> ShadowNode",
+            "Yuuko infinite shape: util::ImportedNode contains itself by value via util::ImportedNode -> util::ImportedNode",
+            "Yuuko infinite shape: ImportShadowNode contains itself by value via ImportShadowNode -> util::Shared<ImportShadowNode> -> ImportShadowNode",
+            "Yuuko infinite variant: GenericRoute contains itself by value via GenericRoute -> InlineBox<GenericRoute> -> GenericRoute",
+            "type-recursion-import-ty-diagnostics=2",
+            "type-recursion-alias-erased-ty-diagnostics=0",
+            "type-recursion-generic-growth-diag0=Yuuko infinite shape: Wrap contains itself by value via Wrap -> Wrap",
+            "type-recursion-generic-shadow-diag0=Meiya lifetime debt: generic Node shadows its owner Node; Yuuko needs one identity per timeline",
+            "type-recursion-import-local-diag0=Yuuko infinite shape: Node contains itself by value via Node -> Node",
+            "type-recursion-mir-diagnostics=10",
+        ):
+            if needle not in harness_src:
+                type_recursion_missing.append(f"check_v4.py: {needle}")
+    else:
+        type_recursion_missing.append("check_v4.py harness missing")
+    add(
+        "V4 type recursion",
+        not type_recursion_missing,
+        "TY direct shape/variant recursion guard + smoke wired" if not type_recursion_missing else f"{len(type_recursion_missing)} gap(s)",
+    )
+    if type_recursion_missing:
+        failures.append("V4 direct type-recursion guard regressed: " + "; ".join(type_recursion_missing))
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")
