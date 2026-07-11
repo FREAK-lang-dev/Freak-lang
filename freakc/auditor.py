@@ -1207,6 +1207,7 @@ def audit_conformance(paths: List[Path]) -> int:
         borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
         for needle in (
             "v4_borrowck_return_lend_origin",
+            "v4_borrowck_return_has_loop_carried_rebind",
             "v4_borrowck_check_returned_lends",
             "v4_borrowck_check_stored_call_lends",
             "v4_borrowck_stored_call_return_holder",
@@ -1233,6 +1234,7 @@ def audit_conformance(paths: List[Path]) -> int:
             'lend-return-forward-branches-status=',
             'lend-return-forward-ambiguous-branches-status=',
             'lend-return-forward-ambiguous-call-status=',
+            'lend-return-loop-carried-status=',
             'lend-return-ambiguous-diagnostics=',
             'lend-return-restored-forward-region-source=',
         ):

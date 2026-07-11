@@ -63,6 +63,18 @@ task v4_lend_return_source() -> word {
     src = src + "task mutable_forward(lend mut ship: Ship) -> lend mut Ship {\n"
     src = src + "    give back mutable_reloan(lend mut ship)\n"
     src = src + "}\n"
+    src = src + "task loop_carried_owned_rebind(lend ship: Ship, owned: Ship, ready: bool) -> lend Ship {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    pilot first = true\n"
+    src = src + "    repeat until ready {\n"
+    src = src + "        if first == false {\n"
+    src = src + "            give back view\n"
+    src = src + "        }\n"
+    src = src + "        view = lend owned\n"
+    src = src + "        first = false\n"
+    src = src + "    }\n"
+    src = src + "    give back lend ship\n"
+    src = src + "}\n"
     src = src + "task stored_forward_live_move(ship: Ship) -> int {\n"
     src = src + "    pilot view = forward(lend ship)\n"
     src = src + "    pilot moved = ship\n"
@@ -211,6 +223,7 @@ pilot v4_lend_return_forward_branches_def = v4_resolve_def_for_name(v4_lend_retu
 pilot v4_lend_return_forward_ambiguous_branches_def = v4_resolve_def_for_name(v4_lend_return_resolve, "forward_ambiguous_branches")
 pilot v4_lend_return_forward_ambiguous_call_def = v4_resolve_def_for_name(v4_lend_return_resolve, "forward_ambiguous_call")
 pilot v4_lend_return_mutable_forward_def = v4_resolve_def_for_name(v4_lend_return_resolve, "mutable_forward")
+pilot v4_lend_return_loop_carried_def = v4_resolve_def_for_name(v4_lend_return_resolve, "loop_carried_owned_rebind")
 pilot v4_lend_return_stored_forward_live_move_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_forward_live_move")
 pilot v4_lend_return_stored_forward_released_move_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_forward_released_move")
 pilot v4_lend_return_stored_call_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_reloan")
@@ -242,6 +255,7 @@ pilot v4_lend_return_forward_branches_result = v4_borrowck_lookup_result(v4_lend
 pilot v4_lend_return_forward_ambiguous_branches_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_forward_ambiguous_branches_def)
 pilot v4_lend_return_forward_ambiguous_call_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_forward_ambiguous_call_def)
 pilot v4_lend_return_mutable_forward_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_mutable_forward_def)
+pilot v4_lend_return_loop_carried_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_loop_carried_def)
 pilot v4_lend_return_stored_forward_live_move_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_forward_live_move_def)
 pilot v4_lend_return_stored_forward_released_move_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_forward_released_move_def)
 pilot v4_lend_return_stored_call_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_def)
@@ -279,6 +293,7 @@ say "lend-return-forward-branches-status=" + v4_borrowck_result_status(v4_lend_r
 say "lend-return-forward-ambiguous-branches-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_forward_ambiguous_branches_result)
 say "lend-return-forward-ambiguous-call-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_forward_ambiguous_call_result)
 say "lend-return-mutable-forward-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_mutable_forward_result)
+say "lend-return-loop-carried-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_loop_carried_result)
 say "lend-return-stored-forward-live-move-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_forward_live_move_result)
 say "lend-return-stored-forward-released-move-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_forward_released_move_result)
 say "lend-return-forward-region-kind=" + v4_borrowck_path_kind(v4_lend_return_borrow, v4_lend_return_forward_result, v4_lend_return_forward_region_path)

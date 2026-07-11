@@ -583,6 +583,23 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
     give back conflicts
 }
 
+task v4_borrowck_return_has_loop_carried_rebind(mir_id: int, body_id: int, holder: word, return_stmt: int, return_block: int) -> bool {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_borrowck_stmt_rebinds_holder(mir_id, body_id, stmt_id, holder) {
+            pilot rebind_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+            if v4_borrowck_block_can_cycle(mir_id, body_id, rebind_block) {
+                if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, holder, stmt_id, stmt_id, rebind_block, return_stmt, return_block) {
+                    give back true
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    give back false
+}
+
 task v4_borrowck_return_lend_origin(mir_id: int, body_id: int, return_stmt: int, rvalue_id: int) -> int {
     if rvalue_id < 0 {
         give back 0 - 1
@@ -604,6 +621,9 @@ task v4_borrowck_return_lend_origin(mir_id: int, body_id: int, return_stmt: int,
 
     pilot holder = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
     pilot return_block = v4_mir_stmt_block(mir_id, body_id, return_stmt)
+    if v4_borrowck_return_has_loop_carried_rebind(mir_id, body_id, holder, return_stmt, return_block) {
+        give back 0 - 1
+    }
     pilot resolved_origin = 0 - 1
     pilot resolved_source = ""
     pilot stmt_id = 0
