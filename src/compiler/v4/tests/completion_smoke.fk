@@ -165,6 +165,7 @@ say "completion-instance-pack-found=" + v4_completion_bool_word(v4_completion_in
 say "completion-static-pack-found=" + v4_completion_bool_word(v4_completion_static_pack >= 0)
 say "completion-static-pack-detail=" + v4_completion_detail_or_empty(v4_completion_static_items, v4_completion_static_pack)
 say "completion-static-salute-found=" + v4_completion_bool_word(v4_completion_static_salute >= 0)
+say "completion-static-salute-detail=" + v4_completion_detail_or_empty(v4_completion_static_items, v4_completion_static_salute)
 say "completion-bound-rank-found=" + v4_completion_bool_word(v4_completion_bound_rank >= 0)
 say "completion-bound-rank-detail=" + v4_completion_detail_or_empty(v4_completion_bound_items, v4_completion_bound_rank)
 say "completion-bound-display-found=" + v4_completion_bool_word(v4_completion_bound_display >= 0)
