@@ -958,30 +958,7 @@ task v4_ty_canonical_type_in_signature_depth(ty_id: int, sig_id: int, type_text:
         give back v4_ty_dyn_type(v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_dyn_doctrine_name(type_text), depth + 1))
     }
     if v4_ty_is_surface_task_function_type(type_text) {
-        pilot out = "task("
-        if v4_ty_is_surface_extern_function_pointer_type(type_text) {
-            out = "extern[" + v4_ty_function_type_abi_specs(type_text) + "]task("
-        }
-        pilot param_id = 0
-        pilot param_count = v4_ty_function_type_param_count(type_text)
-        repeat until param_id >= param_count {
-            if param_id > 0 {
-                out = out + ","
-            }
-            pilot param_name = v4_ty_function_type_param_name(type_text, param_id)
-            pilot param_surface = v4_ty_function_type_param_surface(type_text, param_id)
-            if param_name != "" {
-                out = out + param_name + ":"
-            }
-            if param_surface == "..." {
-                out = out + "..."
-            } else {
-                out = out + v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, param_surface, depth + 1)
-            }
-            param_id += 1
-        }
-        out = out + ")->" + v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_function_type_return_text(type_text), depth + 1)
-        give back out
+        give back v4_ty_canonical_type(ty_id, type_text)
     }
     if v4_ty_is_lend_type(type_text) {
         give back v4_ty_lend_type(v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_lend_target_type(type_text), depth + 1), v4_ty_lend_mode(type_text))
@@ -990,34 +967,10 @@ task v4_ty_canonical_type_in_signature_depth(ty_id: int, sig_id: int, type_text:
         give back v4_ty_raw_pointer_with_target_type(type_text, v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_raw_pointer_target_type(type_text), depth + 1))
     }
     if v4_ty_is_generic_instance_type(type_text) {
-        pilot base_name = v4_ty_generic_base_name(type_text)
-        if not v4_ty_signature_declares_type_generic_name(ty_id, sig_id, base_name) {
-            base_name = v4_ty_canonical_type(ty_id, base_name)
-        }
-        pilot out = base_name + "<"
-        pilot arg_id = 0
-        pilot arg_count = v4_ty_generic_arg_count(type_text)
-        repeat until arg_id >= arg_count {
-            if arg_id > 0 {
-                out = out + ","
-            }
-            out = out + v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_generic_arg(type_text, arg_id), depth + 1)
-            arg_id += 1
-        }
-        give back out + ">"
+        give back v4_ty_canonical_type(ty_id, type_text)
     }
     if v4_ty_is_tuple_type(type_text) {
-        pilot out = "("
-        pilot slot_id = 0
-        pilot slot_count = v4_ty_tuple_slot_count(type_text)
-        repeat until slot_id >= slot_count {
-            if slot_id > 0 {
-                out = out + ","
-            }
-            out = out + v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_tuple_slot_type(type_text, slot_id), depth + 1)
-            slot_id += 1
-        }
-        give back out + ")"
+        give back v4_ty_canonical_type(ty_id, type_text)
     }
     if v4_ty_is_fixed_array_type(type_text) {
         pilot element_ty = v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_fixed_array_element_type(type_text), depth + 1)
