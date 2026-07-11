@@ -903,12 +903,15 @@ def audit_conformance(paths: List[Path]) -> int:
     semantic_core_missing: List[str] = []
     v4_ty_lib_sc = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
     v4_mir_lib_sc = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_editor_lib_sc = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
     v4_codegen_lib_sc = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
     v4_check_harness_sc = repo / "src" / "compiler" / "v4" / "check_v4.py"
     v4_primitive_smoke = repo / "src" / "compiler" / "v4" / "tests" / "primitive_types_smoke.fk"
     v4_named_call_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_named_call_smoke.fk"
     v4_named_call_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "named_call_editor_smoke.fk"
     v4_method_call_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_method_call_smoke.fk"
+    v4_bound_associated_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_bound_associated_smoke.fk"
+    v4_bound_associated_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "bound_associated_editor_smoke.fk"
     v4_tuple_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_tuple_literal_smoke.fk"
     v4_array_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_array_literal_smoke.fk"
     if v4_ty_lib_sc.exists():
@@ -927,6 +930,10 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_ty_tuple_slot_type",
             "v4_ty_is_fixed_array_type",
             "v4_ty_fixed_array_length_normalized_text",
+            "v4_ty_apply_self_and_doctrine_instance",
+            "v4_ty_canonical_type_in_signature",
+            "v4_ty_doctrine_method_param_surface_type",
+            "v4_ty_doctrine_method_return_type_for_bound",
         ):
             if needle not in ty_src:
                 semantic_core_missing.append(f"freak_ty: {needle}")
@@ -944,6 +951,11 @@ def audit_conformance(paths: List[Path]) -> int:
             "duplicate method argument",
             "positional method argument after named",
             "v4_mir_check_ufcs_method_args",
+            "v4_mir_check_bound_ufcs_method_args",
+            "v4_mir_bound_method_ref_with_doctrine",
+            "v4_mir_bound_method_ref_doctrine_instance",
+            "v4_mir_bound_method_candidate_count",
+            "ambiguous doctrine-bound method",
             "UFCS receiver type mismatch",
             "v4_mir_try_lower_tuple_literal",
             "v4_mir_check_fixed_array_literal",
@@ -953,6 +965,17 @@ def audit_conformance(paths: List[Path]) -> int:
                 semantic_core_missing.append(f"freak_mir: {needle}")
     else:
         semantic_core_missing.append("freak_mir/src/lib.fk missing")
+    if v4_editor_lib_sc.exists():
+        editor_src = v4_editor_lib_sc.read_text(encoding="utf-8")
+        for needle in (
+            "v4_editor_doctrine_method_explicit_param_name_span",
+            "v4_ty_doctrine_method_explicit_param_type_for_bound",
+            "v4_mir_bound_method_ref_doctrine_instance",
+        ):
+            if needle not in editor_src:
+                semantic_core_missing.append(f"freak_editor: {needle}")
+    else:
+        semantic_core_missing.append("freak_editor/src/lib.fk missing")
     if v4_codegen_lib_sc.exists():
         cg_src = v4_codegen_lib_sc.read_text(encoding="utf-8")
         for needle in (
@@ -972,11 +995,22 @@ def audit_conformance(paths: List[Path]) -> int:
         (v4_named_call_smoke, "mir_named_call_smoke.fk"),
         (v4_named_call_editor_smoke, "named_call_editor_smoke.fk"),
         (v4_method_call_smoke, "mir_method_call_smoke.fk"),
+        (v4_bound_associated_smoke, "mir_bound_associated_smoke.fk"),
+        (v4_bound_associated_editor_smoke, "bound_associated_editor_smoke.fk"),
         (v4_tuple_smoke, "mir_tuple_literal_smoke.fk"),
         (v4_array_smoke, "mir_array_literal_smoke.fk"),
     ):
         if not smoke_path.exists():
             semantic_core_missing.append(f"smoke fixture: {label}")
+    if v4_bound_associated_smoke.exists():
+        bound_associated_src = v4_bound_associated_smoke.read_text(encoding="utf-8")
+        for needle in (
+            'alias Value = word',
+            'alias T = word',
+            'Convert<int> + Convert<word>',
+        ):
+            if needle not in bound_associated_src:
+                semantic_core_missing.append(f"mir_bound_associated_smoke.fk: {needle}")
     if v4_check_harness_sc.exists():
         harness_src = v4_check_harness_sc.read_text(encoding="utf-8")
         for needle in (
@@ -998,6 +1032,15 @@ def audit_conformance(paths: List[Path]) -> int:
             "ufcs-boost-call-op=Pilot::boost",
             "ufcs-take-call-op=Box<int>::take",
             "bad-ufcs-receiver-message=UFCS receiver type mismatch",
+            "mir_bound_associated_smoke.fk",
+            "bound-associated-ufcs-op=T::score",
+            "bound-associated-static-op=T::baseline",
+            "bound-associated-bad-diag0-message=UFCS receiver type mismatch",
+            "bound-associated-bad-diag4-message=ambiguous doctrine-bound method",
+            "bound_associated_editor_smoke.fk",
+            "bound-associated-editor-ufcs-definition-matches=true",
+            "bound-associated-editor-bonus-completion-detail=parameter bonus: int",
+            "bound-associated-editor-ambiguous-completion-found=false",
             "mir_tuple_literal_smoke.fk",
             "tuple-local0-ty=(int,word)",
             "tuple-bad-mismatch-message=local declaration type mismatch",
@@ -1012,7 +1055,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 semantic core",
         not semantic_core_missing,
-        "named calls + UFCS methods + primitive/tuple/fixed-array carriers wired" if not semantic_core_missing else f"{len(semantic_core_missing)} gap(s)",
+        "named calls + concrete/bound UFCS + primitive/tuple/fixed-array carriers wired" if not semantic_core_missing else f"{len(semantic_core_missing)} gap(s)",
     )
     if semantic_core_missing:
         failures.append("V4 semantic-core carrier surface regressed: " + "; ".join(semantic_core_missing))

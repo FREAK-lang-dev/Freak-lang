@@ -942,6 +942,94 @@ task v4_ty_canonical_type(ty_id: int, type_text: word) -> word {
     give back v4_ty_canonical_type_depth_seen(ty_id, type_text, "", 0)
 }
 
+task v4_ty_canonical_type_in_signature_depth(ty_id: int, sig_id: int, type_text: word, depth: int) -> word {
+    if depth > 8 or type_text == "" or type_text == v4_ty_unknown {
+        give back type_text
+    }
+    if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text) {
+        give back type_text
+    }
+
+    pilot alias_target = v4_ty_alias_target_type(ty_id, type_text)
+    if alias_target != "" and alias_target != v4_ty_unknown and alias_target != type_text {
+        give back v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, alias_target, depth + 1)
+    }
+    if v4_ty_is_dyn_type(type_text) {
+        give back v4_ty_dyn_type(v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_dyn_doctrine_name(type_text), depth + 1))
+    }
+    if v4_ty_is_surface_task_function_type(type_text) {
+        pilot out = "task("
+        if v4_ty_is_surface_extern_function_pointer_type(type_text) {
+            out = "extern[" + v4_ty_function_type_abi_specs(type_text) + "]task("
+        }
+        pilot param_id = 0
+        pilot param_count = v4_ty_function_type_param_count(type_text)
+        repeat until param_id >= param_count {
+            if param_id > 0 {
+                out = out + ","
+            }
+            pilot param_name = v4_ty_function_type_param_name(type_text, param_id)
+            pilot param_surface = v4_ty_function_type_param_surface(type_text, param_id)
+            if param_name != "" {
+                out = out + param_name + ":"
+            }
+            if param_surface == "..." {
+                out = out + "..."
+            } else {
+                out = out + v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, param_surface, depth + 1)
+            }
+            param_id += 1
+        }
+        out = out + ")->" + v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_function_type_return_text(type_text), depth + 1)
+        give back out
+    }
+    if v4_ty_is_lend_type(type_text) {
+        give back v4_ty_lend_type(v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_lend_target_type(type_text), depth + 1), v4_ty_lend_mode(type_text))
+    }
+    if v4_ty_is_raw_pointer_type(type_text) {
+        give back v4_ty_raw_pointer_with_target_type(type_text, v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_raw_pointer_target_type(type_text), depth + 1))
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot base_name = v4_ty_generic_base_name(type_text)
+        if not v4_ty_signature_declares_type_generic_name(ty_id, sig_id, base_name) {
+            base_name = v4_ty_canonical_type(ty_id, base_name)
+        }
+        pilot out = base_name + "<"
+        pilot arg_id = 0
+        pilot arg_count = v4_ty_generic_arg_count(type_text)
+        repeat until arg_id >= arg_count {
+            if arg_id > 0 {
+                out = out + ","
+            }
+            out = out + v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_generic_arg(type_text, arg_id), depth + 1)
+            arg_id += 1
+        }
+        give back out + ">"
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot out = "("
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            if slot_id > 0 {
+                out = out + ","
+            }
+            out = out + v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_tuple_slot_type(type_text, slot_id), depth + 1)
+            slot_id += 1
+        }
+        give back out + ")"
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        pilot element_ty = v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, v4_ty_fixed_array_element_type(type_text), depth + 1)
+        give back "[" + element_ty + ";" + v4_ty_fixed_array_length_normalized_text(ty_id, type_text) + "]"
+    }
+    give back v4_ty_canonical_type(ty_id, type_text)
+}
+
+task v4_ty_canonical_type_in_signature(ty_id: int, sig_id: int, type_text: word) -> word {
+    give back v4_ty_canonical_type_in_signature_depth(ty_id, sig_id, type_text, 0)
+}
+
 task v4_ty_is_numeric(ty_name: word) -> bool {
     give back v4_ty_is_integer(ty_name) or v4_ty_is_float(ty_name)
 }
@@ -3546,7 +3634,7 @@ task v4_ty_signature_param_type(ty_id: int, sig_id: int, param_id: int) -> word 
     if v4_ty_is_variadic_param_surface(v4_ty_param_type_from_tokens(stream_id, start_token, end_token)) {
         give back v4_ty_unknown
     }
-    give back v4_ty_canonical_type(ty_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
+    give back v4_ty_canonical_type_in_signature(ty_id, sig_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
 }
 
 task v4_ty_signature_param_surface_type(ty_id: int, sig_id: int, param_id: int) -> word {
@@ -6132,7 +6220,7 @@ task v4_ty_doctrine_method_param_name(ty_id: int, sig_id: int, method_id: int, p
     give back v4_ty_param_name_from_tokens(stream_id, start_token, end_token)
 }
 
-task v4_ty_doctrine_method_param_type(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
+task v4_ty_doctrine_method_param_surface_type(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot open_token = v4_ty_doctrine_method_param_open_token(ty_id, sig_id, method_id)
     pilot close_token = v4_ty_doctrine_method_param_close_token(ty_id, sig_id, method_id)
@@ -6144,7 +6232,11 @@ task v4_ty_doctrine_method_param_type(ty_id: int, sig_id: int, method_id: int, p
     if v4_ty_param_name_from_tokens(stream_id, start_token, end_token) == "self" {
         give back "Self"
     }
-    give back v4_ty_canonical_type(ty_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
+    give back v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_doctrine_method_param_type(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
+    give back v4_ty_canonical_type_in_signature(ty_id, sig_id, v4_ty_doctrine_method_param_surface_type(ty_id, sig_id, method_id, param_id))
 }
 
 task v4_ty_doctrine_method_param_type_span(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
@@ -6190,14 +6282,26 @@ task v4_ty_doctrine_method_explicit_param_type(ty_id: int, sig_id: int, method_i
     give back v4_ty_doctrine_method_param_type(ty_id, sig_id, method_id, param_id + shift)
 }
 
-task v4_ty_doctrine_method_return_type(ty_id: int, sig_id: int, method_id: int) -> word {
+task v4_ty_doctrine_method_explicit_param_surface_type(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
+    pilot shift = 0
+    if v4_ty_doctrine_method_is_instance(ty_id, sig_id, method_id) {
+        shift = 1
+    }
+    give back v4_ty_doctrine_method_param_surface_type(ty_id, sig_id, method_id, param_id + shift)
+}
+
+task v4_ty_doctrine_method_return_surface_type(ty_id: int, sig_id: int, method_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_doctrine_method_start_token(ty_id, sig_id, method_id)
     pilot end_token = v4_ty_doctrine_method_end_token(ty_id, sig_id, method_id)
     if stream_id < 0 or start_token < 0 or end_token <= start_token {
         give back v4_ty_unknown
     }
-    give back v4_ty_canonical_type(ty_id, v4_ty_task_return_from_tokens(stream_id, start_token, end_token))
+    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_doctrine_method_return_type(ty_id: int, sig_id: int, method_id: int) -> word {
+    give back v4_ty_canonical_type_in_signature(ty_id, sig_id, v4_ty_doctrine_method_return_surface_type(ty_id, sig_id, method_id))
 }
 
 task v4_ty_doctrine_method_return_span(ty_id: int, sig_id: int, method_id: int) -> word {
@@ -6215,14 +6319,9 @@ task v4_ty_apply_self_type(type_text: word, self_ty: word) -> word {
     give back v4_ty_apply_generic_env(type_text, env)
 }
 
-task v4_ty_apply_self_and_doctrine_type_args(ty_id: int, sig_id: int, type_text: word, self_ty: word) -> word {
+task v4_ty_apply_self_and_doctrine_instance(ty_id: int, sig_id: int, type_text: word, self_ty: word, doctrine_instance: word) -> word {
     pilot applied = v4_ty_apply_self_type(type_text, self_ty)
-    pilot dyn_self_ty = self_ty
-    if v4_ty_is_lend_type(dyn_self_ty) {
-        dyn_self_ty = v4_ty_lend_target_type(dyn_self_ty)
-    }
-    if v4_ty_is_dyn_type(dyn_self_ty) {
-        pilot doctrine_instance = v4_ty_dyn_doctrine_name(dyn_self_ty)
+    if doctrine_instance != "" and doctrine_instance != v4_ty_unknown {
         pilot doctrine_env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, doctrine_instance)
         if doctrine_env != "" and doctrine_env != v4_ty_generic_env_fail {
             applied = v4_ty_apply_generic_env(applied, doctrine_env)
@@ -6231,12 +6330,34 @@ task v4_ty_apply_self_and_doctrine_type_args(ty_id: int, sig_id: int, type_text:
     give back applied
 }
 
+task v4_ty_apply_self_and_doctrine_type_args(ty_id: int, sig_id: int, type_text: word, self_ty: word) -> word {
+    pilot doctrine_instance = ""
+    pilot dyn_self_ty = self_ty
+    if v4_ty_is_lend_type(dyn_self_ty) {
+        dyn_self_ty = v4_ty_lend_target_type(dyn_self_ty)
+    }
+    if v4_ty_is_dyn_type(dyn_self_ty) {
+        doctrine_instance = v4_ty_dyn_doctrine_name(dyn_self_ty)
+    }
+    give back v4_ty_apply_self_and_doctrine_instance(ty_id, sig_id, type_text, self_ty, doctrine_instance)
+}
+
 task v4_ty_doctrine_method_explicit_param_type_for_self(ty_id: int, sig_id: int, method_id: int, param_id: int, self_ty: word) -> word {
-    give back v4_ty_canonical_type(ty_id, v4_ty_apply_self_and_doctrine_type_args(ty_id, sig_id, v4_ty_doctrine_method_explicit_param_type(ty_id, sig_id, method_id, param_id), self_ty))
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_self_and_doctrine_type_args(ty_id, sig_id, v4_ty_doctrine_method_explicit_param_surface_type(ty_id, sig_id, method_id, param_id), self_ty))
 }
 
 task v4_ty_doctrine_method_return_type_for_self(ty_id: int, sig_id: int, method_id: int, self_ty: word) -> word {
-    give back v4_ty_canonical_type(ty_id, v4_ty_apply_self_and_doctrine_type_args(ty_id, sig_id, v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id), self_ty))
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_self_and_doctrine_type_args(ty_id, sig_id, v4_ty_doctrine_method_return_surface_type(ty_id, sig_id, method_id), self_ty))
+}
+
+task v4_ty_doctrine_method_explicit_param_type_for_bound(ty_id: int, sig_id: int, method_id: int, param_id: int, self_ty: word, doctrine_instance: word) -> word {
+    pilot surface_ty = v4_ty_doctrine_method_explicit_param_surface_type(ty_id, sig_id, method_id, param_id)
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_self_and_doctrine_instance(ty_id, sig_id, surface_ty, self_ty, doctrine_instance))
+}
+
+task v4_ty_doctrine_method_return_type_for_bound(ty_id: int, sig_id: int, method_id: int, self_ty: word, doctrine_instance: word) -> word {
+    pilot surface_ty = v4_ty_doctrine_method_return_surface_type(ty_id, sig_id, method_id)
+    give back v4_ty_canonical_type(ty_id, v4_ty_apply_self_and_doctrine_instance(ty_id, sig_id, surface_ty, self_ty, doctrine_instance))
 }
 
 task v4_ty_type_mentions_self(type_text: word) -> bool {
@@ -6836,19 +6957,7 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, symbol_def
 }
 
 task v4_ty_signature_return_type(ty_id: int, sig_id: int) -> word {
-    pilot display = v4_ty_signature_display(ty_id, sig_id)
-    pilot i = 0
-    repeat until i + 2 >= display.length() {
-        if display.char_at(i) == "-" and display.char_at(i + 1) == ">" {
-            pilot start_pos = i + 2
-            if start_pos < display.length() and display.char_at(start_pos) == " " {
-                start_pos += 1
-            }
-            give back v4_ty_canonical_type(ty_id, v4_slice(display, start_pos, display.length()))
-        }
-        i += 1
-    }
-    give back v4_ty_unknown
+    give back v4_ty_canonical_type_in_signature(ty_id, sig_id, v4_ty_signature_return_surface_type(ty_id, sig_id))
 }
 
 task v4_ty_signature_return_surface_type(ty_id: int, sig_id: int) -> word {
