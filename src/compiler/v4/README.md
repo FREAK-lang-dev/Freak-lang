@@ -55,7 +55,13 @@ generic doctrine bounds plus multi-bound method/editor enforcement, first-pass
 `dyn Doctrine` type positions with object-safety/coercion diagnostics and
 MIR/editor method facts, named call-site arguments across task calls plus
 instance/associated method calls, and concrete impl UFCS lowering for
-`Type::method(receiver, ...)`.
+`Type::method(receiver, ...)`. Doctrine-bound generic owners now support both
+static calls such as `T::baseline()` and UFCS calls such as
+`T::score(value, bonus: 2)`, preserving instantiated doctrine arguments through
+MIR parameter/return typing and editor hover, definition, and completion facts.
+Doctrine substitution runs before alias canonicalization, body generics outrank
+same-named global aliases, and overlapping bound methods diagnose ambiguity
+instead of selecting whichever doctrine Yuuko happened to inspect first.
 The Borrow Checker gate has now started with `lend` / `lend mut` parameter
 contracts and explicit `lend value` / `lend mut value` expressions carried
 through TY and MIR into Meiya: immutable lends cannot be written, borrowed

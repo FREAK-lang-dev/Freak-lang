@@ -138,7 +138,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Field access `instance.field` | ✅ | ✅ | |
 | `Foo { field: value }` instantiation | ✅ | ✅ | |
 | Method calls `instance.method()` | ✅ | ✅ | |
-| `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | V4 lowers concrete impl UFCS calls like `Pilot::boost(ship, bonus: 3)` and generic-owner `Box<int>::take(box)` into MIR calls with receiver/value arguments plus arity and receiver-type diagnostics; doctrine-bound UFCS and backend parity still expand |
+| `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | V4 lowers concrete impl UFCS calls like `Pilot::boost(ship, bonus: 3)`, generic-owner `Box<int>::take(box)`, and doctrine-bound calls like `T::score(value, bonus: 2)` into MIR with receiver/value arguments plus arity and receiver-type diagnostics. Doctrine-bound static calls such as `T::baseline()` carry instantiated doctrine arguments through editor facts; body generics outrank same-named global aliases, and overlapping bound methods produce an ambiguity diagnostic instead of declaration-order dispatch. Production backend parity still expands |
 
 #### §1.6 Doctrines (Traits)
 
@@ -199,8 +199,8 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
 | `task name<T>(x: T)` parametric type params | ⚠️ | 📖 V4 | parsed; monomorphization via emitter is partial |
-| Trait bounds `T: Doctrine` | ⚠️ | 📖 V4 | V4 enforces doctrine bounds on generic call sites and bound-method editor facts; backend/monomorphization depth still expands |
-| Multi-bound `T: A + B` | ⚠️ | 📖 V4 | V4 parses and enforces multiple doctrine bounds across generic calls and bound-method tooling; broader generic depth remains |
+| Trait bounds `T: Doctrine` | ⚠️ | 📖 V4 | V4 enforces doctrine bounds on generic call sites, instance methods, bound static methods, and doctrine-bound UFCS. Instantiated doctrine arguments propagate before alias canonicalization through MIR/editor parameter and return facts, generic names outrank global aliases, and overlapping bound-method names diagnose ambiguity; backend/monomorphization depth still expands |
+| Multi-bound `T: A + B` | ⚠️ | 📖 V4 | V4 parses and enforces multiple doctrine bounds across generic calls and bound-method tooling, including associated and UFCS lookup; broader generic depth remains |
 
 #### §1.12 Borrow Checker — see §4 below
 
@@ -746,7 +746,7 @@ Phase-1 BC working as advertised.
 This is where V4 will need test coverage. **Out of scope for this audit; surfaced for V4 milestone planning.**
 
 - §1.6 doctrines: 0 standalone tests
-- §1.11 generics: V4 TY/MIR/editor smokes now cover generic calls, constructors, alias-backed shapes/routes, multi-bound doctrine constraints, and generic coercion into `dyn Doctrine`; production monomorphization depth still expands
+- §1.11 generics: V4 TY/MIR/editor smokes now cover generic calls, constructors, alias-backed shapes/routes, multi-bound doctrine constraints, doctrine-bound static/UFCS dispatch with instantiated doctrine arguments, and generic coercion into `dyn Doctrine`; production monomorphization depth still expands
 - §1.13 module imports: 0 tests
 - §1.14 variants/aliases: V4 smokes now cover route-family variants, payload patterns, alias cycles, alias-backed exhaustiveness, direct recursive shape/variant rejection, editor facts, and alias nominality; backend layout still expands
 - §2.1 power<N>: 0 tests
