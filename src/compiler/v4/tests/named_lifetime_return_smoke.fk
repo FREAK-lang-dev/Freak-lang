@@ -5,11 +5,23 @@ task v4_named_lifetime_return_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
+    src = src + "shape Fleet {\n"
+    src = src + "    ship: Ship\n"
+    src = src + "}\n"
     src = src + "task select_left<'left, 'right>(lend 'left left: Ship, lend 'right right: Ship) -> lend 'left Ship {\n"
     src = src + "    give back lend left\n"
     src = src + "}\n"
-    src = src + "task forward_named(lend first: Ship, lend second: Ship) -> lend Ship {\n"
+    src = src + "task forward_named<'first, 'second>(lend 'first first: Ship, lend 'second second: Ship) -> lend 'first Ship {\n"
     src = src + "    give back select_left(lend first, lend second)\n"
+    src = src + "}\n"
+    src = src + "task forward_reordered(lend first: Ship, lend second: Ship) -> lend Ship {\n"
+    src = src + "    give back select_left(right: lend second, left: lend first)\n"
+    src = src + "}\n"
+    src = src + "task forward_ambiguous(lend first: Ship, lend second: Ship) -> lend Ship {\n"
+    src = src + "    give back lend first\n"
+    src = src + "}\n"
+    src = src + "task select_projection<'fleet, 'decoy>(lend 'fleet fleet: Fleet, lend 'decoy decoy: Ship) -> lend 'fleet Ship {\n"
+    src = src + "    give back lend fleet.ship\n"
     src = src + "}\n"
     src = src + "task wrong_source<'left, 'right>(lend 'left left: Ship, lend 'right right: Ship) -> lend 'left Ship {\n"
     src = src + "    give back lend right\n"
@@ -25,6 +37,28 @@ task v4_named_lifetime_return_source() -> word {
     src = src + "task stored_non_source_move(first: Ship, second: Ship) -> int {\n"
     src = src + "    pilot view = select_left(lend first, lend second)\n"
     src = src + "    pilot moved = second\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_projection_move(fleet: Fleet, decoy: Ship) -> int {\n"
+    src = src + "    pilot view = select_projection(lend fleet, lend decoy)\n"
+    src = src + "    pilot moved = fleet\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_holder_move(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot prior = lend first\n"
+    src = src + "    pilot view = select_left(prior, lend second)\n"
+    src = src + "    pilot moved = first\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_nested_move(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot view = select_left(forward_named(lend first, lend second), lend second)\n"
+    src = src + "    pilot moved = first\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_ambiguous_holder_move(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot prior = lend first\n"
+    src = src + "    pilot view = forward_ambiguous(prior, lend second)\n"
+    src = src + "    pilot moved = first\n"
     src = src + "    give back view.hp\n"
     src = src + "}\n"
     give back src
@@ -64,21 +98,38 @@ pilot v4_named_lifetime_return_borrow = v4_borrowck_check_mir(0, v4_named_lifeti
 
 pilot v4_named_lifetime_return_select_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "select_left")
 pilot v4_named_lifetime_return_forward_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "forward_named")
+pilot v4_named_lifetime_return_reordered_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "forward_reordered")
+pilot v4_named_lifetime_return_projection_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "select_projection")
 pilot v4_named_lifetime_return_wrong_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "wrong_source")
 pilot v4_named_lifetime_return_mut_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "select_mut")
 pilot v4_named_lifetime_return_source_move_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "stored_source_move")
 pilot v4_named_lifetime_return_non_source_move_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "stored_non_source_move")
+pilot v4_named_lifetime_return_projection_move_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "stored_projection_move")
+pilot v4_named_lifetime_return_holder_move_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "stored_holder_move")
+pilot v4_named_lifetime_return_nested_move_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "stored_nested_move")
+pilot v4_named_lifetime_return_ambiguous_move_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "stored_ambiguous_holder_move")
 pilot v4_named_lifetime_return_select_sig = v4_ty_lookup_signature(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_def)
+pilot v4_named_lifetime_return_projection_sig = v4_ty_lookup_signature(v4_named_lifetime_return_ty, v4_named_lifetime_return_projection_def)
 pilot v4_named_lifetime_return_select_body = v4_mir_lookup_body(v4_named_lifetime_return_mir, v4_named_lifetime_return_select_def)
 pilot v4_named_lifetime_return_select_left_local = v4_mir_find_local(v4_named_lifetime_return_mir, v4_named_lifetime_return_select_body, "left")
 pilot v4_named_lifetime_return_select_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_select_def)
 pilot v4_named_lifetime_return_forward_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_forward_def)
+pilot v4_named_lifetime_return_reordered_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_reordered_def)
+pilot v4_named_lifetime_return_projection_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_projection_def)
 pilot v4_named_lifetime_return_wrong_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_wrong_def)
 pilot v4_named_lifetime_return_mut_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_mut_def)
 pilot v4_named_lifetime_return_source_move_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_source_move_def)
 pilot v4_named_lifetime_return_non_source_move_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_non_source_move_def)
+pilot v4_named_lifetime_return_projection_move_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_projection_move_def)
+pilot v4_named_lifetime_return_holder_move_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_holder_move_def)
+pilot v4_named_lifetime_return_nested_move_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_nested_move_def)
+pilot v4_named_lifetime_return_ambiguous_move_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_ambiguous_move_def)
 pilot v4_named_lifetime_return_select_path = v4_named_lifetime_return_path_for_kind(v4_named_lifetime_return_borrow, v4_named_lifetime_return_select_result, v4_borrowck_path_return_loan)
+pilot v4_named_lifetime_return_reordered_path = v4_named_lifetime_return_path_for_kind(v4_named_lifetime_return_borrow, v4_named_lifetime_return_reordered_result, v4_borrowck_path_return_loan)
+pilot v4_named_lifetime_return_projection_path = v4_named_lifetime_return_path_for_kind(v4_named_lifetime_return_borrow, v4_named_lifetime_return_projection_result, v4_borrowck_path_return_loan)
 pilot v4_named_lifetime_return_mut_path = v4_named_lifetime_return_path_for_kind(v4_named_lifetime_return_borrow, v4_named_lifetime_return_mut_result, v4_borrowck_path_return_loan_mut)
+pilot v4_named_lifetime_return_source_move_body = v4_mir_lookup_body(v4_named_lifetime_return_mir, v4_named_lifetime_return_source_move_def)
+pilot v4_named_lifetime_return_source_move_view = v4_mir_find_local(v4_named_lifetime_return_mir, v4_named_lifetime_return_source_move_body, "view")
 
 say "named-lifetime-param0-name=" + v4_ty_signature_param_name(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig, 0)
 say "named-lifetime-param0-mode=" + v4_ty_signature_param_mode(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig, 0)
@@ -88,16 +139,26 @@ say "named-lifetime-return=" + v4_ty_signature_return_type(v4_named_lifetime_ret
 say "named-lifetime-return-region=" + v4_ty_lend_lifetime(v4_ty_signature_return_type(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig))
 say "named-lifetime-return-target=" + v4_ty_lend_target_type(v4_ty_signature_return_type(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig))
 say "named-lifetime-source-param=" + word_from_int(v4_ty_signature_borrowed_return_source_param(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig))
+say "named-lifetime-projection-source-param=" + word_from_int(v4_ty_signature_borrowed_return_source_param(v4_named_lifetime_return_ty, v4_named_lifetime_return_projection_sig))
 say "named-lifetime-param0-local-type=" + v4_mir_local_type_display(v4_named_lifetime_return_mir, v4_named_lifetime_return_select_body, v4_named_lifetime_return_select_left_local)
 say "named-lifetime-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_named_lifetime_return_ty))
 say "named-lifetime-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_named_lifetime_return_mir))
 say "named-lifetime-select-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_select_result)
 say "named-lifetime-forward-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_forward_result)
+say "named-lifetime-reordered-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_reordered_result)
+say "named-lifetime-projection-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_projection_result)
 say "named-lifetime-wrong-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_wrong_result)
 say "named-lifetime-mut-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_mut_result)
 say "named-lifetime-source-move-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_source_move_result)
 say "named-lifetime-non-source-move-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_non_source_move_result)
+say "named-lifetime-projection-move-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_projection_move_result)
+say "named-lifetime-holder-move-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_holder_move_result)
+say "named-lifetime-nested-move-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_nested_move_result)
+say "named-lifetime-ambiguous-holder-move-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_ambiguous_move_result)
+say "named-lifetime-call-local-type=" + v4_mir_local_type_display(v4_named_lifetime_return_mir, v4_named_lifetime_return_source_move_body, v4_named_lifetime_return_source_move_view)
 say "named-lifetime-select-path-source=" + v4_borrowck_path_text(v4_named_lifetime_return_borrow, v4_named_lifetime_return_select_result, v4_named_lifetime_return_select_path)
+say "named-lifetime-reordered-path-source=" + v4_borrowck_path_text(v4_named_lifetime_return_borrow, v4_named_lifetime_return_reordered_result, v4_named_lifetime_return_reordered_path)
+say "named-lifetime-projection-path-source=" + v4_borrowck_path_text(v4_named_lifetime_return_borrow, v4_named_lifetime_return_projection_result, v4_named_lifetime_return_projection_path)
 say "named-lifetime-mut-path-kind=" + v4_borrowck_path_kind(v4_named_lifetime_return_borrow, v4_named_lifetime_return_mut_result, v4_named_lifetime_return_mut_path)
 say "named-lifetime-mismatch-diagnostics=" + word_from_int(v4_named_lifetime_return_diag_count(v4_named_lifetime_return_borrow, "Meiya refuses a returned loan from the wrong lifetime"))
 pilot v4_named_lifetime_return_snapshot = v4_borrowck_snapshot()

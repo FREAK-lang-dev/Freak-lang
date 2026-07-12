@@ -2082,9 +2082,14 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
     if kind == "Lifetime" {
         hir_item = v4_semantic_at_hir_item(semantic_id)
         if hir_item >= 0 {
-            span = v4_hir_item_span(hir_id, hir_item)
-            span = v4_editor_lifetime_decl_span(stream_id, span, name)
-            found = 1
+            pilot lifetime_sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
+            if lifetime_sig_id >= 0 and v4_ty_signature_declares_lifetime_name(ty_id, lifetime_sig_id, name) {
+                span = v4_hir_item_span(hir_id, hir_item)
+                span = v4_editor_lifetime_decl_span(stream_id, span, name)
+                if v4_span_end(span) > v4_span_start(span) {
+                    found = 1
+                }
+            }
         }
     } else if kind == "Parameter" {
         pilot owner_def = v4_editor_param_owner_def(def_id)

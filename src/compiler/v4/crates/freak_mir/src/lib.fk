@@ -2353,6 +2353,13 @@ task v4_mir_signature_return_type_for_name(mir_id: int, callee_name: word) -> wo
     give back v4_ty_unknown
 }
 
+task v4_mir_call_result_type(return_ty: word) -> word {
+    if v4_ty_is_lend_type(return_ty) and v4_ty_lend_lifetime(return_ty) != "" {
+        give back v4_ty_lend_type(v4_ty_lend_target_type(return_ty), v4_ty_lend_mode(return_ty))
+    }
+    give back return_ty
+}
+
 task v4_mir_symbol_value_type(mir_id: int, symbol_name: word) -> word {
     if symbol_name == "" {
         give back v4_ty_unknown
@@ -4850,6 +4857,7 @@ task v4_mir_try_lower_named_call(mir_id: int, body_id: int, stream_id: int, firs
     if sig_id >= 0 {
         return_ty = v4_ty_signature_return_type_for_env(v4_mir_ty_id(mir_id), sig_id, generic_env)
     }
+    return_ty = v4_mir_call_result_type(return_ty)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, target_name, 0 - 1, 0 - 1, expr_span, return_ty)
     v4_mir_set_rvalue_abi(mir_id, body_id, call_rvalue, v4_mir_signature_call_abi(mir_id, sig_id))
@@ -6183,6 +6191,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
             pilot args_payload = v4_mir_call_check_result_args(call_check)
             pilot return_ty = v4_mir_signature_return_type_for_id(mir_id, sig_id)
             return_ty = v4_ty_signature_return_type_for_env(v4_mir_ty_id(mir_id), sig_id, generic_env)
+            return_ty = v4_mir_call_result_type(return_ty)
             pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, target_name, 0 - 1, 0 - 1, expr_span, return_ty)
             v4_mir_set_rvalue_abi(mir_id, body_id, call_rvalue, v4_mir_signature_call_abi(mir_id, sig_id))
             v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, args_payload)

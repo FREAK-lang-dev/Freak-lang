@@ -43,9 +43,17 @@ task v4_named_lifetime_query_positive(report: word, key: word) -> word {
     give back "false"
 }
 
+task v4_named_lifetime_query_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
 pilot v4_named_lifetime_query_path = "named-lifetime-invalidation.fk"
 pilot v4_named_lifetime_query_before = v4_named_lifetime_query_source("second")
 pilot v4_named_lifetime_query_before_stream = v4_lex_text(0, v4_named_lifetime_query_before)
+pilot v4_named_lifetime_query_before_decl = v4_named_lifetime_query_offset(v4_named_lifetime_query_before_stream, "second", 0)
 pilot v4_named_lifetime_query_before_use = v4_named_lifetime_query_offset(v4_named_lifetime_query_before_stream, "second", 1)
 v4_lsp_open_document(v4_named_lifetime_query_path, v4_named_lifetime_query_before)
 pilot v4_named_lifetime_query_before_borrow = v4_borrowck_text_cached(v4_named_lifetime_query_path, v4_named_lifetime_query_before)
@@ -59,11 +67,13 @@ say "named-lifetime-query-before-message=" + v4_diag_message(v4_diagnostics_diag
 say "named-lifetime-query-before-semantic=" + v4_semantic_at_type(v4_named_lifetime_query_before_semantic)
 say "named-lifetime-query-before-hover=" + v4_hover_type(v4_named_lifetime_query_before_hover)
 say "named-lifetime-query-before-definition=" + word_from_int(v4_definition_at_found(v4_named_lifetime_query_before_definition))
+say "named-lifetime-query-before-definition-matches=" + v4_named_lifetime_query_bool(v4_span_start(v4_definition_at_span(v4_named_lifetime_query_before_definition)) == v4_named_lifetime_query_before_decl)
 
 pilot v4_named_lifetime_query_after = v4_named_lifetime_query_source("first")
 pilot v4_named_lifetime_query_change_response = v4_lsp_handle_text_request("textDocument/didChange", v4_named_lifetime_query_path, v4_named_lifetime_query_after, 0)
 say v4_named_lifetime_query_change_response
 pilot v4_named_lifetime_query_report = v4_unit_snapshot_line(v4_named_lifetime_query_change_response, 2)
+say "named-lifetime-query-ty-invalidated=" + v4_named_lifetime_query_positive(v4_named_lifetime_query_report, "ty-invalidations-added")
 say "named-lifetime-query-borrowck-invalidated=" + v4_named_lifetime_query_positive(v4_named_lifetime_query_report, "borrowck-invalidations-added")
 say "named-lifetime-query-diagnostics-invalidated=" + v4_named_lifetime_query_positive(v4_named_lifetime_query_report, "diagnostics-invalidations-added")
 say "named-lifetime-query-semantic-invalidated=" + v4_named_lifetime_query_positive(v4_named_lifetime_query_report, "semantic-at-invalidations-added")
@@ -71,9 +81,15 @@ say "named-lifetime-query-hover-invalidated=" + v4_named_lifetime_query_positive
 say "named-lifetime-query-definition-invalidated=" + v4_named_lifetime_query_positive(v4_named_lifetime_query_report, "definition-at-invalidations-added")
 
 pilot v4_named_lifetime_query_after_stream = v4_lex_text(1, v4_named_lifetime_query_after)
+pilot v4_named_lifetime_query_after_decl = v4_named_lifetime_query_offset(v4_named_lifetime_query_after_stream, "first", 0)
 pilot v4_named_lifetime_query_after_use = v4_named_lifetime_query_offset(v4_named_lifetime_query_after_stream, "first", 1)
 pilot v4_named_lifetime_query_after_diagnostics = v4_diagnostics_text_cached(v4_named_lifetime_query_path, v4_named_lifetime_query_after)
 pilot v4_named_lifetime_query_after_semantic = v4_semantic_at_text_cached(v4_named_lifetime_query_path, v4_named_lifetime_query_after, v4_named_lifetime_query_after_use)
+pilot v4_named_lifetime_query_after_hover = v4_hover_text_cached(v4_named_lifetime_query_path, v4_named_lifetime_query_after, v4_named_lifetime_query_after_use)
+pilot v4_named_lifetime_query_after_definition = v4_definition_at_text_cached(v4_named_lifetime_query_path, v4_named_lifetime_query_after, v4_named_lifetime_query_after_use)
 say "named-lifetime-query-after-diagnostics=" + word_from_int(v4_diagnostics_count(v4_named_lifetime_query_after_diagnostics))
 say "named-lifetime-query-after-semantic=" + v4_semantic_at_type(v4_named_lifetime_query_after_semantic)
+say "named-lifetime-query-after-hover=" + v4_hover_type(v4_named_lifetime_query_after_hover)
+say "named-lifetime-query-after-definition=" + word_from_int(v4_definition_at_found(v4_named_lifetime_query_after_definition))
+say "named-lifetime-query-after-definition-matches=" + v4_named_lifetime_query_bool(v4_span_start(v4_definition_at_span(v4_named_lifetime_query_after_definition)) == v4_named_lifetime_query_after_decl)
 say v4_lsp_diagnostics_text(v4_named_lifetime_query_path, v4_named_lifetime_query_after)

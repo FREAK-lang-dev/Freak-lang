@@ -219,6 +219,21 @@ task v4_ty_alias_target_type_for_sig(ty_id: int, sig_id: int) -> word {
     if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_alias_sig {
         give back v4_ty_unknown
     }
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    if stream_id >= 0 and start_token >= 0 and end_token > start_token {
+        pilot eq_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, "=")
+        if eq_token >= 0 {
+            pilot target_start = v4_ty_skip_trivia(stream_id, eq_token + 1)
+            if target_start < end_token {
+                pilot normalized_target = v4_ty_type_text(stream_id, target_start, end_token)
+                if normalized_target != "" {
+                    give back normalized_target
+                }
+            }
+        }
+    }
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
     if hir_id < 0 or hir_item < 0 {
@@ -1112,6 +1127,9 @@ task v4_ty_lend_type_with_lifetime(target_ty: word, mode: word, lifetime_name: w
     if not v4_ty_is_known(target_ty) {
         give back v4_ty_unknown
     }
+    if lifetime_name != "" and not v4_ty_is_lifetime_name(lifetime_name) {
+        give back v4_ty_unknown
+    }
     pilot lifetime_prefix = ""
     if v4_ty_is_lifetime_name(lifetime_name) {
         lifetime_prefix = lifetime_name + " "
@@ -1166,8 +1184,11 @@ task v4_ty_lend_lifetime(ty_name: word) -> word {
         give back ""
     }
     pilot lifetime_end = v4_ty_lifetime_name_end(ty_name, payload_start)
-    if lifetime_end <= payload_start or lifetime_end >= ty_name.length() {
+    if lifetime_end <= payload_start {
         give back ""
+    }
+    if lifetime_end == ty_name.length() {
+        give back v4_slice(ty_name, payload_start, lifetime_end)
     }
     if ty_name.char_at(lifetime_end) != " " {
         give back ""
@@ -1519,6 +1540,59 @@ task v4_ty_type_mentions_lifetime(type_text: word, lifetime_name: word) -> bool 
             give back true
         }
         lifetime_id += 1
+    }
+    give back false
+}
+
+task v4_ty_type_contains_named_lend(type_text: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back false
+    }
+    if v4_ty_is_lend_type(type_text) {
+        pilot lifetime_name = v4_ty_lend_lifetime(type_text)
+        if lifetime_name != "" and lifetime_name != "'_" {
+            give back true
+        }
+        give back v4_ty_type_contains_named_lend(v4_ty_lend_target_type(type_text))
+    }
+    if v4_ty_is_surface_task_function_type(type_text) {
+        pilot param_id = 0
+        repeat until param_id >= v4_ty_function_type_param_count(type_text) {
+            if v4_ty_type_contains_named_lend(v4_ty_function_type_param_surface(type_text, param_id)) {
+                give back true
+            }
+            param_id += 1
+        }
+        give back v4_ty_type_contains_named_lend(v4_ty_function_type_return_text(type_text))
+    }
+    if v4_ty_is_raw_pointer_type(type_text) {
+        give back v4_ty_type_contains_named_lend(v4_ty_raw_pointer_target_type(type_text))
+    }
+    if v4_ty_is_dyn_type(type_text) {
+        give back v4_ty_type_contains_named_lend(v4_ty_dyn_doctrine_name(type_text))
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot arg_id = 0
+        repeat until arg_id >= v4_ty_generic_arg_count(type_text) {
+            if v4_ty_type_contains_named_lend(v4_ty_generic_arg(type_text, arg_id)) {
+                give back true
+            }
+            arg_id += 1
+        }
+        give back false
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        repeat until slot_id >= v4_ty_tuple_slot_count(type_text) {
+            if v4_ty_type_contains_named_lend(v4_ty_tuple_slot_type(type_text, slot_id)) {
+                give back true
+            }
+            slot_id += 1
+        }
+        give back false
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_type_contains_named_lend(v4_ty_fixed_array_element_type(type_text))
     }
     give back false
 }
@@ -2775,18 +2849,22 @@ task v4_ty_find_token_value(stream_id: int, start_token: int, end_token: int, wa
     give back 0 - 1
 }
 
-task v4_ty_type_text_suffix_is_dyn_keyword(out: word) -> bool {
-    if out.length() < 3 {
+task v4_ty_type_text_suffix_is_keyword(out: word, keyword: word) -> bool {
+    if keyword == "" or out.length() < keyword.length() {
         give back false
     }
-    if v4_slice(out, out.length() - 3, out.length()) != "dyn" {
+    if v4_slice(out, out.length() - keyword.length(), out.length()) != keyword {
         give back false
     }
-    if out.length() == 3 {
+    if out.length() == keyword.length() {
         give back true
     }
-    pilot before = out.char_at(out.length() - 4)
+    pilot before = out.char_at(out.length() - keyword.length() - 1)
     give back before == " " or before == "<" or before == "," or before == "(" or before == "[" or before == ":"
+}
+
+task v4_ty_type_text_suffix_is_dyn_keyword(out: word) -> bool {
+    give back v4_ty_type_text_suffix_is_keyword(out, "dyn")
 }
 
 task v4_ty_type_text_suffix_is_lend_lifetime(out: word) -> bool {
@@ -2802,15 +2880,28 @@ task v4_ty_type_text_suffix_is_lend_lifetime(out: word) -> bool {
     give back before_lifetime.ends_with("lend ") or before_lifetime.ends_with("lend mut ")
 }
 
+task v4_ty_type_text_needs_separator_after_lifetime(out: word, value: word) -> bool {
+    pilot lifetime_count = v4_ty_type_lifetime_count(out)
+    if lifetime_count <= 0 {
+        give back false
+    }
+    pilot lifetime_name = v4_ty_type_lifetime_name(out, lifetime_count - 1)
+    if lifetime_name == "" or not out.ends_with(lifetime_name) {
+        give back false
+    }
+    give back value != "," and value != ">" and value != ")" and value != "]" and value != ";"
+}
+
 task v4_ty_type_text(stream_id: int, start_token: int, end_token: int) -> word {
     pilot out = ""
     pilot idx = start_token
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
             pilot value = v4_lex_token_value(stream_id, idx)
-            if out == "lend" and value == "mut" {
-                out = "lend mut"
-            } else if out == "lend" or out == "lend mut" or v4_ty_type_text_suffix_is_lend_lifetime(out) or v4_ty_type_text_suffix_is_dyn_keyword(out) {
+            pilot lend_suffix: bool = v4_ty_type_text_suffix_is_keyword(out, "lend")
+            if lend_suffix and value == "mut" {
+                out = out + " mut"
+            } else if lend_suffix or v4_ty_type_text_suffix_is_keyword(out, "lend mut") or v4_ty_type_text_suffix_is_lend_lifetime(out) or v4_ty_type_text_needs_separator_after_lifetime(out, value) or v4_ty_type_text_suffix_is_dyn_keyword(out) {
                 out = out + " " + value
             } else {
                 out = out + value
@@ -7028,7 +7119,6 @@ task v4_ty_signature_borrowed_return_source_param(ty_id: int, sig_id: int) -> in
         give back 0 - 1
     }
 
-    pilot return_target = v4_ty_lend_target_type(return_ty)
     pilot return_mut = v4_ty_is_lend_mut_type(return_ty)
     pilot return_lifetime = v4_ty_lend_lifetime(return_ty)
     pilot uses_named_lifetime: bool = return_lifetime != "" and return_lifetime != "'_"
@@ -7042,12 +7132,11 @@ task v4_ty_signature_borrowed_return_source_param(ty_id: int, sig_id: int) -> in
             mode_matches = param_mode == v4_ty_param_mode_lend_mut
         }
         if mode_matches {
-            pilot param_ty = v4_ty_signature_param_type(ty_id, sig_id, param_id)
             pilot lifetime_matches = true
             if uses_named_lifetime {
                 lifetime_matches = v4_ty_signature_param_lifetime(ty_id, sig_id, param_id) == return_lifetime
             }
-            if lifetime_matches and v4_ty_types_compatible_with_context(ty_id, sig_id, return_target, param_ty) {
+            if lifetime_matches {
                 if source_param >= 0 {
                     give back 0 - 2
                 }
@@ -7938,6 +8027,9 @@ task v4_ty_validate_signature_generic_names(ty_id: int, sig_id: int) -> void {
         if generic_name == "" {
             v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: empty generic slot on " + v4_ty_signature_name(ty_id, sig_id), "")
         }
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) and (generic_name == "'static" or generic_name == "'_") {
+            v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: " + generic_name + " is reserved and cannot be declared on " + v4_ty_signature_name(ty_id, sig_id), "use a named lifetime such as 'a; 'static and '_ are compiler-owned")
+        }
         if owner_name != "" and generic_name == owner_name and v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) == false {
             v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: generic " + generic_name + " shadows its owner " + owner_name + "; Yuuko needs one identity per timeline", "")
         }
@@ -7981,7 +8073,12 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
     }
 
     if v4_ty_is_lend_type(type_text) {
-        v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, v4_ty_lend_target_type(type_text), "lend target of " + context, context_span)
+        pilot lend_target = v4_ty_lend_target_type(type_text)
+        if lend_target == "" or lend_target == v4_ty_unknown or v4_ty_is_lifetime_name(lend_target) or lend_target.char_at(0) == "'" {
+            v4_ty_add_error_diag(ty_id, context_span, "Meiya lifetime debt: lend type has no valid target in " + context, "write lend 'a T or lend mut 'a T with exactly one lifetime and one value type")
+        } else {
+            v4_ty_validate_signature_type_generic_contracts(ty_id, sig_id, lend_target, "lend target of " + context, context_span)
+        }
         give back
     }
 
@@ -8108,12 +8205,22 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
     }
 }
 
+task v4_ty_validate_no_named_lend_storage(ty_id: int, type_text: word, context: word, context_span: word) -> void {
+    if v4_ty_type_contains_named_lend(type_text) {
+        v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a named lend in " + context + " yet", "keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands")
+    }
+}
+
 task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     pilot param_id = 0
     pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
     repeat until param_id >= param_count {
         if v4_ty_signature_param_is_variadic(ty_id, sig_id, param_id) == false {
-            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_signature_param_type(ty_id, sig_id, param_id), "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_param_type_span(ty_id, sig_id, param_id))
+            pilot param_type = v4_ty_signature_param_type(ty_id, sig_id, param_id)
+            pilot param_context = "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id)
+            pilot param_span = v4_ty_signature_param_type_span(ty_id, sig_id, param_id)
+            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, param_type, param_context, param_span)
+            v4_ty_validate_no_named_lend_storage(ty_id, param_type, param_context, param_span)
             pilot param_lifetime = v4_ty_signature_param_lifetime(ty_id, sig_id, param_id)
             if param_lifetime == "'static" {
                 v4_ty_add_error_diag(ty_id, v4_ty_signature_param_lifetime_span(ty_id, sig_id, param_id), "Meiya cannot accept a static lend parameter yet", "'static needs source-storage classification before callers may promise an immortal loan")
@@ -8123,8 +8230,18 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         }
         param_id += 1
     }
-    v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_signature_return_type(ty_id, sig_id), "return type of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
+    pilot return_surface = v4_ty_signature_return_surface_type(ty_id, sig_id)
+    v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, return_surface, "return type of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
     pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
+    pilot return_contract = return_ty
+    if return_contract == "" or return_contract == v4_ty_unknown {
+        return_contract = return_surface
+    }
+    if v4_ty_is_lend_type(return_contract) {
+        v4_ty_validate_no_named_lend_storage(ty_id, v4_ty_lend_target_type(return_contract), "target of returned lend on " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
+    } else {
+        v4_ty_validate_no_named_lend_storage(ty_id, return_contract, "return type of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
+    }
     if v4_ty_is_lend_type(return_ty) {
         pilot return_lifetime = v4_ty_lend_lifetime(return_ty)
         if return_lifetime == "'static" {
@@ -8132,9 +8249,9 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         } else if return_lifetime != "" and return_lifetime != "'_" and v4_ty_signature_accepts_lifetime(ty_id, sig_id, return_lifetime) {
             pilot source_param = v4_ty_signature_borrowed_return_source_param(ty_id, sig_id)
             if source_param == 0 - 2 {
-                v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot choose one parameter for returned lifetime " + return_lifetime, "give exactly one compatible lend parameter this lifetime until multi-source region sets land")
+                v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot choose one parameter for returned lifetime " + return_lifetime, "give exactly one lend or lend mut parameter this lifetime until multi-source region sets land")
             } else if source_param < 0 {
-                v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot find a source for returned lifetime " + return_lifetime, "add one compatible lend parameter carrying " + return_lifetime)
+                v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot find a source for returned lifetime " + return_lifetime, "add one lend parameter carrying " + return_lifetime)
             }
         }
     }
@@ -8174,7 +8291,11 @@ task v4_ty_validate_shape_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     pilot field_id = 0
     pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
     repeat until field_id >= field_count {
-        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_shape_field_type(ty_id, sig_id, field_id), "field " + v4_ty_shape_field_name(ty_id, sig_id, field_id) + " of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_shape_field_type_span(ty_id, sig_id, field_id))
+        pilot field_type = v4_ty_shape_field_type(ty_id, sig_id, field_id)
+        pilot field_context = "field " + v4_ty_shape_field_name(ty_id, sig_id, field_id) + " of " + v4_ty_signature_name(ty_id, sig_id)
+        pilot field_span = v4_ty_shape_field_type_span(ty_id, sig_id, field_id)
+        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, field_type, field_context, field_span)
+        v4_ty_validate_no_named_lend_storage(ty_id, field_type, field_context, field_span)
         field_id += 1
     }
 }
@@ -8188,7 +8309,11 @@ task v4_ty_validate_route_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         pilot field_id = 0
         pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
         repeat until field_id >= field_count {
-            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_route_case_field_type(ty_id, route_name, case_name, field_id), "field " + v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) + " of " + route_name + "::" + case_name, v4_ty_route_case_field_type_span(ty_id, route_name, case_name, field_id))
+            pilot field_type = v4_ty_route_case_field_type(ty_id, route_name, case_name, field_id)
+            pilot field_context = "field " + v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) + " of " + route_name + "::" + case_name
+            pilot field_span = v4_ty_route_case_field_type_span(ty_id, route_name, case_name, field_id)
+            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, field_type, field_context, field_span)
+            v4_ty_validate_no_named_lend_storage(ty_id, field_type, field_context, field_span)
             field_id += 1
         }
         case_id += 1
@@ -8203,16 +8328,28 @@ task v4_ty_validate_doctrine_signature_lifetimes(ty_id: int, sig_id: int) -> voi
         pilot param_id = 0
         pilot param_count = v4_ty_doctrine_method_param_count(ty_id, sig_id, method_id)
         repeat until param_id >= param_count {
-            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_doctrine_method_param_type(ty_id, sig_id, method_id, param_id), "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name, v4_ty_doctrine_method_param_type_span(ty_id, sig_id, method_id, param_id))
+            pilot param_type = v4_ty_doctrine_method_param_type(ty_id, sig_id, method_id, param_id)
+            pilot param_context = "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name
+            pilot param_span = v4_ty_doctrine_method_param_type_span(ty_id, sig_id, method_id, param_id)
+            v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, param_type, param_context, param_span)
+            v4_ty_validate_no_named_lend_storage(ty_id, param_type, param_context, param_span)
             param_id += 1
         }
-        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id), "return type of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name, v4_ty_doctrine_method_return_span(ty_id, sig_id, method_id))
+        pilot return_type = v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id)
+        pilot return_context = "return type of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name
+        pilot return_span = v4_ty_doctrine_method_return_span(ty_id, sig_id, method_id)
+        v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, return_type, return_context, return_span)
+        v4_ty_validate_no_named_lend_storage(ty_id, return_type, return_context, return_span)
         method_id += 1
     }
 }
 
 task v4_ty_validate_alias_signature_lifetimes(ty_id: int, sig_id: int) -> void {
-    v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, v4_ty_alias_target_type_for_sig(ty_id, sig_id), "alias target of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_alias_target_span(ty_id, sig_id))
+    pilot alias_type = v4_ty_alias_target_type_for_sig(ty_id, sig_id)
+    pilot alias_context = "alias target of " + v4_ty_signature_name(ty_id, sig_id)
+    pilot alias_span = v4_ty_alias_target_span(ty_id, sig_id)
+    v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, alias_type, alias_context, alias_span)
+    v4_ty_validate_no_named_lend_storage(ty_id, alias_type, alias_context, alias_span)
 }
 
 task v4_ty_validate_alias_signature_cycle(ty_id: int, sig_id: int) -> void {
@@ -9619,6 +9756,9 @@ task v4_ty_type_mentions_signature_generics(ty_id: int, sig_id: int, type_text: 
     }
     if v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text) {
         give back true
+    }
+    if v4_ty_is_lend_type(type_text) {
+        give back v4_ty_type_mentions_signature_generics(ty_id, sig_id, v4_ty_lend_target_type(type_text))
     }
     if v4_ty_is_dyn_type(type_text) {
         give back v4_ty_type_mentions_signature_generics(ty_id, sig_id, v4_ty_dyn_doctrine_name(type_text))

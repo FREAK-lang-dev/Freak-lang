@@ -1,12 +1,19 @@
 -- V4 explicit named returned-loan diagnostics smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_named_lifetime_diagnostics_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
 task v4_named_lifetime_diagnostics_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
-    src = src + "task repeated<'a>(lend 'a first: Ship, lend 'a second: Ship) -> lend 'a Ship {\n"
-    src = src + "    give back lend first\n"
+    src = src + "shape Fleet {\n"
+    src = src + "    ship: Ship\n"
+    src = src + "}\n"
+    src = src + "task repeated<'a>(lend 'a fleet: Fleet, lend 'a decoy: Ship) -> lend 'a Ship {\n"
+    src = src + "    give back lend fleet.ship\n"
     src = src + "}\n"
     src = src + "task missing<'a, 'b>(lend 'b only: Ship) -> lend 'a Ship {\n"
     src = src + "    give back lend only\n"
@@ -19,6 +26,29 @@ task v4_named_lifetime_diagnostics_source() -> word {
     src = src + "}\n"
     src = src + "task anonymous(lend '_ only: Ship) -> lend '_ Ship {\n"
     src = src + "    give back lend only\n"
+    src = src + "}\n"
+    src = src + "task reserved_static<'static>(value: int) -> int {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task reserved_anonymous<'_>(value: int) -> int {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "shape StoredLoan<'a> {\n"
+    src = src + "    view: lend 'a Ship\n"
+    src = src + "}\n"
+    src = src + "route StoredRoute<'a> {\n"
+    src = src + "    Holds " + v4_named_lifetime_diagnostics_braces(" view: lend 'a Ship ") + "\n"
+    src = src + "    Empty\n"
+    src = src + "}\n"
+    src = src + "alias StoredAlias<'a> = lend 'a Ship\n"
+    src = src + "task nested_storage<'a>(value: maybe<lend 'a Ship>) -> maybe<lend 'a Ship> {\n"
+    src = src + "    give back nobody\n"
+    src = src + "}\n"
+    src = src + "task missing_target<'a>(lend 'a value: Ship) -> lend 'a {\n"
+    src = src + "    give back lend value\n"
+    src = src + "}\n"
+    src = src + "task doubled_target<'a, 'b>(lend 'a value: Ship) -> lend 'a 'b Ship {\n"
+    src = src + "    give back lend value\n"
     src = src + "}\n"
     give back src
 }
@@ -44,6 +74,8 @@ say "named-lifetime-diag-anonymous-source=" + word_from_int(v4_ty_signature_borr
 
 pilot v4_named_lifetime_diagnostics_id = 0
 repeat until v4_named_lifetime_diagnostics_id >= v4_ty_diag_count(v4_named_lifetime_diagnostics_ty) {
-    say "named-lifetime-diag" + word_from_int(v4_named_lifetime_diagnostics_id) + "=" + v4_diag_message(v4_ty_diag(v4_named_lifetime_diagnostics_ty, v4_named_lifetime_diagnostics_id))
+    pilot v4_named_lifetime_diagnostic = v4_ty_diag(v4_named_lifetime_diagnostics_ty, v4_named_lifetime_diagnostics_id)
+    say "named-lifetime-diag" + word_from_int(v4_named_lifetime_diagnostics_id) + "=" + v4_diag_message(v4_named_lifetime_diagnostic)
+    say "named-lifetime-diag" + word_from_int(v4_named_lifetime_diagnostics_id) + "-span=" + v4_diag_span(v4_named_lifetime_diagnostic)
     v4_named_lifetime_diagnostics_id += 1
 }
