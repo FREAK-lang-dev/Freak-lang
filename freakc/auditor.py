@@ -1170,24 +1170,34 @@ def audit_conformance(paths: List[Path]) -> int:
         failures.append("V4 unwinder-import diagnostic regressed: " + "; ".join(unw_missing))
 
     # ── Check 10: V4 borrowed-return provenance ──
-    # Borrowed return signatures and unique-source forwarding are promoted V4
-    # contracts. Require TY/MIR provenance selection, Meiya's validation and
-    # path facts, plus runtime/tooling smokes whenever conformance is audited.
+    # Borrowed return signatures, named lifetime selection, and unique-source
+    # forwarding are promoted V4 contracts. Require TY/MIR provenance,
+    # Meiya validation, editor facts, and runtime/tooling smokes.
     v4_ty_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
     v4_mir_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     v4_borrowck_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_borrowck" / "src" / "lib.fk"
+    v4_editor_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
     v4_lend_return_smoke = repo / "src" / "compiler" / "v4" / "tests" / "lend_return_smoke.fk"
     v4_lend_return_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "lend_return_editor_smoke.fk"
     v4_lend_return_invalidation_smoke = repo / "src" / "compiler" / "v4" / "tests" / "lend_return_query_invalidation_smoke.fk"
+    v4_named_lifetime_return_smoke = repo / "src" / "compiler" / "v4" / "tests" / "named_lifetime_return_smoke.fk"
+    v4_named_lifetime_diagnostics_smoke = repo / "src" / "compiler" / "v4" / "tests" / "named_lifetime_diagnostics_smoke.fk"
+    v4_named_lifetime_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "named_lifetime_editor_smoke.fk"
+    v4_named_lifetime_invalidation_smoke = repo / "src" / "compiler" / "v4" / "tests" / "named_lifetime_query_invalidation_smoke.fk"
     v4_check_harness_return = repo / "src" / "compiler" / "v4" / "check_v4.py"
     return_missing: List[str] = []
     if v4_ty_lib_return.exists():
         ty_src = v4_ty_lib_return.read_text(encoding="utf-8")
         for needle in (
-            "v4_ty_lend_type",
-            'out == "lend" and value == "mut"',
+            "v4_ty_lend_type_with_lifetime",
+            "v4_ty_lend_lifetime",
+            "v4_ty_signature_param_lifetime",
+            "v4_ty_type_text_suffix_is_keyword",
             "v4_ty_is_lend_type",
             "v4_ty_signature_borrowed_return_source_param",
+            "v4_ty_type_contains_named_lend",
+            "Meiya cannot store a named lend",
+            "Meiya lifetime debt: lend type has no valid target",
         ):
             if needle not in ty_src:
                 return_missing.append(f"freak_ty: {needle}")
@@ -1197,6 +1207,7 @@ def audit_conformance(paths: List[Path]) -> int:
         mir_src = v4_mir_lib_return.read_text(encoding="utf-8")
         for needle in (
             "v4_mir_rvalue_call_borrowed_source_arg",
+            "v4_mir_call_result_type",
             "v4_ty_signature_borrowed_return_source_param",
         ):
             if needle not in mir_src:
@@ -1212,13 +1223,15 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_borrowck_check_stored_call_lends",
             "v4_borrowck_stored_call_return_holder",
             "v4_borrowck_holder_alias_from_stmt",
+            "v4_borrowck_rvalue_resolves_lend_source",
+            "v4_borrowck_rvalue_returns_holder",
             "v4_borrowck_holder_state",
             "v4_borrowck_holder_reaches_stmt_without_rebind",
-            "v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) == holder_canon",
             'v4_borrowck_path_return_loan = "ReturnLoan"',
             'v4_borrowck_path_return_loan_mut = "ReturnLoanMut"',
             "Meiya refuses to return a loan of an owned value",
             "Meiya refuses a mutable reloan from an immutable lend",
+            "Meiya refuses a returned loan from the wrong lifetime",
             "Meiya cannot choose one source for this returned loan",
             "Meiya cannot store this borrowed call result yet",
         ):
@@ -1226,6 +1239,17 @@ def audit_conformance(paths: List[Path]) -> int:
                 return_missing.append(f"freak_borrowck: {needle}")
     else:
         return_missing.append("freak_borrowck/src/lib.fk missing")
+    if v4_editor_lib_return.exists():
+        editor_src = v4_editor_lib_return.read_text(encoding="utf-8")
+        for needle in (
+            'if kind == "Lifetime"',
+            "v4_ty_signature_declares_lifetime_name",
+            "v4_editor_lifetime_decl_span",
+        ):
+            if needle not in editor_src:
+                return_missing.append(f"freak_editor: {needle}")
+    else:
+        return_missing.append("freak_editor/src/lib.fk missing")
     if v4_lend_return_smoke.exists():
         return_smoke_src = v4_lend_return_smoke.read_text(encoding="utf-8")
         for needle in (
@@ -1246,21 +1270,75 @@ def audit_conformance(paths: List[Path]) -> int:
         return_missing.append("smoke fixture: lend_return_editor_smoke.fk")
     if not v4_lend_return_invalidation_smoke.exists():
         return_missing.append("smoke fixture: lend_return_query_invalidation_smoke.fk")
+    named_smoke_needles = (
+        (
+            v4_named_lifetime_return_smoke,
+            (
+                "named-lifetime-projection-source-param=",
+                "named-lifetime-reordered-path-source=",
+                "named-lifetime-holder-move-status=",
+                "named-lifetime-nested-move-status=",
+                "named-lifetime-ambiguous-holder-move-status=",
+                "named-lifetime-call-local-type=",
+            ),
+        ),
+        (
+            v4_named_lifetime_diagnostics_smoke,
+            (
+                "StoredLoan<'a>",
+                "StoredRoute<'a>",
+                "StoredAlias<'a>",
+                "missing_target<'a>",
+                "-span=",
+            ),
+        ),
+        (
+            v4_named_lifetime_editor_smoke,
+            (
+                "named-lifetime-editor-label-definition-matches=",
+                "named-lifetime-editor-elided-definition=",
+                "v4_semantic_snapshot_restore",
+                "v4_hover_snapshot_restore",
+                "v4_definition_snapshot_restore",
+                "v4_diagnostics_snapshot_restore",
+            ),
+        ),
+        (
+            v4_named_lifetime_invalidation_smoke,
+            (
+                "named-lifetime-query-ty-invalidated=",
+                "named-lifetime-query-after-hover=",
+                "named-lifetime-query-after-definition-matches=",
+            ),
+        ),
+    )
+    for fixture_path, needles in named_smoke_needles:
+        if fixture_path.exists():
+            fixture_src = fixture_path.read_text(encoding="utf-8")
+            for needle in needles:
+                if needle not in fixture_src:
+                    return_missing.append(f"{fixture_path.name}: {needle}")
+        else:
+            return_missing.append(f"smoke fixture: {fixture_path.name}")
     if v4_check_harness_return.exists():
         harness_src = v4_check_harness_return.read_text(encoding="utf-8")
         for fixture in (
             "lend_return_smoke.fk",
             "lend_return_editor_smoke.fk",
             "lend_return_query_invalidation_smoke.fk",
+            "named_lifetime_return_smoke.fk",
+            "named_lifetime_diagnostics_smoke.fk",
+            "named_lifetime_editor_smoke.fk",
+            "named_lifetime_query_invalidation_smoke.fk",
         ):
             if fixture not in harness_src:
                 return_missing.append(f"EXECUTABLE_SMOKES: {fixture} entry")
     else:
         return_missing.append("check_v4.py harness missing")
     add(
-        "V4 lend returns",
+        "V4 named lend returns",
         not return_missing,
-        "TY/MIR provenance + Meiya paths + tooling smokes wired" if not return_missing else f"{len(return_missing)} gap(s)",
+        "TY/MIR named provenance + Meiya paths + editor/tooling smokes wired" if not return_missing else f"{len(return_missing)} gap(s)",
     )
     if return_missing:
         failures.append("V4 borrowed-return provenance regressed: " + "; ".join(return_missing))
