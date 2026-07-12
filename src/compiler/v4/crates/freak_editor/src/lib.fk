@@ -375,8 +375,9 @@ task v4_editor_signature_param_name_span(ty_id: int, sig_id: int, param_name: wo
     if stream_id < 0 or start_token < 0 {
         give back V4_NO_SPAN
     }
-    pilot name_token = v4_ty_skip_trivia(stream_id, start_token)
-    if name_token < 0 {
+    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    pilot name_token = v4_ty_find_token_value(stream_id, start_token, end_token, param_name)
+    if name_token < 0 or name_token >= end_token {
         give back V4_NO_SPAN
     }
     give back v4_lex_token_span(stream_id, name_token)
@@ -648,7 +649,7 @@ task v4_editor_method_call_is_instance(call_op: word, method_name: word) -> bool
 
 task v4_editor_method_lookup_owner_ty(owner_ty: word) -> word {
     if v4_ty_is_lend_type(owner_ty) {
-        give back v4_ty_lend_type(v4_mir_compact_type_text(v4_ty_lend_target_type(owner_ty)), v4_ty_lend_mode(owner_ty))
+        give back v4_ty_lend_type_with_lifetime(v4_mir_compact_type_text(v4_ty_lend_target_type(owner_ty)), v4_ty_lend_mode(owner_ty), v4_ty_lend_lifetime(owner_ty))
     }
     give back v4_mir_compact_type_text(owner_ty)
 }

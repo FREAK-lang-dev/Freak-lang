@@ -1,0 +1,49 @@
+-- V4 explicit named returned-loan diagnostics smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_named_lifetime_diagnostics_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task repeated<'a>(lend 'a first: Ship, lend 'a second: Ship) -> lend 'a Ship {\n"
+    src = src + "    give back lend first\n"
+    src = src + "}\n"
+    src = src + "task missing<'a, 'b>(lend 'b only: Ship) -> lend 'a Ship {\n"
+    src = src + "    give back lend only\n"
+    src = src + "}\n"
+    src = src + "task undeclared(lend 'ghost only: Ship) -> lend 'ghost Ship {\n"
+    src = src + "    give back lend only\n"
+    src = src + "}\n"
+    src = src + "task static_contract(lend 'static only: Ship) -> lend 'static Ship {\n"
+    src = src + "    give back lend only\n"
+    src = src + "}\n"
+    src = src + "task anonymous(lend '_ only: Ship) -> lend '_ Ship {\n"
+    src = src + "    give back lend only\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_named_lifetime_diagnostics_src = v4_named_lifetime_diagnostics_source()
+pilot v4_named_lifetime_diagnostics_stream = v4_lex_text(0, v4_named_lifetime_diagnostics_src)
+pilot v4_named_lifetime_diagnostics_tree = v4_parse_stream(0, v4_named_lifetime_diagnostics_stream)
+pilot v4_named_lifetime_diagnostics_hir = v4_hir_lower_tree(0, v4_named_lifetime_diagnostics_tree)
+pilot v4_named_lifetime_diagnostics_resolve = v4_resolve_lower_hir(0, v4_named_lifetime_diagnostics_hir)
+pilot v4_named_lifetime_diagnostics_ty = v4_ty_lower_resolve(0, v4_named_lifetime_diagnostics_resolve)
+
+pilot v4_named_lifetime_diagnostics_repeated_def = v4_resolve_def_for_name(v4_named_lifetime_diagnostics_resolve, "repeated")
+pilot v4_named_lifetime_diagnostics_missing_def = v4_resolve_def_for_name(v4_named_lifetime_diagnostics_resolve, "missing")
+pilot v4_named_lifetime_diagnostics_anonymous_def = v4_resolve_def_for_name(v4_named_lifetime_diagnostics_resolve, "anonymous")
+pilot v4_named_lifetime_diagnostics_repeated_sig = v4_ty_lookup_signature(v4_named_lifetime_diagnostics_ty, v4_named_lifetime_diagnostics_repeated_def)
+pilot v4_named_lifetime_diagnostics_missing_sig = v4_ty_lookup_signature(v4_named_lifetime_diagnostics_ty, v4_named_lifetime_diagnostics_missing_def)
+pilot v4_named_lifetime_diagnostics_anonymous_sig = v4_ty_lookup_signature(v4_named_lifetime_diagnostics_ty, v4_named_lifetime_diagnostics_anonymous_def)
+
+say "named-lifetime-diag-count=" + word_from_int(v4_ty_diag_count(v4_named_lifetime_diagnostics_ty))
+say "named-lifetime-diag-repeated-source=" + word_from_int(v4_ty_signature_borrowed_return_source_param(v4_named_lifetime_diagnostics_ty, v4_named_lifetime_diagnostics_repeated_sig))
+say "named-lifetime-diag-missing-source=" + word_from_int(v4_ty_signature_borrowed_return_source_param(v4_named_lifetime_diagnostics_ty, v4_named_lifetime_diagnostics_missing_sig))
+say "named-lifetime-diag-anonymous-source=" + word_from_int(v4_ty_signature_borrowed_return_source_param(v4_named_lifetime_diagnostics_ty, v4_named_lifetime_diagnostics_anonymous_sig))
+
+pilot v4_named_lifetime_diagnostics_id = 0
+repeat until v4_named_lifetime_diagnostics_id >= v4_ty_diag_count(v4_named_lifetime_diagnostics_ty) {
+    say "named-lifetime-diag" + word_from_int(v4_named_lifetime_diagnostics_id) + "=" + v4_diag_message(v4_ty_diag(v4_named_lifetime_diagnostics_ty, v4_named_lifetime_diagnostics_id))
+    v4_named_lifetime_diagnostics_id += 1
+}

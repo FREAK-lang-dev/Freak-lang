@@ -1397,7 +1397,16 @@ task v4_mir_local_type_display(mir_id: int, body_id: int, local_id: int) -> word
     pilot local_ty = v4_mir_local_ty(mir_id, body_id, local_id)
     pilot local_mode = v4_mir_local_mode(mir_id, body_id, local_id)
     if local_mode == v4_ty_param_mode_lend or local_mode == v4_ty_param_mode_lend_mut {
-        give back local_mode + " " + local_ty
+        pilot lifetime_name = ""
+        pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+        if sig_id >= 0 {
+            pilot ty_id = v4_mir_ty_id(mir_id)
+            pilot param_id = v4_ty_signature_param_index_for_name(ty_id, sig_id, v4_mir_local_name(mir_id, body_id, local_id))
+            if param_id >= 0 {
+                lifetime_name = v4_ty_signature_param_lifetime(ty_id, sig_id, param_id)
+            }
+        }
+        give back v4_ty_lend_type_with_lifetime(local_ty, local_mode, lifetime_name)
     }
     give back local_ty
 }

@@ -1,0 +1,108 @@
+-- V4 explicit named returned-loan provenance smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_named_lifetime_return_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task select_left<'left, 'right>(lend 'left left: Ship, lend 'right right: Ship) -> lend 'left Ship {\n"
+    src = src + "    give back lend left\n"
+    src = src + "}\n"
+    src = src + "task forward_named(lend first: Ship, lend second: Ship) -> lend Ship {\n"
+    src = src + "    give back select_left(lend first, lend second)\n"
+    src = src + "}\n"
+    src = src + "task wrong_source<'left, 'right>(lend 'left left: Ship, lend 'right right: Ship) -> lend 'left Ship {\n"
+    src = src + "    give back lend right\n"
+    src = src + "}\n"
+    src = src + "task select_mut<'left, 'right>(lend mut 'left left: Ship, lend 'right right: Ship) -> lend mut 'left Ship {\n"
+    src = src + "    give back lend mut left\n"
+    src = src + "}\n"
+    src = src + "task stored_source_move(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot view = select_left(lend first, lend second)\n"
+    src = src + "    pilot moved = first\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_non_source_move(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot view = select_left(lend first, lend second)\n"
+    src = src + "    pilot moved = second\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_named_lifetime_return_diag_count(borrow_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+task v4_named_lifetime_return_path_for_kind(borrow_id: int, result_id: int, wanted_kind: word) -> int {
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == wanted_kind {
+            give back path_id
+        }
+        path_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_named_lifetime_return_src = v4_named_lifetime_return_source()
+pilot v4_named_lifetime_return_stream = v4_lex_text(0, v4_named_lifetime_return_src)
+pilot v4_named_lifetime_return_tree = v4_parse_stream(0, v4_named_lifetime_return_stream)
+pilot v4_named_lifetime_return_hir = v4_hir_lower_tree(0, v4_named_lifetime_return_tree)
+pilot v4_named_lifetime_return_resolve = v4_resolve_lower_hir(0, v4_named_lifetime_return_hir)
+pilot v4_named_lifetime_return_ty = v4_ty_lower_resolve(0, v4_named_lifetime_return_resolve)
+pilot v4_named_lifetime_return_mir = v4_mir_lower_ty(0, v4_named_lifetime_return_ty)
+pilot v4_named_lifetime_return_borrow = v4_borrowck_check_mir(0, v4_named_lifetime_return_mir)
+
+pilot v4_named_lifetime_return_select_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "select_left")
+pilot v4_named_lifetime_return_forward_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "forward_named")
+pilot v4_named_lifetime_return_wrong_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "wrong_source")
+pilot v4_named_lifetime_return_mut_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "select_mut")
+pilot v4_named_lifetime_return_source_move_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "stored_source_move")
+pilot v4_named_lifetime_return_non_source_move_def = v4_resolve_def_for_name(v4_named_lifetime_return_resolve, "stored_non_source_move")
+pilot v4_named_lifetime_return_select_sig = v4_ty_lookup_signature(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_def)
+pilot v4_named_lifetime_return_select_body = v4_mir_lookup_body(v4_named_lifetime_return_mir, v4_named_lifetime_return_select_def)
+pilot v4_named_lifetime_return_select_left_local = v4_mir_find_local(v4_named_lifetime_return_mir, v4_named_lifetime_return_select_body, "left")
+pilot v4_named_lifetime_return_select_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_select_def)
+pilot v4_named_lifetime_return_forward_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_forward_def)
+pilot v4_named_lifetime_return_wrong_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_wrong_def)
+pilot v4_named_lifetime_return_mut_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_mut_def)
+pilot v4_named_lifetime_return_source_move_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_source_move_def)
+pilot v4_named_lifetime_return_non_source_move_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_non_source_move_def)
+pilot v4_named_lifetime_return_select_path = v4_named_lifetime_return_path_for_kind(v4_named_lifetime_return_borrow, v4_named_lifetime_return_select_result, v4_borrowck_path_return_loan)
+pilot v4_named_lifetime_return_mut_path = v4_named_lifetime_return_path_for_kind(v4_named_lifetime_return_borrow, v4_named_lifetime_return_mut_result, v4_borrowck_path_return_loan_mut)
+
+say "named-lifetime-param0-name=" + v4_ty_signature_param_name(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig, 0)
+say "named-lifetime-param0-mode=" + v4_ty_signature_param_mode(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig, 0)
+say "named-lifetime-param0-region=" + v4_ty_signature_param_lifetime(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig, 0)
+say "named-lifetime-param1-region=" + v4_ty_signature_param_lifetime(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig, 1)
+say "named-lifetime-return=" + v4_ty_signature_return_type(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig)
+say "named-lifetime-return-region=" + v4_ty_lend_lifetime(v4_ty_signature_return_type(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig))
+say "named-lifetime-return-target=" + v4_ty_lend_target_type(v4_ty_signature_return_type(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig))
+say "named-lifetime-source-param=" + word_from_int(v4_ty_signature_borrowed_return_source_param(v4_named_lifetime_return_ty, v4_named_lifetime_return_select_sig))
+say "named-lifetime-param0-local-type=" + v4_mir_local_type_display(v4_named_lifetime_return_mir, v4_named_lifetime_return_select_body, v4_named_lifetime_return_select_left_local)
+say "named-lifetime-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_named_lifetime_return_ty))
+say "named-lifetime-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_named_lifetime_return_mir))
+say "named-lifetime-select-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_select_result)
+say "named-lifetime-forward-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_forward_result)
+say "named-lifetime-wrong-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_wrong_result)
+say "named-lifetime-mut-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_mut_result)
+say "named-lifetime-source-move-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_source_move_result)
+say "named-lifetime-non-source-move-status=" + v4_borrowck_result_status(v4_named_lifetime_return_borrow, v4_named_lifetime_return_non_source_move_result)
+say "named-lifetime-select-path-source=" + v4_borrowck_path_text(v4_named_lifetime_return_borrow, v4_named_lifetime_return_select_result, v4_named_lifetime_return_select_path)
+say "named-lifetime-mut-path-kind=" + v4_borrowck_path_kind(v4_named_lifetime_return_borrow, v4_named_lifetime_return_mut_result, v4_named_lifetime_return_mut_path)
+say "named-lifetime-mismatch-diagnostics=" + word_from_int(v4_named_lifetime_return_diag_count(v4_named_lifetime_return_borrow, "Meiya refuses a returned loan from the wrong lifetime"))
+pilot v4_named_lifetime_return_snapshot = v4_borrowck_snapshot()
+say v4_borrowck_snapshot_validate(v4_named_lifetime_return_snapshot)
+say v4_borrowck_snapshot_restore(v4_named_lifetime_return_snapshot)
+pilot v4_named_lifetime_return_restored_select_result = v4_borrowck_lookup_result(v4_named_lifetime_return_borrow, v4_named_lifetime_return_select_def)
+pilot v4_named_lifetime_return_restored_select_path = v4_named_lifetime_return_path_for_kind(v4_named_lifetime_return_borrow, v4_named_lifetime_return_restored_select_result, v4_borrowck_path_return_loan)
+say "named-lifetime-restored-source=" + v4_borrowck_path_text(v4_named_lifetime_return_borrow, v4_named_lifetime_return_restored_select_result, v4_named_lifetime_return_restored_select_path)
