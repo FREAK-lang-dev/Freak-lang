@@ -17,6 +17,8 @@ pilot v4_borrowck_path_loan_mut = "LoanMut"
 pilot v4_borrowck_path_drop = "Drop"
 pilot v4_borrowck_path_drop_if = "DropIf"
 pilot v4_borrowck_path_return = "Return"
+pilot v4_borrowck_path_return_loan = "ReturnLoan"
+pilot v4_borrowck_path_return_loan_mut = "ReturnLoanMut"
 pilot v4_borrowck_snapshot_format = "freak-borrowck-snapshot-v1"
 
 pilot v4_borrowck_files = 0
@@ -581,6 +583,23 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
     give back conflicts
 }
 
+task v4_borrowck_return_has_loop_carried_rebind(mir_id: int, body_id: int, holder: word, return_stmt: int, return_block: int) -> bool {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_borrowck_stmt_rebinds_holder(mir_id, body_id, stmt_id, holder) {
+            pilot rebind_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+            if v4_borrowck_block_can_cycle(mir_id, body_id, rebind_block) {
+                if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, holder, stmt_id, stmt_id, rebind_block, return_stmt, return_block) {
+                    give back true
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    give back false
+}
+
 task v4_borrowck_return_lend_origin(mir_id: int, body_id: int, return_stmt: int, rvalue_id: int) -> int {
     if rvalue_id < 0 {
         give back 0 - 1
@@ -589,35 +608,58 @@ task v4_borrowck_return_lend_origin(mir_id: int, body_id: int, return_stmt: int,
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
         give back rvalue_id
     }
+    if kind == v4_mir_rvalue_call {
+        pilot source_arg = v4_mir_rvalue_call_borrowed_source_arg(mir_id, body_id, rvalue_id)
+        if source_arg < 0 {
+            give back source_arg
+        }
+        give back v4_borrowck_return_lend_origin(mir_id, body_id, return_stmt, source_arg)
+    }
     if kind != v4_mir_rvalue_use_local {
         give back 0 - 1
     }
 
     pilot holder = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
     pilot return_block = v4_mir_stmt_block(mir_id, body_id, return_stmt)
-    pilot stmt_id = return_stmt - 1
-    repeat until stmt_id < 0 {
-        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == return_block {
-            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
-            if place_id >= 0 and v4_mir_place_text(mir_id, body_id, place_id) == holder {
-                pilot origin_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-                if origin_id >= 0 {
-                    pilot origin_kind = v4_mir_rvalue_kind(mir_id, body_id, origin_id)
-                    if origin_kind == v4_mir_rvalue_lend or origin_kind == v4_mir_rvalue_lend_mut {
-                        give back origin_id
-                    }
+    if v4_borrowck_return_has_loop_carried_rebind(mir_id, body_id, holder, return_stmt, return_block) {
+        give back 0 - 1
+    }
+    pilot resolved_origin = 0 - 1
+    pilot resolved_source = ""
+    pilot stmt_id = 0
+    repeat until stmt_id >= return_stmt {
+        pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+        if place_id >= 0 and v4_mir_place_text(mir_id, body_id, place_id) == holder {
+            pilot origin_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+            pilot origin_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+            if origin_id >= 0 and v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, holder, stmt_id, stmt_id, origin_block, return_stmt, return_block) {
+                pilot candidate_origin = v4_borrowck_return_lend_origin(mir_id, body_id, stmt_id, origin_id)
+                if candidate_origin < 0 {
+                    give back candidate_origin
                 }
-                give back 0 - 1
+                pilot candidate_source = v4_borrowck_path_canon(v4_borrowck_lend_source_text(mir_id, body_id, candidate_origin))
+                if resolved_origin < 0 {
+                    resolved_origin = candidate_origin
+                    resolved_source = candidate_source
+                } else if candidate_source != resolved_source {
+                    give back 0 - 2
+                }
             }
         }
-        stmt_id -= 1
+        stmt_id += 1
     }
-    give back 0 - 1
+    give back resolved_origin
 }
 
 task v4_borrowck_return_unproven_help(body_name: word) -> word {
-    pilot out = body_name + " returns a lend whose source is not a direct or same-block explicit reloan"
-    out = out + "; return lend input directly until Meiya's full region solver can prove wider forwarding"
+    pilot out = body_name + " returns a lend whose source cannot be tied to one borrowed input"
+    out = out + "; return one explicit lend input or a uniquely sourced borrowed call until Meiya's named-region solver lands"
+    give back out
+}
+
+task v4_borrowck_return_ambiguous_help(body_name: word) -> word {
+    pilot out = body_name + " forwards a lend from more than one borrowed input"
+    out = out + "; Yuuko sees multiple valid timelines, so name one source before returning the loan"
     give back out
 }
 
@@ -650,24 +692,27 @@ task v4_borrowck_check_returned_lends(borrow_id: int, result_id: int, mir_id: in
                 pilot message = ""
                 pilot help = ""
                 pilot origin_id = v4_borrowck_return_lend_origin(mir_id, body_id, stmt_id, return_rvalue)
-                if origin_id < 0 {
+                if origin_id == 0 - 2 {
+                    message = "Meiya cannot choose one source for this returned loan"
+                    help = v4_borrowck_return_ambiguous_help(body_name)
+                } else if origin_id < 0 {
                     message = "Meiya cannot establish the origin of this returned loan"
                     help = v4_borrowck_return_unproven_help(body_name)
                 } else {
                     pilot source_text = v4_borrowck_lend_source_text(mir_id, body_id, origin_id)
-                    pilot source_root = v4_borrowck_path_root(source_text)
-                    pilot source_ty = v4_mir_local_ty_for_name(mir_id, body_id, source_root)
                     pilot source_mode = v4_borrowck_local_mode_for_path(mir_id, body_id, source_text)
-                    pilot origin_kind = v4_mir_rvalue_kind(mir_id, body_id, origin_id)
-                    if v4_ty_is_lend_type(source_ty) {
-                        message = "Meiya cannot establish the origin of this returned loan"
-                        help = v4_borrowck_return_unproven_help(body_name)
-                    } else if source_mode == v4_ty_param_mode_value {
+                    if source_mode == v4_ty_param_mode_value {
                         message = "Meiya refuses to return a loan of an owned value"
                         help = v4_borrowck_return_owned_help(body_name, source_text)
-                    } else if origin_kind == v4_mir_rvalue_lend_mut and source_mode != v4_ty_param_mode_lend_mut {
+                    } else if v4_ty_is_lend_mut_type(expected_ty) and source_mode != v4_ty_param_mode_lend_mut {
                         message = "Meiya refuses a mutable reloan from an immutable lend"
                         help = v4_borrowck_return_mut_upgrade_help(source_text)
+                    } else {
+                        pilot path_kind = v4_borrowck_path_return_loan
+                        if v4_ty_is_lend_mut_type(expected_ty) {
+                            path_kind = v4_borrowck_path_return_loan_mut
+                        }
+                        v4_borrowck_add_path(borrow_id, result_id, path_kind, v4_borrowck_path_canon(source_text), stmt_id, v4_mir_stmt_block(mir_id, body_id, stmt_id))
                     }
                 }
                 if message != "" {

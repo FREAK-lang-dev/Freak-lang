@@ -47,7 +47,7 @@ Pipeline (full compiler):
 | §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer type forms, and first-pass `dyn Doctrine` type/object-safety/coercion/editor facts through query slices. Still expanding: lifetime annotations, `prob_when`, full dyn vtable lowering, and production backend depth for V4-only forms. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries lifetime tokens/type contracts, `lend` / `lend mut` parameter contracts, explicit expression loan paths, typed field/index loan-holder projections, borrowed-return provenance for direct/local reloan paths and stored-call local alias chains, all-path CFG repair proof for partial moves, linear/all-exit moved-local drop suppression with conditional `DropIf` markers, first-pass `Shared<T>`/`Weak<T>` method surfaces with guard-escape diagnostics, first-pass trust-me honor validation/gating, and first-pass non-lexical rewrite/move/exclusive-read rejection plus release for bound/call-only lends through TY/MIR/Meiya; full region solving, runtime ref-count/borrow-state implementation, the complete honor operation matrix, and `direct_order` remain V4. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries lifetime tokens/type contracts, `lend` / `lend mut` parameter contracts, explicit expression loan paths, typed field/index loan-holder projections, borrowed-return provenance for direct/local reloan paths, unique-source ordinary forwarding calls, same-source acyclic CFG joins, and stored-call local alias chains, queryable `ReturnLoan` facts, all-path CFG repair proof for partial moves, linear/all-exit moved-local drop suppression with conditional `DropIf` markers, first-pass `Shared<T>`/`Weak<T>` method surfaces with guard-escape diagnostics, first-pass trust-me honor validation/gating, and first-pass non-lexical rewrite/move/exclusive-read rejection plus release for bound/call-only lends through TY/MIR/Meiya; full region solving, runtime ref-count/borrow-state implementation, the complete honor operation matrix, and `direct_order` remain V4. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
@@ -992,19 +992,27 @@ the rest is V4.
 > re-entry preserves incoming drop state instead of replaying header
 > declarations.
 > Borrowed return types now flow through TY/MIR; Meiya accepts direct and
-> same-block local reloan returns from borrowed parameters, rejects a returned
-> loan into callee-owned storage, and rejects upgrading an immutable lend to a
-> returned mutable lend. Storing a borrowed result from a call now propagates
+> same-block local reloan returns from borrowed parameters and ordinary task
+> forwarding calls with exactly one compatible borrowed source parameter.
+> TY selects the unique source, MIR maps it to the normalized call argument,
+> and Meiya follows it recursively through calls and acyclic CFG holder joins
+> when every reachable definition resolves to the same source. Ambiguous
+> multi-input calls and joins diagnose instead of selecting a convenient
+> lifetime. Clean returns emit queryable `ReturnLoan` / `ReturnLoanMut` path
+> facts that survive borrowck snapshot restore and participate in source-change
+> invalidation. Meiya rejects a returned loan into callee-owned storage and
+> rejects upgrading an immutable lend to a returned mutable lend. Storing a
+> borrowed result from a call now propagates
 > explicit lend-argument provenance into the receiving local so owner moves and
 > rewrites stay blocked while that view is live. Copied shared view holders
 > retain that provenance through local alias chains, so the source loan remains
 > live until the final alias use. Rebinding a local holder kills only that
 > holder's provenance; aliases copied earlier remain linked to the source,
 > restoring a holder from one of those aliases restores its provenance, and
-> exact holder self-assignment preserves the existing loan edge.
-> Forwarding a borrowed result
-> through a call still requires the later region solver and is conservatively
-> rejected.
+> exact holder self-assignment preserves the existing loan edge. Method,
+> dynamic, and callback forwarding, loop-carried join fixed points, explicit
+> named-region relationships, and general interprocedural region constraints
+> still require the later region solver and remain conservatively rejected.
 > Lifetime tokens and signature contracts exist, and the first
 > `Shared<T>` / `Weak<T>` method surface now lowers through TY/MIR/Meiya with
 > direct weak-borrow and escaping-guard diagnostics. `trust me ... on my honor

@@ -94,9 +94,17 @@ header declarations. Borrowck snapshots preserve those `DropIf` path
 records through restore, so editor and 00-Unit tooling keep the same
 conditional-drop metadata that Meiya computed.
 Borrowed return types now carry through TY/MIR: Meiya accepts a
-direct or same-block local reloan of a borrowed parameter, rejects returning
-a loan of callee-owned storage, and rejects upgrading `lend` to returned
-`lend mut`. Borrowed results stored from calls now carry the explicit
+direct or same-block local reloan of a borrowed parameter, plus ordinary task
+calls whose signature has exactly one compatible borrowed source parameter.
+TY selects that unique source, MIR maps it to the normalized call argument,
+and Meiya follows the provenance through forwarding calls and acyclic CFG
+holder joins when every reachable definition resolves to the same source.
+Ambiguous multi-input calls or joins diagnose instead of letting Yuuko choose
+one convenient timeline. Meiya still rejects returning a loan of callee-owned
+storage and upgrading `lend` to returned `lend mut`. Clean returns expose
+queryable `ReturnLoan` / `ReturnLoanMut` path facts, including through
+borrowck snapshot restore and source-change invalidation. Borrowed results
+stored from calls now carry the explicit
 `lend`/`lend mut` argument sources into the receiving local, so the owner
 cannot be moved or rewritten while that returned view is still reachable.
 Copied shared view holders retain that source provenance through local alias
@@ -105,10 +113,11 @@ rebinding kills only that holder's provenance: earlier descendant aliases
 remain tied to the source, while later uses of the rebound holder do not.
 Restoring a holder from one of those descendants restores its source
 provenance as a new tracked state. Exact holder self-assignment preserves
-the existing provenance rather than killing the loan edge.
-Borrowed results returned through calls remain rejected until the region
-solver can prove interprocedural source lifetime. That is the first
-non-lexical liveness slice, not full region inference.
+the existing provenance rather than killing the loan edge. Method, dynamic,
+and callback forwarding, loop-carried join fixed points, explicit named-region
+relationships, and general interprocedural region constraints remain later
+Meiya work. This is a unique-source elision and non-lexical liveness slice,
+not full region inference.
 The first `Shared<T>` / `Weak<T>` ownership surface now exists in TY/MIR:
 `Shared<T>::new`, `.clone()`, `.downgrade()`, `.borrow()`, `.borrow_mut()`,
 `.get_mut()`, and `Weak<T>.upgrade()` lower to stable wrapper types, while

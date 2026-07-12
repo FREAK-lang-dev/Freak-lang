@@ -1,0 +1,69 @@
+-- V4 returned-loan editor and LSP smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lend_return_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_lend_return_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_lend_return_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0 - 1
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_lend_return_editor_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_lend_return_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_lend_return_editor_source_text() -> word {
+    pilot src = "shape Ship " + v4_lend_return_editor_braces(" hp: int ") + "\n"
+    src = src + "task shared_reloan(lend ship: Ship) -> lend Ship {\n"
+    src = src + "    give back lend ship\n"
+    src = src + "}\n"
+    src = src + "task forward(lend ship: Ship) -> lend Ship {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_lend_return_editor_source = v4_lend_return_editor_source_text()
+pilot v4_lend_return_editor_stream = v4_lex_text(0, v4_lend_return_editor_source)
+pilot v4_lend_return_editor_decl_offset = v4_lend_return_editor_token_offset(v4_lend_return_editor_stream, "view", 0)
+pilot v4_lend_return_editor_use_offset = v4_lend_return_editor_token_offset(v4_lend_return_editor_stream, "view", 1)
+pilot v4_lend_return_editor_semantic = v4_semantic_at_text_cached("lend-return-editor.fk", v4_lend_return_editor_source, v4_lend_return_editor_use_offset)
+pilot v4_lend_return_editor_hover = v4_hover_text_cached("lend-return-editor.fk", v4_lend_return_editor_source, v4_lend_return_editor_use_offset)
+pilot v4_lend_return_editor_definition = v4_definition_at_text_cached("lend-return-editor.fk", v4_lend_return_editor_source, v4_lend_return_editor_use_offset)
+pilot v4_lend_return_editor_diagnostics = v4_diagnostics_text_cached("lend-return-editor.fk", v4_lend_return_editor_source)
+
+say "lend-return-editor-semantic-kind=" + v4_semantic_at_kind(v4_lend_return_editor_semantic)
+say "lend-return-editor-semantic-type=" + v4_semantic_at_type(v4_lend_return_editor_semantic)
+say "lend-return-editor-hover-kind=" + v4_hover_kind(v4_lend_return_editor_hover)
+say "lend-return-editor-hover-type=" + v4_hover_type(v4_lend_return_editor_hover)
+say "lend-return-editor-definition-kind=" + v4_definition_at_kind(v4_lend_return_editor_definition)
+say "lend-return-editor-definition-found=" + word_from_int(v4_definition_at_found(v4_lend_return_editor_definition))
+say "lend-return-editor-definition-matches=" + v4_lend_return_editor_bool_word(v4_span_start(v4_definition_at_span(v4_lend_return_editor_definition)) == v4_lend_return_editor_decl_offset)
+say "lend-return-editor-diagnostics=" + word_from_int(v4_diagnostics_count(v4_lend_return_editor_diagnostics))
+say v4_lsp_hover_text("lend-return-editor.fk", v4_lend_return_editor_source, v4_lend_return_editor_use_offset)
+say v4_lsp_diagnostics_text("lend-return-editor.fk", v4_lend_return_editor_source)

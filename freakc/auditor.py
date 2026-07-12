@@ -1170,12 +1170,15 @@ def audit_conformance(paths: List[Path]) -> int:
         failures.append("V4 unwinder-import diagnostic regressed: " + "; ".join(unw_missing))
 
     # ── Check 10: V4 borrowed-return provenance ──
-    # Borrowed return signatures and the first elision slice are now a
-    # promoted V4 contract. Require TY surface carriage, Meiya's return
-    # validation, and its executable smoke whenever conformance is audited.
+    # Borrowed return signatures and unique-source forwarding are promoted V4
+    # contracts. Require TY/MIR provenance selection, Meiya's validation and
+    # path facts, plus runtime/tooling smokes whenever conformance is audited.
     v4_ty_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_mir_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     v4_borrowck_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_borrowck" / "src" / "lib.fk"
     v4_lend_return_smoke = repo / "src" / "compiler" / "v4" / "tests" / "lend_return_smoke.fk"
+    v4_lend_return_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "lend_return_editor_smoke.fk"
+    v4_lend_return_invalidation_smoke = repo / "src" / "compiler" / "v4" / "tests" / "lend_return_query_invalidation_smoke.fk"
     v4_check_harness_return = repo / "src" / "compiler" / "v4" / "check_v4.py"
     return_missing: List[str] = []
     if v4_ty_lib_return.exists():
@@ -1184,15 +1187,27 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_ty_lend_type",
             'out == "lend" and value == "mut"',
             "v4_ty_is_lend_type",
+            "v4_ty_signature_borrowed_return_source_param",
         ):
             if needle not in ty_src:
                 return_missing.append(f"freak_ty: {needle}")
     else:
         return_missing.append("freak_ty/src/lib.fk missing")
+    if v4_mir_lib_return.exists():
+        mir_src = v4_mir_lib_return.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_rvalue_call_borrowed_source_arg",
+            "v4_ty_signature_borrowed_return_source_param",
+        ):
+            if needle not in mir_src:
+                return_missing.append(f"freak_mir: {needle}")
+    else:
+        return_missing.append("freak_mir/src/lib.fk missing")
     if v4_borrowck_lib_return.exists():
         borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
         for needle in (
             "v4_borrowck_return_lend_origin",
+            "v4_borrowck_return_has_loop_carried_rebind",
             "v4_borrowck_check_returned_lends",
             "v4_borrowck_check_stored_call_lends",
             "v4_borrowck_stored_call_return_holder",
@@ -1200,26 +1215,52 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_borrowck_holder_state",
             "v4_borrowck_holder_reaches_stmt_without_rebind",
             "v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) == holder_canon",
+            'v4_borrowck_path_return_loan = "ReturnLoan"',
+            'v4_borrowck_path_return_loan_mut = "ReturnLoanMut"',
             "Meiya refuses to return a loan of an owned value",
             "Meiya refuses a mutable reloan from an immutable lend",
+            "Meiya cannot choose one source for this returned loan",
             "Meiya cannot store this borrowed call result yet",
         ):
             if needle not in borrowck_src:
                 return_missing.append(f"freak_borrowck: {needle}")
     else:
         return_missing.append("freak_borrowck/src/lib.fk missing")
-    if not v4_lend_return_smoke.exists():
+    if v4_lend_return_smoke.exists():
+        return_smoke_src = v4_lend_return_smoke.read_text(encoding="utf-8")
+        for needle in (
+            'lend-return-forward-status=',
+            'lend-return-forward-holder-status=',
+            'lend-return-forward-branches-status=',
+            'lend-return-forward-ambiguous-branches-status=',
+            'lend-return-forward-ambiguous-call-status=',
+            'lend-return-loop-carried-status=',
+            'lend-return-ambiguous-diagnostics=',
+            'lend-return-restored-forward-region-source=',
+        ):
+            if needle not in return_smoke_src:
+                return_missing.append(f"lend_return_smoke: {needle}")
+    else:
         return_missing.append("smoke fixture: lend_return_smoke.fk")
+    if not v4_lend_return_editor_smoke.exists():
+        return_missing.append("smoke fixture: lend_return_editor_smoke.fk")
+    if not v4_lend_return_invalidation_smoke.exists():
+        return_missing.append("smoke fixture: lend_return_query_invalidation_smoke.fk")
     if v4_check_harness_return.exists():
         harness_src = v4_check_harness_return.read_text(encoding="utf-8")
-        if "lend_return_smoke.fk" not in harness_src:
-            return_missing.append("EXECUTABLE_SMOKES: lend_return_smoke entry")
+        for fixture in (
+            "lend_return_smoke.fk",
+            "lend_return_editor_smoke.fk",
+            "lend_return_query_invalidation_smoke.fk",
+        ):
+            if fixture not in harness_src:
+                return_missing.append(f"EXECUTABLE_SMOKES: {fixture} entry")
     else:
         return_missing.append("check_v4.py harness missing")
     add(
         "V4 lend returns",
         not return_missing,
-        "TY surface + provenance + smoke wired" if not return_missing else f"{len(return_missing)} gap(s)",
+        "TY/MIR provenance + Meiya paths + tooling smokes wired" if not return_missing else f"{len(return_missing)} gap(s)",
     )
     if return_missing:
         failures.append("V4 borrowed-return provenance regressed: " + "; ".join(return_missing))

@@ -32,6 +32,59 @@ task v4_lend_return_source() -> word {
     src = src + "task forward(lend ship: Ship) -> lend Ship {\n"
     src = src + "    give back shared_reloan(lend ship)\n"
     src = src + "}\n"
+    src = src + "task forward_via_holder(lend ship: Ship) -> lend Ship {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task forward_same_source_branches(lend ship: Ship, choose: bool) -> lend Ship {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    if choose {\n"
+    src = src + "        view = shared_reloan(lend ship)\n"
+    src = src + "    } else {\n"
+    src = src + "        view = lend ship\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task forward_ambiguous_branches(lend first: Ship, lend second: Ship, choose: bool) -> lend Ship {\n"
+    src = src + "    pilot view = lend first\n"
+    src = src + "    if choose {\n"
+    src = src + "        view = lend first\n"
+    src = src + "    } else {\n"
+    src = src + "        view = lend second\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task choose_first(lend first: Ship, lend second: Ship) -> lend Ship {\n"
+    src = src + "    give back lend first\n"
+    src = src + "}\n"
+    src = src + "task forward_ambiguous_call(lend first: Ship, lend second: Ship) -> lend Ship {\n"
+    src = src + "    give back choose_first(lend first, lend second)\n"
+    src = src + "}\n"
+    src = src + "task mutable_forward(lend mut ship: Ship) -> lend mut Ship {\n"
+    src = src + "    give back mutable_reloan(lend mut ship)\n"
+    src = src + "}\n"
+    src = src + "task loop_carried_owned_rebind(lend ship: Ship, owned: Ship, ready: bool) -> lend Ship {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    pilot first = true\n"
+    src = src + "    repeat until ready {\n"
+    src = src + "        if first == false {\n"
+    src = src + "            give back view\n"
+    src = src + "        }\n"
+    src = src + "        view = lend owned\n"
+    src = src + "        first = false\n"
+    src = src + "    }\n"
+    src = src + "    give back lend ship\n"
+    src = src + "}\n"
+    src = src + "task stored_forward_live_move(ship: Ship) -> int {\n"
+    src = src + "    pilot view = forward(lend ship)\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task stored_forward_released_move(ship: Ship) -> int {\n"
+    src = src + "    pilot view = forward(lend ship)\n"
+    src = src + "    pilot moved = ship\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     src = src + "task stored_call_reloan(ship: Ship) -> int {\n"
     src = src + "    pilot view = shared_reloan(lend ship)\n"
     src = src + "    pilot moved = ship\n"
@@ -136,6 +189,18 @@ task v4_lend_return_diag_count(borrow_id: int, message: word) -> int {
     give back total
 }
 
+task v4_lend_return_path_index_by_kind(borrow_id: int, result_id: int, wanted_kind: word) -> int {
+    pilot path_id = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    repeat until path_id >= path_count {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == wanted_kind {
+            give back path_id
+        }
+        path_id += 1
+    }
+    give back 0 - 1
+}
+
 pilot v4_lend_return_src = v4_lend_return_source()
 pilot v4_lend_return_stream = v4_lex_text(0, v4_lend_return_src)
 pilot v4_lend_return_tree = v4_parse_stream(0, v4_lend_return_stream)
@@ -153,6 +218,14 @@ pilot v4_lend_return_owned_def = v4_resolve_def_for_name(v4_lend_return_resolve,
 pilot v4_lend_return_holder_owned_def = v4_resolve_def_for_name(v4_lend_return_resolve, "holder_owned_escape")
 pilot v4_lend_return_upgrade_def = v4_resolve_def_for_name(v4_lend_return_resolve, "mutable_upgrade")
 pilot v4_lend_return_forward_def = v4_resolve_def_for_name(v4_lend_return_resolve, "forward")
+pilot v4_lend_return_forward_holder_def = v4_resolve_def_for_name(v4_lend_return_resolve, "forward_via_holder")
+pilot v4_lend_return_forward_branches_def = v4_resolve_def_for_name(v4_lend_return_resolve, "forward_same_source_branches")
+pilot v4_lend_return_forward_ambiguous_branches_def = v4_resolve_def_for_name(v4_lend_return_resolve, "forward_ambiguous_branches")
+pilot v4_lend_return_forward_ambiguous_call_def = v4_resolve_def_for_name(v4_lend_return_resolve, "forward_ambiguous_call")
+pilot v4_lend_return_mutable_forward_def = v4_resolve_def_for_name(v4_lend_return_resolve, "mutable_forward")
+pilot v4_lend_return_loop_carried_def = v4_resolve_def_for_name(v4_lend_return_resolve, "loop_carried_owned_rebind")
+pilot v4_lend_return_stored_forward_live_move_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_forward_live_move")
+pilot v4_lend_return_stored_forward_released_move_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_forward_released_move")
 pilot v4_lend_return_stored_call_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_reloan")
 pilot v4_lend_return_stored_call_move_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_live_move")
 pilot v4_lend_return_stored_call_write_def = v4_resolve_def_for_name(v4_lend_return_resolve, "stored_call_live_write")
@@ -177,6 +250,14 @@ pilot v4_lend_return_owned_result = v4_borrowck_lookup_result(v4_lend_return_bor
 pilot v4_lend_return_holder_owned_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_holder_owned_def)
 pilot v4_lend_return_upgrade_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_upgrade_def)
 pilot v4_lend_return_forward_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_forward_def)
+pilot v4_lend_return_forward_holder_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_forward_holder_def)
+pilot v4_lend_return_forward_branches_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_forward_branches_def)
+pilot v4_lend_return_forward_ambiguous_branches_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_forward_ambiguous_branches_def)
+pilot v4_lend_return_forward_ambiguous_call_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_forward_ambiguous_call_def)
+pilot v4_lend_return_mutable_forward_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_mutable_forward_def)
+pilot v4_lend_return_loop_carried_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_loop_carried_def)
+pilot v4_lend_return_stored_forward_live_move_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_forward_live_move_def)
+pilot v4_lend_return_stored_forward_released_move_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_forward_released_move_def)
 pilot v4_lend_return_stored_call_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_def)
 pilot v4_lend_return_stored_call_move_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_move_def)
 pilot v4_lend_return_stored_call_write_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_write_def)
@@ -189,6 +270,10 @@ pilot v4_lend_return_stored_call_alias_rebound_all_routes_result = v4_borrowck_l
 pilot v4_lend_return_stored_call_alias_rebound_one_route_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_rebound_one_route_def)
 pilot v4_lend_return_stored_call_alias_restored_source_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_restored_source_def)
 pilot v4_lend_return_stored_call_alias_self_assign_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_stored_call_alias_self_assign_def)
+pilot v4_lend_return_forward_region_path = v4_lend_return_path_index_by_kind(v4_lend_return_borrow, v4_lend_return_forward_result, v4_borrowck_path_return_loan)
+pilot v4_lend_return_forward_holder_region_path = v4_lend_return_path_index_by_kind(v4_lend_return_borrow, v4_lend_return_forward_holder_result, v4_borrowck_path_return_loan)
+pilot v4_lend_return_forward_branches_region_path = v4_lend_return_path_index_by_kind(v4_lend_return_borrow, v4_lend_return_forward_branches_result, v4_borrowck_path_return_loan)
+pilot v4_lend_return_mutable_forward_region_path = v4_lend_return_path_index_by_kind(v4_lend_return_borrow, v4_lend_return_mutable_forward_result, v4_borrowck_path_return_loan_mut)
 
 say "lend-return-signature-return=" + v4_ty_signature_return_type(v4_lend_return_ty, v4_lend_return_shared_sig)
 say "lend-return-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_lend_return_ty))
@@ -203,6 +288,20 @@ say "lend-return-owned-status=" + v4_borrowck_result_status(v4_lend_return_borro
 say "lend-return-holder-owned-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_holder_owned_result)
 say "lend-return-upgrade-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_upgrade_result)
 say "lend-return-forward-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_forward_result)
+say "lend-return-forward-holder-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_forward_holder_result)
+say "lend-return-forward-branches-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_forward_branches_result)
+say "lend-return-forward-ambiguous-branches-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_forward_ambiguous_branches_result)
+say "lend-return-forward-ambiguous-call-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_forward_ambiguous_call_result)
+say "lend-return-mutable-forward-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_mutable_forward_result)
+say "lend-return-loop-carried-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_loop_carried_result)
+say "lend-return-stored-forward-live-move-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_forward_live_move_result)
+say "lend-return-stored-forward-released-move-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_forward_released_move_result)
+say "lend-return-forward-region-kind=" + v4_borrowck_path_kind(v4_lend_return_borrow, v4_lend_return_forward_result, v4_lend_return_forward_region_path)
+say "lend-return-forward-region-source=" + v4_borrowck_path_text(v4_lend_return_borrow, v4_lend_return_forward_result, v4_lend_return_forward_region_path)
+say "lend-return-forward-holder-region-source=" + v4_borrowck_path_text(v4_lend_return_borrow, v4_lend_return_forward_holder_result, v4_lend_return_forward_holder_region_path)
+say "lend-return-forward-branches-region-source=" + v4_borrowck_path_text(v4_lend_return_borrow, v4_lend_return_forward_branches_result, v4_lend_return_forward_branches_region_path)
+say "lend-return-mutable-forward-region-kind=" + v4_borrowck_path_kind(v4_lend_return_borrow, v4_lend_return_mutable_forward_result, v4_lend_return_mutable_forward_region_path)
+say "lend-return-forward-region-snapshot=" + v4_borrowck_snapshot_path_line(v4_lend_return_borrow, v4_lend_return_forward_result, v4_lend_return_forward_region_path)
 say "lend-return-stored-call-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_result)
 say "lend-return-stored-call-move-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_move_result)
 say "lend-return-stored-call-write-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_stored_call_write_result)
@@ -219,7 +318,22 @@ say "lend-return-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_lend_re
 say "lend-return-owned-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses to return a loan of an owned value"))
 say "lend-return-upgrade-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses a mutable reloan from an immutable lend"))
 say "lend-return-unproven-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya cannot establish the origin of this returned loan"))
+say "lend-return-ambiguous-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya cannot choose one source for this returned loan"))
 say "lend-return-stored-call-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya cannot store this borrowed call result yet"))
 say "lend-return-call-move-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses this move while the value is borrowed"))
 say "lend-return-call-cross-move-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya carries this loan across a move boundary"))
 say "lend-return-call-write-diagnostics=" + word_from_int(v4_lend_return_diag_count(v4_lend_return_borrow, "Meiya refuses this rewrite while the value is borrowed"))
+
+pilot v4_lend_return_cached_borrow = v4_borrowck_text_cached("lend-return-query.fk", v4_lend_return_src)
+pilot v4_lend_return_cached_mir = v4_borrowck_mir_id(v4_lend_return_cached_borrow)
+pilot v4_lend_return_cached_resolve = v4_ty_resolve_id(v4_mir_ty_id(v4_lend_return_cached_mir))
+pilot v4_lend_return_cached_forward_def = v4_resolve_def_for_name(v4_lend_return_cached_resolve, "forward")
+pilot v4_lend_return_cached_forward_result = v4_borrowck_lookup_result(v4_lend_return_cached_borrow, v4_lend_return_cached_forward_def)
+say "lend-return-query-forward-status=" + v4_borrowck_result_status(v4_lend_return_cached_borrow, v4_lend_return_cached_forward_result)
+pilot v4_lend_return_snapshot = v4_borrowck_snapshot()
+say v4_borrowck_snapshot_validate(v4_lend_return_snapshot)
+say v4_borrowck_snapshot_restore(v4_lend_return_snapshot)
+pilot v4_lend_return_restored_forward_result = v4_borrowck_lookup_result(v4_lend_return_borrow, v4_lend_return_forward_def)
+pilot v4_lend_return_restored_forward_region_path = v4_lend_return_path_index_by_kind(v4_lend_return_borrow, v4_lend_return_restored_forward_result, v4_borrowck_path_return_loan)
+say "lend-return-restored-forward-status=" + v4_borrowck_result_status(v4_lend_return_borrow, v4_lend_return_restored_forward_result)
+say "lend-return-restored-forward-region-source=" + v4_borrowck_path_text(v4_lend_return_borrow, v4_lend_return_restored_forward_result, v4_lend_return_restored_forward_region_path)

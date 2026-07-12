@@ -6913,6 +6913,37 @@ task v4_ty_signature_return_type(ty_id: int, sig_id: int) -> word {
     give back v4_ty_canonical_type_in_signature(ty_id, sig_id, v4_ty_signature_return_surface_type(ty_id, sig_id))
 }
 
+task v4_ty_signature_borrowed_return_source_param(ty_id: int, sig_id: int) -> int {
+    pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
+    if not v4_ty_is_lend_type(return_ty) {
+        give back 0 - 1
+    }
+
+    pilot return_target = v4_ty_lend_target_type(return_ty)
+    pilot return_mut = v4_ty_is_lend_mut_type(return_ty)
+    pilot source_param = 0 - 1
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+        pilot mode_matches: bool = param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut
+        if return_mut {
+            mode_matches = param_mode == v4_ty_param_mode_lend_mut
+        }
+        if mode_matches {
+            pilot param_ty = v4_ty_signature_param_type(ty_id, sig_id, param_id)
+            if v4_ty_types_compatible_with_context(ty_id, sig_id, return_target, param_ty) {
+                if source_param >= 0 {
+                    give back 0 - 2
+                }
+                source_param = param_id
+            }
+        }
+        param_id += 1
+    }
+    give back source_param
+}
+
 task v4_ty_signature_return_surface_type(ty_id: int, sig_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)

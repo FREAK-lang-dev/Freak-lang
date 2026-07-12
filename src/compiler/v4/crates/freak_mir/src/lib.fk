@@ -2760,6 +2760,28 @@ task v4_mir_rvalue_call_arg(mir_id: int, body_id: int, rvalue_id: int, arg_id: i
     give back v4_mir_call_args_payload_at(v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id), arg_id)
 }
 
+task v4_mir_rvalue_call_borrowed_source_arg(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call {
+        give back 0 - 1
+    }
+    if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        give back 0 - 1
+    }
+
+    pilot sig_id = v4_mir_signature_id_for_name(mir_id, v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
+    if sig_id < 0 {
+        give back 0 - 1
+    }
+    pilot param_id = v4_ty_signature_borrowed_return_source_param(v4_mir_ty_id(mir_id), sig_id)
+    if param_id < 0 {
+        give back param_id
+    }
+    if param_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
+        give back 0 - 1
+    }
+    give back v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, param_id)
+}
+
 task v4_mir_call_check_result(generic_env: word, args_payload: word) -> word {
     give back generic_env + "\n" + args_payload
 }
