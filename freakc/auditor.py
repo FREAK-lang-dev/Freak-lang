@@ -1396,8 +1396,12 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 "task direct<'short, 'long: 'short>",
                 "task transitive<'short, 'middle: 'short, 'long: 'middle>",
+                "task multiple<'short, 'middle, 'long: 'short + 'middle>",
+                "task equivalent<'left: 'right, 'right: 'left>",
                 "contract-region-outlives-direct-raw-bound-count=",
                 "contract-region-outlives-transitive-long-outlives-short=",
+                "contract-region-outlives-direct-short-reflexive=",
+                "contract-region-outlives-equivalent-right-outlives-left=",
                 'v4_contract_region_outlives_emit_sources("contract-region-outlives-transitive"',
             ),
         ),
