@@ -113,7 +113,9 @@ Meiya verifies that each returned origin honors the declared lifetime, then
 follows that origin through field projections, scalar local holders, nested
 statically resolved ordinary calls, reordered named arguments, and acyclic CFG
 joins. MIR erases a callee's binder spelling from the caller-local result type
-while preserving every candidate owner path as `ReturnLoan` / `ReturnLoanMut`.
+while preserving a deterministic candidate-source mapping on the call rvalue.
+Meiya resolves those candidates to caller-local owner paths and emits each one
+as a queryable `ReturnLoan` / `ReturnLoanMut` fact.
 Stored ordinary-call results and copied scalar holder aliases keep all candidate
 owners live through the holder's final reachable use. Local rebinding kills
 only that holder's provenance, exact self-assignment preserves it, and restoring

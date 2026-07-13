@@ -1004,8 +1004,10 @@ the rest is V4.
 > be a field projection. Meiya verifies returned origins against that contract
 > and follows them through projections, scalar local holders, nested statically
 > resolved ordinary calls, reordered named arguments, and acyclic CFG joins.
-> MIR erases the callee binder spelling at the caller while keeping concrete
-> owner paths as queryable `ReturnLoan` / `ReturnLoanMut` facts.
+> MIR erases the callee binder spelling at the caller while retaining a
+> deterministic candidate-source mapping on the call rvalue. Meiya resolves
+> those candidates to concrete caller-local owner paths and emits them as
+> queryable `ReturnLoan` / `ReturnLoanMut` facts.
 > Those facts survive borrowck/editor snapshot restore and source-change
 > invalidation. Stored ordinary-call results and copied scalar holder aliases
 > retain every candidate owner through the holder's final reachable use.
