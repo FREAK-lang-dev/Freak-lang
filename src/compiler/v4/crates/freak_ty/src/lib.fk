@@ -3740,11 +3740,18 @@ task v4_ty_signature_lifetime_outlives_seen(ty_id: int, sig_id: int, longer_life
     give back false
 }
 
-task v4_ty_signature_lifetime_outlives(ty_id: int, sig_id: int, longer_name: word, shorter_name: word) -> bool {
+task v4_ty_signature_is_ordinary_static_task(ty_id: int, sig_id: int) -> bool {
     if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
         give back false
     }
     if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig {
+        give back false
+    }
+    give back v4_ty_signature_extern_member_id(ty_id, sig_id) < 0
+}
+
+task v4_ty_signature_lifetime_outlives(ty_id: int, sig_id: int, longer_name: word, shorter_name: word) -> bool {
+    if not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
         give back false
     }
     if longer_name == "'static" or longer_name == "'_" or shorter_name == "'static" or shorter_name == "'_" {
@@ -7239,6 +7246,9 @@ task v4_ty_signature_return_type(ty_id: int, sig_id: int) -> word {
 }
 
 task v4_ty_signature_param_is_borrowed_return_source(ty_id: int, sig_id: int, param_id: int, return_ty: word) -> bool {
+    if not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+        give back false
+    }
     if param_id < 0 or param_id >= v4_ty_signature_param_count(ty_id, sig_id) {
         give back false
     }
@@ -7267,10 +7277,7 @@ task v4_ty_signature_param_is_borrowed_return_source(ty_id: int, sig_id: int, pa
 }
 
 task v4_ty_signature_borrowed_return_source_param_count(ty_id: int, sig_id: int) -> int {
-    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
-        give back 0
-    }
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig {
+    if not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
         give back 0
     }
     pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
@@ -7291,10 +7298,10 @@ task v4_ty_signature_borrowed_return_source_param_count(ty_id: int, sig_id: int)
 }
 
 task v4_ty_signature_borrowed_return_source_param_at(ty_id: int, sig_id: int, source_id: int) -> int {
-    if source_id < 0 or sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+    if source_id < 0 {
         give back 0 - 1
     }
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig {
+    if not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
         give back 0 - 1
     }
     pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
@@ -8226,11 +8233,24 @@ task v4_ty_validate_signature_generic_names(ty_id: int, sig_id: int) -> void {
     }
 }
 
-task v4_ty_validate_task_signature_generic_bounds(ty_id: int, sig_id: int) -> void {
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig {
+task v4_ty_signature_can_declare_generics(ty_id: int, sig_id: int) -> bool {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back false
+    }
+    pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
+    -- Extern members lower as task signatures; extern block signatures carry ABI only.
+    give back sig_kind == v4_ty_task_sig or sig_kind == v4_ty_shape_sig or sig_kind == v4_ty_route_sig or sig_kind == v4_ty_doctrine_sig or sig_kind == v4_ty_alias_sig
+}
+
+task v4_ty_validate_signature_generic_bounds(ty_id: int, sig_id: int) -> void {
+    if not v4_ty_signature_can_declare_generics(ty_id, sig_id) {
         give back
     }
 
+    pilot generic_owner = "declaration"
+    if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_task_sig {
+        generic_owner = "task"
+    }
     pilot generic_id = 0
     pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
     repeat until generic_id >= generic_count {
@@ -8252,7 +8272,7 @@ task v4_ty_validate_task_signature_generic_bounds(ty_id: int, sig_id: int) -> vo
                 } else if bound_name == "'_" {
                     v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: '_ is elided and cannot be used as a lifetime bound on " + generic_name, "use a declared named lifetime so Yuuko can build the signature relation")
                 } else if not v4_ty_signature_declares_lifetime_name(ty_id, sig_id, bound_name) {
-                    v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: lifetime bound " + bound_name + " on " + generic_name + " is not declared on " + v4_ty_signature_name(ty_id, sig_id), "declare " + bound_name + " in the task's generic lifetime list")
+                    v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: lifetime bound " + bound_name + " on " + generic_name + " is not declared on " + v4_ty_signature_name(ty_id, sig_id), "declare " + bound_name + " in the " + generic_owner + "'s generic lifetime list")
                 } else if not generic_is_lifetime {
                     v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: type generic " + generic_name + " cannot use lifetime bound " + bound_name, "type binders retain doctrine bounds; put outlives constraints on a lifetime binder")
                 }
@@ -8467,8 +8487,10 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         if return_lifetime == "'static" {
             v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot prove a static borrowed return yet", "'static returned loans need global-storage provenance before this contract can be sound")
         } else if return_lifetime != "" and return_lifetime != "'_" and v4_ty_signature_accepts_lifetime(ty_id, sig_id, return_lifetime) {
-            if v4_ty_signature_borrowed_return_source_param_count(ty_id, sig_id) <= 0 {
-                v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot find a source for returned lifetime " + return_lifetime, "add a lend parameter whose declared lifetime outlives " + return_lifetime)
+            if v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+                if v4_ty_signature_borrowed_return_source_param_count(ty_id, sig_id) <= 0 {
+                    v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot find a source for returned lifetime " + return_lifetime, "add a lend parameter whose declared lifetime outlives " + return_lifetime)
+                }
             }
         }
     }
@@ -8917,11 +8939,9 @@ task v4_ty_validate_direct_type_recursion(ty_id: int) -> void {
 task v4_ty_validate_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     v4_ty_validate_signature_generic_names(ty_id, sig_id)
     v4_ty_validate_variadic_signature_contract(ty_id, sig_id)
+    v4_ty_validate_signature_generic_bounds(ty_id, sig_id)
 
     pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
-    if sig_kind == v4_ty_task_sig {
-        v4_ty_validate_task_signature_generic_bounds(ty_id, sig_id)
-    }
     if sig_kind == v4_ty_task_sig or sig_kind == v4_ty_extern_sig {
         v4_ty_validate_task_signature_lifetimes(ty_id, sig_id)
     } else if sig_kind == v4_ty_shape_sig {

@@ -2,6 +2,13 @@
 -- Verification prepends the V4 crates before this file.
 -- One cached TY request owns the only compiler pipeline in this executable.
 
+task v4_contract_region_bound_diagnostics_bool_text(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
 task v4_contract_region_bound_diagnostics_source() -> word {
     pilot src = "task undeclared_bound<'a: 'ghost>(value: int) -> int {\n"
     src = src + "    give back value\n"
@@ -21,6 +28,19 @@ task v4_contract_region_bound_diagnostics_source() -> word {
     src = src + "task type_lifetime_bound<T: 'a, 'a>(value: T) -> T {\n"
     src = src + "    give back value\n"
     src = src + "}\n"
+    src = src + "shape ShapeLifetimeDoctrine<'short, 'long: 'short, 'a: Copy> {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "route RouteTypeLifetime<T: 'a, 'a> {\n"
+    src = src + "    Empty\n"
+    src = src + "}\n"
+    src = src + "doctrine DoctrineEmptyType<T:> {\n"
+    src = src + "    task marker(self) -> int\n"
+    src = src + "}\n"
+    src = src + "alias AliasMixedType<T: Copy + 'a, 'a> = T\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task extern_empty_type<'short, 'long: 'short, T:>(value: std::ffi::c_int) -> std::ffi::c_int\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -32,12 +52,22 @@ pilot v4_contract_region_bound_diagnostics_elided_def = v4_resolve_def_for_name(
 pilot v4_contract_region_bound_diagnostics_empty_def = v4_resolve_def_for_name(v4_contract_region_bound_diagnostics_resolve, "empty_bound")
 pilot v4_contract_region_bound_diagnostics_lifetime_doctrine_def = v4_resolve_def_for_name(v4_contract_region_bound_diagnostics_resolve, "lifetime_doctrine_bound")
 pilot v4_contract_region_bound_diagnostics_type_lifetime_def = v4_resolve_def_for_name(v4_contract_region_bound_diagnostics_resolve, "type_lifetime_bound")
+pilot v4_contract_region_bound_diagnostics_shape_def = v4_resolve_def_for_name(v4_contract_region_bound_diagnostics_resolve, "ShapeLifetimeDoctrine")
+pilot v4_contract_region_bound_diagnostics_route_def = v4_resolve_def_for_name(v4_contract_region_bound_diagnostics_resolve, "RouteTypeLifetime")
+pilot v4_contract_region_bound_diagnostics_doctrine_def = v4_resolve_def_for_name(v4_contract_region_bound_diagnostics_resolve, "DoctrineEmptyType")
+pilot v4_contract_region_bound_diagnostics_alias_def = v4_resolve_def_for_name(v4_contract_region_bound_diagnostics_resolve, "AliasMixedType")
+pilot v4_contract_region_bound_diagnostics_extern_def = v4_resolve_def_for_name(v4_contract_region_bound_diagnostics_resolve, "extern_empty_type")
 pilot v4_contract_region_bound_diagnostics_undeclared_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_undeclared_def)
 pilot v4_contract_region_bound_diagnostics_reserved_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_reserved_def)
 pilot v4_contract_region_bound_diagnostics_elided_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_elided_def)
 pilot v4_contract_region_bound_diagnostics_empty_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_empty_def)
 pilot v4_contract_region_bound_diagnostics_lifetime_doctrine_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_lifetime_doctrine_def)
 pilot v4_contract_region_bound_diagnostics_type_lifetime_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_type_lifetime_def)
+pilot v4_contract_region_bound_diagnostics_shape_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_shape_def)
+pilot v4_contract_region_bound_diagnostics_route_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_route_def)
+pilot v4_contract_region_bound_diagnostics_doctrine_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_doctrine_def)
+pilot v4_contract_region_bound_diagnostics_alias_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_alias_def)
+pilot v4_contract_region_bound_diagnostics_extern_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_extern_def)
 
 say "contract-region-bound-diagnostics-undeclared-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_undeclared_sig, 0, 0)
 say "contract-region-bound-diagnostics-reserved-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_reserved_sig, 0, 0)
@@ -45,6 +75,32 @@ say "contract-region-bound-diagnostics-elided-raw-bound=" + v4_ty_signature_gene
 say "contract-region-bound-diagnostics-empty-raw-bound-count=" + word_from_int(v4_ty_signature_generic_raw_bound_count(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_empty_sig, 0))
 say "contract-region-bound-diagnostics-lifetime-doctrine-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_lifetime_doctrine_sig, 0, 0)
 say "contract-region-bound-diagnostics-type-lifetime-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_type_lifetime_sig, 0, 0)
+say "contract-region-bound-diagnostics-shape-kind=" + v4_ty_signature_kind(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_shape_sig)
+say "contract-region-bound-diagnostics-shape-lifetime-doctrine-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_shape_sig, 2, 0)
+say "contract-region-bound-diagnostics-shape-lifetime-doctrine-filtered-count=" + word_from_int(v4_ty_signature_generic_bound_count(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_shape_sig, 2))
+say "contract-region-bound-diagnostics-shape-outlives=" + v4_contract_region_bound_diagnostics_bool_text(v4_ty_signature_lifetime_outlives(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_shape_sig, "'long", "'short"))
+say "contract-region-bound-diagnostics-route-kind=" + v4_ty_signature_kind(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_route_sig)
+say "contract-region-bound-diagnostics-route-type-lifetime-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_route_sig, 0, 0)
+say "contract-region-bound-diagnostics-route-type-lifetime-filtered-count=" + word_from_int(v4_ty_signature_generic_bound_count(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_route_sig, 0))
+say "contract-region-bound-diagnostics-doctrine-kind=" + v4_ty_signature_kind(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_doctrine_sig)
+say "contract-region-bound-diagnostics-doctrine-empty-type-raw-count=" + word_from_int(v4_ty_signature_generic_raw_bound_count(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_doctrine_sig, 0))
+say "contract-region-bound-diagnostics-doctrine-empty-type-clause=" + v4_contract_region_bound_diagnostics_bool_text(v4_ty_signature_generic_has_empty_bound_clause(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_doctrine_sig, 0))
+say "contract-region-bound-diagnostics-alias-kind=" + v4_ty_signature_kind(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_alias_sig)
+say "contract-region-bound-diagnostics-alias-mixed-raw-count=" + word_from_int(v4_ty_signature_generic_raw_bound_count(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_alias_sig, 0))
+say "contract-region-bound-diagnostics-alias-mixed-raw0=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_alias_sig, 0, 0)
+say "contract-region-bound-diagnostics-alias-mixed-raw1=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_alias_sig, 0, 1)
+say "contract-region-bound-diagnostics-alias-mixed-filtered-count=" + word_from_int(v4_ty_signature_generic_bound_count(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_alias_sig, 0))
+say "contract-region-bound-diagnostics-alias-mixed-filtered0=" + v4_ty_signature_generic_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_alias_sig, 0, 0)
+say "contract-region-bound-diagnostics-extern-kind=" + v4_ty_signature_kind(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_extern_sig)
+say "contract-region-bound-diagnostics-extern-member-id=" + word_from_int(v4_ty_signature_extern_member_id(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_extern_sig))
+say "contract-region-bound-diagnostics-extern-generic-count=" + word_from_int(v4_ty_signature_generic_count(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_extern_sig))
+say "contract-region-bound-diagnostics-extern-long-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_extern_sig, 1, 0)
+say "contract-region-bound-diagnostics-extern-empty-type-raw-count=" + word_from_int(v4_ty_signature_generic_raw_bound_count(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_extern_sig, 2))
+say "contract-region-bound-diagnostics-extern-empty-type-clause=" + v4_contract_region_bound_diagnostics_bool_text(v4_ty_signature_generic_has_empty_bound_clause(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_extern_sig, 2))
+say "contract-region-bound-diagnostics-extern-ordinary-static=" + v4_contract_region_bound_diagnostics_bool_text(v4_ty_signature_is_ordinary_static_task(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_extern_sig))
+say "contract-region-bound-diagnostics-extern-outlives=" + v4_contract_region_bound_diagnostics_bool_text(v4_ty_signature_lifetime_outlives(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_extern_sig, "'long", "'short"))
+say "contract-region-bound-diagnostics-extern-source-count=" + word_from_int(v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_extern_sig))
+say "contract-region-bound-diagnostics-extern-source-at0=" + word_from_int(v4_ty_signature_borrowed_return_source_param_at(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_extern_sig, 0))
 say "contract-region-bound-diagnostics-count=" + word_from_int(v4_ty_diag_count(v4_contract_region_bound_diagnostics_ty))
 pilot v4_contract_region_bound_diagnostics_diag_id = 0
 repeat until v4_contract_region_bound_diagnostics_diag_id >= v4_ty_diag_count(v4_contract_region_bound_diagnostics_ty) {
