@@ -1276,6 +1276,8 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 "named-lifetime-projection-source-param=",
                 "named-lifetime-reordered-path-source=",
+                "named-lifetime-wrong-holder-status=",
+                "named-lifetime-wrong-call-status=",
                 "named-lifetime-holder-move-status=",
                 "named-lifetime-nested-move-status=",
                 "named-lifetime-ambiguous-holder-move-status=",
