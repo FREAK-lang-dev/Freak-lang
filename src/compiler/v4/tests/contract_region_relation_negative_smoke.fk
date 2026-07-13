@@ -15,6 +15,13 @@ task v4_contract_region_relation_negative_source() -> word {
     give back src
 }
 
+task v4_contract_region_relation_negative_bool_word(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
 pilot v4_contract_region_relation_negative_borrow = v4_borrowck_text_cached("contract-region-relation-negative.fk", v4_contract_region_relation_negative_source())
 pilot v4_contract_region_relation_negative_mir = v4_borrowck_mir_id(v4_contract_region_relation_negative_borrow)
 pilot v4_contract_region_relation_negative_ty = v4_mir_ty_id(v4_contract_region_relation_negative_mir)
@@ -23,10 +30,14 @@ pilot v4_contract_region_relation_negative_resolve = v4_ty_resolve_id(v4_contrac
 pilot v4_contract_region_relation_negative_reverse_def = v4_resolve_def_for_name(v4_contract_region_relation_negative_resolve, "reverse")
 pilot v4_contract_region_relation_negative_missing_def = v4_resolve_def_for_name(v4_contract_region_relation_negative_resolve, "missing")
 pilot v4_contract_region_relation_negative_reverse_sig = v4_ty_lookup_signature(v4_contract_region_relation_negative_ty, v4_contract_region_relation_negative_reverse_def)
+pilot v4_contract_region_relation_negative_missing_sig = v4_ty_lookup_signature(v4_contract_region_relation_negative_ty, v4_contract_region_relation_negative_missing_def)
 pilot v4_contract_region_relation_negative_reverse_result = v4_borrowck_lookup_result(v4_contract_region_relation_negative_borrow, v4_contract_region_relation_negative_reverse_def)
 pilot v4_contract_region_relation_negative_missing_result = v4_borrowck_lookup_result(v4_contract_region_relation_negative_borrow, v4_contract_region_relation_negative_missing_def)
 
-say "contract-region-relation-negative-reverse-bound=" + v4_ty_signature_generic_bound_name(v4_contract_region_relation_negative_ty, v4_contract_region_relation_negative_reverse_sig, 1, 0)
+say "contract-region-relation-negative-reverse-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_relation_negative_ty, v4_contract_region_relation_negative_reverse_sig, 1, 0)
+say "contract-region-relation-negative-reverse-long-outlives-short=" + v4_contract_region_relation_negative_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_negative_ty, v4_contract_region_relation_negative_reverse_sig, "'long", "'short"))
+say "contract-region-relation-negative-reverse-short-outlives-long=" + v4_contract_region_relation_negative_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_negative_ty, v4_contract_region_relation_negative_reverse_sig, "'short", "'long"))
+say "contract-region-relation-negative-missing-long-outlives-short=" + v4_contract_region_relation_negative_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_negative_ty, v4_contract_region_relation_negative_missing_sig, "'long", "'short"))
 say "contract-region-relation-negative-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_relation_negative_ty))
 say "contract-region-relation-negative-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_relation_negative_mir))
 say "contract-region-relation-negative-reverse-status=" + v4_borrowck_result_status(v4_contract_region_relation_negative_borrow, v4_contract_region_relation_negative_reverse_result)

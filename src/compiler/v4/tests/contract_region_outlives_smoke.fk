@@ -27,6 +27,13 @@ task v4_contract_region_outlives_source() -> word {
     give back src
 }
 
+task v4_contract_region_outlives_bool_word(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
 task v4_contract_region_outlives_emit_sources(prefix: word, borrow_id: int, result_id: int) -> void {
     pilot path_id = 0
     pilot source_id = 0
@@ -52,10 +59,14 @@ pilot v4_contract_region_outlives_transitive_sig = v4_ty_lookup_signature(v4_con
 pilot v4_contract_region_outlives_direct_result = v4_borrowck_lookup_result(v4_contract_region_outlives_borrow, v4_contract_region_outlives_direct_def)
 pilot v4_contract_region_outlives_transitive_result = v4_borrowck_lookup_result(v4_contract_region_outlives_borrow, v4_contract_region_outlives_transitive_def)
 
-say "contract-region-outlives-direct-bound-count=" + word_from_int(v4_ty_signature_generic_bound_count(v4_contract_region_outlives_ty, v4_contract_region_outlives_direct_sig, 1))
-say "contract-region-outlives-direct-long-bound=" + v4_ty_signature_generic_bound_name(v4_contract_region_outlives_ty, v4_contract_region_outlives_direct_sig, 1, 0)
-say "contract-region-outlives-transitive-middle-bound=" + v4_ty_signature_generic_bound_name(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, 1, 0)
-say "contract-region-outlives-transitive-long-bound=" + v4_ty_signature_generic_bound_name(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, 2, 0)
+say "contract-region-outlives-direct-raw-bound-count=" + word_from_int(v4_ty_signature_generic_raw_bound_count(v4_contract_region_outlives_ty, v4_contract_region_outlives_direct_sig, 1))
+say "contract-region-outlives-direct-long-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_outlives_ty, v4_contract_region_outlives_direct_sig, 1, 0)
+say "contract-region-outlives-transitive-middle-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, 1, 0)
+say "contract-region-outlives-transitive-long-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, 2, 0)
+say "contract-region-outlives-direct-long-outlives-short=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_direct_sig, "'long", "'short"))
+say "contract-region-outlives-transitive-middle-outlives-short=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, "'middle", "'short"))
+say "contract-region-outlives-transitive-long-outlives-middle=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, "'long", "'middle"))
+say "contract-region-outlives-transitive-long-outlives-short=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, "'long", "'short"))
 say "contract-region-outlives-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_outlives_ty))
 say "contract-region-outlives-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_outlives_mir))
 say "contract-region-outlives-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_outlives_borrow))
