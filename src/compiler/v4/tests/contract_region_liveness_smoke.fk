@@ -167,6 +167,8 @@ v4_borrowck_provenance_union_into(v4_contract_region_liveness_empty_union, v4_co
 say "contract-region-liveness-empty-union-state=" + v4_borrowck_provenance_state(v4_contract_region_liveness_empty_union)
 say "contract-region-liveness-empty-union-count=" + word_from_int(v4_borrowck_provenance_count(v4_contract_region_liveness_empty_union))
 say "contract-region-liveness-empty-union-known-empty=" + v4_contract_region_liveness_bool(v4_borrowck_provenance_is_known_empty(v4_contract_region_liveness_empty_union))
+pilot v4_contract_region_liveness_opaque_provenance = v4_borrowck_provenance_new(v4_borrowck_provenance_opaque)
+say "contract-region-liveness-opaque-overlaps-any-owner=" + v4_contract_region_liveness_bool(v4_borrowck_provenance_overlaps_path(v4_contract_region_liveness_opaque_provenance, "unrelated.owner"))
 
 pilot v4_contract_region_liveness_snapshot = v4_borrowck_snapshot()
 say "contract-region-liveness-snapshot-format=" + v4_borrowck_snapshot_key_value(v4_borrowck_snapshot_line(v4_contract_region_liveness_snapshot, 0), "format")

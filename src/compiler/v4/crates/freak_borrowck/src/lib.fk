@@ -537,6 +537,9 @@ task v4_borrowck_provenance_contains_path(provenance_id: int, source_text: word)
 }
 
 task v4_borrowck_provenance_overlaps_path(provenance_id: int, source_text: word) -> bool {
+    if provenance_id < 0 or not v4_borrowck_provenance_is_known(provenance_id) {
+        give back true
+    }
     pilot row_id = 0
     pilot row_count = array_len(v4_borrowck_source_provenance_ids)
     repeat until row_id >= row_count {

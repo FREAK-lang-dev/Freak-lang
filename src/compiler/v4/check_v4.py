@@ -2518,6 +2518,7 @@ EXECUTABLE_SMOKES = [
             "contract-region-liveness-empty-union-state=known",
             "contract-region-liveness-empty-union-count=0",
             "contract-region-liveness-empty-union-known-empty=true",
+            "contract-region-liveness-opaque-overlaps-any-owner=true",
             "contract-region-liveness-snapshot-format=freak-borrowck-snapshot-v1",
             "borrowck-snapshot-import ok=1",
             "borrowck-snapshot-restore ok=1",
