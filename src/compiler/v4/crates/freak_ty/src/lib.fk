@@ -2889,7 +2889,7 @@ task v4_ty_type_text_needs_separator_after_lifetime(out: word, value: word) -> b
     if lifetime_name == "" or not out.ends_with(lifetime_name) {
         give back false
     }
-    give back value != "," and value != ">" and value != ")" and value != "]" and value != ";"
+    give back value != ":" and value != "+" and value != "," and value != ">" and value != ")" and value != "]" and value != ";"
 }
 
 task v4_ty_type_text(stream_id: int, start_token: int, end_token: int) -> word {
@@ -3543,7 +3543,7 @@ task v4_ty_generic_bound_name(bounds_text: word, bound_id: int) -> word {
         pilot ch = bounds_text.char_at(idx)
         if depth == 0 and ch == "+" {
             if current == bound_id {
-                give back v4_slice(bounds_text, segment_start, idx)
+                give back v4_ty_trim_spaces(v4_slice(bounds_text, segment_start, idx))
             }
             current += 1
             segment_start = idx + 1
@@ -3554,17 +3554,56 @@ task v4_ty_generic_bound_name(bounds_text: word, bound_id: int) -> word {
     }
 
     if current == bound_id and segment_start < bounds_text.length() {
-        give back v4_slice(bounds_text, segment_start, bounds_text.length())
+        give back v4_ty_trim_spaces(v4_slice(bounds_text, segment_start, bounds_text.length()))
     }
     give back ""
 }
 
-task v4_ty_signature_generic_bound_count(ty_id: int, sig_id: int, generic_id: int) -> int {
+task v4_ty_signature_generic_raw_bound_count(ty_id: int, sig_id: int, generic_id: int) -> int {
     give back v4_ty_generic_bound_count(v4_ty_signature_generic_bounds(ty_id, sig_id, generic_id))
 }
 
-task v4_ty_signature_generic_bound_name(ty_id: int, sig_id: int, generic_id: int, bound_id: int) -> word {
+task v4_ty_signature_generic_raw_bound_name(ty_id: int, sig_id: int, generic_id: int, bound_id: int) -> word {
     give back v4_ty_generic_bound_name(v4_ty_signature_generic_bounds(ty_id, sig_id, generic_id), bound_id)
+}
+
+task v4_ty_signature_generic_bound_count(ty_id: int, sig_id: int, generic_id: int) -> int {
+    if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) {
+        give back 0
+    }
+
+    pilot doctrine_count = 0
+    pilot raw_bound_id = 0
+    pilot raw_bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, generic_id)
+    repeat until raw_bound_id >= raw_bound_count {
+        pilot bound_name = v4_ty_signature_generic_raw_bound_name(ty_id, sig_id, generic_id, raw_bound_id)
+        if bound_name != "" and not v4_ty_is_lifetime_name(bound_name) {
+            doctrine_count += 1
+        }
+        raw_bound_id += 1
+    }
+    give back doctrine_count
+}
+
+task v4_ty_signature_generic_bound_name(ty_id: int, sig_id: int, generic_id: int, bound_id: int) -> word {
+    if bound_id < 0 or v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) {
+        give back ""
+    }
+
+    pilot seen_doctrines = 0
+    pilot raw_bound_id = 0
+    pilot raw_bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, generic_id)
+    repeat until raw_bound_id >= raw_bound_count {
+        pilot bound_name = v4_ty_signature_generic_raw_bound_name(ty_id, sig_id, generic_id, raw_bound_id)
+        if bound_name != "" and not v4_ty_is_lifetime_name(bound_name) {
+            if seen_doctrines == bound_id {
+                give back bound_name
+            }
+            seen_doctrines += 1
+        }
+        raw_bound_id += 1
+    }
+    give back ""
 }
 
 task v4_ty_signature_generic_has_bound(ty_id: int, sig_id: int, generic_id: int, wanted_bound: word) -> bool {
@@ -3629,6 +3668,74 @@ task v4_ty_signature_generic_id_for_name(ty_id: int, sig_id: int, type_name: wor
         generic_idx += 1
     }
     give back 0 - 1
+}
+
+task v4_ty_signature_lifetime_generic_id_for_name(ty_id: int, sig_id: int, lifetime_name: word) -> int {
+    pilot generic_id = v4_ty_signature_generic_id_for_name(ty_id, sig_id, lifetime_name)
+    if generic_id < 0 or not v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) {
+        give back 0 - 1
+    }
+    give back generic_id
+}
+
+task v4_ty_lifetime_relation_seen_contains(seen_lifetimes: word, lifetime_name: word) -> bool {
+    if seen_lifetimes == "" or lifetime_name == "" {
+        give back false
+    }
+    give back ("|" + seen_lifetimes + "|").contains("|" + lifetime_name + "|")
+}
+
+task v4_ty_lifetime_relation_seen_append(seen_lifetimes: word, lifetime_name: word) -> word {
+    if lifetime_name == "" {
+        give back seen_lifetimes
+    }
+    if seen_lifetimes == "" {
+        give back lifetime_name
+    }
+    give back seen_lifetimes + "|" + lifetime_name
+}
+
+task v4_ty_signature_lifetime_outlives_seen(ty_id: int, sig_id: int, longer_lifetime: word, shorter_lifetime: word, seen_lifetimes: word) -> bool {
+    if longer_lifetime == shorter_lifetime {
+        give back true
+    }
+    if v4_ty_lifetime_relation_seen_contains(seen_lifetimes, longer_lifetime) {
+        give back false
+    }
+
+    pilot generic_id = v4_ty_signature_lifetime_generic_id_for_name(ty_id, sig_id, longer_lifetime)
+    if generic_id < 0 {
+        give back false
+    }
+    pilot next_seen = v4_ty_lifetime_relation_seen_append(seen_lifetimes, longer_lifetime)
+    pilot bound_id = 0
+    pilot bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, generic_id)
+    repeat until bound_id >= bound_count {
+        pilot bound_name = v4_ty_signature_generic_raw_bound_name(ty_id, sig_id, generic_id, bound_id)
+        if bound_name != "'static" and bound_name != "'_" and v4_ty_signature_declares_lifetime_name(ty_id, sig_id, bound_name) {
+            if v4_ty_signature_lifetime_outlives_seen(ty_id, sig_id, bound_name, shorter_lifetime, next_seen) {
+                give back true
+            }
+        }
+        bound_id += 1
+    }
+    give back false
+}
+
+task v4_ty_signature_lifetime_outlives(ty_id: int, sig_id: int, longer_name: word, shorter_name: word) -> bool {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back false
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig {
+        give back false
+    }
+    if longer_name == "'static" or longer_name == "'_" or shorter_name == "'static" or shorter_name == "'_" {
+        give back false
+    }
+    if not v4_ty_signature_declares_lifetime_name(ty_id, sig_id, longer_name) or not v4_ty_signature_declares_lifetime_name(ty_id, sig_id, shorter_name) {
+        give back false
+    }
+    give back v4_ty_signature_lifetime_outlives_seen(ty_id, sig_id, longer_name, shorter_name, "")
 }
 
 task v4_ty_signature_param_name(ty_id: int, sig_id: int, param_id: int) -> word {
@@ -6810,7 +6917,7 @@ task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty:
         give back v4_ty_generic_env_fail
     }
     pilot generic_id = v4_ty_signature_generic_id_for_name(ty_id, sig_id, actual_ty)
-    if generic_id < 0 {
+    if generic_id < 0 or v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) {
         give back v4_ty_generic_env_fail
     }
     pilot bound_idx = 0
@@ -6881,7 +6988,7 @@ task v4_ty_match_type_satisfies_doctrine_env_with_bounds(ty_id: int, doctrine_si
         give back v4_ty_generic_env_fail
     }
     pilot generic_id = v4_ty_signature_generic_id_for_name(ty_id, actual_bound_sig_id, actual_ty)
-    if generic_id < 0 {
+    if generic_id < 0 or v4_ty_signature_generic_is_lifetime(ty_id, actual_bound_sig_id, generic_id) {
         give back v4_ty_generic_env_fail
     }
     pilot bound_idx = 0
@@ -7113,39 +7220,95 @@ task v4_ty_signature_return_type(ty_id: int, sig_id: int) -> word {
     give back v4_ty_canonical_type_in_signature(ty_id, sig_id, v4_ty_signature_return_surface_type(ty_id, sig_id))
 }
 
-task v4_ty_signature_borrowed_return_source_param(ty_id: int, sig_id: int) -> int {
+task v4_ty_signature_param_is_borrowed_return_source(ty_id: int, sig_id: int, param_id: int, return_ty: word) -> bool {
+    if param_id < 0 or param_id >= v4_ty_signature_param_count(ty_id, sig_id) {
+        give back false
+    }
+
+    pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+    pilot mode_matches: bool = param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut
+    if v4_ty_is_lend_mut_type(return_ty) {
+        mode_matches = param_mode == v4_ty_param_mode_lend_mut
+    }
+    if not mode_matches {
+        give back false
+    }
+
+    pilot return_lifetime = v4_ty_lend_lifetime(return_ty)
+    if return_lifetime == "" or return_lifetime == "'_" {
+        give back true
+    }
+    if return_lifetime == "'static" {
+        give back false
+    }
+    pilot param_lifetime = v4_ty_signature_param_lifetime(ty_id, sig_id, param_id)
+    if param_lifetime == "" or param_lifetime == "'static" or param_lifetime == "'_" {
+        give back false
+    }
+    give back v4_ty_signature_lifetime_outlives(ty_id, sig_id, param_lifetime, return_lifetime)
+}
+
+task v4_ty_signature_borrowed_return_source_param_count(ty_id: int, sig_id: int) -> int {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back 0
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig {
+        give back 0
+    }
+    pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
+    if not v4_ty_is_lend_type(return_ty) {
+        give back 0
+    }
+
+    pilot source_count = 0
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        if v4_ty_signature_param_is_borrowed_return_source(ty_id, sig_id, param_id, return_ty) {
+            source_count += 1
+        }
+        param_id += 1
+    }
+    give back source_count
+}
+
+task v4_ty_signature_borrowed_return_source_param_at(ty_id: int, sig_id: int, source_id: int) -> int {
+    if source_id < 0 or sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back 0 - 1
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig {
+        give back 0 - 1
+    }
     pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
     if not v4_ty_is_lend_type(return_ty) {
         give back 0 - 1
     }
 
-    pilot return_mut = v4_ty_is_lend_mut_type(return_ty)
-    pilot return_lifetime = v4_ty_lend_lifetime(return_ty)
-    pilot uses_named_lifetime: bool = return_lifetime != "" and return_lifetime != "'_"
-    pilot source_param = 0 - 1
+    pilot seen_sources = 0
     pilot param_id = 0
     pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
     repeat until param_id >= param_count {
-        pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
-        pilot mode_matches: bool = param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut
-        if return_mut {
-            mode_matches = param_mode == v4_ty_param_mode_lend_mut
-        }
-        if mode_matches {
-            pilot lifetime_matches = true
-            if uses_named_lifetime {
-                lifetime_matches = v4_ty_signature_param_lifetime(ty_id, sig_id, param_id) == return_lifetime
+        if v4_ty_signature_param_is_borrowed_return_source(ty_id, sig_id, param_id, return_ty) {
+            if seen_sources == source_id {
+                give back param_id
             }
-            if lifetime_matches {
-                if source_param >= 0 {
-                    give back 0 - 2
-                }
-                source_param = param_id
-            }
+            seen_sources += 1
         }
         param_id += 1
     }
-    give back source_param
+    give back 0 - 1
+}
+
+-- Compatibility query: -1 means no source; -2 means the source set is ambiguous.
+task v4_ty_signature_borrowed_return_source_param(ty_id: int, sig_id: int) -> int {
+    pilot source_count = v4_ty_signature_borrowed_return_source_param_count(ty_id, sig_id)
+    if source_count <= 0 {
+        give back 0 - 1
+    }
+    if source_count > 1 {
+        give back 0 - 2
+    }
+    give back v4_ty_signature_borrowed_return_source_param_at(ty_id, sig_id, 0)
 }
 
 task v4_ty_signature_return_surface_type(ty_id: int, sig_id: int) -> word {
@@ -8045,6 +8208,42 @@ task v4_ty_validate_signature_generic_names(ty_id: int, sig_id: int) -> void {
     }
 }
 
+task v4_ty_validate_task_signature_generic_bounds(ty_id: int, sig_id: int) -> void {
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig {
+        give back
+    }
+
+    pilot generic_id = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_id >= generic_count {
+        pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_id)
+        pilot generic_is_lifetime = v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id)
+        pilot generic_span = v4_ty_signature_generic_segment_span(ty_id, sig_id, generic_id)
+        pilot bound_id = 0
+        pilot bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, generic_id)
+        repeat until bound_id >= bound_count {
+            pilot bound_name = v4_ty_signature_generic_raw_bound_name(ty_id, sig_id, generic_id, bound_id)
+            if bound_name == "" {
+                v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: empty generic bound on " + generic_name + " in " + v4_ty_signature_name(ty_id, sig_id), "separate declared lifetime or doctrine bounds with one +")
+            } else if v4_ty_is_lifetime_name(bound_name) {
+                if bound_name == "'static" {
+                    v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: 'static is reserved and cannot be used as a lifetime bound on " + generic_name, "use a declared named lifetime; static outlives expansion is not supported for ordinary task contracts yet")
+                } else if bound_name == "'_" {
+                    v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: '_ is elided and cannot be used as a lifetime bound on " + generic_name, "use a declared named lifetime so Yuuko can build the signature relation")
+                } else if not v4_ty_signature_declares_lifetime_name(ty_id, sig_id, bound_name) {
+                    v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: lifetime bound " + bound_name + " on " + generic_name + " is not declared on " + v4_ty_signature_name(ty_id, sig_id), "declare " + bound_name + " in the task's generic lifetime list")
+                } else if not generic_is_lifetime {
+                    v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: type generic " + generic_name + " cannot use lifetime bound " + bound_name, "type binders retain doctrine bounds; put outlives constraints on a lifetime binder")
+                }
+            } else if generic_is_lifetime {
+                v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: lifetime " + generic_name + " may only use lifetime bounds, but found " + bound_name, "write " + generic_name + ": 'shorter and keep doctrine bounds on type binders")
+            }
+            bound_id += 1
+        }
+        generic_id += 1
+    }
+}
+
 task v4_ty_validate_signature_type_lifetimes(ty_id: int, sig_id: int, type_text: word, context: word, context_span: word) -> void {
     if type_text == "" or type_text == v4_ty_unknown {
         give back
@@ -8247,11 +8446,8 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         if return_lifetime == "'static" {
             v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot prove a static borrowed return yet", "'static returned loans need global-storage provenance before this contract can be sound")
         } else if return_lifetime != "" and return_lifetime != "'_" and v4_ty_signature_accepts_lifetime(ty_id, sig_id, return_lifetime) {
-            pilot source_param = v4_ty_signature_borrowed_return_source_param(ty_id, sig_id)
-            if source_param == 0 - 2 {
-                v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot choose one parameter for returned lifetime " + return_lifetime, "give exactly one lend or lend mut parameter this lifetime until multi-source region sets land")
-            } else if source_param < 0 {
-                v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot find a source for returned lifetime " + return_lifetime, "add one lend parameter carrying " + return_lifetime)
+            if v4_ty_signature_borrowed_return_source_param_count(ty_id, sig_id) <= 0 {
+                v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot find a source for returned lifetime " + return_lifetime, "add a lend parameter whose declared lifetime outlives " + return_lifetime)
             }
         }
     }
@@ -8702,6 +8898,9 @@ task v4_ty_validate_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     v4_ty_validate_variadic_signature_contract(ty_id, sig_id)
 
     pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
+    if sig_kind == v4_ty_task_sig {
+        v4_ty_validate_task_signature_generic_bounds(ty_id, sig_id)
+    }
     if sig_kind == v4_ty_task_sig or sig_kind == v4_ty_extern_sig {
         v4_ty_validate_task_signature_lifetimes(ty_id, sig_id)
     } else if sig_kind == v4_ty_shape_sig {
