@@ -31,11 +31,25 @@ task v4_contract_region_editor_span_positions_equal(left: word, right: word) -> 
     give back v4_span_end(left) == v4_span_end(right)
 }
 
+task v4_contract_region_editor_report_value(report: word, key: word) -> word {
+    pilot marker = key + "="
+    pilot start = v4_index_of_from(report, marker, 0)
+    if start < 0 {
+        give back ""
+    }
+    start += marker.length()
+    pilot finish = v4_index_of_from(report, " ", start)
+    if finish < 0 {
+        finish = report.length()
+    }
+    give back v4_slice(report, start, finish)
+}
+
 task v4_contract_region_editor_source_text() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
-    src = src + "task shorten<'long: 'out + 'out, 'out>(lend 'long source: Ship) -> lend 'out Ship {\n"
+    src = src + "task shorten<'long: 'out + 'out, 'out, 'wide: 'alt, 'alt>(lend 'long source: Ship) -> lend 'out Ship {\n"
     src = src + "    give back lend source\n"
     src = src + "}\n"
     give back src
@@ -48,12 +62,16 @@ pilot v4_contract_region_editor_long_binder_token = v4_contract_region_editor_fi
 pilot v4_contract_region_editor_bound_token = v4_contract_region_editor_find_token(v4_contract_region_editor_stream, "'out", 0)
 pilot v4_contract_region_editor_repeated_bound_token = v4_contract_region_editor_find_token(v4_contract_region_editor_stream, "'out", 1)
 pilot v4_contract_region_editor_out_binder_token = v4_contract_region_editor_find_token(v4_contract_region_editor_stream, "'out", 2)
+pilot v4_contract_region_editor_alt_bound_token = v4_contract_region_editor_find_token(v4_contract_region_editor_stream, "'alt", 0)
+pilot v4_contract_region_editor_alt_binder_token = v4_contract_region_editor_find_token(v4_contract_region_editor_stream, "'alt", 1)
 pilot v4_contract_region_editor_bound_offset = v4_span_start(v4_lex_token_span(v4_contract_region_editor_stream, v4_contract_region_editor_bound_token))
 pilot v4_contract_region_editor_repeated_bound_offset = v4_span_start(v4_lex_token_span(v4_contract_region_editor_stream, v4_contract_region_editor_repeated_bound_token))
 pilot v4_contract_region_editor_out_binder_offset = v4_span_start(v4_lex_token_span(v4_contract_region_editor_stream, v4_contract_region_editor_out_binder_token))
+pilot v4_contract_region_editor_alt_bound_offset = v4_span_start(v4_lex_token_span(v4_contract_region_editor_stream, v4_contract_region_editor_alt_bound_token))
 pilot v4_contract_region_editor_long_binder_span = v4_lex_token_span(v4_contract_region_editor_stream, v4_contract_region_editor_long_binder_token)
 pilot v4_contract_region_editor_bound_span = v4_lex_token_span(v4_contract_region_editor_stream, v4_contract_region_editor_bound_token)
 pilot v4_contract_region_editor_out_binder_span = v4_lex_token_span(v4_contract_region_editor_stream, v4_contract_region_editor_out_binder_token)
+pilot v4_contract_region_editor_alt_binder_span = v4_lex_token_span(v4_contract_region_editor_stream, v4_contract_region_editor_alt_binder_token)
 
 pilot v4_contract_region_editor_bound_semantic = v4_semantic_at_text_cached(v4_contract_region_editor_path, v4_contract_region_editor_source, v4_contract_region_editor_bound_offset)
 pilot v4_contract_region_editor_binder_semantic = v4_semantic_at_text_cached(v4_contract_region_editor_path, v4_contract_region_editor_source, v4_contract_region_editor_out_binder_offset)
@@ -61,6 +79,8 @@ pilot v4_contract_region_editor_bound_hover = v4_hover_text_cached(v4_contract_r
 pilot v4_contract_region_editor_binder_hover = v4_hover_text_cached(v4_contract_region_editor_path, v4_contract_region_editor_source, v4_contract_region_editor_out_binder_offset)
 pilot v4_contract_region_editor_bound_definition = v4_definition_at_text_cached(v4_contract_region_editor_path, v4_contract_region_editor_source, v4_contract_region_editor_bound_offset)
 pilot v4_contract_region_editor_repeated_definition = v4_definition_at_text_cached(v4_contract_region_editor_path, v4_contract_region_editor_source, v4_contract_region_editor_repeated_bound_offset)
+pilot v4_contract_region_editor_alt_definition = v4_definition_at_text_cached(v4_contract_region_editor_path, v4_contract_region_editor_source, v4_contract_region_editor_alt_bound_offset)
+pilot v4_contract_region_editor_syntax = v4_check_syntax_text(v4_contract_region_editor_path, v4_contract_region_editor_source)
 
 say "contract-region-editor-bound-semantic-name=" + v4_semantic_at_name(v4_contract_region_editor_bound_semantic)
 say "contract-region-editor-bound-semantic-kind=" + v4_semantic_at_kind(v4_contract_region_editor_bound_semantic)
@@ -77,6 +97,10 @@ say "contract-region-editor-bound-definition-not-long-binder=" + v4_contract_reg
 say "contract-region-editor-bound-definition-not-bound-use=" + v4_contract_region_editor_bool(v4_contract_region_editor_span_positions_equal(v4_definition_at_span(v4_contract_region_editor_bound_definition), v4_contract_region_editor_bound_span) == false)
 say "contract-region-editor-repeated-definition-found=" + word_from_int(v4_definition_at_found(v4_contract_region_editor_repeated_definition))
 say "contract-region-editor-repeated-definition-matches-later-binder=" + v4_contract_region_editor_bool(v4_contract_region_editor_span_positions_equal(v4_definition_at_span(v4_contract_region_editor_repeated_definition), v4_contract_region_editor_out_binder_span))
+say "contract-region-editor-alt-definition-found=" + word_from_int(v4_definition_at_found(v4_contract_region_editor_alt_definition))
+say "contract-region-editor-alt-definition-matches-alt-binder=" + v4_contract_region_editor_bool(v4_contract_region_editor_span_positions_equal(v4_definition_at_span(v4_contract_region_editor_alt_definition), v4_contract_region_editor_alt_binder_span))
+say "contract-region-editor-definition-records-distinct=" + v4_contract_region_editor_bool(v4_contract_region_editor_bound_definition != v4_contract_region_editor_alt_definition)
+say "contract-region-editor-definition-binders-distinct=" + v4_contract_region_editor_bool(v4_contract_region_editor_span_positions_equal(v4_contract_region_editor_out_binder_span, v4_contract_region_editor_alt_binder_span) == false)
 say v4_lsp_hover_text(v4_contract_region_editor_path, v4_contract_region_editor_source, v4_contract_region_editor_bound_offset)
 say v4_lsp_definition_text(v4_contract_region_editor_path, v4_contract_region_editor_source, v4_contract_region_editor_bound_offset)
 
@@ -84,6 +108,21 @@ pilot v4_contract_region_editor_semantic_payload = v4_semantic_snapshot()
 pilot v4_contract_region_editor_hover_payload = v4_hover_snapshot()
 pilot v4_contract_region_editor_definition_payload = v4_definition_snapshot()
 pilot v4_contract_region_editor_query_payload = v4_query_snapshot()
+pilot v4_contract_region_editor_file = v4_source_find(v4_contract_region_editor_path)
+pilot v4_contract_region_editor_fingerprint = v4_source_fingerprint(v4_contract_region_editor_file)
+pilot v4_contract_region_editor_semantic_key = v4_semantic_at_query_key(v4_contract_region_editor_path, v4_contract_region_editor_bound_offset)
+pilot v4_contract_region_editor_hover_key = v4_hover_query_key(v4_contract_region_editor_path, v4_contract_region_editor_bound_offset)
+pilot v4_contract_region_editor_definition_key = v4_definition_at_query_key(v4_contract_region_editor_path, v4_contract_region_editor_bound_offset)
+pilot v4_contract_region_editor_repeated_definition_key = v4_definition_at_query_key(v4_contract_region_editor_path, v4_contract_region_editor_repeated_bound_offset)
+pilot v4_contract_region_editor_alt_definition_key = v4_definition_at_query_key(v4_contract_region_editor_path, v4_contract_region_editor_alt_bound_offset)
+pilot v4_contract_region_editor_syntax_key = v4_check_syntax_query_key(v4_contract_region_editor_path)
+
+-- Make a stale in-memory cache unable to satisfy the restoration assertions.
+v4_query_store(v4_contract_region_editor_semantic_key, v4_contract_region_editor_fingerprint, "0")
+v4_query_store(v4_contract_region_editor_hover_key, v4_contract_region_editor_fingerprint, "0")
+v4_query_store(v4_contract_region_editor_definition_key, v4_contract_region_editor_fingerprint, "0")
+v4_query_store(v4_contract_region_editor_repeated_definition_key, v4_contract_region_editor_fingerprint, "0")
+v4_query_store(v4_contract_region_editor_alt_definition_key, v4_contract_region_editor_fingerprint, "0")
 
 say v4_semantic_snapshot_validate(v4_contract_region_editor_semantic_payload)
 say v4_hover_snapshot_validate(v4_contract_region_editor_hover_payload)
@@ -97,21 +136,58 @@ say v4_semantic_snapshot_restore(v4_contract_region_editor_semantic_payload)
 say v4_hover_snapshot_restore(v4_contract_region_editor_hover_payload)
 say v4_definition_snapshot_restore(v4_contract_region_editor_definition_payload)
 say v4_query_snapshot_restore(v4_contract_region_editor_query_payload)
-say v4_driver_confirm_restored_document_text(v4_contract_region_editor_path, v4_contract_region_editor_source)
 
-pilot v4_contract_region_editor_file = v4_source_find(v4_contract_region_editor_path)
-pilot v4_contract_region_editor_fingerprint = v4_source_fingerprint(v4_contract_region_editor_file)
-pilot v4_contract_region_editor_restored_semantic = word_to_int(v4_query_get(v4_semantic_at_query_key(v4_contract_region_editor_path, v4_contract_region_editor_bound_offset), v4_contract_region_editor_fingerprint))
-pilot v4_contract_region_editor_restored_hover = word_to_int(v4_query_get(v4_hover_query_key(v4_contract_region_editor_path, v4_contract_region_editor_bound_offset), v4_contract_region_editor_fingerprint))
-pilot v4_contract_region_editor_restored_definition = word_to_int(v4_query_get(v4_definition_at_query_key(v4_contract_region_editor_path, v4_contract_region_editor_bound_offset), v4_contract_region_editor_fingerprint))
-pilot v4_contract_region_editor_restored_repeated_definition = word_to_int(v4_query_get(v4_definition_at_query_key(v4_contract_region_editor_path, v4_contract_region_editor_repeated_bound_offset), v4_contract_region_editor_fingerprint))
-say "contract-region-editor-restored-semantic-kind=" + v4_semantic_at_kind(v4_contract_region_editor_restored_semantic)
-say "contract-region-editor-restored-semantic-type=" + v4_semantic_at_type(v4_contract_region_editor_restored_semantic)
-say "contract-region-editor-restored-semantic-def-stable=" + v4_contract_region_editor_bool(v4_semantic_at_def(v4_contract_region_editor_restored_semantic) == v4_semantic_at_def(v4_contract_region_editor_bound_semantic))
-say "contract-region-editor-restored-hover-kind=" + v4_hover_kind(v4_contract_region_editor_restored_hover)
-say "contract-region-editor-restored-hover-type=" + v4_hover_type(v4_contract_region_editor_restored_hover)
-say "contract-region-editor-restored-hover-type-stable=" + v4_contract_region_editor_bool(v4_hover_type(v4_contract_region_editor_restored_hover) == v4_hover_type(v4_contract_region_editor_bound_hover))
-say "contract-region-editor-restored-definition-found=" + word_from_int(v4_definition_at_found(v4_contract_region_editor_restored_definition))
-say "contract-region-editor-restored-definition-span-stable=" + v4_contract_region_editor_bool(v4_definition_at_span(v4_contract_region_editor_restored_definition) == v4_definition_at_span(v4_contract_region_editor_bound_definition))
-say "contract-region-editor-restored-definition-matches-later-binder=" + v4_contract_region_editor_bool(v4_contract_region_editor_span_positions_equal(v4_definition_at_span(v4_contract_region_editor_restored_definition), v4_contract_region_editor_out_binder_span))
-say "contract-region-editor-restored-repeated-definition-matches-later-binder=" + v4_contract_region_editor_bool(v4_contract_region_editor_span_positions_equal(v4_definition_at_span(v4_contract_region_editor_restored_repeated_definition), v4_contract_region_editor_out_binder_span))
+pilot v4_contract_region_editor_blocked_confirm = v4_driver_confirm_restored_key(v4_contract_region_editor_path, v4_contract_region_editor_semantic_key)
+v4_source_set_text(v4_contract_region_editor_path, v4_contract_region_editor_source + "-- poisoned source fingerprint\n")
+pilot v4_contract_region_editor_mismatch_confirm = v4_driver_confirm_restored_key(v4_contract_region_editor_path, v4_contract_region_editor_hover_key)
+v4_source_set_text(v4_contract_region_editor_path, v4_contract_region_editor_source)
+pilot v4_contract_region_editor_promoted_confirm = v4_driver_confirm_restored_key(v4_contract_region_editor_path, v4_contract_region_editor_syntax_key)
+pilot v4_contract_region_editor_document_confirm = v4_driver_confirm_restored_document(v4_contract_region_editor_path)
+say v4_contract_region_editor_blocked_confirm
+say v4_contract_region_editor_mismatch_confirm
+say v4_contract_region_editor_promoted_confirm
+say v4_contract_region_editor_document_confirm
+say "contract-region-editor-blocked-confirm-promoted=" + v4_contract_region_editor_report_value(v4_contract_region_editor_blocked_confirm, "promoted")
+say "contract-region-editor-blocked-confirm-blocked=" + v4_contract_region_editor_report_value(v4_contract_region_editor_blocked_confirm, "blocked")
+say "contract-region-editor-blocked-confirm-mismatched=" + v4_contract_region_editor_report_value(v4_contract_region_editor_blocked_confirm, "mismatched")
+say "contract-region-editor-mismatch-confirm-promoted=" + v4_contract_region_editor_report_value(v4_contract_region_editor_mismatch_confirm, "promoted")
+say "contract-region-editor-mismatch-confirm-blocked=" + v4_contract_region_editor_report_value(v4_contract_region_editor_mismatch_confirm, "blocked")
+say "contract-region-editor-mismatch-confirm-mismatched=" + v4_contract_region_editor_report_value(v4_contract_region_editor_mismatch_confirm, "mismatched")
+say "contract-region-editor-promoted-confirm-promoted=" + v4_contract_region_editor_report_value(v4_contract_region_editor_promoted_confirm, "promoted")
+say "contract-region-editor-promoted-confirm-blocked=" + v4_contract_region_editor_report_value(v4_contract_region_editor_promoted_confirm, "blocked")
+say "contract-region-editor-promoted-confirm-mismatched=" + v4_contract_region_editor_report_value(v4_contract_region_editor_promoted_confirm, "mismatched")
+say "contract-region-editor-document-confirm-promoted=" + v4_contract_region_editor_report_value(v4_contract_region_editor_document_confirm, "promoted")
+say "contract-region-editor-document-confirm-blocked=" + v4_contract_region_editor_report_value(v4_contract_region_editor_document_confirm, "blocked")
+say "contract-region-editor-document-confirm-mismatched=" + v4_contract_region_editor_report_value(v4_contract_region_editor_document_confirm, "mismatched")
+
+pilot v4_contract_region_editor_restored_semantic_value = v4_query_get(v4_contract_region_editor_semantic_key, v4_contract_region_editor_fingerprint)
+pilot v4_contract_region_editor_restored_hover_value = v4_query_get(v4_contract_region_editor_hover_key, v4_contract_region_editor_fingerprint)
+pilot v4_contract_region_editor_restored_definition_value = v4_query_get(v4_contract_region_editor_definition_key, v4_contract_region_editor_fingerprint)
+pilot v4_contract_region_editor_restored_repeated_definition_value = v4_query_get(v4_contract_region_editor_repeated_definition_key, v4_contract_region_editor_fingerprint)
+pilot v4_contract_region_editor_restored_alt_definition_value = v4_query_get(v4_contract_region_editor_alt_definition_key, v4_contract_region_editor_fingerprint)
+say "contract-region-editor-restored-semantic-query-nonempty=" + v4_contract_region_editor_bool(v4_contract_region_editor_restored_semantic_value.length() > 0)
+say "contract-region-editor-restored-hover-query-nonempty=" + v4_contract_region_editor_bool(v4_contract_region_editor_restored_hover_value.length() > 0)
+say "contract-region-editor-restored-definition-query-nonempty=" + v4_contract_region_editor_bool(v4_contract_region_editor_restored_definition_value.length() > 0)
+say "contract-region-editor-restored-repeated-definition-query-nonempty=" + v4_contract_region_editor_bool(v4_contract_region_editor_restored_repeated_definition_value.length() > 0)
+say "contract-region-editor-restored-alt-definition-query-nonempty=" + v4_contract_region_editor_bool(v4_contract_region_editor_restored_alt_definition_value.length() > 0)
+
+if v4_contract_region_editor_restored_semantic_value.length() > 0 and v4_contract_region_editor_restored_hover_value.length() > 0 and v4_contract_region_editor_restored_definition_value.length() > 0 and v4_contract_region_editor_restored_repeated_definition_value.length() > 0 and v4_contract_region_editor_restored_alt_definition_value.length() > 0 {
+    pilot v4_contract_region_editor_restored_semantic = word_to_int(v4_contract_region_editor_restored_semantic_value)
+    pilot v4_contract_region_editor_restored_hover = word_to_int(v4_contract_region_editor_restored_hover_value)
+    pilot v4_contract_region_editor_restored_definition = word_to_int(v4_contract_region_editor_restored_definition_value)
+    pilot v4_contract_region_editor_restored_repeated_definition = word_to_int(v4_contract_region_editor_restored_repeated_definition_value)
+    pilot v4_contract_region_editor_restored_alt_definition = word_to_int(v4_contract_region_editor_restored_alt_definition_value)
+    say "contract-region-editor-restored-semantic-kind=" + v4_semantic_at_kind(v4_contract_region_editor_restored_semantic)
+    say "contract-region-editor-restored-semantic-type=" + v4_semantic_at_type(v4_contract_region_editor_restored_semantic)
+    say "contract-region-editor-restored-semantic-def-stable=" + v4_contract_region_editor_bool(v4_semantic_at_def(v4_contract_region_editor_restored_semantic) == v4_semantic_at_def(v4_contract_region_editor_bound_semantic))
+    say "contract-region-editor-restored-hover-kind=" + v4_hover_kind(v4_contract_region_editor_restored_hover)
+    say "contract-region-editor-restored-hover-type=" + v4_hover_type(v4_contract_region_editor_restored_hover)
+    say "contract-region-editor-restored-hover-type-stable=" + v4_contract_region_editor_bool(v4_hover_type(v4_contract_region_editor_restored_hover) == v4_hover_type(v4_contract_region_editor_bound_hover))
+    say "contract-region-editor-restored-definition-found=" + word_from_int(v4_definition_at_found(v4_contract_region_editor_restored_definition))
+    say "contract-region-editor-restored-definition-span-stable=" + v4_contract_region_editor_bool(v4_definition_at_span(v4_contract_region_editor_restored_definition) == v4_definition_at_span(v4_contract_region_editor_bound_definition))
+    say "contract-region-editor-restored-definition-matches-later-binder=" + v4_contract_region_editor_bool(v4_contract_region_editor_span_positions_equal(v4_definition_at_span(v4_contract_region_editor_restored_definition), v4_contract_region_editor_out_binder_span))
+    say "contract-region-editor-restored-repeated-definition-matches-later-binder=" + v4_contract_region_editor_bool(v4_contract_region_editor_span_positions_equal(v4_definition_at_span(v4_contract_region_editor_restored_repeated_definition), v4_contract_region_editor_out_binder_span))
+    say "contract-region-editor-restored-alt-definition-matches-alt-binder=" + v4_contract_region_editor_bool(v4_contract_region_editor_span_positions_equal(v4_definition_at_span(v4_contract_region_editor_restored_alt_definition), v4_contract_region_editor_alt_binder_span))
+    say "contract-region-editor-restored-definition-records-distinct=" + v4_contract_region_editor_bool(v4_contract_region_editor_restored_definition != v4_contract_region_editor_restored_alt_definition)
+    say "contract-region-editor-restored-definition-spans-distinct=" + v4_contract_region_editor_bool(v4_contract_region_editor_span_positions_equal(v4_definition_at_span(v4_contract_region_editor_restored_definition), v4_definition_at_span(v4_contract_region_editor_restored_alt_definition)) == false)
+}

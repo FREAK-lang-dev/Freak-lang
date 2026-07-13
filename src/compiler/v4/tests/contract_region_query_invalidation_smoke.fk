@@ -139,8 +139,13 @@ say "contract-region-query-diagnostics-recomputed=" + v4_contract_region_query_r
 say "contract-region-query-semantic-recomputed=" + v4_contract_region_query_recomputed(v4_contract_region_query_semantic_key, v4_contract_region_query_semantic_misses_before)
 say "contract-region-query-hover-recomputed=" + v4_contract_region_query_recomputed(v4_contract_region_query_hover_key, v4_contract_region_query_hover_misses_before)
 say "contract-region-query-definition-recomputed=" + v4_contract_region_query_recomputed(v4_contract_region_query_definition_key, v4_contract_region_query_definition_misses_before)
-say "contract-region-query-after-diagnostics=" + word_from_int(v4_diagnostics_count(v4_contract_region_query_after_diagnostics))
-say "contract-region-query-after-message=" + v4_diag_message(v4_diagnostics_diag(v4_contract_region_query_after_diagnostics, 0))
+pilot v4_contract_region_query_after_diagnostic_count = v4_diagnostics_count(v4_contract_region_query_after_diagnostics)
+say "contract-region-query-after-diagnostics=" + word_from_int(v4_contract_region_query_after_diagnostic_count)
+if v4_contract_region_query_after_diagnostic_count > 0 {
+    say "contract-region-query-after-message=" + v4_diag_message(v4_diagnostics_diag(v4_contract_region_query_after_diagnostics, 0))
+} else {
+    say "contract-region-query-after-message=none"
+}
 say "contract-region-query-after-status=" + v4_borrowck_result_status(v4_contract_region_query_after_borrow, v4_contract_region_query_after_result)
 say "contract-region-query-after-source-count=" + word_from_int(v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_query_after_ty, v4_contract_region_query_after_sig))
 say "contract-region-query-after-long-outlives-out=" + v4_contract_region_query_bool(v4_ty_signature_lifetime_outlives(v4_contract_region_query_after_ty, v4_contract_region_query_after_sig, "'long", "'out"))

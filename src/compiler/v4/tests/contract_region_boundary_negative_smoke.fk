@@ -1,8 +1,21 @@
--- V4 contract-region method, callback, and static boundary fixture.
+-- V4 contract-region declaration boundary fixture.
 -- Verification prepends the V4 crates before this file.
 -- One cached TY request owns the only compiler pipeline in this executable.
--- Actual impl/dynamic forwarding is omitted: the current diagnostic surface
--- rejects lifetime-bearing doctrine and callback contracts before invocation.
+-- Invocation boundaries live in contract_region_forwarding_boundary_negative_smoke.fk.
+
+task v4_contract_region_boundary_negative_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_boundary_negative_emit_diag(ty_id: int, diag_id: int) -> void {
+    pilot diag = v4_ty_diag(ty_id, diag_id)
+    say "contract-region-boundary-negative-diag" + word_from_int(diag_id) + "=" + v4_diag_message(diag)
+    say "contract-region-boundary-negative-diag" + word_from_int(diag_id) + "-span=" + v4_diag_span(diag)
+    say "contract-region-boundary-negative-diag" + word_from_int(diag_id) + "-help=" + v4_diag_help(diag)
+}
 
 task v4_contract_region_boundary_negative_source() -> word {
     pilot src = "shape Ship {\n"
@@ -22,12 +35,21 @@ task v4_contract_region_boundary_negative_source() -> word {
 
 pilot v4_contract_region_boundary_negative_ty = v4_ty_text_cached("contract-region-boundary-negative.fk", v4_contract_region_boundary_negative_source())
 
-say "contract-region-boundary-negative-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_boundary_negative_ty))
-pilot v4_contract_region_boundary_negative_diag_id = 0
-repeat until v4_contract_region_boundary_negative_diag_id >= v4_ty_diag_count(v4_contract_region_boundary_negative_ty) {
-    pilot v4_contract_region_boundary_negative_diag = v4_ty_diag(v4_contract_region_boundary_negative_ty, v4_contract_region_boundary_negative_diag_id)
-    say "contract-region-boundary-negative-diag" + word_from_int(v4_contract_region_boundary_negative_diag_id) + "=" + v4_diag_message(v4_contract_region_boundary_negative_diag)
-    say "contract-region-boundary-negative-diag" + word_from_int(v4_contract_region_boundary_negative_diag_id) + "-span=" + v4_diag_span(v4_contract_region_boundary_negative_diag)
-    say "contract-region-boundary-negative-diag" + word_from_int(v4_contract_region_boundary_negative_diag_id) + "-help=" + v4_diag_help(v4_contract_region_boundary_negative_diag)
-    v4_contract_region_boundary_negative_diag_id += 1
+pilot v4_contract_region_boundary_negative_diagnostic_count = v4_ty_diag_count(v4_contract_region_boundary_negative_ty)
+say "contract-region-boundary-negative-diagnostics=" + word_from_int(v4_contract_region_boundary_negative_diagnostic_count)
+say "contract-region-boundary-negative-diagnostics-exact-three=" + v4_contract_region_boundary_negative_bool(v4_contract_region_boundary_negative_diagnostic_count == 3)
+if v4_contract_region_boundary_negative_diagnostic_count > 0 {
+    v4_contract_region_boundary_negative_emit_diag(v4_contract_region_boundary_negative_ty, 0)
+} else {
+    say "contract-region-boundary-negative-diag0=none"
+}
+if v4_contract_region_boundary_negative_diagnostic_count > 1 {
+    v4_contract_region_boundary_negative_emit_diag(v4_contract_region_boundary_negative_ty, 1)
+} else {
+    say "contract-region-boundary-negative-diag1=none"
+}
+if v4_contract_region_boundary_negative_diagnostic_count > 2 {
+    v4_contract_region_boundary_negative_emit_diag(v4_contract_region_boundary_negative_ty, 2)
+} else {
+    say "contract-region-boundary-negative-diag2=none"
 }
