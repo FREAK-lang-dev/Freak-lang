@@ -38,8 +38,9 @@ pilot v4_borrowck_path_stmt_ids = 0
 pilot v4_borrowck_path_block_ids = 0
 pilot v4_borrowck_diags = 0
 pilot v4_borrowck_provenance_states = 0
-pilot v4_borrowck_provenance_paths = 0
-pilot v4_borrowck_provenance_origins = 0
+pilot v4_borrowck_source_provenance_ids = 0
+pilot v4_borrowck_source_paths = 0
+pilot v4_borrowck_source_origins = 0
 pilot v4_borrowck_ready = 0
 
 task v4_borrowck_init() -> void {
@@ -58,8 +59,9 @@ task v4_borrowck_init() -> void {
         v4_borrowck_path_block_ids = array_new()
         v4_borrowck_diags = array_new()
         v4_borrowck_provenance_states = array_new()
-        v4_borrowck_provenance_paths = array_new()
-        v4_borrowck_provenance_origins = array_new()
+        v4_borrowck_source_provenance_ids = array_new()
+        v4_borrowck_source_paths = array_new()
+        v4_borrowck_source_origins = array_new()
         v4_borrowck_ready = 1
     }
 }
@@ -448,8 +450,6 @@ task v4_borrowck_provenance_new(state: word) -> int {
     v4_borrowck_init()
     pilot provenance_id = array_len(v4_borrowck_provenance_states)
     array_push(v4_borrowck_provenance_states, state)
-    array_push(v4_borrowck_provenance_paths, word_from_int(array_new()))
-    array_push(v4_borrowck_provenance_origins, word_from_int(array_new()))
     give back provenance_id
 }
 
@@ -467,54 +467,82 @@ task v4_borrowck_provenance_mark_opaque(provenance_id: int) -> void {
     }
 }
 
-task v4_borrowck_provenance_paths_handle(provenance_id: int) -> int {
-    give back word_to_int(array_get(v4_borrowck_provenance_paths, provenance_id))
-}
-
-task v4_borrowck_provenance_origins_handle(provenance_id: int) -> int {
-    give back word_to_int(array_get(v4_borrowck_provenance_origins, provenance_id))
-}
-
 task v4_borrowck_provenance_count(provenance_id: int) -> int {
     if provenance_id < 0 {
         give back 0
     }
-    give back array_len(v4_borrowck_provenance_paths_handle(provenance_id))
+    pilot source_count = 0
+    pilot row_id = 0
+    pilot row_count = array_len(v4_borrowck_source_provenance_ids)
+    repeat until row_id >= row_count {
+        if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == provenance_id {
+            source_count += 1
+        }
+        row_id += 1
+    }
+    give back source_count
 }
 
 task v4_borrowck_provenance_is_known_empty(provenance_id: int) -> bool {
     give back v4_borrowck_provenance_is_known(provenance_id) and v4_borrowck_provenance_count(provenance_id) == 0
 }
 
+task v4_borrowck_provenance_source_row_at(provenance_id: int, source_id: int) -> int {
+    if provenance_id < 0 or source_id < 0 {
+        give back 0 - 1
+    }
+    pilot seen_sources = 0
+    pilot row_id = 0
+    pilot row_count = array_len(v4_borrowck_source_provenance_ids)
+    repeat until row_id >= row_count {
+        if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == provenance_id {
+            if seen_sources == source_id {
+                give back row_id
+            }
+            seen_sources += 1
+        }
+        row_id += 1
+    }
+    give back 0 - 1
+}
+
 task v4_borrowck_provenance_path_at(provenance_id: int, source_id: int) -> word {
-    give back array_get(v4_borrowck_provenance_paths_handle(provenance_id), source_id)
+    pilot row_id = v4_borrowck_provenance_source_row_at(provenance_id, source_id)
+    if row_id < 0 {
+        give back ""
+    }
+    give back array_get(v4_borrowck_source_paths, row_id)
 }
 
 task v4_borrowck_provenance_origin_at(provenance_id: int, source_id: int) -> int {
-    give back word_to_int(array_get(v4_borrowck_provenance_origins_handle(provenance_id), source_id))
+    pilot row_id = v4_borrowck_provenance_source_row_at(provenance_id, source_id)
+    if row_id < 0 {
+        give back 0 - 1
+    }
+    give back word_to_int(array_get(v4_borrowck_source_origins, row_id))
 }
 
 task v4_borrowck_provenance_contains_path(provenance_id: int, source_text: word) -> bool {
     pilot source_canon = v4_borrowck_path_canon(source_text)
-    pilot source_id = 0
-    pilot source_count = v4_borrowck_provenance_count(provenance_id)
-    repeat until source_id >= source_count {
-        if v4_borrowck_provenance_path_at(provenance_id, source_id) == source_canon {
+    pilot row_id = 0
+    pilot row_count = array_len(v4_borrowck_source_provenance_ids)
+    repeat until row_id >= row_count {
+        if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == provenance_id and array_get(v4_borrowck_source_paths, row_id) == source_canon {
             give back true
         }
-        source_id += 1
+        row_id += 1
     }
     give back false
 }
 
 task v4_borrowck_provenance_overlaps_path(provenance_id: int, source_text: word) -> bool {
-    pilot source_id = 0
-    pilot source_count = v4_borrowck_provenance_count(provenance_id)
-    repeat until source_id >= source_count {
-        if v4_borrowck_paths_overlap(v4_borrowck_provenance_path_at(provenance_id, source_id), source_text) {
+    pilot row_id = 0
+    pilot row_count = array_len(v4_borrowck_source_provenance_ids)
+    repeat until row_id >= row_count {
+        if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == provenance_id and v4_borrowck_paths_overlap(array_get(v4_borrowck_source_paths, row_id), source_text) {
             give back true
         }
-        source_id += 1
+        row_id += 1
     }
     give back false
 }
@@ -528,8 +556,9 @@ task v4_borrowck_provenance_add_source(provenance_id: int, source_text: word, or
     if v4_borrowck_provenance_contains_path(provenance_id, source_canon) {
         give back
     }
-    array_push(v4_borrowck_provenance_paths_handle(provenance_id), source_canon)
-    array_push(v4_borrowck_provenance_origins_handle(provenance_id), word_from_int(origin_id))
+    array_push(v4_borrowck_source_provenance_ids, word_from_int(provenance_id))
+    array_push(v4_borrowck_source_paths, source_canon)
+    array_push(v4_borrowck_source_origins, word_from_int(origin_id))
 }
 
 task v4_borrowck_provenance_union_into(provenance_id: int, incoming_id: int) -> void {
@@ -537,13 +566,16 @@ task v4_borrowck_provenance_union_into(provenance_id: int, incoming_id: int) -> 
         v4_borrowck_provenance_mark_opaque(provenance_id)
         give back
     }
-    pilot source_id = 0
     pilot source_count = v4_borrowck_provenance_count(incoming_id)
-    repeat until source_id >= source_count {
-        v4_borrowck_provenance_add_source(provenance_id, v4_borrowck_provenance_path_at(incoming_id, source_id), v4_borrowck_provenance_origin_at(incoming_id, source_id))
-        source_id += 1
+    pilot row_id = 0
+    pilot row_count = array_len(v4_borrowck_source_provenance_ids)
+    repeat until row_id >= row_count {
+        if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == incoming_id {
+            v4_borrowck_provenance_add_source(provenance_id, array_get(v4_borrowck_source_paths, row_id), word_to_int(array_get(v4_borrowck_source_origins, row_id)))
+        }
+        row_id += 1
     }
-    if not v4_borrowck_provenance_is_known(incoming_id) or v4_borrowck_provenance_is_known_empty(incoming_id) {
+    if not v4_borrowck_provenance_is_known(incoming_id) or source_count == 0 {
         v4_borrowck_provenance_mark_opaque(provenance_id)
     }
 }
