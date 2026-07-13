@@ -46,7 +46,66 @@ task v4_invalidation_contract_matches(left: word, right: word) -> word {
     give back "true"
 }
 
+task v4_invalidation_contract_positive(report: word) -> word {
+    if word_to_int(v4_unit_snapshot_key_value(report, "query-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "core-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "syntax-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "lex-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "parse-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "hir-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "resolve-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "ty-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "mir-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "borrowck-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "diagnostics-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "editor-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "semantic-at-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "hover-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "definition-at-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "document-symbols-invalidations-added")) <= 0 { give back "false" }
+    if word_to_int(v4_unit_snapshot_key_value(report, "completion-invalidations-added")) <= 0 { give back "false" }
+    give back "true"
+}
+
+task v4_invalidation_diff_generation_matches(report: word, diff: word, generation: int) -> word {
+    pilot expected_generation = word_from_int(generation)
+    if generation <= 0 { give back "false" }
+    if v4_unit_snapshot_key_value(report, "generation") != expected_generation { give back "false" }
+
+    pilot invalidation_count = 0
+    pilot line_id = 0
+    repeat until line_id >= v4_unit_snapshot_line_count(diff) {
+        pilot line = v4_unit_snapshot_line(diff, line_id)
+        if v4_unit_snapshot_field_raw(line, 0) == "query-invalidation-diff" {
+            if v4_unit_snapshot_key_value(line, "generation") != expected_generation {
+                give back "false"
+            }
+            invalidation_count += 1
+        }
+        line_id += 1
+    }
+    if invalidation_count <= 0 { give back "false" }
+    if invalidation_count != word_to_int(v4_unit_snapshot_key_value(report, "query-invalidations-added")) {
+        give back "false"
+    }
+    give back "true"
+}
+
 pilot v4_invalidation_source = "task main() => \"hi\"\n"
+pilot v4_invalidation_before_snapshot = ""
+pilot v4_invalidation_change_response1 = ""
+pilot v4_invalidation_report1 = ""
+pilot v4_invalidation_generation1 = 0
+pilot v4_invalidation_after_snapshot = ""
+pilot v4_invalidation_diff = ""
+pilot v4_invalidation_diff_line = ""
+pilot v4_invalidation_mid_snapshot = ""
+pilot v4_invalidation_change_response2 = ""
+pilot v4_invalidation_report2 = ""
+pilot v4_invalidation_generation2 = 0
+pilot v4_invalidation_after_snapshot2 = ""
+pilot v4_invalidation_diff2 = ""
+pilot v4_invalidation_diff_line2 = ""
 v4_invalidation_source = v4_invalidation_source + "shape Pilot\n"
 v4_lsp_open_document("invalidate.fk", v4_invalidation_source)
 
@@ -55,19 +114,24 @@ say v4_lsp_handle_position_request("textDocument/definition", "invalidate.fk", 0
 say v4_lsp_handle_position_request("textDocument/completion", "invalidate.fk", 1, 0)
 say v4_lsp_handle_request("textDocument/documentSymbol", "invalidate.fk", 0)
 say v4_lsp_handle_request("textDocument/publishDiagnostics", "invalidate.fk", 0)
+say v4_check_syntax_text("invalidate.fk", v4_invalidation_source)
 say "generation-before=" + word_from_int(v4_query_generation())
-pilot v4_invalidation_before_snapshot = v4_unit_snapshot()
+v4_invalidation_before_snapshot = v4_unit_snapshot()
 
 pilot v4_invalidation_changed = "shape Pilot\n"
 v4_invalidation_changed = v4_invalidation_changed + "task main() => \"hi\"\n"
-say v4_lsp_handle_text_request("textDocument/didChange", "invalidate.fk", v4_invalidation_changed, 0)
-pilot v4_invalidation_report1 = v4_lsp_invalidation_summary("invalidate.fk")
+v4_invalidation_change_response1 = v4_lsp_handle_text_request("textDocument/didChange", "invalidate.fk", v4_invalidation_changed, 0)
+say v4_invalidation_change_response1
+v4_invalidation_generation1 = v4_query_generation()
+v4_invalidation_report1 = v4_unit_snapshot_line(v4_invalidation_change_response1, 2)
 say v4_invalidation_report1
-pilot v4_invalidation_after_snapshot = v4_unit_snapshot()
-pilot v4_invalidation_diff = v4_unit_snapshot_diff(v4_invalidation_before_snapshot, v4_invalidation_after_snapshot)
-pilot v4_invalidation_diff_line = v4_unit_snapshot_health_diff_line(v4_invalidation_diff)
+v4_invalidation_after_snapshot = v4_unit_snapshot()
+v4_invalidation_diff = v4_unit_snapshot_diff(v4_invalidation_before_snapshot, v4_invalidation_after_snapshot)
+v4_invalidation_diff_line = v4_unit_snapshot_health_diff_line(v4_invalidation_diff)
 say v4_invalidation_diff_line
+say "invalidation-positive-first=" + v4_invalidation_contract_positive(v4_invalidation_report1)
 say "invalidation-match-first=" + v4_invalidation_contract_matches(v4_invalidation_report1, v4_invalidation_diff_line)
+say "invalidation-generation-match-first=" + v4_invalidation_diff_generation_matches(v4_invalidation_report1, v4_invalidation_diff, v4_invalidation_generation1)
 say "generation-after=" + word_from_int(v4_query_generation())
 say "generation-reason=" + v4_query_generation_reason(v4_query_generation())
 say "invalidated-total=" + word_from_int(v4_query_invalidated_count())
@@ -79,17 +143,22 @@ say v4_lsp_handle_position_request("textDocument/definition", "invalidate.fk", 1
 say v4_lsp_handle_position_request("textDocument/completion", "invalidate.fk", 0, 0)
 say v4_lsp_handle_request("textDocument/documentSymbol", "invalidate.fk", 0)
 say v4_lsp_handle_request("textDocument/publishDiagnostics", "invalidate.fk", 0)
-pilot v4_invalidation_mid_snapshot = v4_unit_snapshot()
+say v4_check_syntax_text("invalidate.fk", v4_invalidation_changed)
+v4_invalidation_mid_snapshot = v4_unit_snapshot()
 
 pilot v4_invalidation_changed2 = "task main() => \"bye\"\n"
 v4_invalidation_changed2 = v4_invalidation_changed2 + "shape Pilot\n"
-say v4_lsp_handle_text_request("textDocument/didChange", "invalidate.fk", v4_invalidation_changed2, 0)
-pilot v4_invalidation_report2 = v4_lsp_invalidation_summary("invalidate.fk")
+v4_invalidation_change_response2 = v4_lsp_handle_text_request("textDocument/didChange", "invalidate.fk", v4_invalidation_changed2, 0)
+say v4_invalidation_change_response2
+v4_invalidation_generation2 = v4_query_generation()
+v4_invalidation_report2 = v4_unit_snapshot_line(v4_invalidation_change_response2, 2)
 say v4_invalidation_report2
-pilot v4_invalidation_after_snapshot2 = v4_unit_snapshot()
-pilot v4_invalidation_diff2 = v4_unit_snapshot_diff(v4_invalidation_mid_snapshot, v4_invalidation_after_snapshot2)
-pilot v4_invalidation_diff_line2 = v4_unit_snapshot_health_diff_line(v4_invalidation_diff2)
+v4_invalidation_after_snapshot2 = v4_unit_snapshot()
+v4_invalidation_diff2 = v4_unit_snapshot_diff(v4_invalidation_mid_snapshot, v4_invalidation_after_snapshot2)
+v4_invalidation_diff_line2 = v4_unit_snapshot_health_diff_line(v4_invalidation_diff2)
 say v4_invalidation_diff_line2
+say "invalidation-positive-second=" + v4_invalidation_contract_positive(v4_invalidation_report2)
 say "invalidation-match-second=" + v4_invalidation_contract_matches(v4_invalidation_report2, v4_invalidation_diff_line2)
+say "invalidation-generation-match-second=" + v4_invalidation_diff_generation_matches(v4_invalidation_report2, v4_invalidation_diff2, v4_invalidation_generation2)
 say "generation-after-second=" + word_from_int(v4_query_generation())
 say "generation-reason-second=" + v4_query_generation_reason(v4_query_generation())
