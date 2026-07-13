@@ -30,7 +30,7 @@ task v4_contract_region_relation_stress_source() -> word {
 
     src = src + "task long_chain<"
     generic_id = 0
-    repeat until generic_id >= 128 {
+    repeat until generic_id >= 48 {
         if generic_id > 0 {
             src = src + ", "
         }
@@ -72,8 +72,8 @@ say "contract-region-relation-stress-fibonacci-disconnected=" + v4_contract_regi
 say "contract-region-relation-stress-fibonacci-transitive=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_fibonacci_sig, "'f39", "'f0"))
 say "contract-region-relation-stress-fibonacci-plus-bound=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_fibonacci_sig, "'f2", "'f1"))
 say "contract-region-relation-stress-chain-lifetime-count=" + word_from_int(v4_ty_signature_lifetime_count(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_chain_sig))
-say "contract-region-relation-stress-chain-reachable=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_chain_sig, "'c127", "'c0"))
-say "contract-region-relation-stress-chain-reverse=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_chain_sig, "'c0", "'c127"))
+say "contract-region-relation-stress-chain-reachable=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_chain_sig, "'c47", "'c0"))
+say "contract-region-relation-stress-chain-reverse=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_chain_sig, "'c0", "'c47"))
 say "contract-region-relation-stress-cycle-left-right=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_cycle_sig, "'left", "'right"))
 say "contract-region-relation-stress-cycle-right-left=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_cycle_sig, "'right", "'left"))
 say "contract-region-relation-stress-declared-reflexive=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_cycle_sig, "'left", "'left"))

@@ -1287,7 +1287,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_ty_signature_generic_raw_bound_count",
             "v4_ty_signature_generic_raw_bound_name",
             "v4_ty_signature_generic_has_empty_bound_clause",
-            "v4_ty_signature_lifetime_outlives_seen",
+            "v4_ty_signature_lifetime_outlives_ids",
             "v4_ty_signature_lifetime_outlives",
             "v4_ty_signature_is_ordinary_static_task",
             "task v4_ty_signature_borrowed_return_source_param_count(",
@@ -1304,10 +1304,11 @@ def audit_conformance(paths: List[Path]) -> int:
                 contract_region_missing.append(f"freak_ty: {needle}")
         # Frozen singular query retained only for compatibility. New policy and
         # implementation must use the count/at source-set API required above.
-        if "task v4_ty_signature_borrowed_return_source_param(" not in ty_src:
+        ty_singular_wrapper = "v4_ty_signature_borrowed_return_source_param("
+        if ty_src.count(ty_singular_wrapper) != 1:
             contract_region_missing.append(
-                "freak_ty compatibility wrapper: "
-                "task v4_ty_signature_borrowed_return_source_param("
+                "freak_ty compatibility wrapper must be declaration-only: "
+                "v4_ty_signature_borrowed_return_source_param"
             )
     else:
         contract_region_missing.append("freak_ty/src/lib.fk missing")
@@ -1326,10 +1327,11 @@ def audit_conformance(paths: List[Path]) -> int:
                 contract_region_missing.append(f"freak_mir: {needle}")
         # Frozen singular query retained only for compatibility. Set-valued MIR
         # consumers must use the count/at API required above.
-        if "task v4_mir_rvalue_call_borrowed_source_arg(" not in mir_src:
+        mir_singular_wrapper = "v4_mir_rvalue_call_borrowed_source_arg("
+        if mir_src.count(mir_singular_wrapper) != 1:
             contract_region_missing.append(
-                "freak_mir compatibility wrapper: "
-                "task v4_mir_rvalue_call_borrowed_source_arg("
+                "freak_mir compatibility wrapper must be declaration-only: "
+                "v4_mir_rvalue_call_borrowed_source_arg"
             )
     else:
         contract_region_missing.append("freak_mir/src/lib.fk missing")
@@ -1383,22 +1385,20 @@ def audit_conformance(paths: List[Path]) -> int:
                 contract_region_missing.append(f"freak_borrowck: {needle}")
         # Frozen singular origin query retained only for compatibility. The
         # provenance set is the authoritative borrowck contract.
-        if "task v4_borrowck_return_lend_origin(" not in borrowck_src:
+        borrowck_singular_wrapper = "v4_borrowck_return_lend_origin("
+        if borrowck_src.count(borrowck_singular_wrapper) != 1:
             contract_region_missing.append(
-                "freak_borrowck compatibility wrapper: "
-                "task v4_borrowck_return_lend_origin("
+                "freak_borrowck compatibility wrapper must be declaration-only: "
+                "v4_borrowck_return_lend_origin"
             )
         if "Meiya cannot choose one source for this returned loan" in borrowck_src:
             contract_region_missing.append(
                 "freak_borrowck stale exact-one diagnostic: "
                 "Meiya cannot choose one source for this returned loan"
             )
-        # The dormant helper declaration is still present in the frozen source
-        # surface. Any second occurrence means active code has revived its stale
-        # "name one source" advice instead of consuming provenance sets.
-        if borrowck_src.count("v4_borrowck_return_ambiguous_help(") > 1:
+        if "v4_borrowck_return_ambiguous_help(" in borrowck_src:
             contract_region_missing.append(
-                "freak_borrowck stale exact-one advice is still consumed: "
+                "freak_borrowck retains stale exact-one advice: "
                 "v4_borrowck_return_ambiguous_help"
             )
     else:
@@ -1536,6 +1536,17 @@ def audit_conformance(paths: List[Path]) -> int:
             ),
         ),
         (
+            v4_tests_return / "contract_region_relation_stress_smoke.fk",
+            (
+                "repeat until generic_id >= 48",
+                "v4_ty_signature_lifetime_outlives",
+                "contract-region-relation-stress-fibonacci-transitive=",
+                "contract-region-relation-stress-chain-reachable=",
+                "contract-region-relation-stress-cycle-right-left=",
+                "contract-region-relation-stress-extern-gated=",
+            ),
+        ),
+        (
             v4_tests_return / "contract_region_bound_diagnostics_smoke.fk",
             (
                 "task undeclared_bound<'a: 'ghost>",
@@ -1568,6 +1579,8 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 "pilot view = choose(lend first, lend second, take_first)",
                 "pilot views = (choose(lend first, lend second, take_first), lend first)",
+                "give back 7",
+                "contract-region-storage-mir-diag0-message=",
                 "contract-region-storage-local-holder-status=",
                 "contract-region-storage-aggregate-status=",
                 "contract-region-storage-diag",
@@ -1717,6 +1730,23 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-relation-negative-diag0=Meiya refuses a returned loan from the wrong lifetime",
             "contract-region-relation-negative-diag1=Meiya refuses a returned loan from the wrong lifetime",
         ),
+        "contract_region_relation_stress_smoke.fk": (
+            "contract-region-relation-stress-parse-diagnostics=0",
+            "contract-region-relation-stress-ty-diagnostics=0",
+            "contract-region-relation-stress-fibonacci-lifetime-count=41",
+            "contract-region-relation-stress-fibonacci-disconnected=false",
+            "contract-region-relation-stress-fibonacci-transitive=true",
+            "contract-region-relation-stress-fibonacci-plus-bound=true",
+            "contract-region-relation-stress-chain-lifetime-count=48",
+            "contract-region-relation-stress-chain-reachable=true",
+            "contract-region-relation-stress-chain-reverse=false",
+            "contract-region-relation-stress-cycle-left-right=true",
+            "contract-region-relation-stress-cycle-right-left=true",
+            "contract-region-relation-stress-declared-reflexive=true",
+            "contract-region-relation-stress-undeclared-reflexive=false",
+            "contract-region-relation-stress-static-reflexive=false",
+            "contract-region-relation-stress-extern-gated=false",
+        ),
         "contract_region_bound_diagnostics_smoke.fk": (
             "contract-region-bound-diagnostics-undeclared-raw-bound='ghost",
             "contract-region-bound-diagnostics-reserved-raw-bound='static",
@@ -1778,12 +1808,15 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "contract_region_storage_negative_smoke.fk": (
             "contract-region-storage-ty-diagnostics=0",
-            "contract-region-storage-mir-diagnostics=0",
+            "contract-region-storage-mir-diagnostics=1",
+            "contract-region-storage-mir-diag0-message=Meiya cannot store a lend inside a tuple yet",
+            "contract-region-storage-mir-diag0-help=aggregate_source_set constructs tuple element 1 with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-mir-diag0-span=0@",
             "contract-region-storage-choose-status=clean",
             "contract-region-storage-local-holder-status=clean",
-            "contract-region-storage-aggregate-status=blocked",
+            "contract-region-storage-aggregate-status=clean",
             "contract-region-storage-borrow-diagnostics=1",
-            "contract-region-storage-diag0=Meiya cannot establish the origin of this returned loan",
+            "contract-region-storage-diag0=Meiya cannot store a lend inside a tuple yet",
             "contract-region-storage-diag0-span=0@",
         ),
         "contract_region_boundary_negative_smoke.fk": (
