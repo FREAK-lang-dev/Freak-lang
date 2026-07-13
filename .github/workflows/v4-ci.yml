@@ -26,7 +26,7 @@ jobs:
           python-version: "3.12"
 
       - name: V4 structural and transpile coverage
-        run: python src/compiler/v4/check_v4.py --fast
+        run: python -u src/compiler/v4/check_v4.py --fast
 
   v4-runtime-linux:
     name: V4 runtime linux (${{ matrix.shard }})
@@ -48,7 +48,7 @@ jobs:
 
       - name: V4 executable smoke shard
         run: >
-          python src/compiler/v4/check_v4.py
+          python -u src/compiler/v4/check_v4.py
           --smoke-exclude unit_snapshot
           --smoke-shard ${{ matrix.shard }}
 
@@ -67,7 +67,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang lld
 
       - name: V4 unit snapshot runtime smoke
-        run: python src/compiler/v4/check_v4.py --smoke unit_snapshot_smoke
+        run: python -u src/compiler/v4/check_v4.py --smoke unit_snapshot_smoke
 
   v4-runtime-linux-unit-snapshot-diff:
     name: V4 runtime linux (unit snapshot diff)
@@ -84,7 +84,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang lld
 
       - name: V4 unit snapshot diff runtime smoke
-        run: python src/compiler/v4/check_v4.py --smoke unit_snapshot_diff_smoke
+        run: python -u src/compiler/v4/check_v4.py --smoke unit_snapshot_diff_smoke
 
   v4-runtime-linux-unit-snapshot-const:
     name: V4 runtime linux (unit snapshot const)
@@ -101,7 +101,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang lld
 
       - name: V4 unit snapshot const runtime smoke
-        run: python src/compiler/v4/check_v4.py --smoke unit_snapshot_const_smoke
+        run: python -u src/compiler/v4/check_v4.py --smoke unit_snapshot_const_smoke
 
   v4-runtime-windows:
     name: V4 runtime windows
@@ -119,7 +119,7 @@ jobs:
 
       - name: V4 representative runtime smokes
         run: >
-          python src/compiler/v4/check_v4.py
+          python -u src/compiler/v4/check_v4.py
           --smoke query_invalidation
           --smoke unit_snapshot
           --smoke diagnostics_query
