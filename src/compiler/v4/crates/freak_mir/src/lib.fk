@@ -2843,17 +2843,18 @@ task v4_mir_rvalue_call_borrowed_source_arg_for_signature(mir_id: int, body_id: 
     give back arg_rvalue
 }
 
+-- -1 is opaque/unproven, 0 is a proven empty TY source set, and positive counts are fully mapped.
 task v4_mir_rvalue_call_borrowed_source_arg_count(mir_id: int, body_id: int, rvalue_id: int) -> int {
     pilot sig_id = v4_mir_rvalue_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
     if sig_id < 0 {
-        give back 0
+        give back 0 - 1
     }
 
     pilot source_count = v4_ty_signature_borrowed_return_source_param_count(v4_mir_ty_id(mir_id), sig_id)
     pilot source_id = 0
     repeat until source_id >= source_count {
         if v4_mir_rvalue_call_borrowed_source_arg_for_signature(mir_id, body_id, rvalue_id, sig_id, source_id) < 0 {
-            give back 0
+            give back 0 - 1
         }
         source_id += 1
     }
