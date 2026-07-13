@@ -100,7 +100,9 @@ relations: `'long: 'short` means that `'long` may supply a loan returned for
 `'short`. Every declared lifetime is reflexively reachable from itself, direct
 edges close transitively, and relation cycles make their members mutually
 reachable. TY computes this closure with an iterative, cycle-safe worklist, so
-converging relation graphs and long chains use constant call-stack space. `'_`
+converging relation graphs and long chains use constant call-stack space. Its
+queue/visited arrays are high-water scratch: each traversal resets the
+active prefix and reuses capacity without growing for repeated same-sized work. `'_`
 keeps elision semantics but cannot be declared or used
 as a bound. Declaring `'static` binders or using `'static` lend
 parameters/returns remains blocked until global-storage provenance exists.
@@ -112,7 +114,11 @@ return lifetime; an elided return admits every mode-compatible borrowed
 parameter. Shared `lend` returns accept `lend` and `lend mut` sources, while
 `lend mut` returns accept only `lend mut` sources. Candidate selection is
 independent of top-level pointee type because a valid return may project a
-field from its source.
+field from its source. The returned-loan source vector of eligible formal
+parameter ids is built lazily once per immutable `(ty_id, sig_id)` and shared
+by count and indexed lookups. A TY
+file restore replaces its source-vector cache, and each restored signature slot
+is explicitly marked unbuilt before it can be queried again.
 
 Meiya verifies that each returned origin honors the declared lifetime, then
 follows that origin through field projections, scalar local holders, nested
@@ -130,29 +136,39 @@ is memoized by MIR/body/use location/rvalue within each borrowck generation.
 Active scratch counts reset at generation boundaries and are bounded by the
 active generation's visited provenance graph. State, source-row, and memo arrays
 reuse high-water capacity across recomputation without historical growth, while
-recursive provenance cycles remain conservatively opaque. Semantic, hover, and
-definition queries resolve repeated and forward
+recursive provenance cycles remain conservatively opaque. Meiya also interns
+the integer words written into provenance scratch and reuses cached canonical
+owner-path strings and exact-input mappings. Repeating the same provenance
+workload therefore leaves the integer-intern and canonical-path cache counts
+stable; genuinely new integers or paths may still extend those process caches.
+Semantic, hover, and definition queries resolve repeated and forward
 outlives-bound references to the declared binder; distinct definition records
-and spans survive editor snapshot restore. Source edits invalidate and
-recompute TY, MIR, borrowck, diagnostics, semantic, hover, and definition
-queries, including an elided result changing from multiple candidate owners to
-one.
+and spans survive editor snapshot restore. Document-symbol and completion
+requests participate in the same editor query lifecycle. Source edits
+invalidate and subsequent requests recompute TY, MIR, borrowck, diagnostics,
+semantic-at, hover, definition-at, document symbols, and completion, including
+an elided result changing from multiple candidate owners to one.
 
-The current sound boundary is deliberately narrow. Named lends may be outer
-ordinary-task parameter and return contracts, and their results may flow
-through scalar local holders. MIR rejects lend children while constructing
-tuples, fixed arrays, lists, shapes, and route payloads because aggregate child
-provenance is not represented yet; aggregate/shape/route/container storage is
-therefore not supported.
+The current sound boundary is deliberately narrow. Named or elided lends may be
+outer ordinary-task parameter and borrowed-return contracts, and their results
+may flow through scalar local holders. TY rejects named and elided lends nested
+inside stored signature types before normalization can erase their provenance.
+During runtime-value expression lowering, MIR emits compile-time diagnostics for
+lend children in tuple literals, fixed-array literals, repeat-filled fixed
+arrays, list literals, shape values, route payloads, `some(...)`, `ok(...)`,
+`err(...)`, map keys, and map values.
+Aggregate/shape/route/container storage is therefore not supported.
 Malformed `lend 'a` and doubled-lifetime types receive spanned diagnostics.
+Contract-boundary smokes also pin normalized source paths and exact `start:end`
+byte ranges for signature-storage and unsupported-forwarding failures.
 Method, dynamic, callback, extern, and FFI returned-loan forwarding calls are
 explicitly rejected rather than silently accepted. Closure forwarding cannot be
 expressed because V4 closure expression syntax has not landed. Loop-carried join
 fixed points remain later Meiya work. Source sets come from signature
 contracts; body-derived source discovery and general lexical lifetime inference
 remain open. This is a contract-region source-set and non-lexical liveness
-slice, not full region inference. These TY/MIR/Meiya/editor facts do not imply
-backend support.
+slice, not full region inference. These TY/MIR/Meiya/editor facts do not imply a
+completed production backend.
 The first `Shared<T>` / `Weak<T>` ownership surface now exists in TY/MIR:
 `Shared<T>::new`, `.clone()`, `.downgrade()`, `.borrow()`, `.borrow_mut()`,
 `.get_mut()`, and `Weak<T>.upgrade()` lower to stable wrapper types, while

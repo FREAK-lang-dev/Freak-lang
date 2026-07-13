@@ -997,14 +997,20 @@ the rest is V4.
 > `'long: 'short` adds an explicit declared outlives edge. Every declared lifetime
 > outlives itself, direct edges close transitively, and a declared cycle makes
 > its members mutually reachable. TY computes that closure with an iterative,
-> cycle-safe worklist and constant call-stack space. It builds deterministic,
+> cycle-safe worklist and constant call-stack space. The queue/visited arrays
+> are high-water scratch: each traversal resets its active prefix and reuses
+> capacity without growing for repeated same-sized work. TY builds deterministic,
 > controlled source sets from
 > every mode-compatible borrowed parameter whose named lifetime equals or
 > outlives the return lifetime. Shared `lend` returns accept both `lend` and
 > `lend mut` sources; `lend mut` returns accept only `lend mut` sources.
 > Elided returns likewise collect their mode-compatible signature sources.
 > Top-level pointee types do not filter candidates because a valid origin may
-> be a field projection. Meiya verifies returned origins against that contract
+> be a field projection. TY materializes each returned-loan source vector lazily
+> once per immutable `(ty_id, sig_id)`; count and indexed lookups reuse
+> it instead of retraversing the lifetime graph. TY snapshot restore replaces a
+> file's vector cache and marks each restored signature slot unbuilt before
+> reuse. Meiya verifies returned origins against that contract
 > and follows them through projections, scalar local holders, nested statically
 > resolved ordinary calls, reordered named arguments, and acyclic CFG joins.
 > MIR erases the callee binder spelling at the caller while retaining a
@@ -1015,32 +1021,46 @@ the rest is V4.
 > Those facts survive borrowck/editor snapshot restore. Stored named or elided
 > ordinary-call results and copied scalar holder aliases retain every candidate
 > owner through the holder's final reachable use. Source edits invalidate and
-> recompute TY, MIR, borrowck, diagnostics, semantic, hover, and definition
-> queries, including edits that shrink an elided result from multiple owners to
-> one.
+> subsequent requests recompute TY, MIR, borrowck, diagnostics, semantic-at,
+> hover, definition-at, document symbols, and completion, including edits that
+> shrink an elided result from multiple owners to one. These are distinct query
+> families; document-symbol and completion invalidation are not inferred from
+> hover coverage.
 > Rebinding kills only that holder's provenance, restoring
 > from a descendant alias creates a new tracked state, and exact self-assignment
 > preserves the existing edge. Provenance expansion is memoized by MIR/body/use
 > location/rvalue within a borrowck generation. Active scratch counts reset for
 > each generation and are bounded by that generation's visited provenance graph;
 > state, source-row, and memo arrays reuse high-water capacity across
-> recomputation instead of accumulating history;
+> recomputation instead of accumulating history. Integer-word interning backs
+> that scratch, and the canonical-path cache reuses exact input mappings plus
+> whitespace-free owner paths across repeated generations. The same
+> workload leaves those cache counts stable, although genuinely new integers or
+> paths may extend them;
 > recursive provenance cycles stay conservatively opaque. Meiya rejects
 > callee-owned escapes,
 > immutable-to-mutable upgrades, origins without the required outlives
-> relation, malformed lend targets, and `'static` borrowed contracts. Named
-> lends remain forbidden in aggregate storage. MIR rejects lend children at
-> tuple, fixed-array, list, shape, and route-payload construction; aliases and
-> nested containers cannot make that storage sound. Method, dynamic, callback,
-> extern, and FFI returned-loan forwarding paths are explicitly rejected rather
-> than silently accepted. Closure forwarding cannot be expressed because V4
+> relation, malformed lend targets, and `'static` borrowed contracts. Outer
+> ordinary-task lend parameters and borrowed returns remain legal contract
+> positions, but TY rejects both named and elided lends nested inside stored
+> signature types before normalization can erase their provenance. At
+> runtime-value expression lowering, MIR emits compile-time diagnostics for lend
+> children in tuple literals, fixed-array literals, repeat-filled fixed arrays,
+> list literals, shape values, route payloads, `some(...)`, `ok(...)`,
+> `err(...)`, map keys, and map values;
+> aliases and nested containers cannot make that storage sound. Method, dynamic,
+> callback, extern, and FFI returned-loan forwarding paths are explicitly
+> rejected rather than silently accepted. Closure forwarding cannot be expressed because V4
 > closure expression syntax has not landed. Loop-carried join fixed points still
 > require later Meiya work. Body-derived source discovery and general lexical
 > region inference are not part of this signature-contract slice. Lifetime
 > tokens, signature relations, and editor semantic/hover/definition facts on
 > outlives-bound references exist. Definitions target the declared binder even
 > when it appears later in the generic list or is referenced repeatedly, and
-> restored snapshots preserve those distinct definition spans. The first
+> restored snapshots preserve those distinct definition spans. Contract-boundary
+> diagnostics retain source-backed spans, with normalized source paths and exact
+> `start:end` byte ranges pinned for signature and unsupported-forwarding
+> failures. The first
 > `Shared<T>` / `Weak<T>` method surface now lowers through TY/MIR/Meiya with
 > direct weak-borrow and escaping-guard diagnostics. `trust me ... on my honor
 > as .level` now validates `.cadet` / `.pilot` / `.ace` / `.commander` /
@@ -1050,8 +1070,9 @@ the rest is V4.
 > `.cast<U>()` require `.ace` or higher. Full region inference, runtime
 > ref-count/borrow-state guards, `Send`/`Sync`,
 > `direct_order [arch] { asm }`, and the full higher-rank operation matrix
-> remain V4 work. This is first-pass non-lexical loan liveness,
-> not full reference lifetime proof.
+> remain V4 work. This is a partial signature-contract source-set and first-pass
+> non-lexical loan-liveness slice, not full region inference, full reference
+> lifetime proof, or production-backend completion.
 
 The borrow checker enforces memory safety without a garbage collector.
 It runs as a separate pass after type checking, before code generation.

@@ -293,6 +293,29 @@ V4 (partially implemented unless marked otherwise):
 | `trust me "reason" on my honor as .level { }` honor levels (cadet/pilot/ace/commander/humanity) | ⚠️ | 📖 V4 — MIR validates the known honor ladder, rejects unknown levels, permits raw-pointer reads at `.cadet+`, requires `.pilot+` for raw-pointer writes, and requires `.ace+` for pointer offset/cast; inline asm and the full higher-rank operation matrix still expand |
 | `direct_order [arch] { asm }` inline assembly | ❌ | 📖 V4 |
 
+Contract-region checkpoint (**⚠️ V4 partial**): TY permits outer ordinary-task
+lend parameters and borrowed returns, but rejects both named and elided lends
+nested inside stored signature types before provenance can be erased. During
+runtime-value aggregate construction, MIR emits compile-time diagnostics for
+lend children in tuple literals, fixed-array literals, repeat-filled fixed
+arrays, list literals, shape values, route payloads, `some(...)`, `ok(...)`,
+`err(...)`, map keys, and map values. Source
+edits invalidate the compiler chain and every editor family; subsequent
+requests explicitly recompute TY, MIR, borrowck, diagnostics, semantic-at,
+hover, definition-at, document symbols, and completion. Contract-boundary
+diagnostics retain normalized source paths and exact `start:end` byte ranges.
+
+The resource contract is reuse, not a claim of a complete solver. Lifetime
+closure runs on high-water queue/visited scratch. Eligible returned-loan formal
+parameter ids are cached lazily once per immutable `(ty_id, sig_id)` and TY
+snapshot restore replaces the file cache plus marks restored signature slots
+unbuilt. Meiya uses integer-word interning for provenance scratch and reuses its
+canonical-path cache across repeated generations; new values may still grow
+those process caches. This remains signature-derived source sets plus partial
+non-lexical liveness. Body-derived/general lexical region inference, aggregate
+loan storage, loop-carried fixed points, `'static` classification, and
+production backend completion remain open.
+
 ---
 
 ### §5 ANIME LAYER — FULL SPECIFICATION ([freak-full-bible.md:987-1250](freak-full-bible.md))
@@ -755,7 +778,7 @@ This is where V4 will need test coverage. **Out of scope for this audit; surface
 - §2.4 mood: 0 tests
 - §3.1 xm3: 0 tests
 - §3.2 squadron: 0 tests
-- §4 borrow checker: registered V4 contract-region smokes cover repeated-source named/elided sets, iterative explicit/reflexive/transitive/cyclic outlives closure with converging-graph and long-chain stress, shared/mutable mode filtering, MIR candidate mappings versus Meiya-owned `ReturnLoan` paths, projection/scalar-holder/statically resolved ordinary-call/reordered-argument/acyclic-join provenance, named and elided all-candidate final-use liveness, construction-time aggregate rejection, generation-local scratch bounded by the active provenance graph plus high-water-capacity reuse with no historical growth, malformed boundaries, explicit method/dynamic/callback/extern/FFI forwarding rejection, and semantic/hover/definition plus snapshot/invalidation assertions for outlives-bound references and elided source-set edits. Remaining gaps include body-derived/general lexical inference, lifetime-bearing aggregate/shape/route/container storage, closure forwarding (V4 closure expression syntax is absent), loop-carried fixed points, `'static`, and runtime ownership depth
+- §4 borrow checker: registered V4 contract-region smokes cover repeated-source named/elided sets; iterative explicit/reflexive/transitive/cyclic outlives closure with converging-graph and long-chain stress on high-water scratch; lazy per-`(ty_id,sig_id)` returned-source-vector reuse plus restore invalidation; shared/mutable mode filtering; MIR candidate mappings versus Meiya-owned `ReturnLoan` paths; projection/scalar-holder/statically resolved ordinary-call/reordered-argument/acyclic-join provenance; named and elided all-candidate final-use liveness; nested named/elided signature-storage rejection; construction-time tuple/fixed-array/repeat/list/shape/route/`some`/`ok`/`err`/map-key/map-value rejection; generation-local provenance scratch, integer interning, and canonical-path cache reuse without growth for a repeated workload; stable diagnostic source paths/ranges; explicit method/dynamic/callback/extern/FFI forwarding rejection; and semantic/hover/definition/document-symbol/completion snapshot, invalidation, and recomputation assertions for outlives-bound references and source-set edits. Remaining gaps include body-derived/general lexical inference, lifetime-bearing aggregate/shape/route/container storage, closure forwarding (V4 closure expression syntax is absent), loop-carried fixed points, `'static`, runtime ownership depth, and production backend completion
 - §5.2 foreshadow: only `audit_demo.fk`, no error cases
 - §5.3 routes: V4 smokes now cover route/variant constructors, exhaustive `when`, `check route`, alias-backed diagnostics, and route-locked `only on`; full visual-novel route semantics still expand
 - §5.4 anime operators: `tests/anime.fk` only
