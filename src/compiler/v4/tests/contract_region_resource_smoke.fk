@@ -134,6 +134,9 @@ pilot v4_contract_region_resource_generation_sequence = true
 
 pilot v4_contract_region_resource_repeat_count = 8
 pilot v4_contract_region_resource_repeat_id = 0
+pilot v4_contract_region_resource_invalid_provenance = 0 - 1
+pilot v4_contract_region_resource_bounds_opaque = false
+pilot v4_contract_region_resource_no_historical_growth = false
 repeat until v4_contract_region_resource_repeat_id >= v4_contract_region_resource_repeat_count {
     pilot current_borrow = v4_borrowck_check_mir(0, v4_contract_region_resource_mir)
     if not v4_contract_region_resource_diamond_stable(current_borrow, v4_contract_region_resource_diamond_def) {
@@ -165,13 +168,13 @@ repeat until v4_contract_region_resource_repeat_id >= v4_contract_region_resourc
     v4_contract_region_resource_repeat_id += 1
 }
 
-pilot v4_contract_region_resource_invalid_provenance = v4_borrowck_provenance_state_active_count()
-pilot v4_contract_region_resource_bounds_opaque: bool = v4_borrowck_provenance_state(v4_contract_region_resource_invalid_provenance) == v4_borrowck_provenance_opaque
+v4_contract_region_resource_invalid_provenance = v4_borrowck_provenance_state_active_count()
+v4_contract_region_resource_bounds_opaque = v4_borrowck_provenance_state(v4_contract_region_resource_invalid_provenance) == v4_borrowck_provenance_opaque
 v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_count(v4_contract_region_resource_invalid_provenance) == 0
 v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_path_at(v4_contract_region_resource_invalid_provenance, 0) == ""
 v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_origin_at(v4_contract_region_resource_invalid_provenance, 0) < 0
 v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_overlaps_path(v4_contract_region_resource_invalid_provenance, "unrelated.owner")
-pilot v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_active_stable and v4_contract_region_resource_active_within_capacity and v4_contract_region_resource_capacities_reused
+v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_active_stable and v4_contract_region_resource_active_within_capacity and v4_contract_region_resource_capacities_reused
 
 say "contract-region-resource-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_resource_ty))
 say "contract-region-resource-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_resource_mir))
