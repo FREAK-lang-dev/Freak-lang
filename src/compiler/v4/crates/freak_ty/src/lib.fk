@@ -48,6 +48,10 @@ pilot v4_ty_names = 0
 pilot v4_ty_displays = 0
 pilot v4_ty_hir_items = 0
 pilot v4_ty_diags = 0
+pilot v4_ty_lifetime_outlives_scratch_links = 0
+pilot v4_ty_lifetime_outlives_scratch_ids = 0
+pilot v4_ty_lifetime_outlives_scratch_active = 0
+pilot v4_ty_lifetime_outlives_scratch_generation_value = 0
 pilot v4_ty_ready = 0
 
 task v4_ty_init() -> void {
@@ -60,6 +64,8 @@ task v4_ty_init() -> void {
         v4_ty_displays = array_new()
         v4_ty_hir_items = array_new()
         v4_ty_diags = array_new()
+        v4_ty_lifetime_outlives_scratch_links = array_new()
+        v4_ty_lifetime_outlives_scratch_ids = array_new()
         v4_ty_ready = 1
     }
 }
@@ -3696,6 +3702,39 @@ task v4_ty_signature_lifetime_generic_id_for_name(ty_id: int, sig_id: int, lifet
     give back generic_id
 }
 
+-- Bootstrap arrays live for the process lifetime, so keep a high-water
+-- queue/visited workspace with cached link IDs for query and LSP checks.
+task v4_ty_lifetime_outlives_scratch_prepare(slot_count: int) -> void {
+    v4_ty_init()
+    pilot slot_id = array_len(v4_ty_lifetime_outlives_scratch_links)
+    repeat until array_len(v4_ty_lifetime_outlives_scratch_links) >= slot_count {
+        array_push(v4_ty_lifetime_outlives_scratch_links, "-2")
+        array_push(v4_ty_lifetime_outlives_scratch_ids, word_from_int(slot_id))
+        slot_id += 1
+    }
+
+    slot_id = 0
+    repeat until slot_id >= slot_count {
+        array_set(v4_ty_lifetime_outlives_scratch_links, slot_id, "-2")
+        slot_id += 1
+    }
+    v4_ty_lifetime_outlives_scratch_active = slot_count
+    v4_ty_lifetime_outlives_scratch_generation_value += 1
+}
+
+task v4_ty_lifetime_outlives_scratch_active_count() -> int {
+    give back v4_ty_lifetime_outlives_scratch_active
+}
+
+task v4_ty_lifetime_outlives_scratch_capacity() -> int {
+    v4_ty_init()
+    give back array_len(v4_ty_lifetime_outlives_scratch_links)
+}
+
+task v4_ty_lifetime_outlives_scratch_generation() -> int {
+    give back v4_ty_lifetime_outlives_scratch_generation_value
+}
+
 task v4_ty_signature_lifetime_outlives_ids(ty_id: int, sig_id: int, longer_generic_id: int, shorter_generic_id: int) -> bool {
     if longer_generic_id == shorter_generic_id {
         give back true
@@ -3704,18 +3743,13 @@ task v4_ty_signature_lifetime_outlives_ids(ty_id: int, sig_id: int, longer_gener
     -- The table is both the visited set and a linked FIFO: -2 is unseen,
     -- -1 is the tail, and every nonnegative value links to the next generic.
     pilot unseen_generic_id = 0 - 2
-    pilot queue_end_generic_id = 0 - 1
-    pilot visit_next = array_new()
-    pilot generic_id = 0
     pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
-    repeat until generic_id >= generic_count {
-        array_push(visit_next, word_from_int(unseen_generic_id))
-        generic_id += 1
-    }
+    v4_ty_lifetime_outlives_scratch_prepare(generic_count)
+    pilot visit_next = v4_ty_lifetime_outlives_scratch_links
 
     pilot current_generic_id = longer_generic_id
     pilot tail_generic_id = longer_generic_id
-    array_set(visit_next, longer_generic_id, word_from_int(queue_end_generic_id))
+    array_set(visit_next, longer_generic_id, "-1")
     repeat until current_generic_id < 0 {
         pilot bound_id = 0
         pilot bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, current_generic_id)
@@ -3727,8 +3761,8 @@ task v4_ty_signature_lifetime_outlives_ids(ty_id: int, sig_id: int, longer_gener
                     give back true
                 }
                 if bound_generic_id >= 0 and word_to_int(array_get(visit_next, bound_generic_id)) == unseen_generic_id {
-                    array_set(visit_next, tail_generic_id, word_from_int(bound_generic_id))
-                    array_set(visit_next, bound_generic_id, word_from_int(queue_end_generic_id))
+                    array_set(visit_next, tail_generic_id, array_get(v4_ty_lifetime_outlives_scratch_ids, bound_generic_id))
+                    array_set(visit_next, bound_generic_id, "-1")
                     tail_generic_id = bound_generic_id
                 }
             }
