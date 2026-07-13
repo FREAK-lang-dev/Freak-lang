@@ -1,0 +1,153 @@
+-- V4 contract-region edge query invalidation and recomputation fixture.
+-- Verification prepends the V4 crates before this file.
+-- One live document owns the only cached compiler pipeline in this executable.
+
+task v4_contract_region_query_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    repeat until token_id >= v4_lex_token_count(stream_id) {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_contract_region_query_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_contract_region_query_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0 - 1
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_contract_region_query_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_query_span_positions_equal(left: word, right: word) -> bool {
+    if v4_span_start(left) != v4_span_start(right) {
+        give back false
+    }
+    give back v4_span_end(left) == v4_span_end(right)
+}
+
+task v4_contract_region_query_positive(report: word, key: word) -> word {
+    give back v4_contract_region_query_bool(word_to_int(v4_unit_snapshot_key_value(report, key)) > 0)
+}
+
+task v4_contract_region_query_recomputed(key: word, misses_before: int) -> word {
+    give back v4_contract_region_query_bool(v4_query_misses_for_key(key) > misses_before)
+}
+
+task v4_contract_region_query_source(bound_name: word) -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task shorten<'long: " + bound_name + ", 'out, 'alt>(lend 'long value: Ship, lend 'out fallback: Ship, lend 'alt spare: Ship) -> lend 'out Ship {\n"
+    src = src + "    give back lend value\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_contract_region_query_path = "contract-region-query-invalidation.fk"
+pilot v4_contract_region_query_before = v4_contract_region_query_source("'out")
+pilot v4_contract_region_query_before_stream = v4_lex_text(0, v4_contract_region_query_before)
+pilot v4_contract_region_query_before_bound_offset = v4_contract_region_query_offset(v4_contract_region_query_before_stream, "'out", 0)
+pilot v4_contract_region_query_before_binder_token = v4_contract_region_query_find_token(v4_contract_region_query_before_stream, "'out", 1)
+pilot v4_contract_region_query_before_binder_span = v4_lex_token_span(v4_contract_region_query_before_stream, v4_contract_region_query_before_binder_token)
+
+v4_lsp_open_document(v4_contract_region_query_path, v4_contract_region_query_before)
+pilot v4_contract_region_query_before_borrow = v4_borrowck_text_cached(v4_contract_region_query_path, v4_contract_region_query_before)
+pilot v4_contract_region_query_before_mir = v4_borrowck_mir_id(v4_contract_region_query_before_borrow)
+pilot v4_contract_region_query_before_ty = v4_mir_ty_id(v4_contract_region_query_before_mir)
+pilot v4_contract_region_query_before_resolve = v4_ty_resolve_id(v4_contract_region_query_before_ty)
+pilot v4_contract_region_query_before_def = v4_resolve_def_for_name(v4_contract_region_query_before_resolve, "shorten")
+pilot v4_contract_region_query_before_sig = v4_ty_lookup_signature(v4_contract_region_query_before_ty, v4_contract_region_query_before_def)
+pilot v4_contract_region_query_before_result = v4_borrowck_lookup_result(v4_contract_region_query_before_borrow, v4_contract_region_query_before_def)
+pilot v4_contract_region_query_before_diagnostics = v4_diagnostics_text_cached(v4_contract_region_query_path, v4_contract_region_query_before)
+pilot v4_contract_region_query_before_semantic = v4_semantic_at_text_cached(v4_contract_region_query_path, v4_contract_region_query_before, v4_contract_region_query_before_bound_offset)
+pilot v4_contract_region_query_before_hover = v4_hover_text_cached(v4_contract_region_query_path, v4_contract_region_query_before, v4_contract_region_query_before_bound_offset)
+pilot v4_contract_region_query_before_definition = v4_definition_at_text_cached(v4_contract_region_query_path, v4_contract_region_query_before, v4_contract_region_query_before_bound_offset)
+
+pilot v4_contract_region_query_ty_key = v4_ty_query_key(v4_contract_region_query_path)
+pilot v4_contract_region_query_mir_key = v4_mir_query_key(v4_contract_region_query_path)
+pilot v4_contract_region_query_borrowck_key = v4_borrowck_query_key(v4_contract_region_query_path)
+pilot v4_contract_region_query_diagnostics_key = v4_diagnostics_query_key(v4_contract_region_query_path)
+pilot v4_contract_region_query_semantic_key = v4_semantic_at_query_key(v4_contract_region_query_path, v4_contract_region_query_before_bound_offset)
+pilot v4_contract_region_query_hover_key = v4_hover_query_key(v4_contract_region_query_path, v4_contract_region_query_before_bound_offset)
+pilot v4_contract_region_query_definition_key = v4_definition_at_query_key(v4_contract_region_query_path, v4_contract_region_query_before_bound_offset)
+pilot v4_contract_region_query_ty_misses_before = v4_query_misses_for_key(v4_contract_region_query_ty_key)
+pilot v4_contract_region_query_mir_misses_before = v4_query_misses_for_key(v4_contract_region_query_mir_key)
+pilot v4_contract_region_query_borrowck_misses_before = v4_query_misses_for_key(v4_contract_region_query_borrowck_key)
+pilot v4_contract_region_query_diagnostics_misses_before = v4_query_misses_for_key(v4_contract_region_query_diagnostics_key)
+pilot v4_contract_region_query_semantic_misses_before = v4_query_misses_for_key(v4_contract_region_query_semantic_key)
+pilot v4_contract_region_query_hover_misses_before = v4_query_misses_for_key(v4_contract_region_query_hover_key)
+pilot v4_contract_region_query_definition_misses_before = v4_query_misses_for_key(v4_contract_region_query_definition_key)
+
+say "contract-region-query-before-diagnostics=" + word_from_int(v4_diagnostics_count(v4_contract_region_query_before_diagnostics))
+say "contract-region-query-before-status=" + v4_borrowck_result_status(v4_contract_region_query_before_borrow, v4_contract_region_query_before_result)
+say "contract-region-query-before-source-count=" + word_from_int(v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_query_before_ty, v4_contract_region_query_before_sig))
+say "contract-region-query-before-long-outlives-out=" + v4_contract_region_query_bool(v4_ty_signature_lifetime_outlives(v4_contract_region_query_before_ty, v4_contract_region_query_before_sig, "'long", "'out"))
+say "contract-region-query-before-long-outlives-alt=" + v4_contract_region_query_bool(v4_ty_signature_lifetime_outlives(v4_contract_region_query_before_ty, v4_contract_region_query_before_sig, "'long", "'alt"))
+say "contract-region-query-before-bound-semantic=" + v4_semantic_at_type(v4_contract_region_query_before_semantic)
+say "contract-region-query-before-bound-hover=" + v4_hover_type(v4_contract_region_query_before_hover)
+say "contract-region-query-before-bound-definition=" + word_from_int(v4_definition_at_found(v4_contract_region_query_before_definition))
+say "contract-region-query-before-bound-definition-matches-out-binder=" + v4_contract_region_query_bool(v4_contract_region_query_span_positions_equal(v4_definition_at_span(v4_contract_region_query_before_definition), v4_contract_region_query_before_binder_span))
+
+pilot v4_contract_region_query_after = v4_contract_region_query_source("'alt")
+pilot v4_contract_region_query_after_stream = v4_lex_text(1, v4_contract_region_query_after)
+pilot v4_contract_region_query_after_bound_offset = v4_contract_region_query_offset(v4_contract_region_query_after_stream, "'alt", 0)
+pilot v4_contract_region_query_after_binder_token = v4_contract_region_query_find_token(v4_contract_region_query_after_stream, "'alt", 1)
+pilot v4_contract_region_query_after_binder_span = v4_lex_token_span(v4_contract_region_query_after_stream, v4_contract_region_query_after_binder_token)
+say "contract-region-query-bound-offset-stable=" + v4_contract_region_query_bool(v4_contract_region_query_after_bound_offset == v4_contract_region_query_before_bound_offset)
+
+pilot v4_contract_region_query_change_response = v4_lsp_handle_text_request("textDocument/didChange", v4_contract_region_query_path, v4_contract_region_query_after, 0)
+say v4_contract_region_query_change_response
+pilot v4_contract_region_query_report = v4_unit_snapshot_line(v4_contract_region_query_change_response, 2)
+say "contract-region-query-ty-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "ty-invalidations-added")
+say "contract-region-query-mir-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "mir-invalidations-added")
+say "contract-region-query-borrowck-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "borrowck-invalidations-added")
+say "contract-region-query-diagnostics-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "diagnostics-invalidations-added")
+say "contract-region-query-semantic-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "semantic-at-invalidations-added")
+say "contract-region-query-hover-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "hover-invalidations-added")
+say "contract-region-query-definition-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "definition-at-invalidations-added")
+
+pilot v4_contract_region_query_after_borrow = v4_borrowck_text_cached(v4_contract_region_query_path, v4_contract_region_query_after)
+pilot v4_contract_region_query_after_mir = v4_borrowck_mir_id(v4_contract_region_query_after_borrow)
+pilot v4_contract_region_query_after_ty = v4_mir_ty_id(v4_contract_region_query_after_mir)
+pilot v4_contract_region_query_after_resolve = v4_ty_resolve_id(v4_contract_region_query_after_ty)
+pilot v4_contract_region_query_after_def = v4_resolve_def_for_name(v4_contract_region_query_after_resolve, "shorten")
+pilot v4_contract_region_query_after_sig = v4_ty_lookup_signature(v4_contract_region_query_after_ty, v4_contract_region_query_after_def)
+pilot v4_contract_region_query_after_result = v4_borrowck_lookup_result(v4_contract_region_query_after_borrow, v4_contract_region_query_after_def)
+pilot v4_contract_region_query_after_diagnostics = v4_diagnostics_text_cached(v4_contract_region_query_path, v4_contract_region_query_after)
+pilot v4_contract_region_query_after_semantic = v4_semantic_at_text_cached(v4_contract_region_query_path, v4_contract_region_query_after, v4_contract_region_query_after_bound_offset)
+pilot v4_contract_region_query_after_hover = v4_hover_text_cached(v4_contract_region_query_path, v4_contract_region_query_after, v4_contract_region_query_after_bound_offset)
+pilot v4_contract_region_query_after_definition = v4_definition_at_text_cached(v4_contract_region_query_path, v4_contract_region_query_after, v4_contract_region_query_after_bound_offset)
+
+say "contract-region-query-ty-recomputed=" + v4_contract_region_query_recomputed(v4_contract_region_query_ty_key, v4_contract_region_query_ty_misses_before)
+say "contract-region-query-mir-recomputed=" + v4_contract_region_query_recomputed(v4_contract_region_query_mir_key, v4_contract_region_query_mir_misses_before)
+say "contract-region-query-borrowck-recomputed=" + v4_contract_region_query_recomputed(v4_contract_region_query_borrowck_key, v4_contract_region_query_borrowck_misses_before)
+say "contract-region-query-diagnostics-recomputed=" + v4_contract_region_query_recomputed(v4_contract_region_query_diagnostics_key, v4_contract_region_query_diagnostics_misses_before)
+say "contract-region-query-semantic-recomputed=" + v4_contract_region_query_recomputed(v4_contract_region_query_semantic_key, v4_contract_region_query_semantic_misses_before)
+say "contract-region-query-hover-recomputed=" + v4_contract_region_query_recomputed(v4_contract_region_query_hover_key, v4_contract_region_query_hover_misses_before)
+say "contract-region-query-definition-recomputed=" + v4_contract_region_query_recomputed(v4_contract_region_query_definition_key, v4_contract_region_query_definition_misses_before)
+say "contract-region-query-after-diagnostics=" + word_from_int(v4_diagnostics_count(v4_contract_region_query_after_diagnostics))
+say "contract-region-query-after-message=" + v4_diag_message(v4_diagnostics_diag(v4_contract_region_query_after_diagnostics, 0))
+say "contract-region-query-after-status=" + v4_borrowck_result_status(v4_contract_region_query_after_borrow, v4_contract_region_query_after_result)
+say "contract-region-query-after-source-count=" + word_from_int(v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_query_after_ty, v4_contract_region_query_after_sig))
+say "contract-region-query-after-long-outlives-out=" + v4_contract_region_query_bool(v4_ty_signature_lifetime_outlives(v4_contract_region_query_after_ty, v4_contract_region_query_after_sig, "'long", "'out"))
+say "contract-region-query-after-long-outlives-alt=" + v4_contract_region_query_bool(v4_ty_signature_lifetime_outlives(v4_contract_region_query_after_ty, v4_contract_region_query_after_sig, "'long", "'alt"))
+say "contract-region-query-after-bound-semantic=" + v4_semantic_at_type(v4_contract_region_query_after_semantic)
+say "contract-region-query-after-bound-hover=" + v4_hover_type(v4_contract_region_query_after_hover)
+say "contract-region-query-after-bound-definition=" + word_from_int(v4_definition_at_found(v4_contract_region_query_after_definition))
+say "contract-region-query-after-bound-definition-matches-alt-binder=" + v4_contract_region_query_bool(v4_contract_region_query_span_positions_equal(v4_definition_at_span(v4_contract_region_query_after_definition), v4_contract_region_query_after_binder_span))
+say "contract-region-query-bound-definition-changed=" + v4_contract_region_query_bool(v4_span_start(v4_definition_at_span(v4_contract_region_query_after_definition)) != v4_span_start(v4_definition_at_span(v4_contract_region_query_before_definition)))
+say v4_lsp_diagnostics_text(v4_contract_region_query_path, v4_contract_region_query_after)
