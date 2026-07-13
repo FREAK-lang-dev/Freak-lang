@@ -1,823 +1,526 @@
 # AGENTS.md - FREAK Language Project
-## Continuity Guide For Codex And Parallel Agent Sessions
 
-This file is the operating manual for AI sessions working on FREAK. It should let a new session move safely without rereading the entire repo. Keep it current when major architecture, workflow, release, or milestone decisions change.
+## Purpose
 
-FREAK is intentionally weird. The anime/VN identity is not decoration; it is part of the language design, diagnostics, docs, and tooling. Preserve that tone while keeping engineering decisions concrete.
+This is the operating contract for AI sessions working on FREAK. It records
+repository rules, delivery gates, and current architecture boundaries. It is
+not the language specification, roadmap history, CLI reference, or changelog.
+Use the canonical documents listed below for those facts.
 
----
+FREAK is a compiled, statically typed, memory-safe systems language. Sources use
+the `.fk` extension and anime/visual-novel vocabulary. That identity is
+load-bearing: preserve it in syntax, diagnostics, documentation, and tooling
+while keeping engineering decisions precise.
 
-## Current Ground Truth
+## Ground Truth
 
-- Project: **FREAK**, a compiled, statically typed, memory-safe systems language with `.fk` source files.
-- Current public release: **v0.14.0 "Maverick"**.
-- Version strings live in:
-  - `src/cli/version.fk`
-  - `src/compiler/v3/globals.fk`
-- Authoritative language spec: `freak-full-bible.md`. If implementation and bible disagree, the bible wins unless the task is explicitly to amend the bible status.
-- Conformance tracker: `freak-conformance-audit.md`.
-- V4 architecture: `freakc-v4-00-unit-architecture.md`.
-- V4 implementation home: `src/compiler/v4/`.
-- V4 bootstrap status: the executable 00-Unit slice is complete. V4 is not yet a full V3 replacement.
-- Current V4 feature strategy: dependency-strata vertical slices, not subsystem isolation.
+| Concern | Authority |
+|---|---|
+| Normative language semantics | `freak-full-bible.md` |
+| Tracked implementation gaps | `freak-conformance-audit.md`, verified against code and executable checks |
+| V4 architecture | `freakc-v4-00-unit-architecture.md` |
+| V4 crate boundaries and protocols | `src/compiler/v4/README.md` |
+| Public usage and installation | `README.md` |
+| Distribution and LLVM history | `freak-distribution-llvm-plan.md` |
+| Current COCKPIT implementation | `packages/cockpit/` |
+| COCKPIT design history | `freak-ui-plan.md` |
 
-Core repo commands:
+Current facts:
 
-```powershell
-python -m freakc audit-conformance
-python src/compiler/v4/check_v4.py --fast
-python src/compiler/v4/check_v4.py --smoke "MIR loop desugaring"
-python tests/suite/run_tests.py
-```
+- Public release: **v0.14.0 "Maverick"**.
+- Shipping compiler: self-hosted V3, emitting LLVM IR and linking natively. The
+  C backend remains a portability target.
+- V4 implementation: `src/compiler/v4/`.
+- V4 00-Unit bootstrap is complete, but V4 is not a full V3 replacement.
+- Current primary V4 gate: **Meiya borrow/lifetime analysis**. Named
+  unique-source returned loans have landed; general outlives relations,
+  multi-source regions, loop fixed points, and stored lifetime-bearing values
+  remain constrained.
+- Compiler display versions must agree in `src/cli/version.fk` and
+  `src/compiler/v3/globals.fk`; release workflows and packaging manifests are
+  the authority for platform assets and must be audited before tagging.
 
-Use targeted checks while iterating. Use broader checks before commit/PR when the touched surface justifies it.
-
----
+If implementation semantics and the bible disagree, the bible wins unless the
+task explicitly amends or clarifies the language. If an implementation-status
+claim disagrees with executable evidence, treat that as a blocking documentation
+defect: verify the behavior and update the status documents rather than
+regressing working code to match a stale matrix. Never silently redefine the
+language to match an implementation shortcut.
 
 ## Non-Negotiables
 
-1. **The bible wins.** Treat `freak-full-bible.md` as the language contract.
-2. **Do not collapse V4 back into a monolith.** Keep `freak_driver`, `freak_editor`, `freak_snapshot`, and `freak_lsp` boundaries intact.
-3. **Commit after significant work.** Do not let large uncommitted changes accumulate.
-4. **Stage specific files.** Avoid `git add -A` unless the worktree is intentionally single-purpose and clean.
-5. **Never push directly to `main`.** All changes go through topic branches and PRs.
-6. **Do not revert user work.** The worktree may be dirty. Ignore unrelated changes unless they block the task.
-7. **No AI attribution in commits.** No `Co-Authored-By`, no generated-by trailers.
-8. **Use worktrees for parallel agents.** Two agents touching one checkout is how work disappears.
-9. **Docs and conformance move with behavior.** When a V4 contract promotes from planned to partial/implemented, update bible status, audit doc, and `freakc/auditor.py` guards as needed.
-10. **Leave the repo runnable.** Every milestone should have a clear verification story.
+1. Keep V4 modular. Do not move editor facts, snapshot formats, or transport
+   state back into `freak_driver`.
+2. Land language features as vertical slices, not isolated crate promises.
+3. Update conformance documentation with semantic behavior.
+4. Never push directly to `main`; use a topic branch and pull request.
+5. Do not revert, stage, or commit unrelated user changes.
+6. Stage explicit paths. Avoid `git add -A` in mixed worktrees.
+7. Commit after meaningful milestones and successful verification.
+8. Do not add AI attribution or `Co-Authored-By` trailers.
+9. Every PR gets self-review; every non-typo PR also gets an independent
+   reviewer.
+10. Passing tests do not override an unresolved correctness finding.
+11. Do not weaken tests, diagnostics, or contracts merely to make CI green.
+12. Leave the branch clean, documented, and reproducibly verifiable.
 
----
+## Starting A Task
 
-## Git, Branches, Commits, PRs
+1. Inspect `git status --short --branch`, current worktrees, and recent history.
+2. Fetch `origin` before creating a new branch or worktree when network and
+   repository mutation are allowed.
+3. Read the relevant authority documents and nearby implementation before
+   choosing a design.
+4. Identify unrelated dirty files and exclude them from the work.
+5. Define the behavioral exit gate and the smallest checks that prove it.
+6. Decide whether the task needs one lane, parallel read-only exploration, or
+   isolated write lanes. Unclear work may use parallel explorers, but writers
+   wait until ownership and contracts are concrete.
 
-### Branch Policy
+When the user explicitly asks for a formal goal, create one concrete goal with
+an end state, non-goals, a pinned base commit, verification requirements,
+delivery expectations, lane dependencies, and a resource budget. Do not infer
+a formal goal from ordinary work. Track substantial goals through `scoped ->
+active -> integrating -> verifying -> complete`; `blocked` and `cancelled` are
+terminal alternatives. Mark a goal complete only after every stated gate is
+satisfied; difficulty or slow CI is not a blocker by itself.
 
-`main` is protected. Never push to it directly.
+Explicit read-only or no-network instructions take precedence: do not fetch,
+prune, create branches/worktrees, touch the index, commit, push, or open a PR in
+that mode.
 
-Preferred branch shapes:
+### Dirty Worktrees
 
-- `feat/<slug>` for features
-- `fix/<slug>` for bug fixes
-- `docs/<slug>` for documentation-only changes
-- `refactor/<slug>` for mechanical structure changes
-- `release/v0.X.Y` for release prep
-- Existing harness branches such as `claude/...` or `TeRiRi/...` may be continued when the session starts there
-
-If you are on `main`, a deleted remote branch, or a mixed local checkout, create a fresh topic branch or worktree from `origin/main`.
-
-### Commit Policy
-
-Commit automatically after:
-
-- a compiler bug fix
-- a meaningful V4 slice
-- a CI/release workflow change
-- a runtime or stdlib feature
-- a doc/audit milestone
-- any risky edit that took more than about 15 minutes
-- a successful end-to-end verification cycle
-
-Commit format:
-
-```text
-Add V4 route constructor diagnostics
-
-- Wire TY diagnostic facts through editor queries
-- Add MIR smoke and audit-conformance guard
-```
-
-Keep the summary imperative and short. Use bullet details only when useful.
-
-### PR Policy
-
-Open PRs targeting `main` when the user asks, or when the active project convention says to produce PRs for completed work. Default to draft PRs unless the user explicitly asks for ready-for-review.
-
-Before opening a PR:
-
-1. Confirm the branch and staged files.
-2. Run relevant checks.
-3. Push the branch.
-4. Include a PR body with summary, why it changed, validation, and remaining risk.
-
-### Dirty Worktree Rule
-
-This repo often has unrelated dirt. Before staging:
+This repository often has unrelated local work. Never clean it speculatively.
 
 ```powershell
 git status --short --branch
-git diff -- <intended-file>
+git diff -- <intended-path>
 git diff --cached --name-only
 ```
 
-If unrelated files are dirty, leave them alone. If the intended branch is stale or unsafe, create a separate worktree from `origin/main`.
+If the checkout is mixed, stale, on `main`, or attached to a deleted remote
+branch, create a clean worktree from the recorded intended `BASE_SHA`. Use
+`origin/main` only for confirmed standalone work. Keep the original checkout
+untouched.
 
----
+## Git Delivery
 
-## Parallel Agent Workflows
+### Branches And Worktrees
 
-Parallelism is a force multiplier only when lanes are isolated. Treat every multi-agent run as a small integration project with a lead agent, lane ownership, and explicit merge gates.
+Preferred branches:
 
-### Lead Agent Responsibilities
+- `feat/<slug>` for features
+- `fix/<slug>` for defects
+- `docs/<slug>` for documentation
+- `refactor/<slug>` for structural changes
+- `chore/<slug>` for tooling and maintenance
+- `release/v0.X.Y` for release preparation
+- Existing harness prefixes such as `TeRiRi/...` or `claude/...` may be kept
+  when work already belongs there
 
-The lead agent owns:
-
-- defining the goal and exit gate
-- splitting work into independent lanes
-- assigning file and subsystem ownership
-- creating isolated worktrees/branches
-- giving each agent a precise brief
-- collecting lane summaries and validation evidence
-- merging or cherry-picking lane work
-- resolving conflicts
-- running integration checks
-- opening the final PR or one PR per lane
-
-The lead does not assume agents coordinated with each other. The lead verifies the final tree.
-
-### When To Use Parallel Agents
-
-Use parallel agents when at least two lanes can make progress without editing the same files:
-
-- V4 vertical feature plus separate docs/audit lane
-- independent smoke fixture expansion
-- CI failure investigation while another agent fixes local code
-- editor/LSP work separate from TY/MIR work
-- stdlib module work separate from compiler work
-- release packaging work separate from V4 feature work
-- PR review-comment triage across unrelated files
-
-Do not use parallel agents when:
-
-- the work centers on one parser function, one emitter function, or one fragile file
-- the feature shape is not understood yet
-- all lanes need `check_v4.py`, bible status, or audit docs at the same time
-- the task is a small bug fix that one agent can finish faster than coordination overhead
-
-### Mandatory Worktree Isolation
-
-For two or more agents, each agent gets a separate git worktree and branch.
-
-Example:
+Create risky, long-running, or parallel write work in an isolated worktree.
+Pin the intended baseline first; do not assume a moving `origin/main` is the
+right base for work that depends on a topic branch:
 
 ```powershell
-git fetch origin main
-git worktree add -b feat/v4-routes-ty C:\tmp\freak-v4-routes-ty origin/main
-git worktree add -b feat/v4-routes-mir C:\tmp\freak-v4-routes-mir origin/main
-git worktree add -b docs/v4-routes-audit C:\tmp\freak-v4-routes-audit origin/main
+git fetch origin --prune
+$BASE_SHA = git rev-parse origin/main
+git worktree add -b feat/v4-example C:\tmp\freak-v4-example $BASE_SHA
+```
+
+Before recursive removal or relocation, resolve and verify the exact absolute
+path. Never broadly delete `C:\tmp`, the repository root, or a computed path
+that has not been checked.
+
+### Commits
+
+Commit automatically after a compiler/runtime bug fix, semantic slice,
+workflow change, conformance milestone, risky refactor, or verified end-to-end
+checkpoint. Keep commits scoped and independently understandable.
+
+Use an imperative summary:
+
+```text
+Add V4 returned-loan outlives diagnostics
+
+- Carry relation facts through MIR queries
+- Add Meiya and editor invalidation smokes
+```
+
+Do not accumulate unrelated subsystems into one commit solely to reduce commit
+count. Do not rewrite or squash user commits unless explicitly asked.
+
+### Pull Requests
+
+Open a PR when the user asks, the active goal requires it, or the established
+task convention says completed branches get PRs. Target `main`. Default to a
+draft while review or CI is incomplete.
+
+The PR body must state:
+
+- what behavior changed
+- why the design belongs at its chosen ownership boundary
+- local validation performed
+- CI or platform validation still pending
+- known conservative boundaries or follow-up work
+
+Agents do not merge unless the user explicitly requests it. Before updating or
+declaring a PR ready, fetch its live merge state, checks, reviews, issue
+comments, and inline review threads.
+
+All readiness evidence is tied to the current PR head SHA. A new commit
+invalidates earlier self-review, CI, and independent-review evidence until those
+gates run on the new head or the reviewer explicitly verifies its delta.
+
+## Goal And Agent Orchestration
+
+Parallelism is useful only when work can be partitioned. Use as many agents as
+there are independent lanes that materially shorten the critical path, not as
+an arbitrary measure of effort.
+
+### Roles
+
+| Role | Responsibility | Writes? |
+|---|---|---|
+| Lead | contract, decomposition, integration, final checks, delivery | yes |
+| Explorer | bounded codebase or design question | no |
+| Worker | one owned implementation lane | yes |
+| Reviewer | adversarial diff review and test-gap analysis | no by default |
+
+Conformance, CI, release, security, and platform work are specializations of
+these roles, not separate permission models. An agent has one role at a time.
+
+The author of a patch cannot be its independent reviewer. Close agents when
+their result has been integrated or recorded so concurrency remains available.
+
+### Isolation And Ownership
+
+- Read-only explorers and reviewers may inspect the same immutable commit or
+  diff and do not need branches or commits. Use a disposable detached worktree
+  only when their tools must generate files.
+- Pin one `BASE_SHA` for a multi-agent goal and record any prerequisite commit
+  used by a dependent lane.
+- Give a cohesive multi-worker goal a dedicated integration branch/worktree.
+- Every write-capable lane gets its own branch and worktree from the pinned
+  base or a recorded prerequisite commit.
+- One write-capable owner per file at a time.
+- Ownership transfer requires a committed handoff and explicit reassignment in
+  the lane ledger.
+- Agents integrate committed work, not loose patches or copied worktrees.
+- The lead resolves conflicts and verifies the integrated tree.
+- A lane that produces no useful change should not create merge noise.
+
+Partition by independently testable feature responsibility. Prefer one owner
+for an end-to-end vertical slice when its compiler layers are tightly coupled.
+Crate-shaped lanes are acceptable only after the shared semantic contract is
+stable and their write sets are genuinely disjoint; do not turn the roadmap
+into a sequence of crate completions.
+
+Integration-owned files normally stay with the lead: `AGENTS.md`, root
+`README.md`, bible/audit documents, `freakc/auditor.py`,
+`src/compiler/v4/check_v4.py`, and workflow files. If a worker owns one, record
+the exception in the lane ledger. Ownership returns to the lead only after the
+worker's committed handoff is accepted.
+
+### Agent Brief
+
+Every delegated task must name:
+
+```text
+Goal and observable exit condition
+Pinned base commit and branch/worktree
+Owned files or responsibility
+Files and behaviors explicitly out of scope
+Required focused checks
+Expected output: commit hash or findings, files, checks, risks
+```
+
+Workers must be told other work may exist and must not revert it. If ownership
+or checks cannot be stated, the work is not ready for a write agent.
+
+### Integration Order
+
+1. Inspect each lane diff, commit evidence, and focused checks.
+2. Reject unrelated or generated churn.
+3. Integrate stable contracts before their consumers, one committed lane at a
+   time.
+4. Re-run affected checks after each risky integration or conflict resolution.
+5. Apply integration-owned docs, audit guards, and harness registration.
+6. Review the final integrated diff. This review is mandatory when two or more
+   workers contributed, even if every lane was reviewed separately.
+7. Resolve findings, then run the broad gate once on the integrated branch.
+8. Push and, when required, open or update the PR as a draft.
+9. Complete remote CI and review disposition during verification.
+
+Run at most one `check_v4.py` process at a time on one host, including focused
+smokes and shards: every invocation initializes broad compiler state. Workers
+prepare focused commands; the lead coordinates their serialized execution and
+owns broad integration checks. This protects iteration time, RAM, pagefile, and
+temporary storage without reducing coverage.
+
+Only the lead rebases, resolves cross-lane conflicts, removes worktrees, deletes
+branches, prunes repository state, or performs repository-wide cleanup. Before
+cleanup, verify the exact path, a clean worktree, and that no unique commit
+would be lost. Stop child processes before replacing a timed-out lane or check.
+
+## Review Policy
+
+Review is a correctness gate, not a ceremonial summary.
+
+### Required Reviews
+
+Every PR receives a lead self-review of the immutable
+`git diff $BASE_SHA...$HEAD_SHA` before readiness.
+Every PR except a literal typo-only change receives an independent review. The
+reviewer must not have authored or fixed any commit under review; if they edit
+the patch, assign a different reviewer. Record the reviewed SHA, checks, verdict,
+and known residual risk in the PR.
+
+Independent review is particularly important when any of these are true:
+
+- parser, HIR, resolve, TY, MIR, borrowck, LLVM, query, snapshot, LSP, runtime,
+  security, CI, release, packaging, or installer behavior changes
+- public language semantics, diagnostics, protocols, or conformance status
+  changes
+- two or more write lanes contributed to one integration branch
+- a fix addresses memory safety, ownership soundness, ABI behavior, data loss,
+  or platform-specific execution
+- the patch is large enough that tests alone could conceal an architectural
+  regression
+
+Policy, architecture, release, and normative documentation changes are not
+typo-only changes.
+
+### Finding Severity
+
+| Severity | Meaning | Disposition |
+|---|---|---|
+| P0 | exploit, data loss, systemic unsoundness, destructive workflow | stop; fix before any PR readiness |
+| P1 | correctness bug, soundness hole, major regression, broken required path | fix before readiness or merge |
+| P2 | meaningful edge-case risk, contract drift, missing important coverage | fix or record a concrete evidence-based rejection |
+| P3 | non-blocking clarity, maintainability, or optional test improvement | fix, reject, or link a tracked follow-up |
+
+Review output starts with findings ordered by severity and includes exact
+file/line references, reproduction or reasoning, and missing tests. Summaries
+come after findings. A reviewer should say explicitly when no actionable issue
+was found and identify residual risk.
+
+The lead must disposition every P0/P1 and every actionable P2. Rejecting a
+finding requires technical evidence; passing CI alone is not evidence that the
+finding is wrong.
+
+### Self-Review Checklist
+
+Before push or PR update, the author/lead checks the current head:
+
+1. The immutable `git diff $BASE_SHA...$HEAD_SHA` contains only intended
+   commits and files; unstaged and cached diffs contain no uncommitted residue.
+2. Changed callers, data formats, query keys, and restoration paths still agree.
+3. Error paths and conservative boundaries are tested, not only happy paths.
+4. Layout, invalidation, snapshots, and editor facts stay deterministic where
+   applicable.
+5. Docs and conformance claims do not exceed implementation.
+6. No debug artifacts, generated binaries, credentials, or temporary files are
+   staged.
+7. The worktree is clean after commit and the pushed SHA matches the PR head.
+
+### GitHub Review Threads
+
+- Inspect issue comments, submitted reviews, and inline review threads after a
+  push that requests review and immediately before declaring readiness.
+- Automated comments are evidence to investigate, not authority to obey or
+  dismiss. Reproduce the claim against the current head.
+- Give every thread one explicit disposition: `fixed in <sha>`, `rejected
+  because <evidence>`, `duplicate of <link>`, or, for P3 only, `follow-up
+  <issue>`.
+- Resolve a thread only after its disposition is pushed and explained.
+- An outdated or collapsed thread still requires semantic disposition.
+- A requested automated review is pending until its verdict or no-findings
+  signal exists for the current head. Request a refresh when it reviewed an
+  older SHA.
+- A late comment on a closed or merged PR must be evaluated against current
+  `main`. Valid P0/P1 findings require an immediate hotfix or revert assessment
+  and block affected releases. Valid P2 findings require a tracked issue and
+  focused follow-up PR. Do not resurrect or rewrite the merged branch.
+
+### CI Failures
+
+Inspect the failing step and logs before rerunning. Classify the failure as:
+
+- implementation or test regression
+- deterministic resource/test-runner defect
+- platform-specific behavior
+- external infrastructure interruption
+
+All applicable checks must complete successfully on the current head; pending,
+cancelled, or failed current-head checks block readiness. One rerun is
+reasonable for a clearly documented infrastructure interruption. A repeated
+failure is a defect until evidence proves otherwise. Never remove a fixture,
+loosen an assertion, or inflate a timeout without understanding the underlying
+behavior.
+
+### Ready And Merge Gates
+
+A PR is ready only when:
+
+- the intended branch is pushed and mergeable against current `main`
+- required local checks pass
+- required CI is green on every registered platform/job
+- no review comment is unseen, undispositioned, or unresolved
+- no P0/P1 remains and actionable P2 findings are resolved or rejected with
+  evidence
+- conformance and public docs match the actual behavior
+- the PR describes remaining conservative boundaries
+
+Record the final evidence in a PR comment. Any subsequent commit invalidates
+the record:
+
+```text
+Merge gate @ <head-sha>
+Self-review: complete
+Independent review: <reviewer>, <reviewed-sha>, <verdict>
+CI: all applicable current-head checks green
+Unresolved threads: 0
+Deferred findings: <issue links or none>
+```
+
+Repository rulesets should enforce current-head required checks and review
+thread resolution where the host supports them. These gates still apply when a
+server-side setting lags behind policy.
+
+## V4 Engineering Rules
+
+### Dependency Order
+
+Work by dependency gate, not bible chapter or crate completion:
+
+1. Semantic shapes and type forms
+2. Meiya ownership, loans, lifetimes, drops, captures, and shared ownership
+3. FFI, layout, ABI, raw-pointer boundaries, and native OS surfaces
+4. Concurrency after ownership rules are stable
+5. Advanced/anime semantic layers
+6. Conformance sweep and production backend depth
+
+The current primary gate is step 2. Do not start concurrency semantics that
+depend on unsettled ownership contracts.
+
+### Vertical Slice Contract
+
+A V4 language addition is complete only when every affected layer agrees:
+
+```text
+source/parse -> HIR/resolve -> TY -> MIR -> Meiya/codegen
+             -> query/editor/snapshot/LSP -> smokes -> conformance docs
+```
+
+Not every slice changes every crate, but every crate that owns an affected fact
+must be considered. Minimum coverage is one happy path and one targeted
+diagnostic; add editor/invalidation/snapshot coverage when tooling facts change.
+
+### Crate Ownership
+
+V4 crate order is defined in `src/compiler/v4/check_v4.py`. Core boundaries:
+
+| Crate | Owns |
+|---|---|
+| `freak_lex` | tokens and lexical recovery |
+| `freak_parse` | resilient syntax trees and recovery nodes |
+| `freak_hir` | desugared high-level forms |
+| `freak_resolve` | names, scopes, and definition identity |
+| `freak_ty` | inference, type contracts, and type diagnostics |
+| `freak_mir` | CFG lowering, places, drops, and MIR diagnostics |
+| `freak_borrowck` | Meiya loans, moves, lifetimes, and ownership analysis |
+| `freak_codegen_llvm` | LLVM lowering and backend contracts |
+| `freak_query` | memoized storage and invalidation graph mechanics |
+| `freak_driver` | orchestration, not editor/snapshot ownership |
+| `freak_editor` | semantic, hover, definition, symbol, completion facts |
+| `freak_snapshot` | formats, manifests, diffs, health, restore coordination |
+| `freak_lsp` | transport-facing wrappers only |
+
+When adding a tooling endpoint, put analysis in its owning crate, stable
+serialization/validation in `freak_snapshot`, orchestration in `freak_driver`,
+and transport framing in `freak_lsp`.
+
+### Conformance Updates
+
+When behavior promotes from planned to partial/implemented:
+
+1. Update the relevant bible status and normative note.
+2. Update `freak-conformance-audit.md` without overstating coverage.
+3. Add or extend `freakc/auditor.py` when the contract should be guarded.
+4. Register focused executable fixtures in `check_v4.py`.
+5. Run `python -m freakc audit-conformance`.
+
+## Verification And Resource Safety
+
+Choose the smallest check that proves the edit, then broaden at integration.
+
+```powershell
+# Focused V4 executable smoke
+python -u src/compiler/v4/check_v4.py --smoke "name"
+
+# Deterministic runtime shard
+python -u src/compiler/v4/check_v4.py --smoke-shard 1/6
+
+# Broad parse/transpile gate
+python -u src/compiler/v4/check_v4.py --fast
+
+# Full local V4 runtime gate when justified
+python -u src/compiler/v4/check_v4.py
+
+# Baseline language/conformance contract
+python -m freakc audit-conformance
+
+# Shipping compiler/runtime suite
+python tests/suite/run_tests.py
+
+# Python syntax and diff hygiene
+python -m py_compile <changed-python-files>
+git diff --check
 ```
 
 Rules:
 
-- Do not run two agents in the same checkout.
-- Do not share uncommitted changes between agents.
-- Each agent commits on its own branch.
-- The lead integrates from committed branches, not from loose patches.
-- If a lane produces no useful changes, delete the worktree/branch instead of merging noise.
+- Use targeted smokes during implementation. Let CI provide the final full
+  cross-platform matrix when local duplication adds no evidence.
+- Run only one `check_v4.py` process at a time on one host. Run unfiltered
+  `--fast` or full gates only with confirmed resource headroom or in CI.
+- Run Python checks unbuffered (`-u`) so long phases remain observable.
+- If RAM, pagefile, disk, or runtime grows unexpectedly, stop and isolate the
+  exact fixture/process. Do not wait for host OOM.
+- Generated compiler smokes should avoid several complete compiler pipelines in
+  one executable. Split independent contracts across process-isolated fixtures
+  while preserving assertions.
+- A new public tooling endpoint requires the full V4 gate before readiness.
+- A timeout or OOM is an inconclusive verification failure until classified.
+  Record the exact phase and fixture before retrying; do not reduce coverage.
+- On interruption, terminate only the recorded launcher's process tree. Never
+  kill Python, Clang, or test processes globally by process name.
+- Treat CRLF normalization warnings as informational unless they accompany
+  unintended content churn; whitespace errors are blockers.
 
-### Lane Ownership
-
-Assign each lane an ownership boundary before agents start.
-
-Good boundaries:
-
-| Lane | Owns | Avoids |
-|---|---|---|
-| Lex/parse | `freak_lex`, `freak_parse`, syntax fixtures | TY/MIR semantics |
-| HIR/resolve | `freak_hir`, `freak_resolve` | LLVM/codegen |
-| TY | `freak_ty`, type diagnostics, TY smokes | MIR lowering unless agreed |
-| MIR | `freak_mir`, MIR smokes | Borrowck policy unless agreed |
-| Meiya | `freak_borrowck`, borrow smokes | New syntax design |
-| Editor | `freak_editor`, editor query smokes | LSP transport framing |
-| Snapshot | `freak_snapshot`, snapshot protocols | Driver ownership |
-| LSP | `freak_lsp`, transport endpoints | Analysis storage |
-| Codegen | `freak_codegen_llvm`, LLVM smokes | TY semantics except ABI handoff |
-| Docs/audit | bible, audit doc, `freakc/auditor.py` | core implementation unless acting as integrator |
-
-Integration-owned files:
-
-- `AGENTS.md`
-- `README.md`
-- `freak-full-bible.md`
-- `freak-conformance-audit.md`
-- `freakc/auditor.py`
-- `src/compiler/v4/check_v4.py`
-- CI workflow files
-
-Agents may edit these only if their lane brief explicitly grants ownership. Otherwise the lead does the final doc/audit/check harness pass.
-
-### Agent Brief Template
-
-Give each agent a brief like this:
+## Repository Pointers
 
 ```text
-Goal: Implement V4 variant constructor TY diagnostics.
-Branch/worktree: feat/v4-variant-ty at C:\tmp\freak-v4-variant-ty.
-Owned files: src/compiler/v4/crates/freak_ty/**, TY smoke fixtures only.
-Do not edit: freak_mir, freak_borrowck, bible/audit docs, check_v4.py.
-Required checks:
-- python src/compiler/v4/check_v4.py --smoke "variant constructor typing"
-Output:
-- commit hash
-- files changed
-- checks run
-- known risks/blockers
+freakc/                         Python bootstrap compiler, auditor, C runtimes
+src/cli/                        Native CLI and Hangar dispatch
+src/compiler/v3/                Shipping self-hosted compiler
+src/compiler/v4/                Modular 00-Unit compiler and executable smokes
+std/                            Standard library modules
+tests/                          Shipping language/runtime tests
+packaging/                      Homebrew, Scoop, Winget, release assets
+.github/workflows/              CI, V4 CI, and release workflows
 ```
 
-If the brief cannot name owned files and checks, the task is not ready for parallel execution.
-
-### Per-Agent Workflow
-
-Every agent should:
-
-1. Confirm branch and worktree with `git status --short --branch`.
-2. Read the local docs for its lane.
-3. Implement only its assigned slice.
-4. Add focused tests/smokes.
-5. Run required checks.
-6. Commit scoped files.
-7. Report commit hash, validation, and unresolved risks.
-
-Agents must not:
-
-- broaden scope without reporting it
-- silently stage unrelated files
-- resolve merge conflicts by guessing
-- mark work complete with failing required checks
-- rewrite shared architecture rules to fit their local patch
-
-### Agent Roles
-
-Use named agent roles so parallel work has review pressure, not just more edits.
-
-| Role | Owns | Writes? | Required Output |
-|---|---|---|---|
-| **Lead** | task decomposition, integration branch, final PR | yes | plan, merged commits, final validation, PR |
-| **Worker** | one bounded implementation slice | yes | commit hash, files changed, checks run, risks |
-| **Reviewer** | code review of a branch or diff | no by default | findings with file/line references, severity, test gaps |
-| **Conformance Agent** | bible/audit/status/check alignment | docs/checks only if assigned | contract verdict, required doc/check updates, gaps |
-| **CI Agent** | failing GitHub Actions or slow check investigation | yes, only in CI/tooling scope | failing job, root cause, fix commit or blocker |
-| **Release Agent** | version, packaging, installer, tag readiness | yes, only in release scope | version matrix, artifact/check evidence |
-
-Do not use workers as reviewers of their own patch. A worker may explain tradeoffs, but a separate reviewer or the lead must verify the diff.
-
-### Review Agents
-
-Spawn a reviewer agent when any of these are true:
-
-- the patch touches parser, HIR, TY, MIR, borrowck, LLVM, snapshots, LSP, CI, release, or installer logic
-- two or more workers contributed to one integration branch
-- the change modifies public language behavior, diagnostics, wire protocols, or bible/audit status
-- the lead feels tempted to merge based only on passing tests
-
-Reviewer prompt template:
-
-```text
-Review branch/diff: <branch or path>.
-
-Scope:
-- inspect only the changed files and directly related call sites
-- prioritize bugs, regressions, missing tests, boundary violations, and stale docs
-- do not rewrite code unless explicitly asked
-- stay read-only: do not switch branches, stage files, commit, push, or resolve conflicts
-
-Output:
-- findings first, ordered by severity
-- file/line references
-- open questions
-- residual test risk
-```
-
-Reviewer findings are not automatically binding. The lead decides, but must explicitly address or reject every high-severity finding before opening or updating a PR.
-
-### Conformance Agents
-
-Spawn a conformance agent when a slice changes language semantics or promotes a bible/audit contract.
-
-The conformance agent checks:
-
-1. `freak-full-bible.md` status rows and nearby normative text.
-2. `freak-conformance-audit.md` contract rows and divergence counts.
-3. `freakc/auditor.py` if the contract should become a regression guard.
-4. V4 smoke coverage in `src/compiler/v4/tests/` and `src/compiler/v4/check_v4.py`.
-5. Whether docs claim more than the implementation proves.
-
-Conformance prompt template:
-
-```text
-Conformance pass for <feature>.
-
-Read:
-- freak-full-bible.md relevant section
-- freak-conformance-audit.md relevant rows
-- changed implementation files
-- changed V4 smoke/check files
-
-Output:
-- bible status verdict: unchanged / partial / promoted
-- audit doc updates required
-- audit-conformance guard required: yes/no
-- missing happy-path, diagnostic, editor/query, or snapshot smoke
-- exact files to patch if changes are required
-```
-
-For V4 semantic slices, the conformance agent should run or request at least one focused smoke. If a full V4 gate is too slow, it must say which focused checks are enough and what CI still needs to prove.
-
-If the slice changes `freak-full-bible.md`, `freak-conformance-audit.md`, or `freakc/auditor.py`, the conformance agent must run or request `python -m freakc audit-conformance`.
-
-### Spawning More Workers
-
-The lead may spawn more workers after the initial split only when the new work has a clean ownership boundary.
-
-Good reasons:
-
-- a review finding exposes a localized fix in files no current worker owns
-- a conformance gap needs docs/audit/check updates separate from implementation
-- CI fails in a platform-specific path unrelated to the feature logic
-- a large feature naturally splits into more independent vertical slices
-
-Bad reasons:
-
-- the task is unclear
-- the lead has not reviewed current worker output
-- two workers would edit the same parser/typechecker block without a merge plan
-- checks are failing and nobody understands why
-
-When adding workers mid-flight, update the lane table in the working notes or PR body:
-
-```text
-Lane | Agent | Branch/worktree | Owned files | Status | Required checks
-```
-
-No more than one write-capable agent should own a file at the same time. This applies to workers, conformance agents, CI agents, release agents, and the lead. If ownership must transfer, say so explicitly in the handoff.
-
-### Integration Workflow
-
-The lead integrates lanes in this order:
-
-1. Fetch or inspect each lane branch.
-2. Review `git diff origin/main...lane`.
-3. Send diffs matching the review-agent trigger list to a reviewer agent before merge.
-4. Send semantic/status changes to a conformance agent before or during merge.
-5. Reject noisy or out-of-scope changes before merge.
-6. Confirm `git status --short --branch` is clean and points at the intended integration branch.
-7. Merge/cherry-pick one lane at a time into an integration branch.
-8. Resolve conflicts intentionally.
-9. Run targeted checks after each merge if the lane changed compiler behavior.
-10. Run broader checks after all lanes are integrated.
-11. Do the docs/audit/check harness pass last.
-
-For V4, prefer an integration branch when lanes together form one user-visible feature. Prefer separate PRs when lanes are independently useful and CI-stable.
-
-Before opening a PR, the lead should have:
-
-- worker commit evidence
-- reviewer verdict when the review-agent trigger list applies
-- conformance verdict for language semantics
-- focused local checks
-- explicit note for any broad gate skipped because it is too slow or CI-owned
-
-### Parallel Sprint Patterns
-
-Use these patterns instead of random lane splits.
-
-#### Pattern A: V4 Semantic Core Feature
-
-Goal: land a source form through the compiler without reopening every layer later.
-
-- Agent 1: lex/parse/HIR/resolve representation
-- Agent 2: TY rules and diagnostics
-- Agent 3: MIR lowering and runtime-capable smokes
-- Agent 4: editor/snapshot/LSP visibility plus docs/audit guards
-
-Exit gate: stable HIR/TY/MIR representation, editor/query visibility, focused diagnostics, and conformance docs updated.
-
-#### Pattern B: Borrow Checker Gate
-
-Use only after the relevant value and pattern shapes are stable.
-
-- Agent 1: loan/lifetime model in `freak_borrowck`
-- Agent 2: MIR place/drop facts needed by Meiya
-- Agent 3: Shared/Weak or trust-me boundary diagnostics
-- Agent 4: borrowck smokes, snapshots, docs/audit
-
-Exit gate: coherent Meiya behavior across all implemented forms touched by the slice.
-
-#### Pattern C: FFI/System Boundary
-
-- Agent 1: TY ABI/layout validation
-- Agent 2: MIR ABI carriage and call representation
-- Agent 3: LLVM lowering and runtime smoke
-- Agent 4: `std::ffi` docs, LSP facts, audit checks
-
-Exit gate: ABI/layout contract is visible in TY, MIR, diagnostics, LLVM lowering, and tooling.
-
-#### Pattern D: Tooling/00-Unit
-
-- Agent 1: query invalidation/reporting
-- Agent 2: snapshot format/restore/diff/health
-- Agent 3: LSP transport endpoint
-- Agent 4: smoke runner and docs
-
-Exit gate: `didChange`, snapshot diff, snapshot health, and LSP output agree on deterministic facts.
-
-#### Pattern E: Release/CI
-
-- Agent 1: workflow fix or matrix expansion
-- Agent 2: local reproduction and check speed
-- Agent 3: packaging/install scripts
-- Agent 4: release docs and version audit
-
-Exit gate: local check evidence plus green GitHub Actions on Linux, macOS, and Windows.
-
----
-
-## V4 Roadmap Rules
-
-Do not roadmap by crate. Roadmap by dependency gate and land vertical slices.
-
-Current order:
-
-1. **Semantic Core First**
-   - variants/routes and constructors
-   - exhaustive destructuring in `when`
-   - aliases and ownership-relevant type forms
-   - tuple/fixed-array place and value modeling
-   - enough generics/bounds to stabilize body typing
-
-2. **Borrow Checker As Its Own Gate**
-   - `lend` / `lend mut`
-   - explicit and inferred lifetimes
-   - cross-block loan ranges
-   - drop tracking and partial moves
-   - closure/method captures
-   - `Shared<T>` / `Weak<T>`
-   - `trust me` and raw-pointer boundary diagnostics
-
-3. **FFI And Systems Boundary**
-   - `extern [C]` and ABI matrix
-   - `@layout(C)` and repr rules
-   - raw pointer legality
-   - `std::ffi` / `std::mem`
-   - LLVM ABI/layout carriage
-
-4. **Concurrency After Ownership**
-   - thread/channel baseline
-   - `xm3`
-   - `sortie`
-   - `formation`
-   - `briefing room`
-   - `wingman`
-
-5. **Advanced And Anime Surface**
-   - `mood`, `prob`, `power`, `causality`
-   - annotation enforcement
-   - `foreshadow` / `payoff` strictness
-   - `eventually` / `isekai` strict semantics
-   - character-routed compiler error voices
-
-6. **Conformance Sweep**
-   - update `freak-full-bible.md`
-   - update `freak-conformance-audit.md`
-   - extend `audit-conformance`
-   - close V4 test gaps
-
-Anti-rewrite rule: do not try to finish Meiya while semantic shapes are still moving.
-
----
-
-## V4 Crate Boundaries
-
-V4 crate order:
-
-```text
-freak_span
--> freak_diag
--> freak_arena
--> freak_intern
--> freak_session
--> freak_lex
--> freak_parse
--> freak_hir
--> freak_resolve
--> freak_ty
--> freak_mir
--> freak_borrowck
--> freak_codegen_llvm
--> freak_query
--> freak_driver
--> freak_editor
--> freak_snapshot
--> freak_lsp
-```
-
-Boundary rules:
-
-- `freak_lex` owns tokens and lexical recovery.
-- `freak_parse` owns resilient parsing and syntax trees.
-- `freak_hir` owns desugared high-level forms.
-- `freak_resolve` owns names, scopes, and definition identity.
-- `freak_ty` owns type inference, type contracts, and type diagnostics.
-- `freak_mir` owns CFG lowering, places, drops, and MIR diagnostics.
-- `freak_borrowck` owns Meiya loan, move, lifetime, and ownership analysis.
-- `freak_codegen_llvm` owns LLVM lowering.
-- `freak_query` owns memoized query storage and invalidation graph mechanics.
-- `freak_driver` orchestrates services. It must not own editor fact arrays or snapshot serializers.
-- `freak_editor` owns semantic-at, hover, definition, document-symbol, and completion arenas/query APIs.
-- `freak_snapshot` owns snapshot formats, manifests, diffs, health reports, restore coordination, and invalidation contract reports.
-- `freak_lsp` owns transport-facing wrappers only.
-
-When adding a V4 endpoint:
-
-1. Put the real analysis in the owning crate.
-2. Put stable wire formats and validators in `freak_snapshot`.
-3. Let `freak_driver` orchestrate, not store new ownership.
-4. Let `freak_lsp` wrap transport.
-5. Add smoke coverage.
-6. Run `python src/compiler/v4/check_v4.py --fast` when practical.
-
----
-
-## Verification Strategy
-
-Choose the smallest check that proves the edit, then broaden before PR.
-
-### V4 Checks
-
-```powershell
-python src/compiler/v4/check_v4.py --smoke "name"
-python src/compiler/v4/check_v4.py --smoke extern --smoke module
-python src/compiler/v4/check_v4.py --smoke-shard 1/6
-python src/compiler/v4/check_v4.py --fast
-python src/compiler/v4/check_v4.py
-```
-
-Notes:
-
-- `--fast` is the broad local gate for V4 work, but it can be slow on Windows.
-- Use targeted smokes during inner-loop work.
-- If a long check times out, stop leftover Python/clang processes before continuing.
-- CI is the final cross-platform proof for V4 fast/runtime lanes.
-
-### Baseline Conformance
-
-Run this when touching compiler, runtime, CLI, stdlib, bible/audit status, or V4 promoted contracts:
-
-```powershell
-python -m freakc audit-conformance
-```
-
-### Legacy Suite
-
-Run this for V1/V3/runtime behavior:
-
-```powershell
-python tests/suite/run_tests.py
-```
-
-### Diff Hygiene
-
-```powershell
-git diff --check
-```
-
-Line-ending warnings are common on Windows. Treat whitespace errors as blockers; treat CRLF normalization warnings as informational unless they indicate unexpected churn.
-
----
-
-## Project Map
-
-```text
-Freak-lang/
-  freakc/                         Python bootstrap compiler and audit commands
-    __main__.py
-    lexer.py
-    parser.py
-    checker.py
-    emitter.py
-    auditor.py
-    runtime/
-      freak_runtime.h
-      freak_runtime.c
-      freak_llvm_runtime.c
-  src/
-    cli/                          Native FREAK CLI
-    compiler/
-      v3/                         Current self-hosting compiler
-      v4/                         00-Unit modular/query compiler
-        crates/
-        tests/
-        check_v4.py
-        README.md
-  std/                            Standard library modules
-  tests/                          Language tests and fixtures
-  packaging/                      Homebrew/Scoop/Winget/release assets
-  .github/workflows/              CI and release workflows
-  freak-full-bible.md             Authoritative spec
-  freak-conformance-audit.md      Contract status and divergence tracker
-  freakc-v4-00-unit-architecture.md
-  AGENTS.md
-```
-
-High-value docs:
-
-- `src/compiler/v4/README.md` - current V4 boundary and tooling protocol rules
-- `freakc-v4-00-unit-architecture.md` - V4 manifesto and architecture
-- `freak-full-bible.md` - language bible
-- `freak-conformance-audit.md` - implemented vs partial vs V4 contracts
-- `freak-distribution-llvm-plan.md` - LLVM/distribution history
-- `freak-ui-plan.md` - COCKPIT plan
-
----
-
-## Compiler Architecture Snapshot
-
-### Current Shipping Path
-
-```text
-.fk source
--> V3 self-hosting compiler
--> LLVM IR
--> clang/lld
--> native binary
-```
-
-The C backend remains a portability target.
-
-### V4 Target Path
-
-```text
-source
--> lex
--> parse with ErrorNode/IncompleteNode recovery
--> HIR desugaring
--> resolve
--> TY
--> MIR CFG/place/drop lowering
--> Meiya borrowck
--> LLVM/codegen
--> query-backed driver/LSP/snapshots
-```
-
-The V4 goal is not "rewrite the compiler again." The goal is to make every compiler fact queryable, memoized, invalidatable, and tool-visible.
-
----
-
-## Language Quick Reference
-
-Core vocabulary:
-
-| FREAK | Meaning |
-|---|---|
-| `pilot` | variable binding |
-| `fixed pilot` | immutable binding |
-| `task` | function |
-| `give back` | return |
-| `say` | print |
-| `when` | match/switch |
-| `shape` | struct-like type |
-| `variant` | V4 sum type surface |
-| `doctrine` | trait/interface |
-| `impl` | implementation block |
-| `trust me` | unsafe/honor boundary |
-| `training arc` | bounded loop |
-| `for each` | iterator loop |
-| `repeat` | counted or conditional loop |
-| `foreshadow` / `payoff` | narrative debt |
-| `deus_ex_machina` | dramatic escape hatch |
-| `isekai` | isolated fresh scope |
-| `eventually` | deferred cleanup surface |
-| `launch` | public/exported item |
-
-Important type surfaces:
-
-```text
-int, uint, num, tiny, bool, word, char, void
-maybe<T>, result<T,E>
-List<T>, Map<K,V>, Set<T>, Lineup<T>
-[T; N], (A, B, C)
-*T, *mut T
-lend T, lend mut T
-Shared<T>, Weak<T>
-mood, prob[lo..hi], power<N>, causality<T>
-extern [ABI] task(...) -> T
-```
-
-Many advanced forms are V4 partial or planned. Check bible status before promising behavior.
-
----
-
-## Standard Library Snapshot
-
-Implemented or substantially present:
-
-- `std::math`
-- `std::math3d`
-- `std::string`
-- `std::convert`
-- `std::algorithm`
-- `std::json`
-- `std::http`
-- `std::zip`
-- `std::fs`
-- `std::process`
-- `std::time`
-- `std::bytes`
-- `std::net`
-- `std::version`
-- `std::ui` through COCKPIT MA-MF, with MG polish still pending
-
-Planned or V4-expanding:
-
-- `std::thread`
-- `std::anime`
-- `std::narrative`
-- `std::test`
-- `std::ffi`
-- `std::os`
-- `std::panic`
-- `std::regex`
-- `std::crypto`
-
----
-
-## CLI Quick Reference
-
-```powershell
-build\freak.exe build file.fk
-build\freak.exe build file.fk --c
-build\freak.exe build file.fk --opt=3
-build\freak.exe run file.fk
-build\freak.exe check file.fk
-build\freak.exe transpile file.fk
-build\freak.exe --version
-build\freak.exe help
-build\freak.exe test
-build\freak.exe audit-conformance
-
-python -m freakc build file.fk
-python -m freakc run file.fk
-python -m freakc audit-conformance
-```
-
-Hangar:
-
-```powershell
-build\freak.exe hangar init
-build\freak.exe hangar add pkg repo
-build\freak.exe hangar install
-build\freak.exe hangar version patch
-```
-
----
-
-## Release And Packaging Notes
-
-Before tagging a release:
-
-1. Update both hardcoded version files.
-2. Run relevant local checks.
-3. Confirm install scripts and packaging manifests.
-4. Tag only after the branch intended for release is merged.
-
-Release assets are built by GitHub Actions for:
-
-- Linux x64/arm64
-- macOS x64/arm64
-- Windows x64
-- `freak` and `hangar`
-- checksum files
-
-Packaging lives under `packaging/`.
-
----
-
-## Common Failure Modes
-
-- **Unrelated dirty files get committed.** Fix: stage explicit paths only.
-- **Parallel agents overwrite each other.** Fix: one worktree per agent.
-- **V4 work drifts into V3.** Fix: keep experimental compiler architecture under `src/compiler/v4/`.
-- **Driver becomes a monolith again.** Fix: storage/query ownership belongs to editor/snapshot/query crates, not `freak_driver`.
-- **A V4 feature lands without audit docs.** Fix: update bible, audit doc, and `audit-conformance` guards in the same slice.
-- **Local V4 checks leave Python/clang running after timeout.** Fix: inspect and stop leftover processes before continuing.
-- **GitHub PR looks green but is blocked.** Fix: check live review threads, merge state, and CI status.
-- **Windows shell syntax causes command failures.** Fix: use PowerShell syntax, not bash `&&`.
-
----
-
-## Updating This File
-
-Update `AGENTS.md` when:
-
-- a milestone completes
-- branch/PR policy changes
-- the V4 phase changes
-- a new parallel workflow pattern becomes standard
-- a repeated failure needs to become a rule
-- release/version process changes
-
-Keep this file operational. It is not a marketing doc; it is the cockpit checklist for future sessions.
-
----
-
-*"It was always going to end this way."*
+For syntax, types, annotations, stdlib inventory, and error voices, read the
+bible and audit rather than copying snapshots here. For commands, installation,
+and package-manager usage, read `README.md` and native CLI help. For release
+assets and platform matrices, inspect the workflows and packaging manifests.
+
+## Maintaining This Contract
+
+Update this file only when repository-wide operating policy, current V4 gate,
+canonical authority, or a repeated safety lesson changes. Keep historical
+milestones in their proper roadmap/changelog documents. Prefer links over copied
+inventories, and remove stale instructions when adding replacements.
