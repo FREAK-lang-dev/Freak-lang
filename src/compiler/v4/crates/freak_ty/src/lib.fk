@@ -3420,6 +3420,17 @@ task v4_ty_generic_bounds_from_tokens(stream_id: int, start_token: int, end_toke
     give back v4_ty_type_text(stream_id, bound_start, end_token)
 }
 
+task v4_ty_generic_has_empty_bound_clause_from_tokens(stream_id: int, start_token: int, end_token: int) -> bool {
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back false
+    }
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back false
+    }
+    give back v4_ty_skip_trivia(stream_id, colon_token + 1) >= end_token
+}
+
 task v4_ty_signature_generic_name(ty_id: int, sig_id: int, generic_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
@@ -3432,6 +3443,13 @@ task v4_ty_signature_generic_bounds(ty_id: int, sig_id: int, generic_id: int) ->
     pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
     pilot end_token = v4_ty_signature_generic_segment_end(ty_id, sig_id, generic_id)
     give back v4_ty_generic_bounds_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_signature_generic_has_empty_bound_clause(ty_id: int, sig_id: int, generic_id: int) -> bool {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
+    pilot end_token = v4_ty_signature_generic_segment_end(ty_id, sig_id, generic_id)
+    give back v4_ty_generic_has_empty_bound_clause_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_signature_generic_kind(ty_id: int, sig_id: int, generic_id: int) -> word {
@@ -8219,6 +8237,9 @@ task v4_ty_validate_task_signature_generic_bounds(ty_id: int, sig_id: int) -> vo
         pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_id)
         pilot generic_is_lifetime = v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id)
         pilot generic_span = v4_ty_signature_generic_segment_span(ty_id, sig_id, generic_id)
+        if v4_ty_signature_generic_has_empty_bound_clause(ty_id, sig_id, generic_id) {
+            v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: empty generic bound on " + generic_name + " in " + v4_ty_signature_name(ty_id, sig_id), "separate declared lifetime or doctrine bounds with one +")
+        }
         pilot bound_id = 0
         pilot bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, generic_id)
         repeat until bound_id >= bound_count {
