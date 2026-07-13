@@ -1,0 +1,196 @@
+-- V4 contract-region provenance scratch-resource and memoization fixture.
+-- Verification prepends the V4 crates before this file.
+-- One MIR is borrow-checked repeatedly so backing capacity must be reused.
+
+task v4_contract_region_resource_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task diamond<'a>(lend 'a first: Ship, lend 'a second: Ship, choose_right: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot left0 = lend first\n"
+    src = src + "    pilot right0 = lend second\n"
+    src = src + "    pilot merge0 = left0\n"
+    src = src + "    if choose_right {\n"
+    src = src + "        merge0 = right0\n"
+    src = src + "    }\n"
+
+    pilot level = 1
+    pilot prior = "merge0"
+    repeat until level > 12 {
+        pilot suffix = word_from_int(level)
+        pilot left = "left" + suffix
+        pilot right = "right" + suffix
+        pilot merge = "merge" + suffix
+        src = src + "    pilot " + left + " = " + prior + "\n"
+        src = src + "    pilot " + right + " = " + prior + "\n"
+        src = src + "    pilot " + merge + " = " + left + "\n"
+        src = src + "    if choose_right {\n"
+        src = src + "        " + merge + " = " + right + "\n"
+        src = src + "    }\n"
+        prior = merge
+        level += 1
+    }
+    src = src + "    give back " + prior + "\n"
+    src = src + "}\n"
+    src = src + "task opaque_loop<'a>(lend 'a source: Ship, ready: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot view = lend source\n"
+    src = src + "    pilot finished = ready\n"
+    src = src + "    repeat until finished {\n"
+    src = src + "        view = lend source\n"
+    src = src + "        finished = true\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_resource_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_resource_return_source_at(borrow_id: int, result_id: int, wanted: int) -> word {
+    pilot seen = 0
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_return_loan {
+            if seen == wanted {
+                give back v4_borrowck_path_text(borrow_id, result_id, path_id)
+            }
+            seen += 1
+        }
+        path_id += 1
+    }
+    give back ""
+}
+
+task v4_contract_region_resource_diag_count(borrow_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+task v4_contract_region_resource_diamond_stable(borrow_id: int, diamond_def: word) -> bool {
+    pilot result_id = v4_borrowck_lookup_result(borrow_id, diamond_def)
+    if result_id < 0 or v4_borrowck_result_status(borrow_id, result_id) != v4_borrowck_clean {
+        give back false
+    }
+    if v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_return_loan) != 2 {
+        give back false
+    }
+    if v4_contract_region_resource_return_source_at(borrow_id, result_id, 0) != "first" {
+        give back false
+    }
+    give back v4_contract_region_resource_return_source_at(borrow_id, result_id, 1) == "second"
+}
+
+task v4_contract_region_resource_opaque_conservative(borrow_id: int, opaque_def: word) -> bool {
+    pilot result_id = v4_borrowck_lookup_result(borrow_id, opaque_def)
+    if result_id < 0 or v4_borrowck_result_status(borrow_id, result_id) != v4_borrowck_blocked {
+        give back false
+    }
+    if v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_return_loan) != 0 {
+        give back false
+    }
+    give back v4_contract_region_resource_diag_count(borrow_id, "Meiya cannot establish the origin of this returned loan") == 1
+}
+
+pilot v4_contract_region_resource_path = "contract-region-resource.fk"
+pilot v4_contract_region_resource_borrow = v4_borrowck_text_cached(v4_contract_region_resource_path, v4_contract_region_resource_source())
+pilot v4_contract_region_resource_mir = v4_borrowck_mir_id(v4_contract_region_resource_borrow)
+pilot v4_contract_region_resource_ty = v4_mir_ty_id(v4_contract_region_resource_mir)
+pilot v4_contract_region_resource_resolve = v4_ty_resolve_id(v4_contract_region_resource_ty)
+pilot v4_contract_region_resource_diamond_def = v4_resolve_def_for_name(v4_contract_region_resource_resolve, "diamond")
+pilot v4_contract_region_resource_opaque_def = v4_resolve_def_for_name(v4_contract_region_resource_resolve, "opaque_loop")
+pilot v4_contract_region_resource_diamond_result = v4_borrowck_lookup_result(v4_contract_region_resource_borrow, v4_contract_region_resource_diamond_def)
+pilot v4_contract_region_resource_opaque_result = v4_borrowck_lookup_result(v4_contract_region_resource_borrow, v4_contract_region_resource_opaque_def)
+
+pilot v4_contract_region_resource_generation = v4_borrowck_provenance_scratch_generation()
+pilot v4_contract_region_resource_state_active = v4_borrowck_provenance_state_active_count()
+pilot v4_contract_region_resource_state_capacity = v4_borrowck_provenance_state_capacity()
+pilot v4_contract_region_resource_source_active = v4_borrowck_provenance_source_active_count()
+pilot v4_contract_region_resource_source_capacity = v4_borrowck_provenance_source_capacity()
+pilot v4_contract_region_resource_memo_active = v4_borrowck_provenance_memo_active_count()
+pilot v4_contract_region_resource_memo_capacity = v4_borrowck_provenance_memo_capacity()
+
+pilot v4_contract_region_resource_semantics_stable = v4_contract_region_resource_diamond_stable(v4_contract_region_resource_borrow, v4_contract_region_resource_diamond_def)
+pilot v4_contract_region_resource_source_order_stable = v4_contract_region_resource_semantics_stable
+pilot v4_contract_region_resource_opaque_stable = v4_contract_region_resource_opaque_conservative(v4_contract_region_resource_borrow, v4_contract_region_resource_opaque_def)
+v4_contract_region_resource_semantics_stable = v4_contract_region_resource_semantics_stable and v4_contract_region_resource_opaque_stable
+pilot v4_contract_region_resource_memo_hits = v4_borrowck_provenance_memo_hit_count() > 0
+pilot v4_contract_region_resource_one_state_per_memo = v4_contract_region_resource_state_active == v4_contract_region_resource_memo_active
+pilot v4_contract_region_resource_active_stable = true
+pilot v4_contract_region_resource_active_within_capacity = v4_contract_region_resource_state_active <= v4_contract_region_resource_state_capacity and v4_contract_region_resource_source_active <= v4_contract_region_resource_source_capacity and v4_contract_region_resource_memo_active <= v4_contract_region_resource_memo_capacity
+pilot v4_contract_region_resource_capacities_reused = true
+pilot v4_contract_region_resource_generation_sequence = true
+
+pilot v4_contract_region_resource_repeat_count = 16
+pilot v4_contract_region_resource_repeat_id = 0
+repeat until v4_contract_region_resource_repeat_id >= v4_contract_region_resource_repeat_count {
+    pilot current_borrow = v4_borrowck_check_mir(0, v4_contract_region_resource_mir)
+    if not v4_contract_region_resource_diamond_stable(current_borrow, v4_contract_region_resource_diamond_def) {
+        v4_contract_region_resource_semantics_stable = false
+        v4_contract_region_resource_source_order_stable = false
+    }
+    if not v4_contract_region_resource_opaque_conservative(current_borrow, v4_contract_region_resource_opaque_def) {
+        v4_contract_region_resource_semantics_stable = false
+        v4_contract_region_resource_opaque_stable = false
+    }
+    if v4_borrowck_provenance_memo_hit_count() <= 0 {
+        v4_contract_region_resource_memo_hits = false
+    }
+    if v4_borrowck_provenance_state_active_count() != v4_contract_region_resource_state_active or v4_borrowck_provenance_source_active_count() != v4_contract_region_resource_source_active or v4_borrowck_provenance_memo_active_count() != v4_contract_region_resource_memo_active {
+        v4_contract_region_resource_active_stable = false
+    }
+    if v4_borrowck_provenance_state_active_count() > v4_borrowck_provenance_state_capacity() or v4_borrowck_provenance_source_active_count() > v4_borrowck_provenance_source_capacity() or v4_borrowck_provenance_memo_active_count() > v4_borrowck_provenance_memo_capacity() {
+        v4_contract_region_resource_active_within_capacity = false
+    }
+    if v4_borrowck_provenance_state_capacity() != v4_contract_region_resource_state_capacity or v4_borrowck_provenance_source_capacity() != v4_contract_region_resource_source_capacity or v4_borrowck_provenance_memo_capacity() != v4_contract_region_resource_memo_capacity {
+        v4_contract_region_resource_capacities_reused = false
+    }
+    if v4_borrowck_provenance_state_active_count() != v4_borrowck_provenance_memo_active_count() {
+        v4_contract_region_resource_one_state_per_memo = false
+    }
+    if v4_borrowck_provenance_scratch_generation() != v4_contract_region_resource_generation + v4_contract_region_resource_repeat_id + 1 {
+        v4_contract_region_resource_generation_sequence = false
+    }
+    v4_contract_region_resource_repeat_id += 1
+}
+
+pilot v4_contract_region_resource_invalid_provenance = v4_borrowck_provenance_state_active_count()
+pilot v4_contract_region_resource_bounds_opaque = v4_borrowck_provenance_state(v4_contract_region_resource_invalid_provenance) == v4_borrowck_provenance_opaque
+v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_count(v4_contract_region_resource_invalid_provenance) == 0
+v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_path_at(v4_contract_region_resource_invalid_provenance, 0) == ""
+v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_origin_at(v4_contract_region_resource_invalid_provenance, 0) < 0
+v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_overlaps_path(v4_contract_region_resource_invalid_provenance, "unrelated.owner")
+pilot v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_active_stable and v4_contract_region_resource_active_within_capacity and v4_contract_region_resource_capacities_reused
+
+say "contract-region-resource-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_resource_ty))
+say "contract-region-resource-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_resource_mir))
+say "contract-region-resource-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_resource_borrow))
+say "contract-region-resource-diamond-status=" + v4_borrowck_result_status(v4_contract_region_resource_borrow, v4_contract_region_resource_diamond_result)
+say "contract-region-resource-opaque-status=" + v4_borrowck_result_status(v4_contract_region_resource_borrow, v4_contract_region_resource_opaque_result)
+say "contract-region-resource-diamond-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_resource_borrow, v4_contract_region_resource_diamond_result, v4_borrowck_path_return_loan))
+say "contract-region-resource-diamond-source0=" + v4_contract_region_resource_return_source_at(v4_contract_region_resource_borrow, v4_contract_region_resource_diamond_result, 0)
+say "contract-region-resource-diamond-source1=" + v4_contract_region_resource_return_source_at(v4_contract_region_resource_borrow, v4_contract_region_resource_diamond_result, 1)
+say "contract-region-resource-recomputations=" + word_from_int(v4_contract_region_resource_repeat_count)
+say "contract-region-resource-generation-delta=" + word_from_int(v4_borrowck_provenance_scratch_generation() - v4_contract_region_resource_generation)
+say "contract-region-resource-generation-sequence=" + v4_contract_region_resource_bool(v4_contract_region_resource_generation_sequence)
+say "contract-region-resource-semantics-stable=" + v4_contract_region_resource_bool(v4_contract_region_resource_semantics_stable)
+say "contract-region-resource-source-order-stable=" + v4_contract_region_resource_bool(v4_contract_region_resource_source_order_stable)
+say "contract-region-resource-memo-hits=" + v4_contract_region_resource_bool(v4_contract_region_resource_memo_hits)
+say "contract-region-resource-one-state-per-memo=" + v4_contract_region_resource_bool(v4_contract_region_resource_one_state_per_memo)
+say "contract-region-resource-active-counts-stable=" + v4_contract_region_resource_bool(v4_contract_region_resource_active_stable)
+say "contract-region-resource-active-within-capacity=" + v4_contract_region_resource_bool(v4_contract_region_resource_active_within_capacity)
+say "contract-region-resource-capacities-reused=" + v4_contract_region_resource_bool(v4_contract_region_resource_capacities_reused)
+say "contract-region-resource-no-historical-growth=" + v4_contract_region_resource_bool(v4_contract_region_resource_no_historical_growth)
+say "contract-region-resource-opaque-conservative=" + v4_contract_region_resource_bool(v4_contract_region_resource_opaque_stable)
+say "contract-region-resource-bounds-opaque=" + v4_contract_region_resource_bool(v4_contract_region_resource_bounds_opaque)

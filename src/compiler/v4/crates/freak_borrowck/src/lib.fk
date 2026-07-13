@@ -23,6 +23,8 @@ pilot v4_borrowck_snapshot_format = "freak-borrowck-snapshot-v1"
 
 pilot v4_borrowck_provenance_known = "known"
 pilot v4_borrowck_provenance_opaque = "opaque"
+pilot v4_borrowck_provenance_memo_in_progress = "in-progress"
+pilot v4_borrowck_provenance_memo_ready = "ready"
 
 pilot v4_borrowck_files = 0
 pilot v4_borrowck_mirs = 0
@@ -41,6 +43,17 @@ pilot v4_borrowck_provenance_states = 0
 pilot v4_borrowck_source_provenance_ids = 0
 pilot v4_borrowck_source_paths = 0
 pilot v4_borrowck_source_origins = 0
+pilot v4_borrowck_provenance_state_active = 0
+pilot v4_borrowck_provenance_source_active = 0
+pilot v4_borrowck_provenance_generation_value = 0
+pilot v4_borrowck_provenance_memo_mir_ids = 0
+pilot v4_borrowck_provenance_memo_body_ids = 0
+pilot v4_borrowck_provenance_memo_use_stmts = 0
+pilot v4_borrowck_provenance_memo_rvalues = 0
+pilot v4_borrowck_provenance_memo_states = 0
+pilot v4_borrowck_provenance_memo_provenance_ids = 0
+pilot v4_borrowck_provenance_memo_active = 0
+pilot v4_borrowck_provenance_memo_hits_value = 0
 pilot v4_borrowck_ready = 0
 
 task v4_borrowck_init() -> void {
@@ -62,6 +75,12 @@ task v4_borrowck_init() -> void {
         v4_borrowck_source_provenance_ids = array_new()
         v4_borrowck_source_paths = array_new()
         v4_borrowck_source_origins = array_new()
+        v4_borrowck_provenance_memo_mir_ids = array_new()
+        v4_borrowck_provenance_memo_body_ids = array_new()
+        v4_borrowck_provenance_memo_use_stmts = array_new()
+        v4_borrowck_provenance_memo_rvalues = array_new()
+        v4_borrowck_provenance_memo_states = array_new()
+        v4_borrowck_provenance_memo_provenance_ids = array_new()
         v4_borrowck_ready = 1
     }
 }
@@ -446,35 +465,101 @@ task v4_borrowck_path_canon(path_text: word) -> word {
     give back out
 }
 
+task v4_borrowck_provenance_scratch_store(handle: int, index: int, value: word) -> void {
+    if index < 0 or index > array_len(handle) {
+        give back
+    }
+    if index < array_len(handle) {
+        array_set(handle, index, value)
+    } else {
+        array_push(handle, value)
+    }
+}
+
+task v4_borrowck_provenance_scratch_reset() -> void {
+    v4_borrowck_init()
+    v4_borrowck_provenance_state_active = 0
+    v4_borrowck_provenance_source_active = 0
+    v4_borrowck_provenance_memo_active = 0
+    v4_borrowck_provenance_memo_hits_value = 0
+    v4_borrowck_provenance_generation_value += 1
+}
+
+task v4_borrowck_provenance_scratch_generation() -> int {
+    give back v4_borrowck_provenance_generation_value
+}
+
+task v4_borrowck_provenance_state_active_count() -> int {
+    give back v4_borrowck_provenance_state_active
+}
+
+task v4_borrowck_provenance_state_capacity() -> int {
+    v4_borrowck_init()
+    give back array_len(v4_borrowck_provenance_states)
+}
+
+task v4_borrowck_provenance_source_active_count() -> int {
+    give back v4_borrowck_provenance_source_active
+}
+
+task v4_borrowck_provenance_source_capacity() -> int {
+    v4_borrowck_init()
+    give back array_len(v4_borrowck_source_provenance_ids)
+}
+
+task v4_borrowck_provenance_memo_active_count() -> int {
+    give back v4_borrowck_provenance_memo_active
+}
+
+task v4_borrowck_provenance_memo_capacity() -> int {
+    v4_borrowck_init()
+    give back array_len(v4_borrowck_provenance_memo_mir_ids)
+}
+
+task v4_borrowck_provenance_memo_hit_count() -> int {
+    give back v4_borrowck_provenance_memo_hits_value
+}
+
+task v4_borrowck_provenance_exists(provenance_id: int) -> bool {
+    give back provenance_id >= 0 and provenance_id < v4_borrowck_provenance_state_active
+}
+
 task v4_borrowck_provenance_new(state: word) -> int {
     v4_borrowck_init()
-    pilot provenance_id = array_len(v4_borrowck_provenance_states)
-    array_push(v4_borrowck_provenance_states, state)
+    pilot provenance_id = v4_borrowck_provenance_state_active
+    pilot stored_state = state
+    if stored_state != v4_borrowck_provenance_known and stored_state != v4_borrowck_provenance_opaque {
+        stored_state = v4_borrowck_provenance_opaque
+    }
+    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_states, provenance_id, stored_state)
+    v4_borrowck_provenance_state_active += 1
     give back provenance_id
 }
 
 task v4_borrowck_provenance_state(provenance_id: int) -> word {
+    if not v4_borrowck_provenance_exists(provenance_id) {
+        give back v4_borrowck_provenance_opaque
+    }
     give back array_get(v4_borrowck_provenance_states, provenance_id)
 }
 
 task v4_borrowck_provenance_is_known(provenance_id: int) -> bool {
-    give back provenance_id >= 0 and v4_borrowck_provenance_state(provenance_id) == v4_borrowck_provenance_known
+    give back v4_borrowck_provenance_exists(provenance_id) and v4_borrowck_provenance_state(provenance_id) == v4_borrowck_provenance_known
 }
 
 task v4_borrowck_provenance_mark_opaque(provenance_id: int) -> void {
-    if provenance_id >= 0 {
+    if v4_borrowck_provenance_exists(provenance_id) {
         array_set(v4_borrowck_provenance_states, provenance_id, v4_borrowck_provenance_opaque)
     }
 }
 
 task v4_borrowck_provenance_count(provenance_id: int) -> int {
-    if provenance_id < 0 {
+    if not v4_borrowck_provenance_exists(provenance_id) {
         give back 0
     }
     pilot source_count = 0
     pilot row_id = 0
-    pilot row_count = array_len(v4_borrowck_source_provenance_ids)
-    repeat until row_id >= row_count {
+    repeat until row_id >= v4_borrowck_provenance_source_active {
         if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == provenance_id {
             source_count += 1
         }
@@ -488,13 +573,12 @@ task v4_borrowck_provenance_is_known_empty(provenance_id: int) -> bool {
 }
 
 task v4_borrowck_provenance_source_row_at(provenance_id: int, source_id: int) -> int {
-    if provenance_id < 0 or source_id < 0 {
+    if not v4_borrowck_provenance_exists(provenance_id) or source_id < 0 {
         give back 0 - 1
     }
     pilot seen_sources = 0
     pilot row_id = 0
-    pilot row_count = array_len(v4_borrowck_source_provenance_ids)
-    repeat until row_id >= row_count {
+    repeat until row_id >= v4_borrowck_provenance_source_active {
         if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == provenance_id {
             if seen_sources == source_id {
                 give back row_id
@@ -523,10 +607,12 @@ task v4_borrowck_provenance_origin_at(provenance_id: int, source_id: int) -> int
 }
 
 task v4_borrowck_provenance_contains_path(provenance_id: int, source_text: word) -> bool {
+    if not v4_borrowck_provenance_exists(provenance_id) {
+        give back false
+    }
     pilot source_canon = v4_borrowck_path_canon(source_text)
     pilot row_id = 0
-    pilot row_count = array_len(v4_borrowck_source_provenance_ids)
-    repeat until row_id >= row_count {
+    repeat until row_id >= v4_borrowck_provenance_source_active {
         pilot stored_path: word = array_get(v4_borrowck_source_paths, row_id)
         if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == provenance_id and stored_path == source_canon {
             give back true
@@ -537,12 +623,11 @@ task v4_borrowck_provenance_contains_path(provenance_id: int, source_text: word)
 }
 
 task v4_borrowck_provenance_overlaps_path(provenance_id: int, source_text: word) -> bool {
-    if provenance_id < 0 or not v4_borrowck_provenance_is_known(provenance_id) {
+    if not v4_borrowck_provenance_is_known(provenance_id) {
         give back true
     }
     pilot row_id = 0
-    pilot row_count = array_len(v4_borrowck_source_provenance_ids)
-    repeat until row_id >= row_count {
+    repeat until row_id >= v4_borrowck_provenance_source_active {
         if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == provenance_id and v4_borrowck_paths_overlap(array_get(v4_borrowck_source_paths, row_id), source_text) {
             give back true
         }
@@ -552,6 +637,9 @@ task v4_borrowck_provenance_overlaps_path(provenance_id: int, source_text: word)
 }
 
 task v4_borrowck_provenance_add_source(provenance_id: int, source_text: word, origin_id: int) -> void {
+    if not v4_borrowck_provenance_exists(provenance_id) {
+        give back
+    }
     pilot source_canon = v4_borrowck_path_canon(source_text)
     if source_canon == "" {
         v4_borrowck_provenance_mark_opaque(provenance_id)
@@ -560,18 +648,23 @@ task v4_borrowck_provenance_add_source(provenance_id: int, source_text: word, or
     if v4_borrowck_provenance_contains_path(provenance_id, source_canon) {
         give back
     }
-    array_push(v4_borrowck_source_provenance_ids, word_from_int(provenance_id))
-    array_push(v4_borrowck_source_paths, source_canon)
-    array_push(v4_borrowck_source_origins, word_from_int(origin_id))
+    pilot row_id = v4_borrowck_provenance_source_active
+    v4_borrowck_provenance_scratch_store(v4_borrowck_source_provenance_ids, row_id, word_from_int(provenance_id))
+    v4_borrowck_provenance_scratch_store(v4_borrowck_source_paths, row_id, source_canon)
+    v4_borrowck_provenance_scratch_store(v4_borrowck_source_origins, row_id, word_from_int(origin_id))
+    v4_borrowck_provenance_source_active += 1
 }
 
 task v4_borrowck_provenance_union_into(provenance_id: int, incoming_id: int) -> void {
-    if incoming_id < 0 {
+    if not v4_borrowck_provenance_exists(provenance_id) {
+        give back
+    }
+    if not v4_borrowck_provenance_exists(incoming_id) {
         v4_borrowck_provenance_mark_opaque(provenance_id)
         give back
     }
     pilot row_id = 0
-    pilot row_count = array_len(v4_borrowck_source_provenance_ids)
+    pilot row_count = v4_borrowck_provenance_source_active
     repeat until row_id >= row_count {
         if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == incoming_id {
             v4_borrowck_provenance_add_source(provenance_id, array_get(v4_borrowck_source_paths, row_id), word_to_int(array_get(v4_borrowck_source_origins, row_id)))
@@ -580,6 +673,49 @@ task v4_borrowck_provenance_union_into(provenance_id: int, incoming_id: int) -> 
     }
     if not v4_borrowck_provenance_is_known(incoming_id) {
         v4_borrowck_provenance_mark_opaque(provenance_id)
+    }
+}
+
+task v4_borrowck_provenance_memo_lookup(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int) -> int {
+    pilot memo_id = 0
+    repeat until memo_id >= v4_borrowck_provenance_memo_active {
+        if word_to_int(array_get(v4_borrowck_provenance_memo_mir_ids, memo_id)) == mir_id and word_to_int(array_get(v4_borrowck_provenance_memo_body_ids, memo_id)) == body_id and word_to_int(array_get(v4_borrowck_provenance_memo_use_stmts, memo_id)) == use_stmt and word_to_int(array_get(v4_borrowck_provenance_memo_rvalues, memo_id)) == rvalue_id {
+            give back memo_id
+        }
+        memo_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_borrowck_provenance_memo_add(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int, provenance_id: int) -> int {
+    pilot memo_id = v4_borrowck_provenance_memo_active
+    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_mir_ids, memo_id, word_from_int(mir_id))
+    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_body_ids, memo_id, word_from_int(body_id))
+    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_use_stmts, memo_id, word_from_int(use_stmt))
+    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_rvalues, memo_id, word_from_int(rvalue_id))
+    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_states, memo_id, v4_borrowck_provenance_memo_in_progress)
+    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_provenance_ids, memo_id, word_from_int(provenance_id))
+    v4_borrowck_provenance_memo_active += 1
+    give back memo_id
+}
+
+task v4_borrowck_provenance_memo_provenance(memo_id: int) -> int {
+    if memo_id < 0 or memo_id >= v4_borrowck_provenance_memo_active {
+        give back 0 - 1
+    }
+    give back word_to_int(array_get(v4_borrowck_provenance_memo_provenance_ids, memo_id))
+}
+
+task v4_borrowck_provenance_memo_is_in_progress(memo_id: int) -> bool {
+    if memo_id < 0 or memo_id >= v4_borrowck_provenance_memo_active {
+        give back false
+    }
+    give back array_get(v4_borrowck_provenance_memo_states, memo_id) == v4_borrowck_provenance_memo_in_progress
+}
+
+task v4_borrowck_provenance_memo_mark_ready(memo_id: int) -> void {
+    if memo_id >= 0 and memo_id < v4_borrowck_provenance_memo_active {
+        array_set(v4_borrowck_provenance_memo_states, memo_id, v4_borrowck_provenance_memo_ready)
     }
 }
 
@@ -778,13 +914,12 @@ task v4_borrowck_provenance_union_borrow_capable_call_args(mir_id: int, body_id:
     }
 }
 
-task v4_borrowck_return_call_lend_provenance(mir_id: int, body_id: int, use_stmt: int, call_rvalue: int) -> int {
-    pilot provenance_id = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+task v4_borrowck_fill_return_call_lend_provenance(mir_id: int, body_id: int, use_stmt: int, call_rvalue: int, provenance_id: int) -> void {
     pilot source_count = v4_mir_rvalue_call_borrowed_source_arg_count(mir_id, body_id, call_rvalue)
     if source_count < 0 {
         v4_borrowck_provenance_mark_opaque(provenance_id)
         v4_borrowck_provenance_union_borrow_capable_call_args(mir_id, body_id, use_stmt, call_rvalue, provenance_id)
-        give back provenance_id
+        give back
     }
 
     pilot source_id = 0
@@ -803,14 +938,12 @@ task v4_borrowck_return_call_lend_provenance(mir_id: int, body_id: int, use_stmt
     if mapping_failed {
         v4_borrowck_provenance_union_borrow_capable_call_args(mir_id, body_id, use_stmt, call_rvalue, provenance_id)
     }
-    give back provenance_id
 }
 
-task v4_borrowck_return_lend_provenance(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int) -> int {
-    pilot provenance_id = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+task v4_borrowck_fill_return_lend_provenance(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int, provenance_id: int) -> void {
     if rvalue_id < 0 {
         v4_borrowck_provenance_mark_opaque(provenance_id)
-        give back provenance_id
+        give back
     }
 
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
@@ -819,21 +952,22 @@ task v4_borrowck_return_lend_provenance(mir_id: int, body_id: int, use_stmt: int
         if v4_borrowck_provenance_count(provenance_id) == 0 {
             v4_borrowck_provenance_mark_opaque(provenance_id)
         }
-        give back provenance_id
+        give back
     }
     if kind == v4_mir_rvalue_call {
-        give back v4_borrowck_return_call_lend_provenance(mir_id, body_id, use_stmt, rvalue_id)
+        v4_borrowck_fill_return_call_lend_provenance(mir_id, body_id, use_stmt, rvalue_id, provenance_id)
+        give back
     }
     if kind != v4_mir_rvalue_use_local {
         v4_borrowck_provenance_mark_opaque(provenance_id)
-        give back provenance_id
+        give back
     }
 
     pilot holder = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
     pilot use_block = v4_mir_stmt_block(mir_id, body_id, use_stmt)
     if holder == "" or v4_borrowck_return_has_loop_carried_rebind(mir_id, body_id, holder, use_stmt, use_block) {
         v4_borrowck_provenance_mark_opaque(provenance_id)
-        give back provenance_id
+        give back
     }
 
     pilot found_reaching_binding = false
@@ -858,7 +992,29 @@ task v4_borrowck_return_lend_provenance(mir_id: int, body_id: int, use_stmt: int
     if not found_reaching_binding or v4_borrowck_provenance_count(provenance_id) == 0 {
         v4_borrowck_provenance_mark_opaque(provenance_id)
     }
+}
+
+task v4_borrowck_return_lend_provenance(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int) -> int {
+    v4_borrowck_init()
+    pilot memo_id = v4_borrowck_provenance_memo_lookup(mir_id, body_id, use_stmt, rvalue_id)
+    if memo_id >= 0 {
+        v4_borrowck_provenance_memo_hits_value += 1
+        pilot memo_provenance = v4_borrowck_provenance_memo_provenance(memo_id)
+        if v4_borrowck_provenance_memo_is_in_progress(memo_id) {
+            v4_borrowck_provenance_mark_opaque(memo_provenance)
+        }
+        give back memo_provenance
+    }
+
+    pilot provenance_id = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+    memo_id = v4_borrowck_provenance_memo_add(mir_id, body_id, use_stmt, rvalue_id, provenance_id)
+    v4_borrowck_fill_return_lend_provenance(mir_id, body_id, use_stmt, rvalue_id, provenance_id)
+    v4_borrowck_provenance_memo_mark_ready(memo_id)
     give back provenance_id
+}
+
+task v4_borrowck_return_call_lend_provenance(mir_id: int, body_id: int, use_stmt: int, call_rvalue: int) -> int {
+    give back v4_borrowck_return_lend_provenance(mir_id, body_id, use_stmt, call_rvalue)
 }
 
 -- Compatibility query: -1 means opaque/unproven; -2 means more than one source.
@@ -876,12 +1032,6 @@ task v4_borrowck_return_lend_origin(mir_id: int, body_id: int, return_stmt: int,
 task v4_borrowck_return_unproven_help(body_name: word) -> word {
     pilot out = body_name + " returns a lend whose complete source set cannot be tied to borrowed inputs"
     out = out + "; use explicit lends or an ordinary static call whose borrowed return sources are fully known"
-    give back out
-}
-
-task v4_borrowck_return_ambiguous_help(body_name: word) -> word {
-    pilot out = body_name + " forwards a lend from more than one borrowed input"
-    out = out + "; Yuuko sees multiple valid timelines, so name one source before returning the loan"
     give back out
 }
 
@@ -2327,6 +2477,7 @@ task v4_borrowck_check_partial_moves(borrow_id: int, result_id: int, mir_id: int
 
 task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
     v4_borrowck_init()
+    v4_borrowck_provenance_scratch_reset()
     pilot borrow_id = v4_borrowck_file_new(file_id, mir_id)
     v4_borrowck_copy_mir_diags(borrow_id, mir_id)
 
