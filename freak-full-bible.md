@@ -47,7 +47,7 @@ Pipeline (full compiler):
 | §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer forms, explicit named lifetimes plus ordinary-task outlives bounds, and first-pass `dyn Doctrine` type/object-safety/coercion/editor facts through query slices. Still expanding: `prob_when`, stored lifetime-bearing aggregates, full dyn vtable lowering, and production backend depth for V4-only forms. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, direct/transitive ordinary-task `'long: 'short` relations, deterministic named/elided mode-compatible returned-loan source sets, projection/scalar-holder/statically resolved ordinary-call/reordered-argument/acyclic-join provenance, all-candidate final-use liveness, queryable `ReturnLoan` facts, editor facts for outlives-bound references, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating through TY/MIR/Meiya. Body-derived/general lexical inference, aggregate/shape/route/container storage, method/dynamic/callback/closure/extern/FFI forwarding, loop-carried region fixed points, `'static`, runtime `Shared<T>`/`Weak<T>` depth, the complete honor matrix, and `direct_order` remain V4. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, projection/scalar-holder/statically resolved ordinary-call/reordered-argument/acyclic-join provenance, all-candidate final-use liveness (including elided multi-owner results), query invalidation, queryable Meiya-owned `ReturnLoan` facts, editor definition/snapshot facts for outlives-bound references, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating through TY/MIR/Meiya. Body-derived/general lexical inference, aggregate/shape/route/container storage, loop-carried region fixed points, `'static`, runtime `Shared<T>`/`Weak<T>` depth, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure forwarding has no V4 expression syntax yet. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
@@ -994,9 +994,11 @@ the rest is V4.
 > Borrowed return types now flow through TY/MIR. Ordinary tasks may bind
 > `lend 'a p: T` / `lend mut 'a p: T` and return `lend 'a U` /
 > `lend mut 'a U`; `'_` requests elision. On an ordinary-task signature,
-> `'long: 'short` declares that `'long` outlives `'short`; TY follows direct
-> and transitive declared relations with an iterative, cycle-safe worklist and
-> constant call-stack space. It builds deterministic source sets from
+> `'long: 'short` adds an explicit declared outlives edge. Every declared lifetime
+> outlives itself, direct edges close transitively, and a declared cycle makes
+> its members mutually reachable. TY computes that closure with an iterative,
+> cycle-safe worklist and constant call-stack space. It builds deterministic,
+> controlled source sets from
 > every mode-compatible borrowed parameter whose named lifetime equals or
 > outlives the return lifetime. Shared `lend` returns accept both `lend` and
 > `lend mut` sources; `lend mut` returns accept only `lend mut` sources.
@@ -1006,28 +1008,39 @@ the rest is V4.
 > and follows them through projections, scalar local holders, nested statically
 > resolved ordinary calls, reordered named arguments, and acyclic CFG joins.
 > MIR erases the callee binder spelling at the caller while retaining a
-> deterministic candidate-source mapping on the call rvalue. Meiya resolves
-> those candidates to concrete caller-local owner paths and emits them as
-> queryable `ReturnLoan` / `ReturnLoanMut` facts.
-> Those facts survive borrowck/editor snapshot restore and source-change
-> invalidation. Stored ordinary-call results and copied scalar holder aliases
-> retain every candidate owner through the holder's final reachable use.
+> deterministic signature-source-to-call-argument candidate mapping on the call
+> rvalue. That mapping is not an ownership fact. Meiya resolves the candidates
+> to concrete caller-local owner paths and alone emits the queryable
+> `ReturnLoan` / `ReturnLoanMut` facts.
+> Those facts survive borrowck/editor snapshot restore. Stored named or elided
+> ordinary-call results and copied scalar holder aliases retain every candidate
+> owner through the holder's final reachable use. Source edits invalidate and
+> recompute TY, MIR, borrowck, diagnostics, semantic, hover, and definition
+> queries, including edits that shrink an elided result from multiple owners to
+> one.
 > Rebinding kills only that holder's provenance, restoring
 > from a descendant alias creates a new tracked state, and exact self-assignment
-> preserves the existing edge. Provenance expansion is memoized within a
-> borrowck generation, and its scratch states/source rows/memo slots reuse
-> high-water capacity across recomputation while cycles stay conservatively
-> opaque. Meiya rejects callee-owned escapes,
+> preserves the existing edge. Provenance expansion is memoized by MIR/body/use
+> location/rvalue within a borrowck generation. Active scratch counts reset for
+> each generation and are bounded by that generation's visited provenance graph;
+> state, source-row, and memo arrays reuse high-water capacity across
+> recomputation instead of accumulating history;
+> recursive provenance cycles stay conservatively opaque. Meiya rejects
+> callee-owned escapes,
 > immutable-to-mutable upgrades, origins without the required outlives
 > relation, malformed lend targets, and `'static` borrowed contracts. Named
 > lends remain forbidden in aggregate storage. MIR rejects lend children at
 > tuple, fixed-array, list, shape, and route-payload construction; aliases and
 > nested containers cannot make that storage sound. Method, dynamic, callback,
-> closure, extern, and FFI forwarding plus loop-carried join fixed points still
+> extern, and FFI returned-loan forwarding paths are explicitly rejected rather
+> than silently accepted. Closure forwarding cannot be expressed because V4
+> closure expression syntax has not landed. Loop-carried join fixed points still
 > require later Meiya work. Body-derived source discovery and general lexical
 > region inference are not part of this signature-contract slice. Lifetime
 > tokens, signature relations, and editor semantic/hover/definition facts on
-> outlives-bound references exist, and the first
+> outlives-bound references exist. Definitions target the declared binder even
+> when it appears later in the generic list or is referenced repeatedly, and
+> restored snapshots preserve those distinct definition spans. The first
 > `Shared<T>` / `Weak<T>` method surface now lowers through TY/MIR/Meiya with
 > direct weak-borrow and escaping-guard diagnostics. `trust me ... on my honor
 > as .level` now validates `.cadet` / `.pilot` / `.ace` / `.commander` /
