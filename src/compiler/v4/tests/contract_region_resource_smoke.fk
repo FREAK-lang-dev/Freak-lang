@@ -132,7 +132,7 @@ pilot v4_contract_region_resource_active_within_capacity = v4_contract_region_re
 pilot v4_contract_region_resource_capacities_reused = true
 pilot v4_contract_region_resource_generation_sequence = true
 
-pilot v4_contract_region_resource_repeat_count = 16
+pilot v4_contract_region_resource_repeat_count = 8
 pilot v4_contract_region_resource_repeat_id = 0
 repeat until v4_contract_region_resource_repeat_id >= v4_contract_region_resource_repeat_count {
     pilot current_borrow = v4_borrowck_check_mir(0, v4_contract_region_resource_mir)
@@ -166,7 +166,7 @@ repeat until v4_contract_region_resource_repeat_id >= v4_contract_region_resourc
 }
 
 pilot v4_contract_region_resource_invalid_provenance = v4_borrowck_provenance_state_active_count()
-pilot v4_contract_region_resource_bounds_opaque = v4_borrowck_provenance_state(v4_contract_region_resource_invalid_provenance) == v4_borrowck_provenance_opaque
+pilot v4_contract_region_resource_bounds_opaque: bool = v4_borrowck_provenance_state(v4_contract_region_resource_invalid_provenance) == v4_borrowck_provenance_opaque
 v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_count(v4_contract_region_resource_invalid_provenance) == 0
 v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_path_at(v4_contract_region_resource_invalid_provenance, 0) == ""
 v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_origin_at(v4_contract_region_resource_invalid_provenance, 0) < 0

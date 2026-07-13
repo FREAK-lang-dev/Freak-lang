@@ -710,7 +710,8 @@ task v4_borrowck_provenance_memo_is_in_progress(memo_id: int) -> bool {
     if memo_id < 0 or memo_id >= v4_borrowck_provenance_memo_active {
         give back false
     }
-    give back array_get(v4_borrowck_provenance_memo_states, memo_id) == v4_borrowck_provenance_memo_in_progress
+    pilot memo_state: word = array_get(v4_borrowck_provenance_memo_states, memo_id)
+    give back memo_state == v4_borrowck_provenance_memo_in_progress
 }
 
 task v4_borrowck_provenance_memo_mark_ready(memo_id: int) -> void {
