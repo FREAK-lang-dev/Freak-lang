@@ -37,7 +37,7 @@ pilot v4_contract_region_boundary_negative_ty = v4_ty_text_cached("contract-regi
 
 pilot v4_contract_region_boundary_negative_diagnostic_count = v4_ty_diag_count(v4_contract_region_boundary_negative_ty)
 say "contract-region-boundary-negative-diagnostics=" + word_from_int(v4_contract_region_boundary_negative_diagnostic_count)
-say "contract-region-boundary-negative-diagnostics-exact-three=" + v4_contract_region_boundary_negative_bool(v4_contract_region_boundary_negative_diagnostic_count == 3)
+say "contract-region-boundary-negative-diagnostics-exact-four=" + v4_contract_region_boundary_negative_bool(v4_contract_region_boundary_negative_diagnostic_count == 4)
 if v4_contract_region_boundary_negative_diagnostic_count > 0 {
     v4_contract_region_boundary_negative_emit_diag(v4_contract_region_boundary_negative_ty, 0)
 } else {
@@ -52,4 +52,9 @@ if v4_contract_region_boundary_negative_diagnostic_count > 2 {
     v4_contract_region_boundary_negative_emit_diag(v4_contract_region_boundary_negative_ty, 2)
 } else {
     say "contract-region-boundary-negative-diag2=none"
+}
+if v4_contract_region_boundary_negative_diagnostic_count > 3 {
+    v4_contract_region_boundary_negative_emit_diag(v4_contract_region_boundary_negative_ty, 3)
+} else {
+    say "contract-region-boundary-negative-diag3=none"
 }
