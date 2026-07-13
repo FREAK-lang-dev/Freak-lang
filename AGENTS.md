@@ -201,8 +201,8 @@ their result has been integrated or recorded so concurrency remains available.
 ### Isolation And Ownership
 
 - Read-only explorers and reviewers may inspect the same immutable commit or
-  diff and do not need branches or commits. Use a disposable detached worktree
-  only when their tools must generate files.
+  diff and do not need branches, worktrees, or commits. If a review tool must
+  generate artifacts, write them outside the repository.
 - Explorers and reviewers do not fetch, switch branches, mutate refs/worktrees,
   touch files or the index, commit, push, or resolve conflicts. Explicitly
   reassign the agent as a worker before granting writes; that agent can no
@@ -458,7 +458,7 @@ When behavior promotes from planned to partial/implemented:
 2. Update `freak-conformance-audit.md` without overstating coverage.
 3. Add or extend `freakc/auditor.py` when the contract should be guarded.
 4. Register focused executable fixtures in `check_v4.py`.
-5. Run `python -m freakc audit-conformance`.
+5. Run `python -u -m freakc audit-conformance`.
 
 ## Verification And Resource Safety
 
