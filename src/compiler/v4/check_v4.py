@@ -359,6 +359,18 @@ EXECUTABLE_SMOKES = [
             "editor-invalidations-added=",
             "invalidation-match-first=true",
             "invalidation-match-second=true",
+            "invalidation-positive-first=true",
+            "invalidation-generation-match-first=true",
+            "invalidation-positive-second=true",
+            "invalidation-generation-match-second=true",
+        ],
+        "expect_exact": [
+            "invalidation-match-first=true",
+            "invalidation-match-second=true",
+            "invalidation-positive-first=true",
+            "invalidation-generation-match-first=true",
+            "invalidation-positive-second=true",
+            "invalidation-generation-match-second=true",
         ],
     },
     {
@@ -2363,6 +2375,7 @@ EXECUTABLE_SMOKES = [
     {
         "name": "contract region relation stress",
         "fixture": "contract_region_relation_stress_smoke.fk",
+        "expect_mode": "line",
         "expect": [
             "contract-region-relation-stress-parse-diagnostics=0",
             "contract-region-relation-stress-ty-diagnostics=0",
@@ -2479,26 +2492,32 @@ EXECUTABLE_SMOKES = [
     {
         "name": "contract region unsupported boundaries",
         "fixture": "contract_region_boundary_negative_smoke.fk",
+        "expect_mode": "line",
         "expect": [
             "contract-region-boundary-negative-diagnostics=4",
             "contract-region-boundary-negative-diagnostics-exact-four=true",
             "contract-region-boundary-negative-diag0=Meiya cannot store a named lend in return type of Selector::choose yet",
-            "contract-region-boundary-negative-diag0-span=0@117:129",
+            "contract-region-boundary-negative-diag0-source-path=contract-region-boundary-negative.fk",
+            "contract-region-boundary-negative-diag0-range=117:129",
             "contract-region-boundary-negative-diag0-help=keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
             "contract-region-boundary-negative-diag1=Meiya cannot store a named lend in parameter 0 of callback_boundary yet",
-            "contract-region-boundary-negative-diag1-span=0@163:224",
+            "contract-region-boundary-negative-diag1-source-path=contract-region-boundary-negative.fk",
+            "contract-region-boundary-negative-diag1-range=163:224",
             "contract-region-boundary-negative-diag1-help=keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
             "contract-region-boundary-negative-diag2=Meiya cannot accept a static lend parameter yet",
-            "contract-region-boundary-negative-diag2-span=0@279:286",
+            "contract-region-boundary-negative-diag2-source-path=contract-region-boundary-negative.fk",
+            "contract-region-boundary-negative-diag2-range=279:286",
             "contract-region-boundary-negative-diag2-help='static needs source-storage classification before callers may promise an immortal loan",
             "contract-region-boundary-negative-diag3=Meiya cannot prove a static borrowed return yet",
-            "contract-region-boundary-negative-diag3-span=0@303:320",
+            "contract-region-boundary-negative-diag3-source-path=contract-region-boundary-negative.fk",
+            "contract-region-boundary-negative-diag3-range=303:320",
             "contract-region-boundary-negative-diag3-help='static returned loans need global-storage provenance before this contract can be sound",
         ],
     },
     {
         "name": "contract region forwarding boundaries",
         "fixture": "contract_region_forwarding_boundary_negative_smoke.fk",
+        "expect_mode": "line",
         "expect": [
             "contract-region-forwarding-method-ty-diagnostics=0",
             "contract-region-forwarding-method-mir-diagnostics=1",
@@ -2506,7 +2525,8 @@ EXECUTABLE_SMOKES = [
             "contract-region-forwarding-method-status=blocked",
             "contract-region-forwarding-method-invocation-diagnostic-count=1",
             "contract-region-forwarding-method-invocation-message=Meiya cannot establish the origin of this returned loan",
-            "contract-region-forwarding-method-invocation-span=0@255:282",
+            "contract-region-forwarding-method-invocation-source-path=contract-region-forwarding-method.fk",
+            "contract-region-forwarding-method-invocation-range=255:282",
             "contract-region-forwarding-method-rejected=true",
             "contract-region-forwarding-method-silently-accepted=false",
             "contract-region-forwarding-dynamic-ty-diagnostics=0",
@@ -2515,7 +2535,8 @@ EXECUTABLE_SMOKES = [
             "contract-region-forwarding-dynamic-status=blocked",
             "contract-region-forwarding-dynamic-invocation-diagnostic-count=1",
             "contract-region-forwarding-dynamic-invocation-message=Meiya cannot establish the origin of this returned loan",
-            "contract-region-forwarding-dynamic-invocation-span=1@346:373",
+            "contract-region-forwarding-dynamic-invocation-source-path=contract-region-forwarding-dynamic.fk",
+            "contract-region-forwarding-dynamic-invocation-range=346:373",
             "contract-region-forwarding-dynamic-rejected=true",
             "contract-region-forwarding-dynamic-silently-accepted=false",
             "contract-region-forwarding-callback-ty-diagnostics=0",
@@ -2524,7 +2545,8 @@ EXECUTABLE_SMOKES = [
             "contract-region-forwarding-callback-status=clean",
             "contract-region-forwarding-callback-invocation-diagnostic-count=1",
             "contract-region-forwarding-callback-invocation-message=call target is not callable",
-            "contract-region-forwarding-callback-invocation-span=2@136:150",
+            "contract-region-forwarding-callback-invocation-source-path=contract-region-forwarding-callback.fk",
+            "contract-region-forwarding-callback-invocation-range=136:150",
             "contract-region-forwarding-callback-rejected=true",
             "contract-region-forwarding-callback-silently-accepted=false",
             "contract-region-forwarding-extern-ty-diagnostics=2",
@@ -2533,7 +2555,8 @@ EXECUTABLE_SMOKES = [
             "contract-region-forwarding-extern-status=blocked",
             "contract-region-forwarding-extern-invocation-diagnostic-count=1",
             "contract-region-forwarding-extern-invocation-message=Meiya cannot establish the origin of this returned loan",
-            "contract-region-forwarding-extern-invocation-span=3@162:187",
+            "contract-region-forwarding-extern-invocation-source-path=contract-region-forwarding-extern.fk",
+            "contract-region-forwarding-extern-invocation-range=162:187",
             "contract-region-forwarding-extern-rejected=true",
             "contract-region-forwarding-extern-silently-accepted=false",
             "contract-region-forwarding-ffi-ty-diagnostics=1",
@@ -2542,7 +2565,8 @@ EXECUTABLE_SMOKES = [
             "contract-region-forwarding-ffi-status=clean",
             "contract-region-forwarding-ffi-invocation-diagnostic-count=1",
             "contract-region-forwarding-ffi-invocation-message=Meiya cannot forward borrowed values through an FFI callback yet",
-            "contract-region-forwarding-ffi-invocation-span=4@198:222",
+            "contract-region-forwarding-ffi-invocation-source-path=contract-region-forwarding-ffi.fk",
+            "contract-region-forwarding-ffi-invocation-range=198:222",
             "contract-region-forwarding-ffi-rejected=true",
             "contract-region-forwarding-ffi-silently-accepted=false",
             "contract-region-forwarding-closure-coverage=unsupported-no-v4-closure-syntax",
@@ -2613,6 +2637,27 @@ EXECUTABLE_SMOKES = [
             "contract-region-editor-restored-definition-records-distinct=true",
             "contract-region-editor-restored-definition-spans-distinct=true",
         ],
+        "expect_exact": [
+            "contract-region-editor-bound-semantic-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "contract-region-editor-bound-hover-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "location|contract-region-editor.fk|3|33|3|37|'out|Lifetime",
+            "contract-region-editor-blocked-confirm-promoted=0",
+            "contract-region-editor-blocked-confirm-blocked=1",
+            "contract-region-editor-blocked-confirm-mismatched=0",
+            "contract-region-editor-mismatch-confirm-promoted=0",
+            "contract-region-editor-mismatch-confirm-blocked=0",
+            "contract-region-editor-mismatch-confirm-mismatched=1",
+            "contract-region-editor-promoted-confirm-promoted=1",
+            "contract-region-editor-promoted-confirm-blocked=0",
+            "contract-region-editor-promoted-confirm-mismatched=0",
+            "contract-region-editor-document-confirm-promoted=17",
+            "contract-region-editor-document-confirm-blocked=0",
+            "contract-region-editor-document-confirm-mismatched=0",
+            "contract-region-editor-restored-semantic-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "contract-region-editor-restored-hover-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "contract-region-editor-restored-definition-records-distinct=true",
+            "contract-region-editor-restored-definition-spans-distinct=true",
+        ],
     },
     {
         "name": "contract region query invalidation",
@@ -2637,6 +2682,9 @@ EXECUTABLE_SMOKES = [
             "contract-region-query-semantic-invalidated=true",
             "contract-region-query-hover-invalidated=true",
             "contract-region-query-definition-invalidated=true",
+            "contract-region-query-document-symbols-invalidated=true",
+            "contract-region-query-completion-invalidated=true",
+            "contract-region-query-all-invalidations-positive=true",
             "contract-region-query-ty-recomputed=true",
             "contract-region-query-mir-recomputed=true",
             "contract-region-query-borrowck-recomputed=true",
@@ -2644,6 +2692,8 @@ EXECUTABLE_SMOKES = [
             "contract-region-query-semantic-recomputed=true",
             "contract-region-query-hover-recomputed=true",
             "contract-region-query-definition-recomputed=true",
+            "contract-region-query-document-symbols-recomputed=true",
+            "contract-region-query-completion-recomputed=true",
             "contract-region-query-after-diagnostics=1",
             "contract-region-query-after-message=Meiya refuses a returned loan from the wrong lifetime",
             "contract-region-query-after-status=blocked",
@@ -2656,6 +2706,15 @@ EXECUTABLE_SMOKES = [
             "contract-region-query-after-bound-definition-matches-alt-binder=true",
             "contract-region-query-bound-definition-changed=true",
             "diagnostics|1",
+        ],
+        "expect_exact": [
+            "contract-region-query-document-symbols-invalidated=true",
+            "contract-region-query-completion-invalidated=true",
+            "contract-region-query-all-invalidations-positive=true",
+            "contract-region-query-document-symbols-recomputed=true",
+            "contract-region-query-completion-recomputed=true",
+            "contract-region-query-after-diagnostics=1",
+            "contract-region-query-after-message=Meiya refuses a returned loan from the wrong lifetime",
         ],
     },
     {
@@ -2690,6 +2749,7 @@ EXECUTABLE_SMOKES = [
             "contract-region-liveness-opaque-overlaps-any-owner=true",
             "contract-region-liveness-snapshot-format=freak-borrowck-snapshot-v1",
             "borrowck-snapshot-import ok=1",
+            "contract-region-liveness-snapshot-poisoned-before-restore=true",
             "borrowck-snapshot-restore ok=1",
             "contract-region-liveness-restored-choose-return-source-count=2",
             "contract-region-liveness-restored-choose-return-source0=first",
@@ -2704,6 +2764,7 @@ EXECUTABLE_SMOKES = [
     {
         "name": "contract region elided owner liveness",
         "fixture": "contract_region_elided_liveness_smoke.fk",
+        "expect_mode": "line",
         "expect": [
             "contract-region-elided-liveness-ty-diagnostics=0",
             "contract-region-elided-liveness-mir-diagnostics=0",
@@ -2728,6 +2789,7 @@ EXECUTABLE_SMOKES = [
     {
         "name": "contract region elided query invalidation",
         "fixture": "contract_region_elided_query_invalidation_smoke.fk",
+        "expect_mode": "line",
         "expect": [
             "contract-region-elided-query-before-diagnostics=0",
             "contract-region-elided-query-before-message=none",
@@ -2750,6 +2812,9 @@ EXECUTABLE_SMOKES = [
             "contract-region-elided-query-semantic-invalidations-added=1",
             "contract-region-elided-query-hover-invalidations-added=1",
             "contract-region-elided-query-definition-invalidations-added=1",
+            "contract-region-elided-query-document-symbols-invalidations-added=1",
+            "contract-region-elided-query-completion-invalidations-added=1",
+            "contract-region-elided-query-all-invalidations-positive=true",
             "contract-region-elided-query-ty-recomputations-added=1",
             "contract-region-elided-query-mir-recomputations-added=1",
             "contract-region-elided-query-borrowck-recomputations-added=1",
@@ -2757,6 +2822,8 @@ EXECUTABLE_SMOKES = [
             "contract-region-elided-query-semantic-recomputations-added=1",
             "contract-region-elided-query-hover-recomputations-added=1",
             "contract-region-elided-query-definition-recomputations-added=1",
+            "contract-region-elided-query-document-symbols-recomputations-added=1",
+            "contract-region-elided-query-completion-recomputations-added=1",
             "contract-region-elided-query-after-diagnostics=0",
             "contract-region-elided-query-after-message=none",
             "contract-region-elided-query-after-choose-status=clean",
@@ -2774,6 +2841,7 @@ EXECUTABLE_SMOKES = [
     {
         "name": "contract region provenance resources",
         "fixture": "contract_region_resource_smoke.fk",
+        "expect_mode": "line",
         "expect": [
             "contract-region-resource-ty-diagnostics=0",
             "contract-region-resource-mir-diagnostics=0",
@@ -7577,7 +7645,13 @@ def check_executable_smokes(
             print(output[:4000])
             raise SystemExit(1)
 
-        missing = [needle for needle in smoke["expect"] if needle not in output]
+        output_lines = set(output.splitlines())
+        if smoke.get("expect_mode") == "line":
+            missing = [needle for needle in smoke["expect"] if needle not in output_lines]
+        else:
+            missing = [needle for needle in smoke["expect"] if needle not in output]
+        missing_exact = [line for line in smoke.get("expect_exact", []) if line not in output_lines]
+        missing.extend(missing_exact)
         if missing:
             print(f"runtime smoke failed: {label}")
             for needle in missing:
