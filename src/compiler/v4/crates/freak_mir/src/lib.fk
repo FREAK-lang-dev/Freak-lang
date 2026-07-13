@@ -2862,7 +2862,7 @@ task v4_mir_rvalue_call_borrowed_source_arg_count(mir_id: int, body_id: int, rva
 }
 
 task v4_mir_rvalue_call_borrowed_source_arg_at(mir_id: int, body_id: int, rvalue_id: int, source_id: int) -> int {
-    if source_id < 0 or source_id >= v4_mir_rvalue_call_borrowed_source_arg_count(mir_id, body_id, rvalue_id) {
+    if source_id < 0 {
         give back 0 - 1
     }
     pilot sig_id = v4_mir_rvalue_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)

@@ -121,10 +121,14 @@ pilot v4_contract_region_relation_stress_repeat_count = 3
 pilot v4_contract_region_relation_stress_repeat_id = 0
 pilot v4_contract_region_relation_stress_expected_generation = 0
 pilot v4_contract_region_relation_stress_no_historical_growth = false
-v4_contract_region_relation_stress_scratch_active = v4_ty_signature_generic_count(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_source_set_sig)
+pilot v4_contract_region_relation_stress_source_cache_builds_before = 0
+pilot v4_contract_region_relation_stress_source_cache_builds_after = 0
+pilot v4_contract_region_relation_stress_source_cache_stable = false
+v4_contract_region_relation_stress_scratch_active = v4_ty_signature_generic_count(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_cycle_sig)
 v4_contract_region_relation_stress_scratch_capacity = v4_ty_lifetime_outlives_scratch_capacity()
 v4_contract_region_relation_stress_scratch_generation = v4_ty_lifetime_outlives_scratch_generation()
 v4_contract_region_relation_stress_expected_generation = v4_contract_region_relation_stress_scratch_generation
+v4_contract_region_relation_stress_source_cache_builds_before = v4_ty_borrowed_return_source_cache_build_count()
 repeat until v4_contract_region_relation_stress_repeat_id >= v4_contract_region_relation_stress_repeat_count {
     if not v4_contract_region_relation_stress_closure_queries(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_cycle_sig) {
         v4_contract_region_relation_stress_semantics_stable = false
@@ -141,14 +145,16 @@ repeat until v4_contract_region_relation_stress_repeat_id >= v4_contract_region_
     if v4_ty_lifetime_outlives_scratch_capacity() != v4_contract_region_relation_stress_scratch_capacity {
         v4_contract_region_relation_stress_capacity_stable = false
     }
-    v4_contract_region_relation_stress_expected_generation += 5
+    v4_contract_region_relation_stress_expected_generation += 2
     if v4_ty_lifetime_outlives_scratch_generation() != v4_contract_region_relation_stress_expected_generation {
         v4_contract_region_relation_stress_generation_sequence = false
     }
     v4_contract_region_relation_stress_repeat_id += 1
 }
 
-v4_contract_region_relation_stress_no_historical_growth = v4_contract_region_relation_stress_active_stable and v4_contract_region_relation_stress_active_within_capacity and v4_contract_region_relation_stress_capacity_stable
+v4_contract_region_relation_stress_source_cache_builds_after = v4_ty_borrowed_return_source_cache_build_count()
+v4_contract_region_relation_stress_source_cache_stable = v4_contract_region_relation_stress_source_cache_builds_after == v4_contract_region_relation_stress_source_cache_builds_before
+v4_contract_region_relation_stress_no_historical_growth = v4_contract_region_relation_stress_active_stable and v4_contract_region_relation_stress_active_within_capacity and v4_contract_region_relation_stress_capacity_stable and v4_contract_region_relation_stress_source_cache_stable
 say "contract-region-relation-stress-repetitions=" + word_from_int(v4_contract_region_relation_stress_repeat_count)
 say "contract-region-relation-stress-scratch-active=" + word_from_int(v4_ty_lifetime_outlives_scratch_active_count())
 say "contract-region-relation-stress-scratch-capacity=" + word_from_int(v4_ty_lifetime_outlives_scratch_capacity())
@@ -158,4 +164,6 @@ say "contract-region-relation-stress-semantics-stable=" + v4_contract_region_rel
 say "contract-region-relation-stress-scratch-active-stable=" + v4_contract_region_relation_stress_bool_word(v4_contract_region_relation_stress_active_stable)
 say "contract-region-relation-stress-scratch-active-within-capacity=" + v4_contract_region_relation_stress_bool_word(v4_contract_region_relation_stress_active_within_capacity)
 say "contract-region-relation-stress-scratch-capacity-stable=" + v4_contract_region_relation_stress_bool_word(v4_contract_region_relation_stress_capacity_stable)
+say "contract-region-relation-stress-source-cache-build-delta=" + word_from_int(v4_contract_region_relation_stress_source_cache_builds_after - v4_contract_region_relation_stress_source_cache_builds_before)
+say "contract-region-relation-stress-source-cache-stable=" + v4_contract_region_relation_stress_bool_word(v4_contract_region_relation_stress_source_cache_stable)
 say "contract-region-relation-stress-no-historical-growth=" + v4_contract_region_relation_stress_bool_word(v4_contract_region_relation_stress_no_historical_growth)
