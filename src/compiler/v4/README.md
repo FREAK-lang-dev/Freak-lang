@@ -95,36 +95,44 @@ records through restore, so editor and 00-Unit tooling keep the same
 conditional-drop metadata that Meiya computed.
 Borrowed return types now carry through TY/MIR. Ordinary tasks may write
 `lend 'a value: T`, `lend mut 'a value: T`, `-> lend 'a U`, and
-`-> lend mut 'a U`; `'_` keeps elision semantics. A named return lifetime
-selects exactly one borrow-capable parameter with that lifetime, independent
-of its top-level pointee type because a valid return may project a field from
-the source. A mutable returned loan requires a `lend mut` source. Repeating
-the selected lifetime across multiple parameters is rejected until Meiya has
-source-set regions, and declaring compiler-owned `'static` or `'_` binders is
-rejected. `'static` lend parameters and borrowed returns also remain blocked
-until global-storage provenance exists.
+`-> lend mut 'a U`. Ordinary-task generic lists also carry direct and
+transitive outlives relations: `'long: 'short` means that `'long` may supply a
+loan returned for `'short`. `'_` keeps elision semantics but cannot be declared
+or used as a bound. Declaring `'static` binders or using `'static` lend
+parameters/returns remains blocked until global-storage provenance exists.
+
+TY builds deterministic, mode-compatible returned-loan source sets. A named
+return admits every borrowed parameter whose lifetime equals or outlives the
+return lifetime; an elided return admits every mode-compatible borrowed
+parameter. Shared `lend` returns accept `lend` and `lend mut` sources, while
+`lend mut` returns accept only `lend mut` sources. Candidate selection is
+independent of top-level pointee type because a valid return may project a
+field from its source.
 
 Meiya verifies that each returned origin honors the declared lifetime, then
-follows that origin through field projections, local holders, nested ordinary
-calls, reordered named arguments, and acyclic CFG joins. MIR erases a callee's
-binder spelling from the caller-local result type while preserving the actual
-owner path as `ReturnLoan` / `ReturnLoanMut`. Stored call results and copied
-holder aliases keep that owner live through their final reachable use;
-ambiguous calls conservatively retain every possible source. Local rebinding
-kills only that holder's provenance, exact self-assignment preserves it, and
-restoring from a descendant alias establishes a new tracked state. Clean facts
-survive borrowck and editor snapshot restore, and source edits invalidate TY,
-MIR, borrowck, diagnostics, semantic, hover, and definition queries before
-recomputation.
+follows that origin through field projections, scalar local holders, nested
+statically resolved ordinary calls, reordered named arguments, and acyclic CFG
+joins. MIR erases a callee's binder spelling from the caller-local result type
+while preserving every candidate owner path as `ReturnLoan` / `ReturnLoanMut`.
+Stored ordinary-call results and copied scalar holder aliases keep all candidate
+owners live through the holder's final reachable use. Local rebinding kills
+only that holder's provenance, exact self-assignment preserves it, and restoring
+from a descendant alias establishes a new tracked state. Semantic, hover, and
+definition queries resolve outlives-bound references to their declarations;
+clean facts survive borrowck/editor snapshot restore, and source edits
+invalidate TY, MIR, borrowck, diagnostics, semantic, hover, and definition
+queries before recomputation.
 
 The current sound boundary is deliberately narrow. Named lends may be outer
-ordinary-task parameter and return contracts, but not stored inside shapes,
-routes, aliases, nested containers, callbacks, or doctrine methods. Malformed
-`lend 'a` and doubled-lifetime types receive spanned diagnostics. Loop-carried
-join fixed points, multi-source named regions such as the bible's
-`longer<'a>(x, y)`, method/dynamic/callback forwarding, aggregate storage, and
-general interprocedural outlives constraints remain later Meiya work. This is
-a named unique-source and non-lexical liveness slice, not full region inference.
+ordinary-task parameter and return contracts, and their results may flow
+through scalar local holders, but not aggregate/shape/route/container storage.
+Malformed `lend 'a` and doubled-lifetime types receive spanned diagnostics.
+Method, dynamic, callback, closure, extern, and FFI forwarding plus loop-carried
+join fixed points remain later Meiya work. Source sets come from signature
+contracts; body-derived source discovery and general lexical lifetime inference
+remain open. This is a contract-region source-set and non-lexical liveness
+slice, not full region inference. These TY/MIR/Meiya/editor facts do not imply
+backend support.
 The first `Shared<T>` / `Weak<T>` ownership surface now exists in TY/MIR:
 `Shared<T>::new`, `.clone()`, `.downgrade()`, `.borrow()`, `.borrow_mut()`,
 `.get_mut()`, and `Weak<T>.upgrade()` lower to stable wrapper types, while
