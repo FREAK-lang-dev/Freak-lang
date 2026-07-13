@@ -527,7 +527,8 @@ task v4_borrowck_provenance_contains_path(provenance_id: int, source_text: word)
     pilot row_id = 0
     pilot row_count = array_len(v4_borrowck_source_provenance_ids)
     repeat until row_id >= row_count {
-        if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == provenance_id and array_get(v4_borrowck_source_paths, row_id) == source_canon {
+        pilot stored_path: word = array_get(v4_borrowck_source_paths, row_id)
+        if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == provenance_id and stored_path == source_canon {
             give back true
         }
         row_id += 1
