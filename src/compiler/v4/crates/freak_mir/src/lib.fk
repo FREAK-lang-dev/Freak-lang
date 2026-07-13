@@ -5474,6 +5474,7 @@ task v4_mir_check_map_literal(mir_id: int, body_id: int, stream_id: int, expr_sp
     pilot value_ty = v4_ty_unknown
     pilot pair_idx = 0
     pilot has_unknown = false
+    pilot aggregate_lend_reported = false
     repeat until pair_start >= close_token {
         pilot pair_end = v4_mir_list_element_end(stream_id, pair_start, close_token)
         pilot colon_token = v4_mir_find_top_level_token(stream_id, pair_start, pair_end, ":")
@@ -5486,6 +5487,12 @@ task v4_mir_check_map_literal(mir_id: int, body_id: int, stream_id: int, expr_sp
             pilot value_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, colon_token + 1, pair_end)
             pilot actual_key_ty = v4_mir_rvalue_ty(mir_id, body_id, key_rvalue)
             pilot actual_value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
+            if not aggregate_lend_reported {
+                aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a map", "map entry " + word_from_int(pair_idx) + " key", key_rvalue)
+            }
+            if not aggregate_lend_reported {
+                aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a map", "map entry " + word_from_int(pair_idx) + " value", value_rvalue)
+            }
 
             if pair_idx == 1 {
                 key_ty = actual_key_ty
@@ -6008,6 +6015,7 @@ task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: in
         }
         pilot payload_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, next_token + 1, close_token, payload_expected)
         pilot payload_ty = v4_mir_rvalue_ty(mir_id, body_id, payload_id)
+        v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a maybe some()", "the some() payload", payload_id)
         if v4_ty_is_known(payload_expected) and not v4_ty_types_compatible(payload_expected, payload_ty) {
             v4_mir_add_type_error(mir_id, expr_span, "some payload type mismatch", "some expects " + payload_expected + " but got " + payload_ty)
         }
@@ -6026,6 +6034,7 @@ task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: in
         }
         pilot payload_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, next_token + 1, close_token, ok_expected)
         pilot payload_ty = v4_mir_rvalue_ty(mir_id, body_id, payload_id)
+        v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a result ok()", "the ok() payload", payload_id)
         if v4_ty_is_known(ok_expected) and not v4_ty_types_compatible(ok_expected, payload_ty) {
             v4_mir_add_type_error(mir_id, expr_span, "ok payload type mismatch", "ok expects " + ok_expected + " but got " + payload_ty)
         }
@@ -6043,6 +6052,7 @@ task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: in
     }
     pilot payload_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, next_token + 1, close_token, err_expected)
     pilot payload_ty = v4_mir_rvalue_ty(mir_id, body_id, payload_id)
+    v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a result err()", "the err() payload", payload_id)
     if v4_ty_is_known(err_expected) and not v4_ty_types_compatible(err_expected, payload_ty) {
         v4_mir_add_type_error(mir_id, expr_span, "err payload type mismatch", "err expects " + err_expected + " but got " + payload_ty)
     }

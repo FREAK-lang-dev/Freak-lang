@@ -1603,6 +1603,55 @@ task v4_ty_type_contains_named_lend(type_text: word) -> bool {
     give back false
 }
 
+task v4_ty_type_contains_lend(type_text: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back false
+    }
+    if v4_ty_is_lend_type(type_text) {
+        give back true
+    }
+    if v4_ty_is_surface_task_function_type(type_text) {
+        pilot param_id = 0
+        repeat until param_id >= v4_ty_function_type_param_count(type_text) {
+            if v4_ty_type_contains_lend(v4_ty_function_type_param_surface(type_text, param_id)) {
+                give back true
+            }
+            param_id += 1
+        }
+        give back v4_ty_type_contains_lend(v4_ty_function_type_return_text(type_text))
+    }
+    if v4_ty_is_raw_pointer_type(type_text) {
+        give back v4_ty_type_contains_lend(v4_ty_raw_pointer_target_type(type_text))
+    }
+    if v4_ty_is_dyn_type(type_text) {
+        give back v4_ty_type_contains_lend(v4_ty_dyn_doctrine_name(type_text))
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot arg_id = 0
+        repeat until arg_id >= v4_ty_generic_arg_count(type_text) {
+            if v4_ty_type_contains_lend(v4_ty_generic_arg(type_text, arg_id)) {
+                give back true
+            }
+            arg_id += 1
+        }
+        give back false
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        repeat until slot_id >= v4_ty_tuple_slot_count(type_text) {
+            if v4_ty_type_contains_lend(v4_ty_tuple_slot_type(type_text, slot_id)) {
+                give back true
+            }
+            slot_id += 1
+        }
+        give back false
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_type_contains_lend(v4_ty_fixed_array_element_type(type_text))
+    }
+    give back false
+}
+
 task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
     if not v4_ty_is_known(expected_ty) or not v4_ty_is_known(actual_ty) {
         give back true
@@ -8486,9 +8535,13 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
     }
 }
 
-task v4_ty_validate_no_named_lend_storage(ty_id: int, type_text: word, context: word, context_span: word) -> void {
+task v4_ty_validate_no_lend_storage(ty_id: int, type_text: word, context: word, context_span: word) -> void {
     if v4_ty_type_contains_named_lend(type_text) {
         v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a named lend in " + context + " yet", "keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands")
+        give back
+    }
+    if v4_ty_type_contains_lend(type_text) {
+        v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a lend in " + context + " yet", "keep elided lends on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands")
     }
 }
 
@@ -8501,7 +8554,7 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
             pilot param_context = "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id)
             pilot param_span = v4_ty_signature_param_type_span(ty_id, sig_id, param_id)
             v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, param_type, param_context, param_span)
-            v4_ty_validate_no_named_lend_storage(ty_id, param_type, param_context, param_span)
+            v4_ty_validate_no_lend_storage(ty_id, param_type, param_context, param_span)
             pilot param_lifetime = v4_ty_signature_param_lifetime(ty_id, sig_id, param_id)
             if param_lifetime == "'static" {
                 v4_ty_add_error_diag(ty_id, v4_ty_signature_param_lifetime_span(ty_id, sig_id, param_id), "Meiya cannot accept a static lend parameter yet", "'static needs source-storage classification before callers may promise an immortal loan")
@@ -8519,9 +8572,9 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         return_contract = return_surface
     }
     if v4_ty_is_lend_type(return_contract) {
-        v4_ty_validate_no_named_lend_storage(ty_id, v4_ty_lend_target_type(return_contract), "target of returned lend on " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
+        v4_ty_validate_no_lend_storage(ty_id, v4_ty_lend_target_type(return_contract), "target of returned lend on " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
     } else {
-        v4_ty_validate_no_named_lend_storage(ty_id, return_contract, "return type of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
+        v4_ty_validate_no_lend_storage(ty_id, return_contract, "return type of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
     }
     if v4_ty_is_lend_type(return_ty) {
         pilot return_lifetime = v4_ty_lend_lifetime(return_ty)
@@ -8575,7 +8628,7 @@ task v4_ty_validate_shape_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         pilot field_context = "field " + v4_ty_shape_field_name(ty_id, sig_id, field_id) + " of " + v4_ty_signature_name(ty_id, sig_id)
         pilot field_span = v4_ty_shape_field_type_span(ty_id, sig_id, field_id)
         v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, field_type, field_context, field_span)
-        v4_ty_validate_no_named_lend_storage(ty_id, field_type, field_context, field_span)
+        v4_ty_validate_no_lend_storage(ty_id, field_type, field_context, field_span)
         field_id += 1
     }
 }
@@ -8593,7 +8646,7 @@ task v4_ty_validate_route_signature_lifetimes(ty_id: int, sig_id: int) -> void {
             pilot field_context = "field " + v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) + " of " + route_name + "::" + case_name
             pilot field_span = v4_ty_route_case_field_type_span(ty_id, route_name, case_name, field_id)
             v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, field_type, field_context, field_span)
-            v4_ty_validate_no_named_lend_storage(ty_id, field_type, field_context, field_span)
+            v4_ty_validate_no_lend_storage(ty_id, field_type, field_context, field_span)
             field_id += 1
         }
         case_id += 1
@@ -8612,14 +8665,14 @@ task v4_ty_validate_doctrine_signature_lifetimes(ty_id: int, sig_id: int) -> voi
             pilot param_context = "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name
             pilot param_span = v4_ty_doctrine_method_param_type_span(ty_id, sig_id, method_id, param_id)
             v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, param_type, param_context, param_span)
-            v4_ty_validate_no_named_lend_storage(ty_id, param_type, param_context, param_span)
+            v4_ty_validate_no_lend_storage(ty_id, param_type, param_context, param_span)
             param_id += 1
         }
         pilot return_type = v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id)
         pilot return_context = "return type of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name
         pilot return_span = v4_ty_doctrine_method_return_span(ty_id, sig_id, method_id)
         v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, return_type, return_context, return_span)
-        v4_ty_validate_no_named_lend_storage(ty_id, return_type, return_context, return_span)
+        v4_ty_validate_no_lend_storage(ty_id, return_type, return_context, return_span)
         method_id += 1
     }
 }
@@ -8629,7 +8682,7 @@ task v4_ty_validate_alias_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     pilot alias_context = "alias target of " + v4_ty_signature_name(ty_id, sig_id)
     pilot alias_span = v4_ty_alias_target_span(ty_id, sig_id)
     v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, alias_type, alias_context, alias_span)
-    v4_ty_validate_no_named_lend_storage(ty_id, alias_type, alias_context, alias_span)
+    v4_ty_validate_no_lend_storage(ty_id, alias_type, alias_context, alias_span)
 }
 
 task v4_ty_validate_alias_signature_cycle(ty_id: int, sig_id: int) -> void {
