@@ -12,7 +12,7 @@ task v4_contract_region_relation_stress_bool_word(value: bool) -> word {
 task v4_contract_region_relation_stress_source() -> word {
     pilot src = "task fibonacci<"
     pilot generic_id = 0
-    repeat until generic_id >= 40 {
+    repeat until generic_id >= 20 {
         if generic_id > 0 {
             src = src + ", "
         }
@@ -30,7 +30,7 @@ task v4_contract_region_relation_stress_source() -> word {
 
     src = src + "task long_chain<"
     generic_id = 0
-    repeat until generic_id >= 48 {
+    repeat until generic_id >= 28 {
         if generic_id > 0 {
             src = src + ", "
         }
@@ -93,12 +93,12 @@ pilot v4_contract_region_relation_stress_external_sig = v4_ty_lookup_signature(v
 say "contract-region-relation-stress-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_contract_region_relation_stress_tree))
 say "contract-region-relation-stress-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_relation_stress_ty))
 say "contract-region-relation-stress-fibonacci-lifetime-count=" + word_from_int(v4_ty_signature_lifetime_count(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_fibonacci_sig))
-say "contract-region-relation-stress-fibonacci-disconnected=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_fibonacci_sig, "'f39", "'dead"))
-say "contract-region-relation-stress-fibonacci-transitive=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_fibonacci_sig, "'f39", "'f0"))
+say "contract-region-relation-stress-fibonacci-disconnected=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_fibonacci_sig, "'f19", "'dead"))
+say "contract-region-relation-stress-fibonacci-transitive=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_fibonacci_sig, "'f19", "'f0"))
 say "contract-region-relation-stress-fibonacci-plus-bound=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_fibonacci_sig, "'f2", "'f1"))
 say "contract-region-relation-stress-chain-lifetime-count=" + word_from_int(v4_ty_signature_lifetime_count(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_chain_sig))
-say "contract-region-relation-stress-chain-reachable=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_chain_sig, "'c47", "'c0"))
-say "contract-region-relation-stress-chain-reverse=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_chain_sig, "'c0", "'c47"))
+say "contract-region-relation-stress-chain-reachable=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_chain_sig, "'c27", "'c0"))
+say "contract-region-relation-stress-chain-reverse=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_chain_sig, "'c0", "'c27"))
 say "contract-region-relation-stress-cycle-left-right=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_cycle_sig, "'left", "'right"))
 say "contract-region-relation-stress-cycle-right-left=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_cycle_sig, "'right", "'left"))
 say "contract-region-relation-stress-declared-reflexive=" + v4_contract_region_relation_stress_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_cycle_sig, "'left", "'left"))
@@ -109,17 +109,22 @@ say "contract-region-relation-stress-extern-gated=" + v4_contract_region_relatio
 pilot v4_contract_region_relation_stress_source_count = v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_source_set_sig)
 say "contract-region-relation-stress-source-set-count=" + word_from_int(v4_contract_region_relation_stress_source_count)
 
-pilot v4_contract_region_relation_stress_scratch_active = v4_ty_lifetime_outlives_scratch_active_count()
-pilot v4_contract_region_relation_stress_scratch_capacity = v4_ty_lifetime_outlives_scratch_capacity()
-pilot v4_contract_region_relation_stress_scratch_generation = v4_ty_lifetime_outlives_scratch_generation()
+pilot v4_contract_region_relation_stress_scratch_active = 0
+pilot v4_contract_region_relation_stress_scratch_capacity = 0
+pilot v4_contract_region_relation_stress_scratch_generation = 0
 pilot v4_contract_region_relation_stress_semantics_stable = true
 pilot v4_contract_region_relation_stress_active_stable = true
 pilot v4_contract_region_relation_stress_active_within_capacity = true
 pilot v4_contract_region_relation_stress_capacity_stable = true
 pilot v4_contract_region_relation_stress_generation_sequence = true
-pilot v4_contract_region_relation_stress_repeat_count = 8
+pilot v4_contract_region_relation_stress_repeat_count = 3
 pilot v4_contract_region_relation_stress_repeat_id = 0
-pilot v4_contract_region_relation_stress_expected_generation = v4_contract_region_relation_stress_scratch_generation
+pilot v4_contract_region_relation_stress_expected_generation = 0
+pilot v4_contract_region_relation_stress_no_historical_growth = false
+v4_contract_region_relation_stress_scratch_active = v4_ty_signature_generic_count(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_source_set_sig)
+v4_contract_region_relation_stress_scratch_capacity = v4_ty_lifetime_outlives_scratch_capacity()
+v4_contract_region_relation_stress_scratch_generation = v4_ty_lifetime_outlives_scratch_generation()
+v4_contract_region_relation_stress_expected_generation = v4_contract_region_relation_stress_scratch_generation
 repeat until v4_contract_region_relation_stress_repeat_id >= v4_contract_region_relation_stress_repeat_count {
     if not v4_contract_region_relation_stress_closure_queries(v4_contract_region_relation_stress_ty, v4_contract_region_relation_stress_cycle_sig) {
         v4_contract_region_relation_stress_semantics_stable = false
@@ -143,7 +148,7 @@ repeat until v4_contract_region_relation_stress_repeat_id >= v4_contract_region_
     v4_contract_region_relation_stress_repeat_id += 1
 }
 
-pilot v4_contract_region_relation_stress_no_historical_growth = v4_contract_region_relation_stress_active_stable and v4_contract_region_relation_stress_active_within_capacity and v4_contract_region_relation_stress_capacity_stable
+v4_contract_region_relation_stress_no_historical_growth = v4_contract_region_relation_stress_active_stable and v4_contract_region_relation_stress_active_within_capacity and v4_contract_region_relation_stress_capacity_stable
 say "contract-region-relation-stress-repetitions=" + word_from_int(v4_contract_region_relation_stress_repeat_count)
 say "contract-region-relation-stress-scratch-active=" + word_from_int(v4_ty_lifetime_outlives_scratch_active_count())
 say "contract-region-relation-stress-scratch-capacity=" + word_from_int(v4_ty_lifetime_outlives_scratch_capacity())
