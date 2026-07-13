@@ -12,8 +12,13 @@ task v4_contract_region_boundary_negative_bool(value: bool) -> word {
 
 task v4_contract_region_boundary_negative_emit_diag(ty_id: int, diag_id: int) -> void {
     pilot diag = v4_ty_diag(ty_id, diag_id)
+    pilot span = v4_diag_span(diag)
+    pilot source_path = v4_source_path(word_to_int(v4_span_file(span)))
+    pilot range = word_from_int(v4_span_start(span)) + ":" + word_from_int(v4_span_end(span))
     say "contract-region-boundary-negative-diag" + word_from_int(diag_id) + "=" + v4_diag_message(diag)
-    say "contract-region-boundary-negative-diag" + word_from_int(diag_id) + "-span=" + v4_diag_span(diag)
+    say "contract-region-boundary-negative-diag" + word_from_int(diag_id) + "-span=" + span
+    say "contract-region-boundary-negative-diag" + word_from_int(diag_id) + "-source-path=" + source_path
+    say "contract-region-boundary-negative-diag" + word_from_int(diag_id) + "-range=" + range
     say "contract-region-boundary-negative-diag" + word_from_int(diag_id) + "-help=" + v4_diag_help(diag)
 }
 

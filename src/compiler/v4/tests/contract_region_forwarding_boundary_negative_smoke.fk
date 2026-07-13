@@ -153,6 +153,12 @@ task v4_contract_region_forwarding_boundary_emit(prefix: word, borrow_id: int, t
         invocation_span = v4_contract_region_forwarding_boundary_borrow_diag_span(borrow_id, invocation_message)
     }
     pilot rejected: bool = invocation_diagnostic_count > 0
+    pilot invocation_source_path = ""
+    pilot invocation_range = "0:0"
+    if rejected {
+        invocation_source_path = v4_source_path(word_to_int(v4_span_file(invocation_span)))
+        invocation_range = word_from_int(v4_span_start(invocation_span)) + ":" + word_from_int(v4_span_end(invocation_span))
+    }
 
     say prefix + "-ty-diagnostics=" + word_from_int(ty_count)
     say prefix + "-mir-diagnostics=" + word_from_int(mir_count)
@@ -161,6 +167,8 @@ task v4_contract_region_forwarding_boundary_emit(prefix: word, borrow_id: int, t
     say prefix + "-invocation-diagnostic-count=" + word_from_int(invocation_diagnostic_count)
     say prefix + "-invocation-message=" + invocation_message
     say prefix + "-invocation-span=" + invocation_span
+    say prefix + "-invocation-source-path=" + invocation_source_path
+    say prefix + "-invocation-range=" + invocation_range
     say prefix + "-rejected=" + v4_contract_region_forwarding_boundary_bool(rejected)
     say prefix + "-silently-accepted=" + v4_contract_region_forwarding_boundary_bool(rejected == false)
 
