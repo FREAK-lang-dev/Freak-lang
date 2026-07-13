@@ -1306,6 +1306,58 @@ def audit_conformance(paths: List[Path]) -> int:
     v4_named_lifetime_invalidation_smoke = v4_tests_return / "named_lifetime_query_invalidation_smoke.fk"
     v4_check_harness_return = repo / "src" / "compiler" / "v4" / "check_v4.py"
     contract_region_missing: List[str] = []
+    contract_region_docs = (
+        (
+            bible,
+            (
+                "Borrowed return types now flow through TY/MIR.",
+                "(ty_id, sig_id)",
+                "document symbols, and completion",
+                "`some(...)`, `ok(...)`",
+                "canonical-path cache",
+            ),
+        ),
+        (
+            audit_doc,
+            (
+                "Contract-region checkpoint (**⚠️ V4 partial**)",
+                "(ty_id, sig_id)",
+                "document symbols, and completion",
+                "`some(...)`, `ok(...)`",
+                "canonical-path cache",
+            ),
+        ),
+        (
+            repo / "freakc-v4-00-unit-architecture.md",
+            (
+                "Implemented Contract-Region Checkpoint (V4 Partial)",
+                "(ty_id, sig_id)",
+                "document symbols, and completion",
+                "`some(...)`, `ok(...)`",
+                "canonical-path cache",
+            ),
+        ),
+        (
+            repo / "src" / "compiler" / "v4" / "README.md",
+            (
+                "Borrowed return types now carry through TY/MIR.",
+                "(ty_id, sig_id)",
+                "document symbols, and completion",
+                "`some(...)`, `ok(...)`",
+                "canonical-path cache",
+            ),
+        ),
+    )
+    for doc_path, needles in contract_region_docs:
+        if not doc_path.exists():
+            contract_region_missing.append(f"contract-region documentation missing: {doc_path.name}")
+            continue
+        doc_source = doc_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in doc_source:
+                contract_region_missing.append(
+                    f"{doc_path.name}: missing contract-region documentation {needle!r}"
+                )
     if v4_ty_lib_return.exists():
         ty_src = v4_ty_lib_return.read_text(encoding="utf-8")
         for needle in (
