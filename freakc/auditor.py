@@ -14,6 +14,7 @@ are found (unpaid foreshadows, too many miracles, under-word-count monologues).
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -549,6 +550,91 @@ def _find_repo_root(start: Path) -> Optional[Path]:
         if p.parent == p:
             return None
         p = p.parent
+
+
+def _literal_executable_smokes(path: Path) -> Tuple[Dict[str, List[str]], List[str]]:
+    """Read EXECUTABLE_SMOKES without importing or executing the harness."""
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {}, [f"check_v4.py could not be read: {exc}"]
+
+    try:
+        module = ast.parse(source, filename=str(path))
+    except SyntaxError as exc:
+        location = f"line {exc.lineno}" if exc.lineno is not None else "unknown line"
+        return {}, [f"check_v4.py AST parse failed at {location}: {exc.msg}"]
+
+    manifests: List[ast.expr] = []
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            if any(
+                isinstance(target, ast.Name) and target.id == "EXECUTABLE_SMOKES"
+                for target in node.targets
+            ):
+                manifests.append(node.value)
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "EXECUTABLE_SMOKES"
+            and node.value is not None
+        ):
+            manifests.append(node.value)
+
+    if not manifests:
+        return {}, ["check_v4.py: literal EXECUTABLE_SMOKES assignment missing"]
+    if len(manifests) != 1:
+        return {}, [
+            f"check_v4.py: EXECUTABLE_SMOKES assigned {len(manifests)} times; expected once"
+        ]
+
+    try:
+        manifest = ast.literal_eval(manifests[0])
+    except (SyntaxError, TypeError, ValueError) as exc:
+        return {}, [
+            "check_v4.py: EXECUTABLE_SMOKES must be a literal manifest "
+            f"({type(exc).__name__}: {exc})"
+        ]
+
+    if not isinstance(manifest, list):
+        return {}, ["check_v4.py: EXECUTABLE_SMOKES must be a literal list"]
+
+    smoke_expects: Dict[str, List[str]] = {}
+    seen_fixtures: Dict[str, int] = {}
+    errors: List[str] = []
+    for index, entry in enumerate(manifest):
+        if not isinstance(entry, dict):
+            errors.append(f"EXECUTABLE_SMOKES[{index}]: entry must be a literal dict")
+            continue
+
+        fixture = entry.get("fixture")
+        if not isinstance(fixture, str) or not fixture:
+            errors.append(f"EXECUTABLE_SMOKES[{index}]: missing non-empty fixture name")
+            continue
+        if fixture in seen_fixtures:
+            errors.append(
+                f"EXECUTABLE_SMOKES: duplicate fixture entry {fixture} "
+                f"at indexes {seen_fixtures[fixture]} and {index}"
+            )
+            continue
+        seen_fixtures[fixture] = index
+
+        expects = entry.get("expect")
+        if not isinstance(expects, list):
+            errors.append(f"EXECUTABLE_SMOKES: {fixture} missing literal expect list")
+            continue
+        if not expects:
+            errors.append(f"EXECUTABLE_SMOKES: {fixture} has an empty expect list")
+            continue
+        if any(not isinstance(value, str) or not value for value in expects):
+            errors.append(
+                f"EXECUTABLE_SMOKES: {fixture} expect list contains a non-string or empty value"
+            )
+            continue
+
+        smoke_expects[fixture] = expects
+
+    return smoke_expects, errors
 
 
 def audit_conformance(paths: List[Path]) -> int:
@@ -1204,9 +1290,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_ty_signature_lifetime_outlives_seen",
             "v4_ty_signature_lifetime_outlives",
             "v4_ty_signature_is_ordinary_static_task",
-            "v4_ty_signature_borrowed_return_source_param_count",
-            "v4_ty_signature_borrowed_return_source_param_at",
-            "v4_ty_signature_borrowed_return_source_param",
+            "task v4_ty_signature_borrowed_return_source_param_count(",
+            "task v4_ty_signature_borrowed_return_source_param_at(",
             "v4_ty_signature_can_declare_generics",
             "v4_ty_validate_signature_generic_bounds",
             "v4_ty_type_contains_named_lend",
@@ -1217,6 +1302,13 @@ def audit_conformance(paths: List[Path]) -> int:
         ):
             if needle not in ty_src:
                 contract_region_missing.append(f"freak_ty: {needle}")
+        # Frozen singular query retained only for compatibility. New policy and
+        # implementation must use the count/at source-set API required above.
+        if "task v4_ty_signature_borrowed_return_source_param(" not in ty_src:
+            contract_region_missing.append(
+                "freak_ty compatibility wrapper: "
+                "task v4_ty_signature_borrowed_return_source_param("
+            )
     else:
         contract_region_missing.append("freak_ty/src/lib.fk missing")
     if v4_mir_lib_return.exists():
@@ -1224,15 +1316,21 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "v4_mir_rvalue_call_borrowed_source_signature_id",
             "v4_mir_rvalue_call_borrowed_source_arg_for_signature",
-            "v4_mir_rvalue_call_borrowed_source_arg_count",
-            "v4_mir_rvalue_call_borrowed_source_arg_at",
-            "v4_mir_rvalue_call_borrowed_source_arg",
+            "task v4_mir_rvalue_call_borrowed_source_arg_count(",
+            "task v4_mir_rvalue_call_borrowed_source_arg_at(",
             "v4_mir_call_result_type",
             "v4_ty_signature_borrowed_return_source_param_count",
             "v4_ty_signature_borrowed_return_source_param_at",
         ):
             if needle not in mir_src:
                 contract_region_missing.append(f"freak_mir: {needle}")
+        # Frozen singular query retained only for compatibility. Set-valued MIR
+        # consumers must use the count/at API required above.
+        if "task v4_mir_rvalue_call_borrowed_source_arg(" not in mir_src:
+            contract_region_missing.append(
+                "freak_mir compatibility wrapper: "
+                "task v4_mir_rvalue_call_borrowed_source_arg("
+            )
     else:
         contract_region_missing.append("freak_mir/src/lib.fk missing")
     if v4_borrowck_lib_return.exists():
@@ -1243,11 +1341,11 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_borrowck_provenance_new",
             "v4_borrowck_provenance_is_known",
             "v4_borrowck_provenance_mark_opaque",
-            "v4_borrowck_provenance_count",
+            "task v4_borrowck_provenance_count(",
             "v4_borrowck_provenance_is_known_empty",
-            "v4_borrowck_provenance_source_row_at",
-            "v4_borrowck_provenance_path_at",
-            "v4_borrowck_provenance_origin_at",
+            "task v4_borrowck_provenance_source_row_at(",
+            "task v4_borrowck_provenance_path_at(",
+            "task v4_borrowck_provenance_origin_at(",
             "v4_borrowck_provenance_contains_path",
             "v4_borrowck_provenance_overlaps_path",
             "v4_borrowck_provenance_add_source",
@@ -1255,9 +1353,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "pilot v4_borrowck_source_provenance_ids = 0",
             "pilot v4_borrowck_source_paths = 0",
             "pilot v4_borrowck_source_origins = 0",
-            "v4_borrowck_return_call_lend_provenance",
-            "v4_borrowck_return_lend_provenance",
-            "v4_borrowck_return_lend_origin",
+            "task v4_borrowck_return_call_lend_provenance(",
+            "task v4_borrowck_return_lend_provenance(",
             "v4_borrowck_return_has_loop_carried_rebind",
             "v4_borrowck_check_returned_lends",
             "v4_borrowck_check_stored_call_lends",
@@ -1284,6 +1381,26 @@ def audit_conformance(paths: List[Path]) -> int:
         ):
             if needle not in borrowck_src:
                 contract_region_missing.append(f"freak_borrowck: {needle}")
+        # Frozen singular origin query retained only for compatibility. The
+        # provenance set is the authoritative borrowck contract.
+        if "task v4_borrowck_return_lend_origin(" not in borrowck_src:
+            contract_region_missing.append(
+                "freak_borrowck compatibility wrapper: "
+                "task v4_borrowck_return_lend_origin("
+            )
+        if "Meiya cannot choose one source for this returned loan" in borrowck_src:
+            contract_region_missing.append(
+                "freak_borrowck stale exact-one diagnostic: "
+                "Meiya cannot choose one source for this returned loan"
+            )
+        # The dormant helper declaration is still present in the frozen source
+        # surface. Any second occurrence means active code has revived its stale
+        # "name one source" advice instead of consuming provenance sets.
+        if borrowck_src.count("v4_borrowck_return_ambiguous_help(") > 1:
+            contract_region_missing.append(
+                "freak_borrowck stale exact-one advice is still consumed: "
+                "v4_borrowck_return_ambiguous_help"
+            )
     else:
         contract_region_missing.append("freak_borrowck/src/lib.fk missing")
     if v4_editor_lib_return.exists():
@@ -1512,8 +1629,290 @@ def audit_conformance(paths: List[Path]) -> int:
         else:
             contract_region_missing.append(f"smoke fixture: {fixture_path.name}")
 
+    # These literal output oracles are the primary executable contract. The
+    # source/API needles above remain useful secondary structural guards, but
+    # cannot substitute for exact expectations in the harness manifest.
+    required_harness_expects = {
+        "lend_return_smoke.fk": (
+            "lend-return-ambiguous-diagnostics=0",
+        ),
+        "lend_return_query_invalidation_smoke.fk": (
+            "lend-return-query-before-message=none",
+        ),
+        "named_lifetime_diagnostics_smoke.fk": (
+            "named-lifetime-diag-repeated-source=-2",
+        ),
+        "contract_region_source_set_smoke.fk": (
+            "contract-region-source-set-ty-diagnostics=0",
+            "contract-region-source-set-mir-diagnostics=0",
+            "contract-region-source-set-borrow-diagnostics=0",
+            "contract-region-source-set-choose-status=clean",
+            "contract-region-source-set-forward-status=clean",
+            "contract-region-source-set-projection-status=clean",
+            "contract-region-source-set-choose-source0=right",
+            "contract-region-source-set-choose-source1=left",
+            "contract-region-source-set-choose-source-count=2",
+            "contract-region-source-set-forward-source0=first",
+            "contract-region-source-set-forward-source1=second",
+            "contract-region-source-set-forward-source-count=2",
+            "contract-region-source-set-projection-source0=fleet.lead",
+            "contract-region-source-set-projection-source1=spare",
+            "contract-region-source-set-projection-source-count=2",
+        ),
+        "contract_region_mutability_smoke.fk": (
+            "contract-region-mutability-ty-diagnostics=0",
+            "contract-region-mutability-mir-diagnostics=0",
+            "contract-region-mutability-shared-status=clean",
+            "contract-region-mutability-mut-status=clean",
+            "contract-region-mutability-ineligible-status=blocked",
+            "contract-region-mutability-shared-source0=observed",
+            "contract-region-mutability-shared-source1=writable",
+            "contract-region-mutability-shared-source-count=2",
+            "contract-region-mutability-mut-source0=right",
+            "contract-region-mutability-mut-source1=left",
+            "contract-region-mutability-mut-source-count=2",
+            "contract-region-mutability-borrow-diagnostics=1",
+            "contract-region-mutability-diag0=Meiya refuses a mutable reloan from an immutable lend",
+            "contract-region-mutability-diag0-span=0@",
+        ),
+        "contract_region_outlives_smoke.fk": (
+            "contract-region-outlives-direct-raw-bound-count=1",
+            "contract-region-outlives-direct-long-raw-bound='short",
+            "contract-region-outlives-transitive-middle-raw-bound='short",
+            "contract-region-outlives-transitive-long-raw-bound='middle",
+            "contract-region-outlives-multiple-raw-bound-count=2",
+            "contract-region-outlives-multiple-raw-bound0='short",
+            "contract-region-outlives-multiple-raw-bound1='middle",
+            "contract-region-outlives-direct-short-reflexive=true",
+            "contract-region-outlives-direct-long-outlives-short=true",
+            "contract-region-outlives-transitive-middle-outlives-short=true",
+            "contract-region-outlives-transitive-long-outlives-middle=true",
+            "contract-region-outlives-transitive-long-outlives-short=true",
+            "contract-region-outlives-multiple-long-outlives-short=true",
+            "contract-region-outlives-multiple-long-outlives-middle=true",
+            "contract-region-outlives-equivalent-left-outlives-right=true",
+            "contract-region-outlives-equivalent-right-outlives-left=true",
+            "contract-region-outlives-ty-diagnostics=0",
+            "contract-region-outlives-mir-diagnostics=0",
+            "contract-region-outlives-borrow-diagnostics=0",
+            "contract-region-outlives-direct-status=clean",
+            "contract-region-outlives-transitive-status=clean",
+            "contract-region-outlives-multiple-status=clean",
+            "contract-region-outlives-equivalent-status=clean",
+            "contract-region-outlives-direct-source-count=2",
+            "contract-region-outlives-transitive-source-count=3",
+            "contract-region-outlives-multiple-source-count=1",
+            "contract-region-outlives-equivalent-source-count=1",
+        ),
+        "contract_region_relation_negative_smoke.fk": (
+            "contract-region-relation-negative-reverse-raw-bound='long",
+            "contract-region-relation-negative-reverse-long-outlives-short=false",
+            "contract-region-relation-negative-reverse-short-outlives-long=true",
+            "contract-region-relation-negative-missing-long-outlives-short=false",
+            "contract-region-relation-negative-ty-diagnostics=0",
+            "contract-region-relation-negative-mir-diagnostics=0",
+            "contract-region-relation-negative-reverse-status=blocked",
+            "contract-region-relation-negative-missing-status=blocked",
+            "contract-region-relation-negative-borrow-diagnostics=2",
+            "contract-region-relation-negative-diag0=Meiya refuses a returned loan from the wrong lifetime",
+            "contract-region-relation-negative-diag1=Meiya refuses a returned loan from the wrong lifetime",
+        ),
+        "contract_region_bound_diagnostics_smoke.fk": (
+            "contract-region-bound-diagnostics-undeclared-raw-bound='ghost",
+            "contract-region-bound-diagnostics-reserved-raw-bound='static",
+            "contract-region-bound-diagnostics-elided-raw-bound='_",
+            "contract-region-bound-diagnostics-empty-raw-bound-count=0",
+            "contract-region-bound-diagnostics-lifetime-doctrine-raw-bound=Copy",
+            "contract-region-bound-diagnostics-type-lifetime-raw-bound='a",
+            "contract-region-bound-diagnostics-shape-kind=shape-signature",
+            "contract-region-bound-diagnostics-shape-lifetime-doctrine-raw-bound=Copy",
+            "contract-region-bound-diagnostics-shape-lifetime-doctrine-filtered-count=0",
+            "contract-region-bound-diagnostics-shape-outlives=false",
+            "contract-region-bound-diagnostics-route-kind=route-signature",
+            "contract-region-bound-diagnostics-route-type-lifetime-raw-bound='a",
+            "contract-region-bound-diagnostics-route-type-lifetime-filtered-count=0",
+            "contract-region-bound-diagnostics-doctrine-kind=doctrine-signature",
+            "contract-region-bound-diagnostics-doctrine-empty-type-raw-count=0",
+            "contract-region-bound-diagnostics-doctrine-empty-type-clause=true",
+            "contract-region-bound-diagnostics-alias-kind=alias-signature",
+            "contract-region-bound-diagnostics-alias-mixed-raw-count=2",
+            "contract-region-bound-diagnostics-alias-mixed-raw0=Copy",
+            "contract-region-bound-diagnostics-alias-mixed-raw1='a",
+            "contract-region-bound-diagnostics-alias-mixed-filtered-count=1",
+            "contract-region-bound-diagnostics-alias-mixed-filtered0=Copy",
+            "contract-region-bound-diagnostics-extern-kind=task-signature",
+            "contract-region-bound-diagnostics-extern-member-id=0",
+            "contract-region-bound-diagnostics-extern-generic-count=3",
+            "contract-region-bound-diagnostics-extern-long-raw-bound='short",
+            "contract-region-bound-diagnostics-extern-empty-type-raw-count=0",
+            "contract-region-bound-diagnostics-extern-empty-type-clause=true",
+            "contract-region-bound-diagnostics-extern-ordinary-static=false",
+            "contract-region-bound-diagnostics-extern-outlives=false",
+            "contract-region-bound-diagnostics-extern-source-count=0",
+            "contract-region-bound-diagnostics-extern-source-at0=-1",
+            "contract-region-bound-diagnostics-count=11",
+            "Meiya lifetime debt: lifetime bound 'ghost on 'a is not declared on undeclared_bound",
+            "Meiya lifetime debt: 'static is reserved and cannot be used as a lifetime bound on 'a",
+            "Meiya lifetime debt: '_ is elided and cannot be used as a lifetime bound on 'a",
+            "Meiya lifetime debt: empty generic bound on 'a in empty_bound",
+            "Meiya lifetime debt: lifetime 'a may only use lifetime bounds, but found Copy",
+            "Meiya lifetime debt: type generic T cannot use lifetime bound 'a",
+            "contract-region-bound-diagnostics-diag6=Meiya lifetime debt: lifetime 'a may only use lifetime bounds, but found Copy",
+            "contract-region-bound-diagnostics-diag6-span=0@",
+            "contract-region-bound-diagnostics-diag7=Meiya lifetime debt: type generic T cannot use lifetime bound 'a",
+            "contract-region-bound-diagnostics-diag7-span=0@",
+            "contract-region-bound-diagnostics-diag8=Meiya lifetime debt: empty generic bound on T in DoctrineEmptyType",
+            "contract-region-bound-diagnostics-diag8-span=0@",
+            "contract-region-bound-diagnostics-diag9=Meiya lifetime debt: type generic T cannot use lifetime bound 'a",
+            "contract-region-bound-diagnostics-diag9-span=0@",
+            "contract-region-bound-diagnostics-diag10=Meiya lifetime debt: empty generic bound on T in extern_empty_type",
+            "contract-region-bound-diagnostics-diag10-span=0@",
+        ),
+        "contract_region_loop_negative_smoke.fk": (
+            "contract-region-loop-negative-ty-diagnostics=0",
+            "contract-region-loop-negative-mir-diagnostics=0",
+            "contract-region-loop-negative-status=blocked",
+            "contract-region-loop-negative-borrow-diagnostics=1",
+            "contract-region-loop-negative-diag0=Meiya cannot establish the origin of this returned loan",
+            "contract-region-loop-negative-diag0-span=0@",
+        ),
+        "contract_region_storage_negative_smoke.fk": (
+            "contract-region-storage-ty-diagnostics=0",
+            "contract-region-storage-mir-diagnostics=0",
+            "contract-region-storage-choose-status=clean",
+            "contract-region-storage-local-holder-status=clean",
+            "contract-region-storage-aggregate-status=blocked",
+            "contract-region-storage-borrow-diagnostics=1",
+            "contract-region-storage-diag0=Meiya cannot establish the origin of this returned loan",
+            "contract-region-storage-diag0-span=0@",
+        ),
+        "contract_region_boundary_negative_smoke.fk": (
+            "contract-region-boundary-negative-diagnostics=",
+            "Meiya cannot store a named lend in",
+            "Meiya cannot accept a static lend parameter yet",
+            "Meiya cannot prove a static borrowed return yet",
+        ),
+        "contract_region_editor_smoke.fk": (
+            "contract-region-editor-bound-semantic-name='out",
+            "contract-region-editor-bound-semantic-kind=Lifetime",
+            "contract-region-editor-bound-semantic-type=lifetime 'out on task shorten",
+            "contract-region-editor-bound-semantic-def-matches-binder=true",
+            "contract-region-editor-bound-hover-name='out",
+            "contract-region-editor-bound-hover-kind=Lifetime",
+            "contract-region-editor-bound-hover-type=lifetime 'out on task shorten",
+            "contract-region-editor-bound-hover-name-matches-binder=true",
+            "contract-region-editor-bound-hover-type-matches-binder=true",
+            "contract-region-editor-bound-definition-found=1",
+            "contract-region-editor-bound-definition-matches-later-binder=true",
+            "contract-region-editor-bound-definition-not-long-binder=true",
+            "contract-region-editor-bound-definition-not-bound-use=true",
+            "contract-region-editor-repeated-definition-found=1",
+            "contract-region-editor-repeated-definition-matches-later-binder=true",
+            "ok|textDocument/hover",
+            "**'out** `Lifetime`",
+            "ok|textDocument/definition",
+            "|'out|Lifetime",
+            "semantic-snapshot-import ok=1",
+            "hover-snapshot-import ok=1",
+            "definition-snapshot-import ok=1",
+            "semantic-snapshot-restore ok=1",
+            "hover-snapshot-restore ok=1",
+            "definition-snapshot-restore ok=1",
+            "query-snapshot-restore ok=1",
+            "contract-region-editor-restored-semantic-kind=Lifetime",
+            "contract-region-editor-restored-semantic-type=lifetime 'out on task shorten",
+            "contract-region-editor-restored-semantic-def-stable=true",
+            "contract-region-editor-restored-hover-kind=Lifetime",
+            "contract-region-editor-restored-hover-type=lifetime 'out on task shorten",
+            "contract-region-editor-restored-hover-type-stable=true",
+            "contract-region-editor-restored-definition-found=1",
+            "contract-region-editor-restored-definition-span-stable=true",
+            "contract-region-editor-restored-definition-matches-later-binder=true",
+            "contract-region-editor-restored-repeated-definition-matches-later-binder=true",
+        ),
+        "contract_region_query_invalidation_smoke.fk": (
+            "contract-region-query-before-diagnostics=0",
+            "contract-region-query-before-status=clean",
+            "contract-region-query-before-source-count=2",
+            "contract-region-query-before-long-outlives-out=true",
+            "contract-region-query-before-long-outlives-alt=false",
+            "contract-region-query-before-bound-semantic=lifetime 'out on task shorten",
+            "contract-region-query-before-bound-hover=lifetime 'out on task shorten",
+            "contract-region-query-before-bound-definition=1",
+            "contract-region-query-before-bound-definition-matches-out-binder=true",
+            "contract-region-query-bound-offset-stable=true",
+            "ok|textDocument/didChange",
+            "invalidation-contract|path=contract-region-query-invalidation.fk",
+            "contract-region-query-ty-invalidated=true",
+            "contract-region-query-mir-invalidated=true",
+            "contract-region-query-borrowck-invalidated=true",
+            "contract-region-query-diagnostics-invalidated=true",
+            "contract-region-query-semantic-invalidated=true",
+            "contract-region-query-hover-invalidated=true",
+            "contract-region-query-definition-invalidated=true",
+            "contract-region-query-ty-recomputed=true",
+            "contract-region-query-mir-recomputed=true",
+            "contract-region-query-borrowck-recomputed=true",
+            "contract-region-query-diagnostics-recomputed=true",
+            "contract-region-query-semantic-recomputed=true",
+            "contract-region-query-hover-recomputed=true",
+            "contract-region-query-definition-recomputed=true",
+            "contract-region-query-after-diagnostics=1",
+            "contract-region-query-after-message=Meiya refuses a returned loan from the wrong lifetime",
+            "contract-region-query-after-status=blocked",
+            "contract-region-query-after-source-count=1",
+            "contract-region-query-after-long-outlives-out=false",
+            "contract-region-query-after-long-outlives-alt=true",
+            "contract-region-query-after-bound-semantic=lifetime 'alt on task shorten",
+            "contract-region-query-after-bound-hover=lifetime 'alt on task shorten",
+            "contract-region-query-after-bound-definition=1",
+            "contract-region-query-after-bound-definition-matches-alt-binder=true",
+            "contract-region-query-bound-definition-changed=true",
+            "diagnostics|1",
+        ),
+        "contract_region_liveness_smoke.fk": (
+            "contract-region-liveness-ty-diagnostics=0",
+            "contract-region-liveness-mir-diagnostics=0",
+            "contract-region-liveness-borrow-diagnostics=3",
+            "contract-region-liveness-move-conflict-diagnostics=3",
+            "contract-region-liveness-signature-source-count=2",
+            "contract-region-liveness-ordinary-call-source-count=2",
+            "contract-region-liveness-ordinary-call-source0=lend first",
+            "contract-region-liveness-ordinary-call-source1=lend second",
+            "contract-region-liveness-choose-status=clean",
+            "contract-region-liveness-forward-status=clean",
+            "contract-region-liveness-first-before-status=blocked",
+            "contract-region-liveness-second-before-status=blocked",
+            "contract-region-liveness-unrelated-before-status=clean",
+            "contract-region-liveness-first-after-status=clean",
+            "contract-region-liveness-second-after-status=clean",
+            "contract-region-liveness-nested-second-before-status=blocked",
+            "contract-region-liveness-choose-return-source-count=2",
+            "contract-region-liveness-choose-return-source0=first",
+            "contract-region-liveness-choose-return-source1=second",
+            "contract-region-liveness-forward-return-source-count=2",
+            "contract-region-liveness-forward-return-source0=first",
+            "contract-region-liveness-forward-return-source1=second",
+            "contract-region-liveness-empty-union-state=known",
+            "contract-region-liveness-empty-union-count=0",
+            "contract-region-liveness-empty-union-known-empty=true",
+            "contract-region-liveness-opaque-overlaps-any-owner=true",
+            "contract-region-liveness-snapshot-format=freak-borrowck-snapshot-v1",
+            "borrowck-snapshot-import ok=1",
+            "borrowck-snapshot-restore ok=1",
+            "contract-region-liveness-restored-choose-return-source-count=2",
+            "contract-region-liveness-restored-choose-return-source0=first",
+            "contract-region-liveness-restored-choose-return-source1=second",
+            "contract-region-liveness-restored-forward-return-source-count=2",
+            "contract-region-liveness-restored-forward-return-source0=first",
+            "contract-region-liveness-restored-forward-return-source1=second",
+            "contract-region-liveness-restored-choose-order-stable=true",
+            "contract-region-liveness-restored-forward-order-stable=true",
+        ),
+    }
     if v4_check_harness_return.exists():
-        harness_src = v4_check_harness_return.read_text(encoding="utf-8")
+        harness_expects, harness_errors = _literal_executable_smokes(v4_check_harness_return)
+        contract_region_missing.extend(harness_errors)
         harness_fixtures = (
             "lend_return_smoke.fk",
             "lend_return_editor_smoke.fk",
@@ -1524,8 +1923,36 @@ def audit_conformance(paths: List[Path]) -> int:
             "named_lifetime_query_invalidation_smoke.fk",
         ) + tuple(fixture_path.name for fixture_path, _ in contract_region_smoke_needles)
         for fixture in harness_fixtures:
-            if fixture not in harness_src:
-                contract_region_missing.append(f"EXECUTABLE_SMOKES: {fixture} entry")
+            if fixture not in harness_expects:
+                contract_region_missing.append(f"EXECUTABLE_SMOKES: {fixture} entry missing")
+        for fixture, required_expects in required_harness_expects.items():
+            actual_expects = harness_expects.get(fixture)
+            if actual_expects is None:
+                continue
+            for expected in required_expects:
+                if expected not in actual_expects:
+                    contract_region_missing.append(
+                        f"EXECUTABLE_SMOKES: {fixture} missing expected value {expected!r}"
+                    )
+
+        stale_exact_one_expectations = (
+            "Meiya cannot choose one source for this returned loan",
+            "name one source before returning the loan",
+        )
+        for fixture, expects in harness_expects.items():
+            for expected in expects:
+                if any(stale in expected for stale in stale_exact_one_expectations):
+                    contract_region_missing.append(
+                        f"EXECUTABLE_SMOKES: {fixture} retains stale exact-one expectation {expected!r}"
+                    )
+                if (
+                    fixture == "lend_return_smoke.fk"
+                    and expected.startswith("lend-return-ambiguous-diagnostics=")
+                    and expected != "lend-return-ambiguous-diagnostics=0"
+                ):
+                    contract_region_missing.append(
+                        f"EXECUTABLE_SMOKES: {fixture} retains stale exact-one diagnostic count {expected!r}"
+                    )
     else:
         contract_region_missing.append("check_v4.py harness missing")
     add(
