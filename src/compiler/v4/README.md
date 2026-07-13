@@ -97,8 +97,10 @@ Borrowed return types now carry through TY/MIR. Ordinary tasks may write
 `lend 'a value: T`, `lend mut 'a value: T`, `-> lend 'a U`, and
 `-> lend mut 'a U`. Ordinary-task generic lists also carry direct and
 transitive outlives relations: `'long: 'short` means that `'long` may supply a
-loan returned for `'short`. `'_` keeps elision semantics but cannot be declared
-or used as a bound. Declaring `'static` binders or using `'static` lend
+loan returned for `'short`. TY computes relation closure with an iterative,
+cycle-safe worklist, so converging relation graphs and long chains use constant
+call-stack space. `'_` keeps elision semantics but cannot be declared or used
+as a bound. Declaring `'static` binders or using `'static` lend
 parameters/returns remains blocked until global-storage provenance exists.
 
 TY builds deterministic, mode-compatible returned-loan source sets. A named
@@ -119,7 +121,10 @@ as a queryable `ReturnLoan` / `ReturnLoanMut` fact.
 Stored ordinary-call results and copied scalar holder aliases keep all candidate
 owners live through the holder's final reachable use. Local rebinding kills
 only that holder's provenance, exact self-assignment preserves it, and restoring
-from a descendant alias establishes a new tracked state. Semantic, hover, and
+from a descendant alias establishes a new tracked state. Provenance expansion
+is memoized within each borrowck generation; scratch states, source rows, and
+memo slots reuse their high-water capacity across recomputation while cycles
+remain conservatively opaque. Semantic, hover, and
 definition queries resolve outlives-bound references to their declarations;
 clean facts survive borrowck/editor snapshot restore, and source edits
 invalidate TY, MIR, borrowck, diagnostics, semantic, hover, and definition
@@ -127,7 +132,10 @@ queries before recomputation.
 
 The current sound boundary is deliberately narrow. Named lends may be outer
 ordinary-task parameter and return contracts, and their results may flow
-through scalar local holders, but not aggregate/shape/route/container storage.
+through scalar local holders. MIR rejects lend children while constructing
+tuples, fixed arrays, lists, shapes, and route payloads because aggregate child
+provenance is not represented yet; aggregate/shape/route/container storage is
+therefore not supported.
 Malformed `lend 'a` and doubled-lifetime types receive spanned diagnostics.
 Method, dynamic, callback, closure, extern, and FFI forwarding plus loop-carried
 join fixed points remain later Meiya work. Source sets come from signature

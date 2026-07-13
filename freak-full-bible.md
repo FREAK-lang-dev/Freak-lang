@@ -995,7 +995,8 @@ the rest is V4.
 > `lend 'a p: T` / `lend mut 'a p: T` and return `lend 'a U` /
 > `lend mut 'a U`; `'_` requests elision. On an ordinary-task signature,
 > `'long: 'short` declares that `'long` outlives `'short`; TY follows direct
-> and transitive declared relations. It builds deterministic source sets from
+> and transitive declared relations with an iterative, cycle-safe worklist and
+> constant call-stack space. It builds deterministic source sets from
 > every mode-compatible borrowed parameter whose named lifetime equals or
 > outlives the return lifetime. Shared `lend` returns accept both `lend` and
 > `lend mut` sources; `lend mut` returns accept only `lend mut` sources.
@@ -1013,11 +1014,15 @@ the rest is V4.
 > retain every candidate owner through the holder's final reachable use.
 > Rebinding kills only that holder's provenance, restoring
 > from a descendant alias creates a new tracked state, and exact self-assignment
-> preserves the existing edge. Meiya rejects callee-owned escapes,
+> preserves the existing edge. Provenance expansion is memoized within a
+> borrowck generation, and its scratch states/source rows/memo slots reuse
+> high-water capacity across recomputation while cycles stay conservatively
+> opaque. Meiya rejects callee-owned escapes,
 > immutable-to-mutable upgrades, origins without the required outlives
 > relation, malformed lend targets, and `'static` borrowed contracts. Named
-> lends remain forbidden in aggregate storage, including shapes, routes,
-> tuples/arrays, aliases, and nested containers. Method, dynamic, callback,
+> lends remain forbidden in aggregate storage. MIR rejects lend children at
+> tuple, fixed-array, list, shape, and route-payload construction; aliases and
+> nested containers cannot make that storage sound. Method, dynamic, callback,
 > closure, extern, and FFI forwarding plus loop-carried join fixed points still
 > require later Meiya work. Body-derived source discovery and general lexical
 > region inference are not part of this signature-contract slice. Lifetime
