@@ -54,6 +54,10 @@ pilot v4_borrowck_provenance_memo_states = 0
 pilot v4_borrowck_provenance_memo_provenance_ids = 0
 pilot v4_borrowck_provenance_memo_active = 0
 pilot v4_borrowck_provenance_memo_hits_value = 0
+pilot v4_borrowck_provenance_integer_words = 0
+pilot v4_borrowck_path_canon_inputs = 0
+pilot v4_borrowck_path_canon_outputs = 0
+pilot v4_borrowck_path_canon_values = 0
 pilot v4_borrowck_ready = 0
 
 task v4_borrowck_init() -> void {
@@ -81,6 +85,10 @@ task v4_borrowck_init() -> void {
         v4_borrowck_provenance_memo_rvalues = array_new()
         v4_borrowck_provenance_memo_states = array_new()
         v4_borrowck_provenance_memo_provenance_ids = array_new()
+        v4_borrowck_provenance_integer_words = array_new()
+        v4_borrowck_path_canon_inputs = array_new()
+        v4_borrowck_path_canon_outputs = array_new()
+        v4_borrowck_path_canon_values = array_new()
         v4_borrowck_ready = 1
     }
 }
@@ -449,20 +457,102 @@ task v4_borrowck_path_count(borrow_id: int) -> int {
     give back total
 }
 
+task v4_borrowck_provenance_integer_word(value: int) -> word {
+    v4_borrowck_init()
+    pilot intern_id = 0
+    repeat until intern_id >= array_len(v4_borrowck_provenance_integer_words) {
+        pilot interned: word = array_get(v4_borrowck_provenance_integer_words, intern_id)
+        if word_to_int(interned) == value {
+            give back interned
+        }
+        intern_id += 1
+    }
+    pilot encoded = word_from_int(value)
+    array_push(v4_borrowck_provenance_integer_words, encoded)
+    give back encoded
+}
+
+task v4_borrowck_provenance_integer_intern_count() -> int {
+    v4_borrowck_init()
+    give back array_len(v4_borrowck_provenance_integer_words)
+}
+
+task v4_borrowck_path_matches_canonical(path_text: word, canonical: word) -> bool {
+    pilot path_idx = 0
+    pilot canonical_idx = 0
+    pilot ch = ""
+    repeat until path_idx >= path_text.length() {
+        ch = path_text.char_at(path_idx)
+        if ch != " " and ch != "\t" and ch != "\r" and ch != "\n" {
+            if canonical_idx >= canonical.length() or ch != canonical.char_at(canonical_idx) {
+                give back false
+            }
+            canonical_idx += 1
+        }
+        path_idx += 1
+    }
+    give back canonical_idx == canonical.length()
+}
+
 task v4_borrowck_path_canon(path_text: word) -> word {
+    v4_borrowck_init()
     if path_text == "" {
         give back ""
     }
-    pilot out = ""
+
+    pilot cache_id = 0
+    repeat until cache_id >= array_len(v4_borrowck_path_canon_inputs) {
+        pilot cached_input: word = array_get(v4_borrowck_path_canon_inputs, cache_id)
+        if cached_input == path_text {
+            give back array_get(v4_borrowck_path_canon_outputs, cache_id)
+        }
+        cache_id += 1
+    }
+
+    pilot value_id = 0
+    repeat until value_id >= array_len(v4_borrowck_path_canon_values) {
+        pilot cached_value: word = array_get(v4_borrowck_path_canon_values, value_id)
+        if v4_borrowck_path_matches_canonical(path_text, cached_value) {
+            array_push(v4_borrowck_path_canon_inputs, path_text)
+            array_push(v4_borrowck_path_canon_outputs, cached_value)
+            give back cached_value
+        }
+        value_id += 1
+    }
+
+    pilot needs_rebuild = false
     pilot idx = 0
+    pilot ch = ""
     repeat until idx >= path_text.length() {
-        pilot ch = path_text.char_at(idx)
-        if ch != " " and ch != "\t" and ch != "\r" and ch != "\n" {
-            out = out + ch
+        ch = path_text.char_at(idx)
+        if ch == " " or ch == "\t" or ch == "\r" or ch == "\n" {
+            needs_rebuild = true
         }
         idx += 1
     }
-    give back out
+
+    pilot canonical = path_text
+    if needs_rebuild {
+        canonical = ""
+        idx = 0
+        repeat until idx >= path_text.length() {
+            ch = path_text.char_at(idx)
+            if ch != " " and ch != "\t" and ch != "\r" and ch != "\n" {
+                canonical = canonical + ch
+            }
+            idx += 1
+        }
+    }
+
+    array_push(v4_borrowck_path_canon_values, canonical)
+    array_push(v4_borrowck_path_canon_inputs, path_text)
+    array_push(v4_borrowck_path_canon_outputs, canonical)
+    give back canonical
+}
+
+task v4_borrowck_path_canon_cache_count() -> int {
+    v4_borrowck_init()
+    give back array_len(v4_borrowck_path_canon_inputs)
 }
 
 task v4_borrowck_provenance_scratch_store(handle: int, index: int, value: word) -> void {
@@ -474,6 +564,10 @@ task v4_borrowck_provenance_scratch_store(handle: int, index: int, value: word) 
     } else {
         array_push(handle, value)
     }
+}
+
+task v4_borrowck_provenance_scratch_store_integer(handle: int, index: int, value: int) -> void {
+    v4_borrowck_provenance_scratch_store(handle, index, v4_borrowck_provenance_integer_word(value))
 }
 
 task v4_borrowck_provenance_scratch_reset() -> void {
@@ -649,9 +743,9 @@ task v4_borrowck_provenance_add_source(provenance_id: int, source_text: word, or
         give back
     }
     pilot row_id = v4_borrowck_provenance_source_active
-    v4_borrowck_provenance_scratch_store(v4_borrowck_source_provenance_ids, row_id, word_from_int(provenance_id))
+    v4_borrowck_provenance_scratch_store_integer(v4_borrowck_source_provenance_ids, row_id, provenance_id)
     v4_borrowck_provenance_scratch_store(v4_borrowck_source_paths, row_id, source_canon)
-    v4_borrowck_provenance_scratch_store(v4_borrowck_source_origins, row_id, word_from_int(origin_id))
+    v4_borrowck_provenance_scratch_store_integer(v4_borrowck_source_origins, row_id, origin_id)
     v4_borrowck_provenance_source_active += 1
 }
 
@@ -689,12 +783,12 @@ task v4_borrowck_provenance_memo_lookup(mir_id: int, body_id: int, use_stmt: int
 
 task v4_borrowck_provenance_memo_add(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int, provenance_id: int) -> int {
     pilot memo_id = v4_borrowck_provenance_memo_active
-    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_mir_ids, memo_id, word_from_int(mir_id))
-    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_body_ids, memo_id, word_from_int(body_id))
-    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_use_stmts, memo_id, word_from_int(use_stmt))
-    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_rvalues, memo_id, word_from_int(rvalue_id))
+    v4_borrowck_provenance_scratch_store_integer(v4_borrowck_provenance_memo_mir_ids, memo_id, mir_id)
+    v4_borrowck_provenance_scratch_store_integer(v4_borrowck_provenance_memo_body_ids, memo_id, body_id)
+    v4_borrowck_provenance_scratch_store_integer(v4_borrowck_provenance_memo_use_stmts, memo_id, use_stmt)
+    v4_borrowck_provenance_scratch_store_integer(v4_borrowck_provenance_memo_rvalues, memo_id, rvalue_id)
     v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_states, memo_id, v4_borrowck_provenance_memo_in_progress)
-    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_memo_provenance_ids, memo_id, word_from_int(provenance_id))
+    v4_borrowck_provenance_scratch_store_integer(v4_borrowck_provenance_memo_provenance_ids, memo_id, provenance_id)
     v4_borrowck_provenance_memo_active += 1
     give back memo_id
 }
