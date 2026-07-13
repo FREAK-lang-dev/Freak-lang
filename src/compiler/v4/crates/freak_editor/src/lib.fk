@@ -213,25 +213,35 @@ task v4_editor_lifetime_detail(ty_id: int, sig_id: int, lifetime_name: word) -> 
     give back "undeclared lifetime " + lifetime_name + " near " + v4_ty_signature_name(ty_id, sig_id)
 }
 
-task v4_editor_lifetime_decl_span(stream_id: int, item_span: word, lifetime_name: word) -> word {
-    if lifetime_name == "" {
-        give back item_span
+task v4_editor_lifetime_decl_span(ty_id: int, sig_id: int, lifetime_name: word) -> word {
+    if sig_id < 0 or lifetime_name == "" {
+        give back V4_NO_SPAN
     }
 
-    pilot item_start = v4_span_start(item_span)
-    pilot item_end = v4_span_end(item_span)
-    pilot token_id = 0
-    pilot token_count = v4_lex_token_count(stream_id)
-    repeat until token_id >= token_count {
-        pilot token_span = v4_lex_token_span(stream_id, token_id)
-        if v4_span_start(token_span) >= item_start and v4_span_end(token_span) <= item_end {
-            if v4_lex_token_type(stream_id, token_id) == v4_tok_lifetime and v4_lex_token_value(stream_id, token_id) == lifetime_name {
-                give back token_span
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    if stream_id < 0 {
+        give back V4_NO_SPAN
+    }
+
+    pilot generic_id = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_id >= generic_count {
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) and v4_ty_signature_generic_name(ty_id, sig_id, generic_id) == lifetime_name {
+            pilot segment_start = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
+            pilot segment_end = v4_ty_signature_generic_segment_end(ty_id, sig_id, generic_id)
+            if segment_start >= 0 and segment_end > segment_start {
+                pilot token_id = segment_start
+                repeat until token_id >= segment_end {
+                    if v4_lex_token_type(stream_id, token_id) == v4_tok_lifetime and v4_lex_token_value(stream_id, token_id) == lifetime_name {
+                        give back v4_lex_token_span(stream_id, token_id)
+                    }
+                    token_id += 1
+                }
             }
         }
-        token_id += 1
+        generic_id += 1
     }
-    give back item_span
+    give back V4_NO_SPAN
 }
 
 task v4_editor_local_decl_span(stream_id: int, local_span: word, local_name: word) -> word {
@@ -2084,8 +2094,7 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
         if hir_item >= 0 {
             pilot lifetime_sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
             if lifetime_sig_id >= 0 and v4_ty_signature_declares_lifetime_name(ty_id, lifetime_sig_id, name) {
-                span = v4_hir_item_span(hir_id, hir_item)
-                span = v4_editor_lifetime_decl_span(stream_id, span, name)
+                span = v4_editor_lifetime_decl_span(ty_id, lifetime_sig_id, name)
                 if v4_span_end(span) > v4_span_start(span) {
                     found = 1
                 }
