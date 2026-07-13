@@ -552,7 +552,16 @@ def _find_repo_root(start: Path) -> Optional[Path]:
         p = p.parent
 
 
-def _literal_executable_smokes(path: Path) -> Tuple[Dict[str, List[str]], List[str]]:
+@dataclass(frozen=True)
+class _LiteralExecutableSmoke:
+    expect: Tuple[str, ...]
+    expect_exact: Tuple[str, ...]
+    expect_mode: Optional[str]
+
+
+def _literal_executable_smokes(
+    path: Path,
+) -> Tuple[Dict[str, _LiteralExecutableSmoke], List[str]]:
     """Read EXECUTABLE_SMOKES without importing or executing the harness."""
     try:
         source = path.read_text(encoding="utf-8")
@@ -599,7 +608,7 @@ def _literal_executable_smokes(path: Path) -> Tuple[Dict[str, List[str]], List[s
     if not isinstance(manifest, list):
         return {}, ["check_v4.py: EXECUTABLE_SMOKES must be a literal list"]
 
-    smoke_expects: Dict[str, List[str]] = {}
+    smokes: Dict[str, _LiteralExecutableSmoke] = {}
     seen_fixtures: Dict[str, int] = {}
     errors: List[str] = []
     for index, entry in enumerate(manifest):
@@ -632,22 +641,46 @@ def _literal_executable_smokes(path: Path) -> Tuple[Dict[str, List[str]], List[s
             )
             continue
 
-        smoke_expects[fixture] = expects
+        exact_expects = entry.get("expect_exact", [])
+        if not isinstance(exact_expects, list):
+            errors.append(
+                f"EXECUTABLE_SMOKES: {fixture} expect_exact must be a literal list"
+            )
+            continue
+        if any(not isinstance(value, str) or not value for value in exact_expects):
+            errors.append(
+                f"EXECUTABLE_SMOKES: {fixture} expect_exact contains a non-string or empty value"
+            )
+            continue
 
-    return smoke_expects, errors
+        expect_mode = entry.get("expect_mode")
+        if expect_mode is not None and (
+            not isinstance(expect_mode, str) or not expect_mode
+        ):
+            errors.append(
+                f"EXECUTABLE_SMOKES: {fixture} expect_mode must be a non-empty string"
+            )
+            continue
+
+        smokes[fixture] = _LiteralExecutableSmoke(
+            expect=tuple(expects),
+            expect_exact=tuple(exact_expects),
+            expect_mode=expect_mode,
+        )
+
+    return smokes, errors
 
 
 def audit_conformance(paths: List[Path]) -> int:
     """
-    Verify v0.13.x implementation conforms to the contracts the bible
-    promises for this release. Checks every "✅ aligned" claim from
-    freak-conformance-audit.md is still backed by code or files.
+    Verify the v0.13.x baseline and promoted V4 implementation contracts.
+    Checks every audited claim is still backed by code, files, or executable
+    smoke oracles.
 
-    Returns 1 if any v0.13.x contract is broken, 0 otherwise.
+    Returns 1 if any audited contract is broken, 0 otherwise.
 
-    The check set is hardcoded to the v0.13.x baseline. V4-tagged contracts
-    are intentionally not checked — once Phase D bible amendments add
-    Status tags, this function can be extended to read them directly.
+    The check set remains explicit: baseline contracts and selected V4 slices
+    are guarded here while unpromoted V4 contracts remain outside the gate.
     """
     import sys as _sys
 
@@ -1291,11 +1324,16 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_ty_signature_lifetime_outlives",
             "v4_ty_signature_is_ordinary_static_task",
             "task v4_ty_signature_param_is_borrowed_return_source(",
+            "pilot v4_ty_borrowed_return_source_caches = 0",
+            "task v4_ty_signature_borrowed_return_source_cache(",
+            "task v4_ty_borrowed_return_source_cache_build_count(",
             "task v4_ty_signature_borrowed_return_source_param_count(",
             "task v4_ty_signature_borrowed_return_source_param_at(",
             "v4_ty_signature_can_declare_generics",
             "v4_ty_validate_signature_generic_bounds",
             "v4_ty_type_contains_named_lend",
+            "task v4_ty_type_contains_lend(",
+            "task v4_ty_validate_no_lend_storage(",
             "Meiya lifetime debt: empty generic bound on",
             "may only use lifetime bounds",
             "Meiya cannot store a named lend",
@@ -1325,6 +1363,12 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_ty_signature_borrowed_return_source_param_at",
             "task v4_mir_callback_type_contains_lend(",
             "task v4_mir_check_callback_call_args(",
+            "task v4_mir_reject_aggregate_lend_child(",
+            'v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a maybe some()",',
+            'v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a result ok()",',
+            'v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a result err()",',
+            '"a map", "map entry " + word_from_int(pair_idx) + " key"',
+            '"a map", "map entry " + word_from_int(pair_idx) + " value"',
             "Meiya cannot forward borrowed values through an FFI callback yet",
         ):
             if needle not in mir_src:
@@ -1361,6 +1405,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_borrowck_provenance_scratch_reset",
             "v4_borrowck_provenance_state_active_count",
             "v4_borrowck_provenance_source_active_count",
+            "task v4_borrowck_provenance_integer_word(",
+            "task v4_borrowck_provenance_integer_intern_count(",
+            "task v4_borrowck_path_canon_cache_count(",
             "v4_borrowck_provenance_memo_lookup",
             "v4_borrowck_provenance_memo_mark_ready",
             "v4_borrowck_provenance_memo_hit_count",
@@ -1550,12 +1597,15 @@ def audit_conformance(paths: List[Path]) -> int:
         (
             v4_tests_return / "contract_region_relation_stress_smoke.fk",
             (
-                "repeat until generic_id >= 48",
+                "repeat until generic_id >= 20",
+                "repeat until generic_id >= 28",
                 "v4_ty_signature_lifetime_outlives",
+                "v4_ty_borrowed_return_source_cache_build_count()",
                 "contract-region-relation-stress-fibonacci-transitive=",
                 "contract-region-relation-stress-chain-reachable=",
                 "contract-region-relation-stress-cycle-right-left=",
                 "contract-region-relation-stress-extern-gated=",
+                "contract-region-relation-stress-source-cache-stable=",
             ),
         ),
         (
@@ -1591,11 +1641,23 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 "pilot view = choose(lend first, lend second, take_first)",
                 "pilot views = (choose(lend first, lend second, take_first), lend first)",
-                "give back 7",
-                "contract-region-storage-mir-diag0-message=",
+                "pilot view: maybe<lend Ship> = some(choose(",
+                "pilot view: result<lend Ship,word> = ok(choose(",
+                "pilot view: result<int,lend Ship> = err(choose(",
+                "pilot views: Map<lend Ship,int>",
+                "pilot views: Map<word,lend Ship>",
+                "task named_signature_escape<'a>(value: maybe<result<Map<word,lend 'a Ship>,int>>)",
+                "task elided_signature_escape(value: maybe<result<Map<word,lend Ship>,int>>)",
+                "contract-region-storage-ty-diagnostics-exact-four=",
+                "contract-region-storage-mir-diagnostics-exact-ten=",
                 "contract-region-storage-local-holder-status=",
-                "contract-region-storage-aggregate-status=",
-                "contract-region-storage-diag",
+                "contract-region-storage-some-status=",
+                "contract-region-storage-ok-status=",
+                "contract-region-storage-err-status=",
+                "contract-region-storage-map-key-status=",
+                "contract-region-storage-map-value-status=",
+                "contract-region-storage-borrow-diagnostics-exact-ten=",
+                "contract-region-storage-borrow-diags-match-mir=",
             ),
         ),
         (
@@ -1649,6 +1711,10 @@ def audit_conformance(paths: List[Path]) -> int:
                 "v4_contract_region_query_before = v4_contract_region_query_source",
                 "v4_contract_region_query_after = v4_contract_region_query_source",
                 "contract-region-query-ty-invalidated=",
+                "contract-region-query-document-symbols-invalidated=",
+                "contract-region-query-completion-invalidated=",
+                "contract-region-query-document-symbols-recomputed=",
+                "contract-region-query-completion-recomputed=",
                 "contract-region-query-after-source-count=",
                 "contract-region-query-after-bound-definition-matches-alt-binder=",
             ),
@@ -1665,6 +1731,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "contract-region-liveness-unrelated-before-status=",
                 "contract-region-liveness-empty-union-known-empty=",
                 "contract-region-liveness-opaque-overlaps-any-owner=",
+                "contract-region-liveness-snapshot-poisoned-before-restore=",
                 "contract-region-liveness-restored-forward-order-stable=",
             ),
         ),
@@ -1692,7 +1759,11 @@ def audit_conformance(paths: List[Path]) -> int:
                 "contract-region-elided-query-before-source-count=",
                 "contract-region-elided-query-before-call-source-count=",
                 "contract-region-elided-query-ty-invalidations-added=",
+                "contract-region-elided-query-document-symbols-invalidations-added=",
+                "contract-region-elided-query-completion-invalidations-added=",
                 "contract-region-elided-query-definition-recomputations-added=",
+                "contract-region-elided-query-document-symbols-recomputations-added=",
+                "contract-region-elided-query-completion-recomputations-added=",
                 "contract-region-elided-query-after-source-count=",
                 "contract-region-elided-query-after-call-source-count=",
                 "contract-region-elided-query-after-semantic=",
@@ -1704,9 +1775,13 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 "repeat until level > 12",
                 "v4_borrowck_check_mir(0, v4_contract_region_resource_mir)",
+                "v4_borrowck_provenance_integer_intern_count()",
+                "v4_borrowck_path_canon_cache_count()",
                 "contract-region-resource-generation-sequence=",
                 "contract-region-resource-memo-hits=",
                 "contract-region-resource-capacities-reused=",
+                "contract-region-resource-integer-intern-count-stable=",
+                "contract-region-resource-canonical-path-cache-count-stable=",
                 "contract-region-resource-no-historical-growth=",
                 "contract-region-resource-opaque-conservative=",
             ),
@@ -1812,11 +1887,11 @@ def audit_conformance(paths: List[Path]) -> int:
         "contract_region_relation_stress_smoke.fk": (
             "contract-region-relation-stress-parse-diagnostics=0",
             "contract-region-relation-stress-ty-diagnostics=0",
-            "contract-region-relation-stress-fibonacci-lifetime-count=41",
+            "contract-region-relation-stress-fibonacci-lifetime-count=21",
             "contract-region-relation-stress-fibonacci-disconnected=false",
             "contract-region-relation-stress-fibonacci-transitive=true",
             "contract-region-relation-stress-fibonacci-plus-bound=true",
-            "contract-region-relation-stress-chain-lifetime-count=48",
+            "contract-region-relation-stress-chain-lifetime-count=28",
             "contract-region-relation-stress-chain-reachable=true",
             "contract-region-relation-stress-chain-reverse=false",
             "contract-region-relation-stress-cycle-left-right=true",
@@ -1825,6 +1900,19 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-relation-stress-undeclared-reflexive=false",
             "contract-region-relation-stress-static-reflexive=false",
             "contract-region-relation-stress-extern-gated=false",
+            "contract-region-relation-stress-source-set-count=2",
+            "contract-region-relation-stress-repetitions=3",
+            "contract-region-relation-stress-scratch-active=2",
+            "contract-region-relation-stress-scratch-capacity=28",
+            "contract-region-relation-stress-scratch-generation-delta=6",
+            "contract-region-relation-stress-scratch-generation-sequence=true",
+            "contract-region-relation-stress-semantics-stable=true",
+            "contract-region-relation-stress-scratch-active-stable=true",
+            "contract-region-relation-stress-scratch-active-within-capacity=true",
+            "contract-region-relation-stress-scratch-capacity-stable=true",
+            "contract-region-relation-stress-source-cache-build-delta=0",
+            "contract-region-relation-stress-source-cache-stable=true",
+            "contract-region-relation-stress-no-historical-growth=true",
         ),
         "contract_region_bound_diagnostics_smoke.fk": (
             "contract-region-bound-diagnostics-undeclared-raw-bound='ghost",
@@ -1886,32 +1974,71 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-loop-negative-diag0-span=0@",
         ),
         "contract_region_storage_negative_smoke.fk": (
-            "contract-region-storage-ty-diagnostics=0",
-            "contract-region-storage-mir-diagnostics=1",
-            "contract-region-storage-mir-diag0-message=Meiya cannot store a lend inside a tuple yet",
-            "contract-region-storage-mir-diag0-help=aggregate_source_set constructs tuple element 1 with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
-            "contract-region-storage-mir-diag0-span=0@",
+            "contract-region-storage-ty-diagnostics=4",
+            "contract-region-storage-ty-diagnostics-exact-four=true",
+            "contract-region-storage-ty-diag0=Meiya cannot store a named lend in parameter 0 of named_signature_escape yet",
+            "contract-region-storage-ty-diag0-help=keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
+            "contract-region-storage-ty-diag1=Meiya cannot store a named lend in return type of named_signature_escape yet",
+            "contract-region-storage-ty-diag1-help=keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
+            "contract-region-storage-ty-diag2=Meiya cannot store a lend in parameter 0 of elided_signature_escape yet",
+            "contract-region-storage-ty-diag2-help=keep elided lends on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
+            "contract-region-storage-ty-diag3=Meiya cannot store a lend in return type of elided_signature_escape yet",
+            "contract-region-storage-ty-diag3-help=keep elided lends on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
+            "contract-region-storage-mir-diagnostics=10",
+            "contract-region-storage-mir-diagnostics-exact-ten=true",
+            "contract-region-storage-mir-diag0=Meiya cannot store a named lend in parameter 0 of named_signature_escape yet",
+            "contract-region-storage-mir-diag0-help=keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
+            "contract-region-storage-mir-diag1=Meiya cannot store a named lend in return type of named_signature_escape yet",
+            "contract-region-storage-mir-diag1-help=keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
+            "contract-region-storage-mir-diag2=Meiya cannot store a lend in parameter 0 of elided_signature_escape yet",
+            "contract-region-storage-mir-diag2-help=keep elided lends on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
+            "contract-region-storage-mir-diag3=Meiya cannot store a lend in return type of elided_signature_escape yet",
+            "contract-region-storage-mir-diag3-help=keep elided lends on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
+            "contract-region-storage-mir-diag4=Meiya cannot store a lend inside a tuple yet",
+            "contract-region-storage-mir-diag4-help=aggregate_source_set constructs tuple element 1 with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-mir-diag5=Meiya cannot store a lend inside a maybe some() yet",
+            "contract-region-storage-mir-diag5-help=maybe_source_set constructs the some() payload with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-mir-diag6=Meiya cannot store a lend inside a result ok() yet",
+            "contract-region-storage-mir-diag6-help=result_ok_source_set constructs the ok() payload with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-mir-diag7=Meiya cannot store a lend inside a result err() yet",
+            "contract-region-storage-mir-diag7-help=result_err_source_set constructs the err() payload with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-mir-diag8=Meiya cannot store a lend inside a map yet",
+            "contract-region-storage-mir-diag8-help=map_key_source_set constructs map entry 1 key with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-mir-diag9=Meiya cannot store a lend inside a map yet",
+            "contract-region-storage-mir-diag9-help=map_value_source_set constructs map entry 1 value with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
             "contract-region-storage-choose-status=clean",
             "contract-region-storage-local-holder-status=clean",
-            "contract-region-storage-aggregate-status=clean",
-            "contract-region-storage-borrow-diagnostics=1",
-            "contract-region-storage-diag0=Meiya cannot store a lend inside a tuple yet",
-            "contract-region-storage-diag0-span=0@",
+            "contract-region-storage-elided-holder-status=clean",
+            "contract-region-storage-tuple-status=clean",
+            "contract-region-storage-some-status=clean",
+            "contract-region-storage-ok-status=clean",
+            "contract-region-storage-err-status=clean",
+            "contract-region-storage-map-key-status=clean",
+            "contract-region-storage-map-value-status=clean",
+            "contract-region-storage-named-signature-status=clean",
+            "contract-region-storage-elided-signature-status=clean",
+            "contract-region-storage-borrow-diagnostics=10",
+            "contract-region-storage-borrow-diagnostics-exact-ten=true",
+            "contract-region-storage-borrow-diags-match-mir=true",
         ),
         "contract_region_boundary_negative_smoke.fk": (
             "contract-region-boundary-negative-diagnostics=4",
             "contract-region-boundary-negative-diagnostics-exact-four=true",
             "contract-region-boundary-negative-diag0=Meiya cannot store a named lend in return type of Selector::choose yet",
-            "contract-region-boundary-negative-diag0-span=0@117:129",
+            "contract-region-boundary-negative-diag0-source-path=contract-region-boundary-negative.fk",
+            "contract-region-boundary-negative-diag0-range=117:129",
             "contract-region-boundary-negative-diag0-help=keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
             "contract-region-boundary-negative-diag1=Meiya cannot store a named lend in parameter 0 of callback_boundary yet",
-            "contract-region-boundary-negative-diag1-span=0@163:224",
+            "contract-region-boundary-negative-diag1-source-path=contract-region-boundary-negative.fk",
+            "contract-region-boundary-negative-diag1-range=163:224",
             "contract-region-boundary-negative-diag1-help=keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
             "contract-region-boundary-negative-diag2=Meiya cannot accept a static lend parameter yet",
-            "contract-region-boundary-negative-diag2-span=0@279:286",
+            "contract-region-boundary-negative-diag2-source-path=contract-region-boundary-negative.fk",
+            "contract-region-boundary-negative-diag2-range=279:286",
             "contract-region-boundary-negative-diag2-help='static needs source-storage classification before callers may promise an immortal loan",
             "contract-region-boundary-negative-diag3=Meiya cannot prove a static borrowed return yet",
-            "contract-region-boundary-negative-diag3-span=0@303:320",
+            "contract-region-boundary-negative-diag3-source-path=contract-region-boundary-negative.fk",
+            "contract-region-boundary-negative-diag3-range=303:320",
             "contract-region-boundary-negative-diag3-help='static returned loans need global-storage provenance before this contract can be sound",
         ),
         "contract_region_forwarding_boundary_negative_smoke.fk": (
@@ -1921,7 +2048,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-method-status=blocked",
             "contract-region-forwarding-method-invocation-diagnostic-count=1",
             "contract-region-forwarding-method-invocation-message=Meiya cannot establish the origin of this returned loan",
-            "contract-region-forwarding-method-invocation-span=0@255:282",
+            "contract-region-forwarding-method-invocation-source-path=contract-region-forwarding-method.fk",
+            "contract-region-forwarding-method-invocation-range=255:282",
             "contract-region-forwarding-method-rejected=true",
             "contract-region-forwarding-method-silently-accepted=false",
             "contract-region-forwarding-dynamic-ty-diagnostics=0",
@@ -1930,7 +2058,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-dynamic-status=blocked",
             "contract-region-forwarding-dynamic-invocation-diagnostic-count=1",
             "contract-region-forwarding-dynamic-invocation-message=Meiya cannot establish the origin of this returned loan",
-            "contract-region-forwarding-dynamic-invocation-span=1@346:373",
+            "contract-region-forwarding-dynamic-invocation-source-path=contract-region-forwarding-dynamic.fk",
+            "contract-region-forwarding-dynamic-invocation-range=346:373",
             "contract-region-forwarding-dynamic-rejected=true",
             "contract-region-forwarding-dynamic-silently-accepted=false",
             "contract-region-forwarding-callback-ty-diagnostics=0",
@@ -1939,7 +2068,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-callback-status=clean",
             "contract-region-forwarding-callback-invocation-diagnostic-count=1",
             "contract-region-forwarding-callback-invocation-message=call target is not callable",
-            "contract-region-forwarding-callback-invocation-span=2@136:150",
+            "contract-region-forwarding-callback-invocation-source-path=contract-region-forwarding-callback.fk",
+            "contract-region-forwarding-callback-invocation-range=136:150",
             "contract-region-forwarding-callback-rejected=true",
             "contract-region-forwarding-callback-silently-accepted=false",
             "contract-region-forwarding-extern-ty-diagnostics=2",
@@ -1948,7 +2078,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-extern-status=blocked",
             "contract-region-forwarding-extern-invocation-diagnostic-count=1",
             "contract-region-forwarding-extern-invocation-message=Meiya cannot establish the origin of this returned loan",
-            "contract-region-forwarding-extern-invocation-span=3@162:187",
+            "contract-region-forwarding-extern-invocation-source-path=contract-region-forwarding-extern.fk",
+            "contract-region-forwarding-extern-invocation-range=162:187",
             "contract-region-forwarding-extern-rejected=true",
             "contract-region-forwarding-extern-silently-accepted=false",
             "contract-region-forwarding-ffi-ty-diagnostics=1",
@@ -1957,7 +2088,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-ffi-status=clean",
             "contract-region-forwarding-ffi-invocation-diagnostic-count=1",
             "contract-region-forwarding-ffi-invocation-message=Meiya cannot forward borrowed values through an FFI callback yet",
-            "contract-region-forwarding-ffi-invocation-span=4@198:222",
+            "contract-region-forwarding-ffi-invocation-source-path=contract-region-forwarding-ffi.fk",
+            "contract-region-forwarding-ffi-invocation-range=198:222",
             "contract-region-forwarding-ffi-rejected=true",
             "contract-region-forwarding-ffi-silently-accepted=false",
             "contract-region-forwarding-closure-coverage=unsupported-no-v4-closure-syntax",
@@ -2044,6 +2176,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-query-semantic-invalidated=true",
             "contract-region-query-hover-invalidated=true",
             "contract-region-query-definition-invalidated=true",
+            "contract-region-query-document-symbols-invalidated=true",
+            "contract-region-query-completion-invalidated=true",
+            "contract-region-query-all-invalidations-positive=true",
             "contract-region-query-ty-recomputed=true",
             "contract-region-query-mir-recomputed=true",
             "contract-region-query-borrowck-recomputed=true",
@@ -2051,6 +2186,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-query-semantic-recomputed=true",
             "contract-region-query-hover-recomputed=true",
             "contract-region-query-definition-recomputed=true",
+            "contract-region-query-document-symbols-recomputed=true",
+            "contract-region-query-completion-recomputed=true",
             "contract-region-query-after-diagnostics=1",
             "contract-region-query-after-message=Meiya refuses a returned loan from the wrong lifetime",
             "contract-region-query-after-status=blocked",
@@ -2093,6 +2230,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-liveness-opaque-overlaps-any-owner=true",
             "contract-region-liveness-snapshot-format=freak-borrowck-snapshot-v1",
             "borrowck-snapshot-import ok=1",
+            "contract-region-liveness-snapshot-poisoned-before-restore=true",
             "borrowck-snapshot-restore ok=1",
             "contract-region-liveness-restored-choose-return-source-count=2",
             "contract-region-liveness-restored-choose-return-source0=first",
@@ -2145,6 +2283,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-elided-query-semantic-invalidations-added=1",
             "contract-region-elided-query-hover-invalidations-added=1",
             "contract-region-elided-query-definition-invalidations-added=1",
+            "contract-region-elided-query-document-symbols-invalidations-added=1",
+            "contract-region-elided-query-completion-invalidations-added=1",
+            "contract-region-elided-query-all-invalidations-positive=true",
             "contract-region-elided-query-ty-recomputations-added=1",
             "contract-region-elided-query-mir-recomputations-added=1",
             "contract-region-elided-query-borrowck-recomputations-added=1",
@@ -2152,6 +2293,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-elided-query-semantic-recomputations-added=1",
             "contract-region-elided-query-hover-recomputations-added=1",
             "contract-region-elided-query-definition-recomputations-added=1",
+            "contract-region-elided-query-document-symbols-recomputations-added=1",
+            "contract-region-elided-query-completion-recomputations-added=1",
             "contract-region-elided-query-after-diagnostics=0",
             "contract-region-elided-query-after-message=none",
             "contract-region-elided-query-after-choose-status=clean",
@@ -2184,20 +2327,67 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-resource-active-counts-stable=true",
             "contract-region-resource-active-within-capacity=true",
             "contract-region-resource-capacities-reused=true",
+            "contract-region-resource-integer-intern-count-stable=true",
+            "contract-region-resource-canonical-path-cache-count-stable=true",
             "contract-region-resource-no-historical-growth=true",
             "contract-region-resource-opaque-conservative=true",
             "contract-region-resource-bounds-opaque=true",
         ),
     }
+    required_harness_expect_exact = {
+        "contract_region_editor_smoke.fk": (
+            "contract-region-editor-bound-semantic-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "contract-region-editor-bound-hover-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "location|contract-region-editor.fk|3|33|3|37|'out|Lifetime",
+            "contract-region-editor-blocked-confirm-promoted=0",
+            "contract-region-editor-blocked-confirm-blocked=1",
+            "contract-region-editor-blocked-confirm-mismatched=0",
+            "contract-region-editor-mismatch-confirm-promoted=0",
+            "contract-region-editor-mismatch-confirm-blocked=0",
+            "contract-region-editor-mismatch-confirm-mismatched=1",
+            "contract-region-editor-promoted-confirm-promoted=1",
+            "contract-region-editor-promoted-confirm-blocked=0",
+            "contract-region-editor-promoted-confirm-mismatched=0",
+            "contract-region-editor-document-confirm-promoted=17",
+            "contract-region-editor-document-confirm-blocked=0",
+            "contract-region-editor-document-confirm-mismatched=0",
+            "contract-region-editor-restored-semantic-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "contract-region-editor-restored-hover-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "contract-region-editor-restored-definition-records-distinct=true",
+            "contract-region-editor-restored-definition-spans-distinct=true",
+        ),
+        "contract_region_query_invalidation_smoke.fk": (
+            "contract-region-query-document-symbols-invalidated=true",
+            "contract-region-query-completion-invalidated=true",
+            "contract-region-query-all-invalidations-positive=true",
+            "contract-region-query-document-symbols-recomputed=true",
+            "contract-region-query-completion-recomputed=true",
+            "contract-region-query-after-diagnostics=1",
+            "contract-region-query-after-message=Meiya refuses a returned loan from the wrong lifetime",
+        ),
+    }
+    line_harness_expect_fixtures = (
+        "contract_region_relation_stress_smoke.fk",
+        "contract_region_storage_negative_smoke.fk",
+        "contract_region_boundary_negative_smoke.fk",
+        "contract_region_forwarding_boundary_negative_smoke.fk",
+        "contract_region_elided_liveness_smoke.fk",
+        "contract_region_elided_query_invalidation_smoke.fk",
+        "contract_region_resource_smoke.fk",
+    )
     exact_harness_expect_fixtures = (
+        "contract_region_relation_stress_smoke.fk",
+        "contract_region_storage_negative_smoke.fk",
         "contract_region_boundary_negative_smoke.fk",
         "contract_region_forwarding_boundary_negative_smoke.fk",
         "contract_region_editor_smoke.fk",
+        "contract_region_query_invalidation_smoke.fk",
         "contract_region_elided_liveness_smoke.fk",
         "contract_region_elided_query_invalidation_smoke.fk",
+        "contract_region_resource_smoke.fk",
     )
     if v4_check_harness_return.exists():
-        harness_expects, harness_errors = _literal_executable_smokes(v4_check_harness_return)
+        harness_smokes, harness_errors = _literal_executable_smokes(v4_check_harness_return)
         contract_region_missing.extend(harness_errors)
         harness_fixtures = (
             "lend_return_smoke.fk",
@@ -2209,14 +2399,29 @@ def audit_conformance(paths: List[Path]) -> int:
             "named_lifetime_query_invalidation_smoke.fk",
         ) + tuple(fixture_path.name for fixture_path, _ in contract_region_smoke_needles)
         for fixture in harness_fixtures:
-            if fixture not in harness_expects:
+            if fixture not in harness_smokes:
                 contract_region_missing.append(f"EXECUTABLE_SMOKES: {fixture} entry missing")
-        for fixture, required_expects in required_harness_expects.items():
-            actual_expects = harness_expects.get(fixture)
-            if actual_expects is None:
+        for fixture in line_harness_expect_fixtures:
+            smoke = harness_smokes.get(fixture)
+            if smoke is not None and smoke.expect_mode != "line":
+                contract_region_missing.append(
+                    f"EXECUTABLE_SMOKES: {fixture} expect_mode must be 'line'"
+                )
+        for fixture, required_exact_expects in required_harness_expect_exact.items():
+            smoke = harness_smokes.get(fixture)
+            if smoke is None:
                 continue
+            if smoke.expect_exact != required_exact_expects:
+                contract_region_missing.append(
+                    f"EXECUTABLE_SMOKES: {fixture} expect_exact list does not exactly match the auditor oracle"
+                )
+        for fixture, required_expects in required_harness_expects.items():
+            smoke = harness_smokes.get(fixture)
+            if smoke is None:
+                continue
+            actual_expects = smoke.expect
             if fixture in exact_harness_expect_fixtures:
-                if tuple(actual_expects) != required_expects:
+                if actual_expects != required_expects:
                     contract_region_missing.append(
                         f"EXECUTABLE_SMOKES: {fixture} expectation list does not exactly match the auditor oracle"
                     )
@@ -2231,8 +2436,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "Meiya cannot choose one source for this returned loan",
             "name one source before returning the loan",
         )
-        for fixture, expects in harness_expects.items():
-            for expected in expects:
+        for fixture, smoke in harness_smokes.items():
+            for expected in smoke.expect + smoke.expect_exact:
                 if any(stale in expected for stale in stale_exact_one_expectations):
                     contract_region_missing.append(
                         f"EXECUTABLE_SMOKES: {fixture} retains stale exact-one expectation {expected!r}"
