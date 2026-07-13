@@ -31,9 +31,24 @@ task v4_contract_region_editor_span_positions_equal(left: word, right: word) -> 
     give back v4_span_end(left) == v4_span_end(right)
 }
 
+task v4_contract_region_editor_index_of(text: word, needle: word, start_pos: int) -> int {
+    if needle.length() == 0 {
+        give back start_pos
+    }
+    pilot at = start_pos
+    pilot limit = text.length() - needle.length()
+    repeat until at > limit {
+        if v4_slice(text, at, at + needle.length()) == needle {
+            give back at
+        }
+        at += 1
+    }
+    give back 0 - 1
+}
+
 task v4_contract_region_editor_report_value(report: word, key: word) -> word {
     pilot marker = key + "="
-    pilot start = v4_index_of_from(report, marker, 0)
+    pilot start = v4_contract_region_editor_index_of(report, marker, 0)
     if start < 0 {
         give back ""
     }
@@ -116,6 +131,15 @@ pilot v4_contract_region_editor_definition_key = v4_definition_at_query_key(v4_c
 pilot v4_contract_region_editor_repeated_definition_key = v4_definition_at_query_key(v4_contract_region_editor_path, v4_contract_region_editor_repeated_bound_offset)
 pilot v4_contract_region_editor_alt_definition_key = v4_definition_at_query_key(v4_contract_region_editor_path, v4_contract_region_editor_alt_bound_offset)
 pilot v4_contract_region_editor_syntax_key = v4_check_syntax_query_key(v4_contract_region_editor_path)
+pilot v4_contract_region_editor_blocked_confirm = ""
+pilot v4_contract_region_editor_mismatch_confirm = ""
+pilot v4_contract_region_editor_promoted_confirm = ""
+pilot v4_contract_region_editor_document_confirm = ""
+pilot v4_contract_region_editor_restored_semantic_value = ""
+pilot v4_contract_region_editor_restored_hover_value = ""
+pilot v4_contract_region_editor_restored_definition_value = ""
+pilot v4_contract_region_editor_restored_repeated_definition_value = ""
+pilot v4_contract_region_editor_restored_alt_definition_value = ""
 
 -- Make a stale in-memory cache unable to satisfy the restoration assertions.
 v4_query_store(v4_contract_region_editor_semantic_key, v4_contract_region_editor_fingerprint, "0")
@@ -137,12 +161,12 @@ say v4_hover_snapshot_restore(v4_contract_region_editor_hover_payload)
 say v4_definition_snapshot_restore(v4_contract_region_editor_definition_payload)
 say v4_query_snapshot_restore(v4_contract_region_editor_query_payload)
 
-pilot v4_contract_region_editor_blocked_confirm = v4_driver_confirm_restored_key(v4_contract_region_editor_path, v4_contract_region_editor_semantic_key)
+v4_contract_region_editor_blocked_confirm = v4_driver_confirm_restored_key(v4_contract_region_editor_path, v4_contract_region_editor_semantic_key)
 v4_source_set_text(v4_contract_region_editor_path, v4_contract_region_editor_source + "-- poisoned source fingerprint\n")
-pilot v4_contract_region_editor_mismatch_confirm = v4_driver_confirm_restored_key(v4_contract_region_editor_path, v4_contract_region_editor_hover_key)
+v4_contract_region_editor_mismatch_confirm = v4_driver_confirm_restored_key(v4_contract_region_editor_path, v4_contract_region_editor_hover_key)
 v4_source_set_text(v4_contract_region_editor_path, v4_contract_region_editor_source)
-pilot v4_contract_region_editor_promoted_confirm = v4_driver_confirm_restored_key(v4_contract_region_editor_path, v4_contract_region_editor_syntax_key)
-pilot v4_contract_region_editor_document_confirm = v4_driver_confirm_restored_document(v4_contract_region_editor_path)
+v4_contract_region_editor_promoted_confirm = v4_driver_confirm_restored_key(v4_contract_region_editor_path, v4_contract_region_editor_syntax_key)
+v4_contract_region_editor_document_confirm = v4_driver_confirm_restored_document(v4_contract_region_editor_path)
 say v4_contract_region_editor_blocked_confirm
 say v4_contract_region_editor_mismatch_confirm
 say v4_contract_region_editor_promoted_confirm
@@ -160,11 +184,11 @@ say "contract-region-editor-document-confirm-promoted=" + v4_contract_region_edi
 say "contract-region-editor-document-confirm-blocked=" + v4_contract_region_editor_report_value(v4_contract_region_editor_document_confirm, "blocked")
 say "contract-region-editor-document-confirm-mismatched=" + v4_contract_region_editor_report_value(v4_contract_region_editor_document_confirm, "mismatched")
 
-pilot v4_contract_region_editor_restored_semantic_value = v4_query_get(v4_contract_region_editor_semantic_key, v4_contract_region_editor_fingerprint)
-pilot v4_contract_region_editor_restored_hover_value = v4_query_get(v4_contract_region_editor_hover_key, v4_contract_region_editor_fingerprint)
-pilot v4_contract_region_editor_restored_definition_value = v4_query_get(v4_contract_region_editor_definition_key, v4_contract_region_editor_fingerprint)
-pilot v4_contract_region_editor_restored_repeated_definition_value = v4_query_get(v4_contract_region_editor_repeated_definition_key, v4_contract_region_editor_fingerprint)
-pilot v4_contract_region_editor_restored_alt_definition_value = v4_query_get(v4_contract_region_editor_alt_definition_key, v4_contract_region_editor_fingerprint)
+v4_contract_region_editor_restored_semantic_value = v4_query_get(v4_contract_region_editor_semantic_key, v4_contract_region_editor_fingerprint)
+v4_contract_region_editor_restored_hover_value = v4_query_get(v4_contract_region_editor_hover_key, v4_contract_region_editor_fingerprint)
+v4_contract_region_editor_restored_definition_value = v4_query_get(v4_contract_region_editor_definition_key, v4_contract_region_editor_fingerprint)
+v4_contract_region_editor_restored_repeated_definition_value = v4_query_get(v4_contract_region_editor_repeated_definition_key, v4_contract_region_editor_fingerprint)
+v4_contract_region_editor_restored_alt_definition_value = v4_query_get(v4_contract_region_editor_alt_definition_key, v4_contract_region_editor_fingerprint)
 say "contract-region-editor-restored-semantic-query-nonempty=" + v4_contract_region_editor_bool(v4_contract_region_editor_restored_semantic_value.length() > 0)
 say "contract-region-editor-restored-hover-query-nonempty=" + v4_contract_region_editor_bool(v4_contract_region_editor_restored_hover_value.length() > 0)
 say "contract-region-editor-restored-definition-query-nonempty=" + v4_contract_region_editor_bool(v4_contract_region_editor_restored_definition_value.length() > 0)

@@ -21,6 +21,18 @@ task v4_contract_region_forwarding_boundary_mir_diag_count(mir_id: int, message:
     give back found
 }
 
+task v4_contract_region_forwarding_boundary_mir_diag_span(mir_id: int, message: word) -> word {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        pilot diag = v4_mir_diag(mir_id, diag_id)
+        if v4_diag_message(diag) == message {
+            give back v4_diag_span(diag)
+        }
+        diag_id += 1
+    }
+    give back V4_NO_SPAN
+}
+
 task v4_contract_region_forwarding_boundary_borrow_diag_count(borrow_id: int, message: word) -> int {
     pilot found = 0
     pilot diag_id = 0
@@ -31,6 +43,18 @@ task v4_contract_region_forwarding_boundary_borrow_diag_count(borrow_id: int, me
         diag_id += 1
     }
     give back found
+}
+
+task v4_contract_region_forwarding_boundary_borrow_diag_span(borrow_id: int, message: word) -> word {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        pilot diag = v4_borrowck_diag(borrow_id, diag_id)
+        if v4_diag_message(diag) == message {
+            give back v4_diag_span(diag)
+        }
+        diag_id += 1
+    }
+    give back V4_NO_SPAN
 }
 
 task v4_contract_region_forwarding_boundary_method_source() -> word {
@@ -120,10 +144,13 @@ task v4_contract_region_forwarding_boundary_emit(prefix: word, borrow_id: int, t
     pilot borrow_count = v4_borrowck_diag_count(borrow_id)
     pilot status = v4_borrowck_result_status(borrow_id, result_id)
     pilot invocation_diagnostic_count = 0
+    pilot invocation_span = V4_NO_SPAN
     if invocation_layer == "mir" {
         invocation_diagnostic_count = v4_contract_region_forwarding_boundary_mir_diag_count(mir_id, invocation_message)
+        invocation_span = v4_contract_region_forwarding_boundary_mir_diag_span(mir_id, invocation_message)
     } else if invocation_layer == "borrowck" {
         invocation_diagnostic_count = v4_contract_region_forwarding_boundary_borrow_diag_count(borrow_id, invocation_message)
+        invocation_span = v4_contract_region_forwarding_boundary_borrow_diag_span(borrow_id, invocation_message)
     }
     pilot rejected: bool = invocation_diagnostic_count > 0
 
@@ -132,6 +159,8 @@ task v4_contract_region_forwarding_boundary_emit(prefix: word, borrow_id: int, t
     say prefix + "-borrow-diagnostics=" + word_from_int(borrow_count)
     say prefix + "-status=" + status
     say prefix + "-invocation-diagnostic-count=" + word_from_int(invocation_diagnostic_count)
+    say prefix + "-invocation-message=" + invocation_message
+    say prefix + "-invocation-span=" + invocation_span
     say prefix + "-rejected=" + v4_contract_region_forwarding_boundary_bool(rejected)
     say prefix + "-silently-accepted=" + v4_contract_region_forwarding_boundary_bool(rejected == false)
 
@@ -168,6 +197,7 @@ task v4_contract_region_forwarding_boundary_emit(prefix: word, borrow_id: int, t
 
 pilot v4_contract_region_forwarding_boundary_unproven_message = "Meiya cannot establish the origin of this returned loan"
 pilot v4_contract_region_forwarding_boundary_callback_message = "call target is not callable"
+pilot v4_contract_region_forwarding_boundary_ffi_message = "Meiya cannot forward borrowed values through an FFI callback yet"
 
 pilot v4_contract_region_forwarding_boundary_method_borrow = v4_borrowck_text_cached("contract-region-forwarding-method.fk", v4_contract_region_forwarding_boundary_method_source())
 v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-method", v4_contract_region_forwarding_boundary_method_borrow, "method_forward", "borrowck", v4_contract_region_forwarding_boundary_unproven_message)
@@ -182,6 +212,6 @@ pilot v4_contract_region_forwarding_boundary_extern_borrow = v4_borrowck_text_ca
 v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-extern", v4_contract_region_forwarding_boundary_extern_borrow, "extern_forward", "borrowck", v4_contract_region_forwarding_boundary_unproven_message)
 
 pilot v4_contract_region_forwarding_boundary_ffi_borrow = v4_borrowck_text_cached("contract-region-forwarding-ffi.fk", v4_contract_region_forwarding_boundary_ffi_source())
-v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-ffi", v4_contract_region_forwarding_boundary_ffi_borrow, "ffi_forward", "borrowck", v4_contract_region_forwarding_boundary_unproven_message)
+v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-ffi", v4_contract_region_forwarding_boundary_ffi_borrow, "ffi_forward", "mir", v4_contract_region_forwarding_boundary_ffi_message)
 
 say "contract-region-forwarding-closure-coverage=unsupported-no-v4-closure-syntax"

@@ -3133,9 +3133,31 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
     give back v4_mir_call_check_result(generic_env, args_payload)
 }
 
+task v4_mir_callback_type_contains_lend(mir_id: int, callback_ty: word) -> bool {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot param_id = 0
+    pilot param_count = v4_ty_function_type_fixed_param_count(callback_ty)
+    repeat until param_id >= param_count {
+        pilot param_ty = v4_ty_canonical_type(ty_id, v4_ty_function_type_param_surface(callback_ty, param_id))
+        if v4_ty_is_lend_type(param_ty) {
+            give back true
+        }
+        param_id += 1
+    }
+    pilot return_ty = v4_ty_canonical_type(ty_id, v4_ty_function_type_return_text(callback_ty))
+    give back v4_ty_is_lend_type(return_ty)
+}
+
 task v4_mir_check_callback_call_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, callee_text: word, callback_ty: word, open_token: int, close_token: int) -> word {
     if callback_ty == "" or open_token < 0 or close_token <= open_token {
         give back ""
+    }
+
+    if v4_mir_callback_type_contains_lend(mir_id, callback_ty) {
+        pilot message = "Meiya cannot forward borrowed values through an FFI callback yet"
+        pilot help = callee_text + " has callback type " + callback_ty
+        help = help + "; keep lend contracts on ordinary static tasks until FFI provenance lowering exists"
+        v4_mir_add_type_error(mir_id, expr_span, message, help)
     }
 
     pilot expected_count = v4_ty_function_type_fixed_param_count(callback_ty)
