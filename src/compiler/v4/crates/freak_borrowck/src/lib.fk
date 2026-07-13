@@ -567,7 +567,6 @@ task v4_borrowck_provenance_union_into(provenance_id: int, incoming_id: int) -> 
         v4_borrowck_provenance_mark_opaque(provenance_id)
         give back
     }
-    pilot source_count = v4_borrowck_provenance_count(incoming_id)
     pilot row_id = 0
     pilot row_count = array_len(v4_borrowck_source_provenance_ids)
     repeat until row_id >= row_count {
@@ -576,7 +575,7 @@ task v4_borrowck_provenance_union_into(provenance_id: int, incoming_id: int) -> 
         }
         row_id += 1
     }
-    if not v4_borrowck_provenance_is_known(incoming_id) or source_count == 0 {
+    if not v4_borrowck_provenance_is_known(incoming_id) {
         v4_borrowck_provenance_mark_opaque(provenance_id)
     }
 }

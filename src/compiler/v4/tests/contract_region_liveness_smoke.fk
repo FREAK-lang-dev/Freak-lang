@@ -161,6 +161,13 @@ say "contract-region-liveness-forward-return-source-count=" + word_from_int(v4_b
 say "contract-region-liveness-forward-return-source0=" + v4_contract_region_liveness_forward_source0
 say "contract-region-liveness-forward-return-source1=" + v4_contract_region_liveness_forward_source1
 
+pilot v4_contract_region_liveness_empty_provenance = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+pilot v4_contract_region_liveness_empty_union = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+v4_borrowck_provenance_union_into(v4_contract_region_liveness_empty_union, v4_contract_region_liveness_empty_provenance)
+say "contract-region-liveness-empty-union-state=" + v4_borrowck_provenance_state(v4_contract_region_liveness_empty_union)
+say "contract-region-liveness-empty-union-count=" + word_from_int(v4_borrowck_provenance_count(v4_contract_region_liveness_empty_union))
+say "contract-region-liveness-empty-union-known-empty=" + v4_contract_region_liveness_bool(v4_borrowck_provenance_is_known_empty(v4_contract_region_liveness_empty_union))
+
 pilot v4_contract_region_liveness_snapshot = v4_borrowck_snapshot()
 say "contract-region-liveness-snapshot-format=" + v4_borrowck_snapshot_key_value(v4_borrowck_snapshot_line(v4_contract_region_liveness_snapshot, 0), "format")
 say v4_borrowck_snapshot_validate(v4_contract_region_liveness_snapshot)
