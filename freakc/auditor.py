@@ -1670,6 +1670,9 @@ def audit_conformance(paths: List[Path]) -> int:
     v4_editor_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
     v4_dyn_ty_smoke = repo / "src" / "compiler" / "v4" / "tests" / "dyn_doctrine_ty_smoke.fk"
     v4_dyn_mir_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_dyn_doctrine_smoke.fk"
+    v4_dyn_mir_generic_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_dyn_doctrine_generic_smoke.fk"
+    v4_dyn_mir_shared_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_dyn_doctrine_shared_smoke.fk"
+    v4_dyn_mir_diagnostics_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_dyn_doctrine_diagnostics_smoke.fk"
     v4_dyn_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "dyn_doctrine_editor_smoke.fk"
     v4_check_harness_dyn = repo / "src" / "compiler" / "v4" / "check_v4.py"
     if v4_lex_dyn.exists():
@@ -1733,12 +1736,29 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "dyn-mir-return-op=",
             "dyn-mir-widget-local-type=",
-            "dyn-mir-bad-message=",
         ):
             if needle not in smoke_src:
                 dyn_doctrine_missing.append(f"mir_dyn_doctrine_smoke: {needle}")
     else:
         dyn_doctrine_missing.append("smoke fixture: mir_dyn_doctrine_smoke.fk")
+    if v4_dyn_mir_generic_smoke.exists():
+        smoke_src = v4_dyn_mir_generic_smoke.read_text(encoding="utf-8")
+        if "dyn-mir-forward-accept-arg-ty=" not in smoke_src:
+            dyn_doctrine_missing.append("mir_dyn_doctrine_generic_smoke: dyn-mir-forward-accept-arg-ty=")
+    else:
+        dyn_doctrine_missing.append("smoke fixture: mir_dyn_doctrine_generic_smoke.fk")
+    if v4_dyn_mir_shared_smoke.exists():
+        smoke_src = v4_dyn_mir_shared_smoke.read_text(encoding="utf-8")
+        if "dyn-mir-forward-weak-arg-ty=" not in smoke_src:
+            dyn_doctrine_missing.append("mir_dyn_doctrine_shared_smoke: dyn-mir-forward-weak-arg-ty=")
+    else:
+        dyn_doctrine_missing.append("smoke fixture: mir_dyn_doctrine_shared_smoke.fk")
+    if v4_dyn_mir_diagnostics_smoke.exists():
+        smoke_src = v4_dyn_mir_diagnostics_smoke.read_text(encoding="utf-8")
+        if "dyn-mir-bad-message=" not in smoke_src:
+            dyn_doctrine_missing.append("mir_dyn_doctrine_diagnostics_smoke: dyn-mir-bad-message=")
+    else:
+        dyn_doctrine_missing.append("smoke fixture: mir_dyn_doctrine_diagnostics_smoke.fk")
     if v4_dyn_editor_smoke.exists():
         smoke_src = v4_dyn_editor_smoke.read_text(encoding="utf-8")
         for needle in (
@@ -1756,6 +1776,9 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "dyn_doctrine_ty_smoke.fk",
             "mir_dyn_doctrine_smoke.fk",
+            "mir_dyn_doctrine_generic_smoke.fk",
+            "mir_dyn_doctrine_shared_smoke.fk",
+            "mir_dyn_doctrine_diagnostics_smoke.fk",
             "dyn_doctrine_editor_smoke.fk",
             "dyn-editor-call-kind=Method",
         ):

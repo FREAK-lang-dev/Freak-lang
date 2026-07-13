@@ -1,35 +1,12 @@
 -- V4 dyn doctrine MIR smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-task v4_dyn_mir_bool_word(flag: bool) -> word {
-    if flag {
-        give back "true"
-    }
-    give back "false"
-}
-
 task v4_dyn_mir_source() -> word {
-    pilot src = "alias Score = int\n"
-    src = src + "doctrine Widget {\n"
+    pilot src = "doctrine Widget {\n"
     src = src + "    task draw(self) -> word\n"
-    src = src + "}\n"
-    src = src + "doctrine Displayable<T> {\n"
-    src = src + "    task display(self) -> word\n"
-    src = src + "}\n"
-    src = src + "doctrine Holder<T> {\n"
-    src = src + "    task get(self) -> T\n"
     src = src + "}\n"
     src = src + "shape Button {\n"
     src = src + "    label: word\n"
-    src = src + "}\n"
-    src = src + "shape Rock {\n"
-    src = src + "    mass: int\n"
-    src = src + "}\n"
-    src = src + "shape NumberLabel {\n"
-    src = src + "    value: int\n"
-    src = src + "}\n"
-    src = src + "shape IntBox {\n"
-    src = src + "    value: int\n"
     src = src + "}\n"
     src = src + "shape PaintBox {\n"
     src = src + "    slot: int\n"
@@ -37,16 +14,6 @@ task v4_dyn_mir_source() -> word {
     src = src + "impl Widget for Button {\n"
     src = src + "    task draw(self) -> word {\n"
     src = src + "        give back self.label\n"
-    src = src + "    }\n"
-    src = src + "}\n"
-    src = src + "impl Displayable<Score> for NumberLabel {\n"
-    src = src + "    task display(self) -> word {\n"
-    src = src + "        give back \"number\"\n"
-    src = src + "    }\n"
-    src = src + "}\n"
-    src = src + "impl Holder<int> for IntBox {\n"
-    src = src + "    task get(self) -> int {\n"
-    src = src + "        give back self.value\n"
     src = src + "    }\n"
     src = src + "}\n"
     src = src + "impl PaintBox {\n"
@@ -79,33 +46,6 @@ task v4_dyn_mir_source() -> word {
     src = src + "task forward<T: Widget>(value: T) -> word {\n"
     src = src + "    give back consume(value)\n"
     src = src + "}\n"
-    src = src + "task accept<T>(d: dyn Displayable<T>, sample: T) -> T {\n"
-    src = src + "    give back sample\n"
-    src = src + "}\n"
-    src = src + "task use<T, U: Displayable<T>>(u: U, sample: T) -> T {\n"
-    src = src + "    give back sample\n"
-    src = src + "}\n"
-    src = src + "task use_accept(label: NumberLabel) -> int {\n"
-    src = src + "    give back accept(label, 1)\n"
-    src = src + "}\n"
-    src = src + "task use_bound(label: NumberLabel) -> int {\n"
-    src = src + "    give back use(label, 1)\n"
-    src = src + "}\n"
-    src = src + "task show_one<T>(d: dyn Displayable<T>) -> word {\n"
-    src = src + "    give back d.display()\n"
-    src = src + "}\n"
-    src = src + "task forward_accept<U: Displayable<int>>(u: U) -> word {\n"
-    src = src + "    give back show_one(u)\n"
-    src = src + "}\n"
-    src = src + "task read_box(h: dyn Holder<int>) -> int {\n"
-    src = src + "    give back h.get()\n"
-    src = src + "}\n"
-    src = src + "task share(button: Button) -> Shared<dyn Widget> {\n"
-    src = src + "    give back Shared<Button>::new(button)\n"
-    src = src + "}\n"
-    src = src + "task weaken(root: Shared<Button>) -> Weak<dyn Widget> {\n"
-    src = src + "    give back root.downgrade()\n"
-    src = src + "}\n"
     src = src + "task lend_erase(lend button: Button) -> lend dyn Widget {\n"
     src = src + "    give back lend button\n"
     src = src + "}\n"
@@ -115,44 +55,6 @@ task v4_dyn_mir_source() -> word {
     src = src + "}\n"
     src = src + "task call_set(box: PaintBox, button: Button) -> word {\n"
     src = src + "    give back box.set(button)\n"
-    src = src + "}\n"
-    src = src + "task consume_shared(w: Shared<dyn Widget>) -> word {\n"
-    src = src + "    give back \"shared\"\n"
-    src = src + "}\n"
-    src = src + "task consume_weak(w: Weak<dyn Widget>) -> word {\n"
-    src = src + "    give back \"weak\"\n"
-    src = src + "}\n"
-    src = src + "task forward_shared<T: Widget>(value: Shared<T>) -> word {\n"
-    src = src + "    give back consume_shared(value)\n"
-    src = src + "}\n"
-    src = src + "task forward_weak<T: Widget>(value: Weak<T>) -> word {\n"
-    src = src + "    give back consume_weak(value)\n"
-    src = src + "}\n"
-    give back src
-}
-
-task v4_dyn_mir_bad_source() -> word {
-    pilot src = v4_dyn_mir_source()
-    src = src + "task bad(rock: Rock) -> void {\n"
-    src = src + "    pilot widget: dyn Widget = rock\n"
-    src = src + "}\n"
-    give back src
-}
-
-task v4_dyn_mir_bad_list_source() -> word {
-    pilot src = v4_dyn_mir_source()
-    src = src + "task take_list(items: List<dyn Widget>) -> void {\n"
-    src = src + "}\n"
-    src = src + "task bad_list(buttons: List<Button>) -> void {\n"
-    src = src + "    take_list(buttons)\n"
-    src = src + "}\n"
-    give back src
-}
-
-task v4_dyn_mir_bad_holder_source() -> word {
-    pilot src = v4_dyn_mir_source()
-    src = src + "task bad_holder(button: Button) -> void {\n"
-    src = src + "    pilot erased: dyn Holder = button\n"
     src = src + "}\n"
     give back src
 }
@@ -186,25 +88,6 @@ pilot v4_dyn_mir_invoke_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "invok
 pilot v4_dyn_mir_invoke_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_invoke_def)
 pilot v4_dyn_mir_invoke_call = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_invoke_body, 0)
 pilot v4_dyn_mir_invoke_arg = v4_mir_rvalue_call_arg(v4_dyn_mir_id, v4_dyn_mir_invoke_body, v4_dyn_mir_invoke_call, 0)
-pilot v4_dyn_mir_use_accept_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "use_accept")
-pilot v4_dyn_mir_use_accept_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_use_accept_def)
-pilot v4_dyn_mir_use_accept_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_use_accept_body, 0)
-pilot v4_dyn_mir_use_bound_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "use_bound")
-pilot v4_dyn_mir_use_bound_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_use_bound_def)
-pilot v4_dyn_mir_use_bound_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_use_bound_body, 0)
-pilot v4_dyn_mir_forward_accept_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "forward_accept")
-pilot v4_dyn_mir_forward_accept_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_forward_accept_def)
-pilot v4_dyn_mir_forward_accept_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_forward_accept_body, 0)
-pilot v4_dyn_mir_forward_accept_arg = v4_mir_rvalue_call_arg(v4_dyn_mir_id, v4_dyn_mir_forward_accept_body, v4_dyn_mir_forward_accept_return, 0)
-pilot v4_dyn_mir_read_box_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "read_box")
-pilot v4_dyn_mir_read_box_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_read_box_def)
-pilot v4_dyn_mir_read_box_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_read_box_body, 0)
-pilot v4_dyn_mir_share_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "share")
-pilot v4_dyn_mir_share_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_share_def)
-pilot v4_dyn_mir_share_return_place = v4_mir_stmt_place(v4_dyn_mir_id, v4_dyn_mir_share_body, 0)
-pilot v4_dyn_mir_weaken_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "weaken")
-pilot v4_dyn_mir_weaken_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_weaken_def)
-pilot v4_dyn_mir_weaken_return_place = v4_mir_stmt_place(v4_dyn_mir_id, v4_dyn_mir_weaken_body, 0)
 pilot v4_dyn_mir_lend_erase_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "lend_erase")
 pilot v4_dyn_mir_lend_erase_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_lend_erase_def)
 pilot v4_dyn_mir_lend_erase_return_place = v4_mir_stmt_place(v4_dyn_mir_id, v4_dyn_mir_lend_erase_body, 0)
@@ -215,35 +98,6 @@ pilot v4_dyn_mir_call_set_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "cal
 pilot v4_dyn_mir_call_set_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_call_set_def)
 pilot v4_dyn_mir_call_set_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_call_set_body, 0)
 pilot v4_dyn_mir_call_set_arg = v4_mir_rvalue_call_arg(v4_dyn_mir_id, v4_dyn_mir_call_set_body, v4_dyn_mir_call_set_return, 1)
-pilot v4_dyn_mir_forward_shared_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "forward_shared")
-pilot v4_dyn_mir_forward_shared_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_forward_shared_def)
-pilot v4_dyn_mir_forward_shared_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_forward_shared_body, 0)
-pilot v4_dyn_mir_forward_shared_arg = v4_mir_rvalue_call_arg(v4_dyn_mir_id, v4_dyn_mir_forward_shared_body, v4_dyn_mir_forward_shared_return, 0)
-pilot v4_dyn_mir_forward_weak_def = v4_resolve_def_for_name(v4_dyn_mir_resolve, "forward_weak")
-pilot v4_dyn_mir_forward_weak_body = v4_mir_lookup_body(v4_dyn_mir_id, v4_dyn_mir_forward_weak_def)
-pilot v4_dyn_mir_forward_weak_return = v4_mir_stmt_rvalue(v4_dyn_mir_id, v4_dyn_mir_forward_weak_body, 0)
-pilot v4_dyn_mir_forward_weak_arg = v4_mir_rvalue_call_arg(v4_dyn_mir_id, v4_dyn_mir_forward_weak_body, v4_dyn_mir_forward_weak_return, 0)
-pilot v4_dyn_mir_bad_text = v4_dyn_mir_bad_source()
-pilot v4_dyn_mir_bad_stream = v4_lex_text(1, v4_dyn_mir_bad_text)
-pilot v4_dyn_mir_bad_tree = v4_parse_stream(1, v4_dyn_mir_bad_stream)
-pilot v4_dyn_mir_bad_hir = v4_hir_lower_tree(1, v4_dyn_mir_bad_tree)
-pilot v4_dyn_mir_bad_resolve = v4_resolve_lower_hir(1, v4_dyn_mir_bad_hir)
-pilot v4_dyn_mir_bad_ty = v4_ty_lower_resolve(1, v4_dyn_mir_bad_resolve)
-pilot v4_dyn_mir_bad_id = v4_mir_lower_ty(1, v4_dyn_mir_bad_ty)
-pilot v4_dyn_mir_bad_list_text = v4_dyn_mir_bad_list_source()
-pilot v4_dyn_mir_bad_list_stream = v4_lex_text(2, v4_dyn_mir_bad_list_text)
-pilot v4_dyn_mir_bad_list_tree = v4_parse_stream(2, v4_dyn_mir_bad_list_stream)
-pilot v4_dyn_mir_bad_list_hir = v4_hir_lower_tree(2, v4_dyn_mir_bad_list_tree)
-pilot v4_dyn_mir_bad_list_resolve = v4_resolve_lower_hir(2, v4_dyn_mir_bad_list_hir)
-pilot v4_dyn_mir_bad_list_ty = v4_ty_lower_resolve(2, v4_dyn_mir_bad_list_resolve)
-pilot v4_dyn_mir_bad_list_id = v4_mir_lower_ty(2, v4_dyn_mir_bad_list_ty)
-pilot v4_dyn_mir_bad_holder_text = v4_dyn_mir_bad_holder_source()
-pilot v4_dyn_mir_bad_holder_stream = v4_lex_text(3, v4_dyn_mir_bad_holder_text)
-pilot v4_dyn_mir_bad_holder_tree = v4_parse_stream(3, v4_dyn_mir_bad_holder_stream)
-pilot v4_dyn_mir_bad_holder_hir = v4_hir_lower_tree(3, v4_dyn_mir_bad_holder_tree)
-pilot v4_dyn_mir_bad_holder_resolve = v4_resolve_lower_hir(3, v4_dyn_mir_bad_holder_hir)
-pilot v4_dyn_mir_bad_holder_ty = v4_ty_lower_resolve(3, v4_dyn_mir_bad_holder_resolve)
-pilot v4_dyn_mir_bad_holder_id = v4_mir_lower_ty(3, v4_dyn_mir_bad_holder_ty)
 
 say v4_mir_summary(v4_dyn_mir_id)
 say "dyn-mir-paint-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_mir_id))
@@ -257,29 +111,9 @@ say "dyn-mir-erase-widget-local-type=" + v4_mir_local_type_display(v4_dyn_mir_id
 say "dyn-mir-erase-direct-return-place-ty=" + v4_mir_place_ty(v4_dyn_mir_id, v4_dyn_mir_erase_direct_body, v4_dyn_mir_erase_direct_return_place)
 say "dyn-mir-forward-arg-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_forward_body, v4_dyn_mir_forward_arg)
 say "dyn-mir-callback-arg-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_invoke_body, v4_dyn_mir_invoke_arg)
-say "dyn-mir-use-accept-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_use_accept_body, v4_dyn_mir_use_accept_return)
-say "dyn-mir-use-bound-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_use_bound_body, v4_dyn_mir_use_bound_return)
-say "dyn-mir-forward-accept-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_forward_accept_body, v4_dyn_mir_forward_accept_return)
-say "dyn-mir-forward-accept-arg-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_forward_accept_body, v4_dyn_mir_forward_accept_arg)
-say "dyn-mir-read-box-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_read_box_body, v4_dyn_mir_read_box_return)
-say "dyn-mir-share-return-place-ty=" + v4_mir_place_ty(v4_dyn_mir_id, v4_dyn_mir_share_body, v4_dyn_mir_share_return_place)
-say "dyn-mir-weaken-return-place-ty=" + v4_mir_place_ty(v4_dyn_mir_id, v4_dyn_mir_weaken_body, v4_dyn_mir_weaken_return_place)
 say "dyn-mir-lend-erase-return-place-ty=" + v4_mir_place_ty(v4_dyn_mir_id, v4_dyn_mir_lend_erase_body, v4_dyn_mir_lend_erase_return_place)
 say "dyn-mir-paint-lend-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_paint_lend_body, v4_dyn_mir_paint_lend_return)
 say "dyn-mir-call-set-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_call_set_body, v4_dyn_mir_call_set_return)
 say "dyn-mir-call-set-arg-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_call_set_body, v4_dyn_mir_call_set_arg)
-say "dyn-mir-forward-shared-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_forward_shared_body, v4_dyn_mir_forward_shared_return)
-say "dyn-mir-forward-shared-arg-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_forward_shared_body, v4_dyn_mir_forward_shared_arg)
-say "dyn-mir-forward-weak-return-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_forward_weak_body, v4_dyn_mir_forward_weak_return)
-say "dyn-mir-forward-weak-arg-ty=" + v4_mir_rvalue_ty(v4_dyn_mir_id, v4_dyn_mir_forward_weak_body, v4_dyn_mir_forward_weak_arg)
 say "dyn-mir-compact-dynwidget=" + v4_mir_compact_type_text("dynWidget")
 say "dyn-mir-compact-list-dyn=" + v4_mir_compact_type_text("List<dyn Widget>")
-say "dyn-mir-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_mir_bad_id))
-say "dyn-mir-bad-message=" + v4_diag_message(v4_mir_diag(v4_dyn_mir_bad_id, 0))
-say "dyn-mir-bad-help=" + v4_diag_help(v4_mir_diag(v4_dyn_mir_bad_id, 0))
-say "dyn-mir-bad-list-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_mir_bad_list_id))
-say "dyn-mir-bad-list-message=" + v4_diag_message(v4_mir_diag(v4_dyn_mir_bad_list_id, 0))
-say "dyn-mir-bad-list-help=" + v4_diag_help(v4_mir_diag(v4_dyn_mir_bad_list_id, 0))
-say "dyn-mir-bad-holder-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_mir_bad_holder_id))
-say "dyn-mir-bad-holder-message=" + v4_diag_message(v4_mir_diag(v4_dyn_mir_bad_holder_id, 0))
-say "dyn-mir-bad-holder-help=" + v4_diag_help(v4_mir_diag(v4_dyn_mir_bad_holder_id, 0))

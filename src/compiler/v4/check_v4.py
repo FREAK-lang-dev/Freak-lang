@@ -5,6 +5,7 @@ import hashlib
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -3948,30 +3949,48 @@ EXECUTABLE_SMOKES = [
             "dyn-mir-erase-direct-return-place-ty=dyn Widget",
             "dyn-mir-forward-arg-ty=dyn Widget",
             "dyn-mir-callback-arg-ty=dyn Widget",
+            "dyn-mir-lend-erase-return-place-ty=lend dyn Widget",
+            "dyn-mir-paint-lend-return-ty=word",
+            "dyn-mir-call-set-return-ty=word",
+            "dyn-mir-call-set-arg-ty=dyn Widget",
+            "dyn-mir-compact-dynwidget=dynWidget",
+            "dyn-mir-compact-list-dyn=List<dyn Widget>",
+        ],
+    },
+    {
+        "name": "MIR generic dyn doctrine dispatch",
+        "fixture": "mir_dyn_doctrine_generic_smoke.fk",
+        "expect": [
+            "dyn-generic-mir-diagnostics=0",
             "dyn-mir-use-accept-return-ty=int",
             "dyn-mir-use-bound-return-ty=int",
             "dyn-mir-forward-accept-return-ty=word",
             "dyn-mir-forward-accept-arg-ty=dyn Displayable<int>",
             "dyn-mir-read-box-return-ty=int",
+        ],
+    },
+    {
+        "name": "MIR Shared and Weak dyn doctrine dispatch",
+        "fixture": "mir_dyn_doctrine_shared_smoke.fk",
+        "expect": [
+            "dyn-shared-mir-diagnostics=0",
             "dyn-mir-share-return-place-ty=Shared<dyn Widget>",
             "dyn-mir-weaken-return-place-ty=Weak<dyn Widget>",
-            "dyn-mir-lend-erase-return-place-ty=lend dyn Widget",
-            "dyn-mir-paint-lend-return-ty=word",
-            "dyn-mir-call-set-return-ty=word",
-            "dyn-mir-call-set-arg-ty=dyn Widget",
             "dyn-mir-forward-shared-return-ty=word",
             "dyn-mir-forward-shared-arg-ty=Shared<dyn Widget>",
             "dyn-mir-forward-weak-return-ty=word",
             "dyn-mir-forward-weak-arg-ty=Weak<dyn Widget>",
-            "dyn-mir-compact-dynwidget=dynWidget",
-            "dyn-mir-compact-list-dyn=List<dyn Widget>",
-            "dyn-mir-bad-diagnostics=1",
+        ],
+    },
+    {
+        "name": "MIR dyn doctrine diagnostics",
+        "fixture": "mir_dyn_doctrine_diagnostics_smoke.fk",
+        "expect": [
+            "dyn-mir-diagnostics=4",
             "dyn-mir-bad-message=local declaration type mismatch",
             "dyn-mir-bad-help=widget expects dyn Widget but got Rock",
-            "dyn-mir-bad-list-diagnostics=1",
             "dyn-mir-bad-list-message=call argument type mismatch",
             "dyn-mir-bad-list-help=take_list argument 1 expects List<dyn Widget> but got List<Button>",
-            "dyn-mir-bad-holder-diagnostics=2",
             "dyn-mir-bad-holder-message=invalid local annotation type",
             "dyn-mir-bad-holder-help=Meiya lifetime debt: Holder expects 1 generic arguments in dyn doctrine of local declaration erased but received 0",
         ],
@@ -6783,6 +6802,56 @@ def check_fixture_transpile(base_source: str, fixtures: list[Path]) -> dict[Path
     return artifacts
 
 
+def run_with_heartbeat(
+    command: list[str],
+    *,
+    label: str,
+    timeout_seconds: int | None = None,
+) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        command,
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    started = time.monotonic()
+
+    try:
+        while True:
+            wait_seconds = 30.0
+            if timeout_seconds is not None:
+                elapsed = time.monotonic() - started
+                remaining = timeout_seconds - elapsed
+                if remaining <= 0:
+                    process.kill()
+                    stdout, stderr = process.communicate()
+                    raise subprocess.TimeoutExpired(
+                        command,
+                        timeout_seconds,
+                        output=stdout,
+                        stderr=stderr,
+                    )
+                wait_seconds = min(wait_seconds, remaining)
+
+            try:
+                stdout, stderr = process.communicate(timeout=wait_seconds)
+                return subprocess.CompletedProcess(
+                    command,
+                    process.returncode,
+                    stdout,
+                    stderr,
+                )
+            except subprocess.TimeoutExpired:
+                elapsed_seconds = int(time.monotonic() - started)
+                print(f"{label} pending elapsed={elapsed_seconds}s", flush=True)
+    except BaseException:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        raise
+
+
 def compile_runtime_smoke(
     clang: str,
     include_arg: str,
@@ -6819,7 +6888,10 @@ def compile_runtime_smoke(
     ]
     if sys.platform.startswith("linux"):
         compile_cmd.append("-lm")
-    compiled = subprocess.run(compile_cmd, cwd=ROOT, text=True, capture_output=True)
+    compiled = run_with_heartbeat(
+        compile_cmd,
+        label=f"runtime compile: {rel(fixture)}",
+    )
     if compiled.returncode != 0:
         print(f"runtime compile failed: {rel(fixture)}")
         print(compiled.stdout)
@@ -6957,6 +7029,7 @@ def check_executable_smokes(
             print(f"runtime smoke failed: {label} unexpectedly requires UI")
             raise SystemExit(1)
 
+        print(f"runtime smoke start: {smoke['name']} fixture={label}")
         exe_path, compiled = compile_runtime_smoke(
             clang,
             include_arg,
@@ -6966,7 +7039,11 @@ def check_executable_smokes(
             c_source,
         )
         timeout_seconds = int(smoke.get("timeout", 60))
-        executed = subprocess.run([str(exe_path)], cwd=ROOT, text=True, capture_output=True, timeout=timeout_seconds)
+        executed = run_with_heartbeat(
+            [str(exe_path)],
+            label=f"runtime execute: {label}",
+            timeout_seconds=timeout_seconds,
+        )
         output = executed.stdout + executed.stderr
         if executed.returncode != 0:
             print(f"runtime execution failed: {label} exit={executed.returncode}")
