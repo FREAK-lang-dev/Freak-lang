@@ -1,8 +1,9 @@
--- V4 contract-region local-holder and conservative tuple storage fixture.
+-- V4 contract-region local-holder and conservative aggregate storage fixture.
 -- Verification prepends the V4 crates before this file.
 -- One cached borrowck request owns the only compiler pipeline in this executable.
 -- Explicit shape/route lend fields stay in named_lifetime_diagnostics_smoke;
--- the local holder is a clean positive control, while the tuple stays blocked.
+-- the local holder is a clean positive control, while tuple construction is rejected.
+-- Clean body statuses prove no later projection or borrowed return causes the error.
 
 task v4_contract_region_storage_negative_source() -> word {
     pilot src = "shape Ship {\n"
@@ -18,9 +19,9 @@ task v4_contract_region_storage_negative_source() -> word {
     src = src + "    pilot view = choose(lend first, lend second, take_first)\n"
     src = src + "    give back view\n"
     src = src + "}\n"
-    src = src + "task aggregate_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> lend 'a Ship {\n"
+    src = src + "task aggregate_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
     src = src + "    pilot views = (choose(lend first, lend second, take_first), lend first)\n"
-    src = src + "    give back views.0\n"
+    src = src + "    give back 7\n"
     src = src + "}\n"
     give back src
 }
@@ -39,6 +40,10 @@ pilot v4_contract_region_storage_negative_aggregate_result = v4_borrowck_lookup_
 
 say "contract-region-storage-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_storage_negative_ty))
 say "contract-region-storage-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_storage_negative_mir))
+pilot v4_contract_region_storage_negative_mir_diag = v4_mir_diag(v4_contract_region_storage_negative_mir, 0)
+say "contract-region-storage-mir-diag0-message=" + v4_diag_message(v4_contract_region_storage_negative_mir_diag)
+say "contract-region-storage-mir-diag0-help=" + v4_diag_help(v4_contract_region_storage_negative_mir_diag)
+say "contract-region-storage-mir-diag0-span=" + v4_diag_span(v4_contract_region_storage_negative_mir_diag)
 say "contract-region-storage-choose-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_choose_result)
 say "contract-region-storage-local-holder-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_stored_result)
 say "contract-region-storage-aggregate-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_aggregate_result)

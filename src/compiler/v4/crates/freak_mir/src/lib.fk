@@ -2872,6 +2872,7 @@ task v4_mir_rvalue_call_borrowed_source_arg_at(mir_id: int, body_id: int, rvalue
     give back v4_mir_rvalue_call_borrowed_source_arg_for_signature(mir_id, body_id, rvalue_id, sig_id, source_id)
 }
 
+-- Compatibility-only singular view; core logic must use the authoritative count/at source-set APIs.
 task v4_mir_rvalue_call_borrowed_source_arg(mir_id: int, body_id: int, rvalue_id: int) -> int {
     pilot source_count = v4_mir_rvalue_call_borrowed_source_arg_count(mir_id, body_id, rvalue_id)
     if source_count <= 0 {
@@ -4986,6 +4987,24 @@ task v4_mir_generic_ctor_context_help(base_name: word, ctor_suffix: word) -> wor
     give back base_name + " has type parameters; write " + base_name + "<int>" + ctor_suffix + " or use an expected " + base_name + "<int>"
 }
 
+-- Aggregate MIR nodes erase child identity, so enforce the storage boundary while child spans and types are available.
+task v4_mir_reject_aggregate_lend_child(mir_id: int, body_id: int, aggregate_context: word, child_context: word, child_rvalue: int) -> bool {
+    if child_rvalue < 0 or child_rvalue >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        give back false
+    }
+
+    pilot child_ty = v4_mir_rvalue_ty(mir_id, body_id, child_rvalue)
+    if not v4_ty_is_lend_type(child_ty) {
+        give back false
+    }
+
+    pilot message = "Meiya cannot store a lend inside " + aggregate_context + " yet"
+    pilot help = v4_mir_body_name(mir_id, body_id) + " constructs " + child_context + " with type " + child_ty
+    help = help + "; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance"
+    v4_mir_add_type_error(mir_id, v4_mir_rvalue_span(mir_id, body_id, child_rvalue), message, help)
+    give back true
+}
+
 task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, expr_span: word, shape_name: word, sig_id: int, open_token: int, close_token: int, seed_env: word) -> word {
     if sig_id < 0 {
         v4_mir_add_type_error(mir_id, expr_span, "unknown shape constructor", shape_name + " is not a known shape")
@@ -4995,6 +5014,7 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot env = seed_env
     pilot seen_fields = ""
+    pilot aggregate_lend_reported = false
     pilot field_start = v4_mir_skip_trivia(stream_id, open_token + 1)
     if field_start < close_token {
         repeat until field_start >= close_token {
@@ -5026,6 +5046,9 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                     }
                     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, lower_expected_ty)
                     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
+                    if not aggregate_lend_reported {
+                        aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "shape " + shape_name, "field " + field_name + " of " + shape_name, value_rvalue)
+                    }
                     pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
                     if next_env == v4_ty_generic_env_fail {
                         if expected_ty == "" {
@@ -5151,6 +5174,7 @@ task v4_mir_check_fixed_array_repeated_literal(mir_id: int, body_id: int, stream
     pilot expected_length = v4_ty_fixed_array_length_normalized_text(v4_mir_ty_id(mir_id), expected_ty)
     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, open_token + 1, repeat_token, expected_element_ty)
     pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
+    v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a fixed array", "the repeated fixed-array value", value_rvalue)
     if v4_ty_is_known(expected_element_ty) and not v4_ty_types_compatible(expected_element_ty, value_ty) {
         v4_mir_add_type_error(mir_id, expr_span, "array repeat value drift", "repeat value wants " + expected_element_ty + " but got " + value_ty)
     }
@@ -5193,11 +5217,15 @@ task v4_mir_check_fixed_array_literal(mir_id: int, body_id: int, stream_id: int,
 
     pilot element_ty = expected_element_ty
     pilot element_idx = 0
+    pilot aggregate_lend_reported = false
     repeat until element_start >= close_token {
         pilot element_end = v4_mir_list_element_end(stream_id, element_start, close_token)
         pilot element_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, element_start, element_end, expected_element_ty)
         pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, element_rvalue)
         element_idx += 1
+        if not aggregate_lend_reported {
+            aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a fixed array", "fixed-array element " + word_from_int(element_idx), element_rvalue)
+        }
         if v4_ty_is_known(expected_element_ty) {
             if not v4_ty_types_compatible(expected_element_ty, actual_ty) {
                 v4_mir_add_type_error(mir_id, expr_span, "array element drift", "element " + word_from_int(element_idx) + " wants " + expected_element_ty + " but got " + actual_ty)
@@ -5301,11 +5329,15 @@ task v4_mir_check_list_literal(mir_id: int, body_id: int, stream_id: int, expr_s
 
     pilot element_ty = v4_ty_unknown
     pilot element_idx = 0
+    pilot aggregate_lend_reported = false
     repeat until element_start >= close_token {
         pilot element_end = v4_mir_list_element_end(stream_id, element_start, close_token)
         pilot element_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, element_start, element_end)
         pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, element_rvalue)
         element_idx += 1
+        if not aggregate_lend_reported {
+            aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a list", "list element " + word_from_int(element_idx), element_rvalue)
+        }
         if element_idx == 1 {
             element_ty = actual_ty
         } else if v4_ty_is_known(element_ty) and v4_ty_is_known(actual_ty) {
@@ -5366,6 +5398,7 @@ task v4_mir_try_lower_tuple_literal(mir_id: int, body_id: int, stream_id: int, f
     pilot tuple_ty = ""
     pilot element_count = 0
     pilot has_unknown = false
+    pilot aggregate_lend_reported = false
     repeat until element_start >= last {
         pilot element_end = v4_mir_list_element_end(stream_id, element_start, last)
         if element_start >= element_end {
@@ -5375,6 +5408,9 @@ task v4_mir_try_lower_tuple_literal(mir_id: int, body_id: int, stream_id: int, f
             pilot element_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, element_start, element_end)
             pilot element_ty = v4_mir_rvalue_ty(mir_id, body_id, element_rvalue)
             element_count += 1
+            if not aggregate_lend_reported {
+                aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a tuple", "tuple element " + word_from_int(element_count), element_rvalue)
+            }
             if not v4_ty_is_known(element_ty) {
                 has_unknown = true
             } else {
@@ -5728,6 +5764,7 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
     pilot route_sig_name = v4_ty_signature_name(ty_id, sig_id)
     pilot env = seed_env
     pilot seen_fields = ""
+    pilot aggregate_lend_reported = false
     pilot field_start = v4_mir_skip_trivia(stream_id, open_token + 1)
     if field_start < close_token {
         repeat until field_start >= close_token {
@@ -5759,6 +5796,10 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                     }
                     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, lower_expected_ty)
                     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
+                    if not aggregate_lend_reported {
+                        pilot route_case = v4_mir_route_case_text(route_name, case_name)
+                        aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "route case " + route_case, "field " + field_name + " of " + route_case, value_rvalue)
+                    }
                     pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
                     if next_env == v4_ty_generic_env_fail {
                         if expected_ty == "" {
