@@ -85,6 +85,10 @@ active -> integrating -> verifying -> complete`; `blocked` and `cancelled` are
 terminal alternatives. Mark a goal complete only after every stated gate is
 satisfied; difficulty or slow CI is not a blocker by itself.
 
+These are planning labels, not replacements for the goal tool's status
+contract. User/system controls pause, resume, and cancellation; use `blocked`
+only when the tool's repeated-blocker threshold is met.
+
 Explicit read-only or no-network instructions take precedence: do not fetch,
 prune, create branches/worktrees, touch the index, commit, push, or open a PR in
 that mode.
@@ -124,7 +128,7 @@ Pin the intended baseline first; do not assume a moving `origin/main` is the
 right base for work that depends on a topic branch:
 
 ```powershell
-git fetch origin --prune
+git fetch origin
 $BASE_SHA = git rev-parse origin/main
 git worktree add -b feat/v4-example C:\tmp\freak-v4-example $BASE_SHA
 ```
@@ -186,7 +190,7 @@ an arbitrary measure of effort.
 | Lead | contract, decomposition, integration, final checks, delivery | yes |
 | Explorer | bounded codebase or design question | no |
 | Worker | one owned implementation lane | yes |
-| Reviewer | adversarial diff review and test-gap analysis | no by default |
+| Reviewer | adversarial diff review and test-gap analysis | no |
 
 Conformance, CI, release, security, and platform work are specializations of
 these roles, not separate permission models. An agent has one role at a time.
@@ -199,6 +203,10 @@ their result has been integrated or recorded so concurrency remains available.
 - Read-only explorers and reviewers may inspect the same immutable commit or
   diff and do not need branches or commits. Use a disposable detached worktree
   only when their tools must generate files.
+- Explorers and reviewers do not fetch, switch branches, mutate refs/worktrees,
+  touch files or the index, commit, push, or resolve conflicts. Explicitly
+  reassign the agent as a worker before granting writes; that agent can no
+  longer independently review the resulting patch.
 - Pin one `BASE_SHA` for a multi-agent goal and record any prerequisite commit
   used by a dependent lane.
 - Give a cohesive multi-worker goal a dedicated integration branch/worktree.
@@ -470,13 +478,13 @@ python -u src/compiler/v4/check_v4.py --fast
 python -u src/compiler/v4/check_v4.py
 
 # Baseline language/conformance contract
-python -m freakc audit-conformance
+python -u -m freakc audit-conformance
 
 # Shipping compiler/runtime suite
-python tests/suite/run_tests.py
+python -u tests/suite/run_tests.py
 
 # Python syntax and diff hygiene
-python -m py_compile <changed-python-files>
+python -u -m py_compile <changed-python-files>
 git diff --check
 ```
 
@@ -489,6 +497,9 @@ Rules:
 - Run Python checks unbuffered (`-u`) so long phases remain observable.
 - If RAM, pagefile, disk, or runtime grows unexpectedly, stop and isolate the
   exact fixture/process. Do not wait for host OOM.
+- Before a long-running local check, record its exact command and launcher PID
+  or tool session ID. Cancel through that session's termination API or an
+  OS-specific PID-tree operation.
 - Generated compiler smokes should avoid several complete compiler pipelines in
   one executable. Split independent contracts across process-isolated fixtures
   while preserving assertions.
