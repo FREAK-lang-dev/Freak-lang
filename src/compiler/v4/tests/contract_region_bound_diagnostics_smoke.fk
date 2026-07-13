@@ -1,0 +1,38 @@
+-- V4 contract-region malformed outlives-bound diagnostics fixture.
+-- Verification prepends the V4 crates before this file.
+-- One cached TY request owns the only compiler pipeline in this executable.
+
+task v4_contract_region_bound_diagnostics_source() -> word {
+    pilot src = "task undeclared_bound<'a: 'ghost>(value: int) -> int {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task reserved_bound<'a: 'static>(value: int) -> int {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task elided_bound<'a: '_>(value: int) -> int {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_contract_region_bound_diagnostics_ty = v4_ty_text_cached("contract-region-bound-diagnostics.fk", v4_contract_region_bound_diagnostics_source())
+pilot v4_contract_region_bound_diagnostics_resolve = v4_ty_resolve_id(v4_contract_region_bound_diagnostics_ty)
+pilot v4_contract_region_bound_diagnostics_undeclared_def = v4_resolve_def_for_name(v4_contract_region_bound_diagnostics_resolve, "undeclared_bound")
+pilot v4_contract_region_bound_diagnostics_reserved_def = v4_resolve_def_for_name(v4_contract_region_bound_diagnostics_resolve, "reserved_bound")
+pilot v4_contract_region_bound_diagnostics_elided_def = v4_resolve_def_for_name(v4_contract_region_bound_diagnostics_resolve, "elided_bound")
+pilot v4_contract_region_bound_diagnostics_undeclared_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_undeclared_def)
+pilot v4_contract_region_bound_diagnostics_reserved_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_reserved_def)
+pilot v4_contract_region_bound_diagnostics_elided_sig = v4_ty_lookup_signature(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_elided_def)
+
+say "contract-region-bound-diagnostics-undeclared-bound=" + v4_ty_signature_generic_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_undeclared_sig, 0, 0)
+say "contract-region-bound-diagnostics-reserved-bound=" + v4_ty_signature_generic_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_reserved_sig, 0, 0)
+say "contract-region-bound-diagnostics-elided-bound=" + v4_ty_signature_generic_bound_name(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_elided_sig, 0, 0)
+say "contract-region-bound-diagnostics-count=" + word_from_int(v4_ty_diag_count(v4_contract_region_bound_diagnostics_ty))
+pilot v4_contract_region_bound_diagnostics_diag_id = 0
+repeat until v4_contract_region_bound_diagnostics_diag_id >= v4_ty_diag_count(v4_contract_region_bound_diagnostics_ty) {
+    pilot v4_contract_region_bound_diagnostic = v4_ty_diag(v4_contract_region_bound_diagnostics_ty, v4_contract_region_bound_diagnostics_diag_id)
+    say "contract-region-bound-diagnostics-diag" + word_from_int(v4_contract_region_bound_diagnostics_diag_id) + "=" + v4_diag_message(v4_contract_region_bound_diagnostic)
+    say "contract-region-bound-diagnostics-diag" + word_from_int(v4_contract_region_bound_diagnostics_diag_id) + "-span=" + v4_diag_span(v4_contract_region_bound_diagnostic)
+    say "contract-region-bound-diagnostics-diag" + word_from_int(v4_contract_region_bound_diagnostics_diag_id) + "-help=" + v4_diag_help(v4_contract_region_bound_diagnostic)
+    v4_contract_region_bound_diagnostics_diag_id += 1
+}

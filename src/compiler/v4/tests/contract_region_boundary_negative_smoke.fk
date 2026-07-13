@@ -1,0 +1,33 @@
+-- V4 contract-region method, callback, and static boundary fixture.
+-- Verification prepends the V4 crates before this file.
+-- One cached TY request owns the only compiler pipeline in this executable.
+-- Actual impl/dynamic forwarding is omitted: the current diagnostic surface
+-- rejects lifetime-bearing doctrine and callback contracts before invocation.
+
+task v4_contract_region_boundary_negative_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "doctrine Selector<'a> {\n"
+    src = src + "    task choose(self, lend 'a left: Ship, lend 'a right: Ship) -> lend 'a Ship\n"
+    src = src + "}\n"
+    src = src + "task callback_boundary<'a>(cb: task(left: lend 'a Ship, right: lend 'a Ship) -> lend 'a Ship) -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task static_boundary(lend 'static value: Ship) -> lend 'static Ship {\n"
+    src = src + "    give back lend value\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_contract_region_boundary_negative_ty = v4_ty_text_cached("contract-region-boundary-negative.fk", v4_contract_region_boundary_negative_source())
+
+say "contract-region-boundary-negative-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_boundary_negative_ty))
+pilot v4_contract_region_boundary_negative_diag_id = 0
+repeat until v4_contract_region_boundary_negative_diag_id >= v4_ty_diag_count(v4_contract_region_boundary_negative_ty) {
+    pilot v4_contract_region_boundary_negative_diag = v4_ty_diag(v4_contract_region_boundary_negative_ty, v4_contract_region_boundary_negative_diag_id)
+    say "contract-region-boundary-negative-diag" + word_from_int(v4_contract_region_boundary_negative_diag_id) + "=" + v4_diag_message(v4_contract_region_boundary_negative_diag)
+    say "contract-region-boundary-negative-diag" + word_from_int(v4_contract_region_boundary_negative_diag_id) + "-span=" + v4_diag_span(v4_contract_region_boundary_negative_diag)
+    say "contract-region-boundary-negative-diag" + word_from_int(v4_contract_region_boundary_negative_diag_id) + "-help=" + v4_diag_help(v4_contract_region_boundary_negative_diag)
+    v4_contract_region_boundary_negative_diag_id += 1
+}

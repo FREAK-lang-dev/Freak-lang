@@ -1,0 +1,52 @@
+-- V4 contract-region conservative local and tuple storage fixture.
+-- Verification prepends the V4 crates before this file.
+-- One cached borrowck request owns the only compiler pipeline in this executable.
+-- Explicit shape/route lend fields stay in named_lifetime_diagnostics_smoke;
+-- this fixture isolates storage of a multi-source call and an inferred tuple.
+
+task v4_contract_region_storage_negative_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task choose<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> lend 'a Ship {\n"
+    src = src + "    if take_first {\n"
+    src = src + "        give back lend first\n"
+    src = src + "    }\n"
+    src = src + "    give back lend second\n"
+    src = src + "}\n"
+    src = src + "task stored_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot view = choose(lend first, lend second, take_first)\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task aggregate_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot views = (choose(lend first, lend second, take_first), lend first)\n"
+    src = src + "    give back views.0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_contract_region_storage_negative_borrow = v4_borrowck_text_cached("contract-region-storage-negative.fk", v4_contract_region_storage_negative_source())
+pilot v4_contract_region_storage_negative_mir = v4_borrowck_mir_id(v4_contract_region_storage_negative_borrow)
+pilot v4_contract_region_storage_negative_ty = v4_mir_ty_id(v4_contract_region_storage_negative_mir)
+pilot v4_contract_region_storage_negative_resolve = v4_ty_resolve_id(v4_contract_region_storage_negative_ty)
+
+pilot v4_contract_region_storage_negative_choose_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "choose")
+pilot v4_contract_region_storage_negative_stored_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "stored_source_set")
+pilot v4_contract_region_storage_negative_aggregate_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "aggregate_source_set")
+pilot v4_contract_region_storage_negative_choose_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_choose_def)
+pilot v4_contract_region_storage_negative_stored_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_stored_def)
+pilot v4_contract_region_storage_negative_aggregate_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_aggregate_def)
+
+say "contract-region-storage-negative-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_storage_negative_ty))
+say "contract-region-storage-negative-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_storage_negative_mir))
+say "contract-region-storage-negative-choose-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_choose_result)
+say "contract-region-storage-negative-stored-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_stored_result)
+say "contract-region-storage-negative-aggregate-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_aggregate_result)
+say "contract-region-storage-negative-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_storage_negative_borrow))
+pilot v4_contract_region_storage_negative_diag_id = 0
+repeat until v4_contract_region_storage_negative_diag_id >= v4_borrowck_diag_count(v4_contract_region_storage_negative_borrow) {
+    pilot v4_contract_region_storage_negative_diag = v4_borrowck_diag(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_diag_id)
+    say "contract-region-storage-negative-diag" + word_from_int(v4_contract_region_storage_negative_diag_id) + "=" + v4_diag_message(v4_contract_region_storage_negative_diag)
+    say "contract-region-storage-negative-diag" + word_from_int(v4_contract_region_storage_negative_diag_id) + "-span=" + v4_diag_span(v4_contract_region_storage_negative_diag)
+    v4_contract_region_storage_negative_diag_id += 1
+}
