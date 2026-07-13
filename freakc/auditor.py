@@ -1169,23 +1169,24 @@ def audit_conformance(paths: List[Path]) -> int:
     if unw_missing:
         failures.append("V4 unwinder-import diagnostic regressed: " + "; ".join(unw_missing))
 
-    # ── Check 10: V4 borrowed-return provenance ──
-    # Borrowed return signatures, named lifetime selection, and unique-source
-    # forwarding are promoted V4 contracts. Require TY/MIR provenance,
-    # Meiya validation, editor facts, and runtime/tooling smokes.
+    # ── Check 10: V4 contract-region source sets ──
+    # Borrowed return signatures may select every parameter whose lifetime
+    # outlives the return region. Require the set-valued TY/MIR/Meiya contract,
+    # editor lifetime resolution, and executable source-set fixtures.
     v4_ty_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
     v4_mir_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     v4_borrowck_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_borrowck" / "src" / "lib.fk"
     v4_editor_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
-    v4_lend_return_smoke = repo / "src" / "compiler" / "v4" / "tests" / "lend_return_smoke.fk"
-    v4_lend_return_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "lend_return_editor_smoke.fk"
-    v4_lend_return_invalidation_smoke = repo / "src" / "compiler" / "v4" / "tests" / "lend_return_query_invalidation_smoke.fk"
-    v4_named_lifetime_return_smoke = repo / "src" / "compiler" / "v4" / "tests" / "named_lifetime_return_smoke.fk"
-    v4_named_lifetime_diagnostics_smoke = repo / "src" / "compiler" / "v4" / "tests" / "named_lifetime_diagnostics_smoke.fk"
-    v4_named_lifetime_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "named_lifetime_editor_smoke.fk"
-    v4_named_lifetime_invalidation_smoke = repo / "src" / "compiler" / "v4" / "tests" / "named_lifetime_query_invalidation_smoke.fk"
+    v4_tests_return = repo / "src" / "compiler" / "v4" / "tests"
+    v4_lend_return_smoke = v4_tests_return / "lend_return_smoke.fk"
+    v4_lend_return_editor_smoke = v4_tests_return / "lend_return_editor_smoke.fk"
+    v4_lend_return_invalidation_smoke = v4_tests_return / "lend_return_query_invalidation_smoke.fk"
+    v4_named_lifetime_return_smoke = v4_tests_return / "named_lifetime_return_smoke.fk"
+    v4_named_lifetime_diagnostics_smoke = v4_tests_return / "named_lifetime_diagnostics_smoke.fk"
+    v4_named_lifetime_editor_smoke = v4_tests_return / "named_lifetime_editor_smoke.fk"
+    v4_named_lifetime_invalidation_smoke = v4_tests_return / "named_lifetime_query_invalidation_smoke.fk"
     v4_check_harness_return = repo / "src" / "compiler" / "v4" / "check_v4.py"
-    return_missing: List[str] = []
+    contract_region_missing: List[str] = []
     if v4_ty_lib_return.exists():
         ty_src = v4_ty_lib_return.read_text(encoding="utf-8")
         for needle in (
@@ -1194,29 +1195,65 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_ty_signature_param_lifetime",
             "v4_ty_type_text_suffix_is_keyword",
             "v4_ty_is_lend_type",
+            "v4_ty_signature_generic_segment_start",
+            "v4_ty_signature_generic_segment_end",
+            "v4_ty_signature_generic_segment_span",
+            "v4_ty_signature_generic_raw_bound_count",
+            "v4_ty_signature_generic_raw_bound_name",
+            "v4_ty_signature_generic_has_empty_bound_clause",
+            "v4_ty_signature_lifetime_outlives_seen",
+            "v4_ty_signature_lifetime_outlives",
+            "v4_ty_signature_borrowed_return_source_param_count",
+            "v4_ty_signature_borrowed_return_source_param_at",
             "v4_ty_signature_borrowed_return_source_param",
+            "v4_ty_validate_task_signature_generic_bounds",
             "v4_ty_type_contains_named_lend",
+            "Meiya lifetime debt: empty generic bound on",
+            "may only use lifetime bounds",
             "Meiya cannot store a named lend",
             "Meiya lifetime debt: lend type has no valid target",
         ):
             if needle not in ty_src:
-                return_missing.append(f"freak_ty: {needle}")
+                contract_region_missing.append(f"freak_ty: {needle}")
     else:
-        return_missing.append("freak_ty/src/lib.fk missing")
+        contract_region_missing.append("freak_ty/src/lib.fk missing")
     if v4_mir_lib_return.exists():
         mir_src = v4_mir_lib_return.read_text(encoding="utf-8")
         for needle in (
+            "v4_mir_rvalue_call_borrowed_source_signature_id",
+            "v4_mir_rvalue_call_borrowed_source_arg_for_signature",
+            "v4_mir_rvalue_call_borrowed_source_arg_count",
+            "v4_mir_rvalue_call_borrowed_source_arg_at",
             "v4_mir_rvalue_call_borrowed_source_arg",
             "v4_mir_call_result_type",
-            "v4_ty_signature_borrowed_return_source_param",
+            "v4_ty_signature_borrowed_return_source_param_count",
+            "v4_ty_signature_borrowed_return_source_param_at",
         ):
             if needle not in mir_src:
-                return_missing.append(f"freak_mir: {needle}")
+                contract_region_missing.append(f"freak_mir: {needle}")
     else:
-        return_missing.append("freak_mir/src/lib.fk missing")
+        contract_region_missing.append("freak_mir/src/lib.fk missing")
     if v4_borrowck_lib_return.exists():
         borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
         for needle in (
+            'v4_borrowck_provenance_known = "known"',
+            'v4_borrowck_provenance_opaque = "opaque"',
+            "v4_borrowck_provenance_new",
+            "v4_borrowck_provenance_is_known",
+            "v4_borrowck_provenance_mark_opaque",
+            "v4_borrowck_provenance_count",
+            "v4_borrowck_provenance_source_row_at",
+            "v4_borrowck_provenance_path_at",
+            "v4_borrowck_provenance_origin_at",
+            "v4_borrowck_provenance_contains_path",
+            "v4_borrowck_provenance_overlaps_path",
+            "v4_borrowck_provenance_add_source",
+            "v4_borrowck_provenance_union_into",
+            "pilot v4_borrowck_source_provenance_ids = 0",
+            "pilot v4_borrowck_source_paths = 0",
+            "pilot v4_borrowck_source_origins = 0",
+            "v4_borrowck_return_call_lend_provenance",
+            "v4_borrowck_return_lend_provenance",
             "v4_borrowck_return_lend_origin",
             "v4_borrowck_return_has_loop_carried_rebind",
             "v4_borrowck_check_returned_lends",
@@ -1227,29 +1264,40 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_borrowck_rvalue_returns_holder",
             "v4_borrowck_holder_state",
             "v4_borrowck_holder_reaches_stmt_without_rebind",
+            "v4_borrowck_call_lends_source",
+            "v4_borrowck_explicit_loan_holder",
+            "v4_borrowck_holder_used_at_or_after_write",
+            "v4_borrowck_explicit_loan_live_at_write",
+            "v4_borrowck_explicit_loan_live_at_move",
+            "v4_mir_rvalue_call_borrowed_source_arg_count",
+            "v4_mir_rvalue_call_borrowed_source_arg_at",
             'v4_borrowck_path_return_loan = "ReturnLoan"',
             'v4_borrowck_path_return_loan_mut = "ReturnLoanMut"',
+            "Meiya cannot establish the origin of this returned loan",
             "Meiya refuses to return a loan of an owned value",
             "Meiya refuses a mutable reloan from an immutable lend",
             "Meiya refuses a returned loan from the wrong lifetime",
-            "Meiya cannot choose one source for this returned loan",
             "Meiya cannot store this borrowed call result yet",
         ):
             if needle not in borrowck_src:
-                return_missing.append(f"freak_borrowck: {needle}")
+                contract_region_missing.append(f"freak_borrowck: {needle}")
     else:
-        return_missing.append("freak_borrowck/src/lib.fk missing")
+        contract_region_missing.append("freak_borrowck/src/lib.fk missing")
     if v4_editor_lib_return.exists():
         editor_src = v4_editor_lib_return.read_text(encoding="utf-8")
         for needle in (
             'if kind == "Lifetime"',
+            "v4_editor_lifetime_def",
             "v4_ty_signature_declares_lifetime_name",
             "v4_editor_lifetime_decl_span",
+            "v4_ty_signature_generic_segment_start",
+            "v4_ty_signature_generic_segment_end",
+            "span = v4_editor_lifetime_decl_span",
         ):
             if needle not in editor_src:
-                return_missing.append(f"freak_editor: {needle}")
+                contract_region_missing.append(f"freak_editor: {needle}")
     else:
-        return_missing.append("freak_editor/src/lib.fk missing")
+        contract_region_missing.append("freak_editor/src/lib.fk missing")
     if v4_lend_return_smoke.exists():
         return_smoke_src = v4_lend_return_smoke.read_text(encoding="utf-8")
         for needle in (
@@ -1259,17 +1307,16 @@ def audit_conformance(paths: List[Path]) -> int:
             'lend-return-forward-ambiguous-branches-status=',
             'lend-return-forward-ambiguous-call-status=',
             'lend-return-loop-carried-status=',
-            'lend-return-ambiguous-diagnostics=',
             'lend-return-restored-forward-region-source=',
         ):
             if needle not in return_smoke_src:
-                return_missing.append(f"lend_return_smoke: {needle}")
+                contract_region_missing.append(f"lend_return_smoke: {needle}")
     else:
-        return_missing.append("smoke fixture: lend_return_smoke.fk")
+        contract_region_missing.append("smoke fixture: lend_return_smoke.fk")
     if not v4_lend_return_editor_smoke.exists():
-        return_missing.append("smoke fixture: lend_return_editor_smoke.fk")
+        contract_region_missing.append("smoke fixture: lend_return_editor_smoke.fk")
     if not v4_lend_return_invalidation_smoke.exists():
-        return_missing.append("smoke fixture: lend_return_query_invalidation_smoke.fk")
+        contract_region_missing.append("smoke fixture: lend_return_query_invalidation_smoke.fk")
     named_smoke_needles = (
         (
             v4_named_lifetime_return_smoke,
@@ -1319,12 +1366,139 @@ def audit_conformance(paths: List[Path]) -> int:
             fixture_src = fixture_path.read_text(encoding="utf-8")
             for needle in needles:
                 if needle not in fixture_src:
-                    return_missing.append(f"{fixture_path.name}: {needle}")
+                    contract_region_missing.append(f"{fixture_path.name}: {needle}")
         else:
-            return_missing.append(f"smoke fixture: {fixture_path.name}")
+            contract_region_missing.append(f"smoke fixture: {fixture_path.name}")
+
+    contract_region_smoke_needles = (
+        (
+            v4_tests_return / "contract_region_source_set_smoke.fk",
+            (
+                "task choose<'a>(lend 'a left: Ship, lend 'a right: Ship",
+                "give back choose(lend first, lend second, take_first)",
+                "contract-region-source-set-choose-status=",
+                'v4_contract_region_source_set_emit_sources("contract-region-source-set-forward"',
+                'v4_contract_region_source_set_emit_sources("contract-region-source-set-projection"',
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_mutability_smoke.fk",
+            (
+                "task shared_from_both<'a>(lend 'a observed: Ship, lend mut 'a writable: Ship",
+                "task mutable_from_mutable<'a>(lend mut 'a left: Ship, lend mut 'a right: Ship",
+                "give back lend mut observer",
+                "contract-region-mutability-ineligible-status=",
+                'v4_contract_region_mutability_emit_sources("contract-region-mutability-mut"',
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_outlives_smoke.fk",
+            (
+                "task direct<'short, 'long: 'short>",
+                "task transitive<'short, 'middle: 'short, 'long: 'middle>",
+                "contract-region-outlives-direct-raw-bound-count=",
+                "contract-region-outlives-transitive-long-outlives-short=",
+                'v4_contract_region_outlives_emit_sources("contract-region-outlives-transitive"',
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_relation_negative_smoke.fk",
+            (
+                "task reverse<'long, 'short: 'long>",
+                "task missing<'short, 'long>",
+                "contract-region-relation-negative-reverse-long-outlives-short=",
+                "contract-region-relation-negative-missing-long-outlives-short=",
+                "contract-region-relation-negative-missing-status=",
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_bound_diagnostics_smoke.fk",
+            (
+                "task undeclared_bound<'a: 'ghost>",
+                "task empty_bound<'a:>",
+                "task lifetime_doctrine_bound<'a: Copy>",
+                "task type_lifetime_bound<T: 'a, 'a>",
+                "contract-region-bound-diagnostics-empty-raw-bound-count=",
+                "contract-region-bound-diagnostics-diag",
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_loop_negative_smoke.fk",
+            (
+                "task loop_carried<'a>(lend 'a first: Ship, lend 'a second: Ship",
+                "view = lend second",
+                "contract-region-loop-negative-status=",
+                "contract-region-loop-negative-borrow-diagnostics=",
+                "contract-region-loop-negative-diag",
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_storage_negative_smoke.fk",
+            (
+                "pilot view = choose(lend first, lend second, take_first)",
+                "pilot views = (choose(lend first, lend second, take_first), lend first)",
+                "contract-region-storage-local-holder-status=",
+                "contract-region-storage-aggregate-status=",
+                "contract-region-storage-diag",
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_boundary_negative_smoke.fk",
+            (
+                "doctrine Selector<'a>",
+                "task callback_boundary<'a>(cb: task(left: lend 'a Ship, right: lend 'a Ship) -> lend 'a Ship)",
+                "task static_boundary(lend 'static value: Ship) -> lend 'static Ship",
+                "contract-region-boundary-negative-diagnostics=",
+                "contract-region-boundary-negative-diag",
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_editor_smoke.fk",
+            (
+                "task shorten<'long: 'out + 'out, 'out>",
+                "contract-region-editor-bound-semantic-def-matches-binder=",
+                "contract-region-editor-bound-definition-matches-later-binder=",
+                "contract-region-editor-repeated-definition-matches-later-binder=",
+                "contract-region-editor-restored-definition-matches-later-binder=",
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_query_invalidation_smoke.fk",
+            (
+                "task v4_contract_region_query_source(bound_name: word)",
+                "v4_contract_region_query_before = v4_contract_region_query_source",
+                "v4_contract_region_query_after = v4_contract_region_query_source",
+                "contract-region-query-ty-invalidated=",
+                "contract-region-query-after-source-count=",
+                "contract-region-query-after-bound-definition-matches-alt-binder=",
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_liveness_smoke.fk",
+            (
+                "task move_first_before(first: Ship, second: Ship",
+                "task move_second_before(first: Ship, second: Ship",
+                "task nested_move_second_before(first: Ship, second: Ship",
+                "contract-region-liveness-ordinary-call-source-count=",
+                "contract-region-liveness-first-before-status=",
+                "contract-region-liveness-second-before-status=",
+                "contract-region-liveness-unrelated-before-status=",
+                "contract-region-liveness-restored-forward-order-stable=",
+            ),
+        ),
+    )
+    for fixture_path, needles in contract_region_smoke_needles:
+        if fixture_path.exists():
+            fixture_src = fixture_path.read_text(encoding="utf-8")
+            for needle in needles:
+                if needle not in fixture_src:
+                    contract_region_missing.append(f"{fixture_path.name}: {needle}")
+        else:
+            contract_region_missing.append(f"smoke fixture: {fixture_path.name}")
+
     if v4_check_harness_return.exists():
         harness_src = v4_check_harness_return.read_text(encoding="utf-8")
-        for fixture in (
+        harness_fixtures = (
             "lend_return_smoke.fk",
             "lend_return_editor_smoke.fk",
             "lend_return_query_invalidation_smoke.fk",
@@ -1332,18 +1506,19 @@ def audit_conformance(paths: List[Path]) -> int:
             "named_lifetime_diagnostics_smoke.fk",
             "named_lifetime_editor_smoke.fk",
             "named_lifetime_query_invalidation_smoke.fk",
-        ):
+        ) + tuple(fixture_path.name for fixture_path, _ in contract_region_smoke_needles)
+        for fixture in harness_fixtures:
             if fixture not in harness_src:
-                return_missing.append(f"EXECUTABLE_SMOKES: {fixture} entry")
+                contract_region_missing.append(f"EXECUTABLE_SMOKES: {fixture} entry")
     else:
-        return_missing.append("check_v4.py harness missing")
+        contract_region_missing.append("check_v4.py harness missing")
     add(
-        "V4 named lend returns",
-        not return_missing,
-        "TY/MIR named provenance + Meiya paths + editor/tooling smokes wired" if not return_missing else f"{len(return_missing)} gap(s)",
+        "V4 contract region source sets",
+        not contract_region_missing,
+        "TY/MIR source sets + Meiya provenance + editor/tooling smokes wired" if not contract_region_missing else f"{len(contract_region_missing)} gap(s)",
     )
-    if return_missing:
-        failures.append("V4 borrowed-return provenance regressed: " + "; ".join(return_missing))
+    if contract_region_missing:
+        failures.append("V4 contract-region source sets regressed: " + "; ".join(contract_region_missing))
 
     # Check 11: V4 partial-move CFG repairs
     partial_move_missing: List[str] = []
