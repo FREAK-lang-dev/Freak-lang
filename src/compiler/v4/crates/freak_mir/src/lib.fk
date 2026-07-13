@@ -2776,11 +2776,22 @@ task v4_mir_rvalue_call_arg(mir_id: int, body_id: int, rvalue_id: int, arg_id: i
     give back v4_mir_call_args_payload_at(v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id), arg_id)
 }
 
-task v4_mir_rvalue_call_borrowed_source_arg(mir_id: int, body_id: int, rvalue_id: int) -> int {
-    if rvalue_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call {
+task v4_mir_rvalue_call_borrowed_source_signature_id(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
         give back 0 - 1
     }
-    if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+    if rvalue_id < 0 or rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        give back 0 - 1
+    }
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call {
+        give back 0 - 1
+    }
+    if v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id) >= 0 or v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id) >= 0 {
+        give back 0 - 1
+    }
+
+    pilot call_return_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if not v4_ty_is_lend_type(call_return_ty) {
         give back 0 - 1
     }
 
@@ -2788,14 +2799,87 @@ task v4_mir_rvalue_call_borrowed_source_arg(mir_id: int, body_id: int, rvalue_id
     if sig_id < 0 {
         give back 0 - 1
     }
-    pilot param_id = v4_ty_signature_borrowed_return_source_param(v4_mir_ty_id(mir_id), sig_id)
-    if param_id < 0 {
-        give back param_id
-    }
-    if param_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig or v4_ty_signature_extern_member_id(ty_id, sig_id) >= 0 {
         give back 0 - 1
     }
-    give back v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, param_id)
+    pilot signature_return_ty = v4_ty_signature_return_type(ty_id, sig_id)
+    if not v4_ty_is_lend_type(signature_return_ty) or v4_ty_lend_mode(signature_return_ty) != v4_ty_lend_mode(call_return_ty) {
+        give back 0 - 1
+    }
+    give back sig_id
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_for_signature(mir_id: int, body_id: int, rvalue_id: int, sig_id: int, source_id: int) -> int {
+    if source_id < 0 {
+        give back 0 - 1
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot fixed_param_count = v4_ty_signature_fixed_param_count(ty_id, sig_id)
+    if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) < fixed_param_count {
+        give back 0 - 1
+    }
+    pilot param_id = v4_ty_signature_borrowed_return_source_param_at(ty_id, sig_id, source_id)
+    if param_id < 0 or param_id >= fixed_param_count {
+        give back 0 - 1
+    }
+
+    pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, param_id)
+    if arg_rvalue < 0 or arg_rvalue >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        give back 0 - 1
+    }
+    pilot arg_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+    if not v4_ty_is_lend_type(arg_ty) {
+        give back 0 - 1
+    }
+    pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+    if param_mode != v4_ty_param_mode_lend and param_mode != v4_ty_param_mode_lend_mut {
+        give back 0 - 1
+    }
+    if param_mode == v4_ty_param_mode_lend_mut and not v4_ty_is_lend_mut_type(arg_ty) {
+        give back 0 - 1
+    }
+    give back arg_rvalue
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_count(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    pilot sig_id = v4_mir_rvalue_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
+    if sig_id < 0 {
+        give back 0
+    }
+
+    pilot source_count = v4_ty_signature_borrowed_return_source_param_count(v4_mir_ty_id(mir_id), sig_id)
+    pilot source_id = 0
+    repeat until source_id >= source_count {
+        if v4_mir_rvalue_call_borrowed_source_arg_for_signature(mir_id, body_id, rvalue_id, sig_id, source_id) < 0 {
+            give back 0
+        }
+        source_id += 1
+    }
+    give back source_count
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_at(mir_id: int, body_id: int, rvalue_id: int, source_id: int) -> int {
+    if source_id < 0 or source_id >= v4_mir_rvalue_call_borrowed_source_arg_count(mir_id, body_id, rvalue_id) {
+        give back 0 - 1
+    }
+    pilot sig_id = v4_mir_rvalue_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
+    if sig_id < 0 {
+        give back 0 - 1
+    }
+    give back v4_mir_rvalue_call_borrowed_source_arg_for_signature(mir_id, body_id, rvalue_id, sig_id, source_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    pilot source_count = v4_mir_rvalue_call_borrowed_source_arg_count(mir_id, body_id, rvalue_id)
+    if source_count <= 0 {
+        give back 0 - 1
+    }
+    if source_count > 1 {
+        give back 0 - 2
+    }
+    give back v4_mir_rvalue_call_borrowed_source_arg_at(mir_id, body_id, rvalue_id, 0)
 }
 
 task v4_mir_call_check_result(generic_env: word, args_payload: word) -> word {
