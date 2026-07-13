@@ -3696,46 +3696,45 @@ task v4_ty_signature_lifetime_generic_id_for_name(ty_id: int, sig_id: int, lifet
     give back generic_id
 }
 
-task v4_ty_lifetime_relation_seen_contains(seen_lifetimes: word, lifetime_name: word) -> bool {
-    if seen_lifetimes == "" or lifetime_name == "" {
-        give back false
-    }
-    give back ("|" + seen_lifetimes + "|").contains("|" + lifetime_name + "|")
-}
-
-task v4_ty_lifetime_relation_seen_append(seen_lifetimes: word, lifetime_name: word) -> word {
-    if lifetime_name == "" {
-        give back seen_lifetimes
-    }
-    if seen_lifetimes == "" {
-        give back lifetime_name
-    }
-    give back seen_lifetimes + "|" + lifetime_name
-}
-
-task v4_ty_signature_lifetime_outlives_seen(ty_id: int, sig_id: int, longer_lifetime: word, shorter_lifetime: word, seen_lifetimes: word) -> bool {
-    if longer_lifetime == shorter_lifetime {
+task v4_ty_signature_lifetime_outlives_ids(ty_id: int, sig_id: int, longer_generic_id: int, shorter_generic_id: int) -> bool {
+    if longer_generic_id == shorter_generic_id {
         give back true
     }
-    if v4_ty_lifetime_relation_seen_contains(seen_lifetimes, longer_lifetime) {
-        give back false
+
+    -- The table is both the visited set and a linked FIFO: -2 is unseen,
+    -- -1 is the tail, and every nonnegative value links to the next generic.
+    pilot unseen_generic_id = 0 - 2
+    pilot queue_end_generic_id = 0 - 1
+    pilot visit_next = array_new()
+    pilot generic_id = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_id >= generic_count {
+        array_push(visit_next, word_from_int(unseen_generic_id))
+        generic_id += 1
     }
 
-    pilot generic_id = v4_ty_signature_lifetime_generic_id_for_name(ty_id, sig_id, longer_lifetime)
-    if generic_id < 0 {
-        give back false
-    }
-    pilot next_seen = v4_ty_lifetime_relation_seen_append(seen_lifetimes, longer_lifetime)
-    pilot bound_id = 0
-    pilot bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, generic_id)
-    repeat until bound_id >= bound_count {
-        pilot bound_name = v4_ty_signature_generic_raw_bound_name(ty_id, sig_id, generic_id, bound_id)
-        if bound_name != "'static" and bound_name != "'_" and v4_ty_signature_declares_lifetime_name(ty_id, sig_id, bound_name) {
-            if v4_ty_signature_lifetime_outlives_seen(ty_id, sig_id, bound_name, shorter_lifetime, next_seen) {
-                give back true
+    pilot current_generic_id = longer_generic_id
+    pilot tail_generic_id = longer_generic_id
+    array_set(visit_next, longer_generic_id, word_from_int(queue_end_generic_id))
+    repeat until current_generic_id < 0 {
+        pilot bound_id = 0
+        pilot bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, current_generic_id)
+        repeat until bound_id >= bound_count {
+            pilot bound_name = v4_ty_signature_generic_raw_bound_name(ty_id, sig_id, current_generic_id, bound_id)
+            if bound_name != "'static" and bound_name != "'_" {
+                pilot bound_generic_id = v4_ty_signature_lifetime_generic_id_for_name(ty_id, sig_id, bound_name)
+                if bound_generic_id == shorter_generic_id {
+                    give back true
+                }
+                if bound_generic_id >= 0 and word_to_int(array_get(visit_next, bound_generic_id)) == unseen_generic_id {
+                    array_set(visit_next, tail_generic_id, word_from_int(bound_generic_id))
+                    array_set(visit_next, bound_generic_id, word_from_int(queue_end_generic_id))
+                    tail_generic_id = bound_generic_id
+                }
             }
+            bound_id += 1
         }
-        bound_id += 1
+        current_generic_id = word_to_int(array_get(visit_next, current_generic_id))
     }
     give back false
 }
@@ -3760,7 +3759,15 @@ task v4_ty_signature_lifetime_outlives(ty_id: int, sig_id: int, longer_name: wor
     if not v4_ty_signature_declares_lifetime_name(ty_id, sig_id, longer_name) or not v4_ty_signature_declares_lifetime_name(ty_id, sig_id, shorter_name) {
         give back false
     }
-    give back v4_ty_signature_lifetime_outlives_seen(ty_id, sig_id, longer_name, shorter_name, "")
+    if longer_name == shorter_name {
+        give back true
+    }
+    pilot longer_generic_id = v4_ty_signature_lifetime_generic_id_for_name(ty_id, sig_id, longer_name)
+    pilot shorter_generic_id = v4_ty_signature_lifetime_generic_id_for_name(ty_id, sig_id, shorter_name)
+    if longer_generic_id < 0 or shorter_generic_id < 0 {
+        give back false
+    }
+    give back v4_ty_signature_lifetime_outlives_ids(ty_id, sig_id, longer_generic_id, shorter_generic_id)
 }
 
 task v4_ty_signature_param_name(ty_id: int, sig_id: int, param_id: int) -> word {
