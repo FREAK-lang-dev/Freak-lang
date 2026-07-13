@@ -5,6 +5,7 @@ import hashlib
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -1983,10 +1984,10 @@ EXECUTABLE_SMOKES = [
             "lifetime-ty-borrow-type-generic0-name=T",
             "lifetime-ty-borrow-param-type=T",
             "lifetime-ty-borrow-return=T",
-            "lifetime-ty-static-signature=task static_name<'static>(...) -> word",
-            "lifetime-ty-static-lifetime-count=1",
-            "lifetime-ty-static-lifetime0-name='static",
-            "lifetime-ty-static-type-generic-count=0",
+            "lifetime-ty-long-signature=task long_name<'long>(...) -> word",
+            "lifetime-ty-long-lifetime-count=1",
+            "lifetime-ty-long-lifetime0-name='long",
+            "lifetime-ty-long-type-generic-count=0",
             "lifetime-ty-refbox-signature=shape RefBox<'a,T>",
             "lifetime-ty-refbox-lifetime0-name='a",
             "lifetime-ty-refbox-type-generic0-name=T",
@@ -2092,6 +2093,158 @@ EXECUTABLE_SMOKES = [
             "ok|textDocument/hover",
             "hover|markdown",
             "**view** `Local`",
+            "ok|textDocument/publishDiagnostics",
+            "diagnostics|0",
+        ],
+    },
+    {
+        "name": "named lifetime returned-loan provenance",
+        "fixture": "named_lifetime_return_smoke.fk",
+        "expect": [
+            "named-lifetime-param0-name=left",
+            "named-lifetime-param0-mode=lend",
+            "named-lifetime-param0-region='left",
+            "named-lifetime-param1-region='right",
+            "named-lifetime-return=lend 'left Ship",
+            "named-lifetime-return-region='left",
+            "named-lifetime-return-target=Ship",
+            "named-lifetime-source-param=0",
+            "named-lifetime-projection-source-param=0",
+            "named-lifetime-param0-local-type=lend 'left Ship",
+            "named-lifetime-ty-diagnostics=0",
+            "named-lifetime-mir-diagnostics=0",
+            "named-lifetime-select-status=clean",
+            "named-lifetime-forward-status=clean",
+            "named-lifetime-reordered-status=clean",
+            "named-lifetime-projection-status=clean",
+            "named-lifetime-wrong-status=blocked",
+            "named-lifetime-wrong-holder-status=blocked",
+            "named-lifetime-wrong-call-status=blocked",
+            "named-lifetime-mut-status=clean",
+            "named-lifetime-source-move-status=blocked",
+            "named-lifetime-non-source-move-status=clean",
+            "named-lifetime-projection-move-status=blocked",
+            "named-lifetime-holder-move-status=blocked",
+            "named-lifetime-nested-move-status=blocked",
+            "named-lifetime-ambiguous-holder-move-status=blocked",
+            "named-lifetime-call-local-type=lend Ship",
+            "named-lifetime-select-path-source=left",
+            "named-lifetime-reordered-path-source=first",
+            "named-lifetime-projection-path-source=fleet.ship",
+            "named-lifetime-mut-path-kind=ReturnLoanMut",
+            "named-lifetime-mismatch-diagnostics=3",
+            "borrowck-snapshot-import ok=1",
+            "borrowck-snapshot-restore ok=1",
+            "named-lifetime-restored-source=left",
+        ],
+    },
+    {
+        "name": "named lifetime returned-loan diagnostics",
+        "fixture": "named_lifetime_diagnostics_smoke.fk",
+        "expect": [
+            "named-lifetime-diag-count=15",
+            "named-lifetime-diag-repeated-source=-2",
+            "named-lifetime-diag-missing-source=-1",
+            "named-lifetime-diag-anonymous-source=0",
+            "named-lifetime-diag0=Meiya cannot choose one parameter for returned lifetime 'a",
+            "named-lifetime-diag0-span=0@",
+            "named-lifetime-diag1=Meiya cannot find a source for returned lifetime 'a",
+            "named-lifetime-diag1-span=0@",
+            "named-lifetime-diag2=Meiya lifetime debt: 'ghost is used on borrowed parameter only but is not declared on undeclared",
+            "named-lifetime-diag2-span=0@",
+            "named-lifetime-diag3=Meiya lifetime debt: 'ghost is used in return type of undeclared but is not declared on undeclared",
+            "named-lifetime-diag3-span=0@",
+            "named-lifetime-diag4=Meiya cannot accept a static lend parameter yet",
+            "named-lifetime-diag4-span=0@",
+            "named-lifetime-diag5=Meiya cannot prove a static borrowed return yet",
+            "named-lifetime-diag5-span=0@",
+            "named-lifetime-diag6=Meiya lifetime debt: 'static is reserved and cannot be declared on reserved_static",
+            "named-lifetime-diag6-span=0@",
+            "named-lifetime-diag7=Meiya lifetime debt: '_ is reserved and cannot be declared on reserved_anonymous",
+            "named-lifetime-diag7-span=0@",
+            "named-lifetime-diag8=Meiya cannot store a named lend in field view of StoredLoan yet",
+            "named-lifetime-diag8-span=0@",
+            "named-lifetime-diag9=Meiya cannot store a named lend in field view of StoredRoute::Holds yet",
+            "named-lifetime-diag9-span=0@",
+            "named-lifetime-diag10=Meiya cannot store a named lend in alias target of StoredAlias yet",
+            "named-lifetime-diag10-span=0@",
+            "named-lifetime-diag11=Meiya cannot store a named lend in parameter 0 of nested_storage yet",
+            "named-lifetime-diag11-span=0@",
+            "named-lifetime-diag12=Meiya cannot store a named lend in return type of nested_storage yet",
+            "named-lifetime-diag12-span=0@",
+            "named-lifetime-diag13=Meiya lifetime debt: lend type has no valid target in return type of missing_target",
+            "named-lifetime-diag13-span=0@",
+            "named-lifetime-diag14=Meiya lifetime debt: lend type has no valid target in return type of doubled_target",
+            "named-lifetime-diag14-span=0@",
+        ],
+    },
+    {
+        "name": "named lifetime editor and LSP facts",
+        "fixture": "named_lifetime_editor_smoke.fk",
+        "expect": [
+            "named-lifetime-editor-param-region-kind=Lifetime",
+            "named-lifetime-editor-param-region-type=lifetime 'left on task select_left",
+            "named-lifetime-editor-return-region-kind=Lifetime",
+            "named-lifetime-editor-return-region-type=lifetime 'left on task select_left",
+            "named-lifetime-editor-region-definition=1",
+            "named-lifetime-editor-region-definition-matches=true",
+            "named-lifetime-editor-param-kind=Local",
+            "named-lifetime-editor-param-type=lend 'left Ship",
+            "named-lifetime-editor-param-hover=lend 'left Ship",
+            "named-lifetime-editor-param-definition=1",
+            "named-lifetime-editor-param-definition-matches=true",
+            "named-lifetime-editor-label-kind=Parameter",
+            "named-lifetime-editor-label-type=parameter left: Ship",
+            "named-lifetime-editor-label-definition=1",
+            "named-lifetime-editor-label-definition-matches=true",
+            "named-lifetime-editor-elided-definition=0",
+            "named-lifetime-editor-diagnostics=0",
+            "ok|textDocument/hover",
+            "**left** `Local`",
+            "ok|textDocument/definition",
+            "|'left|Lifetime",
+            "ok|textDocument/publishDiagnostics",
+            "diagnostics|0",
+            "semantic-snapshot-import ok=1",
+            "hover-snapshot-import ok=1",
+            "definition-snapshot-import ok=1",
+            "diagnostics-snapshot-import ok=1",
+            "semantic-snapshot-restore ok=1",
+            "hover-snapshot-restore ok=1",
+            "definition-snapshot-restore ok=1",
+            "diagnostics-snapshot-restore ok=1",
+            "query-snapshot-restore ok=1",
+            "query-confirm ok=1 path=named-lifetime-editor.fk",
+            "named-lifetime-editor-restored-label-kind=Parameter",
+            "named-lifetime-editor-restored-label-type=parameter left: Ship",
+            "named-lifetime-editor-restored-hover-type=lifetime 'left on task select_left",
+            "named-lifetime-editor-restored-definition=1",
+            "named-lifetime-editor-restored-definition-matches=true",
+        ],
+    },
+    {
+        "name": "named lifetime query invalidation",
+        "fixture": "named_lifetime_query_invalidation_smoke.fk",
+        "expect": [
+            "named-lifetime-query-before-diagnostics=1",
+            "named-lifetime-query-before-message=Meiya refuses a returned loan from the wrong lifetime",
+            "named-lifetime-query-before-semantic=lend 'right Ship",
+            "named-lifetime-query-before-hover=lend 'right Ship",
+            "named-lifetime-query-before-definition=1",
+            "named-lifetime-query-before-definition-matches=true",
+            "ok|textDocument/didChange",
+            "invalidation-contract|path=named-lifetime-invalidation.fk",
+            "named-lifetime-query-ty-invalidated=true",
+            "named-lifetime-query-borrowck-invalidated=true",
+            "named-lifetime-query-diagnostics-invalidated=true",
+            "named-lifetime-query-semantic-invalidated=true",
+            "named-lifetime-query-hover-invalidated=true",
+            "named-lifetime-query-definition-invalidated=true",
+            "named-lifetime-query-after-diagnostics=0",
+            "named-lifetime-query-after-semantic=lend 'left Ship",
+            "named-lifetime-query-after-hover=lend 'left Ship",
+            "named-lifetime-query-after-definition=1",
+            "named-lifetime-query-after-definition-matches=true",
             "ok|textDocument/publishDiagnostics",
             "diagnostics|0",
         ],
@@ -3796,30 +3949,48 @@ EXECUTABLE_SMOKES = [
             "dyn-mir-erase-direct-return-place-ty=dyn Widget",
             "dyn-mir-forward-arg-ty=dyn Widget",
             "dyn-mir-callback-arg-ty=dyn Widget",
+            "dyn-mir-lend-erase-return-place-ty=lend dyn Widget",
+            "dyn-mir-paint-lend-return-ty=word",
+            "dyn-mir-call-set-return-ty=word",
+            "dyn-mir-call-set-arg-ty=dyn Widget",
+            "dyn-mir-compact-dynwidget=dynWidget",
+            "dyn-mir-compact-list-dyn=List<dyn Widget>",
+        ],
+    },
+    {
+        "name": "MIR generic dyn doctrine dispatch",
+        "fixture": "mir_dyn_doctrine_generic_smoke.fk",
+        "expect": [
+            "dyn-generic-mir-diagnostics=0",
             "dyn-mir-use-accept-return-ty=int",
             "dyn-mir-use-bound-return-ty=int",
             "dyn-mir-forward-accept-return-ty=word",
             "dyn-mir-forward-accept-arg-ty=dyn Displayable<int>",
             "dyn-mir-read-box-return-ty=int",
+        ],
+    },
+    {
+        "name": "MIR Shared and Weak dyn doctrine dispatch",
+        "fixture": "mir_dyn_doctrine_shared_smoke.fk",
+        "expect": [
+            "dyn-shared-mir-diagnostics=0",
             "dyn-mir-share-return-place-ty=Shared<dyn Widget>",
             "dyn-mir-weaken-return-place-ty=Weak<dyn Widget>",
-            "dyn-mir-lend-erase-return-place-ty=lend dyn Widget",
-            "dyn-mir-paint-lend-return-ty=word",
-            "dyn-mir-call-set-return-ty=word",
-            "dyn-mir-call-set-arg-ty=dyn Widget",
             "dyn-mir-forward-shared-return-ty=word",
             "dyn-mir-forward-shared-arg-ty=Shared<dyn Widget>",
             "dyn-mir-forward-weak-return-ty=word",
             "dyn-mir-forward-weak-arg-ty=Weak<dyn Widget>",
-            "dyn-mir-compact-dynwidget=dynWidget",
-            "dyn-mir-compact-list-dyn=List<dyn Widget>",
-            "dyn-mir-bad-diagnostics=1",
+        ],
+    },
+    {
+        "name": "MIR dyn doctrine diagnostics",
+        "fixture": "mir_dyn_doctrine_diagnostics_smoke.fk",
+        "expect": [
+            "dyn-mir-diagnostics=4",
             "dyn-mir-bad-message=local declaration type mismatch",
             "dyn-mir-bad-help=widget expects dyn Widget but got Rock",
-            "dyn-mir-bad-list-diagnostics=1",
             "dyn-mir-bad-list-message=call argument type mismatch",
             "dyn-mir-bad-list-help=take_list argument 1 expects List<dyn Widget> but got List<Button>",
-            "dyn-mir-bad-holder-diagnostics=2",
             "dyn-mir-bad-holder-message=invalid local annotation type",
             "dyn-mir-bad-holder-help=Meiya lifetime debt: Holder expects 1 generic arguments in dyn doctrine of local declaration erased but received 0",
         ],
@@ -6631,6 +6802,56 @@ def check_fixture_transpile(base_source: str, fixtures: list[Path]) -> dict[Path
     return artifacts
 
 
+def run_with_heartbeat(
+    command: list[str],
+    *,
+    label: str,
+    timeout_seconds: int | None = None,
+) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        command,
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    started = time.monotonic()
+
+    try:
+        while True:
+            wait_seconds = 30.0
+            if timeout_seconds is not None:
+                elapsed = time.monotonic() - started
+                remaining = timeout_seconds - elapsed
+                if remaining <= 0:
+                    process.kill()
+                    stdout, stderr = process.communicate()
+                    raise subprocess.TimeoutExpired(
+                        command,
+                        timeout_seconds,
+                        output=stdout,
+                        stderr=stderr,
+                    )
+                wait_seconds = min(wait_seconds, remaining)
+
+            try:
+                stdout, stderr = process.communicate(timeout=wait_seconds)
+                return subprocess.CompletedProcess(
+                    command,
+                    process.returncode,
+                    stdout,
+                    stderr,
+                )
+            except subprocess.TimeoutExpired:
+                elapsed_seconds = int(time.monotonic() - started)
+                print(f"{label} pending elapsed={elapsed_seconds}s", flush=True)
+    except BaseException:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        raise
+
+
 def compile_runtime_smoke(
     clang: str,
     include_arg: str,
@@ -6667,7 +6888,10 @@ def compile_runtime_smoke(
     ]
     if sys.platform.startswith("linux"):
         compile_cmd.append("-lm")
-    compiled = subprocess.run(compile_cmd, cwd=ROOT, text=True, capture_output=True)
+    compiled = run_with_heartbeat(
+        compile_cmd,
+        label=f"runtime compile: {rel(fixture)}",
+    )
     if compiled.returncode != 0:
         print(f"runtime compile failed: {rel(fixture)}")
         print(compiled.stdout)
@@ -6805,6 +7029,7 @@ def check_executable_smokes(
             print(f"runtime smoke failed: {label} unexpectedly requires UI")
             raise SystemExit(1)
 
+        print(f"runtime smoke start: {smoke['name']} fixture={label}")
         exe_path, compiled = compile_runtime_smoke(
             clang,
             include_arg,
@@ -6814,7 +7039,11 @@ def check_executable_smokes(
             c_source,
         )
         timeout_seconds = int(smoke.get("timeout", 60))
-        executed = subprocess.run([str(exe_path)], cwd=ROOT, text=True, capture_output=True, timeout=timeout_seconds)
+        executed = run_with_heartbeat(
+            [str(exe_path)],
+            label=f"runtime execute: {label}",
+            timeout_seconds=timeout_seconds,
+        )
         output = executed.stdout + executed.stderr
         if executed.returncode != 0:
             print(f"runtime execution failed: {label} exit={executed.returncode}")

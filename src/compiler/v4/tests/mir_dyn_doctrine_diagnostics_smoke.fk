@@ -1,0 +1,51 @@
+-- V4 dyn doctrine MIR diagnostics smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_dyn_diag_mir_source() -> word {
+    pilot src = "doctrine Widget {\n"
+    src = src + "    task draw(self) -> word\n"
+    src = src + "}\n"
+    src = src + "doctrine Holder<T> {\n"
+    src = src + "    task get(self) -> T\n"
+    src = src + "}\n"
+    src = src + "shape Button {\n"
+    src = src + "    label: word\n"
+    src = src + "}\n"
+    src = src + "shape Rock {\n"
+    src = src + "    mass: int\n"
+    src = src + "}\n"
+    src = src + "impl Widget for Button {\n"
+    src = src + "    task draw(self) -> word {\n"
+    src = src + "        give back self.label\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task bad(rock: Rock) -> void {\n"
+    src = src + "    pilot widget: dyn Widget = rock\n"
+    src = src + "}\n"
+    src = src + "task take_list(items: List<dyn Widget>) -> void {\n"
+    src = src + "}\n"
+    src = src + "task bad_list(buttons: List<Button>) -> void {\n"
+    src = src + "    take_list(buttons)\n"
+    src = src + "}\n"
+    src = src + "task bad_holder(button: Button) -> void {\n"
+    src = src + "    pilot erased: dyn Holder = button\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_dyn_diag_mir_text = v4_dyn_diag_mir_source()
+pilot v4_dyn_diag_mir_stream = v4_lex_text(0, v4_dyn_diag_mir_text)
+pilot v4_dyn_diag_mir_tree = v4_parse_stream(0, v4_dyn_diag_mir_stream)
+pilot v4_dyn_diag_mir_hir = v4_hir_lower_tree(0, v4_dyn_diag_mir_tree)
+pilot v4_dyn_diag_mir_resolve = v4_resolve_lower_hir(0, v4_dyn_diag_mir_hir)
+pilot v4_dyn_diag_mir_ty = v4_ty_lower_resolve(0, v4_dyn_diag_mir_resolve)
+pilot v4_dyn_diag_mir_id = v4_mir_lower_ty(0, v4_dyn_diag_mir_ty)
+
+say v4_mir_summary(v4_dyn_diag_mir_id)
+say "dyn-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_diag_mir_id))
+say "dyn-mir-bad-message=" + v4_diag_message(v4_mir_diag(v4_dyn_diag_mir_id, 0))
+say "dyn-mir-bad-help=" + v4_diag_help(v4_mir_diag(v4_dyn_diag_mir_id, 0))
+say "dyn-mir-bad-list-message=" + v4_diag_message(v4_mir_diag(v4_dyn_diag_mir_id, 1))
+say "dyn-mir-bad-list-help=" + v4_diag_help(v4_mir_diag(v4_dyn_diag_mir_id, 1))
+say "dyn-mir-bad-holder-message=" + v4_diag_message(v4_mir_diag(v4_dyn_diag_mir_id, 2))
+say "dyn-mir-bad-holder-help=" + v4_diag_help(v4_mir_diag(v4_dyn_diag_mir_id, 2))

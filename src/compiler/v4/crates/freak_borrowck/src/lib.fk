@@ -675,6 +675,31 @@ task v4_borrowck_return_mut_upgrade_help(source_text: word) -> word {
     give back out
 }
 
+task v4_borrowck_return_source_lifetime(mir_id: int, body_id: int, source_text: word) -> word {
+    pilot source_name = v4_borrowck_path_root(source_text)
+    if source_name == "" {
+        give back ""
+    }
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id < 0 {
+        give back ""
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot param_id = v4_ty_signature_param_index_for_name(ty_id, sig_id, source_name)
+    if param_id < 0 {
+        give back ""
+    }
+    give back v4_ty_signature_param_lifetime(ty_id, sig_id, param_id)
+}
+
+task v4_borrowck_return_lifetime_mismatch_help(body_name: word, source_text: word, source_lifetime: word, return_lifetime: word) -> word {
+    pilot source_display = source_lifetime
+    if source_display == "" {
+        source_display = "an elided lifetime"
+    }
+    give back body_name + " promises " + return_lifetime + " but " + v4_borrowck_path_canon(source_text) + " belongs to " + source_display + "; return the parameter carrying " + return_lifetime
+}
+
 task v4_borrowck_check_returned_lends(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot expected_ty = v4_mir_expected_return_type(mir_id, body_id)
     if not v4_ty_is_lend_type(expected_ty) {
@@ -701,9 +726,14 @@ task v4_borrowck_check_returned_lends(borrow_id: int, result_id: int, mir_id: in
                 } else {
                     pilot source_text = v4_borrowck_lend_source_text(mir_id, body_id, origin_id)
                     pilot source_mode = v4_borrowck_local_mode_for_path(mir_id, body_id, source_text)
+                    pilot return_lifetime = v4_ty_lend_lifetime(expected_ty)
+                    pilot source_lifetime = v4_borrowck_return_source_lifetime(mir_id, body_id, source_text)
                     if source_mode == v4_ty_param_mode_value {
                         message = "Meiya refuses to return a loan of an owned value"
                         help = v4_borrowck_return_owned_help(body_name, source_text)
+                    } else if return_lifetime != "" and return_lifetime != "'_" and source_lifetime != return_lifetime {
+                        message = "Meiya refuses a returned loan from the wrong lifetime"
+                        help = v4_borrowck_return_lifetime_mismatch_help(body_name, source_text, source_lifetime, return_lifetime)
                     } else if v4_ty_is_lend_mut_type(expected_ty) and source_mode != v4_ty_param_mode_lend_mut {
                         message = "Meiya refuses a mutable reloan from an immutable lend"
                         help = v4_borrowck_return_mut_upgrade_help(source_text)
@@ -1100,14 +1130,26 @@ task v4_borrowck_rvalue_lends_source(mir_id: int, body_id: int, rvalue_id: int, 
     give back v4_borrowck_paths_overlap(v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), loan_text)
 }
 
-task v4_borrowck_call_lends_source(mir_id: int, body_id: int, call_rvalue: int, loan_text: word) -> bool {
+task v4_borrowck_rvalue_resolves_lend_source(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int, loan_text: word) -> bool {
+    pilot origin_id = v4_borrowck_return_lend_origin(mir_id, body_id, use_stmt, rvalue_id)
+    if origin_id < 0 {
+        give back false
+    }
+    give back v4_borrowck_paths_overlap(v4_borrowck_lend_source_text(mir_id, body_id, origin_id), loan_text)
+}
+
+task v4_borrowck_call_lends_source(mir_id: int, body_id: int, call_stmt: int, call_rvalue: int, loan_text: word) -> bool {
     if call_rvalue < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_rvalue) != v4_mir_rvalue_call {
         give back false
+    }
+    pilot selected_arg = v4_mir_rvalue_call_borrowed_source_arg(mir_id, body_id, call_rvalue)
+    if selected_arg >= 0 {
+        give back v4_borrowck_rvalue_resolves_lend_source(mir_id, body_id, call_stmt, selected_arg, loan_text)
     }
     pilot arg_id = 0
     pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, call_rvalue)
     repeat until arg_id >= arg_count {
-        if v4_borrowck_rvalue_lends_source(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, arg_id), loan_text) {
+        if v4_borrowck_rvalue_resolves_lend_source(mir_id, body_id, call_stmt, v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, arg_id), loan_text) {
             give back true
         }
         arg_id += 1
@@ -1126,7 +1168,7 @@ task v4_borrowck_stored_call_return_holder(mir_id: int, body_id: int, loan_stmt:
     if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
         give back ""
     }
-    if not v4_borrowck_call_lends_source(mir_id, body_id, rvalue_id, loan_text) {
+    if not v4_borrowck_call_lends_source(mir_id, body_id, loan_stmt, rvalue_id, loan_text) {
         give back ""
     }
     pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, loan_stmt)
@@ -1158,7 +1200,7 @@ task v4_borrowck_explicit_loan_holder(mir_id: int, body_id: int, loan_stmt: int,
     if call_holder != "" {
         give back call_holder
     }
-    if v4_borrowck_call_lends_source(mir_id, body_id, rvalue_id, loan_text) {
+    if v4_borrowck_call_lends_source(mir_id, body_id, loan_stmt, rvalue_id, loan_text) {
         give back "@temporary"
     }
     give back ""
@@ -1215,6 +1257,36 @@ task v4_borrowck_block_can_cycle(mir_id: int, body_id: int, block_id: int) -> bo
     give back false
 }
 
+task v4_borrowck_rvalue_returns_holder(mir_id: int, body_id: int, rvalue_id: int, holder: word) -> bool {
+    if rvalue_id < 0 {
+        give back false
+    }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
+        give back v4_borrowck_paths_overlap(holder, v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
+    }
+    if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+        give back v4_borrowck_rvalue_returns_holder(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), holder)
+    }
+    if kind == v4_mir_rvalue_call {
+        if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+            give back false
+        }
+        pilot source_arg = v4_mir_rvalue_call_borrowed_source_arg(mir_id, body_id, rvalue_id)
+        if source_arg >= 0 {
+            give back v4_borrowck_rvalue_returns_holder(mir_id, body_id, source_arg, holder)
+        }
+        pilot arg_id = 0
+        repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
+            if v4_borrowck_rvalue_returns_holder(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id), holder) {
+                give back true
+            }
+            arg_id += 1
+        }
+    }
+    give back false
+}
+
 task v4_borrowck_holder_alias_from_stmt(mir_id: int, body_id: int, stmt_id: int, holder: word) -> word {
     pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
     if stmt_kind != v4_mir_stmt_local and stmt_kind != v4_mir_stmt_assign {
@@ -1232,11 +1304,7 @@ task v4_borrowck_holder_alias_from_stmt(mir_id: int, body_id: int, stmt_id: int,
     if rvalue_id < 0 or not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
         give back ""
     }
-    pilot rvalue_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-    if rvalue_kind != v4_mir_rvalue_use_local and rvalue_kind != v4_mir_rvalue_use_place {
-        give back ""
-    }
-    if v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) != v4_borrowck_path_canon(holder) {
+    if not v4_borrowck_rvalue_returns_holder(mir_id, body_id, rvalue_id, holder) {
         give back ""
     }
     give back alias

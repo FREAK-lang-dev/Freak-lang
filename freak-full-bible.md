@@ -44,14 +44,14 @@ Pipeline (full compiler):
 
 | Section | Status | Summary |
 |---|---|---|
-| §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer type forms, and first-pass `dyn Doctrine` type/object-safety/coercion/editor facts through query slices. Still expanding: lifetime annotations, `prob_when`, full dyn vtable lowering, and production backend depth for V4-only forms. |
+| §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer forms, explicit named lifetimes on ordinary-task lend contracts, and first-pass `dyn Doctrine` type/object-safety/coercion/editor facts through query slices. Still expanding: `prob_when`, stored lifetime-bearing aggregates, full dyn vtable lowering, and production backend depth for V4-only forms. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries lifetime tokens/type contracts, `lend` / `lend mut` parameter contracts, explicit expression loan paths, typed field/index loan-holder projections, borrowed-return provenance for direct/local reloan paths, unique-source ordinary forwarding calls, same-source acyclic CFG joins, and stored-call local alias chains, queryable `ReturnLoan` facts, all-path CFG repair proof for partial moves, linear/all-exit moved-local drop suppression with conditional `DropIf` markers, first-pass `Shared<T>`/`Weak<T>` method surfaces with guard-escape diagnostics, first-pass trust-me honor validation/gating, and first-pass non-lexical rewrite/move/exclusive-read rejection plus release for bound/call-only lends through TY/MIR/Meiya; full region solving, runtime ref-count/borrow-state implementation, the complete honor operation matrix, and `direct_order` remain V4. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit named lifetimes on ordinary-task borrowed returns, unique named/elided source selection, projected/holder/nested-call provenance, reordered named-argument mapping, acyclic CFG joins, conservative ambiguous-source liveness, queryable `ReturnLoan` facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating through TY/MIR/Meiya. Multi-source named regions, loop-carried region fixed points, stored named lends, method/dynamic/callback forwarding, full region solving, runtime ref-count/borrow-state implementation, the complete honor matrix, and `direct_order` remain V4. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
-| §8 Lexer | ⚠️ Partial | All v0.13.x keywords lex. `'a` lifetimes, number suffixes (`42u`/`3.14f`/`42t`/`999b`), `\|\|` xm3 separator are V4. |
+| §8 Lexer | ⚠️ Partial | All v0.13.x keywords lex. V4 token streams now carry `'a` lifetimes and number suffixes (`42u`/`3.14f`/`42t`/`999b`); the `\|\|` xm3 separator and remaining production recovery depth are still V4. |
 | §9 Parser | ⚠️ Partial | Tolerant parsing (`ErrorNode`/`IncompleteNode`, recovery boundaries, IDE-grade incremental parsing) is V4. v1 (Python) parser fails on V3-superset syntax — V3 self-hosting compiler is the bible-conformant parser. |
 | §10 Type Checker | ⚠️ Partial | Most semantic checks listed (power arithmetic, prob ranges, foreshadow strict enforcement, classified redaction, full FFI safety) are V4. V4 now validates route exhaustiveness, first-pass `dyn Doctrine` object-safety/coercion contracts, and the basic `@layout(C)` / `packed` / `transparent` contracts; deeper layout and backend guarantees still expand. |
 | §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. LLVM emits LineTablesOnly DWARF (DISubprogram per function + per-instruction `!dbg`). Special codegen for `mood`/variants/`dyn` fat-pointer vtables/`Shared<T>` runtime headers/optimization pragmas/classified symbol stripping is V4; extern ABI lowering is partial in V4. JIT (OrcJIT) is V4. |
@@ -991,29 +991,28 @@ the rest is V4.
 > the runtime drop-flag site for locals moved on only some branches, and loop
 > re-entry preserves incoming drop state instead of replaying header
 > declarations.
-> Borrowed return types now flow through TY/MIR; Meiya accepts direct and
-> same-block local reloan returns from borrowed parameters and ordinary task
-> forwarding calls with exactly one compatible borrowed source parameter.
-> TY selects the unique source, MIR maps it to the normalized call argument,
-> and Meiya follows it recursively through calls and acyclic CFG holder joins
-> when every reachable definition resolves to the same source. Ambiguous
-> multi-input calls and joins diagnose instead of selecting a convenient
-> lifetime. Clean returns emit queryable `ReturnLoan` / `ReturnLoanMut` path
-> facts that survive borrowck snapshot restore and participate in source-change
-> invalidation. Meiya rejects a returned loan into callee-owned storage and
-> rejects upgrading an immutable lend to a returned mutable lend. Storing a
-> borrowed result from a call now propagates
-> explicit lend-argument provenance into the receiving local so owner moves and
-> rewrites stay blocked while that view is live. Copied shared view holders
-> retain that provenance through local alias chains, so the source loan remains
-> live until the final alias use. Rebinding a local holder kills only that
-> holder's provenance; aliases copied earlier remain linked to the source,
-> restoring a holder from one of those aliases restores its provenance, and
-> exact holder self-assignment preserves the existing loan edge. Method,
-> dynamic, and callback forwarding, loop-carried join fixed points, explicit
-> named-region relationships, and general interprocedural region constraints
-> still require the later region solver and remain conservatively rejected.
-> Lifetime tokens and signature contracts exist, and the first
+> Borrowed return types now flow through TY/MIR. Ordinary tasks may bind
+> `lend 'a p: T` / `lend mut 'a p: T` and return `lend 'a U` /
+> `lend mut 'a U`; `'_` requests elision. TY selects exactly one
+> borrow-capable parameter carrying a named return lifetime, without filtering
+> by top-level pointee type because a valid return may be a field projection.
+> Meiya then verifies the body origin and follows it through projections,
+> local holders, nested ordinary calls, reordered named arguments, and acyclic
+> CFG joins. MIR erases the callee binder spelling at the caller while keeping
+> the concrete owner path as queryable `ReturnLoan` / `ReturnLoanMut` facts.
+> Those facts survive borrowck/editor snapshot restore and source-change
+> invalidation. Stored call results and copied holder aliases retain the source
+> through their final reachable use; ambiguous calls conservatively retain all
+> possible sources. Rebinding kills only that holder's provenance, restoring
+> from a descendant alias creates a new tracked state, and exact self-assignment
+> preserves the existing edge. Meiya rejects callee-owned escapes,
+> immutable-to-mutable upgrades, wrong-lifetime origins, repeated named source
+> lifetimes, malformed lend targets, and `'static` borrowed contracts. Named
+> lends remain forbidden in shapes, routes, aliases, nested containers,
+> callbacks, and doctrine methods until aggregate provenance exists. Method,
+> dynamic, and callback forwarding, loop-carried joins, multi-source named
+> regions, and general interprocedural outlives constraints still require the
+> later region solver. Lifetime tokens and signature contracts exist, and the first
 > `Shared<T>` / `Weak<T>` method surface now lowers through TY/MIR/Meiya with
 > direct weak-borrow and escaping-guard diagnostics. `trust me ... on my honor
 > as .level` now validates `.cadet` / `.pilot` / `.ace` / `.commander` /
@@ -1099,6 +1098,13 @@ shape Important<'a> {
     content: lend 'a word
 }
 ```
+
+> **⚠️ V4 partial:** the current 00-Unit slice supports a named returned loan
+> only when that lifetime identifies exactly one ordinary-task lend parameter.
+> The `longer<'a>` multi-source relationship above and lifetime-bearing shape
+> storage remain the specification target; Meiya rejects them until source-set
+> regions and aggregate provenance land. `'_` remains elided, while declaring
+> `'static` or `'_` as a generic binder is invalid.
 
 ### 4.4 Shared Ownership and Aliasing
 
@@ -1901,10 +1907,10 @@ Rules:
 ## SECTION 8: FULL LEXER SPECIFICATION
 
 **Status (v0.14.0): ⚠️ Partial.** All v0.13.x keywords lex correctly
-(verified by `freak audit-conformance`). **🔜 V4:** lifetime tokens
-(`'a`), numeric suffixes (`42u`, `3.14f`, `42t`, `999b`), the `\|\|`
-xm3 branch separator (currently lexed as logical OR), and tolerant-
-lexer recovery for IDE mode (§17).
+(verified by `freak audit-conformance`). V4 token streams now carry lifetime
+tokens (`'a`) and numeric suffixes (`42u`, `3.14f`, `42t`, `999b`).
+**🔜 V4:** the `\|\|` xm3 branch separator (currently lexed as logical OR)
+and remaining tolerant-lexer recovery depth for IDE mode (§17).
 
 > **Compiler divergence note:** the v1 (Python) lexer in `freakc/lexer.py`
 > and the v3 (self-hosting) lexer in `src/compiler/v3/lexer.fk` accept

@@ -375,8 +375,9 @@ task v4_editor_signature_param_name_span(ty_id: int, sig_id: int, param_name: wo
     if stream_id < 0 or start_token < 0 {
         give back V4_NO_SPAN
     }
-    pilot name_token = v4_ty_skip_trivia(stream_id, start_token)
-    if name_token < 0 {
+    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    pilot name_token = v4_ty_find_token_value(stream_id, start_token, end_token, param_name)
+    if name_token < 0 or name_token >= end_token {
         give back V4_NO_SPAN
     }
     give back v4_lex_token_span(stream_id, name_token)
@@ -648,7 +649,7 @@ task v4_editor_method_call_is_instance(call_op: word, method_name: word) -> bool
 
 task v4_editor_method_lookup_owner_ty(owner_ty: word) -> word {
     if v4_ty_is_lend_type(owner_ty) {
-        give back v4_ty_lend_type(v4_mir_compact_type_text(v4_ty_lend_target_type(owner_ty)), v4_ty_lend_mode(owner_ty))
+        give back v4_ty_lend_type_with_lifetime(v4_mir_compact_type_text(v4_ty_lend_target_type(owner_ty)), v4_ty_lend_mode(owner_ty), v4_ty_lend_lifetime(owner_ty))
     }
     give back v4_mir_compact_type_text(owner_ty)
 }
@@ -2081,9 +2082,14 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
     if kind == "Lifetime" {
         hir_item = v4_semantic_at_hir_item(semantic_id)
         if hir_item >= 0 {
-            span = v4_hir_item_span(hir_id, hir_item)
-            span = v4_editor_lifetime_decl_span(stream_id, span, name)
-            found = 1
+            pilot lifetime_sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
+            if lifetime_sig_id >= 0 and v4_ty_signature_declares_lifetime_name(ty_id, lifetime_sig_id, name) {
+                span = v4_hir_item_span(hir_id, hir_item)
+                span = v4_editor_lifetime_decl_span(stream_id, span, name)
+                if v4_span_end(span) > v4_span_start(span) {
+                    found = 1
+                }
+            }
         }
     } else if kind == "Parameter" {
         pilot owner_def = v4_editor_param_owner_def(def_id)
