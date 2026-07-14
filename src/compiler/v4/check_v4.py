@@ -388,6 +388,8 @@ EXECUTABLE_SMOKES = [
     {
         "name": "unit snapshot current/restore",
         "fixture": "unit_snapshot_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
         "timeout": 180,
         "expect": [
             "00-unit-snapshot-ref|name=before",
@@ -400,6 +402,16 @@ EXECUTABLE_SMOKES = [
             "ok|workspace/unitSnapshotHealth",
             "00-unit-snapshot-restore ok=1",
             "ok|workspace/unitSnapshotRestore",
+            "unit-snapshot-integrity|case=missing-section|pass=true",
+            "unit-snapshot-integrity|case=duplicate-section|pass=true",
+            "unit-snapshot-integrity|case=corrupt-inner-payload|pass=true",
+            "unit-snapshot-integrity|case=unknown-section|pass=true",
+            "unit-snapshot-integrity|case=invalid-restore-rejected|pass=true",
+            "unit-snapshot-integrity|case=preflight-preserves-source-text|pass=true",
+            "unit-snapshot-integrity|case=preflight-preserves-source-revision|pass=true",
+            "unit-snapshot-integrity|case=valid-restore|pass=true",
+            "unit-snapshot-integrity|case=valid-restore-source-text|pass=true",
+            "unit-snapshot-integrity|case=valid-restore-source-revision|pass=true",
         ],
     },
     {
@@ -2192,6 +2204,8 @@ EXECUTABLE_SMOKES = [
     {
         "name": "named lifetime editor and LSP facts",
         "fixture": "named_lifetime_editor_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
         "expect": [
             "named-lifetime-editor-param-region-kind=Lifetime",
             "named-lifetime-editor-param-region-type=lifetime 'left on task select_left",
@@ -2263,6 +2277,8 @@ EXECUTABLE_SMOKES = [
     {
         "name": "returned-loan query invalidation",
         "fixture": "lend_return_query_invalidation_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
         "expect": [
             "lend-return-query-before-diagnostics=0",
             "lend-return-query-before-message=none",
@@ -2942,6 +2958,7 @@ EXECUTABLE_SMOKES = [
             "contract-region-elided-query-before-hover=lend Ship",
             "contract-region-elided-query-before-definition=1",
             "contract-region-elided-query-editor-offset-stable=true",
+            "contract-region-elided-query-ty-restore-poisoned=true",
             "contract-region-elided-query-ty-restore-slot-applied=true",
             "contract-region-elided-query-ty-restored-source-count=2",
             "contract-region-elided-query-ty-restored-source0=first",
@@ -3037,7 +3054,9 @@ EXECUTABLE_SMOKES = [
             "contract-region-resource-canonical-path-rebuild-correct=true",
             "contract-region-resource-cache-evictions-observed=true",
             "contract-region-resource-hot-reuse-stable=true",
+            "contract-region-resource-steady-state-evictions-stable=true",
             "contract-region-resource-no-historical-growth=true",
+            "contract-region-resource-runtime-array-growth=true",
             "contract-region-resource-opaque-conservative=true",
             "contract-region-resource-bounds-opaque=true",
         ],
@@ -7774,6 +7793,40 @@ def select_smokes(filters: list[str], excludes: list[str], shard_spec: str) -> l
     return apply_smoke_shard(selected, shard_spec)
 
 
+def keyed_output_prefix(line: str) -> str | None:
+    """Return the stable key prefix for a key=value output record."""
+    key, separator, _ = line.partition("=")
+    if not separator or not key or "|" in key:
+        return None
+    return key + separator
+
+
+def unique_output_failures(
+    registered_lines: list[str], output_line_counts: Counter[str]
+) -> list[tuple[str, int, int, int | None]]:
+    failures: list[tuple[str, int, int, int | None]] = []
+    registered_counts = Counter(registered_lines)
+    for line, registered_count in registered_counts.items():
+        output_count = output_line_counts[line]
+        key_prefix = keyed_output_prefix(line)
+        keyed_output_count = None
+        if key_prefix is not None:
+            keyed_output_count = sum(
+                count
+                for output_line, count in output_line_counts.items()
+                if output_line.startswith(key_prefix)
+            )
+        if (
+            registered_count != 1
+            or output_count != 1
+            or (keyed_output_count is not None and keyed_output_count != 1)
+        ):
+            failures.append(
+                (line, registered_count, output_count, keyed_output_count)
+            )
+    return failures
+
+
 def check_executable_smokes(
     base_source: str,
     smokes: list[dict[str, object]],
@@ -7832,22 +7885,26 @@ def check_executable_smokes(
             missing = [needle for needle in smoke["expect"] if needle not in output]
         missing_exact = [line for line in smoke.get("expect_exact", []) if line not in output_lines]
         missing.extend(missing_exact)
-        unique_failures: list[tuple[str, int, int]] = []
+        unique_failures: list[tuple[str, int, int, int | None]] = []
         if smoke.get("expect_unique"):
             registered_lines = [*smoke["expect"], *smoke.get("expect_exact", [])]
-            registered_counts = Counter(registered_lines)
-            for line, registered_count in registered_counts.items():
-                output_count = output_line_counts[line]
-                if registered_count != 1 or output_count != 1:
-                    unique_failures.append((line, registered_count, output_count))
+            unique_failures = unique_output_failures(
+                registered_lines, output_line_counts
+            )
         if missing or unique_failures:
             print(f"runtime smoke failed: {label}")
             for needle in missing:
                 print(f"missing output: {needle}")
-            for line, registered_count, output_count in unique_failures:
+            for line, registered_count, output_count, keyed_output_count in unique_failures:
+                keyed_detail = (
+                    ""
+                    if keyed_output_count is None
+                    else f" keyed_emitted={keyed_output_count}"
+                )
                 print(
                     "non-unique output: "
-                    f"registered={registered_count} emitted={output_count} line={line}"
+                    f"registered={registered_count} emitted={output_count}"
+                    f"{keyed_detail} line={line}"
                 )
             print(output[:4000])
             raise SystemExit(1)

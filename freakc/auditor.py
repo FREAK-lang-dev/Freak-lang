@@ -591,7 +591,71 @@ _EXECUTABLE_SMOKE_MUTATORS = frozenset(
 _EXECUTABLE_SMOKE_OPERATOR_MUTATORS = frozenset(
     {"delitem", "iadd", "imul", "setitem"}
 )
-_EXECUTABLE_SMOKE_READ_CALLS = frozenset({"len", "list", "tuple"})
+_EXECUTABLE_SMOKE_READ_CALLS = frozenset(
+    {
+        "all",
+        "any",
+        "bool",
+        "enumerate",
+        "iter",
+        "len",
+        "list",
+        "print",
+        "repr",
+        "reversed",
+        "sorted",
+        "str",
+        "tuple",
+    }
+)
+_EXECUTABLE_SMOKE_READ_METHODS = frozenset(
+    {"__contains__", "copy", "count", "get", "index", "items", "keys", "values"}
+)
+_EXECUTABLE_SMOKE_SCALAR_FIELDS = frozenset(
+    {"fixture", "name", "expect_mode", "expect_unique", "timeout"}
+)
+_MANIFEST_SEQUENCE_ALIAS = "sequence"
+_MANIFEST_ENTRY_ALIAS = "entry"
+_MANIFEST_MUTABLE_ALIAS = "mutable"
+_UNIT_SNAPSHOT_INTEGRITY_CASES = (
+    "missing-section",
+    "duplicate-section",
+    "corrupt-inner-payload",
+    "unknown-section",
+    "invalid-restore-rejected",
+    "preflight-preserves-source-text",
+    "preflight-preserves-source-revision",
+    "valid-restore",
+    "valid-restore-source-text",
+    "valid-restore-source-revision",
+)
+_UNIT_SNAPSHOT_INTEGRITY_ORACLES = tuple(
+    f"unit-snapshot-integrity|case={case_name}|pass=true"
+    for case_name in _UNIT_SNAPSHOT_INTEGRITY_CASES
+)
+_UNIT_SNAPSHOT_INTEGRITY_STRUCTURAL_NEEDLES = (
+    "task v4_unit_snapshot_integrity_assert(case_name: word, passed: bool) -> word {",
+    'pilot out = "unit-snapshot-integrity|case=" + case_name',
+) + tuple(
+    f'v4_unit_snapshot_integrity_assert("{case_name}",'
+    for case_name in _UNIT_SNAPSHOT_INTEGRITY_CASES
+)
+_EXPLICIT_STRICT_SMOKE_ORACLES: Dict[str, Tuple[str, ...]] = {
+    "lend_return_query_invalidation_smoke.fk": (),
+    "named_lifetime_editor_smoke.fk": (),
+    "shared_weak_smoke.fk": (
+        "shared-weak-guard-ty=result<SharedMut<Ship>,BorrowError>",
+        "shared-weak-clone-args=1",
+        "shared-weak-upgrade-args=1",
+        "shared-weak-borrow-status=clean",
+        "shared-weak-error-status=clean",
+        "shared-weak-direct-diagnostics=1",
+        "shared-weak-guard-escape-diagnostics=1",
+        "shared-weak-view-escape-status=blocked",
+        "shared-weak-view-escape-diagnostics=1",
+    ),
+    "unit_snapshot_smoke.fk": _UNIT_SNAPSHOT_INTEGRITY_ORACLES,
+}
 
 
 def _ast_contains_name(node: ast.AST, name: str) -> bool:
@@ -606,6 +670,8 @@ class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
 
     def __init__(self) -> None:
         self.errors: List[str] = []
+        self._alias_scopes: List[Dict[str, str]] = [{}]
+        self._collector_scopes: List[set[str]] = [set()]
 
     def _record(self, node: ast.AST, action: str) -> None:
         line = getattr(node, "lineno", "unknown")
@@ -614,26 +680,285 @@ class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
             f"{action} after its literal assignment at line {line}"
         )
 
-    def _target_mutates_manifest(self, target: ast.AST) -> bool:
+    def _push_scope(self) -> None:
+        self._alias_scopes.append({})
+        self._collector_scopes.append(set())
+
+    def _pop_scope(self) -> None:
+        self._alias_scopes.pop()
+        self._collector_scopes.pop()
+
+    def _name_alias_kind(self, name: str) -> Optional[str]:
+        if name == "EXECUTABLE_SMOKES":
+            return _MANIFEST_SEQUENCE_ALIAS
+        for scope in reversed(self._alias_scopes):
+            alias_kind = scope.get(name)
+            if alias_kind is not None:
+                return alias_kind
+        return None
+
+    @staticmethod
+    def _subscript_key(node: ast.Subscript) -> Optional[str]:
+        if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
+            return node.slice.value
+        return None
+
+    def _comprehension_carries_alias(
+        self, generators: List[ast.comprehension], value: ast.AST
+    ) -> bool:
+        alias_targets: set[str] = set()
+        for generator in generators:
+            if self._iteration_alias_kind(generator.iter) is not None:
+                alias_targets.update(self._target_names(generator.target))
+        return self._expression_carries_target_alias(value, alias_targets)
+
+    def _expression_carries_target_alias(
+        self, value: ast.AST, alias_targets: set[str]
+    ) -> bool:
+        if isinstance(value, ast.Name):
+            return value.id in alias_targets
+        if isinstance(value, ast.Starred):
+            return self._expression_carries_target_alias(value.value, alias_targets)
+        if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+            return any(
+                self._expression_carries_target_alias(item, alias_targets)
+                for item in value.elts
+            )
+        if isinstance(value, ast.Dict):
+            return any(
+                item is not None
+                and self._expression_carries_target_alias(item, alias_targets)
+                for item in [*value.keys, *value.values]
+            )
+        if isinstance(value, ast.Subscript) and isinstance(value.value, ast.Name):
+            if value.value.id not in alias_targets:
+                return False
+            key = self._subscript_key(value)
+            return key not in _EXECUTABLE_SMOKE_SCALAR_FIELDS
+        if isinstance(value, ast.Attribute):
+            return self._expression_carries_target_alias(value.value, alias_targets)
+        if isinstance(value, ast.Call):
+            if isinstance(value.func, ast.Name) and value.func.id == "dict":
+                return any(
+                    self._expression_carries_target_alias(argument, alias_targets)
+                    for argument in value.args
+                )
+            if isinstance(value.func, ast.Attribute) and value.func.attr == "copy":
+                return self._expression_carries_target_alias(
+                    value.func.value, alias_targets
+                )
+        return False
+
+    def _alias_kind(self, value: ast.AST) -> Optional[str]:
+        if isinstance(value, ast.Name):
+            return self._name_alias_kind(value.id)
+        if isinstance(value, ast.Starred):
+            return self._alias_kind(value.value)
+        if isinstance(value, ast.NamedExpr):
+            return self._alias_kind(value.value)
+        if isinstance(value, ast.IfExp):
+            return self._alias_kind(value.body) or self._alias_kind(value.orelse)
+        if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+            if any(self._alias_kind(item) is not None for item in value.elts):
+                return _MANIFEST_SEQUENCE_ALIAS
+            return None
+        if isinstance(value, ast.Dict):
+            if any(
+                item is not None and self._alias_kind(item) is not None
+                for item in [*value.keys, *value.values]
+            ):
+                return _MANIFEST_ENTRY_ALIAS
+            return None
+        if isinstance(value, ast.Subscript):
+            container_kind = self._alias_kind(value.value)
+            if container_kind == _MANIFEST_SEQUENCE_ALIAS:
+                if isinstance(value.slice, ast.Slice):
+                    return _MANIFEST_SEQUENCE_ALIAS
+                return _MANIFEST_ENTRY_ALIAS
+            if container_kind == _MANIFEST_ENTRY_ALIAS:
+                key = self._subscript_key(value)
+                if key in _EXECUTABLE_SMOKE_SCALAR_FIELDS:
+                    return None
+                return _MANIFEST_MUTABLE_ALIAS
+            return None
+        if isinstance(value, ast.Attribute):
+            if self._alias_kind(value.value) is not None:
+                return _MANIFEST_MUTABLE_ALIAS
+            return None
+        if isinstance(value, ast.Call):
+            if isinstance(value.func, ast.Name) and value.args:
+                argument_kind = self._alias_kind(value.args[0])
+                if value.func.id in {"list", "tuple", "sorted"}:
+                    if argument_kind == _MANIFEST_SEQUENCE_ALIAS:
+                        return _MANIFEST_SEQUENCE_ALIAS
+                if value.func.id in {"enumerate", "iter", "reversed"}:
+                    if argument_kind == _MANIFEST_SEQUENCE_ALIAS:
+                        return _MANIFEST_SEQUENCE_ALIAS
+                if value.func.id == "dict" and argument_kind == _MANIFEST_ENTRY_ALIAS:
+                    return _MANIFEST_ENTRY_ALIAS
+            if isinstance(value.func, ast.Attribute):
+                receiver_kind = self._alias_kind(value.func.value)
+                if value.func.attr == "copy":
+                    return receiver_kind
+                if receiver_kind == _MANIFEST_ENTRY_ALIAS:
+                    if value.func.attr == "get" and value.args:
+                        key = value.args[0]
+                        if (
+                            isinstance(key, ast.Constant)
+                            and key.value in _EXECUTABLE_SMOKE_SCALAR_FIELDS
+                        ):
+                            return None
+                        return _MANIFEST_MUTABLE_ALIAS
+                    if value.func.attr in {"items", "values"}:
+                        return _MANIFEST_SEQUENCE_ALIAS
+            return None
+        if isinstance(value, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+            if self._comprehension_carries_alias(value.generators, value.elt):
+                return _MANIFEST_SEQUENCE_ALIAS
+            return None
+        if isinstance(value, ast.DictComp):
+            if self._comprehension_carries_alias(
+                value.generators, value.key
+            ) or self._comprehension_carries_alias(
+                value.generators,
+                value.value,
+            ):
+                return _MANIFEST_ENTRY_ALIAS
+            return None
+        if isinstance(value, ast.BinOp) and isinstance(value.op, (ast.Add, ast.Mult)):
+            if self._alias_kind(value.left) == _MANIFEST_SEQUENCE_ALIAS or self._alias_kind(
+                value.right
+            ) == _MANIFEST_SEQUENCE_ALIAS:
+                return _MANIFEST_SEQUENCE_ALIAS
+        return None
+
+    @staticmethod
+    def _target_names(target: ast.AST) -> set[str]:
         if isinstance(target, ast.Name):
-            return target.id == "EXECUTABLE_SMOKES"
-        if isinstance(target, (ast.Attribute, ast.Subscript)):
-            return _ast_contains_name(target, "EXECUTABLE_SMOKES")
+            return {target.id}
         if isinstance(target, (ast.List, ast.Tuple)):
-            return any(self._target_mutates_manifest(item) for item in target.elts)
+            names: set[str] = set()
+            for item in target.elts:
+                names.update(_TopLevelManifestMutationVisitor._target_names(item))
+            return names
         if isinstance(target, ast.Starred):
-            return self._target_mutates_manifest(target.value)
+            return _TopLevelManifestMutationVisitor._target_names(target.value)
+        return set()
+
+    def _bind_alias(self, target: ast.AST, alias_kind: Optional[str]) -> None:
+        if alias_kind is None:
+            return
+        if isinstance(target, ast.Name):
+            if target.id != "EXECUTABLE_SMOKES":
+                self._alias_scopes[-1][target.id] = alias_kind
+            return
+        if isinstance(target, (ast.List, ast.Tuple)):
+            item_kind = (
+                _MANIFEST_ENTRY_ALIAS
+                if alias_kind == _MANIFEST_SEQUENCE_ALIAS
+                else alias_kind
+            )
+            for item in target.elts:
+                self._bind_alias(item, item_kind)
+            return
+        if isinstance(target, ast.Starred):
+            self._bind_alias(target.value, _MANIFEST_SEQUENCE_ALIAS)
+
+    def _mark_collector(self, target: ast.AST, value: Optional[ast.AST]) -> None:
+        if not isinstance(target, ast.Name) or value is None:
+            return
+        if isinstance(value, (ast.List, ast.Dict, ast.Set)) and not any(
+            self._alias_kind(child) is not None
+            for child in ast.iter_child_nodes(value)
+        ):
+            self._collector_scopes[-1].add(target.id)
+
+    def _is_local_collector(self, value: ast.AST) -> bool:
+        return (
+            isinstance(value, ast.Name)
+            and value.id in self._collector_scopes[-1]
+            and len(self._collector_scopes) > 1
+        )
+
+    def _target_mutates_manifest(
+        self, target: ast.AST, *, include_alias_name: bool = False
+    ) -> bool:
+        if isinstance(target, ast.Name):
+            return target.id == "EXECUTABLE_SMOKES" or (
+                include_alias_name and self._name_alias_kind(target.id) is not None
+            )
+        if isinstance(target, (ast.Attribute, ast.Subscript)):
+            return self._alias_kind(target.value) is not None or _ast_contains_name(
+                target, "EXECUTABLE_SMOKES"
+            )
+        if isinstance(target, (ast.List, ast.Tuple)):
+            return any(
+                self._target_mutates_manifest(
+                    item, include_alias_name=include_alias_name
+                )
+                for item in target.elts
+            )
+        if isinstance(target, ast.Starred):
+            return self._target_mutates_manifest(
+                target.value, include_alias_name=include_alias_name
+            )
         return False
 
     @staticmethod
     def _is_direct_manifest_alias(value: ast.AST) -> bool:
         return isinstance(value, ast.Name) and value.id == "EXECUTABLE_SMOKES"
 
+    def _visit_function_inputs(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
+    ) -> None:
+        for default in [*node.args.defaults, *node.args.kw_defaults]:
+            if default is not None:
+                self.visit(default)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function_inputs(node)
+        self._push_scope()
+        for statement in node.body:
+            self.visit(statement)
+        self._pop_scope()
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_function_inputs(node)
+        self._push_scope()
+        for statement in node.body:
+            self.visit(statement)
+        self._pop_scope()
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+        self._push_scope()
+        for statement in node.body:
+            self.visit(statement)
+        self._pop_scope()
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self._visit_function_inputs(node)
+        self._push_scope()
+        self.visit(node.body)
+        self._pop_scope()
+
     def visit_Assign(self, node: ast.Assign) -> None:
         if any(self._target_mutates_manifest(target) for target in node.targets):
             self._record(node, "is rebound or assigned through")
         elif self._is_direct_manifest_alias(node.value):
             self._record(node, "escapes through a direct alias")
+        alias_kind = self._alias_kind(node.value)
+        for target in node.targets:
+            self._bind_alias(target, alias_kind)
+            self._mark_collector(target, node.value)
         self.visit(node.value)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
@@ -642,10 +967,12 @@ class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
         elif node.value is not None and self._is_direct_manifest_alias(node.value):
             self._record(node, "escapes through a direct alias")
         if node.value is not None:
+            self._bind_alias(node.target, self._alias_kind(node.value))
+            self._mark_collector(node.target, node.value)
             self.visit(node.value)
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
-        if self._target_mutates_manifest(node.target):
+        if self._target_mutates_manifest(node.target, include_alias_name=True):
             self._record(node, "is augmented")
         self.visit(node.value)
 
@@ -658,17 +985,59 @@ class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
             self._record(node, "is rebound by a named expression")
         elif self._is_direct_manifest_alias(node.value):
             self._record(node, "escapes through a direct alias")
+        self._bind_alias(node.target, self._alias_kind(node.value))
         self.visit(node.value)
 
     def visit_For(self, node: ast.For) -> None:
         if self._target_mutates_manifest(node.target):
             self._record(node, "is rebound by a for target")
-        self.generic_visit(node)
+        self.visit(node.iter)
+        self._bind_alias(node.target, self._iteration_alias_kind(node.iter))
+        for statement in [*node.body, *node.orelse]:
+            self.visit(statement)
 
     def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
         if self._target_mutates_manifest(node.target):
             self._record(node, "is rebound by an async-for target")
-        self.generic_visit(node)
+        self.visit(node.iter)
+        self._bind_alias(node.target, self._iteration_alias_kind(node.iter))
+        for statement in [*node.body, *node.orelse]:
+            self.visit(statement)
+
+    def _iteration_alias_kind(self, iterable: ast.AST) -> Optional[str]:
+        iterable_kind = self._alias_kind(iterable)
+        if iterable_kind == _MANIFEST_SEQUENCE_ALIAS:
+            return _MANIFEST_ENTRY_ALIAS
+        return None
+
+    def _visit_comprehension(
+        self,
+        generators: List[ast.comprehension],
+        values: List[ast.AST],
+    ) -> None:
+        self._push_scope()
+        for generator in generators:
+            self.visit(generator.iter)
+            self._bind_alias(
+                generator.target, self._iteration_alias_kind(generator.iter)
+            )
+            for condition in generator.ifs:
+                self.visit(condition)
+        for value in values:
+            self.visit(value)
+        self._pop_scope()
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        self._visit_comprehension(node.generators, [node.key, node.value])
 
     def visit_With(self, node: ast.With) -> None:
         for item in node.items:
@@ -726,21 +1095,22 @@ class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call) -> None:
         mutation_recorded = False
         if isinstance(node.func, ast.Attribute):
-            receiver_is_manifest = _ast_contains_name(
+            receiver_kind = self._alias_kind(node.func.value)
+            receiver_is_manifest = receiver_kind is not None or _ast_contains_name(
                 node.func.value, "EXECUTABLE_SMOKES"
             )
             builtin_mutates_manifest = (
                 isinstance(node.func.value, ast.Name)
                 and node.func.value.id in {"dict", "list"}
                 and node.args
-                and _ast_contains_name(node.args[0], "EXECUTABLE_SMOKES")
+                and self._alias_kind(node.args[0]) is not None
             )
             operator_mutates_manifest = (
                 isinstance(node.func.value, ast.Name)
                 and node.func.value.id == "operator"
                 and node.func.attr in _EXECUTABLE_SMOKE_OPERATOR_MUTATORS
                 and node.args
-                and _ast_contains_name(node.args[0], "EXECUTABLE_SMOKES")
+                and self._alias_kind(node.args[0]) is not None
             )
             if (
                 node.func.attr in _EXECUTABLE_SMOKE_MUTATORS
@@ -748,30 +1118,119 @@ class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
             ) or operator_mutates_manifest:
                 self._record(node, f"is mutated via {node.func.attr}()")
                 mutation_recorded = True
+            elif (
+                receiver_kind is not None
+                and node.func.attr not in _EXECUTABLE_SMOKE_READ_METHODS
+            ):
+                self._record(node, f"escapes through {node.func.attr}()")
+                mutation_recorded = True
         elif (
             isinstance(node.func, ast.Name)
             and node.func.id in {"delattr", "setattr"}
             and node.args
-            and _ast_contains_name(node.args[0], "EXECUTABLE_SMOKES")
+            and self._alias_kind(node.args[0]) is not None
         ):
             self._record(node, f"is mutated via {node.func.id}()")
             mutation_recorded = True
 
-        direct_manifest_argument = any(
-            self._is_direct_manifest_alias(
+        alias_arguments = [
+            self._alias_kind(
                 argument.value if isinstance(argument, ast.Starred) else argument
             )
             for argument in node.args
-        ) or any(
-            self._is_direct_manifest_alias(keyword.value) for keyword in node.keywords
-        )
+        ] + [self._alias_kind(keyword.value) for keyword in node.keywords]
+        has_alias_argument = any(kind is not None for kind in alias_arguments)
         read_only_call = (
             isinstance(node.func, ast.Name)
             and node.func.id in _EXECUTABLE_SMOKE_READ_CALLS
         )
-        if direct_manifest_argument and not read_only_call and not mutation_recorded:
-            self._record(node, "escapes through a direct call argument")
+        local_collection = (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"append", "extend", "insert"}
+            and self._is_local_collector(node.func.value)
+        )
+        if has_alias_argument and local_collection and not mutation_recorded:
+            self._bind_alias(node.func.value, _MANIFEST_SEQUENCE_ALIAS)
+        elif has_alias_argument and not read_only_call and not mutation_recorded:
+            self._record(node, "escapes through an alias call argument")
         self.generic_visit(node)
+
+
+_MANIFEST_GUARD_SELF_CHECKS = (
+    (
+        "shallow-list-nested-mutation",
+        "copies = list(EXECUTABLE_SMOKES)\n"
+        "copies[0]['expect'].append('forged')\n",
+        "is mutated via append()",
+    ),
+    (
+        "shallow-tuple-nested-assignment",
+        "copies = tuple(EXECUTABLE_SMOKES)\n"
+        "copies[0]['expect'][0] = 'forged'\n",
+        "is rebound or assigned through",
+    ),
+    (
+        "shallow-copy-helper-escape",
+        "copies = list(EXECUTABLE_SMOKES)\n"
+        "mutate_smoke(copies[0])\n",
+        "escapes through an alias call argument",
+    ),
+    (
+        "iteration-nested-mutation",
+        "for smoke in EXECUTABLE_SMOKES:\n"
+        "    smoke['expect'].append('forged')\n",
+        "is mutated via append()",
+    ),
+    (
+        "iteration-helper-escape",
+        "for smoke in tuple(EXECUTABLE_SMOKES):\n"
+        "    mutate_smoke(smoke)\n",
+        "escapes through an alias call argument",
+    ),
+)
+_MANIFEST_GUARD_READ_ONLY_SELF_CHECKS = (
+    (
+        "direct-read",
+        "manifest_size = len(EXECUTABLE_SMOKES)\n",
+    ),
+    (
+        "shallow-copy-read",
+        "copies = list(EXECUTABLE_SMOKES)\n"
+        "copy_size = len(copies)\n"
+        "first_name = copies[0]['name']\n",
+    ),
+    (
+        "iteration-read",
+        "for smoke in tuple(EXECUTABLE_SMOKES):\n"
+        "    print(smoke['fixture'])\n",
+    ),
+)
+
+
+def _manifest_guard_self_check() -> List[str]:
+    failures: List[str] = []
+    for case_name, source, required_fragment in _MANIFEST_GUARD_SELF_CHECKS:
+        module = ast.parse(source, filename=f"manifest-guard:{case_name}")
+        visitor = _TopLevelManifestMutationVisitor()
+        for node in module.body:
+            visitor.visit(node)
+        if not any(required_fragment in error for error in visitor.errors):
+            failures.append(
+                "auditor manifest guard self-check failed to reject "
+                f"{case_name}: expected {required_fragment!r}, got {visitor.errors!r}"
+            )
+
+    for case_name, source in _MANIFEST_GUARD_READ_ONLY_SELF_CHECKS:
+        module = ast.parse(source, filename=f"manifest-guard:{case_name}")
+        visitor = _TopLevelManifestMutationVisitor()
+        for node in module.body:
+            visitor.visit(node)
+        if visitor.errors:
+            failures.append(
+                "auditor manifest guard self-check rejected read-only case "
+                f"{case_name}: {visitor.errors!r}"
+            )
+    return failures
 
 
 def _literal_executable_smokes(
@@ -830,7 +1289,10 @@ def _literal_executable_smokes(
 
     smokes: Dict[str, _LiteralExecutableSmoke] = {}
     seen_fixtures: Dict[str, int] = {}
-    errors: List[str] = list(mutation_visitor.errors)
+    errors: List[str] = [
+        *_manifest_guard_self_check(),
+        *mutation_visitor.errors,
+    ]
     for index, entry in enumerate(manifest):
         if not isinstance(entry, dict):
             errors.append(f"EXECUTABLE_SMOKES[{index}]: entry must be a literal dict")
@@ -913,6 +1375,35 @@ def _literal_executable_smokes(
         )
 
     return smokes, errors
+
+
+def _explicit_strict_smoke_errors(
+    smokes: Dict[str, _LiteralExecutableSmoke], fixtures: Tuple[str, ...]
+) -> List[str]:
+    errors: List[str] = []
+    for fixture in fixtures:
+        smoke = smokes.get(fixture)
+        if smoke is None:
+            errors.append(f"EXECUTABLE_SMOKES: {fixture} entry missing")
+            continue
+        if smoke.expect_mode != "line":
+            errors.append(
+                f"EXECUTABLE_SMOKES: {fixture} expect_mode must be 'line'"
+            )
+        if smoke.expect_unique is not True:
+            errors.append(
+                f"EXECUTABLE_SMOKES: {fixture} expect_unique must be true"
+            )
+        if smoke.expect_exact:
+            errors.append(
+                f"EXECUTABLE_SMOKES: {fixture} must keep every exact line in expect"
+            )
+        for expected in _EXPLICIT_STRICT_SMOKE_ORACLES[fixture]:
+            if expected not in smoke.expect:
+                errors.append(
+                    f"EXECUTABLE_SMOKES: {fixture} missing expected value {expected!r}"
+                )
+    return errors
 
 
 def audit_conformance(paths: List[Path]) -> int:
@@ -1560,7 +2051,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 "V4 partial — Meiya is waking up",
                 "Borrowed return types now flow through TY/MIR.",
                 "(ty_id, sig_id)",
-                "all seventeen query/aggregate/compiler/editor",
+                "all 17\n> invalidation report fields",
+                "14 concrete query families",
+                "three aggregate\n> totals",
                 "`some(...)`, `ok(...)`",
                 "bounded rings",
                 "general reclamation",
@@ -1575,7 +2068,9 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 "Contract-region checkpoint (**⚠️ V4 partial**)",
                 "(ty_id, sig_id)",
-                "all seventeen registered",
+                "all 17 report fields",
+                "14 concrete query families",
+                "three aggregate totals",
                 "`some(...)`, `ok(...)`",
                 "canonical-value",
                 "arena reclamation remains open",
@@ -1589,7 +2084,9 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 "Implemented Contract-Region Checkpoint (V4 Partial)",
                 "(ty_id, sig_id)",
-                "all seventeen registered",
+                "17 invalidation report fields",
+                "14 concrete query families",
+                "three aggregate totals",
                 "`some(...)`, `ok(...)`",
                 "bounded ring",
                 "append-only compiler",
@@ -1604,7 +2101,9 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 "Borrowed return types now carry through TY/MIR.",
                 "(ty_id, sig_id)",
-                "all seventeen registered",
+                "all 17 report fields: 14",
+                "concrete query families",
+                "three refreshed aggregate totals",
                 "`some(...)`, `ok(...)`",
                 "bounded rings",
                 "arena reclamation remains separate work",
@@ -1804,6 +2303,9 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "freak_array_reserve_handle",
             "freak_dyn_array*)realloc(",
+            "static void freak_array_reserve_elements(",
+            "old_capacity > INT64_MAX / 2",
+            "(uint64_t)new_capacity > SIZE_MAX / sizeof(freak_word)",
         ):
             if needle not in runtime_src:
                 contract_region_missing.append(f"freak_runtime.c: {needle}")
@@ -2161,6 +2663,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 'v4_lsp_handle_text_request("textDocument/didChange", v4_contract_region_elided_query_path, v4_contract_region_elided_query_after, 0)',
                 "contract-region-elided-query-before-source-count=",
                 "contract-region-elided-query-before-call-source-count=",
+                "contract-region-elided-query-ty-restore-poisoned=",
                 "contract-region-elided-query-ty-restore-cache-builds-added=",
                 "contract-region-elided-query-query-invalidations-added=",
                 "contract-region-elided-query-core-invalidations-added=",
@@ -2189,7 +2692,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 "v4_borrowck_provenance_integer_intern_capacity()",
                 "v4_borrowck_path_canon_value_cache_count()",
                 "contract-region-resource-cache-evictions-observed=",
+                "contract-region-resource-steady-state-evictions-stable=",
                 "contract-region-resource-hot-reuse-stable=",
+                "contract-region-resource-runtime-array-growth=",
                 "contract-region-resource-generation-sequence=",
                 "contract-region-resource-memo-hits=",
                 "contract-region-resource-capacities-reused=",
@@ -2775,6 +3280,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-elided-query-before-hover=lend Ship",
             "contract-region-elided-query-before-definition=1",
             "contract-region-elided-query-editor-offset-stable=true",
+            "contract-region-elided-query-ty-restore-poisoned=true",
             "contract-region-elided-query-ty-restore-slot-applied=true",
             "contract-region-elided-query-ty-restored-source-count=2",
             "contract-region-elided-query-ty-restored-source0=first",
@@ -2864,7 +3370,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-resource-canonical-path-rebuild-correct=true",
             "contract-region-resource-cache-evictions-observed=true",
             "contract-region-resource-hot-reuse-stable=true",
+            "contract-region-resource-steady-state-evictions-stable=true",
             "contract-region-resource-no-historical-growth=true",
+            "contract-region-resource-runtime-array-growth=true",
             "contract-region-resource-opaque-conservative=true",
             "contract-region-resource-bounds-opaque=true",
         ),
@@ -2889,23 +3397,35 @@ def audit_conformance(paths: List[Path]) -> int:
                 contract_region_missing.append(
                     f"EXECUTABLE_SMOKES: {fixture} has no literal contract-region oracle"
                 )
+        contract_region_explicit_strict = (
+            "lend_return_query_invalidation_smoke.fk",
+            "named_lifetime_editor_smoke.fk",
+        )
+        contract_region_missing.extend(
+            _explicit_strict_smoke_errors(
+                harness_smokes, contract_region_explicit_strict
+            )
+        )
+        for fixture, smoke in harness_smokes.items():
+            if not fixture.startswith("contract_region_"):
+                continue
+            if smoke.expect_mode != "line":
+                contract_region_missing.append(
+                    f"EXECUTABLE_SMOKES: {fixture} expect_mode must be 'line'"
+                )
+            if smoke.expect_unique is not True:
+                contract_region_missing.append(
+                    f"EXECUTABLE_SMOKES: {fixture} expect_unique must be true"
+                )
+            if smoke.expect_exact:
+                contract_region_missing.append(
+                    f"EXECUTABLE_SMOKES: {fixture} must keep every exact line in expect"
+                )
         for fixture, required_expects in required_harness_expects.items():
             smoke = harness_smokes.get(fixture)
             if smoke is None:
                 continue
             if fixture.startswith("contract_region_"):
-                if smoke.expect_mode != "line":
-                    contract_region_missing.append(
-                        f"EXECUTABLE_SMOKES: {fixture} expect_mode must be 'line'"
-                    )
-                if smoke.expect_unique is not True:
-                    contract_region_missing.append(
-                        f"EXECUTABLE_SMOKES: {fixture} expect_unique must be true"
-                    )
-                if smoke.expect_exact:
-                    contract_region_missing.append(
-                        f"EXECUTABLE_SMOKES: {fixture} must keep every exact line in expect"
-                    )
                 if smoke.expect != required_expects:
                     contract_region_missing.append(
                         f"EXECUTABLE_SMOKES: {fixture} expectation list does not exactly match the auditor oracle"
@@ -3122,23 +3642,15 @@ def audit_conformance(paths: List[Path]) -> int:
     else:
         shared_weak_missing.append("smoke fixture: shared_weak_smoke.fk")
     if v4_check_harness_return.exists():
-        harness_src = v4_check_harness_return.read_text(encoding="utf-8")
-        if "shared-weak-guard-ty=result<SharedMut<Ship>,BorrowError>" not in harness_src:
-            shared_weak_missing.append("check_v4.py: SharedMut type expectation")
-        if "shared-weak-direct-diagnostics=1" not in harness_src:
-            shared_weak_missing.append("check_v4.py: weak direct borrow expectation")
-        if "shared-weak-error-status=clean" not in harness_src:
-            shared_weak_missing.append("check_v4.py: SharedMut result error expectation")
-        if "shared-weak-clone-args=1" not in harness_src:
-            shared_weak_missing.append("check_v4.py: Shared clone receiver argument expectation")
-        if "shared-weak-upgrade-args=1" not in harness_src:
-            shared_weak_missing.append("check_v4.py: Weak upgrade receiver argument expectation")
-        if "shared-weak-guard-escape-diagnostics=1" not in harness_src:
-            shared_weak_missing.append("check_v4.py: guard escape expectation")
-        if "shared-weak-view-escape-status=blocked" not in harness_src:
-            shared_weak_missing.append("check_v4.py: Shared borrow view escape expectation")
-        if "shared-weak-view-escape-diagnostics=1" not in harness_src:
-            shared_weak_missing.append("check_v4.py: Shared borrow view escape diagnostic expectation")
+        shared_smokes, shared_manifest_errors = _literal_executable_smokes(
+            v4_check_harness_return
+        )
+        shared_weak_missing.extend(shared_manifest_errors)
+        shared_weak_missing.extend(
+            _explicit_strict_smoke_errors(
+                shared_smokes, ("shared_weak_smoke.fk",)
+            )
+        )
     else:
         shared_weak_missing.append("check_v4.py harness missing")
     add(
@@ -3149,7 +3661,48 @@ def audit_conformance(paths: List[Path]) -> int:
     if shared_weak_missing:
         failures.append("V4 Shared/Weak ownership surface regressed: " + "; ".join(shared_weak_missing))
 
-    # Check 14: V4 training arc growth checks
+    # Check 14: V4 unit snapshot restore integrity
+    unit_snapshot_integrity_missing: List[str] = []
+    v4_unit_snapshot_smoke = (
+        repo / "src" / "compiler" / "v4" / "tests" / "unit_snapshot_smoke.fk"
+    )
+    if v4_unit_snapshot_smoke.exists():
+        unit_snapshot_src = v4_unit_snapshot_smoke.read_text(encoding="utf-8")
+        for needle in _UNIT_SNAPSHOT_INTEGRITY_STRUCTURAL_NEEDLES:
+            if needle not in unit_snapshot_src:
+                unit_snapshot_integrity_missing.append(
+                    f"unit_snapshot_smoke: {needle}"
+                )
+    else:
+        unit_snapshot_integrity_missing.append(
+            "smoke fixture: unit_snapshot_smoke.fk"
+        )
+    if v4_check_harness_return.exists():
+        snapshot_smokes, snapshot_manifest_errors = _literal_executable_smokes(
+            v4_check_harness_return
+        )
+        unit_snapshot_integrity_missing.extend(snapshot_manifest_errors)
+        unit_snapshot_integrity_missing.extend(
+            _explicit_strict_smoke_errors(
+                snapshot_smokes, ("unit_snapshot_smoke.fk",)
+            )
+        )
+    else:
+        unit_snapshot_integrity_missing.append("check_v4.py harness missing")
+    add(
+        "V4 unit snapshot integrity",
+        not unit_snapshot_integrity_missing,
+        "preflight rejection preserves source state and valid restore commits"
+        if not unit_snapshot_integrity_missing
+        else f"{len(unit_snapshot_integrity_missing)} gap(s)",
+    )
+    if unit_snapshot_integrity_missing:
+        failures.append(
+            "V4 unit snapshot integrity regressed: "
+            + "; ".join(unit_snapshot_integrity_missing)
+        )
+
+    # Check 15: V4 training arc growth checks
     growth_missing: List[str] = []
     v4_growth_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_loop_desugar_smoke.fk"
     v4_mir_lib_growth = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
@@ -3208,7 +3761,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if growth_missing:
         failures.append("V4 training arc growth checks regressed: " + "; ".join(growth_missing))
 
-    # Check 15: V4 alias nominality for doctrine impl targets
+    # Check 16: V4 alias nominality for doctrine impl targets
     # Aliases are compile-time substitutions. The V4 TY layer must reject
     # `impl Doctrine for Alias` instead of treating the alias as a fresh
     # nominal type. Keep the markers stable so the implementation lane can
@@ -3268,7 +3821,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if alias_nominality_missing:
         failures.append("V4 alias nominality doctrine-impl guard regressed: " + "; ".join(alias_nominality_missing))
 
-    # Check 16: V4 dyn Doctrine semantic/editor surface
+    # Check 17: V4 dyn Doctrine semantic/editor surface
     # This is intentionally a semantic/query guard, not a vtable-codegen claim.
     dyn_doctrine_missing: List[str] = []
     v4_lex_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_lex" / "src" / "lib.fk"
@@ -3401,7 +3954,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if dyn_doctrine_missing:
         failures.append("V4 dyn Doctrine semantic/editor surface regressed: " + "; ".join(dyn_doctrine_missing))
 
-    # Check 17: V4 direct recursive shape/variant rejection
+    # Check 18: V4 direct recursive shape/variant rejection
     # Owned recursion must not create infinite-size values. This guard checks
     # the semantic-core validator and smoke without claiming backend layout is complete.
     type_recursion_missing: List[str] = []
