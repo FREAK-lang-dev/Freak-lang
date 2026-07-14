@@ -1203,15 +1203,42 @@ typedef struct {
     int64_t capacity;
 } freak_dyn_array;
 
-#define FREAK_MAX_ARRAYS 256
-static freak_dyn_array freak_arrays[FREAK_MAX_ARRAYS];
+static freak_dyn_array* freak_arrays = NULL;
 static int64_t freak_array_count = 0;
+static int64_t freak_array_capacity = 0;
 
-int64_t freak_array_new(void) {
-    if (freak_array_count >= FREAK_MAX_ARRAYS) {
-        fprintf(stderr, "FREAK: too many arrays (max %d)\n", FREAK_MAX_ARRAYS);
+static void freak_array_reserve_handle(void) {
+    if (freak_array_count < freak_array_capacity) {
+        return;
+    }
+
+    int64_t old_capacity = freak_array_capacity;
+    int64_t new_capacity = old_capacity == 0 ? 256 : old_capacity * 2;
+    if (new_capacity <= old_capacity || (uint64_t)new_capacity > SIZE_MAX / sizeof(freak_dyn_array)) {
+        fprintf(stderr, "FREAK: array handle table is too large\n");
         exit(1);
     }
+
+    freak_dyn_array* grown = (freak_dyn_array*)realloc(
+        freak_arrays,
+        (size_t)new_capacity * sizeof(freak_dyn_array)
+    );
+    if (!grown) {
+        fprintf(stderr, "FREAK: out of memory growing array handle table\n");
+        exit(1);
+    }
+
+    memset(
+        grown + old_capacity,
+        0,
+        (size_t)(new_capacity - old_capacity) * sizeof(freak_dyn_array)
+    );
+    freak_arrays = grown;
+    freak_array_capacity = new_capacity;
+}
+
+int64_t freak_array_new(void) {
+    freak_array_reserve_handle();
     int64_t h = freak_array_count++;
     freak_arrays[h].length = 0;
     freak_arrays[h].capacity = 64;
