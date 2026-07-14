@@ -3083,6 +3083,7 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "v4_borrowck_check_shared_guard_escapes",
             "v4_borrowck_rvalue_returns_shared_mut_guard",
+            "v4_borrowck_call_is_shared_borrow_with_receiver",
             "Meiya refuses to let a SharedMut guard escape",
         ):
             if needle not in borrowck_src:
@@ -3112,7 +3113,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "weak.borrow()",
             "return_borrow_error",
             "leak_actual_guard",
+            "return_borrow_view",
             "shared-weak-guard-escape-diagnostics=",
+            "shared-weak-view-escape-diagnostics=",
         ):
             if needle not in smoke_src:
                 shared_weak_missing.append(f"shared_weak_smoke: {needle}")
@@ -3132,6 +3135,10 @@ def audit_conformance(paths: List[Path]) -> int:
             shared_weak_missing.append("check_v4.py: Weak upgrade receiver argument expectation")
         if "shared-weak-guard-escape-diagnostics=1" not in harness_src:
             shared_weak_missing.append("check_v4.py: guard escape expectation")
+        if "shared-weak-view-escape-status=blocked" not in harness_src:
+            shared_weak_missing.append("check_v4.py: Shared borrow view escape expectation")
+        if "shared-weak-view-escape-diagnostics=1" not in harness_src:
+            shared_weak_missing.append("check_v4.py: Shared borrow view escape diagnostic expectation")
     else:
         shared_weak_missing.append("check_v4.py harness missing")
     add(

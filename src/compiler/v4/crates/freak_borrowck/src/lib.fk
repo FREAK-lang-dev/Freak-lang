@@ -1433,12 +1433,38 @@ task v4_borrowck_stored_call_loan_help(body_name: word) -> word {
     give back out
 }
 
+task v4_borrowck_call_is_shared_borrow_with_receiver(mir_id: int, body_id: int, call_rvalue: int) -> bool {
+    if call_rvalue < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_rvalue) != v4_mir_rvalue_call {
+        give back false
+    }
+
+    pilot method_suffix = ".borrow"
+    pilot method_label = v4_mir_rvalue_op(mir_id, body_id, call_rvalue)
+    if not method_label.ends_with(method_suffix) or method_label.length() <= method_suffix.length() {
+        give back false
+    }
+    pilot owner_ty = v4_slice(method_label, 0, method_label.length() - method_suffix.length())
+    if not v4_ty_is_shared_type(owner_ty) or v4_mir_rvalue_call_arg_count(mir_id, body_id, call_rvalue) != 1 {
+        give back false
+    }
+
+    pilot receiver_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, 0)
+    if receiver_rvalue < 0 {
+        give back false
+    }
+    pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
+    give back v4_ty_is_lend_type(receiver_ty) and v4_ty_lend_target_type(receiver_ty) == owner_ty
+}
+
 task v4_borrowck_call_has_lend_arg(mir_id: int, body_id: int, call_stmt: int, call_rvalue: int) -> bool {
     if call_rvalue < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_rvalue) != v4_mir_rvalue_call {
         give back false
     }
     pilot provenance_id = v4_borrowck_return_lend_provenance(mir_id, body_id, call_stmt, call_rvalue)
-    give back v4_borrowck_provenance_is_known(provenance_id) and v4_borrowck_provenance_count(provenance_id) > 0
+    if v4_borrowck_provenance_is_known(provenance_id) and v4_borrowck_provenance_count(provenance_id) > 0 {
+        give back true
+    }
+    give back v4_borrowck_call_is_shared_borrow_with_receiver(mir_id, body_id, call_rvalue)
 }
 
 task v4_borrowck_check_stored_call_lends(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {

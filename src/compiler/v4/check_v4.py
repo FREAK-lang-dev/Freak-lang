@@ -7132,6 +7132,8 @@ EXECUTABLE_SMOKES = [
     {
         "name": "Meiya Shared and Weak ownership surface",
         "fixture": "shared_weak_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
         "expect": [
             "shared-weak-ty-shared=1",
             "shared-weak-ty-weak=1",
@@ -7158,11 +7160,13 @@ EXECUTABLE_SMOKES = [
             "shared-weak-result-status=clean",
             "shared-weak-error-status=clean",
             "shared-weak-leak-status=blocked",
+            "shared-weak-view-escape-status=blocked",
             "shared-weak-ty-diagnostics=0",
             "shared-weak-mir-diagnostics=1",
-            "shared-weak-borrow-diagnostics=2",
+            "shared-weak-borrow-diagnostics=3",
             "shared-weak-direct-diagnostics=1",
             "shared-weak-guard-escape-diagnostics=1",
+            "shared-weak-view-escape-diagnostics=1",
         ],
     },
     {
