@@ -325,7 +325,7 @@ task v4_semantic_snapshot_record_is_valid(line: word) -> bool {
     if expected == 0 {
         give back false
     }
-    if v4_semantic_snapshot_field_count(line) < expected {
+    if v4_semantic_snapshot_field_count(line) != expected {
         give back false
     }
     give back true
@@ -338,27 +338,47 @@ task v4_semantic_snapshot_validate(payload: word) -> word {
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_facts = ""
+    pilot invalid_ids = 0
+    pilot invalid_offsets = 0
+    pilot invalid_references = 0
+    pilot ordering_errors = 0
 
     pilot line_id = 0
     repeat until line_id >= lines {
         pilot line = v4_semantic_snapshot_line(payload, line_id)
-        if line != "" {
+        if line == "" {
+            malformed += 1
+        } else {
             pilot kind = v4_semantic_snapshot_field_raw(line, 0)
             if v4_semantic_snapshot_record_is_valid(line) == false {
                 malformed += 1
             } else if kind == "semantic-snapshot" {
                 saw_header += 1
+                if line_id != 0 { ordering_errors += 1 }
                 format = v4_semantic_snapshot_key_value(line, "format")
-                if format != v4_semantic_snapshot_format {
-                    malformed += 1
-                }
+                declared_facts = v4_semantic_snapshot_key_value(line, "facts")
+                if format != v4_semantic_snapshot_format { malformed += 1 }
+                if v4_snapshot_canonical_nonnegative_int(declared_facts) < 0 { malformed += 1 }
+                if v4_semantic_snapshot_field_raw(line, 1) != "format=" + v4_semantic_snapshot_format { malformed += 1 }
+                if v4_semantic_snapshot_field_raw(line, 2) != "facts=" + declared_facts { malformed += 1 }
             } else if kind == "semantic" {
+                if saw_header != 1 or saw_end > 0 { ordering_errors += 1 }
+                pilot fact_id = v4_snapshot_canonical_nonnegative_int(v4_semantic_snapshot_field_raw(line, 1))
+                pilot offset = v4_snapshot_canonical_nonnegative_int(v4_semantic_snapshot_field_raw(line, 3))
+                pilot token_raw = v4_semantic_snapshot_field_raw(line, 4)
+                pilot hir_raw = v4_semantic_snapshot_field_raw(line, 8)
+                pilot symbol_raw = v4_semantic_snapshot_field_raw(line, 11)
+                if fact_id < 0 or fact_id != facts { invalid_ids += 1 }
+                if offset < 0 { invalid_offsets += 1 }
+                if v4_snapshot_canonical_int_is_valid(token_raw) == false or word_to_int(token_raw) < 0 - 1 { invalid_references += 1 }
+                if v4_snapshot_canonical_int_is_valid(hir_raw) == false or word_to_int(hir_raw) < 0 - 1 { invalid_references += 1 }
+                if v4_snapshot_canonical_int_is_valid(symbol_raw) == false or word_to_int(symbol_raw) < 0 - 1 { invalid_references += 1 }
                 facts += 1
             } else if kind == "end" {
                 saw_end += 1
-                if v4_semantic_snapshot_field(line, 1) != v4_semantic_snapshot_format {
-                    malformed += 1
-                }
+                if line_id != lines - 1 { ordering_errors += 1 }
+                if v4_semantic_snapshot_field(line, 1) != v4_semantic_snapshot_format { malformed += 1 }
             }
         }
         line_id += 1
@@ -368,12 +388,22 @@ task v4_semantic_snapshot_validate(payload: word) -> word {
     if saw_header != 1 { import_ok = 0 }
     if saw_end != 1 { import_ok = 0 }
     if malformed > 0 { import_ok = 0 }
+    if declared_facts != word_from_int(facts) { import_ok = 0 }
+    if invalid_ids > 0 { import_ok = 0 }
+    if invalid_offsets > 0 { import_ok = 0 }
+    if invalid_references > 0 { import_ok = 0 }
+    if ordering_errors > 0 { import_ok = 0 }
 
     pilot out = "semantic-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
     out = out + " format=" + format
     out = out + " lines=" + word_from_int(lines)
     out = out + " facts=" + word_from_int(facts)
+    out = out + " declared-facts=" + declared_facts
+    out = out + " invalid-ids=" + word_from_int(invalid_ids)
+    out = out + " invalid-offsets=" + word_from_int(invalid_offsets)
+    out = out + " invalid-references=" + word_from_int(invalid_references)
+    out = out + " ordering-errors=" + word_from_int(ordering_errors)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " headers=" + word_from_int(saw_header)
     out = out + " ends=" + word_from_int(saw_end)
@@ -408,8 +438,11 @@ task v4_semantic_snapshot_restore(payload: word) -> word {
         give back "semantic-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    pilot header = v4_semantic_snapshot_line(payload, 0)
+    pilot declared_facts = word_to_int(v4_semantic_snapshot_key_value(header, "facts"))
     v4_editor_begin_semantic_snapshot_restore()
     pilot restored_facts = 0
+    pilot insertion_failures = 0
     pilot skipped_other = 0
     pilot line_id = 0
     pilot line_count = v4_semantic_snapshot_line_count(payload)
@@ -418,12 +451,21 @@ task v4_semantic_snapshot_restore(payload: word) -> word {
         if line != "" {
             pilot kind = v4_semantic_snapshot_field_raw(line, 0)
             if kind == "semantic" {
-                restored_facts += v4_semantic_snapshot_restore_fact_line(line)
+                pilot inserted = v4_semantic_snapshot_restore_fact_line(line)
+                if inserted == 1 { restored_facts += 1 } else { insertion_failures += 1 }
             } else if kind != "semantic-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
         line_id += 1
+    }
+
+    if insertion_failures > 0 or restored_facts != declared_facts {
+        pilot out = "semantic-snapshot-restore ok=0 reason=insertion-failed"
+        out = out + " facts=" + word_from_int(restored_facts)
+        out = out + " declared-facts=" + word_from_int(declared_facts)
+        out = out + " insertion-failures=" + word_from_int(insertion_failures)
+        give back out
     }
 
     pilot out = "semantic-snapshot-restore ok=1"
@@ -477,6 +519,7 @@ task v4_hover_snapshot_header() -> word {
     pilot out = "hover-snapshot"
     out = out + "|format=" + v4_hover_snapshot_format
     out = out + "|hovers=" + word_from_int(v4_hover_count())
+    out = out + "|semantic-facts=" + word_from_int(v4_semantic_fact_count())
     give back out
 }
 
@@ -507,7 +550,7 @@ task v4_hover_snapshot() -> word {
 }
 
 task v4_hover_snapshot_record_expected_fields(kind: word) -> int {
-    if kind == "hover-snapshot" { give back 3 }
+    if kind == "hover-snapshot" { give back 4 }
     if kind == "hover" { give back 9 }
     if kind == "end" { give back 2 }
     give back 0
@@ -519,7 +562,7 @@ task v4_hover_snapshot_record_is_valid(line: word) -> bool {
     if expected == 0 {
         give back false
     }
-    if v4_hover_snapshot_field_count(line) < expected {
+    if v4_hover_snapshot_field_count(line) != expected {
         give back false
     }
     give back true
@@ -532,27 +575,49 @@ task v4_hover_snapshot_validate(payload: word) -> word {
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_hovers = ""
+    pilot declared_semantic_facts = ""
+    pilot semantic_fact_bound = 0 - 1
+    pilot invalid_ids = 0
+    pilot invalid_offsets = 0
+    pilot invalid_semantic_refs = 0
+    pilot ordering_errors = 0
 
     pilot line_id = 0
     repeat until line_id >= lines {
         pilot line = v4_hover_snapshot_line(payload, line_id)
-        if line != "" {
+        if line == "" {
+            malformed += 1
+        } else {
             pilot kind = v4_hover_snapshot_field_raw(line, 0)
             if v4_hover_snapshot_record_is_valid(line) == false {
                 malformed += 1
             } else if kind == "hover-snapshot" {
                 saw_header += 1
+                if line_id != 0 { ordering_errors += 1 }
                 format = v4_hover_snapshot_key_value(line, "format")
-                if format != v4_hover_snapshot_format {
-                    malformed += 1
-                }
+                declared_hovers = v4_hover_snapshot_key_value(line, "hovers")
+                declared_semantic_facts = v4_hover_snapshot_key_value(line, "semantic-facts")
+                semantic_fact_bound = v4_snapshot_canonical_nonnegative_int(declared_semantic_facts)
+                if format != v4_hover_snapshot_format { malformed += 1 }
+                if v4_snapshot_canonical_nonnegative_int(declared_hovers) < 0 { malformed += 1 }
+                if semantic_fact_bound < 0 { malformed += 1 }
+                if v4_hover_snapshot_field_raw(line, 1) != "format=" + v4_hover_snapshot_format { malformed += 1 }
+                if v4_hover_snapshot_field_raw(line, 2) != "hovers=" + declared_hovers { malformed += 1 }
+                if v4_hover_snapshot_field_raw(line, 3) != "semantic-facts=" + declared_semantic_facts { malformed += 1 }
             } else if kind == "hover" {
+                if saw_header != 1 or saw_end > 0 { ordering_errors += 1 }
+                pilot hover_id = v4_snapshot_canonical_nonnegative_int(v4_hover_snapshot_field_raw(line, 1))
+                pilot offset = v4_snapshot_canonical_nonnegative_int(v4_hover_snapshot_field_raw(line, 3))
+                pilot semantic_id = v4_snapshot_canonical_nonnegative_int(v4_hover_snapshot_field_raw(line, 4))
+                if hover_id < 0 or hover_id != hovers { invalid_ids += 1 }
+                if offset < 0 { invalid_offsets += 1 }
+                if semantic_id < 0 or semantic_id >= semantic_fact_bound { invalid_semantic_refs += 1 }
                 hovers += 1
             } else if kind == "end" {
                 saw_end += 1
-                if v4_hover_snapshot_field(line, 1) != v4_hover_snapshot_format {
-                    malformed += 1
-                }
+                if line_id != lines - 1 { ordering_errors += 1 }
+                if v4_hover_snapshot_field(line, 1) != v4_hover_snapshot_format { malformed += 1 }
             }
         }
         line_id += 1
@@ -562,12 +627,23 @@ task v4_hover_snapshot_validate(payload: word) -> word {
     if saw_header != 1 { import_ok = 0 }
     if saw_end != 1 { import_ok = 0 }
     if malformed > 0 { import_ok = 0 }
+    if declared_hovers != word_from_int(hovers) { import_ok = 0 }
+    if invalid_ids > 0 { import_ok = 0 }
+    if invalid_offsets > 0 { import_ok = 0 }
+    if invalid_semantic_refs > 0 { import_ok = 0 }
+    if ordering_errors > 0 { import_ok = 0 }
 
     pilot out = "hover-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
     out = out + " format=" + format
     out = out + " lines=" + word_from_int(lines)
     out = out + " hovers=" + word_from_int(hovers)
+    out = out + " declared-hovers=" + declared_hovers
+    out = out + " semantic-facts=" + declared_semantic_facts
+    out = out + " invalid-ids=" + word_from_int(invalid_ids)
+    out = out + " invalid-offsets=" + word_from_int(invalid_offsets)
+    out = out + " invalid-semantic-refs=" + word_from_int(invalid_semantic_refs)
+    out = out + " ordering-errors=" + word_from_int(ordering_errors)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " headers=" + word_from_int(saw_header)
     out = out + " ends=" + word_from_int(saw_end)
@@ -595,8 +671,11 @@ task v4_hover_snapshot_restore(payload: word) -> word {
         give back "hover-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    pilot header = v4_hover_snapshot_line(payload, 0)
+    pilot declared_hovers = word_to_int(v4_hover_snapshot_key_value(header, "hovers"))
     v4_editor_begin_hover_snapshot_restore()
     pilot restored_hovers = 0
+    pilot insertion_failures = 0
     pilot skipped_other = 0
     pilot line_id = 0
     pilot line_count = v4_hover_snapshot_line_count(payload)
@@ -605,12 +684,21 @@ task v4_hover_snapshot_restore(payload: word) -> word {
         if line != "" {
             pilot kind = v4_hover_snapshot_field_raw(line, 0)
             if kind == "hover" {
-                restored_hovers += v4_hover_snapshot_restore_hover_line(line)
+                pilot inserted = v4_hover_snapshot_restore_hover_line(line)
+                if inserted == 1 { restored_hovers += 1 } else { insertion_failures += 1 }
             } else if kind != "hover-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
         line_id += 1
+    }
+
+    if insertion_failures > 0 or restored_hovers != declared_hovers {
+        pilot out = "hover-snapshot-restore ok=0 reason=insertion-failed"
+        out = out + " hovers=" + word_from_int(restored_hovers)
+        out = out + " declared-hovers=" + word_from_int(declared_hovers)
+        out = out + " insertion-failures=" + word_from_int(insertion_failures)
+        give back out
     }
 
     pilot out = "hover-snapshot-restore ok=1"
@@ -664,6 +752,7 @@ task v4_definition_snapshot_header() -> word {
     pilot out = "definition-snapshot"
     out = out + "|format=" + v4_definition_snapshot_format
     out = out + "|definitions=" + word_from_int(v4_definition_at_count())
+    out = out + "|semantic-facts=" + word_from_int(v4_semantic_fact_count())
     give back out
 }
 
@@ -696,7 +785,7 @@ task v4_definition_snapshot() -> word {
 }
 
 task v4_definition_snapshot_record_expected_fields(kind: word) -> int {
-    if kind == "definition-snapshot" { give back 3 }
+    if kind == "definition-snapshot" { give back 4 }
     if kind == "definition" { give back 11 }
     if kind == "end" { give back 2 }
     give back 0
@@ -708,7 +797,7 @@ task v4_definition_snapshot_record_is_valid(line: word) -> bool {
     if expected == 0 {
         give back false
     }
-    if v4_definition_snapshot_field_count(line) < expected {
+    if v4_definition_snapshot_field_count(line) != expected {
         give back false
     }
     give back true
@@ -721,27 +810,55 @@ task v4_definition_snapshot_validate(payload: word) -> word {
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_definitions = ""
+    pilot declared_semantic_facts = ""
+    pilot semantic_fact_bound = 0 - 1
+    pilot invalid_ids = 0
+    pilot invalid_offsets = 0
+    pilot invalid_semantic_refs = 0
+    pilot invalid_hir_refs = 0
+    pilot invalid_found_flags = 0
+    pilot ordering_errors = 0
 
     pilot line_id = 0
     repeat until line_id >= lines {
         pilot line = v4_definition_snapshot_line(payload, line_id)
-        if line != "" {
+        if line == "" {
+            malformed += 1
+        } else {
             pilot kind = v4_definition_snapshot_field_raw(line, 0)
             if v4_definition_snapshot_record_is_valid(line) == false {
                 malformed += 1
             } else if kind == "definition-snapshot" {
                 saw_header += 1
+                if line_id != 0 { ordering_errors += 1 }
                 format = v4_definition_snapshot_key_value(line, "format")
-                if format != v4_definition_snapshot_format {
-                    malformed += 1
-                }
+                declared_definitions = v4_definition_snapshot_key_value(line, "definitions")
+                declared_semantic_facts = v4_definition_snapshot_key_value(line, "semantic-facts")
+                semantic_fact_bound = v4_snapshot_canonical_nonnegative_int(declared_semantic_facts)
+                if format != v4_definition_snapshot_format { malformed += 1 }
+                if v4_snapshot_canonical_nonnegative_int(declared_definitions) < 0 { malformed += 1 }
+                if semantic_fact_bound < 0 { malformed += 1 }
+                if v4_definition_snapshot_field_raw(line, 1) != "format=" + v4_definition_snapshot_format { malformed += 1 }
+                if v4_definition_snapshot_field_raw(line, 2) != "definitions=" + declared_definitions { malformed += 1 }
+                if v4_definition_snapshot_field_raw(line, 3) != "semantic-facts=" + declared_semantic_facts { malformed += 1 }
             } else if kind == "definition" {
+                if saw_header != 1 or saw_end > 0 { ordering_errors += 1 }
+                pilot defn_id = v4_snapshot_canonical_nonnegative_int(v4_definition_snapshot_field_raw(line, 1))
+                pilot offset = v4_snapshot_canonical_nonnegative_int(v4_definition_snapshot_field_raw(line, 3))
+                pilot semantic_id = v4_snapshot_canonical_nonnegative_int(v4_definition_snapshot_field_raw(line, 4))
+                pilot hir_raw = v4_definition_snapshot_field_raw(line, 8)
+                pilot found = v4_snapshot_canonical_nonnegative_int(v4_definition_snapshot_field_raw(line, 10))
+                if defn_id < 0 or defn_id != definitions { invalid_ids += 1 }
+                if offset < 0 { invalid_offsets += 1 }
+                if semantic_id < 0 or semantic_id >= semantic_fact_bound { invalid_semantic_refs += 1 }
+                if v4_snapshot_canonical_int_is_valid(hir_raw) == false or word_to_int(hir_raw) < 0 - 1 { invalid_hir_refs += 1 }
+                if found < 0 or found > 1 { invalid_found_flags += 1 }
                 definitions += 1
             } else if kind == "end" {
                 saw_end += 1
-                if v4_definition_snapshot_field(line, 1) != v4_definition_snapshot_format {
-                    malformed += 1
-                }
+                if line_id != lines - 1 { ordering_errors += 1 }
+                if v4_definition_snapshot_field(line, 1) != v4_definition_snapshot_format { malformed += 1 }
             }
         }
         line_id += 1
@@ -751,12 +868,27 @@ task v4_definition_snapshot_validate(payload: word) -> word {
     if saw_header != 1 { import_ok = 0 }
     if saw_end != 1 { import_ok = 0 }
     if malformed > 0 { import_ok = 0 }
+    if declared_definitions != word_from_int(definitions) { import_ok = 0 }
+    if invalid_ids > 0 { import_ok = 0 }
+    if invalid_offsets > 0 { import_ok = 0 }
+    if invalid_semantic_refs > 0 { import_ok = 0 }
+    if invalid_hir_refs > 0 { import_ok = 0 }
+    if invalid_found_flags > 0 { import_ok = 0 }
+    if ordering_errors > 0 { import_ok = 0 }
 
     pilot out = "definition-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
     out = out + " format=" + format
     out = out + " lines=" + word_from_int(lines)
     out = out + " definitions=" + word_from_int(definitions)
+    out = out + " declared-definitions=" + declared_definitions
+    out = out + " semantic-facts=" + declared_semantic_facts
+    out = out + " invalid-ids=" + word_from_int(invalid_ids)
+    out = out + " invalid-offsets=" + word_from_int(invalid_offsets)
+    out = out + " invalid-semantic-refs=" + word_from_int(invalid_semantic_refs)
+    out = out + " invalid-hir-refs=" + word_from_int(invalid_hir_refs)
+    out = out + " invalid-found-flags=" + word_from_int(invalid_found_flags)
+    out = out + " ordering-errors=" + word_from_int(ordering_errors)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " headers=" + word_from_int(saw_header)
     out = out + " ends=" + word_from_int(saw_end)
@@ -786,8 +918,11 @@ task v4_definition_snapshot_restore(payload: word) -> word {
         give back "definition-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    pilot header = v4_definition_snapshot_line(payload, 0)
+    pilot declared_definitions = word_to_int(v4_definition_snapshot_key_value(header, "definitions"))
     v4_editor_begin_definition_snapshot_restore()
     pilot restored_definitions = 0
+    pilot insertion_failures = 0
     pilot skipped_other = 0
     pilot line_id = 0
     pilot line_count = v4_definition_snapshot_line_count(payload)
@@ -796,12 +931,21 @@ task v4_definition_snapshot_restore(payload: word) -> word {
         if line != "" {
             pilot kind = v4_definition_snapshot_field_raw(line, 0)
             if kind == "definition" {
-                restored_definitions += v4_definition_snapshot_restore_definition_line(line)
+                pilot inserted = v4_definition_snapshot_restore_definition_line(line)
+                if inserted == 1 { restored_definitions += 1 } else { insertion_failures += 1 }
             } else if kind != "definition-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
         line_id += 1
+    }
+
+    if insertion_failures > 0 or restored_definitions != declared_definitions {
+        pilot out = "definition-snapshot-restore ok=0 reason=insertion-failed"
+        out = out + " definitions=" + word_from_int(restored_definitions)
+        out = out + " declared-definitions=" + word_from_int(declared_definitions)
+        out = out + " insertion-failures=" + word_from_int(insertion_failures)
+        give back out
     }
 
     pilot out = "definition-snapshot-restore ok=1"
@@ -941,7 +1085,10 @@ task v4_document_symbols_snapshot_validate(payload: word) -> word {
     pilot format = ""
     pilot declared_documents = ""
     pilot declared_symbols = ""
+    pilot declared_document_bound = 0 - 1
+    pilot declared_symbol_bound = 0 - 1
     pilot invalid_ids = 0
+    pilot invalid_references = 0
     pilot ordering_errors = 0
     pilot child_count_mismatches = 0
     pilot declared_child_total = 0
@@ -964,15 +1111,20 @@ task v4_document_symbols_snapshot_validate(payload: word) -> word {
                 format = v4_document_symbols_snapshot_key_value(line, "format")
                 declared_documents = v4_document_symbols_snapshot_key_value(line, "documents")
                 declared_symbols = v4_document_symbols_snapshot_key_value(line, "symbols")
+                declared_document_bound = v4_snapshot_canonical_nonnegative_int(declared_documents)
+                declared_symbol_bound = v4_snapshot_canonical_nonnegative_int(declared_symbols)
                 if format != v4_document_symbols_snapshot_format { malformed += 1 }
-                if v4_snapshot_canonical_nonnegative_int(declared_documents) < 0 { malformed += 1 }
-                if v4_snapshot_canonical_nonnegative_int(declared_symbols) < 0 { malformed += 1 }
+                if declared_document_bound < 0 { malformed += 1 }
+                if declared_symbol_bound < 0 { malformed += 1 }
+                if v4_document_symbols_snapshot_field_raw(line, 1) != "format=" + v4_document_symbols_snapshot_format { malformed += 1 }
+                if v4_document_symbols_snapshot_field_raw(line, 2) != "documents=" + declared_documents { malformed += 1 }
+                if v4_document_symbols_snapshot_field_raw(line, 3) != "symbols=" + declared_symbols { malformed += 1 }
             } else if kind == "document-symbols" {
                 if saw_header != 1 or saw_end > 0 { ordering_errors += 1 }
                 if active_doc_id >= 0 and active_seen_symbols != active_declared_symbols { child_count_mismatches += 1 }
                 pilot doc_id = v4_snapshot_canonical_nonnegative_int(v4_document_symbols_snapshot_field_raw(line, 1))
                 pilot child_count = v4_snapshot_canonical_nonnegative_int(v4_document_symbols_snapshot_field_raw(line, 3))
-                if doc_id < 0 or doc_id != documents { invalid_ids += 1 }
+                if doc_id < 0 or doc_id != documents or doc_id >= declared_document_bound { invalid_ids += 1 }
                 if child_count < 0 {
                     child_count_mismatches += 1
                     child_count = 0
@@ -986,8 +1138,10 @@ task v4_document_symbols_snapshot_validate(payload: word) -> word {
                 if saw_header != 1 or saw_end > 0 or active_doc_id < 0 { ordering_errors += 1 }
                 pilot parent_id = v4_snapshot_canonical_nonnegative_int(v4_document_symbols_snapshot_field_raw(line, 1))
                 pilot symbol_id = v4_snapshot_canonical_nonnegative_int(v4_document_symbols_snapshot_field_raw(line, 2))
-                if parent_id < 0 or parent_id != active_doc_id { invalid_ids += 1 }
-                if symbol_id < 0 or symbol_id != active_seen_symbols { invalid_ids += 1 }
+                pilot hir_raw = v4_document_symbols_snapshot_field_raw(line, 6)
+                if parent_id < 0 or parent_id != active_doc_id or parent_id >= declared_document_bound { invalid_ids += 1 }
+                if symbol_id < 0 or symbol_id != active_seen_symbols or symbol_id >= active_declared_symbols or symbol_id >= declared_symbol_bound { invalid_ids += 1 }
+                if v4_snapshot_canonical_int_is_valid(hir_raw) == false or word_to_int(hir_raw) < 0 - 1 { invalid_references += 1 }
                 if active_seen_symbols >= active_declared_symbols { child_count_mismatches += 1 }
                 active_seen_symbols += 1
                 symbols += 1
@@ -1011,6 +1165,7 @@ task v4_document_symbols_snapshot_validate(payload: word) -> word {
     if declared_symbols != word_from_int(symbols) { import_ok = 0 }
     if declared_child_total != symbols { import_ok = 0 }
     if invalid_ids > 0 { import_ok = 0 }
+    if invalid_references > 0 { import_ok = 0 }
     if ordering_errors > 0 { import_ok = 0 }
     if child_count_mismatches > 0 { import_ok = 0 }
 
@@ -1023,6 +1178,7 @@ task v4_document_symbols_snapshot_validate(payload: word) -> word {
     out = out + " symbols=" + word_from_int(symbols)
     out = out + " declared-symbols=" + declared_symbols
     out = out + " invalid-ids=" + word_from_int(invalid_ids)
+    out = out + " invalid-references=" + word_from_int(invalid_references)
     out = out + " ordering-errors=" + word_from_int(ordering_errors)
     out = out + " child-count-mismatches=" + word_from_int(child_count_mismatches)
     out = out + " malformed=" + word_from_int(malformed)
@@ -1234,6 +1390,8 @@ task v4_completion_snapshot_validate(payload: word) -> word {
     pilot format = ""
     pilot declared_completions = ""
     pilot declared_items = ""
+    pilot declared_completion_bound = 0 - 1
+    pilot declared_item_bound = 0 - 1
     pilot invalid_ids = 0
     pilot invalid_offsets = 0
     pilot ordering_errors = 0
@@ -1258,16 +1416,21 @@ task v4_completion_snapshot_validate(payload: word) -> word {
                 format = v4_completion_snapshot_key_value(line, "format")
                 declared_completions = v4_completion_snapshot_key_value(line, "completions")
                 declared_items = v4_completion_snapshot_key_value(line, "items")
+                declared_completion_bound = v4_snapshot_canonical_nonnegative_int(declared_completions)
+                declared_item_bound = v4_snapshot_canonical_nonnegative_int(declared_items)
                 if format != v4_completion_snapshot_format { malformed += 1 }
-                if v4_snapshot_canonical_nonnegative_int(declared_completions) < 0 { malformed += 1 }
-                if v4_snapshot_canonical_nonnegative_int(declared_items) < 0 { malformed += 1 }
+                if declared_completion_bound < 0 { malformed += 1 }
+                if declared_item_bound < 0 { malformed += 1 }
+                if v4_completion_snapshot_field_raw(line, 1) != "format=" + v4_completion_snapshot_format { malformed += 1 }
+                if v4_completion_snapshot_field_raw(line, 2) != "completions=" + declared_completions { malformed += 1 }
+                if v4_completion_snapshot_field_raw(line, 3) != "items=" + declared_items { malformed += 1 }
             } else if kind == "completion" {
                 if saw_header != 1 or saw_end > 0 { ordering_errors += 1 }
                 if active_completion_id >= 0 and active_seen_items != active_declared_items { child_count_mismatches += 1 }
                 pilot completion_id = v4_snapshot_canonical_nonnegative_int(v4_completion_snapshot_field_raw(line, 1))
                 pilot offset = v4_snapshot_canonical_nonnegative_int(v4_completion_snapshot_field_raw(line, 3))
                 pilot child_count = v4_snapshot_canonical_nonnegative_int(v4_completion_snapshot_field_raw(line, 4))
-                if completion_id < 0 or completion_id != completions { invalid_ids += 1 }
+                if completion_id < 0 or completion_id != completions or completion_id >= declared_completion_bound { invalid_ids += 1 }
                 if offset < 0 { invalid_offsets += 1 }
                 if child_count < 0 {
                     child_count_mismatches += 1
@@ -1282,8 +1445,8 @@ task v4_completion_snapshot_validate(payload: word) -> word {
                 if saw_header != 1 or saw_end > 0 or active_completion_id < 0 { ordering_errors += 1 }
                 pilot parent_id = v4_snapshot_canonical_nonnegative_int(v4_completion_snapshot_field_raw(line, 1))
                 pilot item_id = v4_snapshot_canonical_nonnegative_int(v4_completion_snapshot_field_raw(line, 2))
-                if parent_id < 0 or parent_id != active_completion_id { invalid_ids += 1 }
-                if item_id < 0 or item_id != active_seen_items { invalid_ids += 1 }
+                if parent_id < 0 or parent_id != active_completion_id or parent_id >= declared_completion_bound { invalid_ids += 1 }
+                if item_id < 0 or item_id != active_seen_items or item_id >= active_declared_items or item_id >= declared_item_bound { invalid_ids += 1 }
                 if active_seen_items >= active_declared_items { child_count_mismatches += 1 }
                 active_seen_items += 1
                 items += 1
@@ -2100,6 +2263,68 @@ task v4_unit_snapshot_visible_source_count() -> int {
     give back visible
 }
 
+task v4_unit_snapshot_identity_char_code(ch: word) -> int {
+    pilot alphabet = "\n\r\t !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_abcdefghijklmnopqrstuvwxyz{|}~"
+    pilot idx = 0
+    repeat until idx >= alphabet.length() {
+        if alphabet.char_at(idx) == ch { give back idx + 1 }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_unit_snapshot_source_identity_digest(material: word) -> word {
+    pilot hash_a = 17
+    pilot hash_b = 29
+    pilot unmapped = ""
+    pilot idx = 0
+    repeat until idx >= material.length() {
+        pilot ch = material.char_at(idx)
+        pilot code = v4_unit_snapshot_identity_char_code(ch)
+        if code < 0 {
+            code = 1009
+            unmapped = unmapped + ch
+        }
+        hash_a = (hash_a * 257 + code) % 1000000007
+        hash_b = (hash_b * 263 + code) % 1000000009
+        idx += 1
+    }
+    pilot out = "source-content-v1"
+    out = out + ":" + word_from_int(material.length())
+    out = out + ":" + word_from_int(hash_a)
+    out = out + ":" + word_from_int(hash_b)
+    out = out + ":" + v4_unit_snapshot_escape(unmapped)
+    give back out
+}
+
+task v4_unit_snapshot_source_identity_current() -> word {
+    pilot material = ""
+    pilot file_id = 0
+    repeat until file_id >= v4_source_count() {
+        if v4_source_path(file_id) != "" {
+            if material != "" { material = material + "\n" }
+            material = material + v4_unit_snapshot_source_line(file_id)
+        }
+        file_id += 1
+    }
+    give back v4_unit_snapshot_source_identity_digest(material)
+}
+
+task v4_unit_snapshot_source_identity_from_payload(payload: word) -> word {
+    pilot material = ""
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if line != "" and v4_unit_snapshot_field_raw(line, 0) == "unit-source" {
+            if material != "" { material = material + "\n" }
+            material = material + line
+        }
+        line_id += 1
+    }
+    give back v4_unit_snapshot_source_identity_digest(material)
+}
+
 task v4_unit_snapshot_summary() -> word {
     pilot summary = "00-unit-snapshot"
     summary = summary + " format=" + v4_unit_snapshot_format
@@ -2110,12 +2335,17 @@ task v4_unit_snapshot_summary() -> word {
     give back summary
 }
 
-task v4_unit_snapshot_header() -> word {
+task v4_unit_snapshot_header_with_identity(source_identity: word) -> word {
     pilot out = "00-unit-snapshot"
     out = out + "|format=" + v4_unit_snapshot_format
     out = out + "|sources=" + word_from_int(v4_unit_snapshot_visible_source_count())
     out = out + "|sections=" + word_from_int(v4_unit_snapshot_section_count())
+    out = out + "|identity=" + v4_unit_snapshot_escape(source_identity)
     give back out
+}
+
+task v4_unit_snapshot_header() -> word {
+    give back v4_unit_snapshot_header_with_identity(v4_unit_snapshot_source_identity_current())
 }
 
 task v4_unit_snapshot_source_line(file_id: int) -> word {
@@ -2128,16 +2358,22 @@ task v4_unit_snapshot_source_line(file_id: int) -> word {
     give back out
 }
 
-task v4_unit_snapshot_section_line(section_name: word, section_payload: word) -> word {
+task v4_unit_snapshot_section_line_with_identity(section_name: word, source_identity: word, section_payload: word) -> word {
     pilot out = "unit-section"
     out = out + "|" + section_name
+    out = out + "|" + v4_unit_snapshot_escape(source_identity)
     out = out + "|" + v4_unit_snapshot_escape(section_payload)
     give back out
 }
 
+task v4_unit_snapshot_section_line(section_name: word, section_payload: word) -> word {
+    give back v4_unit_snapshot_section_line_with_identity(section_name, v4_unit_snapshot_source_identity_current(), section_payload)
+}
+
 task v4_unit_snapshot() -> word {
     v4_driver_init()
-    pilot out = v4_unit_snapshot_header()
+    pilot source_identity = v4_unit_snapshot_source_identity_current()
+    pilot out = v4_unit_snapshot_header_with_identity(source_identity)
 
     pilot file_id = 0
     repeat until file_id >= v4_source_count() {
@@ -2147,56 +2383,29 @@ task v4_unit_snapshot() -> word {
         file_id += 1
     }
 
-    out = out + "\nunit-section|lex|"
-    out = out + v4_unit_snapshot_escape(v4_lex_snapshot())
-
-    out = out + "\nunit-section|parse|"
-    out = out + v4_unit_snapshot_escape(v4_parse_snapshot())
-
-    out = out + "\nunit-section|hir|"
-    out = out + v4_unit_snapshot_escape(v4_hir_snapshot())
-
-    out = out + "\nunit-section|resolve|"
-    out = out + v4_unit_snapshot_escape(v4_resolve_snapshot())
-
-    out = out + "\nunit-section|ty|"
-    out = out + v4_unit_snapshot_escape(v4_ty_snapshot())
-
-    out = out + "\nunit-section|mir|"
-    out = out + v4_unit_snapshot_escape(v4_mir_snapshot())
-
-    out = out + "\nunit-section|borrowck|"
-    out = out + v4_unit_snapshot_escape(v4_borrowck_snapshot())
-
-    out = out + "\nunit-section|diagnostics|"
-    out = out + v4_unit_snapshot_escape(v4_diagnostics_snapshot())
-
-    out = out + "\nunit-section|semantic|"
-    out = out + v4_unit_snapshot_escape(v4_semantic_snapshot())
-
-    out = out + "\nunit-section|hover|"
-    out = out + v4_unit_snapshot_escape(v4_hover_snapshot())
-
-    out = out + "\nunit-section|definition|"
-    out = out + v4_unit_snapshot_escape(v4_definition_snapshot())
-
-    out = out + "\nunit-section|document-symbols|"
-    out = out + v4_unit_snapshot_escape(v4_document_symbols_snapshot())
-
-    out = out + "\nunit-section|completion|"
-    out = out + v4_unit_snapshot_escape(v4_completion_snapshot())
-
-    out = out + "\nunit-section|query|"
-    out = out + v4_unit_snapshot_escape(v4_query_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("lex", source_identity, v4_lex_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("parse", source_identity, v4_parse_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("hir", source_identity, v4_hir_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("resolve", source_identity, v4_resolve_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("ty", source_identity, v4_ty_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("mir", source_identity, v4_mir_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("borrowck", source_identity, v4_borrowck_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("diagnostics", source_identity, v4_diagnostics_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("semantic", source_identity, v4_semantic_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("hover", source_identity, v4_hover_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("definition", source_identity, v4_definition_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("document-symbols", source_identity, v4_document_symbols_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("completion", source_identity, v4_completion_snapshot())
+    out = out + "\n" + v4_unit_snapshot_section_line_with_identity("query", source_identity, v4_query_snapshot())
 
     out = out + "\nend|" + v4_unit_snapshot_format
     give back out
 }
 
 task v4_unit_snapshot_record_expected_fields(kind: word) -> int {
-    if kind == "00-unit-snapshot" { give back 4 }
+    if kind == "00-unit-snapshot" { give back 5 }
     if kind == "unit-source" { give back 6 }
-    if kind == "unit-section" { give back 3 }
+    if kind == "unit-section" { give back 4 }
     if kind == "end" { give back 2 }
     give back 0
 }
@@ -2220,6 +2429,10 @@ task v4_snapshot_canonical_nonnegative_int(raw: word) -> int {
     give back value
 }
 
+task v4_snapshot_canonical_int_is_valid(raw: word) -> bool {
+    give back word_from_int(word_to_int(raw)) == raw
+}
+
 task v4_unit_snapshot_validate(payload: word) -> word {
     pilot lines = v4_unit_snapshot_line_count(payload)
     pilot sources = 0
@@ -2230,8 +2443,11 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     pilot format = ""
     pilot declared_sources = ""
     pilot declared_sections = ""
+    pilot declared_identity = ""
+    pilot computed_identity = v4_unit_snapshot_source_identity_from_payload(payload)
     pilot unknown_sections = 0
     pilot invalid_sections = 0
+    pilot section_identity_mismatches = 0
     pilot invalid_source_ids = 0
     pilot noncontiguous_source_ids = 0
     pilot duplicate_source_ids = 0
@@ -2269,9 +2485,15 @@ task v4_unit_snapshot_validate(payload: word) -> word {
                 format = v4_unit_snapshot_key_value(line, "format")
                 declared_sources = v4_unit_snapshot_key_value(line, "sources")
                 declared_sections = v4_unit_snapshot_key_value(line, "sections")
+                declared_identity = v4_unit_snapshot_key_value(line, "identity")
                 if format != v4_unit_snapshot_format {
                     malformed += 1
                 }
+                if declared_identity == "" { malformed += 1 }
+                if v4_unit_snapshot_field_raw(line, 1) != "format=" + v4_unit_snapshot_format { malformed += 1 }
+                if v4_unit_snapshot_field_raw(line, 2) != "sources=" + declared_sources { malformed += 1 }
+                if v4_unit_snapshot_field_raw(line, 3) != "sections=" + declared_sections { malformed += 1 }
+                if v4_unit_snapshot_field_raw(line, 4) != "identity=" + v4_unit_snapshot_escape(declared_identity) { malformed += 1 }
             } else if kind == "unit-source" {
                 pilot source_id_raw = v4_unit_snapshot_field_raw(line, 1)
                 pilot source_id = v4_snapshot_canonical_nonnegative_int(source_id_raw)
@@ -2310,10 +2532,12 @@ task v4_unit_snapshot_validate(payload: word) -> word {
                 source_records_closed = 1
                 sections += 1
                 pilot section_name = v4_unit_snapshot_field_raw(line, 1)
+                pilot section_identity = v4_unit_snapshot_field(line, 2)
+                if section_identity != declared_identity { section_identity_mismatches += 1 }
                 if v4_unit_snapshot_section_id(section_name) < 0 {
                     unknown_sections += 1
                 } else {
-                    pilot section_payload = v4_unit_snapshot_field(line, 2)
+                    pilot section_payload = v4_unit_snapshot_field(line, 3)
                     pilot section_validation = v4_unit_snapshot_section_validate(section_name, section_payload)
                     if v4_unit_snapshot_section_validation_ok(section_name, section_validation) == 0 {
                         invalid_sections += 1
@@ -2351,6 +2575,7 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     if saw_header != 1 { import_ok = 0 }
     if saw_end != 1 { import_ok = 0 }
     if malformed > 0 { import_ok = 0 }
+    if declared_identity != computed_identity { import_ok = 0 }
     if declared_sources != word_from_int(sources) { import_ok = 0 }
     if declared_sections != word_from_int(sections) { import_ok = 0 }
     if sections != v4_unit_snapshot_section_count() { import_ok = 0 }
@@ -2358,6 +2583,7 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     if duplicate_sections > 0 { import_ok = 0 }
     if unknown_sections > 0 { import_ok = 0 }
     if invalid_sections > 0 { import_ok = 0 }
+    if section_identity_mismatches > 0 { import_ok = 0 }
     if declared_source_bound < 0 { import_ok = 0 }
     if invalid_source_ids > 0 { import_ok = 0 }
     if noncontiguous_source_ids > 0 { import_ok = 0 }
@@ -2368,6 +2594,8 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     if invalid_source_fingerprints > 0 { import_ok = 0 }
     if source_order_errors > 0 { import_ok = 0 }
 
+    pilot identity_matches = 0
+    if declared_identity == computed_identity { identity_matches = 1 }
     pilot out = "00-unit-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
     out = out + " format=" + format
@@ -2376,10 +2604,13 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     out = out + " declared-sources=" + declared_sources
     out = out + " sections=" + word_from_int(sections)
     out = out + " declared-sections=" + declared_sections
+    out = out + " identity=" + v4_unit_snapshot_escape(declared_identity)
+    out = out + " identity-matches=" + word_from_int(identity_matches)
     out = out + " missing-sections=" + word_from_int(missing_sections)
     out = out + " duplicate-sections=" + word_from_int(duplicate_sections)
     out = out + " unknown-sections=" + word_from_int(unknown_sections)
     out = out + " invalid-sections=" + word_from_int(invalid_sections)
+    out = out + " section-identity-mismatches=" + word_from_int(section_identity_mismatches)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " invalid-source-ids=" + word_from_int(invalid_source_ids)
     out = out + " noncontiguous-source-ids=" + word_from_int(noncontiguous_source_ids)
@@ -2402,7 +2633,7 @@ task v4_unit_snapshot_section_payload(payload: word, section_name: word) -> word
         if line != "" {
             if v4_unit_snapshot_field_raw(line, 0) == "unit-section" {
                 if v4_unit_snapshot_field_raw(line, 1) == section_name {
-                    give back v4_unit_snapshot_field(line, 2)
+                    give back v4_unit_snapshot_field(line, 3)
                 }
             }
         }
@@ -2493,11 +2724,13 @@ task v4_unit_snapshot_section_manifest_line(line: word) -> word {
     }
 
     pilot section_name = v4_unit_snapshot_field_raw(line, 1)
-    pilot section_payload = v4_unit_snapshot_field(line, 2)
+    pilot section_identity = v4_unit_snapshot_field(line, 2)
+    pilot section_payload = v4_unit_snapshot_field(line, 3)
     pilot validation = v4_unit_snapshot_section_validate(section_name, section_payload)
     pilot section_ok = v4_unit_snapshot_section_validation_ok(section_name, validation)
 
     pilot out = "section|" + section_name
+    out = out + "|identity=" + v4_unit_snapshot_escape(section_identity)
     out = out + "|bytes=" + word_from_int(section_payload.length())
     out = out + "|lines=" + word_from_int(v4_unit_snapshot_line_count(section_payload))
     out = out + "|records=" + word_from_int(v4_unit_snapshot_payload_record_count(section_payload))
@@ -2520,6 +2753,7 @@ task v4_unit_snapshot_manifest(payload: word) -> word {
     pilot payload_format = ""
     pilot declared_sources = ""
     pilot declared_sections = ""
+    pilot payload_identity = ""
 
     pilot line_id = 0
     repeat until line_id >= lines {
@@ -2532,6 +2766,7 @@ task v4_unit_snapshot_manifest(payload: word) -> word {
                 payload_format = v4_unit_snapshot_key_value(line, "format")
                 declared_sources = v4_unit_snapshot_key_value(line, "sources")
                 declared_sections = v4_unit_snapshot_key_value(line, "sections")
+                payload_identity = v4_unit_snapshot_key_value(line, "identity")
             } else if kind == "unit-source" {
                 sources += 1
             } else if kind == "unit-section" {
@@ -2547,6 +2782,7 @@ task v4_unit_snapshot_manifest(payload: word) -> word {
     out = out + "|payload-format=" + v4_unit_snapshot_escape(payload_format)
     out = out + "|payload-bytes=" + word_from_int(payload.length())
     out = out + "|payload-lines=" + word_from_int(lines)
+    out = out + "|payload-identity=" + v4_unit_snapshot_escape(payload_identity)
     out = out + "|sources=" + word_from_int(sources)
     out = out + "|declared-sources=" + declared_sources
     out = out + "|sections=" + word_from_int(sections)

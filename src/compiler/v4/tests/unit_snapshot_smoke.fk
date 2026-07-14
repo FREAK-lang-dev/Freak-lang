@@ -25,6 +25,7 @@ task v4_unit_snapshot_fixture_header_with_sections(line: word, sections: int) ->
     out = out + "|format=" + v4_unit_snapshot_key_value(line, "format")
     out = out + "|sources=" + v4_unit_snapshot_key_value(line, "sources")
     out = out + "|sections=" + word_from_int(sections)
+    out = out + "|identity=" + v4_unit_snapshot_escape(v4_unit_snapshot_key_value(line, "identity"))
     give back out
 }
 
@@ -52,9 +53,9 @@ task v4_unit_snapshot_fixture_variant(payload: word, section_name: word, mode: w
             } else if mode == "duplicate" {
                 copies = 2
             } else if mode == "corrupt" {
-                output_line = v4_unit_snapshot_section_line(section_name, "corrupt-inner-payload")
+                output_line = v4_unit_snapshot_section_line_with_identity(section_name, v4_unit_snapshot_field(line, 2), "corrupt-inner-payload")
             } else if mode == "unknown" {
-                output_line = v4_unit_snapshot_section_line("unknown", v4_unit_snapshot_field(line, 2))
+                output_line = v4_unit_snapshot_section_line_with_identity("unknown", v4_unit_snapshot_field(line, 2), v4_unit_snapshot_field(line, 3))
             }
         }
 
@@ -74,6 +75,7 @@ task v4_unit_snapshot_fixture_header_with_sources(line: word, sources: int) -> w
     out = out + "|format=" + v4_unit_snapshot_key_value(line, "format")
     out = out + "|sources=" + word_from_int(sources)
     out = out + "|sections=" + v4_unit_snapshot_key_value(line, "sections")
+    out = out + "|identity=" + v4_unit_snapshot_escape(v4_unit_snapshot_key_value(line, "identity"))
     give back out
 }
 
@@ -123,6 +125,43 @@ task v4_unit_snapshot_fixture_source_variant(payload: word, mode: word) -> word 
         line_id += 1
     }
     give back out
+}
+
+task v4_unit_snapshot_fixture_section_line(payload: word, section_name: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if v4_unit_snapshot_field_raw(line, 0) == "unit-section" and v4_unit_snapshot_field_raw(line, 1) == section_name {
+            give back line
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_fixture_splice_section(base_payload: word, donor_payload: word, section_name: word) -> word {
+    pilot donor_line = v4_unit_snapshot_fixture_section_line(donor_payload, section_name)
+    pilot out = ""
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(base_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(base_payload, line_id)
+        pilot output_line = line
+        if v4_unit_snapshot_field_raw(line, 0) == "unit-section" and v4_unit_snapshot_field_raw(line, 1) == section_name {
+            output_line = donor_line
+        }
+        if out != "" { out = out + "\n" }
+        out = out + output_line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_unit_snapshot_splice_is_atomic(base_payload: word, donor_payload: word, section_name: word) -> word {
+    pilot spliced = v4_unit_snapshot_fixture_splice_section(base_payload, donor_payload, section_name)
+    pilot restore_result = v4_unit_snapshot_restore(spliced)
+    give back v4_unit_snapshot_integrity_assert("cross-snapshot-splice-atomic", restore_result.starts_with("00-unit-snapshot-restore ok=0 ") and v4_unit_snapshot() == base_payload)
 }
 
 pilot v4_unit_snapshot_source = "task main() -> int {\n"
@@ -227,6 +266,7 @@ say "unit-diagnostics-changed-section-validation=" + v4_unit_diagnostics_validat
 say v4_unit_snapshot_integrity_assert("changed-diagnostics-valid", v4_unit_diagnostics_validation_changed.starts_with("diagnostics-snapshot-import ok=1 "))
 say v4_lsp_handle_text_request("workspace/unitSnapshotManifest", "unit-snapshot.fk", v4_unit_snapshot(), 0)
 say v4_lsp_handle_text_request("workspace/unitSnapshotHealth", "unit-snapshot.fk", v4_unit_snapshot(), 0)
+say v4_unit_snapshot_splice_is_atomic(v4_unit_snapshot(), v4_unit_snapshot_before, "ty")
 
 pilot v4_unit_snapshot_atomic_state = ""
 pilot v4_unit_snapshot_negative_id = ""
