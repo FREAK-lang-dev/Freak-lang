@@ -1203,10 +1203,23 @@ task v4_query_snapshot_record_is_valid(line: word) -> bool {
     if expected == 0 {
         give back false
     }
-    if v4_query_snapshot_field_count(line) < expected {
+    if v4_query_snapshot_field_count(line) != expected {
         give back false
     }
     give back true
+}
+
+task v4_query_snapshot_canonical_nonnegative_int(raw: word) -> int {
+    if raw == "" { give back 0 - 1 }
+    pilot value = word_to_int(raw)
+    if value < 0 { give back 0 - 1 }
+    if word_from_int(value) != raw { give back 0 - 1 }
+    give back value
+}
+
+task v4_query_snapshot_header_field_is(line: word, field_id: int, key: word) -> bool {
+    pilot prefix = key + "="
+    give back v4_query_snapshot_field_raw(line, field_id).starts_with(prefix)
 }
 
 task v4_query_snapshot_validate(payload: word) -> word {
@@ -1220,38 +1233,116 @@ task v4_query_snapshot_validate(payload: word) -> word {
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_generation = 0 - 1
+    pilot declared_generations = 0 - 1
+    pilot declared_entries = 0 - 1
+    pilot declared_edges = 0 - 1
+    pilot declared_invalidations = 0 - 1
+    pilot declared_telemetry = 0 - 1
+    pilot phase = 0
 
     pilot line_id = 0
     repeat until line_id >= lines {
         pilot line = v4_query_snapshot_line(payload, line_id)
-        if line != "" {
+        if line == "" {
+            malformed += 1
+        } else {
             pilot kind = v4_query_snapshot_field_raw(line, 0)
-            if v4_query_snapshot_record_is_valid(line) == false {
+            if saw_end > 0 {
+                malformed += 1
+            } else if v4_query_snapshot_record_is_valid(line) == false {
                 malformed += 1
             } else if kind == "snapshot" {
                 saw_header += 1
+                if line_id != 0 or saw_header != 1 or phase != 0 { malformed += 1 }
+                if v4_query_snapshot_field_raw(line, 1) != "format=" + v4_query_snapshot_format { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 2, "generation") { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 3, "generations") { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 4, "entries") { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 5, "edges") { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 6, "invalidations") { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 7, "telemetry") { malformed += 1 }
                 format = v4_query_snapshot_key_value(line, "format")
                 if format != v4_query_snapshot_format {
                     malformed += 1
                 }
+                declared_generation = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "generation"))
+                declared_generations = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "generations"))
+                declared_entries = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "entries"))
+                declared_edges = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "edges"))
+                declared_invalidations = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "invalidations"))
+                declared_telemetry = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "telemetry"))
+                if declared_generation <= 0 { malformed += 1 }
+                if declared_generations <= 0 or declared_generations > lines { malformed += 1 }
+                if declared_entries < 0 or declared_entries > lines { malformed += 1 }
+                if declared_edges < 0 or declared_edges > lines { malformed += 1 }
+                if declared_invalidations < 0 or declared_invalidations > lines { malformed += 1 }
+                if declared_telemetry < 0 or declared_telemetry > lines { malformed += 1 }
             } else if kind == "generation" {
+                if saw_header != 1 or phase > 1 { malformed += 1 }
+                phase = 1
+                pilot generation_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
+                if generation_id < 0 or generation_id != generations + 1 or generation_id > declared_generations {
+                    malformed += 1
+                }
                 generations += 1
             } else if kind == "entry" {
+                if saw_header != 1 or phase > 2 { malformed += 1 }
+                phase = 2
+                pilot entry_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
+                pilot stored_generation = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 6))
+                pilot last_generation = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 7))
+                if entry_id < 0 or entry_id != entries or entry_id >= declared_entries { malformed += 1 }
+                if stored_generation < 0 or stored_generation > declared_generation { malformed += 1 }
+                if last_generation < 0 or last_generation > declared_generation { malformed += 1 }
                 entries += 1
             } else if kind == "edge" {
+                if saw_header != 1 or phase > 3 { malformed += 1 }
+                phase = 3
+                pilot dep_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
+                if dep_id < 0 or dep_id != edges or dep_id >= declared_edges { malformed += 1 }
                 edges += 1
             } else if kind == "invalidation" {
+                if saw_header != 1 or phase > 4 { malformed += 1 }
+                phase = 4
+                pilot invalidation_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
+                pilot invalidation_generation = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 3))
+                if invalidation_id < 0 or invalidation_id != invalidations or invalidation_id >= declared_invalidations {
+                    malformed += 1
+                }
+                if invalidation_generation < 0 or invalidation_generation > declared_generation { malformed += 1 }
                 invalidations += 1
             } else if kind == "telemetry" {
+                if saw_header != 1 or phase > 5 { malformed += 1 }
+                phase = 5
+                pilot telemetry_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
+                pilot telemetry_hits = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 3))
+                pilot telemetry_misses = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 4))
+                pilot telemetry_stores = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 5))
+                if telemetry_id < 0 or telemetry_id != telemetry or telemetry_id >= declared_telemetry { malformed += 1 }
+                if telemetry_hits < 0 or telemetry_misses < 0 or telemetry_stores < 0 { malformed += 1 }
                 telemetry += 1
             } else if kind == "end" {
                 saw_end += 1
+                phase = 6
+                if saw_header != 1 or line_id != lines - 1 { malformed += 1 }
                 if v4_query_snapshot_field(line, 1) != v4_query_snapshot_format {
                     malformed += 1
                 }
             }
         }
         line_id += 1
+    }
+
+    if declared_generation != declared_generations { malformed += 1 }
+    if generations != declared_generations { malformed += 1 }
+    if entries != declared_entries { malformed += 1 }
+    if edges != declared_edges { malformed += 1 }
+    if invalidations != declared_invalidations { malformed += 1 }
+    if telemetry != declared_telemetry { malformed += 1 }
+    if declared_generations >= 0 and declared_generations <= lines and declared_entries >= 0 and declared_entries <= lines and declared_edges >= 0 and declared_edges <= lines and declared_invalidations >= 0 and declared_invalidations <= lines and declared_telemetry >= 0 and declared_telemetry <= lines {
+        pilot declared_records = declared_generations + declared_entries + declared_edges + declared_invalidations + declared_telemetry
+        if declared_records != lines - 2 { malformed += 1 }
     }
 
     pilot import_ok = 1
@@ -1313,6 +1404,9 @@ task v4_query_begin_snapshot_restore() -> void {
 
 task v4_query_restore_entry_slot(entry_id: int, key: word, input_fingerprint: word, output: word, stored_generation: int, imported_event: word) -> int {
     v4_query_init()
+    if entry_id < 0 or entry_id != v4_query_entry_len {
+        give back 0 - 1
+    }
     pilot generation = stored_generation
     if generation <= 0 {
         generation = v4_query_generation()
@@ -1343,6 +1437,9 @@ task v4_query_restore_entry_slot(entry_id: int, key: word, input_fingerprint: wo
 
 task v4_query_restore_dep_slot(dep_id: int, from_key: word, to_key: word) -> int {
     v4_query_init()
+    if dep_id < 0 or dep_id != v4_query_dep_len {
+        give back 0 - 1
+    }
     repeat until array_len(v4_query_dep_from) > dep_id {
         array_push(v4_query_dep_from, "")
         array_push(v4_query_dep_to, "")
@@ -1363,13 +1460,16 @@ task v4_query_snapshot_restore_entry_line(line: word) -> int {
         give back 0
     }
 
-    pilot entry_id = word_to_int(v4_query_snapshot_field_raw(line, 1))
+    pilot entry_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
     pilot key = v4_query_snapshot_field(line, 2)
     pilot input_fingerprint = v4_query_snapshot_field(line, 3)
     pilot output = v4_query_snapshot_field(line, 4)
-    pilot stored_generation = word_to_int(v4_query_snapshot_field_raw(line, 6))
+    pilot stored_generation = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 6))
     pilot imported_event = v4_query_snapshot_field(line, 8)
-    v4_query_restore_entry_slot(entry_id, key, input_fingerprint, output, stored_generation, imported_event)
+    if entry_id < 0 or stored_generation < 0 { give back 0 }
+    if v4_query_restore_entry_slot(entry_id, key, input_fingerprint, output, stored_generation, imported_event) < 0 {
+        give back 0
+    }
     give back 1
 }
 
@@ -1381,10 +1481,11 @@ task v4_query_snapshot_restore_edge_line(line: word) -> int {
         give back 0
     }
 
-    pilot dep_id = word_to_int(v4_query_snapshot_field_raw(line, 1))
+    pilot dep_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
     pilot from_key = v4_query_snapshot_field(line, 2)
     pilot to_key = v4_query_snapshot_field(line, 3)
-    v4_query_restore_dep_slot(dep_id, from_key, to_key)
+    if dep_id < 0 { give back 0 }
+    if v4_query_restore_dep_slot(dep_id, from_key, to_key) < 0 { give back 0 }
     give back 1
 }
 
