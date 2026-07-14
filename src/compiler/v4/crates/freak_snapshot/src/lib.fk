@@ -3392,7 +3392,8 @@ task v4_unit_snapshot_restore_source_line(line: word) -> int {
     pilot revision = word_to_int(v4_unit_snapshot_field_raw(line, 3))
     pilot fingerprint = v4_unit_snapshot_field(line, 4)
     pilot text = v4_unit_snapshot_field(line, 5)
-    give back v4_source_restore_slot(file_id, path, text, revision, fingerprint)
+    v4_source_restore_slot(file_id, path, text, revision, fingerprint)
+    give back 1
 }
 
 task v4_unit_snapshot_begin_source_restore() -> void {

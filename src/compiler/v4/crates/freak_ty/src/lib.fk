@@ -8945,7 +8945,11 @@ task v4_ty_validate_doctrine_signature_lifetimes(ty_id: int, sig_id: int) -> voi
         pilot return_context = "return type of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name
         pilot return_span = v4_ty_doctrine_method_return_span(ty_id, sig_id, method_id)
         v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, return_type, return_context, return_span)
-        v4_ty_validate_no_lend_storage(ty_id, return_type, return_context, return_span)
+        if v4_ty_is_lend_type(return_type) {
+            v4_ty_validate_no_lend_storage(ty_id, v4_ty_lend_target_type(return_type), "target of returned lend on " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name, return_span)
+        } else {
+            v4_ty_validate_no_lend_storage(ty_id, return_type, return_context, return_span)
+        }
         method_id += 1
     }
 }

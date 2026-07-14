@@ -7,6 +7,7 @@ task v4_ty_snapshot_bool_text(flag: bool) -> word {
     }
     give back "false"
 }
+task v4_ty_snapshot_run() -> void {
 pilot v4_ty_snapshot_source = "task main() => \"hi|there\"\n"
 v4_ty_snapshot_source = v4_ty_snapshot_source + "shape Pilot\n"
 v4_ty_snapshot_source = v4_ty_snapshot_source + "doctrine Display\n"
@@ -72,3 +73,6 @@ pilot v4_ty_main_def = v4_resolve_def_for_name(v4_ty_resolve_id(v4_ty_restored_i
 say v4_ty_summary(v4_ty_restored_id)
 say "restored-main-signature=" + v4_ty_signature_of(v4_ty_restored_id, v4_ty_main_def)
 say v4_driver_confirm_restored_document_text("ty-snapshot.fk", "task changed() => 7\n")
+}
+
+v4_ty_snapshot_run()
