@@ -55,9 +55,17 @@ pilot v4_borrowck_provenance_memo_provenance_ids = 0
 pilot v4_borrowck_provenance_memo_active = 0
 pilot v4_borrowck_provenance_memo_hits_value = 0
 pilot v4_borrowck_provenance_integer_words = 0
+pilot v4_borrowck_provenance_integer_cache_limit = 128
+pilot v4_borrowck_provenance_integer_cache_cursor = 0
+pilot v4_borrowck_provenance_integer_cache_evictions = 0
 pilot v4_borrowck_path_canon_inputs = 0
 pilot v4_borrowck_path_canon_outputs = 0
 pilot v4_borrowck_path_canon_values = 0
+pilot v4_borrowck_path_canon_cache_limit = 128
+pilot v4_borrowck_path_canon_cache_cursor = 0
+pilot v4_borrowck_path_canon_cache_evictions = 0
+pilot v4_borrowck_path_canon_value_cache_cursor = 0
+pilot v4_borrowck_path_canon_value_cache_evictions = 0
 pilot v4_borrowck_ready = 0
 
 task v4_borrowck_init() -> void {
@@ -457,6 +465,21 @@ task v4_borrowck_path_count(borrow_id: int) -> int {
     give back total
 }
 
+-- Cache row arrays stay bounded. Words replaced by ring eviction remain
+-- bootstrap-runtime arena allocations; general arena reclamation is separate.
+task v4_borrowck_provenance_integer_cache_store(encoded: word) -> void {
+    if array_len(v4_borrowck_provenance_integer_words) < v4_borrowck_provenance_integer_cache_limit {
+        array_push(v4_borrowck_provenance_integer_words, encoded)
+        give back
+    }
+    array_set(v4_borrowck_provenance_integer_words, v4_borrowck_provenance_integer_cache_cursor, encoded)
+    v4_borrowck_provenance_integer_cache_cursor += 1
+    if v4_borrowck_provenance_integer_cache_cursor >= v4_borrowck_provenance_integer_cache_limit {
+        v4_borrowck_provenance_integer_cache_cursor = 0
+    }
+    v4_borrowck_provenance_integer_cache_evictions += 1
+}
+
 task v4_borrowck_provenance_integer_word(value: int) -> word {
     v4_borrowck_init()
     pilot intern_id = 0
@@ -468,13 +491,21 @@ task v4_borrowck_provenance_integer_word(value: int) -> word {
         intern_id += 1
     }
     pilot encoded = word_from_int(value)
-    array_push(v4_borrowck_provenance_integer_words, encoded)
+    v4_borrowck_provenance_integer_cache_store(encoded)
     give back encoded
 }
 
 task v4_borrowck_provenance_integer_intern_count() -> int {
     v4_borrowck_init()
     give back array_len(v4_borrowck_provenance_integer_words)
+}
+
+task v4_borrowck_provenance_integer_intern_capacity() -> int {
+    give back v4_borrowck_provenance_integer_cache_limit
+}
+
+task v4_borrowck_provenance_integer_intern_eviction_count() -> int {
+    give back v4_borrowck_provenance_integer_cache_evictions
 }
 
 task v4_borrowck_path_matches_canonical(path_text: word, canonical: word) -> bool {
@@ -492,6 +523,34 @@ task v4_borrowck_path_matches_canonical(path_text: word, canonical: word) -> boo
         path_idx += 1
     }
     give back canonical_idx == canonical.length()
+}
+
+task v4_borrowck_path_canon_cache_store(path_text: word, canonical: word) -> void {
+    if array_len(v4_borrowck_path_canon_inputs) < v4_borrowck_path_canon_cache_limit {
+        array_push(v4_borrowck_path_canon_inputs, path_text)
+        array_push(v4_borrowck_path_canon_outputs, canonical)
+        give back
+    }
+    array_set(v4_borrowck_path_canon_inputs, v4_borrowck_path_canon_cache_cursor, path_text)
+    array_set(v4_borrowck_path_canon_outputs, v4_borrowck_path_canon_cache_cursor, canonical)
+    v4_borrowck_path_canon_cache_cursor += 1
+    if v4_borrowck_path_canon_cache_cursor >= v4_borrowck_path_canon_cache_limit {
+        v4_borrowck_path_canon_cache_cursor = 0
+    }
+    v4_borrowck_path_canon_cache_evictions += 1
+}
+
+task v4_borrowck_path_canon_value_cache_store(canonical: word) -> void {
+    if array_len(v4_borrowck_path_canon_values) < v4_borrowck_path_canon_cache_limit {
+        array_push(v4_borrowck_path_canon_values, canonical)
+        give back
+    }
+    array_set(v4_borrowck_path_canon_values, v4_borrowck_path_canon_value_cache_cursor, canonical)
+    v4_borrowck_path_canon_value_cache_cursor += 1
+    if v4_borrowck_path_canon_value_cache_cursor >= v4_borrowck_path_canon_cache_limit {
+        v4_borrowck_path_canon_value_cache_cursor = 0
+    }
+    v4_borrowck_path_canon_value_cache_evictions += 1
 }
 
 task v4_borrowck_path_canon(path_text: word) -> word {
@@ -513,8 +572,7 @@ task v4_borrowck_path_canon(path_text: word) -> word {
     repeat until value_id >= array_len(v4_borrowck_path_canon_values) {
         pilot cached_value: word = array_get(v4_borrowck_path_canon_values, value_id)
         if v4_borrowck_path_matches_canonical(path_text, cached_value) {
-            array_push(v4_borrowck_path_canon_inputs, path_text)
-            array_push(v4_borrowck_path_canon_outputs, cached_value)
+            v4_borrowck_path_canon_cache_store(path_text, cached_value)
             give back cached_value
         }
         value_id += 1
@@ -544,15 +602,35 @@ task v4_borrowck_path_canon(path_text: word) -> word {
         }
     }
 
-    array_push(v4_borrowck_path_canon_values, canonical)
-    array_push(v4_borrowck_path_canon_inputs, path_text)
-    array_push(v4_borrowck_path_canon_outputs, canonical)
+    v4_borrowck_path_canon_value_cache_store(canonical)
+    v4_borrowck_path_canon_cache_store(path_text, canonical)
     give back canonical
 }
 
 task v4_borrowck_path_canon_cache_count() -> int {
     v4_borrowck_init()
     give back array_len(v4_borrowck_path_canon_inputs)
+}
+
+task v4_borrowck_path_canon_cache_capacity() -> int {
+    give back v4_borrowck_path_canon_cache_limit
+}
+
+task v4_borrowck_path_canon_cache_eviction_count() -> int {
+    give back v4_borrowck_path_canon_cache_evictions
+}
+
+task v4_borrowck_path_canon_value_cache_count() -> int {
+    v4_borrowck_init()
+    give back array_len(v4_borrowck_path_canon_values)
+}
+
+task v4_borrowck_path_canon_value_cache_capacity() -> int {
+    give back v4_borrowck_path_canon_cache_limit
+}
+
+task v4_borrowck_path_canon_value_cache_eviction_count() -> int {
+    give back v4_borrowck_path_canon_value_cache_evictions
 }
 
 task v4_borrowck_provenance_scratch_store(handle: int, index: int, value: word) -> void {
@@ -1035,6 +1113,85 @@ task v4_borrowck_fill_return_call_lend_provenance(mir_id: int, body_id: int, use
     }
 }
 
+task v4_borrowck_provenance_union_projected_into(provenance_id: int, incoming_id: int, suffix: word) -> void {
+    if not v4_borrowck_provenance_exists(provenance_id) or not v4_borrowck_provenance_exists(incoming_id) {
+        v4_borrowck_provenance_mark_opaque(provenance_id)
+        give back
+    }
+    if provenance_id == incoming_id {
+        v4_borrowck_provenance_mark_opaque(provenance_id)
+        give back
+    }
+
+    pilot row_id = 0
+    pilot row_count = v4_borrowck_provenance_source_active
+    repeat until row_id >= row_count {
+        if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == incoming_id {
+            pilot projected = array_get(v4_borrowck_source_paths, row_id) + suffix
+            pilot origin_id = word_to_int(array_get(v4_borrowck_source_origins, row_id))
+            v4_borrowck_provenance_add_source(provenance_id, projected, origin_id)
+        }
+        row_id += 1
+    }
+    if not v4_borrowck_provenance_is_known(incoming_id) {
+        v4_borrowck_provenance_mark_opaque(provenance_id)
+    }
+}
+
+task v4_borrowck_fill_holder_lend_provenance(mir_id: int, body_id: int, use_stmt: int, holder: word, suffix: word, provenance_id: int) -> void {
+    pilot holder_canon = v4_borrowck_path_canon(holder)
+    pilot use_block = v4_mir_stmt_block(mir_id, body_id, use_stmt)
+    if holder_canon == "" or v4_borrowck_return_has_loop_carried_rebind(mir_id, body_id, holder_canon, use_stmt, use_block) {
+        v4_borrowck_provenance_mark_opaque(provenance_id)
+        give back
+    }
+
+    pilot found_reaching_binding = false
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if stmt_id != use_stmt and v4_borrowck_stmt_rebinds_holder(mir_id, body_id, stmt_id, holder_canon) {
+            pilot origin_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+            if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, holder_canon, stmt_id, stmt_id, origin_block, use_stmt, use_block) {
+                found_reaching_binding = true
+                pilot origin_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+                if origin_id < 0 {
+                    v4_borrowck_provenance_mark_opaque(provenance_id)
+                } else {
+                    pilot candidate_id = v4_borrowck_return_lend_provenance(mir_id, body_id, stmt_id, origin_id)
+                    v4_borrowck_provenance_union_projected_into(provenance_id, candidate_id, suffix)
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    if not found_reaching_binding or v4_borrowck_provenance_count(provenance_id) == 0 {
+        v4_borrowck_provenance_mark_opaque(provenance_id)
+    }
+}
+
+task v4_borrowck_fill_explicit_lend_provenance(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int, provenance_id: int) -> void {
+    pilot source_text = v4_borrowck_path_canon(v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id))
+    pilot source_root = v4_borrowck_path_root(source_text)
+    if source_root == "" {
+        v4_borrowck_provenance_mark_opaque(provenance_id)
+        give back
+    }
+
+    pilot source_mode = v4_borrowck_local_mode_for_path(mir_id, body_id, source_text)
+    pilot source_ty = v4_mir_local_ty_for_name(mir_id, body_id, source_root)
+    if source_mode == v4_ty_param_mode_lend or source_mode == v4_ty_param_mode_lend_mut or not v4_ty_is_lend_type(source_ty) {
+        v4_borrowck_provenance_add_source(provenance_id, source_text, rvalue_id)
+        give back
+    }
+
+    pilot suffix = ""
+    if source_text.length() > source_root.length() {
+        suffix = v4_slice(source_text, source_root.length(), source_text.length())
+    }
+    v4_borrowck_fill_holder_lend_provenance(mir_id, body_id, use_stmt, source_root, suffix, provenance_id)
+}
+
 task v4_borrowck_fill_return_lend_provenance(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int, provenance_id: int) -> void {
     if rvalue_id < 0 {
         v4_borrowck_provenance_mark_opaque(provenance_id)
@@ -1043,7 +1200,7 @@ task v4_borrowck_fill_return_lend_provenance(mir_id: int, body_id: int, use_stmt
 
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
-        v4_borrowck_provenance_add_source(provenance_id, v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), rvalue_id)
+        v4_borrowck_fill_explicit_lend_provenance(mir_id, body_id, use_stmt, rvalue_id, provenance_id)
         if v4_borrowck_provenance_count(provenance_id) == 0 {
             v4_borrowck_provenance_mark_opaque(provenance_id)
         }
@@ -1059,34 +1216,7 @@ task v4_borrowck_fill_return_lend_provenance(mir_id: int, body_id: int, use_stmt
     }
 
     pilot holder = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
-    pilot use_block = v4_mir_stmt_block(mir_id, body_id, use_stmt)
-    if holder == "" or v4_borrowck_return_has_loop_carried_rebind(mir_id, body_id, holder, use_stmt, use_block) {
-        v4_borrowck_provenance_mark_opaque(provenance_id)
-        give back
-    }
-
-    pilot found_reaching_binding = false
-    pilot stmt_id = 0
-    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
-    repeat until stmt_id >= stmt_count {
-        if stmt_id != use_stmt and v4_borrowck_stmt_rebinds_holder(mir_id, body_id, stmt_id, holder) {
-            pilot origin_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
-            if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, holder, stmt_id, stmt_id, origin_block, use_stmt, use_block) {
-                found_reaching_binding = true
-                pilot origin_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-                if origin_id < 0 {
-                    v4_borrowck_provenance_mark_opaque(provenance_id)
-                } else {
-                    pilot candidate_id = v4_borrowck_return_lend_provenance(mir_id, body_id, stmt_id, origin_id)
-                    v4_borrowck_provenance_union_into(provenance_id, candidate_id)
-                }
-            }
-        }
-        stmt_id += 1
-    }
-    if not found_reaching_binding or v4_borrowck_provenance_count(provenance_id) == 0 {
-        v4_borrowck_provenance_mark_opaque(provenance_id)
-    }
+    v4_borrowck_fill_holder_lend_provenance(mir_id, body_id, use_stmt, holder, "", provenance_id)
 }
 
 task v4_borrowck_return_lend_provenance(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int) -> int {

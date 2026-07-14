@@ -1,0 +1,96 @@
+-- V4 projected scalar lend-holder provenance smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_contract_region_projected_holder_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Fleet {\n"
+    src = src + "    ship: Ship\n"
+    src = src + "}\n"
+    src = src + "task projected_holder<'a>(lend 'a fleet: Fleet) -> lend 'a Ship {\n"
+    src = src + "    pilot view = lend fleet\n"
+    src = src + "    give back lend view.ship\n"
+    src = src + "}\n"
+    src = src + "task projected_holder_chain<'a>(lend 'a fleet: Fleet) -> lend 'a Ship {\n"
+    src = src + "    pilot first = lend fleet\n"
+    src = src + "    pilot second = lend first\n"
+    src = src + "    give back lend second.ship\n"
+    src = src + "}\n"
+    src = src + "task owned_holder(fleet: Fleet) -> lend Ship {\n"
+    src = src + "    pilot view = lend fleet\n"
+    src = src + "    give back lend view.ship\n"
+    src = src + "}\n"
+    src = src + "task owned_control(fleet: Fleet) -> lend Ship {\n"
+    src = src + "    give back lend fleet.ship\n"
+    src = src + "}\n"
+    src = src + "task cyclic_holder<'a>(lend 'a fleet: Fleet, ready: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot view = lend fleet\n"
+    src = src + "    pilot finished = ready\n"
+    src = src + "    repeat until finished {\n"
+    src = src + "        view = lend fleet\n"
+    src = src + "        finished = true\n"
+    src = src + "    }\n"
+    src = src + "    give back lend view.ship\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_projected_holder_diag_count(borrow_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+task v4_contract_region_projected_holder_return_path(borrow_id: int, result_id: int) -> int {
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_return_loan {
+            give back path_id
+        }
+        path_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_contract_region_projected_holder_src = v4_contract_region_projected_holder_source()
+pilot v4_contract_region_projected_holder_stream = v4_lex_text(0, v4_contract_region_projected_holder_src)
+pilot v4_contract_region_projected_holder_tree = v4_parse_stream(0, v4_contract_region_projected_holder_stream)
+pilot v4_contract_region_projected_holder_hir = v4_hir_lower_tree(0, v4_contract_region_projected_holder_tree)
+pilot v4_contract_region_projected_holder_resolve = v4_resolve_lower_hir(0, v4_contract_region_projected_holder_hir)
+pilot v4_contract_region_projected_holder_ty = v4_ty_lower_resolve(0, v4_contract_region_projected_holder_resolve)
+pilot v4_contract_region_projected_holder_mir = v4_mir_lower_ty(0, v4_contract_region_projected_holder_ty)
+pilot v4_contract_region_projected_holder_borrow = v4_borrowck_check_mir(0, v4_contract_region_projected_holder_mir)
+
+pilot v4_contract_region_projected_holder_def = v4_resolve_def_for_name(v4_contract_region_projected_holder_resolve, "projected_holder")
+pilot v4_contract_region_projected_holder_chain_def = v4_resolve_def_for_name(v4_contract_region_projected_holder_resolve, "projected_holder_chain")
+pilot v4_contract_region_projected_holder_owned_def = v4_resolve_def_for_name(v4_contract_region_projected_holder_resolve, "owned_holder")
+pilot v4_contract_region_projected_holder_control_def = v4_resolve_def_for_name(v4_contract_region_projected_holder_resolve, "owned_control")
+pilot v4_contract_region_projected_holder_cycle_def = v4_resolve_def_for_name(v4_contract_region_projected_holder_resolve, "cyclic_holder")
+pilot v4_contract_region_projected_holder_result = v4_borrowck_lookup_result(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_def)
+pilot v4_contract_region_projected_holder_chain_result = v4_borrowck_lookup_result(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_chain_def)
+pilot v4_contract_region_projected_holder_owned_result = v4_borrowck_lookup_result(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_owned_def)
+pilot v4_contract_region_projected_holder_control_result = v4_borrowck_lookup_result(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_control_def)
+pilot v4_contract_region_projected_holder_cycle_result = v4_borrowck_lookup_result(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_cycle_def)
+pilot v4_contract_region_projected_holder_path = v4_contract_region_projected_holder_return_path(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_result)
+pilot v4_contract_region_projected_holder_chain_path = v4_contract_region_projected_holder_return_path(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_chain_result)
+
+say "contract-region-projected-holder-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_projected_holder_ty))
+say "contract-region-projected-holder-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_projected_holder_mir))
+say "contract-region-projected-holder-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_projected_holder_borrow))
+say "contract-region-projected-holder-status=" + v4_borrowck_result_status(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_result)
+say "contract-region-projected-holder-chain-status=" + v4_borrowck_result_status(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_chain_result)
+say "contract-region-projected-holder-owned-status=" + v4_borrowck_result_status(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_owned_result)
+say "contract-region-projected-holder-control-status=" + v4_borrowck_result_status(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_control_result)
+say "contract-region-projected-holder-cycle-status=" + v4_borrowck_result_status(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_cycle_result)
+say "contract-region-projected-holder-source=" + v4_borrowck_path_text(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_result, v4_contract_region_projected_holder_path)
+say "contract-region-projected-holder-chain-source=" + v4_borrowck_path_text(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_chain_result, v4_contract_region_projected_holder_chain_path)
+say "contract-region-projected-holder-owned-diagnostics=" + word_from_int(v4_contract_region_projected_holder_diag_count(v4_contract_region_projected_holder_borrow, "Meiya refuses to return a loan of an owned value"))
+say "contract-region-projected-holder-opaque-diagnostics=" + word_from_int(v4_contract_region_projected_holder_diag_count(v4_contract_region_projected_holder_borrow, "Meiya cannot establish the origin of this returned loan"))
+say "contract-region-projected-holder-cycle-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_cycle_result, v4_borrowck_path_return_loan))

@@ -143,8 +143,86 @@ pilot v4_contract_region_resource_integer_intern_stable = true
 pilot v4_contract_region_resource_path_cache_before = 0
 pilot v4_contract_region_resource_path_cache_after = 0
 pilot v4_contract_region_resource_path_cache_stable = true
+pilot v4_contract_region_resource_path_value_cache_before = 0
+pilot v4_contract_region_resource_path_value_cache_after = 0
+pilot v4_contract_region_resource_path_value_cache_stable = true
+pilot v4_contract_region_resource_integer_capacity = v4_borrowck_provenance_integer_intern_capacity()
+pilot v4_contract_region_resource_path_capacity = v4_borrowck_path_canon_cache_capacity()
+pilot v4_contract_region_resource_path_value_capacity = v4_borrowck_path_canon_value_cache_capacity()
+pilot v4_contract_region_resource_integer_evictions_before = 0
+pilot v4_contract_region_resource_path_evictions_before = 0
+pilot v4_contract_region_resource_path_value_evictions_before = 0
+pilot v4_contract_region_resource_integer_cache_bounded = false
+pilot v4_contract_region_resource_path_cache_bounded = false
+pilot v4_contract_region_resource_cache_evictions_observed = false
+pilot v4_contract_region_resource_integer_rebuild_correct = true
+pilot v4_contract_region_resource_path_rebuild_correct = false
+pilot v4_contract_region_resource_churn_paths_correct = true
+pilot v4_contract_region_resource_hot_reuse_stable = true
+
+pilot v4_contract_region_resource_hot_integer = 7000001
+pilot v4_contract_region_resource_hot_path = " fleet . ship [ 0 ] "
+pilot v4_contract_region_resource_hot_integer_word = v4_borrowck_provenance_integer_word(v4_contract_region_resource_hot_integer)
+pilot v4_contract_region_resource_hot_canonical = v4_borrowck_path_canon(v4_contract_region_resource_hot_path)
+v4_contract_region_resource_integer_evictions_before = v4_borrowck_provenance_integer_intern_eviction_count()
+v4_contract_region_resource_path_evictions_before = v4_borrowck_path_canon_cache_eviction_count()
+v4_contract_region_resource_path_value_evictions_before = v4_borrowck_path_canon_value_cache_eviction_count()
+
+pilot v4_contract_region_resource_churn_id = 0
+repeat until v4_contract_region_resource_churn_id >= v4_contract_region_resource_integer_capacity + 7 {
+    pilot churn_integer_word = v4_borrowck_provenance_integer_word(8000000 + v4_contract_region_resource_churn_id)
+    if word_to_int(churn_integer_word) != 8000000 + v4_contract_region_resource_churn_id {
+        v4_contract_region_resource_integer_rebuild_correct = false
+    }
+    v4_contract_region_resource_churn_id += 1
+}
+
+v4_contract_region_resource_churn_id = 0
+repeat until v4_contract_region_resource_churn_id >= v4_contract_region_resource_path_capacity + 7 {
+    pilot churn_suffix = word_from_int(v4_contract_region_resource_churn_id)
+    pilot churn_path = " cache . path" + churn_suffix + " [ " + churn_suffix + " ] "
+    pilot churn_expected = "cache.path" + churn_suffix + "[" + churn_suffix + "]"
+    if v4_borrowck_path_canon(churn_path) != churn_expected {
+        v4_contract_region_resource_churn_paths_correct = false
+    }
+    v4_contract_region_resource_churn_id += 1
+}
+
+v4_contract_region_resource_hot_integer_word = v4_borrowck_provenance_integer_word(v4_contract_region_resource_hot_integer)
+v4_contract_region_resource_hot_canonical = v4_borrowck_path_canon(v4_contract_region_resource_hot_path)
+v4_contract_region_resource_integer_rebuild_correct = v4_contract_region_resource_integer_rebuild_correct and word_to_int(v4_contract_region_resource_hot_integer_word) == v4_contract_region_resource_hot_integer
+v4_contract_region_resource_path_rebuild_correct = v4_contract_region_resource_hot_canonical == "fleet.ship[0]" and v4_contract_region_resource_churn_paths_correct
+v4_contract_region_resource_integer_cache_bounded = v4_borrowck_provenance_integer_intern_count() == v4_contract_region_resource_integer_capacity
+v4_contract_region_resource_path_cache_bounded = v4_borrowck_path_canon_cache_count() == v4_contract_region_resource_path_capacity and v4_borrowck_path_canon_value_cache_count() == v4_contract_region_resource_path_value_capacity
+v4_contract_region_resource_cache_evictions_observed = v4_borrowck_provenance_integer_intern_eviction_count() > v4_contract_region_resource_integer_evictions_before
+v4_contract_region_resource_cache_evictions_observed = v4_contract_region_resource_cache_evictions_observed and v4_borrowck_path_canon_cache_eviction_count() > v4_contract_region_resource_path_evictions_before
+v4_contract_region_resource_cache_evictions_observed = v4_contract_region_resource_cache_evictions_observed and v4_borrowck_path_canon_value_cache_eviction_count() > v4_contract_region_resource_path_value_evictions_before
+
+pilot v4_contract_region_resource_hot_integer_count = v4_borrowck_provenance_integer_intern_count()
+pilot v4_contract_region_resource_hot_path_count = v4_borrowck_path_canon_cache_count()
+pilot v4_contract_region_resource_hot_path_value_count = v4_borrowck_path_canon_value_cache_count()
+pilot v4_contract_region_resource_hot_integer_evictions = v4_borrowck_provenance_integer_intern_eviction_count()
+pilot v4_contract_region_resource_hot_path_evictions = v4_borrowck_path_canon_cache_eviction_count()
+pilot v4_contract_region_resource_hot_path_value_evictions = v4_borrowck_path_canon_value_cache_eviction_count()
+pilot v4_contract_region_resource_hot_repeat = 0
+repeat until v4_contract_region_resource_hot_repeat >= 16 {
+    v4_contract_region_resource_hot_integer_word = v4_borrowck_provenance_integer_word(v4_contract_region_resource_hot_integer)
+    v4_contract_region_resource_hot_canonical = v4_borrowck_path_canon(v4_contract_region_resource_hot_path)
+    if word_to_int(v4_contract_region_resource_hot_integer_word) != v4_contract_region_resource_hot_integer or v4_contract_region_resource_hot_canonical != "fleet.ship[0]" {
+        v4_contract_region_resource_hot_reuse_stable = false
+    }
+    if v4_borrowck_provenance_integer_intern_count() != v4_contract_region_resource_hot_integer_count or v4_borrowck_path_canon_cache_count() != v4_contract_region_resource_hot_path_count or v4_borrowck_path_canon_value_cache_count() != v4_contract_region_resource_hot_path_value_count {
+        v4_contract_region_resource_hot_reuse_stable = false
+    }
+    if v4_borrowck_provenance_integer_intern_eviction_count() != v4_contract_region_resource_hot_integer_evictions or v4_borrowck_path_canon_cache_eviction_count() != v4_contract_region_resource_hot_path_evictions or v4_borrowck_path_canon_value_cache_eviction_count() != v4_contract_region_resource_hot_path_value_evictions {
+        v4_contract_region_resource_hot_reuse_stable = false
+    }
+    v4_contract_region_resource_hot_repeat += 1
+}
+
 v4_contract_region_resource_integer_intern_before = v4_borrowck_provenance_integer_intern_count()
 v4_contract_region_resource_path_cache_before = v4_borrowck_path_canon_cache_count()
+v4_contract_region_resource_path_value_cache_before = v4_borrowck_path_canon_value_cache_count()
 repeat until v4_contract_region_resource_repeat_id >= v4_contract_region_resource_repeat_count {
     pilot current_borrow = v4_borrowck_check_mir(0, v4_contract_region_resource_mir)
     if not v4_contract_region_resource_diamond_stable(current_borrow, v4_contract_region_resource_diamond_def) {
@@ -179,20 +257,28 @@ repeat until v4_contract_region_resource_repeat_id >= v4_contract_region_resourc
     if v4_borrowck_path_canon_cache_count() != v4_contract_region_resource_path_cache_before {
         v4_contract_region_resource_path_cache_stable = false
     }
+    if v4_borrowck_path_canon_value_cache_count() != v4_contract_region_resource_path_value_cache_before {
+        v4_contract_region_resource_path_value_cache_stable = false
+    }
     v4_contract_region_resource_repeat_id += 1
 }
 
 v4_contract_region_resource_integer_intern_after = v4_borrowck_provenance_integer_intern_count()
 v4_contract_region_resource_path_cache_after = v4_borrowck_path_canon_cache_count()
+v4_contract_region_resource_path_value_cache_after = v4_borrowck_path_canon_value_cache_count()
 v4_contract_region_resource_integer_intern_stable = v4_contract_region_resource_integer_intern_stable and v4_contract_region_resource_integer_intern_after == v4_contract_region_resource_integer_intern_before
 v4_contract_region_resource_path_cache_stable = v4_contract_region_resource_path_cache_stable and v4_contract_region_resource_path_cache_after == v4_contract_region_resource_path_cache_before
+v4_contract_region_resource_path_value_cache_stable = v4_contract_region_resource_path_value_cache_stable and v4_contract_region_resource_path_value_cache_after == v4_contract_region_resource_path_value_cache_before
 v4_contract_region_resource_invalid_provenance = v4_borrowck_provenance_state_active_count()
 v4_contract_region_resource_bounds_opaque = v4_borrowck_provenance_state(v4_contract_region_resource_invalid_provenance) == v4_borrowck_provenance_opaque
 v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_count(v4_contract_region_resource_invalid_provenance) == 0
 v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_path_at(v4_contract_region_resource_invalid_provenance, 0) == ""
 v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_origin_at(v4_contract_region_resource_invalid_provenance, 0) < 0
 v4_contract_region_resource_bounds_opaque = v4_contract_region_resource_bounds_opaque and v4_borrowck_provenance_overlaps_path(v4_contract_region_resource_invalid_provenance, "unrelated.owner")
-v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_active_stable and v4_contract_region_resource_active_within_capacity and v4_contract_region_resource_capacities_reused and v4_contract_region_resource_integer_intern_stable and v4_contract_region_resource_path_cache_stable
+v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_active_stable and v4_contract_region_resource_active_within_capacity and v4_contract_region_resource_capacities_reused
+v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_no_historical_growth and v4_contract_region_resource_integer_cache_bounded and v4_contract_region_resource_path_cache_bounded and v4_contract_region_resource_cache_evictions_observed
+v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_no_historical_growth and v4_contract_region_resource_integer_intern_stable and v4_contract_region_resource_path_cache_stable and v4_contract_region_resource_path_value_cache_stable
+v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_no_historical_growth and v4_contract_region_resource_integer_rebuild_correct and v4_contract_region_resource_path_rebuild_correct and v4_contract_region_resource_hot_reuse_stable
 
 say "contract-region-resource-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_resource_ty))
 say "contract-region-resource-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_resource_mir))
@@ -213,9 +299,20 @@ say "contract-region-resource-active-counts-stable=" + v4_contract_region_resour
 say "contract-region-resource-active-within-capacity=" + v4_contract_region_resource_bool(v4_contract_region_resource_active_within_capacity)
 say "contract-region-resource-capacities-reused=" + v4_contract_region_resource_bool(v4_contract_region_resource_capacities_reused)
 say "contract-region-resource-integer-intern-count=" + word_from_int(v4_contract_region_resource_integer_intern_after)
+say "contract-region-resource-integer-intern-capacity=" + word_from_int(v4_contract_region_resource_integer_capacity)
 say "contract-region-resource-integer-intern-count-stable=" + v4_contract_region_resource_bool(v4_contract_region_resource_integer_intern_stable)
+say "contract-region-resource-integer-cache-bounded=" + v4_contract_region_resource_bool(v4_contract_region_resource_integer_cache_bounded)
+say "contract-region-resource-integer-rebuild-correct=" + v4_contract_region_resource_bool(v4_contract_region_resource_integer_rebuild_correct)
 say "contract-region-resource-canonical-path-cache-count=" + word_from_int(v4_contract_region_resource_path_cache_after)
+say "contract-region-resource-canonical-path-cache-capacity=" + word_from_int(v4_contract_region_resource_path_capacity)
 say "contract-region-resource-canonical-path-cache-count-stable=" + v4_contract_region_resource_bool(v4_contract_region_resource_path_cache_stable)
+say "contract-region-resource-canonical-value-cache-count=" + word_from_int(v4_contract_region_resource_path_value_cache_after)
+say "contract-region-resource-canonical-value-cache-capacity=" + word_from_int(v4_contract_region_resource_path_value_capacity)
+say "contract-region-resource-canonical-value-cache-count-stable=" + v4_contract_region_resource_bool(v4_contract_region_resource_path_value_cache_stable)
+say "contract-region-resource-canonical-path-cache-bounded=" + v4_contract_region_resource_bool(v4_contract_region_resource_path_cache_bounded)
+say "contract-region-resource-canonical-path-rebuild-correct=" + v4_contract_region_resource_bool(v4_contract_region_resource_path_rebuild_correct)
+say "contract-region-resource-cache-evictions-observed=" + v4_contract_region_resource_bool(v4_contract_region_resource_cache_evictions_observed)
+say "contract-region-resource-hot-reuse-stable=" + v4_contract_region_resource_bool(v4_contract_region_resource_hot_reuse_stable)
 say "contract-region-resource-no-historical-growth=" + v4_contract_region_resource_bool(v4_contract_region_resource_no_historical_growth)
 say "contract-region-resource-opaque-conservative=" + v4_contract_region_resource_bool(v4_contract_region_resource_opaque_stable)
 say "contract-region-resource-bounds-opaque=" + v4_contract_region_resource_bool(v4_contract_region_resource_bounds_opaque)
