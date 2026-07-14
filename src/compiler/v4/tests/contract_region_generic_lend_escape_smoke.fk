@@ -208,6 +208,8 @@ say "contract-region-owner-generic-negative-diag1-message=" + v4_diag_message(v4
 say "contract-region-owner-generic-negative-diag1-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 1))
 say "contract-region-owner-generic-negative-diag2-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 2))
 say "contract-region-owner-generic-negative-diag2-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 2))
+say "contract-region-owner-generic-negative-diag3-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 3))
+say "contract-region-owner-generic-negative-diag3-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 3))
 
 pilot v4_contract_region_shadowed_shared_mir = v4_mir_text_cached("contract-region-shadowed-shared.fk", v4_contract_region_shadowed_shared_source())
 pilot v4_contract_region_shadowed_shared_ty = v4_mir_ty_id(v4_contract_region_shadowed_shared_mir)
