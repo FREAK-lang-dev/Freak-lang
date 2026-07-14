@@ -1,6 +1,21 @@
 -- V4 query snapshot source confirmation smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_query_confirm_assert(case_name: word, passed: bool) -> word {
+    pilot out = "query-confirm-contract|case=" + case_name
+    if passed { out = out + "|ok=1" } else { out = out + "|ok=0" }
+    give back out
+}
+
+task v4_query_confirm_crosswire(key_a: word, key_b: word, fingerprint: word) -> int {
+    pilot entry_a = v4_query_find(key_a, fingerprint)
+    pilot entry_b = v4_query_find(key_b, fingerprint)
+    if entry_a < 0 or entry_b < 0 { give back 0 - 1 }
+    array_set(v4_query_outputs, entry_a, v4_query_entry_output(entry_b))
+    give back entry_a
+}
+
+
 pilot v4_confirm_source = "task main() => \"warm-cache\"\n"
 v4_confirm_source = v4_confirm_source + "shape Pilot\n"
 
@@ -27,3 +42,35 @@ say v4_query_snapshot_restore(v4_confirm_payload)
 pilot v4_confirm_changed = "shape Pilot\n"
 v4_confirm_changed = v4_confirm_changed + "task main() => \"changed\"\n"
 say v4_driver_confirm_restored_document_text("snapshot-confirm.fk", v4_confirm_changed)
+
+pilot v4_crosswire_source = ""
+pilot v4_crosswire_path_a = "snapshot-crosswire-a.fk"
+pilot v4_crosswire_path_b = "snapshot-crosswire-b.fk"
+pilot v4_crosswire_borrow_a = 0
+pilot v4_crosswire_borrow_b = 0
+pilot v4_crosswire_file_a = 0
+pilot v4_crosswire_fingerprint = ""
+pilot v4_crosswire_restore_result = ""
+pilot v4_crosswire_confirm_result = ""
+pilot v4_crosswire_lex_entry = 0 - 1
+pilot v4_crosswire_parse_entry = 0 - 1
+pilot v4_crosswire_hir_entry = 0 - 1
+pilot v4_crosswire_resolve_entry = 0 - 1
+pilot v4_crosswire_ty_entry = 0 - 1
+pilot v4_crosswire_mir_entry = 0 - 1
+pilot v4_crosswire_borrow_entry = 0 - 1
+v4_crosswire_source = "task crosswire() -> int {\n    give back 7\n}\n"
+v4_crosswire_borrow_a = v4_borrowck_text_cached(v4_crosswire_path_a, v4_crosswire_source)
+v4_crosswire_borrow_b = v4_borrowck_text_cached(v4_crosswire_path_b, v4_crosswire_source)
+v4_crosswire_file_a = v4_source_find(v4_crosswire_path_a)
+v4_crosswire_fingerprint = v4_source_fingerprint(v4_crosswire_file_a)
+v4_crosswire_restore_result = v4_query_snapshot_restore(v4_query_snapshot())
+v4_crosswire_lex_entry = v4_query_confirm_crosswire(v4_lex_query_key(v4_crosswire_path_a), v4_lex_query_key(v4_crosswire_path_b), v4_crosswire_fingerprint)
+v4_crosswire_parse_entry = v4_query_confirm_crosswire(v4_parse_query_key(v4_crosswire_path_a), v4_parse_query_key(v4_crosswire_path_b), v4_crosswire_fingerprint)
+v4_crosswire_hir_entry = v4_query_confirm_crosswire(v4_hir_query_key(v4_crosswire_path_a), v4_hir_query_key(v4_crosswire_path_b), v4_crosswire_fingerprint)
+v4_crosswire_resolve_entry = v4_query_confirm_crosswire(v4_resolve_query_key(v4_crosswire_path_a), v4_resolve_query_key(v4_crosswire_path_b), v4_crosswire_fingerprint)
+v4_crosswire_ty_entry = v4_query_confirm_crosswire(v4_ty_query_key(v4_crosswire_path_a), v4_ty_query_key(v4_crosswire_path_b), v4_crosswire_fingerprint)
+v4_crosswire_mir_entry = v4_query_confirm_crosswire(v4_mir_query_key(v4_crosswire_path_a), v4_mir_query_key(v4_crosswire_path_b), v4_crosswire_fingerprint)
+v4_crosswire_borrow_entry = v4_query_confirm_crosswire(v4_borrowck_query_key(v4_crosswire_path_a), v4_borrowck_query_key(v4_crosswire_path_b), v4_crosswire_fingerprint)
+v4_crosswire_confirm_result = v4_driver_confirm_restored_document(v4_crosswire_path_a)
+say v4_query_confirm_assert("two-source-core-ids-blocked", v4_crosswire_restore_result.starts_with("query-snapshot-restore ok=1 ") and v4_crosswire_lex_entry >= 0 and v4_crosswire_parse_entry >= 0 and v4_crosswire_hir_entry >= 0 and v4_crosswire_resolve_entry >= 0 and v4_crosswire_ty_entry >= 0 and v4_crosswire_mir_entry >= 0 and v4_crosswire_borrow_entry >= 0 and v4_query_entry_state(v4_crosswire_lex_entry) == v4_query_dirty and v4_query_entry_state(v4_crosswire_parse_entry) == v4_query_dirty and v4_query_entry_state(v4_crosswire_hir_entry) == v4_query_dirty and v4_query_entry_state(v4_crosswire_resolve_entry) == v4_query_dirty and v4_query_entry_state(v4_crosswire_ty_entry) == v4_query_dirty and v4_query_entry_state(v4_crosswire_mir_entry) == v4_query_dirty and v4_query_entry_state(v4_crosswire_borrow_entry) == v4_query_dirty)

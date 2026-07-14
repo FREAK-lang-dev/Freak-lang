@@ -60,6 +60,62 @@ task v4_unit_snapshot_fixture_variant(payload: word, section_name: word, mode: w
     give back out
 }
 
+task v4_unit_snapshot_fixture_header_with_sources(line: word, sources: int) -> word {
+    pilot out = "00-unit-snapshot"
+    out = out + "|format=" + v4_unit_snapshot_key_value(line, "format")
+    out = out + "|sources=" + word_from_int(sources)
+    out = out + "|sections=" + v4_unit_snapshot_key_value(line, "sections")
+    give back out
+}
+
+task v4_unit_snapshot_fixture_source_line(line: word, source_id: int, path: word, fingerprint: word) -> word {
+    pilot out = "unit-source|" + word_from_int(source_id)
+    out = out + "|" + v4_unit_snapshot_escape(path)
+    out = out + "|" + v4_unit_snapshot_field_raw(line, 3)
+    out = out + "|" + v4_unit_snapshot_escape(fingerprint)
+    out = out + "|" + v4_unit_snapshot_escape(v4_unit_snapshot_field(line, 5))
+    give back out
+}
+
+task v4_unit_snapshot_fixture_source_variant(payload: word, mode: word) -> word {
+    pilot out = ""
+    pilot declared_sources = 0
+    pilot changed_source = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        pilot output_line = line
+        pilot kind = v4_unit_snapshot_field_raw(line, 0)
+        if kind == "00-unit-snapshot" {
+            declared_sources = word_to_int(v4_unit_snapshot_key_value(line, "sources"))
+            pilot output_sources = declared_sources
+            if mode == "duplicate-id" or mode == "duplicate-path" { output_sources += 1 }
+            output_line = v4_unit_snapshot_fixture_header_with_sources(line, output_sources)
+        } else if kind == "unit-source" and changed_source == 0 {
+            pilot source_id = word_to_int(v4_unit_snapshot_field_raw(line, 1))
+            pilot source_path = v4_unit_snapshot_field(line, 2)
+            pilot fingerprint = v4_unit_snapshot_field(line, 4)
+            if mode == "negative-id" {
+                output_line = v4_unit_snapshot_fixture_source_line(line, 0 - 1, source_path, fingerprint)
+            } else if mode == "sparse-id" {
+                output_line = v4_unit_snapshot_fixture_source_line(line, declared_sources, source_path, fingerprint)
+            } else if mode == "forged-fingerprint" {
+                output_line = v4_unit_snapshot_fixture_source_line(line, source_id, source_path, "forged-fingerprint")
+            } else if mode == "duplicate-id" {
+                output_line = line + "\n" + line
+            } else if mode == "duplicate-path" {
+                output_line = line + "\n" + v4_unit_snapshot_fixture_source_line(line, declared_sources, source_path, fingerprint)
+            }
+            changed_source = 1
+        }
+        if out != "" { out = out + "\n" }
+        out = out + output_line
+        line_id += 1
+    }
+    give back out
+}
+
 pilot v4_unit_snapshot_source = "task main() -> int {\n"
 v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot name = \"Yuuko|Meiya\"\n"
 v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot bad = name - 1\n"
@@ -163,6 +219,36 @@ say v4_unit_snapshot_integrity_assert("changed-diagnostics-valid", v4_unit_diagn
 say v4_lsp_handle_text_request("workspace/unitSnapshotManifest", "unit-snapshot.fk", v4_unit_snapshot(), 0)
 say v4_lsp_handle_text_request("workspace/unitSnapshotHealth", "unit-snapshot.fk", v4_unit_snapshot(), 0)
 
+pilot v4_unit_snapshot_atomic_state = ""
+pilot v4_unit_snapshot_negative_id = ""
+pilot v4_unit_snapshot_sparse_id = ""
+pilot v4_unit_snapshot_duplicate_id = ""
+pilot v4_unit_snapshot_duplicate_path = ""
+pilot v4_unit_snapshot_forged_fingerprint = ""
+pilot v4_unit_snapshot_atomic_result = ""
+pilot v4_unit_snapshot_atomic_ok = 1
+v4_unit_snapshot_atomic_state = v4_unit_snapshot()
+v4_unit_snapshot_negative_id = v4_unit_snapshot_fixture_source_variant(v4_unit_snapshot_atomic_state, "negative-id")
+v4_unit_snapshot_sparse_id = v4_unit_snapshot_fixture_source_variant(v4_unit_snapshot_atomic_state, "sparse-id")
+v4_unit_snapshot_duplicate_id = v4_unit_snapshot_fixture_source_variant(v4_unit_snapshot_atomic_state, "duplicate-id")
+v4_unit_snapshot_duplicate_path = v4_unit_snapshot_fixture_source_variant(v4_unit_snapshot_atomic_state, "duplicate-path")
+v4_unit_snapshot_forged_fingerprint = v4_unit_snapshot_fixture_source_variant(v4_unit_snapshot_atomic_state, "forged-fingerprint")
+v4_unit_snapshot_atomic_result = v4_unit_snapshot_restore(v4_unit_snapshot_negative_id)
+if (v4_unit_snapshot_atomic_result.starts_with("00-unit-snapshot-restore ok=0 ") and v4_unit_snapshot() == v4_unit_snapshot_atomic_state) == false { v4_unit_snapshot_atomic_ok = 0 }
+say v4_unit_snapshot_integrity_assert("negative-source-id-atomic", v4_unit_snapshot_atomic_ok == 1)
+v4_unit_snapshot_atomic_result = v4_unit_snapshot_restore(v4_unit_snapshot_sparse_id)
+if (v4_unit_snapshot_atomic_result.starts_with("00-unit-snapshot-restore ok=0 ") and v4_unit_snapshot() == v4_unit_snapshot_atomic_state) == false { v4_unit_snapshot_atomic_ok = 0 }
+say v4_unit_snapshot_integrity_assert("sparse-source-id-atomic", v4_unit_snapshot_atomic_ok == 1)
+v4_unit_snapshot_atomic_result = v4_unit_snapshot_restore(v4_unit_snapshot_duplicate_id)
+if (v4_unit_snapshot_atomic_result.starts_with("00-unit-snapshot-restore ok=0 ") and v4_unit_snapshot() == v4_unit_snapshot_atomic_state) == false { v4_unit_snapshot_atomic_ok = 0 }
+say v4_unit_snapshot_integrity_assert("duplicate-source-id-atomic", v4_unit_snapshot_atomic_ok == 1)
+v4_unit_snapshot_atomic_result = v4_unit_snapshot_restore(v4_unit_snapshot_duplicate_path)
+if (v4_unit_snapshot_atomic_result.starts_with("00-unit-snapshot-restore ok=0 ") and v4_unit_snapshot() == v4_unit_snapshot_atomic_state) == false { v4_unit_snapshot_atomic_ok = 0 }
+say v4_unit_snapshot_integrity_assert("duplicate-source-path-atomic", v4_unit_snapshot_atomic_ok == 1)
+v4_unit_snapshot_atomic_result = v4_unit_snapshot_restore(v4_unit_snapshot_forged_fingerprint)
+if (v4_unit_snapshot_atomic_result.starts_with("00-unit-snapshot-restore ok=0 ") and v4_unit_snapshot() == v4_unit_snapshot_atomic_state) == false { v4_unit_snapshot_atomic_ok = 0 }
+say v4_unit_snapshot_integrity_assert("forged-source-fingerprint-atomic", v4_unit_snapshot_atomic_ok == 1)
+
 pilot v4_unit_snapshot_preflight_text = ""
 pilot v4_unit_snapshot_preflight_revision = 0
 pilot v4_unit_snapshot_failed_restore = ""
@@ -170,7 +256,7 @@ v4_unit_snapshot_preflight_text = v4_source_text(v4_unit_snapshot_before_file_id
 v4_unit_snapshot_preflight_revision = v4_source_revision(v4_unit_snapshot_before_file_id)
 v4_unit_snapshot_failed_restore = v4_unit_snapshot_restore(v4_unit_snapshot_missing)
 say v4_unit_snapshot_failed_restore
-say v4_unit_snapshot_integrity_assert("invalid-restore-rejected", v4_unit_snapshot_failed_restore.starts_with("00-unit-snapshot-restore ok=0 "))
+say v4_unit_snapshot_integrity_assert("invalid-restore-rejected", v4_unit_snapshot_failed_restore.starts_with("00-unit-snapshot-restore ok=0 ") and v4_unit_snapshot_atomic_ok == 1)
 say v4_unit_snapshot_integrity_assert("preflight-preserves-source-text", v4_source_text(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_preflight_text)
 say v4_unit_snapshot_integrity_assert("preflight-preserves-source-revision", v4_source_revision(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_preflight_revision)
 

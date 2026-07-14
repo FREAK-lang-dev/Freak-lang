@@ -171,24 +171,10 @@ task v4_editor_begin_definition_snapshot_restore() -> void {
 }
 
 task v4_editor_clear_document_symbol_storage(doc_id: int) -> void {
-    pilot names = word_to_int(array_get(v4_editor_doc_names, doc_id))
-    pilot kinds = word_to_int(array_get(v4_editor_doc_kinds, doc_id))
-    pilot defs = word_to_int(array_get(v4_editor_doc_defs, doc_id))
-    pilot hir_items = word_to_int(array_get(v4_editor_doc_hir_items, doc_id))
-    pilot spans = word_to_int(array_get(v4_editor_doc_spans, doc_id))
-    pilot types = word_to_int(array_get(v4_editor_doc_types, doc_id))
-    pilot symbol_id = 0
-    pilot symbol_capacity = array_len(names)
-    repeat until symbol_id >= symbol_capacity {
-        array_set(names, symbol_id, "")
-        array_set(kinds, symbol_id, "")
-        array_set(defs, symbol_id, "")
-        array_set(hir_items, symbol_id, "-1")
-        array_set(spans, symbol_id, V4_NO_SPAN)
-        array_set(types, symbol_id, v4_ty_unknown)
-        symbol_id += 1
+    v4_editor_init()
+    if doc_id >= 0 and doc_id < array_len(v4_editor_doc_symbol_lens) {
+        array_set(v4_editor_doc_symbol_lens, doc_id, "0")
     }
-    array_set(v4_editor_doc_symbol_lens, doc_id, "0")
 }
 
 task v4_editor_begin_document_symbols_snapshot_restore() -> void {
@@ -204,20 +190,10 @@ task v4_editor_begin_document_symbols_snapshot_restore() -> void {
 }
 
 task v4_editor_clear_completion_item_storage(completion_id: int) -> void {
-    pilot labels = word_to_int(array_get(v4_editor_comp_labels, completion_id))
-    pilot kinds = word_to_int(array_get(v4_editor_comp_kinds, completion_id))
-    pilot details = word_to_int(array_get(v4_editor_comp_details, completion_id))
-    pilot inserts = word_to_int(array_get(v4_editor_comp_inserts, completion_id))
-    pilot item_id = 0
-    pilot item_capacity = array_len(labels)
-    repeat until item_id >= item_capacity {
-        array_set(labels, item_id, "")
-        array_set(kinds, item_id, "")
-        array_set(details, item_id, "")
-        array_set(inserts, item_id, "")
-        item_id += 1
+    v4_editor_init()
+    if completion_id >= 0 and completion_id < array_len(v4_editor_comp_item_lens) {
+        array_set(v4_editor_comp_item_lens, completion_id, "0")
     }
-    array_set(v4_editor_comp_item_lens, completion_id, "0")
 }
 
 task v4_editor_begin_completion_snapshot_restore() -> void {
@@ -2517,30 +2493,44 @@ task v4_document_symbols_add(doc_id: int, name: word, kind: word, def_id: word, 
 }
 
 task v4_document_symbol_count(doc_id: int) -> int {
+    if v4_document_symbols_exists(doc_id) == false { give back 0 }
     give back word_to_int(array_get(v4_editor_doc_symbol_lens, doc_id))
 }
 
+task v4_document_symbol_exists(doc_id: int, symbol_id: int) -> bool {
+    if v4_document_symbols_exists(doc_id) == false { give back false }
+    if symbol_id < 0 { give back false }
+    if symbol_id >= v4_document_symbol_count(doc_id) { give back false }
+    give back true
+}
+
 task v4_document_symbol_name(doc_id: int, symbol_id: int) -> word {
+    if v4_document_symbol_exists(doc_id, symbol_id) == false { give back "" }
     give back array_get(v4_editor_doc_names_handle(doc_id), symbol_id)
 }
 
 task v4_document_symbol_kind(doc_id: int, symbol_id: int) -> word {
+    if v4_document_symbol_exists(doc_id, symbol_id) == false { give back "" }
     give back array_get(v4_editor_doc_kinds_handle(doc_id), symbol_id)
 }
 
 task v4_document_symbol_def(doc_id: int, symbol_id: int) -> word {
+    if v4_document_symbol_exists(doc_id, symbol_id) == false { give back "" }
     give back array_get(v4_editor_doc_defs_handle(doc_id), symbol_id)
 }
 
 task v4_document_symbol_hir_item(doc_id: int, symbol_id: int) -> int {
+    if v4_document_symbol_exists(doc_id, symbol_id) == false { give back 0 - 1 }
     give back word_to_int(array_get(v4_editor_doc_hir_items_handle(doc_id), symbol_id))
 }
 
 task v4_document_symbol_span(doc_id: int, symbol_id: int) -> word {
+    if v4_document_symbol_exists(doc_id, symbol_id) == false { give back V4_NO_SPAN }
     give back array_get(v4_editor_doc_spans_handle(doc_id), symbol_id)
 }
 
 task v4_document_symbol_type(doc_id: int, symbol_id: int) -> word {
+    if v4_document_symbol_exists(doc_id, symbol_id) == false { give back v4_ty_unknown }
     give back array_get(v4_editor_doc_types_handle(doc_id), symbol_id)
 }
 
@@ -2557,6 +2547,7 @@ task v4_document_symbols_summary(doc_id: int) -> word {
 
 task v4_document_symbols_restore_document_slot(doc_id: int, path: word) -> int {
     v4_editor_init()
+    if doc_id < 0 or doc_id != v4_editor_doc_len { give back 0 }
     repeat until array_len(v4_editor_doc_paths) > doc_id {
         array_push(v4_editor_doc_paths, "")
         array_push(v4_editor_doc_names, word_from_int(array_new()))
@@ -2570,26 +2561,15 @@ task v4_document_symbols_restore_document_slot(doc_id: int, path: word) -> int {
 
     array_set(v4_editor_doc_paths, doc_id, path)
     array_set(v4_editor_doc_symbol_lens, doc_id, "0")
-    if v4_editor_doc_len <= doc_id {
-        v4_editor_doc_len = doc_id + 1
-    }
+    v4_editor_doc_len += 1
     give back 1
 }
 
 task v4_document_symbols_restore_symbol_slot(doc_id: int, symbol_id: int, name: word, kind: word, def_id: word, hir_item: int, span: word, type_display: word) -> int {
-    if v4_document_symbols_exists(doc_id) == false {
-        give back 0
-    }
-    repeat until v4_document_symbol_count(doc_id) > symbol_id {
-        v4_document_symbols_add(doc_id, "", "", "", 0 - 1, V4_NO_SPAN, v4_ty_unknown)
-    }
-
-    array_set(v4_editor_doc_names_handle(doc_id), symbol_id, name)
-    array_set(v4_editor_doc_kinds_handle(doc_id), symbol_id, kind)
-    array_set(v4_editor_doc_defs_handle(doc_id), symbol_id, def_id)
-    array_set(v4_editor_doc_hir_items_handle(doc_id), symbol_id, word_from_int(hir_item))
-    array_set(v4_editor_doc_spans_handle(doc_id), symbol_id, span)
-    array_set(v4_editor_doc_types_handle(doc_id), symbol_id, type_display)
+    if v4_document_symbols_exists(doc_id) == false { give back 0 }
+    if symbol_id < 0 or symbol_id != v4_document_symbol_count(doc_id) { give back 0 }
+    pilot inserted_id = v4_document_symbols_add(doc_id, name, kind, def_id, hir_item, span, type_display)
+    if inserted_id != symbol_id { give back 0 }
     give back 1
 }
 
@@ -2743,22 +2723,34 @@ task v4_completion_add(completion_id: int, label: word, kind: word, detail: word
 }
 
 task v4_completion_count(completion_id: int) -> int {
+    if v4_completion_exists(completion_id) == false { give back 0 }
     give back word_to_int(array_get(v4_editor_comp_item_lens, completion_id))
 }
 
+task v4_completion_item_exists(completion_id: int, item_id: int) -> bool {
+    if v4_completion_exists(completion_id) == false { give back false }
+    if item_id < 0 { give back false }
+    if item_id >= v4_completion_count(completion_id) { give back false }
+    give back true
+}
+
 task v4_completion_label(completion_id: int, item_id: int) -> word {
+    if v4_completion_item_exists(completion_id, item_id) == false { give back "" }
     give back array_get(v4_editor_comp_labels_handle(completion_id), item_id)
 }
 
 task v4_completion_kind(completion_id: int, item_id: int) -> word {
+    if v4_completion_item_exists(completion_id, item_id) == false { give back "" }
     give back array_get(v4_editor_comp_kinds_handle(completion_id), item_id)
 }
 
 task v4_completion_detail(completion_id: int, item_id: int) -> word {
+    if v4_completion_item_exists(completion_id, item_id) == false { give back "" }
     give back array_get(v4_editor_comp_details_handle(completion_id), item_id)
 }
 
 task v4_completion_insert_text(completion_id: int, item_id: int) -> word {
+    if v4_completion_item_exists(completion_id, item_id) == false { give back "" }
     give back array_get(v4_editor_comp_inserts_handle(completion_id), item_id)
 }
 
@@ -3132,6 +3124,7 @@ task v4_completion_summary(completion_id: int) -> word {
 
 task v4_completion_restore_completion_slot(completion_id: int, path: word, offset: int) -> int {
     v4_editor_init()
+    if completion_id < 0 or completion_id != v4_editor_comp_len { give back 0 }
     repeat until array_len(v4_editor_comp_paths) > completion_id {
         array_push(v4_editor_comp_paths, "")
         array_push(v4_editor_comp_offsets, "-1")
@@ -3145,24 +3138,15 @@ task v4_completion_restore_completion_slot(completion_id: int, path: word, offse
     array_set(v4_editor_comp_paths, completion_id, path)
     array_set(v4_editor_comp_offsets, completion_id, word_from_int(offset))
     array_set(v4_editor_comp_item_lens, completion_id, "0")
-    if v4_editor_comp_len <= completion_id {
-        v4_editor_comp_len = completion_id + 1
-    }
+    v4_editor_comp_len += 1
     give back 1
 }
 
 task v4_completion_restore_item_slot(completion_id: int, item_id: int, label: word, kind: word, detail: word, insert_text: word) -> int {
-    if v4_completion_exists(completion_id) == false {
-        give back 0
-    }
-    repeat until v4_completion_count(completion_id) > item_id {
-        v4_completion_add(completion_id, "", "", "", "")
-    }
-
-    array_set(v4_editor_comp_labels_handle(completion_id), item_id, label)
-    array_set(v4_editor_comp_kinds_handle(completion_id), item_id, kind)
-    array_set(v4_editor_comp_details_handle(completion_id), item_id, detail)
-    array_set(v4_editor_comp_inserts_handle(completion_id), item_id, insert_text)
+    if v4_completion_exists(completion_id) == false { give back 0 }
+    if item_id < 0 or item_id != v4_completion_count(completion_id) { give back 0 }
+    pilot inserted_id = v4_completion_add(completion_id, label, kind, detail, insert_text)
+    if inserted_id != item_id { give back 0 }
     give back 1
 }
 

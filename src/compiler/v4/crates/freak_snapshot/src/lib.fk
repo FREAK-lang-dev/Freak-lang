@@ -925,7 +925,7 @@ task v4_document_symbols_snapshot_record_is_valid(line: word) -> bool {
     if expected == 0 {
         give back false
     }
-    if v4_document_symbols_snapshot_field_count(line) < expected {
+    if v4_document_symbols_snapshot_field_count(line) != expected {
         give back false
     }
     give back true
@@ -939,45 +939,92 @@ task v4_document_symbols_snapshot_validate(payload: word) -> word {
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_documents = ""
+    pilot declared_symbols = ""
+    pilot invalid_ids = 0
+    pilot ordering_errors = 0
+    pilot child_count_mismatches = 0
+    pilot declared_child_total = 0
+    pilot active_doc_id = 0 - 1
+    pilot active_declared_symbols = 0
+    pilot active_seen_symbols = 0
 
     pilot line_id = 0
     repeat until line_id >= lines {
         pilot line = v4_document_symbols_snapshot_line(payload, line_id)
-        if line != "" {
+        if line == "" {
+            malformed += 1
+        } else {
             pilot kind = v4_document_symbols_snapshot_field_raw(line, 0)
             if v4_document_symbols_snapshot_record_is_valid(line) == false {
                 malformed += 1
             } else if kind == "document-symbols-snapshot" {
                 saw_header += 1
+                if line_id != 0 { ordering_errors += 1 }
                 format = v4_document_symbols_snapshot_key_value(line, "format")
-                if format != v4_document_symbols_snapshot_format {
-                    malformed += 1
-                }
+                declared_documents = v4_document_symbols_snapshot_key_value(line, "documents")
+                declared_symbols = v4_document_symbols_snapshot_key_value(line, "symbols")
+                if format != v4_document_symbols_snapshot_format { malformed += 1 }
+                if v4_snapshot_canonical_nonnegative_int(declared_documents) < 0 { malformed += 1 }
+                if v4_snapshot_canonical_nonnegative_int(declared_symbols) < 0 { malformed += 1 }
             } else if kind == "document-symbols" {
+                if saw_header != 1 or saw_end > 0 { ordering_errors += 1 }
+                if active_doc_id >= 0 and active_seen_symbols != active_declared_symbols { child_count_mismatches += 1 }
+                pilot doc_id = v4_snapshot_canonical_nonnegative_int(v4_document_symbols_snapshot_field_raw(line, 1))
+                pilot child_count = v4_snapshot_canonical_nonnegative_int(v4_document_symbols_snapshot_field_raw(line, 3))
+                if doc_id < 0 or doc_id != documents { invalid_ids += 1 }
+                if child_count < 0 {
+                    child_count_mismatches += 1
+                    child_count = 0
+                }
+                active_doc_id = doc_id
+                active_declared_symbols = child_count
+                active_seen_symbols = 0
+                declared_child_total += child_count
                 documents += 1
             } else if kind == "document-symbol" {
+                if saw_header != 1 or saw_end > 0 or active_doc_id < 0 { ordering_errors += 1 }
+                pilot parent_id = v4_snapshot_canonical_nonnegative_int(v4_document_symbols_snapshot_field_raw(line, 1))
+                pilot symbol_id = v4_snapshot_canonical_nonnegative_int(v4_document_symbols_snapshot_field_raw(line, 2))
+                if parent_id < 0 or parent_id != active_doc_id { invalid_ids += 1 }
+                if symbol_id < 0 or symbol_id != active_seen_symbols { invalid_ids += 1 }
+                if active_seen_symbols >= active_declared_symbols { child_count_mismatches += 1 }
+                active_seen_symbols += 1
                 symbols += 1
             } else if kind == "end" {
+                if active_doc_id >= 0 and active_seen_symbols != active_declared_symbols { child_count_mismatches += 1 }
+                active_doc_id = 0 - 1
                 saw_end += 1
-                if v4_document_symbols_snapshot_field(line, 1) != v4_document_symbols_snapshot_format {
-                    malformed += 1
-                }
+                if line_id != lines - 1 { ordering_errors += 1 }
+                if v4_document_symbols_snapshot_field(line, 1) != v4_document_symbols_snapshot_format { malformed += 1 }
             }
         }
         line_id += 1
     }
 
+    if active_doc_id >= 0 and active_seen_symbols != active_declared_symbols { child_count_mismatches += 1 }
     pilot import_ok = 1
     if saw_header != 1 { import_ok = 0 }
     if saw_end != 1 { import_ok = 0 }
     if malformed > 0 { import_ok = 0 }
+    if declared_documents != word_from_int(documents) { import_ok = 0 }
+    if declared_symbols != word_from_int(symbols) { import_ok = 0 }
+    if declared_child_total != symbols { import_ok = 0 }
+    if invalid_ids > 0 { import_ok = 0 }
+    if ordering_errors > 0 { import_ok = 0 }
+    if child_count_mismatches > 0 { import_ok = 0 }
 
     pilot out = "document-symbols-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
     out = out + " format=" + format
     out = out + " lines=" + word_from_int(lines)
     out = out + " documents=" + word_from_int(documents)
+    out = out + " declared-documents=" + declared_documents
     out = out + " symbols=" + word_from_int(symbols)
+    out = out + " declared-symbols=" + declared_symbols
+    out = out + " invalid-ids=" + word_from_int(invalid_ids)
+    out = out + " ordering-errors=" + word_from_int(ordering_errors)
+    out = out + " child-count-mismatches=" + word_from_int(child_count_mismatches)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " headers=" + word_from_int(saw_header)
     out = out + " ends=" + word_from_int(saw_end)
@@ -1013,9 +1060,13 @@ task v4_document_symbols_snapshot_restore(payload: word) -> word {
         give back "document-symbols-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    pilot header = v4_document_symbols_snapshot_line(payload, 0)
+    pilot declared_documents = word_to_int(v4_document_symbols_snapshot_key_value(header, "documents"))
+    pilot declared_symbols = word_to_int(v4_document_symbols_snapshot_key_value(header, "symbols"))
     v4_editor_begin_document_symbols_snapshot_restore()
     pilot restored_documents = 0
     pilot restored_symbols = 0
+    pilot insertion_failures = 0
     pilot skipped_other = 0
     pilot line_id = 0
     pilot line_count = v4_document_symbols_snapshot_line_count(payload)
@@ -1024,14 +1075,26 @@ task v4_document_symbols_snapshot_restore(payload: word) -> word {
         if line != "" {
             pilot kind = v4_document_symbols_snapshot_field_raw(line, 0)
             if kind == "document-symbols" {
-                restored_documents += v4_document_symbols_snapshot_restore_document_line(line)
+                pilot inserted = v4_document_symbols_snapshot_restore_document_line(line)
+                if inserted == 1 { restored_documents += 1 } else { insertion_failures += 1 }
             } else if kind == "document-symbol" {
-                restored_symbols += v4_document_symbols_snapshot_restore_symbol_line(line)
+                pilot inserted = v4_document_symbols_snapshot_restore_symbol_line(line)
+                if inserted == 1 { restored_symbols += 1 } else { insertion_failures += 1 }
             } else if kind != "document-symbols-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
         line_id += 1
+    }
+
+    if insertion_failures > 0 or restored_documents != declared_documents or restored_symbols != declared_symbols {
+        pilot out = "document-symbols-snapshot-restore ok=0 reason=insertion-failed"
+        out = out + " documents=" + word_from_int(restored_documents)
+        out = out + " declared-documents=" + word_from_int(declared_documents)
+        out = out + " symbols=" + word_from_int(restored_symbols)
+        out = out + " declared-symbols=" + word_from_int(declared_symbols)
+        out = out + " insertion-failures=" + word_from_int(insertion_failures)
+        give back out
     }
 
     pilot out = "document-symbols-snapshot-restore ok=1"
@@ -1155,7 +1218,7 @@ task v4_completion_snapshot_record_is_valid(line: word) -> bool {
     if expected == 0 {
         give back false
     }
-    if v4_completion_snapshot_field_count(line) < expected {
+    if v4_completion_snapshot_field_count(line) != expected {
         give back false
     }
     give back true
@@ -1169,45 +1232,97 @@ task v4_completion_snapshot_validate(payload: word) -> word {
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_completions = ""
+    pilot declared_items = ""
+    pilot invalid_ids = 0
+    pilot invalid_offsets = 0
+    pilot ordering_errors = 0
+    pilot child_count_mismatches = 0
+    pilot declared_child_total = 0
+    pilot active_completion_id = 0 - 1
+    pilot active_declared_items = 0
+    pilot active_seen_items = 0
 
     pilot line_id = 0
     repeat until line_id >= lines {
         pilot line = v4_completion_snapshot_line(payload, line_id)
-        if line != "" {
+        if line == "" {
+            malformed += 1
+        } else {
             pilot kind = v4_completion_snapshot_field_raw(line, 0)
             if v4_completion_snapshot_record_is_valid(line) == false {
                 malformed += 1
             } else if kind == "completion-snapshot" {
                 saw_header += 1
+                if line_id != 0 { ordering_errors += 1 }
                 format = v4_completion_snapshot_key_value(line, "format")
-                if format != v4_completion_snapshot_format {
-                    malformed += 1
-                }
+                declared_completions = v4_completion_snapshot_key_value(line, "completions")
+                declared_items = v4_completion_snapshot_key_value(line, "items")
+                if format != v4_completion_snapshot_format { malformed += 1 }
+                if v4_snapshot_canonical_nonnegative_int(declared_completions) < 0 { malformed += 1 }
+                if v4_snapshot_canonical_nonnegative_int(declared_items) < 0 { malformed += 1 }
             } else if kind == "completion" {
+                if saw_header != 1 or saw_end > 0 { ordering_errors += 1 }
+                if active_completion_id >= 0 and active_seen_items != active_declared_items { child_count_mismatches += 1 }
+                pilot completion_id = v4_snapshot_canonical_nonnegative_int(v4_completion_snapshot_field_raw(line, 1))
+                pilot offset = v4_snapshot_canonical_nonnegative_int(v4_completion_snapshot_field_raw(line, 3))
+                pilot child_count = v4_snapshot_canonical_nonnegative_int(v4_completion_snapshot_field_raw(line, 4))
+                if completion_id < 0 or completion_id != completions { invalid_ids += 1 }
+                if offset < 0 { invalid_offsets += 1 }
+                if child_count < 0 {
+                    child_count_mismatches += 1
+                    child_count = 0
+                }
+                active_completion_id = completion_id
+                active_declared_items = child_count
+                active_seen_items = 0
+                declared_child_total += child_count
                 completions += 1
             } else if kind == "completion-item" {
+                if saw_header != 1 or saw_end > 0 or active_completion_id < 0 { ordering_errors += 1 }
+                pilot parent_id = v4_snapshot_canonical_nonnegative_int(v4_completion_snapshot_field_raw(line, 1))
+                pilot item_id = v4_snapshot_canonical_nonnegative_int(v4_completion_snapshot_field_raw(line, 2))
+                if parent_id < 0 or parent_id != active_completion_id { invalid_ids += 1 }
+                if item_id < 0 or item_id != active_seen_items { invalid_ids += 1 }
+                if active_seen_items >= active_declared_items { child_count_mismatches += 1 }
+                active_seen_items += 1
                 items += 1
             } else if kind == "end" {
+                if active_completion_id >= 0 and active_seen_items != active_declared_items { child_count_mismatches += 1 }
+                active_completion_id = 0 - 1
                 saw_end += 1
-                if v4_completion_snapshot_field(line, 1) != v4_completion_snapshot_format {
-                    malformed += 1
-                }
+                if line_id != lines - 1 { ordering_errors += 1 }
+                if v4_completion_snapshot_field(line, 1) != v4_completion_snapshot_format { malformed += 1 }
             }
         }
         line_id += 1
     }
 
+    if active_completion_id >= 0 and active_seen_items != active_declared_items { child_count_mismatches += 1 }
     pilot import_ok = 1
     if saw_header != 1 { import_ok = 0 }
     if saw_end != 1 { import_ok = 0 }
     if malformed > 0 { import_ok = 0 }
+    if declared_completions != word_from_int(completions) { import_ok = 0 }
+    if declared_items != word_from_int(items) { import_ok = 0 }
+    if declared_child_total != items { import_ok = 0 }
+    if invalid_ids > 0 { import_ok = 0 }
+    if invalid_offsets > 0 { import_ok = 0 }
+    if ordering_errors > 0 { import_ok = 0 }
+    if child_count_mismatches > 0 { import_ok = 0 }
 
     pilot out = "completion-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
     out = out + " format=" + format
     out = out + " lines=" + word_from_int(lines)
     out = out + " completions=" + word_from_int(completions)
+    out = out + " declared-completions=" + declared_completions
     out = out + " items=" + word_from_int(items)
+    out = out + " declared-items=" + declared_items
+    out = out + " invalid-ids=" + word_from_int(invalid_ids)
+    out = out + " invalid-offsets=" + word_from_int(invalid_offsets)
+    out = out + " ordering-errors=" + word_from_int(ordering_errors)
+    out = out + " child-count-mismatches=" + word_from_int(child_count_mismatches)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " headers=" + word_from_int(saw_header)
     out = out + " ends=" + word_from_int(saw_end)
@@ -1242,9 +1357,13 @@ task v4_completion_snapshot_restore(payload: word) -> word {
         give back "completion-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    pilot header = v4_completion_snapshot_line(payload, 0)
+    pilot declared_completions = word_to_int(v4_completion_snapshot_key_value(header, "completions"))
+    pilot declared_items = word_to_int(v4_completion_snapshot_key_value(header, "items"))
     v4_editor_begin_completion_snapshot_restore()
     pilot restored_completions = 0
     pilot restored_items = 0
+    pilot insertion_failures = 0
     pilot skipped_other = 0
     pilot line_id = 0
     pilot line_count = v4_completion_snapshot_line_count(payload)
@@ -1253,14 +1372,26 @@ task v4_completion_snapshot_restore(payload: word) -> word {
         if line != "" {
             pilot kind = v4_completion_snapshot_field_raw(line, 0)
             if kind == "completion" {
-                restored_completions += v4_completion_snapshot_restore_completion_line(line)
+                pilot inserted = v4_completion_snapshot_restore_completion_line(line)
+                if inserted == 1 { restored_completions += 1 } else { insertion_failures += 1 }
             } else if kind == "completion-item" {
-                restored_items += v4_completion_snapshot_restore_item_line(line)
+                pilot inserted = v4_completion_snapshot_restore_item_line(line)
+                if inserted == 1 { restored_items += 1 } else { insertion_failures += 1 }
             } else if kind != "completion-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
         line_id += 1
+    }
+
+    if insertion_failures > 0 or restored_completions != declared_completions or restored_items != declared_items {
+        pilot out = "completion-snapshot-restore ok=0 reason=insertion-failed"
+        out = out + " completions=" + word_from_int(restored_completions)
+        out = out + " declared-completions=" + word_from_int(declared_completions)
+        out = out + " items=" + word_from_int(restored_items)
+        out = out + " declared-items=" + word_from_int(declared_items)
+        out = out + " insertion-failures=" + word_from_int(insertion_failures)
+        give back out
     }
 
     pilot out = "completion-snapshot-restore ok=1"
@@ -1497,6 +1628,73 @@ task v4_unit_invalidation_report(path: word) -> word {
     give back v4_unit_invalidation_report_at_generation(path, 0)
 }
 
+task v4_driver_restored_output_id(entry_id: int) -> int {
+    if entry_id < 0 or entry_id >= v4_query_cache_size() { give back 0 - 1 }
+    pilot raw = v4_query_entry_output(entry_id)
+    pilot output_id = word_to_int(raw)
+    if output_id < 0 or word_from_int(output_id) != raw { give back 0 - 1 }
+    give back output_id
+}
+
+task v4_driver_restored_parent_id(key: word, fingerprint: word) -> int {
+    give back v4_driver_restored_output_id(v4_query_find(key, fingerprint))
+}
+
+task v4_driver_restored_lex_matches(path: word, file_id: int, fingerprint: word, stream_id: int) -> bool {
+    if v4_lex_stream_exists(stream_id) == false { give back false }
+    if v4_lex_stream_file(stream_id) != file_id { give back false }
+    if v4_driver_restored_parent_id(v4_lex_query_key(path), fingerprint) != stream_id { give back false }
+    give back true
+}
+
+task v4_driver_restored_parse_matches(path: word, file_id: int, fingerprint: word, tree_id: int) -> bool {
+    if v4_parse_tree_exists(tree_id) == false { give back false }
+    if v4_parse_file_id(tree_id) != file_id { give back false }
+    if v4_driver_restored_parent_id(v4_parse_query_key(path), fingerprint) != tree_id { give back false }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    give back v4_driver_restored_lex_matches(path, file_id, fingerprint, stream_id)
+}
+
+task v4_driver_restored_hir_matches(path: word, file_id: int, fingerprint: word, hir_id: int) -> bool {
+    if v4_hir_file_exists(hir_id) == false { give back false }
+    if v4_hir_file_id(hir_id) != file_id { give back false }
+    if v4_driver_restored_parent_id(v4_hir_query_key(path), fingerprint) != hir_id { give back false }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    give back v4_driver_restored_parse_matches(path, file_id, fingerprint, tree_id)
+}
+
+task v4_driver_restored_resolve_matches(path: word, file_id: int, fingerprint: word, resolve_id: int) -> bool {
+    if v4_resolve_exists(resolve_id) == false { give back false }
+    if v4_resolve_file_id(resolve_id) != file_id { give back false }
+    if v4_driver_restored_parent_id(v4_resolve_query_key(path), fingerprint) != resolve_id { give back false }
+    pilot hir_id = v4_resolve_hir_id(resolve_id)
+    give back v4_driver_restored_hir_matches(path, file_id, fingerprint, hir_id)
+}
+
+task v4_driver_restored_ty_matches(path: word, file_id: int, fingerprint: word, ty_id: int) -> bool {
+    if v4_ty_file_exists(ty_id) == false { give back false }
+    if v4_ty_file_id(ty_id) != file_id { give back false }
+    if v4_driver_restored_parent_id(v4_ty_query_key(path), fingerprint) != ty_id { give back false }
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    give back v4_driver_restored_resolve_matches(path, file_id, fingerprint, resolve_id)
+}
+
+task v4_driver_restored_mir_matches(path: word, file_id: int, fingerprint: word, mir_id: int) -> bool {
+    if v4_mir_file_exists(mir_id) == false { give back false }
+    if v4_mir_file_id(mir_id) != file_id { give back false }
+    if v4_driver_restored_parent_id(v4_mir_query_key(path), fingerprint) != mir_id { give back false }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    give back v4_driver_restored_ty_matches(path, file_id, fingerprint, ty_id)
+}
+
+task v4_driver_restored_borrowck_matches(path: word, file_id: int, fingerprint: word, borrow_id: int) -> bool {
+    if v4_borrowck_file_exists(borrow_id) == false { give back false }
+    if v4_borrowck_file_id(borrow_id) != file_id { give back false }
+    if v4_driver_restored_parent_id(v4_borrowck_query_key(path), fingerprint) != borrow_id { give back false }
+    pilot mir_id = v4_borrowck_mir_id(borrow_id)
+    give back v4_driver_restored_mir_matches(path, file_id, fingerprint, mir_id)
+}
+
 task v4_driver_query_output_can_promote(path: word, key: word) -> int {
     if key == v4_check_syntax_query_key(path) {
         give back 1
@@ -1506,113 +1704,34 @@ task v4_driver_query_output_can_promote(path: word, key: word) -> int {
 
 task v4_driver_query_entry_can_promote(path: word, entry_id: int) -> int {
     pilot key = v4_query_entry_key(entry_id)
-    if v4_driver_query_output_can_promote(path, key) == 1 {
-        give back 1
-    }
+    pilot file_id = v4_source_find(path)
+    if file_id < 0 { give back 0 }
+    pilot fingerprint = v4_query_entry_input(entry_id)
+    if v4_source_fingerprint(file_id) != fingerprint { give back 0 }
+    if v4_driver_query_output_can_promote(path, key) == 1 { give back 1 }
+
+    pilot output_id = v4_driver_restored_output_id(entry_id)
+    if output_id < 0 { give back 0 }
     if key == v4_lex_query_key(path) {
-        pilot stream_id = word_to_int(v4_query_entry_output(entry_id))
-        if v4_lex_stream_exists(stream_id) {
-            give back 1
-        }
+        if v4_driver_restored_lex_matches(path, file_id, fingerprint, output_id) { give back 1 }
     }
     if key == v4_parse_query_key(path) {
-        pilot tree_id = word_to_int(v4_query_entry_output(entry_id))
-        if v4_parse_tree_exists(tree_id) {
-            pilot stream_id = v4_parse_stream_id(tree_id)
-            if v4_lex_stream_exists(stream_id) {
-                give back 1
-            }
-        }
+        if v4_driver_restored_parse_matches(path, file_id, fingerprint, output_id) { give back 1 }
     }
     if key == v4_hir_query_key(path) {
-        pilot hir_id = word_to_int(v4_query_entry_output(entry_id))
-        if v4_hir_file_exists(hir_id) {
-            pilot tree_id = v4_hir_tree_id(hir_id)
-            if v4_parse_tree_exists(tree_id) {
-                pilot stream_id = v4_parse_stream_id(tree_id)
-                if v4_lex_stream_exists(stream_id) {
-                    give back 1
-                }
-            }
-        }
+        if v4_driver_restored_hir_matches(path, file_id, fingerprint, output_id) { give back 1 }
     }
     if key == v4_resolve_query_key(path) {
-        pilot resolve_id = word_to_int(v4_query_entry_output(entry_id))
-        if v4_resolve_exists(resolve_id) {
-            pilot hir_id = v4_resolve_hir_id(resolve_id)
-            if v4_hir_file_exists(hir_id) {
-                pilot tree_id = v4_hir_tree_id(hir_id)
-                if v4_parse_tree_exists(tree_id) {
-                    pilot stream_id = v4_parse_stream_id(tree_id)
-                    if v4_lex_stream_exists(stream_id) {
-                        give back 1
-                    }
-                }
-            }
-        }
+        if v4_driver_restored_resolve_matches(path, file_id, fingerprint, output_id) { give back 1 }
     }
     if key == v4_ty_query_key(path) {
-        pilot ty_id = word_to_int(v4_query_entry_output(entry_id))
-        if v4_ty_file_exists(ty_id) {
-            pilot resolve_id = v4_ty_resolve_id(ty_id)
-            if v4_resolve_exists(resolve_id) {
-                pilot hir_id = v4_resolve_hir_id(resolve_id)
-                if v4_hir_file_exists(hir_id) {
-                    pilot tree_id = v4_hir_tree_id(hir_id)
-                    if v4_parse_tree_exists(tree_id) {
-                        pilot stream_id = v4_parse_stream_id(tree_id)
-                        if v4_lex_stream_exists(stream_id) {
-                            give back 1
-                        }
-                    }
-                }
-            }
-        }
+        if v4_driver_restored_ty_matches(path, file_id, fingerprint, output_id) { give back 1 }
     }
     if key == v4_mir_query_key(path) {
-        pilot mir_id = word_to_int(v4_query_entry_output(entry_id))
-        if v4_mir_file_exists(mir_id) {
-            pilot ty_id = v4_mir_ty_id(mir_id)
-            if v4_ty_file_exists(ty_id) {
-                pilot resolve_id = v4_ty_resolve_id(ty_id)
-                if v4_resolve_exists(resolve_id) {
-                    pilot hir_id = v4_resolve_hir_id(resolve_id)
-                    if v4_hir_file_exists(hir_id) {
-                        pilot tree_id = v4_hir_tree_id(hir_id)
-                        if v4_parse_tree_exists(tree_id) {
-                            pilot stream_id = v4_parse_stream_id(tree_id)
-                            if v4_lex_stream_exists(stream_id) {
-                                give back 1
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        if v4_driver_restored_mir_matches(path, file_id, fingerprint, output_id) { give back 1 }
     }
     if key == v4_borrowck_query_key(path) {
-        pilot borrow_id = word_to_int(v4_query_entry_output(entry_id))
-        if v4_borrowck_file_exists(borrow_id) {
-            pilot mir_id = v4_borrowck_mir_id(borrow_id)
-            if v4_mir_file_exists(mir_id) {
-                pilot ty_id = v4_mir_ty_id(mir_id)
-                if v4_ty_file_exists(ty_id) {
-                    pilot resolve_id = v4_ty_resolve_id(ty_id)
-                    if v4_resolve_exists(resolve_id) {
-                        pilot hir_id = v4_resolve_hir_id(resolve_id)
-                        if v4_hir_file_exists(hir_id) {
-                            pilot tree_id = v4_hir_tree_id(hir_id)
-                            if v4_parse_tree_exists(tree_id) {
-                                pilot stream_id = v4_parse_stream_id(tree_id)
-                                if v4_lex_stream_exists(stream_id) {
-                                    give back 1
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        if v4_driver_restored_borrowck_matches(path, file_id, fingerprint, output_id) { give back 1 }
     }
     if key == v4_diagnostics_query_key(path) {
         pilot diag_set_id = word_to_int(v4_query_entry_output(entry_id))
@@ -2094,6 +2213,13 @@ task v4_unit_snapshot_record_is_valid(line: word) -> bool {
     give back true
 }
 
+task v4_snapshot_canonical_nonnegative_int(raw: word) -> int {
+    pilot value = word_to_int(raw)
+    if value < 0 { give back 0 - 1 }
+    if word_from_int(value) != raw { give back 0 - 1 }
+    give back value
+}
+
 task v4_unit_snapshot_validate(payload: word) -> word {
     pilot lines = v4_unit_snapshot_line_count(payload)
     pilot sources = 0
@@ -2106,6 +2232,25 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     pilot declared_sections = ""
     pilot unknown_sections = 0
     pilot invalid_sections = 0
+    pilot invalid_source_ids = 0
+    pilot noncontiguous_source_ids = 0
+    pilot duplicate_source_ids = 0
+    pilot duplicate_source_paths = 0
+    pilot invalid_source_paths = 0
+    pilot invalid_source_revisions = 0
+    pilot invalid_source_fingerprints = 0
+    pilot source_order_errors = 0
+    pilot source_records_closed = 0
+    pilot declared_source_bound = 0 - 1
+
+    if lines > 0 {
+        pilot header_line = v4_unit_snapshot_line(payload, 0)
+        if v4_unit_snapshot_record_is_valid(header_line) {
+            if v4_unit_snapshot_field_raw(header_line, 0) == "00-unit-snapshot" {
+                declared_source_bound = v4_snapshot_canonical_nonnegative_int(v4_unit_snapshot_key_value(header_line, "sources"))
+            }
+        }
+    }
 
     pilot line_id = 0
     repeat until line_id >= lines {
@@ -2128,8 +2273,41 @@ task v4_unit_snapshot_validate(payload: word) -> word {
                     malformed += 1
                 }
             } else if kind == "unit-source" {
+                pilot source_id_raw = v4_unit_snapshot_field_raw(line, 1)
+                pilot source_id = v4_snapshot_canonical_nonnegative_int(source_id_raw)
+                pilot source_path = v4_unit_snapshot_field(line, 2)
+                pilot source_revision = v4_snapshot_canonical_nonnegative_int(v4_unit_snapshot_field_raw(line, 3))
+                pilot source_fingerprint = v4_unit_snapshot_field(line, 4)
+                pilot source_text = v4_unit_snapshot_field(line, 5)
+
+                if source_records_closed == 1 { source_order_errors += 1 }
+                if source_id < 0 {
+                    invalid_source_ids += 1
+                } else {
+                    if declared_source_bound < 0 or source_id >= declared_source_bound { invalid_source_ids += 1 }
+                    if source_id != sources { noncontiguous_source_ids += 1 }
+                }
+                if source_path == "" { invalid_source_paths += 1 }
+                if source_revision < 0 { invalid_source_revisions += 1 }
+                if source_fingerprint != v4_text_fingerprint(source_text) { invalid_source_fingerprints += 1 }
+
+                pilot earlier_line_id = 0
+                repeat until earlier_line_id >= line_id {
+                    pilot earlier_line = v4_unit_snapshot_line(payload, earlier_line_id)
+                    if earlier_line != "" {
+                        if v4_unit_snapshot_field_raw(earlier_line, 0) == "unit-source" {
+                            if v4_unit_snapshot_record_is_valid(earlier_line) {
+                                pilot earlier_source_id = v4_snapshot_canonical_nonnegative_int(v4_unit_snapshot_field_raw(earlier_line, 1))
+                                if source_id >= 0 and earlier_source_id == source_id { duplicate_source_ids += 1 }
+                                if v4_unit_snapshot_field(earlier_line, 2) == source_path { duplicate_source_paths += 1 }
+                            }
+                        }
+                    }
+                    earlier_line_id += 1
+                }
                 sources += 1
             } else if kind == "unit-section" {
+                source_records_closed = 1
                 sections += 1
                 pilot section_name = v4_unit_snapshot_field_raw(line, 1)
                 if v4_unit_snapshot_section_id(section_name) < 0 {
@@ -2142,6 +2320,7 @@ task v4_unit_snapshot_validate(payload: word) -> word {
                     }
                 }
             } else if kind == "end" {
+                source_records_closed = 1
                 saw_end += 1
                 if line_id != lines - 1 {
                     malformed += 1
@@ -2179,6 +2358,15 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     if duplicate_sections > 0 { import_ok = 0 }
     if unknown_sections > 0 { import_ok = 0 }
     if invalid_sections > 0 { import_ok = 0 }
+    if declared_source_bound < 0 { import_ok = 0 }
+    if invalid_source_ids > 0 { import_ok = 0 }
+    if noncontiguous_source_ids > 0 { import_ok = 0 }
+    if duplicate_source_ids > 0 { import_ok = 0 }
+    if duplicate_source_paths > 0 { import_ok = 0 }
+    if invalid_source_paths > 0 { import_ok = 0 }
+    if invalid_source_revisions > 0 { import_ok = 0 }
+    if invalid_source_fingerprints > 0 { import_ok = 0 }
+    if source_order_errors > 0 { import_ok = 0 }
 
     pilot out = "00-unit-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
@@ -2193,6 +2381,14 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     out = out + " unknown-sections=" + word_from_int(unknown_sections)
     out = out + " invalid-sections=" + word_from_int(invalid_sections)
     out = out + " malformed=" + word_from_int(malformed)
+    out = out + " invalid-source-ids=" + word_from_int(invalid_source_ids)
+    out = out + " noncontiguous-source-ids=" + word_from_int(noncontiguous_source_ids)
+    out = out + " duplicate-source-ids=" + word_from_int(duplicate_source_ids)
+    out = out + " duplicate-source-paths=" + word_from_int(duplicate_source_paths)
+    out = out + " invalid-source-paths=" + word_from_int(invalid_source_paths)
+    out = out + " invalid-source-revisions=" + word_from_int(invalid_source_revisions)
+    out = out + " invalid-source-fingerprints=" + word_from_int(invalid_source_fingerprints)
+    out = out + " source-order-errors=" + word_from_int(source_order_errors)
     out = out + " headers=" + word_from_int(saw_header)
     out = out + " ends=" + word_from_int(saw_end)
     give back out
@@ -3196,8 +3392,7 @@ task v4_unit_snapshot_restore_source_line(line: word) -> int {
     pilot revision = word_to_int(v4_unit_snapshot_field_raw(line, 3))
     pilot fingerprint = v4_unit_snapshot_field(line, 4)
     pilot text = v4_unit_snapshot_field(line, 5)
-    v4_source_restore_slot(file_id, path, text, revision, fingerprint)
-    give back 1
+    give back v4_source_restore_slot(file_id, path, text, revision, fingerprint)
 }
 
 task v4_unit_snapshot_begin_source_restore() -> void {
