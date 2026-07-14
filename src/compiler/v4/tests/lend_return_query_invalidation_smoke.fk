@@ -86,7 +86,6 @@ pilot v4_lend_return_query_after = v4_lend_return_query_clean_source()
 pilot v4_lend_return_query_change_response = v4_lsp_handle_text_request("textDocument/didChange", v4_lend_return_query_path, v4_lend_return_query_after, 0)
 say v4_lend_return_query_change_response
 pilot v4_lend_return_query_report = v4_unit_snapshot_line(v4_lend_return_query_change_response, 2)
-say v4_lend_return_query_report
 say "lend-return-query-borrowck-invalidated=" + v4_lend_return_query_invalidation_positive(v4_lend_return_query_report, "borrowck-invalidations-added")
 say "lend-return-query-diagnostics-invalidated=" + v4_lend_return_query_invalidation_positive(v4_lend_return_query_report, "diagnostics-invalidations-added")
 say "lend-return-query-semantic-invalidated=" + v4_lend_return_query_invalidation_positive(v4_lend_return_query_report, "semantic-at-invalidations-added")

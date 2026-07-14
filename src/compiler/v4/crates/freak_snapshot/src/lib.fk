@@ -2264,7 +2264,10 @@ task v4_unit_snapshot_visible_source_count() -> int {
 }
 
 task v4_unit_snapshot_identity_char_code(ch: word) -> int {
-    pilot alphabet = "\n\r\t !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_abcdefghijklmnopqrstuvwxyz{|}~"
+    pilot alphabet = "\n\r\t !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_abcdefghijklmnopqrstuvwxyz"
+    alphabet = alphabet + "{"
+    alphabet = alphabet + "|"
+    alphabet = alphabet + "}~"
     pilot idx = 0
     repeat until idx >= alphabet.length() {
         if alphabet.char_at(idx) == ch { give back idx + 1 }

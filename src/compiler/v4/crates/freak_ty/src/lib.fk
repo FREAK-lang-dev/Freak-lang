@@ -11075,7 +11075,8 @@ task v4_ty_snapshot_signature_matches_resolve(resolve_id: int, hir_id: int, sig_
                     if v4_resolve_symbol_def(resolve_id, symbol_id) == def_id {
                         if v4_resolve_symbol_name(resolve_id, symbol_id) == sig_name {
                             if v4_resolve_symbol_hir_item(resolve_id, symbol_id) == hir_item {
-                                pilot hir_linked = v4_hir_item_def(hir_id, hir_item) == def_id
+                                pilot hir_linked = false
+                                hir_linked = v4_hir_item_def(hir_id, hir_item) == def_id
                                 if v4_resolve_is_extern_member_def(def_id) {
                                     pilot extern_member_id = v4_resolve_extern_member_id_from_def(def_id)
                                     hir_linked = v4_hir_item_kind(hir_id, hir_item) == v4_hir_extern
