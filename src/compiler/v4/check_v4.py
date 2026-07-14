@@ -418,6 +418,7 @@ EXECUTABLE_SMOKES = [
             "unit-snapshot-integrity|case=extra-definition-removed|ok=1",
             "unit-snapshot-integrity|case=extra-query-removed|ok=1",
             "unit-snapshot-integrity|case=extra-cache-miss-after-restore|ok=1",
+            "unit-snapshot-integrity|case=wrong-format-restore-rejected|ok=1",
         ],
     },
     {
@@ -7884,6 +7885,11 @@ def select_smokes(filters: list[str], excludes: list[str], shard_spec: str) -> l
 
 def keyed_output_prefix(line: str) -> str | None:
     """Return the stable key prefix for a key=value output record."""
+    for marker in ("|ok=", "|pass=", "|status="):
+        prefix, separator, _ = line.partition(marker)
+        if separator and prefix:
+            return prefix + separator
+
     key, separator, _ = line.partition("=")
     if not separator or not key or "|" in key:
         return None

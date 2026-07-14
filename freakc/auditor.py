@@ -641,6 +641,7 @@ _UNIT_SNAPSHOT_INTEGRITY_CASES = (
     "extra-definition-removed",
     "extra-query-removed",
     "extra-cache-miss-after-restore",
+    "wrong-format-restore-rejected",
 )
 _UNIT_SNAPSHOT_INTEGRITY_ORACLES = tuple(
     f"unit-snapshot-integrity|case={case_name}|ok=1"
@@ -1239,6 +1240,13 @@ _MANIFEST_GUARD_SELF_CHECKS = (
         "    mutate_smoke(smoke)\n",
         "escapes through an alias call argument",
     ),
+    (
+        "pre-assignment-helper-mutation",
+        "def mutate_manifest():\n"
+        "    EXECUTABLE_SMOKES[0]['expect'].append('forged')\n"
+        "mutate_manifest()\n",
+        "is mutated via append()",
+    ),
 )
 _MANIFEST_GUARD_READ_ONLY_SELF_CHECKS = (
     (
@@ -1336,8 +1344,9 @@ def _literal_executable_smokes(
         return {}, ["check_v4.py: EXECUTABLE_SMOKES must be a literal list"]
 
     mutation_visitor = _TopLevelManifestMutationVisitor()
-    for node in module.body[manifest_index + 1 :]:
-        mutation_visitor.visit(node)
+    for body_index, node in enumerate(module.body):
+        if body_index != manifest_index:
+            mutation_visitor.visit(node)
 
     smokes: Dict[str, _LiteralExecutableSmoke] = {}
     seen_fixtures: Dict[str, int] = {}
