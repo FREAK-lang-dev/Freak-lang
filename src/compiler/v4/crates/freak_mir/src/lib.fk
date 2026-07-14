@@ -2765,6 +2765,26 @@ task v4_mir_call_args_payload_append(payload: word, rvalue_id: int) -> word {
     give back payload + "," + word_from_int(rvalue_id)
 }
 
+task v4_mir_rvalue_is_aggregate_kind(kind: word) -> bool {
+    give back kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_map
+}
+
+task v4_mir_aggregate_children_payload(children_handle: int) -> word {
+    pilot payload = ""
+    pilot child_id = 0
+    repeat until child_id >= array_len(children_handle) {
+        payload = v4_mir_call_args_payload_append(payload, word_to_int(array_get(children_handle, child_id)))
+        child_id += 1
+    }
+    give back payload
+}
+
+task v4_mir_add_aggregate_rvalue(mir_id: int, body_id: int, rvalue_kind: word, text: word, op: word, span: word, rvalue_ty: word, children_handle: int) -> int {
+    pilot rvalue_id = v4_mir_add_rvalue(mir_id, body_id, rvalue_kind, text, op, 0 - 1, 0 - 1, span, rvalue_ty)
+    v4_mir_set_rvalue_args_payload(mir_id, body_id, rvalue_id, v4_mir_aggregate_children_payload(children_handle))
+    give back rvalue_id
+}
+
 task v4_mir_call_args_payload_concat(left: word, right: word) -> word {
     if left == "" {
         give back right
@@ -2819,6 +2839,20 @@ task v4_mir_rvalue_call_arg_count(mir_id: int, body_id: int, rvalue_id: int) -> 
 
 task v4_mir_rvalue_call_arg(mir_id: int, body_id: int, rvalue_id: int, arg_id: int) -> int {
     give back v4_mir_call_args_payload_at(v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id), arg_id)
+}
+
+task v4_mir_rvalue_aggregate_child_count(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 or not v4_mir_rvalue_is_aggregate_kind(v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)) {
+        give back 0
+    }
+    give back v4_mir_call_args_payload_count(v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id))
+}
+
+task v4_mir_rvalue_aggregate_child(mir_id: int, body_id: int, rvalue_id: int, child_id: int) -> int {
+    if rvalue_id < 0 or not v4_mir_rvalue_is_aggregate_kind(v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)) {
+        give back 0 - 1
+    }
+    give back v4_mir_call_args_payload_at(v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id), child_id)
 }
 
 task v4_mir_rvalue_call_borrowed_source_signature_id(mir_id: int, body_id: int, rvalue_id: int) -> int {
@@ -5309,14 +5343,14 @@ task v4_mir_generic_ctor_context_help(base_name: word, ctor_suffix: word) -> wor
     give back base_name + " has type parameters; write " + base_name + "<int>" + ctor_suffix + " or use an expected " + base_name + "<int>"
 }
 
--- Aggregate MIR nodes erase child identity, so enforce the storage boundary while child spans and types are available.
+-- Preserve aggregate child identity, but reject lend-containing storage until extraction and drop facts exist.
 task v4_mir_reject_aggregate_lend_child(mir_id: int, body_id: int, aggregate_context: word, child_context: word, child_rvalue: int) -> bool {
     if child_rvalue < 0 or child_rvalue >= v4_mir_body_rvalue_count(mir_id, body_id) {
         give back false
     }
 
     pilot child_ty = v4_mir_rvalue_ty(mir_id, body_id, child_rvalue)
-    if not v4_ty_is_lend_type(child_ty) {
+    if not v4_ty_type_contains_lend(child_ty) {
         give back false
     }
 
@@ -5327,7 +5361,7 @@ task v4_mir_reject_aggregate_lend_child(mir_id: int, body_id: int, aggregate_con
     give back true
 }
 
-task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, expr_span: word, shape_name: word, sig_id: int, open_token: int, close_token: int, seed_env: word) -> word {
+task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, expr_span: word, shape_name: word, sig_id: int, open_token: int, close_token: int, seed_env: word, children_handle: int) -> word {
     if sig_id < 0 {
         v4_mir_add_type_error(mir_id, expr_span, "unknown shape constructor", shape_name + " is not a known shape")
         give back seed_env
@@ -5368,6 +5402,7 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                     }
                     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, lower_expected_ty)
                     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
+                    array_push(children_handle, word_from_int(value_rvalue))
                     if not aggregate_lend_reported {
                         aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "shape " + shape_name, "field " + field_name + " of " + shape_name, value_rvalue)
                     }
@@ -5491,11 +5526,12 @@ task v4_mir_fixed_array_count_from_rvalue(mir_id: int, body_id: int, count_rvalu
     give back v4_ty_unknown
 }
 
-task v4_mir_check_fixed_array_repeated_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, repeat_token: int, close_token: int, expected_ty: word) -> word {
+task v4_mir_check_fixed_array_repeated_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, repeat_token: int, close_token: int, expected_ty: word, children_handle: int) -> word {
     pilot expected_element_ty = v4_ty_fixed_array_element_type(expected_ty)
     pilot expected_length = v4_ty_fixed_array_length_normalized_text(v4_mir_ty_id(mir_id), expected_ty)
     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, open_token + 1, repeat_token, expected_element_ty)
     pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
+    array_push(children_handle, word_from_int(value_rvalue))
     v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a fixed array", "the repeated fixed-array value", value_rvalue)
     if v4_ty_is_known(expected_element_ty) and not v4_ty_types_compatible(expected_element_ty, value_ty) {
         v4_mir_add_type_error(mir_id, expr_span, "array repeat value drift", "repeat value wants " + expected_element_ty + " but got " + value_ty)
@@ -5513,10 +5549,10 @@ task v4_mir_check_fixed_array_repeated_literal(mir_id: int, body_id: int, stream
     give back v4_mir_fixed_array_type(value_ty, count_text)
 }
 
-task v4_mir_check_fixed_array_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, close_token: int, expected_ty: word) -> word {
+task v4_mir_check_fixed_array_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, close_token: int, expected_ty: word, children_handle: int) -> word {
     pilot repeat_token = v4_mir_find_top_level_token(stream_id, open_token + 1, close_token, ";")
     if repeat_token >= 0 {
-        give back v4_mir_check_fixed_array_repeated_literal(mir_id, body_id, stream_id, expr_span, open_token, repeat_token, close_token, expected_ty)
+        give back v4_mir_check_fixed_array_repeated_literal(mir_id, body_id, stream_id, expr_span, open_token, repeat_token, close_token, expected_ty, children_handle)
     }
 
     pilot expected_element_ty = v4_ty_fixed_array_element_type(expected_ty)
@@ -5544,6 +5580,7 @@ task v4_mir_check_fixed_array_literal(mir_id: int, body_id: int, stream_id: int,
         pilot element_end = v4_mir_list_element_end(stream_id, element_start, close_token)
         pilot element_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, element_start, element_end, expected_element_ty)
         pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, element_rvalue)
+        array_push(children_handle, word_from_int(element_rvalue))
         element_idx += 1
         if not aggregate_lend_reported {
             aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a fixed array", "fixed-array element " + word_from_int(element_idx), element_rvalue)
@@ -5593,9 +5630,10 @@ task v4_mir_try_lower_array_literal(mir_id: int, body_id: int, stream_id: int, f
         give back 0 - 1
     }
 
-    pilot result_ty = v4_mir_check_fixed_array_literal(mir_id, body_id, stream_id, expr_span, open_token, last, expected_ty)
+    pilot children_handle = array_new()
+    pilot result_ty = v4_mir_check_fixed_array_literal(mir_id, body_id, stream_id, expr_span, open_token, last, expected_ty, children_handle)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_array, expr_text, "Array", 0 - 1, 0 - 1, expr_span, result_ty)
+    give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_array, expr_text, "Array", expr_span, result_ty, children_handle)
 }
 
 task v4_mir_list_type(element_ty: word) -> word {
@@ -5642,7 +5680,7 @@ task v4_mir_list_merge_element_type(current_ty: word, next_ty: word) -> word {
     give back v4_mir_merge_literal_type(current_ty, next_ty)
 }
 
-task v4_mir_check_list_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, close_token: int) -> word {
+task v4_mir_check_list_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, close_token: int, children_handle: int) -> word {
     pilot element_start = v4_mir_skip_trivia(stream_id, open_token + 1)
     if element_start >= close_token {
         v4_mir_add_type_error(mir_id, expr_span, "empty list literal needs type context", "write a typed destination like pilot squad: List<int> = []")
@@ -5656,6 +5694,7 @@ task v4_mir_check_list_literal(mir_id: int, body_id: int, stream_id: int, expr_s
         pilot element_end = v4_mir_list_element_end(stream_id, element_start, close_token)
         pilot element_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, element_start, element_end)
         pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, element_rvalue)
+        array_push(children_handle, word_from_int(element_rvalue))
         element_idx += 1
         if not aggregate_lend_reported {
             aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a list", "list element " + word_from_int(element_idx), element_rvalue)
@@ -5689,9 +5728,10 @@ task v4_mir_try_lower_list_literal(mir_id: int, body_id: int, stream_id: int, fi
         give back 0 - 1
     }
 
-    pilot result_ty = v4_mir_check_list_literal(mir_id, body_id, stream_id, expr_span, open_token, last)
+    pilot children_handle = array_new()
+    pilot result_ty = v4_mir_check_list_literal(mir_id, body_id, stream_id, expr_span, open_token, last, children_handle)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_list, expr_text, "List", 0 - 1, 0 - 1, expr_span, result_ty)
+    give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_list, expr_text, "List", expr_span, result_ty, children_handle)
 }
 
 task v4_mir_tuple_type_add(tuple_ty: word, element_ty: word) -> word {
@@ -5719,6 +5759,7 @@ task v4_mir_try_lower_tuple_literal(mir_id: int, body_id: int, stream_id: int, f
     pilot element_start = v4_mir_skip_trivia(stream_id, first + 1)
     pilot tuple_ty = ""
     pilot element_count = 0
+    pilot children_handle = array_new()
     pilot has_unknown = false
     pilot aggregate_lend_reported = false
     repeat until element_start >= last {
@@ -5729,6 +5770,7 @@ task v4_mir_try_lower_tuple_literal(mir_id: int, body_id: int, stream_id: int, f
         } else {
             pilot element_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, element_start, element_end)
             pilot element_ty = v4_mir_rvalue_ty(mir_id, body_id, element_rvalue)
+            array_push(children_handle, word_from_int(element_rvalue))
             element_count += 1
             if not aggregate_lend_reported {
                 aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a tuple", "tuple element " + word_from_int(element_count), element_rvalue)
@@ -5753,7 +5795,7 @@ task v4_mir_try_lower_tuple_literal(mir_id: int, body_id: int, stream_id: int, f
         result_ty = tuple_ty + ")"
     }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_tuple, expr_text, "Tuple", 0 - 1, 0 - 1, expr_span, result_ty)
+    give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_tuple, expr_text, "Tuple", expr_span, result_ty, children_handle)
 }
 
 task v4_mir_map_type(key_ty: word, value_ty: word) -> word {
@@ -5763,7 +5805,7 @@ task v4_mir_map_type(key_ty: word, value_ty: word) -> word {
     give back "Map<" + key_ty + "," + value_ty + ">"
 }
 
-task v4_mir_check_map_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, close_token: int) -> word {
+task v4_mir_check_map_literal(mir_id: int, body_id: int, stream_id: int, expr_span: word, open_token: int, close_token: int, children_handle: int) -> word {
     pilot pair_start = v4_mir_skip_trivia(stream_id, open_token + 1)
     if pair_start >= close_token {
         v4_mir_add_type_error(mir_id, expr_span, "empty map literal needs type context", "annotate the destination, for example pilot lookup: Map<word,int>")
@@ -5787,6 +5829,8 @@ task v4_mir_check_map_literal(mir_id: int, body_id: int, stream_id: int, expr_sp
             pilot value_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, colon_token + 1, pair_end)
             pilot actual_key_ty = v4_mir_rvalue_ty(mir_id, body_id, key_rvalue)
             pilot actual_value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
+            array_push(children_handle, word_from_int(key_rvalue))
+            array_push(children_handle, word_from_int(value_rvalue))
             if not aggregate_lend_reported {
                 aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a map", "map entry " + word_from_int(pair_idx) + " key", key_rvalue)
             }
@@ -5846,9 +5890,10 @@ task v4_mir_try_lower_map_literal(mir_id: int, body_id: int, stream_id: int, fir
         give back 0 - 1
     }
 
-    pilot result_ty = v4_mir_check_map_literal(mir_id, body_id, stream_id, expr_span, first, last)
+    pilot children_handle = array_new()
+    pilot result_ty = v4_mir_check_map_literal(mir_id, body_id, stream_id, expr_span, first, last, children_handle)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_map, expr_text, "Map", 0 - 1, 0 - 1, expr_span, result_ty)
+    give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_map, expr_text, "Map", expr_span, result_ty, children_handle)
 }
 
 task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
@@ -5878,9 +5923,10 @@ task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, firs
         explicit_shape_instance_valid = v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), expr_span, shape_name, "invalid generic shape instance", "shape constructor " + shape_name)
     }
     pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, shape_name, expected_ty)
+    pilot children_handle = array_new()
     pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, seed_instance_ty)
     if explicit_shape_instance_valid {
-        env = v4_mir_check_shape_ctor_fields(mir_id, body_id, stream_id, expr_span, shape_name, sig_id, open_token, close_token, env)
+        env = v4_mir_check_shape_ctor_fields(mir_id, body_id, stream_id, expr_span, shape_name, sig_id, open_token, close_token, env, children_handle)
     }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     pilot result_ty = shape_name
@@ -5898,7 +5944,7 @@ task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, firs
             result_ty = v4_ty_unknown
         }
     }
-    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_construct, expr_text, shape_name, 0 - 1, 0 - 1, expr_span, result_ty)
+    give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_construct, expr_text, shape_name, expr_span, result_ty, children_handle)
 }
 
 task v4_mir_path_scope_separator(path: word) -> int {
@@ -6072,7 +6118,7 @@ task v4_mir_route_case_rvalue(mir_id: int, body_id: int, display_text: word, rou
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_symbol, display_text, case_text, 0 - 1, 0 - 1, expr_span, route_name)
 }
 
-task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, expr_span: word, route_name: word, case_name: word, open_token: int, close_token: int, seed_env: word) -> word {
+task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, expr_span: word, route_name: word, case_name: word, open_token: int, close_token: int, seed_env: word, children_handle: int) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
     if not v4_ty_is_route_type(ty_id, route_name) {
         v4_mir_add_type_error(mir_id, expr_span, "unknown route constructor", route_name + " is not a known route")
@@ -6125,6 +6171,7 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                     }
                     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, lower_expected_ty)
                     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
+                    array_push(children_handle, word_from_int(value_rvalue))
                     if not aggregate_lend_reported {
                         pilot route_case = v4_mir_route_case_text(route_name, case_name)
                         aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "route case " + route_case, "field " + field_name + " of " + route_case, value_rvalue)
@@ -6197,9 +6244,10 @@ task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: i
         explicit_route_instance_valid = v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), expr_span, route_name, "invalid generic route instance", "route constructor " + route_name + "::" + case_name)
     }
     pilot seed_instance_ty = v4_mir_signature_seed_instance_type(ty_id, sig_id, route_name, expected_ty)
+    pilot children_handle = array_new()
     pilot env = v4_ty_signature_generic_env_for_instance(ty_id, sig_id, seed_instance_ty)
     if explicit_route_instance_valid {
-        env = v4_mir_check_route_ctor_fields(mir_id, body_id, stream_id, expr_span, route_name, case_name, open_token, close_token, env)
+        env = v4_mir_check_route_ctor_fields(mir_id, body_id, stream_id, expr_span, route_name, case_name, open_token, close_token, env, children_handle)
     }
     pilot result_ty = route_name
     if not v4_ty_is_route_type(ty_id, route_name) or not v4_ty_route_has_case(ty_id, route_name, case_name) {
@@ -6217,7 +6265,7 @@ task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: i
         }
     }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_construct, expr_text, v4_mir_route_case_text(route_name, case_name), 0 - 1, 0 - 1, expr_span, result_ty)
+    give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_construct, expr_text, v4_mir_route_case_text(route_name, case_name), expr_span, result_ty, children_handle)
 }
 
 task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {

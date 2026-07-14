@@ -420,6 +420,16 @@ task v4_borrowck_rvalue_move_count(mir_id: int, body_id: int, rvalue_id: int) ->
         }
         give back moves
     }
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot moves = 0
+        pilot child_id = 0
+        pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+        repeat until child_id >= child_count {
+            moves += v4_borrowck_rvalue_move_count(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id))
+            child_id += 1
+        }
+        give back moves
+    }
     give back 0
 }
 
@@ -1178,6 +1188,16 @@ task v4_borrowck_rvalue_is_borrow_capable(mir_id: int, body_id: int, rvalue_id: 
     if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
         give back v4_borrowck_path_is_lent(mir_id, body_id, v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
     }
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot child_id = 0
+        pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+        repeat until child_id >= child_count {
+            if v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)) {
+                give back true
+            }
+            child_id += 1
+        }
+    }
     give back false
 }
 
@@ -1504,6 +1524,16 @@ task v4_borrowck_rvalue_returns_shared_mut_guard(mir_id: int, body_id: int, rval
     }
     if return_kind == v4_mir_rvalue_err {
         give back false
+    }
+    if v4_mir_rvalue_is_aggregate_kind(return_kind) {
+        pilot child_id = 0
+        pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+        repeat until child_id >= child_count {
+            if v4_borrowck_rvalue_returns_shared_mut_guard(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)) {
+                give back true
+            }
+            child_id += 1
+        }
     }
 
     give back false
@@ -1984,6 +2014,16 @@ task v4_borrowck_rvalue_uses_holder(mir_id: int, body_id: int, rvalue_id: int, h
     if kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
         give back v4_borrowck_rvalue_uses_holder(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), holder)
     }
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot child_id = 0
+        pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+        repeat until child_id >= child_count {
+            if v4_borrowck_rvalue_uses_holder(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), holder) {
+                give back true
+            }
+            child_id += 1
+        }
+    }
     if kind == v4_mir_rvalue_call {
         if v4_borrowck_rvalue_uses_holder(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), holder) {
             give back true
@@ -2029,6 +2069,16 @@ task v4_borrowck_rvalue_returns_holder(mir_id: int, body_id: int, rvalue_id: int
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
         give back v4_borrowck_rvalue_returns_holder(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), holder)
     }
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot child_id = 0
+        pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+        repeat until child_id >= child_count {
+            if v4_borrowck_rvalue_returns_holder(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), holder) {
+                give back true
+            }
+            child_id += 1
+        }
+    }
     if kind == v4_mir_rvalue_call {
         if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
             give back false
@@ -2072,7 +2122,7 @@ task v4_borrowck_holder_alias_from_stmt(mir_id: int, body_id: int, stmt_id: int,
         give back ""
     }
     pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-    if rvalue_id < 0 or not v4_ty_type_contains_lend(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+    if rvalue_id < 0 {
         give back ""
     }
     if not v4_borrowck_rvalue_returns_holder(mir_id, body_id, rvalue_id, holder) {
@@ -2310,6 +2360,13 @@ task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: 
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     } else if rvalue_kind == v4_mir_rvalue_some or rvalue_kind == v4_mir_rvalue_ok or rvalue_kind == v4_mir_rvalue_err {
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+    } else if v4_mir_rvalue_is_aggregate_kind(rvalue_kind) {
+        pilot child_id = 0
+        pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+        repeat until child_id >= child_count {
+            v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id))
+            child_id += 1
+        }
     } else if rvalue_kind == v4_mir_rvalue_call {
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
         v4_borrowck_collect_call_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
@@ -2333,6 +2390,13 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     } else if rvalue_kind == v4_mir_rvalue_some or rvalue_kind == v4_mir_rvalue_ok or rvalue_kind == v4_mir_rvalue_err {
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+    } else if v4_mir_rvalue_is_aggregate_kind(rvalue_kind) {
+        pilot child_id = 0
+        pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+        repeat until child_id >= child_count {
+            v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id))
+            child_id += 1
+        }
     } else if rvalue_kind == v4_mir_rvalue_call {
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
         v4_borrowck_collect_call_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
