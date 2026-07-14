@@ -48,6 +48,9 @@ pilot v4_ty_names = 0
 pilot v4_ty_displays = 0
 pilot v4_ty_hir_items = 0
 pilot v4_ty_diags = 0
+-- Restores retain child handles; these arrays hold their logical lengths.
+pilot v4_ty_signature_active_counts = 0
+pilot v4_ty_diag_active_counts = 0
 pilot v4_ty_lifetime_outlives_scratch_links = 0
 pilot v4_ty_lifetime_outlives_scratch_ids = 0
 pilot v4_ty_lifetime_outlives_scratch_active = 0
@@ -72,6 +75,8 @@ task v4_ty_init() -> void {
         v4_ty_displays = array_new()
         v4_ty_hir_items = array_new()
         v4_ty_diags = array_new()
+        v4_ty_signature_active_counts = array_new()
+        v4_ty_diag_active_counts = array_new()
         v4_ty_lifetime_outlives_scratch_links = array_new()
         v4_ty_lifetime_outlives_scratch_ids = array_new()
         v4_ty_borrowed_return_source_cache_ty_ids = array_new()
@@ -92,6 +97,8 @@ task v4_ty_file_new(file_id: int, resolve_id: int) -> int {
     array_push(v4_ty_displays, word_from_int(array_new()))
     array_push(v4_ty_hir_items, word_from_int(array_new()))
     array_push(v4_ty_diags, word_from_int(array_new()))
+    array_push(v4_ty_signature_active_counts, "0")
+    array_push(v4_ty_diag_active_counts, "0")
     give back ty_id
 }
 
@@ -119,6 +126,20 @@ task v4_ty_diags_handle(ty_id: int) -> int {
     give back word_to_int(array_get(v4_ty_diags, ty_id))
 }
 
+task v4_ty_child_handle_ensure_slot(handle: int, slot_id: int, empty_value: word) -> bool {
+    if slot_id < 0 {
+        give back false
+    }
+    repeat until array_len(handle) > slot_id {
+        pilot before_len = array_len(handle)
+        array_push(handle, empty_value)
+        if array_len(handle) <= before_len {
+            give back false
+        }
+    }
+    give back true
+}
+
 task v4_ty_file_id(ty_id: int) -> int {
     give back word_to_int(array_get(v4_ty_files, ty_id))
 }
@@ -144,11 +165,11 @@ task v4_ty_file_exists(ty_id: int) -> bool {
 }
 
 task v4_ty_signature_count(ty_id: int) -> int {
-    give back array_len(v4_ty_defs_handle(ty_id))
+    give back word_to_int(array_get(v4_ty_signature_active_counts, ty_id))
 }
 
 task v4_ty_diag_count(ty_id: int) -> int {
-    give back array_len(v4_ty_diags_handle(ty_id))
+    give back word_to_int(array_get(v4_ty_diag_active_counts, ty_id))
 }
 
 task v4_ty_signature_def(ty_id: int, sig_id: int) -> word {
@@ -187,7 +208,13 @@ task v4_ty_diag(ty_id: int, diag_id: int) -> word {
 }
 
 task v4_ty_add_diag(ty_id: int, diag: word) -> void {
-    array_push(v4_ty_diags_handle(ty_id), diag)
+    pilot diag_id = v4_ty_diag_count(ty_id)
+    pilot diags_handle = v4_ty_diags_handle(ty_id)
+    if v4_ty_child_handle_ensure_slot(diags_handle, diag_id, "") == false {
+        give back
+    }
+    array_set(diags_handle, diag_id, diag)
+    array_set(v4_ty_diag_active_counts, ty_id, word_from_int(diag_id + 1))
 }
 
 task v4_ty_add_error_diag(ty_id: int, span: word, message: word, help: word) -> void {
@@ -10576,12 +10603,28 @@ task v4_ty_index_element_type(container_ty: word) -> word {
 }
 
 task v4_ty_add_signature(ty_id: int, def_id: word, sig_kind: word, sig_name: word, sig_display: word, hir_item: int) -> int {
-    pilot sig_id = array_len(v4_ty_defs_handle(ty_id))
-    array_push(v4_ty_defs_handle(ty_id), def_id)
-    array_push(v4_ty_kinds_handle(ty_id), sig_kind)
-    array_push(v4_ty_names_handle(ty_id), sig_name)
-    array_push(v4_ty_displays_handle(ty_id), sig_display)
-    array_push(v4_ty_hir_items_handle(ty_id), word_from_int(hir_item))
+    pilot sig_id = v4_ty_signature_count(ty_id)
+    if v4_ty_child_handle_ensure_slot(v4_ty_defs_handle(ty_id), sig_id, "") == false {
+        give back 0 - 1
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_kinds_handle(ty_id), sig_id, "") == false {
+        give back 0 - 1
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_names_handle(ty_id), sig_id, "") == false {
+        give back 0 - 1
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_displays_handle(ty_id), sig_id, "") == false {
+        give back 0 - 1
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(0 - 1)) == false {
+        give back 0 - 1
+    }
+    array_set(v4_ty_defs_handle(ty_id), sig_id, def_id)
+    array_set(v4_ty_kinds_handle(ty_id), sig_id, sig_kind)
+    array_set(v4_ty_names_handle(ty_id), sig_id, sig_name)
+    array_set(v4_ty_displays_handle(ty_id), sig_id, sig_display)
+    array_set(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(hir_item))
+    array_set(v4_ty_signature_active_counts, ty_id, word_from_int(sig_id + 1))
     give back sig_id
 }
 
@@ -10799,12 +10842,31 @@ task v4_ty_snapshot_record_is_valid(line: word) -> bool {
     if expected == 0 {
         give back false
     }
-    if v4_ty_snapshot_field_count(line) < expected {
+    if v4_ty_snapshot_field_count(line) != expected {
         give back false
     }
     give back true
 }
 
+task v4_ty_snapshot_integer_is_canonical(value: word, allow_negative: bool) -> bool {
+    if value == "" {
+        give back false
+    }
+    pilot parsed = word_to_int(value)
+    if word_from_int(parsed) != value {
+        give back false
+    }
+    if allow_negative == false and parsed < 0 {
+        give back false
+    }
+    give back true
+}
+
+task v4_ty_snapshot_field_has_key(line: word, field_id: int, wanted_key: word) -> bool {
+    give back v4_ty_snapshot_field_raw(line, field_id).starts_with(wanted_key + "=")
+}
+
+-- Validate the canonical parent-first record stream before restore mutates TY.
 task v4_ty_snapshot_validate(payload: word) -> word {
     pilot lines = v4_ty_snapshot_line_count(payload)
     pilot files = 0
@@ -10813,35 +10875,207 @@ task v4_ty_snapshot_validate(payload: word) -> word {
     pilot malformed = 0
     pilot saw_header = 0
     pilot saw_end = 0
+    pilot saw_nonempty = 0
     pilot format = ""
+    pilot declared_files = 0 - 1
+    pilot declared_signatures = 0 - 1
+    pilot declared_diagnostics = 0 - 1
+    pilot current_ty_id = 0 - 1
+    pilot current_declared_signatures = 0
+    pilot current_declared_diagnostics = 0
+    pilot current_signature_count = 0
+    pilot current_diag_count = 0
 
     pilot line_id = 0
     repeat until line_id >= lines {
         pilot line = v4_ty_snapshot_line(payload, line_id)
         if line != "" {
             pilot kind = v4_ty_snapshot_field_raw(line, 0)
+            if saw_end > 0 {
+                malformed += 1
+            }
             if v4_ty_snapshot_record_is_valid(line) == false {
                 malformed += 1
             } else if kind == "ty-snapshot" {
+                if saw_nonempty != 0 {
+                    malformed += 1
+                }
                 saw_header += 1
                 format = v4_ty_snapshot_key_value(line, "format")
+                pilot declared_files_text = v4_ty_snapshot_key_value(line, "files")
+                pilot declared_signatures_text = v4_ty_snapshot_key_value(line, "signatures")
+                pilot declared_diagnostics_text = v4_ty_snapshot_key_value(line, "diagnostics")
+                if v4_ty_snapshot_field_has_key(line, 1, "format") == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_field_has_key(line, 2, "files") == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_field_has_key(line, 3, "signatures") == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_field_has_key(line, 4, "diagnostics") == false {
+                    malformed += 1
+                }
                 if format != v4_ty_snapshot_format {
                     malformed += 1
                 }
+                if v4_ty_snapshot_integer_is_canonical(declared_files_text, false) == false {
+                    malformed += 1
+                } else {
+                    declared_files = word_to_int(declared_files_text)
+                }
+                if v4_ty_snapshot_integer_is_canonical(declared_signatures_text, false) == false {
+                    malformed += 1
+                } else {
+                    declared_signatures = word_to_int(declared_signatures_text)
+                }
+                if v4_ty_snapshot_integer_is_canonical(declared_diagnostics_text, false) == false {
+                    malformed += 1
+                } else {
+                    declared_diagnostics = word_to_int(declared_diagnostics_text)
+                }
             } else if kind == "ty" {
+                if saw_header != 1 {
+                    malformed += 1
+                }
+                if current_ty_id >= 0 {
+                    if current_signature_count != current_declared_signatures {
+                        malformed += 1
+                    }
+                    if current_diag_count != current_declared_diagnostics {
+                        malformed += 1
+                    }
+                }
+                pilot ty_id_text = v4_ty_snapshot_field_raw(line, 1)
+                pilot file_id_text = v4_ty_snapshot_field_raw(line, 2)
+                pilot resolve_id_text = v4_ty_snapshot_field_raw(line, 3)
+                pilot file_signatures_text = v4_ty_snapshot_field_raw(line, 4)
+                pilot file_diagnostics_text = v4_ty_snapshot_field_raw(line, 5)
+                if v4_ty_snapshot_integer_is_canonical(ty_id_text, false) == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_integer_is_canonical(file_id_text, false) == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_integer_is_canonical(resolve_id_text, false) == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_integer_is_canonical(file_signatures_text, false) == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_integer_is_canonical(file_diagnostics_text, false) == false {
+                    malformed += 1
+                }
+                current_ty_id = word_to_int(ty_id_text)
+                current_declared_signatures = word_to_int(file_signatures_text)
+                current_declared_diagnostics = word_to_int(file_diagnostics_text)
+                current_signature_count = 0
+                current_diag_count = 0
+                if current_ty_id != files {
+                    malformed += 1
+                }
                 files += 1
             } else if kind == "signature" {
+                if saw_header != 1 {
+                    malformed += 1
+                }
+                pilot signature_ty_text = v4_ty_snapshot_field_raw(line, 1)
+                pilot sig_id_text = v4_ty_snapshot_field_raw(line, 2)
+                pilot hir_item_text = v4_ty_snapshot_field_raw(line, 7)
+                if v4_ty_snapshot_integer_is_canonical(signature_ty_text, false) == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_integer_is_canonical(sig_id_text, false) == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_integer_is_canonical(hir_item_text, true) == false {
+                    malformed += 1
+                }
+                if current_ty_id < 0 {
+                    malformed += 1
+                }
+                if word_to_int(signature_ty_text) != current_ty_id {
+                    malformed += 1
+                }
+                if word_to_int(sig_id_text) != current_signature_count {
+                    malformed += 1
+                }
+                if current_diag_count > 0 {
+                    malformed += 1
+                }
+                if current_signature_count >= current_declared_signatures {
+                    malformed += 1
+                }
+                current_signature_count += 1
                 signatures += 1
             } else if kind == "ty-diag" {
+                if saw_header != 1 {
+                    malformed += 1
+                }
+                pilot diag_ty_text = v4_ty_snapshot_field_raw(line, 1)
+                pilot diag_id_text = v4_ty_snapshot_field_raw(line, 2)
+                if v4_ty_snapshot_integer_is_canonical(diag_ty_text, false) == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_integer_is_canonical(diag_id_text, false) == false {
+                    malformed += 1
+                }
+                if current_ty_id < 0 {
+                    malformed += 1
+                }
+                if word_to_int(diag_ty_text) != current_ty_id {
+                    malformed += 1
+                }
+                if current_signature_count != current_declared_signatures {
+                    malformed += 1
+                }
+                if word_to_int(diag_id_text) != current_diag_count {
+                    malformed += 1
+                }
+                if current_diag_count >= current_declared_diagnostics {
+                    malformed += 1
+                }
+                current_diag_count += 1
                 diagnostics += 1
             } else if kind == "end" {
+                if saw_header != 1 {
+                    malformed += 1
+                }
+                if current_ty_id >= 0 {
+                    if current_signature_count != current_declared_signatures {
+                        malformed += 1
+                    }
+                    if current_diag_count != current_declared_diagnostics {
+                        malformed += 1
+                    }
+                }
                 saw_end += 1
                 if v4_ty_snapshot_field(line, 1) != v4_ty_snapshot_format {
                     malformed += 1
                 }
             }
+            saw_nonempty += 1
         }
         line_id += 1
+    }
+
+    if current_ty_id >= 0 {
+        if current_signature_count != current_declared_signatures {
+            malformed += 1
+        }
+        if current_diag_count != current_declared_diagnostics {
+            malformed += 1
+        }
+    }
+    if declared_files != files {
+        malformed += 1
+    }
+    if declared_signatures != signatures {
+        malformed += 1
+    }
+    if declared_diagnostics != diagnostics {
+        malformed += 1
     }
 
     pilot import_ok = 1
@@ -10868,28 +11102,38 @@ task v4_ty_snapshot_validate(payload: word) -> word {
     give back out
 }
 
+task v4_ty_restore_clear_child_handle(handle: int, empty_value: word) -> void {
+    pilot child_id = 0
+    repeat until child_id >= array_len(handle) {
+        array_set(handle, child_id, empty_value)
+        child_id += 1
+    }
+}
+
+task v4_ty_restore_clear_file_children(ty_id: int) -> void {
+    v4_ty_restore_clear_child_handle(v4_ty_defs_handle(ty_id), "")
+    v4_ty_restore_clear_child_handle(v4_ty_kinds_handle(ty_id), "")
+    v4_ty_restore_clear_child_handle(v4_ty_names_handle(ty_id), "")
+    v4_ty_restore_clear_child_handle(v4_ty_displays_handle(ty_id), "")
+    v4_ty_restore_clear_child_handle(v4_ty_hir_items_handle(ty_id), word_from_int(0 - 1))
+    v4_ty_restore_clear_child_handle(v4_ty_diags_handle(ty_id), "")
+    array_set(v4_ty_signature_active_counts, ty_id, "0")
+    array_set(v4_ty_diag_active_counts, ty_id, "0")
+}
+
 task v4_ty_restore_file_slot(ty_id: int, file_id: int, resolve_id: int) -> int {
     v4_ty_init()
+    if ty_id < 0 {
+        give back 0 - 1
+    }
     v4_ty_borrowed_return_source_cache_invalidate_file(ty_id)
     repeat until array_len(v4_ty_files) > ty_id {
-        array_push(v4_ty_files, "0")
-        array_push(v4_ty_resolves, "0")
-        array_push(v4_ty_defs, word_from_int(array_new()))
-        array_push(v4_ty_kinds, word_from_int(array_new()))
-        array_push(v4_ty_names, word_from_int(array_new()))
-        array_push(v4_ty_displays, word_from_int(array_new()))
-        array_push(v4_ty_hir_items, word_from_int(array_new()))
-        array_push(v4_ty_diags, word_from_int(array_new()))
+        v4_ty_file_new(0, 0)
     }
 
     array_set(v4_ty_files, ty_id, word_from_int(file_id))
     array_set(v4_ty_resolves, ty_id, word_from_int(resolve_id))
-    array_set(v4_ty_defs, ty_id, word_from_int(array_new()))
-    array_set(v4_ty_kinds, ty_id, word_from_int(array_new()))
-    array_set(v4_ty_names, ty_id, word_from_int(array_new()))
-    array_set(v4_ty_displays, ty_id, word_from_int(array_new()))
-    array_set(v4_ty_hir_items, ty_id, word_from_int(array_new()))
-    array_set(v4_ty_diags, ty_id, word_from_int(array_new()))
+    v4_ty_restore_clear_file_children(ty_id)
     give back ty_id
 }
 
@@ -10897,19 +11141,33 @@ task v4_ty_restore_signature_slot(ty_id: int, sig_id: int, def_id: word, sig_kin
     if v4_ty_file_exists(ty_id) == false {
         give back 0
     }
+    if sig_id < 0 {
+        give back 0
+    }
     v4_ty_borrowed_return_source_cache_invalidate_signature(ty_id, sig_id)
-    repeat until v4_ty_signature_count(ty_id) > sig_id {
-        array_push(v4_ty_defs_handle(ty_id), "")
-        array_push(v4_ty_kinds_handle(ty_id), "")
-        array_push(v4_ty_names_handle(ty_id), "")
-        array_push(v4_ty_displays_handle(ty_id), "")
-        array_push(v4_ty_hir_items_handle(ty_id), word_from_int(0 - 1))
+    if v4_ty_child_handle_ensure_slot(v4_ty_defs_handle(ty_id), sig_id, "") == false {
+        give back 0
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_kinds_handle(ty_id), sig_id, "") == false {
+        give back 0
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_names_handle(ty_id), sig_id, "") == false {
+        give back 0
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_displays_handle(ty_id), sig_id, "") == false {
+        give back 0
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(0 - 1)) == false {
+        give back 0
     }
     array_set(v4_ty_defs_handle(ty_id), sig_id, def_id)
     array_set(v4_ty_kinds_handle(ty_id), sig_id, sig_kind)
     array_set(v4_ty_names_handle(ty_id), sig_id, sig_name)
     array_set(v4_ty_displays_handle(ty_id), sig_id, sig_display)
     array_set(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(hir_item))
+    if v4_ty_signature_count(ty_id) <= sig_id {
+        array_set(v4_ty_signature_active_counts, ty_id, word_from_int(sig_id + 1))
+    }
     give back 1
 }
 
@@ -10917,10 +11175,16 @@ task v4_ty_restore_diag_slot(ty_id: int, diag_id: int, diag: word) -> int {
     if v4_ty_file_exists(ty_id) == false {
         give back 0
     }
-    repeat until array_len(v4_ty_diags_handle(ty_id)) > diag_id {
-        array_push(v4_ty_diags_handle(ty_id), "")
+    if diag_id < 0 {
+        give back 0
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_diags_handle(ty_id), diag_id, "") == false {
+        give back 0
     }
     array_set(v4_ty_diags_handle(ty_id), diag_id, diag)
+    if v4_ty_diag_count(ty_id) <= diag_id {
+        array_set(v4_ty_diag_active_counts, ty_id, word_from_int(diag_id + 1))
+    }
     give back 1
 }
 
@@ -10934,7 +11198,9 @@ task v4_ty_snapshot_restore_file_line(line: word) -> int {
     pilot ty_id = word_to_int(v4_ty_snapshot_field_raw(line, 1))
     pilot file_id = word_to_int(v4_ty_snapshot_field_raw(line, 2))
     pilot resolve_id = word_to_int(v4_ty_snapshot_field_raw(line, 3))
-    v4_ty_restore_file_slot(ty_id, file_id, resolve_id)
+    if v4_ty_restore_file_slot(ty_id, file_id, resolve_id) != ty_id {
+        give back 0
+    }
     give back 1
 }
 
@@ -10977,6 +11243,10 @@ task v4_ty_snapshot_restore(payload: word) -> word {
     pilot restored_files = 0
     pilot restored_signatures = 0
     pilot restored_diagnostics = 0
+    pilot expected_files = 0
+    pilot expected_signatures = 0
+    pilot expected_diagnostics = 0
+    pilot restore_failures = 0
     pilot skipped_other = 0
     pilot line_id = 0
     pilot line_count = v4_ty_snapshot_line_count(payload)
@@ -10985,11 +11255,29 @@ task v4_ty_snapshot_restore(payload: word) -> word {
         if line != "" {
             pilot kind = v4_ty_snapshot_field_raw(line, 0)
             if kind == "ty" {
-                restored_files += v4_ty_snapshot_restore_file_line(line)
+                expected_files += 1
+                pilot restored_file = v4_ty_snapshot_restore_file_line(line)
+                if restored_file == 1 {
+                    restored_files += 1
+                } else {
+                    restore_failures += 1
+                }
             } else if kind == "signature" {
-                restored_signatures += v4_ty_snapshot_restore_signature_line(line)
+                expected_signatures += 1
+                pilot restored_signature = v4_ty_snapshot_restore_signature_line(line)
+                if restored_signature == 1 {
+                    restored_signatures += 1
+                } else {
+                    restore_failures += 1
+                }
             } else if kind == "ty-diag" {
-                restored_diagnostics += v4_ty_snapshot_restore_diag_line(line)
+                expected_diagnostics += 1
+                pilot restored_diag = v4_ty_snapshot_restore_diag_line(line)
+                if restored_diag == 1 {
+                    restored_diagnostics += 1
+                } else {
+                    restore_failures += 1
+                }
             } else if kind != "ty-snapshot" and kind != "end" {
                 skipped_other += 1
             }
@@ -10997,7 +11285,27 @@ task v4_ty_snapshot_restore(payload: word) -> word {
         line_id += 1
     }
 
-    pilot out = "ty-snapshot-restore ok=1"
+    pilot restore_ok = 1
+    if restore_failures > 0 {
+        restore_ok = 0
+    }
+    if restored_files != expected_files {
+        restore_ok = 0
+    }
+    if restored_signatures != expected_signatures {
+        restore_ok = 0
+    }
+    if restored_diagnostics != expected_diagnostics {
+        restore_ok = 0
+    }
+    if skipped_other > 0 {
+        restore_ok = 0
+    }
+
+    pilot out = "ty-snapshot-restore ok=" + word_from_int(restore_ok)
+    if restore_ok == 0 {
+        out = out + " reason=child-restore-failed"
+    }
     out = out + " files=" + word_from_int(restored_files)
     out = out + " signatures=" + word_from_int(restored_signatures)
     out = out + " diagnostics=" + word_from_int(restored_diagnostics)
