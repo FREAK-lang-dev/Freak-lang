@@ -1916,6 +1916,53 @@ task v4_unit_snapshot_section_count() -> int {
     give back 14
 }
 
+task v4_unit_snapshot_section_name_at(section_id: int) -> word {
+    if section_id == 0 { give back "lex" }
+    if section_id == 1 { give back "parse" }
+    if section_id == 2 { give back "hir" }
+    if section_id == 3 { give back "resolve" }
+    if section_id == 4 { give back "ty" }
+    if section_id == 5 { give back "mir" }
+    if section_id == 6 { give back "borrowck" }
+    if section_id == 7 { give back "diagnostics" }
+    if section_id == 8 { give back "semantic" }
+    if section_id == 9 { give back "hover" }
+    if section_id == 10 { give back "definition" }
+    if section_id == 11 { give back "document-symbols" }
+    if section_id == 12 { give back "completion" }
+    if section_id == 13 { give back "query" }
+    give back ""
+}
+
+task v4_unit_snapshot_section_id(section_name: word) -> int {
+    pilot section_id = 0
+    repeat until section_id >= v4_unit_snapshot_section_count() {
+        if v4_unit_snapshot_section_name_at(section_id) == section_name {
+            give back section_id
+        }
+        section_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_unit_snapshot_section_occurrences(payload: word, section_name: word) -> int {
+    pilot occurrences = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if line != "" {
+            if v4_unit_snapshot_field_raw(line, 0) == "unit-section" {
+                if v4_unit_snapshot_field_raw(line, 1) == section_name {
+                    occurrences += 1
+                }
+            }
+        }
+        line_id += 1
+    }
+    give back occurrences
+}
+
 task v4_unit_snapshot_summary() -> word {
     pilot summary = "00-unit-snapshot"
     summary = summary + " format=" + v4_unit_snapshot_format
@@ -2030,7 +2077,7 @@ task v4_unit_snapshot_record_is_valid(line: word) -> bool {
     if expected == 0 {
         give back false
     }
-    if v4_unit_snapshot_field_count(line) < expected {
+    if v4_unit_snapshot_field_count(line) != expected {
         give back false
     }
     give back true
@@ -2044,17 +2091,28 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_sources = ""
+    pilot declared_sections = ""
+    pilot unknown_sections = 0
+    pilot invalid_sections = 0
 
     pilot line_id = 0
     repeat until line_id >= lines {
         pilot line = v4_unit_snapshot_line(payload, line_id)
-        if line != "" {
+        if line == "" {
+            malformed += 1
+        } else {
             pilot kind = v4_unit_snapshot_field_raw(line, 0)
             if v4_unit_snapshot_record_is_valid(line) == false {
                 malformed += 1
             } else if kind == "00-unit-snapshot" {
                 saw_header += 1
+                if line_id != 0 {
+                    malformed += 1
+                }
                 format = v4_unit_snapshot_key_value(line, "format")
+                declared_sources = v4_unit_snapshot_key_value(line, "sources")
+                declared_sections = v4_unit_snapshot_key_value(line, "sections")
                 if format != v4_unit_snapshot_format {
                     malformed += 1
                 }
@@ -2062,8 +2120,21 @@ task v4_unit_snapshot_validate(payload: word) -> word {
                 sources += 1
             } else if kind == "unit-section" {
                 sections += 1
+                pilot section_name = v4_unit_snapshot_field_raw(line, 1)
+                if v4_unit_snapshot_section_id(section_name) < 0 {
+                    unknown_sections += 1
+                } else {
+                    pilot section_payload = v4_unit_snapshot_field(line, 2)
+                    pilot section_validation = v4_unit_snapshot_section_validate(section_name, section_payload)
+                    if v4_unit_snapshot_section_validation_ok(section_name, section_validation) == 0 {
+                        invalid_sections += 1
+                    }
+                }
             } else if kind == "end" {
                 saw_end += 1
+                if line_id != lines - 1 {
+                    malformed += 1
+                }
                 if v4_unit_snapshot_field(line, 1) != v4_unit_snapshot_format {
                     malformed += 1
                 }
@@ -2072,17 +2143,44 @@ task v4_unit_snapshot_validate(payload: word) -> word {
         line_id += 1
     }
 
+    pilot missing_sections = 0
+    pilot duplicate_sections = 0
+    pilot required_section_id = 0
+    repeat until required_section_id >= v4_unit_snapshot_section_count() {
+        pilot required_section_name = v4_unit_snapshot_section_name_at(required_section_id)
+        pilot occurrences = v4_unit_snapshot_section_occurrences(payload, required_section_name)
+        if occurrences == 0 {
+            missing_sections += 1
+        } else if occurrences > 1 {
+            duplicate_sections += occurrences - 1
+        }
+        required_section_id += 1
+    }
+
     pilot import_ok = 1
     if saw_header != 1 { import_ok = 0 }
     if saw_end != 1 { import_ok = 0 }
     if malformed > 0 { import_ok = 0 }
+    if declared_sources != word_from_int(sources) { import_ok = 0 }
+    if declared_sections != word_from_int(sections) { import_ok = 0 }
+    if sections != v4_unit_snapshot_section_count() { import_ok = 0 }
+    if missing_sections > 0 { import_ok = 0 }
+    if duplicate_sections > 0 { import_ok = 0 }
+    if unknown_sections > 0 { import_ok = 0 }
+    if invalid_sections > 0 { import_ok = 0 }
 
     pilot out = "00-unit-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
     out = out + " format=" + format
     out = out + " lines=" + word_from_int(lines)
     out = out + " sources=" + word_from_int(sources)
+    out = out + " declared-sources=" + declared_sources
     out = out + " sections=" + word_from_int(sections)
+    out = out + " declared-sections=" + declared_sections
+    out = out + " missing-sections=" + word_from_int(missing_sections)
+    out = out + " duplicate-sections=" + word_from_int(duplicate_sections)
+    out = out + " unknown-sections=" + word_from_int(unknown_sections)
+    out = out + " invalid-sections=" + word_from_int(invalid_sections)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " headers=" + word_from_int(saw_header)
     out = out + " ends=" + word_from_int(saw_end)
@@ -2158,7 +2256,8 @@ task v4_unit_snapshot_section_validation_prefix(section_name: word) -> word {
 task v4_unit_snapshot_section_validation_ok(section_name: word, validation: word) -> int {
     pilot prefix = v4_unit_snapshot_section_validation_prefix(section_name)
     if prefix == "" { give back 0 }
-    if validation.starts_with(prefix) { give back 1 }
+    if validation == prefix { give back 1 }
+    if validation.starts_with(prefix + " ") { give back 1 }
     give back 0
 }
 
@@ -2264,24 +2363,6 @@ task v4_unit_snapshot_manifest(payload: word) -> word {
 
     out = out + "\nend|" + v4_unit_snapshot_manifest_format
     give back out
-}
-
-task v4_unit_snapshot_section_name_at(section_id: int) -> word {
-    if section_id == 0 { give back "lex" }
-    if section_id == 1 { give back "parse" }
-    if section_id == 2 { give back "hir" }
-    if section_id == 3 { give back "resolve" }
-    if section_id == 4 { give back "ty" }
-    if section_id == 5 { give back "mir" }
-    if section_id == 6 { give back "borrowck" }
-    if section_id == 7 { give back "diagnostics" }
-    if section_id == 8 { give back "semantic" }
-    if section_id == 9 { give back "hover" }
-    if section_id == 10 { give back "definition" }
-    if section_id == 11 { give back "document-symbols" }
-    if section_id == 12 { give back "completion" }
-    if section_id == 13 { give back "query" }
-    give back ""
 }
 
 task v4_unit_snapshot_payload_has_line(payload: word, wanted_line: word) -> bool {
@@ -3124,44 +3205,55 @@ task v4_unit_snapshot_restore_sources(payload: word) -> int {
     give back restored
 }
 
-task v4_unit_snapshot_restore_named_section(payload: word, section_name: word) -> int {
+task v4_unit_snapshot_restore_section_result(payload: word, section_name: word) -> word {
     pilot section_payload = v4_unit_snapshot_section_payload(payload, section_name)
     if section_payload == "" {
-        give back 0
+        give back section_name + "-snapshot-restore ok=0 reason=missing-section"
     }
 
     if section_name == "lex" {
-        v4_lex_snapshot_restore(section_payload)
+        give back v4_lex_snapshot_restore(section_payload)
     } else if section_name == "parse" {
-        v4_parse_snapshot_restore(section_payload)
+        give back v4_parse_snapshot_restore(section_payload)
     } else if section_name == "hir" {
-        v4_hir_snapshot_restore(section_payload)
+        give back v4_hir_snapshot_restore(section_payload)
     } else if section_name == "resolve" {
-        v4_resolve_snapshot_restore(section_payload)
+        give back v4_resolve_snapshot_restore(section_payload)
     } else if section_name == "ty" {
-        v4_ty_snapshot_restore(section_payload)
+        give back v4_ty_snapshot_restore(section_payload)
     } else if section_name == "mir" {
-        v4_mir_snapshot_restore(section_payload)
+        give back v4_mir_snapshot_restore(section_payload)
     } else if section_name == "borrowck" {
-        v4_borrowck_snapshot_restore(section_payload)
+        give back v4_borrowck_snapshot_restore(section_payload)
     } else if section_name == "diagnostics" {
-        v4_diagnostics_snapshot_restore(section_payload)
+        give back v4_diagnostics_snapshot_restore(section_payload)
     } else if section_name == "semantic" {
-        v4_semantic_snapshot_restore(section_payload)
+        give back v4_semantic_snapshot_restore(section_payload)
     } else if section_name == "hover" {
-        v4_hover_snapshot_restore(section_payload)
+        give back v4_hover_snapshot_restore(section_payload)
     } else if section_name == "definition" {
-        v4_definition_snapshot_restore(section_payload)
+        give back v4_definition_snapshot_restore(section_payload)
     } else if section_name == "document-symbols" {
-        v4_document_symbols_snapshot_restore(section_payload)
+        give back v4_document_symbols_snapshot_restore(section_payload)
     } else if section_name == "completion" {
-        v4_completion_snapshot_restore(section_payload)
+        give back v4_completion_snapshot_restore(section_payload)
     } else if section_name == "query" {
-        v4_query_snapshot_restore(section_payload)
-    } else {
-        give back 0
+        give back v4_query_snapshot_restore(section_payload)
     }
-    give back 1
+    give back "unit-section-snapshot-restore ok=0 reason=unknown-section name=" + section_name
+}
+
+task v4_unit_snapshot_section_restore_ok(section_name: word, restore_result: word) -> int {
+    if v4_unit_snapshot_section_id(section_name) < 0 { give back 0 }
+    pilot prefix = section_name + "-snapshot-restore ok=1"
+    if restore_result == prefix { give back 1 }
+    if restore_result.starts_with(prefix + " ") { give back 1 }
+    give back 0
+}
+
+task v4_unit_snapshot_restore_named_section(payload: word, section_name: word) -> int {
+    pilot restore_result = v4_unit_snapshot_restore_section_result(payload, section_name)
+    give back v4_unit_snapshot_section_restore_ok(section_name, restore_result)
 }
 
 task v4_unit_snapshot_confirm_sources(payload: word) -> int {
@@ -3185,28 +3277,43 @@ task v4_unit_snapshot_confirm_sources(payload: word) -> int {
 
 task v4_unit_snapshot_restore(payload: word) -> word {
     pilot validation = v4_unit_snapshot_validate(payload)
-    if validation.starts_with("00-unit-snapshot-import ok=1") == false {
+    if validation.starts_with("00-unit-snapshot-import ok=1 ") == false {
         give back "00-unit-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    pilot header = v4_unit_snapshot_line(payload, 0)
+    pilot declared_sources = word_to_int(v4_unit_snapshot_key_value(header, "sources"))
     pilot restored_sources = v4_unit_snapshot_restore_sources(payload)
+    if restored_sources != declared_sources {
+        pilot out = "00-unit-snapshot-restore ok=0 reason=source-restore-incomplete"
+        out = out + " sources=" + word_from_int(restored_sources)
+        out = out + " declared-sources=" + word_from_int(declared_sources)
+        give back out
+    }
+
     pilot restored_sections = 0
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "lex")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "parse")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "hir")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "resolve")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "ty")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "mir")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "borrowck")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "diagnostics")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "semantic")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "hover")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "definition")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "document-symbols")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "completion")
-    restored_sections += v4_unit_snapshot_restore_named_section(payload, "query")
+    pilot section_id = 0
+    repeat until section_id >= v4_unit_snapshot_section_count() {
+        pilot section_name = v4_unit_snapshot_section_name_at(section_id)
+        pilot restore_result = v4_unit_snapshot_restore_section_result(payload, section_name)
+        if v4_unit_snapshot_section_restore_ok(section_name, restore_result) == 0 {
+            pilot out = "00-unit-snapshot-restore ok=0 reason=section-restore-failed"
+            out = out + " section=" + section_name
+            out = out + " restored-sections=" + word_from_int(restored_sections)
+            out = out + "\n" + restore_result
+            give back out
+        }
+        restored_sections += 1
+        section_id += 1
+    }
 
     pilot confirmed_sources = v4_unit_snapshot_confirm_sources(payload)
+    if confirmed_sources != restored_sources {
+        pilot out = "00-unit-snapshot-restore ok=0 reason=source-confirmation-incomplete"
+        out = out + " sources=" + word_from_int(restored_sources)
+        out = out + " confirmed-sources=" + word_from_int(confirmed_sources)
+        give back out
+    }
 
     pilot out = "00-unit-snapshot-restore ok=1"
     out = out + " sources=" + word_from_int(restored_sources)
