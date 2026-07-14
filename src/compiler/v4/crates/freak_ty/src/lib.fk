@@ -52,7 +52,13 @@ pilot v4_ty_lifetime_outlives_scratch_links = 0
 pilot v4_ty_lifetime_outlives_scratch_ids = 0
 pilot v4_ty_lifetime_outlives_scratch_active = 0
 pilot v4_ty_lifetime_outlives_scratch_generation_value = 0
-pilot v4_ty_borrowed_return_source_caches = 0
+-- Returned-source rows are globally bounded; payloads encode ordered formal ids without child arrays.
+pilot v4_ty_borrowed_return_source_cache_capacity_value = 32
+pilot v4_ty_borrowed_return_source_cache_ty_ids = 0
+pilot v4_ty_borrowed_return_source_cache_sig_ids = 0
+pilot v4_ty_borrowed_return_source_cache_payloads = 0
+pilot v4_ty_borrowed_return_source_cache_entry_count_value = 0
+pilot v4_ty_borrowed_return_source_cache_next_row_value = 0
 pilot v4_ty_borrowed_return_source_cache_builds_value = 0
 pilot v4_ty_ready = 0
 
@@ -68,7 +74,9 @@ task v4_ty_init() -> void {
         v4_ty_diags = array_new()
         v4_ty_lifetime_outlives_scratch_links = array_new()
         v4_ty_lifetime_outlives_scratch_ids = array_new()
-        v4_ty_borrowed_return_source_caches = array_new()
+        v4_ty_borrowed_return_source_cache_ty_ids = array_new()
+        v4_ty_borrowed_return_source_cache_sig_ids = array_new()
+        v4_ty_borrowed_return_source_cache_payloads = array_new()
         v4_ty_ready = 1
     }
 }
@@ -84,7 +92,6 @@ task v4_ty_file_new(file_id: int, resolve_id: int) -> int {
     array_push(v4_ty_displays, word_from_int(array_new()))
     array_push(v4_ty_hir_items, word_from_int(array_new()))
     array_push(v4_ty_diags, word_from_int(array_new()))
-    array_push(v4_ty_borrowed_return_source_caches, word_from_int(array_new()))
     give back ty_id
 }
 
@@ -7370,39 +7377,167 @@ task v4_ty_signature_param_is_borrowed_return_source(ty_id: int, sig_id: int, pa
     give back v4_ty_signature_lifetime_outlives(ty_id, sig_id, param_lifetime, return_lifetime)
 }
 
-task v4_ty_borrowed_return_source_cache_handle(ty_id: int) -> int {
+task v4_ty_borrowed_return_source_cache_capacity() -> int {
     v4_ty_init()
-    if ty_id < 0 or ty_id >= array_len(v4_ty_borrowed_return_source_caches) {
-        give back 0 - 1
-    }
-    give back word_to_int(array_get(v4_ty_borrowed_return_source_caches, ty_id))
+    give back v4_ty_borrowed_return_source_cache_capacity_value
 }
 
-task v4_ty_borrowed_return_source_cache_prepare_slot(ty_id: int, sig_id: int) -> int {
-    pilot cache = v4_ty_borrowed_return_source_cache_handle(ty_id)
-    if cache < 0 or sig_id < 0 {
+task v4_ty_borrowed_return_source_cache_entry_count() -> int {
+    v4_ty_init()
+    give back v4_ty_borrowed_return_source_cache_entry_count_value
+}
+
+task v4_ty_borrowed_return_source_cache_lookup_row(ty_id: int, sig_id: int) -> int {
+    v4_ty_init()
+    if ty_id < 0 or sig_id < 0 {
         give back 0 - 1
     }
-    repeat until array_len(cache) > sig_id {
-        array_push(cache, "-1")
+    pilot row = 0
+    pilot row_count = array_len(v4_ty_borrowed_return_source_cache_ty_ids)
+    repeat until row >= row_count {
+        if word_to_int(array_get(v4_ty_borrowed_return_source_cache_ty_ids, row)) == ty_id {
+            if word_to_int(array_get(v4_ty_borrowed_return_source_cache_sig_ids, row)) == sig_id {
+                give back row
+            }
+        }
+        row += 1
     }
-    give back cache
+    give back 0 - 1
+}
+
+task v4_ty_borrowed_return_source_cache_first_empty_row() -> int {
+    pilot row = 0
+    pilot row_count = array_len(v4_ty_borrowed_return_source_cache_ty_ids)
+    repeat until row >= row_count {
+        if word_to_int(array_get(v4_ty_borrowed_return_source_cache_ty_ids, row)) < 0 {
+            give back row
+        }
+        row += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_borrowed_return_source_cache_store(ty_id: int, sig_id: int, payload: word) -> int {
+    pilot existing_row = v4_ty_borrowed_return_source_cache_lookup_row(ty_id, sig_id)
+    if existing_row >= 0 {
+        array_set(v4_ty_borrowed_return_source_cache_payloads, existing_row, payload)
+        give back existing_row
+    }
+
+    pilot row = v4_ty_borrowed_return_source_cache_first_empty_row()
+    pilot row_count = array_len(v4_ty_borrowed_return_source_cache_ty_ids)
+    if row < 0 and row_count < v4_ty_borrowed_return_source_cache_capacity_value {
+        row = row_count
+        array_push(v4_ty_borrowed_return_source_cache_ty_ids, word_from_int(ty_id))
+        array_push(v4_ty_borrowed_return_source_cache_sig_ids, word_from_int(sig_id))
+        array_push(v4_ty_borrowed_return_source_cache_payloads, payload)
+        v4_ty_borrowed_return_source_cache_entry_count_value += 1
+    } else {
+        if row < 0 {
+            row = v4_ty_borrowed_return_source_cache_next_row_value
+            if row < 0 or row >= row_count {
+                row = 0
+            }
+        } else {
+            v4_ty_borrowed_return_source_cache_entry_count_value += 1
+        }
+        array_set(v4_ty_borrowed_return_source_cache_ty_ids, row, word_from_int(ty_id))
+        array_set(v4_ty_borrowed_return_source_cache_sig_ids, row, word_from_int(sig_id))
+        array_set(v4_ty_borrowed_return_source_cache_payloads, row, payload)
+    }
+
+    v4_ty_borrowed_return_source_cache_next_row_value = row + 1
+    if v4_ty_borrowed_return_source_cache_next_row_value >= v4_ty_borrowed_return_source_cache_capacity_value {
+        v4_ty_borrowed_return_source_cache_next_row_value = 0
+    }
+    give back row
+}
+
+task v4_ty_borrowed_return_source_cache_invalidate_row(row: int) -> void {
+    if row < 0 or row >= array_len(v4_ty_borrowed_return_source_cache_ty_ids) {
+        give back
+    }
+    if word_to_int(array_get(v4_ty_borrowed_return_source_cache_ty_ids, row)) < 0 {
+        give back
+    }
+    array_set(v4_ty_borrowed_return_source_cache_ty_ids, row, "-1")
+    array_set(v4_ty_borrowed_return_source_cache_sig_ids, row, "-1")
+    array_set(v4_ty_borrowed_return_source_cache_payloads, row, "")
+    if v4_ty_borrowed_return_source_cache_entry_count_value > 0 {
+        v4_ty_borrowed_return_source_cache_entry_count_value -= 1
+    }
+}
+
+task v4_ty_borrowed_return_source_cache_invalidate_file(ty_id: int) -> void {
+    pilot row = 0
+    pilot row_count = array_len(v4_ty_borrowed_return_source_cache_ty_ids)
+    repeat until row >= row_count {
+        if word_to_int(array_get(v4_ty_borrowed_return_source_cache_ty_ids, row)) == ty_id {
+            v4_ty_borrowed_return_source_cache_invalidate_row(row)
+        }
+        row += 1
+    }
+}
+
+task v4_ty_borrowed_return_source_cache_invalidate_signature(ty_id: int, sig_id: int) -> void {
+    v4_ty_borrowed_return_source_cache_invalidate_row(v4_ty_borrowed_return_source_cache_lookup_row(ty_id, sig_id))
+}
+
+task v4_ty_borrowed_return_source_payload_append(payload: word, param_id: int) -> word {
+    if payload == "" {
+        give back word_from_int(param_id)
+    }
+    give back payload + "," + word_from_int(param_id)
+}
+
+task v4_ty_borrowed_return_source_payload_count(payload: word) -> int {
+    if payload == "" {
+        give back 0
+    }
+    pilot count = 1
+    pilot idx = 0
+    repeat until idx >= payload.length() {
+        if payload.char_at(idx) == "," {
+            count += 1
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_borrowed_return_source_payload_at(payload: word, source_id: int) -> int {
+    if payload == "" or source_id < 0 {
+        give back 0 - 1
+    }
+    pilot current = 0
+    pilot segment_start = 0
+    pilot idx = 0
+    repeat until idx >= payload.length() {
+        if payload.char_at(idx) == "," {
+            if current == source_id {
+                give back word_to_int(v4_slice(payload, segment_start, idx))
+            }
+            current += 1
+            segment_start = idx + 1
+        }
+        idx += 1
+    }
+    if current == source_id and segment_start < payload.length() {
+        give back word_to_int(v4_slice(payload, segment_start, payload.length()))
+    }
+    give back 0 - 1
 }
 
 task v4_ty_signature_borrowed_return_source_cache(ty_id: int, sig_id: int) -> int {
     if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
         give back 0 - 1
     }
-    pilot cache = v4_ty_borrowed_return_source_cache_prepare_slot(ty_id, sig_id)
-    if cache < 0 {
-        give back 0 - 1
-    }
-    pilot cached_sources = word_to_int(array_get(cache, sig_id))
-    if cached_sources >= 0 {
-        give back cached_sources
+    pilot cached_row = v4_ty_borrowed_return_source_cache_lookup_row(ty_id, sig_id)
+    if cached_row >= 0 {
+        give back cached_row
     }
 
-    pilot sources = array_new()
+    pilot payload = ""
     if v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
         pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
         if v4_ty_is_lend_type(return_ty) {
@@ -7410,15 +7545,14 @@ task v4_ty_signature_borrowed_return_source_cache(ty_id: int, sig_id: int) -> in
             pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
             repeat until param_id >= param_count {
                 if v4_ty_signature_param_is_borrowed_return_source(ty_id, sig_id, param_id, return_ty) {
-                    array_push(sources, word_from_int(param_id))
+                    payload = v4_ty_borrowed_return_source_payload_append(payload, param_id)
                 }
                 param_id += 1
             }
         }
     }
-    array_set(cache, sig_id, word_from_int(sources))
     v4_ty_borrowed_return_source_cache_builds_value += 1
-    give back sources
+    give back v4_ty_borrowed_return_source_cache_store(ty_id, sig_id, payload)
 }
 
 task v4_ty_borrowed_return_source_cache_build_count() -> int {
@@ -7426,22 +7560,22 @@ task v4_ty_borrowed_return_source_cache_build_count() -> int {
 }
 
 task v4_ty_signature_borrowed_return_source_param_count(ty_id: int, sig_id: int) -> int {
-    pilot sources = v4_ty_signature_borrowed_return_source_cache(ty_id, sig_id)
-    if sources < 0 {
+    pilot row = v4_ty_signature_borrowed_return_source_cache(ty_id, sig_id)
+    if row < 0 {
         give back 0
     }
-    give back array_len(sources)
+    give back v4_ty_borrowed_return_source_payload_count(array_get(v4_ty_borrowed_return_source_cache_payloads, row))
 }
 
 task v4_ty_signature_borrowed_return_source_param_at(ty_id: int, sig_id: int, source_id: int) -> int {
     if source_id < 0 {
         give back 0 - 1
     }
-    pilot sources = v4_ty_signature_borrowed_return_source_cache(ty_id, sig_id)
-    if sources < 0 or source_id >= array_len(sources) {
+    pilot row = v4_ty_signature_borrowed_return_source_cache(ty_id, sig_id)
+    if row < 0 {
         give back 0 - 1
     }
-    give back word_to_int(array_get(sources, source_id))
+    give back v4_ty_borrowed_return_source_payload_at(array_get(v4_ty_borrowed_return_source_cache_payloads, row), source_id)
 }
 
 -- Compatibility query: -1 means no source; -2 means the source set is ambiguous.
@@ -10448,10 +10582,6 @@ task v4_ty_add_signature(ty_id: int, def_id: word, sig_kind: word, sig_name: wor
     array_push(v4_ty_names_handle(ty_id), sig_name)
     array_push(v4_ty_displays_handle(ty_id), sig_display)
     array_push(v4_ty_hir_items_handle(ty_id), word_from_int(hir_item))
-    pilot source_cache = v4_ty_borrowed_return_source_cache_prepare_slot(ty_id, sig_id)
-    if source_cache >= 0 {
-        array_set(source_cache, sig_id, "-1")
-    }
     give back sig_id
 }
 
@@ -10740,6 +10870,7 @@ task v4_ty_snapshot_validate(payload: word) -> word {
 
 task v4_ty_restore_file_slot(ty_id: int, file_id: int, resolve_id: int) -> int {
     v4_ty_init()
+    v4_ty_borrowed_return_source_cache_invalidate_file(ty_id)
     repeat until array_len(v4_ty_files) > ty_id {
         array_push(v4_ty_files, "0")
         array_push(v4_ty_resolves, "0")
@@ -10749,7 +10880,6 @@ task v4_ty_restore_file_slot(ty_id: int, file_id: int, resolve_id: int) -> int {
         array_push(v4_ty_displays, word_from_int(array_new()))
         array_push(v4_ty_hir_items, word_from_int(array_new()))
         array_push(v4_ty_diags, word_from_int(array_new()))
-        array_push(v4_ty_borrowed_return_source_caches, word_from_int(array_new()))
     }
 
     array_set(v4_ty_files, ty_id, word_from_int(file_id))
@@ -10760,7 +10890,6 @@ task v4_ty_restore_file_slot(ty_id: int, file_id: int, resolve_id: int) -> int {
     array_set(v4_ty_displays, ty_id, word_from_int(array_new()))
     array_set(v4_ty_hir_items, ty_id, word_from_int(array_new()))
     array_set(v4_ty_diags, ty_id, word_from_int(array_new()))
-    array_set(v4_ty_borrowed_return_source_caches, ty_id, word_from_int(array_new()))
     give back ty_id
 }
 
@@ -10768,6 +10897,7 @@ task v4_ty_restore_signature_slot(ty_id: int, sig_id: int, def_id: word, sig_kin
     if v4_ty_file_exists(ty_id) == false {
         give back 0
     }
+    v4_ty_borrowed_return_source_cache_invalidate_signature(ty_id, sig_id)
     repeat until v4_ty_signature_count(ty_id) > sig_id {
         array_push(v4_ty_defs_handle(ty_id), "")
         array_push(v4_ty_kinds_handle(ty_id), "")
@@ -10780,10 +10910,6 @@ task v4_ty_restore_signature_slot(ty_id: int, sig_id: int, def_id: word, sig_kin
     array_set(v4_ty_names_handle(ty_id), sig_id, sig_name)
     array_set(v4_ty_displays_handle(ty_id), sig_id, sig_display)
     array_set(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(hir_item))
-    pilot source_cache = v4_ty_borrowed_return_source_cache_prepare_slot(ty_id, sig_id)
-    if source_cache >= 0 {
-        array_set(source_cache, sig_id, "-1")
-    }
     give back 1
 }
 

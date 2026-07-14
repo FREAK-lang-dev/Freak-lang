@@ -1,0 +1,109 @@
+-- V4 contract-region bounded returned-source cache churn fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_contract_region_source_cache_churn_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_source_cache_churn_source(source_count: int) -> word {
+    pilot src = ""
+    pilot source_id = 0
+    repeat until source_id >= source_count {
+        src = src + "task cached_" + word_from_int(source_id) + "<'out, 'left: 'out, 'right: 'out>(lend 'left left: int, middle: int, lend 'right right: int) -> lend 'out int {\n"
+        src = src + "    give back left\n"
+        src = src + "}\n"
+        source_id += 1
+    }
+    src = src + "task known_empty(value: int) -> int {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_source_cache_churn_order_is_stable(ty_id: int, sig_id: int) -> bool {
+    if v4_ty_signature_borrowed_return_source_param_count(ty_id, sig_id) != 2 {
+        give back false
+    }
+    if v4_ty_signature_borrowed_return_source_param_at(ty_id, sig_id, 0) != 0 {
+        give back false
+    }
+    give back v4_ty_signature_borrowed_return_source_param_at(ty_id, sig_id, 1) == 2
+}
+
+pilot v4_contract_region_source_cache_churn_capacity = v4_ty_borrowed_return_source_cache_capacity()
+pilot v4_contract_region_source_cache_churn_source_count = v4_contract_region_source_cache_churn_capacity + 3
+pilot v4_contract_region_source_cache_churn_builds_before_lower = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_source_cache_churn_ty = v4_ty_text_cached("contract-region-source-cache-churn.fk", v4_contract_region_source_cache_churn_source(v4_contract_region_source_cache_churn_source_count))
+pilot v4_contract_region_source_cache_churn_builds_after_lower = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_source_cache_churn_resolve = v4_ty_resolve_id(v4_contract_region_source_cache_churn_ty)
+pilot v4_contract_region_source_cache_churn_hir = v4_resolve_hir_id(v4_contract_region_source_cache_churn_resolve)
+pilot v4_contract_region_source_cache_churn_tree = v4_hir_tree_id(v4_contract_region_source_cache_churn_hir)
+pilot v4_contract_region_source_cache_churn_first_def = v4_resolve_def_for_name(v4_contract_region_source_cache_churn_resolve, "cached_0")
+pilot v4_contract_region_source_cache_churn_empty_def = v4_resolve_def_for_name(v4_contract_region_source_cache_churn_resolve, "known_empty")
+pilot v4_contract_region_source_cache_churn_first_sig = v4_ty_lookup_signature(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_def)
+pilot v4_contract_region_source_cache_churn_empty_sig = v4_ty_lookup_signature(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_empty_def)
+pilot v4_contract_region_source_cache_churn_initial_entries = v4_ty_borrowed_return_source_cache_entry_count()
+
+pilot v4_contract_region_source_cache_churn_first_builds_before = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_source_cache_churn_first_count = v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig)
+pilot v4_contract_region_source_cache_churn_first_builds_after = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_source_cache_churn_first_order = v4_contract_region_source_cache_churn_order_is_stable(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig)
+pilot v4_contract_region_source_cache_churn_entries_after_first = v4_ty_borrowed_return_source_cache_entry_count()
+
+pilot v4_contract_region_source_cache_churn_empty_builds_before = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_source_cache_churn_empty_count = v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_empty_sig)
+pilot v4_contract_region_source_cache_churn_empty_builds_after_first = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_source_cache_churn_empty_count_again = v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_empty_sig)
+pilot v4_contract_region_source_cache_churn_empty_builds_after_second = v4_ty_borrowed_return_source_cache_build_count()
+
+pilot v4_contract_region_source_cache_churn_first_sig_def = v4_ty_signature_def(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig)
+pilot v4_contract_region_source_cache_churn_first_sig_kind = v4_ty_signature_kind(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig)
+pilot v4_contract_region_source_cache_churn_first_sig_name = v4_ty_signature_name(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig)
+pilot v4_contract_region_source_cache_churn_first_sig_display = v4_ty_signature_display(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig)
+pilot v4_contract_region_source_cache_churn_first_sig_hir_item = v4_ty_signature_hir_item(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig)
+pilot v4_contract_region_source_cache_churn_file_id = v4_ty_file_id(v4_contract_region_source_cache_churn_ty)
+
+pilot v4_contract_region_source_cache_churn_signature_restore_ok = v4_ty_restore_signature_slot(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig, v4_contract_region_source_cache_churn_first_sig_def, v4_contract_region_source_cache_churn_first_sig_kind, v4_contract_region_source_cache_churn_first_sig_name, v4_contract_region_source_cache_churn_first_sig_display, v4_contract_region_source_cache_churn_first_sig_hir_item)
+pilot v4_contract_region_source_cache_churn_signature_entries_after_invalidate = v4_ty_borrowed_return_source_cache_entry_count()
+pilot v4_contract_region_source_cache_churn_signature_builds_before = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_source_cache_churn_signature_order = v4_contract_region_source_cache_churn_order_is_stable(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig)
+pilot v4_contract_region_source_cache_churn_signature_builds_after = v4_ty_borrowed_return_source_cache_build_count()
+
+pilot v4_contract_region_source_cache_churn_file_restore_ok = v4_ty_restore_file_slot(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_file_id, v4_contract_region_source_cache_churn_resolve)
+pilot v4_contract_region_source_cache_churn_file_entries_after_invalidate = v4_ty_borrowed_return_source_cache_entry_count()
+pilot v4_contract_region_source_cache_churn_file_signature_restore_ok = v4_ty_restore_signature_slot(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig, v4_contract_region_source_cache_churn_first_sig_def, v4_contract_region_source_cache_churn_first_sig_kind, v4_contract_region_source_cache_churn_first_sig_name, v4_contract_region_source_cache_churn_first_sig_display, v4_contract_region_source_cache_churn_first_sig_hir_item)
+pilot v4_contract_region_source_cache_churn_file_builds_before = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_source_cache_churn_file_order = v4_contract_region_source_cache_churn_order_is_stable(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig)
+pilot v4_contract_region_source_cache_churn_file_builds_after = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_source_cache_churn_final_entries = v4_ty_borrowed_return_source_cache_entry_count()
+
+say "contract-region-source-cache-churn-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_contract_region_source_cache_churn_tree))
+say "contract-region-source-cache-churn-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_source_cache_churn_ty))
+say "contract-region-source-cache-churn-capacity=" + word_from_int(v4_contract_region_source_cache_churn_capacity)
+say "contract-region-source-cache-churn-source-signatures=" + word_from_int(v4_contract_region_source_cache_churn_source_count)
+say "contract-region-source-cache-churn-initial-build-delta=" + word_from_int(v4_contract_region_source_cache_churn_builds_after_lower - v4_contract_region_source_cache_churn_builds_before_lower)
+say "contract-region-source-cache-churn-initial-entry-count=" + word_from_int(v4_contract_region_source_cache_churn_initial_entries)
+say "contract-region-source-cache-churn-bounded-after-fill=" + v4_contract_region_source_cache_churn_bool(v4_contract_region_source_cache_churn_initial_entries <= v4_contract_region_source_cache_churn_capacity)
+say "contract-region-source-cache-churn-evicted-first-rebuild-delta=" + word_from_int(v4_contract_region_source_cache_churn_first_builds_after - v4_contract_region_source_cache_churn_first_builds_before)
+say "contract-region-source-cache-churn-evicted-first-count=" + word_from_int(v4_contract_region_source_cache_churn_first_count)
+say "contract-region-source-cache-churn-evicted-first-order=" + v4_contract_region_source_cache_churn_bool(v4_contract_region_source_cache_churn_first_order)
+say "contract-region-source-cache-churn-entry-count-after-rebuild=" + word_from_int(v4_contract_region_source_cache_churn_entries_after_first)
+say "contract-region-source-cache-churn-known-empty-first-build-delta=" + word_from_int(v4_contract_region_source_cache_churn_empty_builds_after_first - v4_contract_region_source_cache_churn_empty_builds_before)
+say "contract-region-source-cache-churn-known-empty-second-build-delta=" + word_from_int(v4_contract_region_source_cache_churn_empty_builds_after_second - v4_contract_region_source_cache_churn_empty_builds_after_first)
+say "contract-region-source-cache-churn-known-empty-count=" + word_from_int(v4_contract_region_source_cache_churn_empty_count)
+say "contract-region-source-cache-churn-known-empty-count-again=" + word_from_int(v4_contract_region_source_cache_churn_empty_count_again)
+say "contract-region-source-cache-churn-known-empty-cached=" + v4_contract_region_source_cache_churn_bool(v4_contract_region_source_cache_churn_empty_count == 0 and v4_contract_region_source_cache_churn_empty_count_again == 0 and v4_contract_region_source_cache_churn_empty_builds_after_second == v4_contract_region_source_cache_churn_empty_builds_after_first)
+say "contract-region-source-cache-churn-signature-restore-ok=" + word_from_int(v4_contract_region_source_cache_churn_signature_restore_ok)
+say "contract-region-source-cache-churn-signature-restore-entry-count-after-invalidate=" + word_from_int(v4_contract_region_source_cache_churn_signature_entries_after_invalidate)
+say "contract-region-source-cache-churn-signature-restore-rebuild-delta=" + word_from_int(v4_contract_region_source_cache_churn_signature_builds_after - v4_contract_region_source_cache_churn_signature_builds_before)
+say "contract-region-source-cache-churn-signature-restore-order=" + v4_contract_region_source_cache_churn_bool(v4_contract_region_source_cache_churn_signature_order)
+say "contract-region-source-cache-churn-file-restore-ok=" + v4_contract_region_source_cache_churn_bool(v4_contract_region_source_cache_churn_file_restore_ok == v4_contract_region_source_cache_churn_ty)
+say "contract-region-source-cache-churn-file-restore-entry-count-after-invalidate=" + word_from_int(v4_contract_region_source_cache_churn_file_entries_after_invalidate)
+say "contract-region-source-cache-churn-file-signature-restore-ok=" + word_from_int(v4_contract_region_source_cache_churn_file_signature_restore_ok)
+say "contract-region-source-cache-churn-file-restore-rebuild-delta=" + word_from_int(v4_contract_region_source_cache_churn_file_builds_after - v4_contract_region_source_cache_churn_file_builds_before)
+say "contract-region-source-cache-churn-file-restore-entry-count-after-rebuild=" + word_from_int(v4_contract_region_source_cache_churn_final_entries)
+say "contract-region-source-cache-churn-file-restore-order=" + v4_contract_region_source_cache_churn_bool(v4_contract_region_source_cache_churn_file_order)
+say "contract-region-source-cache-churn-bounded-final=" + v4_contract_region_source_cache_churn_bool(v4_contract_region_source_cache_churn_final_entries <= v4_contract_region_source_cache_churn_capacity)

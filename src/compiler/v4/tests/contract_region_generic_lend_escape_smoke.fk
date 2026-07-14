@@ -1,0 +1,65 @@
+-- V4 contract-region generic-call lend escape fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_contract_region_generic_lend_escape_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_generic_lend_escape_diag_count(mir_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+task v4_contract_region_generic_lend_escape_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task wrap<T>(value: T) -> maybe<T> {\n"
+    src = src + "    give back some(value)\n"
+    src = src + "}\n"
+    src = src + "task identity<T>(value: T) -> T {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task reviewer_escape<'a>(lend 'a value: Ship) -> int {\n"
+    src = src + "    pilot wrapped = wrap(lend value)\n"
+    src = src + "    pilot direct = identity(lend value)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_contract_region_generic_lend_escape_mir = v4_mir_text_cached("contract-region-generic-lend-escape.fk", v4_contract_region_generic_lend_escape_source())
+pilot v4_contract_region_generic_lend_escape_ty = v4_mir_ty_id(v4_contract_region_generic_lend_escape_mir)
+pilot v4_contract_region_generic_lend_escape_resolve = v4_ty_resolve_id(v4_contract_region_generic_lend_escape_ty)
+pilot v4_contract_region_generic_lend_escape_hir = v4_resolve_hir_id(v4_contract_region_generic_lend_escape_resolve)
+pilot v4_contract_region_generic_lend_escape_tree = v4_hir_tree_id(v4_contract_region_generic_lend_escape_hir)
+pilot v4_contract_region_generic_lend_escape_def = v4_resolve_def_for_name(v4_contract_region_generic_lend_escape_resolve, "reviewer_escape")
+pilot v4_contract_region_generic_lend_escape_body = v4_mir_lookup_body(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_def)
+pilot v4_contract_region_generic_lend_escape_wrapped = v4_mir_find_local(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_body, "wrapped")
+pilot v4_contract_region_generic_lend_escape_direct = v4_mir_find_local(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_body, "direct")
+pilot v4_contract_region_generic_lend_escape_wrapped_ty = v4_mir_local_ty(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_body, v4_contract_region_generic_lend_escape_wrapped)
+pilot v4_contract_region_generic_lend_escape_direct_ty = v4_mir_local_ty(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_body, v4_contract_region_generic_lend_escape_direct)
+pilot v4_contract_region_generic_lend_escape_message = "Meiya cannot substitute a lend-bearing type for a generic call yet"
+
+say "contract-region-generic-lend-escape-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_contract_region_generic_lend_escape_tree))
+say "contract-region-generic-lend-escape-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_generic_lend_escape_ty))
+say "contract-region-generic-lend-escape-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_generic_lend_escape_mir))
+say "contract-region-generic-lend-escape-meiya-count=" + word_from_int(v4_contract_region_generic_lend_escape_diag_count(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_message))
+say "contract-region-generic-lend-escape-wrap-type=" + v4_contract_region_generic_lend_escape_wrapped_ty
+say "contract-region-generic-lend-escape-wrap-hidden-loan=" + v4_contract_region_generic_lend_escape_bool(v4_ty_type_contains_lend(v4_contract_region_generic_lend_escape_wrapped_ty))
+say "contract-region-generic-lend-escape-identity-type=" + v4_contract_region_generic_lend_escape_direct_ty
+say "contract-region-generic-lend-escape-identity-outer-loan=" + v4_contract_region_generic_lend_escape_bool(v4_ty_type_contains_lend(v4_contract_region_generic_lend_escape_direct_ty))
+say "contract-region-generic-lend-escape-diag0-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_generic_lend_escape_mir, 0))
+say "contract-region-generic-lend-escape-diag0-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_generic_lend_escape_mir, 0))
+say "contract-region-generic-lend-escape-diag1-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_generic_lend_escape_mir, 1))
+say "contract-region-generic-lend-escape-diag1-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_generic_lend_escape_mir, 1))

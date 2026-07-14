@@ -2969,6 +2969,32 @@ task v4_mir_check_call_generic_bounds(mir_id: int, expr_span: word, callee_name:
     }
 }
 
+task v4_mir_reject_lend_bearing_call_generics(mir_id: int, expr_span: word, callee_name: word, sig_id: int, generic_env: word) -> bool {
+    if sig_id < 0 or generic_env == "" or generic_env == v4_ty_generic_env_fail {
+        give back false
+    }
+
+    pilot rejected = false
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot generic_idx = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_idx >= generic_count {
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_idx) == false {
+            pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_idx)
+            pilot actual_ty = v4_ty_generic_env_lookup(generic_env, generic_name)
+            if actual_ty != "" and v4_ty_type_contains_lend(actual_ty) {
+                pilot message = "Meiya cannot substitute a lend-bearing type for a generic call yet"
+                pilot help = callee_name + " infers " + generic_name + " as " + actual_ty
+                help = help + "; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists"
+                v4_mir_add_type_error(mir_id, expr_span, message, help)
+                rejected = true
+            }
+        }
+        generic_idx += 1
+    }
+    give back rejected
+}
+
 task v4_mir_expected_call_arg_type(expected_ty: word, param_mode: word) -> word {
     if param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut {
         give back v4_ty_lend_type(expected_ty, param_mode)
@@ -3129,7 +3155,11 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
         }
         extra_idx += 1
     }
-    v4_mir_check_call_generic_bounds(mir_id, expr_span, callee_name, sig_id, generic_env)
+    if v4_mir_reject_lend_bearing_call_generics(mir_id, expr_span, callee_name, sig_id, generic_env) {
+        generic_env = ""
+    } else {
+        v4_mir_check_call_generic_bounds(mir_id, expr_span, callee_name, sig_id, generic_env)
+    }
     give back v4_mir_call_check_result(generic_env, args_payload)
 }
 
