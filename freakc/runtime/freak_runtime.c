@@ -1254,16 +1254,37 @@ int64_t freak_array_new(void) {
     return h;
 }
 
+static void freak_array_reserve_elements(freak_dyn_array* array) {
+    int64_t old_capacity = array->capacity;
+    if (old_capacity <= 0 || old_capacity > INT64_MAX / 2) {
+        fprintf(stderr, "FREAK: array element capacity is too large\n");
+        exit(1);
+    }
+
+    int64_t new_capacity = old_capacity * 2;
+    if (new_capacity <= old_capacity || (uint64_t)new_capacity > SIZE_MAX / sizeof(freak_word)) {
+        fprintf(stderr, "FREAK: array element capacity is too large\n");
+        exit(1);
+    }
+
+    freak_word* grown = (freak_word*)realloc(
+        array->data,
+        (size_t)new_capacity * sizeof(freak_word)
+    );
+    if (!grown) {
+        fprintf(stderr, "FREAK: out of memory growing array\n");
+        exit(1);
+    }
+
+    array->data = grown;
+    array->capacity = new_capacity;
+}
+
 void freak_array_push(int64_t handle, freak_word item) {
     if (handle < 0 || handle >= freak_array_count) return;
     freak_dyn_array* a = &freak_arrays[handle];
     if (a->length >= a->capacity) {
-        a->capacity *= 2;
-        a->data = (freak_word*)realloc(a->data, (size_t)a->capacity * sizeof(freak_word));
-        if (!a->data) {
-            fprintf(stderr, "FREAK: out of memory growing array\n");
-            exit(1);
-        }
+        freak_array_reserve_elements(a);
     }
     a->data[a->length++] = item;
 }
