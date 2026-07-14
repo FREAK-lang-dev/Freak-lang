@@ -151,10 +151,12 @@ Semantic, hover, and definition queries resolve repeated and forward
 outlives-bound references to the declared binder; distinct definition records
 and spans survive editor snapshot restore. Document-symbol and completion
 requests participate in the same editor query lifecycle. Source edits invalidate
-and explicit requests recompute all seventeen registered families: query, core,
-syntax, lex, parse, HIR, resolve, TY, MIR, borrowck, diagnostics, editor,
-semantic-at, hover, definition-at, document symbols, and completion. This
-includes an elided result changing from multiple candidate owners to one.
+and explicit requests prove recomputation across all 17 report fields: 14
+concrete query families (syntax, lex, parse, HIR, resolve, TY, MIR, borrowck,
+diagnostics, semantic-at, hover, definition-at, document symbols, and
+completion) plus three refreshed aggregate totals (`all`/`query`, `core`, and
+`editor`). This includes an elided result changing from multiple candidate
+owners to one.
 
 The current sound boundary is deliberately narrow. Named or elided lends may be
 outer ordinary-task parameter and borrowed-return contracts, and their results
@@ -349,7 +351,7 @@ query-entry-diff|...
 end|freak-00-unit-snapshot-diff-v1
 ```
 
-The invalidation counters are the public contract for source-change reporting. `textDocument/didChange` summaries and 00-Unit diff health must agree on these family names.
+The invalidation counters are the public contract for source-change reporting. `textDocument/didChange` summaries and 00-Unit diff health must agree on all 17 report-field names and their classification into 14 concrete query families plus the three aggregate totals (`all`/`query`, `core`, and `editor`).
 
 ### `workspace/unitSnapshotHealth`
 
@@ -446,8 +448,9 @@ wire formats and invalidation reports, and `freak_lsp` must remain a transport
 wrapper instead of growing compiler fact storage.
 
 It also locks the public 00-Unit inventories: the fixed snapshot section set,
-the fixed invalidation family/report field set, and the documented section
-restore endpoints must all stay in sync with the implementation.
+the fixed invalidation report-field set and concrete-family/aggregate
+classification, and the documented section restore endpoints must all stay in
+sync with the implementation.
 
 For faster local iteration, the harness also supports:
 

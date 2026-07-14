@@ -301,9 +301,10 @@ lend children in tuple literals, fixed-array literals, repeat-filled fixed
 arrays, list literals, shape values, route payloads, `some(...)`, `ok(...)`,
 `err(...)`, map keys, and map values. Generic calls also reject lend-bearing
 type-parameter substitutions before a loan can be concealed in an instantiated
-aggregate result. Source edits invalidate all seventeen registered
-query/aggregate/compiler/editor families; subsequent requests explicitly
-recompute each family. Contract-boundary
+aggregate result. Source edits invalidate all 17 report fields, comprising 14
+concrete query families plus three aggregate totals (`all`/`query`, `core`, and
+`editor`); subsequent requests explicitly recompute every concrete family and
+refresh the totals. Contract-boundary
 diagnostics retain normalized source paths and exact `start:end` byte ranges.
 
 The resource contract is reuse, not a claim of a complete solver. Lifetime
@@ -781,7 +782,7 @@ This is where V4 will need test coverage. **Out of scope for this audit; surface
 - §2.4 mood: 0 tests
 - §3.1 xm3: 0 tests
 - §3.2 squadron: 0 tests
-- §4 borrow checker: registered V4 contract-region smokes cover repeated-source named/elided sets; iterative explicit/reflexive/transitive/cyclic outlives closure with converging-graph and long-chain stress on high-water scratch; bounded flat per-`(ty_id,sig_id)` returned-source caching with known-empty, eviction, and restore rebuild contracts; shared/mutable mode filtering; MIR candidate mappings versus Meiya-owned `ReturnLoan` paths; projection/scalar-holder/projected-reborrow/statically resolved ordinary-call/reordered-argument/acyclic-join provenance; named and elided all-candidate final-use liveness; generic lend-substitution rejection; nested named/elided signature-storage rejection; construction-time tuple/fixed-array/repeat/list/shape/route/`some`/`ok`/`err`/map-key/map-value rejection; generation-local provenance scratch plus bounded integer/canonical cache churn and rebuild; stable diagnostic source paths/ranges; explicit method/dynamic/callback/extern/FFI forwarding rejection; and poisoned-arena snapshot restore plus all-seventeen-family invalidation/recomputation assertions for outlives-bound references and source-set edits. Remaining gaps include body-derived/general lexical inference, lifetime-bearing aggregate/shape/route/container storage, closure forwarding (V4 closure expression syntax is absent), loop-carried fixed points, `'static`, general arena reclamation, runtime ownership depth, and production backend completion
+- §4 borrow checker: registered V4 contract-region smokes cover repeated-source named/elided sets; iterative explicit/reflexive/transitive/cyclic outlives closure with converging-graph and long-chain stress on high-water scratch; bounded flat per-`(ty_id,sig_id)` returned-source caching with known-empty, eviction, and restore rebuild contracts; shared/mutable mode filtering; MIR candidate mappings versus Meiya-owned `ReturnLoan` paths; projection/scalar-holder/projected-reborrow/statically resolved ordinary-call/reordered-argument/acyclic-join provenance; named and elided all-candidate final-use liveness; generic lend-substitution rejection; nested named/elided signature-storage rejection; construction-time tuple/fixed-array/repeat/list/shape/route/`some`/`ok`/`err`/map-key/map-value rejection; generation-local provenance scratch plus bounded integer/canonical cache churn and rebuild; stable diagnostic source paths/ranges; explicit method/dynamic/callback/extern/FFI forwarding rejection; and poisoned-arena snapshot restore plus invalidation/recomputation assertions covering all 17 report fields (14 concrete query families and three aggregate totals: `all`/`query`, `core`, and `editor`) for outlives-bound references and source-set edits. Remaining gaps include body-derived/general lexical inference, lifetime-bearing aggregate/shape/route/container storage, closure forwarding (V4 closure expression syntax is absent), loop-carried fixed points, `'static`, general arena reclamation, runtime ownership depth, and production backend completion
 - §5.2 foreshadow: only `audit_demo.fk`, no error cases
 - §5.3 routes: V4 smokes now cover route/variant constructors, exhaustive `when`, `check route`, alias-backed diagnostics, and route-locked `only on`; full visual-novel route semantics still expand
 - §5.4 anime operators: `tests/anime.fk` only

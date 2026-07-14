@@ -1021,12 +1021,13 @@ the rest is V4.
 > `ReturnLoan` / `ReturnLoanMut` facts.
 > Those facts survive borrowck/editor snapshot restore. Stored named or elided
 > ordinary-call results and copied scalar holder aliases retain every candidate
-> owner through the holder's final reachable use. Source edits invalidate and
-> subsequent requests recompute all seventeen query/aggregate/compiler/editor
-> families through completion, including edits that
-> shrink an elided result from multiple owners to one. These are distinct query
-> families; document-symbol and completion invalidation are not inferred from
-> hover coverage.
+> owner through the holder's final reachable use. Source edits update all 17
+> invalidation report fields: 14 concrete query families plus three aggregate
+> totals (`all`/`query`, `core`, and `editor`). Subsequent requests prove every
+> concrete family recomputes through completion and refresh the totals,
+> including after an edit shrinks an elided result from multiple owners to one.
+> Document-symbol and completion invalidation are proven independently rather
+> than inferred from hover coverage.
 > Rebinding kills only that holder's provenance, restoring
 > from a descendant alias creates a new tracked state, and exact self-assignment
 > preserves the existing edge. Provenance expansion is memoized by MIR/body/use
