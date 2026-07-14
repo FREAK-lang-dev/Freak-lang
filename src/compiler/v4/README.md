@@ -114,16 +114,20 @@ return lifetime; an elided return admits every mode-compatible borrowed
 parameter. Shared `lend` returns accept `lend` and `lend mut` sources, while
 `lend mut` returns accept only `lend mut` sources. Candidate selection is
 independent of top-level pointee type because a valid return may project a
-field from its source. The returned-loan source vector of eligible formal
+field from its source. The returned-loan source set of eligible formal
 parameter ids is built lazily once per immutable `(ty_id, sig_id)` and shared
-by count and indexed lookups. A TY
-file restore replaces its source-vector cache, and each restored signature slot
-is explicitly marked unbuilt before it can be queried again.
+by count and indexed lookups. The cache is a bounded flat ring with encoded,
+ordered parameter-id payloads, so a source set does not allocate a child arena
+and a known-empty set remains distinct from a cache miss. Eviction causes a
+deterministic rebuild. A TY file or signature restore invalidates its matching
+rows before the restored contract can be queried again.
 
 Meiya verifies that each returned origin honors the declared lifetime, then
 follows that origin through field projections, scalar local holders, nested
 statically resolved ordinary calls, reordered named arguments, and acyclic CFG
-joins. MIR erases a callee's binder spelling from the caller-local result type
+joins. An explicit reborrow through a scalar lend holder preserves its projection
+suffix, so `lend view.ship` resolves to the holder's concrete owner path rather
+than becoming opaque. MIR erases a callee's binder spelling from the caller-local result type
 while preserving a deterministic signature-source-to-call-argument candidate
 mapping on the call rvalue. MIR does not own the resulting loan paths: Meiya
 resolves those candidates to caller-local owners and emits each concrete path as
@@ -136,23 +140,29 @@ is memoized by MIR/body/use location/rvalue within each borrowck generation.
 Active scratch counts reset at generation boundaries and are bounded by the
 active generation's visited provenance graph. State, source-row, and memo arrays
 reuse high-water capacity across recomputation without historical growth, while
-recursive provenance cycles remain conservatively opaque. Meiya also interns
-the integer words written into provenance scratch and reuses cached canonical
-owner-path strings and exact-input mappings. Repeating the same provenance
-workload therefore leaves the integer-intern and canonical-path cache counts
-stable; genuinely new integers or paths may still extend those process caches.
+recursive provenance cycles remain conservatively opaque. Meiya's integer-word,
+canonical-value, and exact-input caches are bounded rings; evicted values rebuild
+to the same canonical owner path, while hot entries reuse their existing row.
+The bootstrap C runtime now grows its array-handle table dynamically instead of
+imposing the former 256-handle ceiling. That removes a test-only capacity illusion,
+but the words displaced by cache eviction still live in append-only bootstrap
+arenas: general arena reclamation remains separate work.
 Semantic, hover, and definition queries resolve repeated and forward
 outlives-bound references to the declared binder; distinct definition records
 and spans survive editor snapshot restore. Document-symbol and completion
-requests participate in the same editor query lifecycle. Source edits
-invalidate and subsequent requests recompute TY, MIR, borrowck, diagnostics,
-semantic-at, hover, definition-at, document symbols, and completion, including
-an elided result changing from multiple candidate owners to one.
+requests participate in the same editor query lifecycle. Source edits invalidate
+and explicit requests recompute all seventeen registered families: query, core,
+syntax, lex, parse, HIR, resolve, TY, MIR, borrowck, diagnostics, editor,
+semantic-at, hover, definition-at, document symbols, and completion. This
+includes an elided result changing from multiple candidate owners to one.
 
 The current sound boundary is deliberately narrow. Named or elided lends may be
 outer ordinary-task parameter and borrowed-return contracts, and their results
 may flow through scalar local holders. TY rejects named and elided lends nested
 inside stored signature types before normalization can erase their provenance.
+Generic call substitution is also closed: inferring a lend-bearing actual for a
+type parameter is diagnosed before `T` can hide the loan inside `maybe<T>`, a
+tuple, or another generic result.
 During runtime-value expression lowering, MIR emits compile-time diagnostics for
 lend children in tuple literals, fixed-array literals, repeat-filled fixed
 arrays, list literals, shape values, route payloads, `some(...)`, `ok(...)`,

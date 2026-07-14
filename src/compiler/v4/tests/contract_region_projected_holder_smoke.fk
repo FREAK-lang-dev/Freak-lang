@@ -14,7 +14,7 @@ task v4_contract_region_projected_holder_source() -> word {
     src = src + "}\n"
     src = src + "task projected_holder_chain<'a>(lend 'a fleet: Fleet) -> lend 'a Ship {\n"
     src = src + "    pilot first = lend fleet\n"
-    src = src + "    pilot second = lend first\n"
+    src = src + "    pilot second = first\n"
     src = src + "    give back lend second.ship\n"
     src = src + "}\n"
     src = src + "task owned_holder(fleet: Fleet) -> lend Ship {\n"

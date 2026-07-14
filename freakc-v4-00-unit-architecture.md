@@ -663,19 +663,21 @@ region solver described below and does not establish production backend support.
 
 | Layer | Owned fact | Implemented guarantee |
 |---|---|---|
-| `freak_ty` | Declared lifetime graph and eligible parameter ids | An explicit bound such as `'long: 'short` is a directed edge. Declared binders are reflexive, direct edges close transitively, and cycles make their members mutually reachable. An iterative, cycle-safe worklist handles converging graphs and long chains without recursive stack growth. Named returns select every mode-compatible parameter whose lifetime reaches the return lifetime; elided returns select every mode-compatible borrowed parameter. Shared returns admit `lend` and `lend mut`; mutable returns admit only `lend mut`. Outer ordinary-task lend parameters and borrowed returns are contract positions; named and elided lends nested anywhere inside stored signature types are rejected before their provenance can be erased. |
+| `freak_ty` | Declared lifetime graph and eligible parameter ids | An explicit bound such as `'long: 'short` is a directed edge. Declared binders are reflexive, direct edges close transitively, and cycles make their members mutually reachable. An iterative, cycle-safe worklist handles converging graphs and long chains without recursive stack growth. Named returns select every mode-compatible parameter whose lifetime reaches the return lifetime; elided returns select every mode-compatible borrowed parameter. Shared returns admit `lend` and `lend mut`; mutable returns admit only `lend mut`. Outer ordinary-task lend parameters and borrowed returns are contract positions; named and elided lends nested anywhere inside stored signature types are rejected before their provenance can be erased. Generic call substitution likewise rejects lend-bearing actual types before `T` can conceal a loan in an instantiated result. |
 | `freak_mir` | Candidate source-argument mapping on an ordinary call rvalue | MIR erases callee binder spelling from the caller-local result but maps every eligible signature parameter to its reordered call argument. `-1` means opaque/unproven, `0` is a proven-empty set, and a positive count is a fully mapped candidate set. This is candidate metadata, not caller ownership. Runtime aggregate construction rejects lend children while child type and span identity still exist. |
-| `freak_borrowck` / Meiya | Concrete owner-path provenance | Meiya resolves MIR candidates through projections, scalar holders, nested statically resolved ordinary calls, and acyclic CFG joins. Known sets deduplicate and union every concrete caller owner; incomplete or recursive provenance becomes opaque. Only Meiya emits queryable `ReturnLoan` / `ReturnLoanMut` paths. Stored named and elided results keep every candidate owner live through the holder's final reachable use. Repeated generations reuse interned integer words for scratch indices and cached canonical owner-path strings without changing provenance semantics. |
-| `freak_editor` plus query/snapshot crates | Lifetime semantic, hover, definition, restore, and invalidation facts | Outlives-bound references resolve to the declared binder even when that declaration appears later or the bound is repeated. Distinct definitions and spans survive snapshot restore. Stale or fingerprint-mismatched restored entries are not promoted. Source changes invalidate the full compiler/editor dependency family, then explicit requests recompute TY, MIR, borrowck, diagnostics, semantic-at, hover, definition-at, document symbols, and completion. |
+| `freak_borrowck` / Meiya | Concrete owner-path provenance | Meiya resolves MIR candidates through projections, scalar holders, projected reborrows through scalar lend holders, nested statically resolved ordinary calls, and acyclic CFG joins. Known sets deduplicate and union every concrete caller owner; incomplete or recursive provenance becomes opaque. Only Meiya emits queryable `ReturnLoan` / `ReturnLoanMut` paths. Stored named and elided results keep every candidate owner live through the holder's final reachable use. Bounded integer and canonical-path cache rings rebuild evicted entries without changing provenance semantics. |
+| `freak_editor` plus query/snapshot crates | Lifetime semantic, hover, definition, restore, and invalidation facts | Outlives-bound references resolve to the declared binder even when that declaration appears later or the bound is repeated. Distinct definitions and spans survive snapshot restore after the live editor arenas have been poisoned. Stale or fingerprint-mismatched restored entries are not promoted. Source changes invalidate all seventeen registered query, aggregate, compiler, and editor families, then explicit requests prove each family recomputes. |
 
 TY's iterative lifetime closure uses queue/visited arrays as high-water scratch:
 each traversal resets the active prefix, later queries reuse capacity, and
 repeated converging or long-chain checks do not accumulate active historical
-rows. Eligible returned-loan formal parameter ids are materialized lazily as one source vector
-per immutable `(ty_id, sig_id)`. Count and indexed lookup share that vector, so
-MIR does not retraverse the lifetime graph for every candidate. Restoring a TY
-file replaces its cache and restoring a signature marks that signature's slot
-unbuilt; stale source vectors are never promoted across restore.
+rows. Eligible returned-loan formal parameter ids are materialized lazily in a
+bounded flat cache keyed by immutable `(ty_id, sig_id)`. Ordered ids are encoded
+in the row payload, avoiding a child array per signature; an empty payload is a
+known-empty result because row presence distinguishes it from a miss. Count and
+indexed lookup share that row, so MIR does not retraverse the lifetime graph for
+every candidate. Ring eviction rebuilds deterministically, and restoring a TY
+file or signature invalidates its matching rows before reuse.
 
 Provenance expansion is memoized per `(MIR, body, use location, rvalue)` within
 one borrowck generation. A new generation resets active state/source/memo
@@ -683,9 +685,12 @@ cursors. Active rows are bounded by the provenance graph visited in that
 generation; backing arrays reuse high-water capacity and do not retain
 historical active rows. Integer-word interning backs those rows, and the
 canonical-path cache reuses both exact-input mappings and existing
-whitespace-free canonical values across repeated generations. These process
-caches may grow for genuinely new integers or paths; the pinned guarantee is
-reuse without growth for the same provenance workload. Re-entering an
+whitespace-free canonical values across repeated generations. Each cache is a
+bounded ring: churn evicts old rows, an evicted value rebuilds to the same
+result, and repeated hot values do not allocate another row. The bootstrap
+runtime's array-handle table grows dynamically rather than imposing a hidden
+256-handle ceiling. Cache eviction does not yet reclaim displaced word
+allocations from append-only compiler arenas. Re-entering an
 in-progress memo entry marks its result opaque, preserving soundness instead of
 recursing forever.
 

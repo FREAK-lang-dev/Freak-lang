@@ -1127,7 +1127,8 @@ task v4_borrowck_provenance_union_projected_into(provenance_id: int, incoming_id
     pilot row_count = v4_borrowck_provenance_source_active
     repeat until row_id >= row_count {
         if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == incoming_id {
-            pilot projected = array_get(v4_borrowck_source_paths, row_id) + suffix
+            pilot source_path: word = array_get(v4_borrowck_source_paths, row_id)
+            pilot projected: word = source_path + suffix
             pilot origin_id = word_to_int(array_get(v4_borrowck_source_origins, row_id))
             v4_borrowck_provenance_add_source(provenance_id, projected, origin_id)
         }

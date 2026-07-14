@@ -103,6 +103,51 @@ task v4_contract_region_resource_opaque_conservative(borrow_id: int, opaque_def:
     give back v4_contract_region_resource_diag_count(borrow_id, "Meiya cannot establish the origin of this returned loan") == 1
 }
 
+task v4_contract_region_resource_churn_integers(capacity: int) -> bool {
+    pilot churn_id = 0
+    repeat until churn_id >= capacity + 7 {
+        pilot churn_integer_word: word = v4_borrowck_provenance_integer_word(8000000 + churn_id)
+        if word_to_int(churn_integer_word) != 8000000 + churn_id {
+            give back false
+        }
+        churn_id += 1
+    }
+    give back true
+}
+
+task v4_contract_region_resource_churn_paths(capacity: int) -> bool {
+    pilot churn_id = 0
+    repeat until churn_id >= capacity + 7 {
+        pilot churn_suffix = word_from_int(churn_id)
+        pilot churn_path = " cache . path" + churn_suffix + " [ " + churn_suffix + " ] "
+        pilot churn_expected = "cache.path" + churn_suffix + "[" + churn_suffix + "]"
+        if v4_borrowck_path_canon(churn_path) != churn_expected {
+            give back false
+        }
+        churn_id += 1
+    }
+    give back true
+}
+
+task v4_contract_region_resource_hot_reuse(hot_integer: int, hot_path: word, integer_count: int, path_count: int, path_value_count: int, integer_evictions: int, path_evictions: int, path_value_evictions: int) -> bool {
+    pilot repeat_id = 0
+    repeat until repeat_id >= 16 {
+        pilot hot_integer_word: word = v4_borrowck_provenance_integer_word(hot_integer)
+        pilot hot_canonical = v4_borrowck_path_canon(hot_path)
+        if word_to_int(hot_integer_word) != hot_integer or hot_canonical != "fleet.ship[0]" {
+            give back false
+        }
+        if v4_borrowck_provenance_integer_intern_count() != integer_count or v4_borrowck_path_canon_cache_count() != path_count or v4_borrowck_path_canon_value_cache_count() != path_value_count {
+            give back false
+        }
+        if v4_borrowck_provenance_integer_intern_eviction_count() != integer_evictions or v4_borrowck_path_canon_cache_eviction_count() != path_evictions or v4_borrowck_path_canon_value_cache_eviction_count() != path_value_evictions {
+            give back false
+        }
+        repeat_id += 1
+    }
+    give back true
+}
+
 pilot v4_contract_region_resource_path = "contract-region-resource.fk"
 pilot v4_contract_region_resource_borrow = v4_borrowck_text_cached(v4_contract_region_resource_path, v4_contract_region_resource_source())
 pilot v4_contract_region_resource_mir = v4_borrowck_mir_id(v4_contract_region_resource_borrow)
@@ -168,25 +213,8 @@ v4_contract_region_resource_integer_evictions_before = v4_borrowck_provenance_in
 v4_contract_region_resource_path_evictions_before = v4_borrowck_path_canon_cache_eviction_count()
 v4_contract_region_resource_path_value_evictions_before = v4_borrowck_path_canon_value_cache_eviction_count()
 
-pilot v4_contract_region_resource_churn_id = 0
-repeat until v4_contract_region_resource_churn_id >= v4_contract_region_resource_integer_capacity + 7 {
-    pilot churn_integer_word = v4_borrowck_provenance_integer_word(8000000 + v4_contract_region_resource_churn_id)
-    if word_to_int(churn_integer_word) != 8000000 + v4_contract_region_resource_churn_id {
-        v4_contract_region_resource_integer_rebuild_correct = false
-    }
-    v4_contract_region_resource_churn_id += 1
-}
-
-v4_contract_region_resource_churn_id = 0
-repeat until v4_contract_region_resource_churn_id >= v4_contract_region_resource_path_capacity + 7 {
-    pilot churn_suffix = word_from_int(v4_contract_region_resource_churn_id)
-    pilot churn_path = " cache . path" + churn_suffix + " [ " + churn_suffix + " ] "
-    pilot churn_expected = "cache.path" + churn_suffix + "[" + churn_suffix + "]"
-    if v4_borrowck_path_canon(churn_path) != churn_expected {
-        v4_contract_region_resource_churn_paths_correct = false
-    }
-    v4_contract_region_resource_churn_id += 1
-}
+v4_contract_region_resource_integer_rebuild_correct = v4_contract_region_resource_churn_integers(v4_contract_region_resource_integer_capacity)
+v4_contract_region_resource_churn_paths_correct = v4_contract_region_resource_churn_paths(v4_contract_region_resource_path_capacity)
 
 v4_contract_region_resource_hot_integer_word = v4_borrowck_provenance_integer_word(v4_contract_region_resource_hot_integer)
 v4_contract_region_resource_hot_canonical = v4_borrowck_path_canon(v4_contract_region_resource_hot_path)
@@ -198,27 +226,19 @@ v4_contract_region_resource_cache_evictions_observed = v4_borrowck_provenance_in
 v4_contract_region_resource_cache_evictions_observed = v4_contract_region_resource_cache_evictions_observed and v4_borrowck_path_canon_cache_eviction_count() > v4_contract_region_resource_path_evictions_before
 v4_contract_region_resource_cache_evictions_observed = v4_contract_region_resource_cache_evictions_observed and v4_borrowck_path_canon_value_cache_eviction_count() > v4_contract_region_resource_path_value_evictions_before
 
-pilot v4_contract_region_resource_hot_integer_count = v4_borrowck_provenance_integer_intern_count()
-pilot v4_contract_region_resource_hot_path_count = v4_borrowck_path_canon_cache_count()
-pilot v4_contract_region_resource_hot_path_value_count = v4_borrowck_path_canon_value_cache_count()
-pilot v4_contract_region_resource_hot_integer_evictions = v4_borrowck_provenance_integer_intern_eviction_count()
-pilot v4_contract_region_resource_hot_path_evictions = v4_borrowck_path_canon_cache_eviction_count()
-pilot v4_contract_region_resource_hot_path_value_evictions = v4_borrowck_path_canon_value_cache_eviction_count()
-pilot v4_contract_region_resource_hot_repeat = 0
-repeat until v4_contract_region_resource_hot_repeat >= 16 {
-    v4_contract_region_resource_hot_integer_word = v4_borrowck_provenance_integer_word(v4_contract_region_resource_hot_integer)
-    v4_contract_region_resource_hot_canonical = v4_borrowck_path_canon(v4_contract_region_resource_hot_path)
-    if word_to_int(v4_contract_region_resource_hot_integer_word) != v4_contract_region_resource_hot_integer or v4_contract_region_resource_hot_canonical != "fleet.ship[0]" {
-        v4_contract_region_resource_hot_reuse_stable = false
-    }
-    if v4_borrowck_provenance_integer_intern_count() != v4_contract_region_resource_hot_integer_count or v4_borrowck_path_canon_cache_count() != v4_contract_region_resource_hot_path_count or v4_borrowck_path_canon_value_cache_count() != v4_contract_region_resource_hot_path_value_count {
-        v4_contract_region_resource_hot_reuse_stable = false
-    }
-    if v4_borrowck_provenance_integer_intern_eviction_count() != v4_contract_region_resource_hot_integer_evictions or v4_borrowck_path_canon_cache_eviction_count() != v4_contract_region_resource_hot_path_evictions or v4_borrowck_path_canon_value_cache_eviction_count() != v4_contract_region_resource_hot_path_value_evictions {
-        v4_contract_region_resource_hot_reuse_stable = false
-    }
-    v4_contract_region_resource_hot_repeat += 1
-}
+pilot v4_contract_region_resource_hot_integer_count = 0
+pilot v4_contract_region_resource_hot_path_count = 0
+pilot v4_contract_region_resource_hot_path_value_count = 0
+pilot v4_contract_region_resource_hot_integer_evictions = 0
+pilot v4_contract_region_resource_hot_path_evictions = 0
+pilot v4_contract_region_resource_hot_path_value_evictions = 0
+v4_contract_region_resource_hot_integer_count = v4_borrowck_provenance_integer_intern_count()
+v4_contract_region_resource_hot_path_count = v4_borrowck_path_canon_cache_count()
+v4_contract_region_resource_hot_path_value_count = v4_borrowck_path_canon_value_cache_count()
+v4_contract_region_resource_hot_integer_evictions = v4_borrowck_provenance_integer_intern_eviction_count()
+v4_contract_region_resource_hot_path_evictions = v4_borrowck_path_canon_cache_eviction_count()
+v4_contract_region_resource_hot_path_value_evictions = v4_borrowck_path_canon_value_cache_eviction_count()
+v4_contract_region_resource_hot_reuse_stable = v4_contract_region_resource_hot_reuse(v4_contract_region_resource_hot_integer, v4_contract_region_resource_hot_path, v4_contract_region_resource_hot_integer_count, v4_contract_region_resource_hot_path_count, v4_contract_region_resource_hot_path_value_count, v4_contract_region_resource_hot_integer_evictions, v4_contract_region_resource_hot_path_evictions, v4_contract_region_resource_hot_path_value_evictions)
 
 v4_contract_region_resource_integer_intern_before = v4_borrowck_provenance_integer_intern_count()
 v4_contract_region_resource_path_cache_before = v4_borrowck_path_canon_cache_count()

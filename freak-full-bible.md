@@ -47,7 +47,7 @@ Pipeline (full compiler):
 | §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer forms, explicit named lifetimes plus ordinary-task outlives bounds, and first-pass `dyn Doctrine` type/object-safety/coercion/editor facts through query slices. Still expanding: `prob_when`, stored lifetime-bearing aggregates, full dyn vtable lowering, and production backend depth for V4-only forms. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, projection/scalar-holder/statically resolved ordinary-call/reordered-argument/acyclic-join provenance, all-candidate final-use liveness (including elided multi-owner results), query invalidation, queryable Meiya-owned `ReturnLoan` facts, editor definition/snapshot facts for outlives-bound references, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating through TY/MIR/Meiya. Body-derived/general lexical inference, aggregate/shape/route/container storage, loop-carried region fixed points, `'static`, runtime `Shared<T>`/`Weak<T>` depth, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure forwarding has no V4 expression syntax yet. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, projection/scalar-holder/projected-reborrow/statically resolved ordinary-call/reordered-argument/acyclic-join provenance, all-candidate final-use liveness (including elided multi-owner results), all-family query invalidation, queryable Meiya-owned `ReturnLoan` facts, editor definition/snapshot facts for outlives-bound references, generic lend-substitution rejection, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating through TY/MIR/Meiya. Body-derived/general lexical inference, actual aggregate/shape/route/container loan storage, loop-carried region fixed points, `'static`, general arena reclamation, runtime `Shared<T>`/`Weak<T>` depth, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure forwarding has no V4 expression syntax yet. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
@@ -1006,13 +1006,14 @@ the rest is V4.
 > `lend mut` sources; `lend mut` returns accept only `lend mut` sources.
 > Elided returns likewise collect their mode-compatible signature sources.
 > Top-level pointee types do not filter candidates because a valid origin may
-> be a field projection. TY materializes each returned-loan source vector lazily
-> once per immutable `(ty_id, sig_id)`; count and indexed lookups reuse
-> it instead of retraversing the lifetime graph. TY snapshot restore replaces a
-> file's vector cache and marks each restored signature slot unbuilt before
-> reuse. Meiya verifies returned origins against that contract
+> be a field projection. TY materializes each returned-loan source set lazily in
+> a bounded flat ring keyed by immutable `(ty_id, sig_id)`; count and indexed
+> lookups share an encoded ordered payload, a present empty row is distinct from
+> a miss, and eviction rebuilds deterministically. TY snapshot restore
+> invalidates matching file/signature rows before reuse. Meiya verifies returned origins against that contract
 > and follows them through projections, scalar local holders, nested statically
-> resolved ordinary calls, reordered named arguments, and acyclic CFG joins.
+> resolved ordinary calls, reordered named arguments, projected reborrows through
+> scalar lend holders, and acyclic CFG joins.
 > MIR erases the callee binder spelling at the caller while retaining a
 > deterministic signature-source-to-call-argument candidate mapping on the call
 > rvalue. That mapping is not an ownership fact. Meiya resolves the candidates
@@ -1021,8 +1022,8 @@ the rest is V4.
 > Those facts survive borrowck/editor snapshot restore. Stored named or elided
 > ordinary-call results and copied scalar holder aliases retain every candidate
 > owner through the holder's final reachable use. Source edits invalidate and
-> subsequent requests recompute TY, MIR, borrowck, diagnostics, semantic-at,
-> hover, definition-at, document symbols, and completion, including edits that
+> subsequent requests recompute all seventeen query/aggregate/compiler/editor
+> families through completion, including edits that
 > shrink an elided result from multiple owners to one. These are distinct query
 > families; document-symbol and completion invalidation are not inferred from
 > hover coverage.
@@ -1034,9 +1035,11 @@ the rest is V4.
 > state, source-row, and memo arrays reuse high-water capacity across
 > recomputation instead of accumulating history. Integer-word interning backs
 > that scratch, and the canonical-path cache reuses exact input mappings plus
-> whitespace-free owner paths across repeated generations. The same
-> workload leaves those cache counts stable, although genuinely new integers or
-> paths may extend them;
+> whitespace-free owner paths across repeated generations. Integer, canonical
+> value, and exact-input caches are bounded rings: evicted values rebuild to the
+> same result and hot values reuse their row. The bootstrap C runtime grows its
+> array-handle table dynamically rather than imposing a hidden fixed ceiling;
+> displaced words remain in append-only arenas until general reclamation lands;
 > recursive provenance cycles stay conservatively opaque. Meiya rejects
 > callee-owned escapes,
 > immutable-to-mutable upgrades, origins without the required outlives
@@ -1048,7 +1051,9 @@ the rest is V4.
 > children in tuple literals, fixed-array literals, repeat-filled fixed arrays,
 > list literals, shape values, route payloads, `some(...)`, `ok(...)`,
 > `err(...)`, map keys, and map values;
-> aliases and nested containers cannot make that storage sound. Method, dynamic,
+> aliases and nested containers cannot make that storage sound. Generic call
+> substitution also rejects any lend-bearing actual type before `T` can hide a
+> loan inside an instantiated result. Method, dynamic,
 > callback, extern, and FFI returned-loan forwarding paths are explicitly
 > rejected rather than silently accepted. Closure forwarding cannot be expressed because V4
 > closure expression syntax has not landed. Loop-carried join fixed points still

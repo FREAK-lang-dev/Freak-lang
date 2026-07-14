@@ -8,15 +8,10 @@ task v4_contract_region_source_cache_churn_bool(value: bool) -> word {
     give back "false"
 }
 
-task v4_contract_region_source_cache_churn_source(source_count: int) -> word {
-    pilot src = ""
-    pilot source_id = 0
-    repeat until source_id >= source_count {
-        src = src + "task cached_" + word_from_int(source_id) + "<'out, 'left: 'out, 'right: 'out>(lend 'left left: int, middle: int, lend 'right right: int) -> lend 'out int {\n"
-        src = src + "    give back left\n"
-        src = src + "}\n"
-        source_id += 1
-    }
+task v4_contract_region_source_cache_churn_source() -> word {
+    pilot src = "task cached_0<'out, 'left: 'out, 'right: 'out>(lend 'left left: int, middle: int, lend 'right right: int) -> lend 'out int {\n"
+    src = src + "    give back left\n"
+    src = src + "}\n"
     src = src + "task known_empty(value: int) -> int {\n"
     src = src + "    give back value\n"
     src = src + "}\n"
@@ -33,10 +28,21 @@ task v4_contract_region_source_cache_churn_order_is_stable(ty_id: int, sig_id: i
     give back v4_ty_signature_borrowed_return_source_param_at(ty_id, sig_id, 1) == 2
 }
 
+task v4_contract_region_source_cache_churn_fill(ty_id: int, churn_count: int) -> int {
+    pilot churn_id = 0
+    pilot churn_row = 0 - 1
+    repeat until churn_id >= churn_count {
+        churn_row = v4_ty_borrowed_return_source_cache_store(ty_id, 1000 + churn_id, "0,2")
+        churn_id += 1
+    }
+    give back churn_row
+}
+
 pilot v4_contract_region_source_cache_churn_capacity = v4_ty_borrowed_return_source_cache_capacity()
-pilot v4_contract_region_source_cache_churn_source_count = v4_contract_region_source_cache_churn_capacity + 3
+pilot v4_contract_region_source_cache_churn_source_count = 1
+pilot v4_contract_region_source_cache_churn_churn_count = v4_contract_region_source_cache_churn_capacity + 3
 pilot v4_contract_region_source_cache_churn_builds_before_lower = v4_ty_borrowed_return_source_cache_build_count()
-pilot v4_contract_region_source_cache_churn_ty = v4_ty_text_cached("contract-region-source-cache-churn.fk", v4_contract_region_source_cache_churn_source(v4_contract_region_source_cache_churn_source_count))
+pilot v4_contract_region_source_cache_churn_ty = v4_ty_text_cached("contract-region-source-cache-churn.fk", v4_contract_region_source_cache_churn_source())
 pilot v4_contract_region_source_cache_churn_builds_after_lower = v4_ty_borrowed_return_source_cache_build_count()
 pilot v4_contract_region_source_cache_churn_resolve = v4_ty_resolve_id(v4_contract_region_source_cache_churn_ty)
 pilot v4_contract_region_source_cache_churn_hir = v4_resolve_hir_id(v4_contract_region_source_cache_churn_resolve)
@@ -46,6 +52,9 @@ pilot v4_contract_region_source_cache_churn_empty_def = v4_resolve_def_for_name(
 pilot v4_contract_region_source_cache_churn_first_sig = v4_ty_lookup_signature(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_def)
 pilot v4_contract_region_source_cache_churn_empty_sig = v4_ty_lookup_signature(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_empty_def)
 pilot v4_contract_region_source_cache_churn_initial_entries = v4_ty_borrowed_return_source_cache_entry_count()
+
+pilot v4_contract_region_source_cache_churn_churn_row = v4_contract_region_source_cache_churn_fill(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_churn_count)
+pilot v4_contract_region_source_cache_churn_entries_after_churn = v4_ty_borrowed_return_source_cache_entry_count()
 
 pilot v4_contract_region_source_cache_churn_first_builds_before = v4_ty_borrowed_return_source_cache_build_count()
 pilot v4_contract_region_source_cache_churn_first_count = v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_source_cache_churn_ty, v4_contract_region_source_cache_churn_first_sig)
@@ -84,9 +93,10 @@ say "contract-region-source-cache-churn-parse-diagnostics=" + word_from_int(v4_p
 say "contract-region-source-cache-churn-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_source_cache_churn_ty))
 say "contract-region-source-cache-churn-capacity=" + word_from_int(v4_contract_region_source_cache_churn_capacity)
 say "contract-region-source-cache-churn-source-signatures=" + word_from_int(v4_contract_region_source_cache_churn_source_count)
+say "contract-region-source-cache-churn-churn-rows=" + word_from_int(v4_contract_region_source_cache_churn_churn_count)
 say "contract-region-source-cache-churn-initial-build-delta=" + word_from_int(v4_contract_region_source_cache_churn_builds_after_lower - v4_contract_region_source_cache_churn_builds_before_lower)
 say "contract-region-source-cache-churn-initial-entry-count=" + word_from_int(v4_contract_region_source_cache_churn_initial_entries)
-say "contract-region-source-cache-churn-bounded-after-fill=" + v4_contract_region_source_cache_churn_bool(v4_contract_region_source_cache_churn_initial_entries <= v4_contract_region_source_cache_churn_capacity)
+say "contract-region-source-cache-churn-bounded-after-fill=" + v4_contract_region_source_cache_churn_bool(v4_contract_region_source_cache_churn_entries_after_churn == v4_contract_region_source_cache_churn_capacity)
 say "contract-region-source-cache-churn-evicted-first-rebuild-delta=" + word_from_int(v4_contract_region_source_cache_churn_first_builds_after - v4_contract_region_source_cache_churn_first_builds_before)
 say "contract-region-source-cache-churn-evicted-first-count=" + word_from_int(v4_contract_region_source_cache_churn_first_count)
 say "contract-region-source-cache-churn-evicted-first-order=" + v4_contract_region_source_cache_churn_bool(v4_contract_region_source_cache_churn_first_order)
