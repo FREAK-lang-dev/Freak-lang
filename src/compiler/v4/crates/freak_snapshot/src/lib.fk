@@ -408,6 +408,7 @@ task v4_semantic_snapshot_restore(payload: word) -> word {
         give back "semantic-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    v4_editor_begin_semantic_snapshot_restore()
     pilot restored_facts = 0
     pilot skipped_other = 0
     pilot line_id = 0
@@ -594,6 +595,7 @@ task v4_hover_snapshot_restore(payload: word) -> word {
         give back "hover-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    v4_editor_begin_hover_snapshot_restore()
     pilot restored_hovers = 0
     pilot skipped_other = 0
     pilot line_id = 0
@@ -784,6 +786,7 @@ task v4_definition_snapshot_restore(payload: word) -> word {
         give back "definition-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    v4_editor_begin_definition_snapshot_restore()
     pilot restored_definitions = 0
     pilot skipped_other = 0
     pilot line_id = 0
@@ -1010,6 +1013,7 @@ task v4_document_symbols_snapshot_restore(payload: word) -> word {
         give back "document-symbols-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    v4_editor_begin_document_symbols_snapshot_restore()
     pilot restored_documents = 0
     pilot restored_symbols = 0
     pilot skipped_other = 0
@@ -1238,6 +1242,7 @@ task v4_completion_snapshot_restore(payload: word) -> word {
         give back "completion-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    v4_editor_begin_completion_snapshot_restore()
     pilot restored_completions = 0
     pilot restored_items = 0
     pilot skipped_other = 0
@@ -1963,10 +1968,23 @@ task v4_unit_snapshot_section_occurrences(payload: word, section_name: word) -> 
     give back occurrences
 }
 
+task v4_unit_snapshot_visible_source_count() -> int {
+    pilot visible = 0
+    pilot file_id = 0
+    pilot source_capacity = v4_source_count()
+    repeat until file_id >= source_capacity {
+        if v4_source_path(file_id) != "" {
+            visible += 1
+        }
+        file_id += 1
+    }
+    give back visible
+}
+
 task v4_unit_snapshot_summary() -> word {
     pilot summary = "00-unit-snapshot"
     summary = summary + " format=" + v4_unit_snapshot_format
-    summary = summary + " sources=" + word_from_int(v4_source_count())
+    summary = summary + " sources=" + word_from_int(v4_unit_snapshot_visible_source_count())
     summary = summary + " sections=" + word_from_int(v4_unit_snapshot_section_count())
     summary = summary + " queries=" + word_from_int(v4_query_cache_size())
     summary = summary + " diagnostics=" + word_from_int(v4_diagnostics_set_count())
@@ -1976,7 +1994,7 @@ task v4_unit_snapshot_summary() -> word {
 task v4_unit_snapshot_header() -> word {
     pilot out = "00-unit-snapshot"
     out = out + "|format=" + v4_unit_snapshot_format
-    out = out + "|sources=" + word_from_int(v4_source_count())
+    out = out + "|sources=" + word_from_int(v4_unit_snapshot_visible_source_count())
     out = out + "|sections=" + word_from_int(v4_unit_snapshot_section_count())
     give back out
 }
@@ -2004,16 +2022,9 @@ task v4_unit_snapshot() -> word {
 
     pilot file_id = 0
     repeat until file_id >= v4_source_count() {
-        out = out + "\nunit-source|"
-        out = out + word_from_int(file_id)
-        out = out + "|"
-        out = out + v4_unit_snapshot_escape(v4_source_path(file_id))
-        out = out + "|"
-        out = out + word_from_int(v4_source_revision(file_id))
-        out = out + "|"
-        out = out + v4_unit_snapshot_escape(v4_source_fingerprint(file_id))
-        out = out + "|"
-        out = out + v4_unit_snapshot_escape(v4_source_text(file_id))
+        if v4_source_path(file_id) != "" {
+            out = out + "\n" + v4_unit_snapshot_source_line(file_id)
+        }
         file_id += 1
     }
 
@@ -3189,6 +3200,19 @@ task v4_unit_snapshot_restore_source_line(line: word) -> int {
     give back 1
 }
 
+task v4_unit_snapshot_begin_source_restore() -> void {
+    v4_session_init()
+    pilot file_id = 0
+    pilot source_capacity = v4_source_count()
+    repeat until file_id >= source_capacity {
+        array_set(v4_source_paths, file_id, "")
+        array_set(v4_source_texts, file_id, "")
+        array_set(v4_source_revisions, file_id, "0")
+        array_set(v4_source_fingerprints, file_id, "")
+        file_id += 1
+    }
+}
+
 task v4_unit_snapshot_restore_sources(payload: word) -> int {
     pilot restored = 0
     pilot line_id = 0
@@ -3283,6 +3307,7 @@ task v4_unit_snapshot_restore(payload: word) -> word {
 
     pilot header = v4_unit_snapshot_line(payload, 0)
     pilot declared_sources = word_to_int(v4_unit_snapshot_key_value(header, "sources"))
+    v4_unit_snapshot_begin_source_restore()
     pilot restored_sources = v4_unit_snapshot_restore_sources(payload)
     if restored_sources != declared_sources {
         pilot out = "00-unit-snapshot-restore ok=0 reason=source-restore-incomplete"

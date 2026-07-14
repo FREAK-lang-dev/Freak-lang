@@ -79,6 +79,9 @@ say v4_unit_snapshot_manifest(v4_unit_snapshot_ref_text("before"))
 say v4_unit_snapshot_health(v4_unit_snapshot_ref_text("before"))
 
 pilot v4_unit_snapshot_before = v4_unit_snapshot_ref_text("before")
+pilot v4_unit_snapshot_before_semantic_count = v4_semantic_fact_count()
+pilot v4_unit_snapshot_before_hover_count = v4_hover_count()
+pilot v4_unit_snapshot_before_definition_count = v4_definition_at_count()
 pilot v4_unit_snapshot_missing = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "completion", "missing")
 pilot v4_unit_snapshot_duplicate = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "completion", "duplicate")
 pilot v4_unit_snapshot_corrupt = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "lex", "corrupt")
@@ -137,11 +140,31 @@ say v4_unit_snapshot_integrity_assert("invalid-restore-rejected", v4_unit_snapsh
 say v4_unit_snapshot_integrity_assert("preflight-preserves-source-text", v4_source_text(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_preflight_text)
 say v4_unit_snapshot_integrity_assert("preflight-preserves-source-revision", v4_source_revision(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_preflight_revision)
 
+pilot v4_unit_snapshot_extra_path = "unit-snapshot-extra.fk"
+pilot v4_unit_snapshot_extra_source = "task extra() -> int {\n"
+v4_unit_snapshot_extra_source = v4_unit_snapshot_extra_source + "    give back 1\n"
+v4_unit_snapshot_extra_source = v4_unit_snapshot_extra_source + "}\n"
+pilot v4_unit_snapshot_extra_file_id = v4_source_set_text(v4_unit_snapshot_extra_path, v4_unit_snapshot_extra_source)
+pilot v4_unit_snapshot_extra_semantic_id = v4_editor_semantic_fact_new(v4_unit_snapshot_extra_path, 5, 0 - 1, "identifier", "extra", V4_NO_SPAN, 0 - 1, "extra", "task", 0 - 1, "extra", "task", "extra::task", "task() -> int")
+pilot v4_unit_snapshot_extra_hover_id = v4_editor_hover_new(v4_unit_snapshot_extra_path, 5, v4_unit_snapshot_extra_semantic_id, "extra", "task", "task() -> int", "**extra**")
+pilot v4_unit_snapshot_extra_definition_id = v4_editor_definition_new(v4_unit_snapshot_extra_path, 5, v4_unit_snapshot_extra_semantic_id, "extra", "task", "extra::task", 0 - 1, V4_NO_SPAN, 1)
+pilot v4_unit_snapshot_extra_query_key = "snapshot-extra:" + v4_unit_snapshot_extra_path
+pilot v4_unit_snapshot_extra_query_input = "snapshot-extra-input"
+v4_query_store(v4_unit_snapshot_extra_query_key, v4_unit_snapshot_extra_query_input, "stale-cache-hit")
+say v4_unit_snapshot_integrity_assert("extras-visible-before-restore", v4_source_find(v4_unit_snapshot_extra_path) == v4_unit_snapshot_extra_file_id and v4_semantic_fact_exists(v4_unit_snapshot_extra_semantic_id) and v4_hover_exists(v4_unit_snapshot_extra_hover_id) and v4_definition_at_exists(v4_unit_snapshot_extra_definition_id))
+say v4_unit_snapshot_integrity_assert("extra-cache-hit-before-restore", v4_query_get(v4_unit_snapshot_extra_query_key, v4_unit_snapshot_extra_query_input) == "stale-cache-hit")
+
 pilot v4_unit_snapshot_valid_restore = v4_unit_snapshot_restore(v4_unit_snapshot_before)
 say v4_unit_snapshot_valid_restore
 say v4_unit_snapshot_integrity_assert("valid-restore", v4_unit_snapshot_valid_restore.starts_with("00-unit-snapshot-restore ok=1 "))
 say v4_unit_snapshot_integrity_assert("valid-restore-source-text", v4_source_text(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_source)
 say v4_unit_snapshot_integrity_assert("valid-restore-source-revision", v4_source_revision(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_before_revision)
+say v4_unit_snapshot_integrity_assert("extra-source-removed", v4_source_find(v4_unit_snapshot_extra_path) < 0 and v4_source_path(v4_unit_snapshot_extra_file_id) == "")
+say v4_unit_snapshot_integrity_assert("extra-semantic-removed", v4_semantic_fact_count() == v4_unit_snapshot_before_semantic_count and v4_semantic_fact_exists(v4_unit_snapshot_extra_semantic_id) == false and v4_semantic_at_path(v4_unit_snapshot_extra_semantic_id) == "")
+say v4_unit_snapshot_integrity_assert("extra-hover-removed", v4_hover_count() == v4_unit_snapshot_before_hover_count and v4_hover_exists(v4_unit_snapshot_extra_hover_id) == false and v4_hover_path(v4_unit_snapshot_extra_hover_id) == "")
+say v4_unit_snapshot_integrity_assert("extra-definition-removed", v4_definition_at_count() == v4_unit_snapshot_before_definition_count and v4_definition_at_exists(v4_unit_snapshot_extra_definition_id) == false and v4_definition_at_path(v4_unit_snapshot_extra_definition_id) == "")
+say v4_unit_snapshot_integrity_assert("extra-query-removed", v4_query_entry_count_for_key(v4_unit_snapshot_extra_query_key) == 0)
+say v4_unit_snapshot_integrity_assert("extra-cache-miss-after-restore", v4_query_get(v4_unit_snapshot_extra_query_key, v4_unit_snapshot_extra_query_input) == "")
 say v4_lsp_handle_text_request("workspace/unitSnapshotRestore", "unit-snapshot.fk", v4_unit_snapshot_ref_text("before"), 0)
 say v4_lsp_handle_request("workspace/unitSnapshotRestore", "unit-snapshot.fk", 0)
 say v4_unit_snapshot_restore("00-unit-snapshot|format=wrong\nend|wrong")
