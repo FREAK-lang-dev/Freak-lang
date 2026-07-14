@@ -618,19 +618,32 @@ _MANIFEST_SEQUENCE_ALIAS = "sequence"
 _MANIFEST_ENTRY_ALIAS = "entry"
 _MANIFEST_MUTABLE_ALIAS = "mutable"
 _UNIT_SNAPSHOT_INTEGRITY_CASES = (
+    "current-snapshot-validated",
+    "current-manifest-valid",
+    "current-health-valid",
     "missing-section",
     "duplicate-section",
     "corrupt-inner-payload",
     "unknown-section",
+    "current-diagnostics-valid",
+    "changed-diagnostics-valid",
     "invalid-restore-rejected",
     "preflight-preserves-source-text",
     "preflight-preserves-source-revision",
+    "extras-visible-before-restore",
+    "extra-cache-hit-before-restore",
     "valid-restore",
     "valid-restore-source-text",
     "valid-restore-source-revision",
+    "extra-source-removed",
+    "extra-semantic-removed",
+    "extra-hover-removed",
+    "extra-definition-removed",
+    "extra-query-removed",
+    "extra-cache-miss-after-restore",
 )
 _UNIT_SNAPSHOT_INTEGRITY_ORACLES = tuple(
-    f"unit-snapshot-integrity|case={case_name}|pass=true"
+    f"unit-snapshot-integrity|case={case_name}|ok=1"
     for case_name in _UNIT_SNAPSHOT_INTEGRITY_CASES
 )
 _UNIT_SNAPSHOT_INTEGRITY_STRUCTURAL_NEEDLES = (

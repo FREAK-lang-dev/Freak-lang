@@ -73,23 +73,44 @@ say v4_lsp_definition_text("unit-snapshot.fk", v4_unit_snapshot_source, 5)
 say v4_lsp_document_symbols_text("unit-snapshot.fk", v4_unit_snapshot_source)
 say v4_lsp_completion_text("unit-snapshot.fk", v4_unit_snapshot_source, 0)
 
+pilot v4_unit_snapshot_current_validation = ""
+pilot v4_unit_snapshot_current_manifest = ""
+pilot v4_unit_snapshot_current_health = ""
 say v4_unit_snapshot_ref_store("before", v4_unit_snapshot())
-say v4_unit_snapshot_validate(v4_unit_snapshot_ref_text("before"))
-say v4_unit_snapshot_manifest(v4_unit_snapshot_ref_text("before"))
-say v4_unit_snapshot_health(v4_unit_snapshot_ref_text("before"))
+v4_unit_snapshot_current_validation = v4_unit_snapshot_validate(v4_unit_snapshot_ref_text("before"))
+v4_unit_snapshot_current_manifest = v4_unit_snapshot_manifest(v4_unit_snapshot_ref_text("before"))
+v4_unit_snapshot_current_health = v4_unit_snapshot_health(v4_unit_snapshot_ref_text("before"))
+say v4_unit_snapshot_current_validation
+say v4_unit_snapshot_current_manifest
+say v4_unit_snapshot_current_health
+say v4_unit_snapshot_integrity_assert("current-snapshot-validated", v4_unit_snapshot_current_validation.starts_with("00-unit-snapshot-import ok=1 "))
+say v4_unit_snapshot_integrity_assert("current-manifest-valid", v4_unit_snapshot_current_manifest.starts_with("00-unit-manifest|format=freak-00-unit-manifest-v1|ok=1|"))
+say v4_unit_snapshot_integrity_assert("current-health-valid", v4_unit_snapshot_current_health.starts_with("00-unit-health|format=freak-00-unit-health-v1|ok=1|"))
 
-pilot v4_unit_snapshot_before = v4_unit_snapshot_ref_text("before")
-pilot v4_unit_snapshot_before_semantic_count = v4_semantic_fact_count()
-pilot v4_unit_snapshot_before_hover_count = v4_hover_count()
-pilot v4_unit_snapshot_before_definition_count = v4_definition_at_count()
-pilot v4_unit_snapshot_missing = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "completion", "missing")
-pilot v4_unit_snapshot_duplicate = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "completion", "duplicate")
-pilot v4_unit_snapshot_corrupt = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "lex", "corrupt")
-pilot v4_unit_snapshot_unknown = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "completion", "unknown")
-pilot v4_unit_snapshot_missing_validation = v4_unit_snapshot_validate(v4_unit_snapshot_missing)
-pilot v4_unit_snapshot_duplicate_validation = v4_unit_snapshot_validate(v4_unit_snapshot_duplicate)
-pilot v4_unit_snapshot_corrupt_validation = v4_unit_snapshot_validate(v4_unit_snapshot_corrupt)
-pilot v4_unit_snapshot_unknown_validation = v4_unit_snapshot_validate(v4_unit_snapshot_unknown)
+pilot v4_unit_snapshot_before = ""
+pilot v4_unit_snapshot_before_semantic_count = 0
+pilot v4_unit_snapshot_before_hover_count = 0
+pilot v4_unit_snapshot_before_definition_count = 0
+pilot v4_unit_snapshot_missing = ""
+pilot v4_unit_snapshot_duplicate = ""
+pilot v4_unit_snapshot_corrupt = ""
+pilot v4_unit_snapshot_unknown = ""
+pilot v4_unit_snapshot_missing_validation = ""
+pilot v4_unit_snapshot_duplicate_validation = ""
+pilot v4_unit_snapshot_corrupt_validation = ""
+pilot v4_unit_snapshot_unknown_validation = ""
+v4_unit_snapshot_before = v4_unit_snapshot_ref_text("before")
+v4_unit_snapshot_before_semantic_count = v4_semantic_fact_count()
+v4_unit_snapshot_before_hover_count = v4_hover_count()
+v4_unit_snapshot_before_definition_count = v4_definition_at_count()
+v4_unit_snapshot_missing = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "completion", "missing")
+v4_unit_snapshot_duplicate = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "completion", "duplicate")
+v4_unit_snapshot_corrupt = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "lex", "corrupt")
+v4_unit_snapshot_unknown = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "completion", "unknown")
+v4_unit_snapshot_missing_validation = v4_unit_snapshot_validate(v4_unit_snapshot_missing)
+v4_unit_snapshot_duplicate_validation = v4_unit_snapshot_validate(v4_unit_snapshot_duplicate)
+v4_unit_snapshot_corrupt_validation = v4_unit_snapshot_validate(v4_unit_snapshot_corrupt)
+v4_unit_snapshot_unknown_validation = v4_unit_snapshot_validate(v4_unit_snapshot_unknown)
 say v4_unit_snapshot_missing_validation
 say v4_unit_snapshot_duplicate_validation
 say v4_unit_snapshot_corrupt_validation
@@ -98,14 +119,20 @@ say v4_unit_snapshot_integrity_assert("missing-section", v4_unit_snapshot_missin
 say v4_unit_snapshot_integrity_assert("duplicate-section", v4_unit_snapshot_duplicate_validation.starts_with("00-unit-snapshot-import ok=0 "))
 say v4_unit_snapshot_integrity_assert("corrupt-inner-payload", v4_unit_snapshot_corrupt_validation.starts_with("00-unit-snapshot-import ok=0 "))
 say v4_unit_snapshot_integrity_assert("unknown-section", v4_unit_snapshot_unknown_validation.starts_with("00-unit-snapshot-import ok=0 "))
-pilot v4_unit_snapshot_before_file_id = v4_source_find("unit-snapshot.fk")
-pilot v4_unit_snapshot_before_revision = v4_source_revision(v4_unit_snapshot_before_file_id)
+pilot v4_unit_snapshot_before_file_id = 0
+pilot v4_unit_snapshot_before_revision = 0
+v4_unit_snapshot_before_file_id = v4_source_find("unit-snapshot.fk")
+v4_unit_snapshot_before_revision = v4_source_revision(v4_unit_snapshot_before_file_id)
 
-pilot v4_unit_diagnostics_payload = v4_unit_snapshot_section_payload(v4_unit_snapshot_ref_text("before"), "diagnostics")
+pilot v4_unit_diagnostics_payload = ""
+pilot v4_unit_diagnostics_validation = ""
 v4_unit_diagnostics_payload = v4_diagnostics_snapshot()
-say "unit-diagnostics-section-validation=" + v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload)
+v4_unit_diagnostics_validation = v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload)
+say "unit-diagnostics-section-validation=" + v4_unit_diagnostics_validation
+say v4_unit_snapshot_integrity_assert("current-diagnostics-valid", v4_unit_diagnostics_validation.starts_with("diagnostics-snapshot-import ok=1 "))
 pilot v4_unit_diagnostics_line_idx = 0
-pilot v4_unit_diagnostics_line_count = v4_diagnostics_snapshot_line_count(v4_unit_diagnostics_payload)
+pilot v4_unit_diagnostics_line_count = 0
+v4_unit_diagnostics_line_count = v4_diagnostics_snapshot_line_count(v4_unit_diagnostics_payload)
 repeat until v4_unit_diagnostics_line_idx >= v4_unit_diagnostics_line_count {
     pilot v4_unit_diagnostics_line = v4_diagnostics_snapshot_line(v4_unit_diagnostics_payload, v4_unit_diagnostics_line_idx)
     if v4_unit_diagnostics_line.starts_with("diagnostic|") {
@@ -127,14 +154,21 @@ say v4_diagnostics_text("unit-snapshot.fk", v4_unit_snapshot_source_changed)
 
 say v4_unit_snapshot_manifest(v4_unit_snapshot())
 say v4_unit_snapshot_health(v4_unit_snapshot())
-pilot v4_unit_diagnostics_payload_changed = v4_unit_snapshot_section_payload(v4_unit_snapshot(), "diagnostics")
-say "unit-diagnostics-changed-section-validation=" + v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload_changed)
+pilot v4_unit_diagnostics_payload_changed = ""
+pilot v4_unit_diagnostics_validation_changed = ""
+v4_unit_diagnostics_payload_changed = v4_unit_snapshot_section_payload(v4_unit_snapshot(), "diagnostics")
+v4_unit_diagnostics_validation_changed = v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload_changed)
+say "unit-diagnostics-changed-section-validation=" + v4_unit_diagnostics_validation_changed
+say v4_unit_snapshot_integrity_assert("changed-diagnostics-valid", v4_unit_diagnostics_validation_changed.starts_with("diagnostics-snapshot-import ok=1 "))
 say v4_lsp_handle_text_request("workspace/unitSnapshotManifest", "unit-snapshot.fk", v4_unit_snapshot(), 0)
 say v4_lsp_handle_text_request("workspace/unitSnapshotHealth", "unit-snapshot.fk", v4_unit_snapshot(), 0)
 
-pilot v4_unit_snapshot_preflight_text = v4_source_text(v4_unit_snapshot_before_file_id)
-pilot v4_unit_snapshot_preflight_revision = v4_source_revision(v4_unit_snapshot_before_file_id)
-pilot v4_unit_snapshot_failed_restore = v4_unit_snapshot_restore(v4_unit_snapshot_missing)
+pilot v4_unit_snapshot_preflight_text = ""
+pilot v4_unit_snapshot_preflight_revision = 0
+pilot v4_unit_snapshot_failed_restore = ""
+v4_unit_snapshot_preflight_text = v4_source_text(v4_unit_snapshot_before_file_id)
+v4_unit_snapshot_preflight_revision = v4_source_revision(v4_unit_snapshot_before_file_id)
+v4_unit_snapshot_failed_restore = v4_unit_snapshot_restore(v4_unit_snapshot_missing)
 say v4_unit_snapshot_failed_restore
 say v4_unit_snapshot_integrity_assert("invalid-restore-rejected", v4_unit_snapshot_failed_restore.starts_with("00-unit-snapshot-restore ok=0 "))
 say v4_unit_snapshot_integrity_assert("preflight-preserves-source-text", v4_source_text(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_preflight_text)
@@ -144,17 +178,23 @@ pilot v4_unit_snapshot_extra_path = "unit-snapshot-extra.fk"
 pilot v4_unit_snapshot_extra_source = "task extra() -> int {\n"
 v4_unit_snapshot_extra_source = v4_unit_snapshot_extra_source + "    give back 1\n"
 v4_unit_snapshot_extra_source = v4_unit_snapshot_extra_source + "}\n"
-pilot v4_unit_snapshot_extra_file_id = v4_source_set_text(v4_unit_snapshot_extra_path, v4_unit_snapshot_extra_source)
-pilot v4_unit_snapshot_extra_semantic_id = v4_editor_semantic_fact_new(v4_unit_snapshot_extra_path, 5, 0 - 1, "identifier", "extra", V4_NO_SPAN, 0 - 1, "extra", "task", 0 - 1, "extra", "task", "extra::task", "task() -> int")
-pilot v4_unit_snapshot_extra_hover_id = v4_editor_hover_new(v4_unit_snapshot_extra_path, 5, v4_unit_snapshot_extra_semantic_id, "extra", "task", "task() -> int", "**extra**")
-pilot v4_unit_snapshot_extra_definition_id = v4_editor_definition_new(v4_unit_snapshot_extra_path, 5, v4_unit_snapshot_extra_semantic_id, "extra", "task", "extra::task", 0 - 1, V4_NO_SPAN, 1)
-pilot v4_unit_snapshot_extra_query_key = "snapshot-extra:" + v4_unit_snapshot_extra_path
+pilot v4_unit_snapshot_extra_file_id = 0
+pilot v4_unit_snapshot_extra_semantic_id = 0
+pilot v4_unit_snapshot_extra_hover_id = 0
+pilot v4_unit_snapshot_extra_definition_id = 0
+pilot v4_unit_snapshot_extra_query_key = ""
 pilot v4_unit_snapshot_extra_query_input = "snapshot-extra-input"
+v4_unit_snapshot_extra_file_id = v4_source_set_text(v4_unit_snapshot_extra_path, v4_unit_snapshot_extra_source)
+v4_unit_snapshot_extra_semantic_id = v4_editor_semantic_fact_new(v4_unit_snapshot_extra_path, 5, 0 - 1, "identifier", "extra", V4_NO_SPAN, 0 - 1, "extra", "task", 0 - 1, "extra", "task", "extra::task", "task() -> int")
+v4_unit_snapshot_extra_hover_id = v4_editor_hover_new(v4_unit_snapshot_extra_path, 5, v4_unit_snapshot_extra_semantic_id, "extra", "task", "task() -> int", "**extra**")
+v4_unit_snapshot_extra_definition_id = v4_editor_definition_new(v4_unit_snapshot_extra_path, 5, v4_unit_snapshot_extra_semantic_id, "extra", "task", "extra::task", 0 - 1, V4_NO_SPAN, 1)
+v4_unit_snapshot_extra_query_key = "snapshot-extra:" + v4_unit_snapshot_extra_path
 v4_query_store(v4_unit_snapshot_extra_query_key, v4_unit_snapshot_extra_query_input, "stale-cache-hit")
 say v4_unit_snapshot_integrity_assert("extras-visible-before-restore", v4_source_find(v4_unit_snapshot_extra_path) == v4_unit_snapshot_extra_file_id and v4_semantic_fact_exists(v4_unit_snapshot_extra_semantic_id) and v4_hover_exists(v4_unit_snapshot_extra_hover_id) and v4_definition_at_exists(v4_unit_snapshot_extra_definition_id))
 say v4_unit_snapshot_integrity_assert("extra-cache-hit-before-restore", v4_query_get(v4_unit_snapshot_extra_query_key, v4_unit_snapshot_extra_query_input) == "stale-cache-hit")
 
-pilot v4_unit_snapshot_valid_restore = v4_unit_snapshot_restore(v4_unit_snapshot_before)
+pilot v4_unit_snapshot_valid_restore = ""
+v4_unit_snapshot_valid_restore = v4_unit_snapshot_restore(v4_unit_snapshot_before)
 say v4_unit_snapshot_valid_restore
 say v4_unit_snapshot_integrity_assert("valid-restore", v4_unit_snapshot_valid_restore.starts_with("00-unit-snapshot-restore ok=1 "))
 say v4_unit_snapshot_integrity_assert("valid-restore-source-text", v4_source_text(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_source)
