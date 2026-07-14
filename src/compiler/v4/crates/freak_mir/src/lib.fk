@@ -60,6 +60,14 @@ pilot v4_mir_unary_ptr_offset = "PtrOffset"
 pilot v4_mir_unary_ptr_cast = "PtrCast"
 pilot v4_mir_call_raw_ptr_write = "#RawPtrWrite"
 
+pilot v4_mir_builtin_shared_new = "builtin::Shared::new"
+pilot v4_mir_builtin_shared_clone = "builtin::Shared::clone"
+pilot v4_mir_builtin_shared_downgrade = "builtin::Shared::downgrade"
+pilot v4_mir_builtin_shared_borrow = "builtin::Shared::borrow"
+pilot v4_mir_builtin_shared_borrow_mut = "builtin::Shared::borrow_mut"
+pilot v4_mir_builtin_shared_get_mut = "builtin::Shared::get_mut"
+pilot v4_mir_builtin_weak_upgrade = "builtin::Weak::upgrade"
+
 pilot v4_mir_bin_add = "Add"
 pilot v4_mir_bin_sub = "Sub"
 pilot v4_mir_bin_mul = "Mul"
@@ -116,6 +124,7 @@ pilot v4_mir_body_rvalue_spans = 0
 pilot v4_mir_body_rvalue_tys = 0
 pilot v4_mir_body_rvalue_abis = 0
 pilot v4_mir_body_rvalue_args = 0
+pilot v4_mir_body_rvalue_builtin_methods = 0
 pilot v4_mir_diags = 0
 pilot v4_mir_loop_break_targets = 0
 pilot v4_mir_loop_continue_targets = 0
@@ -162,6 +171,7 @@ task v4_mir_init() -> void {
         v4_mir_body_rvalue_tys = array_new()
         v4_mir_body_rvalue_abis = array_new()
         v4_mir_body_rvalue_args = array_new()
+        v4_mir_body_rvalue_builtin_methods = array_new()
         v4_mir_diags = array_new()
         v4_mir_loop_break_targets = array_new()
         v4_mir_loop_continue_targets = array_new()
@@ -347,6 +357,7 @@ task v4_mir_file_new(file_id: int, ty_id: int) -> int {
     array_push(v4_mir_body_rvalue_tys, word_from_int(array_new()))
     array_push(v4_mir_body_rvalue_abis, word_from_int(array_new()))
     array_push(v4_mir_body_rvalue_args, word_from_int(array_new()))
+    array_push(v4_mir_body_rvalue_builtin_methods, word_from_int(array_new()))
     array_push(v4_mir_diags, word_from_int(array_new()))
     give back mir_id
 }
@@ -477,6 +488,10 @@ task v4_mir_rvalue_abis_index_handle(mir_id: int) -> int {
 
 task v4_mir_rvalue_args_index_handle(mir_id: int) -> int {
     give back word_to_int(array_get(v4_mir_body_rvalue_args, mir_id))
+}
+
+task v4_mir_rvalue_builtin_methods_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_rvalue_builtin_methods, mir_id))
 }
 
 task v4_mir_diags_handle(mir_id: int) -> int {
@@ -643,6 +658,10 @@ task v4_mir_body_rvalue_args_handle(mir_id: int, body_id: int) -> int {
     give back word_to_int(array_get(v4_mir_rvalue_args_index_handle(mir_id), body_id))
 }
 
+task v4_mir_body_rvalue_builtin_methods_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_rvalue_builtin_methods_index_handle(mir_id), body_id))
+}
+
 task v4_mir_body_block_count(mir_id: int, body_id: int) -> int {
     give back array_len(v4_mir_body_blocks_handle(mir_id, body_id))
 }
@@ -797,6 +816,19 @@ task v4_mir_rvalue_abi(mir_id: int, body_id: int, rvalue_id: int) -> word {
 
 task v4_mir_rvalue_args_payload(mir_id: int, body_id: int, rvalue_id: int) -> word {
     give back array_get(v4_mir_body_rvalue_args_handle(mir_id, body_id), rvalue_id)
+}
+
+task v4_mir_rvalue_builtin_method(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if mir_id < 0 or mir_id >= v4_mir_file_count() {
+        give back ""
+    }
+    if body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
+        give back ""
+    }
+    if rvalue_id < 0 or rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        give back ""
+    }
+    give back array_get(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), rvalue_id)
 }
 
 task v4_mir_diag(mir_id: int, diag_id: int) -> word {
@@ -1315,7 +1347,7 @@ task v4_mir_wire_control_flow_rvalue(mir_id: int, body_id: int, block_id: int, s
             v4_mir_add_stmt(mir_id, body_id, right_tail, v4_mir_stmt_assign, temp_name, right_text, stmt_span, temp_place, right_id)
             v4_mir_set_body_block(mir_id, body_id, right_tail, v4_mir_block_new_full(right_tail, v4_mir_term_goto, join_block, 0 - 1, ""))
 
-            v4_mir_restore_rvalue_slot(mir_id, body_id, rvalue_id, v4_mir_rvalue_use_local, temp_name, temp_name, 0 - 1, 0 - 1, v4_mir_rvalue_span(mir_id, body_id, rvalue_id), result_ty, v4_mir_rvalue_abi(mir_id, body_id, rvalue_id), v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id))
+            v4_mir_restore_rvalue_slot(mir_id, body_id, rvalue_id, v4_mir_rvalue_use_local, temp_name, temp_name, 0 - 1, 0 - 1, v4_mir_rvalue_span(mir_id, body_id, rvalue_id), result_ty, v4_mir_rvalue_abi(mir_id, body_id, rvalue_id), v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id), "")
             give back join_block
         }
     }
@@ -1434,6 +1466,7 @@ task v4_mir_add_rvalue(mir_id: int, body_id: int, rvalue_kind: word, text: word,
     array_push(v4_mir_body_rvalue_tys_handle(mir_id, body_id), rvalue_ty)
     array_push(v4_mir_body_rvalue_abis_handle(mir_id, body_id), "")
     array_push(v4_mir_body_rvalue_args_handle(mir_id, body_id), "")
+    array_push(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), "")
     give back rvalue_id
 }
 
@@ -1455,6 +1488,16 @@ task v4_mir_set_rvalue_args_payload(mir_id: int, body_id: int, rvalue_id: int, a
         give back
     }
     array_set(v4_mir_body_rvalue_args_handle(mir_id, body_id), rvalue_id, args_payload)
+}
+
+task v4_mir_set_rvalue_builtin_method(mir_id: int, body_id: int, rvalue_id: int, builtin_method: word) -> void {
+    if rvalue_id < 0 {
+        give back
+    }
+    if rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        give back
+    }
+    array_set(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), rvalue_id, builtin_method)
 }
 
 task v4_mir_signature_call_abi(mir_id: int, sig_id: int) -> word {
@@ -1525,6 +1568,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     pilot rvalue_tys_handle = array_new()
     pilot rvalue_abis_handle = array_new()
     pilot rvalue_args_handle = array_new()
+    pilot rvalue_builtin_methods_handle = array_new()
     array_push(blocks_handle, v4_mir_block_new(0, v4_mir_term_return, 0 - 1))
     array_push(v4_mir_defs_handle(mir_id), def_id)
     array_push(v4_mir_names_handle(mir_id), body_name)
@@ -1558,6 +1602,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     array_push(v4_mir_rvalue_tys_index_handle(mir_id), word_from_int(rvalue_tys_handle))
     array_push(v4_mir_rvalue_abis_index_handle(mir_id), word_from_int(rvalue_abis_handle))
     array_push(v4_mir_rvalue_args_index_handle(mir_id), word_from_int(rvalue_args_handle))
+    array_push(v4_mir_rvalue_builtin_methods_index_handle(mir_id), word_from_int(rvalue_builtin_methods_handle))
     give back body_id
 }
 
@@ -2969,6 +3014,49 @@ task v4_mir_check_call_generic_bounds(mir_id: int, expr_span: word, callee_name:
     }
 }
 
+task v4_mir_add_lend_bearing_generic_call_error(mir_id: int, expr_span: word, callee_name: word, relation: word, generic_name: word, actual_ty: word) -> void {
+    pilot message = "Meiya cannot substitute a lend-bearing type for a generic call yet"
+    pilot help = callee_name + " " + relation + " " + generic_name + " as " + actual_ty
+    help = help + "; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists"
+    v4_mir_add_type_error(mir_id, expr_span, message, help)
+}
+
+task v4_mir_reject_lend_bearing_generic_env(mir_id: int, expr_span: word, callee_name: word, relation: word, generic_env: word) -> bool {
+    if generic_env == "" or generic_env == v4_ty_generic_env_fail {
+        give back false
+    }
+
+    pilot rejected = false
+    pilot segment_start = 0
+    repeat until segment_start >= generic_env.length() {
+        pilot segment_end = v4_ty_find_top_level_type_char(generic_env, "|", segment_start, generic_env.length())
+        if segment_end < 0 {
+            segment_end = generic_env.length()
+        }
+        pilot eq_pos = v4_ty_find_top_level_type_char(generic_env, "=", segment_start, segment_end)
+        if eq_pos > segment_start and eq_pos + 1 < segment_end {
+            pilot generic_name = v4_slice(generic_env, segment_start, eq_pos)
+            pilot actual_ty = v4_slice(generic_env, eq_pos + 1, segment_end)
+            if v4_ty_type_contains_lend(actual_ty) {
+                v4_mir_add_lend_bearing_generic_call_error(mir_id, expr_span, callee_name, relation, generic_name, actual_ty)
+                rejected = true
+            }
+        }
+        segment_start = segment_end + 1
+    }
+    give back rejected
+}
+
+task v4_mir_reject_lend_bearing_impl_owner_generics(mir_id: int, expr_span: word, callee_name: word, owner_ty: word, method_ref: word) -> bool {
+    if method_ref == "" {
+        give back false
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
+    pilot generic_env = v4_ty_impl_generic_env_for_owner(ty_id, hir_item, owner_ty)
+    give back v4_mir_reject_lend_bearing_generic_env(mir_id, expr_span, callee_name, "derives owner generic", generic_env)
+}
+
 task v4_mir_reject_lend_bearing_call_generics(mir_id: int, expr_span: word, callee_name: word, sig_id: int, generic_env: word) -> bool {
     if sig_id < 0 or generic_env == "" or generic_env == v4_ty_generic_env_fail {
         give back false
@@ -2983,10 +3071,7 @@ task v4_mir_reject_lend_bearing_call_generics(mir_id: int, expr_span: word, call
             pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_idx)
             pilot actual_ty = v4_ty_generic_env_lookup(generic_env, generic_name)
             if actual_ty != "" and v4_ty_type_contains_lend(actual_ty) {
-                pilot message = "Meiya cannot substitute a lend-bearing type for a generic call yet"
-                pilot help = callee_name + " infers " + generic_name + " as " + actual_ty
-                help = help + "; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists"
-                v4_mir_add_type_error(mir_id, expr_span, message, help)
+                v4_mir_add_lend_bearing_generic_call_error(mir_id, expr_span, callee_name, "infers", generic_name, actual_ty)
                 rejected = true
             }
         }
@@ -4182,6 +4267,144 @@ task v4_mir_check_builtin_no_args(mir_id: int, body_id: int, stream_id: int, exp
     give back false
 }
 
+task v4_mir_builtin_shared_method_identity_is_known(builtin_method: word) -> bool {
+    give back builtin_method == v4_mir_builtin_shared_new or builtin_method == v4_mir_builtin_shared_clone or builtin_method == v4_mir_builtin_shared_downgrade or builtin_method == v4_mir_builtin_shared_borrow or builtin_method == v4_mir_builtin_shared_borrow_mut or builtin_method == v4_mir_builtin_shared_get_mut or builtin_method == v4_mir_builtin_weak_upgrade
+}
+
+task v4_mir_builtin_shared_method_receiver_mode(builtin_method: word) -> word {
+    if builtin_method == v4_mir_builtin_shared_borrow_mut or builtin_method == v4_mir_builtin_shared_get_mut {
+        give back v4_ty_param_mode_lend_mut
+    }
+    if builtin_method == v4_mir_builtin_shared_clone or builtin_method == v4_mir_builtin_shared_downgrade or builtin_method == v4_mir_builtin_shared_borrow or builtin_method == v4_mir_builtin_weak_upgrade {
+        give back v4_ty_param_mode_lend
+    }
+    give back ""
+}
+
+task v4_mir_nominal_builtin_shared_base(mir_id: int, type_text: word) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
+    if canonical != "" and canonical != v4_ty_unknown {
+        type_text = canonical
+    }
+    if not v4_ty_is_generic_instance_type(type_text) {
+        give back ""
+    }
+    pilot base_name = v4_ty_generic_base_name(type_text)
+    if base_name != "Shared" and base_name != "Weak" and base_name != "SharedMut" {
+        give back ""
+    }
+    -- Declared value types are nominal and shadow the prelude ownership carriers.
+    if v4_ty_type_signature_id_for_name(ty_id, base_name) >= 0 {
+        give back ""
+    }
+    give back base_name
+}
+
+task v4_mir_builtin_shared_method_surface_name(builtin_method: word) -> word {
+    if builtin_method == v4_mir_builtin_shared_new { give back "new" }
+    if builtin_method == v4_mir_builtin_shared_clone { give back "clone" }
+    if builtin_method == v4_mir_builtin_shared_downgrade { give back "downgrade" }
+    if builtin_method == v4_mir_builtin_shared_borrow { give back "borrow" }
+    if builtin_method == v4_mir_builtin_shared_borrow_mut { give back "borrow_mut" }
+    if builtin_method == v4_mir_builtin_shared_get_mut { give back "get_mut" }
+    if builtin_method == v4_mir_builtin_weak_upgrade { give back "upgrade" }
+    give back ""
+}
+
+task v4_mir_builtin_shared_method_result_type(builtin_method: word, owner_ty: word) -> word {
+    pilot target_ty = v4_ty_shared_target_type(owner_ty)
+    if builtin_method == v4_mir_builtin_shared_new or builtin_method == v4_mir_builtin_shared_clone {
+        give back owner_ty
+    }
+    if builtin_method == v4_mir_builtin_shared_downgrade {
+        give back v4_ty_weak_type(target_ty)
+    }
+    if builtin_method == v4_mir_builtin_shared_borrow {
+        give back v4_ty_lend_type(target_ty, v4_ty_param_mode_lend)
+    }
+    if builtin_method == v4_mir_builtin_shared_borrow_mut {
+        give back "result<" + v4_ty_shared_mut_type(target_ty) + ",BorrowError>"
+    }
+    if builtin_method == v4_mir_builtin_shared_get_mut {
+        give back "maybe<" + v4_ty_lend_type(target_ty, v4_ty_param_mode_lend_mut) + ">"
+    }
+    if builtin_method == v4_mir_builtin_weak_upgrade {
+        give back "maybe<" + v4_ty_shared_type(target_ty) + ">"
+    }
+    give back v4_ty_unknown
+}
+
+-- Exact identity plus structural checks keep restored or text-forged calls from
+-- impersonating prelude Shared/Weak intrinsics in downstream ownership passes.
+task v4_mir_rvalue_is_builtin_shared_method(mir_id: int, body_id: int, rvalue_id: int, builtin_method: word) -> bool {
+    if not v4_mir_builtin_shared_method_identity_is_known(builtin_method) {
+        give back false
+    }
+    if v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id) != builtin_method {
+        give back false
+    }
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call {
+        give back false
+    }
+    if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) != 1 {
+        give back false
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
+    if arg_rvalue < 0 {
+        give back false
+    }
+
+    if builtin_method == v4_mir_builtin_shared_new {
+        if v4_mir_nominal_builtin_shared_base(mir_id, result_ty) != "Shared" {
+            give back false
+        }
+        if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) != result_ty + "::new" {
+            give back false
+        }
+        pilot target_ty = v4_ty_shared_target_type(result_ty)
+        pilot arg_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+        give back v4_ty_types_compatible(target_ty, arg_ty)
+    }
+
+    pilot receiver_mode = v4_mir_builtin_shared_method_receiver_mode(builtin_method)
+    pilot receiver_kind = v4_mir_rvalue_lend
+    if receiver_mode == v4_ty_param_mode_lend_mut {
+        receiver_kind = v4_mir_rvalue_lend_mut
+    }
+    if v4_mir_rvalue_kind(mir_id, body_id, arg_rvalue) != receiver_kind {
+        give back false
+    }
+    pilot receiver_loan_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+    if not v4_ty_is_lend_type(receiver_loan_ty) or v4_ty_lend_mode(receiver_loan_ty) != receiver_mode {
+        give back false
+    }
+    pilot owner_ty = v4_ty_canonical_type(ty_id, v4_ty_lend_target_type(receiver_loan_ty))
+    pilot expected_base = "Shared"
+    if builtin_method == v4_mir_builtin_weak_upgrade {
+        expected_base = "Weak"
+    }
+    if v4_mir_nominal_builtin_shared_base(mir_id, owner_ty) != expected_base {
+        give back false
+    }
+    pilot receiver_rvalue = v4_mir_rvalue_lhs(mir_id, body_id, arg_rvalue)
+    if receiver_rvalue < 0 {
+        give back false
+    }
+    pilot receiver_ty = v4_ty_canonical_type(ty_id, v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue))
+    if receiver_ty != owner_ty {
+        give back false
+    }
+    pilot surface_name = v4_mir_builtin_shared_method_surface_name(builtin_method)
+    if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) != owner_ty + "." + surface_name {
+        give back false
+    }
+    give back result_ty == v4_mir_builtin_shared_method_result_type(builtin_method, owner_ty)
+}
+
 task v4_mir_lower_builtin_shared_new_arg(mir_id: int, body_id: int, stream_id: int, expr_span: word, owner_ty: word, target_ty: word, open_token: int, close_token: int) -> word {
     pilot actual_count = v4_mir_call_arg_count(stream_id, open_token, close_token)
     if actual_count != 1 {
@@ -4212,39 +4435,49 @@ task v4_mir_builtin_shared_receiver_loan_payload(mir_id: int, body_id: int, rece
 }
 
 task v4_mir_try_lower_builtin_shared_instance_method(mir_id: int, body_id: int, stream_id: int, receiver_rvalue: int, receiver_ty: word, method_name: word, open_token: int, close_token: int, expr_span: word, expr_text: word) -> int {
+    if v4_mir_nominal_builtin_shared_base(mir_id, receiver_ty) == "" {
+        give back 0 - 1
+    }
     pilot target_ty = v4_ty_shared_target_type(receiver_ty)
     pilot result_ty = v4_ty_unknown
     pilot method_label = receiver_ty + "." + method_name
     pilot args_payload = ""
     pilot recognized = false
+    pilot builtin_method = ""
 
     if v4_ty_is_shared_type(receiver_ty) {
         if method_name == "clone" {
             result_ty = receiver_ty
             args_payload = v4_mir_builtin_shared_receiver_loan_payload(mir_id, body_id, receiver_rvalue, receiver_ty, v4_ty_param_mode_lend, expr_span)
             recognized = true
+            builtin_method = v4_mir_builtin_shared_clone
         } else if method_name == "downgrade" {
             result_ty = v4_ty_weak_type(target_ty)
             args_payload = v4_mir_builtin_shared_receiver_loan_payload(mir_id, body_id, receiver_rvalue, receiver_ty, v4_ty_param_mode_lend, expr_span)
             recognized = true
+            builtin_method = v4_mir_builtin_shared_downgrade
         } else if method_name == "borrow" {
             result_ty = v4_ty_lend_type(target_ty, v4_ty_param_mode_lend)
             args_payload = v4_mir_builtin_shared_receiver_loan_payload(mir_id, body_id, receiver_rvalue, receiver_ty, v4_ty_param_mode_lend, expr_span)
             recognized = true
+            builtin_method = v4_mir_builtin_shared_borrow
         } else if method_name == "borrow_mut" {
             result_ty = "result<" + v4_ty_shared_mut_type(target_ty) + ",BorrowError>"
             args_payload = v4_mir_builtin_shared_receiver_loan_payload(mir_id, body_id, receiver_rvalue, receiver_ty, v4_ty_param_mode_lend_mut, expr_span)
             recognized = true
+            builtin_method = v4_mir_builtin_shared_borrow_mut
         } else if method_name == "get_mut" {
             result_ty = "maybe<" + v4_ty_lend_type(target_ty, v4_ty_param_mode_lend_mut) + ">"
             args_payload = v4_mir_builtin_shared_receiver_loan_payload(mir_id, body_id, receiver_rvalue, receiver_ty, v4_ty_param_mode_lend_mut, expr_span)
             recognized = true
+            builtin_method = v4_mir_builtin_shared_get_mut
         }
     } else if v4_ty_is_weak_type(receiver_ty) {
         if method_name == "upgrade" {
             result_ty = "maybe<" + v4_ty_shared_type(target_ty) + ">"
             args_payload = v4_mir_builtin_shared_receiver_loan_payload(mir_id, body_id, receiver_rvalue, receiver_ty, v4_ty_param_mode_lend, expr_span)
             recognized = true
+            builtin_method = v4_mir_builtin_weak_upgrade
         } else if method_name == "borrow" or method_name == "borrow_mut" or method_name == "get_mut" {
             v4_mir_add_type_error(mir_id, expr_span, "Weak must upgrade before borrow", receiver_ty + "." + method_name + " cannot produce a live view; call upgrade() and check the maybe<Shared<T>> first")
             result_ty = v4_ty_unknown
@@ -4256,14 +4489,17 @@ task v4_mir_try_lower_builtin_shared_instance_method(mir_id: int, body_id: int, 
         give back 0 - 1
     }
 
-    v4_mir_check_builtin_no_args(mir_id, body_id, stream_id, expr_span, method_label, open_token, close_token)
+    pilot args_valid = v4_mir_check_builtin_no_args(mir_id, body_id, stream_id, expr_span, method_label, open_token, close_token)
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, method_label, 0 - 1, 0 - 1, expr_span, result_ty)
     v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, args_payload)
+    if args_valid and builtin_method != "" {
+        v4_mir_set_rvalue_builtin_method(mir_id, body_id, call_rvalue, builtin_method)
+    }
     give back call_rvalue
 }
 
 task v4_mir_try_lower_builtin_shared_associated_method(mir_id: int, body_id: int, stream_id: int, owner_ty: word, method_name: word, open_token: int, close_token: int, expr_span: word, expr_text: word) -> int {
-    if v4_ty_is_shared_type(owner_ty) == false {
+    if v4_mir_nominal_builtin_shared_base(mir_id, owner_ty) != "Shared" {
         give back 0 - 1
     }
     if method_name != "new" {
@@ -4271,9 +4507,21 @@ task v4_mir_try_lower_builtin_shared_associated_method(mir_id: int, body_id: int
     }
 
     pilot target_ty = v4_ty_shared_target_type(owner_ty)
+    pilot owner_generic_rejected = false
+    if v4_ty_type_contains_lend(target_ty) {
+        v4_mir_add_lend_bearing_generic_call_error(mir_id, expr_span, owner_ty + "::new", "derives owner generic", "T", target_ty)
+        owner_generic_rejected = true
+    }
     pilot args_payload = v4_mir_lower_builtin_shared_new_arg(mir_id, body_id, stream_id, expr_span, owner_ty, target_ty, open_token, close_token)
-    pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, owner_ty + "::new", 0 - 1, 0 - 1, expr_span, owner_ty)
+    pilot result_ty = owner_ty
+    if owner_generic_rejected {
+        result_ty = v4_ty_unknown
+    }
+    pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, owner_ty + "::new", 0 - 1, 0 - 1, expr_span, result_ty)
     v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, args_payload)
+    if not owner_generic_rejected and v4_mir_call_arg_count(stream_id, open_token, close_token) == 1 {
+        v4_mir_set_rvalue_builtin_method(mir_id, body_id, call_rvalue, v4_mir_builtin_shared_new)
+    }
     give back call_rvalue
 }
 
@@ -4730,6 +4978,7 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     pilot bound_method_ambiguous = false
     pilot any_ref = ""
     pilot explicit_args_payload = ""
+    pilot owner_generics_rejected = false
     if method_ref == "" {
         bound_method_ref = v4_mir_find_dyn_method_ref(mir_id, receiver_ty, method_name, true)
         if bound_method_ref == "" {
@@ -4753,6 +5002,7 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
             }
         }
     } else {
+        owner_generics_rejected = v4_mir_reject_lend_bearing_impl_owner_generics(mir_id, expr_span, receiver_ty + "." + method_name, receiver_ty, method_ref)
         explicit_args_payload = v4_mir_check_method_args(mir_id, body_id, stream_id, expr_span, receiver_ty, method_name, method_ref, open_token, last, ".")
     }
 
@@ -4762,6 +5012,9 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
     }
     if method_ref == "" and any_ref != "" {
         result_ty = v4_mir_method_return_type(mir_id, receiver_ty, any_ref)
+    }
+    if owner_generics_rejected {
+        result_ty = v4_ty_unknown
     }
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, receiver_ty + "." + method_name, receiver_rvalue, 0 - 1, expr_span, result_ty)
     pilot call_args = v4_mir_call_args_payload_append("", receiver_rvalue)
@@ -4816,6 +5069,7 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
     pilot bound_ufcs_ambiguous = false
     pilot explicit_args_payload = ""
     pilot receiver_rvalue = 0 - 1
+    pilot owner_generics_rejected = false
     if method_ref == "" {
         bound_method_ref = v4_mir_find_dyn_method_ref(mir_id, lookup_owner_ty, method_name, false)
         if bound_method_ref == "" {
@@ -4833,6 +5087,7 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
         } else if not bound_method_ambiguous {
             ufcs_ref = v4_mir_find_method_ref(mir_id, lookup_owner_ty, method_name, true)
             if ufcs_ref != "" {
+                owner_generics_rejected = v4_mir_reject_lend_bearing_impl_owner_generics(mir_id, expr_span, owner_ty + "::" + method_name, lookup_owner_ty, ufcs_ref)
                 explicit_args_payload = v4_mir_check_ufcs_method_args(mir_id, body_id, stream_id, expr_span, owner_ty, lookup_owner_ty, method_name, ufcs_ref, open_token, last)
             } else {
                 bound_ufcs_ref = v4_mir_find_dyn_method_ref(mir_id, lookup_owner_ty, method_name, true)
@@ -4857,6 +5112,7 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
             }
         }
     } else {
+        owner_generics_rejected = v4_mir_reject_lend_bearing_impl_owner_generics(mir_id, expr_span, owner_ty + "::" + method_name, lookup_owner_ty, method_ref)
         explicit_args_payload = v4_mir_check_method_args(mir_id, body_id, stream_id, expr_span, owner_ty, method_name, method_ref, open_token, last, "::")
     }
 
@@ -4869,6 +5125,9 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
     }
     if method_ref == "" and bound_ufcs_ref != "" {
         result_ty = v4_mir_bound_method_return_type(mir_id, lookup_owner_ty, bound_ufcs_ref)
+    }
+    if owner_generics_rejected {
+        result_ty = v4_ty_unknown
     }
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, owner_ty + "::" + method_name, receiver_rvalue, 0 - 1, expr_span, result_ty)
     v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, explicit_args_payload)
@@ -9907,6 +10166,7 @@ task v4_mir_snapshot_rvalue_line(mir_id: int, body_id: int, rvalue_id: int) -> w
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_rvalue_abi(mir_id, body_id, rvalue_id))
     out = out + "|" + v4_mir_snapshot_escape(v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id))
     give back out
 }
 
@@ -10122,6 +10382,7 @@ task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
     array_set(v4_mir_body_rvalue_tys, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_rvalue_abis, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_rvalue_args, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_rvalue_builtin_methods, mir_id, word_from_int(array_new()))
     array_set(v4_mir_diags, mir_id, word_from_int(array_new()))
     give back mir_id
 }
@@ -10166,6 +10427,7 @@ task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name
     array_set(v4_mir_rvalue_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_rvalue_abis_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_rvalue_args_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_rvalue_builtin_methods_index_handle(mir_id), body_id, word_from_int(array_new()))
     give back 1
 }
 
@@ -10256,7 +10518,7 @@ task v4_mir_restore_place_slot(mir_id: int, body_id: int, place_id: int, place_k
     give back 1
 }
 
-task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalue_kind: word, text: word, op: word, lhs: int, rhs: int, span: word, rvalue_ty: word, rvalue_abi: word, rvalue_args: word) -> int {
+task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalue_kind: word, text: word, op: word, lhs: int, rhs: int, span: word, rvalue_ty: word, rvalue_abi: word, rvalue_args: word, builtin_method: word) -> int {
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
     }
@@ -10270,6 +10532,7 @@ task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalu
         array_push(v4_mir_body_rvalue_tys_handle(mir_id, body_id), v4_ty_unknown)
         array_push(v4_mir_body_rvalue_abis_handle(mir_id, body_id), "")
         array_push(v4_mir_body_rvalue_args_handle(mir_id, body_id), "")
+        array_push(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), "")
     }
     array_set(v4_mir_body_rvalue_kinds_handle(mir_id, body_id), rvalue_id, rvalue_kind)
     array_set(v4_mir_body_rvalue_texts_handle(mir_id, body_id), rvalue_id, text)
@@ -10280,6 +10543,7 @@ task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalu
     array_set(v4_mir_body_rvalue_tys_handle(mir_id, body_id), rvalue_id, rvalue_ty)
     array_set(v4_mir_body_rvalue_abis_handle(mir_id, body_id), rvalue_id, rvalue_abi)
     array_set(v4_mir_body_rvalue_args_handle(mir_id, body_id), rvalue_id, rvalue_args)
+    array_set(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), rvalue_id, builtin_method)
     give back 1
 }
 
@@ -10381,7 +10645,14 @@ task v4_mir_snapshot_restore_rvalue_line(line: word) -> int {
     pilot rvalue_ty = v4_mir_snapshot_field(line, 10)
     pilot rvalue_abi = v4_mir_snapshot_field(line, 11)
     pilot rvalue_args = v4_mir_snapshot_field(line, 12)
-    give back v4_mir_restore_rvalue_slot(mir_id, body_id, rvalue_id, rvalue_kind, text, op, lhs, rhs, span, rvalue_ty, rvalue_abi, rvalue_args)
+    pilot builtin_method = ""
+    if v4_mir_snapshot_field_count(line) > 13 {
+        builtin_method = v4_mir_snapshot_field(line, 13)
+        if not v4_mir_builtin_shared_method_identity_is_known(builtin_method) {
+            builtin_method = ""
+        }
+    }
+    give back v4_mir_restore_rvalue_slot(mir_id, body_id, rvalue_id, rvalue_kind, text, op, lhs, rhs, span, rvalue_ty, rvalue_abi, rvalue_args, builtin_method)
 }
 
 task v4_mir_snapshot_restore_diag_line(line: word) -> int {
