@@ -261,7 +261,8 @@ v4_contract_region_resource_hot_reuse_stable = v4_contract_region_resource_hot_r
 
 -- Bounded row counts only prove replacement. Warm once after churn, then require
 -- identical checks to preserve active rows, capacities, and eviction totals.
-pilot v4_contract_region_resource_warm_borrow = v4_borrowck_check_mir(0, v4_contract_region_resource_mir)
+pilot v4_contract_region_resource_warm_borrow = 0
+v4_contract_region_resource_warm_borrow = v4_borrowck_check_mir(0, v4_contract_region_resource_mir)
 if not v4_contract_region_resource_diamond_stable(v4_contract_region_resource_warm_borrow, v4_contract_region_resource_diamond_def) {
     v4_contract_region_resource_semantics_stable = false
     v4_contract_region_resource_source_order_stable = false
@@ -356,7 +357,8 @@ v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_n
 v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_no_historical_growth and v4_contract_region_resource_integer_intern_stable and v4_contract_region_resource_path_cache_stable and v4_contract_region_resource_path_value_cache_stable
 v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_no_historical_growth and v4_contract_region_resource_steady_state_evictions_stable
 v4_contract_region_resource_no_historical_growth = v4_contract_region_resource_no_historical_growth and v4_contract_region_resource_integer_rebuild_correct and v4_contract_region_resource_path_rebuild_correct and v4_contract_region_resource_hot_reuse_stable
-pilot v4_contract_region_resource_runtime_array_growth = v4_contract_region_resource_check_runtime_array_growth()
+pilot v4_contract_region_resource_runtime_array_growth = false
+v4_contract_region_resource_runtime_array_growth = v4_contract_region_resource_check_runtime_array_growth()
 
 say "contract-region-resource-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_resource_ty))
 say "contract-region-resource-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_resource_mir))
@@ -391,6 +393,9 @@ say "contract-region-resource-canonical-path-cache-bounded=" + v4_contract_regio
 say "contract-region-resource-canonical-path-rebuild-correct=" + v4_contract_region_resource_bool(v4_contract_region_resource_path_rebuild_correct)
 say "contract-region-resource-cache-evictions-observed=" + v4_contract_region_resource_bool(v4_contract_region_resource_cache_evictions_observed)
 say "contract-region-resource-hot-reuse-stable=" + v4_contract_region_resource_bool(v4_contract_region_resource_hot_reuse_stable)
+say "contract-region-resource-steady-integer-eviction-delta=" + word_from_int(v4_borrowck_provenance_integer_intern_eviction_count() - v4_contract_region_resource_steady_integer_evictions)
+say "contract-region-resource-steady-path-eviction-delta=" + word_from_int(v4_borrowck_path_canon_cache_eviction_count() - v4_contract_region_resource_steady_path_evictions)
+say "contract-region-resource-steady-path-value-eviction-delta=" + word_from_int(v4_borrowck_path_canon_value_cache_eviction_count() - v4_contract_region_resource_steady_path_value_evictions)
 say "contract-region-resource-steady-state-evictions-stable=" + v4_contract_region_resource_bool(v4_contract_region_resource_steady_state_evictions_stable)
 say "contract-region-resource-no-historical-growth=" + v4_contract_region_resource_bool(v4_contract_region_resource_no_historical_growth)
 say "contract-region-resource-runtime-array-growth=" + v4_contract_region_resource_bool(v4_contract_region_resource_runtime_array_growth)
