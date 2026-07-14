@@ -2264,15 +2264,105 @@ task v4_unit_snapshot_visible_source_count() -> int {
 }
 
 task v4_unit_snapshot_identity_char_code(ch: word) -> int {
-    pilot alphabet = "\n\r\t !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_abcdefghijklmnopqrstuvwxyz"
-    alphabet = alphabet + "{"
-    alphabet = alphabet + "|"
-    alphabet = alphabet + "}~"
-    pilot idx = 0
-    repeat until idx >= alphabet.length() {
-        if alphabet.char_at(idx) == ch { give back idx + 1 }
-        idx += 1
-    }
+    -- Keep this allocation-constant. The bootstrap word runtime does not yet
+    -- reclaim the temporary words produced by nested char_at scans.
+    if ch == "\n" { give back 1 }
+    if ch == "\r" { give back 2 }
+    if ch == "\t" { give back 3 }
+    if ch == " " { give back 4 }
+    if ch == "!" { give back 5 }
+    if ch == "\"" { give back 6 }
+    if ch == "#" { give back 7 }
+    if ch == "$" { give back 8 }
+    if ch == "%" { give back 9 }
+    if ch == "&" { give back 10 }
+    if ch == "'" { give back 11 }
+    if ch == "(" { give back 12 }
+    if ch == ")" { give back 13 }
+    if ch == "*" { give back 14 }
+    if ch == "+" { give back 15 }
+    if ch == "," { give back 16 }
+    if ch == "-" { give back 17 }
+    if ch == "." { give back 18 }
+    if ch == "/" { give back 19 }
+    if ch == "0" { give back 20 }
+    if ch == "1" { give back 21 }
+    if ch == "2" { give back 22 }
+    if ch == "3" { give back 23 }
+    if ch == "4" { give back 24 }
+    if ch == "5" { give back 25 }
+    if ch == "6" { give back 26 }
+    if ch == "7" { give back 27 }
+    if ch == "8" { give back 28 }
+    if ch == "9" { give back 29 }
+    if ch == ":" { give back 30 }
+    if ch == ";" { give back 31 }
+    if ch == "<" { give back 32 }
+    if ch == "=" { give back 33 }
+    if ch == ">" { give back 34 }
+    if ch == "?" { give back 35 }
+    if ch == "@" { give back 36 }
+    if ch == "A" { give back 37 }
+    if ch == "B" { give back 38 }
+    if ch == "C" { give back 39 }
+    if ch == "D" { give back 40 }
+    if ch == "E" { give back 41 }
+    if ch == "F" { give back 42 }
+    if ch == "G" { give back 43 }
+    if ch == "H" { give back 44 }
+    if ch == "I" { give back 45 }
+    if ch == "J" { give back 46 }
+    if ch == "K" { give back 47 }
+    if ch == "L" { give back 48 }
+    if ch == "M" { give back 49 }
+    if ch == "N" { give back 50 }
+    if ch == "O" { give back 51 }
+    if ch == "P" { give back 52 }
+    if ch == "Q" { give back 53 }
+    if ch == "R" { give back 54 }
+    if ch == "S" { give back 55 }
+    if ch == "T" { give back 56 }
+    if ch == "U" { give back 57 }
+    if ch == "V" { give back 58 }
+    if ch == "W" { give back 59 }
+    if ch == "X" { give back 60 }
+    if ch == "Y" { give back 61 }
+    if ch == "Z" { give back 62 }
+    if ch == "[" { give back 63 }
+    if ch == "\\" { give back 64 }
+    if ch == "]" { give back 65 }
+    if ch == "^" { give back 66 }
+    if ch == "_" { give back 67 }
+    if ch == "a" { give back 68 }
+    if ch == "b" { give back 69 }
+    if ch == "c" { give back 70 }
+    if ch == "d" { give back 71 }
+    if ch == "e" { give back 72 }
+    if ch == "f" { give back 73 }
+    if ch == "g" { give back 74 }
+    if ch == "h" { give back 75 }
+    if ch == "i" { give back 76 }
+    if ch == "j" { give back 77 }
+    if ch == "k" { give back 78 }
+    if ch == "l" { give back 79 }
+    if ch == "m" { give back 80 }
+    if ch == "n" { give back 81 }
+    if ch == "o" { give back 82 }
+    if ch == "p" { give back 83 }
+    if ch == "q" { give back 84 }
+    if ch == "r" { give back 85 }
+    if ch == "s" { give back 86 }
+    if ch == "t" { give back 87 }
+    if ch == "u" { give back 88 }
+    if ch == "v" { give back 89 }
+    if ch == "w" { give back 90 }
+    if ch == "x" { give back 91 }
+    if ch == "y" { give back 92 }
+    if ch == "z" { give back 93 }
+    if ch == "{" { give back 94 }
+    if ch == "|" { give back 95 }
+    if ch == "}" { give back 96 }
+    if ch == "~" { give back 97 }
     give back 0 - 1
 }
 
@@ -2306,7 +2396,10 @@ task v4_unit_snapshot_source_identity_current() -> word {
     repeat until file_id >= v4_source_count() {
         if v4_source_path(file_id) != "" {
             if material != "" { material = material + "\n" }
-            material = material + v4_unit_snapshot_source_line(file_id)
+            material = material + "unit-source|" + word_from_int(file_id)
+            material = material + "|" + v4_unit_snapshot_escape(v4_source_path(file_id))
+            material = material + "|" + word_from_int(v4_source_revision(file_id))
+            material = material + "|" + v4_unit_snapshot_escape(v4_source_fingerprint(file_id))
         }
         file_id += 1
     }
@@ -2321,7 +2414,10 @@ task v4_unit_snapshot_source_identity_from_payload(payload: word) -> word {
         pilot line = v4_unit_snapshot_line(payload, line_id)
         if line != "" and v4_unit_snapshot_field_raw(line, 0) == "unit-source" {
             if material != "" { material = material + "\n" }
-            material = material + line
+            material = material + "unit-source|" + v4_unit_snapshot_field_raw(line, 1)
+            material = material + "|" + v4_unit_snapshot_field_raw(line, 2)
+            material = material + "|" + v4_unit_snapshot_field_raw(line, 3)
+            material = material + "|" + v4_unit_snapshot_field_raw(line, 4)
         }
         line_id += 1
     }
