@@ -1213,6 +1213,10 @@ static void freak_array_reserve_handle(void) {
     }
 
     int64_t old_capacity = freak_array_capacity;
+    if (old_capacity > INT64_MAX / 2) {
+        fprintf(stderr, "FREAK: array handle table is too large\n");
+        exit(1);
+    }
     int64_t new_capacity = old_capacity == 0 ? 256 : old_capacity * 2;
     if (new_capacity <= old_capacity || (uint64_t)new_capacity > SIZE_MAX / sizeof(freak_dyn_array)) {
         fprintf(stderr, "FREAK: array handle table is too large\n");
