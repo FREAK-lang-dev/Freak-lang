@@ -4271,6 +4271,17 @@ task v4_mir_builtin_shared_method_identity_is_known(builtin_method: word) -> boo
     give back builtin_method == v4_mir_builtin_shared_new or builtin_method == v4_mir_builtin_shared_clone or builtin_method == v4_mir_builtin_shared_downgrade or builtin_method == v4_mir_builtin_shared_borrow or builtin_method == v4_mir_builtin_shared_borrow_mut or builtin_method == v4_mir_builtin_shared_get_mut or builtin_method == v4_mir_builtin_weak_upgrade
 }
 
+task v4_mir_builtin_shared_method_identity_code(builtin_method: word) -> int {
+    if builtin_method == v4_mir_builtin_shared_new { give back 1 }
+    if builtin_method == v4_mir_builtin_shared_clone { give back 2 }
+    if builtin_method == v4_mir_builtin_shared_downgrade { give back 3 }
+    if builtin_method == v4_mir_builtin_shared_borrow { give back 4 }
+    if builtin_method == v4_mir_builtin_shared_borrow_mut { give back 5 }
+    if builtin_method == v4_mir_builtin_shared_get_mut { give back 6 }
+    if builtin_method == v4_mir_builtin_weak_upgrade { give back 7 }
+    give back 0
+}
+
 task v4_mir_builtin_shared_method_receiver_mode(builtin_method: word) -> word {
     if builtin_method == v4_mir_builtin_shared_borrow_mut or builtin_method == v4_mir_builtin_shared_get_mut {
         give back v4_ty_param_mode_lend_mut
@@ -10247,7 +10258,7 @@ task v4_mir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "mir-local" { give back 9 }
     if kind == "mir-stmt" { give back 11 }
     if kind == "mir-place" { give back 11 }
-    if kind == "mir-rvalue" { give back 13 }
+    if kind == "mir-rvalue" { give back 14 }
     if kind == "mir-diag" { give back 4 }
     if kind == "end" { give back 2 }
     give back 0
@@ -10259,10 +10270,17 @@ task v4_mir_snapshot_record_is_valid(line: word) -> bool {
     if expected == 0 {
         give back false
     }
-    if v4_mir_snapshot_field_count(line) < expected {
+    if v4_mir_snapshot_field_count(line) != expected {
         give back false
     }
     give back true
+}
+
+task v4_mir_snapshot_nonnegative_int_is_valid(raw: word) -> bool {
+    if raw == "" { give back false }
+    pilot value = word_to_int(raw)
+    if value < 0 { give back false }
+    give back word_from_int(value) == raw
 }
 
 task v4_mir_snapshot_validate(payload: word) -> word {
@@ -10279,37 +10297,260 @@ task v4_mir_snapshot_validate(payload: word) -> word {
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_files = 0 - 1
+    pilot declared_bodies = 0 - 1
+    pilot declared_blocks = 0 - 1
+    pilot declared_locals = 0 - 1
+    pilot declared_statements = 0 - 1
+    pilot declared_places = 0 - 1
+    pilot declared_rvalues = 0 - 1
+    pilot declared_diagnostics = 0 - 1
+
+    pilot current_mir = 0 - 1
+    pilot current_body = 0 - 1
+    pilot file_declared_bodies = 0
+    pilot file_declared_diagnostics = 0
+    pilot file_bodies = 0
+    pilot file_diagnostics = 0
+    pilot file_phase = 0
+    pilot body_declared_blocks = 0
+    pilot body_declared_locals = 0
+    pilot body_declared_statements = 0
+    pilot body_declared_places = 0
+    pilot body_declared_rvalues = 0
+    pilot body_blocks = 0
+    pilot body_locals = 0
+    pilot body_statements = 0
+    pilot body_places = 0
+    pilot body_rvalues = 0
+    pilot body_phase = 0
 
     pilot line_id = 0
     repeat until line_id >= lines {
         pilot line = v4_mir_snapshot_line(payload, line_id)
         if line != "" {
             pilot kind = v4_mir_snapshot_field_raw(line, 0)
-            if v4_mir_snapshot_record_is_valid(line) == false {
+            if saw_end > 0 {
+                malformed += 1
+            } else if v4_mir_snapshot_record_is_valid(line) == false {
                 malformed += 1
             } else if kind == "mir-snapshot" {
                 saw_header += 1
                 format = v4_mir_snapshot_key_value(line, "format")
-                if format != v4_mir_snapshot_format {
-                    malformed += 1
-                }
+                if line_id != 0 { malformed += 1 }
+                if format != v4_mir_snapshot_format { malformed += 1 }
+
+                pilot raw_files = v4_mir_snapshot_key_value(line, "files")
+                pilot raw_bodies = v4_mir_snapshot_key_value(line, "bodies")
+                pilot raw_blocks = v4_mir_snapshot_key_value(line, "blocks")
+                pilot raw_locals = v4_mir_snapshot_key_value(line, "locals")
+                pilot raw_statements = v4_mir_snapshot_key_value(line, "statements")
+                pilot raw_places = v4_mir_snapshot_key_value(line, "places")
+                pilot raw_rvalues = v4_mir_snapshot_key_value(line, "rvalues")
+                pilot raw_diagnostics = v4_mir_snapshot_key_value(line, "diagnostics")
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_files) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_bodies) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_blocks) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_locals) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_statements) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_places) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_rvalues) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_diagnostics) { malformed += 1 }
+                declared_files = word_to_int(raw_files)
+                declared_bodies = word_to_int(raw_bodies)
+                declared_blocks = word_to_int(raw_blocks)
+                declared_locals = word_to_int(raw_locals)
+                declared_statements = word_to_int(raw_statements)
+                declared_places = word_to_int(raw_places)
+                declared_rvalues = word_to_int(raw_rvalues)
+                declared_diagnostics = word_to_int(raw_diagnostics)
             } else if kind == "mir" {
+                if saw_header != 1 { malformed += 1 }
+                if current_body >= 0 {
+                    if body_blocks != body_declared_blocks { malformed += 1 }
+                    if body_locals != body_declared_locals { malformed += 1 }
+                    if body_statements != body_declared_statements { malformed += 1 }
+                    if body_places != body_declared_places { malformed += 1 }
+                    if body_rvalues != body_declared_rvalues { malformed += 1 }
+                    current_body = 0 - 1
+                }
+                if current_mir >= 0 {
+                    if file_bodies != file_declared_bodies { malformed += 1 }
+                    if file_diagnostics != file_declared_diagnostics { malformed += 1 }
+                }
+
+                pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
+                pilot raw_file_id = v4_mir_snapshot_field_raw(line, 2)
+                pilot raw_ty_id = v4_mir_snapshot_field_raw(line, 3)
+                pilot raw_body_count = v4_mir_snapshot_field_raw(line, 4)
+                pilot raw_diag_count = v4_mir_snapshot_field_raw(line, 5)
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_mir_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_file_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_ty_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_body_count) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_diag_count) { malformed += 1 }
+                if word_to_int(raw_mir_id) != files { malformed += 1 }
+
+                current_mir = word_to_int(raw_mir_id)
+                file_declared_bodies = word_to_int(raw_body_count)
+                file_declared_diagnostics = word_to_int(raw_diag_count)
+                file_bodies = 0
+                file_diagnostics = 0
+                file_phase = 0
                 files += 1
             } else if kind == "mir-body" {
+                if current_body >= 0 {
+                    if body_blocks != body_declared_blocks { malformed += 1 }
+                    if body_locals != body_declared_locals { malformed += 1 }
+                    if body_statements != body_declared_statements { malformed += 1 }
+                    if body_places != body_declared_places { malformed += 1 }
+                    if body_rvalues != body_declared_rvalues { malformed += 1 }
+                }
+
+                pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
+                pilot raw_body_id = v4_mir_snapshot_field_raw(line, 2)
+                pilot raw_block_count = v4_mir_snapshot_field_raw(line, 6)
+                pilot raw_local_count = v4_mir_snapshot_field_raw(line, 7)
+                pilot raw_stmt_count = v4_mir_snapshot_field_raw(line, 8)
+                pilot raw_place_count = v4_mir_snapshot_field_raw(line, 9)
+                pilot raw_rvalue_count = v4_mir_snapshot_field_raw(line, 10)
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_mir_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_body_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_block_count) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_local_count) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_stmt_count) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_place_count) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_rvalue_count) { malformed += 1 }
+                if current_mir < 0 { malformed += 1 }
+                if word_to_int(raw_mir_id) != current_mir { malformed += 1 }
+                if word_to_int(raw_body_id) != file_bodies { malformed += 1 }
+                if file_phase != 0 { malformed += 1 }
+
+                current_body = word_to_int(raw_body_id)
+                body_declared_blocks = word_to_int(raw_block_count)
+                body_declared_locals = word_to_int(raw_local_count)
+                body_declared_statements = word_to_int(raw_stmt_count)
+                body_declared_places = word_to_int(raw_place_count)
+                body_declared_rvalues = word_to_int(raw_rvalue_count)
+                body_blocks = 0
+                body_locals = 0
+                body_statements = 0
+                body_places = 0
+                body_rvalues = 0
+                body_phase = 0
+                file_bodies += 1
                 bodies += 1
             } else if kind == "mir-block" {
+                pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
+                pilot raw_body_id = v4_mir_snapshot_field_raw(line, 2)
+                pilot raw_child_id = v4_mir_snapshot_field_raw(line, 3)
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_mir_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_body_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_child_id) { malformed += 1 }
+                if current_mir < 0 or current_body < 0 { malformed += 1 }
+                if word_to_int(raw_mir_id) != current_mir { malformed += 1 }
+                if word_to_int(raw_body_id) != current_body { malformed += 1 }
+                if word_to_int(raw_child_id) != body_blocks { malformed += 1 }
+                if body_phase > 1 { malformed += 1 }
+                body_phase = 1
+                body_blocks += 1
                 blocks += 1
             } else if kind == "mir-local" {
+                pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
+                pilot raw_body_id = v4_mir_snapshot_field_raw(line, 2)
+                pilot raw_child_id = v4_mir_snapshot_field_raw(line, 3)
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_mir_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_body_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_child_id) { malformed += 1 }
+                if current_mir < 0 or current_body < 0 { malformed += 1 }
+                if word_to_int(raw_mir_id) != current_mir { malformed += 1 }
+                if word_to_int(raw_body_id) != current_body { malformed += 1 }
+                if word_to_int(raw_child_id) != body_locals { malformed += 1 }
+                if body_phase > 2 { malformed += 1 }
+                body_phase = 2
+                body_locals += 1
                 locals += 1
             } else if kind == "mir-stmt" {
+                pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
+                pilot raw_body_id = v4_mir_snapshot_field_raw(line, 2)
+                pilot raw_child_id = v4_mir_snapshot_field_raw(line, 3)
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_mir_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_body_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_child_id) { malformed += 1 }
+                if current_mir < 0 or current_body < 0 { malformed += 1 }
+                if word_to_int(raw_mir_id) != current_mir { malformed += 1 }
+                if word_to_int(raw_body_id) != current_body { malformed += 1 }
+                if word_to_int(raw_child_id) != body_statements { malformed += 1 }
+                if body_phase > 3 { malformed += 1 }
+                body_phase = 3
+                body_statements += 1
                 statements += 1
             } else if kind == "mir-place" {
+                pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
+                pilot raw_body_id = v4_mir_snapshot_field_raw(line, 2)
+                pilot raw_child_id = v4_mir_snapshot_field_raw(line, 3)
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_mir_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_body_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_child_id) { malformed += 1 }
+                if current_mir < 0 or current_body < 0 { malformed += 1 }
+                if word_to_int(raw_mir_id) != current_mir { malformed += 1 }
+                if word_to_int(raw_body_id) != current_body { malformed += 1 }
+                if word_to_int(raw_child_id) != body_places { malformed += 1 }
+                if body_phase > 4 { malformed += 1 }
+                body_phase = 4
+                body_places += 1
                 places += 1
             } else if kind == "mir-rvalue" {
+                pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
+                pilot raw_body_id = v4_mir_snapshot_field_raw(line, 2)
+                pilot raw_child_id = v4_mir_snapshot_field_raw(line, 3)
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_mir_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_body_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_child_id) { malformed += 1 }
+                if current_mir < 0 or current_body < 0 { malformed += 1 }
+                if word_to_int(raw_mir_id) != current_mir { malformed += 1 }
+                if word_to_int(raw_body_id) != current_body { malformed += 1 }
+                if word_to_int(raw_child_id) != body_rvalues { malformed += 1 }
+                pilot builtin_method = v4_mir_snapshot_field(line, 13)
+                if builtin_method != "" and not v4_mir_builtin_shared_method_identity_is_known(builtin_method) {
+                    malformed += 1
+                }
+                body_phase = 5
+                body_rvalues += 1
                 rvalues += 1
             } else if kind == "mir-diag" {
+                if current_body >= 0 {
+                    if body_blocks != body_declared_blocks { malformed += 1 }
+                    if body_locals != body_declared_locals { malformed += 1 }
+                    if body_statements != body_declared_statements { malformed += 1 }
+                    if body_places != body_declared_places { malformed += 1 }
+                    if body_rvalues != body_declared_rvalues { malformed += 1 }
+                    current_body = 0 - 1
+                }
+                pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
+                pilot raw_diag_id = v4_mir_snapshot_field_raw(line, 2)
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_mir_id) { malformed += 1 }
+                if not v4_mir_snapshot_nonnegative_int_is_valid(raw_diag_id) { malformed += 1 }
+                if current_mir < 0 { malformed += 1 }
+                if word_to_int(raw_mir_id) != current_mir { malformed += 1 }
+                if word_to_int(raw_diag_id) != file_diagnostics { malformed += 1 }
+                file_phase = 1
+                file_diagnostics += 1
                 diagnostics += 1
             } else if kind == "end" {
+                if current_body >= 0 {
+                    if body_blocks != body_declared_blocks { malformed += 1 }
+                    if body_locals != body_declared_locals { malformed += 1 }
+                    if body_statements != body_declared_statements { malformed += 1 }
+                    if body_places != body_declared_places { malformed += 1 }
+                    if body_rvalues != body_declared_rvalues { malformed += 1 }
+                    current_body = 0 - 1
+                }
+                if current_mir >= 0 {
+                    if file_bodies != file_declared_bodies { malformed += 1 }
+                    if file_diagnostics != file_declared_diagnostics { malformed += 1 }
+                    current_mir = 0 - 1
+                }
                 saw_end += 1
                 if v4_mir_snapshot_field(line, 1) != v4_mir_snapshot_format {
                     malformed += 1
@@ -10318,6 +10559,15 @@ task v4_mir_snapshot_validate(payload: word) -> word {
         }
         line_id += 1
     }
+
+    if files != declared_files { malformed += 1 }
+    if bodies != declared_bodies { malformed += 1 }
+    if blocks != declared_blocks { malformed += 1 }
+    if locals != declared_locals { malformed += 1 }
+    if statements != declared_statements { malformed += 1 }
+    if places != declared_places { malformed += 1 }
+    if rvalues != declared_rvalues { malformed += 1 }
+    if diagnostics != declared_diagnostics { malformed += 1 }
 
     pilot import_ok = 1
     if saw_header != 1 { import_ok = 0 }
@@ -10343,6 +10593,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
 }
 
 task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
+    if mir_id < 0 or file_id < 0 or ty_id < 0 { give back 0 }
     v4_mir_init()
     repeat until array_len(v4_mir_files) > mir_id {
         v4_mir_file_new(0, 0)
@@ -10384,10 +10635,11 @@ task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
     array_set(v4_mir_body_rvalue_args, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_rvalue_builtin_methods, mir_id, word_from_int(array_new()))
     array_set(v4_mir_diags, mir_id, word_from_int(array_new()))
-    give back mir_id
+    give back 1
 }
 
 task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name: word, signature: word) -> int {
+    if mir_id < 0 or body_id < 0 { give back 0 }
     if v4_mir_file_exists(mir_id) == false {
         give back 0
     }
@@ -10439,6 +10691,7 @@ task v4_mir_body_slot_exists(mir_id: int, body_id: int) -> bool {
 }
 
 task v4_mir_restore_block_slot(mir_id: int, body_id: int, block_id: int, block_record: word) -> int {
+    if block_id < 0 { give back 0 }
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
     }
@@ -10451,6 +10704,7 @@ task v4_mir_restore_block_slot(mir_id: int, body_id: int, block_id: int, block_r
 }
 
 task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_name: word, local_ty: word, local_mode: word, span: word, scope_span: word) -> int {
+    if local_id < 0 { give back 0 }
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
     }
@@ -10473,6 +10727,7 @@ task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_n
 }
 
 task v4_mir_restore_stmt_slot(mir_id: int, body_id: int, stmt_id: int, stmt_kind: word, lhs: word, rhs: word, span: word, block_id: int, place_id: int, rvalue_id: int) -> int {
+    if stmt_id < 0 { give back 0 }
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
     }
@@ -10496,6 +10751,7 @@ task v4_mir_restore_stmt_slot(mir_id: int, body_id: int, stmt_id: int, stmt_kind
 }
 
 task v4_mir_restore_place_slot(mir_id: int, body_id: int, place_id: int, place_kind: word, text: word, base: int, field: word, index_id: int, span: word, place_ty: word) -> int {
+    if place_id < 0 { give back 0 }
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
     }
@@ -10519,6 +10775,9 @@ task v4_mir_restore_place_slot(mir_id: int, body_id: int, place_id: int, place_k
 }
 
 task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalue_kind: word, text: word, op: word, lhs: int, rhs: int, span: word, rvalue_ty: word, rvalue_abi: word, rvalue_args: word, builtin_method: word) -> int {
+    if rvalue_id < 0 { give back 0 }
+    pilot builtin_method_code = v4_mir_builtin_shared_method_identity_code(builtin_method)
+    if builtin_method != "" and builtin_method_code == 0 { give back 0 }
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
     }
@@ -10534,6 +10793,24 @@ task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalu
         array_push(v4_mir_body_rvalue_args_handle(mir_id, body_id), "")
         array_push(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), "")
     }
+    pilot builtin_methods_handle = v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id)
+    if builtin_method_code == 1 {
+        array_set(builtin_methods_handle, rvalue_id, v4_mir_builtin_shared_new)
+    } else if builtin_method_code == 2 {
+        array_set(builtin_methods_handle, rvalue_id, v4_mir_builtin_shared_clone)
+    } else if builtin_method_code == 3 {
+        array_set(builtin_methods_handle, rvalue_id, v4_mir_builtin_shared_downgrade)
+    } else if builtin_method_code == 4 {
+        array_set(builtin_methods_handle, rvalue_id, v4_mir_builtin_shared_borrow)
+    } else if builtin_method_code == 5 {
+        array_set(builtin_methods_handle, rvalue_id, v4_mir_builtin_shared_borrow_mut)
+    } else if builtin_method_code == 6 {
+        array_set(builtin_methods_handle, rvalue_id, v4_mir_builtin_shared_get_mut)
+    } else if builtin_method_code == 7 {
+        array_set(builtin_methods_handle, rvalue_id, v4_mir_builtin_weak_upgrade)
+    } else {
+        array_set(builtin_methods_handle, rvalue_id, "")
+    }
     array_set(v4_mir_body_rvalue_kinds_handle(mir_id, body_id), rvalue_id, rvalue_kind)
     array_set(v4_mir_body_rvalue_texts_handle(mir_id, body_id), rvalue_id, text)
     array_set(v4_mir_body_rvalue_ops_handle(mir_id, body_id), rvalue_id, op)
@@ -10543,11 +10820,11 @@ task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalu
     array_set(v4_mir_body_rvalue_tys_handle(mir_id, body_id), rvalue_id, rvalue_ty)
     array_set(v4_mir_body_rvalue_abis_handle(mir_id, body_id), rvalue_id, rvalue_abi)
     array_set(v4_mir_body_rvalue_args_handle(mir_id, body_id), rvalue_id, rvalue_args)
-    array_set(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), rvalue_id, builtin_method)
     give back 1
 }
 
 task v4_mir_restore_diag_slot(mir_id: int, diag_id: int, diag: word) -> int {
+    if mir_id < 0 or diag_id < 0 { give back 0 }
     if v4_mir_file_exists(mir_id) == false {
         give back 0
     }
@@ -10564,8 +10841,7 @@ task v4_mir_snapshot_restore_file_line(line: word) -> int {
     pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
     pilot file_id = word_to_int(v4_mir_snapshot_field_raw(line, 2))
     pilot ty_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
-    v4_mir_restore_file_slot(mir_id, file_id, ty_id)
-    give back 1
+    give back v4_mir_restore_file_slot(mir_id, file_id, ty_id)
 }
 
 task v4_mir_snapshot_restore_body_line(line: word) -> int {
@@ -10645,13 +10921,7 @@ task v4_mir_snapshot_restore_rvalue_line(line: word) -> int {
     pilot rvalue_ty = v4_mir_snapshot_field(line, 10)
     pilot rvalue_abi = v4_mir_snapshot_field(line, 11)
     pilot rvalue_args = v4_mir_snapshot_field(line, 12)
-    pilot builtin_method = ""
-    if v4_mir_snapshot_field_count(line) > 13 {
-        builtin_method = v4_mir_snapshot_field(line, 13)
-        if not v4_mir_builtin_shared_method_identity_is_known(builtin_method) {
-            builtin_method = ""
-        }
-    }
+    pilot builtin_method = v4_mir_snapshot_field(line, 13)
     give back v4_mir_restore_rvalue_slot(mir_id, body_id, rvalue_id, rvalue_kind, text, op, lhs, rhs, span, rvalue_ty, rvalue_abi, rvalue_args, builtin_method)
 }
 
@@ -10679,6 +10949,7 @@ task v4_mir_snapshot_restore(payload: word) -> word {
     pilot restored_rvalues = 0
     pilot restored_diagnostics = 0
     pilot skipped_other = 0
+    pilot restore_failures = 0
     pilot line_id = 0
     pilot line_count = v4_mir_snapshot_line_count(payload)
     repeat until line_id >= line_count {
@@ -10686,21 +10957,37 @@ task v4_mir_snapshot_restore(payload: word) -> word {
         if line != "" {
             pilot kind = v4_mir_snapshot_field_raw(line, 0)
             if kind == "mir" {
-                restored_files += v4_mir_snapshot_restore_file_line(line)
+                pilot file_applied = v4_mir_snapshot_restore_file_line(line)
+                restored_files += file_applied
+                if file_applied != 1 { restore_failures += 1 }
             } else if kind == "mir-body" {
-                restored_bodies += v4_mir_snapshot_restore_body_line(line)
+                pilot body_applied = v4_mir_snapshot_restore_body_line(line)
+                restored_bodies += body_applied
+                if body_applied != 1 { restore_failures += 1 }
             } else if kind == "mir-block" {
-                restored_blocks += v4_mir_snapshot_restore_block_line(line)
+                pilot block_applied = v4_mir_snapshot_restore_block_line(line)
+                restored_blocks += block_applied
+                if block_applied != 1 { restore_failures += 1 }
             } else if kind == "mir-local" {
-                restored_locals += v4_mir_snapshot_restore_local_line(line)
+                pilot local_applied = v4_mir_snapshot_restore_local_line(line)
+                restored_locals += local_applied
+                if local_applied != 1 { restore_failures += 1 }
             } else if kind == "mir-stmt" {
-                restored_statements += v4_mir_snapshot_restore_stmt_line(line)
+                pilot stmt_applied = v4_mir_snapshot_restore_stmt_line(line)
+                restored_statements += stmt_applied
+                if stmt_applied != 1 { restore_failures += 1 }
             } else if kind == "mir-place" {
-                restored_places += v4_mir_snapshot_restore_place_line(line)
+                pilot place_applied = v4_mir_snapshot_restore_place_line(line)
+                restored_places += place_applied
+                if place_applied != 1 { restore_failures += 1 }
             } else if kind == "mir-rvalue" {
-                restored_rvalues += v4_mir_snapshot_restore_rvalue_line(line)
+                pilot rvalue_applied = v4_mir_snapshot_restore_rvalue_line(line)
+                restored_rvalues += rvalue_applied
+                if rvalue_applied != 1 { restore_failures += 1 }
             } else if kind == "mir-diag" {
-                restored_diagnostics += v4_mir_snapshot_restore_diag_line(line)
+                pilot diag_applied = v4_mir_snapshot_restore_diag_line(line)
+                restored_diagnostics += diag_applied
+                if diag_applied != 1 { restore_failures += 1 }
             } else if kind != "mir-snapshot" and kind != "end" {
                 skipped_other += 1
             }
@@ -10708,7 +10995,9 @@ task v4_mir_snapshot_restore(payload: word) -> word {
         line_id += 1
     }
 
-    pilot out = "mir-snapshot-restore ok=1"
+    pilot restore_ok = 1
+    if restore_failures > 0 { restore_ok = 0 }
+    pilot out = "mir-snapshot-restore ok=" + word_from_int(restore_ok)
     out = out + " files=" + word_from_int(restored_files)
     out = out + " bodies=" + word_from_int(restored_bodies)
     out = out + " blocks=" + word_from_int(restored_blocks)
@@ -10718,6 +11007,7 @@ task v4_mir_snapshot_restore(payload: word) -> word {
     out = out + " rvalues=" + word_from_int(restored_rvalues)
     out = out + " diagnostics=" + word_from_int(restored_diagnostics)
     out = out + " skipped-other=" + word_from_int(skipped_other)
+    out = out + " failures=" + word_from_int(restore_failures)
     out = out + " live-files=" + word_from_int(v4_mir_file_count())
     give back out
 }

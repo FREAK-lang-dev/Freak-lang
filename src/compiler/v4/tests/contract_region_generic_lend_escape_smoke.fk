@@ -36,6 +36,39 @@ task v4_contract_region_generic_lend_escape_local_rvalue(mir_id: int, body_id: i
     give back 0 - 1
 }
 
+task v4_contract_region_mir_snapshot_integrity(mir_id: int, body_id: int, borrow_rvalue: int, forged_rvalue: int, shadow_mir: int, shadow_body: int, shadow_rvalue: int) -> void {
+    pilot snapshot = v4_mir_snapshot()
+    array_set(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), borrow_rvalue, v4_mir_builtin_shared_clone)
+    say "contract-region-builtin-identity-poisoned-before-restore=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_builtin_method(mir_id, body_id, borrow_rvalue) == v4_mir_builtin_shared_clone)
+
+    pilot missing_field_snapshot = "mir-snapshot|format=freak-mir-snapshot-v4|files=1|bodies=1|blocks=0|locals=0|statements=0|places=0|rvalues=1|diagnostics=0\n"
+    missing_field_snapshot = missing_field_snapshot + "mir|0|0|0|1|0\n"
+    missing_field_snapshot = missing_field_snapshot + "mir-body|0|0||||0|0|0|0|1\n"
+    missing_field_snapshot = missing_field_snapshot + "mir-rvalue|0|0|0||||-1|-1||||\n"
+    missing_field_snapshot = missing_field_snapshot + "end|freak-mir-snapshot-v4"
+    pilot missing_field_validation = v4_mir_snapshot_validate(missing_field_snapshot)
+    pilot missing_field_restore = v4_mir_snapshot_restore(missing_field_snapshot)
+    say "contract-region-mir-snapshot-missing-field-validation-rejected=" + v4_contract_region_generic_lend_escape_bool(missing_field_validation.starts_with("mir-snapshot-import ok=0"))
+    say "contract-region-mir-snapshot-missing-field-restore-rejected=" + v4_contract_region_generic_lend_escape_bool(missing_field_restore.starts_with("mir-snapshot-restore ok=0"))
+
+    pilot child_first_snapshot = "mir-snapshot|format=freak-mir-snapshot-v4|files=1|bodies=1|blocks=1|locals=0|statements=0|places=0|rvalues=0|diagnostics=0\n"
+    child_first_snapshot = child_first_snapshot + "mir|0|0|0|1|0\n"
+    child_first_snapshot = child_first_snapshot + "mir-block|0|0|0|\n"
+    child_first_snapshot = child_first_snapshot + "mir-body|0|0||||0|0|0|0|0\n"
+    child_first_snapshot = child_first_snapshot + "end|freak-mir-snapshot-v4"
+    pilot child_first_validation = v4_mir_snapshot_validate(child_first_snapshot)
+    pilot child_first_restore = v4_mir_snapshot_restore(child_first_snapshot)
+    say "contract-region-mir-snapshot-child-before-parent-validation-rejected=" + v4_contract_region_generic_lend_escape_bool(child_first_validation.starts_with("mir-snapshot-import ok=0"))
+    say "contract-region-mir-snapshot-child-before-parent-restore-rejected=" + v4_contract_region_generic_lend_escape_bool(child_first_restore.starts_with("mir-snapshot-restore ok=0"))
+    say "contract-region-mir-snapshot-invalid-restore-state-stable=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_builtin_method(mir_id, body_id, borrow_rvalue) == v4_mir_builtin_shared_clone)
+
+    pilot restore = v4_mir_snapshot_restore(snapshot)
+    say "contract-region-builtin-identity-restore-ok=" + v4_contract_region_generic_lend_escape_bool(restore.starts_with("mir-snapshot-restore ok=1"))
+    say "contract-region-builtin-identity-borrow-after-restore=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(mir_id, body_id, borrow_rvalue, v4_mir_builtin_shared_borrow))
+    say "contract-region-builtin-identity-forged-after-restore=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(mir_id, body_id, forged_rvalue, v4_mir_builtin_shared_borrow))
+    say "contract-region-builtin-identity-shadow-after-restore=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(shadow_mir, shadow_body, shadow_rvalue, v4_mir_builtin_shared_borrow))
+}
+
 task v4_contract_region_generic_lend_escape_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
@@ -231,9 +264,4 @@ say "contract-region-shadowed-shared-borrow-builtin=" + v4_contract_region_gener
 say "contract-region-shadowed-shared-new-identity-empty=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_builtin_method(v4_contract_region_shadowed_shared_mir, v4_contract_region_shadowed_shared_body, v4_contract_region_shadowed_shared_new_rvalue) == "")
 say "contract-region-shadowed-shared-new-builtin=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(v4_contract_region_shadowed_shared_mir, v4_contract_region_shadowed_shared_body, v4_contract_region_shadowed_shared_new_rvalue, v4_mir_builtin_shared_new))
 
-pilot v4_contract_region_builtin_identity_snapshot = v4_mir_snapshot()
-pilot v4_contract_region_builtin_identity_restore = v4_mir_snapshot_restore(v4_contract_region_builtin_identity_snapshot)
-say "contract-region-builtin-identity-restore-ok=" + v4_contract_region_generic_lend_escape_bool(v4_contract_region_builtin_identity_restore.starts_with("mir-snapshot-restore ok=1"))
-say "contract-region-builtin-identity-borrow-after-restore=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_borrow_rvalue, v4_mir_builtin_shared_borrow))
-say "contract-region-builtin-identity-forged-after-restore=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_forged_borrow, v4_mir_builtin_shared_borrow))
-say "contract-region-builtin-identity-shadow-after-restore=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(v4_contract_region_shadowed_shared_mir, v4_contract_region_shadowed_shared_body, v4_contract_region_shadowed_shared_borrow_rvalue, v4_mir_builtin_shared_borrow))
+v4_contract_region_mir_snapshot_integrity(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_borrow_rvalue, v4_contract_region_owner_generic_happy_forged_borrow, v4_contract_region_shadowed_shared_mir, v4_contract_region_shadowed_shared_body, v4_contract_region_shadowed_shared_borrow_rvalue)
