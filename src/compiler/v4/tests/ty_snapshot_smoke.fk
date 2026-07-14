@@ -7,6 +7,58 @@ task v4_ty_snapshot_bool_text(flag: bool) -> word {
     }
     give back "false"
 }
+
+task v4_ty_snapshot_signature_variant_line(line: word, mode: word) -> word {
+    pilot sig_kind = v4_ty_snapshot_field(line, 4)
+    pilot hir_item = v4_ty_snapshot_field_raw(line, 7)
+    if mode == "unknown-kind" {
+        sig_kind = "causality-signature"
+    } else if mode == "dangling-hir" {
+        pilot ty_id = word_to_int(v4_ty_snapshot_field_raw(line, 1))
+        pilot resolve_id = v4_ty_resolve_id(ty_id)
+        pilot hir_id = v4_resolve_hir_id(resolve_id)
+        hir_item = word_from_int(v4_hir_item_count(hir_id))
+    }
+
+    pilot out = "signature"
+    out = out + "|" + v4_ty_snapshot_field_raw(line, 1)
+    out = out + "|" + v4_ty_snapshot_field_raw(line, 2)
+    out = out + "|" + v4_ty_snapshot_field_raw(line, 3)
+    out = out + "|" + v4_ty_snapshot_escape(sig_kind)
+    out = out + "|" + v4_ty_snapshot_field_raw(line, 5)
+    out = out + "|" + v4_ty_snapshot_field_raw(line, 6)
+    out = out + "|" + hir_item
+    give back out
+}
+
+task v4_ty_snapshot_signature_variant(payload: word, mode: word) -> word {
+    pilot out = ""
+    pilot replaced = false
+    pilot line_id = 0
+    pilot line_count = v4_ty_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_ty_snapshot_line(payload, line_id)
+        if replaced == false and v4_ty_snapshot_field_raw(line, 0) == "signature" {
+            line = v4_ty_snapshot_signature_variant_line(line, mode)
+            replaced = true
+        }
+        if line_id > 0 { out = out + "\n" }
+        out = out + line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_ty_snapshot_signature_assert(mode: word) -> void {
+    pilot before = v4_ty_snapshot()
+    pilot corrupt = v4_ty_snapshot_signature_variant(before, mode)
+    pilot validation = v4_ty_snapshot_validate(corrupt)
+    say "ty-signature-" + mode + "-validate-rejected=" + v4_ty_snapshot_bool_text(validation.starts_with("ty-snapshot-import ok=0"))
+    pilot restore = v4_ty_snapshot_restore(corrupt)
+    say "ty-signature-" + mode + "-restore-rejected=" + v4_ty_snapshot_bool_text(restore.starts_with("ty-snapshot-restore ok=0 reason=validation-failed"))
+    say "ty-signature-" + mode + "-state-stable=" + v4_ty_snapshot_bool_text(v4_ty_snapshot() == before)
+}
+
 task v4_ty_snapshot_run() -> void {
 pilot v4_ty_snapshot_source = "task main() => \"hi|there\"\n"
 v4_ty_snapshot_source = v4_ty_snapshot_source + "shape Pilot\n"
@@ -18,6 +70,8 @@ say v4_ty_summary(v4_ty_snapshot_id)
 say v4_ty_snapshot_summary()
 
 pilot v4_ty_snapshot_payload = v4_ty_snapshot()
+v4_ty_snapshot_signature_assert("unknown-kind")
+v4_ty_snapshot_signature_assert("dangling-hir")
 pilot v4_ty_snapshot_file_count_before = v4_ty_file_count()
 pilot v4_ty_snapshot_retained_defs_handle = v4_ty_defs_handle(v4_ty_snapshot_id)
 pilot v4_ty_snapshot_retained_diags_handle = v4_ty_diags_handle(v4_ty_snapshot_id)
