@@ -591,6 +591,7 @@ _EXECUTABLE_SMOKE_MUTATORS = frozenset(
 _EXECUTABLE_SMOKE_OPERATOR_MUTATORS = frozenset(
     {"delitem", "iadd", "imul", "setitem"}
 )
+_EXECUTABLE_SMOKE_READ_CALLS = frozenset({"len", "list", "tuple"})
 
 
 def _ast_contains_name(node: ast.AST, name: str) -> bool:
@@ -601,7 +602,7 @@ def _ast_contains_name(node: ast.AST, name: str) -> bool:
 
 
 class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
-    """Find module-scope mutations without descending into deferred scopes."""
+    """Find mutations and alias escapes after the literal manifest assignment."""
 
     def __init__(self) -> None:
         self.errors: List[str] = []
@@ -624,41 +625,22 @@ class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
             return self._target_mutates_manifest(target.value)
         return False
 
-    def _visit_function_inputs(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
-    ) -> None:
-        for default in [*node.args.defaults, *node.args.kw_defaults]:
-            if default is not None:
-                self.visit(default)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for decorator in node.decorator_list:
-                self.visit(decorator)
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        self._visit_function_inputs(node)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self._visit_function_inputs(node)
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        for decorator in node.decorator_list:
-            self.visit(decorator)
-        for base in node.bases:
-            self.visit(base)
-        for keyword in node.keywords:
-            self.visit(keyword.value)
-
-    def visit_Lambda(self, node: ast.Lambda) -> None:
-        self._visit_function_inputs(node)
+    @staticmethod
+    def _is_direct_manifest_alias(value: ast.AST) -> bool:
+        return isinstance(value, ast.Name) and value.id == "EXECUTABLE_SMOKES"
 
     def visit_Assign(self, node: ast.Assign) -> None:
         if any(self._target_mutates_manifest(target) for target in node.targets):
             self._record(node, "is rebound or assigned through")
+        elif self._is_direct_manifest_alias(node.value):
+            self._record(node, "escapes through a direct alias")
         self.visit(node.value)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if self._target_mutates_manifest(node.target):
             self._record(node, "is rebound or assigned through")
+        elif node.value is not None and self._is_direct_manifest_alias(node.value):
+            self._record(node, "escapes through a direct alias")
         if node.value is not None:
             self.visit(node.value)
 
@@ -674,6 +656,8 @@ class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
     def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
         if self._target_mutates_manifest(node.target):
             self._record(node, "is rebound by a named expression")
+        elif self._is_direct_manifest_alias(node.value):
+            self._record(node, "escapes through a direct alias")
         self.visit(node.value)
 
     def visit_For(self, node: ast.For) -> None:
@@ -740,6 +724,7 @@ class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
+        mutation_recorded = False
         if isinstance(node.func, ast.Attribute):
             receiver_is_manifest = _ast_contains_name(
                 node.func.value, "EXECUTABLE_SMOKES"
@@ -762,6 +747,7 @@ class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
                 and (receiver_is_manifest or builtin_mutates_manifest)
             ) or operator_mutates_manifest:
                 self._record(node, f"is mutated via {node.func.attr}()")
+                mutation_recorded = True
         elif (
             isinstance(node.func, ast.Name)
             and node.func.id in {"delattr", "setattr"}
@@ -769,6 +755,22 @@ class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
             and _ast_contains_name(node.args[0], "EXECUTABLE_SMOKES")
         ):
             self._record(node, f"is mutated via {node.func.id}()")
+            mutation_recorded = True
+
+        direct_manifest_argument = any(
+            self._is_direct_manifest_alias(
+                argument.value if isinstance(argument, ast.Starred) else argument
+            )
+            for argument in node.args
+        ) or any(
+            self._is_direct_manifest_alias(keyword.value) for keyword in node.keywords
+        )
+        read_only_call = (
+            isinstance(node.func, ast.Name)
+            and node.func.id in _EXECUTABLE_SMOKE_READ_CALLS
+        )
+        if direct_manifest_argument and not read_only_call and not mutation_recorded:
+            self._record(node, "escapes through a direct call argument")
         self.generic_visit(node)
 
 
