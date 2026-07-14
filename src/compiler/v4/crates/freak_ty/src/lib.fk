@@ -233,14 +233,21 @@ task v4_ty_signature_name(ty_id: int, sig_id: int) -> word {
     give back array_get(v4_ty_names_handle(ty_id), sig_id)
 }
 
+task v4_ty_signature_source_display(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back ""
+    }
+    give back array_get(v4_ty_displays_handle(ty_id), sig_id)
+}
+
 task v4_ty_signature_display(ty_id: int, sig_id: int) -> word {
     if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
         give back ""
     }
-    pilot display: word = array_get(v4_ty_displays_handle(ty_id), sig_id)
+    pilot display = v4_ty_signature_source_display(ty_id, sig_id)
     pilot sig_kind: word = array_get(v4_ty_kinds_handle(ty_id), sig_id)
     if sig_kind == v4_ty_const_sig {
-        if not display.contains(":") {
+        if v4_ty_const_declared_type_for_sig(ty_id, sig_id) == "" {
             pilot inferred_ty: word = v4_ty_const_value_type_for_sig(ty_id, sig_id)
             if inferred_ty != v4_ty_unknown {
                 pilot sig_name: word = array_get(v4_ty_names_handle(ty_id), sig_id)
@@ -10864,7 +10871,7 @@ task v4_ty_snapshot_signature_line(ty_id: int, sig_id: int) -> word {
     out = out + "|" + v4_ty_snapshot_escape(v4_ty_signature_def(ty_id, sig_id))
     out = out + "|" + v4_ty_snapshot_escape(v4_ty_signature_kind(ty_id, sig_id))
     out = out + "|" + v4_ty_snapshot_escape(v4_ty_signature_name(ty_id, sig_id))
-    out = out + "|" + v4_ty_snapshot_escape(v4_ty_signature_display(ty_id, sig_id))
+    out = out + "|" + v4_ty_snapshot_escape(v4_ty_signature_source_display(ty_id, sig_id))
     out = out + "|" + word_from_int(v4_ty_signature_hir_item(ty_id, sig_id))
     give back out
 }
@@ -11038,16 +11045,7 @@ task v4_ty_snapshot_expected_signature_count(resolve_id: int) -> int {
 }
 
 task v4_ty_snapshot_signature_display_matches(sig_kind: word, expected_display: word, sig_display: word) -> bool {
-    if sig_display == expected_display {
-        give back true
-    }
-    if sig_kind == v4_ty_const_sig and expected_display.contains(":") == false {
-        pilot inferred_prefix = expected_display + ": "
-        if sig_display.starts_with(inferred_prefix) and sig_display.length() > inferred_prefix.length() {
-            give back true
-        }
-    }
-    give back false
+    give back sig_display == expected_display
 }
 
 task v4_ty_snapshot_signature_matches_resolve(resolve_id: int, hir_id: int, sig_id: int, def_id: word, sig_kind: word, sig_name: word, sig_display: word, hir_item: int) -> bool {

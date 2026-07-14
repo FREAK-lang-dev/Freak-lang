@@ -10,6 +10,7 @@ task v4_ty_snapshot_bool_text(flag: bool) -> word {
 
 task v4_ty_snapshot_signature_variant_line(line: word, mode: word) -> word {
     pilot sig_kind = v4_ty_snapshot_field(line, 4)
+    pilot sig_display = v4_ty_snapshot_field_raw(line, 6)
     pilot hir_item = v4_ty_snapshot_field_raw(line, 7)
     if mode == "unknown-kind" {
         sig_kind = "causality-signature"
@@ -18,6 +19,8 @@ task v4_ty_snapshot_signature_variant_line(line: word, mode: word) -> word {
         pilot resolve_id = v4_ty_resolve_id(ty_id)
         pilot hir_id = v4_resolve_hir_id(resolve_id)
         hir_item = word_from_int(v4_hir_item_count(hir_id))
+    } else if mode == "inferred-const-type" {
+        sig_display = v4_ty_snapshot_escape("fixed pilot LEVEL: word")
     }
 
     pilot out = "signature"
@@ -26,7 +29,7 @@ task v4_ty_snapshot_signature_variant_line(line: word, mode: word) -> word {
     out = out + "|" + v4_ty_snapshot_field_raw(line, 3)
     out = out + "|" + v4_ty_snapshot_escape(sig_kind)
     out = out + "|" + v4_ty_snapshot_field_raw(line, 5)
-    out = out + "|" + v4_ty_snapshot_field_raw(line, 6)
+    out = out + "|" + sig_display
     out = out + "|" + hir_item
     give back out
 }
@@ -39,8 +42,10 @@ task v4_ty_snapshot_signature_variant(payload: word, mode: word) -> word {
     repeat until line_id >= line_count {
         pilot line = v4_ty_snapshot_line(payload, line_id)
         if replaced == false and v4_ty_snapshot_field_raw(line, 0) == "signature" {
-            line = v4_ty_snapshot_signature_variant_line(line, mode)
-            replaced = true
+            if mode != "inferred-const-type" or v4_ty_snapshot_field(line, 5) == "LEVEL" {
+                line = v4_ty_snapshot_signature_variant_line(line, mode)
+                replaced = true
+            }
         }
         if line_id > 0 { out = out + "\n" }
         out = out + line
@@ -63,6 +68,7 @@ task v4_ty_snapshot_run() -> void {
 pilot v4_ty_snapshot_source = "task main() => \"hi|there\"\n"
 v4_ty_snapshot_source = v4_ty_snapshot_source + "shape Pilot\n"
 v4_ty_snapshot_source = v4_ty_snapshot_source + "doctrine Display\n"
+v4_ty_snapshot_source = v4_ty_snapshot_source + "fixed pilot LEVEL = 7\n"
 v4_ty_snapshot_source = v4_ty_snapshot_source + "task main() => \"again\"\n"
 
 pilot v4_ty_snapshot_id = v4_ty_text_cached("ty-snapshot.fk", v4_ty_snapshot_source)
@@ -72,6 +78,10 @@ say v4_ty_snapshot_summary()
 pilot v4_ty_snapshot_payload = v4_ty_snapshot()
 v4_ty_snapshot_signature_assert("unknown-kind")
 v4_ty_snapshot_signature_assert("dangling-hir")
+v4_ty_snapshot_signature_assert("inferred-const-type")
+pilot v4_ty_snapshot_level_sig = v4_ty_const_signature_id_for_name(v4_ty_snapshot_id, "LEVEL")
+say "ty-inferred-const-source-display=" + v4_ty_signature_source_display(v4_ty_snapshot_id, v4_ty_snapshot_level_sig)
+say "ty-inferred-const-rendered-display=" + v4_ty_signature_display(v4_ty_snapshot_id, v4_ty_snapshot_level_sig)
 pilot v4_ty_snapshot_file_count_before = v4_ty_file_count()
 pilot v4_ty_snapshot_retained_defs_handle = v4_ty_defs_handle(v4_ty_snapshot_id)
 pilot v4_ty_snapshot_retained_diags_handle = v4_ty_diags_handle(v4_ty_snapshot_id)

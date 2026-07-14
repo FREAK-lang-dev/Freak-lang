@@ -10459,6 +10459,120 @@ task v4_mir_snapshot_rvalue_refs_are_valid(kind: word, raw_lhs: word, raw_rhs: w
     give back raw_lhs == "-1" and raw_rhs == "-1" and args_payload == ""
 }
 
+task v4_mir_snapshot_graph_ref_is_done(states: int, offset: int, raw_ref: word, allow_negative: bool) -> bool {
+    if raw_ref == "-1" { give back allow_negative }
+    if not v4_mir_snapshot_nonnegative_int_is_valid(raw_ref) { give back false }
+    pilot node_id = offset + word_to_int(raw_ref)
+    if node_id < 0 or node_id >= array_len(states) { give back false }
+    pilot state: word = array_get(states, node_id)
+    give back state == "1"
+}
+
+task v4_mir_snapshot_graph_payload_is_done(states: int, offset: int, payload: word) -> bool {
+    if payload == "" { give back true }
+    pilot child_id = 0
+    pilot child_count = v4_mir_call_args_payload_count(payload)
+    repeat until child_id >= child_count {
+        if not v4_mir_snapshot_graph_ref_is_done(states, offset, v4_mir_snapshot_comma_part(payload, child_id), false) {
+            give back false
+        }
+        child_id += 1
+    }
+    give back true
+}
+
+task v4_mir_snapshot_graph_place_is_ready(place_id: int, place_count: int, states: int, kinds: int, bases: int, indexes: int) -> bool {
+    pilot kind: word = array_get(kinds, place_id)
+    pilot raw_base: word = array_get(bases, place_id)
+    pilot raw_index: word = array_get(indexes, place_id)
+    if kind == v4_mir_place_field {
+        give back v4_mir_snapshot_graph_ref_is_done(states, 0, raw_base, false)
+    }
+    if kind == v4_mir_place_index {
+        give back v4_mir_snapshot_graph_ref_is_done(states, 0, raw_base, false) and v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_index, false)
+    }
+    if kind == v4_mir_place_deref {
+        give back v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_index, false)
+    }
+    give back true
+}
+
+task v4_mir_snapshot_graph_rvalue_is_ready(rvalue_id: int, place_count: int, states: int, kinds: int, lhs_refs: int, rhs_refs: int, args_payloads: int) -> bool {
+    pilot kind: word = array_get(kinds, rvalue_id)
+    pilot raw_lhs: word = array_get(lhs_refs, rvalue_id)
+    pilot raw_rhs: word = array_get(rhs_refs, rvalue_id)
+    pilot args_payload: word = array_get(args_payloads, rvalue_id)
+    if kind == v4_mir_rvalue_use_place {
+        give back v4_mir_snapshot_graph_ref_is_done(states, 0, raw_lhs, false)
+    }
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        give back v4_mir_snapshot_graph_payload_is_done(states, place_count, args_payload)
+    }
+    if kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_or_else {
+        give back v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_lhs, false) and v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_rhs, false)
+    }
+    if kind == v4_mir_rvalue_unary {
+        give back v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_lhs, false) and v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_rhs, true)
+    }
+    if kind == v4_mir_rvalue_call {
+        if not v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_lhs, true) { give back false }
+        if not v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_rhs, true) { give back false }
+        give back v4_mir_snapshot_graph_payload_is_done(states, place_count, args_payload)
+    }
+    if kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+        give back v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_lhs, false)
+    }
+    give back true
+}
+
+task v4_mir_snapshot_body_graph_is_acyclic(place_kinds: int, place_bases: int, place_indexes: int, rvalue_kinds: int, rvalue_lhs: int, rvalue_rhs: int, rvalue_args: int) -> bool {
+    pilot place_count = array_len(place_kinds)
+    pilot rvalue_count = array_len(rvalue_kinds)
+    if array_len(place_bases) != place_count or array_len(place_indexes) != place_count { give back false }
+    if array_len(rvalue_lhs) != rvalue_count or array_len(rvalue_rhs) != rvalue_count or array_len(rvalue_args) != rvalue_count { give back false }
+
+    pilot states = array_new()
+    pilot total = place_count + rvalue_count
+    pilot node_id = 0
+    repeat until node_id >= total {
+        array_push(states, "0")
+        node_id += 1
+    }
+
+    pilot processed = 0
+    repeat until processed >= total {
+        pilot progress = 0
+        pilot place_id = 0
+        repeat until place_id >= place_count {
+            pilot place_state: word = array_get(states, place_id)
+            if place_state == "0" {
+                if v4_mir_snapshot_graph_place_is_ready(place_id, place_count, states, place_kinds, place_bases, place_indexes) {
+                    array_set(states, place_id, "1")
+                    processed += 1
+                    progress += 1
+                }
+            }
+            place_id += 1
+        }
+
+        pilot rvalue_id = 0
+        repeat until rvalue_id >= rvalue_count {
+            pilot rvalue_node = place_count + rvalue_id
+            pilot rvalue_state: word = array_get(states, rvalue_node)
+            if rvalue_state == "0" {
+                if v4_mir_snapshot_graph_rvalue_is_ready(rvalue_id, place_count, states, rvalue_kinds, rvalue_lhs, rvalue_rhs, rvalue_args) {
+                    array_set(states, rvalue_node, "1")
+                    processed += 1
+                    progress += 1
+                }
+            }
+            rvalue_id += 1
+        }
+        if progress == 0 { give back false }
+    }
+    give back true
+}
+
 task v4_mir_snapshot_validate(payload: word) -> word {
     pilot lines = v4_mir_snapshot_line_count(payload)
     pilot files = 0
@@ -10500,6 +10614,13 @@ task v4_mir_snapshot_validate(payload: word) -> word {
     pilot body_places = 0
     pilot body_rvalues = 0
     pilot body_phase = 0
+    pilot body_graph_place_kinds = array_new()
+    pilot body_graph_place_bases = array_new()
+    pilot body_graph_place_indexes = array_new()
+    pilot body_graph_rvalue_kinds = array_new()
+    pilot body_graph_rvalue_lhs = array_new()
+    pilot body_graph_rvalue_rhs = array_new()
+    pilot body_graph_rvalue_args = array_new()
 
     pilot line_id = 0
     repeat until line_id >= lines {
@@ -10548,6 +10669,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                     if body_statements != body_declared_statements { malformed += 1 }
                     if body_places != body_declared_places { malformed += 1 }
                     if body_rvalues != body_declared_rvalues { malformed += 1 }
+                    if not v4_mir_snapshot_body_graph_is_acyclic(body_graph_place_kinds, body_graph_place_bases, body_graph_place_indexes, body_graph_rvalue_kinds, body_graph_rvalue_lhs, body_graph_rvalue_rhs, body_graph_rvalue_args) { malformed += 1 }
                     current_body = 0 - 1
                 }
                 if current_mir >= 0 {
@@ -10581,6 +10703,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                     if body_statements != body_declared_statements { malformed += 1 }
                     if body_places != body_declared_places { malformed += 1 }
                     if body_rvalues != body_declared_rvalues { malformed += 1 }
+                    if not v4_mir_snapshot_body_graph_is_acyclic(body_graph_place_kinds, body_graph_place_bases, body_graph_place_indexes, body_graph_rvalue_kinds, body_graph_rvalue_lhs, body_graph_rvalue_rhs, body_graph_rvalue_args) { malformed += 1 }
                 }
 
                 pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
@@ -10614,6 +10737,13 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 body_places = 0
                 body_rvalues = 0
                 body_phase = 0
+                body_graph_place_kinds = array_new()
+                body_graph_place_bases = array_new()
+                body_graph_place_indexes = array_new()
+                body_graph_rvalue_kinds = array_new()
+                body_graph_rvalue_lhs = array_new()
+                body_graph_rvalue_rhs = array_new()
+                body_graph_rvalue_args = array_new()
                 file_bodies += 1
                 bodies += 1
             } else if kind == "mir-block" {
@@ -10687,6 +10817,9 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 pilot raw_place_base = v4_mir_snapshot_field_raw(line, 6)
                 pilot raw_place_index = v4_mir_snapshot_field_raw(line, 8)
                 if not v4_mir_snapshot_place_refs_are_valid(place_kind, raw_place_base, raw_place_index, word_to_int(raw_child_id), body_declared_locals, body_declared_rvalues) { malformed += 1 }
+                array_push(body_graph_place_kinds, place_kind)
+                array_push(body_graph_place_bases, raw_place_base)
+                array_push(body_graph_place_indexes, raw_place_index)
                 body_phase = 4
                 body_places += 1
                 places += 1
@@ -10706,6 +10839,10 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 pilot raw_rhs = v4_mir_snapshot_field_raw(line, 8)
                 pilot args_payload = v4_mir_snapshot_field(line, 12)
                 if not v4_mir_snapshot_rvalue_refs_are_valid(rvalue_kind, raw_lhs, raw_rhs, args_payload, word_to_int(raw_child_id), body_declared_places) { malformed += 1 }
+                array_push(body_graph_rvalue_kinds, rvalue_kind)
+                array_push(body_graph_rvalue_lhs, raw_lhs)
+                array_push(body_graph_rvalue_rhs, raw_rhs)
+                array_push(body_graph_rvalue_args, args_payload)
                 pilot builtin_method = v4_mir_snapshot_field(line, 13)
                 if builtin_method != "" and not v4_mir_builtin_shared_method_identity_is_known(builtin_method) {
                     malformed += 1
@@ -10721,6 +10858,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                     if body_statements != body_declared_statements { malformed += 1 }
                     if body_places != body_declared_places { malformed += 1 }
                     if body_rvalues != body_declared_rvalues { malformed += 1 }
+                    if not v4_mir_snapshot_body_graph_is_acyclic(body_graph_place_kinds, body_graph_place_bases, body_graph_place_indexes, body_graph_rvalue_kinds, body_graph_rvalue_lhs, body_graph_rvalue_rhs, body_graph_rvalue_args) { malformed += 1 }
                     current_body = 0 - 1
                 }
                 pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
@@ -10740,6 +10878,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                     if body_statements != body_declared_statements { malformed += 1 }
                     if body_places != body_declared_places { malformed += 1 }
                     if body_rvalues != body_declared_rvalues { malformed += 1 }
+                    if not v4_mir_snapshot_body_graph_is_acyclic(body_graph_place_kinds, body_graph_place_bases, body_graph_place_indexes, body_graph_rvalue_kinds, body_graph_rvalue_lhs, body_graph_rvalue_rhs, body_graph_rvalue_args) { malformed += 1 }
                     current_body = 0 - 1
                 }
                 if current_mir >= 0 {
