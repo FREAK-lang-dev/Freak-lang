@@ -1,6 +1,12 @@
 -- V4 type arena snapshot smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_ty_snapshot_bool_text(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
 pilot v4_ty_snapshot_source = "task main() => \"hi|there\"\n"
 v4_ty_snapshot_source = v4_ty_snapshot_source + "shape Pilot\n"
 v4_ty_snapshot_source = v4_ty_snapshot_source + "doctrine Display\n"
@@ -11,6 +17,16 @@ say v4_ty_summary(v4_ty_snapshot_id)
 say v4_ty_snapshot_summary()
 
 pilot v4_ty_snapshot_payload = v4_ty_snapshot()
+pilot v4_ty_snapshot_file_count_before = v4_ty_file_count()
+pilot v4_ty_snapshot_retained_defs_handle = v4_ty_defs_handle(v4_ty_snapshot_id)
+pilot v4_ty_snapshot_retained_diags_handle = v4_ty_diags_handle(v4_ty_snapshot_id)
+pilot v4_ty_snapshot_retained_signature_capacity = v4_ty_signature_capacity(v4_ty_snapshot_id)
+pilot v4_ty_snapshot_retained_diag_capacity = v4_ty_diag_capacity(v4_ty_snapshot_id)
+pilot v4_ty_snapshot_state_before_invalid = v4_ty_snapshot()
+pilot v4_ty_snapshot_invalid_payload = "ty-snapshot|format=freak-ty-snapshot-v1|files=1|signatures=0|diagnostics=0\nend|freak-ty-snapshot-v1"
+pilot v4_ty_snapshot_invalid_restore = v4_ty_snapshot_restore(v4_ty_snapshot_invalid_payload)
+say "ty-restore-malformed-rejected=" + v4_ty_snapshot_bool_text(v4_ty_snapshot_invalid_restore.starts_with("ty-snapshot-restore ok=0 reason=validation-failed"))
+say "ty-restore-malformed-atomic=" + v4_ty_snapshot_bool_text(v4_ty_snapshot() == v4_ty_snapshot_state_before_invalid)
 say v4_ty_snapshot_validate(v4_ty_snapshot_payload)
 say "ty-snapshot-bytes=" + word_from_int(v4_ty_snapshot_payload.length())
 say "ty-snapshot-escape=" + v4_ty_snapshot_escape("signature|value%z\nspan")
@@ -18,10 +34,29 @@ say "ty-snapshot-unescape=" + v4_ty_snapshot_unescape("signature%7Cvalue%25z%0As
 say v4_ty_snapshot_file_line(v4_ty_snapshot_id)
 say v4_ty_snapshot_signature_line(v4_ty_snapshot_id, 0)
 say v4_ty_snapshot_diag_line(v4_ty_snapshot_id, 0)
+
+pilot v4_ty_snapshot_extra_source = "task extra() -> int {\n"
+v4_ty_snapshot_extra_source = v4_ty_snapshot_extra_source + "    give back 1\n"
+v4_ty_snapshot_extra_source = v4_ty_snapshot_extra_source + "}\n"
+pilot v4_ty_snapshot_extra_id = v4_ty_text_cached("ty-snapshot-extra.fk", v4_ty_snapshot_extra_source)
+pilot v4_ty_snapshot_capacity_after_extra = v4_ty_file_capacity()
+say "ty-restore-extra-visible-before=" + v4_ty_snapshot_bool_text(v4_ty_file_exists(v4_ty_snapshot_extra_id))
 say v4_parse_snapshot_restore(v4_parse_snapshot())
 say v4_hir_snapshot_restore(v4_hir_snapshot())
 say v4_resolve_snapshot_restore(v4_resolve_snapshot())
+pilot v4_ty_snapshot_restore_result = v4_ty_snapshot_restore(v4_ty_snapshot_payload)
+say v4_ty_snapshot_restore_result
+say "ty-restore-active-files-exact=" + v4_ty_snapshot_bool_text(v4_ty_file_count() == v4_ty_snapshot_file_count_before)
+say "ty-restore-extra-file-hidden=" + v4_ty_snapshot_bool_text(v4_ty_file_exists(v4_ty_snapshot_extra_id) == false and v4_ty_file_id(v4_ty_snapshot_extra_id) < 0 and v4_ty_resolve_id(v4_ty_snapshot_extra_id) < 0)
+say "ty-restore-extra-children-hidden=" + v4_ty_snapshot_bool_text(v4_ty_signature_count(v4_ty_snapshot_extra_id) == 0 and v4_ty_diag_count(v4_ty_snapshot_extra_id) == 0 and v4_ty_signature_def(v4_ty_snapshot_extra_id, 0) == "" and v4_ty_diag(v4_ty_snapshot_extra_id, 0) == "")
+say "ty-restore-retained-handles-reused=" + v4_ty_snapshot_bool_text(v4_ty_defs_handle(v4_ty_snapshot_id) == v4_ty_snapshot_retained_defs_handle and v4_ty_diags_handle(v4_ty_snapshot_id) == v4_ty_snapshot_retained_diags_handle)
+say "ty-restore-retained-capacity-stable=" + v4_ty_snapshot_bool_text(v4_ty_signature_capacity(v4_ty_snapshot_id) == v4_ty_snapshot_retained_signature_capacity and v4_ty_diag_capacity(v4_ty_snapshot_id) == v4_ty_snapshot_retained_diag_capacity)
+
+pilot v4_ty_snapshot_reused_id = v4_ty_text_cached("ty-snapshot-reused.fk", v4_ty_snapshot_extra_source)
+say "ty-restore-top-slot-reused=" + v4_ty_snapshot_bool_text(v4_ty_snapshot_reused_id == v4_ty_snapshot_extra_id)
+say "ty-restore-top-capacity-stable=" + v4_ty_snapshot_bool_text(v4_ty_file_capacity() == v4_ty_snapshot_capacity_after_extra)
 say v4_ty_snapshot_restore(v4_ty_snapshot_payload)
+say "ty-restore-repeat-no-growth=" + v4_ty_snapshot_bool_text(v4_ty_file_capacity() == v4_ty_snapshot_capacity_after_extra and v4_ty_signature_capacity(v4_ty_snapshot_id) == v4_ty_snapshot_retained_signature_capacity and v4_ty_diag_capacity(v4_ty_snapshot_id) == v4_ty_snapshot_retained_diag_capacity)
 say v4_lsp_ty_snapshot_text()
 say v4_lsp_ty_snapshot_restore_text(v4_ty_snapshot_payload)
 say v4_lsp_handle_text_request("workspace/tySnapshotRestore", "ty-snapshot.fk", v4_ty_snapshot_payload, 0)
