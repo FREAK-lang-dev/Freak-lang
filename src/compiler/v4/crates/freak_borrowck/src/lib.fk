@@ -906,6 +906,113 @@ task v4_borrowck_path_prefix_conflicts(prefix: word, path_text: word) -> bool {
     give back next == "." or next == "["
 }
 
+task v4_borrowck_path_projection_end(path_text: word, start_idx: int) -> int {
+    pilot idx = start_idx
+    repeat until idx >= path_text.length() {
+        pilot ch = path_text.char_at(idx)
+        if ch == "." or ch == "[" or ch == "]" {
+            give back idx
+        }
+        idx += 1
+    }
+    give back path_text.length()
+}
+
+task v4_borrowck_path_index_close(path_text: word, open_idx: int) -> int {
+    if open_idx < 0 or open_idx >= path_text.length() or path_text.char_at(open_idx) != "[" {
+        give back 0 - 1
+    }
+    pilot depth = 1
+    pilot idx = open_idx + 1
+    repeat until idx >= path_text.length() {
+        pilot ch = path_text.char_at(idx)
+        if ch == "[" {
+            depth += 1
+        } else if ch == "]" {
+            depth -= 1
+            if depth == 0 {
+                give back idx
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_borrowck_path_index_char_is_digit(ch: word) -> bool {
+    give back ch == "0" or ch == "1" or ch == "2" or ch == "3" or ch == "4" or ch == "5" or ch == "6" or ch == "7" or ch == "8" or ch == "9"
+}
+
+task v4_borrowck_path_index_is_integer_literal(index_text: word) -> bool {
+    if index_text == "" {
+        give back false
+    }
+    pilot idx = 0
+    pilot first = index_text.char_at(0)
+    if first == "+" or first == "-" {
+        idx = 1
+    }
+    if idx >= index_text.length() {
+        give back false
+    }
+    repeat until idx >= index_text.length() {
+        if not v4_borrowck_path_index_char_is_digit(index_text.char_at(idx)) {
+            give back false
+        }
+        idx += 1
+    }
+    give back true
+}
+
+-- Only integer literal indices prove disjoint; every other index pair may alias.
+task v4_borrowck_projection_paths_may_alias(left: word, right: word) -> bool {
+    pilot left_idx = v4_borrowck_path_projection_end(left, 0)
+    pilot right_idx = v4_borrowck_path_projection_end(right, 0)
+    if v4_slice(left, 0, left_idx) != v4_slice(right, 0, right_idx) {
+        give back false
+    }
+
+    repeat until left_idx >= left.length() and right_idx >= right.length() {
+        if left_idx >= left.length() or right_idx >= right.length() {
+            give back true
+        }
+        pilot left_kind = left.char_at(left_idx)
+        pilot right_kind = right.char_at(right_idx)
+        if left_kind == "." and right_kind == "." {
+            pilot left_end = v4_borrowck_path_projection_end(left, left_idx + 1)
+            pilot right_end = v4_borrowck_path_projection_end(right, right_idx + 1)
+            if left_end <= left_idx + 1 or right_end <= right_idx + 1 {
+                give back false
+            }
+            if v4_slice(left, left_idx + 1, left_end) != v4_slice(right, right_idx + 1, right_end) {
+                give back false
+            }
+            left_idx = left_end
+            right_idx = right_end
+        } else if left_kind == "[" and right_kind == "[" {
+            pilot left_close = v4_borrowck_path_index_close(left, left_idx)
+            pilot right_close = v4_borrowck_path_index_close(right, right_idx)
+            if left_close < 0 or right_close < 0 {
+                give back true
+            }
+            pilot left_index = v4_slice(left, left_idx + 1, left_close)
+            pilot right_index = v4_slice(right, right_idx + 1, right_close)
+            if v4_borrowck_path_index_is_integer_literal(left_index) and v4_borrowck_path_index_is_integer_literal(right_index) {
+                if word_to_int(left_index) != word_to_int(right_index) {
+                    give back false
+                }
+            } else {
+                give back true
+            }
+            left_idx = left_close + 1
+            right_idx = right_close + 1
+        } else {
+            give back false
+        }
+    }
+    give back true
+}
+
 task v4_borrowck_paths_overlap(left: word, right: word) -> bool {
     pilot left_canon = v4_borrowck_path_canon(left)
     pilot right_canon = v4_borrowck_path_canon(right)
@@ -921,7 +1028,7 @@ task v4_borrowck_paths_overlap(left: word, right: word) -> bool {
     if v4_borrowck_path_prefix_conflicts(right_canon, left_canon) {
         give back true
     }
-    give back false
+    give back v4_borrowck_projection_paths_may_alias(left_canon, right_canon)
 }
 
 task v4_borrowck_path_root(path_text: word) -> word {
@@ -1456,9 +1563,55 @@ task v4_borrowck_call_is_shared_borrow_with_receiver(mir_id: int, body_id: int, 
     give back v4_ty_is_lend_type(receiver_ty) and v4_ty_lend_target_type(receiver_ty) == owner_ty
 }
 
+task v4_borrowck_call_returns_hidden_lend(mir_id: int, body_id: int, call_rvalue: int) -> bool {
+    if call_rvalue < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_rvalue) != v4_mir_rvalue_call {
+        give back false
+    }
+    pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, call_rvalue)
+    give back not v4_ty_is_lend_type(result_ty) and v4_ty_type_contains_lend(result_ty)
+}
+
+-- Hidden-loan calls conservatively retain their direct mutable loan arguments.
+task v4_borrowck_call_has_direct_mut_lend_arg(mir_id: int, body_id: int, call_rvalue: int) -> bool {
+    if call_rvalue < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_rvalue) != v4_mir_rvalue_call {
+        give back false
+    }
+    pilot arg_id = 0
+    pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, call_rvalue)
+    repeat until arg_id >= arg_count {
+        pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, arg_id)
+        if arg_rvalue >= 0 and v4_mir_rvalue_kind(mir_id, body_id, arg_rvalue) == v4_mir_rvalue_lend_mut {
+            give back true
+        }
+        arg_id += 1
+    }
+    give back false
+}
+
+task v4_borrowck_call_direct_mut_lends_source(mir_id: int, body_id: int, call_rvalue: int, loan_text: word) -> bool {
+    if not v4_borrowck_call_returns_hidden_lend(mir_id, body_id, call_rvalue) {
+        give back false
+    }
+    pilot arg_id = 0
+    pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, call_rvalue)
+    repeat until arg_id >= arg_count {
+        pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, arg_id)
+        if arg_rvalue >= 0 and v4_mir_rvalue_kind(mir_id, body_id, arg_rvalue) == v4_mir_rvalue_lend_mut {
+            if v4_borrowck_rvalue_lends_source(mir_id, body_id, arg_rvalue, loan_text) {
+                give back true
+            }
+        }
+        arg_id += 1
+    }
+    give back false
+}
+
 task v4_borrowck_call_has_lend_arg(mir_id: int, body_id: int, call_stmt: int, call_rvalue: int) -> bool {
     if call_rvalue < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_rvalue) != v4_mir_rvalue_call {
         give back false
+    }
+    if v4_borrowck_call_returns_hidden_lend(mir_id, body_id, call_rvalue) {
+        give back v4_borrowck_call_has_direct_mut_lend_arg(mir_id, body_id, call_rvalue)
     }
     pilot provenance_id = v4_borrowck_return_lend_provenance(mir_id, body_id, call_stmt, call_rvalue)
     if v4_borrowck_provenance_is_known(provenance_id) and v4_borrowck_provenance_count(provenance_id) > 0 {
@@ -1477,7 +1630,7 @@ task v4_borrowck_check_stored_call_lends(borrow_id: int, result_id: int, mir_id:
         if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
             pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
             if rvalue_id >= 0 and v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call {
-                if v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+                if v4_ty_type_contains_lend(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
                     pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
                     pilot has_local_holder = false
                     if place_id >= 0 {
@@ -1783,10 +1936,16 @@ task v4_borrowck_stored_call_return_holder(mir_id: int, body_id: int, loan_stmt:
     if rvalue_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call {
         give back ""
     }
-    if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+    pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot outer_lend = v4_ty_is_lend_type(result_ty)
+    pilot hidden_lend = v4_borrowck_call_returns_hidden_lend(mir_id, body_id, rvalue_id)
+    if not outer_lend and not hidden_lend {
         give back ""
     }
-    if not v4_borrowck_call_lends_source(mir_id, body_id, loan_stmt, rvalue_id, loan_text) {
+    if outer_lend and not v4_borrowck_call_lends_source(mir_id, body_id, loan_stmt, rvalue_id, loan_text) {
+        give back ""
+    }
+    if hidden_lend and not v4_borrowck_call_direct_mut_lends_source(mir_id, body_id, rvalue_id, loan_text) {
         give back ""
     }
     pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, loan_stmt)
@@ -1932,7 +2091,7 @@ task v4_borrowck_holder_alias_from_stmt(mir_id: int, body_id: int, stmt_id: int,
         give back ""
     }
     pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-    if rvalue_id < 0 or not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+    if rvalue_id < 0 or not v4_ty_type_contains_lend(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
         give back ""
     }
     if not v4_borrowck_rvalue_returns_holder(mir_id, body_id, rvalue_id, holder) {
@@ -2034,6 +2193,37 @@ task v4_borrowck_holder_reaches_stmt_without_rebind(mir_id: int, body_id: int, h
     give back v4_borrowck_holder_reaches_stmt_without_rebind_seen(mir_id, body_id, holder, provenance_stmt, start_stmt, start_block, wanted_stmt, wanted_block, "")
 }
 
+task v4_borrowck_hidden_holder_reaches_access_seen(mir_id: int, body_id: int, holder: word, holder_stmt: int, write_stmt: int, write_block: int, seen: word) -> bool {
+    if holder == "" or holder == "@temporary" or v4_borrowck_holder_seen(seen, holder, holder_stmt) {
+        give back false
+    }
+    pilot next_seen = v4_borrowck_holder_seen_append(seen, holder, holder_stmt)
+    pilot holder_block = v4_mir_stmt_block(mir_id, body_id, holder_stmt)
+    if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, holder, holder_stmt, holder_stmt, holder_block, write_stmt, write_block) {
+        give back true
+    }
+
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        pilot alias = v4_borrowck_holder_alias_from_stmt(mir_id, body_id, stmt_id, holder)
+        if alias != "" {
+            pilot alias_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+            if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, holder, holder_stmt, holder_stmt, holder_block, stmt_id, alias_block) {
+                if v4_borrowck_hidden_holder_reaches_access_seen(mir_id, body_id, alias, stmt_id, write_stmt, write_block, next_seen) {
+                    give back true
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    give back false
+}
+
+task v4_borrowck_hidden_holder_reaches_access(mir_id: int, body_id: int, holder: word, holder_stmt: int, write_stmt: int, write_block: int) -> bool {
+    give back v4_borrowck_hidden_holder_reaches_access_seen(mir_id, body_id, holder, holder_stmt, write_stmt, write_block, "")
+}
+
 task v4_borrowck_holder_used_at_or_after_write_seen(mir_id: int, body_id: int, holder: word, holder_stmt: int, write_stmt: int, write_block: int, seen: word) -> bool {
     if holder == "" or holder == "@temporary" or v4_borrowck_holder_seen(seen, holder, holder_stmt) {
         give back false
@@ -2096,6 +2286,11 @@ task v4_borrowck_explicit_loan_live_at_write(mir_id: int, body_id: int, loan_stm
     }
     if holder == "@temporary" {
         give back false
+    }
+    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
+    if v4_borrowck_call_direct_mut_lends_source(mir_id, body_id, rvalue_id, loan_text) {
+        -- Aggregate loan extraction/drop facts do not exist yet, so rebind is the release point.
+        give back v4_borrowck_hidden_holder_reaches_access(mir_id, body_id, holder, loan_stmt, write_stmt, write_block)
     }
     give back v4_borrowck_holder_used_at_or_after_write(mir_id, body_id, holder, loan_stmt, write_stmt, write_block)
 }
