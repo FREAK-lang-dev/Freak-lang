@@ -1658,6 +1658,22 @@ task v4_borrowck_check_stored_call_lends(borrow_id: int, result_id: int, mir_id:
                         conflicts += 1
                     }
                 }
+            } else if rvalue_id >= 0 and v4_mir_rvalue_is_aggregate_kind(v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)) {
+                pilot child_id = 0
+                pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+                pilot contains_lend = false
+                repeat until child_id >= child_count {
+                    pilot child_rvalue = v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)
+                    if child_rvalue >= 0 and v4_ty_type_contains_lend(v4_mir_rvalue_ty(mir_id, body_id, child_rvalue)) {
+                        contains_lend = true
+                        child_id = child_count
+                    }
+                    child_id += 1
+                }
+                if contains_lend {
+                    v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                    conflicts += 1
+                }
             }
         }
         stmt_id += 1

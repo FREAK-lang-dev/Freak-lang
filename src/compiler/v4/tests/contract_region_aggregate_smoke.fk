@@ -80,8 +80,8 @@ pilot v4_contract_region_aggregate_branch_tuple = v4_contract_region_aggregate_f
 
 say "contract-region-aggregate-branch-status=" + v4_borrowck_result_status(v4_contract_region_aggregate_branch_borrow, v4_contract_region_aggregate_branch_result)
 say "contract-region-aggregate-branch-tuple-child-count=" + word_from_int(v4_mir_rvalue_aggregate_child_count(v4_contract_region_aggregate_branch_mir, v4_contract_region_aggregate_branch_body, v4_contract_region_aggregate_branch_tuple))
-say "contract-region-aggregate-branch-mutation-conflicts=" + word_from_int(v4_contract_region_aggregate_diag_count(v4_contract_region_aggregate_branch_borrow, "Meiya refuses this rewrite while the value is borrowed"))
-say "contract-region-aggregate-branch-final-use-visible=" + v4_contract_region_aggregate_bool(v4_contract_region_aggregate_diag_count(v4_contract_region_aggregate_branch_borrow, "Meiya refuses this rewrite while the value is borrowed") == 1)
+say "contract-region-aggregate-branch-mutation-conflicts=" + word_from_int(v4_contract_region_aggregate_diag_count(v4_contract_region_aggregate_branch_borrow, "Meiya tracks this loan into a later block"))
+say "contract-region-aggregate-branch-final-use-visible=" + v4_contract_region_aggregate_bool(v4_contract_region_aggregate_diag_count(v4_contract_region_aggregate_branch_borrow, "Meiya tracks this loan into a later block") == 1)
 
 pilot v4_contract_region_aggregate_get_mut_borrow = v4_borrowck_text_cached("contract-region-aggregate-get-mut.fk", v4_contract_region_aggregate_get_mut_source())
 pilot v4_contract_region_aggregate_get_mut_mir = v4_borrowck_mir_id(v4_contract_region_aggregate_get_mut_borrow)
