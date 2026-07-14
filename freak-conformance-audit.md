@@ -301,8 +301,8 @@ lend children in tuple literals, fixed-array literals, repeat-filled fixed
 arrays, list literals, shape values, route payloads, `some(...)`, `ok(...)`,
 `err(...)`, map keys, and map values. Generic calls also reject lend-bearing
 type-parameter substitutions before a loan can be concealed in an instantiated
-aggregate result. Source edits invalidate all 17 report fields, comprising 14
-concrete query families plus three aggregate totals (`all`/`query`, `core`, and
+aggregate result. Source edits invalidate all 17 report fields, comprising 14 concrete query families
+plus three aggregate totals (`all`/`query`, `core`, and
 `editor`); subsequent requests explicitly recompute every concrete family and
 refresh the totals. Contract-boundary
 diagnostics retain normalized source paths and exact `start:end` byte ranges.
