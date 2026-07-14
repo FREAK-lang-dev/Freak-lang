@@ -15,6 +15,7 @@ are found (unpaid foreshadows, too many miracles, under-word-count monologues).
 from __future__ import annotations
 
 import ast
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -552,11 +553,223 @@ def _find_repo_root(start: Path) -> Optional[Path]:
         p = p.parent
 
 
+def _bounded_text_section(source: str, start_marker: str, end_marker: str) -> Optional[str]:
+    start = source.find(start_marker)
+    if start < 0:
+        return None
+    end = source.find(end_marker, start + len(start_marker))
+    if end < 0:
+        return None
+    return source[start:end]
+
+
 @dataclass(frozen=True)
 class _LiteralExecutableSmoke:
     expect: Tuple[str, ...]
     expect_exact: Tuple[str, ...]
     expect_mode: Optional[str]
+    expect_unique: bool
+
+
+_EXECUTABLE_SMOKE_MUTATORS = frozenset(
+    {
+        "__delitem__",
+        "__iadd__",
+        "__imul__",
+        "__setitem__",
+        "append",
+        "clear",
+        "extend",
+        "insert",
+        "pop",
+        "remove",
+        "reverse",
+        "sort",
+        "update",
+    }
+)
+_EXECUTABLE_SMOKE_OPERATOR_MUTATORS = frozenset(
+    {"delitem", "iadd", "imul", "setitem"}
+)
+
+
+def _ast_contains_name(node: ast.AST, name: str) -> bool:
+    return any(
+        isinstance(child, ast.Name) and child.id == name
+        for child in ast.walk(node)
+    )
+
+
+class _TopLevelManifestMutationVisitor(ast.NodeVisitor):
+    """Find module-scope mutations without descending into deferred scopes."""
+
+    def __init__(self) -> None:
+        self.errors: List[str] = []
+
+    def _record(self, node: ast.AST, action: str) -> None:
+        line = getattr(node, "lineno", "unknown")
+        self.errors.append(
+            "check_v4.py: EXECUTABLE_SMOKES "
+            f"{action} after its literal assignment at line {line}"
+        )
+
+    def _target_mutates_manifest(self, target: ast.AST) -> bool:
+        if isinstance(target, ast.Name):
+            return target.id == "EXECUTABLE_SMOKES"
+        if isinstance(target, (ast.Attribute, ast.Subscript)):
+            return _ast_contains_name(target, "EXECUTABLE_SMOKES")
+        if isinstance(target, (ast.List, ast.Tuple)):
+            return any(self._target_mutates_manifest(item) for item in target.elts)
+        if isinstance(target, ast.Starred):
+            return self._target_mutates_manifest(target.value)
+        return False
+
+    def _visit_function_inputs(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
+    ) -> None:
+        for default in [*node.args.defaults, *node.args.kw_defaults]:
+            if default is not None:
+                self.visit(default)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function_inputs(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_function_inputs(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self._visit_function_inputs(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if any(self._target_mutates_manifest(target) for target in node.targets):
+            self._record(node, "is rebound or assigned through")
+        self.visit(node.value)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if self._target_mutates_manifest(node.target):
+            self._record(node, "is rebound or assigned through")
+        if node.value is not None:
+            self.visit(node.value)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        if self._target_mutates_manifest(node.target):
+            self._record(node, "is augmented")
+        self.visit(node.value)
+
+    def visit_Delete(self, node: ast.Delete) -> None:
+        if any(self._target_mutates_manifest(target) for target in node.targets):
+            self._record(node, "is deleted or deleted through")
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        if self._target_mutates_manifest(node.target):
+            self._record(node, "is rebound by a named expression")
+        self.visit(node.value)
+
+    def visit_For(self, node: ast.For) -> None:
+        if self._target_mutates_manifest(node.target):
+            self._record(node, "is rebound by a for target")
+        self.generic_visit(node)
+
+    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
+        if self._target_mutates_manifest(node.target):
+            self._record(node, "is rebound by an async-for target")
+        self.generic_visit(node)
+
+    def visit_With(self, node: ast.With) -> None:
+        for item in node.items:
+            if item.optional_vars is not None and self._target_mutates_manifest(
+                item.optional_vars
+            ):
+                self._record(node, "is rebound by a with target")
+        self.generic_visit(node)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:
+        for item in node.items:
+            if item.optional_vars is not None and self._target_mutates_manifest(
+                item.optional_vars
+            ):
+                self._record(node, "is rebound by an async-with target")
+        self.generic_visit(node)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.name == "EXECUTABLE_SMOKES":
+            self._record(node, "is rebound by an exception target")
+        self.generic_visit(node)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            bound_name = alias.asname or alias.name.split(".", 1)[0]
+            if bound_name == "EXECUTABLE_SMOKES":
+                self._record(node, "is rebound by an import")
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            bound_name = alias.asname or alias.name
+            if bound_name == "EXECUTABLE_SMOKES":
+                self._record(node, "is rebound by an import")
+
+    def visit_MatchAs(self, node: ast.MatchAs) -> None:
+        if node.name == "EXECUTABLE_SMOKES":
+            self._record(node, "is rebound by a match capture")
+        self.generic_visit(node)
+
+    def visit_MatchStar(self, node: ast.MatchStar) -> None:
+        if node.name == "EXECUTABLE_SMOKES":
+            self._record(node, "is rebound by a match capture")
+
+    def visit_MatchMapping(self, node: ast.MatchMapping) -> None:
+        if node.rest == "EXECUTABLE_SMOKES":
+            self._record(node, "is rebound by a match capture")
+        self.generic_visit(node)
+
+    def visit_TypeAlias(self, node: ast.AST) -> None:
+        target = getattr(node, "name", None)
+        if isinstance(target, ast.AST) and self._target_mutates_manifest(target):
+            self._record(node, "is rebound by a type alias")
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if isinstance(node.func, ast.Attribute):
+            receiver_is_manifest = _ast_contains_name(
+                node.func.value, "EXECUTABLE_SMOKES"
+            )
+            builtin_mutates_manifest = (
+                isinstance(node.func.value, ast.Name)
+                and node.func.value.id in {"dict", "list"}
+                and node.args
+                and _ast_contains_name(node.args[0], "EXECUTABLE_SMOKES")
+            )
+            operator_mutates_manifest = (
+                isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "operator"
+                and node.func.attr in _EXECUTABLE_SMOKE_OPERATOR_MUTATORS
+                and node.args
+                and _ast_contains_name(node.args[0], "EXECUTABLE_SMOKES")
+            )
+            if (
+                node.func.attr in _EXECUTABLE_SMOKE_MUTATORS
+                and (receiver_is_manifest or builtin_mutates_manifest)
+            ) or operator_mutates_manifest:
+                self._record(node, f"is mutated via {node.func.attr}()")
+        elif (
+            isinstance(node.func, ast.Name)
+            and node.func.id in {"delattr", "setattr"}
+            and node.args
+            and _ast_contains_name(node.args[0], "EXECUTABLE_SMOKES")
+        ):
+            self._record(node, f"is mutated via {node.func.id}()")
+        self.generic_visit(node)
 
 
 def _literal_executable_smokes(
@@ -574,21 +787,21 @@ def _literal_executable_smokes(
         location = f"line {exc.lineno}" if exc.lineno is not None else "unknown line"
         return {}, [f"check_v4.py AST parse failed at {location}: {exc.msg}"]
 
-    manifests: List[ast.expr] = []
-    for node in module.body:
+    manifests: List[Tuple[int, ast.expr]] = []
+    for body_index, node in enumerate(module.body):
         if isinstance(node, ast.Assign):
             if any(
                 isinstance(target, ast.Name) and target.id == "EXECUTABLE_SMOKES"
                 for target in node.targets
             ):
-                manifests.append(node.value)
+                manifests.append((body_index, node.value))
         elif (
             isinstance(node, ast.AnnAssign)
             and isinstance(node.target, ast.Name)
             and node.target.id == "EXECUTABLE_SMOKES"
             and node.value is not None
         ):
-            manifests.append(node.value)
+            manifests.append((body_index, node.value))
 
     if not manifests:
         return {}, ["check_v4.py: literal EXECUTABLE_SMOKES assignment missing"]
@@ -598,7 +811,8 @@ def _literal_executable_smokes(
         ]
 
     try:
-        manifest = ast.literal_eval(manifests[0])
+        manifest_index, manifest_expression = manifests[0]
+        manifest = ast.literal_eval(manifest_expression)
     except (SyntaxError, TypeError, ValueError) as exc:
         return {}, [
             "check_v4.py: EXECUTABLE_SMOKES must be a literal manifest "
@@ -608,9 +822,13 @@ def _literal_executable_smokes(
     if not isinstance(manifest, list):
         return {}, ["check_v4.py: EXECUTABLE_SMOKES must be a literal list"]
 
+    mutation_visitor = _TopLevelManifestMutationVisitor()
+    for node in module.body[manifest_index + 1 :]:
+        mutation_visitor.visit(node)
+
     smokes: Dict[str, _LiteralExecutableSmoke] = {}
     seen_fixtures: Dict[str, int] = {}
-    errors: List[str] = []
+    errors: List[str] = list(mutation_visitor.errors)
     for index, entry in enumerate(manifest):
         if not isinstance(entry, dict):
             errors.append(f"EXECUTABLE_SMOKES[{index}]: entry must be a literal dict")
@@ -662,10 +880,34 @@ def _literal_executable_smokes(
             )
             continue
 
+        expect_unique = entry.get("expect_unique", False)
+        if not isinstance(expect_unique, bool):
+            errors.append(
+                f"EXECUTABLE_SMOKES: {fixture} expect_unique must be a boolean"
+            )
+            continue
+        if expect_unique and expect_mode != "line":
+            errors.append(
+                f"EXECUTABLE_SMOKES: {fixture} expect_unique requires expect_mode='line'"
+            )
+            continue
+        if expect_unique:
+            registered_counts = Counter([*expects, *exact_expects])
+            duplicate_lines = [
+                line for line, count in registered_counts.items() if count != 1
+            ]
+            if duplicate_lines:
+                errors.append(
+                    f"EXECUTABLE_SMOKES: {fixture} expect_unique registers duplicate lines "
+                    + ", ".join(repr(line) for line in duplicate_lines)
+                )
+                continue
+
         smokes[fixture] = _LiteralExecutableSmoke(
             expect=tuple(expects),
             expect_exact=tuple(exact_expects),
             expect_mode=expect_mode,
+            expect_unique=expect_unique,
         )
 
     return smokes, errors
@@ -1309,54 +1551,77 @@ def audit_conformance(paths: List[Path]) -> int:
     contract_region_docs = (
         (
             bible,
+            "V4 partial",
+            "\n### 4.1 Ownership Rules",
             (
+                "V4 partial",
                 "Borrowed return types now flow through TY/MIR.",
                 "(ty_id, sig_id)",
                 "document symbols, and completion",
                 "`some(...)`, `ok(...)`",
                 "canonical-path cache",
+                "remain V4 work",
+                "not full region inference",
             ),
         ),
         (
             audit_doc,
+            "Contract-region checkpoint (",
+            "\n---",
             (
                 "Contract-region checkpoint (**⚠️ V4 partial**)",
                 "(ty_id, sig_id)",
                 "document symbols, and completion",
                 "`some(...)`, `ok(...)`",
                 "canonical-path cache",
+                "remain open",
             ),
         ),
         (
             repo / "freakc-v4-00-unit-architecture.md",
+            "### Implemented Contract-Region Checkpoint (V4 Partial)",
+            "\n### Why MIR is Required",
             (
                 "Implemented Contract-Region Checkpoint (V4 Partial)",
                 "(ty_id, sig_id)",
                 "document symbols, and completion",
                 "`some(...)`, `ok(...)`",
                 "canonical-path cache",
+                "remain future Meiya work",
+                "not completed",
             ),
         ),
         (
             repo / "src" / "compiler" / "v4" / "README.md",
+            "Borrowed return types now carry through TY/MIR.",
+            "\nThe first `Shared<T>` / `Weak<T>` ownership surface",
             (
                 "Borrowed return types now carry through TY/MIR.",
                 "(ty_id, sig_id)",
                 "document symbols, and completion",
                 "`some(...)`, `ok(...)`",
                 "canonical-path cache",
+                "The current sound boundary is deliberately narrow.",
+                "remain open",
+                "not full region inference",
             ),
         ),
     )
-    for doc_path, needles in contract_region_docs:
+    for doc_path, start_marker, end_marker, needles in contract_region_docs:
         if not doc_path.exists():
             contract_region_missing.append(f"contract-region documentation missing: {doc_path.name}")
             continue
         doc_source = doc_path.read_text(encoding="utf-8")
+        checkpoint = _bounded_text_section(doc_source, start_marker, end_marker)
+        if checkpoint is None:
+            contract_region_missing.append(
+                f"{doc_path.name}: contract-region checkpoint boundaries missing"
+            )
+            continue
         for needle in needles:
-            if needle not in doc_source:
+            if needle not in checkpoint:
                 contract_region_missing.append(
-                    f"{doc_path.name}: missing contract-region documentation {needle!r}"
+                    f"{doc_path.name}: contract-region checkpoint missing {needle!r}"
                 )
     if v4_ty_lib_return.exists():
         ty_src = v4_ty_lib_return.read_text(encoding="utf-8")
@@ -1892,7 +2157,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-mutability-mut-source-count=2",
             "contract-region-mutability-borrow-diagnostics=1",
             "contract-region-mutability-diag0=Meiya refuses a mutable reloan from an immutable lend",
-            "contract-region-mutability-diag0-span=0@",
+            "contract-region-mutability-diag0-span=0@615:633",
         ),
         "contract_region_outlives_smoke.fk": (
             "contract-region-outlives-direct-raw-bound-count=1",
@@ -2000,22 +2265,22 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-bound-diagnostics-extern-source-count=0",
             "contract-region-bound-diagnostics-extern-source-at0=-1",
             "contract-region-bound-diagnostics-count=11",
-            "Meiya lifetime debt: lifetime bound 'ghost on 'a is not declared on undeclared_bound",
-            "Meiya lifetime debt: 'static is reserved and cannot be used as a lifetime bound on 'a",
-            "Meiya lifetime debt: '_ is elided and cannot be used as a lifetime bound on 'a",
-            "Meiya lifetime debt: empty generic bound on 'a in empty_bound",
-            "Meiya lifetime debt: lifetime 'a may only use lifetime bounds, but found Copy",
-            "Meiya lifetime debt: type generic T cannot use lifetime bound 'a",
+            "contract-region-bound-diagnostics-diag0=Meiya lifetime debt: lifetime bound 'ghost on 'a is not declared on undeclared_bound",
+            "contract-region-bound-diagnostics-diag1=Meiya lifetime debt: 'static is reserved and cannot be used as a lifetime bound on 'a",
+            "contract-region-bound-diagnostics-diag2=Meiya lifetime debt: '_ is elided and cannot be used as a lifetime bound on 'a",
+            "contract-region-bound-diagnostics-diag3=Meiya lifetime debt: empty generic bound on 'a in empty_bound",
+            "contract-region-bound-diagnostics-diag4=Meiya lifetime debt: lifetime 'a may only use lifetime bounds, but found Copy",
+            "contract-region-bound-diagnostics-diag5=Meiya lifetime debt: type generic T cannot use lifetime bound 'a",
             "contract-region-bound-diagnostics-diag6=Meiya lifetime debt: lifetime 'a may only use lifetime bounds, but found Copy",
-            "contract-region-bound-diagnostics-diag6-span=0@",
+            "contract-region-bound-diagnostics-diag6-span=0@495:503",
             "contract-region-bound-diagnostics-diag7=Meiya lifetime debt: type generic T cannot use lifetime bound 'a",
-            "contract-region-bound-diagnostics-diag7-span=0@",
+            "contract-region-bound-diagnostics-diag7-span=0@548:553",
             "contract-region-bound-diagnostics-diag8=Meiya lifetime debt: empty generic bound on T in DoctrineEmptyType",
-            "contract-region-bound-diagnostics-diag8-span=0@",
+            "contract-region-bound-diagnostics-diag8-span=0@600:602",
             "contract-region-bound-diagnostics-diag9=Meiya lifetime debt: type generic T cannot use lifetime bound 'a",
-            "contract-region-bound-diagnostics-diag9-span=0@",
+            "contract-region-bound-diagnostics-diag9-span=0@658:670",
             "contract-region-bound-diagnostics-diag10=Meiya lifetime debt: empty generic bound on T in extern_empty_type",
-            "contract-region-bound-diagnostics-diag10-span=0@",
+            "contract-region-bound-diagnostics-diag10-span=0@743:745",
         ),
         "contract_region_loop_negative_smoke.fk": (
             "contract-region-loop-negative-ty-diagnostics=0",
@@ -2023,7 +2288,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-loop-negative-status=blocked",
             "contract-region-loop-negative-borrow-diagnostics=1",
             "contract-region-loop-negative-diag0=Meiya cannot establish the origin of this returned loan",
-            "contract-region-loop-negative-diag0-span=0@",
+            "contract-region-loop-negative-diag0-span=0@276:281",
         ),
         "contract_region_storage_negative_smoke.fk": (
             "contract-region-storage-ty-diagnostics=4",
@@ -2104,9 +2369,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-method-invocation-range=255:282",
             "contract-region-forwarding-method-rejected=true",
             "contract-region-forwarding-method-silently-accepted=false",
-            "contract-region-forwarding-dynamic-ty-diagnostics=0",
-            "contract-region-forwarding-dynamic-mir-diagnostics=1",
-            "contract-region-forwarding-dynamic-borrow-diagnostics=2",
+            "contract-region-forwarding-dynamic-ty-diagnostics=1",
+            "contract-region-forwarding-dynamic-mir-diagnostics=2",
+            "contract-region-forwarding-dynamic-borrow-diagnostics=3",
             "contract-region-forwarding-dynamic-status=blocked",
             "contract-region-forwarding-dynamic-invocation-diagnostic-count=1",
             "contract-region-forwarding-dynamic-invocation-message=Meiya cannot establish the origin of this returned loan",
@@ -2114,9 +2379,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-dynamic-invocation-range=346:373",
             "contract-region-forwarding-dynamic-rejected=true",
             "contract-region-forwarding-dynamic-silently-accepted=false",
-            "contract-region-forwarding-callback-ty-diagnostics=0",
-            "contract-region-forwarding-callback-mir-diagnostics=1",
-            "contract-region-forwarding-callback-borrow-diagnostics=1",
+            "contract-region-forwarding-callback-ty-diagnostics=1",
+            "contract-region-forwarding-callback-mir-diagnostics=2",
+            "contract-region-forwarding-callback-borrow-diagnostics=2",
             "contract-region-forwarding-callback-status=clean",
             "contract-region-forwarding-callback-invocation-diagnostic-count=1",
             "contract-region-forwarding-callback-invocation-message=call target is not callable",
@@ -2124,9 +2389,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-callback-invocation-range=136:150",
             "contract-region-forwarding-callback-rejected=true",
             "contract-region-forwarding-callback-silently-accepted=false",
-            "contract-region-forwarding-extern-ty-diagnostics=2",
-            "contract-region-forwarding-extern-mir-diagnostics=2",
-            "contract-region-forwarding-extern-borrow-diagnostics=3",
+            "contract-region-forwarding-extern-ty-diagnostics=4",
+            "contract-region-forwarding-extern-mir-diagnostics=4",
+            "contract-region-forwarding-extern-borrow-diagnostics=5",
             "contract-region-forwarding-extern-status=blocked",
             "contract-region-forwarding-extern-invocation-diagnostic-count=1",
             "contract-region-forwarding-extern-invocation-message=Meiya cannot establish the origin of this returned loan",
@@ -2134,9 +2399,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-extern-invocation-range=162:187",
             "contract-region-forwarding-extern-rejected=true",
             "contract-region-forwarding-extern-silently-accepted=false",
-            "contract-region-forwarding-ffi-ty-diagnostics=1",
-            "contract-region-forwarding-ffi-mir-diagnostics=3",
-            "contract-region-forwarding-ffi-borrow-diagnostics=3",
+            "contract-region-forwarding-ffi-ty-diagnostics=2",
+            "contract-region-forwarding-ffi-mir-diagnostics=4",
+            "contract-region-forwarding-ffi-borrow-diagnostics=4",
             "contract-region-forwarding-ffi-status=clean",
             "contract-region-forwarding-ffi-invocation-diagnostic-count=1",
             "contract-region-forwarding-ffi-invocation-message=Meiya cannot forward borrowed values through an FFI callback yet",
@@ -2149,11 +2414,11 @@ def audit_conformance(paths: List[Path]) -> int:
         "contract_region_editor_smoke.fk": (
             "contract-region-editor-bound-semantic-name='out",
             "contract-region-editor-bound-semantic-kind=Lifetime",
-            "contract-region-editor-bound-semantic-type=lifetime 'out on task shorten",
+            "contract-region-editor-bound-semantic-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
             "contract-region-editor-bound-semantic-def-matches-binder=true",
             "contract-region-editor-bound-hover-name='out",
             "contract-region-editor-bound-hover-kind=Lifetime",
-            "contract-region-editor-bound-hover-type=lifetime 'out on task shorten",
+            "contract-region-editor-bound-hover-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
             "contract-region-editor-bound-hover-name-matches-binder=true",
             "contract-region-editor-bound-hover-type-matches-binder=true",
             "contract-region-editor-bound-definition-found=1",
@@ -2169,14 +2434,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "ok|textDocument/hover",
             "**'out** `Lifetime`",
             "ok|textDocument/definition",
-            "|'out|Lifetime",
-            "semantic-snapshot-import ok=1",
-            "hover-snapshot-import ok=1",
-            "definition-snapshot-import ok=1",
-            "semantic-snapshot-restore ok=1",
-            "hover-snapshot-restore ok=1",
-            "definition-snapshot-restore ok=1",
-            "query-snapshot-restore ok=1",
+            "location|contract-region-editor.fk|3|33|3|37|'out|Lifetime",
             "contract-region-editor-blocked-confirm-promoted=0",
             "contract-region-editor-blocked-confirm-blocked=1",
             "contract-region-editor-blocked-confirm-mismatched=0",
@@ -2195,10 +2453,10 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-editor-restored-repeated-definition-query-nonempty=true",
             "contract-region-editor-restored-alt-definition-query-nonempty=true",
             "contract-region-editor-restored-semantic-kind=Lifetime",
-            "contract-region-editor-restored-semantic-type=lifetime 'out on task shorten",
+            "contract-region-editor-restored-semantic-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
             "contract-region-editor-restored-semantic-def-stable=true",
             "contract-region-editor-restored-hover-kind=Lifetime",
-            "contract-region-editor-restored-hover-type=lifetime 'out on task shorten",
+            "contract-region-editor-restored-hover-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
             "contract-region-editor-restored-hover-type-stable=true",
             "contract-region-editor-restored-definition-found=1",
             "contract-region-editor-restored-definition-span-stable=true",
@@ -2214,13 +2472,10 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-query-before-source-count=2",
             "contract-region-query-before-long-outlives-out=true",
             "contract-region-query-before-long-outlives-alt=false",
-            "contract-region-query-before-bound-semantic=lifetime 'out on task shorten",
-            "contract-region-query-before-bound-hover=lifetime 'out on task shorten",
             "contract-region-query-before-bound-definition=1",
             "contract-region-query-before-bound-definition-matches-out-binder=true",
             "contract-region-query-bound-offset-stable=true",
             "ok|textDocument/didChange",
-            "invalidation-contract|path=contract-region-query-invalidation.fk",
             "contract-region-query-ty-invalidated=true",
             "contract-region-query-mir-invalidated=true",
             "contract-region-query-borrowck-invalidated=true",
@@ -2246,8 +2501,6 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-query-after-source-count=1",
             "contract-region-query-after-long-outlives-out=false",
             "contract-region-query-after-long-outlives-alt=true",
-            "contract-region-query-after-bound-semantic=lifetime 'alt on task shorten",
-            "contract-region-query-after-bound-hover=lifetime 'alt on task shorten",
             "contract-region-query-after-bound-definition=1",
             "contract-region-query-after-bound-definition-matches-alt-binder=true",
             "contract-region-query-bound-definition-changed=true",
@@ -2281,9 +2534,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-liveness-empty-union-known-empty=true",
             "contract-region-liveness-opaque-overlaps-any-owner=true",
             "contract-region-liveness-snapshot-format=freak-borrowck-snapshot-v1",
-            "borrowck-snapshot-import ok=1",
             "contract-region-liveness-snapshot-poisoned-before-restore=true",
-            "borrowck-snapshot-restore ok=1",
             "contract-region-liveness-restored-choose-return-source-count=2",
             "contract-region-liveness-restored-choose-return-source0=first",
             "contract-region-liveness-restored-choose-return-source1=second",
@@ -2386,58 +2637,6 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-resource-bounds-opaque=true",
         ),
     }
-    required_harness_expect_exact = {
-        "contract_region_editor_smoke.fk": (
-            "contract-region-editor-bound-semantic-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
-            "contract-region-editor-bound-hover-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
-            "location|contract-region-editor.fk|3|33|3|37|'out|Lifetime",
-            "contract-region-editor-blocked-confirm-promoted=0",
-            "contract-region-editor-blocked-confirm-blocked=1",
-            "contract-region-editor-blocked-confirm-mismatched=0",
-            "contract-region-editor-mismatch-confirm-promoted=0",
-            "contract-region-editor-mismatch-confirm-blocked=0",
-            "contract-region-editor-mismatch-confirm-mismatched=1",
-            "contract-region-editor-promoted-confirm-promoted=1",
-            "contract-region-editor-promoted-confirm-blocked=0",
-            "contract-region-editor-promoted-confirm-mismatched=0",
-            "contract-region-editor-document-confirm-promoted=17",
-            "contract-region-editor-document-confirm-blocked=0",
-            "contract-region-editor-document-confirm-mismatched=0",
-            "contract-region-editor-restored-semantic-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
-            "contract-region-editor-restored-hover-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
-            "contract-region-editor-restored-definition-records-distinct=true",
-            "contract-region-editor-restored-definition-spans-distinct=true",
-        ),
-        "contract_region_query_invalidation_smoke.fk": (
-            "contract-region-query-document-symbols-invalidated=true",
-            "contract-region-query-completion-invalidated=true",
-            "contract-region-query-all-invalidations-positive=true",
-            "contract-region-query-document-symbols-recomputed=true",
-            "contract-region-query-completion-recomputed=true",
-            "contract-region-query-after-diagnostics=1",
-            "contract-region-query-after-message=Meiya refuses a returned loan from the wrong lifetime",
-        ),
-    }
-    line_harness_expect_fixtures = (
-        "contract_region_relation_stress_smoke.fk",
-        "contract_region_storage_negative_smoke.fk",
-        "contract_region_boundary_negative_smoke.fk",
-        "contract_region_forwarding_boundary_negative_smoke.fk",
-        "contract_region_elided_liveness_smoke.fk",
-        "contract_region_elided_query_invalidation_smoke.fk",
-        "contract_region_resource_smoke.fk",
-    )
-    exact_harness_expect_fixtures = (
-        "contract_region_relation_stress_smoke.fk",
-        "contract_region_storage_negative_smoke.fk",
-        "contract_region_boundary_negative_smoke.fk",
-        "contract_region_forwarding_boundary_negative_smoke.fk",
-        "contract_region_editor_smoke.fk",
-        "contract_region_query_invalidation_smoke.fk",
-        "contract_region_elided_liveness_smoke.fk",
-        "contract_region_elided_query_invalidation_smoke.fk",
-        "contract_region_resource_smoke.fk",
-    )
     if v4_check_harness_return.exists():
         harness_smokes, harness_errors = _literal_executable_smokes(v4_check_harness_return)
         contract_region_missing.extend(harness_errors)
@@ -2453,33 +2652,35 @@ def audit_conformance(paths: List[Path]) -> int:
         for fixture in harness_fixtures:
             if fixture not in harness_smokes:
                 contract_region_missing.append(f"EXECUTABLE_SMOKES: {fixture} entry missing")
-        for fixture in line_harness_expect_fixtures:
-            smoke = harness_smokes.get(fixture)
-            if smoke is not None and smoke.expect_mode != "line":
+        for fixture in harness_smokes:
+            if fixture.startswith("contract_region_") and fixture not in required_harness_expects:
                 contract_region_missing.append(
-                    f"EXECUTABLE_SMOKES: {fixture} expect_mode must be 'line'"
-                )
-        for fixture, required_exact_expects in required_harness_expect_exact.items():
-            smoke = harness_smokes.get(fixture)
-            if smoke is None:
-                continue
-            if smoke.expect_exact != required_exact_expects:
-                contract_region_missing.append(
-                    f"EXECUTABLE_SMOKES: {fixture} expect_exact list does not exactly match the auditor oracle"
+                    f"EXECUTABLE_SMOKES: {fixture} has no literal contract-region oracle"
                 )
         for fixture, required_expects in required_harness_expects.items():
             smoke = harness_smokes.get(fixture)
             if smoke is None:
                 continue
-            actual_expects = smoke.expect
-            if fixture in exact_harness_expect_fixtures:
-                if actual_expects != required_expects:
+            if fixture.startswith("contract_region_"):
+                if smoke.expect_mode != "line":
+                    contract_region_missing.append(
+                        f"EXECUTABLE_SMOKES: {fixture} expect_mode must be 'line'"
+                    )
+                if smoke.expect_unique is not True:
+                    contract_region_missing.append(
+                        f"EXECUTABLE_SMOKES: {fixture} expect_unique must be true"
+                    )
+                if smoke.expect_exact:
+                    contract_region_missing.append(
+                        f"EXECUTABLE_SMOKES: {fixture} must keep every exact line in expect"
+                    )
+                if smoke.expect != required_expects:
                     contract_region_missing.append(
                         f"EXECUTABLE_SMOKES: {fixture} expectation list does not exactly match the auditor oracle"
                     )
                 continue
             for expected in required_expects:
-                if expected not in actual_expects:
+                if expected not in smoke.expect:
                     contract_region_missing.append(
                         f"EXECUTABLE_SMOKES: {fixture} missing expected value {expected!r}"
                     )
