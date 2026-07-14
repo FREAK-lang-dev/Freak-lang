@@ -50,3 +50,77 @@ pilot v4_mir_restored_borrow = v4_borrowck_check_mir(v4_mir_file_id(v4_mir_resto
 say v4_mir_summary(v4_mir_restored_id)
 say v4_borrowck_summary(v4_mir_restored_borrow)
 say v4_driver_confirm_restored_document_text("mir-snapshot.fk", "task changed() => 7\n")
+
+task v4_mir_snapshot_graph_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_mir_snapshot_graph_rvalue_line(line: word, mode: word) -> word {
+    pilot rvalue_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
+    pilot kind = v4_mir_snapshot_field(line, 4)
+    pilot raw_lhs = v4_mir_snapshot_field_raw(line, 7)
+    pilot raw_rhs = v4_mir_snapshot_field_raw(line, 8)
+    pilot args_payload = v4_mir_snapshot_field(line, 12)
+    if mode == "self-cycle" {
+        kind = v4_mir_rvalue_tuple
+        raw_lhs = "-1"
+        raw_rhs = "-1"
+        args_payload = word_from_int(rvalue_id)
+    } else if mode == "dangling-edge" {
+        kind = v4_mir_rvalue_tuple
+        raw_lhs = "-1"
+        raw_rhs = "-1"
+        args_payload = "999999"
+    } else if mode == "unknown-kind" {
+        kind = "CausalityLoop"
+    }
+
+    pilot out = "mir-rvalue"
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 1)
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 2)
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 3)
+    out = out + "|" + v4_mir_snapshot_escape(kind)
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_snapshot_field(line, 5))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_snapshot_field(line, 6))
+    out = out + "|" + raw_lhs
+    out = out + "|" + raw_rhs
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_snapshot_field(line, 9))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_snapshot_field(line, 10))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_snapshot_field(line, 11))
+    out = out + "|" + v4_mir_snapshot_escape(args_payload)
+    out = out + "|"
+    give back out
+}
+
+task v4_mir_snapshot_graph_variant(payload: word, mode: word) -> word {
+    pilot out = ""
+    pilot replaced = false
+    pilot line_id = 0
+    pilot line_count = v4_mir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_mir_snapshot_line(payload, line_id)
+        if not replaced and v4_mir_snapshot_field_raw(line, 0) == "mir-rvalue" {
+            line = v4_mir_snapshot_graph_rvalue_line(line, mode)
+            replaced = true
+        }
+        if line_id > 0 { out = out + "\n" }
+        out = out + line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_mir_snapshot_graph_assert(mode: word) -> void {
+    pilot before = v4_mir_snapshot()
+    pilot corrupt = v4_mir_snapshot_graph_variant(before, mode)
+    pilot validation = v4_mir_snapshot_validate(corrupt)
+    say "mir-snapshot-graph-" + mode + "-validate-rejected=" + v4_mir_snapshot_graph_bool(validation.starts_with("mir-snapshot-import ok=0"))
+    pilot restore = v4_mir_snapshot_restore(corrupt)
+    say "mir-snapshot-graph-" + mode + "-restore-rejected=" + v4_mir_snapshot_graph_bool(restore.starts_with("mir-snapshot-restore ok=0 reason=validation-failed"))
+    say "mir-snapshot-graph-" + mode + "-state-stable=" + v4_mir_snapshot_graph_bool(v4_mir_snapshot() == before)
+}
+
+v4_mir_snapshot_graph_assert("self-cycle")
+v4_mir_snapshot_graph_assert("dangling-edge")
+v4_mir_snapshot_graph_assert("unknown-kind")

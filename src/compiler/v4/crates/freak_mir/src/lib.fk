@@ -10331,6 +10331,134 @@ task v4_mir_snapshot_nonnegative_int_is_valid(raw: word) -> bool {
     give back word_from_int(value) == raw
 }
 
+task v4_mir_snapshot_signed_int_is_valid(raw: word) -> bool {
+    if raw == "" { give back false }
+    pilot value = word_to_int(raw)
+    give back word_from_int(value) == raw
+}
+
+task v4_mir_snapshot_ref_is_valid(raw: word, upper_bound: int, allow_missing: bool) -> bool {
+    if not v4_mir_snapshot_signed_int_is_valid(raw) { give back false }
+    pilot value = word_to_int(raw)
+    if value == 0 - 1 { give back allow_missing }
+    if value < 0 or value >= upper_bound { give back false }
+    give back true
+}
+
+task v4_mir_snapshot_prior_rvalue_ref_is_valid(raw: word, parent_id: int, allow_missing: bool) -> bool {
+    give back v4_mir_snapshot_ref_is_valid(raw, parent_id, allow_missing)
+}
+
+task v4_mir_snapshot_comma_part(payload: word, wanted: int) -> word {
+    if payload == "" or wanted < 0 { give back "" }
+    pilot part = 0
+    pilot start_pos = 0
+    pilot idx = 0
+    repeat until idx >= payload.length() {
+        if payload.char_at(idx) == "," {
+            if part == wanted {
+                give back v4_slice(payload, start_pos, idx)
+            }
+            part += 1
+            start_pos = idx + 1
+        }
+        idx += 1
+    }
+    if part == wanted {
+        give back v4_slice(payload, start_pos, payload.length())
+    }
+    give back ""
+}
+
+task v4_mir_snapshot_rvalue_payload_is_valid(payload: word, parent_id: int) -> bool {
+    if payload == "" { give back true }
+    pilot child_count = v4_mir_call_args_payload_count(payload)
+    pilot child_id = 0
+    repeat until child_id >= child_count {
+        pilot raw_child = v4_mir_snapshot_comma_part(payload, child_id)
+        if not v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_child, parent_id, false) {
+            give back false
+        }
+        child_id += 1
+    }
+    give back true
+}
+
+task v4_mir_snapshot_terminator_kind_is_known(kind: word) -> bool {
+    give back kind == v4_mir_term_return or kind == v4_mir_term_unreachable or kind == v4_mir_term_goto or kind == v4_mir_term_if
+}
+
+task v4_mir_snapshot_stmt_kind_is_known(kind: word) -> bool {
+    give back kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign or kind == v4_mir_stmt_return or kind == v4_mir_stmt_expr or kind == v4_mir_stmt_branch or kind == v4_mir_stmt_loop or kind == v4_mir_stmt_break or kind == v4_mir_stmt_continue
+}
+
+task v4_mir_snapshot_place_kind_is_known(kind: word) -> bool {
+    give back kind == v4_mir_place_local or kind == v4_mir_place_field or kind == v4_mir_place_index or kind == v4_mir_place_deref or kind == v4_mir_place_return or kind == v4_mir_place_unknown
+}
+
+task v4_mir_snapshot_rvalue_kind_is_known(kind: word) -> bool {
+    give back kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_char or kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_use_symbol or kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_map or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_loop_item or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut or kind == v4_mir_rvalue_unknown
+}
+
+task v4_mir_snapshot_block_record_is_valid(block_record: word, block_id: int, block_count: int) -> bool {
+    pilot raw_id = v4_mir_block_part(block_record, 0)
+    pilot terminator = v4_mir_block_part(block_record, 1)
+    pilot raw_target = v4_mir_block_part(block_record, 2)
+    pilot raw_else_target = v4_mir_block_part(block_record, 3)
+    if not v4_mir_snapshot_nonnegative_int_is_valid(raw_id) or word_to_int(raw_id) != block_id {
+        give back false
+    }
+    if not v4_mir_snapshot_terminator_kind_is_known(terminator) { give back false }
+    if terminator == v4_mir_term_goto {
+        give back v4_mir_snapshot_ref_is_valid(raw_target, block_count, false) and raw_else_target == "-1"
+    }
+    if terminator == v4_mir_term_if {
+        give back v4_mir_snapshot_ref_is_valid(raw_target, block_count, false) and v4_mir_snapshot_ref_is_valid(raw_else_target, block_count, false)
+    }
+    give back raw_target == "-1" and raw_else_target == "-1"
+}
+
+task v4_mir_snapshot_place_refs_are_valid(kind: word, raw_base: word, raw_index: word, place_id: int, local_count: int, rvalue_count: int) -> bool {
+    if not v4_mir_snapshot_place_kind_is_known(kind) { give back false }
+    if kind == v4_mir_place_local {
+        give back v4_mir_snapshot_ref_is_valid(raw_base, local_count, true) and raw_index == "-1"
+    }
+    if kind == v4_mir_place_field {
+        give back v4_mir_snapshot_ref_is_valid(raw_base, place_id, false) and raw_index == "-1"
+    }
+    if kind == v4_mir_place_index {
+        give back v4_mir_snapshot_ref_is_valid(raw_base, place_id, false) and v4_mir_snapshot_ref_is_valid(raw_index, rvalue_count, false)
+    }
+    if kind == v4_mir_place_deref {
+        give back raw_base == "-1" and v4_mir_snapshot_ref_is_valid(raw_index, rvalue_count, false)
+    }
+    give back raw_base == "-1" and raw_index == "-1"
+}
+
+task v4_mir_snapshot_rvalue_refs_are_valid(kind: word, raw_lhs: word, raw_rhs: word, args_payload: word, rvalue_id: int, place_count: int) -> bool {
+    if not v4_mir_snapshot_rvalue_kind_is_known(kind) { give back false }
+
+    if kind == v4_mir_rvalue_use_place {
+        give back v4_mir_snapshot_ref_is_valid(raw_lhs, place_count, false) and raw_rhs == "-1" and args_payload == ""
+    }
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        give back raw_lhs == "-1" and raw_rhs == "-1" and v4_mir_snapshot_rvalue_payload_is_valid(args_payload, rvalue_id)
+    }
+    if kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_or_else {
+        give back v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_lhs, rvalue_id, false) and v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_rhs, rvalue_id, false) and args_payload == ""
+    }
+    if kind == v4_mir_rvalue_unary {
+        give back v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_lhs, rvalue_id, false) and v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_rhs, rvalue_id, true) and args_payload == ""
+    }
+    if kind == v4_mir_rvalue_call {
+        give back v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_lhs, rvalue_id, true) and v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_rhs, rvalue_id, true) and v4_mir_snapshot_rvalue_payload_is_valid(args_payload, rvalue_id)
+    }
+    if kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+        give back v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_lhs, rvalue_id, false) and raw_rhs == "-1" and args_payload == ""
+    }
+    give back raw_lhs == "-1" and raw_rhs == "-1" and args_payload == ""
+}
+
 task v4_mir_snapshot_validate(payload: word) -> word {
     pilot lines = v4_mir_snapshot_line_count(payload)
     pilot files = 0
@@ -10500,6 +10628,8 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if word_to_int(raw_body_id) != current_body { malformed += 1 }
                 if word_to_int(raw_child_id) != body_blocks { malformed += 1 }
                 if body_phase > 1 { malformed += 1 }
+                pilot block_record = v4_mir_snapshot_field(line, 4)
+                if not v4_mir_snapshot_block_record_is_valid(block_record, word_to_int(raw_child_id), body_declared_blocks) { malformed += 1 }
                 body_phase = 1
                 body_blocks += 1
                 blocks += 1
@@ -10530,6 +10660,14 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if word_to_int(raw_body_id) != current_body { malformed += 1 }
                 if word_to_int(raw_child_id) != body_statements { malformed += 1 }
                 if body_phase > 3 { malformed += 1 }
+                pilot stmt_kind = v4_mir_snapshot_field(line, 4)
+                pilot raw_stmt_block = v4_mir_snapshot_field_raw(line, 8)
+                pilot raw_stmt_place = v4_mir_snapshot_field_raw(line, 9)
+                pilot raw_stmt_rvalue = v4_mir_snapshot_field_raw(line, 10)
+                if not v4_mir_snapshot_stmt_kind_is_known(stmt_kind) { malformed += 1 }
+                if not v4_mir_snapshot_ref_is_valid(raw_stmt_block, body_declared_blocks, false) { malformed += 1 }
+                if not v4_mir_snapshot_ref_is_valid(raw_stmt_place, body_declared_places, true) { malformed += 1 }
+                if not v4_mir_snapshot_ref_is_valid(raw_stmt_rvalue, body_declared_rvalues, true) { malformed += 1 }
                 body_phase = 3
                 body_statements += 1
                 statements += 1
@@ -10545,6 +10683,10 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if word_to_int(raw_body_id) != current_body { malformed += 1 }
                 if word_to_int(raw_child_id) != body_places { malformed += 1 }
                 if body_phase > 4 { malformed += 1 }
+                pilot place_kind = v4_mir_snapshot_field(line, 4)
+                pilot raw_place_base = v4_mir_snapshot_field_raw(line, 6)
+                pilot raw_place_index = v4_mir_snapshot_field_raw(line, 8)
+                if not v4_mir_snapshot_place_refs_are_valid(place_kind, raw_place_base, raw_place_index, word_to_int(raw_child_id), body_declared_locals, body_declared_rvalues) { malformed += 1 }
                 body_phase = 4
                 body_places += 1
                 places += 1
@@ -10559,10 +10701,16 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if word_to_int(raw_mir_id) != current_mir { malformed += 1 }
                 if word_to_int(raw_body_id) != current_body { malformed += 1 }
                 if word_to_int(raw_child_id) != body_rvalues { malformed += 1 }
+                pilot rvalue_kind = v4_mir_snapshot_field(line, 4)
+                pilot raw_lhs = v4_mir_snapshot_field_raw(line, 7)
+                pilot raw_rhs = v4_mir_snapshot_field_raw(line, 8)
+                pilot args_payload = v4_mir_snapshot_field(line, 12)
+                if not v4_mir_snapshot_rvalue_refs_are_valid(rvalue_kind, raw_lhs, raw_rhs, args_payload, word_to_int(raw_child_id), body_declared_places) { malformed += 1 }
                 pilot builtin_method = v4_mir_snapshot_field(line, 13)
                 if builtin_method != "" and not v4_mir_builtin_shared_method_identity_is_known(builtin_method) {
                     malformed += 1
                 }
+                if builtin_method != "" and rvalue_kind != v4_mir_rvalue_call { malformed += 1 }
                 body_phase = 5
                 body_rvalues += 1
                 rvalues += 1

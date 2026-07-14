@@ -2141,6 +2141,9 @@ task v4_borrowck_holder_alias_from_stmt(mir_id: int, body_id: int, stmt_id: int,
     if rvalue_id < 0 {
         give back ""
     }
+    if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        give back ""
+    }
     if not v4_borrowck_rvalue_returns_holder(mir_id, body_id, rvalue_id, holder) {
         give back ""
     }

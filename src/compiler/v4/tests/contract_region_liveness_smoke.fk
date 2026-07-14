@@ -87,6 +87,22 @@ task v4_contract_region_liveness_find_call(mir_id: int, body_id: int) -> int {
     give back 0 - 1
 }
 
+task v4_contract_region_liveness_find_local_init(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            if place_id >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
+                if v4_mir_place_text(mir_id, body_id, place_id) == local_name {
+                    give back stmt_id
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
 task v4_contract_region_liveness_diag_count(borrow_id: int, message: word) -> int {
     pilot total = 0
     pilot diag_id = 0
@@ -128,6 +144,9 @@ pilot v4_contract_region_liveness_first_before_body = v4_mir_lookup_body(v4_cont
 pilot v4_contract_region_liveness_first_before_call = v4_contract_region_liveness_find_call(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body)
 pilot v4_contract_region_liveness_call_source0 = v4_mir_rvalue_call_borrowed_source_arg_at(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body, v4_contract_region_liveness_first_before_call, 0)
 pilot v4_contract_region_liveness_call_source1 = v4_mir_rvalue_call_borrowed_source_arg_at(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body, v4_contract_region_liveness_first_before_call, 1)
+pilot v4_contract_region_liveness_first_after_body = v4_mir_lookup_body(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_after_def)
+pilot v4_contract_region_liveness_hp_stmt = v4_contract_region_liveness_find_local_init(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_after_body, "hp")
+pilot v4_contract_region_liveness_hp_rvalue = v4_mir_stmt_rvalue(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_after_body, v4_contract_region_liveness_hp_stmt)
 
 pilot v4_contract_region_liveness_choose_path0 = v4_contract_region_liveness_return_path_at(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_result, 0)
 pilot v4_contract_region_liveness_choose_path1 = v4_contract_region_liveness_return_path_at(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_result, 1)
@@ -146,6 +165,8 @@ say "contract-region-liveness-signature-source-count=" + word_from_int(v4_ty_sig
 say "contract-region-liveness-ordinary-call-source-count=" + word_from_int(v4_mir_rvalue_call_borrowed_source_arg_count(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body, v4_contract_region_liveness_first_before_call))
 say "contract-region-liveness-ordinary-call-source0=" + v4_mir_rvalue_text(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body, v4_contract_region_liveness_call_source0)
 say "contract-region-liveness-ordinary-call-source1=" + v4_mir_rvalue_text(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body, v4_contract_region_liveness_call_source1)
+say "contract-region-liveness-copied-projection-type=" + v4_mir_rvalue_ty(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_after_body, v4_contract_region_liveness_hp_rvalue)
+say "contract-region-liveness-copied-projection-not-loan-alias=" + v4_contract_region_liveness_bool(v4_borrowck_holder_alias_from_stmt(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_after_body, v4_contract_region_liveness_hp_stmt, "view") == "")
 say "contract-region-liveness-choose-status=" + v4_borrowck_result_status(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_result)
 say "contract-region-liveness-forward-status=" + v4_borrowck_result_status(v4_contract_region_liveness_borrow, v4_contract_region_liveness_forward_result)
 say "contract-region-liveness-first-before-status=" + v4_borrowck_result_status(v4_contract_region_liveness_borrow, v4_contract_region_liveness_first_before_result)
