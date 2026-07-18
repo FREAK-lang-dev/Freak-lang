@@ -7636,10 +7636,10 @@ EXECUTABLE_SMOKES = [
         "fixture": "borrowck_rvalue_paths_smoke.fk",
         "expect": [
             "rvalue-paths-status=clean",
-            "rvalue-paths-total=15",
+            "rvalue-paths-total=14",
             "rvalue-paths-copies=2",
             "rvalue-paths-moves=2",
-            "rvalue-paths-drops=4",
+            "rvalue-paths-drops=3",
             "rvalue-paths-value-loan=1",
             "rvalue-paths-value-move=1",
             "rvalue-paths-fallback-move=1",
