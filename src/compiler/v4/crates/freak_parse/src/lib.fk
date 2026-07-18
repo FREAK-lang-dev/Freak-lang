@@ -1227,28 +1227,33 @@ task v4_parse_snapshot_diag_line(tree_id: int, diag_id: int) -> word {
 
 task v4_parse_snapshot() -> word {
     v4_parse_init()
-    pilot out = v4_parse_snapshot_header()
+    pilot parts = array_new()
+    array_push(parts, v4_parse_snapshot_header())
     pilot tree_id = 0
     repeat until tree_id >= v4_parse_tree_count() {
-        out = out + "\n" + v4_parse_snapshot_tree_line(tree_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_parse_snapshot_tree_line(tree_id))
 
         pilot node_id = 0
         pilot node_count = v4_parse_node_count(tree_id)
         repeat until node_id >= node_count {
-            out = out + "\n" + v4_parse_snapshot_node_line(tree_id, node_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_parse_snapshot_node_line(tree_id, node_id))
             node_id += 1
         }
 
         pilot diag_id = 0
         pilot diag_count = v4_parse_diag_count(tree_id)
         repeat until diag_id >= diag_count {
-            out = out + "\n" + v4_parse_snapshot_diag_line(tree_id, diag_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_parse_snapshot_diag_line(tree_id, diag_id))
             diag_id += 1
         }
         tree_id += 1
     }
-    out = out + "\nend|" + v4_parse_snapshot_format
-    give back out
+    array_push(parts, "\nend|")
+    array_push(parts, v4_parse_snapshot_format)
+    give back word_join(parts)
 }
 
 task v4_parse_snapshot_record_expected_fields(kind: word) -> int {

@@ -571,28 +571,33 @@ task v4_hir_snapshot_diag_line(hir_id: int, diag_id: int) -> word {
 
 task v4_hir_snapshot() -> word {
     v4_hir_init()
-    pilot out = v4_hir_snapshot_header()
+    pilot parts = array_new()
+    array_push(parts, v4_hir_snapshot_header())
     pilot hir_id = 0
     repeat until hir_id >= v4_hir_file_count() {
-        out = out + "\n" + v4_hir_snapshot_file_line(hir_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_hir_snapshot_file_line(hir_id))
 
         pilot item_id = 0
         pilot item_count = v4_hir_item_count(hir_id)
         repeat until item_id >= item_count {
-            out = out + "\n" + v4_hir_snapshot_item_line(hir_id, item_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_hir_snapshot_item_line(hir_id, item_id))
             item_id += 1
         }
 
         pilot diag_id = 0
         pilot diag_count = v4_hir_diag_count(hir_id)
         repeat until diag_id >= diag_count {
-            out = out + "\n" + v4_hir_snapshot_diag_line(hir_id, diag_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_hir_snapshot_diag_line(hir_id, diag_id))
             diag_id += 1
         }
         hir_id += 1
     }
-    out = out + "\nend|" + v4_hir_snapshot_format
-    give back out
+    array_push(parts, "\nend|")
+    array_push(parts, v4_hir_snapshot_format)
+    give back word_join(parts)
 }
 
 task v4_hir_snapshot_record_expected_fields(kind: word) -> int {

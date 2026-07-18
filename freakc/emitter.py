@@ -1272,6 +1272,13 @@ class CEmitter:
             "trim": ("freak_word_trim", 0, False),
             "replace": ("freak_word_replace", 2, False),
             "char_at": ("freak_word_char_at", 1, False),
+            "checksum": ("freak_word_checksum", 0, False),
+            "snapshot_escape": ("freak_word_snapshot_escape", 0, False),
+            "snapshot_unescape": ("freak_word_snapshot_unescape", 0, False),
+            "snapshot_line_count": ("freak_word_snapshot_line_count", 0, False),
+            "snapshot_line": ("freak_word_snapshot_line", 1, False),
+            "snapshot_field_count": ("freak_word_snapshot_field_count", 0, False),
+            "snapshot_field_raw": ("freak_word_snapshot_field_raw", 1, False),
             "to_int": ("freak_word_to_int", 0, False),
             "to_num": ("freak_word_to_num", 0, False),
             "substring": ("freak_word_substring", 2, False),
@@ -1643,7 +1650,7 @@ class CEmitter:
             if isinstance(expr.func, Ident):
                 if expr.func.name == "ask":
                     return "freak_word"
-                if expr.func.name in ("word_from_int", "word_from_bool", "format_num", "chr"):
+                if expr.func.name in ("word_from_int", "word_from_bool", "word_join", "format_num", "chr"):
                     return "freak_word"
                 if expr.func.name == "parse_num":
                     return "double"
@@ -1815,13 +1822,21 @@ class CEmitter:
             # Return types for built-in word methods
             METHOD_RETURN_TYPES = {
                 "length": "int64_t",
+                "checksum": "int64_t",
+                "snapshot_line_count": "int64_t",
+                "snapshot_field_count": "int64_t",
                 "to_int": "int64_t",
                 "to_num": "double",
                 "to_upper": "freak_word",
                 "to_lower": "freak_word",
                 "trim": "freak_word",
                 "replace": "freak_word",
+                "substring": "freak_word",
                 "char_at": "freak_word",
+                "snapshot_escape": "freak_word",
+                "snapshot_unescape": "freak_word",
+                "snapshot_line": "freak_word",
+                "snapshot_field_raw": "freak_word",
                 "to_word": "freak_word",
                 "contains": "bool",
                 "starts_with": "bool",

@@ -98,4 +98,3 @@ say "lend-live-diag1=" + v4_diag_message(v4_borrowck_diag(v4_lend_liveness_borro
 say "lend-live-diag2=" + v4_diag_message(v4_borrowck_diag(v4_lend_liveness_borrow, 2))
 say "lend-live-diag3=" + v4_diag_message(v4_borrowck_diag(v4_lend_liveness_borrow, 3))
 say "lend-live-diag4=" + v4_diag_message(v4_borrowck_diag(v4_lend_liveness_borrow, 4))
-say "lend-live-diag5=" + v4_diag_message(v4_borrowck_diag(v4_lend_liveness_borrow, 5))

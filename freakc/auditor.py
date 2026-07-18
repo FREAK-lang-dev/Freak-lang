@@ -659,6 +659,29 @@ _UNIT_SNAPSHOT_INTEGRITY_STRUCTURAL_NEEDLES = (
     f'v4_unit_snapshot_integrity_assert("{case_name}",'
     for case_name in _UNIT_SNAPSHOT_INTEGRITY_CASES
 )
+_UNIT_SNAPSHOT_MULTISOURCE_RESOURCE_ORACLES = (
+    "snapshot-multisource-count=192",
+    "snapshot-multisource-valid=true",
+    "snapshot-multisource-manifest=true",
+    "snapshot-multisource-diff=true",
+    "snapshot-multisource-health=true",
+    "snapshot-multisource-health-diff=true",
+    "snapshot-multisource-duplicate-ids=true",
+    "snapshot-multisource-duplicate-paths=true",
+)
+_MIR_SNAPSHOT_RESOURCE_ORACLES = (
+    "mir-snapshot-resource-iterations=64",
+    "mir-snapshot-resource-valid=true",
+    "mir-snapshot-resource-array-probe=true",
+)
+_QUERY_INVALIDATION_RESOURCE_ORACLES = (
+    "query-invalidation-resource-changes=96",
+    "query-invalidation-resource-direct=600",
+    "query-invalidation-resource-response=true",
+    "query-invalidation-resource-dependents=true",
+    "query-invalidation-resource-change-probe=true",
+    "query-invalidation-resource-array-probe=true",
+)
 _EXPLICIT_STRICT_SMOKE_ORACLES: Dict[str, Tuple[str, ...]] = {
     "lend_return_query_invalidation_smoke.fk": (),
     "named_lifetime_editor_smoke.fk": (),
@@ -713,6 +736,9 @@ _EXPLICIT_STRICT_SMOKE_ORACLES: Dict[str, Tuple[str, ...]] = {
         "shared-alias-concrete-distinct-overlap=false",
     ),
     "unit_snapshot_smoke.fk": _UNIT_SNAPSHOT_INTEGRITY_ORACLES,
+    "unit_snapshot_multisource_resource_smoke.fk": _UNIT_SNAPSHOT_MULTISOURCE_RESOURCE_ORACLES,
+    "mir_snapshot_resource_smoke.fk": _MIR_SNAPSHOT_RESOURCE_ORACLES,
+    "query_invalidation_resource_smoke.fk": _QUERY_INVALIDATION_RESOURCE_ORACLES,
 }
 
 
@@ -1380,9 +1406,6 @@ def _literal_executable_smokes(
         if not isinstance(expects, list):
             errors.append(f"EXECUTABLE_SMOKES: {fixture} missing literal expect list")
             continue
-        if not expects:
-            errors.append(f"EXECUTABLE_SMOKES: {fixture} has an empty expect list")
-            continue
         if any(not isinstance(value, str) or not value for value in expects):
             errors.append(
                 f"EXECUTABLE_SMOKES: {fixture} expect list contains a non-string or empty value"
@@ -1399,6 +1422,9 @@ def _literal_executable_smokes(
             errors.append(
                 f"EXECUTABLE_SMOKES: {fixture} expect_exact contains a non-string or empty value"
             )
+            continue
+        if not expects and not exact_expects:
+            errors.append(f"EXECUTABLE_SMOKES: {fixture} has no expectations")
             continue
 
         expect_mode = entry.get("expect_mode")
@@ -3697,13 +3723,16 @@ def audit_conformance(paths: List[Path]) -> int:
         borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
         for needle in (
             "v4_borrowck_local_moved_without_reinit_linear",
-            "v4_borrowck_local_moved_on_all_exits_seen",
+            "v4_borrowck_local_initially_initialized",
+            "v4_borrowck_local_state_after_block",
             "v4_borrowck_local_moved_on_any_exit",
-            "v4_borrowck_local_has_exit_state_seen",
+            "v4_borrowck_local_has_exit_state",
+            "v4_borrowck_enqueue_drop_state",
             "v4_borrowck_path_drop_if",
-            "v4_borrowck_drop_seen_block",
-            "v4_borrowck_drop_state_key",
-            "terminator == v4_mir_term_unreachable",
+            "v4_borrowck_drop_state_index",
+            "v4_borrowck_mark_seen_index",
+            "array_release(seen)",
+            "terminator != v4_mir_term_unreachable",
             "v4_borrowck_path_exact_local",
             "v4_borrowck_stmt_has_exact_local_path",
         ):
@@ -3711,6 +3740,20 @@ def audit_conformance(paths: List[Path]) -> int:
                 drop_flag_missing.append(f"freak_borrowck: {needle}")
     else:
         drop_flag_missing.append("freak_borrowck/src/lib.fk missing")
+    if v4_mir_lib_return.exists():
+        mir_src = v4_mir_lib_return.read_text(encoding="utf-8")
+        if mir_src.count("pilot loop_entry_block = v4_mir_add_block") < 2:
+            drop_flag_missing.append("freak_mir: repeat/training loop preheaders")
+        for needle in (
+            "count_block, condition_block",
+            "body_tail, condition_block",
+            "iterable_block, loop_header",
+            "body_tail, loop_header",
+        ):
+            if needle not in mir_src:
+                drop_flag_missing.append(f"freak_mir: loop split {needle}")
+    else:
+        drop_flag_missing.append("freak_mir/src/lib.fk missing")
     if v4_drop_order_smoke.exists():
         smoke_src = v4_drop_order_smoke.read_text(encoding="utf-8")
         for needle in (
@@ -3719,8 +3762,12 @@ def audit_conformance(paths: List[Path]) -> int:
             "branch_moved",
             "branch_partial",
             "branch_reinit",
+            "branch_merge_reinit",
+            "branch_declared_local",
             "loop_before_move",
             "loop_moves_inside",
+            "loop_reinit_after_move",
+            "loop_declared_local",
             "route_branch_moved",
             "drop-moved-count=",
             "drop-reinit-count=",
@@ -3729,8 +3776,10 @@ def audit_conformance(paths: List[Path]) -> int:
             "drop-branch-partial-count=",
             "drop-branch-partial-if-count=",
             "drop-branch-reinit-if-count=",
+            "drop-branch-declared-local-if-count=",
             "drop-loop-before-move-count=",
             "drop-loop-moves-inside-if-count=",
+            "drop-loop-declared-local-if-count=",
             "drop-route-branch-moved-count=",
         ):
             if needle not in smoke_src:
@@ -3759,10 +3808,18 @@ def audit_conformance(paths: List[Path]) -> int:
             drop_flag_missing.append("check_v4.py: conditional branch drop expectation")
         if "drop-branch-reinit-if-count=0" not in harness_src:
             drop_flag_missing.append("check_v4.py: branch reinit drop expectation")
+        if "drop-branch-merge-reinit-if-count=0" not in harness_src:
+            drop_flag_missing.append("check_v4.py: branch merge reinit drop expectation")
+        if "drop-branch-declared-local-if-count=1" not in harness_src:
+            drop_flag_missing.append("check_v4.py: branch-local initialization expectation")
         if "drop-loop-before-move-count=1" not in harness_src:
             drop_flag_missing.append("check_v4.py: loop-backedge drop expectation")
         if "drop-loop-moves-inside-if-count=1" not in harness_src:
             drop_flag_missing.append("check_v4.py: loop move DropIf expectation")
+        if "drop-loop-reinit-after-move-if-count=1" not in harness_src:
+            drop_flag_missing.append("check_v4.py: loop reinit DropIf expectation")
+        if "drop-loop-declared-local-if-count=1" not in harness_src:
+            drop_flag_missing.append("check_v4.py: loop-local initialization expectation")
         if "drop-route-branch-moved-count=1" not in harness_src:
             drop_flag_missing.append("check_v4.py: unreachable-tail drop expectation")
         if "borrowck-snapshot-dropif-count=1" not in harness_src:
@@ -3851,6 +3908,41 @@ def audit_conformance(paths: List[Path]) -> int:
     v4_unit_snapshot_smoke = (
         repo / "src" / "compiler" / "v4" / "tests" / "unit_snapshot_smoke.fk"
     )
+    v4_unit_snapshot_resource_smoke = (
+        repo
+        / "src"
+        / "compiler"
+        / "v4"
+        / "tests"
+        / "unit_snapshot_multisource_resource_smoke.fk"
+    )
+    v4_snapshot_lib = (
+        repo
+        / "src"
+        / "compiler"
+        / "v4"
+        / "crates"
+        / "freak_snapshot"
+        / "src"
+        / "lib.fk"
+    )
+    v4_mir_snapshot_resource_smoke = (
+        repo / "src" / "compiler" / "v4" / "tests" / "mir_snapshot_resource_smoke.fk"
+    )
+    v4_query_invalidation_resource_smoke = (
+        repo
+        / "src"
+        / "compiler"
+        / "v4"
+        / "tests"
+        / "query_invalidation_resource_smoke.fk"
+    )
+    v4_mir_snapshot_lib = (
+        repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    )
+    v4_query_resource_lib = (
+        repo / "src" / "compiler" / "v4" / "crates" / "freak_query" / "src" / "lib.fk"
+    )
     if v4_unit_snapshot_smoke.exists():
         unit_snapshot_src = v4_unit_snapshot_smoke.read_text(encoding="utf-8")
         for needle in _UNIT_SNAPSHOT_INTEGRITY_STRUCTURAL_NEEDLES:
@@ -3862,14 +3954,126 @@ def audit_conformance(paths: List[Path]) -> int:
         unit_snapshot_integrity_missing.append(
             "smoke fixture: unit_snapshot_smoke.fk"
         )
+    if v4_unit_snapshot_resource_smoke.exists():
+        resource_src = v4_unit_snapshot_resource_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "v4_unit_snapshot_multisource_expected = 192",
+            "v4_unit_snapshot_validate",
+            "v4_unit_snapshot_manifest",
+            "v4_unit_snapshot_diff",
+            "v4_unit_snapshot_health",
+        ):
+            if needle not in resource_src:
+                unit_snapshot_integrity_missing.append(
+                    f"unit_snapshot_multisource_resource_smoke: {needle}"
+                )
+    else:
+        unit_snapshot_integrity_missing.append(
+            "smoke fixture: unit_snapshot_multisource_resource_smoke.fk"
+        )
+    if v4_snapshot_lib.exists():
+        snapshot_src = v4_snapshot_lib.read_text(encoding="utf-8")
+        for needle in (
+            "v4_unit_snapshot_word_array_count",
+            "v4_unit_snapshot_collect_source_index",
+            "v4_unit_snapshot_source_index_line_by_path",
+        ):
+            if needle not in snapshot_src:
+                unit_snapshot_integrity_missing.append(f"freak_snapshot: {needle}")
+        if "pilot earlier_line_id" in snapshot_src:
+            unit_snapshot_integrity_missing.append(
+                "freak_snapshot: quadratic prior-source rescan"
+            )
+    else:
+        unit_snapshot_integrity_missing.append("freak_snapshot/src/lib.fk missing")
+    for fixture_path, fixture_name, needles in (
+        (
+            v4_mir_snapshot_resource_smoke,
+            "mir_snapshot_resource_smoke",
+            (
+                "v4_mir_snapshot_resource_iterations >= 64",
+                "v4_mir_snapshot_validate",
+                "v4_mir_snapshot_resource_cycle_iterations >= 64",
+                "mir-snapshot-resource-cycles-rejected=",
+                "mir-snapshot-resource-array-probe=",
+                "mir-snapshot-resource-handle-capacity-bounded=",
+                "mir-snapshot-resource-handle-capacity-stable=",
+            ),
+        ),
+        (
+            v4_query_invalidation_resource_smoke,
+            "query_invalidation_resource_smoke",
+            (
+                "v4_query_invalidation_resource_changes >= 96",
+                "v4_query_invalidation_resource_direct >= 600",
+                "query-invalidation-resource-array-probe=",
+                "query-invalidation-resource-handle-capacity-bounded=",
+                "query-invalidation-resource-handle-capacity-stable=",
+            ),
+        ),
+    ):
+        if fixture_path.exists():
+            fixture_src = fixture_path.read_text(encoding="utf-8")
+            for needle in needles:
+                if needle not in fixture_src:
+                    unit_snapshot_integrity_missing.append(
+                        f"{fixture_name}: {needle}"
+                    )
+        else:
+            unit_snapshot_integrity_missing.append(
+                f"smoke fixture: {fixture_path.name}"
+            )
+    if v4_mir_snapshot_lib.exists():
+        mir_snapshot_src = v4_mir_snapshot_lib.read_text(encoding="utf-8")
+        for needle in (
+            "v4_mir_snapshot_release_body_graph_arrays",
+            "array_release(states)",
+            "array_release(v4_mir_loop_break_targets)",
+            "array_release(v4_mir_scope_spans)",
+        ):
+            if needle not in mir_snapshot_src:
+                unit_snapshot_integrity_missing.append(f"freak_mir: {needle}")
+    else:
+        unit_snapshot_integrity_missing.append("freak_mir/src/lib.fk missing")
+    if v4_query_resource_lib.exists():
+        query_resource_src = v4_query_resource_lib.read_text(encoding="utf-8")
+        for needle in ("array_release(seen)", "array_release(work)"):
+            if needle not in query_resource_src:
+                unit_snapshot_integrity_missing.append(f"freak_query: {needle}")
+    else:
+        unit_snapshot_integrity_missing.append("freak_query/src/lib.fk missing")
     if v4_check_harness_return.exists():
+        check_harness_src = v4_check_harness_return.read_text(encoding="utf-8")
+        for needle in (
+            "C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024",
+            "-DFREAK_ARRAY_LIVE_LIMIT=",
+            "mir_snapshot_resource_smoke.fk",
+            "query_invalidation_resource_smoke.fk",
+        ):
+            if needle not in check_harness_src:
+                unit_snapshot_integrity_missing.append(f"check_v4.py: {needle}")
+        runtime_resource_path = repo / "freakc" / "runtime" / "freak_runtime.c"
+        if runtime_resource_path.exists():
+            runtime_resource_src = runtime_resource_path.read_text(encoding="utf-8")
+            if "FREAK_ARRAY_LIVE_LIMIT" not in runtime_resource_src:
+                unit_snapshot_integrity_missing.append(
+                    "freak_runtime.c: FREAK_ARRAY_LIVE_LIMIT"
+                )
+        else:
+            unit_snapshot_integrity_missing.append("freak_runtime.c missing")
         snapshot_smokes, snapshot_manifest_errors = _literal_executable_smokes(
             v4_check_harness_return
         )
         unit_snapshot_integrity_missing.extend(snapshot_manifest_errors)
         unit_snapshot_integrity_missing.extend(
             _explicit_strict_smoke_errors(
-                snapshot_smokes, ("unit_snapshot_smoke.fk",)
+                snapshot_smokes,
+                (
+                    "unit_snapshot_smoke.fk",
+                    "unit_snapshot_multisource_resource_smoke.fk",
+                    "mir_snapshot_resource_smoke.fk",
+                    "query_invalidation_resource_smoke.fk",
+                ),
             )
         )
     else:
@@ -3877,7 +4081,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 unit snapshot integrity",
         not unit_snapshot_integrity_missing,
-        "preflight rejection preserves source state and valid restore commits"
+        "atomic restore plus bounded snapshot and invalidation scratch resources wired"
         if not unit_snapshot_integrity_missing
         else f"{len(unit_snapshot_integrity_missing)} gap(s)",
     )

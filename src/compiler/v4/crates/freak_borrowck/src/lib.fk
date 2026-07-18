@@ -1709,7 +1709,29 @@ task v4_borrowck_cross_block_conflict_help(loan_text: word, loan_stmt: int, loan
     give back out
 }
 
-task v4_borrowck_block_reaches_seen(mir_id: int, body_id: int, start_block: int, wanted_block: int, seen: word) -> bool {
+task v4_borrowck_seen_index(seen: int, index: int) -> bool {
+    if index < 0 or index >= array_len(seen) {
+        give back false
+    }
+    pilot state: word = array_get(seen, index)
+    give back state == "true"
+}
+
+task v4_borrowck_mark_seen_index(seen: int, index: int) -> bool {
+    if index < 0 {
+        give back false
+    }
+    repeat until array_len(seen) > index {
+        array_push(seen, "false")
+    }
+    if v4_borrowck_seen_index(seen, index) {
+        give back false
+    }
+    array_set(seen, index, "true")
+    give back true
+}
+
+task v4_borrowck_block_reaches_seen(mir_id: int, body_id: int, start_block: int, wanted_block: int, seen: int) -> bool {
     if start_block < 0 or wanted_block < 0 {
         give back false
     }
@@ -1720,11 +1742,9 @@ task v4_borrowck_block_reaches_seen(mir_id: int, body_id: int, start_block: int,
         give back false
     }
 
-    pilot key = word_from_int(start_block)
-    if v4_mir_name_list_contains(seen, key) {
+    if not v4_borrowck_mark_seen_index(seen, start_block) {
         give back false
     }
-    seen = v4_mir_name_list_add(seen, key)
 
     pilot block_record = v4_mir_body_block(mir_id, body_id, start_block)
     pilot terminator = v4_mir_block_terminator(block_record)
@@ -1741,7 +1761,10 @@ task v4_borrowck_block_reaches_seen(mir_id: int, body_id: int, start_block: int,
 }
 
 task v4_borrowck_block_reaches(mir_id: int, body_id: int, start_block: int, wanted_block: int) -> bool {
-    give back v4_borrowck_block_reaches_seen(mir_id, body_id, start_block, wanted_block, "")
+    pilot seen = array_new()
+    pilot reaches = v4_borrowck_block_reaches_seen(mir_id, body_id, start_block, wanted_block, seen)
+    array_release(seen)
+    give back reaches
 }
 
 task v4_borrowck_loan_spans_successors(mir_id: int, body_id: int, loan_stmt: int) -> bool {
@@ -2450,68 +2473,49 @@ task v4_borrowck_stmt_has_exact_local_path(borrow_id: int, result_id: int, stmt_
     give back false
 }
 
-task v4_borrowck_drop_state_key(block_id: int, initialized: bool) -> word {
-    pilot state = "moved"
+task v4_borrowck_drop_state_index(block_id: int, initialized: bool) -> int {
+    pilot state_index = block_id * 2
     if initialized {
-        state = "init"
+        state_index += 1
     }
-    give back word_from_int(block_id) + "#" + state
+    give back state_index
 }
 
-task v4_borrowck_drop_seen_block(seen: word, block_id: int) -> bool {
-    if v4_mir_name_list_contains(seen, v4_borrowck_drop_state_key(block_id, true)) {
-        give back true
-    }
-    give back v4_mir_name_list_contains(seen, v4_borrowck_drop_state_key(block_id, false))
-}
-
-task v4_borrowck_local_moved_on_all_exits_seen(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word, block_id: int, initialized: bool, seen: word) -> bool {
-    if block_id < 0 {
-        give back false
-    }
-    if block_id >= v4_mir_body_block_count(mir_id, body_id) {
-        give back false
-    }
-
-    pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
-    pilot terminator = v4_mir_block_terminator(block_record)
-    if terminator == v4_mir_term_unreachable {
-        give back true
-    }
-
-    pilot seen_block = v4_borrowck_drop_seen_block(seen, block_id)
-    pilot key = v4_borrowck_drop_state_key(block_id, initialized)
-    if v4_mir_name_list_contains(seen, key) {
-        give back true
-    }
-    seen = v4_mir_name_list_add(seen, key)
-
+task v4_borrowck_local_state_after_block(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word, block_id: int, initialized: bool) -> bool {
     pilot current_initialized = initialized
-    if not seen_block {
-        pilot stmt_id = 0
-        pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
-        repeat until stmt_id >= stmt_count {
-            if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
-                if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
-                    current_initialized = false
-                }
-                if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
-                    current_initialized = true
-                }
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
+            if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
+                current_initialized = false
             }
-            stmt_id += 1
+            if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
+                current_initialized = true
+            }
         }
+        stmt_id += 1
     }
+    give back current_initialized
+}
 
-    if terminator == v4_mir_term_goto {
-        give back v4_borrowck_local_moved_on_all_exits_seen(borrow_id, result_id, mir_id, body_id, local_name, v4_mir_block_target(block_record), current_initialized, seen)
+task v4_borrowck_enqueue_drop_state(seen: int, blocks: int, states: int, block_count: int, block_id: int, initialized: bool) -> void {
+    if block_id < 0 or block_id >= block_count {
+        give back
     }
-    if terminator == v4_mir_term_if {
-        pilot target_moved = v4_borrowck_local_moved_on_all_exits_seen(borrow_id, result_id, mir_id, body_id, local_name, v4_mir_block_target(block_record), current_initialized, seen)
-        pilot else_moved = v4_borrowck_local_moved_on_all_exits_seen(borrow_id, result_id, mir_id, body_id, local_name, v4_mir_block_else_target(block_record), current_initialized, seen)
-        give back target_moved and else_moved
+    if v4_borrowck_mark_seen_index(seen, v4_borrowck_drop_state_index(block_id, initialized)) {
+        array_push(blocks, word_from_int(block_id))
+        array_push(states, word_from_bool(initialized))
     }
-    give back not current_initialized
+}
+
+task v4_borrowck_local_initially_initialized(mir_id: int, body_id: int, local_name: word) -> bool {
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id < 0 {
+        give back false
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    give back v4_ty_signature_param_index_for_name(ty_id, sig_id, local_name) >= 0
 }
 
 task v4_borrowck_local_moved_without_reinit_linear(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word) -> bool {
@@ -2519,7 +2523,7 @@ task v4_borrowck_local_moved_without_reinit_linear(borrow_id: int, result_id: in
         give back false
     }
 
-    pilot initialized = true
+    pilot initialized = v4_borrowck_local_initially_initialized(mir_id, body_id, local_name)
     pilot stmt_id = 0
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
     repeat until stmt_id >= stmt_count {
@@ -2538,61 +2542,48 @@ task v4_borrowck_local_moved_without_reinit(borrow_id: int, result_id: int, mir_
     if v4_mir_body_block_count(mir_id, body_id) == 1 {
         give back v4_borrowck_local_moved_without_reinit_linear(borrow_id, result_id, mir_id, body_id, local_name)
     }
-    give back v4_borrowck_local_moved_on_all_exits_seen(borrow_id, result_id, mir_id, body_id, local_name, 0, true, "")
+    give back not v4_borrowck_local_has_exit_state(borrow_id, result_id, mir_id, body_id, local_name, true)
 }
 
-task v4_borrowck_local_has_exit_state_seen(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word, block_id: int, initialized: bool, wanted_initialized: bool, seen: word) -> bool {
-    if block_id < 0 {
-        give back false
-    }
-    if block_id >= v4_mir_body_block_count(mir_id, body_id) {
-        give back false
-    }
+task v4_borrowck_local_has_exit_state(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word, wanted_initialized: bool) -> bool {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    pilot seen = array_new()
+    pilot pending_blocks = array_new()
+    pilot pending_states = array_new()
+    pilot initially_initialized = v4_borrowck_local_initially_initialized(mir_id, body_id, local_name)
+    v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, 0, initially_initialized)
 
-    pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
-    pilot terminator = v4_mir_block_terminator(block_record)
-    if terminator == v4_mir_term_unreachable {
-        give back false
-    }
+    pilot found = false
+    pilot pending_id = 0
+    repeat until pending_id >= array_len(pending_blocks) or found {
+        pilot block_id = word_to_int(array_get(pending_blocks, pending_id))
+        pilot initialized_text: word = array_get(pending_states, pending_id)
+        pilot initialized: bool = initialized_text == "true"
+        pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+        pilot terminator = v4_mir_block_terminator(block_record)
+        pilot current_initialized = v4_borrowck_local_state_after_block(borrow_id, result_id, mir_id, body_id, local_name, block_id, initialized)
 
-    pilot seen_block = v4_borrowck_drop_seen_block(seen, block_id)
-    pilot key = v4_borrowck_drop_state_key(block_id, initialized)
-    if v4_mir_name_list_contains(seen, key) {
-        give back false
-    }
-    seen = v4_mir_name_list_add(seen, key)
-
-    pilot current_initialized = initialized
-    if not seen_block {
-        pilot stmt_id = 0
-        pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
-        repeat until stmt_id >= stmt_count {
-            if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
-                if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
-                    current_initialized = false
-                }
-                if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
-                    current_initialized = true
-                }
+        if terminator == v4_mir_term_goto {
+            v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, v4_mir_block_target(block_record), current_initialized)
+        } else if terminator == v4_mir_term_if {
+            v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, v4_mir_block_target(block_record), current_initialized)
+            v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, v4_mir_block_else_target(block_record), current_initialized)
+        } else if terminator != v4_mir_term_unreachable {
+            if current_initialized == wanted_initialized {
+                found = true
             }
-            stmt_id += 1
         }
+        pending_id += 1
     }
 
-    if terminator == v4_mir_term_goto {
-        give back v4_borrowck_local_has_exit_state_seen(borrow_id, result_id, mir_id, body_id, local_name, v4_mir_block_target(block_record), current_initialized, wanted_initialized, seen)
-    }
-    if terminator == v4_mir_term_if {
-        if v4_borrowck_local_has_exit_state_seen(borrow_id, result_id, mir_id, body_id, local_name, v4_mir_block_target(block_record), current_initialized, wanted_initialized, seen) {
-            give back true
-        }
-        give back v4_borrowck_local_has_exit_state_seen(borrow_id, result_id, mir_id, body_id, local_name, v4_mir_block_else_target(block_record), current_initialized, wanted_initialized, seen)
-    }
-    give back current_initialized == wanted_initialized
+    array_release(pending_states)
+    array_release(pending_blocks)
+    array_release(seen)
+    give back found
 }
 
 task v4_borrowck_local_moved_on_any_exit(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word) -> bool {
-    give back v4_borrowck_local_has_exit_state_seen(borrow_id, result_id, mir_id, body_id, local_name, 0, true, false, "")
+    give back v4_borrowck_local_has_exit_state(borrow_id, result_id, mir_id, body_id, local_name, false)
 }
 
 task v4_borrowck_collect_drop_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> void {
@@ -3177,20 +3168,24 @@ task v4_borrowck_snapshot_diag_line(borrow_id: int, diag_id: int) -> word {
 
 task v4_borrowck_snapshot() -> word {
     v4_borrowck_init()
-    pilot out = v4_borrowck_snapshot_header()
+    pilot parts = array_new()
+    array_push(parts, v4_borrowck_snapshot_header())
     pilot borrow_id = 0
     repeat until borrow_id >= v4_borrowck_file_count() {
-        out = out + "\n" + v4_borrowck_snapshot_file_line(borrow_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_borrowck_snapshot_file_line(borrow_id))
 
         pilot result_id = 0
         pilot result_count = v4_borrowck_result_count(borrow_id)
         repeat until result_id >= result_count {
-            out = out + "\n" + v4_borrowck_snapshot_result_line(borrow_id, result_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_borrowck_snapshot_result_line(borrow_id, result_id))
 
             pilot path_id = 0
             pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
             repeat until path_id >= path_count {
-                out = out + "\n" + v4_borrowck_snapshot_path_line(borrow_id, result_id, path_id)
+                array_push(parts, "\n")
+                array_push(parts, v4_borrowck_snapshot_path_line(borrow_id, result_id, path_id))
                 path_id += 1
             }
             result_id += 1
@@ -3199,13 +3194,15 @@ task v4_borrowck_snapshot() -> word {
         pilot diag_id = 0
         pilot diag_count = v4_borrowck_diag_count(borrow_id)
         repeat until diag_id >= diag_count {
-            out = out + "\n" + v4_borrowck_snapshot_diag_line(borrow_id, diag_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_borrowck_snapshot_diag_line(borrow_id, diag_id))
             diag_id += 1
         }
         borrow_id += 1
     }
-    out = out + "\nend|" + v4_borrowck_snapshot_format
-    give back out
+    array_push(parts, "\nend|")
+    array_push(parts, v4_borrowck_snapshot_format)
+    give back word_join(parts)
 }
 
 task v4_borrowck_snapshot_record_expected_fields(kind: word) -> int {

@@ -465,6 +465,8 @@ task v4_query_invalidate_dependents_at_generation(root_key: word, generation: in
         }
         work_id += 1
     }
+    array_release(seen)
+    array_release(work)
     give back dirtied
 }
 
@@ -909,131 +911,27 @@ task v4_query_telemetry_summary() -> word {
 }
 
 task v4_query_snapshot_escape(value: word) -> word {
-    pilot out = ""
-    pilot i = 0
-    repeat until i >= value.length() {
-        pilot ch = value.char_at(i)
-        if ch == "%" {
-            out = out + "%25"
-        } else if ch == "|" {
-            out = out + "%7C"
-        } else if ch == "\n" {
-            out = out + "%0A"
-        } else if ch == "\r" {
-            out = out + "%0D"
-        } else {
-            out = out + ch
-        }
-        i += 1
-    }
-    give back out
+    give back value.snapshot_escape()
 }
 
 task v4_query_snapshot_unescape(value: word) -> word {
-    pilot out = ""
-    pilot i = 0
-    repeat until i >= value.length() {
-        pilot ch = value.char_at(i)
-        if ch == "%" and i + 2 < value.length() {
-            pilot code = v4_slice(value, i, i + 3)
-            if code == "%25" {
-                out = out + "%"
-                i += 3
-            } else if code == "%7C" {
-                out = out + "|"
-                i += 3
-            } else if code == "%0A" {
-                out = out + "\n"
-                i += 3
-            } else if code == "%0D" {
-                out = out + "\r"
-                i += 3
-            } else {
-                out = out + ch
-                i += 1
-            }
-        } else {
-            out = out + ch
-            i += 1
-        }
-    }
-    give back out
+    give back value.snapshot_unescape()
 }
 
 task v4_query_snapshot_line_count(payload: word) -> int {
-    if payload == "" {
-        give back 0
-    }
-    pilot count = 1
-    pilot i = 0
-    repeat until i >= payload.length() {
-        if payload.char_at(i) == "\n" {
-            count += 1
-        }
-        i += 1
-    }
-    give back count
+    give back payload.snapshot_line_count()
 }
 
 task v4_query_snapshot_line(payload: word, wanted: int) -> word {
-    if wanted < 0 {
-        give back ""
-    }
-    pilot line_id = 0
-    pilot start_pos = 0
-    pilot i = 0
-    repeat until i >= payload.length() {
-        if payload.char_at(i) == "\n" {
-            if line_id == wanted {
-                give back v4_slice(payload, start_pos, i)
-            }
-            line_id += 1
-            start_pos = i + 1
-        }
-        i += 1
-    }
-    if line_id == wanted {
-        give back v4_slice(payload, start_pos, payload.length())
-    }
-    give back ""
+    give back payload.snapshot_line(wanted)
 }
 
 task v4_query_snapshot_field_count(line: word) -> int {
-    if line == "" {
-        give back 0
-    }
-    pilot count = 1
-    pilot i = 0
-    repeat until i >= line.length() {
-        if line.char_at(i) == "|" {
-            count += 1
-        }
-        i += 1
-    }
-    give back count
+    give back line.snapshot_field_count()
 }
 
 task v4_query_snapshot_field_raw(line: word, wanted: int) -> word {
-    if wanted < 0 {
-        give back ""
-    }
-    pilot field_id = 0
-    pilot start_pos = 0
-    pilot i = 0
-    repeat until i >= line.length() {
-        if line.char_at(i) == "|" {
-            if field_id == wanted {
-                give back v4_slice(line, start_pos, i)
-            }
-            field_id += 1
-            start_pos = i + 1
-        }
-        i += 1
-    }
-    if field_id == wanted {
-        give back v4_slice(line, start_pos, line.length())
-    }
-    give back ""
+    give back line.snapshot_field_raw(wanted)
 }
 
 task v4_query_snapshot_field(line: word, wanted: int) -> word {
@@ -1131,45 +1029,52 @@ task v4_query_snapshot_telemetry_line(telemetry_id: int) -> word {
 
 task v4_query_snapshot() -> word {
     v4_query_init()
-    pilot out = v4_query_snapshot_header()
+    pilot parts = array_new()
+    array_push(parts, v4_query_snapshot_header())
 
     pilot generation_id = 0
     pilot generation_count = v4_query_generation_count()
     repeat until generation_id >= generation_count {
-        out = out + "\n" + v4_query_snapshot_generation_line(generation_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_query_snapshot_generation_line(generation_id))
         generation_id += 1
     }
 
     pilot entry_id = 0
     pilot entry_count = v4_query_cache_size()
     repeat until entry_id >= entry_count {
-        out = out + "\n" + v4_query_snapshot_entry_line(entry_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_query_snapshot_entry_line(entry_id))
         entry_id += 1
     }
 
     pilot dep_id = 0
     pilot dep_count = v4_query_dep_count()
     repeat until dep_id >= dep_count {
-        out = out + "\n" + v4_query_snapshot_edge_line(dep_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_query_snapshot_edge_line(dep_id))
         dep_id += 1
     }
 
     pilot invalidation_id = 0
     pilot invalidation_count = v4_query_invalidated_count()
     repeat until invalidation_id >= invalidation_count {
-        out = out + "\n" + v4_query_snapshot_invalidation_line(invalidation_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_query_snapshot_invalidation_line(invalidation_id))
         invalidation_id += 1
     }
 
     pilot telemetry_id = 0
     pilot telemetry_count = v4_query_telemetry_key_count()
     repeat until telemetry_id >= telemetry_count {
-        out = out + "\n" + v4_query_snapshot_telemetry_line(telemetry_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_query_snapshot_telemetry_line(telemetry_id))
         telemetry_id += 1
     }
 
-    out = out + "\nend|" + v4_query_snapshot_format
-    give back out
+    array_push(parts, "\nend|")
+    array_push(parts, v4_query_snapshot_format)
+    give back word_join(parts)
 }
 
 task v4_query_snapshot_record_expected_fields(kind: word) -> int {

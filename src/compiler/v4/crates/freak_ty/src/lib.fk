@@ -10886,28 +10886,33 @@ task v4_ty_snapshot_diag_line(ty_id: int, diag_id: int) -> word {
 
 task v4_ty_snapshot() -> word {
     v4_ty_init()
-    pilot out = v4_ty_snapshot_header()
+    pilot parts = array_new()
+    array_push(parts, v4_ty_snapshot_header())
     pilot ty_id = 0
     repeat until ty_id >= v4_ty_file_count() {
-        out = out + "\n" + v4_ty_snapshot_file_line(ty_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_ty_snapshot_file_line(ty_id))
 
         pilot sig_id = 0
         pilot sig_count = v4_ty_signature_count(ty_id)
         repeat until sig_id >= sig_count {
-            out = out + "\n" + v4_ty_snapshot_signature_line(ty_id, sig_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_ty_snapshot_signature_line(ty_id, sig_id))
             sig_id += 1
         }
 
         pilot diag_id = 0
         pilot diag_count = v4_ty_diag_count(ty_id)
         repeat until diag_id >= diag_count {
-            out = out + "\n" + v4_ty_snapshot_diag_line(ty_id, diag_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_ty_snapshot_diag_line(ty_id, diag_id))
             diag_id += 1
         }
         ty_id += 1
     }
-    out = out + "\nend|" + v4_ty_snapshot_format
-    give back out
+    array_push(parts, "\nend|")
+    array_push(parts, v4_ty_snapshot_format)
+    give back word_join(parts)
 }
 
 task v4_ty_snapshot_record_expected_fields(kind: word) -> int {
@@ -11099,7 +11104,7 @@ task v4_ty_snapshot_signature_matches_resolve(resolve_id: int, hir_id: int, sig_
 }
 
 -- Validate the canonical parent-first record stream before restore mutates TY.
-task v4_ty_snapshot_validate(payload: word) -> word {
+task v4_ty_snapshot_validate_mode(payload: word, require_live_context: bool) -> word {
     pilot lines = v4_ty_snapshot_line_count(payload)
     pilot files = 0
     pilot signatures = 0
@@ -11223,13 +11228,15 @@ task v4_ty_snapshot_validate(payload: word) -> word {
                     if current_ty_id != files {
                         malformed += 1
                     }
-                    if v4_ty_snapshot_parent_chain_matches(current_file_id, current_resolve_id) == false {
-                        malformed += 1
-                        current_resolve_id = 0 - 1
-                    } else {
-                        current_hir_id = v4_resolve_hir_id(current_resolve_id)
-                        if current_declared_signatures != v4_ty_snapshot_expected_signature_count(current_resolve_id) {
+                    if require_live_context {
+                        if v4_ty_snapshot_parent_chain_matches(current_file_id, current_resolve_id) == false {
                             malformed += 1
+                            current_resolve_id = 0 - 1
+                        } else {
+                            current_hir_id = v4_resolve_hir_id(current_resolve_id)
+                            if current_declared_signatures != v4_ty_snapshot_expected_signature_count(current_resolve_id) {
+                                malformed += 1
+                            }
                         }
                     }
                 }
@@ -11254,7 +11261,11 @@ task v4_ty_snapshot_validate(payload: word) -> word {
                     malformed += 1
                     signature_ids_valid = false
                 }
-                if current_ty_id < 0 or current_resolve_id < 0 or current_hir_id < 0 {
+                if current_ty_id < 0 {
+                    malformed += 1
+                    signature_ids_valid = false
+                }
+                if require_live_context and (current_resolve_id < 0 or current_hir_id < 0) {
                     malformed += 1
                     signature_ids_valid = false
                 }
@@ -11272,8 +11283,14 @@ task v4_ty_snapshot_validate(payload: word) -> word {
                     pilot sig_kind = v4_ty_snapshot_field(line, 4)
                     pilot sig_name = v4_ty_snapshot_field(line, 5)
                     pilot sig_display = v4_ty_snapshot_field(line, 6)
-                    if v4_ty_snapshot_signature_matches_resolve(current_resolve_id, current_hir_id, sig_id, def_id, sig_kind, sig_name, sig_display, hir_item) == false {
-                        malformed += 1
+                    if require_live_context {
+                        if v4_ty_snapshot_signature_matches_resolve(current_resolve_id, current_hir_id, sig_id, def_id, sig_kind, sig_name, sig_display, hir_item) == false {
+                            malformed += 1
+                        }
+                    } else {
+                        if v4_ty_snapshot_signature_kind_is_supported(sig_kind) == false {
+                            malformed += 1
+                        }
                     }
                 }
                 if current_diag_count > 0 {
@@ -11375,6 +11392,14 @@ task v4_ty_snapshot_validate(payload: word) -> word {
     out = out + " headers=" + word_from_int(saw_header)
     out = out + " ends=" + word_from_int(saw_end)
     give back out
+}
+
+task v4_ty_snapshot_validate(payload: word) -> word {
+    give back v4_ty_snapshot_validate_mode(payload, true)
+}
+
+task v4_ty_snapshot_validate_detached(payload: word) -> word {
+    give back v4_ty_snapshot_validate_mode(payload, false)
 }
 
 task v4_ty_restore_clear_child_handle(handle: int, empty_value: word) -> void {

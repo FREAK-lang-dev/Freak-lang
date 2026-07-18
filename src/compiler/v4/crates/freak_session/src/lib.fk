@@ -50,6 +50,22 @@ task v4_source_add(path: word, text: word) -> int {
     if existing >= 0 {
         give back existing
     }
+
+    -- Snapshot validation can temporarily restore a larger source table.
+    -- Reuse the first cleared slot so rollback never leaves an ID hole.
+    pilot reusable = 0
+    repeat until reusable >= array_len(v4_source_paths) {
+        pilot reusable_path: word = array_get(v4_source_paths, reusable)
+        if reusable_path == "" {
+            array_set(v4_source_paths, reusable, path)
+            array_set(v4_source_texts, reusable, text)
+            array_set(v4_source_revisions, reusable, "1")
+            array_set(v4_source_fingerprints, reusable, v4_text_fingerprint(text))
+            give back reusable
+        }
+        reusable += 1
+    }
+
     pilot id = array_len(v4_source_paths)
     array_push(v4_source_paths, path)
     array_push(v4_source_texts, text)

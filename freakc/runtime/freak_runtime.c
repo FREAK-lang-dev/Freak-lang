@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <errno.h>
 #include <time.h>
@@ -553,15 +554,187 @@ freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s) 
     return freak_word_own(buf, new_len);
 }
 
+static const char* freak_word_byte_literal(unsigned char value) {
+    static char byte_words[256][2];
+    static atomic_bool ready = ATOMIC_VAR_INIT(false);
+    static atomic_flag init_lock = ATOMIC_FLAG_INIT;
+    if (!atomic_load_explicit(&ready, memory_order_acquire)) {
+        while (atomic_flag_test_and_set_explicit(&init_lock, memory_order_acquire)) {
+        }
+        if (!atomic_load_explicit(&ready, memory_order_relaxed)) {
+            for (size_t i = 0; i < 256; i++) {
+                byte_words[i][0] = (char)i;
+                byte_words[i][1] = '\0';
+            }
+            atomic_store_explicit(&ready, true, memory_order_release);
+        }
+        atomic_flag_clear_explicit(&init_lock, memory_order_release);
+    }
+    return byte_words[value];
+}
+
 freak_word freak_word_char_at(freak_word w, int64_t index) {
     if (index < 0 || (size_t)index >= w.length) {
         return freak_word_lit("");
     }
-    char* buf = (char*)malloc(2);
+    freak_word out;
+    out.data = freak_word_byte_literal((unsigned char)w.data[index]);
+    out.length = 1;
+    out.char_count = 1;
+    out.heap = false;
+    return out;
+}
+
+static int64_t freak_stable_checksum_bytes(const unsigned char* data, size_t len) {
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (size_t i = 0; i < len; i++) {
+        hash ^= (uint64_t)data[i];
+        hash *= UINT64_C(1099511628211);
+    }
+    return (int64_t)(hash & UINT64_C(0x7fffffffffffffff));
+}
+
+int64_t freak_word_checksum(freak_word w) {
+    if (!w.data || w.length == 0) {
+        return freak_stable_checksum_bytes((const unsigned char*)"", 0);
+    }
+    return freak_stable_checksum_bytes((const unsigned char*)w.data, w.length);
+}
+
+static freak_word freak_word_copy_range(freak_word w, size_t start, size_t end) {
+    if (!w.data || start >= end || start >= w.length) {
+        return freak_word_lit("");
+    }
+    if (end > w.length) end = w.length;
+    size_t len = end - start;
+    char* buf = (char*)malloc(len + 1);
     if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
-    buf[0] = w.data[index];
-    buf[1] = '\0';
-    return freak_word_own(buf, 1);
+    memcpy(buf, w.data + start, len);
+    buf[len] = '\0';
+    return freak_word_own(buf, len);
+}
+
+freak_word freak_word_snapshot_escape(freak_word w) {
+    if (!w.data || w.length == 0) return freak_word_lit("");
+
+    size_t escaped_len = w.length;
+    for (size_t i = 0; i < w.length; i++) {
+        char ch = w.data[i];
+        if (ch == '%' || ch == '|' || ch == '\n' || ch == '\r') {
+            if (escaped_len > SIZE_MAX - 2) {
+                fprintf(stderr, "FREAK: snapshot escape overflow\n");
+                exit(1);
+            }
+            escaped_len += 2;
+        }
+    }
+
+    char* buf = (char*)malloc(escaped_len + 1);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    size_t out = 0;
+    for (size_t i = 0; i < w.length; i++) {
+        const char* encoded = NULL;
+        switch (w.data[i]) {
+            case '%': encoded = "%25"; break;
+            case '|': encoded = "%7C"; break;
+            case '\n': encoded = "%0A"; break;
+            case '\r': encoded = "%0D"; break;
+            default: break;
+        }
+        if (encoded) {
+            memcpy(buf + out, encoded, 3);
+            out += 3;
+        } else {
+            buf[out++] = w.data[i];
+        }
+    }
+    buf[out] = '\0';
+    return freak_word_own(buf, out);
+}
+
+freak_word freak_word_snapshot_unescape(freak_word w) {
+    if (!w.data || w.length == 0) return freak_word_lit("");
+
+    char* buf = (char*)malloc(w.length + 1);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    size_t out = 0;
+    size_t i = 0;
+    while (i < w.length) {
+        if (w.data[i] == '%' && i + 2 < w.length) {
+            const char* code = w.data + i;
+            if (code[1] == '2' && code[2] == '5') {
+                buf[out++] = '%';
+                i += 3;
+                continue;
+            }
+            if (code[1] == '7' && code[2] == 'C') {
+                buf[out++] = '|';
+                i += 3;
+                continue;
+            }
+            if (code[1] == '0' && code[2] == 'A') {
+                buf[out++] = '\n';
+                i += 3;
+                continue;
+            }
+            if (code[1] == '0' && code[2] == 'D') {
+                buf[out++] = '\r';
+                i += 3;
+                continue;
+            }
+        }
+        buf[out++] = w.data[i++];
+    }
+    buf[out] = '\0';
+    return freak_word_own(buf, out);
+}
+
+int64_t freak_word_snapshot_line_count(freak_word w) {
+    if (!w.data || w.length == 0) return 0;
+    int64_t count = 1;
+    for (size_t i = 0; i < w.length; i++) {
+        if (w.data[i] == '\n') count++;
+    }
+    return count;
+}
+
+freak_word freak_word_snapshot_line(freak_word w, int64_t wanted) {
+    if (!w.data || wanted < 0) return freak_word_lit("");
+    int64_t line = 0;
+    size_t start = 0;
+    for (size_t i = 0; i < w.length; i++) {
+        if (w.data[i] == '\n') {
+            if (line == wanted) return freak_word_copy_range(w, start, i);
+            line++;
+            start = i + 1;
+        }
+    }
+    if (line == wanted) return freak_word_copy_range(w, start, w.length);
+    return freak_word_lit("");
+}
+
+int64_t freak_word_snapshot_field_count(freak_word w) {
+    if (!w.data || w.length == 0) return 0;
+    int64_t count = 1;
+    for (size_t i = 0; i < w.length; i++) {
+        if (w.data[i] == '|') count++;
+    }
+    return count;
+}
+
+freak_word freak_word_snapshot_field_raw(freak_word w, int64_t wanted) {
+    if (!w.data || wanted < 0) return freak_word_lit("");
+    int64_t field = 0;
+    size_t start = 0;
+    for (size_t i = 0; i < w.length; i++) {
+        if (w.data[i] == '|') {
+            if (field == wanted) return freak_word_copy_range(w, start, i);
+            field++;
+            start = i + 1;
+        }
+    }
+    if (field == wanted) return freak_word_copy_range(w, start, w.length);
+    return freak_word_lit("");
 }
 
 freak_word freak_word_substring(freak_word w, int64_t start, int64_t len) {
@@ -1033,15 +1206,58 @@ int64_t freak_llvm_word_length(int64_t a) {
     return strlen(sa);
 }
 
+int64_t freak_llvm_word_checksum(int64_t a) {
+    const char* sa = (const char*)a;
+    if (!sa) sa = "";
+    return freak_stable_checksum_bytes((const unsigned char*)sa, strlen(sa));
+}
+
+int64_t freak_llvm_word_snapshot_escape(int64_t a) {
+    const char* sa = (const char*)a;
+    freak_word out = freak_word_snapshot_escape(freak_word_lit(sa ? sa : ""));
+    return (int64_t)out.data;
+}
+
+int64_t freak_llvm_word_snapshot_unescape(int64_t a) {
+    const char* sa = (const char*)a;
+    freak_word out = freak_word_snapshot_unescape(freak_word_lit(sa ? sa : ""));
+    return (int64_t)out.data;
+}
+
+int64_t freak_llvm_word_snapshot_line_count(int64_t a) {
+    const char* sa = (const char*)a;
+    return freak_word_snapshot_line_count(freak_word_lit(sa ? sa : ""));
+}
+
+int64_t freak_llvm_word_snapshot_line(int64_t a, int64_t wanted) {
+    const char* sa = (const char*)a;
+    freak_word out = freak_word_snapshot_line(freak_word_lit(sa ? sa : ""), wanted);
+    return (int64_t)out.data;
+}
+
+int64_t freak_llvm_word_snapshot_field_count(int64_t a) {
+    const char* sa = (const char*)a;
+    return freak_word_snapshot_field_count(freak_word_lit(sa ? sa : ""));
+}
+
+int64_t freak_llvm_word_snapshot_field_raw(int64_t a, int64_t wanted) {
+    const char* sa = (const char*)a;
+    freak_word out = freak_word_snapshot_field_raw(freak_word_lit(sa ? sa : ""), wanted);
+    return (int64_t)out.data;
+}
+
 int64_t freak_llvm_word_char_at(int64_t a, int64_t idx) {
     const char* sa = (const char*)a;
     if (!sa) return (int64_t)"";
     size_t len = strlen(sa);
     if (idx < 0 || idx >= (int64_t)len) return (int64_t)"";
-    char* buf = (char*)malloc(2);
-    buf[0] = sa[idx];
-    buf[1] = '\0';
-    return (int64_t)buf;
+    return (int64_t)freak_word_byte_literal((unsigned char)sa[idx]);
+}
+
+int64_t freak_llvm_word_substring(int64_t a, int64_t start, int64_t len) {
+    const char* sa = (const char*)a;
+    freak_word out = freak_word_substring(freak_word_lit(sa ? sa : ""), start, len);
+    return (int64_t)out.data;
 }
 
 int64_t freak_llvm_word_contains(int64_t a, int64_t b) {
@@ -1201,11 +1417,37 @@ typedef struct {
     freak_word* data;
     int64_t length;
     int64_t capacity;
+    int64_t next_free;
+    uint32_t generation;
+    bool in_use;
 } freak_dyn_array;
 
 static freak_dyn_array* freak_arrays = NULL;
 static int64_t freak_array_count = 0;
 static int64_t freak_array_capacity = 0;
+static int64_t freak_array_free_head = -1;
+static int64_t freak_array_live_count = 0;
+
+#ifndef FREAK_ARRAY_LIVE_LIMIT
+#define FREAK_ARRAY_LIVE_LIMIT 0
+#endif
+
+#define FREAK_ARRAY_GENERATION_MAX UINT32_C(0x7fffffff)
+
+static int64_t freak_array_make_handle(int64_t slot, uint32_t generation) {
+    return (int64_t)(((uint64_t)generation << 32) | (uint64_t)(uint32_t)slot);
+}
+
+static int64_t freak_array_slot_for_handle(int64_t handle) {
+    if (handle < 0) return -1;
+    uint64_t raw = (uint64_t)handle;
+    int64_t slot = (int64_t)(uint32_t)(raw & UINT64_C(0xffffffff));
+    uint32_t generation = (uint32_t)(raw >> 32);
+    if (slot < 0 || slot >= freak_array_count) return -1;
+    freak_dyn_array* array = &freak_arrays[slot];
+    if (!array->in_use || array->generation != generation) return -1;
+    return slot;
+}
 
 static void freak_array_reserve_handle(void) {
     if (freak_array_count < freak_array_capacity) {
@@ -1242,16 +1484,34 @@ static void freak_array_reserve_handle(void) {
 }
 
 int64_t freak_array_new(void) {
-    freak_array_reserve_handle();
-    int64_t h = freak_array_count++;
+    if (FREAK_ARRAY_LIVE_LIMIT > 0 && freak_array_live_count >= FREAK_ARRAY_LIVE_LIMIT) {
+        return -1;
+    }
+
+    int64_t h = freak_array_free_head;
+    if (h >= 0) {
+        freak_array_free_head = freak_arrays[h].next_free;
+        freak_arrays[h].generation += 1;
+    } else {
+        freak_array_reserve_handle();
+        h = freak_array_count++;
+        if ((uint64_t)h > UINT32_MAX) {
+            fprintf(stderr, "FREAK: array handle table exhausted\n");
+            exit(1);
+        }
+        freak_arrays[h].generation = 1;
+    }
     freak_arrays[h].length = 0;
     freak_arrays[h].capacity = 64;
+    freak_arrays[h].next_free = -1;
+    freak_arrays[h].in_use = true;
     freak_arrays[h].data = (freak_word*)malloc(64 * sizeof(freak_word));
     if (!freak_arrays[h].data) {
         fprintf(stderr, "FREAK: out of memory for array\n");
         exit(1);
     }
-    return h;
+    freak_array_live_count += 1;
+    return freak_array_make_handle(h, freak_arrays[h].generation);
 }
 
 static void freak_array_reserve_elements(freak_dyn_array* array) {
@@ -1281,8 +1541,9 @@ static void freak_array_reserve_elements(freak_dyn_array* array) {
 }
 
 void freak_array_push(int64_t handle, freak_word item) {
-    if (handle < 0 || handle >= freak_array_count) return;
-    freak_dyn_array* a = &freak_arrays[handle];
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    freak_dyn_array* a = &freak_arrays[slot];
     if (a->length >= a->capacity) {
         freak_array_reserve_elements(a);
     }
@@ -1290,26 +1551,84 @@ void freak_array_push(int64_t handle, freak_word item) {
 }
 
 freak_word freak_array_get(int64_t handle, int64_t index) {
-    if (handle < 0 || handle >= freak_array_count) return freak_word_lit("");
-    freak_dyn_array* a = &freak_arrays[handle];
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) return freak_word_lit("");
+    freak_dyn_array* a = &freak_arrays[slot];
     if (index < 0 || index >= a->length) return freak_word_lit("");
     return a->data[index];
 }
 
 int64_t freak_array_len(int64_t handle) {
-    if (handle < 0 || handle >= freak_array_count) return 0;
-    return freak_arrays[handle].length;
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) return 0;
+    return freak_arrays[slot].length;
 }
 
 void freak_array_set(int64_t handle, int64_t index, freak_word item) {
-    if (handle < 0 || handle >= freak_array_count) return;
-    freak_dyn_array* a = &freak_arrays[handle];
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    freak_dyn_array* a = &freak_arrays[slot];
     if (index < 0 || index >= a->length) {
         fprintf(stderr, "FREAK: array_set index %lld out of bounds (len %lld)\n",
                 (long long)index, (long long)a->length);
         exit(1);
     }
     a->data[index] = item;
+}
+
+void freak_array_release(int64_t handle) {
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    freak_dyn_array* a = &freak_arrays[slot];
+    free(a->data);
+    a->data = NULL;
+    a->length = 0;
+    a->capacity = 0;
+    a->in_use = false;
+    freak_array_live_count -= 1;
+    if (a->generation >= FREAK_ARRAY_GENERATION_MAX) {
+        a->next_free = -1;
+        return;
+    }
+    a->next_free = freak_array_free_head;
+    freak_array_free_head = slot;
+}
+
+freak_word freak_word_join(int64_t handle) {
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) {
+        return freak_word_lit("");
+    }
+
+    freak_dyn_array* a = &freak_arrays[slot];
+    size_t total = 0;
+    for (int64_t index = 0; index < a->length; index++) {
+        size_t part_length = a->data[index].length;
+        if (part_length > SIZE_MAX - total - 1) {
+            fprintf(stderr, "FREAK: joined word is too large\n");
+            exit(1);
+        }
+        total += part_length;
+    }
+
+    char* joined = (char*)malloc(total + 1);
+    if (!joined) {
+        fprintf(stderr, "FREAK: out of memory joining words\n");
+        exit(1);
+    }
+
+    size_t offset = 0;
+    for (int64_t index = 0; index < a->length; index++) {
+        freak_word part = a->data[index];
+        if (part.length > 0) {
+            memcpy(joined + offset, part.data, part.length);
+            offset += part.length;
+        }
+    }
+    joined[total] = '\0';
+    freak_word result = freak_word_own(joined, total);
+    freak_array_release(handle);
+    return result;
 }
 
 /* ── TCP Socket primitives ─────────────────────────── */

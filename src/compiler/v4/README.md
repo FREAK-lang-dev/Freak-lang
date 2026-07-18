@@ -294,22 +294,38 @@ error|<method>|<json-rpc-code>|<message>
 
 Snapshot payloads are newline-delimited records. Fields are pipe-separated. Any field that can contain source text, snapshots, diagnostics, paths, or arbitrary payload bytes must be encoded by the snapshot helpers before it is placed on a line. Do not hand-roll escaping in transport code.
 
+### Snapshot codec resource contract
+
+Snapshot escaping, unescaping, line lookup, and field lookup must use the shared `word.snapshot_*` runtime primitives. Those primitives scan their input linearly and allocate each returned word at most once. A snapshot codec must never rebuild an escaped payload one character at a time with `char_at` plus concatenation: the bootstrap word runtime does not yet reclaim those intermediate heap words, so that pattern turns a small checkpoint into quadratic retained memory.
+
+Record serializers must collect complete records in a temporary word array and finish with `word_join(parts)`. Repeatedly assigning `out = out + record` copies every prior record and retains every copied prefix. The native join computes the final byte count first, materializes the payload with one allocation, and consumes the temporary array. Its slot is returned to the runtime free list with a new generation on reuse, so repeated LSP snapshot requests cannot exhaust the LLVM array pool and a stale alias cannot address the replacement array.
+
+Source validation records canonical IDs and paths while it performs the forward envelope scan. It must not reparse every earlier source line to detect duplicates. Manifest, diff-detail, and health serializers use the same join contract, while source diffs index source lines once before comparing paths. The `unit_snapshot_multisource_resource_smoke.fk` fixture exercises 192 source records through validate, manifest, diff, and health under a 64 MB process-tree ceiling.
+
+Temporary graph, worklist, seen-set, and serializer arrays are request-scoped resources. Every path that allocates one must either consume it with `word_join` or release it with `array_release`, including failure exits. `mir_snapshot_resource_smoke.fk` repeatedly validates accepted and cyclic MIR graphs, and `query_invalidation_resource_smoke.fk` combines 96 `didChange` requests with 600 direct dependency invalidations. These C-backed resource fixtures are compiled with a test-only 1,024-live-handle limit matching the LLVM runtime pool; the production C runtime remains dynamically sized. Each fixture measures all remaining handle capacity before and after its workload and ends with a fresh-array probe under a 64 MB ceiling, so even one leaked handle fails instead of hiding behind low RSS or spare C table capacity.
+
+Executable smoke runs report peak process-tree memory and have a 512 MB default ceiling. Every snapshot-named fixture uses a tighter 128 MB ceiling, and generated-C compilation is capped at 1 GB. Windows children start suspended, are assigned to a kill-on-close Job Object with an aggregate commit limit, and resume only after assignment, making that ceiling OS-enforced for the complete tree. POSIX runs use a fresh process group with group-wide RSS and swap monitoring; this is a sampled ceiling rather than a hard kernel allocation limit on hosts without an available cgroup controller. Stdout and stderr are drained by bounded readers with an 8 MB ceiling per stream, so a noisy descendant cannot move the same failure into Python's memory or a giant log file. Crossing a monitored ceiling terminates the entire process tree and fails the gate before sustained growth can expand the host pagefile.
+
+The Python check coordinator streams generated C one fixture at a time. It never keeps a workspace-sized artifact dictionary: each C program is compiled or validated, released, and collected before the next fixture. Post-collection checkpoints enforce a 256 MB retained-memory ceiling and print the observed peak at the end of the run. The sample is current private usage on Windows, current RSS plus swap on Linux, and current RSS from `proc_pidinfo` on macOS; it is not a process-lifetime high-water mark. The checker self-tests this sampler before doing expensive work and fails closed if sampling is unavailable on Windows, Linux, or macOS. This ceiling covers the coordinator; the child-process ceilings above independently cover Clang and executable smokes.
+
+The bootstrap `word` runtime still uses process-lifetime storage for completed word values. The 80-snapshot soak therefore measures and gates bounded linear retention under the 128 MB ceiling; request-scoped word arenas or full word reclamation remain runtime work beyond this bootstrap guard. The codec contract above removes the catastrophic quadratic copies and handle exhaustion, but it does not claim general-purpose garbage collection.
+
 ### `workspace/unitSnapshot`
 
 Produces the current 00-Unit workspace snapshot. The method does not require a text payload.
 
 ```text
-00-unit-snapshot|format=freak-00-unit-snapshot-v1|sources=<count>|sections=14
+00-unit-snapshot|format=freak-00-unit-snapshot-v2|sources=<count>|sections=14|identity=<escaped-checkpoint-identity>
 unit-source|<file-id>|<escaped-path>|<revision>|<escaped-fingerprint>|<escaped-text>
-unit-section|<section-name>|<escaped-section-payload>
-end|freak-00-unit-snapshot-v1
+unit-section|<section-name>|<escaped-checkpoint-identity>|<escaped-section-payload>
+end|freak-00-unit-snapshot-v2
 ```
 
-The source records describe the current `freak_session` source database. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together.
+The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 14 sections in canonical order, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together.
 
 ### `workspace/unitSnapshotManifest`
 
-Validates and summarizes a 00-Unit snapshot. With no text payload, it summarizes the current workspace snapshot. With a text payload, the payload must be a `freak-00-unit-snapshot-v1` document.
+Validates and summarizes a 00-Unit snapshot. With no text payload, it summarizes the current workspace snapshot. With a text payload, the payload must be a `freak-00-unit-snapshot-v2` document.
 
 ```text
 00-unit-manifest|format=freak-00-unit-manifest-v1|ok=<0-or-1>|payload-format=<format>|payload-bytes=<bytes>|payload-lines=<lines>|sources=<count>|declared-sources=<count>|sections=<count>|declared-sections=<count>|malformed=<count>|validation=<escaped-message>
@@ -318,7 +334,7 @@ section|<section-name>|bytes=<bytes>|lines=<lines>|records=<records>|ok=<0-or-1>
 end|freak-00-unit-manifest-v1
 ```
 
-Use this endpoint for import validation when a caller does not want to mutate compiler state. There is no public `workspace/unitSnapshotImport` endpoint yet; validation-only imports are modeled as manifest or health requests.
+Use this endpoint for import validation when a caller does not want to mutate compiler state. Validation can run in a fresh process: TY records receive detached structural validation, then `freak_snapshot` installs only the serialized source/lex/parse/HIR/resolve context, runs strict TY linkage checks, and rolls the parent arenas back before returning. There is no public `workspace/unitSnapshotImport` endpoint yet; validation-only imports are modeled as manifest or health requests.
 
 ### `workspace/unitSnapshotDiff`
 

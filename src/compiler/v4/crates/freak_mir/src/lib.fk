@@ -185,12 +185,16 @@ task v4_mir_init() -> void {
 }
 
 task v4_mir_clear_loop_context() -> void {
+    array_release(v4_mir_loop_break_targets)
+    array_release(v4_mir_loop_continue_targets)
     v4_mir_loop_break_targets = array_new()
     v4_mir_loop_continue_targets = array_new()
     v4_mir_loop_depth = 0
 }
 
 task v4_mir_clear_scope_context() -> void {
+    array_release(v4_mir_scope_spans)
+    array_release(v4_mir_trust_me_honor_ranks)
     v4_mir_scope_spans = array_new()
     v4_mir_scope_depth = 0
     v4_mir_trust_me_depth = 0
@@ -1006,7 +1010,7 @@ task v4_mir_seal_block_goto_if_live(mir_id: int, body_id: int, block_id: int, ta
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_goto, target, 0 - 1, ""))
 }
 
-task v4_mir_block_can_fallthrough_without_return_seen(mir_id: int, body_id: int, block_id: int, seen: word) -> bool {
+task v4_mir_block_can_fallthrough_without_return_seen(mir_id: int, body_id: int, block_id: int, seen: int) -> bool {
     if block_id < 0 {
         give back false
     }
@@ -1014,11 +1018,14 @@ task v4_mir_block_can_fallthrough_without_return_seen(mir_id: int, body_id: int,
         give back false
     }
 
-    pilot block_key = word_from_int(block_id)
-    if v4_mir_name_list_contains(seen, block_key) {
+    repeat until array_len(seen) > block_id {
+        array_push(seen, "false")
+    }
+    pilot visited: word = array_get(seen, block_id)
+    if visited == "true" {
         give back false
     }
-    seen = v4_mir_name_list_add(seen, block_key)
+    array_set(seen, block_id, "true")
 
     pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
     pilot terminator = v4_mir_block_terminator(block_record)
@@ -1041,7 +1048,10 @@ task v4_mir_block_can_fallthrough_without_return_seen(mir_id: int, body_id: int,
 }
 
 task v4_mir_body_can_fallthrough_without_return(mir_id: int, body_id: int) -> bool {
-    give back v4_mir_block_can_fallthrough_without_return_seen(mir_id, body_id, 0, "")
+    pilot seen = array_new()
+    pilot can_fallthrough = v4_mir_block_can_fallthrough_without_return_seen(mir_id, body_id, 0, seen)
+    array_release(seen)
+    give back can_fallthrough
 }
 
 task v4_mir_validate_body_return_coverage(mir_id: int, body_id: int, item_span: word) -> void {
@@ -1754,11 +1764,38 @@ task v4_mir_find_open_brace_token(stream_id: int, start_token: int, close_token:
     give back 0 - 1
 }
 
+task v4_mir_name_list_range_equals(names: word, start_idx: int, end_idx: int, wanted: word) -> bool {
+    if end_idx - start_idx != wanted.length() {
+        give back false
+    }
+
+    pilot offset = 0
+    repeat until start_idx + offset >= end_idx {
+        if names.char_at(start_idx + offset) != wanted.char_at(offset) {
+            give back false
+        }
+        offset += 1
+    }
+    give back true
+}
+
 task v4_mir_name_list_contains(names: word, wanted: word) -> bool {
     if names == "" or wanted == "" {
         give back false
     }
-    give back ("|" + names + "|").contains("|" + wanted + "|")
+
+    pilot segment_start = 0
+    pilot idx = 0
+    repeat until idx >= names.length() {
+        if names.char_at(idx) == "|" {
+            if v4_mir_name_list_range_equals(names, segment_start, idx, wanted) {
+                give back true
+            }
+            segment_start = idx + 1
+        }
+        idx += 1
+    }
+    give back v4_mir_name_list_range_equals(names, segment_start, names.length(), wanted)
 }
 
 task v4_mir_name_list_add(names: word, wanted: word) -> word {
@@ -7059,9 +7096,11 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
         pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
         pilot continue_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
         pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+        pilot condition_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
 
-        v4_mir_set_body_block(mir_id, body_id, count_block, v4_mir_block_new_full(count_block, v4_mir_term_if, body_block, after_block, check_cond_text))
-        v4_mir_add_stmt(mir_id, body_id, count_block, v4_mir_stmt_loop, loop_lhs, "body#" + word_from_int(body_block) + " exit#" + word_from_int(after_block), stmt_span, 0 - 1, check_rvalue)
+        v4_mir_seal_block_goto_if_live(mir_id, body_id, count_block, condition_block)
+        v4_mir_set_body_block(mir_id, body_id, condition_block, v4_mir_block_new_full(condition_block, v4_mir_term_if, body_block, after_block, check_cond_text))
+        v4_mir_add_stmt(mir_id, body_id, condition_block, v4_mir_stmt_loop, loop_lhs, "body#" + word_from_int(body_block) + " exit#" + word_from_int(after_block), stmt_span, 0 - 1, check_rvalue)
 
         -- Lower body
         v4_mir_push_loop_context(after_block, continue_block)
@@ -7076,14 +7115,14 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
             pilot dec_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
             v4_mir_add_stmt(mir_id, body_id, body_tail, v4_mir_stmt_assign, counter_name, counter_name + " - 1", stmt_span, dec_place, dec_rvalue)
         }
-        v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, block_id)
+        v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, condition_block)
         if v4_mir_body_block_predecessor_count(mir_id, body_id, continue_block) > 0 and not v4_mir_block_has_return_stmt(mir_id, body_id, continue_block) {
             pilot continue_counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_name, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot continue_one = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot continue_dec = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, counter_name + " - 1", "Sub", continue_counter_use, continue_one, stmt_span, v4_ty_int)
             pilot continue_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
             v4_mir_add_stmt(mir_id, body_id, continue_block, v4_mir_stmt_assign, counter_name, counter_name + " - 1", stmt_span, continue_place, continue_dec)
-            v4_mir_set_body_block(mir_id, body_id, continue_block, v4_mir_block_new_full(continue_block, v4_mir_term_goto, block_id, 0 - 1, ""))
+            v4_mir_set_body_block(mir_id, body_id, continue_block, v4_mir_block_new_full(continue_block, v4_mir_term_goto, condition_block, 0 - 1, ""))
         }
 
         give back after_block
@@ -7099,16 +7138,18 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
     pilot condition = v4_mir_expr_text(stream_id, condition_start, open_token)
     pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot loop_entry_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, block_id, loop_entry_block)
     pilot condition_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, condition_start, open_token)
     v4_mir_check_condition_type(mir_id, stmt_span, "repeat-until", v4_mir_rvalue_ty(mir_id, body_id, condition_rvalue))
 
-    pilot condition_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, condition_rvalue)
+    pilot condition_block = v4_mir_wire_try_propagation(mir_id, body_id, loop_entry_block, stmt_span, condition_rvalue)
     v4_mir_set_body_block(mir_id, body_id, condition_block, v4_mir_block_new_full(condition_block, v4_mir_term_if, after_block, body_block, "until " + condition))
     v4_mir_add_stmt(mir_id, body_id, condition_block, v4_mir_stmt_loop, condition, "body#" + word_from_int(body_block) + " exit#" + word_from_int(after_block), stmt_span, 0 - 1, condition_rvalue)
-    v4_mir_push_loop_context(after_block, block_id)
+    v4_mir_push_loop_context(after_block, loop_entry_block)
     pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
     v4_mir_pop_loop_context()
-    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, block_id)
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, loop_entry_block)
 
     give back after_block
 }
@@ -7773,19 +7814,30 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
     pilot iterable_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, in_token + 1, open_token)
     pilot iterable_ty = v4_mir_rvalue_ty(mir_id, body_id, iterable_rvalue)
 
+    -- Evaluate the iterable before entering the cycle. The loop header may run
+    -- many times, but calls and ownership transfers in the source run once.
+    pilot iterable_name = v4_mir_unique_local_name(mir_id, body_id, "_for_each_source")
+    pilot iterable_local = v4_mir_add_local(mir_id, body_id, iterable_name, iterable_ty, stmt_span)
+    pilot iterable_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, iterable_name, iterable_local, iterable_name, 0 - 1, stmt_span, iterable_ty)
+    pilot iterable_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, iterable_rvalue)
+    v4_mir_add_stmt(mir_id, body_id, iterable_block, v4_mir_stmt_local, iterable_name, iterable_text, stmt_span, iterable_place, iterable_rvalue)
+    pilot iterable_read = v4_mir_place_read_rvalue(mir_id, body_id, iterable_place, stmt_span)
+
     pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot loop_header = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot loop_condition = "for each " + loop_pattern + " in " + iterable_text
     v4_mir_push_scope_span(loop_scope_span)
     pilot loop_place = v4_mir_lower_for_each_binding(mir_id, body_id, body_block, stmt_span, loop_pattern, iterable_text, iterable_ty)
 
-    v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, body_block, after_block, loop_condition))
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_loop, loop_pattern, iterable_text, stmt_span, loop_place, iterable_rvalue)
-    v4_mir_push_loop_context(after_block, block_id)
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, iterable_block, loop_header)
+    v4_mir_set_body_block(mir_id, body_id, loop_header, v4_mir_block_new_full(loop_header, v4_mir_term_if, body_block, after_block, loop_condition))
+    v4_mir_add_stmt(mir_id, body_id, loop_header, v4_mir_stmt_loop, loop_pattern, iterable_text, stmt_span, loop_place, iterable_read)
+    v4_mir_push_loop_context(after_block, loop_header)
     pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
     v4_mir_pop_loop_context()
     v4_mir_pop_scope_span()
-    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, block_id)
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, loop_header)
 
     give back after_block
 }
@@ -8019,18 +8071,20 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
 
     pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot loop_entry_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, block_id, loop_entry_block)
     pilot loop_condition = "training arc until " + condition_text + " max " + max_text
     if has_growth {
         loop_condition = loop_condition + " with growth"
     }
 
-    pilot condition_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, condition_rvalue)
+    pilot condition_block = v4_mir_wire_try_propagation(mir_id, body_id, loop_entry_block, stmt_span, condition_rvalue)
     v4_mir_set_body_block(mir_id, body_id, condition_block, v4_mir_block_new_full(condition_block, v4_mir_term_if, after_block, body_block, loop_condition))
     v4_mir_add_stmt(mir_id, body_id, condition_block, v4_mir_stmt_loop, condition_text, "max " + max_text, stmt_span, 0 - 1, condition_rvalue)
-    v4_mir_push_loop_context(after_block, block_id)
+    v4_mir_push_loop_context(after_block, loop_entry_block)
     pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
     v4_mir_pop_loop_context()
-    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, block_id)
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, loop_entry_block)
 
     give back after_block
 }
@@ -10239,48 +10293,56 @@ task v4_mir_snapshot_diag_line(mir_id: int, diag_id: int) -> word {
 
 task v4_mir_snapshot() -> word {
     v4_mir_init()
-    pilot out = v4_mir_snapshot_header()
+    pilot parts = array_new()
+    array_push(parts, v4_mir_snapshot_header())
     pilot mir_id = 0
     repeat until mir_id >= v4_mir_file_count() {
-        out = out + "\n" + v4_mir_snapshot_file_line(mir_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_mir_snapshot_file_line(mir_id))
 
         pilot body_id = 0
         pilot body_count = v4_mir_body_count(mir_id)
         repeat until body_id >= body_count {
-            out = out + "\n" + v4_mir_snapshot_body_line(mir_id, body_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_mir_snapshot_body_line(mir_id, body_id))
 
             pilot block_id = 0
             pilot block_count = v4_mir_body_block_count(mir_id, body_id)
             repeat until block_id >= block_count {
-                out = out + "\n" + v4_mir_snapshot_block_line(mir_id, body_id, block_id)
+                array_push(parts, "\n")
+                array_push(parts, v4_mir_snapshot_block_line(mir_id, body_id, block_id))
                 block_id += 1
             }
 
             pilot local_id = 0
             pilot local_count = v4_mir_body_local_count(mir_id, body_id)
             repeat until local_id >= local_count {
-                out = out + "\n" + v4_mir_snapshot_local_line(mir_id, body_id, local_id)
+                array_push(parts, "\n")
+                array_push(parts, v4_mir_snapshot_local_line(mir_id, body_id, local_id))
                 local_id += 1
             }
 
             pilot stmt_id = 0
             pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
             repeat until stmt_id >= stmt_count {
-                out = out + "\n" + v4_mir_snapshot_stmt_line(mir_id, body_id, stmt_id)
+                array_push(parts, "\n")
+                array_push(parts, v4_mir_snapshot_stmt_line(mir_id, body_id, stmt_id))
                 stmt_id += 1
             }
 
             pilot place_id = 0
             pilot place_count = v4_mir_body_place_count(mir_id, body_id)
             repeat until place_id >= place_count {
-                out = out + "\n" + v4_mir_snapshot_place_line(mir_id, body_id, place_id)
+                array_push(parts, "\n")
+                array_push(parts, v4_mir_snapshot_place_line(mir_id, body_id, place_id))
                 place_id += 1
             }
 
             pilot rvalue_id = 0
             pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
             repeat until rvalue_id >= rvalue_count {
-                out = out + "\n" + v4_mir_snapshot_rvalue_line(mir_id, body_id, rvalue_id)
+                array_push(parts, "\n")
+                array_push(parts, v4_mir_snapshot_rvalue_line(mir_id, body_id, rvalue_id))
                 rvalue_id += 1
             }
             body_id += 1
@@ -10289,13 +10351,15 @@ task v4_mir_snapshot() -> word {
         pilot diag_id = 0
         pilot diag_count = v4_mir_diag_count(mir_id)
         repeat until diag_id >= diag_count {
-            out = out + "\n" + v4_mir_snapshot_diag_line(mir_id, diag_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_mir_snapshot_diag_line(mir_id, diag_id))
             diag_id += 1
         }
         mir_id += 1
     }
-    out = out + "\nend|" + v4_mir_snapshot_format
-    give back out
+    array_push(parts, "\nend|")
+    array_push(parts, v4_mir_snapshot_format)
+    give back word_join(parts)
 }
 
 task v4_mir_snapshot_record_expected_fields(kind: word) -> int {
@@ -10568,9 +10632,23 @@ task v4_mir_snapshot_body_graph_is_acyclic(place_kinds: int, place_bases: int, p
             }
             rvalue_id += 1
         }
-        if progress == 0 { give back false }
+        if progress == 0 {
+            array_release(states)
+            give back false
+        }
     }
+    array_release(states)
     give back true
+}
+
+task v4_mir_snapshot_release_body_graph_arrays(place_kinds: int, place_bases: int, place_indexes: int, rvalue_kinds: int, rvalue_lhs: int, rvalue_rhs: int, rvalue_args: int) -> void {
+    array_release(rvalue_args)
+    array_release(rvalue_rhs)
+    array_release(rvalue_lhs)
+    array_release(rvalue_kinds)
+    array_release(place_indexes)
+    array_release(place_bases)
+    array_release(place_kinds)
 }
 
 task v4_mir_snapshot_validate(payload: word) -> word {
@@ -10705,6 +10783,8 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                     if body_rvalues != body_declared_rvalues { malformed += 1 }
                     if not v4_mir_snapshot_body_graph_is_acyclic(body_graph_place_kinds, body_graph_place_bases, body_graph_place_indexes, body_graph_rvalue_kinds, body_graph_rvalue_lhs, body_graph_rvalue_rhs, body_graph_rvalue_args) { malformed += 1 }
                 }
+
+                v4_mir_snapshot_release_body_graph_arrays(body_graph_place_kinds, body_graph_place_bases, body_graph_place_indexes, body_graph_rvalue_kinds, body_graph_rvalue_lhs, body_graph_rvalue_rhs, body_graph_rvalue_args)
 
                 pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
                 pilot raw_body_id = v4_mir_snapshot_field_raw(line, 2)
@@ -10894,6 +10974,8 @@ task v4_mir_snapshot_validate(payload: word) -> word {
         }
         line_id += 1
     }
+
+    v4_mir_snapshot_release_body_graph_arrays(body_graph_place_kinds, body_graph_place_bases, body_graph_place_indexes, body_graph_rvalue_kinds, body_graph_rvalue_lhs, body_graph_rvalue_rhs, body_graph_rvalue_args)
 
     if files != declared_files { malformed += 1 }
     if bodies != declared_bodies { malformed += 1 }
