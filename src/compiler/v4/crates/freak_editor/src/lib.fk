@@ -1495,6 +1495,15 @@ task v4_editor_local_visible_at(mir_id: int, body_id: int, local_id: int, offset
     give back v4_mir_local_visible_at(mir_id, body_id, local_id, offset)
 }
 
+task v4_editor_local_type_display_at(mir_id: int, body_id: int, local_id: int, offset: int) -> word {
+    pilot display = v4_mir_local_type_display(mir_id, body_id, local_id)
+    pilot capture_mode = v4_mir_closure_capture_mode_at(mir_id, body_id, v4_mir_local_name(mir_id, body_id, local_id), offset)
+    if capture_mode != "" {
+        give back "capture " + capture_mode + " " + display
+    }
+    give back display
+}
+
 task v4_editor_semantic_fact_new(path: word, offset: int, token_id: int, token_kind: word, token_value: word, token_span: word, hir_item: int, item_name: word, item_kind: word, symbol_id: int, name: word, kind: word, def_id: word, type_display: word) -> int {
     v4_editor_init()
     pilot fact_id = v4_editor_sem_len
@@ -1889,7 +1898,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                                         name = token_value
                                         kind = "Local"
                                         def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
-                                        type_display = v4_mir_local_type_display(mir_id, body_id, local_id)
+                                        type_display = v4_editor_local_type_display_at(mir_id, body_id, local_id, offset)
                                     }
                                 }
                             }
@@ -1919,7 +1928,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                                 name = token_value
                                 kind = "Local"
                                 def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
-                                type_display = v4_mir_local_type_display(mir_id, body_id, local_id)
+                                type_display = v4_editor_local_type_display_at(mir_id, body_id, local_id, offset)
                             }
                         }
                     }
@@ -2836,7 +2845,7 @@ task v4_completion_add_locals_for_offset(completion_id: int, path: word, text: w
         pilot label = v4_mir_local_name(mir_id, body_id, local_id)
         if label != "" and v4_editor_local_is_source_declared(stream_id, mir_id, body_id, local_id) and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
             if not v4_completion_has_label(completion_id, label) {
-                v4_completion_add(completion_id, label, "local", v4_mir_local_type_display(mir_id, body_id, local_id), label)
+                v4_completion_add(completion_id, label, "local", v4_editor_local_type_display_at(mir_id, body_id, local_id, offset), label)
             }
         }
         local_id += 1

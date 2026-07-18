@@ -364,6 +364,22 @@ task v4_borrowck_rvalue_transfer_kind(mir_id: int, body_id: int, rvalue_id: int)
 
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
+        pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+        if v4_ty_is_closure_type(value_ty) {
+            if v4_ty_closure_doctrine(value_ty) == v4_ty_closure_one_shot {
+                give back v4_borrowck_path_move
+            }
+            give back v4_borrowck_path_copy
+        }
+        if v4_borrowck_ty_is_copy(value_ty) {
+            give back v4_borrowck_path_copy
+        }
+        give back v4_borrowck_path_move
+    }
+    if kind == v4_mir_rvalue_capture_copy {
+        give back v4_borrowck_path_copy
+    }
+    if kind == v4_mir_rvalue_capture_move {
         if v4_borrowck_ty_is_copy(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
             give back v4_borrowck_path_copy
         }
@@ -393,7 +409,7 @@ task v4_borrowck_rvalue_move_count(mir_id: int, body_id: int, rvalue_id: int) ->
     if kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_use_symbol or kind == v4_mir_rvalue_loop_item {
         give back 0
     }
-    if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+    if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut or kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut or kind == v4_mir_rvalue_capture_copy {
         give back 0
     }
     if v4_borrowck_rvalue_transfer_kind(mir_id, body_id, rvalue_id) == v4_borrowck_path_move {
@@ -2008,6 +2024,43 @@ task v4_borrowck_stored_call_return_holder(mir_id: int, body_id: int, loan_stmt:
     give back ""
 }
 
+task v4_borrowck_closure_lends_source(mir_id: int, body_id: int, closure_rvalue: int, loan_text: word) -> bool {
+    if closure_rvalue < 0 or v4_mir_rvalue_kind(mir_id, body_id, closure_rvalue) != v4_mir_rvalue_closure {
+        give back false
+    }
+    pilot capture_id = 0
+    pilot capture_count = v4_mir_closure_capture_count(mir_id, body_id, closure_rvalue)
+    repeat until capture_id >= capture_count {
+        pilot capture_rvalue = v4_mir_closure_capture(mir_id, body_id, closure_rvalue, capture_id)
+        pilot capture_kind = v4_mir_rvalue_kind(mir_id, body_id, capture_rvalue)
+        if capture_kind == v4_mir_rvalue_capture_borrow or capture_kind == v4_mir_rvalue_capture_borrow_mut {
+            if v4_borrowck_paths_overlap(v4_mir_rvalue_text(mir_id, body_id, capture_rvalue), loan_text) {
+                give back true
+            }
+        }
+        capture_id += 1
+    }
+    give back false
+}
+
+task v4_borrowck_stored_closure_holder(mir_id: int, body_id: int, loan_stmt: int, loan_text: word) -> word {
+    if loan_stmt < 0 {
+        give back ""
+    }
+    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
+    if not v4_borrowck_closure_lends_source(mir_id, body_id, rvalue_id, loan_text) {
+        give back ""
+    }
+    pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, loan_stmt)
+    pilot place_id = v4_mir_stmt_place(mir_id, body_id, loan_stmt)
+    if (stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign) and place_id >= 0 {
+        if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
+            give back v4_mir_place_text(mir_id, body_id, place_id)
+        }
+    }
+    give back "@temporary"
+}
+
 task v4_borrowck_explicit_loan_holder(mir_id: int, body_id: int, loan_stmt: int, loan_text: word) -> word {
     if loan_stmt < 0 {
         give back ""
@@ -2022,6 +2075,10 @@ task v4_borrowck_explicit_loan_holder(mir_id: int, body_id: int, loan_stmt: int,
             }
         }
         give back "@temporary"
+    }
+    pilot closure_holder = v4_borrowck_stored_closure_holder(mir_id, body_id, loan_stmt, loan_text)
+    if closure_holder != "" {
+        give back closure_holder
     }
     pilot call_holder = v4_borrowck_stored_call_return_holder(mir_id, body_id, loan_stmt, loan_text)
     if call_holder != "" {
@@ -2384,6 +2441,40 @@ task v4_borrowck_collect_call_transfer_paths(borrow_id: int, result_id: int, mir
     }
 }
 
+task v4_borrowck_collect_call_callee_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int, block_id: int, callee_rvalue: int) -> void {
+    if callee_rvalue < 0 {
+        give back
+    }
+
+    pilot callee_ty = v4_mir_rvalue_ty(mir_id, body_id, callee_rvalue)
+    if v4_ty_is_closure_type(callee_ty) {
+        pilot closure_contract = v4_ty_closure_doctrine(callee_ty)
+        if closure_contract == v4_ty_closure_one_shot {
+            v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, callee_rvalue)
+            give back
+        }
+        if closure_contract == v4_ty_closure_mut_callable {
+            v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_loan_mut, v4_mir_rvalue_text(mir_id, body_id, callee_rvalue), stmt_id, block_id)
+            give back
+        }
+    }
+
+    v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, callee_rvalue)
+}
+
+task v4_borrowck_capture_path_kind(rvalue_kind: word) -> word {
+    if rvalue_kind == v4_mir_rvalue_capture_borrow_mut {
+        give back v4_borrowck_path_loan_mut
+    }
+    if rvalue_kind == v4_mir_rvalue_capture_borrow {
+        give back v4_borrowck_path_loan
+    }
+    if rvalue_kind == v4_mir_rvalue_capture_copy {
+        give back v4_borrowck_path_copy
+    }
+    give back ""
+}
+
 task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int, block_id: int, rvalue_id: int) -> void {
     if rvalue_id < 0 {
         give back
@@ -2393,6 +2484,8 @@ task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: 
     pilot transfer_kind = v4_borrowck_rvalue_transfer_kind(mir_id, body_id, rvalue_id)
     if transfer_kind != "" {
         v4_borrowck_add_path(borrow_id, result_id, transfer_kind, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+    } else if rvalue_kind == v4_mir_rvalue_capture_borrow or rvalue_kind == v4_mir_rvalue_capture_borrow_mut {
+        v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_capture_path_kind(rvalue_kind), v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
     } else if rvalue_kind == v4_mir_rvalue_lend or rvalue_kind == v4_mir_rvalue_lend_mut {
         v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_lend_path_kind(mir_id, body_id, rvalue_id), v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
     } else if rvalue_kind == v4_mir_rvalue_binary or rvalue_kind == v4_mir_rvalue_or_else {
@@ -2423,6 +2516,14 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
     pilot rvalue_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if rvalue_kind == v4_mir_rvalue_use_local or rvalue_kind == v4_mir_rvalue_use_place {
         v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_loan, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+    } else if rvalue_kind == v4_mir_rvalue_capture_borrow or rvalue_kind == v4_mir_rvalue_capture_borrow_mut or rvalue_kind == v4_mir_rvalue_capture_copy or rvalue_kind == v4_mir_rvalue_capture_move {
+        pilot capture_kind = v4_borrowck_capture_path_kind(rvalue_kind)
+        if capture_kind == "" {
+            capture_kind = v4_borrowck_rvalue_transfer_kind(mir_id, body_id, rvalue_id)
+        }
+        if capture_kind != "" {
+            v4_borrowck_add_path(borrow_id, result_id, capture_kind, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+        }
     } else if rvalue_kind == v4_mir_rvalue_lend or rvalue_kind == v4_mir_rvalue_lend_mut {
         v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_lend_path_kind(mir_id, body_id, rvalue_id), v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
     } else if rvalue_kind == v4_mir_rvalue_binary or rvalue_kind == v4_mir_rvalue_or_else {
@@ -2440,7 +2541,7 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
             child_id += 1
         }
     } else if rvalue_kind == v4_mir_rvalue_call {
-        v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+        v4_borrowck_collect_call_callee_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
         v4_borrowck_collect_call_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
     } else if rvalue_kind == v4_mir_rvalue_unknown {
         pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)

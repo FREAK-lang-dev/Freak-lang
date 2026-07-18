@@ -62,6 +62,19 @@ MIR parameter/return typing and editor hover, definition, and completion facts.
 Doctrine substitution runs before alias canonicalization, body generics outrank
 same-named global aliases, and overlapping bound methods diagnose ambiguity
 instead of selecting whichever doctrine Yuuko happened to inspect first.
+Closures now form a complete first-pass frontend/query slice. The resilient
+parser records arrow and block forms as `ClosureExpr` trees and leaves
+`IncompleteNode` recovery facts for missing pipes, body markers, expressions,
+or parameter names. HIR normalizes default/`copy`/`move`/`mut`; TY assigns
+`Callable`, `MutCallable`, or `OneShot` closure identities; and MIR lowers a
+`Closure` aggregate with explicit `CaptureBorrow`, `CaptureBorrowMut`,
+`CaptureCopy`, or `CaptureMove` children. Meiya keeps stored borrow captures
+live through the closure holder's final reachable use, requires exclusive
+access for mutable captures, and consumes OneShot closures on call. Capture
+mode is visible through semantic, hover, definition, completion, LSP, MIR and
+borrowck snapshots, and deterministic all-family invalidation/diff reports.
+Nested and generic closure inference, borrowed-return closure contracts,
+`Send`/`Sync`, and native closure-environment codegen remain later slices.
 The Borrow Checker gate has now started with `lend` / `lend mut` parameter
 contracts and explicit `lend value` / `lend mut value` expressions carried
 through TY and MIR into Meiya: immutable lends cannot be written, borrowed
@@ -174,8 +187,9 @@ Malformed `lend 'a` and doubled-lifetime types receive spanned diagnostics.
 Contract-boundary smokes also pin normalized source paths and exact `start:end`
 byte ranges for signature-storage and unsupported-forwarding failures.
 Method, dynamic, callback, extern, and FFI returned-loan forwarding calls are
-explicitly rejected rather than silently accepted. Closure forwarding cannot be
-expressed because V4 closure expression syntax has not landed. Loop-carried join
+explicitly rejected rather than silently accepted. Closure expressions now
+carry capture ownership, but their types cannot yet express borrowed-return
+contracts, so closure returned-loan forwarding remains unsupported. Loop-carried join
 fixed points remain later Meiya work. Source sets come from signature
 contracts; body-derived source discovery and general lexical lifetime inference
 remain open. This is a contract-region source-set and non-lexical liveness

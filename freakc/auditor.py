@@ -2006,6 +2006,143 @@ def audit_conformance(paths: List[Path]) -> int:
     if semantic_core_missing:
         failures.append("V4 semantic-core carrier surface regressed: " + "; ".join(semantic_core_missing))
 
+    # Check 7f: V4 closure capture frontend/query and Meiya surface
+    # This guards the promoted §1.8 checkpoint without claiming backend closure
+    # environments, nested closure inference, borrowed-return contracts, or
+    # Send/Sync proof.
+    closure_capture_missing: List[str] = []
+    closure_capture_files = (
+        (
+            repo / "src" / "compiler" / "v4" / "crates" / "freak_parse" / "src" / "lib.fk",
+            "freak_parse",
+            (
+                'pilot v4_node_closure = "ClosureExpr"',
+                "task v4_parse_parse_closures_in_item(",
+                "expected | after closure parameters",
+                "expected expression after closure =>",
+            ),
+        ),
+        (
+            repo / "src" / "compiler" / "v4" / "crates" / "freak_hir" / "src" / "lib.fk",
+            "freak_hir",
+            (
+                "task v4_hir_closure_count(",
+                "task v4_hir_closure_at_offset(",
+            ),
+        ),
+        (
+            repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk",
+            "freak_ty",
+            (
+                'pilot v4_ty_closure_one_shot = "OneShot"',
+                "task v4_ty_closure_type_at(",
+                "task v4_ty_closure_as_task_type(",
+            ),
+        ),
+        (
+            repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk",
+            "freak_mir",
+            (
+                'pilot v4_mir_rvalue_closure = "Closure"',
+                'pilot v4_mir_rvalue_capture_borrow = "CaptureBorrow"',
+                'pilot v4_mir_rvalue_capture_borrow_mut = "CaptureBorrowMut"',
+                'pilot v4_mir_rvalue_capture_copy = "CaptureCopy"',
+                'pilot v4_mir_rvalue_capture_move = "CaptureMove"',
+                "task v4_mir_try_lower_closure_expr(",
+                "Yuuko cannot copy this closure capture",
+                "Meiya keeps this closure capture immutable",
+            ),
+        ),
+        (
+            repo / "src" / "compiler" / "v4" / "crates" / "freak_borrowck" / "src" / "lib.fk",
+            "freak_borrowck",
+            (
+                "task v4_borrowck_stored_closure_holder(",
+                "task v4_borrowck_collect_call_callee_paths(",
+                "v4_ty_closure_one_shot",
+                "v4_ty_closure_mut_callable",
+            ),
+        ),
+        (
+            repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk",
+            "freak_editor",
+            (
+                "task v4_editor_local_type_display_at(",
+                'give back "capture " + capture_mode + " " + display',
+            ),
+        ),
+    )
+    for closure_path, closure_label, needles in closure_capture_files:
+        if not closure_path.exists():
+            closure_capture_missing.append(f"{closure_label}/src/lib.fk missing")
+            continue
+        closure_src = closure_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in closure_src:
+                closure_capture_missing.append(f"{closure_label}: {needle}")
+
+    closure_smoke_needles = (
+        (
+            repo / "src" / "compiler" / "v4" / "tests" / "closure_capture_smoke.fk",
+            ("closure-capture-mir-mut-kind=", "closure-capture-status="),
+        ),
+        (
+            repo / "src" / "compiler" / "v4" / "tests" / "closure_capture_negative_smoke.fk",
+            ("closure-negative-oneshot-message=", "closure-negative-mut-read-message="),
+        ),
+        (
+            repo / "src" / "compiler" / "v4" / "tests" / "closure_recovery_smoke.fk",
+            ("closure-recovery-all-malformed-recorded=", "closure-recovery-survivor-present="),
+        ),
+        (
+            repo / "src" / "compiler" / "v4" / "tests" / "closure_capture_editor_smoke.fk",
+            ("closure-editor-invalidation-matches-diff=", "closure-editor-after-lsp-completion="),
+        ),
+    )
+    for smoke_path, needles in closure_smoke_needles:
+        if not smoke_path.exists():
+            closure_capture_missing.append(f"smoke fixture: {smoke_path.name}")
+            continue
+        smoke_src = smoke_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in smoke_src:
+                closure_capture_missing.append(f"{smoke_path.name}: {needle}")
+
+    closure_harness = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    if closure_harness.exists():
+        closure_harness_src = closure_harness.read_text(encoding="utf-8")
+        for needle in (
+            '"fixture": "closure_capture_smoke.fk"',
+            '"fixture": "closure_capture_negative_smoke.fk"',
+            '"fixture": "closure_recovery_smoke.fk"',
+            '"fixture": "closure_capture_editor_smoke.fk"',
+            '"closure-negative-borrow-diagnostics=5"',
+            '"closure-editor-invalidation-matches-diff=true"',
+        ):
+            if needle not in closure_harness_src:
+                closure_capture_missing.append(f"check_v4.py: {needle}")
+    else:
+        closure_capture_missing.append("check_v4.py harness missing")
+
+    closure_docs = (
+        (bible, "Yuuko found the environment, Meiya guards the door"),
+        (audit_doc, "V4 closure checkpoint"),
+        (repo / "src" / "compiler" / "v4" / "README.md", "Closures now form a complete first-pass frontend/query slice"),
+    )
+    for doc_path, needle in closure_docs:
+        if not doc_path.exists() or needle not in doc_path.read_text(encoding="utf-8"):
+            closure_capture_missing.append(f"closure documentation: {doc_path.name}: {needle}")
+
+    add(
+        "V4 closure captures",
+        not closure_capture_missing,
+        "parse/HIR/TY/MIR/Meiya/editor/snapshot/invalidation smokes wired"
+        if not closure_capture_missing
+        else f"{len(closure_capture_missing)} gap(s)",
+    )
+    if closure_capture_missing:
+        failures.append("V4 closure capture surface regressed: " + "; ".join(closure_capture_missing))
+
     # ── Check 8: V4 @extern_callback FFI surface (regression guard) ──
     # Once a 🔜 V4 row promotes to ⚠️/✅ in bible §0.2, audit_conformance
     # grows a check so the contract cannot silently regress. The
@@ -2658,7 +2795,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "task v4_contract_region_forwarding_boundary_borrow_diag_span(",
                 'pilot v4_contract_region_forwarding_boundary_ffi_message = "Meiya cannot forward borrowed values through an FFI callback yet"',
                 'v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-ffi", v4_contract_region_forwarding_boundary_ffi_borrow, "ffi_forward", "mir", v4_contract_region_forwarding_boundary_ffi_message)',
-                'say "contract-region-forwarding-closure-coverage=unsupported-no-v4-closure-syntax"',
+                'say "contract-region-forwarding-closure-coverage=unsupported-no-borrowed-closure-contract"',
             ),
         ),
         (
@@ -3273,7 +3410,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-ffi-invocation-range=198:222",
             "contract-region-forwarding-ffi-rejected=true",
             "contract-region-forwarding-ffi-silently-accepted=false",
-            "contract-region-forwarding-closure-coverage=unsupported-no-v4-closure-syntax",
+            "contract-region-forwarding-closure-coverage=unsupported-no-borrowed-closure-contract",
         ),
         "contract_region_editor_smoke.fk": (
             "contract-region-editor-bound-semantic-name='out",

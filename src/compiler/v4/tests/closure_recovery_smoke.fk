@@ -1,0 +1,61 @@
+-- V4 resilient closure parser recovery smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_closure_recovery_source() -> word {
+    pilot src = "task missing_pipe() -> void {\n"
+    src = src + "    pilot broken = |value: int => value\n"
+    src = src + "}\n"
+    src = src + "task missing_body() -> void {\n"
+    src = src + "    pilot broken = |value: int|\n"
+    src = src + "}\n"
+    src = src + "task missing_expr() -> void {\n"
+    src = src + "    pilot broken = |value: int| =>\n"
+    src = src + "}\n"
+    src = src + "task bad_param() -> void {\n"
+    src = src + "    pilot broken = |42| => 42\n"
+    src = src + "}\n"
+    src = src + "task survivor() -> int {\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_closure_recovery_node_count(tree_id: int, wanted_kind: word) -> int {
+    pilot count = 0
+    pilot node_id = 0
+    repeat until node_id >= v4_parse_node_count(tree_id) {
+        if v4_parse_node_kind(tree_id, node_id) == wanted_kind {
+            count += 1
+        }
+        node_id += 1
+    }
+    give back count
+}
+
+task v4_closure_recovery_has_node_value(tree_id: int, wanted_kind: word, wanted_value: word) -> bool {
+    pilot node_id = 0
+    repeat until node_id >= v4_parse_node_count(tree_id) {
+        if v4_parse_node_kind(tree_id, node_id) == wanted_kind and v4_parse_node_value(tree_id, node_id) == wanted_value {
+            give back true
+        }
+        node_id += 1
+    }
+    give back false
+}
+
+task v4_closure_recovery_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+pilot v4_closure_recovery_stream = v4_lex_text(0, v4_closure_recovery_source())
+pilot v4_closure_recovery_tree = v4_parse_stream(0, v4_closure_recovery_stream)
+pilot v4_closure_recovery_closures = v4_closure_recovery_node_count(v4_closure_recovery_tree, v4_node_closure)
+pilot v4_closure_recovery_incomplete = v4_closure_recovery_node_count(v4_closure_recovery_tree, v4_node_incomplete)
+
+say "closure-recovery-closure-count=" + word_from_int(v4_closure_recovery_closures)
+say "closure-recovery-incomplete-count=" + word_from_int(v4_closure_recovery_incomplete)
+say "closure-recovery-diagnostic-count=" + word_from_int(v4_parse_diag_count(v4_closure_recovery_tree))
+say "closure-recovery-all-malformed-recorded=" + v4_closure_recovery_bool(v4_closure_recovery_closures == 4 and v4_closure_recovery_incomplete >= 4 and v4_parse_diag_count(v4_closure_recovery_tree) >= 4)
+say "closure-recovery-survivor-present=" + v4_closure_recovery_bool(v4_closure_recovery_has_node_value(v4_closure_recovery_tree, v4_node_task, "survivor"))
+say "closure-recovery-snapshot-valid=" + v4_closure_recovery_bool(v4_parse_snapshot_validate(v4_parse_snapshot()).starts_with("parse-snapshot-import ok=1"))

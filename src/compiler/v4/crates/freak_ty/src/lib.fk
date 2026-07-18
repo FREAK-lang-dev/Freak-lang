@@ -39,6 +39,13 @@ pilot v4_ty_generic_kind_lifetime = "lifetime"
 pilot v4_ty_param_mode_value = "value"
 pilot v4_ty_param_mode_lend = "lend"
 pilot v4_ty_param_mode_lend_mut = "lend mut"
+pilot v4_ty_closure_mode_borrow = "borrow"
+pilot v4_ty_closure_mode_copy = "copy"
+pilot v4_ty_closure_mode_move = "move"
+pilot v4_ty_closure_mode_mut = "mut"
+pilot v4_ty_closure_callable = "Callable"
+pilot v4_ty_closure_mut_callable = "MutCallable"
+pilot v4_ty_closure_one_shot = "OneShot"
 
 pilot v4_ty_files = 0
 pilot v4_ty_resolves = 0
@@ -493,6 +500,77 @@ task v4_ty_is_surface_task_function_type(type_text: word) -> bool {
 
 task v4_ty_is_surface_extern_function_pointer_type(type_text: word) -> bool {
     give back type_text.starts_with("extern[") and v4_ty_is_surface_task_function_type(type_text)
+}
+
+task v4_ty_closure_doctrine_for_mode(mode: word) -> word {
+    if mode == v4_ty_closure_mode_mut {
+        give back v4_ty_closure_mut_callable
+    }
+    if mode == v4_ty_closure_mode_move {
+        give back v4_ty_closure_one_shot
+    }
+    give back v4_ty_closure_callable
+}
+
+task v4_ty_closure_type_prefix(mode: word) -> word {
+    give back "closure[" + v4_ty_closure_doctrine_for_mode(mode) + "," + mode + "]"
+}
+
+task v4_ty_is_closure_type(type_text: word) -> bool {
+    if type_text.starts_with("closure[") == false {
+        give back false
+    }
+    pilot close_bracket = v4_index_of_from(type_text, "]", 8)
+    if close_bracket < 0 or close_bracket + 1 >= type_text.length() {
+        give back false
+    }
+    give back type_text.char_at(close_bracket + 1) == "("
+}
+
+task v4_ty_closure_spec(type_text: word) -> word {
+    if v4_ty_is_closure_type(type_text) == false {
+        give back ""
+    }
+    pilot close_bracket = v4_index_of_from(type_text, "]", 8)
+    give back v4_slice(type_text, 8, close_bracket)
+}
+
+task v4_ty_closure_doctrine(type_text: word) -> word {
+    pilot spec = v4_ty_closure_spec(type_text)
+    pilot comma = v4_index_of_from(spec, ",", 0)
+    if comma < 0 {
+        give back ""
+    }
+    give back v4_slice(spec, 0, comma)
+}
+
+task v4_ty_closure_mode(type_text: word) -> word {
+    pilot spec = v4_ty_closure_spec(type_text)
+    pilot comma = v4_index_of_from(spec, ",", 0)
+    if comma < 0 or comma + 1 >= spec.length() {
+        give back ""
+    }
+    give back v4_slice(spec, comma + 1, spec.length())
+}
+
+task v4_ty_closure_as_task_type(type_text: word) -> word {
+    if v4_ty_is_closure_type(type_text) == false {
+        give back v4_ty_unknown
+    }
+    pilot close_bracket = v4_index_of_from(type_text, "]", 8)
+    give back "task" + v4_slice(type_text, close_bracket + 1, type_text.length())
+}
+
+task v4_ty_closure_param_count(type_text: word) -> int {
+    give back v4_ty_function_type_param_count(v4_ty_closure_as_task_type(type_text))
+}
+
+task v4_ty_closure_param_type(type_text: word, param_id: int) -> word {
+    give back v4_ty_function_type_param_surface(v4_ty_closure_as_task_type(type_text), param_id)
+}
+
+task v4_ty_closure_return_type(type_text: word) -> word {
+    give back v4_ty_function_type_return_text(v4_ty_closure_as_task_type(type_text))
 }
 
 task v4_ty_function_type_open_paren(type_text: word) -> int {
@@ -4291,6 +4369,73 @@ task v4_ty_infer_arrow_expr_return(stream_id: int, start_token: int, end_token: 
         give back "maybe<unknown>"
     }
     give back v4_ty_unknown
+}
+
+task v4_ty_signature_for_hir_item(ty_id: int, hir_item: int) -> int {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_hir_item(ty_id, sig_id) == hir_item and v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 {
+            give back sig_id
+        }
+        sig_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_closure_type_at(ty_id: int, hir_item: int, closure_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or closure_id < 0 or closure_id >= v4_hir_closure_count(hir_id, hir_item) {
+        give back v4_ty_unknown
+    }
+
+    pilot mode = v4_hir_closure_mode(hir_id, hir_item, closure_id)
+    if mode == "" {
+        mode = v4_ty_closure_mode_borrow
+    }
+    pilot owner_sig = v4_ty_signature_for_hir_item(ty_id, hir_item)
+    pilot out = v4_ty_closure_type_prefix(mode) + "("
+    pilot param_id = 0
+    pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+    if param_count == 1 and v4_hir_closure_param_name(hir_id, hir_item, closure_id, 0) == "_" and v4_hir_closure_param_type(hir_id, hir_item, closure_id, 0) == "" {
+        param_count = 0
+    }
+    repeat until param_id >= param_count {
+        if param_id > 0 {
+            out = out + ","
+        }
+        pilot param_name = v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id)
+        pilot param_ty = v4_hir_closure_param_type(hir_id, hir_item, closure_id, param_id)
+        if param_ty == "" {
+            param_ty = v4_ty_unknown
+        } else if owner_sig >= 0 {
+            param_ty = v4_ty_canonical_type_in_signature(ty_id, owner_sig, param_ty)
+        }
+        if param_name != "" {
+            out = out + param_name + ":"
+        }
+        out = out + param_ty
+        param_id += 1
+    }
+
+    pilot return_ty = v4_ty_void
+    if v4_hir_closure_body_kind(hir_id, hir_item, closure_id) == "expr" {
+        pilot stream_id = v4_hir_item_stream_id(hir_id)
+        return_ty = v4_ty_infer_arrow_expr_return(stream_id, v4_hir_closure_body_start_token(hir_id, hir_item, closure_id), v4_hir_closure_body_end_token(hir_id, hir_item, closure_id))
+    }
+    give back out + ")->" + return_ty
+}
+
+task v4_ty_closure_type_for_offset(ty_id: int, hir_item: int, offset: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back v4_ty_unknown
+    }
+    pilot closure_id = v4_hir_closure_at_offset(hir_id, hir_item, offset)
+    if closure_id < 0 {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_closure_type_at(ty_id, hir_item, closure_id)
 }
 
 task v4_ty_route_surface_keyword(hir_id: int, hir_item: int) -> word {
