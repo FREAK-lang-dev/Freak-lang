@@ -141,8 +141,8 @@ rows before the restored contract can be queried again.
 
 Meiya verifies that each returned origin honors the declared lifetime, then
 follows that origin through field projections, scalar local holders, nested
-statically resolved ordinary calls, reordered named arguments, and acyclic CFG
-joins. An explicit reborrow through a scalar lend holder preserves its projection
+statically resolved ordinary calls, reordered named arguments, and CFG joins,
+including loop headers and backedges. An explicit reborrow through a scalar lend holder preserves its projection
 suffix, so `lend view.ship` resolves to the holder's concrete owner path rather
 than becoming opaque. MIR erases a callee's binder spelling from the caller-local result type
 while preserving a deterministic signature-source-to-call-argument candidate
@@ -154,10 +154,32 @@ keep all candidate owners live through the holder's final reachable use. Local r
 only that holder's provenance, exact self-assignment preserves it, and restoring
 from a descendant alias establishes a new tracked state. Provenance expansion
 is memoized by MIR/body/use location/rvalue within each borrowck generation.
+Recursive lookups form an implicit dependency graph. Meiya discovers that graph
+with an iterative memo worklist, records reverse dependency edges in per-memo
+adjacency lists, and schedules only dependants of changed memos in deterministic
+waves, so a long acyclic holder chain cannot consume the native call stack or
+force an all-memo replay.
+One bounded phase propagates concrete owner paths, every unresolved empty memo
+(including a source-less strongly connected component) is then made opaque, and
+a second bounded phase propagates that opacity. Each phase is limited to
+`memo_count + 1` rounds and a monotonic revision counter detects convergence
+without rescanning all provenance states.
+An identity cycle is stable, while a projected self-cycle that would grow an
+owner path remains opaque. Failure to converge fails closed by making the
+generation opaque. The generation also fails closed when it exceeds 4,096 memo
+entries, 16,384 dependency edges, 65,536 work items, 1,024 concrete source
+facts, or a 1,024-byte canonical owner path. Rounds, limits, solve counts,
+convergence, resource exhaustion, and work-item counts are keyed by borrowck
+result, persisted in borrowck snapshot v2, and pinned by executable restore and
+budget smokes. Legacy v1 snapshots remain importable with conservative default
+telemetry, while truncated v2 telemetry records are rejected. CFG block
+reachability, holder liveness, and holder-alias expansion use explicit
+cycle-safe worklists; a 64-diamond CFG
+smoke proves forward/reverse reachability without recursive stack growth.
 Active scratch counts reset at generation boundaries and are bounded by the
 active generation's visited provenance graph. State, source-row, and memo arrays
 reuse high-water capacity across recomputation without historical growth, while
-recursive provenance cycles remain conservatively opaque. Meiya's integer-word,
+source-less or path-growing provenance cycles remain conservatively opaque. Meiya's integer-word,
 canonical-value, and exact-input caches are bounded rings; evicted values rebuild
 to the same canonical owner path, while hot entries reuse their existing row.
 The bootstrap C runtime now grows its array-handle table dynamically instead of
@@ -173,7 +195,11 @@ concrete query families (syntax, lex, parse, HIR, resolve, TY, MIR, borrowck,
 diagnostics, semantic-at, hover, definition-at, document symbols, and
 completion) plus three refreshed aggregate totals (`all`/`query`, `core`, and
 `editor`). This includes an elided result changing from multiple candidate
-owners to one.
+owners to one and an isolated, byte-length-stable loop-backedge edit shrinking
+a fixed point from two concrete owners to one without changing its signature.
+The backedge fixture proves positive recomputation for every concrete family and
+re-queries syntax, diagnostics, semantic, hover, definition, symbols, and
+completion after 00-Unit restore.
 
 The current sound boundary is deliberately narrow. Named or elided lends may be
 outer ordinary-task parameter and borrowed-return contracts, and their results
@@ -193,8 +219,7 @@ byte ranges for signature-storage and unsupported-forwarding failures.
 Method, dynamic, callback, extern, and FFI returned-loan forwarding calls are
 explicitly rejected rather than silently accepted. Closure expressions now
 carry capture ownership, but their types cannot yet express borrowed-return
-contracts, so closure returned-loan forwarding remains unsupported. Loop-carried join
-fixed points remain later Meiya work. Source sets come from signature
+contracts, so closure returned-loan forwarding remains unsupported. Source sets come from signature
 contracts; body-derived source discovery and general lexical lifetime inference
 remain open. This is a contract-region source-set and non-lexical liveness
 slice, not full region inference. These TY/MIR/Meiya/editor facts do not imply a
