@@ -28,7 +28,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Clang (Ubuntu)
         if: runner.os == 'Linux'
@@ -165,7 +165,7 @@ jobs:
           ls -la artifacts/*.tar.gz artifacts/*.zip 2>/dev/null || true
 
       - name: Checkout for packaging update
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: repo
 
