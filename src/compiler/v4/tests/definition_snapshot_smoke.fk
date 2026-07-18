@@ -32,6 +32,38 @@ task v4_definition_snapshot_bool_word(flag: bool) -> word {
     give back "false"
 }
 
+task v4_definition_snapshot_fixture_first_id(payload: word, replacement_id: int) -> word {
+    pilot out = ""
+    pilot replaced = 0
+    pilot line_id = 0
+    pilot line_count = v4_definition_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_definition_snapshot_line(payload, line_id)
+        pilot output_line = line
+        if replaced == 0 and v4_definition_snapshot_field_raw(line, 0) == "definition" {
+            output_line = "definition|" + word_from_int(replacement_id)
+            pilot field_id = 2
+            pilot field_count = v4_definition_snapshot_field_count(line)
+            repeat until field_id >= field_count {
+                output_line = output_line + "|" + v4_definition_snapshot_field_raw(line, field_id)
+                field_id += 1
+            }
+            replaced = 1
+        }
+        if out != "" { out = out + "\n" }
+        out = out + output_line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_definition_snapshot_negative_id_atomic(payload: word) -> word {
+    pilot expected_state = v4_definition_snapshot()
+    pilot invalid_payload = v4_definition_snapshot_fixture_first_id(payload, 0 - 1)
+    pilot restore_result = v4_definition_snapshot_restore(invalid_payload)
+    give back "definition-snapshot-negative-id-atomic=" + v4_definition_snapshot_bool_word(restore_result.starts_with("definition-snapshot-restore ok=0 ") and v4_definition_snapshot() == expected_state)
+}
+
 task v4_definition_snapshot_braces(inner: word) -> word {
     give back "{" + inner + "}"
 }
@@ -118,6 +150,7 @@ say v4_definition_snapshot_summary()
 pilot v4_definition_snapshot_payload = v4_definition_snapshot()
 say v4_definition_snapshot_validate(v4_definition_snapshot_payload)
 say "definition-snapshot-bytes=" + word_from_int(v4_definition_snapshot_payload.length())
+say v4_definition_snapshot_negative_id_atomic(v4_definition_snapshot_payload)
 say v4_definition_snapshot_definition_line(v4_definition_snapshot_method)
 say v4_parse_snapshot_restore(v4_parse_snapshot())
 say v4_hir_snapshot_restore(v4_hir_snapshot())

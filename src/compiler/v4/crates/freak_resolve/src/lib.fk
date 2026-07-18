@@ -277,7 +277,17 @@ task v4_resolve_extern_member_marker_index(def_id: word) -> int {
     pilot def_len = def_id.length()
     pilot idx = 0
     repeat until idx + marker_len > def_len {
-        if v4_slice(def_id, idx, idx + marker_len) == v4_resolve_extern_member_marker {
+        pilot marker_idx = 0
+        pilot matches = true
+        repeat until marker_idx >= marker_len {
+            if def_id.char_at(idx + marker_idx) != v4_resolve_extern_member_marker.char_at(marker_idx) {
+                matches = false
+                marker_idx = marker_len
+            } else {
+                marker_idx += 1
+            }
+        }
+        if matches {
             give back idx
         }
         idx += 1
@@ -575,28 +585,33 @@ task v4_resolve_snapshot_diag_line(resolve_id: int, diag_id: int) -> word {
 
 task v4_resolve_snapshot() -> word {
     v4_resolve_init()
-    pilot out = v4_resolve_snapshot_header()
+    pilot parts = array_new()
+    array_push(parts, v4_resolve_snapshot_header())
     pilot resolve_id = 0
     repeat until resolve_id >= v4_resolve_index_count() {
-        out = out + "\n" + v4_resolve_snapshot_index_line(resolve_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_resolve_snapshot_index_line(resolve_id))
 
         pilot symbol_id = 0
         pilot symbol_count = v4_resolve_symbol_count(resolve_id)
         repeat until symbol_id >= symbol_count {
-            out = out + "\n" + v4_resolve_snapshot_symbol_line(resolve_id, symbol_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_resolve_snapshot_symbol_line(resolve_id, symbol_id))
             symbol_id += 1
         }
 
         pilot diag_id = 0
         pilot diag_count = v4_resolve_diag_count(resolve_id)
         repeat until diag_id >= diag_count {
-            out = out + "\n" + v4_resolve_snapshot_diag_line(resolve_id, diag_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_resolve_snapshot_diag_line(resolve_id, diag_id))
             diag_id += 1
         }
         resolve_id += 1
     }
-    out = out + "\nend|" + v4_resolve_snapshot_format
-    give back out
+    array_push(parts, "\nend|")
+    array_push(parts, v4_resolve_snapshot_format)
+    give back word_join(parts)
 }
 
 task v4_resolve_snapshot_record_expected_fields(kind: word) -> int {

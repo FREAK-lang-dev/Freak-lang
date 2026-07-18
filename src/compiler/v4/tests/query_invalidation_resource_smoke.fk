@@ -1,0 +1,80 @@
+-- V4 query invalidation scratch-handle resource smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_query_invalidation_resource_array_probe() -> bool {
+    pilot probe = array_new()
+    array_push(probe, "alive")
+    pilot probe_ok = array_len(probe) == 1
+    array_release(probe)
+    give back probe_ok
+}
+
+task v4_query_invalidation_resource_available_handles() -> int {
+    pilot handles = array_new()
+    pilot available = 0
+    pilot exhausted = false
+    repeat until exhausted or available >= 2048 {
+        pilot candidate = array_new()
+        array_push(candidate, "alive")
+        if array_len(candidate) != 1 {
+            exhausted = true
+        } else {
+            array_push(handles, word_from_int(candidate))
+            available += 1
+        }
+    }
+
+    pilot handle_id = 0
+    repeat until handle_id >= array_len(handles) {
+        array_release(word_to_int(array_get(handles, handle_id)))
+        handle_id += 1
+    }
+    array_release(handles)
+    give back available
+}
+
+pilot v4_query_invalidation_resource_path = "query-invalidation-resource.fk"
+pilot v4_query_invalidation_resource_before = "task main() -> int {\n"
+v4_query_invalidation_resource_before = v4_query_invalidation_resource_before + "    give back 1\n"
+v4_query_invalidation_resource_before = v4_query_invalidation_resource_before + "}\n"
+pilot v4_query_invalidation_resource_after = "task main() -> int {\n"
+v4_query_invalidation_resource_after = v4_query_invalidation_resource_after + "    give back 2\n"
+v4_query_invalidation_resource_after = v4_query_invalidation_resource_after + "}\n"
+v4_lsp_open_document(v4_query_invalidation_resource_path, v4_query_invalidation_resource_before)
+v4_check_syntax_text(v4_query_invalidation_resource_path, v4_query_invalidation_resource_before)
+v4_lsp_hover_text(v4_query_invalidation_resource_path, v4_query_invalidation_resource_before, 5)
+v4_lsp_completion_text(v4_query_invalidation_resource_path, v4_query_invalidation_resource_before, 0)
+pilot v4_query_invalidation_resource_capacity_before = v4_query_invalidation_resource_available_handles()
+
+pilot v4_query_invalidation_resource_changes = 0
+pilot v4_query_invalidation_resource_toggle = false
+pilot v4_query_invalidation_resource_response = ""
+repeat until v4_query_invalidation_resource_changes >= 96 {
+    pilot v4_query_invalidation_resource_source = v4_query_invalidation_resource_before
+    if v4_query_invalidation_resource_toggle {
+        v4_query_invalidation_resource_source = v4_query_invalidation_resource_after
+    }
+    v4_query_invalidation_resource_response = v4_lsp_handle_text_request("textDocument/didChange", v4_query_invalidation_resource_path, v4_query_invalidation_resource_source, 0)
+    v4_query_invalidation_resource_toggle = not v4_query_invalidation_resource_toggle
+    v4_query_invalidation_resource_changes += 1
+}
+pilot v4_query_invalidation_resource_change_probe_ok = v4_query_invalidation_resource_array_probe()
+
+pilot v4_query_invalidation_resource_direct = 0
+pilot v4_query_invalidation_resource_root = "source:" + v4_query_invalidation_resource_path
+repeat until v4_query_invalidation_resource_direct >= 600 {
+    v4_query_invalidate_dependents_at_generation(v4_query_invalidation_resource_root, v4_query_generation(), "resource-soak")
+    v4_query_invalidation_resource_direct += 1
+}
+
+pilot v4_query_invalidation_resource_probe_ok = v4_query_invalidation_resource_array_probe()
+pilot v4_query_invalidation_resource_capacity_after = v4_query_invalidation_resource_available_handles()
+
+say "query-invalidation-resource-changes=" + word_from_int(v4_query_invalidation_resource_changes)
+say "query-invalidation-resource-direct=" + word_from_int(v4_query_invalidation_resource_direct)
+say "query-invalidation-resource-response=" + word_from_bool(v4_query_invalidation_resource_response.starts_with("ok|textDocument/didChange"))
+say "query-invalidation-resource-dependents=" + word_from_bool(v4_query_direct_dependent_count(v4_query_invalidation_resource_root) > 0)
+say "query-invalidation-resource-change-probe=" + word_from_bool(v4_query_invalidation_resource_change_probe_ok)
+say "query-invalidation-resource-array-probe=" + word_from_bool(v4_query_invalidation_resource_probe_ok)
+say "query-invalidation-resource-handle-capacity-bounded=" + word_from_bool(v4_query_invalidation_resource_capacity_before > 0 and v4_query_invalidation_resource_capacity_before < 2048)
+say "query-invalidation-resource-handle-capacity-stable=" + word_from_bool(v4_query_invalidation_resource_capacity_after == v4_query_invalidation_resource_capacity_before)

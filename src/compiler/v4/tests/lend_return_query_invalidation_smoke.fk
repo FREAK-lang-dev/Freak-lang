@@ -71,8 +71,13 @@ pilot v4_lend_return_query_before_semantic = v4_semantic_at_text_cached(v4_lend_
 pilot v4_lend_return_query_before_hover = v4_hover_text_cached(v4_lend_return_query_path, v4_lend_return_query_before, v4_lend_return_query_before_view)
 pilot v4_lend_return_query_before_definition = v4_definition_at_text_cached(v4_lend_return_query_path, v4_lend_return_query_before, v4_lend_return_query_before_view)
 
-say "lend-return-query-before-diagnostics=" + word_from_int(v4_diagnostics_count(v4_lend_return_query_before_diagnostics))
-say "lend-return-query-before-message=" + v4_diag_message(v4_diagnostics_diag(v4_lend_return_query_before_diagnostics, 0))
+pilot v4_lend_return_query_before_diag_count = v4_diagnostics_count(v4_lend_return_query_before_diagnostics)
+say "lend-return-query-before-diagnostics=" + word_from_int(v4_lend_return_query_before_diag_count)
+if v4_lend_return_query_before_diag_count > 0 {
+    say "lend-return-query-before-message=" + v4_diag_message(v4_diagnostics_diag(v4_lend_return_query_before_diagnostics, 0))
+} else {
+    say "lend-return-query-before-message=none"
+}
 say "lend-return-query-before-semantic=" + v4_semantic_at_type(v4_lend_return_query_before_semantic)
 say "lend-return-query-before-hover=" + v4_hover_type(v4_lend_return_query_before_hover)
 say "lend-return-query-before-definition=" + word_from_int(v4_definition_at_found(v4_lend_return_query_before_definition))
@@ -81,7 +86,6 @@ pilot v4_lend_return_query_after = v4_lend_return_query_clean_source()
 pilot v4_lend_return_query_change_response = v4_lsp_handle_text_request("textDocument/didChange", v4_lend_return_query_path, v4_lend_return_query_after, 0)
 say v4_lend_return_query_change_response
 pilot v4_lend_return_query_report = v4_unit_snapshot_line(v4_lend_return_query_change_response, 2)
-say v4_lend_return_query_report
 say "lend-return-query-borrowck-invalidated=" + v4_lend_return_query_invalidation_positive(v4_lend_return_query_report, "borrowck-invalidations-added")
 say "lend-return-query-diagnostics-invalidated=" + v4_lend_return_query_invalidation_positive(v4_lend_return_query_report, "diagnostics-invalidations-added")
 say "lend-return-query-semantic-invalidated=" + v4_lend_return_query_invalidation_positive(v4_lend_return_query_report, "semantic-at-invalidations-added")

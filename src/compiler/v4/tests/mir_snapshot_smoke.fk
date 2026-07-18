@@ -1,15 +1,24 @@
 -- V4 MIR arena snapshot smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-pilot v4_mir_snapshot_source = "task main() -> int {\n"
-v4_mir_snapshot_source = v4_mir_snapshot_source + "    pilot x = 40\n"
-v4_mir_snapshot_source = v4_mir_snapshot_source + "    pilot y = x + 2\n"
-v4_mir_snapshot_source = v4_mir_snapshot_source + "    if y > 40 {\n"
-v4_mir_snapshot_source = v4_mir_snapshot_source + "        pilot z = y\n"
-v4_mir_snapshot_source = v4_mir_snapshot_source + "    }\n"
-v4_mir_snapshot_source = v4_mir_snapshot_source + "    give back y\n"
-v4_mir_snapshot_source = v4_mir_snapshot_source + "}\n"
-v4_mir_snapshot_source = v4_mir_snapshot_source + "task main() => 0\n"
+task v4_mir_snapshot_make_source() -> word {
+    pilot src = "task compute() -> int {\n"
+    src = src + "    pilot x = 40\n"
+    src = src + "    pilot y = x + 2\n"
+    src = src + "    if y > 40 {\n"
+    src = src + "        pilot z = y\n"
+    src = src + "    } else {\n"
+    src = src + "        pilot z = 0\n"
+    src = src + "    }\n"
+    src = src + "    give back y\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back compute()\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_snapshot_source = v4_mir_snapshot_make_source()
 
 pilot v4_mir_snapshot_id = v4_mir_text_cached("mir-snapshot.fk", v4_mir_snapshot_source)
 pilot v4_mir_snapshot_main_def = v4_resolve_def_for_name(v4_ty_resolve_id(v4_mir_ty_id(v4_mir_snapshot_id)), "main")
@@ -50,3 +59,166 @@ pilot v4_mir_restored_borrow = v4_borrowck_check_mir(v4_mir_file_id(v4_mir_resto
 say v4_mir_summary(v4_mir_restored_id)
 say v4_borrowck_summary(v4_mir_restored_borrow)
 say v4_driver_confirm_restored_document_text("mir-snapshot.fk", "task changed() => 7\n")
+
+task v4_mir_snapshot_graph_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_mir_snapshot_graph_is_mixed_mode(mode: word) -> bool {
+    give back mode == "mixed-direct-cycle" or mode == "mixed-transitive-cycle" or mode == "forward-base-projection-valid"
+}
+
+task v4_mir_snapshot_graph_place_line(line: word, mode: word) -> word {
+    pilot place_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
+    pilot kind = v4_mir_snapshot_field(line, 4)
+    pilot raw_base = v4_mir_snapshot_field_raw(line, 6)
+    pilot raw_index = v4_mir_snapshot_field_raw(line, 8)
+    if place_id == 0 and mode == "mixed-direct-cycle" {
+        kind = v4_mir_place_deref
+        raw_base = "-1"
+        raw_index = "0"
+    } else if place_id == 0 and mode == "mixed-transitive-cycle" {
+        kind = v4_mir_place_deref
+        raw_base = "-1"
+        raw_index = "1"
+    } else if place_id == 0 and mode == "forward-base-projection-valid" {
+        kind = v4_mir_place_local
+        raw_base = "0"
+        raw_index = "-1"
+    } else if place_id == 1 and mode == "forward-base-projection-valid" {
+        kind = v4_mir_place_index
+        raw_base = "0"
+        raw_index = "1"
+    }
+
+    pilot out = "mir-place"
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 1)
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 2)
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 3)
+    out = out + "|" + v4_mir_snapshot_escape(kind)
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 5)
+    out = out + "|" + raw_base
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 7)
+    out = out + "|" + raw_index
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 9)
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 10)
+    give back out
+}
+
+task v4_mir_snapshot_graph_rvalue_line(line: word, mode: word) -> word {
+    pilot rvalue_id = word_to_int(v4_mir_snapshot_field_raw(line, 3))
+    pilot kind = v4_mir_snapshot_field(line, 4)
+    pilot raw_lhs = v4_mir_snapshot_field_raw(line, 7)
+    pilot raw_rhs = v4_mir_snapshot_field_raw(line, 8)
+    pilot args_payload = v4_mir_snapshot_field(line, 12)
+    if mode == "self-cycle" {
+        kind = v4_mir_rvalue_tuple
+        raw_lhs = "-1"
+        raw_rhs = "-1"
+        args_payload = word_from_int(rvalue_id)
+    } else if mode == "dangling-edge" {
+        kind = v4_mir_rvalue_tuple
+        raw_lhs = "-1"
+        raw_rhs = "-1"
+        args_payload = "999999"
+    } else if mode == "unknown-kind" {
+        kind = "CausalityLoop"
+    } else if mode == "mixed-direct-cycle" and rvalue_id == 0 {
+        kind = v4_mir_rvalue_use_place
+        raw_lhs = "0"
+        raw_rhs = "-1"
+        args_payload = ""
+    } else if mode == "mixed-transitive-cycle" and rvalue_id == 0 {
+        kind = v4_mir_rvalue_use_place
+        raw_lhs = "0"
+        raw_rhs = "-1"
+        args_payload = ""
+    } else if mode == "mixed-transitive-cycle" and rvalue_id == 1 {
+        kind = v4_mir_rvalue_some
+        raw_lhs = "0"
+        raw_rhs = "-1"
+        args_payload = ""
+    } else if mode == "forward-base-projection-valid" and rvalue_id == 1 {
+        kind = v4_mir_rvalue_const_int
+        raw_lhs = "-1"
+        raw_rhs = "-1"
+        args_payload = ""
+    }
+
+    pilot out = "mir-rvalue"
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 1)
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 2)
+    out = out + "|" + v4_mir_snapshot_field_raw(line, 3)
+    out = out + "|" + v4_mir_snapshot_escape(kind)
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_snapshot_field(line, 5))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_snapshot_field(line, 6))
+    out = out + "|" + raw_lhs
+    out = out + "|" + raw_rhs
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_snapshot_field(line, 9))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_snapshot_field(line, 10))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_snapshot_field(line, 11))
+    out = out + "|" + v4_mir_snapshot_escape(args_payload)
+    out = out + "|"
+    give back out
+}
+
+task v4_mir_snapshot_graph_variant(payload: word, mode: word) -> word {
+    pilot out = ""
+    pilot replaced = false
+    pilot target_mir = 0 - 1
+    pilot target_body = 0 - 1
+    pilot line_id = 0
+    pilot line_count = v4_mir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_mir_snapshot_line(payload, line_id)
+        pilot kind = v4_mir_snapshot_field_raw(line, 0)
+        if target_mir < 0 and kind == "mir-body" {
+            target_mir = word_to_int(v4_mir_snapshot_field_raw(line, 1))
+            target_body = word_to_int(v4_mir_snapshot_field_raw(line, 2))
+        }
+        pilot in_target = false
+        if target_mir >= 0 and v4_mir_snapshot_nonnegative_int_is_valid(v4_mir_snapshot_field_raw(line, 1)) {
+            if word_to_int(v4_mir_snapshot_field_raw(line, 1)) == target_mir and v4_mir_snapshot_nonnegative_int_is_valid(v4_mir_snapshot_field_raw(line, 2)) {
+                in_target = word_to_int(v4_mir_snapshot_field_raw(line, 2)) == target_body
+            }
+        }
+        if v4_mir_snapshot_graph_is_mixed_mode(mode) and in_target and kind == "mir-place" {
+            line = v4_mir_snapshot_graph_place_line(line, mode)
+        } else if v4_mir_snapshot_graph_is_mixed_mode(mode) and in_target and kind == "mir-rvalue" {
+            line = v4_mir_snapshot_graph_rvalue_line(line, mode)
+        } else if not replaced and kind == "mir-rvalue" {
+            line = v4_mir_snapshot_graph_rvalue_line(line, mode)
+            replaced = true
+        }
+        if line_id > 0 { out = out + "\n" }
+        out = out + line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_mir_snapshot_graph_assert(mode: word) -> void {
+    pilot before = v4_mir_snapshot()
+    pilot corrupt = v4_mir_snapshot_graph_variant(before, mode)
+    pilot validation = v4_mir_snapshot_validate(corrupt)
+    say "mir-snapshot-graph-" + mode + "-validate-rejected=" + v4_mir_snapshot_graph_bool(validation.starts_with("mir-snapshot-import ok=0"))
+    pilot restore = v4_mir_snapshot_restore(corrupt)
+    say "mir-snapshot-graph-" + mode + "-restore-rejected=" + v4_mir_snapshot_graph_bool(restore.starts_with("mir-snapshot-restore ok=0 reason=validation-failed"))
+    say "mir-snapshot-graph-" + mode + "-state-stable=" + v4_mir_snapshot_graph_bool(v4_mir_snapshot() == before)
+}
+
+task v4_mir_snapshot_graph_valid_assert(mode: word) -> void {
+    pilot before = v4_mir_snapshot()
+    pilot candidate = v4_mir_snapshot_graph_variant(before, mode)
+    pilot validation = v4_mir_snapshot_validate(candidate)
+    say "mir-snapshot-graph-" + mode + "-validate-accepted=" + v4_mir_snapshot_graph_bool(validation.starts_with("mir-snapshot-import ok=1"))
+    say "mir-snapshot-graph-" + mode + "-state-stable=" + v4_mir_snapshot_graph_bool(v4_mir_snapshot() == before)
+}
+
+v4_mir_snapshot_graph_assert("self-cycle")
+v4_mir_snapshot_graph_assert("dangling-edge")
+v4_mir_snapshot_graph_assert("unknown-kind")
+v4_mir_snapshot_graph_assert("mixed-direct-cycle")
+v4_mir_snapshot_graph_assert("mixed-transitive-cycle")
+v4_mir_snapshot_graph_valid_assert("forward-base-projection-valid")

@@ -498,131 +498,27 @@ task v4_lex_text(file_id: int, text: word) -> int {
 }
 
 task v4_lex_snapshot_escape(value: word) -> word {
-    pilot out = ""
-    pilot i = 0
-    repeat until i >= value.length() {
-        pilot ch = value.char_at(i)
-        if ch == "%" {
-            out = out + "%25"
-        } else if ch == "|" {
-            out = out + "%7C"
-        } else if ch == "\n" {
-            out = out + "%0A"
-        } else if ch == "\r" {
-            out = out + "%0D"
-        } else {
-            out = out + ch
-        }
-        i += 1
-    }
-    give back out
+    give back value.snapshot_escape()
 }
 
 task v4_lex_snapshot_unescape(value: word) -> word {
-    pilot out = ""
-    pilot i = 0
-    repeat until i >= value.length() {
-        pilot ch = value.char_at(i)
-        if ch == "%" and i + 2 < value.length() {
-            pilot code = v4_slice(value, i, i + 3)
-            if code == "%25" {
-                out = out + "%"
-                i += 3
-            } else if code == "%7C" {
-                out = out + "|"
-                i += 3
-            } else if code == "%0A" {
-                out = out + "\n"
-                i += 3
-            } else if code == "%0D" {
-                out = out + "\r"
-                i += 3
-            } else {
-                out = out + ch
-                i += 1
-            }
-        } else {
-            out = out + ch
-            i += 1
-        }
-    }
-    give back out
+    give back value.snapshot_unescape()
 }
 
 task v4_lex_snapshot_line_count(payload: word) -> int {
-    if payload == "" {
-        give back 0
-    }
-    pilot count = 1
-    pilot i = 0
-    repeat until i >= payload.length() {
-        if payload.char_at(i) == "\n" {
-            count += 1
-        }
-        i += 1
-    }
-    give back count
+    give back payload.snapshot_line_count()
 }
 
 task v4_lex_snapshot_line(payload: word, wanted: int) -> word {
-    if wanted < 0 {
-        give back ""
-    }
-    pilot line_id = 0
-    pilot start_pos = 0
-    pilot i = 0
-    repeat until i >= payload.length() {
-        if payload.char_at(i) == "\n" {
-            if line_id == wanted {
-                give back v4_slice(payload, start_pos, i)
-            }
-            line_id += 1
-            start_pos = i + 1
-        }
-        i += 1
-    }
-    if line_id == wanted {
-        give back v4_slice(payload, start_pos, payload.length())
-    }
-    give back ""
+    give back payload.snapshot_line(wanted)
 }
 
 task v4_lex_snapshot_field_count(line: word) -> int {
-    if line == "" {
-        give back 0
-    }
-    pilot count = 1
-    pilot i = 0
-    repeat until i >= line.length() {
-        if line.char_at(i) == "|" {
-            count += 1
-        }
-        i += 1
-    }
-    give back count
+    give back line.snapshot_field_count()
 }
 
 task v4_lex_snapshot_field_raw(line: word, wanted: int) -> word {
-    if wanted < 0 {
-        give back ""
-    }
-    pilot field_id = 0
-    pilot start_pos = 0
-    pilot i = 0
-    repeat until i >= line.length() {
-        if line.char_at(i) == "|" {
-            if field_id == wanted {
-                give back v4_slice(line, start_pos, i)
-            }
-            field_id += 1
-            start_pos = i + 1
-        }
-        i += 1
-    }
-    if field_id == wanted {
-        give back v4_slice(line, start_pos, line.length())
-    }
-    give back ""
+    give back line.snapshot_field_raw(wanted)
 }
 
 task v4_lex_snapshot_field(line: word, wanted: int) -> word {
@@ -717,28 +613,33 @@ task v4_lex_snapshot_diag_line(stream_id: int, diag_id: int) -> word {
 
 task v4_lex_snapshot() -> word {
     v4_lex_init()
-    pilot out = v4_lex_snapshot_header()
+    pilot parts = array_new()
+    array_push(parts, v4_lex_snapshot_header())
     pilot stream_id = 0
     repeat until stream_id >= v4_lex_stream_count() {
-        out = out + "\n" + v4_lex_snapshot_stream_line(stream_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_lex_snapshot_stream_line(stream_id))
 
         pilot token_id = 0
         pilot token_count = v4_lex_token_count(stream_id)
         repeat until token_id >= token_count {
-            out = out + "\n" + v4_lex_snapshot_token_line(stream_id, token_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_lex_snapshot_token_line(stream_id, token_id))
             token_id += 1
         }
 
         pilot diag_id = 0
         pilot diag_count = v4_lex_diag_count(stream_id)
         repeat until diag_id >= diag_count {
-            out = out + "\n" + v4_lex_snapshot_diag_line(stream_id, diag_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_lex_snapshot_diag_line(stream_id, diag_id))
             diag_id += 1
         }
         stream_id += 1
     }
-    out = out + "\nend|" + v4_lex_snapshot_format
-    give back out
+    array_push(parts, "\nend|")
+    array_push(parts, v4_lex_snapshot_format)
+    give back word_join(parts)
 }
 
 task v4_lex_snapshot_record_expected_fields(kind: word) -> int {

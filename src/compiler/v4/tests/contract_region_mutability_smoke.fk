@@ -1,0 +1,68 @@
+-- V4 contract-region shared versus mutable source eligibility fixture.
+-- Verification prepends the V4 crates before this file.
+-- One cached borrowck request owns the only compiler pipeline in this executable.
+
+task v4_contract_region_mutability_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task shared_from_both<'a>(lend 'a observed: Ship, lend mut 'a writable: Ship, use_writable: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot view = lend observed\n"
+    src = src + "    if use_writable {\n"
+    src = src + "        view = lend writable\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task mutable_from_mutable<'a>(lend mut 'a left: Ship, lend mut 'a right: Ship, lend 'a observer: Ship, use_left: bool) -> lend mut 'a Ship {\n"
+    src = src + "    pilot view = lend mut right\n"
+    src = src + "    if use_left {\n"
+    src = src + "        view = lend mut left\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task mutable_from_shared<'a>(lend mut 'a writable: Ship, lend 'a observer: Ship) -> lend mut 'a Ship {\n"
+    src = src + "    give back lend mut observer\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_mutability_emit_sources(prefix: word, borrow_id: int, result_id: int, wanted_kind: word) -> void {
+    pilot path_id = 0
+    pilot source_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == wanted_kind {
+            say prefix + "-source" + word_from_int(source_id) + "=" + v4_borrowck_path_text(borrow_id, result_id, path_id)
+            source_id += 1
+        }
+        path_id += 1
+    }
+    say prefix + "-source-count=" + word_from_int(source_id)
+}
+
+pilot v4_contract_region_mutability_borrow = v4_borrowck_text_cached("contract-region-mutability.fk", v4_contract_region_mutability_source())
+pilot v4_contract_region_mutability_mir = v4_borrowck_mir_id(v4_contract_region_mutability_borrow)
+pilot v4_contract_region_mutability_ty = v4_mir_ty_id(v4_contract_region_mutability_mir)
+pilot v4_contract_region_mutability_resolve = v4_ty_resolve_id(v4_contract_region_mutability_ty)
+
+pilot v4_contract_region_mutability_shared_def = v4_resolve_def_for_name(v4_contract_region_mutability_resolve, "shared_from_both")
+pilot v4_contract_region_mutability_mut_def = v4_resolve_def_for_name(v4_contract_region_mutability_resolve, "mutable_from_mutable")
+pilot v4_contract_region_mutability_bad_def = v4_resolve_def_for_name(v4_contract_region_mutability_resolve, "mutable_from_shared")
+pilot v4_contract_region_mutability_shared_result = v4_borrowck_lookup_result(v4_contract_region_mutability_borrow, v4_contract_region_mutability_shared_def)
+pilot v4_contract_region_mutability_mut_result = v4_borrowck_lookup_result(v4_contract_region_mutability_borrow, v4_contract_region_mutability_mut_def)
+pilot v4_contract_region_mutability_bad_result = v4_borrowck_lookup_result(v4_contract_region_mutability_borrow, v4_contract_region_mutability_bad_def)
+
+say "contract-region-mutability-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_mutability_ty))
+say "contract-region-mutability-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_mutability_mir))
+say "contract-region-mutability-shared-status=" + v4_borrowck_result_status(v4_contract_region_mutability_borrow, v4_contract_region_mutability_shared_result)
+say "contract-region-mutability-mut-status=" + v4_borrowck_result_status(v4_contract_region_mutability_borrow, v4_contract_region_mutability_mut_result)
+say "contract-region-mutability-ineligible-status=" + v4_borrowck_result_status(v4_contract_region_mutability_borrow, v4_contract_region_mutability_bad_result)
+v4_contract_region_mutability_emit_sources("contract-region-mutability-shared", v4_contract_region_mutability_borrow, v4_contract_region_mutability_shared_result, v4_borrowck_path_return_loan)
+v4_contract_region_mutability_emit_sources("contract-region-mutability-mut", v4_contract_region_mutability_borrow, v4_contract_region_mutability_mut_result, v4_borrowck_path_return_loan_mut)
+say "contract-region-mutability-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_mutability_borrow))
+pilot v4_contract_region_mutability_diag_id = 0
+repeat until v4_contract_region_mutability_diag_id >= v4_borrowck_diag_count(v4_contract_region_mutability_borrow) {
+    pilot v4_contract_region_mutability_diag = v4_borrowck_diag(v4_contract_region_mutability_borrow, v4_contract_region_mutability_diag_id)
+    say "contract-region-mutability-diag" + word_from_int(v4_contract_region_mutability_diag_id) + "=" + v4_diag_message(v4_contract_region_mutability_diag)
+    say "contract-region-mutability-diag" + word_from_int(v4_contract_region_mutability_diag_id) + "-span=" + v4_diag_span(v4_contract_region_mutability_diag)
+    v4_contract_region_mutability_diag_id += 1
+}

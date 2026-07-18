@@ -48,6 +48,22 @@ pilot v4_ty_names = 0
 pilot v4_ty_displays = 0
 pilot v4_ty_hir_items = 0
 pilot v4_ty_diags = 0
+-- Restores retain top-level and child handles; these values hold logical lengths.
+pilot v4_ty_file_active_count_value = 0
+pilot v4_ty_signature_active_counts = 0
+pilot v4_ty_diag_active_counts = 0
+pilot v4_ty_lifetime_outlives_scratch_links = 0
+pilot v4_ty_lifetime_outlives_scratch_ids = 0
+pilot v4_ty_lifetime_outlives_scratch_active = 0
+pilot v4_ty_lifetime_outlives_scratch_generation_value = 0
+-- Returned-source rows are globally bounded; payloads encode ordered formal ids without child arrays.
+pilot v4_ty_borrowed_return_source_cache_capacity_value = 32
+pilot v4_ty_borrowed_return_source_cache_ty_ids = 0
+pilot v4_ty_borrowed_return_source_cache_sig_ids = 0
+pilot v4_ty_borrowed_return_source_cache_payloads = 0
+pilot v4_ty_borrowed_return_source_cache_entry_count_value = 0
+pilot v4_ty_borrowed_return_source_cache_next_row_value = 0
+pilot v4_ty_borrowed_return_source_cache_builds_value = 0
 pilot v4_ty_ready = 0
 
 task v4_ty_init() -> void {
@@ -60,21 +76,38 @@ task v4_ty_init() -> void {
         v4_ty_displays = array_new()
         v4_ty_hir_items = array_new()
         v4_ty_diags = array_new()
+        v4_ty_signature_active_counts = array_new()
+        v4_ty_diag_active_counts = array_new()
+        v4_ty_lifetime_outlives_scratch_links = array_new()
+        v4_ty_lifetime_outlives_scratch_ids = array_new()
+        v4_ty_borrowed_return_source_cache_ty_ids = array_new()
+        v4_ty_borrowed_return_source_cache_sig_ids = array_new()
+        v4_ty_borrowed_return_source_cache_payloads = array_new()
         v4_ty_ready = 1
     }
 }
 
 task v4_ty_file_new(file_id: int, resolve_id: int) -> int {
     v4_ty_init()
-    pilot ty_id = array_len(v4_ty_files)
-    array_push(v4_ty_files, word_from_int(file_id))
-    array_push(v4_ty_resolves, word_from_int(resolve_id))
-    array_push(v4_ty_defs, word_from_int(array_new()))
-    array_push(v4_ty_kinds, word_from_int(array_new()))
-    array_push(v4_ty_names, word_from_int(array_new()))
-    array_push(v4_ty_displays, word_from_int(array_new()))
-    array_push(v4_ty_hir_items, word_from_int(array_new()))
-    array_push(v4_ty_diags, word_from_int(array_new()))
+    pilot ty_id = v4_ty_file_active_count_value
+    if ty_id < array_len(v4_ty_files) {
+        v4_ty_borrowed_return_source_cache_invalidate_file(ty_id)
+        array_set(v4_ty_files, ty_id, word_from_int(file_id))
+        array_set(v4_ty_resolves, ty_id, word_from_int(resolve_id))
+        v4_ty_restore_clear_file_children(ty_id)
+    } else {
+        array_push(v4_ty_files, word_from_int(file_id))
+        array_push(v4_ty_resolves, word_from_int(resolve_id))
+        array_push(v4_ty_defs, word_from_int(array_new()))
+        array_push(v4_ty_kinds, word_from_int(array_new()))
+        array_push(v4_ty_names, word_from_int(array_new()))
+        array_push(v4_ty_displays, word_from_int(array_new()))
+        array_push(v4_ty_hir_items, word_from_int(array_new()))
+        array_push(v4_ty_diags, word_from_int(array_new()))
+        array_push(v4_ty_signature_active_counts, "0")
+        array_push(v4_ty_diag_active_counts, "0")
+    }
+    v4_ty_file_active_count_value = ty_id + 1
     give back ty_id
 }
 
@@ -102,15 +135,40 @@ task v4_ty_diags_handle(ty_id: int) -> int {
     give back word_to_int(array_get(v4_ty_diags, ty_id))
 }
 
+task v4_ty_child_handle_ensure_slot(handle: int, slot_id: int, empty_value: word) -> bool {
+    if slot_id < 0 {
+        give back false
+    }
+    repeat until array_len(handle) > slot_id {
+        pilot before_len = array_len(handle)
+        array_push(handle, empty_value)
+        if array_len(handle) <= before_len {
+            give back false
+        }
+    }
+    give back true
+}
+
 task v4_ty_file_id(ty_id: int) -> int {
+    if v4_ty_file_exists(ty_id) == false {
+        give back 0 - 1
+    }
     give back word_to_int(array_get(v4_ty_files, ty_id))
 }
 
 task v4_ty_resolve_id(ty_id: int) -> int {
+    if v4_ty_file_exists(ty_id) == false {
+        give back 0 - 1
+    }
     give back word_to_int(array_get(v4_ty_resolves, ty_id))
 }
 
 task v4_ty_file_count() -> int {
+    v4_ty_init()
+    give back v4_ty_file_active_count_value
+}
+
+task v4_ty_file_capacity() -> int {
     v4_ty_init()
     give back array_len(v4_ty_files)
 }
@@ -120,37 +178,76 @@ task v4_ty_file_exists(ty_id: int) -> bool {
     if ty_id < 0 {
         give back false
     }
-    if ty_id >= array_len(v4_ty_files) {
+    if ty_id >= v4_ty_file_active_count_value {
         give back false
     }
     give back true
 }
 
 task v4_ty_signature_count(ty_id: int) -> int {
-    give back array_len(v4_ty_defs_handle(ty_id))
+    if v4_ty_file_exists(ty_id) == false {
+        give back 0
+    }
+    give back word_to_int(array_get(v4_ty_signature_active_counts, ty_id))
 }
 
 task v4_ty_diag_count(ty_id: int) -> int {
+    if v4_ty_file_exists(ty_id) == false {
+        give back 0
+    }
+    give back word_to_int(array_get(v4_ty_diag_active_counts, ty_id))
+}
+
+task v4_ty_signature_capacity(ty_id: int) -> int {
+    if v4_ty_file_exists(ty_id) == false {
+        give back 0
+    }
+    give back array_len(v4_ty_defs_handle(ty_id))
+}
+
+task v4_ty_diag_capacity(ty_id: int) -> int {
+    if v4_ty_file_exists(ty_id) == false {
+        give back 0
+    }
     give back array_len(v4_ty_diags_handle(ty_id))
 }
 
 task v4_ty_signature_def(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back ""
+    }
     give back array_get(v4_ty_defs_handle(ty_id), sig_id)
 }
 
 task v4_ty_signature_kind(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back ""
+    }
     give back array_get(v4_ty_kinds_handle(ty_id), sig_id)
 }
 
 task v4_ty_signature_name(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back ""
+    }
     give back array_get(v4_ty_names_handle(ty_id), sig_id)
 }
 
+task v4_ty_signature_source_display(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back ""
+    }
+    give back array_get(v4_ty_displays_handle(ty_id), sig_id)
+}
+
 task v4_ty_signature_display(ty_id: int, sig_id: int) -> word {
-    pilot display: word = array_get(v4_ty_displays_handle(ty_id), sig_id)
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back ""
+    }
+    pilot display = v4_ty_signature_source_display(ty_id, sig_id)
     pilot sig_kind: word = array_get(v4_ty_kinds_handle(ty_id), sig_id)
     if sig_kind == v4_ty_const_sig {
-        if not display.contains(":") {
+        if v4_ty_const_declared_type_for_sig(ty_id, sig_id) == "" {
             pilot inferred_ty: word = v4_ty_const_value_type_for_sig(ty_id, sig_id)
             if inferred_ty != v4_ty_unknown {
                 pilot sig_name: word = array_get(v4_ty_names_handle(ty_id), sig_id)
@@ -162,15 +259,27 @@ task v4_ty_signature_display(ty_id: int, sig_id: int) -> word {
 }
 
 task v4_ty_signature_hir_item(ty_id: int, sig_id: int) -> int {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back 0 - 1
+    }
     give back word_to_int(array_get(v4_ty_hir_items_handle(ty_id), sig_id))
 }
 
 task v4_ty_diag(ty_id: int, diag_id: int) -> word {
+    if diag_id < 0 or diag_id >= v4_ty_diag_count(ty_id) {
+        give back ""
+    }
     give back array_get(v4_ty_diags_handle(ty_id), diag_id)
 }
 
 task v4_ty_add_diag(ty_id: int, diag: word) -> void {
-    array_push(v4_ty_diags_handle(ty_id), diag)
+    pilot diag_id = v4_ty_diag_count(ty_id)
+    pilot diags_handle = v4_ty_diags_handle(ty_id)
+    if v4_ty_child_handle_ensure_slot(diags_handle, diag_id, "") == false {
+        give back
+    }
+    array_set(diags_handle, diag_id, diag)
+    array_set(v4_ty_diag_active_counts, ty_id, word_from_int(diag_id + 1))
 }
 
 task v4_ty_add_error_diag(ty_id: int, span: word, message: word, help: word) -> void {
@@ -1404,6 +1513,30 @@ task v4_ty_generic_base_is(type_text: word, base_name: word) -> bool {
     give back v4_ty_generic_arg_count(type_text) == 1
 }
 
+task v4_ty_is_nominal_prelude_dyn_carrier(ty_id: int, type_text: word) -> bool {
+    if not v4_ty_is_generic_instance_type(type_text) {
+        give back false
+    }
+    if v4_ty_generic_arg_count(type_text) != 1 {
+        give back false
+    }
+    pilot base_name = v4_ty_generic_base_name(type_text)
+    if base_name != "Shared" and base_name != "Weak" {
+        give back false
+    }
+    if v4_ty_type_signature_id_for_name(ty_id, base_name) >= 0 {
+        give back false
+    }
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    if resolve_id >= 0 {
+        pilot expanded = v4_resolve_expand_import_name(resolve_id, base_name)
+        if expanded != "" and expanded != base_name {
+            give back false
+        }
+    }
+    give back true
+}
+
 task v4_ty_is_shared_type(type_text: word) -> bool {
     give back v4_ty_generic_base_is(type_text, "Shared")
 }
@@ -1593,6 +1726,55 @@ task v4_ty_type_contains_named_lend(type_text: word) -> bool {
     }
     if v4_ty_is_fixed_array_type(type_text) {
         give back v4_ty_type_contains_named_lend(v4_ty_fixed_array_element_type(type_text))
+    }
+    give back false
+}
+
+task v4_ty_type_contains_lend(type_text: word) -> bool {
+    if type_text == "" or type_text == v4_ty_unknown {
+        give back false
+    }
+    if v4_ty_is_lend_type(type_text) {
+        give back true
+    }
+    if v4_ty_is_surface_task_function_type(type_text) {
+        pilot param_id = 0
+        repeat until param_id >= v4_ty_function_type_param_count(type_text) {
+            if v4_ty_type_contains_lend(v4_ty_function_type_param_surface(type_text, param_id)) {
+                give back true
+            }
+            param_id += 1
+        }
+        give back v4_ty_type_contains_lend(v4_ty_function_type_return_text(type_text))
+    }
+    if v4_ty_is_raw_pointer_type(type_text) {
+        give back v4_ty_type_contains_lend(v4_ty_raw_pointer_target_type(type_text))
+    }
+    if v4_ty_is_dyn_type(type_text) {
+        give back v4_ty_type_contains_lend(v4_ty_dyn_doctrine_name(type_text))
+    }
+    if v4_ty_is_generic_instance_type(type_text) {
+        pilot arg_id = 0
+        repeat until arg_id >= v4_ty_generic_arg_count(type_text) {
+            if v4_ty_type_contains_lend(v4_ty_generic_arg(type_text, arg_id)) {
+                give back true
+            }
+            arg_id += 1
+        }
+        give back false
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        repeat until slot_id >= v4_ty_tuple_slot_count(type_text) {
+            if v4_ty_type_contains_lend(v4_ty_tuple_slot_type(type_text, slot_id)) {
+                give back true
+            }
+            slot_id += 1
+        }
+        give back false
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_type_contains_lend(v4_ty_fixed_array_element_type(type_text))
     }
     give back false
 }
@@ -2889,7 +3071,7 @@ task v4_ty_type_text_needs_separator_after_lifetime(out: word, value: word) -> b
     if lifetime_name == "" or not out.ends_with(lifetime_name) {
         give back false
     }
-    give back value != "," and value != ">" and value != ")" and value != "]" and value != ";"
+    give back value != ":" and value != "+" and value != "," and value != ">" and value != ")" and value != "]" and value != ";"
 }
 
 task v4_ty_type_text(stream_id: int, start_token: int, end_token: int) -> word {
@@ -3420,6 +3602,17 @@ task v4_ty_generic_bounds_from_tokens(stream_id: int, start_token: int, end_toke
     give back v4_ty_type_text(stream_id, bound_start, end_token)
 }
 
+task v4_ty_generic_has_empty_bound_clause_from_tokens(stream_id: int, start_token: int, end_token: int) -> bool {
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back false
+    }
+    pilot colon_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, ":")
+    if colon_token < 0 {
+        give back false
+    }
+    give back v4_ty_skip_trivia(stream_id, colon_token + 1) >= end_token
+}
+
 task v4_ty_signature_generic_name(ty_id: int, sig_id: int, generic_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
@@ -3432,6 +3625,13 @@ task v4_ty_signature_generic_bounds(ty_id: int, sig_id: int, generic_id: int) ->
     pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
     pilot end_token = v4_ty_signature_generic_segment_end(ty_id, sig_id, generic_id)
     give back v4_ty_generic_bounds_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_signature_generic_has_empty_bound_clause(ty_id: int, sig_id: int, generic_id: int) -> bool {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_generic_segment_start(ty_id, sig_id, generic_id)
+    pilot end_token = v4_ty_signature_generic_segment_end(ty_id, sig_id, generic_id)
+    give back v4_ty_generic_has_empty_bound_clause_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_signature_generic_kind(ty_id: int, sig_id: int, generic_id: int) -> word {
@@ -3543,7 +3743,7 @@ task v4_ty_generic_bound_name(bounds_text: word, bound_id: int) -> word {
         pilot ch = bounds_text.char_at(idx)
         if depth == 0 and ch == "+" {
             if current == bound_id {
-                give back v4_slice(bounds_text, segment_start, idx)
+                give back v4_ty_trim_spaces(v4_slice(bounds_text, segment_start, idx))
             }
             current += 1
             segment_start = idx + 1
@@ -3554,17 +3754,56 @@ task v4_ty_generic_bound_name(bounds_text: word, bound_id: int) -> word {
     }
 
     if current == bound_id and segment_start < bounds_text.length() {
-        give back v4_slice(bounds_text, segment_start, bounds_text.length())
+        give back v4_ty_trim_spaces(v4_slice(bounds_text, segment_start, bounds_text.length()))
     }
     give back ""
 }
 
-task v4_ty_signature_generic_bound_count(ty_id: int, sig_id: int, generic_id: int) -> int {
+task v4_ty_signature_generic_raw_bound_count(ty_id: int, sig_id: int, generic_id: int) -> int {
     give back v4_ty_generic_bound_count(v4_ty_signature_generic_bounds(ty_id, sig_id, generic_id))
 }
 
-task v4_ty_signature_generic_bound_name(ty_id: int, sig_id: int, generic_id: int, bound_id: int) -> word {
+task v4_ty_signature_generic_raw_bound_name(ty_id: int, sig_id: int, generic_id: int, bound_id: int) -> word {
     give back v4_ty_generic_bound_name(v4_ty_signature_generic_bounds(ty_id, sig_id, generic_id), bound_id)
+}
+
+task v4_ty_signature_generic_bound_count(ty_id: int, sig_id: int, generic_id: int) -> int {
+    if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) {
+        give back 0
+    }
+
+    pilot doctrine_count = 0
+    pilot raw_bound_id = 0
+    pilot raw_bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, generic_id)
+    repeat until raw_bound_id >= raw_bound_count {
+        pilot bound_name = v4_ty_signature_generic_raw_bound_name(ty_id, sig_id, generic_id, raw_bound_id)
+        if bound_name != "" and not v4_ty_is_lifetime_name(bound_name) {
+            doctrine_count += 1
+        }
+        raw_bound_id += 1
+    }
+    give back doctrine_count
+}
+
+task v4_ty_signature_generic_bound_name(ty_id: int, sig_id: int, generic_id: int, bound_id: int) -> word {
+    if bound_id < 0 or v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) {
+        give back ""
+    }
+
+    pilot seen_doctrines = 0
+    pilot raw_bound_id = 0
+    pilot raw_bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, generic_id)
+    repeat until raw_bound_id >= raw_bound_count {
+        pilot bound_name = v4_ty_signature_generic_raw_bound_name(ty_id, sig_id, generic_id, raw_bound_id)
+        if bound_name != "" and not v4_ty_is_lifetime_name(bound_name) {
+            if seen_doctrines == bound_id {
+                give back bound_name
+            }
+            seen_doctrines += 1
+        }
+        raw_bound_id += 1
+    }
+    give back ""
 }
 
 task v4_ty_signature_generic_has_bound(ty_id: int, sig_id: int, generic_id: int, wanted_bound: word) -> bool {
@@ -3629,6 +3868,116 @@ task v4_ty_signature_generic_id_for_name(ty_id: int, sig_id: int, type_name: wor
         generic_idx += 1
     }
     give back 0 - 1
+}
+
+task v4_ty_signature_lifetime_generic_id_for_name(ty_id: int, sig_id: int, lifetime_name: word) -> int {
+    pilot generic_id = v4_ty_signature_generic_id_for_name(ty_id, sig_id, lifetime_name)
+    if generic_id < 0 or not v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) {
+        give back 0 - 1
+    }
+    give back generic_id
+}
+
+-- Bootstrap arrays live for the process lifetime, so keep a high-water
+-- queue/visited workspace with cached link IDs for query and LSP checks.
+task v4_ty_lifetime_outlives_scratch_prepare(slot_count: int) -> void {
+    v4_ty_init()
+    pilot slot_id = array_len(v4_ty_lifetime_outlives_scratch_links)
+    repeat until array_len(v4_ty_lifetime_outlives_scratch_links) >= slot_count {
+        array_push(v4_ty_lifetime_outlives_scratch_links, "-2")
+        array_push(v4_ty_lifetime_outlives_scratch_ids, word_from_int(slot_id))
+        slot_id += 1
+    }
+
+    slot_id = 0
+    repeat until slot_id >= slot_count {
+        array_set(v4_ty_lifetime_outlives_scratch_links, slot_id, "-2")
+        slot_id += 1
+    }
+    v4_ty_lifetime_outlives_scratch_active = slot_count
+    v4_ty_lifetime_outlives_scratch_generation_value += 1
+}
+
+task v4_ty_lifetime_outlives_scratch_active_count() -> int {
+    give back v4_ty_lifetime_outlives_scratch_active
+}
+
+task v4_ty_lifetime_outlives_scratch_capacity() -> int {
+    v4_ty_init()
+    give back array_len(v4_ty_lifetime_outlives_scratch_links)
+}
+
+task v4_ty_lifetime_outlives_scratch_generation() -> int {
+    give back v4_ty_lifetime_outlives_scratch_generation_value
+}
+
+task v4_ty_signature_lifetime_outlives_ids(ty_id: int, sig_id: int, longer_generic_id: int, shorter_generic_id: int) -> bool {
+    if longer_generic_id == shorter_generic_id {
+        give back true
+    }
+
+    -- The table is both the visited set and a linked FIFO: -2 is unseen,
+    -- -1 is the tail, and every nonnegative value links to the next generic.
+    pilot unseen_generic_id = 0 - 2
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    v4_ty_lifetime_outlives_scratch_prepare(generic_count)
+    pilot visit_next = v4_ty_lifetime_outlives_scratch_links
+
+    pilot current_generic_id = longer_generic_id
+    pilot tail_generic_id = longer_generic_id
+    array_set(visit_next, longer_generic_id, "-1")
+    repeat until current_generic_id < 0 {
+        pilot bound_id = 0
+        pilot bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, current_generic_id)
+        repeat until bound_id >= bound_count {
+            pilot bound_name = v4_ty_signature_generic_raw_bound_name(ty_id, sig_id, current_generic_id, bound_id)
+            if bound_name != "'static" and bound_name != "'_" {
+                pilot bound_generic_id = v4_ty_signature_lifetime_generic_id_for_name(ty_id, sig_id, bound_name)
+                if bound_generic_id == shorter_generic_id {
+                    give back true
+                }
+                if bound_generic_id >= 0 and word_to_int(array_get(visit_next, bound_generic_id)) == unseen_generic_id {
+                    array_set(visit_next, tail_generic_id, array_get(v4_ty_lifetime_outlives_scratch_ids, bound_generic_id))
+                    array_set(visit_next, bound_generic_id, "-1")
+                    tail_generic_id = bound_generic_id
+                }
+            }
+            bound_id += 1
+        }
+        current_generic_id = word_to_int(array_get(visit_next, current_generic_id))
+    }
+    give back false
+}
+
+task v4_ty_signature_is_ordinary_static_task(ty_id: int, sig_id: int) -> bool {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back false
+    }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig {
+        give back false
+    }
+    give back v4_ty_signature_extern_member_id(ty_id, sig_id) < 0
+}
+
+task v4_ty_signature_lifetime_outlives(ty_id: int, sig_id: int, longer_name: word, shorter_name: word) -> bool {
+    if not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+        give back false
+    }
+    if longer_name == "'static" or longer_name == "'_" or shorter_name == "'static" or shorter_name == "'_" {
+        give back false
+    }
+    if not v4_ty_signature_declares_lifetime_name(ty_id, sig_id, longer_name) or not v4_ty_signature_declares_lifetime_name(ty_id, sig_id, shorter_name) {
+        give back false
+    }
+    if longer_name == shorter_name {
+        give back true
+    }
+    pilot longer_generic_id = v4_ty_signature_lifetime_generic_id_for_name(ty_id, sig_id, longer_name)
+    pilot shorter_generic_id = v4_ty_signature_lifetime_generic_id_for_name(ty_id, sig_id, shorter_name)
+    if longer_generic_id < 0 or shorter_generic_id < 0 {
+        give back false
+    }
+    give back v4_ty_signature_lifetime_outlives_ids(ty_id, sig_id, longer_generic_id, shorter_generic_id)
 }
 
 task v4_ty_signature_param_name(ty_id: int, sig_id: int, param_id: int) -> word {
@@ -6810,7 +7159,7 @@ task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty:
         give back v4_ty_generic_env_fail
     }
     pilot generic_id = v4_ty_signature_generic_id_for_name(ty_id, sig_id, actual_ty)
-    if generic_id < 0 {
+    if generic_id < 0 or v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id) {
         give back v4_ty_generic_env_fail
     }
     pilot bound_idx = 0
@@ -6881,7 +7230,7 @@ task v4_ty_match_type_satisfies_doctrine_env_with_bounds(ty_id: int, doctrine_si
         give back v4_ty_generic_env_fail
     }
     pilot generic_id = v4_ty_signature_generic_id_for_name(ty_id, actual_bound_sig_id, actual_ty)
-    if generic_id < 0 {
+    if generic_id < 0 or v4_ty_signature_generic_is_lifetime(ty_id, actual_bound_sig_id, generic_id) {
         give back v4_ty_generic_env_fail
     }
     pilot bound_idx = 0
@@ -6970,7 +7319,7 @@ task v4_ty_match_signature_type_env_between_signatures_mode(ty_id: int, doctrine
             pilot expected_arg = v4_ty_generic_arg(expected_ty, arg_idx)
             pilot actual_arg = v4_ty_generic_arg(actual_ty, arg_idx)
             if v4_ty_is_dyn_type(expected_arg) and not v4_ty_is_dyn_type(actual_arg) {
-                if allow_dyn_coerce and (base_name == "Shared" or base_name == "Weak") {
+                if allow_dyn_coerce and v4_ty_is_nominal_prelude_dyn_carrier(ty_id, expected_ty) {
                     next_env = v4_ty_match_signature_type_env_between_signatures_mode(ty_id, doctrine_sig_id, actual_bound_sig_id, expected_arg, actual_arg, next_env, true)
                 } else {
                     give back v4_ty_generic_env_fail
@@ -7113,39 +7462,248 @@ task v4_ty_signature_return_type(ty_id: int, sig_id: int) -> word {
     give back v4_ty_canonical_type_in_signature(ty_id, sig_id, v4_ty_signature_return_surface_type(ty_id, sig_id))
 }
 
-task v4_ty_signature_borrowed_return_source_param(ty_id: int, sig_id: int) -> int {
-    pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
-    if not v4_ty_is_lend_type(return_ty) {
-        give back 0 - 1
+task v4_ty_signature_param_is_borrowed_return_source(ty_id: int, sig_id: int, param_id: int, return_ty: word) -> bool {
+    if not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+        give back false
+    }
+    if param_id < 0 or param_id >= v4_ty_signature_param_count(ty_id, sig_id) {
+        give back false
     }
 
-    pilot return_mut = v4_ty_is_lend_mut_type(return_ty)
-    pilot return_lifetime = v4_ty_lend_lifetime(return_ty)
-    pilot uses_named_lifetime: bool = return_lifetime != "" and return_lifetime != "'_"
-    pilot source_param = 0 - 1
-    pilot param_id = 0
-    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
-    repeat until param_id >= param_count {
-        pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
-        pilot mode_matches: bool = param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut
-        if return_mut {
-            mode_matches = param_mode == v4_ty_param_mode_lend_mut
-        }
-        if mode_matches {
-            pilot lifetime_matches = true
-            if uses_named_lifetime {
-                lifetime_matches = v4_ty_signature_param_lifetime(ty_id, sig_id, param_id) == return_lifetime
-            }
-            if lifetime_matches {
-                if source_param >= 0 {
-                    give back 0 - 2
-                }
-                source_param = param_id
-            }
-        }
-        param_id += 1
+    pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+    pilot mode_matches: bool = param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut
+    if v4_ty_is_lend_mut_type(return_ty) {
+        mode_matches = param_mode == v4_ty_param_mode_lend_mut
     }
-    give back source_param
+    if not mode_matches {
+        give back false
+    }
+
+    pilot return_lifetime = v4_ty_lend_lifetime(return_ty)
+    if return_lifetime == "" or return_lifetime == "'_" {
+        give back true
+    }
+    if return_lifetime == "'static" {
+        give back false
+    }
+    pilot param_lifetime = v4_ty_signature_param_lifetime(ty_id, sig_id, param_id)
+    if param_lifetime == "" or param_lifetime == "'static" or param_lifetime == "'_" {
+        give back false
+    }
+    give back v4_ty_signature_lifetime_outlives(ty_id, sig_id, param_lifetime, return_lifetime)
+}
+
+task v4_ty_borrowed_return_source_cache_capacity() -> int {
+    v4_ty_init()
+    give back v4_ty_borrowed_return_source_cache_capacity_value
+}
+
+task v4_ty_borrowed_return_source_cache_entry_count() -> int {
+    v4_ty_init()
+    give back v4_ty_borrowed_return_source_cache_entry_count_value
+}
+
+task v4_ty_borrowed_return_source_cache_lookup_row(ty_id: int, sig_id: int) -> int {
+    v4_ty_init()
+    if ty_id < 0 or sig_id < 0 {
+        give back 0 - 1
+    }
+    pilot row = 0
+    pilot row_count = array_len(v4_ty_borrowed_return_source_cache_ty_ids)
+    repeat until row >= row_count {
+        if word_to_int(array_get(v4_ty_borrowed_return_source_cache_ty_ids, row)) == ty_id {
+            if word_to_int(array_get(v4_ty_borrowed_return_source_cache_sig_ids, row)) == sig_id {
+                give back row
+            }
+        }
+        row += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_borrowed_return_source_cache_first_empty_row() -> int {
+    pilot row = 0
+    pilot row_count = array_len(v4_ty_borrowed_return_source_cache_ty_ids)
+    repeat until row >= row_count {
+        if word_to_int(array_get(v4_ty_borrowed_return_source_cache_ty_ids, row)) < 0 {
+            give back row
+        }
+        row += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_borrowed_return_source_cache_store(ty_id: int, sig_id: int, payload: word) -> int {
+    pilot existing_row = v4_ty_borrowed_return_source_cache_lookup_row(ty_id, sig_id)
+    if existing_row >= 0 {
+        array_set(v4_ty_borrowed_return_source_cache_payloads, existing_row, payload)
+        give back existing_row
+    }
+
+    pilot row = v4_ty_borrowed_return_source_cache_first_empty_row()
+    pilot row_count = array_len(v4_ty_borrowed_return_source_cache_ty_ids)
+    if row < 0 and row_count < v4_ty_borrowed_return_source_cache_capacity_value {
+        row = row_count
+        array_push(v4_ty_borrowed_return_source_cache_ty_ids, word_from_int(ty_id))
+        array_push(v4_ty_borrowed_return_source_cache_sig_ids, word_from_int(sig_id))
+        array_push(v4_ty_borrowed_return_source_cache_payloads, payload)
+        v4_ty_borrowed_return_source_cache_entry_count_value += 1
+    } else {
+        if row < 0 {
+            row = v4_ty_borrowed_return_source_cache_next_row_value
+            if row < 0 or row >= row_count {
+                row = 0
+            }
+        } else {
+            v4_ty_borrowed_return_source_cache_entry_count_value += 1
+        }
+        array_set(v4_ty_borrowed_return_source_cache_ty_ids, row, word_from_int(ty_id))
+        array_set(v4_ty_borrowed_return_source_cache_sig_ids, row, word_from_int(sig_id))
+        array_set(v4_ty_borrowed_return_source_cache_payloads, row, payload)
+    }
+
+    v4_ty_borrowed_return_source_cache_next_row_value = row + 1
+    if v4_ty_borrowed_return_source_cache_next_row_value >= v4_ty_borrowed_return_source_cache_capacity_value {
+        v4_ty_borrowed_return_source_cache_next_row_value = 0
+    }
+    give back row
+}
+
+task v4_ty_borrowed_return_source_cache_invalidate_row(row: int) -> void {
+    if row < 0 or row >= array_len(v4_ty_borrowed_return_source_cache_ty_ids) {
+        give back
+    }
+    if word_to_int(array_get(v4_ty_borrowed_return_source_cache_ty_ids, row)) < 0 {
+        give back
+    }
+    array_set(v4_ty_borrowed_return_source_cache_ty_ids, row, "-1")
+    array_set(v4_ty_borrowed_return_source_cache_sig_ids, row, "-1")
+    array_set(v4_ty_borrowed_return_source_cache_payloads, row, "")
+    if v4_ty_borrowed_return_source_cache_entry_count_value > 0 {
+        v4_ty_borrowed_return_source_cache_entry_count_value -= 1
+    }
+}
+
+task v4_ty_borrowed_return_source_cache_invalidate_file(ty_id: int) -> void {
+    pilot row = 0
+    pilot row_count = array_len(v4_ty_borrowed_return_source_cache_ty_ids)
+    repeat until row >= row_count {
+        if word_to_int(array_get(v4_ty_borrowed_return_source_cache_ty_ids, row)) == ty_id {
+            v4_ty_borrowed_return_source_cache_invalidate_row(row)
+        }
+        row += 1
+    }
+}
+
+task v4_ty_borrowed_return_source_cache_invalidate_signature(ty_id: int, sig_id: int) -> void {
+    v4_ty_borrowed_return_source_cache_invalidate_row(v4_ty_borrowed_return_source_cache_lookup_row(ty_id, sig_id))
+}
+
+task v4_ty_borrowed_return_source_payload_append(payload: word, param_id: int) -> word {
+    if payload == "" {
+        give back word_from_int(param_id)
+    }
+    give back payload + "," + word_from_int(param_id)
+}
+
+task v4_ty_borrowed_return_source_payload_count(payload: word) -> int {
+    if payload == "" {
+        give back 0
+    }
+    pilot count = 1
+    pilot idx = 0
+    repeat until idx >= payload.length() {
+        if payload.char_at(idx) == "," {
+            count += 1
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_borrowed_return_source_payload_at(payload: word, source_id: int) -> int {
+    if payload == "" or source_id < 0 {
+        give back 0 - 1
+    }
+    pilot current = 0
+    pilot segment_start = 0
+    pilot idx = 0
+    repeat until idx >= payload.length() {
+        if payload.char_at(idx) == "," {
+            if current == source_id {
+                give back word_to_int(v4_slice(payload, segment_start, idx))
+            }
+            current += 1
+            segment_start = idx + 1
+        }
+        idx += 1
+    }
+    if current == source_id and segment_start < payload.length() {
+        give back word_to_int(v4_slice(payload, segment_start, payload.length()))
+    }
+    give back 0 - 1
+}
+
+task v4_ty_signature_borrowed_return_source_cache(ty_id: int, sig_id: int) -> int {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back 0 - 1
+    }
+    pilot cached_row = v4_ty_borrowed_return_source_cache_lookup_row(ty_id, sig_id)
+    if cached_row >= 0 {
+        give back cached_row
+    }
+
+    pilot payload = ""
+    if v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+        pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
+        if v4_ty_is_lend_type(return_ty) {
+            pilot param_id = 0
+            pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+            repeat until param_id >= param_count {
+                if v4_ty_signature_param_is_borrowed_return_source(ty_id, sig_id, param_id, return_ty) {
+                    payload = v4_ty_borrowed_return_source_payload_append(payload, param_id)
+                }
+                param_id += 1
+            }
+        }
+    }
+    v4_ty_borrowed_return_source_cache_builds_value += 1
+    give back v4_ty_borrowed_return_source_cache_store(ty_id, sig_id, payload)
+}
+
+task v4_ty_borrowed_return_source_cache_build_count() -> int {
+    give back v4_ty_borrowed_return_source_cache_builds_value
+}
+
+task v4_ty_signature_borrowed_return_source_param_count(ty_id: int, sig_id: int) -> int {
+    pilot row = v4_ty_signature_borrowed_return_source_cache(ty_id, sig_id)
+    if row < 0 {
+        give back 0
+    }
+    give back v4_ty_borrowed_return_source_payload_count(array_get(v4_ty_borrowed_return_source_cache_payloads, row))
+}
+
+task v4_ty_signature_borrowed_return_source_param_at(ty_id: int, sig_id: int, source_id: int) -> int {
+    if source_id < 0 {
+        give back 0 - 1
+    }
+    pilot row = v4_ty_signature_borrowed_return_source_cache(ty_id, sig_id)
+    if row < 0 {
+        give back 0 - 1
+    }
+    give back v4_ty_borrowed_return_source_payload_at(array_get(v4_ty_borrowed_return_source_cache_payloads, row), source_id)
+}
+
+-- Compatibility query: -1 means no source; -2 means the source set is ambiguous.
+task v4_ty_signature_borrowed_return_source_param(ty_id: int, sig_id: int) -> int {
+    pilot source_count = v4_ty_signature_borrowed_return_source_param_count(ty_id, sig_id)
+    if source_count <= 0 {
+        give back 0 - 1
+    }
+    if source_count > 1 {
+        give back 0 - 2
+    }
+    give back v4_ty_signature_borrowed_return_source_param_at(ty_id, sig_id, 0)
 }
 
 task v4_ty_signature_return_surface_type(ty_id: int, sig_id: int) -> word {
@@ -8045,6 +8603,58 @@ task v4_ty_validate_signature_generic_names(ty_id: int, sig_id: int) -> void {
     }
 }
 
+task v4_ty_signature_can_declare_generics(ty_id: int, sig_id: int) -> bool {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back false
+    }
+    pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
+    -- Extern members lower as task signatures; extern block signatures carry ABI only.
+    give back sig_kind == v4_ty_task_sig or sig_kind == v4_ty_shape_sig or sig_kind == v4_ty_route_sig or sig_kind == v4_ty_doctrine_sig or sig_kind == v4_ty_alias_sig
+}
+
+task v4_ty_validate_signature_generic_bounds(ty_id: int, sig_id: int) -> void {
+    if not v4_ty_signature_can_declare_generics(ty_id, sig_id) {
+        give back
+    }
+
+    pilot generic_owner = "declaration"
+    if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_task_sig {
+        generic_owner = "task"
+    }
+    pilot generic_id = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_id >= generic_count {
+        pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_id)
+        pilot generic_is_lifetime = v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_id)
+        pilot generic_span = v4_ty_signature_generic_segment_span(ty_id, sig_id, generic_id)
+        if v4_ty_signature_generic_has_empty_bound_clause(ty_id, sig_id, generic_id) {
+            v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: empty generic bound on " + generic_name + " in " + v4_ty_signature_name(ty_id, sig_id), "separate declared lifetime or doctrine bounds with one +")
+        }
+        pilot bound_id = 0
+        pilot bound_count = v4_ty_signature_generic_raw_bound_count(ty_id, sig_id, generic_id)
+        repeat until bound_id >= bound_count {
+            pilot bound_name = v4_ty_signature_generic_raw_bound_name(ty_id, sig_id, generic_id, bound_id)
+            if bound_name == "" {
+                v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: empty generic bound on " + generic_name + " in " + v4_ty_signature_name(ty_id, sig_id), "separate declared lifetime or doctrine bounds with one +")
+            } else if v4_ty_is_lifetime_name(bound_name) {
+                if bound_name == "'static" {
+                    v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: 'static is reserved and cannot be used as a lifetime bound on " + generic_name, "use a declared named lifetime; static outlives expansion is not supported for ordinary task contracts yet")
+                } else if bound_name == "'_" {
+                    v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: '_ is elided and cannot be used as a lifetime bound on " + generic_name, "use a declared named lifetime so Yuuko can build the signature relation")
+                } else if not v4_ty_signature_declares_lifetime_name(ty_id, sig_id, bound_name) {
+                    v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: lifetime bound " + bound_name + " on " + generic_name + " is not declared on " + v4_ty_signature_name(ty_id, sig_id), "declare " + bound_name + " in the " + generic_owner + "'s generic lifetime list")
+                } else if not generic_is_lifetime {
+                    v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: type generic " + generic_name + " cannot use lifetime bound " + bound_name, "type binders retain doctrine bounds; put outlives constraints on a lifetime binder")
+                }
+            } else if generic_is_lifetime {
+                v4_ty_add_error_diag(ty_id, generic_span, "Meiya lifetime debt: lifetime " + generic_name + " may only use lifetime bounds, but found " + bound_name, "write " + generic_name + ": 'shorter and keep doctrine bounds on type binders")
+            }
+            bound_id += 1
+        }
+        generic_id += 1
+    }
+}
+
 task v4_ty_validate_signature_type_lifetimes(ty_id: int, sig_id: int, type_text: word, context: word, context_span: word) -> void {
     if type_text == "" or type_text == v4_ty_unknown {
         give back
@@ -8205,9 +8815,13 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
     }
 }
 
-task v4_ty_validate_no_named_lend_storage(ty_id: int, type_text: word, context: word, context_span: word) -> void {
+task v4_ty_validate_no_lend_storage(ty_id: int, type_text: word, context: word, context_span: word) -> void {
     if v4_ty_type_contains_named_lend(type_text) {
         v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a named lend in " + context + " yet", "keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands")
+        give back
+    }
+    if v4_ty_type_contains_lend(type_text) {
+        v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a lend in " + context + " yet", "keep elided lends on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands")
     }
 }
 
@@ -8220,7 +8834,7 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
             pilot param_context = "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id)
             pilot param_span = v4_ty_signature_param_type_span(ty_id, sig_id, param_id)
             v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, param_type, param_context, param_span)
-            v4_ty_validate_no_named_lend_storage(ty_id, param_type, param_context, param_span)
+            v4_ty_validate_no_lend_storage(ty_id, param_type, param_context, param_span)
             pilot param_lifetime = v4_ty_signature_param_lifetime(ty_id, sig_id, param_id)
             if param_lifetime == "'static" {
                 v4_ty_add_error_diag(ty_id, v4_ty_signature_param_lifetime_span(ty_id, sig_id, param_id), "Meiya cannot accept a static lend parameter yet", "'static needs source-storage classification before callers may promise an immortal loan")
@@ -8238,20 +8852,19 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         return_contract = return_surface
     }
     if v4_ty_is_lend_type(return_contract) {
-        v4_ty_validate_no_named_lend_storage(ty_id, v4_ty_lend_target_type(return_contract), "target of returned lend on " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
+        v4_ty_validate_no_lend_storage(ty_id, v4_ty_lend_target_type(return_contract), "target of returned lend on " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
     } else {
-        v4_ty_validate_no_named_lend_storage(ty_id, return_contract, "return type of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
+        v4_ty_validate_no_lend_storage(ty_id, return_contract, "return type of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
     }
     if v4_ty_is_lend_type(return_ty) {
         pilot return_lifetime = v4_ty_lend_lifetime(return_ty)
         if return_lifetime == "'static" {
             v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot prove a static borrowed return yet", "'static returned loans need global-storage provenance before this contract can be sound")
         } else if return_lifetime != "" and return_lifetime != "'_" and v4_ty_signature_accepts_lifetime(ty_id, sig_id, return_lifetime) {
-            pilot source_param = v4_ty_signature_borrowed_return_source_param(ty_id, sig_id)
-            if source_param == 0 - 2 {
-                v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot choose one parameter for returned lifetime " + return_lifetime, "give exactly one lend or lend mut parameter this lifetime until multi-source region sets land")
-            } else if source_param < 0 {
-                v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot find a source for returned lifetime " + return_lifetime, "add one lend parameter carrying " + return_lifetime)
+            if v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+                if v4_ty_signature_borrowed_return_source_param_count(ty_id, sig_id) <= 0 {
+                    v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot find a source for returned lifetime " + return_lifetime, "add a lend parameter whose declared lifetime outlives " + return_lifetime)
+                }
             }
         }
     }
@@ -8295,7 +8908,7 @@ task v4_ty_validate_shape_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         pilot field_context = "field " + v4_ty_shape_field_name(ty_id, sig_id, field_id) + " of " + v4_ty_signature_name(ty_id, sig_id)
         pilot field_span = v4_ty_shape_field_type_span(ty_id, sig_id, field_id)
         v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, field_type, field_context, field_span)
-        v4_ty_validate_no_named_lend_storage(ty_id, field_type, field_context, field_span)
+        v4_ty_validate_no_lend_storage(ty_id, field_type, field_context, field_span)
         field_id += 1
     }
 }
@@ -8313,7 +8926,7 @@ task v4_ty_validate_route_signature_lifetimes(ty_id: int, sig_id: int) -> void {
             pilot field_context = "field " + v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) + " of " + route_name + "::" + case_name
             pilot field_span = v4_ty_route_case_field_type_span(ty_id, route_name, case_name, field_id)
             v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, field_type, field_context, field_span)
-            v4_ty_validate_no_named_lend_storage(ty_id, field_type, field_context, field_span)
+            v4_ty_validate_no_lend_storage(ty_id, field_type, field_context, field_span)
             field_id += 1
         }
         case_id += 1
@@ -8332,14 +8945,18 @@ task v4_ty_validate_doctrine_signature_lifetimes(ty_id: int, sig_id: int) -> voi
             pilot param_context = "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name
             pilot param_span = v4_ty_doctrine_method_param_type_span(ty_id, sig_id, method_id, param_id)
             v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, param_type, param_context, param_span)
-            v4_ty_validate_no_named_lend_storage(ty_id, param_type, param_context, param_span)
+            v4_ty_validate_no_lend_storage(ty_id, param_type, param_context, param_span)
             param_id += 1
         }
         pilot return_type = v4_ty_doctrine_method_return_type(ty_id, sig_id, method_id)
         pilot return_context = "return type of " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name
         pilot return_span = v4_ty_doctrine_method_return_span(ty_id, sig_id, method_id)
         v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, return_type, return_context, return_span)
-        v4_ty_validate_no_named_lend_storage(ty_id, return_type, return_context, return_span)
+        if v4_ty_is_lend_type(return_type) {
+            v4_ty_validate_no_lend_storage(ty_id, v4_ty_lend_target_type(return_type), "target of returned lend on " + v4_ty_signature_name(ty_id, sig_id) + "::" + method_name, return_span)
+        } else {
+            v4_ty_validate_no_lend_storage(ty_id, return_type, return_context, return_span)
+        }
         method_id += 1
     }
 }
@@ -8349,7 +8966,7 @@ task v4_ty_validate_alias_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     pilot alias_context = "alias target of " + v4_ty_signature_name(ty_id, sig_id)
     pilot alias_span = v4_ty_alias_target_span(ty_id, sig_id)
     v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, alias_type, alias_context, alias_span)
-    v4_ty_validate_no_named_lend_storage(ty_id, alias_type, alias_context, alias_span)
+    v4_ty_validate_no_lend_storage(ty_id, alias_type, alias_context, alias_span)
 }
 
 task v4_ty_validate_alias_signature_cycle(ty_id: int, sig_id: int) -> void {
@@ -8700,6 +9317,7 @@ task v4_ty_validate_direct_type_recursion(ty_id: int) -> void {
 task v4_ty_validate_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     v4_ty_validate_signature_generic_names(ty_id, sig_id)
     v4_ty_validate_variadic_signature_contract(ty_id, sig_id)
+    v4_ty_validate_signature_generic_bounds(ty_id, sig_id)
 
     pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
     if sig_kind == v4_ty_task_sig or sig_kind == v4_ty_extern_sig {
@@ -9613,7 +10231,7 @@ task v4_ty_match_signature_type_env_mode(ty_id: int, sig_id: int, expected_ty: w
             pilot expected_arg = v4_ty_generic_arg(expected_ty, arg_idx)
             pilot actual_arg = v4_ty_generic_arg(actual_ty, arg_idx)
             if v4_ty_is_dyn_type(expected_arg) and not v4_ty_is_dyn_type(actual_arg) {
-                if allow_dyn_coerce and (base_name == "Shared" or base_name == "Weak") {
+                if allow_dyn_coerce and v4_ty_is_nominal_prelude_dyn_carrier(ty_id, expected_ty) {
                     next_env = v4_ty_match_signature_type_env_mode(ty_id, sig_id, expected_arg, actual_arg, next_env, true)
                 } else {
                     give back v4_ty_generic_env_fail
@@ -10078,12 +10696,28 @@ task v4_ty_index_element_type(container_ty: word) -> word {
 }
 
 task v4_ty_add_signature(ty_id: int, def_id: word, sig_kind: word, sig_name: word, sig_display: word, hir_item: int) -> int {
-    pilot sig_id = array_len(v4_ty_defs_handle(ty_id))
-    array_push(v4_ty_defs_handle(ty_id), def_id)
-    array_push(v4_ty_kinds_handle(ty_id), sig_kind)
-    array_push(v4_ty_names_handle(ty_id), sig_name)
-    array_push(v4_ty_displays_handle(ty_id), sig_display)
-    array_push(v4_ty_hir_items_handle(ty_id), word_from_int(hir_item))
+    pilot sig_id = v4_ty_signature_count(ty_id)
+    if v4_ty_child_handle_ensure_slot(v4_ty_defs_handle(ty_id), sig_id, "") == false {
+        give back 0 - 1
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_kinds_handle(ty_id), sig_id, "") == false {
+        give back 0 - 1
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_names_handle(ty_id), sig_id, "") == false {
+        give back 0 - 1
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_displays_handle(ty_id), sig_id, "") == false {
+        give back 0 - 1
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(0 - 1)) == false {
+        give back 0 - 1
+    }
+    array_set(v4_ty_defs_handle(ty_id), sig_id, def_id)
+    array_set(v4_ty_kinds_handle(ty_id), sig_id, sig_kind)
+    array_set(v4_ty_names_handle(ty_id), sig_id, sig_name)
+    array_set(v4_ty_displays_handle(ty_id), sig_id, sig_display)
+    array_set(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(hir_item))
+    array_set(v4_ty_signature_active_counts, ty_id, word_from_int(sig_id + 1))
     give back sig_id
 }
 
@@ -10237,7 +10871,7 @@ task v4_ty_snapshot_signature_line(ty_id: int, sig_id: int) -> word {
     out = out + "|" + v4_ty_snapshot_escape(v4_ty_signature_def(ty_id, sig_id))
     out = out + "|" + v4_ty_snapshot_escape(v4_ty_signature_kind(ty_id, sig_id))
     out = out + "|" + v4_ty_snapshot_escape(v4_ty_signature_name(ty_id, sig_id))
-    out = out + "|" + v4_ty_snapshot_escape(v4_ty_signature_display(ty_id, sig_id))
+    out = out + "|" + v4_ty_snapshot_escape(v4_ty_signature_source_display(ty_id, sig_id))
     out = out + "|" + word_from_int(v4_ty_signature_hir_item(ty_id, sig_id))
     give back out
 }
@@ -10252,28 +10886,33 @@ task v4_ty_snapshot_diag_line(ty_id: int, diag_id: int) -> word {
 
 task v4_ty_snapshot() -> word {
     v4_ty_init()
-    pilot out = v4_ty_snapshot_header()
+    pilot parts = array_new()
+    array_push(parts, v4_ty_snapshot_header())
     pilot ty_id = 0
     repeat until ty_id >= v4_ty_file_count() {
-        out = out + "\n" + v4_ty_snapshot_file_line(ty_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_ty_snapshot_file_line(ty_id))
 
         pilot sig_id = 0
         pilot sig_count = v4_ty_signature_count(ty_id)
         repeat until sig_id >= sig_count {
-            out = out + "\n" + v4_ty_snapshot_signature_line(ty_id, sig_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_ty_snapshot_signature_line(ty_id, sig_id))
             sig_id += 1
         }
 
         pilot diag_id = 0
         pilot diag_count = v4_ty_diag_count(ty_id)
         repeat until diag_id >= diag_count {
-            out = out + "\n" + v4_ty_snapshot_diag_line(ty_id, diag_id)
+            array_push(parts, "\n")
+            array_push(parts, v4_ty_snapshot_diag_line(ty_id, diag_id))
             diag_id += 1
         }
         ty_id += 1
     }
-    out = out + "\nend|" + v4_ty_snapshot_format
-    give back out
+    array_push(parts, "\nend|")
+    array_push(parts, v4_ty_snapshot_format)
+    give back word_join(parts)
 }
 
 task v4_ty_snapshot_record_expected_fields(kind: word) -> int {
@@ -10301,13 +10940,171 @@ task v4_ty_snapshot_record_is_valid(line: word) -> bool {
     if expected == 0 {
         give back false
     }
-    if v4_ty_snapshot_field_count(line) < expected {
+    if v4_ty_snapshot_field_count(line) != expected {
         give back false
     }
     give back true
 }
 
-task v4_ty_snapshot_validate(payload: word) -> word {
+task v4_ty_snapshot_integer_is_canonical(value: word, allow_negative: bool) -> bool {
+    if value == "" {
+        give back false
+    }
+    pilot parsed = word_to_int(value)
+    if word_from_int(parsed) != value {
+        give back false
+    }
+    if allow_negative == false and parsed < 0 {
+        give back false
+    }
+    give back true
+}
+
+task v4_ty_snapshot_field_has_key(line: word, field_id: int, wanted_key: word) -> bool {
+    give back v4_ty_snapshot_field_raw(line, field_id).starts_with(wanted_key + "=")
+}
+
+task v4_ty_snapshot_signature_kind_is_supported(sig_kind: word) -> bool {
+    if sig_kind == v4_ty_task_sig { give back true }
+    if sig_kind == v4_ty_const_sig { give back true }
+    if sig_kind == v4_ty_shape_sig { give back true }
+    if sig_kind == v4_ty_route_sig { give back true }
+    if sig_kind == v4_ty_alias_sig { give back true }
+    if sig_kind == v4_ty_doctrine_sig { give back true }
+    if sig_kind == v4_ty_extern_sig { give back true }
+    if sig_kind == v4_ty_import_sig { give back true }
+    if sig_kind == v4_ty_attribute_sig { give back true }
+    if sig_kind == v4_ty_error_sig { give back true }
+    give back false
+}
+
+task v4_ty_snapshot_parent_chain_matches(file_id: int, resolve_id: int) -> bool {
+    if file_id < 0 or file_id >= v4_source_count() {
+        give back false
+    }
+    if v4_resolve_exists(resolve_id) == false {
+        give back false
+    }
+    if v4_resolve_file_id(resolve_id) != file_id {
+        give back false
+    }
+
+    pilot hir_id = v4_resolve_hir_id(resolve_id)
+    if v4_hir_file_exists(hir_id) == false {
+        give back false
+    }
+    if v4_hir_file_id(hir_id) != file_id {
+        give back false
+    }
+
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back false
+    }
+    if v4_parse_file_id(tree_id) != file_id {
+        give back false
+    }
+
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    if v4_lex_stream_exists(stream_id) == false {
+        give back false
+    }
+    give back v4_lex_stream_file(stream_id) == file_id
+}
+
+task v4_ty_snapshot_resolve_symbol_is_signature_head(resolve_id: int, symbol_id: int) -> bool {
+    if v4_resolve_exists(resolve_id) == false {
+        give back false
+    }
+    if symbol_id < 0 or symbol_id >= v4_resolve_symbol_count(resolve_id) {
+        give back false
+    }
+    pilot def_id = v4_resolve_symbol_def(resolve_id, symbol_id)
+    if def_id == "" {
+        give back true
+    }
+    pilot prior_id = 0
+    repeat until prior_id >= symbol_id {
+        if v4_resolve_symbol_def(resolve_id, prior_id) == def_id {
+            give back false
+        }
+        prior_id += 1
+    }
+    give back true
+}
+
+task v4_ty_snapshot_expected_signature_count(resolve_id: int) -> int {
+    if v4_resolve_exists(resolve_id) == false {
+        give back 0
+    }
+    pilot count = 0
+    pilot symbol_id = 0
+    pilot symbol_count = v4_resolve_symbol_count(resolve_id)
+    repeat until symbol_id >= symbol_count {
+        if v4_ty_snapshot_resolve_symbol_is_signature_head(resolve_id, symbol_id) {
+            count += 1
+        }
+        symbol_id += 1
+    }
+    give back count
+}
+
+task v4_ty_snapshot_signature_display_matches(sig_kind: word, expected_display: word, sig_display: word) -> bool {
+    give back sig_display == expected_display
+}
+
+task v4_ty_snapshot_signature_matches_resolve(resolve_id: int, hir_id: int, sig_id: int, def_id: word, sig_kind: word, sig_name: word, sig_display: word, hir_item: int) -> bool {
+    if v4_ty_snapshot_signature_kind_is_supported(sig_kind) == false {
+        give back false
+    }
+    if v4_resolve_exists(resolve_id) == false or v4_hir_file_exists(hir_id) == false {
+        give back false
+    }
+    if v4_resolve_hir_id(resolve_id) != hir_id {
+        give back false
+    }
+    if hir_item < 0 or hir_item >= v4_hir_item_count(hir_id) {
+        give back false
+    }
+
+    pilot symbol_id = 0
+    pilot symbol_count = v4_resolve_symbol_count(resolve_id)
+    pilot canonical_sig_id = 0
+    repeat until symbol_id >= symbol_count {
+        if v4_ty_snapshot_resolve_symbol_is_signature_head(resolve_id, symbol_id) {
+            if canonical_sig_id == sig_id {
+                pilot symbol_kind = v4_resolve_symbol_kind(resolve_id, symbol_id)
+                if v4_ty_kind_for_symbol(symbol_kind) == sig_kind {
+                    if v4_resolve_symbol_def(resolve_id, symbol_id) == def_id {
+                        if v4_resolve_symbol_name(resolve_id, symbol_id) == sig_name {
+                            if v4_resolve_symbol_hir_item(resolve_id, symbol_id) == hir_item {
+                                pilot hir_linked = false
+                                hir_linked = v4_hir_item_def(hir_id, hir_item) == def_id
+                                if v4_resolve_is_extern_member_def(def_id) {
+                                    pilot extern_member_id = v4_resolve_extern_member_id_from_def(def_id)
+                                    hir_linked = v4_hir_item_kind(hir_id, hir_item) == v4_hir_extern
+                                    hir_linked = hir_linked and extern_member_id >= 0
+                                    hir_linked = hir_linked and extern_member_id < v4_hir_extern_member_count(hir_id, hir_item)
+                                }
+                                if hir_linked {
+                                    pilot expected_display = v4_ty_display_for_hir_item(symbol_kind, sig_name, def_id, hir_id, hir_item)
+                                    give back v4_ty_snapshot_signature_display_matches(sig_kind, expected_display, sig_display)
+                                }
+                            }
+                        }
+                    }
+                }
+                give back false
+            }
+            canonical_sig_id += 1
+        }
+        symbol_id += 1
+    }
+    give back false
+}
+
+-- Validate the canonical parent-first record stream before restore mutates TY.
+task v4_ty_snapshot_validate_mode(payload: word, require_live_context: bool) -> word {
     pilot lines = v4_ty_snapshot_line_count(payload)
     pilot files = 0
     pilot signatures = 0
@@ -10315,35 +11112,262 @@ task v4_ty_snapshot_validate(payload: word) -> word {
     pilot malformed = 0
     pilot saw_header = 0
     pilot saw_end = 0
+    pilot saw_nonempty = 0
     pilot format = ""
+    pilot declared_files = 0 - 1
+    pilot declared_signatures = 0 - 1
+    pilot declared_diagnostics = 0 - 1
+    pilot current_ty_id = 0 - 1
+    pilot current_declared_signatures = 0
+    pilot current_declared_diagnostics = 0
+    pilot current_signature_count = 0
+    pilot current_diag_count = 0
+    pilot current_resolve_id = 0 - 1
+    pilot current_hir_id = 0 - 1
 
     pilot line_id = 0
     repeat until line_id >= lines {
         pilot line = v4_ty_snapshot_line(payload, line_id)
         if line != "" {
             pilot kind = v4_ty_snapshot_field_raw(line, 0)
+            if saw_end > 0 {
+                malformed += 1
+            }
             if v4_ty_snapshot_record_is_valid(line) == false {
                 malformed += 1
             } else if kind == "ty-snapshot" {
+                if saw_nonempty != 0 {
+                    malformed += 1
+                }
                 saw_header += 1
                 format = v4_ty_snapshot_key_value(line, "format")
+                pilot declared_files_text = v4_ty_snapshot_key_value(line, "files")
+                pilot declared_signatures_text = v4_ty_snapshot_key_value(line, "signatures")
+                pilot declared_diagnostics_text = v4_ty_snapshot_key_value(line, "diagnostics")
+                if v4_ty_snapshot_field_has_key(line, 1, "format") == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_field_has_key(line, 2, "files") == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_field_has_key(line, 3, "signatures") == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_field_has_key(line, 4, "diagnostics") == false {
+                    malformed += 1
+                }
                 if format != v4_ty_snapshot_format {
                     malformed += 1
                 }
+                if v4_ty_snapshot_integer_is_canonical(declared_files_text, false) == false {
+                    malformed += 1
+                } else {
+                    declared_files = word_to_int(declared_files_text)
+                }
+                if v4_ty_snapshot_integer_is_canonical(declared_signatures_text, false) == false {
+                    malformed += 1
+                } else {
+                    declared_signatures = word_to_int(declared_signatures_text)
+                }
+                if v4_ty_snapshot_integer_is_canonical(declared_diagnostics_text, false) == false {
+                    malformed += 1
+                } else {
+                    declared_diagnostics = word_to_int(declared_diagnostics_text)
+                }
             } else if kind == "ty" {
+                if saw_header != 1 {
+                    malformed += 1
+                }
+                if current_ty_id >= 0 {
+                    if current_signature_count != current_declared_signatures {
+                        malformed += 1
+                    }
+                    if current_diag_count != current_declared_diagnostics {
+                        malformed += 1
+                    }
+                }
+                pilot ty_id_text = v4_ty_snapshot_field_raw(line, 1)
+                pilot file_id_text = v4_ty_snapshot_field_raw(line, 2)
+                pilot resolve_id_text = v4_ty_snapshot_field_raw(line, 3)
+                pilot file_signatures_text = v4_ty_snapshot_field_raw(line, 4)
+                pilot file_diagnostics_text = v4_ty_snapshot_field_raw(line, 5)
+                pilot ty_record_ids_valid = true
+                if v4_ty_snapshot_integer_is_canonical(ty_id_text, false) == false {
+                    malformed += 1
+                    ty_record_ids_valid = false
+                }
+                if v4_ty_snapshot_integer_is_canonical(file_id_text, false) == false {
+                    malformed += 1
+                    ty_record_ids_valid = false
+                }
+                if v4_ty_snapshot_integer_is_canonical(resolve_id_text, false) == false {
+                    malformed += 1
+                    ty_record_ids_valid = false
+                }
+                if v4_ty_snapshot_integer_is_canonical(file_signatures_text, false) == false {
+                    malformed += 1
+                    ty_record_ids_valid = false
+                }
+                if v4_ty_snapshot_integer_is_canonical(file_diagnostics_text, false) == false {
+                    malformed += 1
+                    ty_record_ids_valid = false
+                }
+                current_ty_id = 0 - 1
+                current_resolve_id = 0 - 1
+                current_hir_id = 0 - 1
+                current_declared_signatures = 0
+                current_declared_diagnostics = 0
+                current_signature_count = 0
+                current_diag_count = 0
+                if ty_record_ids_valid {
+                    current_ty_id = word_to_int(ty_id_text)
+                    pilot current_file_id = word_to_int(file_id_text)
+                    current_resolve_id = word_to_int(resolve_id_text)
+                    current_declared_signatures = word_to_int(file_signatures_text)
+                    current_declared_diagnostics = word_to_int(file_diagnostics_text)
+                    if current_ty_id != files {
+                        malformed += 1
+                    }
+                    if require_live_context {
+                        if v4_ty_snapshot_parent_chain_matches(current_file_id, current_resolve_id) == false {
+                            malformed += 1
+                            current_resolve_id = 0 - 1
+                        } else {
+                            current_hir_id = v4_resolve_hir_id(current_resolve_id)
+                            if current_declared_signatures != v4_ty_snapshot_expected_signature_count(current_resolve_id) {
+                                malformed += 1
+                            }
+                        }
+                    }
+                }
                 files += 1
             } else if kind == "signature" {
+                if saw_header != 1 {
+                    malformed += 1
+                }
+                pilot signature_ty_text = v4_ty_snapshot_field_raw(line, 1)
+                pilot sig_id_text = v4_ty_snapshot_field_raw(line, 2)
+                pilot hir_item_text = v4_ty_snapshot_field_raw(line, 7)
+                pilot signature_ids_valid = true
+                if v4_ty_snapshot_integer_is_canonical(signature_ty_text, false) == false {
+                    malformed += 1
+                    signature_ids_valid = false
+                }
+                if v4_ty_snapshot_integer_is_canonical(sig_id_text, false) == false {
+                    malformed += 1
+                    signature_ids_valid = false
+                }
+                if v4_ty_snapshot_integer_is_canonical(hir_item_text, false) == false {
+                    malformed += 1
+                    signature_ids_valid = false
+                }
+                if current_ty_id < 0 {
+                    malformed += 1
+                    signature_ids_valid = false
+                }
+                if require_live_context and (current_resolve_id < 0 or current_hir_id < 0) {
+                    malformed += 1
+                    signature_ids_valid = false
+                }
+                if signature_ids_valid {
+                    pilot signature_ty_id = word_to_int(signature_ty_text)
+                    pilot sig_id = word_to_int(sig_id_text)
+                    pilot hir_item = word_to_int(hir_item_text)
+                    if signature_ty_id != current_ty_id {
+                        malformed += 1
+                    }
+                    if sig_id != current_signature_count {
+                        malformed += 1
+                    }
+                    pilot def_id = v4_ty_snapshot_field(line, 3)
+                    pilot sig_kind = v4_ty_snapshot_field(line, 4)
+                    pilot sig_name = v4_ty_snapshot_field(line, 5)
+                    pilot sig_display = v4_ty_snapshot_field(line, 6)
+                    if require_live_context {
+                        if v4_ty_snapshot_signature_matches_resolve(current_resolve_id, current_hir_id, sig_id, def_id, sig_kind, sig_name, sig_display, hir_item) == false {
+                            malformed += 1
+                        }
+                    } else {
+                        if v4_ty_snapshot_signature_kind_is_supported(sig_kind) == false {
+                            malformed += 1
+                        }
+                    }
+                }
+                if current_diag_count > 0 {
+                    malformed += 1
+                }
+                if current_signature_count >= current_declared_signatures {
+                    malformed += 1
+                }
+                current_signature_count += 1
                 signatures += 1
             } else if kind == "ty-diag" {
+                if saw_header != 1 {
+                    malformed += 1
+                }
+                pilot diag_ty_text = v4_ty_snapshot_field_raw(line, 1)
+                pilot diag_id_text = v4_ty_snapshot_field_raw(line, 2)
+                if v4_ty_snapshot_integer_is_canonical(diag_ty_text, false) == false {
+                    malformed += 1
+                }
+                if v4_ty_snapshot_integer_is_canonical(diag_id_text, false) == false {
+                    malformed += 1
+                }
+                if current_ty_id < 0 {
+                    malformed += 1
+                }
+                if word_to_int(diag_ty_text) != current_ty_id {
+                    malformed += 1
+                }
+                if current_signature_count != current_declared_signatures {
+                    malformed += 1
+                }
+                if word_to_int(diag_id_text) != current_diag_count {
+                    malformed += 1
+                }
+                if current_diag_count >= current_declared_diagnostics {
+                    malformed += 1
+                }
+                current_diag_count += 1
                 diagnostics += 1
             } else if kind == "end" {
+                if saw_header != 1 {
+                    malformed += 1
+                }
+                if current_ty_id >= 0 {
+                    if current_signature_count != current_declared_signatures {
+                        malformed += 1
+                    }
+                    if current_diag_count != current_declared_diagnostics {
+                        malformed += 1
+                    }
+                }
                 saw_end += 1
                 if v4_ty_snapshot_field(line, 1) != v4_ty_snapshot_format {
                     malformed += 1
                 }
             }
+            saw_nonempty += 1
         }
         line_id += 1
+    }
+
+    if current_ty_id >= 0 {
+        if current_signature_count != current_declared_signatures {
+            malformed += 1
+        }
+        if current_diag_count != current_declared_diagnostics {
+            malformed += 1
+        }
+    }
+    if declared_files != files {
+        malformed += 1
+    }
+    if declared_signatures != signatures {
+        malformed += 1
+    }
+    if declared_diagnostics != diagnostics {
+        malformed += 1
     }
 
     pilot import_ok = 1
@@ -10370,27 +11394,49 @@ task v4_ty_snapshot_validate(payload: word) -> word {
     give back out
 }
 
+task v4_ty_snapshot_validate(payload: word) -> word {
+    give back v4_ty_snapshot_validate_mode(payload, true)
+}
+
+task v4_ty_snapshot_validate_detached(payload: word) -> word {
+    give back v4_ty_snapshot_validate_mode(payload, false)
+}
+
+task v4_ty_restore_clear_child_handle(handle: int, empty_value: word) -> void {
+    pilot child_id = 0
+    repeat until child_id >= array_len(handle) {
+        array_set(handle, child_id, empty_value)
+        child_id += 1
+    }
+}
+
+task v4_ty_restore_clear_file_children(ty_id: int) -> void {
+    v4_ty_restore_clear_child_handle(v4_ty_defs_handle(ty_id), "")
+    v4_ty_restore_clear_child_handle(v4_ty_kinds_handle(ty_id), "")
+    v4_ty_restore_clear_child_handle(v4_ty_names_handle(ty_id), "")
+    v4_ty_restore_clear_child_handle(v4_ty_displays_handle(ty_id), "")
+    v4_ty_restore_clear_child_handle(v4_ty_hir_items_handle(ty_id), word_from_int(0 - 1))
+    v4_ty_restore_clear_child_handle(v4_ty_diags_handle(ty_id), "")
+    array_set(v4_ty_signature_active_counts, ty_id, "0")
+    array_set(v4_ty_diag_active_counts, ty_id, "0")
+}
+
 task v4_ty_restore_file_slot(ty_id: int, file_id: int, resolve_id: int) -> int {
     v4_ty_init()
+    if ty_id < 0 {
+        give back 0 - 1
+    }
+    v4_ty_borrowed_return_source_cache_invalidate_file(ty_id)
     repeat until array_len(v4_ty_files) > ty_id {
-        array_push(v4_ty_files, "0")
-        array_push(v4_ty_resolves, "0")
-        array_push(v4_ty_defs, word_from_int(array_new()))
-        array_push(v4_ty_kinds, word_from_int(array_new()))
-        array_push(v4_ty_names, word_from_int(array_new()))
-        array_push(v4_ty_displays, word_from_int(array_new()))
-        array_push(v4_ty_hir_items, word_from_int(array_new()))
-        array_push(v4_ty_diags, word_from_int(array_new()))
+        v4_ty_file_new(0, 0)
     }
 
     array_set(v4_ty_files, ty_id, word_from_int(file_id))
     array_set(v4_ty_resolves, ty_id, word_from_int(resolve_id))
-    array_set(v4_ty_defs, ty_id, word_from_int(array_new()))
-    array_set(v4_ty_kinds, ty_id, word_from_int(array_new()))
-    array_set(v4_ty_names, ty_id, word_from_int(array_new()))
-    array_set(v4_ty_displays, ty_id, word_from_int(array_new()))
-    array_set(v4_ty_hir_items, ty_id, word_from_int(array_new()))
-    array_set(v4_ty_diags, ty_id, word_from_int(array_new()))
+    v4_ty_restore_clear_file_children(ty_id)
+    if v4_ty_file_active_count_value <= ty_id {
+        v4_ty_file_active_count_value = ty_id + 1
+    }
     give back ty_id
 }
 
@@ -10398,18 +11444,33 @@ task v4_ty_restore_signature_slot(ty_id: int, sig_id: int, def_id: word, sig_kin
     if v4_ty_file_exists(ty_id) == false {
         give back 0
     }
-    repeat until v4_ty_signature_count(ty_id) > sig_id {
-        array_push(v4_ty_defs_handle(ty_id), "")
-        array_push(v4_ty_kinds_handle(ty_id), "")
-        array_push(v4_ty_names_handle(ty_id), "")
-        array_push(v4_ty_displays_handle(ty_id), "")
-        array_push(v4_ty_hir_items_handle(ty_id), word_from_int(0 - 1))
+    if sig_id < 0 {
+        give back 0
+    }
+    v4_ty_borrowed_return_source_cache_invalidate_signature(ty_id, sig_id)
+    if v4_ty_child_handle_ensure_slot(v4_ty_defs_handle(ty_id), sig_id, "") == false {
+        give back 0
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_kinds_handle(ty_id), sig_id, "") == false {
+        give back 0
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_names_handle(ty_id), sig_id, "") == false {
+        give back 0
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_displays_handle(ty_id), sig_id, "") == false {
+        give back 0
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(0 - 1)) == false {
+        give back 0
     }
     array_set(v4_ty_defs_handle(ty_id), sig_id, def_id)
     array_set(v4_ty_kinds_handle(ty_id), sig_id, sig_kind)
     array_set(v4_ty_names_handle(ty_id), sig_id, sig_name)
     array_set(v4_ty_displays_handle(ty_id), sig_id, sig_display)
     array_set(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(hir_item))
+    if v4_ty_signature_count(ty_id) <= sig_id {
+        array_set(v4_ty_signature_active_counts, ty_id, word_from_int(sig_id + 1))
+    }
     give back 1
 }
 
@@ -10417,10 +11478,16 @@ task v4_ty_restore_diag_slot(ty_id: int, diag_id: int, diag: word) -> int {
     if v4_ty_file_exists(ty_id) == false {
         give back 0
     }
-    repeat until array_len(v4_ty_diags_handle(ty_id)) > diag_id {
-        array_push(v4_ty_diags_handle(ty_id), "")
+    if diag_id < 0 {
+        give back 0
+    }
+    if v4_ty_child_handle_ensure_slot(v4_ty_diags_handle(ty_id), diag_id, "") == false {
+        give back 0
     }
     array_set(v4_ty_diags_handle(ty_id), diag_id, diag)
+    if v4_ty_diag_count(ty_id) <= diag_id {
+        array_set(v4_ty_diag_active_counts, ty_id, word_from_int(diag_id + 1))
+    }
     give back 1
 }
 
@@ -10434,7 +11501,9 @@ task v4_ty_snapshot_restore_file_line(line: word) -> int {
     pilot ty_id = word_to_int(v4_ty_snapshot_field_raw(line, 1))
     pilot file_id = word_to_int(v4_ty_snapshot_field_raw(line, 2))
     pilot resolve_id = word_to_int(v4_ty_snapshot_field_raw(line, 3))
-    v4_ty_restore_file_slot(ty_id, file_id, resolve_id)
+    if v4_ty_restore_file_slot(ty_id, file_id, resolve_id) != ty_id {
+        give back 0
+    }
     give back 1
 }
 
@@ -10474,9 +11543,14 @@ task v4_ty_snapshot_restore(payload: word) -> word {
         give back "ty-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    pilot previous_active_files = v4_ty_file_count()
     pilot restored_files = 0
     pilot restored_signatures = 0
     pilot restored_diagnostics = 0
+    pilot expected_files = 0
+    pilot expected_signatures = 0
+    pilot expected_diagnostics = 0
+    pilot restore_failures = 0
     pilot skipped_other = 0
     pilot line_id = 0
     pilot line_count = v4_ty_snapshot_line_count(payload)
@@ -10485,11 +11559,29 @@ task v4_ty_snapshot_restore(payload: word) -> word {
         if line != "" {
             pilot kind = v4_ty_snapshot_field_raw(line, 0)
             if kind == "ty" {
-                restored_files += v4_ty_snapshot_restore_file_line(line)
+                expected_files += 1
+                pilot restored_file = v4_ty_snapshot_restore_file_line(line)
+                if restored_file == 1 {
+                    restored_files += 1
+                } else {
+                    restore_failures += 1
+                }
             } else if kind == "signature" {
-                restored_signatures += v4_ty_snapshot_restore_signature_line(line)
+                expected_signatures += 1
+                pilot restored_signature = v4_ty_snapshot_restore_signature_line(line)
+                if restored_signature == 1 {
+                    restored_signatures += 1
+                } else {
+                    restore_failures += 1
+                }
             } else if kind == "ty-diag" {
-                restored_diagnostics += v4_ty_snapshot_restore_diag_line(line)
+                expected_diagnostics += 1
+                pilot restored_diag = v4_ty_snapshot_restore_diag_line(line)
+                if restored_diag == 1 {
+                    restored_diagnostics += 1
+                } else {
+                    restore_failures += 1
+                }
             } else if kind != "ty-snapshot" and kind != "end" {
                 skipped_other += 1
             }
@@ -10497,7 +11589,41 @@ task v4_ty_snapshot_restore(payload: word) -> word {
         line_id += 1
     }
 
-    pilot out = "ty-snapshot-restore ok=1"
+    pilot restore_ok = 1
+    if restore_failures > 0 {
+        restore_ok = 0
+    }
+    if restored_files != expected_files {
+        restore_ok = 0
+    }
+    if restored_signatures != expected_signatures {
+        restore_ok = 0
+    }
+    if restored_diagnostics != expected_diagnostics {
+        restore_ok = 0
+    }
+    if skipped_other > 0 {
+        restore_ok = 0
+    }
+
+    if restore_ok == 1 {
+        pilot inactive_ty_id = restored_files
+        repeat until inactive_ty_id >= v4_ty_file_capacity() {
+            v4_ty_borrowed_return_source_cache_invalidate_file(inactive_ty_id)
+            array_set(v4_ty_files, inactive_ty_id, word_from_int(0 - 1))
+            array_set(v4_ty_resolves, inactive_ty_id, word_from_int(0 - 1))
+            v4_ty_restore_clear_file_children(inactive_ty_id)
+            inactive_ty_id += 1
+        }
+        v4_ty_file_active_count_value = restored_files
+    } else {
+        v4_ty_file_active_count_value = previous_active_files
+    }
+
+    pilot out = "ty-snapshot-restore ok=" + word_from_int(restore_ok)
+    if restore_ok == 0 {
+        out = out + " reason=child-restore-failed"
+    }
     out = out + " files=" + word_from_int(restored_files)
     out = out + " signatures=" + word_from_int(restored_signatures)
     out = out + " diagnostics=" + word_from_int(restored_diagnostics)

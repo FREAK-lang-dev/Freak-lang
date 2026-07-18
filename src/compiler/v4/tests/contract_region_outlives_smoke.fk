@@ -1,0 +1,100 @@
+-- V4 contract-region direct and transitive outlives fixture.
+-- Verification prepends the V4 crates before this file.
+-- One cached borrowck request owns the only compiler pipeline in this executable.
+
+task v4_contract_region_outlives_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task direct<'short, 'long: 'short>(lend 'long longer: Ship, lend 'short shorter: Ship, use_longer: bool) -> lend 'short Ship {\n"
+    src = src + "    pilot view = lend shorter\n"
+    src = src + "    if use_longer {\n"
+    src = src + "        view = lend longer\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task transitive<'short, 'middle: 'short, 'long: 'middle>(lend 'long longest: Ship, lend 'middle middle: Ship, lend 'short shortest: Ship, pick: int) -> lend 'short Ship {\n"
+    src = src + "    pilot view = lend shortest\n"
+    src = src + "    if pick == 0 {\n"
+    src = src + "        view = lend longest\n"
+    src = src + "    } else {\n"
+    src = src + "        if pick == 1 {\n"
+    src = src + "            view = lend middle\n"
+    src = src + "        }\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task multiple<'short, 'middle, 'long: 'short + 'middle>(lend 'long source: Ship) -> lend 'short Ship {\n"
+    src = src + "    give back lend source\n"
+    src = src + "}\n"
+    src = src + "task equivalent<'left: 'right, 'right: 'left>(lend 'right source: Ship) -> lend 'left Ship {\n"
+    src = src + "    give back lend source\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_outlives_bool_word(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_outlives_emit_sources(prefix: word, borrow_id: int, result_id: int) -> void {
+    pilot path_id = 0
+    pilot source_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_return_loan {
+            say prefix + "-source" + word_from_int(source_id) + "=" + v4_borrowck_path_text(borrow_id, result_id, path_id)
+            source_id += 1
+        }
+        path_id += 1
+    }
+    say prefix + "-source-count=" + word_from_int(source_id)
+}
+
+pilot v4_contract_region_outlives_borrow = v4_borrowck_text_cached("contract-region-outlives.fk", v4_contract_region_outlives_source())
+pilot v4_contract_region_outlives_mir = v4_borrowck_mir_id(v4_contract_region_outlives_borrow)
+pilot v4_contract_region_outlives_ty = v4_mir_ty_id(v4_contract_region_outlives_mir)
+pilot v4_contract_region_outlives_resolve = v4_ty_resolve_id(v4_contract_region_outlives_ty)
+
+pilot v4_contract_region_outlives_direct_def = v4_resolve_def_for_name(v4_contract_region_outlives_resolve, "direct")
+pilot v4_contract_region_outlives_transitive_def = v4_resolve_def_for_name(v4_contract_region_outlives_resolve, "transitive")
+pilot v4_contract_region_outlives_multiple_def = v4_resolve_def_for_name(v4_contract_region_outlives_resolve, "multiple")
+pilot v4_contract_region_outlives_equivalent_def = v4_resolve_def_for_name(v4_contract_region_outlives_resolve, "equivalent")
+pilot v4_contract_region_outlives_direct_sig = v4_ty_lookup_signature(v4_contract_region_outlives_ty, v4_contract_region_outlives_direct_def)
+pilot v4_contract_region_outlives_transitive_sig = v4_ty_lookup_signature(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_def)
+pilot v4_contract_region_outlives_multiple_sig = v4_ty_lookup_signature(v4_contract_region_outlives_ty, v4_contract_region_outlives_multiple_def)
+pilot v4_contract_region_outlives_equivalent_sig = v4_ty_lookup_signature(v4_contract_region_outlives_ty, v4_contract_region_outlives_equivalent_def)
+pilot v4_contract_region_outlives_direct_result = v4_borrowck_lookup_result(v4_contract_region_outlives_borrow, v4_contract_region_outlives_direct_def)
+pilot v4_contract_region_outlives_transitive_result = v4_borrowck_lookup_result(v4_contract_region_outlives_borrow, v4_contract_region_outlives_transitive_def)
+pilot v4_contract_region_outlives_multiple_result = v4_borrowck_lookup_result(v4_contract_region_outlives_borrow, v4_contract_region_outlives_multiple_def)
+pilot v4_contract_region_outlives_equivalent_result = v4_borrowck_lookup_result(v4_contract_region_outlives_borrow, v4_contract_region_outlives_equivalent_def)
+
+say "contract-region-outlives-direct-raw-bound-count=" + word_from_int(v4_ty_signature_generic_raw_bound_count(v4_contract_region_outlives_ty, v4_contract_region_outlives_direct_sig, 1))
+say "contract-region-outlives-direct-long-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_outlives_ty, v4_contract_region_outlives_direct_sig, 1, 0)
+say "contract-region-outlives-transitive-middle-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, 1, 0)
+say "contract-region-outlives-transitive-long-raw-bound=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, 2, 0)
+say "contract-region-outlives-multiple-raw-bound-count=" + word_from_int(v4_ty_signature_generic_raw_bound_count(v4_contract_region_outlives_ty, v4_contract_region_outlives_multiple_sig, 2))
+say "contract-region-outlives-multiple-raw-bound0=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_outlives_ty, v4_contract_region_outlives_multiple_sig, 2, 0)
+say "contract-region-outlives-multiple-raw-bound1=" + v4_ty_signature_generic_raw_bound_name(v4_contract_region_outlives_ty, v4_contract_region_outlives_multiple_sig, 2, 1)
+say "contract-region-outlives-direct-short-reflexive=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_direct_sig, "'short", "'short"))
+say "contract-region-outlives-direct-long-outlives-short=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_direct_sig, "'long", "'short"))
+say "contract-region-outlives-transitive-middle-outlives-short=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, "'middle", "'short"))
+say "contract-region-outlives-transitive-long-outlives-middle=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, "'long", "'middle"))
+say "contract-region-outlives-transitive-long-outlives-short=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_transitive_sig, "'long", "'short"))
+say "contract-region-outlives-multiple-long-outlives-short=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_multiple_sig, "'long", "'short"))
+say "contract-region-outlives-multiple-long-outlives-middle=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_multiple_sig, "'long", "'middle"))
+say "contract-region-outlives-equivalent-left-outlives-right=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_equivalent_sig, "'left", "'right"))
+say "contract-region-outlives-equivalent-right-outlives-left=" + v4_contract_region_outlives_bool_word(v4_ty_signature_lifetime_outlives(v4_contract_region_outlives_ty, v4_contract_region_outlives_equivalent_sig, "'right", "'left"))
+say "contract-region-outlives-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_outlives_ty))
+say "contract-region-outlives-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_outlives_mir))
+say "contract-region-outlives-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_outlives_borrow))
+say "contract-region-outlives-direct-status=" + v4_borrowck_result_status(v4_contract_region_outlives_borrow, v4_contract_region_outlives_direct_result)
+say "contract-region-outlives-transitive-status=" + v4_borrowck_result_status(v4_contract_region_outlives_borrow, v4_contract_region_outlives_transitive_result)
+say "contract-region-outlives-multiple-status=" + v4_borrowck_result_status(v4_contract_region_outlives_borrow, v4_contract_region_outlives_multiple_result)
+say "contract-region-outlives-equivalent-status=" + v4_borrowck_result_status(v4_contract_region_outlives_borrow, v4_contract_region_outlives_equivalent_result)
+v4_contract_region_outlives_emit_sources("contract-region-outlives-direct", v4_contract_region_outlives_borrow, v4_contract_region_outlives_direct_result)
+v4_contract_region_outlives_emit_sources("contract-region-outlives-transitive", v4_contract_region_outlives_borrow, v4_contract_region_outlives_transitive_result)
+v4_contract_region_outlives_emit_sources("contract-region-outlives-multiple", v4_contract_region_outlives_borrow, v4_contract_region_outlives_multiple_result)
+v4_contract_region_outlives_emit_sources("contract-region-outlives-equivalent", v4_contract_region_outlives_borrow, v4_contract_region_outlives_equivalent_result)

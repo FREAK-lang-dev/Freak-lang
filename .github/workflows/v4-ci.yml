@@ -25,6 +25,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Conformance and tooling contract audit
+        run: python -m freakc audit-conformance
+
       - name: V4 structural and transpile coverage
         run: python -u src/compiler/v4/check_v4.py --fast
 

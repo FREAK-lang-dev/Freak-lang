@@ -123,6 +123,22 @@ task v4_mir_loop_make_prefix_growth_source() -> word {
     give back src
 }
 
+task v4_mir_loop_nth_loop_stmt(mir_id: int, body_id: int, wanted: int) -> int {
+    pilot seen = 0
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_loop {
+            if seen == wanted {
+                give back stmt_id
+            }
+            seen += 1
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
 pilot v4_mir_loop_source = v4_mir_loop_make_source()
 pilot v4_mir_loop_stream = v4_lex_text(0, v4_mir_loop_source)
 pilot v4_mir_loop_tree = v4_parse_stream(0, v4_mir_loop_stream)
@@ -132,10 +148,12 @@ pilot v4_mir_loop_ty = v4_ty_lower_resolve(0, v4_mir_loop_resolve)
 pilot v4_mir_loop_mir = v4_mir_lower_ty(0, v4_mir_loop_ty)
 pilot v4_mir_loop_main_def = v4_resolve_def_for_name(v4_mir_loop_resolve, "main")
 pilot v4_mir_loop_main_body = v4_mir_lookup_body(v4_mir_loop_mir, v4_mir_loop_main_def)
-pilot v4_mir_loop_for_stmt = 4
-pilot v4_mir_loop_training_stmt = 6
-pilot v4_mir_loop_for_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, 0)
-pilot v4_mir_loop_training_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, 2)
+pilot v4_mir_loop_for_stmt = v4_mir_loop_nth_loop_stmt(v4_mir_loop_mir, v4_mir_loop_main_body, 0)
+pilot v4_mir_loop_training_stmt = v4_mir_loop_nth_loop_stmt(v4_mir_loop_mir, v4_mir_loop_main_body, 1)
+pilot v4_mir_loop_for_block_id = v4_mir_stmt_block(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_for_stmt)
+pilot v4_mir_loop_training_block_id = v4_mir_stmt_block(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_training_stmt)
+pilot v4_mir_loop_for_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_for_block_id)
+pilot v4_mir_loop_training_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_training_block_id)
 
 say v4_lex_summary(v4_mir_loop_stream)
 say v4_parse_summary(v4_mir_loop_tree)
@@ -182,7 +200,9 @@ pilot v4_mir_field_growth_ty = v4_ty_lower_resolve(2, v4_mir_field_growth_resolv
 pilot v4_mir_field_growth_mir = v4_mir_lower_ty(2, v4_mir_field_growth_ty)
 pilot v4_mir_field_growth_def = v4_resolve_def_for_name(v4_mir_field_growth_resolve, "train")
 pilot v4_mir_field_growth_body = v4_mir_lookup_body(v4_mir_field_growth_mir, v4_mir_field_growth_def)
-pilot v4_mir_field_growth_block = v4_mir_body_block(v4_mir_field_growth_mir, v4_mir_field_growth_body, 0)
+pilot v4_mir_field_growth_stmt = v4_mir_loop_nth_loop_stmt(v4_mir_field_growth_mir, v4_mir_field_growth_body, 0)
+pilot v4_mir_field_growth_block_id = v4_mir_stmt_block(v4_mir_field_growth_mir, v4_mir_field_growth_body, v4_mir_field_growth_stmt)
+pilot v4_mir_field_growth_block = v4_mir_body_block(v4_mir_field_growth_mir, v4_mir_field_growth_body, v4_mir_field_growth_block_id)
 
 say "field-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_field_growth_mir))
 say "field-growth-block-cond=" + v4_mir_block_condition(v4_mir_field_growth_block)

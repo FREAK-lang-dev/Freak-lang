@@ -1,0 +1,100 @@
+-- V4 aggregate child visibility and recursively lend-containing storage fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_contract_region_aggregate_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_aggregate_diag_count(borrow_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+task v4_contract_region_aggregate_path_count(borrow_id: int, result_id: int, path_kind: word, path_text: word) -> int {
+    pilot total = 0
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == path_kind and v4_borrowck_path_text(borrow_id, result_id, path_id) == path_text {
+            total += 1
+        }
+        path_id += 1
+    }
+    give back total
+}
+
+task v4_contract_region_aggregate_find_rvalue(mir_id: int, body_id: int, wanted_kind: word) -> int {
+    pilot rvalue_id = 0
+    repeat until rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == wanted_kind {
+            give back rvalue_id
+        }
+        rvalue_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_contract_region_aggregate_branch_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task branch_mutation_aggregate_final(ship: Ship, mutate: bool) -> int {\n"
+    src = src + "    pilot view = lend mut ship.hp\n"
+    src = src + "    if mutate {\n"
+    src = src + "        ship.hp = 9\n"
+    src = src + "    }\n"
+    src = src + "    pilot final_use = (view, 0)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_aggregate_get_mut_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task nested_get_mut(root: Shared<Ship>) -> int {\n"
+    src = src + "    pilot nested = [root.get_mut()]\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_contract_region_aggregate_branch_borrow = v4_borrowck_text_cached("contract-region-aggregate-branch.fk", v4_contract_region_aggregate_branch_source())
+pilot v4_contract_region_aggregate_branch_mir = v4_borrowck_mir_id(v4_contract_region_aggregate_branch_borrow)
+pilot v4_contract_region_aggregate_branch_ty = v4_mir_ty_id(v4_contract_region_aggregate_branch_mir)
+pilot v4_contract_region_aggregate_branch_resolve = v4_ty_resolve_id(v4_contract_region_aggregate_branch_ty)
+pilot v4_contract_region_aggregate_branch_def = v4_resolve_def_for_name(v4_contract_region_aggregate_branch_resolve, "branch_mutation_aggregate_final")
+pilot v4_contract_region_aggregate_branch_body = v4_mir_lookup_body(v4_contract_region_aggregate_branch_mir, v4_contract_region_aggregate_branch_def)
+pilot v4_contract_region_aggregate_branch_result = v4_borrowck_lookup_result(v4_contract_region_aggregate_branch_borrow, v4_contract_region_aggregate_branch_def)
+pilot v4_contract_region_aggregate_branch_tuple = v4_contract_region_aggregate_find_rvalue(v4_contract_region_aggregate_branch_mir, v4_contract_region_aggregate_branch_body, v4_mir_rvalue_tuple)
+
+say "contract-region-aggregate-branch-status=" + v4_borrowck_result_status(v4_contract_region_aggregate_branch_borrow, v4_contract_region_aggregate_branch_result)
+say "contract-region-aggregate-branch-tuple-child-count=" + word_from_int(v4_mir_rvalue_aggregate_child_count(v4_contract_region_aggregate_branch_mir, v4_contract_region_aggregate_branch_body, v4_contract_region_aggregate_branch_tuple))
+say "contract-region-aggregate-branch-mutation-conflicts=" + word_from_int(v4_contract_region_aggregate_diag_count(v4_contract_region_aggregate_branch_borrow, "Meiya tracks this loan into a later block"))
+say "contract-region-aggregate-branch-final-use-visible=" + v4_contract_region_aggregate_bool(v4_contract_region_aggregate_diag_count(v4_contract_region_aggregate_branch_borrow, "Meiya tracks this loan into a later block") == 1)
+
+pilot v4_contract_region_aggregate_get_mut_borrow = v4_borrowck_text_cached("contract-region-aggregate-get-mut.fk", v4_contract_region_aggregate_get_mut_source())
+pilot v4_contract_region_aggregate_get_mut_mir = v4_borrowck_mir_id(v4_contract_region_aggregate_get_mut_borrow)
+pilot v4_contract_region_aggregate_get_mut_ty = v4_mir_ty_id(v4_contract_region_aggregate_get_mut_mir)
+pilot v4_contract_region_aggregate_get_mut_resolve = v4_ty_resolve_id(v4_contract_region_aggregate_get_mut_ty)
+pilot v4_contract_region_aggregate_get_mut_def = v4_resolve_def_for_name(v4_contract_region_aggregate_get_mut_resolve, "nested_get_mut")
+pilot v4_contract_region_aggregate_get_mut_body = v4_mir_lookup_body(v4_contract_region_aggregate_get_mut_mir, v4_contract_region_aggregate_get_mut_def)
+pilot v4_contract_region_aggregate_get_mut_result = v4_borrowck_lookup_result(v4_contract_region_aggregate_get_mut_borrow, v4_contract_region_aggregate_get_mut_def)
+pilot v4_contract_region_aggregate_get_mut_list = v4_contract_region_aggregate_find_rvalue(v4_contract_region_aggregate_get_mut_mir, v4_contract_region_aggregate_get_mut_body, v4_mir_rvalue_list)
+
+say "contract-region-aggregate-get-mut-status=" + v4_borrowck_result_status(v4_contract_region_aggregate_get_mut_borrow, v4_contract_region_aggregate_get_mut_result)
+say "contract-region-aggregate-get-mut-list-child-count=" + word_from_int(v4_mir_rvalue_aggregate_child_count(v4_contract_region_aggregate_get_mut_mir, v4_contract_region_aggregate_get_mut_body, v4_contract_region_aggregate_get_mut_list))
+say "contract-region-aggregate-get-mut-storage-rejections=" + word_from_int(v4_contract_region_aggregate_diag_count(v4_contract_region_aggregate_get_mut_borrow, "Meiya cannot store a lend inside a list yet"))
+say "contract-region-aggregate-get-mut-storage-rejected=" + v4_contract_region_aggregate_bool(v4_contract_region_aggregate_diag_count(v4_contract_region_aggregate_get_mut_borrow, "Meiya cannot store a lend inside a list yet") == 1)
+say "contract-region-aggregate-get-mut-loan-mut-paths=" + word_from_int(v4_contract_region_aggregate_path_count(v4_contract_region_aggregate_get_mut_borrow, v4_contract_region_aggregate_get_mut_result, v4_borrowck_path_loan_mut, "root"))
+say "contract-region-aggregate-get-mut-transfer-visible=" + v4_contract_region_aggregate_bool(v4_contract_region_aggregate_path_count(v4_contract_region_aggregate_get_mut_borrow, v4_contract_region_aggregate_get_mut_result, v4_borrowck_path_loan_mut, "root") > 0)

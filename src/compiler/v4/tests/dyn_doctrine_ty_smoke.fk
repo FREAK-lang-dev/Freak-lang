@@ -107,6 +107,29 @@ task v4_dyn_ty_source() -> word {
     give back src
 }
 
+task v4_dyn_ty_shadowed_carrier_source() -> word {
+    pilot src = "doctrine Widget {\n"
+    src = src + "    task draw(self) -> word\n"
+    src = src + "}\n"
+    src = src + "shape Button {\n"
+    src = src + "    label: word\n"
+    src = src + "}\n"
+    src = src + "impl Widget for Button {\n"
+    src = src + "    task draw(self) -> word {\n"
+    src = src + "        give back self.label\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "shape Shared<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "shape Weak<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "task carrier_context(shared: Shared<dyn Widget>, weak: Weak<dyn Widget>) -> void {\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_dyn_ty_text = v4_dyn_ty_source()
 pilot v4_dyn_ty_stream = v4_lex_text(0, v4_dyn_ty_text)
 pilot v4_dyn_ty_tree = v4_parse_stream(0, v4_dyn_ty_stream)
@@ -188,3 +211,17 @@ say "dyn-ty-diag5-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 5))
 say "dyn-ty-diag5-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 5))
 say "dyn-ty-diag6-message=" + v4_diag_message(v4_ty_diag(v4_dyn_ty_id, 6))
 say "dyn-ty-diag6-help=" + v4_diag_help(v4_ty_diag(v4_dyn_ty_id, 6))
+pilot v4_dyn_ty_shadowed_text = v4_dyn_ty_shadowed_carrier_source()
+pilot v4_dyn_ty_shadowed_stream = v4_lex_text(1, v4_dyn_ty_shadowed_text)
+pilot v4_dyn_ty_shadowed_tree = v4_parse_stream(1, v4_dyn_ty_shadowed_stream)
+pilot v4_dyn_ty_shadowed_hir = v4_hir_lower_tree(1, v4_dyn_ty_shadowed_tree)
+pilot v4_dyn_ty_shadowed_resolve = v4_resolve_lower_hir(1, v4_dyn_ty_shadowed_hir)
+pilot v4_dyn_ty_shadowed_id = v4_ty_lower_resolve(1, v4_dyn_ty_shadowed_resolve)
+pilot v4_dyn_ty_shadowed_sig = v4_ty_task_signature_id_for_name(v4_dyn_ty_shadowed_id, "carrier_context")
+
+say "dyn-ty-prelude-shared-carrier=" + v4_dyn_ty_bool_word(v4_ty_is_nominal_prelude_dyn_carrier(v4_dyn_ty_id, "Shared<dyn Widget>"))
+say "dyn-ty-prelude-weak-carrier=" + v4_dyn_ty_bool_word(v4_ty_is_nominal_prelude_dyn_carrier(v4_dyn_ty_id, "Weak<dyn Widget>"))
+say "dyn-ty-shadowed-shared-carrier=" + v4_dyn_ty_bool_word(v4_ty_is_nominal_prelude_dyn_carrier(v4_dyn_ty_shadowed_id, "Shared<dyn Widget>"))
+say "dyn-ty-shadowed-weak-carrier=" + v4_dyn_ty_bool_word(v4_ty_is_nominal_prelude_dyn_carrier(v4_dyn_ty_shadowed_id, "Weak<dyn Widget>"))
+say "dyn-ty-shadowed-shared-coerces=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_in_signature(v4_dyn_ty_shadowed_id, v4_dyn_ty_shadowed_sig, "Shared<dyn Widget>", "Shared<Button>"))
+say "dyn-ty-shadowed-weak-coerces=" + v4_dyn_ty_bool_word(v4_ty_types_compatible_in_signature(v4_dyn_ty_shadowed_id, v4_dyn_ty_shadowed_sig, "Weak<dyn Widget>", "Weak<Button>"))

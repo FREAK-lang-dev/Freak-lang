@@ -1,0 +1,326 @@
+-- V4 elided returned-loan source-set query invalidation fixture.
+-- Verification prepends the V4 crates before this file.
+-- Replacing "lend " with five spaces preserves every downstream editor offset.
+
+task v4_contract_region_elided_query_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    repeat until token_id >= v4_lex_token_count(stream_id) {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_contract_region_elided_query_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_contract_region_elided_query_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0 - 1
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_contract_region_elided_query_find_call(mir_id: int, body_id: int) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+        if rvalue_id >= 0 {
+            if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call {
+                give back rvalue_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_contract_region_elided_query_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_elided_query_positive(report: word, key: word) -> word {
+    give back v4_contract_region_elided_query_bool(word_to_int(v4_unit_snapshot_key_value(report, key)) > 0)
+}
+
+task v4_contract_region_elided_query_family_misses(path: word, family: word) -> int {
+    pilot misses = 0
+    pilot telemetry_id = 0
+    repeat until telemetry_id >= v4_query_telemetry_key_count() {
+        pilot key = v4_query_telemetry_key(telemetry_id)
+        if v4_unit_invalidation_family_matches_path_key(path, family, key) {
+            misses += v4_query_telemetry_misses_for(telemetry_id)
+        }
+        telemetry_id += 1
+    }
+    give back misses
+}
+
+task v4_contract_region_elided_query_family_miss_delta(path: word, family: word, misses_before: int) -> int {
+    give back v4_contract_region_elided_query_family_misses(path, family) - misses_before
+}
+
+task v4_contract_region_elided_query_all_invalidations_positive(report: word) -> word {
+    if v4_contract_region_elided_query_positive(report, "query-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "core-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "syntax-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "lex-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "parse-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "hir-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "resolve-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "ty-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "mir-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "borrowck-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "diagnostics-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "editor-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "semantic-at-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "hover-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "definition-at-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "document-symbols-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_elided_query_positive(report, "completion-invalidations-added") != "true" { give back "false" }
+    give back "true"
+}
+
+task v4_contract_region_elided_query_source(second_mode: word) -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task choose(lend first: Ship, " + second_mode + "second: Ship) -> lend Ship {\n"
+    src = src + "    give back lend first\n"
+    src = src + "}\n"
+    src = src + "task observe(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot view = choose(lend first, " + second_mode + "second)\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_contract_region_elided_query_path = "contract-region-elided-query-invalidation.fk"
+pilot v4_contract_region_elided_query_before = v4_contract_region_elided_query_source("lend ")
+pilot v4_contract_region_elided_query_before_stream = v4_lex_text(0, v4_contract_region_elided_query_before)
+pilot v4_contract_region_elided_query_before_second_offset = v4_contract_region_elided_query_offset(v4_contract_region_elided_query_before_stream, "second", 0)
+
+v4_lsp_open_document(v4_contract_region_elided_query_path, v4_contract_region_elided_query_before)
+pilot v4_contract_region_elided_query_before_syntax = v4_check_syntax_text(v4_contract_region_elided_query_path, v4_contract_region_elided_query_before)
+pilot v4_contract_region_elided_query_before_borrow = v4_borrowck_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_before)
+pilot v4_contract_region_elided_query_before_mir = v4_borrowck_mir_id(v4_contract_region_elided_query_before_borrow)
+pilot v4_contract_region_elided_query_before_ty = v4_mir_ty_id(v4_contract_region_elided_query_before_mir)
+pilot v4_contract_region_elided_query_before_resolve = v4_ty_resolve_id(v4_contract_region_elided_query_before_ty)
+pilot v4_contract_region_elided_query_before_choose_def = v4_resolve_def_for_name(v4_contract_region_elided_query_before_resolve, "choose")
+pilot v4_contract_region_elided_query_before_observe_def = v4_resolve_def_for_name(v4_contract_region_elided_query_before_resolve, "observe")
+pilot v4_contract_region_elided_query_before_choose_sig = v4_ty_lookup_signature(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_def)
+pilot v4_contract_region_elided_query_before_choose_result = v4_borrowck_lookup_result(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_choose_def)
+pilot v4_contract_region_elided_query_before_observe_result = v4_borrowck_lookup_result(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_observe_def)
+pilot v4_contract_region_elided_query_before_observe_body = v4_mir_lookup_body(v4_contract_region_elided_query_before_mir, v4_contract_region_elided_query_before_observe_def)
+pilot v4_contract_region_elided_query_before_call = v4_contract_region_elided_query_find_call(v4_contract_region_elided_query_before_mir, v4_contract_region_elided_query_before_observe_body)
+pilot v4_contract_region_elided_query_before_diagnostics = v4_diagnostics_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_before)
+pilot v4_contract_region_elided_query_before_semantic = v4_semantic_at_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_before, v4_contract_region_elided_query_before_second_offset)
+pilot v4_contract_region_elided_query_before_hover = v4_hover_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_before, v4_contract_region_elided_query_before_second_offset)
+pilot v4_contract_region_elided_query_before_definition = v4_definition_at_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_before, v4_contract_region_elided_query_before_second_offset)
+pilot v4_contract_region_elided_query_before_document_symbols = v4_document_symbols_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_before)
+pilot v4_contract_region_elided_query_before_completion = v4_completion_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_before, v4_contract_region_elided_query_before_second_offset)
+
+pilot v4_contract_region_elided_query_query_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "all")
+pilot v4_contract_region_elided_query_core_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "core")
+pilot v4_contract_region_elided_query_syntax_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "syntax")
+pilot v4_contract_region_elided_query_lex_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "lex")
+pilot v4_contract_region_elided_query_parse_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "parse")
+pilot v4_contract_region_elided_query_hir_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "hir")
+pilot v4_contract_region_elided_query_resolve_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "resolve")
+pilot v4_contract_region_elided_query_ty_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "ty")
+pilot v4_contract_region_elided_query_mir_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "mir")
+pilot v4_contract_region_elided_query_borrowck_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "borrowck")
+pilot v4_contract_region_elided_query_diagnostics_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "diagnostics")
+pilot v4_contract_region_elided_query_editor_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "editor")
+pilot v4_contract_region_elided_query_semantic_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "semantic-at")
+pilot v4_contract_region_elided_query_hover_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "hover")
+pilot v4_contract_region_elided_query_definition_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "definition-at")
+pilot v4_contract_region_elided_query_document_symbols_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "document-symbols")
+pilot v4_contract_region_elided_query_completion_misses_before = v4_contract_region_elided_query_family_misses(v4_contract_region_elided_query_path, "completion")
+
+pilot v4_contract_region_elided_query_before_diag_count = v4_diagnostics_count(v4_contract_region_elided_query_before_diagnostics)
+pilot v4_contract_region_elided_query_before_source_count = v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig)
+pilot v4_contract_region_elided_query_before_source0 = v4_ty_signature_borrowed_return_source_param_at(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig, 0)
+pilot v4_contract_region_elided_query_before_source1 = v4_ty_signature_borrowed_return_source_param_at(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig, 1)
+pilot v4_contract_region_elided_query_before_call_source0 = v4_mir_rvalue_call_borrowed_source_arg_at(v4_contract_region_elided_query_before_mir, v4_contract_region_elided_query_before_observe_body, v4_contract_region_elided_query_before_call, 0)
+pilot v4_contract_region_elided_query_before_call_source1 = v4_mir_rvalue_call_borrowed_source_arg_at(v4_contract_region_elided_query_before_mir, v4_contract_region_elided_query_before_observe_body, v4_contract_region_elided_query_before_call, 1)
+pilot v4_contract_region_elided_query_before_observe_sig = v4_ty_lookup_signature(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_observe_def)
+pilot v4_contract_region_elided_query_ty_original_def = v4_ty_signature_def(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig)
+pilot v4_contract_region_elided_query_ty_original_kind = v4_ty_signature_kind(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig)
+pilot v4_contract_region_elided_query_ty_original_name = v4_ty_signature_name(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig)
+pilot v4_contract_region_elided_query_ty_original_display = v4_ty_signature_display(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig)
+pilot v4_contract_region_elided_query_ty_original_hir_item = v4_ty_signature_hir_item(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig)
+pilot v4_contract_region_elided_query_ty_poison_hir_item = v4_ty_signature_hir_item(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_observe_sig)
+
+-- Exercise restore against real signature mutation, not a no-op rewrite.
+pilot v4_contract_region_elided_query_ty_cache_builds_before_poison = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_elided_query_ty_poison_slot_result = v4_ty_restore_signature_slot(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig, v4_contract_region_elided_query_ty_original_def, v4_contract_region_elided_query_ty_original_kind, v4_contract_region_elided_query_ty_original_name, v4_contract_region_elided_query_ty_original_display, v4_contract_region_elided_query_ty_poison_hir_item)
+pilot v4_contract_region_elided_query_ty_poison_live_hir_item = v4_ty_signature_hir_item(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig)
+pilot v4_contract_region_elided_query_ty_poisoned_source_count = v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig)
+pilot v4_contract_region_elided_query_ty_cache_builds_after_poison = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_elided_query_ty_restore_poisoned: bool = v4_contract_region_elided_query_ty_poison_slot_result == 1 and v4_contract_region_elided_query_ty_poison_hir_item != v4_contract_region_elided_query_ty_original_hir_item and v4_contract_region_elided_query_ty_poison_live_hir_item == v4_contract_region_elided_query_ty_poison_hir_item and v4_contract_region_elided_query_ty_poisoned_source_count == 0 and v4_contract_region_elided_query_ty_cache_builds_after_poison - v4_contract_region_elided_query_ty_cache_builds_before_poison == 1
+
+pilot v4_contract_region_elided_query_ty_cache_builds_before_restore = v4_ty_borrowed_return_source_cache_build_count()
+pilot v4_contract_region_elided_query_ty_restore_slot_result = v4_ty_restore_signature_slot(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig, v4_contract_region_elided_query_ty_original_def, v4_contract_region_elided_query_ty_original_kind, v4_contract_region_elided_query_ty_original_name, v4_contract_region_elided_query_ty_original_display, v4_contract_region_elided_query_ty_original_hir_item)
+pilot v4_contract_region_elided_query_ty_restored_fields_exact: bool = v4_ty_signature_def(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig) == v4_contract_region_elided_query_ty_original_def and v4_ty_signature_kind(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig) == v4_contract_region_elided_query_ty_original_kind and v4_ty_signature_name(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig) == v4_contract_region_elided_query_ty_original_name and v4_ty_signature_display(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig) == v4_contract_region_elided_query_ty_original_display and v4_ty_signature_hir_item(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig) == v4_contract_region_elided_query_ty_original_hir_item
+pilot v4_contract_region_elided_query_ty_restored_source_count = v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig)
+pilot v4_contract_region_elided_query_ty_restored_source0 = v4_ty_signature_borrowed_return_source_param_at(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig, 0)
+pilot v4_contract_region_elided_query_ty_restored_source1 = v4_ty_signature_borrowed_return_source_param_at(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig, 1)
+pilot v4_contract_region_elided_query_ty_cache_builds_added = v4_ty_borrowed_return_source_cache_build_count() - v4_contract_region_elided_query_ty_cache_builds_before_restore
+say "contract-region-elided-query-before-diagnostics=" + word_from_int(v4_contract_region_elided_query_before_diag_count)
+if v4_contract_region_elided_query_before_diag_count > 0 {
+    say "contract-region-elided-query-before-message=" + v4_diag_message(v4_diagnostics_diag(v4_contract_region_elided_query_before_diagnostics, 0))
+} else {
+    say "contract-region-elided-query-before-message=none"
+}
+say "contract-region-elided-query-before-choose-status=" + v4_borrowck_result_status(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_choose_result)
+say "contract-region-elided-query-before-observe-status=" + v4_borrowck_result_status(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_observe_result)
+say "contract-region-elided-query-before-source-count=" + word_from_int(v4_contract_region_elided_query_before_source_count)
+say "contract-region-elided-query-before-source0=" + v4_ty_signature_param_name(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig, v4_contract_region_elided_query_before_source0)
+say "contract-region-elided-query-before-source1=" + v4_ty_signature_param_name(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig, v4_contract_region_elided_query_before_source1)
+say "contract-region-elided-query-before-call-source-count=" + word_from_int(v4_mir_rvalue_call_borrowed_source_arg_count(v4_contract_region_elided_query_before_mir, v4_contract_region_elided_query_before_observe_body, v4_contract_region_elided_query_before_call))
+say "contract-region-elided-query-before-call-source0=" + v4_mir_rvalue_text(v4_contract_region_elided_query_before_mir, v4_contract_region_elided_query_before_observe_body, v4_contract_region_elided_query_before_call_source0)
+say "contract-region-elided-query-before-call-source1=" + v4_mir_rvalue_text(v4_contract_region_elided_query_before_mir, v4_contract_region_elided_query_before_observe_body, v4_contract_region_elided_query_before_call_source1)
+say "contract-region-elided-query-before-semantic=" + v4_semantic_at_type(v4_contract_region_elided_query_before_semantic)
+say "contract-region-elided-query-before-hover=" + v4_hover_type(v4_contract_region_elided_query_before_hover)
+say "contract-region-elided-query-before-definition=" + word_from_int(v4_definition_at_found(v4_contract_region_elided_query_before_definition))
+say "contract-region-elided-query-ty-restore-poisoned=" + v4_contract_region_elided_query_bool(v4_contract_region_elided_query_ty_restore_poisoned)
+say "contract-region-elided-query-ty-restore-slot-applied=" + v4_contract_region_elided_query_bool(v4_contract_region_elided_query_ty_restore_slot_result == 1 and v4_contract_region_elided_query_ty_restored_fields_exact)
+say "contract-region-elided-query-ty-restored-source-count=" + word_from_int(v4_contract_region_elided_query_ty_restored_source_count)
+say "contract-region-elided-query-ty-restored-source0=" + v4_ty_signature_param_name(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig, v4_contract_region_elided_query_ty_restored_source0)
+say "contract-region-elided-query-ty-restored-source1=" + v4_ty_signature_param_name(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig, v4_contract_region_elided_query_ty_restored_source1)
+say "contract-region-elided-query-ty-restored-source-order-stable=" + v4_contract_region_elided_query_bool(v4_contract_region_elided_query_ty_restored_source_count == v4_contract_region_elided_query_before_source_count and v4_contract_region_elided_query_ty_restored_source0 == v4_contract_region_elided_query_before_source0 and v4_contract_region_elided_query_ty_restored_source1 == v4_contract_region_elided_query_before_source1)
+say "contract-region-elided-query-ty-restore-cache-builds-added=" + word_from_int(v4_contract_region_elided_query_ty_cache_builds_added)
+
+pilot v4_contract_region_elided_query_after = v4_contract_region_elided_query_source("     ")
+pilot v4_contract_region_elided_query_after_stream = v4_lex_text(1, v4_contract_region_elided_query_after)
+pilot v4_contract_region_elided_query_after_second_offset = v4_contract_region_elided_query_offset(v4_contract_region_elided_query_after_stream, "second", 0)
+say "contract-region-elided-query-editor-offset-stable=" + v4_contract_region_elided_query_bool(v4_contract_region_elided_query_after_second_offset == v4_contract_region_elided_query_before_second_offset)
+pilot v4_contract_region_elided_query_change_response = ""
+pilot v4_contract_region_elided_query_report = ""
+v4_contract_region_elided_query_change_response = v4_lsp_handle_text_request("textDocument/didChange", v4_contract_region_elided_query_path, v4_contract_region_elided_query_after, 0)
+say v4_contract_region_elided_query_change_response
+v4_contract_region_elided_query_report = v4_unit_snapshot_line(v4_contract_region_elided_query_change_response, 2)
+say "contract-region-elided-query-query-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "query-invalidations-added")
+say "contract-region-elided-query-core-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "core-invalidations-added")
+say "contract-region-elided-query-syntax-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "syntax-invalidations-added")
+say "contract-region-elided-query-lex-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "lex-invalidations-added")
+say "contract-region-elided-query-parse-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "parse-invalidations-added")
+say "contract-region-elided-query-hir-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "hir-invalidations-added")
+say "contract-region-elided-query-resolve-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "resolve-invalidations-added")
+say "contract-region-elided-query-ty-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "ty-invalidations-added")
+say "contract-region-elided-query-mir-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "mir-invalidations-added")
+say "contract-region-elided-query-borrowck-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "borrowck-invalidations-added")
+say "contract-region-elided-query-diagnostics-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "diagnostics-invalidations-added")
+say "contract-region-elided-query-editor-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "editor-invalidations-added")
+say "contract-region-elided-query-semantic-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "semantic-at-invalidations-added")
+say "contract-region-elided-query-hover-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "hover-invalidations-added")
+say "contract-region-elided-query-definition-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "definition-at-invalidations-added")
+say "contract-region-elided-query-document-symbols-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "document-symbols-invalidations-added")
+say "contract-region-elided-query-completion-invalidations-added=" + v4_unit_snapshot_key_value(v4_contract_region_elided_query_report, "completion-invalidations-added")
+say "contract-region-elided-query-all-17-invalidations-positive=" + v4_contract_region_elided_query_all_invalidations_positive(v4_contract_region_elided_query_report)
+
+pilot v4_contract_region_elided_query_after_syntax = ""
+pilot v4_contract_region_elided_query_after_borrow = 0 - 1
+pilot v4_contract_region_elided_query_after_mir = 0 - 1
+pilot v4_contract_region_elided_query_after_ty = 0 - 1
+pilot v4_contract_region_elided_query_after_resolve = 0 - 1
+pilot v4_contract_region_elided_query_after_choose_def = ""
+pilot v4_contract_region_elided_query_after_observe_def = ""
+pilot v4_contract_region_elided_query_after_choose_sig = 0 - 1
+pilot v4_contract_region_elided_query_after_choose_result = 0 - 1
+pilot v4_contract_region_elided_query_after_observe_result = 0 - 1
+pilot v4_contract_region_elided_query_after_observe_body = 0 - 1
+pilot v4_contract_region_elided_query_after_call = 0 - 1
+pilot v4_contract_region_elided_query_after_diagnostics = 0 - 1
+pilot v4_contract_region_elided_query_after_semantic = 0 - 1
+pilot v4_contract_region_elided_query_after_hover = 0 - 1
+pilot v4_contract_region_elided_query_after_definition = 0 - 1
+pilot v4_contract_region_elided_query_after_document_symbols = 0 - 1
+pilot v4_contract_region_elided_query_after_completion = 0 - 1
+pilot v4_contract_region_elided_query_after_diag_count = 0
+pilot v4_contract_region_elided_query_after_source0 = 0 - 1
+pilot v4_contract_region_elided_query_after_call_source0 = 0 - 1
+pilot v4_contract_region_elided_query_all_recomputations_positive = true
+
+v4_contract_region_elided_query_after_syntax = v4_check_syntax_text(v4_contract_region_elided_query_path, v4_contract_region_elided_query_after)
+v4_contract_region_elided_query_after_borrow = v4_borrowck_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_after)
+v4_contract_region_elided_query_after_mir = v4_borrowck_mir_id(v4_contract_region_elided_query_after_borrow)
+v4_contract_region_elided_query_after_ty = v4_mir_ty_id(v4_contract_region_elided_query_after_mir)
+v4_contract_region_elided_query_after_resolve = v4_ty_resolve_id(v4_contract_region_elided_query_after_ty)
+v4_contract_region_elided_query_after_choose_def = v4_resolve_def_for_name(v4_contract_region_elided_query_after_resolve, "choose")
+v4_contract_region_elided_query_after_observe_def = v4_resolve_def_for_name(v4_contract_region_elided_query_after_resolve, "observe")
+v4_contract_region_elided_query_after_choose_sig = v4_ty_lookup_signature(v4_contract_region_elided_query_after_ty, v4_contract_region_elided_query_after_choose_def)
+v4_contract_region_elided_query_after_choose_result = v4_borrowck_lookup_result(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_choose_def)
+v4_contract_region_elided_query_after_observe_result = v4_borrowck_lookup_result(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_observe_def)
+v4_contract_region_elided_query_after_observe_body = v4_mir_lookup_body(v4_contract_region_elided_query_after_mir, v4_contract_region_elided_query_after_observe_def)
+v4_contract_region_elided_query_after_call = v4_contract_region_elided_query_find_call(v4_contract_region_elided_query_after_mir, v4_contract_region_elided_query_after_observe_body)
+v4_contract_region_elided_query_after_diagnostics = v4_diagnostics_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_after)
+v4_contract_region_elided_query_after_semantic = v4_semantic_at_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_after, v4_contract_region_elided_query_after_second_offset)
+v4_contract_region_elided_query_after_hover = v4_hover_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_after, v4_contract_region_elided_query_after_second_offset)
+v4_contract_region_elided_query_after_definition = v4_definition_at_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_after, v4_contract_region_elided_query_after_second_offset)
+v4_contract_region_elided_query_after_document_symbols = v4_document_symbols_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_after)
+v4_contract_region_elided_query_after_completion = v4_completion_text_cached(v4_contract_region_elided_query_path, v4_contract_region_elided_query_after, v4_contract_region_elided_query_after_second_offset)
+v4_contract_region_elided_query_after_diag_count = v4_diagnostics_count(v4_contract_region_elided_query_after_diagnostics)
+v4_contract_region_elided_query_after_source0 = v4_ty_signature_borrowed_return_source_param_at(v4_contract_region_elided_query_after_ty, v4_contract_region_elided_query_after_choose_sig, 0)
+v4_contract_region_elided_query_after_call_source0 = v4_mir_rvalue_call_borrowed_source_arg_at(v4_contract_region_elided_query_after_mir, v4_contract_region_elided_query_after_observe_body, v4_contract_region_elided_query_after_call, 0)
+
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "all", v4_contract_region_elided_query_query_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "core", v4_contract_region_elided_query_core_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "syntax", v4_contract_region_elided_query_syntax_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "lex", v4_contract_region_elided_query_lex_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "parse", v4_contract_region_elided_query_parse_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "hir", v4_contract_region_elided_query_hir_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "resolve", v4_contract_region_elided_query_resolve_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "ty", v4_contract_region_elided_query_ty_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "mir", v4_contract_region_elided_query_mir_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "borrowck", v4_contract_region_elided_query_borrowck_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "diagnostics", v4_contract_region_elided_query_diagnostics_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "editor", v4_contract_region_elided_query_editor_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "semantic-at", v4_contract_region_elided_query_semantic_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "hover", v4_contract_region_elided_query_hover_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "definition-at", v4_contract_region_elided_query_definition_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "document-symbols", v4_contract_region_elided_query_document_symbols_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+if v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "completion", v4_contract_region_elided_query_completion_misses_before) <= 0 { v4_contract_region_elided_query_all_recomputations_positive = false }
+
+say "contract-region-elided-query-query-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "all", v4_contract_region_elided_query_query_misses_before))
+say "contract-region-elided-query-core-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "core", v4_contract_region_elided_query_core_misses_before))
+say "contract-region-elided-query-syntax-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "syntax", v4_contract_region_elided_query_syntax_misses_before))
+say "contract-region-elided-query-lex-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "lex", v4_contract_region_elided_query_lex_misses_before))
+say "contract-region-elided-query-parse-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "parse", v4_contract_region_elided_query_parse_misses_before))
+say "contract-region-elided-query-hir-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "hir", v4_contract_region_elided_query_hir_misses_before))
+say "contract-region-elided-query-resolve-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "resolve", v4_contract_region_elided_query_resolve_misses_before))
+say "contract-region-elided-query-ty-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "ty", v4_contract_region_elided_query_ty_misses_before))
+say "contract-region-elided-query-mir-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "mir", v4_contract_region_elided_query_mir_misses_before))
+say "contract-region-elided-query-borrowck-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "borrowck", v4_contract_region_elided_query_borrowck_misses_before))
+say "contract-region-elided-query-diagnostics-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "diagnostics", v4_contract_region_elided_query_diagnostics_misses_before))
+say "contract-region-elided-query-editor-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "editor", v4_contract_region_elided_query_editor_misses_before))
+say "contract-region-elided-query-semantic-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "semantic-at", v4_contract_region_elided_query_semantic_misses_before))
+say "contract-region-elided-query-hover-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "hover", v4_contract_region_elided_query_hover_misses_before))
+say "contract-region-elided-query-definition-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "definition-at", v4_contract_region_elided_query_definition_misses_before))
+say "contract-region-elided-query-document-symbols-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "document-symbols", v4_contract_region_elided_query_document_symbols_misses_before))
+say "contract-region-elided-query-completion-recomputations-added=" + word_from_int(v4_contract_region_elided_query_family_miss_delta(v4_contract_region_elided_query_path, "completion", v4_contract_region_elided_query_completion_misses_before))
+say "contract-region-elided-query-all-17-recomputations-positive=" + v4_contract_region_elided_query_bool(v4_contract_region_elided_query_all_recomputations_positive)
+say "contract-region-elided-query-after-diagnostics=" + word_from_int(v4_contract_region_elided_query_after_diag_count)
+if v4_contract_region_elided_query_after_diag_count > 0 {
+    say "contract-region-elided-query-after-message=" + v4_diag_message(v4_diagnostics_diag(v4_contract_region_elided_query_after_diagnostics, 0))
+} else {
+    say "contract-region-elided-query-after-message=none"
+}
+say "contract-region-elided-query-after-choose-status=" + v4_borrowck_result_status(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_choose_result)
+say "contract-region-elided-query-after-observe-status=" + v4_borrowck_result_status(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_observe_result)
+say "contract-region-elided-query-after-source-count=" + word_from_int(v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_elided_query_after_ty, v4_contract_region_elided_query_after_choose_sig))
+say "contract-region-elided-query-after-source0=" + v4_ty_signature_param_name(v4_contract_region_elided_query_after_ty, v4_contract_region_elided_query_after_choose_sig, v4_contract_region_elided_query_after_source0)
+say "contract-region-elided-query-after-call-source-count=" + word_from_int(v4_mir_rvalue_call_borrowed_source_arg_count(v4_contract_region_elided_query_after_mir, v4_contract_region_elided_query_after_observe_body, v4_contract_region_elided_query_after_call))
+say "contract-region-elided-query-after-call-source0=" + v4_mir_rvalue_text(v4_contract_region_elided_query_after_mir, v4_contract_region_elided_query_after_observe_body, v4_contract_region_elided_query_after_call_source0)
+say "contract-region-elided-query-after-semantic=" + v4_semantic_at_type(v4_contract_region_elided_query_after_semantic)
+say "contract-region-elided-query-after-hover=" + v4_hover_type(v4_contract_region_elided_query_after_hover)
+say "contract-region-elided-query-after-definition=" + word_from_int(v4_definition_at_found(v4_contract_region_elided_query_after_definition))
+say v4_lsp_diagnostics_text(v4_contract_region_elided_query_path, v4_contract_region_elided_query_after)

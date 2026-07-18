@@ -54,7 +54,7 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 3 | `prob_when` branching | Not parsed | 🔴 | 📖 V4 |
 | 4 | Pattern destructuring in `when` | V4 lowers tuple, fixed-array, and route/variant payload patterns with refutable-pattern and exhaustiveness diagnostics; broader pattern forms still expand | 🟡 | 📖 V4 |
 | 5 | Squadron concurrency: `xm3`, `sortie`, `formation`, `briefing room`, `wingman` | Only `std::thread` | 🔴 | 📖 V4 |
-| 6 | Full borrow checker: `lend`/`lend mut`, `'a` lifetimes, `Shared<T>`/`Weak<T>` | v0.13.x has Phase-1 mut/move checking; V4 now carries explicit named ordinary-task lend contracts and returned-loan provenance plus the partial Meiya work itemized in §4, but does not yet solve general regions or runtime shared ownership | 🟡 | 📖 split into Phase-1 (current) + V4 sections |
+| 6 | Full borrow checker: `lend`/`lend mut`, `'a` lifetimes, `Shared<T>`/`Weak<T>` | v0.13.x has Phase-1 mut/move checking; V4 now carries explicit ordinary-task outlives bounds with reflexive/transitive cycle-safe closure, controlled named/elided multi-source returned loans, bounded cache/resource contracts, projected-holder reborrows, generic lend-substitution rejection, and the partial Meiya provenance/liveness work itemized in §4. Body-derived/general lexical inference, actual aggregate loan storage, loop fixed points, `'static`, general arena reclamation, and runtime shared ownership remain. Method/dynamic/callback/extern/FFI returned-loan forwarding is rejected, and V4 closure expression syntax is absent | 🟡 | 📖 split into Phase-1 (current) + V4 sections |
 | 7 | `dyn Doctrine` dynamic dispatch | V4 now carries `dyn Doctrine` type text, unknown-doctrine/object-safety diagnostics, concrete and generic coercion checks, MIR method-call facts, and editor facts; real fat-pointer/vtable backend dispatch still expands | 🟡 | 📖 V4 |
 | 8 | Operator doctrines `Ord`, `Index`, `IndexMut` | Only Add/Sub/Mul/Div/Neg/Eq wired | 🟡 | 🛠 fix if cheap, else 📖 V4 |
 | 9 | `eventually` LIFO deferred execution | Emitted as inline block | 🟡 | 📖 clarify current; full deferred V4 |
@@ -283,15 +283,42 @@ V4 (partially implemented unless marked otherwise):
 | `lend p: T` immutable borrow parameter | ⚠️ | 📖 V4 — TY/MIR carry the contract; Meiya rejects immutable-lend writes and moves out of borrowed params |
 | `lend mut p: T` exclusive mutable borrow | ⚠️ | 📖 V4 — TY/MIR carry the contract; mutable lends may write but still cannot be moved/dropped by the callee; explicit `LoanMut` paths reject overlapping live explicit loans and owner-side observations |
 | `lend value` / `lend mut value` expressions | ⚠️ | 📖 V4 — MIR lowers explicit borrow rvalues and typed field/index projections through loan holders; Meiya permits writes only through `lend mut`, rejects non-Copy moves out through either holder mode, tracks projected mutable writes for liveness, rejects aliased `lend mut` call arguments and owner reads during live mutable loans, and expires sequential call-only lends at the call boundary |
-| Borrowed returns `-> lend T` / `-> lend mut T` | ⚠️ | 📖 V4 — TY/MIR carry elided and explicit `-> lend 'a T` / `-> lend mut 'a T` shapes. A named return selects exactly one same-lifetime borrow-capable ordinary-task parameter; Meiya validates wrong-lifetime origins and follows projections, holders, nested calls, reordered named args, and same-source acyclic CFG joins. Caller MIR erases the callee binder while `ReturnLoan` / `ReturnLoanMut` owner paths survive snapshots and invalidation. Ambiguous calls keep every possible source live; callee-owned escape, immutable-to-mutable upgrades, malformed targets, repeated named sources, `'static` contracts, and named-lend storage diagnose. Multi-source regions, method/dynamic/callback forwarding, aggregate storage, and loop fixed points remain |
+| Borrowed returns `-> lend T` / `-> lend mut T` | ⚠️ | 📖 V4 — TY/MIR carry elided and explicit `-> lend 'a T` / `-> lend mut 'a T` shapes. Ordinary-task named returns deterministically select every mode-compatible parameter whose declared lifetime equals or outlives the return lifetime; elided returns select every mode-compatible borrowed parameter. Shared returns accept `lend` and `lend mut`, while mutable returns accept only `lend mut`. MIR owns the deterministic signature-source-to-call-argument candidate mapping, not owner provenance; Meiya resolves concrete caller paths through projections, scalar holders, projected scalar-holder reborrows, statically resolved ordinary calls, reordered args, and acyclic CFG joins, then emits `ReturnLoan` / `ReturnLoanMut`. Those paths keep all candidate owners live through the final reachable holder use and survive snapshots/invalidation. Callee-owned escape, immutable-to-mutable upgrades, missing outlives relations, malformed targets, lend-bearing generic substitutions, `'static`, and aggregate storage diagnose. Method/dynamic/callback/extern/FFI forwarding calls are explicitly rejected; closure forwarding has no V4 expression syntax; loop fixed points remain |
 | Borrow-vs-move rules | ⚠️ | 📖 V4 — borrowed-parameter move blocking plus first-pass non-lexical explicit-loan rewrite and owned-move conflicts, including call arguments, all-path CFG repair proof for partial moves, statement-order-aware linear moved-local drop suppression, all-exit CFG drop suppression, and conditional `DropIf` markers for mixed moved/initialized exits with loop backedge state preservation, exist; full region inference still expands |
-| Lifetime parameters `'a` | ⚠️ | 📖 V4 — lexer/parser/TY preserve named lifetime binders on ordinary-task lend parameters and returns; semantic/hover/definition facts, named-argument navigation, spanned diagnostics, editor snapshots, and query invalidation are covered. `'_` is elided; `'static` / `'_` declarations are reserved. General outlives solving and stored lifetime-bearing values remain |
-| Inferred lifetimes / elision | ⚠️ | 📖 V4 — direct/local reloan returns and ordinary calls with exactly one borrow-capable source use first-pass unique-source elision. Source selection deliberately does not compare top-level pointee types, so projected returns cannot be tied to a decoy parameter. Ambiguous calls are conservative, while multi-source joins and loop-carried fixed points still require region sets |
+| Lifetime parameters `'a` | ⚠️ | 📖 V4 — lexer/parser/TY preserve named lifetime binders and explicit ordinary-task `'long: 'short` relations on lend parameters/returns. Declared binders are reflexive, direct edges close transitively, cycles produce mutual reachability, and an iterative worklist handles converging/long graphs without recursive stack growth. Semantic/hover/definition facts cover declarations and outlives-bound references; repeated or forward bound references resolve to the declared binder, and distinct spans survive editor snapshots. Spanned diagnostics and full query invalidation/recomputation are covered. `'_` remains elided and cannot be declared or used as a bound; `'static` ordinary-task borrowed contracts remain reserved. Body-derived/general lexical solving and stored lifetime-bearing values remain |
+| Inferred lifetimes / elision | ⚠️ | 📖 V4 — direct/local reloan returns and statically resolved ordinary calls use deterministic signature-derived source sets. Elided shared returns collect all `lend`/`lend mut` parameters and elided mutable returns collect only `lend mut` parameters; named returns apply the same mode rule plus reflexive/direct/transitive outlives eligibility. Candidate selection deliberately ignores top-level pointee type. Stored elided multi-owner results keep every candidate owner live through final reachable holder use, and source edits that change the eligible set invalidate and recompute TY/MIR/borrowck/diagnostic/editor queries. This is not body-derived/general lexical inference; aggregate storage, unsupported forwarding, and loop-carried fixed points remain |
 | `Shared<T>` ref-counted | ⚠️ | 📖 V4 — TY/MIR recognize `Shared<T>`, `Shared<T>::new`, `.clone()`, and `.downgrade()` with receiver operands preserved as read-only call arguments; runtime counters/drop glue still expand |
 | `Weak<T>` non-owning observer | ⚠️ | 📖 V4 — TY/MIR recognize `Weak<T>` and `.upgrade()` with receiver operands preserved; direct `.borrow()` / `.borrow_mut()` / `.get_mut()` on `Weak<T>` now diagnose before Meiya trusts a view |
 | `.borrow()` / `.borrow_mut()` / `.get_mut()` | ⚠️ | 📖 V4 — Shared methods lower to `lend T`, `result<SharedMut<T>,BorrowError>`, and `maybe<lend mut T>`; escaping actual `SharedMut<T>` guards are rejected without rejecting `result<SharedMut<T>,BorrowError>` error paths, runtime guard state remains |
 | `trust me "reason" on my honor as .level { }` honor levels (cadet/pilot/ace/commander/humanity) | ⚠️ | 📖 V4 — MIR validates the known honor ladder, rejects unknown levels, permits raw-pointer reads at `.cadet+`, requires `.pilot+` for raw-pointer writes, and requires `.ace+` for pointer offset/cast; inline asm and the full higher-rank operation matrix still expand |
 | `direct_order [arch] { asm }` inline assembly | ❌ | 📖 V4 |
+
+Contract-region checkpoint (**⚠️ V4 partial**): TY permits outer ordinary-task
+lend parameters and borrowed returns, but rejects both named and elided lends
+nested inside stored signature types before provenance can be erased. During
+runtime-value aggregate construction, MIR emits compile-time diagnostics for
+lend children in tuple literals, fixed-array literals, repeat-filled fixed
+arrays, list literals, shape values, route payloads, `some(...)`, `ok(...)`,
+`err(...)`, map keys, and map values. Generic calls also reject lend-bearing
+type-parameter substitutions before a loan can be concealed in an instantiated
+aggregate result. Source edits invalidate all 17 report fields, comprising 14 concrete query families
+plus three aggregate totals (`all`/`query`, `core`, and
+`editor`); subsequent requests explicitly recompute every concrete family and
+refresh the totals. Contract-boundary
+diagnostics retain normalized source paths and exact `start:end` byte ranges.
+
+The resource contract is reuse, not a claim of a complete solver. Lifetime
+closure runs on high-water queue/visited scratch. Eligible returned-loan formal
+parameter ids use a bounded flat ring keyed by immutable `(ty_id, sig_id)`;
+ordered payloads avoid per-signature child arrays, known-empty rows remain
+observable, eviction rebuilds deterministically, and TY snapshot restore
+invalidates matching rows. Meiya bounds its integer-word, canonical-value, and
+exact-input caches as rings and proves eviction/rebuild plus hot-entry reuse.
+The bootstrap runtime grows its array-handle table dynamically, while general
+append-only arena reclamation remains open. This remains signature-derived source sets plus partial
+non-lexical liveness. Body-derived/general lexical region inference, aggregate
+loan storage, loop-carried fixed points, `'static` classification, and
+production backend completion remain open.
 
 ---
 
@@ -429,7 +456,7 @@ V4 (partially implemented unless marked otherwise):
 | `done` block delimiter | ✅ | ✅ |
 | `\|\|` xm3 branch separator | ❌ | 📖 V4 (lexer treats as logical OR; xm3 not parsed) |
 | `@identifier` annotation | ✅ | ✅ |
-| `'identifier` lifetime | ⚠️ | 📖 V4 — tokenized and preserved through ordinary-task TY/editor/query contracts; full region grammar and solving remain |
+| `'identifier` lifetime | ⚠️ | 📖 V4 — tokenized and preserved through ordinary-task binders, outlives-bound references, and TY/editor/query contracts; broader region grammar and solving remain |
 | `prob[lo..hi]` lex form | ❌ | 📖 V4 |
 | Number suffixes `42u`, `3.14f`, `42t`, `999b` | ⚠️ | 📖 V4 — lexer/TY/value normalization smokes exist; production backend semantics still expand |
 
@@ -755,7 +782,7 @@ This is where V4 will need test coverage. **Out of scope for this audit; surface
 - §2.4 mood: 0 tests
 - §3.1 xm3: 0 tests
 - §3.2 squadron: 0 tests
-- §4 borrow checker: V4 CI registers borrow/lend/lifetime/shared smokes, including explicit named returned-region projection/holder/nested-call provenance, conservative ambiguous sources, malformed/storage diagnostics with spans, editor/LSP navigation, invalidation recomputation, and snapshot restore; multi-source/loop region solving and runtime ownership tests remain
+- §4 borrow checker: registered V4 contract-region smokes cover repeated-source named/elided sets; iterative explicit/reflexive/transitive/cyclic outlives closure with converging-graph and long-chain stress on high-water scratch; bounded flat per-`(ty_id,sig_id)` returned-source caching with known-empty, eviction, and restore rebuild contracts; shared/mutable mode filtering; MIR candidate mappings versus Meiya-owned `ReturnLoan` paths; projection/scalar-holder/projected-reborrow/statically resolved ordinary-call/reordered-argument/acyclic-join provenance; named and elided all-candidate final-use liveness; generic lend-substitution rejection; nested named/elided signature-storage rejection; construction-time tuple/fixed-array/repeat/list/shape/route/`some`/`ok`/`err`/map-key/map-value rejection; generation-local provenance scratch plus bounded integer/canonical cache churn and rebuild; stable diagnostic source paths/ranges; explicit method/dynamic/callback/extern/FFI forwarding rejection; and poisoned-arena snapshot restore plus invalidation/recomputation assertions covering all 17 report fields (14 concrete query families and three aggregate totals: `all`/`query`, `core`, and `editor`) for outlives-bound references and source-set edits. Remaining gaps include body-derived/general lexical inference, lifetime-bearing aggregate/shape/route/container storage, closure forwarding (V4 closure expression syntax is absent), loop-carried fixed points, `'static`, general arena reclamation, runtime ownership depth, and production backend completion
 - §5.2 foreshadow: only `audit_demo.fk`, no error cases
 - §5.3 routes: V4 smokes now cover route/variant constructors, exhaustive `when`, `check route`, alias-backed diagnostics, and route-locked `only on`; full visual-novel route semantics still expand
 - §5.4 anime operators: `tests/anime.fk` only
