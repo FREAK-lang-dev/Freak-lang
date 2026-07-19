@@ -366,7 +366,8 @@ task v4_borrowck_rvalue_transfer_kind(mir_id: int, body_id: int, rvalue_id: int)
     if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
         pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
         if v4_ty_is_closure_type(value_ty) {
-            if v4_ty_closure_doctrine(value_ty) == v4_ty_closure_one_shot {
+            pilot closure_mode = v4_ty_closure_mode(value_ty)
+            if closure_mode == v4_ty_closure_mode_move or closure_mode == v4_ty_closure_mode_mut {
                 give back v4_borrowck_path_move
             }
             give back v4_borrowck_path_copy
@@ -2221,7 +2222,13 @@ task v4_borrowck_holder_alias_from_stmt(mir_id: int, body_id: int, stmt_id: int,
     if rvalue_id < 0 {
         give back ""
     }
-    if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+    pilot alias_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot carries_holder = v4_ty_is_lend_type(alias_ty)
+    if v4_ty_is_closure_type(alias_ty) {
+        pilot closure_mode = v4_ty_closure_mode(alias_ty)
+        carries_holder = closure_mode == v4_ty_closure_mode_borrow or closure_mode == v4_ty_closure_mode_mut
+    }
+    if not carries_holder {
         give back ""
     }
     if not v4_borrowck_rvalue_returns_holder(mir_id, body_id, rvalue_id, holder) {

@@ -4371,6 +4371,90 @@ task v4_ty_infer_arrow_expr_return(stream_id: int, start_token: int, end_token: 
     give back v4_ty_unknown
 }
 
+task v4_ty_closure_param_type_for_name(ty_id: int, hir_item: int, closure_id: int, param_name: word) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot owner_sig = v4_ty_signature_for_hir_item(ty_id, hir_item)
+    pilot param_id = 0
+    pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+    repeat until param_id >= param_count {
+        if v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id) == param_name {
+            pilot param_ty = v4_hir_closure_param_type(hir_id, hir_item, closure_id, param_id)
+            if param_ty == "" {
+                give back v4_ty_unknown
+            }
+            if owner_sig >= 0 {
+                param_ty = v4_ty_canonical_type_in_signature(ty_id, owner_sig, param_ty)
+            }
+            give back param_ty
+        }
+        param_id += 1
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_infer_closure_block_return(ty_id: int, hir_item: int, closure_id: int, stream_id: int, start_token: int, end_token: int) -> word {
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_value(stream_id, idx) == "give" {
+            pilot back_token = v4_ty_next_nontrivia(stream_id, idx + 1, end_token)
+            if back_token < end_token and v4_lex_token_value(stream_id, back_token) == "back" {
+                pilot expr_token = v4_ty_next_nontrivia(stream_id, back_token + 1, end_token)
+                if expr_token >= end_token or v4_lex_token_value(stream_id, expr_token) == "}" {
+                    give back v4_ty_void
+                }
+                pilot inferred = v4_ty_infer_arrow_expr_return(stream_id, expr_token, end_token)
+                if inferred != v4_ty_unknown {
+                    give back inferred
+                }
+                pilot token_type = v4_lex_token_type(stream_id, expr_token)
+                if token_type == v4_tok_ident or token_type == v4_tok_keyword {
+                    pilot after_expr = v4_ty_next_nontrivia(stream_id, expr_token + 1, end_token)
+                    if after_expr >= end_token or v4_lex_token_value(stream_id, after_expr) == ";" or v4_lex_token_value(stream_id, after_expr) == "}" {
+                        give back v4_ty_closure_param_type_for_name(ty_id, hir_item, closure_id, v4_lex_token_value(stream_id, expr_token))
+                    }
+                }
+                give back v4_ty_unknown
+            }
+        }
+        idx += 1
+    }
+    give back v4_ty_void
+}
+
+task v4_ty_validate_closure_params(ty_id: int) -> void {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back
+    }
+    pilot hir_item = 0
+    pilot hir_count = v4_hir_item_count(hir_id)
+    repeat until hir_item >= hir_count {
+        pilot closure_id = 0
+        pilot closure_count = v4_hir_closure_count(hir_id, hir_item)
+        repeat until closure_id >= closure_count {
+            pilot param_id = 0
+            pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+            repeat until param_id >= param_count {
+                pilot param_name = v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id)
+                if param_name != "" and param_name != "_" {
+                    pilot earlier_id = 0
+                    repeat until earlier_id >= param_id {
+                        if v4_hir_closure_param_name(hir_id, hir_item, closure_id, earlier_id) == param_name {
+                            v4_ty_add_error_diag(ty_id, v4_hir_closure_param_span(hir_id, hir_item, closure_id, param_id), "Yuuko found a repeated closure parameter", "rename the second " + param_name + " parameter so every role in the closure cast is unambiguous")
+                            earlier_id = param_id
+                        } else {
+                            earlier_id += 1
+                        }
+                    }
+                }
+                param_id += 1
+            }
+            closure_id += 1
+        }
+        hir_item += 1
+    }
+}
+
 task v4_ty_signature_for_hir_item(ty_id: int, hir_item: int) -> int {
     pilot sig_id = 0
     pilot sig_count = v4_ty_signature_count(ty_id)
@@ -4419,9 +4503,12 @@ task v4_ty_closure_type_at(ty_id: int, hir_item: int, closure_id: int) -> word {
     }
 
     pilot return_ty = v4_ty_void
-    if v4_hir_closure_body_kind(hir_id, hir_item, closure_id) == "expr" {
-        pilot stream_id = v4_hir_item_stream_id(hir_id)
+    pilot body_kind = v4_hir_closure_body_kind(hir_id, hir_item, closure_id)
+    pilot stream_id = v4_hir_item_stream_id(hir_id)
+    if body_kind == "expr" {
         return_ty = v4_ty_infer_arrow_expr_return(stream_id, v4_hir_closure_body_start_token(hir_id, hir_item, closure_id), v4_hir_closure_body_end_token(hir_id, hir_item, closure_id))
+    } else if body_kind == "block" {
+        return_ty = v4_ty_infer_closure_block_return(ty_id, hir_item, closure_id, stream_id, v4_hir_closure_body_start_token(hir_id, hir_item, closure_id), v4_hir_closure_body_end_token(hir_id, hir_item, closure_id))
     }
     give back out + ")->" + return_ty
 }
@@ -10887,6 +10974,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
         symbol_idx += 1
     }
 
+    v4_ty_validate_closure_params(ty_id)
     v4_ty_validate_lifetime_contracts(ty_id)
     v4_ty_validate_repr_contracts(ty_id)
     v4_ty_validate_layout_contracts(ty_id)

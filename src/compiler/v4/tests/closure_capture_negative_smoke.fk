@@ -28,7 +28,35 @@ task v4_closure_capture_negative_source() -> word {
     src = src + "    threshold = 101\n"
     src = src + "    pilot observed = check(102)\n"
     src = src + "}\n"
+    src = src + "task borrow_alias_write_bad() -> void {\n"
+    src = src + "    pilot threshold: int = 100\n"
+    src = src + "    pilot check = |x: int| => x > threshold\n"
+    src = src + "    pilot alias = check\n"
+    src = src + "    threshold = 101\n"
+    src = src + "    pilot observed = alias(102)\n"
+    src = src + "}\n"
+    src = src + "task mut_transfer_bad() -> void {\n"
+    src = src + "    pilot count: int = 0\n"
+    src = src + "    pilot counter = mut |_| " + "{" + " count += 1 " + "}" + "\n"
+    src = src + "    pilot alias = counter\n"
+    src = src + "    counter()\n"
+    src = src + "}\n"
+    src = src + "task duplicate_param_bad() -> void {\n"
+    src = src + "    pilot duplicate = |x: int, x: int| => x\n"
+    src = src + "}\n"
     give back src
+}
+
+task v4_closure_capture_negative_has_ty_message(ty_id: int, wanted: word) -> bool {
+    pilot diag_id = 0
+    pilot diag_count = v4_ty_diag_count(ty_id)
+    repeat until diag_id >= diag_count {
+        if v4_diag_message(v4_ty_diag(ty_id, diag_id)) == wanted {
+            give back true
+        }
+        diag_id += 1
+    }
+    give back false
 }
 
 task v4_closure_capture_negative_has_mir_message(mir_id: int, wanted: word) -> bool {
@@ -55,6 +83,19 @@ task v4_closure_capture_negative_has_borrow_message(borrow_id: int, wanted: word
     give back false
 }
 
+task v4_closure_capture_negative_borrow_message_count(borrow_id: int, wanted: word) -> int {
+    pilot count = 0
+    pilot diag_id = 0
+    pilot diag_count = v4_borrowck_diag_count(borrow_id)
+    repeat until diag_id >= diag_count {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == wanted {
+            count += 1
+        }
+        diag_id += 1
+    }
+    give back count
+}
+
 task v4_closure_capture_negative_bool(value: bool) -> word {
     if value { give back "true" }
     give back "false"
@@ -74,6 +115,7 @@ pilot v4_closure_capture_negative_ty = v4_ty_lower_resolve(0, v4_closure_capture
 pilot v4_closure_capture_negative_mir = v4_mir_lower_ty(0, v4_closure_capture_negative_ty)
 pilot v4_closure_capture_negative_borrow = v4_borrowck_check_mir(0, v4_closure_capture_negative_mir)
 say "closure-negative-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_closure_capture_negative_tree))
+say "closure-negative-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_closure_capture_negative_ty))
 say "closure-negative-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_closure_capture_negative_mir))
 say "closure-negative-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_closure_capture_negative_borrow))
 say "closure-negative-copy-message=" + v4_closure_capture_negative_bool(v4_closure_capture_negative_has_mir_message(v4_closure_capture_negative_mir, "Yuuko cannot copy this closure capture"))
@@ -81,6 +123,11 @@ say "closure-negative-immutable-message=" + v4_closure_capture_negative_bool(v4_
 say "closure-negative-oneshot-status=" + v4_closure_capture_negative_status(v4_closure_capture_negative_borrow, v4_closure_capture_negative_resolve, "oneshot_bad")
 say "closure-negative-mut-alias-status=" + v4_closure_capture_negative_status(v4_closure_capture_negative_borrow, v4_closure_capture_negative_resolve, "mut_alias_bad")
 say "closure-negative-borrow-write-status=" + v4_closure_capture_negative_status(v4_closure_capture_negative_borrow, v4_closure_capture_negative_resolve, "borrow_write_bad")
+say "closure-negative-borrow-alias-status=" + v4_closure_capture_negative_status(v4_closure_capture_negative_borrow, v4_closure_capture_negative_resolve, "borrow_alias_write_bad")
+say "closure-negative-mut-transfer-status=" + v4_closure_capture_negative_status(v4_closure_capture_negative_borrow, v4_closure_capture_negative_resolve, "mut_transfer_bad")
+say "closure-negative-duplicate-param-message=" + v4_closure_capture_negative_bool(v4_closure_capture_negative_has_ty_message(v4_closure_capture_negative_ty, "Yuuko found a repeated closure parameter"))
 say "closure-negative-oneshot-message=" + v4_closure_capture_negative_bool(v4_closure_capture_negative_has_borrow_message(v4_closure_capture_negative_borrow, "Meiya remembers the field you already moved"))
 say "closure-negative-mut-read-message=" + v4_closure_capture_negative_bool(v4_closure_capture_negative_has_borrow_message(v4_closure_capture_negative_borrow, "Meiya refuses observation through an exclusive lend"))
 say "closure-negative-borrow-write-message=" + v4_closure_capture_negative_bool(v4_closure_capture_negative_has_borrow_message(v4_closure_capture_negative_borrow, "Meiya refuses this rewrite while the value is borrowed"))
+say "closure-negative-move-message-count=" + word_from_int(v4_closure_capture_negative_borrow_message_count(v4_closure_capture_negative_borrow, "Meiya remembers the field you already moved"))
+say "closure-negative-rewrite-message-count=" + word_from_int(v4_closure_capture_negative_borrow_message_count(v4_closure_capture_negative_borrow, "Meiya refuses this rewrite while the value is borrowed"))

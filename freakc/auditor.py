@@ -2018,6 +2018,7 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 'pilot v4_node_closure = "ClosureExpr"',
                 "task v4_parse_parse_closures_in_item(",
+                'token_value == "\\n" and depth == 0',
                 "expected | after closure parameters",
                 "expected expression after closure =>",
             ),
@@ -2037,6 +2038,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 'pilot v4_ty_closure_one_shot = "OneShot"',
                 "task v4_ty_closure_type_at(",
                 "task v4_ty_closure_as_task_type(",
+                "task v4_ty_infer_closure_block_return(",
+                "task v4_ty_validate_closure_params(",
             ),
         ),
         (
@@ -2049,6 +2052,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 'pilot v4_mir_rvalue_capture_copy = "CaptureCopy"',
                 'pilot v4_mir_rvalue_capture_move = "CaptureMove"',
                 "task v4_mir_try_lower_closure_expr(",
+                "task v4_mir_closure_local_decl_name_token(",
+                "task v4_mir_closure_identifier_is_member_name(",
                 "Yuuko cannot copy this closure capture",
                 "Meiya keeps this closure capture immutable",
             ),
@@ -2058,6 +2063,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "freak_borrowck",
             (
                 "task v4_borrowck_stored_closure_holder(",
+                "task v4_borrowck_holder_alias_from_stmt(",
                 "task v4_borrowck_collect_call_callee_paths(",
                 "v4_ty_closure_one_shot",
                 "v4_ty_closure_mut_callable",
@@ -2068,6 +2074,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "freak_editor",
             (
                 "task v4_editor_local_type_display_at(",
+                "task v4_editor_closure_param_detail(",
                 'give back "capture " + capture_mode + " " + display',
             ),
         ),
@@ -2084,19 +2091,19 @@ def audit_conformance(paths: List[Path]) -> int:
     closure_smoke_needles = (
         (
             repo / "src" / "compiler" / "v4" / "tests" / "closure_capture_smoke.fk",
-            ("closure-capture-mir-mut-kind=", "closure-capture-status="),
+            ("closure-capture-block-ty=", "closure-capture-shadow-count=", "closure-capture-member-name=", "closure-capture-status="),
         ),
         (
             repo / "src" / "compiler" / "v4" / "tests" / "closure_capture_negative_smoke.fk",
-            ("closure-negative-oneshot-message=", "closure-negative-mut-read-message="),
+            ("closure-negative-borrow-alias-status=", "closure-negative-mut-transfer-status=", "closure-negative-duplicate-param-message="),
         ),
         (
             repo / "src" / "compiler" / "v4" / "tests" / "closure_recovery_smoke.fk",
-            ("closure-recovery-all-malformed-recorded=", "closure-recovery-survivor-present="),
+            ("closure-recovery-all-malformed-recorded=", "closure-recovery-following-closure-preserved=", "closure-recovery-survivor-present="),
         ),
         (
             repo / "src" / "compiler" / "v4" / "tests" / "closure_capture_editor_smoke.fk",
-            ("closure-editor-invalidation-matches-diff=", "closure-editor-after-lsp-completion="),
+            ("closure-editor-param-semantic=", "closure-editor-param-definition-matches=", "closure-editor-param-lsp-completion=", "closure-editor-invalidation-matches-diff="),
         ),
     )
     for smoke_path, needles in closure_smoke_needles:
@@ -2116,7 +2123,10 @@ def audit_conformance(paths: List[Path]) -> int:
             '"fixture": "closure_capture_negative_smoke.fk"',
             '"fixture": "closure_recovery_smoke.fk"',
             '"fixture": "closure_capture_editor_smoke.fk"',
-            '"closure-negative-borrow-diagnostics=5"',
+            '"closure-negative-borrow-diagnostics=8"',
+            '"closure-capture-block-ty=closure[Callable,borrow](value:int)->int"',
+            '"closure-recovery-following-closure-preserved=true"',
+            '"closure-editor-param-definition-matches=true"',
             '"closure-editor-invalidation-matches-diff=true"',
         ):
             if needle not in closure_harness_src:
