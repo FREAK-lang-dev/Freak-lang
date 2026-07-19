@@ -158,11 +158,15 @@ Recursive lookups form an implicit dependency graph. Meiya discovers that graph
 with an iterative memo worklist, records reverse dependency edges in per-memo
 adjacency lists, and schedules only dependants of changed memos in deterministic
 waves, so a long acyclic holder chain cannot consume the native call stack or
-force an all-memo replay.
+force an all-memo replay. A solved-memo frontier also seeds later top-level
+queries from only the newly discovered roots; queued-state cleanup and empty-memo
+finalization walk that same frontier instead of every memo accumulated so far.
+Generation-stamped per-body memo chains keep each root lookup local to its MIR
+body rather than scanning every previously solved body in the file.
 One bounded phase propagates concrete owner paths, every unresolved empty memo
 (including a source-less strongly connected component) is then made opaque, and
 a second bounded phase propagates that opacity. Each phase is limited to
-`memo_count + 1` rounds and a monotonic revision counter detects convergence
+`new_memo_count + 1` rounds and a monotonic revision counter detects convergence
 without rescanning all provenance states.
 An identity cycle is stable, while a projected self-cycle that would grow an
 owner path remains opaque. Failure to converge fails closed by making the
@@ -176,6 +180,9 @@ telemetry, while truncated v2 telemetry records are rejected. CFG block
 reachability, holder liveness, and holder-alias expansion use explicit
 cycle-safe worklists; a 64-diamond CFG
 smoke proves forward/reverse reachability without recursive stack growth.
+A 256-root solver smoke drives one valid MIR loan through distinct top-level
+use-site keys and pins 256 solves to 512 processed work items, crossing the old
+cumulative-replay failure threshold without unrelated global symbol-table stress.
 Active scratch counts reset at generation boundaries and are bounded by the
 active generation's visited provenance graph. State, source-row, and memo arrays
 reuse high-water capacity across recomputation without historical growth, while

@@ -687,10 +687,15 @@ return its partial fact, so neither a cycle nor a long acyclic chain consumes
 the native call stack. Every lookup records a reverse dependency edge in a
 per-memo adjacency list. Meiya then performs two deterministic monotonic phases
 whose worklists schedule only dependants of a memo whose revision changed. The
-source phase unions concrete
+solver retains a solved-memo frontier between top-level provenance queries, so
+later independent roots seed discovery, queued-state cleanup, finalization, and
+both propagation phases only from newly added memos rather than replaying the
+entire generation. Generation-stamped per-body memo chains keep root lookup
+proportional to the memo count in that MIR body instead of every prior body in
+the file. The source phase unions concrete
 owners until the revision counter stabilizes; every still-empty memo is
 conservatively made opaque; the opacity phase propagates that state through the
-same graph. Each phase may execute at most `memo_count + 1` deterministic waves.
+same graph. Each phase may execute at most `new_memo_count + 1` deterministic waves.
 Identity self-edges are no-ops, while projected self-edges that would grow a
 path become opaque. Hitting the round bound marks the whole generation opaque.
 
@@ -733,8 +738,7 @@ Unsupported forwarding is also an enforced diagnostic boundary. Returned loans
 through methods, dynamic dispatch, plain callbacks, extern calls, and FFI
 callbacks are rejected rather than silently accepted. Closure expressions now
 lower explicit, lexical-scope-aware capture environments, but borrowed-return
-closure contracts and forwarding remain unsupported. Loop-carried provenance
-fixed points are implemented for scalar
+closure contracts and forwarding remain unsupported. Loop-carried provenance fixed points are implemented for scalar
 holders and statically resolved ordinary calls; body-derived source discovery,
 general lexical region inference, `'static` storage classification, aggregate
 loan storage, and backend lowering remain future Meiya work. This checkpoint is a partial

@@ -1080,7 +1080,9 @@ the rest is V4.
 > path. Per-borrow round/limit/solve/convergence/resource/work telemetry survives
 > snapshot v2 restore; legacy v1 snapshots import with default telemetry, while
 > truncated v2 records are rejected. Executable smokes force both the
-> convergence and resource branches. CFG and holder-alias reachability use
+> convergence and resource branches. A solved-memo frontier keeps later
+> independent returned-loan roots from replaying prior fixed-point work; a
+> 256-root smoke pins that path to 512 processed items. CFG and holder-alias reachability use
 > explicit cycle-safe worklists, with a 64-diamond fixture guarding against
 > recursive stack growth. Meiya rejects
 > callee-owned escapes,

@@ -59,7 +59,11 @@ pilot v4_borrowck_provenance_memo_use_stmts = 0
 pilot v4_borrowck_provenance_memo_rvalues = 0
 pilot v4_borrowck_provenance_memo_states = 0
 pilot v4_borrowck_provenance_memo_provenance_ids = 0
+pilot v4_borrowck_provenance_memo_next_by_body = 0
+pilot v4_borrowck_provenance_memo_body_heads = 0
+pilot v4_borrowck_provenance_memo_body_head_generations = 0
 pilot v4_borrowck_provenance_memo_active = 0
+pilot v4_borrowck_provenance_solved_memo_active = 0
 pilot v4_borrowck_provenance_memo_hits_value = 0
 pilot v4_borrowck_provenance_dependency_sources = 0
 pilot v4_borrowck_provenance_dependency_dependents = 0
@@ -133,6 +137,9 @@ task v4_borrowck_init() -> void {
         v4_borrowck_provenance_memo_rvalues = array_new()
         v4_borrowck_provenance_memo_states = array_new()
         v4_borrowck_provenance_memo_provenance_ids = array_new()
+        v4_borrowck_provenance_memo_next_by_body = array_new()
+        v4_borrowck_provenance_memo_body_heads = array_new()
+        v4_borrowck_provenance_memo_body_head_generations = array_new()
         v4_borrowck_provenance_dependency_sources = array_new()
         v4_borrowck_provenance_dependency_dependents = array_new()
         v4_borrowck_provenance_dependency_next = array_new()
@@ -733,6 +740,7 @@ task v4_borrowck_provenance_scratch_reset() -> void {
     v4_borrowck_provenance_state_active = 0
     v4_borrowck_provenance_source_active = 0
     v4_borrowck_provenance_memo_active = 0
+    v4_borrowck_provenance_solved_memo_active = 0
     v4_borrowck_provenance_memo_hits_value = 0
     v4_borrowck_provenance_dependency_active = 0
     v4_borrowck_provenance_worklist_active = 0
@@ -1018,13 +1026,43 @@ task v4_borrowck_provenance_union_into(provenance_id: int, incoming_id: int) -> 
     }
 }
 
+task v4_borrowck_provenance_memo_body_head(body_id: int) -> int {
+    if body_id < 0 or body_id >= array_len(v4_borrowck_provenance_memo_body_heads) {
+        give back 0 - 1
+    }
+    if body_id >= array_len(v4_borrowck_provenance_memo_body_head_generations) {
+        give back 0 - 1
+    }
+    if word_to_int(array_get(v4_borrowck_provenance_memo_body_head_generations, body_id)) != v4_borrowck_provenance_generation_value {
+        give back 0 - 1
+    }
+    give back word_to_int(array_get(v4_borrowck_provenance_memo_body_heads, body_id))
+}
+
+task v4_borrowck_provenance_memo_index_insert(body_id: int, memo_id: int) -> void {
+    v4_borrowck_provenance_scratch_store_integer(v4_borrowck_provenance_memo_next_by_body, memo_id, 0 - 1)
+    if body_id < 0 {
+        give back
+    }
+    repeat until array_len(v4_borrowck_provenance_memo_body_heads) > body_id {
+        array_push(v4_borrowck_provenance_memo_body_heads, word_from_int(0 - 1))
+    }
+    repeat until array_len(v4_borrowck_provenance_memo_body_head_generations) > body_id {
+        array_push(v4_borrowck_provenance_memo_body_head_generations, word_from_int(0 - 1))
+    }
+    pilot previous_head = v4_borrowck_provenance_memo_body_head(body_id)
+    array_set(v4_borrowck_provenance_memo_next_by_body, memo_id, word_from_int(previous_head))
+    array_set(v4_borrowck_provenance_memo_body_heads, body_id, word_from_int(memo_id))
+    array_set(v4_borrowck_provenance_memo_body_head_generations, body_id, word_from_int(v4_borrowck_provenance_generation_value))
+}
+
 task v4_borrowck_provenance_memo_lookup(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int) -> int {
-    pilot memo_id = 0
-    repeat until memo_id >= v4_borrowck_provenance_memo_active {
+    pilot memo_id = v4_borrowck_provenance_memo_body_head(body_id)
+    repeat until memo_id < 0 {
         if word_to_int(array_get(v4_borrowck_provenance_memo_mir_ids, memo_id)) == mir_id and word_to_int(array_get(v4_borrowck_provenance_memo_body_ids, memo_id)) == body_id and word_to_int(array_get(v4_borrowck_provenance_memo_use_stmts, memo_id)) == use_stmt and word_to_int(array_get(v4_borrowck_provenance_memo_rvalues, memo_id)) == rvalue_id {
             give back memo_id
         }
-        memo_id += 1
+        memo_id = word_to_int(array_get(v4_borrowck_provenance_memo_next_by_body, memo_id))
     }
     give back 0 - 1
 }
@@ -1043,6 +1081,8 @@ task v4_borrowck_provenance_memo_add(mir_id: int, body_id: int, use_stmt: int, r
     v4_borrowck_provenance_scratch_store_integer(v4_borrowck_provenance_memo_provenance_ids, memo_id, provenance_id)
     v4_borrowck_provenance_scratch_store_integer(v4_borrowck_provenance_dependency_heads, memo_id, 0 - 1)
     v4_borrowck_provenance_scratch_store_integer(v4_borrowck_provenance_dependency_tails, memo_id, 0 - 1)
+    v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_worklist_queued, memo_id, "false")
+    v4_borrowck_provenance_memo_index_insert(body_id, memo_id)
     v4_borrowck_provenance_memo_active += 1
     v4_borrowck_provenance_solver_dirty = true
     give back memo_id
@@ -1099,13 +1139,16 @@ task v4_borrowck_provenance_dependency_add(source_memo: int, dependent_memo: int
 }
 
 task v4_borrowck_provenance_worklist_reset() -> void {
+    pilot work_id = 0
+    repeat until work_id >= v4_borrowck_provenance_worklist_active {
+        pilot memo_id = word_to_int(array_get(v4_borrowck_provenance_worklist_memos, work_id))
+        if memo_id >= 0 and memo_id < array_len(v4_borrowck_provenance_worklist_queued) {
+            array_set(v4_borrowck_provenance_worklist_queued, memo_id, "false")
+        }
+        work_id += 1
+    }
     v4_borrowck_provenance_worklist_active = 0
     v4_borrowck_provenance_worklist_cursor = 0
-    pilot memo_id = 0
-    repeat until memo_id >= v4_borrowck_provenance_memo_active {
-        v4_borrowck_provenance_scratch_store(v4_borrowck_provenance_worklist_queued, memo_id, "false")
-        memo_id += 1
-    }
 }
 
 task v4_borrowck_provenance_worklist_enqueue(memo_id: int) -> void {
@@ -1584,7 +1627,7 @@ task v4_borrowck_provenance_refill_memo(memo_id: int) -> void {
 -- Discover dependencies iteratively so long acyclic holder chains cannot use
 -- the native call stack as an accidental worklist.
 task v4_borrowck_provenance_discover_memos() -> bool {
-    pilot memo_id = 0
+    pilot memo_id = v4_borrowck_provenance_solved_memo_active
     repeat until memo_id >= v4_borrowck_provenance_memo_active or v4_borrowck_provenance_resource_exhausted_value {
         v4_borrowck_provenance_refill_memo(memo_id)
         memo_id += 1
@@ -1606,7 +1649,7 @@ task v4_borrowck_provenance_run_fixed_point_phase(round_limit: int) -> bool {
     v4_borrowck_provenance_fixed_point_limit_value += limit
 
     v4_borrowck_provenance_worklist_reset()
-    pilot memo_id = 0
+    pilot memo_id = v4_borrowck_provenance_solved_memo_active
     repeat until memo_id >= v4_borrowck_provenance_memo_active or v4_borrowck_provenance_resource_exhausted_value {
         v4_borrowck_provenance_worklist_enqueue(memo_id)
         memo_id += 1
@@ -1637,7 +1680,7 @@ task v4_borrowck_provenance_run_fixed_point_phase(round_limit: int) -> bool {
 }
 
 task v4_borrowck_provenance_finalize_empty_memos() -> void {
-    pilot memo_id = 0
+    pilot memo_id = v4_borrowck_provenance_solved_memo_active
     repeat until memo_id >= v4_borrowck_provenance_memo_active {
         pilot provenance_id = v4_borrowck_provenance_memo_provenance(memo_id)
         if v4_borrowck_provenance_count(provenance_id) == 0 {
@@ -1677,18 +1720,20 @@ task v4_borrowck_provenance_solve_fixed_point() -> void {
     v4_borrowck_provenance_solver_active = true
     v4_borrowck_provenance_fixed_point_solves_value += 1
     pilot converged = v4_borrowck_provenance_discover_memos()
+    pilot solve_memo_count = v4_borrowck_provenance_memo_active - v4_borrowck_provenance_solved_memo_active
     if converged {
-        pilot source_limit = v4_borrowck_provenance_effective_round_limit(v4_borrowck_provenance_memo_active + 1)
+        pilot source_limit = v4_borrowck_provenance_effective_round_limit(solve_memo_count + 1)
         converged = v4_borrowck_provenance_run_fixed_point_phase(source_limit)
     }
     if converged {
         v4_borrowck_provenance_finalize_empty_memos()
-        pilot opacity_limit = v4_borrowck_provenance_effective_round_limit(v4_borrowck_provenance_memo_active + 1)
+        pilot opacity_limit = v4_borrowck_provenance_effective_round_limit(solve_memo_count + 1)
         converged = v4_borrowck_provenance_run_fixed_point_phase(opacity_limit)
     }
     if not converged {
         v4_borrowck_provenance_mark_all_opaque()
     }
+    v4_borrowck_provenance_solved_memo_active = v4_borrowck_provenance_memo_active
     v4_borrowck_provenance_solver_dirty = false
     v4_borrowck_provenance_solver_active = false
 }
