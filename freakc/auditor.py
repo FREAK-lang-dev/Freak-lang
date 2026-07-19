@@ -2040,6 +2040,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 "task v4_ty_closure_as_task_type(",
                 "task v4_ty_infer_closure_block_return(",
                 "task v4_ty_validate_closure_params(",
+                "give back v4_ty_closure_doctrine(ty_name) == v4_ty_closure_callable",
+                "task v4_ty_doctrine_method_param_mode(",
             ),
         ),
         (
@@ -2054,6 +2056,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 "task v4_mir_try_lower_closure_expr(",
                 "task v4_mir_closure_local_decl_name_token(",
                 "task v4_mir_closure_identifier_is_member_name(",
+                "task v4_mir_closure_scope_pop(",
+                "task v4_mir_closure_receiver_call_is_mutating(",
                 "Yuuko cannot copy this closure capture",
                 "Meiya keeps this closure capture immutable",
             ),
@@ -2075,6 +2079,7 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 "task v4_editor_local_type_display_at(",
                 "task v4_editor_closure_param_detail(",
+                "task v4_editor_identifier_is_member_name(",
                 'give back "capture " + capture_mode + " " + display',
             ),
         ),
@@ -2091,11 +2096,11 @@ def audit_conformance(paths: List[Path]) -> int:
     closure_smoke_needles = (
         (
             repo / "src" / "compiler" / "v4" / "tests" / "closure_capture_smoke.fk",
-            ("closure-capture-block-ty=", "closure-capture-shadow-count=", "closure-capture-member-name=", "closure-capture-status="),
+            ("closure-capture-block-ty=", "closure-capture-shadow-count=", "closure-capture-member-name=", "closure-capture-scoped-name1=", "closure-capture-callable-copy-type=", "closure-capture-status="),
         ),
         (
             repo / "src" / "compiler" / "v4" / "tests" / "closure_capture_negative_smoke.fk",
-            ("closure-negative-borrow-alias-status=", "closure-negative-mut-transfer-status=", "closure-negative-duplicate-param-message="),
+            ("closure-negative-borrow-alias-status=", "closure-negative-mut-transfer-status=", "closure-negative-duplicate-param-message=", "closure-negative-immutable-message-count="),
         ),
         (
             repo / "src" / "compiler" / "v4" / "tests" / "closure_recovery_smoke.fk",
@@ -2103,7 +2108,7 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         (
             repo / "src" / "compiler" / "v4" / "tests" / "closure_capture_editor_smoke.fk",
-            ("closure-editor-param-semantic=", "closure-editor-param-definition-matches=", "closure-editor-param-lsp-completion=", "closure-editor-invalidation-matches-diff="),
+            ("closure-editor-param-semantic=", "closure-editor-param-definition-matches=", "closure-editor-param-lsp-completion=", "closure-editor-member-resolution=", "closure-editor-invalidation-matches-diff="),
         ),
     )
     for smoke_path, needles in closure_smoke_needles:
@@ -2123,10 +2128,14 @@ def audit_conformance(paths: List[Path]) -> int:
             '"fixture": "closure_capture_negative_smoke.fk"',
             '"fixture": "closure_recovery_smoke.fk"',
             '"fixture": "closure_capture_editor_smoke.fk"',
-            '"closure-negative-borrow-diagnostics=8"',
+            '"closure-negative-borrow-diagnostics=9"',
             '"closure-capture-block-ty=closure[Callable,borrow](value:int)->int"',
+            '"closure-capture-scoped-name1=count"',
+            '"closure-capture-callable-copy-type=true"',
+            '"closure-negative-immutable-message-count=2"',
             '"closure-recovery-following-closure-preserved=true"',
             '"closure-editor-param-definition-matches=true"',
+            '"closure-editor-member-resolution=true"',
             '"closure-editor-invalidation-matches-diff=true"',
         ):
             if needle not in closure_harness_src:

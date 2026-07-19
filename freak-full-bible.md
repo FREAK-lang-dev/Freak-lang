@@ -425,11 +425,14 @@ pilot counter = mut |_| { count += 1 }
 > `closure[Callable,borrow]`, `closure[Callable,copy]`,
 > `closure[MutCallable,mut]`, or `closure[OneShot,move]` identities. MIR lowers
 > explicit closure environments with `CaptureBorrow`, `CaptureBorrowMut`,
-> `CaptureCopy`, and `CaptureMove` children. Meiya keeps stored borrow captures
+> `CaptureCopy`, and `CaptureMove` children. Capture discovery respects nested
+> lexical scopes and member positions; `Callable` environments are Copy while
+> `MutCallable` and `OneShot` remain linear. Meiya keeps stored borrow captures
 > live through the closure holder's final reachable use, rejects owner access
 > during an exclusive capture, consumes OneShot closures on their first call,
-> and diagnoses non-Copy `copy` captures or mutation through a non-`mut`
-> environment. Semantic, hover, definition, completion, LSP, snapshot restore,
+> and diagnoses non-Copy `copy` captures or assignment and resolved mutable
+> receiver calls through a non-`mut` environment. Semantic, hover, definition,
+> completion, LSP, snapshot restore,
 > and all-family source invalidation expose the same capture mode. Nested
 > closures, inferred generic parameter/return types, borrowed-return closure
 > contracts, `Send`/`Sync` proof, and native closure-environment codegen remain

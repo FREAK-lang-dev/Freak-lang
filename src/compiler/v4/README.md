@@ -68,9 +68,13 @@ parser records arrow and block forms as `ClosureExpr` trees and leaves
 or parameter names. HIR normalizes default/`copy`/`move`/`mut`; TY assigns
 `Callable`, `MutCallable`, or `OneShot` closure identities; and MIR lowers a
 `Closure` aggregate with explicit `CaptureBorrow`, `CaptureBorrowMut`,
-`CaptureCopy`, or `CaptureMove` children. Meiya keeps stored borrow captures
-live through the closure holder's final reachable use, requires exclusive
-access for mutable captures, and consumes OneShot closures on call. Capture
+`CaptureCopy`, or `CaptureMove` children. Capture discovery tracks declaration
+order and nested block scope, excludes member-name tokens, and treats only
+`Callable` closure environments as Copy. Meiya keeps stored borrow captures
+live through the closure holder's final reachable use, recognizes assignment
+and resolved `lend mut self`/Shared mutable receiver calls, requires exclusive
+access for mutable captures, and consumes OneShot closures on call. Closure
+parameter editor facts likewise exclude `.`/`::` member positions. Capture
 mode is visible through semantic, hover, definition, completion, LSP, MIR and
 borrowck snapshots, and deterministic all-family invalidation/diff reports.
 Nested and generic closure inference, borrowed-return closure contracts,

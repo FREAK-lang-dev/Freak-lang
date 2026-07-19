@@ -829,6 +829,15 @@ task v4_editor_next_nontrivia_token(stream_id: int, token_id: int) -> int {
     give back 0 - 1
 }
 
+task v4_editor_identifier_is_member_name(stream_id: int, token_id: int) -> bool {
+    pilot previous = v4_editor_prev_nontrivia_token(stream_id, token_id)
+    if previous < 0 {
+        give back false
+    }
+    pilot previous_value = v4_lex_token_value(stream_id, previous)
+    give back previous_value == "." or previous_value == "::"
+}
+
 task v4_editor_method_call_owner(call_op: word, method_name: word) -> word {
     if call_op == "" or method_name == "" {
         give back ""
@@ -1915,7 +1924,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
         if not named_param_handled and hir_item >= 0 {
             pilot closure_id = v4_hir_closure_at_offset(hir_id, hir_item, offset)
             pilot closure_param_id = v4_editor_closure_param_id_for_name(hir_id, hir_item, closure_id, token_value)
-            if closure_param_id >= 0 {
+            if closure_param_id >= 0 and not v4_editor_identifier_is_member_name(stream_id, token_id) {
                 name = token_value
                 kind = "Parameter"
                 def_id = v4_editor_closure_param_def(v4_hir_item_def(hir_id, hir_item), closure_id, token_value)

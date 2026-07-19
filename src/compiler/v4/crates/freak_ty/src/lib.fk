@@ -1205,6 +1205,9 @@ task v4_ty_is_copy_type(ty_name: word) -> bool {
     if v4_ty_is_lend_type(ty_name) {
         give back v4_ty_is_lend_mut_type(ty_name) == false
     }
+    if v4_ty_is_closure_type(ty_name) {
+        give back v4_ty_closure_doctrine(ty_name) == v4_ty_closure_callable
+    }
     if ty_name == v4_ty_int or ty_name == v4_ty_uint or ty_name == v4_ty_tiny or ty_name == v4_ty_num {
         give back true
     }
@@ -6952,6 +6955,18 @@ task v4_ty_doctrine_method_param_name(ty_id: int, sig_id: int, method_id: int, p
     pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
     pilot end_token = v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
     give back v4_ty_param_name_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_doctrine_method_param_mode(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_doctrine_method_param_open_token(ty_id, sig_id, method_id)
+    pilot close_token = v4_ty_doctrine_method_param_close_token(ty_id, sig_id, method_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back v4_ty_param_mode_value
+    }
+    pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
+    pilot end_token = v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
+    give back v4_ty_param_mode_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_doctrine_method_param_surface_type(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {

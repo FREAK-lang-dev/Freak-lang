@@ -2,7 +2,15 @@
 -- Verification prepends the V4 crates before this file.
 
 task v4_closure_capture_negative_source() -> word {
-    pilot src = "task copy_bad() -> void {\n"
+    pilot src = "shape State {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "impl State {\n"
+    src = src + "    task update(lend mut self) -> void {\n"
+    src = src + "        self.value += 1\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task copy_bad() -> void {\n"
     src = src + "    pilot title: word = \"ace\"\n"
     src = src + "    pilot copied = copy |_| => title\n"
     src = src + "}\n"
@@ -44,6 +52,10 @@ task v4_closure_capture_negative_source() -> word {
     src = src + "task duplicate_param_bad() -> void {\n"
     src = src + "    pilot duplicate = |x: int, x: int| => x\n"
     src = src + "}\n"
+    src = src + "task receiver_call_bad() -> void {\n"
+    src = src + "    pilot state: State = State " + "{" + " value: 0 " + "}" + "\n"
+    src = src + "    pilot update = |_| " + "{" + " state.update() " + "}" + "\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -69,6 +81,19 @@ task v4_closure_capture_negative_has_mir_message(mir_id: int, wanted: word) -> b
         diag_id += 1
     }
     give back false
+}
+
+task v4_closure_capture_negative_mir_message_count(mir_id: int, wanted: word) -> int {
+    pilot count = 0
+    pilot diag_id = 0
+    pilot diag_count = v4_mir_diag_count(mir_id)
+    repeat until diag_id >= diag_count {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)) == wanted {
+            count += 1
+        }
+        diag_id += 1
+    }
+    give back count
 }
 
 task v4_closure_capture_negative_has_borrow_message(borrow_id: int, wanted: word) -> bool {
@@ -120,6 +145,7 @@ say "closure-negative-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_clo
 say "closure-negative-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_closure_capture_negative_borrow))
 say "closure-negative-copy-message=" + v4_closure_capture_negative_bool(v4_closure_capture_negative_has_mir_message(v4_closure_capture_negative_mir, "Yuuko cannot copy this closure capture"))
 say "closure-negative-immutable-message=" + v4_closure_capture_negative_bool(v4_closure_capture_negative_has_mir_message(v4_closure_capture_negative_mir, "Meiya keeps this closure capture immutable"))
+say "closure-negative-immutable-message-count=" + word_from_int(v4_closure_capture_negative_mir_message_count(v4_closure_capture_negative_mir, "Meiya keeps this closure capture immutable"))
 say "closure-negative-oneshot-status=" + v4_closure_capture_negative_status(v4_closure_capture_negative_borrow, v4_closure_capture_negative_resolve, "oneshot_bad")
 say "closure-negative-mut-alias-status=" + v4_closure_capture_negative_status(v4_closure_capture_negative_borrow, v4_closure_capture_negative_resolve, "mut_alias_bad")
 say "closure-negative-borrow-write-status=" + v4_closure_capture_negative_status(v4_closure_capture_negative_borrow, v4_closure_capture_negative_resolve, "borrow_write_bad")

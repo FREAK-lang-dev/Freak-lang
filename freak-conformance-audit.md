@@ -7,7 +7,7 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
-**V4 closure checkpoint (2026-07-18):** Maverick now carries resilient default/`copy`/`move`/`mut` closure syntax through HIR, TY, MIR, Meiya, editor/LSP facts, snapshot restore, and deterministic all-family invalidation. This is a frontend/query and ownership checkpoint; native closure-environment codegen, nested/generic closure inference, borrowed-return closure contracts, and `Send`/`Sync` proof remain open.
+**V4 closure checkpoint (2026-07-18):** Maverick now carries resilient default/`copy`/`move`/`mut` closure syntax through HIR, TY, MIR, Meiya, editor/LSP facts, snapshot restore, and deterministic all-family invalidation. Capture discovery is lexical-scope and member-position aware, Callable environments can be copied, and resolved mutable receiver calls require `mut` capture. This is a frontend/query and ownership checkpoint; native closure-environment codegen, nested/generic closure inference, borrowed-return closure contracts, and `Send`/`Sync` proof remain open.
 
 ---
 
@@ -313,8 +313,10 @@ Closure-capture checkpoint (**⚠️ V4 partial**): the resilient parser produce
 `ClosureExpr`, `ClosureParam`, and `ClosureBody` nodes and recovers malformed
 forms with `IncompleteNode`. HIR normalizes default/`copy`/`move`/`mut`; TY
 assigns `Callable`, `MutCallable`, or `OneShot`; MIR stores explicit capture
-children; and Meiya enforces copy legality, immutable versus mutable capture,
-stored-capture loan liveness, and OneShot consumption. Capture-aware semantic,
+children with lexical-scope-aware local shadowing and member-token filtering.
+Only Callable environments are Copy, and Meiya enforces copy legality,
+assignment plus resolved mutable receiver contracts, stored-capture loan
+liveness, and OneShot consumption. Capture-aware semantic,
 hover, definition, completion, LSP, component snapshot restore, and deterministic
 17-field invalidation/diff checks are executable. Nested closure discovery,
 generic inference, borrowed-return closure contracts, `Send`/`Sync`, and backend

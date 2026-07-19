@@ -10,6 +10,23 @@ task v4_closure_editor_source(mode: word) -> word {
     give back src
 }
 
+task v4_closure_editor_member_source() -> word {
+    pilot src = "shape Item {\n"
+    src = src + "    score: int\n"
+    src = src + "}\n"
+    src = src + "impl Item {\n"
+    src = src + "    task value(self) -> int {\n"
+    src = src + "        give back self.score\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task inspect() -> int {\n"
+    src = src + "    pilot item: Item = Item " + "{" + " score: 1 " + "}" + "\n"
+    src = src + "    pilot read = |value: int| => item.value() + value\n"
+    src = src + "    give back read(2)\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_closure_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
     pilot seen = 0
     pilot token_id = 0
@@ -32,6 +49,38 @@ task v4_closure_editor_offset(stream_id: int, value: word, ordinal: int) -> int 
 task v4_closure_editor_bool(value: bool) -> word {
     if value { give back "true" }
     give back "false"
+}
+
+task v4_closure_editor_member_resolution_ok() -> bool {
+    pilot path = "closure-editor-member.fk"
+    pilot source = v4_closure_editor_member_source()
+    pilot stream_id = v4_lex_text(2, source)
+    pilot param_decl_offset = v4_closure_editor_offset(stream_id, "value", 1)
+    pilot member_token = 0 - 1
+    pilot token_id = 0
+    repeat until token_id >= v4_lex_token_count(stream_id) or member_token >= 0 {
+        if v4_lex_token_value(stream_id, token_id) == "value" {
+            pilot previous = v4_editor_prev_nontrivia_token(stream_id, token_id)
+            if previous >= 0 and v4_lex_token_value(stream_id, previous) == "." {
+                member_token = token_id
+            }
+        }
+        token_id += 1
+    }
+    if member_token < 0 {
+        give back false
+    }
+    pilot member_offset = v4_span_start(v4_lex_token_span(stream_id, member_token))
+    pilot semantic = v4_semantic_at_text_cached(path, source, member_offset)
+    pilot hover = v4_hover_text_cached(path, source, member_offset)
+    pilot definition = v4_definition_at_text_cached(path, source, member_offset)
+    if v4_semantic_at_kind(semantic) == "Parameter" or v4_hover_kind(hover) == "Parameter" or v4_definition_at_kind(definition) == "Parameter" {
+        give back false
+    }
+    if v4_definition_at_found(definition) == 1 {
+        give back v4_span_start(v4_definition_at_span(definition)) != param_decl_offset
+    }
+    give back true
 }
 
 task v4_closure_editor_completion_item(completion_id: int, wanted: word) -> int {
@@ -202,3 +251,4 @@ say "closure-editor-after-completion=" + v4_closure_editor_completion_detail_or_
 say "closure-editor-after-lsp-hover=" + v4_closure_editor_bool(v4_lsp_hover_text(v4_closure_editor_path, v4_closure_editor_after, v4_closure_editor_after_use).contains("capture copy int"))
 say "closure-editor-after-lsp-definition=" + v4_closure_editor_bool(v4_lsp_definition_text(v4_closure_editor_path, v4_closure_editor_after, v4_closure_editor_after_use).contains("location|" + v4_closure_editor_path))
 say "closure-editor-after-lsp-completion=" + v4_closure_editor_bool(v4_lsp_completion_text(v4_closure_editor_path, v4_closure_editor_after, v4_closure_editor_after_use).contains("capture copy int"))
+say "closure-editor-member-resolution=" + v4_closure_editor_bool(v4_closure_editor_member_resolution_ok())
