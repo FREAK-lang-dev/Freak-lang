@@ -1,0 +1,224 @@
+-- V4 loop-provenance nonconvergence and resource fail-closed fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_contract_region_loop_fail_closed_ring_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task forced_round_limit<'a>("
+    pilot ring_id = 0
+    repeat until ring_id >= 12 {
+        if ring_id > 0 {
+            src = src + ", "
+        }
+        src = src + "lend 'a source" + word_from_int(ring_id) + ": Ship"
+        ring_id += 1
+    }
+    src = src + ", ready: bool) -> lend 'a Ship {\n"
+    ring_id = 0
+    repeat until ring_id >= 12 {
+        src = src + "    pilot view" + word_from_int(ring_id) + " = lend source" + word_from_int(ring_id) + "\n"
+        ring_id += 1
+    }
+    src = src + "    pilot finished = ready\n"
+    src = src + "    repeat until finished {\n"
+    ring_id = 0
+    repeat until ring_id >= 12 {
+        pilot next_id = ring_id + 1
+        if next_id >= 12 {
+            next_id = 0
+        }
+        src = src + "        view" + word_from_int(ring_id) + " = view" + word_from_int(next_id) + "\n"
+        ring_id += 1
+    }
+    src = src + "        finished = true\n"
+    src = src + "    }\n"
+    src = src + "    give back view0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_loop_fail_closed_budget_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task forced_fact_limit<'a>(lend 'a first: Ship, lend 'a second: Ship, ready: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot view = lend first\n"
+    src = src + "    pilot finished = ready\n"
+    src = src + "    repeat until finished {\n"
+    src = src + "        view = lend second\n"
+    src = src + "        finished = true\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_loop_fail_closed_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_loop_fail_closed_first_diag(borrow_id: int) -> word {
+    if v4_borrowck_diag_count(borrow_id) <= 0 {
+        give back "none"
+    }
+    give back v4_diag_message(v4_borrowck_diag(borrow_id, 0))
+}
+
+pilot v4_contract_region_loop_fail_closed_round_borrow = 0 - 1
+pilot v4_contract_region_loop_fail_closed_round_def = ""
+pilot v4_contract_region_loop_fail_closed_round_result = 0 - 1
+pilot v4_contract_region_loop_fail_closed_round_converged = true
+pilot v4_contract_region_loop_fail_closed_round_resource_exhausted = true
+pilot v4_contract_region_loop_fail_closed_round_rounds = 0
+pilot v4_contract_region_loop_fail_closed_round_limit = 0
+pilot v4_contract_region_loop_fail_closed_budget_borrow = 0 - 1
+pilot v4_contract_region_loop_fail_closed_budget_def = ""
+pilot v4_contract_region_loop_fail_closed_budget_result = 0 - 1
+pilot v4_contract_region_loop_fail_closed_budget_converged = true
+pilot v4_contract_region_loop_fail_closed_budget_resource_exhausted = false
+pilot v4_contract_region_loop_fail_closed_budget_facts_bounded = false
+pilot v4_contract_region_loop_fail_closed_path_resource_exhausted = false
+pilot v4_contract_region_loop_fail_closed_path_facts_bounded = false
+pilot v4_contract_region_loop_fail_closed_path_opaque = false
+pilot v4_contract_region_loop_fail_closed_dependency_resource_exhausted = false
+pilot v4_contract_region_loop_fail_closed_dependency_edges_bounded = false
+pilot v4_contract_region_loop_fail_closed_dependency_opaque = false
+pilot v4_contract_region_loop_fail_closed_work_resource_exhausted = false
+pilot v4_contract_region_loop_fail_closed_work_queue_bounded = false
+pilot v4_contract_region_loop_fail_closed_work_opaque = false
+
+task v4_contract_region_loop_fail_closed_run_all() -> int {
+    v4_borrowck_provenance_round_limit_test_override = 1
+    v4_contract_region_loop_fail_closed_round_borrow = v4_borrowck_text_cached("contract-region-loop-round-limit.fk", v4_contract_region_loop_fail_closed_ring_source())
+    pilot round_mir = v4_borrowck_mir_id(v4_contract_region_loop_fail_closed_round_borrow)
+    pilot round_resolve = v4_ty_resolve_id(v4_mir_ty_id(round_mir))
+    v4_contract_region_loop_fail_closed_round_def = v4_resolve_def_for_name(round_resolve, "forced_round_limit")
+    v4_contract_region_loop_fail_closed_round_result = v4_borrowck_lookup_result(v4_contract_region_loop_fail_closed_round_borrow, v4_contract_region_loop_fail_closed_round_def)
+    v4_contract_region_loop_fail_closed_round_converged = v4_borrowck_provenance_fixed_point_converged(v4_contract_region_loop_fail_closed_round_borrow)
+    v4_contract_region_loop_fail_closed_round_resource_exhausted = v4_borrowck_provenance_resource_exhausted(v4_contract_region_loop_fail_closed_round_borrow)
+    v4_contract_region_loop_fail_closed_round_rounds = v4_borrowck_provenance_fixed_point_rounds(v4_contract_region_loop_fail_closed_round_borrow)
+    v4_contract_region_loop_fail_closed_round_limit = v4_borrowck_provenance_fixed_point_limit(v4_contract_region_loop_fail_closed_round_borrow)
+
+    v4_borrowck_provenance_round_limit_test_override = 0
+    v4_borrowck_provenance_source_fact_limit_value = 1
+    v4_contract_region_loop_fail_closed_budget_borrow = v4_borrowck_text_cached("contract-region-loop-fact-limit.fk", v4_contract_region_loop_fail_closed_budget_source())
+    pilot budget_mir = v4_borrowck_mir_id(v4_contract_region_loop_fail_closed_budget_borrow)
+    pilot budget_resolve = v4_ty_resolve_id(v4_mir_ty_id(budget_mir))
+    v4_contract_region_loop_fail_closed_budget_def = v4_resolve_def_for_name(budget_resolve, "forced_fact_limit")
+    v4_contract_region_loop_fail_closed_budget_result = v4_borrowck_lookup_result(v4_contract_region_loop_fail_closed_budget_borrow, v4_contract_region_loop_fail_closed_budget_def)
+    v4_contract_region_loop_fail_closed_budget_converged = v4_borrowck_provenance_fixed_point_converged(v4_contract_region_loop_fail_closed_budget_borrow)
+    v4_contract_region_loop_fail_closed_budget_resource_exhausted = v4_borrowck_provenance_resource_exhausted(v4_contract_region_loop_fail_closed_budget_borrow)
+    v4_contract_region_loop_fail_closed_budget_facts_bounded = v4_borrowck_provenance_source_active_count() <= v4_borrowck_provenance_source_fact_limit()
+
+    v4_borrowck_provenance_source_fact_limit_value = 1024
+    v4_borrowck_provenance_path_byte_limit_value = 8
+    v4_borrowck_provenance_scratch_reset()
+    pilot path_provenance = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+    v4_borrowck_provenance_add_source(path_provenance, "owner.path.too.long", 0)
+    v4_contract_region_loop_fail_closed_path_resource_exhausted = v4_borrowck_provenance_resource_exhausted_value
+    v4_contract_region_loop_fail_closed_path_facts_bounded = v4_borrowck_provenance_source_active_count() == 0
+    v4_contract_region_loop_fail_closed_path_opaque = v4_borrowck_provenance_state(path_provenance) == v4_borrowck_provenance_opaque
+    v4_borrowck_provenance_path_byte_limit_value = 1024
+
+    v4_borrowck_provenance_scratch_reset()
+    v4_borrowck_provenance_dependency_limit_value = 1
+    pilot dependency_first = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+    pilot dependency_second = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+    pilot dependency_third = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+    pilot dependency_first_memo = v4_borrowck_provenance_memo_add(0, 0, 0, 0, dependency_first)
+    pilot dependency_second_memo = v4_borrowck_provenance_memo_add(0, 0, 1, 1, dependency_second)
+    pilot dependency_third_memo = v4_borrowck_provenance_memo_add(0, 0, 2, 2, dependency_third)
+    v4_borrowck_provenance_dependency_add(dependency_first_memo, dependency_second_memo)
+    v4_borrowck_provenance_dependency_add(dependency_first_memo, dependency_third_memo)
+    v4_contract_region_loop_fail_closed_dependency_resource_exhausted = v4_borrowck_provenance_resource_exhausted_value
+    v4_contract_region_loop_fail_closed_dependency_edges_bounded = v4_borrowck_provenance_dependency_active <= v4_borrowck_provenance_dependency_limit()
+    v4_contract_region_loop_fail_closed_dependency_opaque = v4_borrowck_provenance_state(dependency_first) == v4_borrowck_provenance_opaque and v4_borrowck_provenance_state(dependency_second) == v4_borrowck_provenance_opaque and v4_borrowck_provenance_state(dependency_third) == v4_borrowck_provenance_opaque
+    v4_borrowck_provenance_dependency_limit_value = 16384
+
+    v4_borrowck_provenance_scratch_reset()
+    v4_borrowck_provenance_work_item_limit_value = 1
+    pilot work_first = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+    pilot work_second = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+    v4_borrowck_provenance_memo_add(0, 0, 0, 0, work_first)
+    v4_borrowck_provenance_memo_add(0, 0, 1, 1, work_second)
+    v4_borrowck_provenance_run_fixed_point_phase(3)
+    v4_contract_region_loop_fail_closed_work_resource_exhausted = v4_borrowck_provenance_resource_exhausted_value
+    v4_contract_region_loop_fail_closed_work_queue_bounded = v4_borrowck_provenance_worklist_active <= v4_borrowck_provenance_work_item_limit()
+    v4_contract_region_loop_fail_closed_work_opaque = v4_borrowck_provenance_state(work_first) == v4_borrowck_provenance_opaque and v4_borrowck_provenance_state(work_second) == v4_borrowck_provenance_opaque
+    v4_borrowck_provenance_work_item_limit_value = 65536
+    give back 1
+}
+
+pilot v4_contract_region_loop_fail_closed_ran = v4_contract_region_loop_fail_closed_run_all()
+
+say "contract-region-loop-fail-closed-round-status=" + v4_borrowck_result_status(v4_contract_region_loop_fail_closed_round_borrow, v4_contract_region_loop_fail_closed_round_result)
+say "contract-region-loop-fail-closed-round-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_loop_fail_closed_round_borrow))
+say "contract-region-loop-fail-closed-round-message=" + v4_contract_region_loop_fail_closed_first_diag(v4_contract_region_loop_fail_closed_round_borrow)
+say "contract-region-loop-fail-closed-round-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_loop_fail_closed_round_borrow, v4_contract_region_loop_fail_closed_round_result, v4_borrowck_path_return_loan))
+say "contract-region-loop-fail-closed-round-converged=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_round_converged)
+say "contract-region-loop-fail-closed-round-resource-exhausted=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_round_resource_exhausted)
+say "contract-region-loop-fail-closed-round-cap-hit=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_round_rounds == v4_contract_region_loop_fail_closed_round_limit)
+say "contract-region-loop-fail-closed-budget-status=" + v4_borrowck_result_status(v4_contract_region_loop_fail_closed_budget_borrow, v4_contract_region_loop_fail_closed_budget_result)
+say "contract-region-loop-fail-closed-budget-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_loop_fail_closed_budget_borrow))
+say "contract-region-loop-fail-closed-budget-message=" + v4_contract_region_loop_fail_closed_first_diag(v4_contract_region_loop_fail_closed_budget_borrow)
+say "contract-region-loop-fail-closed-budget-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_loop_fail_closed_budget_borrow, v4_contract_region_loop_fail_closed_budget_result, v4_borrowck_path_return_loan))
+say "contract-region-loop-fail-closed-budget-converged=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_budget_converged)
+say "contract-region-loop-fail-closed-budget-resource-exhausted=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_budget_resource_exhausted)
+say "contract-region-loop-fail-closed-budget-facts-bounded=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_budget_facts_bounded)
+say "contract-region-loop-fail-closed-path-resource-exhausted=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_path_resource_exhausted)
+say "contract-region-loop-fail-closed-path-facts-bounded=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_path_facts_bounded)
+say "contract-region-loop-fail-closed-path-opaque=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_path_opaque)
+say "contract-region-loop-fail-closed-dependency-resource-exhausted=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_dependency_resource_exhausted)
+say "contract-region-loop-fail-closed-dependency-edges-bounded=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_dependency_edges_bounded)
+say "contract-region-loop-fail-closed-dependency-opaque=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_dependency_opaque)
+say "contract-region-loop-fail-closed-work-resource-exhausted=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_work_resource_exhausted)
+say "contract-region-loop-fail-closed-work-queue-bounded=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_work_queue_bounded)
+say "contract-region-loop-fail-closed-work-opaque=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_work_opaque)
+
+pilot v4_contract_region_loop_fail_closed_snapshot = v4_borrowck_snapshot()
+pilot v4_contract_region_loop_fail_closed_snapshot_validation = v4_borrowck_snapshot_validate(v4_contract_region_loop_fail_closed_snapshot)
+pilot v4_contract_region_loop_fail_closed_snapshot_restore = ""
+pilot v4_contract_region_loop_fail_closed_poisoned = false
+pilot v4_contract_region_loop_fail_closed_restored_round = 0 - 1
+pilot v4_contract_region_loop_fail_closed_restored_budget = 0 - 1
+
+say v4_contract_region_loop_fail_closed_snapshot_validation
+v4_borrowck_restore_result_slot(v4_contract_region_loop_fail_closed_round_borrow, v4_contract_region_loop_fail_closed_round_result, v4_contract_region_loop_fail_closed_round_def, "forced_round_limit", v4_borrowck_clean, 0, 0, 0)
+v4_borrowck_restore_result_slot(v4_contract_region_loop_fail_closed_budget_borrow, v4_contract_region_loop_fail_closed_budget_result, v4_contract_region_loop_fail_closed_budget_def, "forced_fact_limit", v4_borrowck_clean, 0, 0, 0)
+v4_borrowck_restore_telemetry_slot(v4_contract_region_loop_fail_closed_round_borrow, 0, 0, 0, true, true, 0)
+v4_borrowck_restore_telemetry_slot(v4_contract_region_loop_fail_closed_budget_borrow, 0, 0, 0, true, false, 0)
+v4_contract_region_loop_fail_closed_poisoned = v4_borrowck_result_status(v4_contract_region_loop_fail_closed_round_borrow, v4_contract_region_loop_fail_closed_round_result) == v4_borrowck_clean
+v4_contract_region_loop_fail_closed_poisoned = v4_contract_region_loop_fail_closed_poisoned and v4_borrowck_result_status(v4_contract_region_loop_fail_closed_budget_borrow, v4_contract_region_loop_fail_closed_budget_result) == v4_borrowck_clean
+v4_contract_region_loop_fail_closed_poisoned = v4_contract_region_loop_fail_closed_poisoned and v4_borrowck_path_count_by_kind(v4_contract_region_loop_fail_closed_round_borrow, v4_contract_region_loop_fail_closed_round_result, v4_borrowck_path_return_loan) == 0
+v4_contract_region_loop_fail_closed_poisoned = v4_contract_region_loop_fail_closed_poisoned and v4_borrowck_provenance_fixed_point_converged(v4_contract_region_loop_fail_closed_round_borrow)
+v4_contract_region_loop_fail_closed_poisoned = v4_contract_region_loop_fail_closed_poisoned and not v4_borrowck_provenance_resource_exhausted(v4_contract_region_loop_fail_closed_budget_borrow)
+say "contract-region-loop-fail-closed-snapshot-poisoned=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_poisoned)
+v4_contract_region_loop_fail_closed_snapshot_restore = v4_borrowck_snapshot_restore(v4_contract_region_loop_fail_closed_snapshot)
+say v4_contract_region_loop_fail_closed_snapshot_restore
+v4_contract_region_loop_fail_closed_restored_round = v4_borrowck_lookup_result(v4_contract_region_loop_fail_closed_round_borrow, v4_contract_region_loop_fail_closed_round_def)
+v4_contract_region_loop_fail_closed_restored_budget = v4_borrowck_lookup_result(v4_contract_region_loop_fail_closed_budget_borrow, v4_contract_region_loop_fail_closed_budget_def)
+say "contract-region-loop-fail-closed-restored-round-status=" + v4_borrowck_result_status(v4_contract_region_loop_fail_closed_round_borrow, v4_contract_region_loop_fail_closed_restored_round)
+say "contract-region-loop-fail-closed-restored-budget-status=" + v4_borrowck_result_status(v4_contract_region_loop_fail_closed_budget_borrow, v4_contract_region_loop_fail_closed_restored_budget)
+say "contract-region-loop-fail-closed-restored-round-converged=" + v4_contract_region_loop_fail_closed_bool(v4_borrowck_provenance_fixed_point_converged(v4_contract_region_loop_fail_closed_round_borrow))
+say "contract-region-loop-fail-closed-restored-budget-resource-exhausted=" + v4_contract_region_loop_fail_closed_bool(v4_borrowck_provenance_resource_exhausted(v4_contract_region_loop_fail_closed_budget_borrow))
+
+pilot v4_contract_region_loop_fail_closed_truncated_v2 = "borrowck-snapshot|format=freak-borrowck-snapshot-v2|files=1|results=0|paths=0|diagnostics=0\nborrowck|0|0|0|0|0\nend|freak-borrowck-snapshot-v2"
+pilot v4_contract_region_loop_fail_closed_truncated_v2_validation = v4_borrowck_snapshot_validate(v4_contract_region_loop_fail_closed_truncated_v2)
+say "contract-region-loop-fail-closed-truncated-v2-rejected=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_truncated_v2_validation == "borrowck-snapshot-import ok=0 format=freak-borrowck-snapshot-v2 lines=3 files=1 results=0 paths=0 diagnostics=0 malformed=1 headers=1 ends=1")
+
+pilot v4_contract_region_loop_fail_closed_legacy_v1 = "borrowck-snapshot|format=freak-borrowck-snapshot-v1|files=1|results=0|paths=0|diagnostics=0\nborrowck|0|0|0|0|0\nend|freak-borrowck-snapshot-v1"
+pilot v4_contract_region_loop_fail_closed_legacy_v1_validation = v4_borrowck_snapshot_validate(v4_contract_region_loop_fail_closed_legacy_v1)
+pilot v4_contract_region_loop_fail_closed_legacy_v1_restore = ""
+say "contract-region-loop-fail-closed-legacy-v1-imported=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_legacy_v1_validation == "borrowck-snapshot-import ok=1 format=freak-borrowck-snapshot-v1 lines=3 files=1 results=0 paths=0 diagnostics=0 malformed=0 headers=1 ends=1")
+v4_contract_region_loop_fail_closed_legacy_v1_restore = v4_borrowck_snapshot_restore(v4_contract_region_loop_fail_closed_legacy_v1)
+say "contract-region-loop-fail-closed-legacy-v1-restored=" + v4_contract_region_loop_fail_closed_bool(v4_contract_region_loop_fail_closed_legacy_v1_restore == "borrowck-snapshot-restore ok=1 files=1 results=0 paths=0 diagnostics=0 skipped-other=0 arena-files=2")
+say "contract-region-loop-fail-closed-legacy-v1-rounds=" + word_from_int(v4_borrowck_provenance_fixed_point_rounds(0))
+say "contract-region-loop-fail-closed-legacy-v1-limit=" + word_from_int(v4_borrowck_provenance_fixed_point_limit(0))
+say "contract-region-loop-fail-closed-legacy-v1-solves=" + word_from_int(v4_borrowck_provenance_fixed_point_solve_count(0))
+say "contract-region-loop-fail-closed-legacy-v1-converged=" + v4_contract_region_loop_fail_closed_bool(v4_borrowck_provenance_fixed_point_converged(0))
+say "contract-region-loop-fail-closed-legacy-v1-resource-exhausted=" + v4_contract_region_loop_fail_closed_bool(v4_borrowck_provenance_resource_exhausted(0))
+say "contract-region-loop-fail-closed-legacy-v1-work-items=" + word_from_int(v4_borrowck_provenance_fixed_point_work_items(0))

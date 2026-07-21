@@ -46,6 +46,21 @@ task v4_contract_region_elided_query_bool(value: bool) -> word {
     give back "false"
 }
 
+task v4_contract_region_elided_query_return_source_at(borrow_id: int, result_id: int, wanted: int) -> word {
+    pilot seen = 0
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_return_loan {
+            if seen == wanted {
+                give back v4_borrowck_path_text(borrow_id, result_id, path_id)
+            }
+            seen += 1
+        }
+        path_id += 1
+    }
+    give back ""
+}
+
 task v4_contract_region_elided_query_positive(report: word, key: word) -> word {
     give back v4_contract_region_elided_query_bool(word_to_int(v4_unit_snapshot_key_value(report, key)) > 0)
 }
@@ -88,12 +103,21 @@ task v4_contract_region_elided_query_all_invalidations_positive(report: word) ->
     give back "true"
 }
 
-task v4_contract_region_elided_query_source(second_mode: word) -> word {
+task v4_contract_region_elided_query_source(second_mode: word, loop_source: word) -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
     src = src + "task choose(lend first: Ship, " + second_mode + "second: Ship) -> lend Ship {\n"
     src = src + "    give back lend first\n"
+    src = src + "}\n"
+    src = src + "task loop_choose(lend first: Ship, " + second_mode + "second: Ship, ready: bool) -> lend Ship {\n"
+    src = src + "    pilot view = lend first\n"
+    src = src + "    pilot finished = ready\n"
+    src = src + "    repeat until finished {\n"
+    src = src + "        view = lend " + loop_source + "\n"
+    src = src + "        finished = true\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
     src = src + "}\n"
     src = src + "task observe(first: Ship, second: Ship) -> int {\n"
     src = src + "    pilot view = choose(lend first, " + second_mode + "second)\n"
@@ -103,7 +127,7 @@ task v4_contract_region_elided_query_source(second_mode: word) -> word {
 }
 
 pilot v4_contract_region_elided_query_path = "contract-region-elided-query-invalidation.fk"
-pilot v4_contract_region_elided_query_before = v4_contract_region_elided_query_source("lend ")
+pilot v4_contract_region_elided_query_before = v4_contract_region_elided_query_source("lend ", "second")
 pilot v4_contract_region_elided_query_before_stream = v4_lex_text(0, v4_contract_region_elided_query_before)
 pilot v4_contract_region_elided_query_before_second_offset = v4_contract_region_elided_query_offset(v4_contract_region_elided_query_before_stream, "second", 0)
 
@@ -114,9 +138,11 @@ pilot v4_contract_region_elided_query_before_mir = v4_borrowck_mir_id(v4_contrac
 pilot v4_contract_region_elided_query_before_ty = v4_mir_ty_id(v4_contract_region_elided_query_before_mir)
 pilot v4_contract_region_elided_query_before_resolve = v4_ty_resolve_id(v4_contract_region_elided_query_before_ty)
 pilot v4_contract_region_elided_query_before_choose_def = v4_resolve_def_for_name(v4_contract_region_elided_query_before_resolve, "choose")
+pilot v4_contract_region_elided_query_before_loop_def = v4_resolve_def_for_name(v4_contract_region_elided_query_before_resolve, "loop_choose")
 pilot v4_contract_region_elided_query_before_observe_def = v4_resolve_def_for_name(v4_contract_region_elided_query_before_resolve, "observe")
 pilot v4_contract_region_elided_query_before_choose_sig = v4_ty_lookup_signature(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_def)
 pilot v4_contract_region_elided_query_before_choose_result = v4_borrowck_lookup_result(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_choose_def)
+pilot v4_contract_region_elided_query_before_loop_result = v4_borrowck_lookup_result(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_loop_def)
 pilot v4_contract_region_elided_query_before_observe_result = v4_borrowck_lookup_result(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_observe_def)
 pilot v4_contract_region_elided_query_before_observe_body = v4_mir_lookup_body(v4_contract_region_elided_query_before_mir, v4_contract_region_elided_query_before_observe_def)
 pilot v4_contract_region_elided_query_before_call = v4_contract_region_elided_query_find_call(v4_contract_region_elided_query_before_mir, v4_contract_region_elided_query_before_observe_body)
@@ -181,6 +207,11 @@ if v4_contract_region_elided_query_before_diag_count > 0 {
     say "contract-region-elided-query-before-message=none"
 }
 say "contract-region-elided-query-before-choose-status=" + v4_borrowck_result_status(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_choose_result)
+say "contract-region-elided-query-before-loop-status=" + v4_borrowck_result_status(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_loop_result)
+say "contract-region-elided-query-before-loop-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_loop_result, v4_borrowck_path_return_loan))
+say "contract-region-elided-query-before-loop-source0=" + v4_contract_region_elided_query_return_source_at(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_loop_result, 0)
+say "contract-region-elided-query-before-loop-source1=" + v4_contract_region_elided_query_return_source_at(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_loop_result, 1)
+say "contract-region-elided-query-before-loop-converged=" + v4_contract_region_elided_query_bool(v4_borrowck_provenance_fixed_point_converged(v4_contract_region_elided_query_before_borrow))
 say "contract-region-elided-query-before-observe-status=" + v4_borrowck_result_status(v4_contract_region_elided_query_before_borrow, v4_contract_region_elided_query_before_observe_result)
 say "contract-region-elided-query-before-source-count=" + word_from_int(v4_contract_region_elided_query_before_source_count)
 say "contract-region-elided-query-before-source0=" + v4_ty_signature_param_name(v4_contract_region_elided_query_before_ty, v4_contract_region_elided_query_before_choose_sig, v4_contract_region_elided_query_before_source0)
@@ -199,7 +230,7 @@ say "contract-region-elided-query-ty-restored-source1=" + v4_ty_signature_param_
 say "contract-region-elided-query-ty-restored-source-order-stable=" + v4_contract_region_elided_query_bool(v4_contract_region_elided_query_ty_restored_source_count == v4_contract_region_elided_query_before_source_count and v4_contract_region_elided_query_ty_restored_source0 == v4_contract_region_elided_query_before_source0 and v4_contract_region_elided_query_ty_restored_source1 == v4_contract_region_elided_query_before_source1)
 say "contract-region-elided-query-ty-restore-cache-builds-added=" + word_from_int(v4_contract_region_elided_query_ty_cache_builds_added)
 
-pilot v4_contract_region_elided_query_after = v4_contract_region_elided_query_source("     ")
+pilot v4_contract_region_elided_query_after = v4_contract_region_elided_query_source("     ", "first ")
 pilot v4_contract_region_elided_query_after_stream = v4_lex_text(1, v4_contract_region_elided_query_after)
 pilot v4_contract_region_elided_query_after_second_offset = v4_contract_region_elided_query_offset(v4_contract_region_elided_query_after_stream, "second", 0)
 say "contract-region-elided-query-editor-offset-stable=" + v4_contract_region_elided_query_bool(v4_contract_region_elided_query_after_second_offset == v4_contract_region_elided_query_before_second_offset)
@@ -233,9 +264,11 @@ pilot v4_contract_region_elided_query_after_mir = 0 - 1
 pilot v4_contract_region_elided_query_after_ty = 0 - 1
 pilot v4_contract_region_elided_query_after_resolve = 0 - 1
 pilot v4_contract_region_elided_query_after_choose_def = ""
+pilot v4_contract_region_elided_query_after_loop_def = ""
 pilot v4_contract_region_elided_query_after_observe_def = ""
 pilot v4_contract_region_elided_query_after_choose_sig = 0 - 1
 pilot v4_contract_region_elided_query_after_choose_result = 0 - 1
+pilot v4_contract_region_elided_query_after_loop_result = 0 - 1
 pilot v4_contract_region_elided_query_after_observe_result = 0 - 1
 pilot v4_contract_region_elided_query_after_observe_body = 0 - 1
 pilot v4_contract_region_elided_query_after_call = 0 - 1
@@ -256,9 +289,11 @@ v4_contract_region_elided_query_after_mir = v4_borrowck_mir_id(v4_contract_regio
 v4_contract_region_elided_query_after_ty = v4_mir_ty_id(v4_contract_region_elided_query_after_mir)
 v4_contract_region_elided_query_after_resolve = v4_ty_resolve_id(v4_contract_region_elided_query_after_ty)
 v4_contract_region_elided_query_after_choose_def = v4_resolve_def_for_name(v4_contract_region_elided_query_after_resolve, "choose")
+v4_contract_region_elided_query_after_loop_def = v4_resolve_def_for_name(v4_contract_region_elided_query_after_resolve, "loop_choose")
 v4_contract_region_elided_query_after_observe_def = v4_resolve_def_for_name(v4_contract_region_elided_query_after_resolve, "observe")
 v4_contract_region_elided_query_after_choose_sig = v4_ty_lookup_signature(v4_contract_region_elided_query_after_ty, v4_contract_region_elided_query_after_choose_def)
 v4_contract_region_elided_query_after_choose_result = v4_borrowck_lookup_result(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_choose_def)
+v4_contract_region_elided_query_after_loop_result = v4_borrowck_lookup_result(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_loop_def)
 v4_contract_region_elided_query_after_observe_result = v4_borrowck_lookup_result(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_observe_def)
 v4_contract_region_elided_query_after_observe_body = v4_mir_lookup_body(v4_contract_region_elided_query_after_mir, v4_contract_region_elided_query_after_observe_def)
 v4_contract_region_elided_query_after_call = v4_contract_region_elided_query_find_call(v4_contract_region_elided_query_after_mir, v4_contract_region_elided_query_after_observe_body)
@@ -315,6 +350,10 @@ if v4_contract_region_elided_query_after_diag_count > 0 {
     say "contract-region-elided-query-after-message=none"
 }
 say "contract-region-elided-query-after-choose-status=" + v4_borrowck_result_status(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_choose_result)
+say "contract-region-elided-query-after-loop-status=" + v4_borrowck_result_status(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_loop_result)
+say "contract-region-elided-query-after-loop-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_loop_result, v4_borrowck_path_return_loan))
+say "contract-region-elided-query-after-loop-source0=" + v4_contract_region_elided_query_return_source_at(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_loop_result, 0)
+say "contract-region-elided-query-after-loop-converged=" + v4_contract_region_elided_query_bool(v4_borrowck_provenance_fixed_point_converged(v4_contract_region_elided_query_after_borrow))
 say "contract-region-elided-query-after-observe-status=" + v4_borrowck_result_status(v4_contract_region_elided_query_after_borrow, v4_contract_region_elided_query_after_observe_result)
 say "contract-region-elided-query-after-source-count=" + word_from_int(v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_elided_query_after_ty, v4_contract_region_elided_query_after_choose_sig))
 say "contract-region-elided-query-after-source0=" + v4_ty_signature_param_name(v4_contract_region_elided_query_after_ty, v4_contract_region_elided_query_after_choose_sig, v4_contract_region_elided_query_after_source0)

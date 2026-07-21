@@ -665,7 +665,7 @@ region solver described below and does not establish production backend support.
 |---|---|---|
 | `freak_ty` | Declared lifetime graph and eligible parameter ids | An explicit bound such as `'long: 'short` is a directed edge. Declared binders are reflexive, direct edges close transitively, and cycles make their members mutually reachable. An iterative, cycle-safe worklist handles converging graphs and long chains without recursive stack growth. Named returns select every mode-compatible parameter whose lifetime reaches the return lifetime; elided returns select every mode-compatible borrowed parameter. Shared returns admit `lend` and `lend mut`; mutable returns admit only `lend mut`. Outer ordinary-task lend parameters and borrowed returns are contract positions; named and elided lends nested anywhere inside stored signature types are rejected before their provenance can be erased. Generic call substitution likewise rejects lend-bearing actual types before `T` can conceal a loan in an instantiated result. |
 | `freak_mir` | Candidate source-argument mapping on an ordinary call rvalue | MIR erases callee binder spelling from the caller-local result but maps every eligible signature parameter to its reordered call argument. `-1` means opaque/unproven, `0` is a proven-empty set, and a positive count is a fully mapped candidate set. This is candidate metadata, not caller ownership. Runtime aggregate construction rejects lend children while child type and span identity still exist. |
-| `freak_borrowck` / Meiya | Concrete owner-path provenance | Meiya resolves MIR candidates through projections, scalar holders, projected reborrows through scalar lend holders, nested statically resolved ordinary calls, and acyclic CFG joins. Known sets deduplicate and union every concrete caller owner; incomplete or recursive provenance becomes opaque. Only Meiya emits queryable `ReturnLoan` / `ReturnLoanMut` paths. Stored named and elided results keep every candidate owner live through the holder's final reachable use. Bounded integer and canonical-path cache rings rebuild evicted entries without changing provenance semantics. |
+| `freak_borrowck` / Meiya | Concrete owner-path provenance | Meiya resolves MIR candidates through projections, scalar holders, projected reborrows through scalar lend holders, nested statically resolved ordinary calls, acyclic CFG joins, and loop headers/backedges. It discovers memo dependencies iteratively, records reverse edges, and schedules only dependants of changed memos in deterministic waves to reach a monotonic least fixed point. Known sets deduplicate and union every concrete caller owner; unresolved empty memos and path-growing projections become opaque. Only Meiya emits queryable `ReturnLoan` / `ReturnLoanMut` paths. Stored named and elided results keep every candidate owner live through the holder's final reachable use. Bounded integer/canonical-path cache rings and explicit memo/dependency/work/source/path budgets rebuild or fail closed without changing provenance semantics. |
 | `freak_editor` plus query/snapshot crates | Lifetime semantic, hover, definition, restore, and invalidation facts | Outlives-bound references resolve to the declared binder even when that declaration appears later or the bound is repeated. Distinct definitions and spans survive snapshot restore after the live editor arenas have been poisoned. Stale or fingerprint-mismatched restored entries are not promoted. Source changes update all 17 invalidation report fields: 14 concrete query families plus three aggregate totals (`all`/`query`, `core`, and `editor`); explicit requests prove every concrete family recomputes and the totals refresh. |
 
 TY's iterative lifetime closure uses queue/visited arrays as high-water scratch:
@@ -681,8 +681,29 @@ file or signature invalidates its matching rows before reuse.
 
 Provenance expansion is memoized per `(MIR, body, use location, rvalue)` within
 one borrowck generation. A new generation resets active state/source/memo
-cursors. Active rows are bounded by the provenance graph visited in that
-generation; backing arrays reuse high-water capacity and do not retain
+cursors. Dependency discovery walks the dynamically growing memo prefix as an
+iterative worklist; nested holder/call lookups only intern another memo and
+return its partial fact, so neither a cycle nor a long acyclic chain consumes
+the native call stack. Every lookup records a reverse dependency edge in a
+per-memo adjacency list. Meiya then performs two deterministic monotonic phases
+whose worklists schedule only dependants of a memo whose revision changed. The
+solver retains a solved-memo frontier between top-level provenance queries, so
+later independent roots seed discovery, queued-state cleanup, finalization, and
+both propagation phases only from newly added memos rather than replaying the
+entire generation. Generation-stamped per-body memo chains keep root lookup
+proportional to the memo count in that MIR body instead of every prior body in
+the file. The source phase unions concrete
+owners until the revision counter stabilizes; every still-empty memo is
+conservatively made opaque; the opacity phase propagates that state through the
+same graph. Each phase may execute at most `new_memo_count + 1` deterministic waves.
+Identity self-edges are no-ops, while projected self-edges that would grow a
+path become opaque. Hitting the round bound marks the whole generation opaque.
+
+The same fail-closed rule applies at explicit generation budgets: 4,096 memo
+entries, 16,384 reverse dependency edges, 65,536 processed work items, 1,024
+concrete source facts, and 1,024 bytes per canonical owner path.
+Active rows are therefore bounded by both the visited provenance graph and hard
+resource ceilings; backing arrays reuse high-water capacity and do not retain
 historical active rows. Integer-word interning backs those rows, and the
 canonical-path cache reuses both exact-input mappings and existing
 whitespace-free canonical values across repeated generations. Each cache is a
@@ -690,9 +711,15 @@ bounded ring: churn evicts old rows, an evicted value rebuilds to the same
 result, and repeated hot values do not allocate another row. The bootstrap
 runtime's array-handle table grows dynamically rather than imposing a hidden
 256-handle ceiling. Cache eviction does not yet reclaim displaced word
-allocations from append-only compiler arenas. Re-entering an
-in-progress memo entry marks its result opaque, preserving soundness instead of
-recursing forever.
+allocations from append-only compiler arenas. Round/limit/solve/convergence,
+resource-exhaustion, and work-item telemetry is keyed by borrowck result and
+persists through borrowck snapshot v2, making restore and resource behavior
+queryable and executable. Legacy v1 snapshots remain importable with default
+telemetry; a v2 record missing any telemetry field fails validation. CFG block
+reachability, holder liveness, and holder-alias expansion use explicit
+cycle-safe worklists. A
+64-diamond fixture proves forward and reverse reachability without recursive
+stack growth.
 
 The runtime-value storage boundary is enforced during MIR construction. Tuple
 literals, fixed-array literals, repeat-filled fixed arrays, list literals,
@@ -711,10 +738,10 @@ Unsupported forwarding is also an enforced diagnostic boundary. Returned loans
 through methods, dynamic dispatch, plain callbacks, extern calls, and FFI
 callbacks are rejected rather than silently accepted. Closure expressions now
 lower explicit, lexical-scope-aware capture environments, but borrowed-return
-closure contracts and forwarding remain unsupported. Loop-carried
-provenance fixed points, body-derived source discovery, general lexical region
-inference, `'static` storage classification, aggregate loan storage, and backend
-lowering remain future Meiya work. This checkpoint is a partial
+closure contracts and forwarding remain unsupported. Loop-carried provenance fixed points are implemented for scalar
+holders and statically resolved ordinary calls; body-derived source discovery,
+general lexical region inference, `'static` storage classification, aggregate
+loan storage, and backend lowering remain future Meiya work. This checkpoint is a partial
 signature-contract source-set and non-lexical liveness slice, not completed
 region inference or a completed production backend.
 

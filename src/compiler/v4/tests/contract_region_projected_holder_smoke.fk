@@ -80,6 +80,7 @@ pilot v4_contract_region_projected_holder_control_result = v4_borrowck_lookup_re
 pilot v4_contract_region_projected_holder_cycle_result = v4_borrowck_lookup_result(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_cycle_def)
 pilot v4_contract_region_projected_holder_path = v4_contract_region_projected_holder_return_path(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_result)
 pilot v4_contract_region_projected_holder_chain_path = v4_contract_region_projected_holder_return_path(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_chain_result)
+pilot v4_contract_region_projected_holder_cycle_path = v4_contract_region_projected_holder_return_path(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_cycle_result)
 
 say "contract-region-projected-holder-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_projected_holder_ty))
 say "contract-region-projected-holder-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_projected_holder_mir))
@@ -94,3 +95,4 @@ say "contract-region-projected-holder-chain-source=" + v4_borrowck_path_text(v4_
 say "contract-region-projected-holder-owned-diagnostics=" + word_from_int(v4_contract_region_projected_holder_diag_count(v4_contract_region_projected_holder_borrow, "Meiya refuses to return a loan of an owned value"))
 say "contract-region-projected-holder-opaque-diagnostics=" + word_from_int(v4_contract_region_projected_holder_diag_count(v4_contract_region_projected_holder_borrow, "Meiya cannot establish the origin of this returned loan"))
 say "contract-region-projected-holder-cycle-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_cycle_result, v4_borrowck_path_return_loan))
+say "contract-region-projected-holder-cycle-source=" + v4_borrowck_path_text(v4_contract_region_projected_holder_borrow, v4_contract_region_projected_holder_cycle_result, v4_contract_region_projected_holder_cycle_path)
