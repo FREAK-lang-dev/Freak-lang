@@ -47,7 +47,7 @@ Pipeline (full compiler):
 | §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer forms, explicit named lifetimes plus ordinary-task outlives bounds, first-pass `dyn Doctrine` type/object-safety/coercion/editor facts, and first-pass default/`copy`/`move`/`mut` closure capture semantics through resilient parse, HIR, TY, MIR, Meiya, editor, snapshot, LSP, and invalidation queries. Still expanding: `prob_when`, nested and generic closure typing, borrowed-return closure contracts, closure environment codegen, full dyn vtable lowering, and production backend depth for V4-only forms. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, projection/scalar-holder/projected-reborrow/statically resolved ordinary-call/reordered-argument/CFG-join provenance with bounded deterministic loop-header/backedge fixed points, all-candidate final-use liveness (including elided multi-owner results), and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed child provenance, field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. First-pass closure capture ownership (`CaptureBorrow`, `CaptureBorrowMut`, `CaptureCopy`, `CaptureMove`) with stored-closure loan liveness and OneShot consumption, queryable Meiya-owned loan/move facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating also exist. Dynamic and wrapper containers, lend-bearing aliases/doctrine/callback contracts, aggregate task boundaries, body-derived/general lexical inference, `'static`, general arena reclamation, runtime `Shared<T>`/`Weak<T>` depth, closure `Send`/`Sync`, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax exists, but borrowed-return closure contracts and forwarding do not yet. No fixed-aggregate backend or runtime ABI is claimed. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, projection/scalar-holder/projected-reborrow/statically resolved ordinary-call/reordered-argument/CFG-join provenance with bounded deterministic loop-header/backedge fixed points, all-candidate final-use liveness (including elided multi-owner results), and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed child provenance, projection-assignment rebinding, field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Generic-call, owner-generic, and `Shared<T>::new` checks recursively expose nominal shape/route lends before substitution. First-pass closure capture ownership (`CaptureBorrow`, `CaptureBorrowMut`, `CaptureCopy`, `CaptureMove`) with stored-closure loan liveness and OneShot consumption, queryable Meiya-owned loan/move facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating also exist. Declaration-order children use `freak-mir-snapshot-v5`; v4 is rejected, and restore re-resolves IDs in a fresh borrowck generation. Dynamic and wrapper containers, lend-bearing aliases/doctrine/callback contracts, aggregate task boundaries, body-derived/general lexical inference, `'static`, general arena reclamation, runtime `Shared<T>`/`Weak<T>` depth, closure `Send`/`Sync`, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax exists, but borrowed-return closure contracts and forwarding do not yet. No fixed-aggregate backend or runtime ABI is claimed. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
@@ -1103,10 +1103,15 @@ the rest is V4.
 > and non-constant index uses conservatively include every possible child.
 > `LoanMut` remains exclusive for the projected child, and a repeat-filled fixed
 > array cannot duplicate one mutable lend across several slots.
+> Projection assignments are first-class holder definitions: rebinding one
+> field releases only its previous loan, protects the newly stored owner, and
+> preserves sibling loans. Moving an aggregate into a projected destination
+> retains each child's relative projection provenance under the new root.
 >
 > List and map storage plus the `some(...)`, `ok(...)`, and `err(...)` wrapper
-> constructors remain rejected. Generic task-call substitution also rejects a
-> lend-bearing actual before `T` can hide it in an instantiated result. Method,
+> constructors remain rejected. Generic-call, owner-generic, and
+> `Shared<T>::new` substitution checks recursively expand nominal shapes and
+> routes such as `Direct<'a>`, rejecting a hidden lend before `T` can erase it. Method,
 > dynamic, callback, extern, and FFI returned-loan forwarding paths are
 > explicitly rejected rather than silently accepted. V4 closure expressions now
 > carry capture ownership, but closure types cannot yet declare borrowed-return
@@ -1116,10 +1121,13 @@ the rest is V4.
 > tokens, signature relations, and editor semantic/hover/definition facts on
 > outlives-bound references exist. Definitions target the declared binder even
 > when it appears later in the generic list or is referenced repeatedly, and
-> restored snapshots preserve those distinct definition spans. Fixed-layout
-> local facts use the existing MIR/borrowck snapshots, 00-Unit restore/diff/
-> health envelopes, and all 17 invalidation report fields; no aggregate-only
-> LSP or snapshot protocol is introduced. Contract-boundary
+> restored snapshots preserve those distinct definition spans. Declaration-order
+> aggregate children require `freak-mir-snapshot-v5`; v4 is rejected. Borrowck
+> restore starts a fresh provenance scratch generation, and the query smoke
+> proves `A -> B -> restore A` with MIR, borrowck, and editor IDs re-resolved.
+> Fixed-layout local facts otherwise use the existing 00-Unit restore/diff/health
+> envelopes and all 17 invalidation report fields; no aggregate-only LSP or
+> snapshot protocol is introduced. Contract-boundary
 > diagnostics retain source-backed spans, with normalized source paths and exact
 > `start:end` byte ranges pinned for signature and unsupported-forwarding
 > failures. The first
@@ -1226,13 +1234,17 @@ shape Important<'a> {
 >
 > Scalar holders plus task-local tuples, fixed arrays, shapes such as
 > `Important<'a>`, and route payloads preserve declaration-keyed child
-> provenance. Field-sensitive final-use liveness and mutable exclusivity apply
-> through local projections, holder aliases, acyclic joins, and bounded loop-header/
-> backedge fixed points. Aggregate task parameters and returns, alias types,
-> doctrines, callbacks, dynamic/wrapper containers, and non-ordinary forwarding
+> provenance. Projection assignment redefines only the selected holder, and an
+> aggregate move into a projected destination preserves relative child paths.
+> Field-sensitive final-use liveness and mutable exclusivity apply through local
+> projections, holder aliases, acyclic joins, and bounded loop-header/backedge
+> fixed points. Generic and owner-generic calls plus `Shared<T>::new` recursively
+> inspect nominal shape/route storage before substitution. Aggregate task
+> parameters and returns, alias types, doctrines, callbacks, dynamic/wrapper containers, and non-ordinary forwarding
 > remain outside this slice. `'_` remains elided and cannot be declared or used
 > as a bound. `'static` borrowed contracts remain V4 work. This local ownership
-> support does not promise runtime layout or backend lowering.
+> support does not promise runtime layout, a runtime aggregate-loan ABI, or
+> backend lowering.
 
 ### 4.4 Shared Ownership and Aliasing
 
