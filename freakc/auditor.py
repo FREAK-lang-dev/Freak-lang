@@ -3656,6 +3656,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "fixed-aggregate-immutable-holder-rebind=clean",
             "fixed-aggregate-scoped-argument-shape-live=blocked",
             "fixed-aggregate-projection-destination-alias=blocked",
+            "fixed-aggregate-loop-rebind-before-backedge=clean",
             "fixed-aggregate-shape-child0-projection=.left",
             "fixed-aggregate-shape-child1-projection=.right",
             "fixed-aggregate-shape-left-child-found=true",
