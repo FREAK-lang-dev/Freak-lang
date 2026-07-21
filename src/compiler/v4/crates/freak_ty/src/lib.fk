@@ -39,6 +39,13 @@ pilot v4_ty_generic_kind_lifetime = "lifetime"
 pilot v4_ty_param_mode_value = "value"
 pilot v4_ty_param_mode_lend = "lend"
 pilot v4_ty_param_mode_lend_mut = "lend mut"
+pilot v4_ty_closure_mode_borrow = "borrow"
+pilot v4_ty_closure_mode_copy = "copy"
+pilot v4_ty_closure_mode_move = "move"
+pilot v4_ty_closure_mode_mut = "mut"
+pilot v4_ty_closure_callable = "Callable"
+pilot v4_ty_closure_mut_callable = "MutCallable"
+pilot v4_ty_closure_one_shot = "OneShot"
 
 pilot v4_ty_files = 0
 pilot v4_ty_resolves = 0
@@ -493,6 +500,77 @@ task v4_ty_is_surface_task_function_type(type_text: word) -> bool {
 
 task v4_ty_is_surface_extern_function_pointer_type(type_text: word) -> bool {
     give back type_text.starts_with("extern[") and v4_ty_is_surface_task_function_type(type_text)
+}
+
+task v4_ty_closure_doctrine_for_mode(mode: word) -> word {
+    if mode == v4_ty_closure_mode_mut {
+        give back v4_ty_closure_mut_callable
+    }
+    if mode == v4_ty_closure_mode_move {
+        give back v4_ty_closure_one_shot
+    }
+    give back v4_ty_closure_callable
+}
+
+task v4_ty_closure_type_prefix(mode: word) -> word {
+    give back "closure[" + v4_ty_closure_doctrine_for_mode(mode) + "," + mode + "]"
+}
+
+task v4_ty_is_closure_type(type_text: word) -> bool {
+    if type_text.starts_with("closure[") == false {
+        give back false
+    }
+    pilot close_bracket = v4_index_of_from(type_text, "]", 8)
+    if close_bracket < 0 or close_bracket + 1 >= type_text.length() {
+        give back false
+    }
+    give back type_text.char_at(close_bracket + 1) == "("
+}
+
+task v4_ty_closure_spec(type_text: word) -> word {
+    if v4_ty_is_closure_type(type_text) == false {
+        give back ""
+    }
+    pilot close_bracket = v4_index_of_from(type_text, "]", 8)
+    give back v4_slice(type_text, 8, close_bracket)
+}
+
+task v4_ty_closure_doctrine(type_text: word) -> word {
+    pilot spec = v4_ty_closure_spec(type_text)
+    pilot comma = v4_index_of_from(spec, ",", 0)
+    if comma < 0 {
+        give back ""
+    }
+    give back v4_slice(spec, 0, comma)
+}
+
+task v4_ty_closure_mode(type_text: word) -> word {
+    pilot spec = v4_ty_closure_spec(type_text)
+    pilot comma = v4_index_of_from(spec, ",", 0)
+    if comma < 0 or comma + 1 >= spec.length() {
+        give back ""
+    }
+    give back v4_slice(spec, comma + 1, spec.length())
+}
+
+task v4_ty_closure_as_task_type(type_text: word) -> word {
+    if v4_ty_is_closure_type(type_text) == false {
+        give back v4_ty_unknown
+    }
+    pilot close_bracket = v4_index_of_from(type_text, "]", 8)
+    give back "task" + v4_slice(type_text, close_bracket + 1, type_text.length())
+}
+
+task v4_ty_closure_param_count(type_text: word) -> int {
+    give back v4_ty_function_type_param_count(v4_ty_closure_as_task_type(type_text))
+}
+
+task v4_ty_closure_param_type(type_text: word, param_id: int) -> word {
+    give back v4_ty_function_type_param_surface(v4_ty_closure_as_task_type(type_text), param_id)
+}
+
+task v4_ty_closure_return_type(type_text: word) -> word {
+    give back v4_ty_function_type_return_text(v4_ty_closure_as_task_type(type_text))
 }
 
 task v4_ty_function_type_open_paren(type_text: word) -> int {
@@ -1126,6 +1204,9 @@ task v4_ty_is_integer_text_literal(value: word) -> bool {
 task v4_ty_is_copy_type(ty_name: word) -> bool {
     if v4_ty_is_lend_type(ty_name) {
         give back v4_ty_is_lend_mut_type(ty_name) == false
+    }
+    if v4_ty_is_closure_type(ty_name) {
+        give back v4_ty_closure_doctrine(ty_name) == v4_ty_closure_callable
     }
     if ty_name == v4_ty_int or ty_name == v4_ty_uint or ty_name == v4_ty_tiny or ty_name == v4_ty_num {
         give back true
@@ -4293,6 +4374,160 @@ task v4_ty_infer_arrow_expr_return(stream_id: int, start_token: int, end_token: 
     give back v4_ty_unknown
 }
 
+task v4_ty_closure_param_type_for_name(ty_id: int, hir_item: int, closure_id: int, param_name: word) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot owner_sig = v4_ty_signature_for_hir_item(ty_id, hir_item)
+    pilot param_id = 0
+    pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+    repeat until param_id >= param_count {
+        if v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id) == param_name {
+            pilot param_ty = v4_hir_closure_param_type(hir_id, hir_item, closure_id, param_id)
+            if param_ty == "" {
+                give back v4_ty_unknown
+            }
+            if owner_sig >= 0 {
+                param_ty = v4_ty_canonical_type_in_signature(ty_id, owner_sig, param_ty)
+            }
+            give back param_ty
+        }
+        param_id += 1
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_infer_closure_block_return(ty_id: int, hir_item: int, closure_id: int, stream_id: int, start_token: int, end_token: int) -> word {
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_value(stream_id, idx) == "give" {
+            pilot back_token = v4_ty_next_nontrivia(stream_id, idx + 1, end_token)
+            if back_token < end_token and v4_lex_token_value(stream_id, back_token) == "back" {
+                pilot expr_token = v4_ty_next_nontrivia(stream_id, back_token + 1, end_token)
+                if expr_token >= end_token or v4_lex_token_value(stream_id, expr_token) == "}" {
+                    give back v4_ty_void
+                }
+                pilot inferred = v4_ty_infer_arrow_expr_return(stream_id, expr_token, end_token)
+                if inferred != v4_ty_unknown {
+                    give back inferred
+                }
+                pilot token_type = v4_lex_token_type(stream_id, expr_token)
+                if token_type == v4_tok_ident or token_type == v4_tok_keyword {
+                    pilot after_expr = v4_ty_next_nontrivia(stream_id, expr_token + 1, end_token)
+                    if after_expr >= end_token or v4_lex_token_value(stream_id, after_expr) == ";" or v4_lex_token_value(stream_id, after_expr) == "}" {
+                        give back v4_ty_closure_param_type_for_name(ty_id, hir_item, closure_id, v4_lex_token_value(stream_id, expr_token))
+                    }
+                }
+                give back v4_ty_unknown
+            }
+        }
+        idx += 1
+    }
+    give back v4_ty_void
+}
+
+task v4_ty_validate_closure_params(ty_id: int) -> void {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back
+    }
+    pilot hir_item = 0
+    pilot hir_count = v4_hir_item_count(hir_id)
+    repeat until hir_item >= hir_count {
+        pilot closure_id = 0
+        pilot closure_count = v4_hir_closure_count(hir_id, hir_item)
+        repeat until closure_id >= closure_count {
+            pilot param_id = 0
+            pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+            repeat until param_id >= param_count {
+                pilot param_name = v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id)
+                if param_name != "" and param_name != "_" {
+                    pilot earlier_id = 0
+                    repeat until earlier_id >= param_id {
+                        if v4_hir_closure_param_name(hir_id, hir_item, closure_id, earlier_id) == param_name {
+                            v4_ty_add_error_diag(ty_id, v4_hir_closure_param_span(hir_id, hir_item, closure_id, param_id), "Yuuko found a repeated closure parameter", "rename the second " + param_name + " parameter so every role in the closure cast is unambiguous")
+                            earlier_id = param_id
+                        } else {
+                            earlier_id += 1
+                        }
+                    }
+                }
+                param_id += 1
+            }
+            closure_id += 1
+        }
+        hir_item += 1
+    }
+}
+
+task v4_ty_signature_for_hir_item(ty_id: int, hir_item: int) -> int {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_hir_item(ty_id, sig_id) == hir_item and v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 {
+            give back sig_id
+        }
+        sig_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_closure_type_at(ty_id: int, hir_item: int, closure_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or closure_id < 0 or closure_id >= v4_hir_closure_count(hir_id, hir_item) {
+        give back v4_ty_unknown
+    }
+
+    pilot mode = v4_hir_closure_mode(hir_id, hir_item, closure_id)
+    if mode == "" {
+        mode = v4_ty_closure_mode_borrow
+    }
+    pilot owner_sig = v4_ty_signature_for_hir_item(ty_id, hir_item)
+    pilot out = v4_ty_closure_type_prefix(mode) + "("
+    pilot param_id = 0
+    pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+    if param_count == 1 and v4_hir_closure_param_name(hir_id, hir_item, closure_id, 0) == "_" and v4_hir_closure_param_type(hir_id, hir_item, closure_id, 0) == "" {
+        param_count = 0
+    }
+    repeat until param_id >= param_count {
+        if param_id > 0 {
+            out = out + ","
+        }
+        pilot param_name = v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id)
+        pilot param_ty = v4_hir_closure_param_type(hir_id, hir_item, closure_id, param_id)
+        if param_ty == "" {
+            param_ty = v4_ty_unknown
+        } else if owner_sig >= 0 {
+            param_ty = v4_ty_canonical_type_in_signature(ty_id, owner_sig, param_ty)
+        }
+        if param_name != "" {
+            out = out + param_name + ":"
+        }
+        out = out + param_ty
+        param_id += 1
+    }
+
+    pilot return_ty = v4_ty_void
+    pilot body_kind = v4_hir_closure_body_kind(hir_id, hir_item, closure_id)
+    pilot stream_id = v4_hir_item_stream_id(hir_id)
+    if body_kind == "expr" {
+        return_ty = v4_ty_infer_arrow_expr_return(stream_id, v4_hir_closure_body_start_token(hir_id, hir_item, closure_id), v4_hir_closure_body_end_token(hir_id, hir_item, closure_id))
+    } else if body_kind == "block" {
+        return_ty = v4_ty_infer_closure_block_return(ty_id, hir_item, closure_id, stream_id, v4_hir_closure_body_start_token(hir_id, hir_item, closure_id), v4_hir_closure_body_end_token(hir_id, hir_item, closure_id))
+    }
+    give back out + ")->" + return_ty
+}
+
+task v4_ty_closure_type_for_offset(ty_id: int, hir_item: int, offset: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back v4_ty_unknown
+    }
+    pilot closure_id = v4_hir_closure_at_offset(hir_id, hir_item, offset)
+    if closure_id < 0 {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_closure_type_at(ty_id, hir_item, closure_id)
+}
+
 task v4_ty_route_surface_keyword(hir_id: int, hir_item: int) -> word {
     if hir_item >= 0 and v4_hir_route_is_variant(hir_id, hir_item) {
         give back "variant"
@@ -6720,6 +6955,18 @@ task v4_ty_doctrine_method_param_name(ty_id: int, sig_id: int, method_id: int, p
     pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
     pilot end_token = v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
     give back v4_ty_param_name_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_doctrine_method_param_mode(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_doctrine_method_param_open_token(ty_id, sig_id, method_id)
+    pilot close_token = v4_ty_doctrine_method_param_close_token(ty_id, sig_id, method_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back v4_ty_param_mode_value
+    }
+    pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
+    pilot end_token = v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
+    give back v4_ty_param_mode_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_doctrine_method_param_surface_type(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
@@ -10742,6 +10989,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
         symbol_idx += 1
     }
 
+    v4_ty_validate_closure_params(ty_id)
     v4_ty_validate_lifetime_contracts(ty_id)
     v4_ty_validate_repr_contracts(ty_id)
     v4_ty_validate_layout_contracts(ty_id)

@@ -222,4 +222,4 @@ v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-extern",
 pilot v4_contract_region_forwarding_boundary_ffi_borrow = v4_borrowck_text_cached("contract-region-forwarding-ffi.fk", v4_contract_region_forwarding_boundary_ffi_source())
 v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-ffi", v4_contract_region_forwarding_boundary_ffi_borrow, "ffi_forward", "mir", v4_contract_region_forwarding_boundary_ffi_message)
 
-say "contract-region-forwarding-closure-coverage=unsupported-no-v4-closure-syntax"
+say "contract-region-forwarding-closure-coverage=unsupported-no-borrowed-closure-contract"

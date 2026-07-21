@@ -709,8 +709,9 @@ cannot silently turn a Meiya refusal into a locationless omen.
 
 Unsupported forwarding is also an enforced diagnostic boundary. Returned loans
 through methods, dynamic dispatch, plain callbacks, extern calls, and FFI
-callbacks are rejected rather than silently accepted. Closure forwarding is not
-yet a source form because V4 closure expression syntax is absent. Loop-carried
+callbacks are rejected rather than silently accepted. Closure expressions now
+lower explicit, lexical-scope-aware capture environments, but borrowed-return
+closure contracts and forwarding remain unsupported. Loop-carried
 provenance fixed points, body-derived source discovery, general lexical region
 inference, `'static` storage classification, aggregate loan storage, and backend
 lowering remain future Meiya work. This checkpoint is a partial
