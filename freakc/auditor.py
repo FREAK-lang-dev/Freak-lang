@@ -2992,6 +2992,13 @@ def audit_conformance(paths: List[Path]) -> int:
                 "views.1 = lend mut third",
                 "views.0 = lend mut third",
                 'v4_borrowck_text_cached("contract-region-fixed-aggregate.fk"',
+                "task loop_rebind_before_backedge(first: Ship, second: Ship, sibling: Ship)",
+                "holder.0 = lend mut first",
+                "task loop_sibling_survives(first: Ship, second: Ship, third: Ship)",
+                "task dynamic_index_rebind<'a,'b>",
+                "slots[index] = lend second",
+                "fixed-aggregate-loop-sibling-survives=",
+                "fixed-aggregate-dynamic-index-rebind=",
                 "v4_mir_rvalue_aggregate_child_projection(",
                 "v4_mir_rvalue_aggregate_child_for_projection(",
                 "v4_ty_type_lend_storage_class(",
@@ -3062,6 +3069,11 @@ def audit_conformance(paths: List[Path]) -> int:
                 "contract-region-storage-map-value-status=",
                 "contract-region-storage-borrow-diagnostics-exact-ten=",
                 "contract-region-storage-borrow-diags-match-mir=",
+                "v4_contract_region_storage_negative_deep_lend_free_type()",
+                "v4_ty_type_may_store_lend(ty_id, type_text)",
+                "contract-region-storage-deep-class=",
+                "contract-region-storage-deep-confirmed-lend=",
+                "contract-region-storage-deep-diagnostic=",
             ),
         ),
         (
@@ -3072,6 +3084,20 @@ def audit_conformance(paths: List[Path]) -> int:
                 "pilot direct = identity(lend value)",
                 "Meiya cannot substitute a lend-bearing type for a generic call yet",
                 "contract-region-generic-lend-escape-meiya-count=",
+                "impl Direct<'a>",
+                "impl Add for Box<T>",
+                "pilot hidden_direct_instance = stored.keep()",
+                "pilot hidden_operator = wrapped + wrapped",
+                "contract-region-owner-generic-negative-method-boundary-count=",
+                "Meiya cannot carry a lend-bearing aggregate across a method call yet",
+            ),
+        ),
+        (
+            v4_tests_return / "mir_snapshot_smoke.fk",
+            (
+                "v4_mir_snapshot_lsp_restore_generation_before",
+                "v4_borrowck_provenance_scratch_generation()",
+                "mir-snapshot-lsp-restore-generation-advanced=",
             ),
         ),
         (
@@ -3279,6 +3305,9 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "named_lifetime_diagnostics_smoke.fk": (
             "named-lifetime-diag-repeated-source=-2",
+        ),
+        "mir_snapshot_smoke.fk": (
+            "mir-snapshot-lsp-restore-generation-advanced=true",
         ),
         "ty_snapshot_smoke.fk": (
             "ty-restore-malformed-rejected=true",
@@ -3634,7 +3663,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "fixed-aggregate-parse-diagnostics=0",
             "fixed-aggregate-ty-diagnostics=0",
             "fixed-aggregate-mir-diagnostics=2",
-            "fixed-aggregate-borrow-diagnostics=11",
+            "fixed-aggregate-borrow-diagnostics=13",
             "fixed-aggregate-tuple-sibling-dead=clean",
             "fixed-aggregate-tuple-left-live=blocked",
             "fixed-aggregate-array-sibling-dead=clean",
@@ -3658,6 +3687,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "fixed-aggregate-projection-destination-alias=blocked",
             "fixed-aggregate-loop-rebind-before-backedge=clean",
             "fixed-aggregate-shape-child0-projection=.left",
+            "fixed-aggregate-loop-sibling-survives=blocked",
+            "fixed-aggregate-dynamic-index-rebind=blocked",
             "fixed-aggregate-shape-child1-projection=.right",
             "fixed-aggregate-shape-left-child-found=true",
             "fixed-aggregate-shape-right-child-found=true",
@@ -3747,6 +3778,11 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-storage-borrow-diagnostics=10",
             "contract-region-storage-borrow-diagnostics-exact-ten=true",
             "contract-region-storage-borrow-diags-match-mir=true",
+            "contract-region-storage-deep-class=exhausted",
+            "contract-region-storage-deep-confirmed-lend=false",
+            "contract-region-storage-deep-may-store-lend=true",
+            "contract-region-storage-deep-diagnostic-added=true",
+            "contract-region-storage-deep-diagnostic=Meiya's lend-storage analysis exhausted its depth budget",
         ),
         "contract_region_generic_lend_escape_smoke.fk": (
             "contract-region-generic-lend-escape-parse-diagnostics=0",
@@ -3779,13 +3815,14 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-owner-generic-happy-forged-builtin=false",
             "contract-region-owner-generic-negative-parse-diagnostics=0",
             "contract-region-owner-generic-negative-ty-diagnostics=1",
-            "contract-region-owner-generic-negative-mir-diagnostics=7",
-            "contract-region-owner-generic-negative-meiya-count=6",
+            "contract-region-owner-generic-negative-mir-diagnostics=9",
+            "contract-region-owner-generic-negative-meiya-count=7",
             "contract-region-owner-generic-negative-instance-type=unknown",
             "contract-region-owner-generic-negative-associated-type=unknown",
             "contract-region-owner-generic-negative-shared-type=unknown",
             "contract-region-owner-generic-negative-shared-identity-empty=true",
             "contract-region-owner-generic-negative-shared-builtin=false",
+            "contract-region-owner-generic-negative-method-boundary-count=1",
             "contract-region-owner-generic-negative-nominal-associated-type=unknown",
             "contract-region-owner-generic-negative-nominal-instance-type=unknown",
             "contract-region-owner-generic-negative-nominal-shared-type=unknown",
@@ -3793,6 +3830,10 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-owner-generic-negative-nominal-instance-identity-empty=true",
             "contract-region-owner-generic-negative-nominal-shared-identity-empty=true",
             "contract-region-owner-generic-negative-nominal-shared-builtin=false",
+            "contract-region-owner-generic-negative-direct-instance-type=unknown",
+            "contract-region-owner-generic-negative-operator-type=unknown",
+            "contract-region-owner-generic-negative-diag7-message=Meiya cannot carry a lend-bearing aggregate across a method call yet",
+            "contract-region-owner-generic-negative-diag8-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
             "contract-region-owner-generic-negative-diag0-message=Meiya cannot store a lend in parameter 0 of instance_escape yet",
             "contract-region-owner-generic-negative-diag0-help=keep elided lends on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands",
             "contract-region-owner-generic-negative-diag1-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
@@ -4330,7 +4371,7 @@ def audit_conformance(paths: List[Path]) -> int:
                     )
                 continue
             for expected in required_expects:
-                if expected not in smoke.expect:
+                if expected not in smoke.expect and expected not in smoke.expect_exact:
                     contract_region_missing.append(
                         f"EXECUTABLE_SMOKES: {fixture} missing expected value {expected!r}"
                     )

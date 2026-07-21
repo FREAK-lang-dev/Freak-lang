@@ -45,7 +45,11 @@ say v4_resolve_snapshot_restore(v4_resolve_snapshot())
 say v4_ty_snapshot_restore(v4_ty_snapshot())
 say v4_mir_snapshot_restore(v4_mir_snapshot_payload)
 say v4_lsp_mir_snapshot_text()
-say v4_lsp_mir_snapshot_restore_text(v4_mir_snapshot_payload)
+pilot v4_mir_snapshot_lsp_restore_generation_before = v4_borrowck_provenance_scratch_generation()
+pilot v4_mir_snapshot_lsp_restore = v4_lsp_mir_snapshot_restore_text(v4_mir_snapshot_payload)
+pilot v4_mir_snapshot_lsp_restore_generation_after = v4_borrowck_provenance_scratch_generation()
+say v4_mir_snapshot_lsp_restore
+say "mir-snapshot-lsp-restore-generation-advanced=" + v4_mir_snapshot_graph_bool(v4_mir_snapshot_lsp_restore_generation_after > v4_mir_snapshot_lsp_restore_generation_before)
 say v4_lsp_handle_text_request("workspace/mirSnapshotRestore", "mir-snapshot.fk", v4_mir_snapshot_payload, 0)
 say v4_lsp_handle_request("workspace/mirSnapshotRestore", "mir-snapshot.fk", 0)
 

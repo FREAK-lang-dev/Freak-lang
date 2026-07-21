@@ -93,7 +93,7 @@ pilot v4_mir_place_index = "Index"
 pilot v4_mir_place_deref = "Deref"
 pilot v4_mir_place_return = "Return"
 pilot v4_mir_place_unknown = "Unknown"
-pilot v4_mir_snapshot_format = "freak-mir-snapshot-v4"
+pilot v4_mir_snapshot_format = "freak-mir-snapshot-v5"
 
 pilot v4_mir_files = 0
 pilot v4_mir_tys = 0
@@ -3141,6 +3141,26 @@ task v4_mir_add_lend_bearing_generic_call_error(mir_id: int, expr_span: word, ca
     help = help + "; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists"
     v4_mir_add_type_error(mir_id, expr_span, message, help)
 }
+task v4_mir_add_lend_storage_analysis_exhausted_error(mir_id: int, expr_span: word, callee_name: word, actual_ty: word) -> void {
+    pilot message = "Meiya's lend-storage analysis exhausted its depth budget"
+    pilot help = callee_name + " reaches type " + actual_ty
+    help = help + "; split deeply nested aggregate types or introduce a nominal shape before this ownership boundary"
+    v4_mir_add_type_error(mir_id, expr_span, message, help)
+}
+
+task v4_mir_reject_lend_storage_type(mir_id: int, expr_span: word, callee_name: word, relation: word, generic_name: word, actual_ty: word) -> bool {
+    pilot storage_kind = v4_ty_type_lend_storage_class(v4_mir_ty_id(mir_id), actual_ty)
+    if v4_ty_lend_storage_class_is_incomplete(storage_kind) {
+        v4_mir_add_lend_storage_analysis_exhausted_error(mir_id, expr_span, callee_name, actual_ty)
+        give back true
+    }
+    if v4_ty_lend_storage_class_confirms_lend(storage_kind) {
+        v4_mir_add_lend_bearing_generic_call_error(mir_id, expr_span, callee_name, relation, generic_name, actual_ty)
+        give back true
+    }
+    give back false
+}
+
 
 task v4_mir_reject_lend_bearing_generic_env(mir_id: int, expr_span: word, callee_name: word, relation: word, generic_env: word) -> bool {
     if generic_env == "" or generic_env == v4_ty_generic_env_fail {
@@ -3158,8 +3178,7 @@ task v4_mir_reject_lend_bearing_generic_env(mir_id: int, expr_span: word, callee
         if eq_pos > segment_start and eq_pos + 1 < segment_end {
             pilot generic_name = v4_slice(generic_env, segment_start, eq_pos)
             pilot actual_ty = v4_slice(generic_env, eq_pos + 1, segment_end)
-            if v4_ty_type_contains_lend(actual_ty) {
-                v4_mir_add_lend_bearing_generic_call_error(mir_id, expr_span, callee_name, relation, generic_name, actual_ty)
+            if v4_mir_reject_lend_storage_type(mir_id, expr_span, callee_name, relation, generic_name, actual_ty) {
                 rejected = true
             }
         }
@@ -3175,7 +3194,22 @@ task v4_mir_reject_lend_bearing_impl_owner_generics(mir_id: int, expr_span: word
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
     pilot generic_env = v4_ty_impl_generic_env_for_owner(ty_id, hir_item, owner_ty)
-    give back v4_mir_reject_lend_bearing_generic_env(mir_id, expr_span, callee_name, "derives owner generic", generic_env)
+    if v4_mir_reject_lend_bearing_generic_env(mir_id, expr_span, callee_name, "derives owner generic", generic_env) {
+        give back true
+    }
+    pilot owner_kind = v4_ty_type_lend_storage_class(ty_id, owner_ty)
+    if v4_ty_lend_storage_class_is_incomplete(owner_kind) {
+        v4_mir_add_lend_storage_analysis_exhausted_error(mir_id, expr_span, callee_name, owner_ty)
+        give back true
+    }
+    if v4_ty_lend_storage_class_confirms_lend(owner_kind) {
+        pilot message = "Meiya cannot carry a lend-bearing aggregate across a method call yet"
+        pilot help = callee_name + " uses receiver type " + owner_ty
+        help = help + "; keep fixed-layout lends local until aggregate method-call provenance lands"
+        v4_mir_add_type_error(mir_id, expr_span, message, help)
+        give back true
+    }
+    give back false
 }
 
 task v4_mir_reject_lend_bearing_call_generics(mir_id: int, expr_span: word, callee_name: word, sig_id: int, generic_env: word) -> bool {
@@ -3191,8 +3225,7 @@ task v4_mir_reject_lend_bearing_call_generics(mir_id: int, expr_span: word, call
         if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_idx) == false {
             pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_idx)
             pilot actual_ty = v4_ty_generic_env_lookup(generic_env, generic_name)
-            if actual_ty != "" and v4_ty_type_contains_lend(actual_ty) {
-                v4_mir_add_lend_bearing_generic_call_error(mir_id, expr_span, callee_name, "infers", generic_name, actual_ty)
+            if actual_ty != "" and v4_mir_reject_lend_storage_type(mir_id, expr_span, callee_name, "infers", generic_name, actual_ty) {
                 rejected = true
             }
         }
@@ -3922,7 +3955,11 @@ task v4_mir_try_lower_binary_operator_overload(mir_id: int, body_id: int, left_i
     }
 
     pilot method_name = v4_ty_impl_method_name(v4_mir_ty_id(mir_id), hir_item, method_id)
+    pilot owner_rejected = v4_mir_reject_lend_bearing_impl_owner_generics(mir_id, expr_span, left_ty + "." + method_name, left_ty, method_ref)
     pilot result_ty = v4_ty_impl_method_return_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, left_ty)
+    if owner_rejected {
+        result_ty = v4_ty_unknown
+    }
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, left_ty + "." + method_name, left_id, right_id, expr_span, result_ty)
     pilot args_payload = v4_mir_call_args_payload_append("", left_id)
     args_payload = v4_mir_call_args_payload_append(args_payload, right_id)
@@ -3950,7 +3987,11 @@ task v4_mir_try_lower_unary_operator_overload(mir_id: int, body_id: int, operand
     }
 
     pilot method_name = v4_ty_impl_method_name(v4_mir_ty_id(mir_id), hir_item, method_id)
+    pilot owner_rejected = v4_mir_reject_lend_bearing_impl_owner_generics(mir_id, expr_span, operand_ty + "." + method_name, operand_ty, method_ref)
     pilot result_ty = v4_ty_impl_method_return_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, operand_ty)
+    if owner_rejected {
+        result_ty = v4_ty_unknown
+    }
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, operand_ty + "." + method_name, operand_id, 0 - 1, expr_span, result_ty)
     v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, v4_mir_call_args_payload_append("", operand_id))
     give back call_rvalue
@@ -4639,11 +4680,7 @@ task v4_mir_try_lower_builtin_shared_associated_method(mir_id: int, body_id: int
     }
 
     pilot target_ty = v4_ty_shared_target_type(owner_ty)
-    pilot owner_generic_rejected = false
-    if v4_ty_type_contains_lend(target_ty) {
-        v4_mir_add_lend_bearing_generic_call_error(mir_id, expr_span, owner_ty + "::new", "derives owner generic", "T", target_ty)
-        owner_generic_rejected = true
-    }
+    pilot owner_generic_rejected = v4_mir_reject_lend_storage_type(mir_id, expr_span, owner_ty + "::new", "derives owner generic", "T", target_ty)
     pilot args_payload = v4_mir_lower_builtin_shared_new_arg(mir_id, body_id, stream_id, expr_span, owner_ty, target_ty, open_token, close_token)
     pilot result_ty = owner_ty
     if owner_generic_rejected {
@@ -5456,8 +5493,13 @@ task v4_mir_reject_aggregate_lend_child(mir_id: int, body_id: int, aggregate_con
     }
 
     pilot child_ty = v4_mir_rvalue_ty(mir_id, body_id, child_rvalue)
-    if not v4_ty_type_contains_lend(child_ty) {
+    pilot storage_kind = v4_ty_type_lend_storage_class(v4_mir_ty_id(mir_id), child_ty)
+    if storage_kind == v4_ty_lend_storage_none {
         give back false
+    }
+    if v4_ty_lend_storage_class_is_incomplete(storage_kind) {
+        v4_mir_add_lend_storage_analysis_exhausted_error(mir_id, v4_mir_rvalue_span(mir_id, body_id, child_rvalue), aggregate_context, child_ty)
+        give back true
     }
 
     pilot message = "Meiya cannot store a lend inside " + aggregate_context + " yet"
@@ -5611,6 +5653,27 @@ task v4_mir_const_integer_text_from_rvalue(mir_id: int, body_id: int, rvalue_id:
     give back v4_ty_unknown
 }
 
+task v4_mir_rvalue_contains_mut_lend(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if rvalue_id < 0 {
+        give back false
+    }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_lend_mut or v4_ty_type_may_store_mut_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        give back true
+    }
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot child_id = 0
+        pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+        repeat until child_id >= child_count {
+            if v4_mir_rvalue_contains_mut_lend(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)) {
+                give back true
+            }
+            child_id += 1
+        }
+    }
+    give back false
+}
+
 task v4_mir_fixed_array_count_from_rvalue(mir_id: int, body_id: int, count_rvalue: int, expr_span: word) -> word {
     pilot count_kind = v4_mir_rvalue_kind(mir_id, body_id, count_rvalue)
     pilot count_ty = v4_mir_rvalue_ty(mir_id, body_id, count_rvalue)
@@ -5636,15 +5699,15 @@ task v4_mir_check_fixed_array_repeated_literal(mir_id: int, body_id: int, stream
     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, open_token + 1, repeat_token, expected_element_ty)
     pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
     array_push(children_handle, word_from_int(value_rvalue))
-    if v4_ty_is_lend_mut_type(value_ty) {
-        v4_mir_add_type_error(mir_id, expr_span, "fixed-array repeat cannot duplicate lend mut", "write each element explicitly so every slot receives a distinct exclusive loan")
-    }
     if v4_ty_is_known(expected_element_ty) and not v4_ty_types_compatible(expected_element_ty, value_ty) {
         v4_mir_add_type_error(mir_id, expr_span, "array repeat value drift", "repeat value wants " + expected_element_ty + " but got " + value_ty)
     }
 
     pilot count_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, repeat_token + 1, close_token)
     pilot count_text = v4_mir_fixed_array_count_from_rvalue(mir_id, body_id, count_rvalue, expr_span)
+    if v4_ty_is_known(count_text) and word_to_int(count_text) > 1 and v4_mir_rvalue_contains_mut_lend(mir_id, body_id, value_rvalue) {
+        v4_mir_add_type_error(mir_id, expr_span, "fixed-array repeat cannot duplicate lend mut", "write each element explicitly so every slot receives a distinct exclusive loan")
+    }
     if v4_ty_is_known(expected_length) and v4_ty_is_known(count_text) and expected_length != count_text {
         v4_mir_add_type_error(mir_id, expr_span, "array length mismatch", expected_ty + " expects " + expected_length + " elements but got " + count_text)
     }
@@ -7012,8 +7075,15 @@ task v4_mir_try_lower_lend_expr(mir_id: int, body_id: int, stream_id: int, first
         v4_mir_add_type_error(mir_id, expr_span, "lend source must be a place", "Meiya can only loan a named local, field, index, or deref place; store the value first")
     }
 
+    pilot result_ty = v4_ty_lend_type(operand_ty, mode)
+    if v4_ty_is_lend_type(expected_ty) and v4_ty_lend_mode(expected_ty) == mode and v4_ty_types_compatible(v4_ty_lend_target_type(expected_ty), operand_ty) {
+        pilot expected_lifetime = v4_ty_lend_lifetime(expected_ty)
+        if expected_lifetime != "" {
+            result_ty = v4_ty_lend_type_with_lifetime(operand_ty, mode, expected_lifetime)
+        }
+    }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-    give back v4_mir_add_rvalue(mir_id, body_id, rvalue_kind, expr_text, mode, operand_id, 0 - 1, expr_span, v4_ty_lend_type(operand_ty, mode))
+    give back v4_mir_add_rvalue(mir_id, body_id, rvalue_kind, expr_text, mode, operand_id, 0 - 1, expr_span, result_ty)
 }
 
 task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, expected_ty: word) -> int {

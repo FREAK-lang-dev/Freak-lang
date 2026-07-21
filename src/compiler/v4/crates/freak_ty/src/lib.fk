@@ -38,6 +38,7 @@ pilot v4_ty_lend_storage_none = "none"
 pilot v4_ty_lend_storage_fixed = "fixed"
 pilot v4_ty_lend_storage_unsupported = "unsupported"
 pilot v4_ty_lend_storage_opaque = "opaque"
+pilot v4_ty_lend_storage_exhausted = "exhausted"
 pilot v4_ty_lend_storage_depth_limit = 32
 pilot v4_ty_generic_kind_type = "type"
 pilot v4_ty_generic_kind_lifetime = "lifetime"
@@ -1870,6 +1871,9 @@ task v4_ty_lend_storage_class_merge(left_kind: word, right_kind: word) -> word {
     if left_kind == v4_ty_lend_storage_unsupported or right_kind == v4_ty_lend_storage_unsupported {
         give back v4_ty_lend_storage_unsupported
     }
+    if left_kind == v4_ty_lend_storage_exhausted or right_kind == v4_ty_lend_storage_exhausted {
+        give back v4_ty_lend_storage_exhausted
+    }
     if left_kind == v4_ty_lend_storage_opaque or right_kind == v4_ty_lend_storage_opaque {
         give back v4_ty_lend_storage_opaque
     }
@@ -1884,6 +1888,9 @@ task v4_ty_lend_storage_wrap_unsupported(child_kind: word) -> word {
         give back v4_ty_lend_storage_none
     }
     if child_kind == v4_ty_lend_storage_opaque {
+    if child_kind == v4_ty_lend_storage_exhausted {
+        give back v4_ty_lend_storage_exhausted
+    }
         give back v4_ty_lend_storage_opaque
     }
     give back v4_ty_lend_storage_unsupported
@@ -1894,16 +1901,13 @@ task v4_ty_lend_storage_class_seen(ty_id: int, type_text: word, seen_types: word
         give back v4_ty_lend_storage_none
     }
     if depth > v4_ty_lend_storage_depth_limit {
-        if named_only {
-            give back v4_ty_lend_storage_none
-        }
-        give back v4_ty_lend_storage_opaque
+        give back v4_ty_lend_storage_exhausted
     }
 
     if v4_ty_is_lend_type(type_text) {
         pilot lifetime_name = v4_ty_lend_lifetime(type_text)
-        pilot lifetime_matches = not named_only or (lifetime_name != "" and lifetime_name != "'_")
-        pilot mutability_matches = not mutable_only or v4_ty_is_lend_mut_type(type_text)
+        pilot lifetime_matches: bool = not named_only or (lifetime_name != "" and lifetime_name != "'_")
+        pilot mutability_matches: bool = not mutable_only or v4_ty_is_lend_mut_type(type_text)
         if lifetime_matches and mutability_matches {
             give back v4_ty_lend_storage_fixed
         }
@@ -2034,16 +2038,36 @@ task v4_ty_type_lend_storage_class(ty_id: int, type_text: word) -> word {
     give back v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, false)
 }
 
+task v4_ty_lend_storage_class_confirms_lend(storage_kind: word) -> bool {
+    give back storage_kind == v4_ty_lend_storage_fixed or storage_kind == v4_ty_lend_storage_unsupported
+}
+
+task v4_ty_lend_storage_class_is_incomplete(storage_kind: word) -> bool {
+    give back storage_kind == v4_ty_lend_storage_exhausted or storage_kind == v4_ty_lend_storage_opaque
+}
+
+task v4_ty_type_lend_storage_exhausted(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_is_incomplete(v4_ty_type_lend_storage_class(ty_id, type_text))
+}
+
 task v4_ty_type_stores_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_type_lend_storage_class(ty_id, type_text))
+}
+
+task v4_ty_type_may_store_lend(ty_id: int, type_text: word) -> bool {
     give back v4_ty_type_lend_storage_class(ty_id, type_text) != v4_ty_lend_storage_none
 }
 
 task v4_ty_type_stores_mut_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, true))
+}
+
+task v4_ty_type_may_store_mut_lend(ty_id: int, type_text: word) -> bool {
     give back v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, true) != v4_ty_lend_storage_none
 }
 
 task v4_ty_type_stores_named_lend(ty_id: int, type_text: word) -> bool {
-    give back v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, true, false) != v4_ty_lend_storage_none
+    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, true, false))
 }
 
 task v4_ty_type_supports_fixed_lend_storage(ty_id: int, type_text: word) -> bool {
@@ -9261,21 +9285,49 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
     }
 }
 
+task v4_ty_add_lend_storage_exhausted_diag(ty_id: int, type_text: word, context: word, context_span: word) -> void {
+    pilot message = "Meiya's lend-storage analysis exhausted its depth budget"
+    pilot help = context + " has type " + type_text
+    help = help + "; split deeply nested aggregate types or introduce a nominal shape before this ownership boundary"
+    v4_ty_add_error_diag(ty_id, context_span, message, help)
+}
+
 task v4_ty_validate_no_lend_storage(ty_id: int, type_text: word, context: word, context_span: word) -> void {
-    if v4_ty_type_stores_named_lend(ty_id, type_text) {
+    pilot storage_kind = v4_ty_type_lend_storage_class(ty_id, type_text)
+    if v4_ty_lend_storage_class_is_incomplete(storage_kind) {
+        v4_ty_add_lend_storage_exhausted_diag(ty_id, type_text, context, context_span)
+        give back
+    }
+    if storage_kind == v4_ty_lend_storage_none {
+        give back
+    }
+    pilot named_kind = v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, true, false)
+    if v4_ty_lend_storage_class_is_incomplete(named_kind) {
+        v4_ty_add_lend_storage_exhausted_diag(ty_id, type_text, context, context_span)
+        give back
+    }
+    if v4_ty_lend_storage_class_confirms_lend(named_kind) {
         v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a named lend in " + context + " yet", "keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands")
         give back
     }
-    if v4_ty_type_stores_lend(ty_id, type_text) {
-        v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a lend in " + context + " yet", "keep elided lends on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands")
-    }
+    v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a lend in " + context + " yet", "keep elided lends on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands")
 }
 
 task v4_ty_validate_fixed_lend_storage(ty_id: int, type_text: word, context: word, context_span: word) -> void {
-    if not v4_ty_type_stores_lend(ty_id, type_text) or v4_ty_type_supports_fixed_lend_storage(ty_id, type_text) {
+    pilot storage_kind = v4_ty_type_lend_storage_class(ty_id, type_text)
+    if v4_ty_lend_storage_class_is_incomplete(storage_kind) {
+        v4_ty_add_lend_storage_exhausted_diag(ty_id, type_text, context, context_span)
         give back
     }
-    if v4_ty_type_stores_named_lend(ty_id, type_text) {
+    if storage_kind == v4_ty_lend_storage_none or storage_kind == v4_ty_lend_storage_fixed {
+        give back
+    }
+    pilot named_kind = v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, true, false)
+    if v4_ty_lend_storage_class_is_incomplete(named_kind) {
+        v4_ty_add_lend_storage_exhausted_diag(ty_id, type_text, context, context_span)
+        give back
+    }
+    if v4_ty_lend_storage_class_confirms_lend(named_kind) {
         v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a named lend in " + context + " yet", "use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance")
         give back
     }
@@ -10665,12 +10717,11 @@ task v4_ty_match_signature_type_env_mode(ty_id: int, sig_id: int, expected_ty: w
         pilot expected_lifetime = v4_ty_lend_lifetime(expected_ty)
         if expected_lifetime != "" {
             pilot actual_lifetime = v4_ty_lend_lifetime(actual_ty)
-            if actual_lifetime == "" {
-                actual_lifetime = "'_"
-            }
-            next_env = v4_ty_match_signature_type_env_mode(ty_id, sig_id, expected_lifetime, actual_lifetime, next_env, false)
-            if next_env == v4_ty_generic_env_fail {
-                give back next_env
+            if actual_lifetime != "" and actual_lifetime != "'_" {
+                next_env = v4_ty_match_signature_type_env_mode(ty_id, sig_id, expected_lifetime, actual_lifetime, next_env, false)
+                if next_env == v4_ty_generic_env_fail {
+                    give back next_env
+                }
             }
         }
         give back v4_ty_match_signature_type_env_mode(ty_id, sig_id, v4_ty_lend_target_type(expected_ty), v4_ty_lend_target_type(actual_ty), next_env, allow_dyn_coerce)

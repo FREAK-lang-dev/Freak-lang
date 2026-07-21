@@ -1,8 +1,9 @@
--- V4 contract-region scalar-holder and conservative aggregate storage fixture.
+-- V4 contract-region fixed-layout and conservative dynamic storage fixture.
 -- Verification prepends the V4 crates before this file.
 -- One cached borrowck request owns the only compiler pipeline in this executable.
--- Outer ordinary-task lends and scalar holders stay legal. Every constructor that
--- cannot preserve a lend child's provenance must reject it before creating its node.
+-- Outer ordinary-task lends, scalar holders, and fixed-layout aggregates stay legal.
+-- Dynamic or opaque constructors that cannot preserve a lend child's provenance
+-- must reject it before creating their MIR node.
 
 task v4_contract_region_storage_negative_bool(value: bool) -> word {
     if value {
@@ -13,6 +14,30 @@ task v4_contract_region_storage_negative_bool(value: bool) -> word {
 
 task v4_contract_region_storage_negative_braces(inner: word) -> word {
     give back "{" + inner + "}"
+}
+
+task v4_contract_region_storage_negative_deep_lend_free_type() -> word {
+    pilot type_text = "int"
+    pilot depth = 0
+    repeat until depth >= 34 {
+        type_text = "(" + type_text + ",int)"
+        depth += 1
+    }
+    give back type_text
+}
+
+task v4_contract_region_storage_negative_print_exhaustion(ty_id: int) -> void {
+    pilot type_text = v4_contract_region_storage_negative_deep_lend_free_type()
+    say "contract-region-storage-deep-class=" + v4_ty_type_lend_storage_class(ty_id, type_text)
+    say "contract-region-storage-deep-confirmed-lend=" + v4_contract_region_storage_negative_bool(v4_ty_type_stores_lend(ty_id, type_text))
+    say "contract-region-storage-deep-may-store-lend=" + v4_contract_region_storage_negative_bool(v4_ty_type_may_store_lend(ty_id, type_text))
+    pilot before = v4_ty_diag_count(ty_id)
+    v4_ty_validate_no_lend_storage(ty_id, type_text, "deep synthetic boundary", V4_NO_SPAN)
+    pilot after = v4_ty_diag_count(ty_id)
+    pilot diag = v4_ty_diag(ty_id, before)
+    say "contract-region-storage-deep-diagnostic-added=" + v4_contract_region_storage_negative_bool(after == before + 1)
+    say "contract-region-storage-deep-diagnostic=" + v4_diag_message(diag)
+    say "contract-region-storage-deep-help=" + v4_diag_help(diag)
 }
 
 task v4_contract_region_storage_negative_diag_for_body(mir_id: int, body_name: word) -> word {
@@ -144,7 +169,7 @@ repeat until v4_contract_region_storage_negative_ty_diag_id >= v4_contract_regio
 
 pilot v4_contract_region_storage_negative_mir_count = v4_mir_diag_count(v4_contract_region_storage_negative_mir)
 say "contract-region-storage-mir-diagnostics=" + word_from_int(v4_contract_region_storage_negative_mir_count)
-say "contract-region-storage-mir-diagnostics-exact-fifteen=" + v4_contract_region_storage_negative_bool(v4_contract_region_storage_negative_mir_count == 15)
+say "contract-region-storage-mir-diagnostics-exact-ten=" + v4_contract_region_storage_negative_bool(v4_contract_region_storage_negative_mir_count == 10)
 pilot v4_contract_region_storage_negative_mir_diag_id = 0
 repeat until v4_contract_region_storage_negative_mir_diag_id >= v4_contract_region_storage_negative_mir_count {
     pilot v4_contract_region_storage_negative_mir_diag = v4_mir_diag(v4_contract_region_storage_negative_mir, v4_contract_region_storage_negative_mir_diag_id)
@@ -154,12 +179,7 @@ repeat until v4_contract_region_storage_negative_mir_diag_id >= v4_contract_regi
     v4_contract_region_storage_negative_mir_diag_id += 1
 }
 
-v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "tuple", "tuple_source_set")
-v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "fixed-array-literal", "fixed_array_literal_source_set")
-v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "fixed-array-repeat", "fixed_array_repeat_source_set")
 v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "list-literal", "list_literal_source_set")
-v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "shape-value", "shape_value_source_set")
-v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "route-payload", "route_payload_source_set")
 v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "some", "maybe_source_set")
 v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "ok", "result_ok_source_set")
 v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "err", "result_err_source_set")
@@ -218,5 +238,7 @@ say "contract-region-storage-elided-signature-status=" + v4_borrowck_result_stat
 
 pilot v4_contract_region_storage_negative_borrow_count = v4_borrowck_diag_count(v4_contract_region_storage_negative_borrow)
 say "contract-region-storage-borrow-diagnostics=" + word_from_int(v4_contract_region_storage_negative_borrow_count)
-say "contract-region-storage-borrow-diagnostics-exact-fifteen=" + v4_contract_region_storage_negative_bool(v4_contract_region_storage_negative_borrow_count == 15)
+say "contract-region-storage-borrow-diagnostics-exact-ten=" + v4_contract_region_storage_negative_bool(v4_contract_region_storage_negative_borrow_count == 10)
 say "contract-region-storage-borrow-diags-match-mir=" + v4_contract_region_storage_negative_bool(v4_contract_region_storage_negative_diags_match(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_mir))
+
+v4_contract_region_storage_negative_print_exhaustion(v4_contract_region_storage_negative_ty)

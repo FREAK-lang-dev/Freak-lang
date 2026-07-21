@@ -58,7 +58,7 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 | 3 | `prob_when` branching | Not parsed | 🔴 | 📖 V4 |
 | 4 | Pattern destructuring in `when` | V4 lowers tuple, fixed-array, and route/variant payload patterns with refutable-pattern and exhaustiveness diagnostics; broader pattern forms still expand | 🟡 | 📖 V4 |
 | 5 | Squadron concurrency: `xm3`, `sortie`, `formation`, `briefing room`, `wingman` | Only `std::thread` | 🔴 | 📖 V4 |
-| 6 | Full borrow checker: `lend`/`lend mut`, `'a` lifetimes, `Shared<T>`/`Weak<T>` | v0.13.x has Phase-1 mut/move checking; V4 now carries explicit ordinary-task outlives bounds with reflexive/transitive cycle-safe closure, controlled named/elided multi-source returned loans, bounded cache/resource contracts, projected-holder reborrows, deterministic loop-header/backedge provenance fixed points, recursive nominal lend-substitution rejection, first-pass default/`copy`/`move`/`mut` closure capture ownership, and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed provenance, projection-assignment rebinding, field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Declaration-order children require `freak-mir-snapshot-v5`; v4 is rejected and restore re-resolves IDs in fresh provenance scratch. Body-derived/general lexical inference, dynamic and wrapper containers, lend-bearing aliases/doctrines/callbacks, aggregate task boundaries, `'static`, general arena reclamation, runtime shared ownership, closure `Send`/`Sync`, native closure codegen, and fixed-aggregate backend lowering remain. Method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax now exists but borrowed-return closure contracts do not | 🟡 | 📖 split into Phase-1 (current) + V4 sections |
+| 6 | Full borrow checker: `lend`/`lend mut`, `'a` lifetimes, `Shared<T>`/`Weak<T>` | v0.13.x has Phase-1 mut/move checking; V4 now carries explicit ordinary-task outlives bounds with reflexive/transitive cycle-safe closure, controlled named/elided multi-source returned loans, bounded cache/resource contracts, projected-holder reborrows, deterministic loop-header/backedge provenance fixed points, recursive nominal lend-substitution rejection plus fail-closed direct nominal impl/operator calls and distinct classifier-exhaustion diagnostics, first-pass default/`copy`/`move`/`mut` closure capture ownership, and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed provenance, projection-assignment rebinding (including conservative dynamic-index overlap), field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Declaration-order children require `freak-mir-snapshot-v5`; v4 is rejected and restore re-resolves IDs in fresh provenance scratch. Body-derived/general lexical inference, dynamic and wrapper containers, lend-bearing aliases/doctrines/callbacks, aggregate task boundaries, `'static`, general arena reclamation, runtime shared ownership, closure `Send`/`Sync`, native closure codegen, and fixed-aggregate backend lowering remain. Method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax now exists but borrowed-return closure contracts do not | 🟡 | 📖 split into Phase-1 (current) + V4 sections |
 | 7 | `dyn Doctrine` dynamic dispatch | V4 now carries `dyn Doctrine` type text, unknown-doctrine/object-safety diagnostics, concrete and generic coercion checks, MIR method-call facts, and editor facts; real fat-pointer/vtable backend dispatch still expands | 🟡 | 📖 V4 |
 | 8 | Operator doctrines `Ord`, `Index`, `IndexMut` | Only Add/Sub/Mul/Div/Neg/Eq wired | 🟡 | 🛠 fix if cheap, else 📖 V4 |
 | 9 | `eventually` LIFO deferred execution | Emitted as inline block | 🟡 | 📖 clarify current; full deferred V4 |
@@ -306,9 +306,10 @@ set for the checkpoint.
 MIR assigns tuple slots and array indices structural keys and normalizes shape
 or route children into declaration order. Meiya keys provenance by that child
 projection. A projected use extends only the selected field's loan; whole-value
-and non-constant index uses conservatively union possible children. Mutable
-children retain `LoanMut` exclusivity, and repeat-filling multiple array slots
-from one mutable lend is rejected.
+and non-constant index uses conservatively union possible children. A dynamic-
+index assignment overlaps every fixed slot and cannot launder one child's loan.
+Mutable children retain `LoanMut` exclusivity, and repeat-filling multiple array
+slots from one mutable lend is rejected.
 
 Projection assignments are first-class holder definitions. Rebinding one field
 releases only its prior loan, protects the newly stored owner, and preserves
@@ -320,16 +321,21 @@ The boundary remains closed for list/map storage, `some(...)`, `ok(...)`, and
 forwarding; aggregate task parameters and returns; and lend-bearing generic
 task-call substitutions. Generic-call, owner-generic, and `Shared<T>::new`
 checks recursively expand nominal shapes/routes such as `Direct<'a>`, so these
-cases diagnose before provenance can be erased.
+cases diagnose before provenance can be erased. Direct nominal impl calls and
+overloaded operator dispatch on lend-bearing owners fail closed. Recursive
+classification depth exhaustion emits its own diagnostic and remains
+conservative for ownership queries.
 
 Declaration-order children require `freak-mir-snapshot-v5`; v4 is rejected
-rather than reinterpreted. Borrowck restore starts a fresh provenance scratch
-generation. The fixed-aggregate query smoke proves `A -> B -> restore A` and
+rather than reinterpreted. Component restore, 00-Unit restore, and standalone
+`workspace/mirSnapshotRestore` each start a fresh provenance scratch generation.
+The fixed-aggregate query smoke proves `A -> B -> restore A` and
 re-resolves MIR, borrowck, and editor IDs from restored arenas. Fixed-layout
-facts otherwise use the existing 00-Unit restore, manifest, diff, and health
-protocols. Source edits invalidate
-all 17 report fields, comprising 14 concrete query families plus three aggregate totals
-(`all`/`query`, `core`, and `editor`); subsequent requests recompute every
+facts otherwise use the existing MIR/borrowck component snapshots and 00-Unit
+restore, manifest, diff, and health protocols. Source edits invalidate
+all 17 report fields, comprising 14 concrete query families plus
+three aggregate totals (`all`/`query`, `core`, and `editor`); subsequent requests
+recompute every
 concrete family and refresh the totals. No aggregate-only snapshot section or
 LSP method is introduced. The same lane changes a loop-carried returned-loan
 set from two owners to one without losing semantic, hover, definition, symbol,

@@ -220,9 +220,11 @@ Meiya carries those keys through local aggregate holder aliases and projection-a
 provenance queries. A use of `.0`, `.field`, or a constant `[index]` extends the
 loan stored in that child without making unrelated siblings live. Whole-value
 uses and non-constant fixed-array projections conservatively include every
-possible child. `LoanMut` remains exclusive while its projected holder is live,
-and repeat-filling more than one fixed-array slot with the same mutable lend is
-rejected instead of duplicating one exclusive loan.
+possible child. A dynamic-index assignment overlaps every fixed slot, so it
+cannot retire or launder only one child's loan. `LoanMut` remains exclusive
+while its projected holder is live, and repeat-filling more than one fixed-array
+slot with the same mutable lend is rejected instead of duplicating one
+exclusive loan.
 
 Projection assignments are first-class holder definitions. Rebinding one field
 retires only that field's previous loan, protects the newly stored owner through
@@ -231,10 +233,14 @@ aggregate into a projected destination rebases its children under that
 destination while preserving each relative `.N`, `.field`, or `[N]` path.
 
 This is local storage, not an aggregate calling convention. TY still rejects
-named and elided lends nested inside ordinary-task parameter or return types,
+named and elided lends nested inside ordinary-task parameter or return types.
 Generic-call, owner-generic, and `Shared<T>::new` substitution checks recursively
 expand nominal shapes and routes, so a type such as `Direct<'a>` cannot hide its
-`lend 'a` field behind a nominal name.
+`lend 'a` field behind a nominal name. Direct nominal impl calls and overloaded
+operator dispatch on lend-bearing aggregate owners fail closed at this boundary
+instead of manufacturing a result type. The recursive storage classifier has a
+bounded depth budget: exhaustion emits its own diagnostic, strict validators
+reject it, and conservative Meiya queries treat it as possibly lend-bearing.
 MIR continues to reject lend storage in list and map values plus the
 `some(...)`, `ok(...)`, and `err(...)` wrapper constructors. Alias targets,
 doctrine and method contracts, callbacks, extern/FFI boundaries, and aggregate
@@ -251,9 +257,10 @@ remain open. Fixed-layout editor facts, MIR/borrowck snapshots, restore, and
 source-change invalidation use the existing query families and 00-Unit
 protocols; no aggregate-specific LSP endpoint or snapshot section is added.
 Declaration-order aggregate children require `freak-mir-snapshot-v5`; v4 is
-rejected rather than reinterpreted. Restore starts a fresh borrowck provenance
-scratch generation, and the query smoke proves `A -> B -> restore A` with MIR,
-borrowck, and editor IDs re-resolved from restored arenas instead of reused.
+rejected rather than reinterpreted. Component restore, 00-Unit restore, and the
+standalone `workspace/mirSnapshotRestore` path each start a fresh borrowck
+provenance scratch generation. The query smoke proves `A -> B -> restore A` with
+MIR, borrowck, and editor IDs re-resolved from restored arenas instead of reused.
 This is a contract-region source-set and non-lexical liveness slice. It is not full region inference.
 These TY/MIR/Meiya/editor facts do not imply a completed
 production backend or runtime aggregate-loan ABI. Dynamic and wrapper-container
