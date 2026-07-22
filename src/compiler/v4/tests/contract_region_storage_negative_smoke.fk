@@ -26,11 +26,25 @@ task v4_contract_region_storage_negative_deep_lend_free_type() -> word {
     give back type_text
 }
 
+task v4_contract_region_storage_negative_deep_wrapper_type() -> word {
+    pilot type_text = "int"
+    pilot depth = 0
+    repeat until depth >= 34 {
+        type_text = "List<" + type_text + ">"
+        depth += 1
+    }
+    give back type_text
+}
+
 task v4_contract_region_storage_negative_print_exhaustion(ty_id: int) -> void {
     pilot type_text = v4_contract_region_storage_negative_deep_lend_free_type()
     say "contract-region-storage-deep-class=" + v4_ty_type_lend_storage_class(ty_id, type_text)
     say "contract-region-storage-deep-confirmed-lend=" + v4_contract_region_storage_negative_bool(v4_ty_type_stores_lend(ty_id, type_text))
     say "contract-region-storage-deep-may-store-lend=" + v4_contract_region_storage_negative_bool(v4_ty_type_may_store_lend(ty_id, type_text))
+    pilot wrapper_type = v4_contract_region_storage_negative_deep_wrapper_type()
+    say "contract-region-storage-deep-wrapper-class=" + v4_ty_type_lend_storage_class(ty_id, wrapper_type)
+    say "contract-region-storage-deep-wrapper-confirmed-lend=" + v4_contract_region_storage_negative_bool(v4_ty_type_stores_lend(ty_id, wrapper_type))
+    say "contract-region-storage-deep-wrapper-may-store-lend=" + v4_contract_region_storage_negative_bool(v4_ty_type_may_store_lend(ty_id, wrapper_type))
     pilot before = v4_ty_diag_count(ty_id)
     v4_ty_validate_no_lend_storage(ty_id, type_text, "deep synthetic boundary", V4_NO_SPAN)
     pilot after = v4_ty_diag_count(ty_id)

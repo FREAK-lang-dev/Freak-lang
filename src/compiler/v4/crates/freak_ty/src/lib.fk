@@ -1887,10 +1887,10 @@ task v4_ty_lend_storage_wrap_unsupported(child_kind: word) -> word {
     if child_kind == v4_ty_lend_storage_none {
         give back v4_ty_lend_storage_none
     }
-    if child_kind == v4_ty_lend_storage_opaque {
     if child_kind == v4_ty_lend_storage_exhausted {
         give back v4_ty_lend_storage_exhausted
     }
+    if child_kind == v4_ty_lend_storage_opaque {
         give back v4_ty_lend_storage_opaque
     }
     give back v4_ty_lend_storage_unsupported
