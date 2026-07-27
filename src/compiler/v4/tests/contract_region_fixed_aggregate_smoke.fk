@@ -174,6 +174,26 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    pilot final_use = holder.1.hp\n"
     src = src + "    give back final_use\n"
     src = src + "}\n"
+    src = src + "task dynamic_index_preserves_old(first: Ship, second: Ship, third: Ship, index: int) -> int {\n"
+    src = src + "    pilot slots: [lend mut Ship;2] = [lend mut first, lend mut second]\n"
+    src = src + "    slots[index] = lend mut third\n"
+    src = src + "    first.hp = 16\n"
+    src = src + "    pilot final_use = slots[0].hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task dynamic_index_includes_new(first: Ship, second: Ship, third: Ship, index: int) -> int {\n"
+    src = src + "    pilot slots: [lend mut Ship;2] = [lend mut first, lend mut second]\n"
+    src = src + "    slots[index] = lend mut third\n"
+    src = src + "    third.hp = 17\n"
+    src = src + "    pilot final_use = slots[0].hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task repeat_mut_zero(first: Ship) -> int {\n"
+    src = src + "    pilot slots: [lend mut Ship;0] = [lend mut first; 0]\n"
+    src = src + "    first.hp = 18\n"
+    src = src + "    pilot moved = slots\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     src = src + "task dynamic_index_rebind<'a,'b>(lend 'a first: Ship, lend 'b second: Ship, index: int) -> lend 'a Ship {\n"
     src = src + "    pilot slots: [lend Ship;2] = [lend first, lend first]\n"
     src = src + "    slots[index] = lend second\n"
@@ -265,6 +285,15 @@ say "fixed-aggregate-loop-rebind-before-backedge=" + v4_fixed_aggregate_status(v
 pilot v4_fixed_aggregate_shape_body = v4_fixed_aggregate_body_for(v4_fixed_aggregate_mir, "shape_sibling_dead")
 say "fixed-aggregate-loop-sibling-survives=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "loop_sibling_survives")
 say "fixed-aggregate-dynamic-index-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_index_rebind")
+say "fixed-aggregate-dynamic-index-preserves-old=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_index_preserves_old")
+say "fixed-aggregate-dynamic-index-includes-new=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_index_includes_new")
+say "fixed-aggregate-repeat-mut-zero=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_zero")
+say "fixed-aggregate-dynamic-write-definite-slot0=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_definitely_covers("slots[index]", "slots[0]"))
+say "fixed-aggregate-concrete-write-definite-slot0=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_definitely_covers("slots[0]", "slots[0]"))
+say "fixed-aggregate-whole-write-definite-slot0=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_definitely_covers("slots", "slots[0]"))
+pilot v4_fixed_aggregate_zero_body = v4_fixed_aggregate_body_for(v4_fixed_aggregate_mir, "repeat_mut_zero")
+pilot v4_fixed_aggregate_zero_stmt = v4_fixed_aggregate_local_stmt(v4_fixed_aggregate_mir, v4_fixed_aggregate_zero_body, "slots")
+say "fixed-aggregate-repeat-mut-zero-holder=" + v4_borrowck_explicit_loan_holder(v4_fixed_aggregate_mir, v4_fixed_aggregate_zero_body, v4_fixed_aggregate_zero_stmt, "first")
 pilot v4_fixed_aggregate_shape_rvalue = v4_fixed_aggregate_local_rvalue(v4_fixed_aggregate_mir, v4_fixed_aggregate_shape_body, "views")
 say "fixed-aggregate-shape-child0-projection=" + v4_mir_rvalue_aggregate_child_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_shape_body, v4_fixed_aggregate_shape_rvalue, 0)
 say "fixed-aggregate-shape-child1-projection=" + v4_mir_rvalue_aggregate_child_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_shape_body, v4_fixed_aggregate_shape_rvalue, 1)

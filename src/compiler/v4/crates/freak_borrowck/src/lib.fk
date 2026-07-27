@@ -1323,6 +1323,39 @@ task v4_borrowck_paths_overlap(left: word, right: word) -> bool {
     give back v4_borrowck_projection_paths_may_alias(left_canon, right_canon)
 }
 
+task v4_borrowck_path_has_symbolic_index(path_text: word) -> bool {
+    pilot canon = v4_borrowck_path_canon(path_text)
+    pilot idx = 0
+    repeat until idx >= canon.length() {
+        if canon.char_at(idx) == "[" {
+            pilot close_idx = v4_borrowck_path_index_close(canon, idx)
+            if close_idx < 0 {
+                give back true
+            }
+            pilot index_text = v4_slice(canon, idx + 1, close_idx)
+            if not v4_borrowck_path_index_is_integer_literal(index_text) {
+                give back true
+            }
+            idx = close_idx + 1
+        } else {
+            idx += 1
+        }
+    }
+    give back false
+}
+
+task v4_borrowck_path_write_definitely_covers(write_path: word, holder_path: word) -> bool {
+    pilot write_canon = v4_borrowck_path_canon(write_path)
+    pilot holder_canon = v4_borrowck_path_canon(holder_path)
+    if write_canon == "" or holder_canon == "" or v4_borrowck_path_has_symbolic_index(write_canon) {
+        give back false
+    }
+    if write_canon == holder_canon {
+        give back true
+    }
+    give back v4_borrowck_path_prefix_conflicts(write_canon, holder_canon)
+}
+
 task v4_borrowck_path_root(path_text: word) -> word {
     pilot canon = v4_borrowck_path_canon(path_text)
     if canon == "" {
@@ -1724,7 +1757,7 @@ task v4_borrowck_fill_holder_lend_provenance(mir_id: int, body_id: int, use_stmt
     pilot stmt_id = 0
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
     repeat until stmt_id >= stmt_count {
-        if stmt_id != use_stmt and v4_borrowck_stmt_rebinds_holder(mir_id, body_id, stmt_id, queried_holder) {
+        if stmt_id != use_stmt and v4_borrowck_stmt_may_bind_holder(mir_id, body_id, stmt_id, queried_holder) {
             pilot origin_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
             if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, queried_holder, stmt_id, stmt_id, origin_block, use_stmt, use_block) {
                 found_reaching_binding = true
@@ -2932,8 +2965,13 @@ task v4_borrowck_aggregate_child_projection_segment(mir_id: int, body_id: int, r
     if kind == v4_mir_rvalue_array {
         pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
         pilot length_text = v4_ty_fixed_array_length_normalized_text(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
-        if child_count == 1 and length_text != "1" {
-            give back v4_borrowck_holder_projection_whole
+        if child_count == 1 {
+            if length_text == "0" {
+                give back v4_borrowck_holder_projection_none
+            }
+            if length_text != "1" {
+                give back v4_borrowck_holder_projection_whole
+            }
         }
         give back "[" + word_from_int(child_id) + "]"
     }
@@ -2997,6 +3035,9 @@ task v4_borrowck_rvalue_unique_holder_projection(mir_id: int, body_id: int, rval
             pilot nested = v4_borrowck_rvalue_unique_holder_projection(mir_id, body_id, child_rvalue, holder_canon)
             if nested != v4_borrowck_holder_projection_none {
                 pilot segment = v4_borrowck_aggregate_child_projection_segment(mir_id, body_id, rvalue_id, child_id)
+                if segment == v4_borrowck_holder_projection_none {
+                    give back v4_borrowck_holder_projection_none
+                }
                 pilot candidate = segment
                 if segment == v4_borrowck_holder_projection_whole {
                     candidate = v4_borrowck_holder_projection_whole
@@ -3070,7 +3111,7 @@ task v4_borrowck_holder_seen_append(seen: word, holder: word, holder_stmt: int) 
     give back seen + "|" + state
 }
 
-task v4_borrowck_stmt_rebinds_holder(mir_id: int, body_id: int, stmt_id: int, holder: word) -> bool {
+task v4_borrowck_stmt_may_bind_holder(mir_id: int, body_id: int, stmt_id: int, holder: word) -> bool {
     pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
     if stmt_kind != v4_mir_stmt_local and stmt_kind != v4_mir_stmt_assign {
         give back false
@@ -3096,6 +3137,14 @@ task v4_borrowck_stmt_rebinds_holder(mir_id: int, body_id: int, stmt_id: int, ho
         }
     }
     give back true
+}
+
+task v4_borrowck_stmt_rebinds_holder(mir_id: int, body_id: int, stmt_id: int, holder: word) -> bool {
+    if not v4_borrowck_stmt_may_bind_holder(mir_id, body_id, stmt_id, holder) {
+        give back false
+    }
+    pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+    give back v4_borrowck_path_write_definitely_covers(v4_mir_place_text(mir_id, body_id, place_id), holder)
 }
 
 task v4_borrowck_holder_reaches_stmt_without_rebind(mir_id: int, body_id: int, holder: word, provenance_stmt: int, start_stmt: int, start_block: int, wanted_stmt: int, wanted_block: int) -> bool {
