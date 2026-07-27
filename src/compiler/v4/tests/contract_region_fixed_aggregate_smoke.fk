@@ -194,6 +194,20 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    pilot moved = slots\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "task mutate_through_stored(first: Ship) -> int {\n"
+    src = src + "    pilot views = (lend mut first, 0)\n"
+    src = src + "    views.0.hp = 19\n"
+    src = src + "    pilot final_use = views.0.hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task immutable_outer_lend(first: Ship) -> int {\n"
+    src = src + "    pilot holder = Pair<lend mut Ship,int> " + v4_fixed_aggregate_braces(" left: lend mut first, right: 0 ") + "\n"
+    src = src + "    pilot shared = lend holder\n"
+    src = src + "    pilot copy = shared\n"
+    src = src + "    shared.left.hp = 20\n"
+    src = src + "    copy.left.hp = 21\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     src = src + "task dynamic_index_rebind<'a,'b>(lend 'a first: Ship, lend 'b second: Ship, index: int) -> lend 'a Ship {\n"
     src = src + "    pilot slots: [lend Ship;2] = [lend first, lend first]\n"
     src = src + "    slots[index] = lend second\n"
@@ -288,6 +302,11 @@ say "fixed-aggregate-dynamic-index-rebind=" + v4_fixed_aggregate_status(v4_fixed
 say "fixed-aggregate-dynamic-index-preserves-old=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_index_preserves_old")
 say "fixed-aggregate-dynamic-index-includes-new=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_index_includes_new")
 say "fixed-aggregate-repeat-mut-zero=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_zero")
+say "fixed-aggregate-mutate-through-stored=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "mutate_through_stored")
+say "fixed-aggregate-immutable-outer-lend=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "immutable_outer_lend")
+say "fixed-aggregate-descendant-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("views.0.hp", "views.0"))
+say "fixed-aggregate-symbolic-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("slots[index]", "slots[0]"))
+say "fixed-aggregate-parent-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("slots", "slots[0]"))
 say "fixed-aggregate-dynamic-write-definite-slot0=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_definitely_covers("slots[index]", "slots[0]"))
 say "fixed-aggregate-concrete-write-definite-slot0=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_definitely_covers("slots[0]", "slots[0]"))
 say "fixed-aggregate-whole-write-definite-slot0=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_definitely_covers("slots", "slots[0]"))

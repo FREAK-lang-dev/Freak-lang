@@ -1356,6 +1356,39 @@ task v4_borrowck_path_write_definitely_covers(write_path: word, holder_path: wor
     give back v4_borrowck_path_prefix_conflicts(write_canon, holder_canon)
 }
 
+task v4_borrowck_path_projection_depth(path_text: word) -> int {
+    pilot canon = v4_borrowck_path_canon(path_text)
+    pilot idx = v4_borrowck_path_projection_end(canon, 0)
+    pilot depth = 0
+    repeat until idx >= canon.length() {
+        pilot kind = canon.char_at(idx)
+        if kind == "." {
+            idx = v4_borrowck_path_projection_end(canon, idx + 1)
+            depth += 1
+        } else if kind == "[" {
+            pilot close_idx = v4_borrowck_path_index_close(canon, idx)
+            if close_idx < 0 {
+                give back depth + 1
+            }
+            idx = close_idx + 1
+            depth += 1
+        } else {
+            idx += 1
+        }
+    }
+    give back depth
+}
+
+-- A descendant write mutates through a holder; it does not define the holder.
+task v4_borrowck_path_write_may_bind(write_path: word, holder_path: word) -> bool {
+    pilot write_canon = v4_borrowck_path_canon(write_path)
+    pilot holder_canon = v4_borrowck_path_canon(holder_path)
+    if not v4_borrowck_paths_overlap(write_canon, holder_canon) {
+        give back false
+    }
+    give back v4_borrowck_path_projection_depth(write_canon) <= v4_borrowck_path_projection_depth(holder_canon)
+}
+
 task v4_borrowck_path_root(path_text: word) -> word {
     pilot canon = v4_borrowck_path_canon(path_text)
     if canon == "" {
@@ -1387,6 +1420,7 @@ task v4_borrowck_lend_holder_mode_for_projection(mir_id: int, body_id: int, path
         give back v4_ty_param_mode_value
     }
 
+    pilot mode = v4_ty_param_mode_value
     pilot place_id = 0
     pilot place_count = v4_mir_body_place_count(mir_id, body_id)
     repeat until place_id >= place_count {
@@ -1399,7 +1433,13 @@ task v4_borrowck_lend_holder_mode_for_projection(mir_id: int, body_id: int, path
             repeat until current_place < 0 or depth > place_count {
                 pilot place_ty = v4_mir_place_ty(mir_id, body_id, current_place)
                 if v4_ty_is_lend_type(place_ty) {
-                    give back v4_ty_lend_mode(place_ty)
+                    pilot place_mode = v4_ty_lend_mode(place_ty)
+                    if place_mode == v4_ty_param_mode_lend {
+                        give back place_mode
+                    }
+                    if place_mode == v4_ty_param_mode_lend_mut {
+                        mode = place_mode
+                    }
                 }
                 current_place = v4_mir_place_base(mir_id, body_id, current_place)
                 depth += 1
@@ -1410,9 +1450,15 @@ task v4_borrowck_lend_holder_mode_for_projection(mir_id: int, body_id: int, path
 
     pilot local_ty = v4_mir_local_ty_for_name(mir_id, body_id, root)
     if v4_ty_is_lend_type(local_ty) {
-        give back v4_ty_lend_mode(local_ty)
+        pilot local_mode = v4_ty_lend_mode(local_ty)
+        if local_mode == v4_ty_param_mode_lend {
+            give back local_mode
+        }
+        if local_mode == v4_ty_param_mode_lend_mut {
+            mode = local_mode
+        }
     }
-    give back v4_ty_param_mode_value
+    give back mode
 }
 
 task v4_borrowck_path_is_lent(mir_id: int, body_id: int, path_text: word) -> bool {
@@ -1813,7 +1859,13 @@ task v4_borrowck_fill_explicit_lend_provenance(mir_id: int, body_id: int, use_st
 
     pilot source_mode = v4_borrowck_local_mode_for_path(mir_id, body_id, source_text)
     pilot source_ty = v4_mir_local_ty_for_name(mir_id, body_id, source_root)
-    if source_mode == v4_ty_param_mode_lend or source_mode == v4_ty_param_mode_lend_mut or not v4_ty_is_lend_type(source_ty) {
+    pilot projection_mode = v4_borrowck_lend_holder_mode_for_projection(mir_id, body_id, source_text, false)
+    pilot projected_holder: bool = projection_mode == v4_ty_param_mode_lend or projection_mode == v4_ty_param_mode_lend_mut
+    if source_mode == v4_ty_param_mode_lend or source_mode == v4_ty_param_mode_lend_mut {
+        v4_borrowck_provenance_add_source(provenance_id, source_text, rvalue_id)
+        give back
+    }
+    if not v4_ty_is_lend_type(source_ty) and not projected_holder {
         v4_borrowck_provenance_add_source(provenance_id, source_text, rvalue_id)
         give back
     }
@@ -3123,7 +3175,7 @@ task v4_borrowck_stmt_may_bind_holder(mir_id: int, body_id: int, stmt_id: int, h
 
     pilot holder_canon = v4_borrowck_path_canon(holder)
     pilot place_canon = v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id))
-    if not v4_borrowck_paths_overlap(place_canon, holder_canon) {
+    if not v4_borrowck_path_write_may_bind(place_canon, holder_canon) {
         give back false
     }
 
