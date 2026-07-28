@@ -208,43 +208,58 @@ The backedge fixture proves positive recomputation for every concrete family and
 re-queries syntax, diagnostics, semantic, hover, definition, symbols, and
 completion after 00-Unit restore.
 
-The current sound boundary is deliberately narrow. Named or elided lends may be
-outer ordinary-task parameter and borrowed-return contracts, and their results
-may flow through scalar holders or task-local fixed-layout aggregates. The
-local aggregate vocabulary is exactly tuples, fixed arrays, shapes, and route
-payloads. Tuple slots and array indices are structural keys; MIR normalizes
-shape and route constructor children into declaration order, so reordered
-source fields cannot relabel a loan after lowering.
+The current sound boundary is deliberately narrow. Named or elided lend leaves
+may appear in ordinary static task parameters and returns when their carrier is
+a tuple, fixed array, shape, or route payload. Concretely instantiated generic
+shapes and routes are included when every lend leaf can be enumerated.
+Scalar `lend` / `lend mut` contracts remain supported. Dynamic containers and
+non-ordinary calls remain outside this boundary.
 
-Meiya carries those keys through local aggregate holder aliases and projection-aware
-provenance queries. A use of `.0`, `.field`, or a constant `[index]` extends the
-loan stored in that child without making unrelated siblings live. Whole-value
-uses and non-constant fixed-array projections conservatively include every
-possible child. A dynamic-index assignment overlaps every fixed slot, so it
-cannot retire or launder only one child's loan. `LoanMut` remains exclusive
-while its projected holder is live, and repeat-filling more than one fixed-array
-slot with the same mutable lend is rejected instead of duplicating one
-exclusive loan.
+TY flattens each fixed-layout carrier into deterministic leaf contracts. A leaf
+records its `.N`, `.field`, or `[*]` projection, shared or mutable mode,
+declared lifetime, and any route-constructor guard. Every returned leaf must
+have at least one mode-compatible parameter leaf whose lifetime reaches the
+return lifetime. TY keeps every compatible candidate; same-lifetime sibling
+leaves therefore remain a conservative set instead of relying on declaration
+position as a hidden promise. Enumeration is explicitly bounded at 256 lend
+leaves per fixed carrier and 256 source relations per returned leaf. Recursive,
+over-depth, or over-budget layouts diagnose; source mapping becomes one atomic
+`#opaque` payload rather than exposing a trustworthy-looking partial prefix.
 
-Projection assignments are first-class holder definitions. Rebinding one field
-retires only that field's previous loan, protects the newly stored owner through
-the field's final use, and leaves sibling provenance unchanged. Moving an
-aggregate into a projected destination rebases its children under that
-destination while preserving each relative `.N`, `.field`, or `[N]` path.
+MIR maps each returned leaf candidate to the corresponding call argument and
+source projection. This mapping is signature metadata, not caller ownership.
+Meiya seeds aggregate parameter leaves as entry provenance, validates each
+callee return projection against the declared source contracts, and resolves
+the MIR mapping back to concrete caller paths. A source-less aggregate return
+and an owned value escaping through one of its leaves are separate diagnostics.
 
-This is local storage, not an aggregate calling convention. TY still rejects
-named and elided lends nested inside ordinary-task parameter or return types.
-Generic-call, owner-generic, and `Shared<T>::new` substitution checks recursively
-expand nominal shapes and routes, so a type such as `Direct<'a>` cannot hide its
-`lend 'a` field behind a nominal name. Direct nominal impl calls and overloaded
-operator dispatch on lend-bearing aggregate owners fail closed at this boundary
-instead of manufacturing a result type. The recursive storage classifier has a
-bounded depth budget: exhaustion emits its own diagnostic, strict validators
-reject it, and conservative Meiya queries treat it as possibly lend-bearing.
-MIR continues to reject lend storage in list and map values plus the
-`some(...)`, `ok(...)`, and `err(...)` wrapper constructors. Alias targets,
-doctrine and method contracts, callbacks, extern/FFI boundaries, and aggregate
-task parameters or returns remain outside fixed-layout provenance.
+Call-result aliases retain the mapped return projection. A use of `.0` or
+`.field` extends only that returned child's loan, so unrelated tuple and shape
+siblings may expire. Fixed arrays intentionally use `[*]` at a task boundary;
+all indices may alias until index-sensitive contract metadata exists. Route
+leaves retain constructor guards while physical field projections stay stable.
+Direct constructors, nested constructors, and fieldless cases are proven from
+the rvalue or an exact reaching local definition. Ambiguous local/control-flow
+case sets remain conservative. Meiya distinguishes a proven guard-filtered
+`known-empty` result from an unresolved `opaque` result; only the former is
+allowed to carry no owner. Whole-value and dynamic-index uses remain conservative.
+
+The same projection rules apply to task-local storage. Projection assignment is
+a new holder definition: rebinding one field retires only that field's previous
+loan, protects the newly stored owner through its final use, and preserves
+siblings. Aggregate moves rebase child projections under the destination.
+`LoanMut` remains exclusive, and repeat-filling several array slots from one
+mutable lend is rejected.
+
+Generic function calls, owner-generic methods, and `Shared<T>::new` substitution
+checks recursively expand nominal shapes and routes, so `Direct<'a>` cannot hide
+a lend through unresolved forwarding machinery. This does not reject a
+concretely instantiated fixed shape in an ordinary task signature. Direct nominal
+impl calls and overloaded operator dispatch on lend-bearing owners still fail closed. The recursive classifier has a bounded
+depth budget; exhaustion diagnoses and conservative ownership queries continue
+to treat the type as possibly lend-bearing. List/map storage, `some(...)`,
+`ok(...)`, `err(...)`, aliases, doctrines, methods, callbacks, extern/FFI
+boundaries, and closure borrowed-return contracts remain unsupported.
 Malformed `lend 'a` and doubled-lifetime types receive spanned diagnostics.
 Contract-boundary smokes also pin normalized source paths and exact `start:end`
 byte ranges for signature-storage and unsupported-forwarding failures.
@@ -253,9 +268,13 @@ explicitly rejected rather than silently accepted. Closure expressions now
 carry capture ownership, but their types cannot yet express borrowed-return
 contracts, so closure returned-loan forwarding remains unsupported. Source sets come from signature
 contracts; body-derived source discovery and general lexical lifetime inference
-remain open. Fixed-layout editor facts, MIR/borrowck snapshots, restore, and
+remain open. Fixed-layout local and task-boundary editor facts, MIR/borrowck snapshots, restore, and
 source-change invalidation use the existing query families and 00-Unit
 protocols; no aggregate-specific LSP endpoint or snapshot section is added.
+The executable scenario runs sequentially inside one task, proves all 17
+families both invalidate and recompute, and pins exact semantic, hover,
+definition, document-symbol, and completion facts before change, after change,
+and after restoring the original snapshot.
 Declaration-order aggregate children require `freak-mir-snapshot-v5`; v4 is
 rejected rather than reinterpreted. Component restore, 00-Unit restore, and the
 standalone `workspace/mirSnapshotRestore` path each start a fresh borrowck
