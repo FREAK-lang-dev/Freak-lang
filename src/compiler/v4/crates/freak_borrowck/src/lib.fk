@@ -2352,7 +2352,7 @@ task v4_borrowck_call_direct_mut_lends_source(mir_id: int, body_id: int, call_rv
     repeat until arg_id >= arg_count {
         pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, arg_id)
         if arg_rvalue >= 0 and v4_mir_rvalue_kind(mir_id, body_id, arg_rvalue) == v4_mir_rvalue_lend_mut {
-            if v4_borrowck_rvalue_lends_source(mir_id, body_id, arg_rvalue, loan_text) {
+            if v4_borrowck_rvalue_lends_source(mir_id, body_id, 0 - 1, arg_rvalue, loan_text) {
                 give back true
             }
         }
@@ -2739,7 +2739,7 @@ task v4_borrowck_lend_path_kind(mir_id: int, body_id: int, rvalue_id: int) -> wo
     give back v4_borrowck_path_loan
 }
 
-task v4_borrowck_rvalue_lends_source(mir_id: int, body_id: int, rvalue_id: int, loan_text: word) -> bool {
+task v4_borrowck_rvalue_lends_source(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int, loan_text: word) -> bool {
     if rvalue_id < 0 {
         give back false
     }
@@ -2751,11 +2751,14 @@ task v4_borrowck_rvalue_lends_source(mir_id: int, body_id: int, rvalue_id: int, 
         pilot child_id = 0
         pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
         repeat until child_id >= child_count {
-            if v4_borrowck_rvalue_lends_source(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), loan_text) {
+            if v4_borrowck_rvalue_lends_source(mir_id, body_id, use_stmt, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), loan_text) {
                 give back true
             }
             child_id += 1
         }
+    }
+    if rvalue_kind == v4_mir_rvalue_call and use_stmt >= 0 {
+        give back v4_borrowck_call_lends_source(mir_id, body_id, use_stmt, rvalue_id, loan_text)
     }
     give back false
 }
@@ -2863,7 +2866,7 @@ task v4_borrowck_explicit_loan_holder(mir_id: int, body_id: int, loan_stmt: int,
         give back ""
     }
     pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
-    if v4_borrowck_rvalue_lends_source(mir_id, body_id, rvalue_id, loan_text) {
+    if v4_borrowck_rvalue_lends_source(mir_id, body_id, loan_stmt, rvalue_id, loan_text) {
         pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, loan_stmt)
         pilot place_id = v4_mir_stmt_place(mir_id, body_id, loan_stmt)
         if (stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign) and v4_borrowck_place_is_local_storage_projection(mir_id, body_id, place_id) {
@@ -3062,7 +3065,7 @@ task v4_borrowck_rvalue_unique_holder_projection(mir_id: int, body_id: int, rval
 
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     pilot holder_canon = v4_borrowck_path_canon(holder)
-    if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
+    if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut or kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move {
         pilot source = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
         if source == holder_canon {
             give back v4_borrowck_holder_projection_whole
@@ -3130,8 +3133,8 @@ task v4_borrowck_holder_alias_from_stmt(mir_id: int, body_id: int, stmt_id: int,
     pilot alias_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     pilot carries_holder = v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), alias_ty)
     if v4_ty_is_closure_type(alias_ty) {
-        pilot closure_mode = v4_ty_closure_mode(alias_ty)
-        carries_holder = closure_mode == v4_ty_closure_mode_borrow or closure_mode == v4_ty_closure_mode_mut
+        -- Any capture mode can retain a loan-bearing aggregate in the closure environment.
+        carries_holder = true
     }
     if not carries_holder {
         give back ""

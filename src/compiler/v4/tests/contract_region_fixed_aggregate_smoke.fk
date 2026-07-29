@@ -30,6 +30,9 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    Hold " + v4_fixed_aggregate_braces(" left: A, right: B ") + "\n"
     src = src + "    Empty\n"
     src = src + "}\n"
+    src = src + "task relay_mut(lend mut ship: Ship) -> lend mut Ship {\n"
+    src = src + "    give back lend mut ship\n"
+    src = src + "}\n"
     src = src + "task tuple_sibling_dead(first: Ship, second: Ship) -> int {\n"
     src = src + "    pilot views = (lend mut first, lend second)\n"
     src = src + "    second.hp = 2\n"
@@ -208,6 +211,22 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    copy.left.hp = 21\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "task closure_capture_keeps_loan(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    first.hp = 22\n"
+    src = src + "    give back reader()\n"
+    src = src + "}\n"
+    src = src + "task returned_call_owner_live(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (relay_mut(lend mut first), 0)\n"
+    src = src + "    first.hp = 23\n"
+    src = src + "    give back holder.0.hp\n"
+    src = src + "}\n"
+    src = src + "task returned_call_duplicate_mut(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (relay_mut(lend mut first), 0)\n"
+    src = src + "    pilot duplicate = lend mut first\n"
+    src = src + "    give back holder.0.hp + duplicate.hp\n"
+    src = src + "}\n"
     src = src + "task dynamic_index_rebind<'a,'b>(lend 'a first: Ship, lend 'b second: Ship, index: int) -> lend 'a Ship {\n"
     src = src + "    pilot slots: [lend Ship;2] = [lend first, lend first]\n"
     src = src + "    slots[index] = lend second\n"
@@ -304,6 +323,9 @@ say "fixed-aggregate-dynamic-index-includes-new=" + v4_fixed_aggregate_status(v4
 say "fixed-aggregate-repeat-mut-zero=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_zero")
 say "fixed-aggregate-mutate-through-stored=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "mutate_through_stored")
 say "fixed-aggregate-immutable-outer-lend=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "immutable_outer_lend")
+say "fixed-aggregate-closure-capture-keeps-loan=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "closure_capture_keeps_loan")
+say "fixed-aggregate-returned-call-owner-live=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "returned_call_owner_live")
+say "fixed-aggregate-returned-call-duplicate-mut=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "returned_call_duplicate_mut")
 say "fixed-aggregate-descendant-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("views.0.hp", "views.0"))
 say "fixed-aggregate-symbolic-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("slots[index]", "slots[0]"))
 say "fixed-aggregate-parent-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("slots", "slots[0]"))
