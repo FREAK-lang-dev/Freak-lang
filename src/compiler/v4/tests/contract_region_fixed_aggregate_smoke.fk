@@ -319,6 +319,16 @@ task v4_fixed_aggregate_mir_diag_contains(mir_id: int, needle: word) -> bool {
     give back false
 }
 
+task v4_fixed_aggregate_mir_diag_count(mir_id: int, needle: word) -> int {
+    pilot count = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)) == needle { count += 1 }
+        diag_id += 1
+    }
+    give back count
+}
+
 pilot v4_fixed_aggregate_borrow = v4_borrowck_text_cached("contract-region-fixed-aggregate.fk", v4_fixed_aggregate_source())
 pilot v4_fixed_aggregate_mir = v4_borrowck_mir_id(v4_fixed_aggregate_borrow)
 pilot v4_fixed_aggregate_ty = v4_mir_ty_id(v4_fixed_aggregate_mir)
@@ -345,6 +355,7 @@ say "fixed-aggregate-repeat-immutable-outer=" + v4_fixed_aggregate_status(v4_fix
 say "fixed-aggregate-repeat-owned-sibling=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_owned_sibling")
 say "fixed-aggregate-repeat-cloneable=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_cloneable")
 say "fixed-aggregate-repeat-copy-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_mir_diag_contains(v4_fixed_aggregate_mir, "fixed-array repeat value must be Copy or Cloneable"))
+say "fixed-aggregate-repeat-copy-diagnostic-count=" + word_from_int(v4_fixed_aggregate_mir_diag_count(v4_fixed_aggregate_mir, "fixed-array repeat value must be Copy or Cloneable"))
 say "fixed-aggregate-repeat-mut=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut")
 say "fixed-aggregate-repeat-mut-one=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_one")
 say "fixed-aggregate-repeat-mut-aggregate=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_aggregate")
