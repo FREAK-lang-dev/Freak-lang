@@ -3259,6 +3259,7 @@ EXECUTABLE_SMOKES = [
     {
         "name": "contract region aggregate task boundaries",
         "fixture": "contract_region_aggregate_boundary_smoke.fk",
+        "timeout": 90,
         "memory_limit_mb": 96,
         "expect_mode": "line",
         "expect_unique": True,
