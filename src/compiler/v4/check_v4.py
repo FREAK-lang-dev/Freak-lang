@@ -3355,6 +3355,10 @@ EXECUTABLE_SMOKES = [
             "aggregate-edge-duplicate-projection1=.1",
             "aggregate-edge-duplicate-rebind-all=clean",
             "aggregate-edge-duplicate-rebind-one=blocked",
+            "aggregate-edge-duplicate-call-projection-count=2",
+            "aggregate-edge-duplicate-call-projection0=.0",
+            "aggregate-edge-duplicate-call-projection1=.1",
+            "aggregate-edge-duplicate-call-rebind-all=clean",
         ],
     },
     {

@@ -3616,6 +3616,63 @@ task v4_borrowck_projection_array_push_unique(projections: int, projection: word
     array_push(projections, projection)
 }
 
+task v4_borrowck_collect_call_holder_projections(mir_id: int, body_id: int, rvalue_id: int, holder: word, prefix: word, projections: int) -> void {
+    pilot leaf_id = 0
+    pilot leaf_count = v4_mir_rvalue_call_return_lend_leaf_count(mir_id, body_id, rvalue_id)
+    if leaf_count < 0 {
+        v4_borrowck_projection_array_push_unique(projections, v4_borrowck_holder_projection_whole)
+        give back
+    }
+    repeat until leaf_id >= leaf_count {
+        pilot return_projection = v4_mir_rvalue_call_return_lend_leaf_projection_at(mir_id, body_id, rvalue_id, leaf_id)
+        pilot source_payload = v4_mir_rvalue_call_borrowed_source_payload_for_leaf(mir_id, body_id, rvalue_id, leaf_id)
+        pilot source_count = v4_ty_return_lend_source_payload_count(source_payload)
+        if source_count < 0 {
+            v4_borrowck_projection_array_push_unique(projections, v4_borrowck_holder_projection_whole)
+            give back
+        }
+        pilot source_id = 0
+        repeat until source_id >= source_count {
+            pilot source_edge = v4_ty_return_lend_source_payload_at(source_payload, source_id)
+            if source_edge == "" {
+                v4_borrowck_projection_array_push_unique(projections, v4_borrowck_holder_projection_whole)
+                give back
+            }
+            pilot source_arg = word_to_int(v4_resolve_snapshot_field_raw(source_edge, 0))
+            pilot source_projection = v4_resolve_snapshot_field_raw(source_edge, 1)
+            if source_arg < 0 {
+                v4_borrowck_projection_array_push_unique(projections, v4_borrowck_holder_projection_whole)
+                give back
+            }
+            pilot nested = v4_borrowck_rvalue_unique_holder_projection(mir_id, body_id, source_arg, holder)
+            if nested != v4_borrowck_holder_projection_none {
+                pilot candidate = v4_borrowck_holder_projection_none
+                if nested == v4_borrowck_holder_projection_whole {
+                    candidate = return_projection
+                } else {
+                    pilot tail = v4_borrowck_projection_match_tail(source_projection, nested)
+                    if tail != "#no-match" {
+                        candidate = return_projection + tail
+                    } else if v4_borrowck_projection_match_tail(nested, source_projection) != "#no-match" {
+                        candidate = return_projection
+                    }
+                }
+                if candidate == "" { candidate = v4_borrowck_holder_projection_whole }
+                if candidate != v4_borrowck_holder_projection_none {
+                    pilot projected = prefix
+                    if candidate != v4_borrowck_holder_projection_whole {
+                        projected = prefix + candidate
+                    }
+                    if projected == "" { projected = v4_borrowck_holder_projection_whole }
+                    v4_borrowck_projection_array_push_unique(projections, projected)
+                }
+            }
+            source_id += 1
+        }
+        leaf_id += 1
+    }
+}
+
 task v4_borrowck_collect_rvalue_holder_projections(mir_id: int, body_id: int, rvalue_id: int, holder: word, prefix: word, projections: int) -> void {
     if rvalue_id < 0 { give back }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
@@ -3636,6 +3693,10 @@ task v4_borrowck_collect_rvalue_holder_projections(mir_id: int, body_id: int, rv
         give back
     }
 
+    if kind == v4_mir_rvalue_call {
+        v4_borrowck_collect_call_holder_projections(mir_id, body_id, rvalue_id, holder, prefix, projections)
+        give back
+    }
     pilot nested = v4_borrowck_rvalue_unique_holder_projection(mir_id, body_id, rvalue_id, holder)
     if nested == v4_borrowck_holder_projection_none { give back }
     pilot candidate = prefix
@@ -4310,9 +4371,10 @@ task v4_borrowck_explicit_loan_live_at_write(mir_id: int, body_id: int, loan_stm
     pilot repeat_live = v4_borrowck_repeat_fill_loan_live_at_write(mir_id, body_id, loan_stmt, loan_text, write_stmt, write_block)
     if repeat_live >= 0 { give back repeat_live == 1 }
     pilot loan_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
-    if loan_rvalue >= 0 and v4_mir_rvalue_is_aggregate_kind(v4_mir_rvalue_kind(mir_id, body_id, loan_rvalue)) {
+    if loan_rvalue >= 0 {
+        pilot loan_kind = v4_mir_rvalue_kind(mir_id, body_id, loan_rvalue)
         pilot projections = array_new()
-        v4_borrowck_collect_rvalue_holder_projections(mir_id, body_id, loan_rvalue, loan_text, "", projections)
+        if v4_mir_rvalue_is_aggregate_kind(loan_kind) or loan_kind == v4_mir_rvalue_call { v4_borrowck_collect_rvalue_holder_projections(mir_id, body_id, loan_rvalue, loan_text, "", projections) }
         pilot projection_count = array_len(projections)
         pilot loan_place = v4_mir_stmt_place(mir_id, body_id, loan_stmt)
         if projection_count > 1 and v4_borrowck_place_is_local_storage_projection(mir_id, body_id, loan_place) {
