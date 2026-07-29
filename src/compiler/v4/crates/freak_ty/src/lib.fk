@@ -8451,7 +8451,7 @@ task v4_ty_signature_lend_leaf_contract_matches(ty_id: int, sig_id: int, source_
     if v4_ty_is_lend_mut_type(return_type) and not v4_ty_is_lend_mut_type(source_type) {
         give back false
     }
-    if not v4_ty_types_compatible_in_signature(ty_id, sig_id, v4_ty_lend_target_type(return_type), v4_ty_lend_target_type(source_type)) {
+    if not v4_ty_types_same_in_signature(ty_id, sig_id, v4_ty_lend_target_type(return_type), v4_ty_lend_target_type(source_type)) {
         give back false
     }
 
@@ -11517,6 +11517,33 @@ task v4_ty_match_signature_type_env(ty_id: int, sig_id: int, expected_ty: word, 
 
 task v4_ty_match_signature_type_env_no_dyn_coerce(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word, env: word) -> word {
     give back v4_ty_match_signature_type_env_mode(ty_id, sig_id, expected_ty, actual_ty, env, false)
+}
+
+task v4_ty_signature_generic_identity_env(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back v4_ty_generic_env_fail
+    }
+    pilot env = ""
+    pilot generic_id = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_id >= generic_count {
+        pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_id)
+        if generic_name == "" {
+            give back v4_ty_generic_env_fail
+        }
+        env = v4_ty_generic_env_bind(env, generic_name, generic_name)
+        if env == v4_ty_generic_env_fail {
+            give back env
+        }
+        generic_id += 1
+    }
+    give back env
+}
+
+task v4_ty_types_same_in_signature(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word) -> bool {
+    pilot identity_env = v4_ty_signature_generic_identity_env(ty_id, sig_id)
+    if identity_env == v4_ty_generic_env_fail { give back false }
+    give back v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_ty, identity_env) != v4_ty_generic_env_fail
 }
 
 task v4_ty_types_compatible_in_signature(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word) -> bool {

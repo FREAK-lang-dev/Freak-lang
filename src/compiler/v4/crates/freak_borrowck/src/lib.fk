@@ -2738,12 +2738,7 @@ task v4_borrowck_check_stored_call_lends(borrow_id: int, result_id: int, mir_id:
             if rvalue_id >= 0 and v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call {
                 if v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
                     pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
-                    pilot has_local_holder = false
-                    if place_id >= 0 {
-                        if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
-                            has_local_holder = true
-                        }
-                    }
+                    pilot has_local_holder = v4_borrowck_place_is_local_storage_projection(mir_id, body_id, place_id)
                     if not has_local_holder or not v4_borrowck_call_has_known_lend_provenance(mir_id, body_id, stmt_id, rvalue_id) {
                         pilot span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
                         pilot message = "Meiya cannot store this borrowed call result yet"

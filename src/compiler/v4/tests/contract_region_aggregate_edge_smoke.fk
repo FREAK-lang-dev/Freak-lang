@@ -6,12 +6,19 @@ task v4_aggregate_edge_bool(value: bool) -> word {
     give back "false"
 }
 
+task v4_aggregate_edge_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
 task v4_aggregate_edge_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
     src = src + "shape Cat {\n"
     src = src + "    lives: int\n"
+    src = src + "}\n"
+    src = src + "shape Outer<'a> {\n"
+    src = src + "    pair: (lend 'a Ship,int)\n"
     src = src + "}\n"
     src = src + "fixed pilot BASE: int = 2\n"
     src = src + "fixed pilot WIDTH: int = 2\n"
@@ -23,6 +30,9 @@ task v4_aggregate_edge_source() -> word {
     src = src + "}\n"
     src = src + "task select_ship<'a>(lend 'a ship: Ship, lend 'a cat: Cat) -> (lend 'a Ship,int) {\n"
     src = src + "    give back (lend ship,0)\n"
+    src = src + "}\n"
+    src = src + "task generic_select<'a,T,U>(pair: (lend 'a T,lend 'a U)) -> (lend 'a T,int) {\n"
+    src = src + "    give back (pair.0,0)\n"
     src = src + "}\n"
     src = src + "task nested_const_roundtrip(first: Ship) -> int {\n"
     src = src + "    pilot views: ([lend Ship;4],int) = ([lend first;4],0)\n"
@@ -39,6 +49,24 @@ task v4_aggregate_edge_source() -> word {
     src = src + "    pilot returned = select_ship(lend first, lend other)\n"
     src = src + "    other.lives = 8\n"
     src = src + "    give back returned.0.hp\n"
+    src = src + "}\n"
+    src = src + "task generic_target_sibling_dead(first: Ship, other: Cat) -> int {\n"
+    src = src + "    pilot pair = (lend first,lend other)\n"
+    src = src + "    pilot returned = generic_select(pair)\n"
+    src = src + "    other.lives = 9\n"
+    src = src + "    give back returned.0.hp\n"
+    src = src + "}\n"
+    src = src + "task projected_call_sibling_dead(first: Ship, second: Ship, other: Cat) -> int {\n"
+    src = src + "    pilot outer = Outer<'_> " + v4_aggregate_edge_braces(" pair: (lend second,0) ") + "\n"
+    src = src + "    outer.pair = select_ship(lend first,lend other)\n"
+    src = src + "    second.hp = 10\n"
+    src = src + "    give back outer.pair.0.hp\n"
+    src = src + "}\n"
+    src = src + "task projected_call_owner_live(first: Ship, second: Ship, other: Cat) -> int {\n"
+    src = src + "    pilot outer = Outer<'_> " + v4_aggregate_edge_braces(" pair: (lend second,0) ") + "\n"
+    src = src + "    outer.pair = select_ship(lend first,lend other)\n"
+    src = src + "    first.hp = 11\n"
+    src = src + "    give back outer.pair.0.hp\n"
     src = src + "}\n"
     src = src + "task duplicate_rebind_all(first: Ship, second: Ship) -> int {\n"
     src = src + "    pilot views = (lend first, lend first)\n"
@@ -114,6 +142,8 @@ pilot v4_aggregate_edge_nested_call = v4_aggregate_edge_call_in_body(v4_aggregat
 pilot v4_aggregate_edge_empty_body = v4_aggregate_edge_body_for_name(v4_aggregate_edge_mir, v4_aggregate_edge_resolve, "empty_array_generic_call")
 pilot v4_aggregate_edge_select_def = v4_resolve_def_for_name(v4_aggregate_edge_resolve, "select_ship")
 pilot v4_aggregate_edge_select_sig = v4_ty_lookup_signature(v4_aggregate_edge_ty, v4_aggregate_edge_select_def)
+pilot v4_aggregate_edge_generic_def = v4_resolve_def_for_name(v4_aggregate_edge_resolve, "generic_select")
+pilot v4_aggregate_edge_generic_sig = v4_ty_lookup_signature(v4_aggregate_edge_ty, v4_aggregate_edge_generic_def)
 pilot v4_aggregate_edge_duplicate_body = v4_aggregate_edge_body_for_name(v4_aggregate_edge_mir, v4_aggregate_edge_resolve, "duplicate_rebind_all")
 pilot v4_aggregate_edge_duplicate_rvalue = v4_aggregate_edge_local_rvalue(v4_aggregate_edge_mir, v4_aggregate_edge_duplicate_body, "views")
 pilot v4_aggregate_edge_duplicate_projections = array_new()
@@ -132,6 +162,10 @@ say "aggregate-edge-empty-array-stores-lend=" + v4_aggregate_edge_bool(v4_ty_typ
 say "aggregate-edge-empty-generic-diagnostic=" + v4_aggregate_edge_bool(v4_aggregate_edge_mir_diag_contains(v4_aggregate_edge_mir, "Meiya cannot substitute a lend-bearing type for a generic call yet"))
 say "aggregate-edge-different-target-source-count=" + word_from_int(v4_ty_signature_return_lend_source_count(v4_aggregate_edge_ty, v4_aggregate_edge_select_sig, 0))
 say "aggregate-edge-different-target-sibling-dead=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "different_target_sibling_dead")
+say "aggregate-edge-generic-target-source-count=" + word_from_int(v4_ty_signature_return_lend_source_count(v4_aggregate_edge_ty, v4_aggregate_edge_generic_sig, 0))
+say "aggregate-edge-generic-target-sibling-dead=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "generic_target_sibling_dead")
+say "aggregate-edge-projected-call-sibling-dead=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "projected_call_sibling_dead")
+say "aggregate-edge-projected-call-owner-live=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "projected_call_owner_live")
 say "aggregate-edge-duplicate-projection-count=" + word_from_int(array_len(v4_aggregate_edge_duplicate_projections))
 say "aggregate-edge-duplicate-projection0=" + v4_aggregate_edge_projection_at(v4_aggregate_edge_duplicate_projections, 0)
 say "aggregate-edge-duplicate-projection1=" + v4_aggregate_edge_projection_at(v4_aggregate_edge_duplicate_projections, 1)
