@@ -2967,7 +2967,7 @@ task v4_mir_rvalue_call_borrowed_source_signature_id(mir_id: int, body_id: int, 
 
     pilot call_return_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     pilot signature_return_ty = v4_ty_signature_return_type(ty_id, sig_id)
-    if not v4_ty_types_compatible(signature_return_ty, call_return_ty) {
+    if not v4_ty_types_compatible_in_signature(ty_id, sig_id, signature_return_ty, call_return_ty) {
         give back 0 - 1
     }
     if v4_ty_is_lend_type(signature_return_ty) {
@@ -2976,10 +2976,20 @@ task v4_mir_rvalue_call_borrowed_source_signature_id(mir_id: int, body_id: int, 
         }
         give back sig_id
     }
-    if not v4_ty_type_supports_fixed_lend_storage(ty_id, signature_return_ty) or not v4_ty_type_stores_lend(ty_id, signature_return_ty) {
+    pilot signature_leaf_count = v4_ty_fixed_lend_leaf_count(ty_id, signature_return_ty)
+    pilot signature_has_lend_schema: bool = v4_ty_type_stores_lend(ty_id, signature_return_ty)
+    if signature_leaf_count == 0 and v4_ty_type_contains_lend(signature_return_ty) {
+        signature_has_lend_schema = true
+    }
+    if not v4_ty_type_supports_fixed_lend_storage(ty_id, signature_return_ty) or not signature_has_lend_schema {
         give back 0 - 1
     }
-    if not v4_ty_type_supports_fixed_lend_storage(ty_id, call_return_ty) or not v4_ty_type_may_store_lend(ty_id, call_return_ty) {
+    pilot call_leaf_count = v4_ty_fixed_lend_leaf_count(ty_id, call_return_ty)
+    pilot call_has_lend_schema: bool = v4_ty_type_may_store_lend(ty_id, call_return_ty)
+    if call_leaf_count == 0 and v4_ty_type_contains_lend(call_return_ty) {
+        call_has_lend_schema = true
+    }
+    if not v4_ty_type_supports_fixed_lend_storage(ty_id, call_return_ty) or not call_has_lend_schema {
         give back 0 - 1
     }
     give back sig_id
@@ -3039,14 +3049,14 @@ task v4_mir_rvalue_call_borrowed_source_payload_for_leaf(mir_id: int, body_id: i
             if param_mode == v4_ty_param_mode_lend_mut and not v4_ty_is_lend_mut_type(arg_ty) {
                 give back v4_ty_return_lend_source_opaque
             }
-            if not v4_ty_types_compatible(param_type, v4_ty_lend_target_type(arg_ty)) {
+            if not v4_ty_types_compatible_in_signature(ty_id, sig_id, param_type, v4_ty_lend_target_type(arg_ty)) {
                 give back v4_ty_return_lend_source_opaque
             }
         } else {
             if not v4_ty_type_supports_fixed_lend_storage(ty_id, arg_ty) or not v4_ty_type_may_store_lend(ty_id, arg_ty) {
                 give back v4_ty_return_lend_source_opaque
             }
-            if not v4_ty_types_compatible(param_type, arg_ty) {
+            if not v4_ty_types_compatible_in_signature(ty_id, sig_id, param_type, arg_ty) {
                 give back v4_ty_return_lend_source_opaque
             }
         }

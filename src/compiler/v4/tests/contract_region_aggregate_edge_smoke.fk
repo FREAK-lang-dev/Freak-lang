@@ -1,0 +1,85 @@
+-- V4 aggregate loan constant-normalization and zero-leaf boundary fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_aggregate_edge_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_aggregate_edge_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "fixed pilot BASE: int = 2\n"
+    src = src + "fixed pilot WIDTH: int = 2\n"
+    src = src + "task nested_array_pass<'a>(views: ([lend 'a Ship; BASE + WIDTH],int)) -> ([lend 'a Ship;4],int) {\n"
+    src = src + "    give back views\n"
+    src = src + "}\n"
+    src = src + "task identity<T>(value: T) -> T {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task nested_const_roundtrip(first: Ship) -> int {\n"
+    src = src + "    pilot views: ([lend Ship;4],int) = ([lend first;4],0)\n"
+    src = src + "    pilot returned = nested_array_pass(views)\n"
+    src = src + "    give back returned.1\n"
+    src = src + "}\n"
+    src = src + "task empty_array_generic_call(first: Ship) -> int {\n"
+    src = src + "    pilot empty: [lend mut Ship;0] = [lend mut first; 0]\n"
+    src = src + "    pilot returned = identity(empty)\n"
+    src = src + "    first.hp = 1\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_aggregate_edge_body_for_name(mir_id: int, resolve_id: int, wanted: word) -> int {
+    pilot def_id = v4_resolve_def_for_name(resolve_id, wanted)
+    give back v4_mir_lookup_body(mir_id, def_id)
+}
+
+task v4_aggregate_edge_call_in_body(mir_id: int, body_id: int) -> int {
+    pilot rvalue_id = 0
+    repeat until rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call { give back rvalue_id }
+        rvalue_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_aggregate_edge_status(borrow_id: int, resolve_id: int, name: word) -> word {
+    pilot def_id = v4_resolve_def_for_name(resolve_id, name)
+    pilot result_id = v4_borrowck_lookup_result(borrow_id, def_id)
+    give back v4_borrowck_result_status(borrow_id, result_id)
+}
+
+task v4_aggregate_edge_mir_diag_contains(mir_id: int, needle: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)).contains(needle) { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
+pilot v4_aggregate_edge_borrow = v4_borrowck_text_cached("contract-region-aggregate-edge.fk", v4_aggregate_edge_source())
+pilot v4_aggregate_edge_mir = v4_borrowck_mir_id(v4_aggregate_edge_borrow)
+pilot v4_aggregate_edge_ty = v4_mir_ty_id(v4_aggregate_edge_mir)
+pilot v4_aggregate_edge_resolve = v4_ty_resolve_id(v4_aggregate_edge_ty)
+pilot v4_aggregate_edge_hir = v4_resolve_hir_id(v4_aggregate_edge_resolve)
+pilot v4_aggregate_edge_tree = v4_hir_tree_id(v4_aggregate_edge_hir)
+
+pilot v4_aggregate_edge_nested_body = v4_aggregate_edge_body_for_name(v4_aggregate_edge_mir, v4_aggregate_edge_resolve, "nested_const_roundtrip")
+pilot v4_aggregate_edge_nested_call = v4_aggregate_edge_call_in_body(v4_aggregate_edge_mir, v4_aggregate_edge_nested_body)
+pilot v4_aggregate_edge_empty_body = v4_aggregate_edge_body_for_name(v4_aggregate_edge_mir, v4_aggregate_edge_resolve, "empty_array_generic_call")
+
+say "aggregate-edge-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_aggregate_edge_tree))
+say "aggregate-edge-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_aggregate_edge_ty))
+say "aggregate-edge-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_aggregate_edge_mir))
+say "aggregate-edge-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_aggregate_edge_borrow))
+say "aggregate-edge-nested-const-roundtrip=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "nested_const_roundtrip")
+say "aggregate-edge-nested-const-call-leaves=" + word_from_int(v4_mir_rvalue_call_return_lend_leaf_count(v4_aggregate_edge_mir, v4_aggregate_edge_nested_body, v4_aggregate_edge_nested_call))
+say "aggregate-edge-nested-const-source-projection=" + v4_mir_rvalue_call_borrowed_source_projection_at_for_leaf(v4_aggregate_edge_mir, v4_aggregate_edge_nested_body, v4_aggregate_edge_nested_call, 0, 0)
+say "aggregate-edge-empty-generic-call=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "empty_array_generic_call")
+say "aggregate-edge-empty-generic-type=" + v4_mir_local_ty_for_name(v4_aggregate_edge_mir, v4_aggregate_edge_empty_body, "returned")
+say "aggregate-edge-empty-array-stores-lend=" + v4_aggregate_edge_bool(v4_ty_type_stores_lend(v4_aggregate_edge_ty, "[lend mut 'a Ship;0]"))
+say "aggregate-edge-empty-generic-diagnostic=" + v4_aggregate_edge_bool(v4_aggregate_edge_mir_diag_contains(v4_aggregate_edge_mir, "Meiya cannot substitute a lend-bearing type for a generic call yet"))

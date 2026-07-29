@@ -3027,6 +3027,21 @@ def audit_conformance(paths: List[Path]) -> int:
             ),
         ),
         (
+            v4_tests_return / "contract_region_aggregate_edge_smoke.fk",
+            (
+                "task nested_array_pass<'a>",
+                "BASE + WIDTH",
+                "task nested_const_roundtrip(first: Ship)",
+                "aggregate-edge-nested-const-source-projection=",
+                "task empty_array_generic_call(first: Ship)",
+                "aggregate-edge-empty-generic-type=",
+                "aggregate-edge-empty-array-stores-lend=",
+                "aggregate-edge-empty-generic-diagnostic=",
+                "v4_ty_type_stores_lend(",
+                "Meiya cannot substitute a lend-bearing type for a generic call yet",
+            ),
+        ),
+        (
             v4_tests_return / "contract_region_aggregate_budget_smoke.fk",
             (
                 "repeat until v4_aggregate_budget_depth >= 9",
@@ -3848,6 +3863,19 @@ def audit_conformance(paths: List[Path]) -> int:
             "aggregate-boundary-empty-call-provenance-count=0",
             "aggregate-boundary-owned-diagnostic=true",
             "aggregate-boundary-rewrite-diagnostic=true",
+        ),
+        "contract_region_aggregate_edge_smoke.fk": (
+            "aggregate-edge-parse-diagnostics=0",
+            "aggregate-edge-ty-diagnostics=0",
+            "aggregate-edge-mir-diagnostics=0",
+            "aggregate-edge-borrow-diagnostics=0",
+            "aggregate-edge-nested-const-roundtrip=clean",
+            "aggregate-edge-nested-const-call-leaves=1",
+            "aggregate-edge-nested-const-source-projection=.0[*]",
+            "aggregate-edge-empty-generic-call=clean",
+            "aggregate-edge-empty-generic-type=[lend mut Ship;0]",
+            "aggregate-edge-empty-array-stores-lend=false",
+            "aggregate-edge-empty-generic-diagnostic=false",
         ),
         "contract_region_aggregate_budget_smoke.fk": (
             "aggregate-budget-leaf-limit=256",
