@@ -94,6 +94,16 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    pilot stored = Stored<lend Ship,lend Ship>::Hold " + v4_fixed_aggregate_braces(" right: lend second, left: lend first ") + "\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "task route_pattern_capture_keeps_loan(first: Ship) -> int {\n"
+    src = src + "    pilot stored = Stored<lend mut Ship,int>::Hold " + v4_fixed_aggregate_braces(" left: lend mut first, right: 0 ") + "\n"
+    src = src + "    when stored {\n"
+    src = src + "        Stored::Hold " + v4_fixed_aggregate_braces(" left, right ") + " -> {\n"
+    src = src + "            first.hp = 24\n"
+    src = src + "            give back left.hp\n"
+    src = src + "        }\n"
+    src = src + "        Stored::Empty -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "}\n"
     src = src + "task direct_local<'a>(lend 'a first: Ship) -> int {\n"
     src = src + "    pilot stored = Direct<'a> " + v4_fixed_aggregate_braces(" view: lend first ") + "\n"
     src = src + "    pilot final_use = stored.view.hp\n"
@@ -301,6 +311,14 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    first.hp = 23\n"
     src = src + "    give back forwarded()\n"
     src = src + "}\n"
+    src = src + "task dynamic_closure_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot readers = [reader]\n"
+    src = src + "    pilot extracted = readers[0]\n"
+    src = src + "    first.hp = 25\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
     src = src + "task returned_call_owner_live(first: Ship) -> int {\n"
     src = src + "    pilot holder = (relay_mut(lend mut first), 0)\n"
     src = src + "    first.hp = 23\n"
@@ -384,6 +402,15 @@ task v4_fixed_aggregate_mir_diag_count(mir_id: int, needle: word) -> int {
     give back count
 }
 
+task v4_fixed_aggregate_borrow_diag_contains(borrow_id: int, needle: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == needle { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
 pilot v4_fixed_aggregate_borrow = v4_borrowck_text_cached("contract-region-fixed-aggregate.fk", v4_fixed_aggregate_source())
 pilot v4_fixed_aggregate_mir = v4_borrowck_mir_id(v4_fixed_aggregate_borrow)
 pilot v4_fixed_aggregate_ty = v4_mir_ty_id(v4_fixed_aggregate_mir)
@@ -403,6 +430,7 @@ say "fixed-aggregate-shape-sibling-dead=" + v4_fixed_aggregate_status(v4_fixed_a
 say "fixed-aggregate-shape-left-live=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "shape_left_live")
 say "fixed-aggregate-explicit-mut-alias=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "explicit_mut_alias")
 say "fixed-aggregate-route-local=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "route_local")
+say "fixed-aggregate-route-pattern-capture-keeps-loan=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "route_pattern_capture_keeps_loan")
 say "fixed-aggregate-direct-local=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "direct_local")
 say "fixed-aggregate-nested-local=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "nested_local")
 say "fixed-aggregate-repeat-shared=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared")
@@ -443,6 +471,8 @@ say "fixed-aggregate-mutate-through-stored=" + v4_fixed_aggregate_status(v4_fixe
 say "fixed-aggregate-immutable-outer-lend=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "immutable_outer_lend")
 say "fixed-aggregate-closure-capture-keeps-loan=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "closure_capture_keeps_loan")
 say "fixed-aggregate-closure-forwarded-capture-keeps-loan=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "closure_forwarded_capture_keeps_loan")
+say "fixed-aggregate-dynamic-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_closure_storage_rejected")
+say "fixed-aggregate-dynamic-closure-storage-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_borrow_diag_contains(v4_fixed_aggregate_borrow, "Meiya cannot store a loan-capturing closure inside dynamic storage yet"))
 say "fixed-aggregate-returned-call-owner-live=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "returned_call_owner_live")
 say "fixed-aggregate-returned-call-duplicate-mut=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "returned_call_duplicate_mut")
 say "fixed-aggregate-descendant-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("views.0.hp", "views.0"))
@@ -470,6 +500,9 @@ say "fixed-aggregate-route-right-child-found=" + v4_fixed_aggregate_bool(v4_mir_
 say "fixed-aggregate-route-left-holder=" + v4_borrowck_explicit_loan_holder(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_body, v4_fixed_aggregate_route_stmt, "first")
 say "fixed-aggregate-route-right-holder=" + v4_borrowck_explicit_loan_holder(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_body, v4_fixed_aggregate_route_stmt, "second")
 
+pilot v4_fixed_aggregate_route_pattern_body = v4_fixed_aggregate_body_for(v4_fixed_aggregate_mir, "route_pattern_capture_keeps_loan")
+say "fixed-aggregate-route-pattern-left-type=" + v4_mir_local_ty_for_name(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_pattern_body, "left")
+
 pilot v4_fixed_aggregate_direct_body = v4_fixed_aggregate_body_for(v4_fixed_aggregate_mir, "direct_local")
 pilot v4_fixed_aggregate_direct_stmt = v4_fixed_aggregate_local_stmt(v4_fixed_aggregate_mir, v4_fixed_aggregate_direct_body, "stored")
 say "fixed-aggregate-direct-holder=" + v4_borrowck_explicit_loan_holder(v4_fixed_aggregate_mir, v4_fixed_aggregate_direct_body, v4_fixed_aggregate_direct_stmt, "first")
@@ -480,3 +513,5 @@ say "fixed-aggregate-class-shape=" + v4_ty_type_lend_storage_class(v4_fixed_aggr
 say "fixed-aggregate-class-route=" + v4_ty_type_lend_storage_class(v4_fixed_aggregate_ty, "Stored<lend int,int>")
 say "fixed-aggregate-class-direct-lifetime=" + v4_ty_type_lend_storage_class(v4_fixed_aggregate_ty, "Direct<'a>")
 say "fixed-aggregate-class-list=" + v4_ty_type_lend_storage_class(v4_fixed_aggregate_ty, "List<lend int>")
+say "fixed-aggregate-compact-lend-mut=" + v4_mir_compact_type_text("Stored< lend mut Ship , int >")
+say "fixed-aggregate-compact-lend-lifetime=" + v4_mir_compact_type_text("Stored< lend 'a Ship , int >")
