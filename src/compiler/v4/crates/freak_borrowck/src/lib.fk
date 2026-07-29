@@ -1047,7 +1047,7 @@ task v4_borrowck_provenance_add_source_guarded(provenance_id: int, source_text: 
 task v4_borrowck_provenance_add_source(provenance_id: int, source_text: word, origin_id: int) -> void {
     v4_borrowck_provenance_add_source_guarded(provenance_id, source_text, origin_id, "")
 }
-task v4_borrowck_provenance_union_guard_mode(provenance_id: int, incoming_id: int, route_guard: word, mode: word) -> void {
+task v4_borrowck_provenance_union_into(provenance_id: int, incoming_id: int) -> void {
     if not v4_borrowck_provenance_exists(provenance_id) { give back }
     if not v4_borrowck_provenance_exists(incoming_id) {
         v4_borrowck_provenance_mark_opaque(provenance_id)
@@ -1057,31 +1057,12 @@ task v4_borrowck_provenance_union_guard_mode(provenance_id: int, incoming_id: in
     pilot row_count = v4_borrowck_provenance_source_active
     repeat until row_id >= row_count {
         if word_to_int(array_get(v4_borrowck_source_provenance_ids, row_id)) == incoming_id {
-            pilot incoming_guard: word = array_get(v4_borrowck_source_route_guards, row_id)
-            pilot mapped_guard = incoming_guard
-            if mode == "replace" and route_guard != "" {
-                mapped_guard = route_guard
-            } else if mode == "prefix" and route_guard != "" {
-                mapped_guard = route_guard
-                if incoming_guard != "" { mapped_guard = mapped_guard + "/" + incoming_guard }
-            }
-            v4_borrowck_provenance_add_source_guarded(provenance_id, array_get(v4_borrowck_source_paths, row_id), word_to_int(array_get(v4_borrowck_source_origins, row_id)), mapped_guard)
+            pilot source_guard: word = array_get(v4_borrowck_source_route_guards, row_id)
+            v4_borrowck_provenance_add_source_guarded(provenance_id, array_get(v4_borrowck_source_paths, row_id), word_to_int(array_get(v4_borrowck_source_origins, row_id)), source_guard)
         }
         row_id += 1
     }
     if not v4_borrowck_provenance_is_known(incoming_id) { v4_borrowck_provenance_mark_opaque(provenance_id) }
-}
-
-task v4_borrowck_provenance_union_into(provenance_id: int, incoming_id: int) -> void {
-    v4_borrowck_provenance_union_guard_mode(provenance_id, incoming_id, "", "preserve")
-}
-
-task v4_borrowck_provenance_union_with_guard_prefix(provenance_id: int, incoming_id: int, route_guard: word) -> void {
-    v4_borrowck_provenance_union_guard_mode(provenance_id, incoming_id, route_guard, "prefix")
-}
-
-task v4_borrowck_provenance_union_as_guard(provenance_id: int, incoming_id: int, route_guard: word) -> void {
-    v4_borrowck_provenance_union_guard_mode(provenance_id, incoming_id, route_guard, "replace")
 }
 task v4_borrowck_provenance_memo_body_head(body_id: int) -> int {
     if body_id < 0 or body_id >= array_len(v4_borrowck_provenance_memo_body_heads) {
@@ -1656,6 +1637,10 @@ task v4_borrowck_fill_return_call_lend_provenance(mir_id: int, body_id: int, use
         v4_borrowck_provenance_union_borrow_capable_call_args(mir_id, body_id, use_stmt, call_rvalue, provenance_id)
         give back
     }
+    if leaf_count == 0 {
+        v4_borrowck_provenance_mark_known_empty(provenance_id)
+        give back
+    }
 
     pilot matched_leaf = false
     pilot mapped_source = false
@@ -1663,7 +1648,6 @@ task v4_borrowck_fill_return_call_lend_provenance(mir_id: int, body_id: int, use
     pilot leaf_id = 0
     repeat until leaf_id >= leaf_count {
         pilot return_projection = v4_mir_rvalue_call_return_lend_leaf_projection_at(mir_id, body_id, call_rvalue, leaf_id)
-        pilot return_guard = v4_mir_rvalue_call_return_lend_leaf_route_guard_at(mir_id, body_id, call_rvalue, leaf_id)
         pilot projection_tail = ""
         pilot leaf_matches: bool = projection == ""
         if not leaf_matches {
@@ -1690,7 +1674,7 @@ task v4_borrowck_fill_return_call_lend_provenance(mir_id: int, body_id: int, use
                     } else if v4_borrowck_rvalue_matches_route_guard_projected_at(mir_id, body_id, use_stmt, source_arg, source_projection, source_guard) {
                         mapped_source = true
                         pilot source_provenance = v4_borrowck_return_lend_provenance_projected(mir_id, body_id, use_stmt, source_arg, source_projection + projection_tail)
-                        v4_borrowck_provenance_union_as_guard(provenance_id, source_provenance, return_guard)
+                        v4_borrowck_provenance_union_into(provenance_id, source_provenance)
                     }
                     source_id += 1
                 }
@@ -1851,22 +1835,9 @@ task v4_borrowck_aggregate_child_for_segment(mir_id: int, body_id: int, rvalue_i
     give back 0 - 1
 }
 
-task v4_borrowck_rvalue_route_guard_prefix(mir_id: int, body_id: int, rvalue_id: int) -> word {
-    if rvalue_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_construct { give back "" }
-    pilot aggregate_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
-    if not v4_ty_is_route_type(v4_mir_ty_id(mir_id), aggregate_ty) { give back "" }
-    pilot case_name = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
-    pilot next_case = v4_mir_path_right(case_name)
-    repeat until next_case == "" {
-        case_name = next_case
-        next_case = v4_mir_path_right(case_name)
-    }
-    give back aggregate_ty + "::" + case_name
-}
 task v4_borrowck_fill_aggregate_projection_provenance(mir_id: int, body_id: int, use_stmt: int, rvalue_id: int, projection: word, provenance_id: int) -> void {
     pilot segment = v4_borrowck_projection_first(projection)
     pilot tail = v4_borrowck_projection_tail(projection)
-    pilot route_guard_prefix = v4_borrowck_rvalue_route_guard_prefix(mir_id, body_id, rvalue_id)
     if segment == "" {
         v4_borrowck_provenance_mark_opaque(provenance_id)
         give back
@@ -1881,7 +1852,7 @@ task v4_borrowck_fill_aggregate_projection_provenance(mir_id: int, body_id: int,
             pilot child_rvalue = v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)
             if child_rvalue >= 0 {
                 candidate_id = v4_borrowck_return_lend_provenance_projected(mir_id, body_id, use_stmt, child_rvalue, tail)
-                v4_borrowck_provenance_union_with_guard_prefix(provenance_id, candidate_id, route_guard_prefix)
+                v4_borrowck_provenance_union_into(provenance_id, candidate_id)
             } else {
                 v4_borrowck_provenance_mark_opaque(provenance_id)
             }
@@ -1900,7 +1871,7 @@ task v4_borrowck_fill_aggregate_projection_provenance(mir_id: int, body_id: int,
         give back
     }
     pilot candidate_id = v4_borrowck_return_lend_provenance_projected(mir_id, body_id, use_stmt, child_rvalue, tail)
-    v4_borrowck_provenance_union_with_guard_prefix(provenance_id, candidate_id, route_guard_prefix)
+    v4_borrowck_provenance_union_into(provenance_id, candidate_id)
 }
 
 task v4_borrowck_fill_param_lend_provenance(mir_id: int, body_id: int, holder: word, suffix: word, provenance_id: int) -> bool {
@@ -2039,7 +2010,6 @@ task v4_borrowck_fill_return_lend_provenance(mir_id: int, body_id: int, use_stmt
     projection = v4_borrowck_path_canon(projection)
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if v4_mir_rvalue_is_aggregate_kind(kind) {
-        pilot route_guard_prefix = v4_borrowck_rvalue_route_guard_prefix(mir_id, body_id, rvalue_id)
         if projection != "" {
             v4_borrowck_fill_aggregate_projection_provenance(mir_id, body_id, use_stmt, rvalue_id, projection, provenance_id)
             give back
@@ -2053,7 +2023,7 @@ task v4_borrowck_fill_return_lend_provenance(mir_id: int, body_id: int, use_stmt
             if child_rvalue >= 0 and v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, child_rvalue) {
                 found_child = true
                 pilot candidate_id = v4_borrowck_return_lend_provenance_projected(mir_id, body_id, use_stmt, child_rvalue, "")
-                v4_borrowck_provenance_union_with_guard_prefix(provenance_id, candidate_id, route_guard_prefix)
+                v4_borrowck_provenance_union_into(provenance_id, candidate_id)
             }
             child_id += 1
         }

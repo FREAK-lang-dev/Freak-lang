@@ -18,6 +18,9 @@ task v4_aggregate_boundary_source() -> word {
     src = src + "    left: lend mut 'a Ship\n"
     src = src + "    right: lend mut 'b Ship\n"
     src = src + "}\n"
+    src = src + "shape SingleView<'a> {\n"
+    src = src + "    view: lend 'a Ship\n"
+    src = src + "}\n"
     src = src + "route RoutedView<'a> {\n"
     src = src + "    Hold " + v4_aggregate_boundary_braces(" view: lend 'a Ship ") + "\n"
     src = src + "    Empty\n"
@@ -42,6 +45,9 @@ task v4_aggregate_boundary_source() -> word {
     src = src + "task array_pass<'a>(views: [lend mut 'a Ship;2]) -> [lend mut 'a Ship;2] {\n"
     src = src + "    give back views\n"
     src = src + "}\n"
+    src = src + "task empty_array_pass<'a>(views: [lend mut 'a Ship;0]) -> [lend mut 'a Ship;0] {\n"
+    src = src + "    give back views\n"
+    src = src + "}\n"
     src = src + "task shape_pass<'a,'b>(views: PairView<'a,'b>) -> PairView<'a,'b> {\n"
     src = src + "    give back views\n"
     src = src + "}\n"
@@ -50,6 +56,12 @@ task v4_aggregate_boundary_source() -> word {
     src = src + "}\n"
     src = src + "task route_use<'a>(views: RoutedView<'a>) -> int {\n"
     src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task shape_to_route<'a>(views: SingleView<'a>) -> RoutedView<'a> {\n"
+    src = src + "    give back RoutedView<'a>::Hold " + v4_aggregate_boundary_braces(" view: views.view ") + "\n"
+    src = src + "}\n"
+    src = src + "task shape_to_route_forward<'a>(views: SingleView<'a>) -> RoutedView<'a> {\n"
+    src = src + "    give back shape_to_route(views)\n"
     src = src + "}\n"
     src = src + "task nested_owned_escape<'a>(lend 'a borrowed: Ship, owned: Ship) -> OuterView<'a> {\n"
     src = src + "    give back OuterView<'a>::Wrap " + v4_aggregate_boundary_braces(" inner: InnerView<'a>::Hold " + v4_aggregate_boundary_braces(" view: lend owned ") + " ") + "\n"
@@ -124,6 +136,17 @@ task v4_aggregate_boundary_source() -> word {
     src = src + "    first.hp = 41\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "task shape_to_route_roundtrip(first: Ship) -> int {\n"
+    src = src + "    pilot input = SingleView<'_> " + v4_aggregate_boundary_braces(" view: lend first ") + "\n"
+    src = src + "    pilot returned = shape_to_route_forward(input)\n"
+    src = src + "    give back route_use(returned)\n"
+    src = src + "}\n"
+    src = src + "task empty_array_call(first: Ship) -> int {\n"
+    src = src + "    pilot empty: [lend mut Ship;0] = [lend mut first; 0]\n"
+    src = src + "    pilot returned = empty_array_pass(empty)\n"
+    src = src + "    first.hp = 60\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     src = src + "task aggregate_outlives_owner_live(first: Ship) -> int {\n"
     src = src + "    pilot views = (lend first, 0)\n"
     src = src + "    pilot returned = aggregate_outlives(views)\n"
@@ -147,6 +170,15 @@ task v4_aggregate_boundary_call_in_body(mir_id: int, body_id: int) -> int {
     repeat until rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
         if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call { give back rvalue_id }
         rvalue_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_aggregate_boundary_stmt_for_rvalue(mir_id: int, body_id: int, wanted: int) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_rvalue(mir_id, body_id, stmt_id) == wanted { give back stmt_id }
+        stmt_id += 1
     }
     give back 0 - 1
 }
@@ -189,6 +221,10 @@ say "aggregate-boundary-shape-sibling-dead=" + v4_aggregate_boundary_status(v4_a
 say "aggregate-boundary-route-roundtrip=" + v4_aggregate_boundary_status(v4_aggregate_boundary_borrow, v4_aggregate_boundary_resolve, "route_roundtrip")
 say "aggregate-boundary-route-owner-live=" + v4_aggregate_boundary_status(v4_aggregate_boundary_borrow, v4_aggregate_boundary_resolve, "route_owner_live")
 say "aggregate-boundary-route-empty-clean=" + v4_aggregate_boundary_status(v4_aggregate_boundary_borrow, v4_aggregate_boundary_resolve, "route_empty_clean")
+say "aggregate-boundary-shape-to-route=" + v4_aggregate_boundary_status(v4_aggregate_boundary_borrow, v4_aggregate_boundary_resolve, "shape_to_route")
+say "aggregate-boundary-shape-to-route-forward=" + v4_aggregate_boundary_status(v4_aggregate_boundary_borrow, v4_aggregate_boundary_resolve, "shape_to_route_forward")
+say "aggregate-boundary-shape-to-route-roundtrip=" + v4_aggregate_boundary_status(v4_aggregate_boundary_borrow, v4_aggregate_boundary_resolve, "shape_to_route_roundtrip")
+say "aggregate-boundary-empty-array-call=" + v4_aggregate_boundary_status(v4_aggregate_boundary_borrow, v4_aggregate_boundary_resolve, "empty_array_call")
 say "aggregate-boundary-outlives-owner-live=" + v4_aggregate_boundary_status(v4_aggregate_boundary_borrow, v4_aggregate_boundary_resolve, "aggregate_outlives_owner_live")
 say "aggregate-boundary-nested-empty=" + v4_aggregate_boundary_status(v4_aggregate_boundary_borrow, v4_aggregate_boundary_resolve, "nested_empty")
 say "aggregate-boundary-owned-escape=" + v4_aggregate_boundary_status(v4_aggregate_boundary_borrow, v4_aggregate_boundary_resolve, "aggregate_owned_escape")
@@ -227,6 +263,10 @@ pilot v4_aggregate_boundary_array_sig = v4_ty_lookup_signature(v4_aggregate_boun
 say "aggregate-boundary-array-leaves=" + word_from_int(v4_ty_signature_return_lend_leaf_count(v4_aggregate_boundary_ty, v4_aggregate_boundary_array_sig))
 say "aggregate-boundary-array-projection=" + v4_ty_signature_return_lend_leaf_projection_at(v4_aggregate_boundary_ty, v4_aggregate_boundary_array_sig, 0)
 
+pilot v4_aggregate_boundary_empty_def = v4_resolve_def_for_name(v4_aggregate_boundary_resolve, "empty_array_pass")
+pilot v4_aggregate_boundary_empty_sig = v4_ty_lookup_signature(v4_aggregate_boundary_ty, v4_aggregate_boundary_empty_def)
+say "aggregate-boundary-empty-array-leaves=" + word_from_int(v4_ty_signature_return_lend_leaf_count(v4_aggregate_boundary_ty, v4_aggregate_boundary_empty_sig))
+
 pilot v4_aggregate_boundary_shape_def = v4_resolve_def_for_name(v4_aggregate_boundary_resolve, "shape_pass")
 pilot v4_aggregate_boundary_shape_sig = v4_ty_lookup_signature(v4_aggregate_boundary_ty, v4_aggregate_boundary_shape_def)
 say "aggregate-boundary-shape-leaves=" + word_from_int(v4_ty_signature_return_lend_leaf_count(v4_aggregate_boundary_ty, v4_aggregate_boundary_shape_sig))
@@ -247,6 +287,13 @@ pilot v4_aggregate_boundary_owner_call = v4_aggregate_boundary_call_in_body(v4_a
 say "aggregate-boundary-mir-call-leaves=" + word_from_int(v4_mir_rvalue_call_return_lend_leaf_count(v4_aggregate_boundary_mir, v4_aggregate_boundary_owner_body, v4_aggregate_boundary_owner_call))
 say "aggregate-boundary-mir-call-source0-projection=" + v4_mir_rvalue_call_borrowed_source_projection_at_for_leaf(v4_aggregate_boundary_mir, v4_aggregate_boundary_owner_body, v4_aggregate_boundary_owner_call, 0, 0)
 say "aggregate-boundary-mir-call-source1-projection=" + v4_mir_rvalue_call_borrowed_source_projection_at_for_leaf(v4_aggregate_boundary_mir, v4_aggregate_boundary_owner_body, v4_aggregate_boundary_owner_call, 1, 0)
+pilot v4_aggregate_boundary_empty_body = v4_aggregate_boundary_body_for_name(v4_aggregate_boundary_mir, "empty_array_call")
+pilot v4_aggregate_boundary_empty_call = v4_aggregate_boundary_call_in_body(v4_aggregate_boundary_mir, v4_aggregate_boundary_empty_body)
+pilot v4_aggregate_boundary_empty_stmt = v4_aggregate_boundary_stmt_for_rvalue(v4_aggregate_boundary_mir, v4_aggregate_boundary_empty_body, v4_aggregate_boundary_empty_call)
+pilot v4_aggregate_boundary_empty_provenance = v4_borrowck_return_lend_provenance(v4_aggregate_boundary_mir, v4_aggregate_boundary_empty_body, v4_aggregate_boundary_empty_stmt, v4_aggregate_boundary_empty_call)
+say "aggregate-boundary-mir-empty-call-leaves=" + word_from_int(v4_mir_rvalue_call_return_lend_leaf_count(v4_aggregate_boundary_mir, v4_aggregate_boundary_empty_body, v4_aggregate_boundary_empty_call))
+say "aggregate-boundary-empty-call-provenance-known-empty=" + v4_aggregate_boundary_bool(v4_borrowck_provenance_is_known_empty(v4_aggregate_boundary_empty_provenance))
+say "aggregate-boundary-empty-call-provenance-count=" + word_from_int(v4_borrowck_provenance_count(v4_aggregate_boundary_empty_provenance))
 say "aggregate-boundary-owned-diagnostic=" + v4_aggregate_boundary_bool(v4_aggregate_boundary_borrow_diag_contains(v4_aggregate_boundary_borrow, "return an aggregate loan of an owned value"))
 say "aggregate-boundary-rewrite-diagnostic=" + v4_aggregate_boundary_bool(v4_aggregate_boundary_borrow_diag_contains(v4_aggregate_boundary_borrow, "refuses this rewrite while the value is borrowed"))
 pilot v4_aggregate_boundary_diag_id = 0
