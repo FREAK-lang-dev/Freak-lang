@@ -417,8 +417,8 @@ task v4_borrowck_rhs_needs_move(rhs: word) -> bool {
     give back true
 }
 
-task v4_borrowck_ty_is_copy(ty_name: word) -> bool {
-    give back v4_ty_is_copy_type(ty_name)
+task v4_borrowck_ty_is_copy(ty_id: int, ty_name: word) -> bool {
+    give back v4_ty_type_is_structurally_copy(ty_id, ty_name, 0)
 }
 
 task v4_borrowck_rvalue_transfer_kind(mir_id: int, body_id: int, rvalue_id: int) -> word {
@@ -436,7 +436,7 @@ task v4_borrowck_rvalue_transfer_kind(mir_id: int, body_id: int, rvalue_id: int)
             }
             give back v4_borrowck_path_copy
         }
-        if v4_borrowck_ty_is_copy(value_ty) {
+        if v4_borrowck_ty_is_copy(v4_mir_ty_id(mir_id), value_ty) {
             give back v4_borrowck_path_copy
         }
         give back v4_borrowck_path_move
@@ -445,7 +445,7 @@ task v4_borrowck_rvalue_transfer_kind(mir_id: int, body_id: int, rvalue_id: int)
         give back v4_borrowck_path_copy
     }
     if kind == v4_mir_rvalue_capture_move {
-        if v4_borrowck_ty_is_copy(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        if v4_borrowck_ty_is_copy(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
             give back v4_borrowck_path_copy
         }
         give back v4_borrowck_path_move
@@ -453,7 +453,7 @@ task v4_borrowck_rvalue_transfer_kind(mir_id: int, body_id: int, rvalue_id: int)
     if kind == v4_mir_rvalue_unknown {
         pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
         if v4_borrowck_rhs_needs_move(text) {
-            if v4_borrowck_ty_is_copy(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+            if v4_borrowck_ty_is_copy(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
                 give back v4_borrowck_path_copy
             }
             give back v4_borrowck_path_move
@@ -2984,7 +2984,20 @@ task v4_borrowck_rvalue_returns_holder(mir_id: int, body_id: int, rvalue_id: int
         }
     }
     if kind == v4_mir_rvalue_call {
-        if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+        if v4_ty_is_closure_type(result_ty) {
+            pilot closure_arg_id = 0
+            pilot closure_arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+            repeat until closure_arg_id >= closure_arg_count {
+                pilot closure_arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, closure_arg_id)
+                if v4_borrowck_rvalue_returns_holder(mir_id, body_id, closure_arg, holder) {
+                    give back true
+                }
+                closure_arg_id += 1
+            }
+            give back false
+        }
+        if not v4_ty_is_lend_type(result_ty) {
             give back false
         }
         pilot source_count = v4_mir_rvalue_call_borrowed_source_arg_count(mir_id, body_id, rvalue_id)
@@ -3025,7 +3038,7 @@ task v4_borrowck_aggregate_child_projection_segment(mir_id: int, body_id: int, r
                 give back v4_borrowck_holder_projection_none
             }
             if length_text != "1" {
-                give back v4_borrowck_holder_projection_whole
+                give back "[*]"
             }
         }
         give back "[" + word_from_int(child_id) + "]"
@@ -3392,6 +3405,68 @@ task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder
     give back used
 }
 
+task v4_borrowck_repeat_direct_slot_index(base_holder: word, place_text: word) -> int {
+    pilot base = v4_borrowck_path_canon(base_holder)
+    pilot place = v4_borrowck_path_canon(place_text)
+    if base == "" or place.length() <= base.length() + 2 {
+        give back 0 - 1
+    }
+    if v4_slice(place, 0, base.length()) != base or place.char_at(base.length()) != "[" {
+        give back 0 - 1
+    }
+    pilot close_idx = v4_borrowck_path_index_close(place, base.length())
+    if close_idx != place.length() - 1 {
+        give back 0 - 1
+    }
+    pilot index_text = v4_slice(place, base.length() + 1, close_idx)
+    if not v4_borrowck_path_index_is_integer_literal(index_text) {
+        give back 0 - 1
+    }
+    give back word_to_int(index_text)
+}
+
+task v4_borrowck_repeat_slots_rebound_in_block(mir_id: int, body_id: int, loan_stmt: int, loan_text: word, write_stmt: int, base_holder: word, slot_count: int) -> bool {
+    if v4_mir_stmt_block(mir_id, body_id, loan_stmt) != v4_mir_stmt_block(mir_id, body_id, write_stmt) {
+        give back false
+    }
+
+    pilot rebound = array_new()
+    pilot slot_id = 0
+    repeat until slot_id >= slot_count {
+        array_push(rebound, "false")
+        slot_id += 1
+    }
+
+    pilot rebound_count = 0
+    pilot stmt_id = loan_stmt + 1
+    repeat until stmt_id >= write_stmt {
+        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == v4_mir_stmt_block(mir_id, body_id, loan_stmt) {
+            pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+            if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
+                pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+                if place_id >= 0 {
+                    pilot rebound_slot = v4_borrowck_repeat_direct_slot_index(base_holder, v4_mir_place_text(mir_id, body_id, place_id))
+                    pilot rebound_state = ""
+                    if rebound_slot >= 0 and rebound_slot < slot_count { rebound_state = array_get(rebound, rebound_slot) }
+                    if rebound_slot >= 0 and rebound_slot < slot_count and rebound_state != "true" {
+                        pilot replacement = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+                        pilot replacement_kind = v4_mir_rvalue_kind(mir_id, body_id, replacement)
+                        if replacement_kind == v4_mir_rvalue_lend or replacement_kind == v4_mir_rvalue_lend_mut {
+                            if not v4_borrowck_rvalue_returns_holder(mir_id, body_id, replacement, loan_text) {
+                                array_set(rebound, rebound_slot, "true")
+                                rebound_count += 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    array_release(rebound)
+    give back rebound_count == slot_count
+}
+
 -- Returns -1 when the initializer is not a repeat fill, otherwise 0/1 for dead/live.
 task v4_borrowck_repeat_fill_loan_live_at_write(mir_id: int, body_id: int, loan_stmt: int, loan_text: word, write_stmt: int, write_block: int) -> int {
     if loan_stmt < 0 { give back 0 - 1 }
@@ -3404,7 +3479,6 @@ task v4_borrowck_repeat_fill_loan_live_at_write(mir_id: int, body_id: int, loan_
     }
     pilot slot_count = v4_mir_fixed_array_slot_count(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
     if slot_count <= 1 { give back 0 - 1 }
-    if slot_count > 256 { give back 1 }
 
     pilot child_rvalue = v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, 0)
     pilot nested = v4_borrowck_rvalue_unique_holder_projection(mir_id, body_id, child_rvalue, loan_text)
@@ -3412,6 +3486,17 @@ task v4_borrowck_repeat_fill_loan_live_at_write(mir_id: int, body_id: int, loan_
     pilot loan_place = v4_mir_stmt_place(mir_id, body_id, loan_stmt)
     if not v4_borrowck_place_is_local_storage_projection(mir_id, body_id, loan_place) { give back 1 }
     pilot base_holder = v4_mir_place_text(mir_id, body_id, loan_place)
+
+    -- Sparse bodies cannot contain a distinct retirement for every slot.
+    if slot_count >= 256 {
+        if slot_count <= v4_mir_body_stmt_count(mir_id, body_id) and v4_borrowck_repeat_slots_rebound_in_block(mir_id, body_id, loan_stmt, loan_text, write_stmt, base_holder, slot_count) {
+            give back 0
+        }
+        if v4_borrowck_holder_used_at_or_after_write(mir_id, body_id, base_holder, loan_stmt, write_stmt, write_block) {
+            give back 1
+        }
+        give back 0
+    }
 
     pilot slot_id = 0
     repeat until slot_id >= slot_count {
