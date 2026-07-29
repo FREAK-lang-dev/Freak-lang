@@ -18,13 +18,20 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "}\n"
     src = src + "doctrine Cloneable {\n"
     src = src + "}\n"
+    src = src + "doctrine Copy {\n"
+    src = src + "}\n"
     src = src + "shape Owned {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
     src = src + "shape CloneOwned {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
+    src = src + "shape NominalCopy {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
     src = src + "impl Cloneable for CloneOwned {\n"
+    src = src + "}\n"
+    src = src + "impl Copy for NominalCopy {\n"
     src = src + "}\n"
     src = src + "shape SharedOwned<'a> {\n"
     src = src + "    view: lend 'a Ship\n"
@@ -153,6 +160,12 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    first.hp = 24\n"
     src = src + "    give back views[0].hp\n"
     src = src + "}\n"
+    src = src + "task repeat_shared_partial_rebind_257(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;257] = [lend first; 257]\n"
+    src = src + "    views[0] = lend second\n"
+    src = src + "    first.hp = 24\n"
+    src = src + "    give back views[0].hp\n"
+    src = src + "}\n"
     src = src + "task repeat_shared_dead_256(first: Ship) -> int {\n"
     src = src + "    pilot views: [lend Ship;256] = [lend first; 256]\n"
     src = src + "    first.hp = 25\n"
@@ -183,6 +196,10 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "task repeat_cloneable(value: CloneOwned) -> int {\n"
     src = src + "    pilot copies = [value; 2]\n"
     src = src + "    give back copies[0].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_nominal_copy(value: NominalCopy) -> int {\n"
+    src = src + "    pilot copies = [value; 2]\n"
+    src = src + "    give back value.hp + copies[0].hp\n"
     src = src + "}\n"
     src = src + "task repeat_mut(first: Ship) -> int {\n"
     src = src + "    pilot views: [lend mut Ship;2] = [lend mut first; 2]\n"
@@ -218,6 +235,13 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    first.hp = 10\n"
     src = src + "    pilot final_use = views.0.hp\n"
     src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task duplicate_shared_rebind_releases(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views = (lend first, lend first)\n"
+    src = src + "    views.0 = lend second\n"
+    src = src + "    views.1 = lend second\n"
+    src = src + "    first.hp = 10\n"
+    src = src + "    give back views.0.hp\n"
     src = src + "}\n"
     src = src + "task left_rebind_protects_third(first: Ship, second: Ship, third: Ship) -> int {\n"
     src = src + "    pilot views = (lend mut first, lend mut second)\n"
@@ -341,6 +365,16 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    pilot readers = [forwarded]\n"
     src = src + "    pilot extracted = readers[0]\n"
     src = src + "    first.hp = 27\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task projected_closure_assignment_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = (|_| => 0, 0)\n"
+    src = src + "    wrapped.0 = reader\n"
+    src = src + "    pilot readers = [wrapped]\n"
+    src = src + "    pilot extracted = readers[0].0\n"
+    src = src + "    first.hp = 29\n"
     src = src + "    give back extracted()\n"
     src = src + "}\n"
     src = src + "task mixed_lend_closure_storage_rejected(first: Ship, second: Ship) -> int {\n"
@@ -544,6 +578,7 @@ say "fixed-aggregate-repeat-shared=" + v4_fixed_aggregate_status(v4_fixed_aggreg
 say "fixed-aggregate-repeat-immutable-outer=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_immutable_outer")
 say "fixed-aggregate-repeat-owned-sibling=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_owned_sibling")
 say "fixed-aggregate-repeat-cloneable=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_cloneable")
+say "fixed-aggregate-repeat-nominal-copy=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_nominal_copy")
 say "fixed-aggregate-repeat-copy-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_mir_diag_contains(v4_fixed_aggregate_mir, "fixed-array repeat value must be Copy or Cloneable"))
 say "fixed-aggregate-repeat-copy-diagnostic-count=" + word_from_int(v4_fixed_aggregate_mir_diag_count(v4_fixed_aggregate_mir, "fixed-array repeat value must be Copy or Cloneable"))
 say "fixed-aggregate-repeat-shared-rebind-all=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_all")
@@ -552,6 +587,7 @@ say "fixed-aggregate-repeat-nested-sibling-dead=" + v4_fixed_aggregate_status(v4
 say "fixed-aggregate-repeat-structural-copy=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_structural_copy")
 say "fixed-aggregate-repeat-shared-dead-256=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_dead_256")
 say "fixed-aggregate-repeat-shared-rebind-257=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_257")
+say "fixed-aggregate-repeat-shared-partial-rebind-257=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_partial_rebind_257")
 say "fixed-aggregate-repeat-shared-dead-257=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_dead_257")
 say "fixed-aggregate-empty-array-generic-call=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "empty_array_generic_call")
 say "fixed-aggregate-empty-array-stores-lend=" + v4_fixed_aggregate_bool(v4_ty_type_stores_lend(v4_fixed_aggregate_ty, "[lend Ship;0]"))
@@ -562,6 +598,7 @@ say "fixed-aggregate-repeat-mut-aggregate=" + v4_fixed_aggregate_status(v4_fixed
 say "fixed-aggregate-move=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "aggregate_move")
 say "fixed-aggregate-sibling-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "sibling_rebind_keeps_left")
 say "fixed-aggregate-left-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "left_rebind_releases")
+say "fixed-aggregate-duplicate-shared-rebind-releases=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "duplicate_shared_rebind_releases")
 say "fixed-aggregate-left-rebind-protects-new=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "left_rebind_protects_third")
 say "fixed-aggregate-immutable-holder-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "immutable_holder_rebind")
 say "fixed-aggregate-scoped-argument-shape-live=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "scoped_argument_shape_live")
@@ -584,6 +621,7 @@ say "fixed-aggregate-dynamic-closure-storage-diagnostic-count=" + word_from_int(
 say "fixed-aggregate-fixed-closure-storage-diagnostic-count=" + word_from_int(v4_fixed_aggregate_borrow_diag_count(v4_fixed_aggregate_borrow, "Meiya cannot store a loan-capturing closure inside fixed aggregate storage yet"))
 say "fixed-aggregate-dynamic-forwarded-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_forwarded_closure_storage_rejected")
 say "fixed-aggregate-forwarded-closure-rebind-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "forwarded_closure_rebind_storage_rejected")
+say "fixed-aggregate-projected-closure-assignment-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "projected_closure_assignment_storage_rejected")
 say "fixed-aggregate-mixed-lend-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "mixed_lend_closure_storage_rejected")
 say "fixed-aggregate-plain-local-cycle=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "plain_local_cycle_clean")
 say "fixed-aggregate-dynamic-closure-conditional-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_closure_conditional_rebind")
