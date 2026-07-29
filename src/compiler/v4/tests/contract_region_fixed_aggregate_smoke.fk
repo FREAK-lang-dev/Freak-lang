@@ -47,6 +47,9 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "task relay_mut(lend mut ship: Ship) -> lend mut Ship {\n"
     src = src + "    give back lend mut ship\n"
     src = src + "}\n"
+    src = src + "task identity<T>(value: T) -> T {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
     src = src + "task tuple_sibling_dead(first: Ship, second: Ship) -> int {\n"
     src = src + "    pilot views = (lend mut first, lend second)\n"
     src = src + "    second.hp = 2\n"
@@ -104,6 +107,25 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "task repeat_shared(first: Ship) -> int {\n"
     src = src + "    pilot views: [lend Ship;2] = [lend first; 2]\n"
     src = src + "    pilot final_use = views[1].hp\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_rebind_all(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;2] = [lend first; 2]\n"
+    src = src + "    views[0] = lend second\n"
+    src = src + "    views[1] = lend second\n"
+    src = src + "    first.hp = 20\n"
+    src = src + "    give back views[0].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_rebind_one(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;2] = [lend first; 2]\n"
+    src = src + "    views[0] = lend second\n"
+    src = src + "    first.hp = 21\n"
+    src = src + "    give back views[1].hp\n"
+    src = src + "}\n"
+    src = src + "task empty_array_generic_call(first: Ship) -> int {\n"
+    src = src + "    pilot empty: [lend Ship;0] = [lend first; 0]\n"
+    src = src + "    identity(empty)\n"
+    src = src + "    first.hp = 22\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
     src = src + "task repeat_immutable_outer(first: Ship) -> int {\n"
@@ -356,6 +378,11 @@ say "fixed-aggregate-repeat-owned-sibling=" + v4_fixed_aggregate_status(v4_fixed
 say "fixed-aggregate-repeat-cloneable=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_cloneable")
 say "fixed-aggregate-repeat-copy-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_mir_diag_contains(v4_fixed_aggregate_mir, "fixed-array repeat value must be Copy or Cloneable"))
 say "fixed-aggregate-repeat-copy-diagnostic-count=" + word_from_int(v4_fixed_aggregate_mir_diag_count(v4_fixed_aggregate_mir, "fixed-array repeat value must be Copy or Cloneable"))
+say "fixed-aggregate-repeat-shared-rebind-all=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_all")
+say "fixed-aggregate-repeat-shared-rebind-one=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_one")
+say "fixed-aggregate-empty-array-generic-call=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "empty_array_generic_call")
+say "fixed-aggregate-empty-array-stores-lend=" + v4_fixed_aggregate_bool(v4_ty_type_stores_lend(v4_fixed_aggregate_ty, "[lend Ship;0]"))
+say "fixed-aggregate-empty-array-generic-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_mir_diag_contains(v4_fixed_aggregate_mir, "Meiya cannot substitute a lend-bearing type for a generic call yet"))
 say "fixed-aggregate-repeat-mut=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut")
 say "fixed-aggregate-repeat-mut-one=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_one")
 say "fixed-aggregate-repeat-mut-aggregate=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_aggregate")
