@@ -1540,9 +1540,41 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
     give back conflicts
 }
 
-task v4_borrowck_local_rvalue_before(mir_id: int, body_id: int, local_name: word, before_offset: int) -> int {
-    pilot found_rvalue = 0 - 1
-    pilot found_offset = 0 - 1
+task v4_borrowck_stmt_for_rvalue(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 {
+        give back 0 - 1
+    }
+    pilot rvalue_span = v4_mir_rvalue_span(mir_id, body_id, rvalue_id)
+    pilot rvalue_start = v4_span_start(rvalue_span)
+    pilot rvalue_end = v4_span_end(rvalue_span)
+    pilot enclosing_stmt = 0 - 1
+    pilot enclosing_width = 0 - 1
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_rvalue(mir_id, body_id, stmt_id) == rvalue_id {
+            give back stmt_id
+        }
+        pilot stmt_span = v4_mir_stmt_span(mir_id, body_id, stmt_id)
+        pilot stmt_start = v4_span_start(stmt_span)
+        pilot stmt_end = v4_span_end(stmt_span)
+        if rvalue_end >= rvalue_start and stmt_end >= stmt_start and stmt_start <= rvalue_start and stmt_end >= rvalue_end {
+            pilot width = stmt_end - stmt_start
+            if enclosing_stmt < 0 or width < enclosing_width {
+                enclosing_stmt = stmt_id
+                enclosing_width = width
+            }
+        }
+        stmt_id += 1
+    }
+    give back enclosing_stmt
+}
+
+task v4_borrowck_closure_local_has_reaching_borrow(mir_id: int, body_id: int, local_name: word, use_stmt: int, depth: int) -> bool {
+    pilot use_block = 0 - 1
+    if use_stmt >= 0 {
+        use_block = v4_mir_stmt_block(mir_id, body_id, use_stmt)
+    }
     pilot stmt_id = 0
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
     repeat until stmt_id >= stmt_count {
@@ -1551,12 +1583,15 @@ task v4_borrowck_local_rvalue_before(mir_id: int, body_id: int, local_name: word
             pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
             if place_id >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
                 if v4_mir_place_text(mir_id, body_id, place_id) == local_name {
-                    pilot stmt_offset = v4_span_start(v4_mir_stmt_span(mir_id, body_id, stmt_id))
-                    if stmt_offset <= before_offset and stmt_offset >= found_offset {
-                        pilot assigned_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-                        if assigned_rvalue >= 0 {
-                            found_rvalue = assigned_rvalue
-                            found_offset = stmt_offset
+                    pilot assigned_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+                    if assigned_rvalue >= 0 {
+                        pilot reaches = use_stmt < 0
+                        if not reaches {
+                            pilot origin_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+                            reaches = v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, local_name, stmt_id, stmt_id, origin_block, use_stmt, use_block)
+                        }
+                        if reaches and v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, assigned_rvalue, use_stmt, depth + 1) {
+                            give back true
                         }
                     }
                 }
@@ -1564,10 +1599,10 @@ task v4_borrowck_local_rvalue_before(mir_id: int, body_id: int, local_name: word
         }
         stmt_id += 1
     }
-    give back found_rvalue
+    give back false
 }
 
-task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalue_id: int, depth: int) -> bool {
+task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalue_id: int, use_stmt: int, depth: int) -> bool {
     if rvalue_id < 0 {
         give back false
     }
@@ -1593,10 +1628,7 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
             give back true
         }
         if kind == v4_mir_rvalue_use_local and v4_ty_is_closure_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
-            pilot local_rvalue = v4_borrowck_local_rvalue_before(mir_id, body_id, local_path, v4_span_start(v4_mir_rvalue_span(mir_id, body_id, rvalue_id)))
-            if local_rvalue >= 0 and local_rvalue != rvalue_id {
-                give back v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, local_rvalue, depth + 1)
-            }
+            give back v4_borrowck_closure_local_has_reaching_borrow(mir_id, body_id, local_path, use_stmt, depth)
         }
         give back false
     }
@@ -1604,7 +1636,7 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
         pilot child_id = 0
         pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
         repeat until child_id >= child_count {
-            if v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), depth + 1) {
+            if v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), use_stmt, depth + 1) {
                 give back true
             }
             child_id += 1
@@ -1614,7 +1646,8 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
 }
 
 task v4_borrowck_rvalue_is_borrow_capable(mir_id: int, body_id: int, rvalue_id: int) -> bool {
-    give back v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, rvalue_id, 0)
+    pilot use_stmt = v4_borrowck_stmt_for_rvalue(mir_id, body_id, rvalue_id)
+    give back v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, rvalue_id, use_stmt, 0)
 }
 
 task v4_borrowck_provenance_union_borrow_capable_call_args(mir_id: int, body_id: int, use_stmt: int, call_rvalue: int, provenance_id: int) -> void {
