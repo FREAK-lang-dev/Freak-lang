@@ -5705,8 +5705,8 @@ task v4_mir_check_fixed_array_repeated_literal(mir_id: int, body_id: int, stream
 
     pilot count_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, repeat_token + 1, close_token)
     pilot count_text = v4_mir_fixed_array_count_from_rvalue(mir_id, body_id, count_rvalue, expr_span)
-    if v4_ty_is_known(count_text) and word_to_int(count_text) > 1 {
-        if v4_mir_rvalue_contains_mut_lend(mir_id, body_id, value_rvalue) {
+    if v4_ty_is_known(count_text) and word_to_int(count_text) > 0 {
+        if word_to_int(count_text) > 1 and v4_mir_rvalue_contains_mut_lend(mir_id, body_id, value_rvalue) {
             v4_mir_add_type_error(mir_id, expr_span, "fixed-array repeat cannot duplicate lend mut", "write each element explicitly so every slot receives a distinct exclusive loan")
         } else if not v4_ty_type_is_array_repeatable(v4_mir_ty_id(mir_id), v4_mir_body_signature_id(mir_id, body_id), value_ty) {
             v4_mir_add_type_error(mir_id, expr_span, "fixed-array repeat value must be Copy or Cloneable", "implement Copy or Cloneable for " + value_ty + ", or write each element explicitly")
