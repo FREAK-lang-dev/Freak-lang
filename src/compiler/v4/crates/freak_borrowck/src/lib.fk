@@ -3217,7 +3217,8 @@ task v4_borrowck_explicit_loan_holder(mir_id: int, body_id: int, loan_stmt: int,
         pilot place_id = v4_mir_stmt_place(mir_id, body_id, loan_stmt)
         if (stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign) and v4_borrowck_place_is_local_storage_projection(mir_id, body_id, place_id) {
             pilot holder = v4_mir_place_text(mir_id, body_id, place_id)
-            if v4_mir_rvalue_is_aggregate_kind(v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)) {
+            pilot rvalue_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+            if v4_mir_rvalue_is_aggregate_kind(rvalue_kind) or rvalue_kind == v4_mir_rvalue_call {
                 pilot projection = v4_borrowck_rvalue_unique_holder_projection(mir_id, body_id, rvalue_id, loan_text)
                 if projection == v4_borrowck_holder_projection_none {
                     give back "@temporary"

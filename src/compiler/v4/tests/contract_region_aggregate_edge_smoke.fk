@@ -20,6 +20,15 @@ task v4_aggregate_edge_source() -> word {
     src = src + "shape Outer<'a> {\n"
     src = src + "    pair: (lend 'a Ship,int)\n"
     src = src + "}\n"
+    src = src + "shape Fleet {\n"
+    src = src + "    ship: Ship\n"
+    src = src + "}\n"
+    src = src + "task tuple_scalar_pass<'a>(views: (lend mut 'a Ship,int)) -> (lend mut 'a Ship,int) {\n"
+    src = src + "    give back views\n"
+    src = src + "}\n"
+    src = src + "task projected_holder<'a>(lend 'a fleet: Fleet) -> lend 'a Ship {\n"
+    src = src + "    give back lend fleet.ship\n"
+    src = src + "}\n"
     src = src + "fixed pilot BASE: int = 2\n"
     src = src + "fixed pilot WIDTH: int = 2\n"
     src = src + "task nested_array_pass<'a>(views: ([lend 'a Ship; BASE + WIDTH],int)) -> ([lend 'a Ship;4],int) {\n"
@@ -68,6 +77,16 @@ task v4_aggregate_edge_source() -> word {
     src = src + "    first.hp = 11\n"
     src = src + "    give back outer.pair.0.hp\n"
     src = src + "}\n"
+    src = src + "task returned_call_leaf_rebind(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot returned = tuple_scalar_pass((lend mut first,0))\n"
+    src = src + "    returned.0 = lend mut second\n"
+    src = src + "    first.hp = 12\n"
+    src = src + "    give back returned.1\n"
+    src = src + "}\n"
+    src = src + "task projected_scalar_roundtrip(fleet: Fleet) -> int {\n"
+    src = src + "    pilot returned = projected_holder(lend fleet)\n"
+    src = src + "    give back returned.hp\n"
+    src = src + "}\n"
     src = src + "task duplicate_rebind_all(first: Ship, second: Ship) -> int {\n"
     src = src + "    pilot views = (lend first, lend first)\n"
     src = src + "    views.0 = lend second\n"
@@ -109,6 +128,18 @@ task v4_aggregate_edge_local_rvalue(mir_id: int, body_id: int, local_name: word)
     }
     give back 0 - 1
 }
+task v4_aggregate_edge_local_stmt(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+        if place_id >= 0 and v4_mir_place_text(mir_id, body_id, place_id) == local_name {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
 
 task v4_aggregate_edge_status(borrow_id: int, resolve_id: int, name: word) -> word {
     pilot def_id = v4_resolve_def_for_name(resolve_id, name)
@@ -144,6 +175,10 @@ pilot v4_aggregate_edge_select_def = v4_resolve_def_for_name(v4_aggregate_edge_r
 pilot v4_aggregate_edge_select_sig = v4_ty_lookup_signature(v4_aggregate_edge_ty, v4_aggregate_edge_select_def)
 pilot v4_aggregate_edge_generic_def = v4_resolve_def_for_name(v4_aggregate_edge_resolve, "generic_select")
 pilot v4_aggregate_edge_generic_sig = v4_ty_lookup_signature(v4_aggregate_edge_ty, v4_aggregate_edge_generic_def)
+pilot v4_aggregate_edge_projected_def = v4_resolve_def_for_name(v4_aggregate_edge_resolve, "projected_holder")
+pilot v4_aggregate_edge_projected_sig = v4_ty_lookup_signature(v4_aggregate_edge_ty, v4_aggregate_edge_projected_def)
+pilot v4_aggregate_edge_leaf_body = v4_aggregate_edge_body_for_name(v4_aggregate_edge_mir, v4_aggregate_edge_resolve, "returned_call_leaf_rebind")
+pilot v4_aggregate_edge_leaf_stmt = v4_aggregate_edge_local_stmt(v4_aggregate_edge_mir, v4_aggregate_edge_leaf_body, "returned")
 pilot v4_aggregate_edge_duplicate_body = v4_aggregate_edge_body_for_name(v4_aggregate_edge_mir, v4_aggregate_edge_resolve, "duplicate_rebind_all")
 pilot v4_aggregate_edge_duplicate_rvalue = v4_aggregate_edge_local_rvalue(v4_aggregate_edge_mir, v4_aggregate_edge_duplicate_body, "views")
 pilot v4_aggregate_edge_duplicate_projections = array_new()
@@ -166,6 +201,10 @@ say "aggregate-edge-generic-target-source-count=" + word_from_int(v4_ty_signatur
 say "aggregate-edge-generic-target-sibling-dead=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "generic_target_sibling_dead")
 say "aggregate-edge-projected-call-sibling-dead=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "projected_call_sibling_dead")
 say "aggregate-edge-projected-call-owner-live=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "projected_call_owner_live")
+say "aggregate-edge-returned-call-leaf-rebind=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "returned_call_leaf_rebind")
+say "aggregate-edge-returned-call-leaf-holder=" + v4_borrowck_explicit_loan_holder(v4_aggregate_edge_mir, v4_aggregate_edge_leaf_body, v4_aggregate_edge_leaf_stmt, "first")
+say "aggregate-edge-projected-scalar-source-count=" + word_from_int(v4_ty_signature_return_lend_source_count(v4_aggregate_edge_ty, v4_aggregate_edge_projected_sig, 0))
+say "aggregate-edge-projected-scalar-roundtrip=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "projected_scalar_roundtrip")
 say "aggregate-edge-duplicate-projection-count=" + word_from_int(array_len(v4_aggregate_edge_duplicate_projections))
 say "aggregate-edge-duplicate-projection0=" + v4_aggregate_edge_projection_at(v4_aggregate_edge_duplicate_projections, 0)
 say "aggregate-edge-duplicate-projection1=" + v4_aggregate_edge_projection_at(v4_aggregate_edge_duplicate_projections, 1)
