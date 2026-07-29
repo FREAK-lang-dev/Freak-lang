@@ -3392,7 +3392,44 @@ task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder
     give back used
 }
 
+-- Returns -1 when the initializer is not a repeat fill, otherwise 0/1 for dead/live.
+task v4_borrowck_repeat_fill_loan_live_at_write(mir_id: int, body_id: int, loan_stmt: int, loan_text: word, write_stmt: int, write_block: int) -> int {
+    if loan_stmt < 0 { give back 0 - 1 }
+    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
+    if rvalue_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_array {
+        give back 0 - 1
+    }
+    if v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id) != 1 or v4_mir_rvalue_aggregate_child_projection(mir_id, body_id, rvalue_id, 0) != "[*]" {
+        give back 0 - 1
+    }
+    pilot slot_count = v4_mir_fixed_array_slot_count(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+    if slot_count <= 1 { give back 0 - 1 }
+    if slot_count > 256 { give back 1 }
+
+    pilot child_rvalue = v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, 0)
+    pilot nested = v4_borrowck_rvalue_unique_holder_projection(mir_id, body_id, child_rvalue, loan_text)
+    if nested == v4_borrowck_holder_projection_none { give back 0 - 1 }
+    pilot loan_place = v4_mir_stmt_place(mir_id, body_id, loan_stmt)
+    if not v4_borrowck_place_is_local_storage_projection(mir_id, body_id, loan_place) { give back 1 }
+    pilot base_holder = v4_mir_place_text(mir_id, body_id, loan_place)
+
+    pilot slot_id = 0
+    repeat until slot_id >= slot_count {
+        pilot projected_holder = base_holder + "[" + word_from_int(slot_id) + "]"
+        if nested != v4_borrowck_holder_projection_whole {
+            projected_holder = projected_holder + nested
+        }
+        if v4_borrowck_holder_used_at_or_after_write(mir_id, body_id, projected_holder, loan_stmt, write_stmt, write_block) {
+            give back 1
+        }
+        slot_id += 1
+    }
+    give back 0
+}
+
 task v4_borrowck_explicit_loan_live_at_write(mir_id: int, body_id: int, loan_stmt: int, loan_text: word, write_stmt: int, write_block: int) -> bool {
+    pilot repeat_live = v4_borrowck_repeat_fill_loan_live_at_write(mir_id, body_id, loan_stmt, loan_text, write_stmt, write_block)
+    if repeat_live >= 0 { give back repeat_live == 1 }
     pilot holder = v4_borrowck_explicit_loan_holder(mir_id, body_id, loan_stmt, loan_text)
     if holder == "" {
         give back true

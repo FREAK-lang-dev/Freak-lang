@@ -1990,6 +1990,9 @@ task v4_ty_lend_storage_class_seen(ty_id: int, type_text: word, seen_types: word
     }
 
     if v4_ty_is_fixed_array_type(type_text) {
+        if v4_ty_fixed_array_length_normalized_text(ty_id, type_text) == "0" {
+            give back v4_ty_lend_storage_none
+        }
         give back v4_ty_lend_storage_class_seen(ty_id, v4_ty_fixed_array_element_type(type_text), seen_types, depth + 1, named_only, mutable_only)
     }
 
