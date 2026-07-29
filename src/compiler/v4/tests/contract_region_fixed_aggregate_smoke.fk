@@ -330,6 +330,54 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    first.hp = 26\n"
     src = src + "    give back extracted()\n"
     src = src + "}\n"
+    src = src + "task fixed_closure_tuple_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = (reader, 0)\n"
+    src = src + "    pilot extracted = wrapped.0\n"
+    src = src + "    first.hp = 27\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task fixed_closure_repeat_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = [reader; 1]\n"
+    src = src + "    pilot extracted = wrapped[0]\n"
+    src = src + "    first.hp = 28\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task dynamic_wrapped_closure_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = (reader, 0)\n"
+    src = src + "    pilot readers = [wrapped]\n"
+    src = src + "    pilot extracted = readers[0].0\n"
+    src = src + "    first.hp = 29\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task dynamic_nested_move_closure_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot inner = |_| => holder.0.hp\n"
+    src = src + "    pilot outer = move |_| " + "{" + " give back inner() " + "}" + "\n"
+    src = src + "    pilot readers = [outer]\n"
+    src = src + "    pilot extracted = readers[0]\n"
+    src = src + "    first.hp = 30\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task mutable_lend_projection_protects_replacement(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot access = lend mut holder\n"
+    src = src + "    access.0 = lend mut second\n"
+    src = src + "    second.hp = 31\n"
+    src = src + "    give back holder.0.hp\n"
+    src = src + "}\n"
+    src = src + "task mutable_lend_projection_releases_replaced(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot access = lend mut holder\n"
+    src = src + "    access.0 = lend mut second\n"
+    src = src + "    first.hp = 32\n"
+    src = src + "    give back holder.0.hp\n"
+    src = src + "}\n"
     src = src + "task returned_call_owner_live(first: Ship) -> int {\n"
     src = src + "    pilot holder = (relay_mut(lend mut first), 0)\n"
     src = src + "    first.hp = 23\n"
@@ -485,6 +533,13 @@ say "fixed-aggregate-closure-forwarded-capture-keeps-loan=" + v4_fixed_aggregate
 say "fixed-aggregate-dynamic-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_closure_storage_rejected")
 say "fixed-aggregate-dynamic-closure-storage-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_borrow_diag_contains(v4_fixed_aggregate_borrow, "Meiya cannot store a loan-capturing closure inside dynamic storage yet"))
 say "fixed-aggregate-dynamic-closure-conditional-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_closure_conditional_rebind")
+say "fixed-aggregate-fixed-closure-tuple-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "fixed_closure_tuple_storage_rejected")
+say "fixed-aggregate-fixed-closure-repeat-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "fixed_closure_repeat_storage_rejected")
+say "fixed-aggregate-dynamic-wrapped-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_wrapped_closure_storage_rejected")
+say "fixed-aggregate-dynamic-nested-move-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_nested_move_closure_storage_rejected")
+say "fixed-aggregate-fixed-closure-storage-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_borrow_diag_contains(v4_fixed_aggregate_borrow, "Meiya cannot store a loan-capturing closure inside fixed aggregate storage yet"))
+say "fixed-aggregate-mutable-lend-projection-protects-replacement=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "mutable_lend_projection_protects_replacement")
+say "fixed-aggregate-mutable-lend-projection-releases-replaced=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "mutable_lend_projection_releases_replaced")
 say "fixed-aggregate-returned-call-owner-live=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "returned_call_owner_live")
 say "fixed-aggregate-returned-call-duplicate-mut=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "returned_call_duplicate_mut")
 say "fixed-aggregate-descendant-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("views.0.hp", "views.0"))

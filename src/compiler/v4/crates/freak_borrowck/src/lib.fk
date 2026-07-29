@@ -1604,7 +1604,7 @@ task v4_borrowck_stmt_for_rvalue(mir_id: int, body_id: int, rvalue_id: int) -> i
     give back enclosing_stmt
 }
 
-task v4_borrowck_closure_local_has_reaching_borrow(mir_id: int, body_id: int, local_name: word, use_stmt: int, depth: int) -> bool {
+task v4_borrowck_local_has_reaching_borrow(mir_id: int, body_id: int, local_name: word, use_stmt: int, depth: int) -> bool {
     pilot use_block = 0 - 1
     if use_stmt >= 0 {
         use_block = v4_mir_stmt_block(mir_id, body_id, use_stmt)
@@ -1654,15 +1654,22 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
         give back true
     }
     if kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move {
-        give back v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+        if v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+            give back true
+        }
+        pilot capture_path = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
+        if v4_borrowck_path_is_lent(mir_id, body_id, capture_path) {
+            give back true
+        }
+        give back v4_borrowck_local_has_reaching_borrow(mir_id, body_id, capture_path, use_stmt, depth)
     }
     if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
         pilot local_path = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
         if v4_borrowck_path_is_lent(mir_id, body_id, local_path) {
             give back true
         }
-        if kind == v4_mir_rvalue_use_local and v4_ty_is_closure_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
-            give back v4_borrowck_closure_local_has_reaching_borrow(mir_id, body_id, local_path, use_stmt, depth)
+        if kind == v4_mir_rvalue_use_local {
+            give back v4_borrowck_local_has_reaching_borrow(mir_id, body_id, local_path, use_stmt, depth)
         }
         give back false
     }
@@ -2888,6 +2895,46 @@ task v4_borrowck_check_dynamic_lend_storage(borrow_id: int, result_id: int, mir_
     give back conflicts
 }
 
+task v4_borrowck_rvalue_is_fixed_aggregate_storage_kind(kind: word) -> bool {
+    give back kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_tuple
+}
+
+task v4_borrowck_check_fixed_hidden_closure_storage(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
+    pilot body_name = v4_mir_body_name(mir_id, body_id)
+    pilot conflicts = 0
+    pilot rvalue_id = 0
+    pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
+    repeat until rvalue_id >= rvalue_count {
+        pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+        if v4_borrowck_rvalue_is_fixed_aggregate_storage_kind(kind) {
+            pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+            if not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), result_ty) {
+                pilot hidden_closure_lend = false
+                pilot child_id = 0
+                pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+                repeat until child_id >= child_count or hidden_closure_lend {
+                    pilot child_rvalue = v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)
+                    if v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, child_rvalue) {
+                        if not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, child_rvalue)) {
+                            hidden_closure_lend = true
+                        }
+                    }
+                    child_id += 1
+                }
+                if hidden_closure_lend {
+                    pilot span = v4_mir_rvalue_span(mir_id, body_id, rvalue_id)
+                    pilot help = body_name + " stores a closure whose hidden environment still borrows a local value; keep the closure in a scalar local until fixed aggregate closure provenance is implemented"
+                    v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, "Meiya cannot store a loan-capturing closure inside fixed aggregate storage yet", help))
+                    v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                    conflicts += 1
+                }
+            }
+        }
+        rvalue_id += 1
+    }
+    give back conflicts
+}
+
 -- MIR owns the diagnostic; Meiya owns whether the containing body is executable.
 task v4_borrowck_check_repeated_mut_lend_aggregates(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
@@ -3781,7 +3828,85 @@ task v4_borrowck_stmt_rebinds_holder(mir_id: int, body_id: int, stmt_id: int, ho
     give back v4_borrowck_path_write_definitely_covers(v4_mir_place_text(mir_id, body_id, place_id), holder)
 }
 
-task v4_borrowck_holder_reaches_stmt_without_rebind(mir_id: int, body_id: int, holder: word, provenance_stmt: int, start_stmt: int, start_block: int, wanted_stmt: int, wanted_block: int) -> bool {
+task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, path: word, use_stmt: int, alias_depth: int) -> word {
+    if alias_depth > 16 or use_stmt < 0 {
+        give back ""
+    }
+    pilot path_canon = v4_borrowck_path_canon(path)
+    pilot alias_root = v4_borrowck_path_root(path_canon)
+    if alias_root == "" {
+        give back ""
+    }
+    pilot suffix = ""
+    if path_canon.length() > alias_root.length() {
+        suffix = v4_slice(path_canon, alias_root.length(), path_canon.length())
+    }
+    pilot use_block = v4_mir_stmt_block(mir_id, body_id, use_stmt)
+    pilot resolved = ""
+    pilot found = false
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if stmt_id != use_stmt {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            if place_id >= 0 and v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id)) == alias_root {
+                pilot origin_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+                if v4_borrowck_holder_reaches_stmt_without_rebind_depth(mir_id, body_id, alias_root, stmt_id, stmt_id, origin_block, use_stmt, use_block, alias_depth + 1) {
+                    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+                    if rvalue_id < 0 {
+                        give back ""
+                    }
+                    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+                    if kind != v4_mir_rvalue_lend and kind != v4_mir_rvalue_lend_mut {
+                        give back ""
+                    }
+                    pilot source_rvalue = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+                    if source_rvalue < 0 {
+                        give back ""
+                    }
+                    pilot source_kind = v4_mir_rvalue_kind(mir_id, body_id, source_rvalue)
+                    if source_kind != v4_mir_rvalue_use_local and source_kind != v4_mir_rvalue_use_place {
+                        give back ""
+                    }
+                    pilot candidate = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, source_rvalue)) + suffix
+                    if not found {
+                        resolved = candidate
+                        found = true
+                    } else if resolved != candidate {
+                        give back ""
+                    }
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    if found {
+        pilot transitive = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, resolved, use_stmt, alias_depth + 1)
+        if transitive != "" and transitive != resolved {
+            give back transitive
+        }
+        give back resolved
+    }
+    give back ""
+}
+
+task v4_borrowck_stmt_rebinds_holder_at(mir_id: int, body_id: int, stmt_id: int, holder: word, alias_depth: int) -> bool {
+    if v4_borrowck_stmt_rebinds_holder(mir_id, body_id, stmt_id, holder) {
+        give back true
+    }
+    pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+    if place_id < 0 {
+        give back false
+    }
+    pilot place_text = v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id))
+    if v4_borrowck_path_root(place_text) == v4_borrowck_path_root(holder) {
+        give back false
+    }
+    pilot resolved = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, place_text, stmt_id, alias_depth)
+    give back resolved != "" and v4_borrowck_path_write_definitely_covers(resolved, holder)
+}
+
+task v4_borrowck_holder_reaches_stmt_without_rebind_depth(mir_id: int, body_id: int, holder: word, provenance_stmt: int, start_stmt: int, start_block: int, wanted_stmt: int, wanted_block: int, alias_depth: int) -> bool {
     if holder == "" or holder == "@temporary" or start_block < 0 or wanted_block < 0 {
         give back false
     }
@@ -3809,7 +3934,7 @@ task v4_borrowck_holder_reaches_stmt_without_rebind(mir_id: int, body_id: int, h
                 pilot trailing_stmt = 0
                 pilot trailing_count = v4_mir_body_stmt_count(mir_id, body_id)
                 repeat until trailing_stmt >= trailing_count or blocked_after_start {
-                    if v4_mir_stmt_block(mir_id, body_id, trailing_stmt) == block_id and trailing_stmt > block_start_stmt and trailing_stmt != provenance_stmt and v4_borrowck_stmt_rebinds_holder(mir_id, body_id, trailing_stmt, holder) {
+                    if v4_mir_stmt_block(mir_id, body_id, trailing_stmt) == block_id and trailing_stmt > block_start_stmt and trailing_stmt != provenance_stmt and v4_borrowck_stmt_rebinds_holder_at(mir_id, body_id, trailing_stmt, holder, alias_depth) {
                         blocked_after_start = true
                     }
                     trailing_stmt += 1
@@ -3818,11 +3943,11 @@ task v4_borrowck_holder_reaches_stmt_without_rebind(mir_id: int, body_id: int, h
                     pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
                     pilot terminator = v4_mir_block_terminator(block_record)
                     if terminator == v4_mir_term_goto {
-                        reaches = v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, holder, provenance_stmt, 0 - 1, v4_mir_block_target(block_record), wanted_stmt, wanted_block)
+                        reaches = v4_borrowck_holder_reaches_stmt_without_rebind_depth(mir_id, body_id, holder, provenance_stmt, 0 - 1, v4_mir_block_target(block_record), wanted_stmt, wanted_block, alias_depth)
                     } else if terminator == v4_mir_term_if {
-                        reaches = v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, holder, provenance_stmt, 0 - 1, v4_mir_block_target(block_record), wanted_stmt, wanted_block)
+                        reaches = v4_borrowck_holder_reaches_stmt_without_rebind_depth(mir_id, body_id, holder, provenance_stmt, 0 - 1, v4_mir_block_target(block_record), wanted_stmt, wanted_block, alias_depth)
                         if not reaches {
-                            reaches = v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, holder, provenance_stmt, 0 - 1, v4_mir_block_else_target(block_record), wanted_stmt, wanted_block)
+                            reaches = v4_borrowck_holder_reaches_stmt_without_rebind_depth(mir_id, body_id, holder, provenance_stmt, 0 - 1, v4_mir_block_else_target(block_record), wanted_stmt, wanted_block, alias_depth)
                         }
                     }
                 }
@@ -3835,7 +3960,7 @@ task v4_borrowck_holder_reaches_stmt_without_rebind(mir_id: int, body_id: int, h
                     if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id and stmt_id > block_start_stmt {
                         if block_id == wanted_block and stmt_id == wanted_stmt {
                             reaches = true
-                        } else if stmt_id != provenance_stmt and v4_borrowck_stmt_rebinds_holder(mir_id, body_id, stmt_id, holder) {
+                        } else if stmt_id != provenance_stmt and v4_borrowck_stmt_rebinds_holder_at(mir_id, body_id, stmt_id, holder, alias_depth) {
                             blocked = true
                         }
                     }
@@ -3864,6 +3989,10 @@ task v4_borrowck_holder_reaches_stmt_without_rebind(mir_id: int, body_id: int, h
     give back reaches
 }
 
+task v4_borrowck_holder_reaches_stmt_without_rebind(mir_id: int, body_id: int, holder: word, provenance_stmt: int, start_stmt: int, start_block: int, wanted_stmt: int, wanted_block: int) -> bool {
+    give back v4_borrowck_holder_reaches_stmt_without_rebind_depth(mir_id, body_id, holder, provenance_stmt, start_stmt, start_block, wanted_stmt, wanted_block, 0)
+}
+
 task v4_borrowck_holder_worklist_contains(holders: int, stmts: int, holder: word, holder_stmt: int) -> bool {
     pilot item_id = 0
     repeat until item_id >= array_len(holders) {
@@ -3887,6 +4016,11 @@ task v4_borrowck_hidden_holder_reaches_access(mir_id: int, body_id: int, holder:
         pilot current_holder: word = array_get(holders, cursor)
         pilot current_stmt = word_to_int(array_get(holder_stmts, cursor))
         cursor += 1
+        pilot reverse_alias = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, current_holder, current_stmt, 0)
+        if reverse_alias != "" and reverse_alias != current_holder and not v4_borrowck_holder_worklist_contains(holders, holder_stmts, reverse_alias, current_stmt) {
+            array_push(holders, reverse_alias)
+            array_push(holder_stmts, word_from_int(current_stmt))
+        }
         pilot holder_block = v4_mir_stmt_block(mir_id, body_id, current_stmt)
         if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, current_holder, current_stmt, current_stmt, holder_block, write_stmt, write_block) {
             reaches = true
@@ -3922,6 +4056,11 @@ task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder
         pilot current_holder: word = array_get(holders, cursor)
         pilot current_stmt = word_to_int(array_get(holder_stmts, cursor))
         cursor += 1
+        pilot reverse_alias = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, current_holder, current_stmt, 0)
+        if reverse_alias != "" and reverse_alias != current_holder and not v4_borrowck_holder_worklist_contains(holders, holder_stmts, reverse_alias, current_stmt) {
+            array_push(holders, reverse_alias)
+            array_push(holder_stmts, word_from_int(current_stmt))
+        }
         pilot holder_block = v4_mir_stmt_block(mir_id, body_id, current_stmt)
         pilot holder_live_at_write = v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, current_holder, current_stmt, current_stmt, holder_block, write_stmt, write_block)
         pilot stmt_id = 0
@@ -4799,6 +4938,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         v4_borrowck_check_shared_guard_escapes(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_stored_call_lends(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_dynamic_lend_storage(borrow_id, result_id, mir_id, body_idx)
+        v4_borrowck_check_fixed_hidden_closure_storage(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_repeated_mut_lend_aggregates(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_mutable_exclusivity(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_exclusive_loans(borrow_id, result_id, mir_id, body_idx)
