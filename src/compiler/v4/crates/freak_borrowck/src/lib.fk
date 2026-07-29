@@ -1540,9 +1540,39 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
     give back conflicts
 }
 
-task v4_borrowck_rvalue_is_borrow_capable(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+task v4_borrowck_local_rvalue_before(mir_id: int, body_id: int, local_name: word, before_offset: int) -> int {
+    pilot found_rvalue = 0 - 1
+    pilot found_offset = 0 - 1
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+        if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            if place_id >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
+                if v4_mir_place_text(mir_id, body_id, place_id) == local_name {
+                    pilot stmt_offset = v4_span_start(v4_mir_stmt_span(mir_id, body_id, stmt_id))
+                    if stmt_offset <= before_offset and stmt_offset >= found_offset {
+                        pilot assigned_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+                        if assigned_rvalue >= 0 {
+                            found_rvalue = assigned_rvalue
+                            found_offset = stmt_offset
+                        }
+                    }
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    give back found_rvalue
+}
+
+task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalue_id: int, depth: int) -> bool {
     if rvalue_id < 0 {
         give back false
+    }
+    if depth > 32 {
+        give back true
     }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
@@ -1551,20 +1581,40 @@ task v4_borrowck_rvalue_is_borrow_capable(mir_id: int, body_id: int, rvalue_id: 
     if v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
         give back true
     }
+    if kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut {
+        give back true
+    }
+    if kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move {
+        give back v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+    }
     if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
-        give back v4_borrowck_path_is_lent(mir_id, body_id, v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
+        pilot local_path = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
+        if v4_borrowck_path_is_lent(mir_id, body_id, local_path) {
+            give back true
+        }
+        if kind == v4_mir_rvalue_use_local and v4_ty_is_closure_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+            pilot local_rvalue = v4_borrowck_local_rvalue_before(mir_id, body_id, local_path, v4_span_start(v4_mir_rvalue_span(mir_id, body_id, rvalue_id)))
+            if local_rvalue >= 0 and local_rvalue != rvalue_id {
+                give back v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, local_rvalue, depth + 1)
+            }
+        }
+        give back false
     }
     if v4_mir_rvalue_is_aggregate_kind(kind) {
         pilot child_id = 0
         pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
         repeat until child_id >= child_count {
-            if v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)) {
+            if v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), depth + 1) {
                 give back true
             }
             child_id += 1
         }
     }
     give back false
+}
+
+task v4_borrowck_rvalue_is_borrow_capable(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    give back v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, rvalue_id, 0)
 }
 
 task v4_borrowck_provenance_union_borrow_capable_call_args(mir_id: int, body_id: int, use_stmt: int, call_rvalue: int, provenance_id: int) -> void {
@@ -2415,6 +2465,7 @@ task v4_borrowck_rvalue_is_dynamic_lend_storage_kind(kind: word) -> bool {
 
 -- MIR emits the construction diagnostic while Meiya blocks the owning body.
 task v4_borrowck_check_dynamic_lend_storage(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
+    pilot body_name = v4_mir_body_name(mir_id, body_id)
     pilot conflicts = 0
     pilot rvalue_id = 0
     pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
@@ -2422,19 +2473,33 @@ task v4_borrowck_check_dynamic_lend_storage(borrow_id: int, result_id: int, mir_
         pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
         if v4_borrowck_rvalue_is_dynamic_lend_storage_kind(kind) {
             pilot stores_lend = v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+            pilot hidden_closure_lend = false
             if not stores_lend {
                 if kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err {
-                    stores_lend = v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+                    pilot child_rvalue = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+                    stores_lend = v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, child_rvalue)
+                    if stores_lend and not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, child_rvalue)) {
+                        hidden_closure_lend = true
+                    }
                 } else if v4_mir_rvalue_is_aggregate_kind(kind) {
                     pilot child_id = 0
                     pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
                     repeat until child_id >= child_count or stores_lend {
-                        stores_lend = v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id))
+                        pilot child_rvalue = v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)
+                        stores_lend = v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, child_rvalue)
+                        if stores_lend and not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, child_rvalue)) {
+                            hidden_closure_lend = true
+                        }
                         child_id += 1
                     }
                 }
             }
             if stores_lend {
+                if hidden_closure_lend {
+                    pilot span = v4_mir_rvalue_span(mir_id, body_id, rvalue_id)
+                    pilot help = body_name + " stores a closure whose environment still borrows a local value; keep the closure in a scalar local until dynamic closure provenance is implemented"
+                    v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, "Meiya cannot store a loan-capturing closure inside dynamic storage yet", help))
+                }
                 v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
                 conflicts += 1
             }

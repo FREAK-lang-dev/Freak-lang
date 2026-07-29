@@ -6258,6 +6258,22 @@ task v4_mir_type_has_dyn_keyword_at(type_text: word, idx: int) -> bool {
     give back v4_mir_type_char_is_space(type_text.char_at(idx + 3))
 }
 
+task v4_mir_type_has_lend_keyword_at(type_text: word, idx: int) -> bool {
+    if idx < 0 or idx + 4 > type_text.length() {
+        give back false
+    }
+    if v4_slice(type_text, idx, idx + 4) != "lend" {
+        give back false
+    }
+    if idx > 0 and not v4_mir_type_char_can_precede_dyn_keyword(type_text.char_at(idx - 1)) {
+        give back false
+    }
+    if idx + 4 >= type_text.length() {
+        give back false
+    }
+    give back v4_mir_type_char_is_space(type_text.char_at(idx + 4))
+}
+
 task v4_mir_compact_type_text(type_text: word) -> word {
     pilot out = ""
     pilot idx = 0
@@ -6268,6 +6284,31 @@ task v4_mir_compact_type_text(type_text: word) -> word {
             idx += 3
             repeat until idx >= type_text.length() or not v4_mir_type_char_is_space(type_text.char_at(idx)) {
                 idx += 1
+            }
+        } else if v4_mir_type_has_lend_keyword_at(type_text, idx) {
+            out = out + "lend "
+            idx += 4
+            repeat until idx >= type_text.length() or not v4_mir_type_char_is_space(type_text.char_at(idx)) {
+                idx += 1
+            }
+            if idx + 3 < type_text.length() and v4_slice(type_text, idx, idx + 3) == "mut" and v4_mir_type_char_is_space(type_text.char_at(idx + 3)) {
+                out = out + "mut "
+                idx += 3
+                repeat until idx >= type_text.length() or not v4_mir_type_char_is_space(type_text.char_at(idx)) {
+                    idx += 1
+                }
+            }
+            if idx < type_text.length() and type_text.char_at(idx) == "'" {
+                repeat until idx >= type_text.length() or v4_mir_type_char_is_space(type_text.char_at(idx)) {
+                    out = out + type_text.char_at(idx)
+                    idx += 1
+                }
+                if idx < type_text.length() and v4_mir_type_char_is_space(type_text.char_at(idx)) {
+                    out = out + " "
+                    repeat until idx >= type_text.length() or not v4_mir_type_char_is_space(type_text.char_at(idx)) {
+                        idx += 1
+                    }
+                }
             }
         } else if not v4_mir_type_char_is_space(ch) {
             out = out + ch
