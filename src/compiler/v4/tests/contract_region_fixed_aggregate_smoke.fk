@@ -122,6 +122,32 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    first.hp = 21\n"
     src = src + "    give back views[1].hp\n"
     src = src + "}\n"
+    src = src + "task repeat_nested_sibling_dead(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot slots: [(lend Ship,lend Ship);2] = [(lend first,lend second); 2]\n"
+    src = src + "    first.hp = 22\n"
+    src = src + "    give back slots[0].1.hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_structural_copy(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot pair = (lend first, lend second)\n"
+    src = src + "    pilot slots: [(lend Ship,lend Ship);2] = [pair; 2]\n"
+    src = src + "    give back pair.0.hp + slots[0].1.hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_rebind_257(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;257] = [lend first; 257]\n"
+    src = src + "    views = [lend second; 257]\n"
+    src = src + "    first.hp = 24\n"
+    src = src + "    give back views[0].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_dead_256(first: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;256] = [lend first; 256]\n"
+    src = src + "    first.hp = 25\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_dead_257(first: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;257] = [lend first; 257]\n"
+    src = src + "    first.hp = 25\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     src = src + "task empty_array_generic_call(first: Ship) -> int {\n"
     src = src + "    pilot empty: [lend Ship;0] = [lend first; 0]\n"
     src = src + "    identity(empty)\n"
@@ -268,6 +294,13 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    first.hp = 22\n"
     src = src + "    give back reader()\n"
     src = src + "}\n"
+    src = src + "task closure_forwarded_capture_keeps_loan(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot forwarded = identity(reader)\n"
+    src = src + "    first.hp = 23\n"
+    src = src + "    give back forwarded()\n"
+    src = src + "}\n"
     src = src + "task returned_call_owner_live(first: Ship) -> int {\n"
     src = src + "    pilot holder = (relay_mut(lend mut first), 0)\n"
     src = src + "    first.hp = 23\n"
@@ -380,6 +413,11 @@ say "fixed-aggregate-repeat-copy-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed
 say "fixed-aggregate-repeat-copy-diagnostic-count=" + word_from_int(v4_fixed_aggregate_mir_diag_count(v4_fixed_aggregate_mir, "fixed-array repeat value must be Copy or Cloneable"))
 say "fixed-aggregate-repeat-shared-rebind-all=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_all")
 say "fixed-aggregate-repeat-shared-rebind-one=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_one")
+say "fixed-aggregate-repeat-nested-sibling-dead=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_nested_sibling_dead")
+say "fixed-aggregate-repeat-structural-copy=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_structural_copy")
+say "fixed-aggregate-repeat-shared-dead-256=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_dead_256")
+say "fixed-aggregate-repeat-shared-rebind-257=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_257")
+say "fixed-aggregate-repeat-shared-dead-257=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_dead_257")
 say "fixed-aggregate-empty-array-generic-call=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "empty_array_generic_call")
 say "fixed-aggregate-empty-array-stores-lend=" + v4_fixed_aggregate_bool(v4_ty_type_stores_lend(v4_fixed_aggregate_ty, "[lend Ship;0]"))
 say "fixed-aggregate-empty-array-generic-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_mir_diag_contains(v4_fixed_aggregate_mir, "Meiya cannot substitute a lend-bearing type for a generic call yet"))
@@ -404,6 +442,7 @@ say "fixed-aggregate-repeat-mut-zero=" + v4_fixed_aggregate_status(v4_fixed_aggr
 say "fixed-aggregate-mutate-through-stored=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "mutate_through_stored")
 say "fixed-aggregate-immutable-outer-lend=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "immutable_outer_lend")
 say "fixed-aggregate-closure-capture-keeps-loan=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "closure_capture_keeps_loan")
+say "fixed-aggregate-closure-forwarded-capture-keeps-loan=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "closure_forwarded_capture_keeps_loan")
 say "fixed-aggregate-returned-call-owner-live=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "returned_call_owner_live")
 say "fixed-aggregate-returned-call-duplicate-mut=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "returned_call_duplicate_mut")
 say "fixed-aggregate-descendant-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("views.0.hp", "views.0"))
