@@ -16,6 +16,20 @@ task v4_fixed_aggregate_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
+    src = src + "doctrine Cloneable {\n"
+    src = src + "}\n"
+    src = src + "shape Owned {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape CloneOwned {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "impl Cloneable for CloneOwned {\n"
+    src = src + "}\n"
+    src = src + "shape SharedOwned<'a> {\n"
+    src = src + "    view: lend 'a Ship\n"
+    src = src + "    owned: Owned\n"
+    src = src + "}\n"
     src = src + "shape Pair<A,B> {\n"
     src = src + "    left: A\n"
     src = src + "    right: B\n"
@@ -91,6 +105,21 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    pilot views: [lend Ship;2] = [lend first; 2]\n"
     src = src + "    pilot final_use = views[1].hp\n"
     src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task repeat_immutable_outer(first: Ship) -> int {\n"
+    src = src + "    pilot holder = Pair<lend mut Ship,int> " + v4_fixed_aggregate_braces(" left: lend mut first, right: 0 ") + "\n"
+    src = src + "    pilot shared = lend holder\n"
+    src = src + "    pilot copies = [shared; 2]\n"
+    src = src + "    give back copies[0].right\n"
+    src = src + "}\n"
+    src = src + "task repeat_owned_sibling(first: Ship, owned: Owned) -> int {\n"
+    src = src + "    pilot holder = SharedOwned<'_> " + v4_fixed_aggregate_braces(" view: lend first, owned: owned ") + "\n"
+    src = src + "    pilot copies = [holder; 2]\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task repeat_cloneable(value: CloneOwned) -> int {\n"
+    src = src + "    pilot copies = [value; 2]\n"
+    src = src + "    give back copies[0].hp\n"
     src = src + "}\n"
     src = src + "task repeat_mut(first: Ship) -> int {\n"
     src = src + "    pilot views: [lend mut Ship;2] = [lend mut first; 2]\n"
@@ -281,6 +310,15 @@ task v4_fixed_aggregate_status(borrow_id: int, body_name: word) -> word {
     give back v4_borrowck_result_status(borrow_id, result_id)
 }
 
+task v4_fixed_aggregate_mir_diag_contains(mir_id: int, needle: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)) == needle { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
 pilot v4_fixed_aggregate_borrow = v4_borrowck_text_cached("contract-region-fixed-aggregate.fk", v4_fixed_aggregate_source())
 pilot v4_fixed_aggregate_mir = v4_borrowck_mir_id(v4_fixed_aggregate_borrow)
 pilot v4_fixed_aggregate_ty = v4_mir_ty_id(v4_fixed_aggregate_mir)
@@ -303,6 +341,10 @@ say "fixed-aggregate-route-local=" + v4_fixed_aggregate_status(v4_fixed_aggregat
 say "fixed-aggregate-direct-local=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "direct_local")
 say "fixed-aggregate-nested-local=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "nested_local")
 say "fixed-aggregate-repeat-shared=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared")
+say "fixed-aggregate-repeat-immutable-outer=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_immutable_outer")
+say "fixed-aggregate-repeat-owned-sibling=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_owned_sibling")
+say "fixed-aggregate-repeat-cloneable=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_cloneable")
+say "fixed-aggregate-repeat-copy-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_mir_diag_contains(v4_fixed_aggregate_mir, "fixed-array repeat value must be Copy or Cloneable"))
 say "fixed-aggregate-repeat-mut=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut")
 say "fixed-aggregate-repeat-mut-one=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_one")
 say "fixed-aggregate-repeat-mut-aggregate=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_aggregate")

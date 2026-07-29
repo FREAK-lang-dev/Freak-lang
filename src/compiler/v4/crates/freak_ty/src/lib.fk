@@ -1229,6 +1229,44 @@ task v4_ty_is_copy_type(ty_name: word) -> bool {
     give back false
 }
 
+task v4_ty_type_is_structurally_copy(ty_id: int, type_text: word, depth: int) -> bool {
+    if depth > v4_ty_lend_storage_depth_limit or not v4_ty_is_known(type_text) {
+        give back false
+    }
+    if v4_ty_is_copy_type(type_text) {
+        give back true
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            if not v4_ty_type_is_structurally_copy(ty_id, v4_ty_tuple_slot_type(type_text, slot_id), depth + 1) {
+                give back false
+            }
+            slot_id += 1
+        }
+        give back true
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_type_is_structurally_copy(ty_id, v4_ty_fixed_array_element_type(type_text), depth + 1)
+    }
+    give back false
+}
+
+task v4_ty_type_satisfies_repeat_doctrine(ty_id: int, sig_id: int, type_text: word, doctrine_name: word) -> bool {
+    give back v4_ty_match_type_satisfies_doctrine_env(ty_id, sig_id, type_text, doctrine_name, "") != v4_ty_generic_env_fail
+}
+
+task v4_ty_type_is_array_repeatable(ty_id: int, sig_id: int, type_text: word) -> bool {
+    if v4_ty_type_is_structurally_copy(ty_id, type_text, 0) {
+        give back true
+    }
+    if v4_ty_type_satisfies_repeat_doctrine(ty_id, sig_id, type_text, "Copy") {
+        give back true
+    }
+    give back v4_ty_type_satisfies_repeat_doctrine(ty_id, sig_id, type_text, "Cloneable")
+}
+
 task v4_ty_is_primitive_type(ty_name: word) -> bool {
     if ty_name == v4_ty_int or ty_name == v4_ty_uint or ty_name == v4_ty_tiny or ty_name == v4_ty_num {
         give back true
@@ -1914,7 +1952,8 @@ task v4_ty_lend_storage_class_seen(ty_id: int, type_text: word, seen_types: word
         if lifetime_matches and mutability_matches {
             give back v4_ty_lend_storage_fixed
         }
-        give back v4_ty_lend_storage_class_seen(ty_id, v4_ty_lend_target_type(type_text), seen_types, depth + 1, named_only, mutable_only)
+        -- A lend stores only its own capability; fields in the referent are not nested in the lend value.
+        give back v4_ty_lend_storage_none
     }
 
     if v4_ty_is_surface_task_function_type(type_text) {

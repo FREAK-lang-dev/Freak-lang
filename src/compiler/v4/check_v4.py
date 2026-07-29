@@ -251,6 +251,7 @@ CRATE_BOUNDARY_REQUIRED = {
         ("unit snapshot restore", "task v4_unit_snapshot_restore(payload: word) -> word {"),
         ("invalidation report", "task v4_unit_invalidation_report(path: word) -> word {"),
         ("restore confirm coordination", "task v4_driver_confirm_restored_document(path: word) -> word {"),
+        ("MIR restore coordination", "task v4_mir_snapshot_restore(payload: word) -> word {"),
     ],
     "freak_lsp": [
         (
@@ -344,6 +345,7 @@ CRATE_BOUNDARY_FORBIDDEN = {
         ("unit snapshot diff", "task v4_unit_snapshot_diff("),
         ("unit snapshot health", "task v4_unit_snapshot_health("),
         ("invalidation report", "task v4_unit_invalidation_report("),
+        ("borrowck restore coordination", "v4_borrowck_provenance_scratch_reset("),
     ],
 }
 
@@ -3358,8 +3360,8 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "fixed-aggregate-parse-diagnostics=0",
             "fixed-aggregate-ty-diagnostics=0",
-            "fixed-aggregate-mir-diagnostics=2",
-            "fixed-aggregate-borrow-diagnostics=20",
+            "fixed-aggregate-mir-diagnostics=3",
+            "fixed-aggregate-borrow-diagnostics=21",
             "fixed-aggregate-tuple-sibling-dead=clean",
             "fixed-aggregate-tuple-left-live=blocked",
             "fixed-aggregate-array-sibling-dead=clean",
@@ -3371,6 +3373,10 @@ EXECUTABLE_SMOKES = [
             "fixed-aggregate-direct-local=clean",
             "fixed-aggregate-nested-local=clean",
             "fixed-aggregate-repeat-shared=clean",
+            "fixed-aggregate-repeat-immutable-outer=clean",
+            "fixed-aggregate-repeat-owned-sibling=clean",
+            "fixed-aggregate-repeat-cloneable=clean",
+            "fixed-aggregate-repeat-copy-diagnostic=true",
             "fixed-aggregate-repeat-mut=blocked",
             "fixed-aggregate-repeat-mut-one=clean",
             "fixed-aggregate-repeat-mut-aggregate=blocked",
@@ -7885,6 +7891,7 @@ EXECUTABLE_SMOKES = [
             "error|workspace/mirSnapshotRestore|-32602|",
         ],
         "expect_exact": [
+            "mir-snapshot-direct-restore-generation-advanced=true",
             "mir-snapshot-lsp-restore-generation-advanced=true",
             "mir-snapshot-graph-self-cycle-validate-rejected=true",
             "mir-snapshot-graph-self-cycle-restore-rejected=true",
