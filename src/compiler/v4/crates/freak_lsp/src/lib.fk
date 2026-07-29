@@ -414,11 +414,7 @@ task v4_lsp_mir_snapshot_text() -> word {
 }
 
 task v4_lsp_mir_snapshot_restore_text(payload: word) -> word {
-    pilot restore_result = v4_mir_snapshot_restore(payload)
-    if restore_result.starts_with("mir-snapshot-restore ok=1") {
-        v4_borrowck_provenance_scratch_reset()
-    }
-    give back v4_lsp_response_ok("workspace/mirSnapshotRestore", restore_result)
+    give back v4_lsp_response_ok("workspace/mirSnapshotRestore", v4_mir_snapshot_restore(payload))
 }
 
 task v4_lsp_borrowck_snapshot_text() -> word {
