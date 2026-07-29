@@ -1643,6 +1643,27 @@ task v4_borrowck_local_has_reaching_borrow(mir_id: int, body_id: int, local_name
     give back false
 }
 
+task v4_borrowck_rvalue_retains_aggregate_children(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if rvalue_id < 0 {
+        give back false
+    }
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_array {
+        pilot length_text = v4_ty_fixed_array_length_normalized_text(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+        if length_text == "0" {
+            give back false
+        }
+    }
+    give back true
+}
+
+task v4_borrowck_ty_is_fixed_aggregate(mir_id: int, type_text: word) -> bool {
+    if v4_ty_is_tuple_type(type_text) or v4_ty_is_fixed_array_type(type_text) {
+        give back true
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    give back v4_ty_shape_signature_id_for_name(ty_id, type_text) >= 0 or v4_ty_route_signature_id_for_name(ty_id, type_text) >= 0
+}
+
 task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalue_id: int, use_stmt: int, depth: int) -> bool {
     if rvalue_id < 0 {
         give back false
@@ -1696,7 +1717,7 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
         }
         give back false
     }
-    if v4_mir_rvalue_is_aggregate_kind(kind) {
+    if v4_mir_rvalue_is_aggregate_kind(kind) and v4_borrowck_rvalue_retains_aggregate_children(mir_id, body_id, rvalue_id) {
         pilot child_id = 0
         pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
         repeat until child_id >= child_count {
@@ -2929,12 +2950,21 @@ task v4_borrowck_check_fixed_hidden_closure_storage(borrow_id: int, result_id: i
     pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
     repeat until rvalue_id >= rvalue_count {
         pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-        if v4_borrowck_rvalue_is_fixed_aggregate_storage_kind(kind) {
+        pilot aggregate_value: bool = v4_borrowck_rvalue_is_fixed_aggregate_storage_kind(kind)
+        pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+        pilot aggregate_call: bool = kind == v4_mir_rvalue_call and result_ty.contains("closure[") and v4_borrowck_ty_is_fixed_aggregate(mir_id, result_ty)
+        if (aggregate_value and v4_borrowck_rvalue_retains_aggregate_children(mir_id, body_id, rvalue_id)) or aggregate_call {
             pilot hidden_closure_lend = false
             pilot child_id = 0
             pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+            if aggregate_call {
+                child_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+            }
             repeat until child_id >= child_count or hidden_closure_lend {
                 pilot child_rvalue = v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)
+                if aggregate_call {
+                    child_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, child_id)
+                }
                 if v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, child_rvalue) {
                     if not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, child_rvalue)) {
                         hidden_closure_lend = true
@@ -3880,27 +3910,32 @@ task v4_borrowck_holder_alias_from_stmt(mir_id: int, body_id: int, stmt_id: int,
 }
 
 task v4_borrowck_collect_holder_aliases_from_stmt(mir_id: int, body_id: int, stmt_id: int, holder: word, aliases: int) -> void {
-    pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
-    if stmt_kind != v4_mir_stmt_local and stmt_kind != v4_mir_stmt_assign { give back }
+    pilot alias = v4_borrowck_holder_alias_from_stmt(mir_id, body_id, stmt_id, holder)
+    if alias == "" { give back }
     pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
-    if not v4_borrowck_place_is_local_storage_projection(mir_id, body_id, place_id) { give back }
-    pilot alias = v4_mir_place_text(mir_id, body_id, place_id)
-    if v4_borrowck_path_canon(alias) == v4_borrowck_path_canon(holder) { give back }
+    pilot alias_base = v4_mir_place_text(mir_id, body_id, place_id)
+    if alias != alias_base {
+        v4_borrowck_projection_array_push_unique(aliases, alias)
+        give back
+    }
     pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-    if rvalue_id < 0 { give back }
-    pilot alias_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
-    pilot carries_holder = v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), alias_ty)
-    if v4_ty_is_closure_type(alias_ty) { carries_holder = true }
-    if not carries_holder { give back }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if not v4_mir_rvalue_is_aggregate_kind(kind) and kind != v4_mir_rvalue_call {
+        v4_borrowck_projection_array_push_unique(aliases, alias)
+        give back
+    }
 
     pilot projections = array_new()
     v4_borrowck_collect_rvalue_holder_projections(mir_id, body_id, rvalue_id, holder, "", projections)
+    if array_len(projections) == 0 {
+        v4_borrowck_projection_array_push_unique(aliases, alias)
+    }
     pilot projection_id = 0
     repeat until projection_id >= array_len(projections) {
         pilot projection: word = array_get(projections, projection_id)
-        pilot projected_alias = alias
+        pilot projected_alias = alias_base
         if projection != v4_borrowck_holder_projection_whole {
-            projected_alias = alias + projection
+            projected_alias = alias_base + projection
         }
         v4_borrowck_projection_array_push_unique(aliases, projected_alias)
         projection_id += 1
@@ -4165,21 +4200,24 @@ task v4_borrowck_hidden_holder_reaches_access(mir_id: int, body_id: int, holder:
         }
         pilot stmt_id = 0
         repeat until stmt_id >= stmt_count or reaches {
-            pilot aliases = array_new()
-            v4_borrowck_collect_holder_aliases_from_stmt(mir_id, body_id, stmt_id, current_holder, aliases)
-            pilot alias_id = 0
-            repeat until alias_id >= array_len(aliases) or reaches {
-                pilot alias: word = array_get(aliases, alias_id)
-                if alias != "" {
-                    pilot alias_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
-                    if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, current_holder, current_stmt, current_stmt, holder_block, stmt_id, alias_block) and not v4_borrowck_holder_worklist_contains(holders, holder_stmts, alias, stmt_id) {
-                        array_push(holders, alias)
-                        array_push(holder_stmts, word_from_int(stmt_id))
+            pilot alias_hint = v4_borrowck_holder_alias_from_stmt(mir_id, body_id, stmt_id, current_holder)
+            if alias_hint != "" {
+                pilot aliases = array_new()
+                v4_borrowck_collect_holder_aliases_from_stmt(mir_id, body_id, stmt_id, current_holder, aliases)
+                pilot alias_id = 0
+                repeat until alias_id >= array_len(aliases) or reaches {
+                    pilot alias: word = array_get(aliases, alias_id)
+                    if alias != "" {
+                        pilot alias_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+                        if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, current_holder, current_stmt, current_stmt, holder_block, stmt_id, alias_block) and not v4_borrowck_holder_worklist_contains(holders, holder_stmts, alias, stmt_id) {
+                            array_push(holders, alias)
+                            array_push(holder_stmts, word_from_int(stmt_id))
+                        }
                     }
+                    alias_id += 1
                 }
-                alias_id += 1
+                array_release(aliases)
             }
-            array_release(aliases)
             stmt_id += 1
         }
     }
@@ -4235,25 +4273,28 @@ task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder
                     used = true
                 }
             }
-            pilot aliases = array_new()
-            v4_borrowck_collect_holder_aliases_from_stmt(mir_id, body_id, stmt_id, current_holder, aliases)
-            pilot alias_id = 0
-            repeat until alias_id >= array_len(aliases) or used {
-                pilot alias: word = array_get(aliases, alias_id)
-                if alias != "" {
-                    pilot alias_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
-                    if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, current_holder, current_stmt, current_stmt, holder_block, stmt_id, alias_block) {
-                        if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, alias, stmt_id, stmt_id, alias_block, write_stmt, write_block) {
-                            if not v4_borrowck_holder_worklist_contains(holders, holder_stmts, alias, stmt_id) {
-                                array_push(holders, alias)
-                                array_push(holder_stmts, word_from_int(stmt_id))
+            pilot alias_hint = v4_borrowck_holder_alias_from_stmt(mir_id, body_id, stmt_id, current_holder)
+            if alias_hint != "" {
+                pilot aliases = array_new()
+                v4_borrowck_collect_holder_aliases_from_stmt(mir_id, body_id, stmt_id, current_holder, aliases)
+                pilot alias_id = 0
+                repeat until alias_id >= array_len(aliases) or used {
+                    pilot alias: word = array_get(aliases, alias_id)
+                    if alias != "" {
+                        pilot alias_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+                        if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, current_holder, current_stmt, current_stmt, holder_block, stmt_id, alias_block) {
+                            if v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, alias, stmt_id, stmt_id, alias_block, write_stmt, write_block) {
+                                if not v4_borrowck_holder_worklist_contains(holders, holder_stmts, alias, stmt_id) {
+                                    array_push(holders, alias)
+                                    array_push(holder_stmts, word_from_int(stmt_id))
+                                }
                             }
                         }
                     }
+                    alias_id += 1
                 }
-                alias_id += 1
+                array_release(aliases)
             }
-            array_release(aliases)
             stmt_id += 1
         }
     }
