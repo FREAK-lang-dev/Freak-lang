@@ -1639,6 +1639,21 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
         }
         give back false
     }
+    if kind == v4_mir_rvalue_call and v4_ty_is_closure_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        pilot call_stmt = v4_borrowck_stmt_for_rvalue(mir_id, body_id, rvalue_id)
+        if call_stmt < 0 {
+            call_stmt = use_stmt
+        }
+        pilot arg_id = 0
+        pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+        repeat until arg_id >= arg_count {
+            if v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id), call_stmt, depth + 1) {
+                give back true
+            }
+            arg_id += 1
+        }
+        give back false
+    }
     if v4_mir_rvalue_is_aggregate_kind(kind) {
         pilot child_id = 0
         pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
@@ -3681,6 +3696,8 @@ task v4_borrowck_repeat_slots_rebound_in_block(mir_id: int, body_id: int, loan_s
     }
 
     pilot rebound_count = 0
+    pilot cached_replacement_local = ""
+    pilot cached_replacement_provenance = 0 - 1
     pilot stmt_id = loan_stmt + 1
     repeat until stmt_id >= write_stmt {
         if v4_mir_stmt_block(mir_id, body_id, stmt_id) == v4_mir_stmt_block(mir_id, body_id, loan_stmt) {
@@ -3688,14 +3705,31 @@ task v4_borrowck_repeat_slots_rebound_in_block(mir_id: int, body_id: int, loan_s
             if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
                 pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
                 if place_id >= 0 {
-                    pilot rebound_slot = v4_borrowck_repeat_direct_slot_index(base_holder, v4_mir_place_text(mir_id, body_id, place_id))
+                    pilot place_text = v4_mir_place_text(mir_id, body_id, place_id)
+                    if cached_replacement_local != "" and v4_borrowck_path_write_definitely_covers(place_text, cached_replacement_local) {
+                        cached_replacement_local = ""
+                        cached_replacement_provenance = 0 - 1
+                    }
+                    pilot rebound_slot = v4_borrowck_repeat_direct_slot_index(base_holder, place_text)
                     pilot rebound_state = ""
                     if rebound_slot >= 0 and rebound_slot < slot_count { rebound_state = array_get(rebound, rebound_slot) }
                     if rebound_slot >= 0 and rebound_slot < slot_count and rebound_state != "true" {
                         pilot replacement = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-                        pilot replacement_kind = v4_mir_rvalue_kind(mir_id, body_id, replacement)
-                        if replacement_kind == v4_mir_rvalue_lend or replacement_kind == v4_mir_rvalue_lend_mut {
-                            if not v4_borrowck_rvalue_returns_holder(mir_id, body_id, replacement, loan_text) {
+                        if replacement >= 0 and v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, replacement)) {
+                            pilot replacement_provenance = 0 - 1
+                            pilot replacement_kind = v4_mir_rvalue_kind(mir_id, body_id, replacement)
+                            pilot replacement_local = ""
+                            if replacement_kind == v4_mir_rvalue_use_local {
+                                replacement_local = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, replacement))
+                            }
+                            if replacement_local != "" and replacement_local == cached_replacement_local {
+                                replacement_provenance = cached_replacement_provenance
+                            } else {
+                                replacement_provenance = v4_borrowck_return_lend_provenance(mir_id, body_id, stmt_id, replacement)
+                                cached_replacement_local = replacement_local
+                                cached_replacement_provenance = replacement_provenance
+                            }
+                            if v4_borrowck_provenance_is_known(replacement_provenance) and not v4_borrowck_provenance_overlaps_path(replacement_provenance, loan_text) {
                                 array_set(rebound, rebound_slot, "true")
                                 rebound_count += 1
                             }
