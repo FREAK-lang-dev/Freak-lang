@@ -3837,9 +3837,15 @@ task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, 
     if alias_root == "" {
         give back ""
     }
+    if not v4_ty_is_lend_type(v4_mir_local_ty_for_name(mir_id, body_id, alias_root)) {
+        give back ""
+    }
     pilot suffix = ""
     if path_canon.length() > alias_root.length() {
         suffix = v4_slice(path_canon, alias_root.length(), path_canon.length())
+    }
+    if suffix == "" {
+        give back ""
     }
     pilot use_block = v4_mir_stmt_block(mir_id, body_id, use_stmt)
     pilot resolved = ""
