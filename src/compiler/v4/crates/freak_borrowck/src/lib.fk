@@ -3429,6 +3429,56 @@ task v4_borrowck_aggregate_child_projection_segment(mir_id: int, body_id: int, r
     give back v4_borrowck_holder_projection_whole
 }
 
+task v4_borrowck_projection_array_push_unique(projections: int, projection: word) -> void {
+    pilot projection_id = 0
+    pilot has_whole = false
+    repeat until projection_id >= array_len(projections) {
+        pilot existing: word = array_get(projections, projection_id)
+        if existing == projection { give back }
+        if existing == v4_borrowck_holder_projection_whole { has_whole = true }
+        projection_id += 1
+    }
+    if array_len(projections) >= v4_ty_fixed_lend_leaf_limit {
+        if not has_whole {
+            array_push(projections, v4_borrowck_holder_projection_whole)
+        }
+        give back
+    }
+    array_push(projections, projection)
+}
+
+task v4_borrowck_collect_rvalue_holder_projections(mir_id: int, body_id: int, rvalue_id: int, holder: word, prefix: word, projections: int) -> void {
+    if rvalue_id < 0 { give back }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot child_id = 0
+        pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+        repeat until child_id >= child_count {
+            pilot segment = v4_borrowck_aggregate_child_projection_segment(mir_id, body_id, rvalue_id, child_id)
+            if segment != v4_borrowck_holder_projection_none {
+                pilot child_prefix = prefix
+                if segment != v4_borrowck_holder_projection_whole {
+                    child_prefix = prefix + segment
+                }
+                v4_borrowck_collect_rvalue_holder_projections(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), holder, child_prefix, projections)
+            }
+            child_id += 1
+        }
+        give back
+    }
+
+    pilot nested = v4_borrowck_rvalue_unique_holder_projection(mir_id, body_id, rvalue_id, holder)
+    if nested == v4_borrowck_holder_projection_none { give back }
+    pilot candidate = prefix
+    if nested != v4_borrowck_holder_projection_whole {
+        candidate = prefix + nested
+    }
+    if candidate == "" {
+        candidate = v4_borrowck_holder_projection_whole
+    }
+    v4_borrowck_projection_array_push_unique(projections, candidate)
+}
+
 task v4_borrowck_rvalue_unique_holder_projection(mir_id: int, body_id: int, rvalue_id: int, holder: word) -> word {
     if rvalue_id < 0 {
         give back v4_borrowck_holder_projection_none
@@ -3819,6 +3869,32 @@ task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder
 }
 
 task v4_borrowck_explicit_loan_live_at_write(mir_id: int, body_id: int, loan_stmt: int, loan_text: word, write_stmt: int, write_block: int) -> bool {
+    pilot loan_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
+    if loan_rvalue >= 0 and v4_mir_rvalue_is_aggregate_kind(v4_mir_rvalue_kind(mir_id, body_id, loan_rvalue)) {
+        pilot projections = array_new()
+        v4_borrowck_collect_rvalue_holder_projections(mir_id, body_id, loan_rvalue, loan_text, "", projections)
+        pilot projection_count = array_len(projections)
+        pilot loan_place = v4_mir_stmt_place(mir_id, body_id, loan_stmt)
+        if projection_count > 1 and v4_borrowck_place_is_local_storage_projection(mir_id, body_id, loan_place) {
+            pilot base_holder = v4_mir_place_text(mir_id, body_id, loan_place)
+            pilot any_live = false
+            pilot projection_id = 0
+            repeat until projection_id >= projection_count {
+                pilot projection: word = array_get(projections, projection_id)
+                pilot projected_holder = base_holder
+                if projection != v4_borrowck_holder_projection_whole {
+                    projected_holder = base_holder + projection
+                }
+                if v4_borrowck_holder_used_at_or_after_write(mir_id, body_id, projected_holder, loan_stmt, write_stmt, write_block) {
+                    any_live = true
+                }
+                projection_id += 1
+            }
+            array_release(projections)
+            give back any_live
+        }
+        array_release(projections)
+    }
     pilot holder = v4_borrowck_explicit_loan_holder(mir_id, body_id, loan_stmt, loan_text)
     if holder == "" {
         give back true

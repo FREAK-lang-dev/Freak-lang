@@ -8444,17 +8444,15 @@ task v4_ty_signature_param_lend_leaf_route_guard_at(ty_id: int, sig_id: int, par
     give back v4_ty_fixed_lend_leaf_route_guard_at(ty_id, v4_ty_signature_param_type(ty_id, sig_id, param_id), leaf_id)
 }
 
-task v4_ty_signature_lend_leaf_contract_matches(ty_id: int, sig_id: int, source_type: word, return_type: word, source_is_outer_lend: bool) -> bool {
+task v4_ty_signature_lend_leaf_contract_matches(ty_id: int, sig_id: int, source_type: word, return_type: word) -> bool {
     if not v4_ty_is_lend_type(source_type) or not v4_ty_is_lend_type(return_type) {
         give back false
     }
     if v4_ty_is_lend_mut_type(return_type) and not v4_ty_is_lend_mut_type(source_type) {
         give back false
     }
-    if not source_is_outer_lend {
-        if not v4_ty_types_compatible(v4_ty_lend_target_type(return_type), v4_ty_lend_target_type(source_type)) {
-            give back false
-        }
+    if not v4_ty_types_compatible_in_signature(ty_id, sig_id, v4_ty_lend_target_type(return_type), v4_ty_lend_target_type(source_type)) {
+        give back false
     }
 
     pilot return_lifetime = v4_ty_lend_lifetime(return_type)
@@ -8533,11 +8531,9 @@ task v4_ty_signature_return_lend_source_payload(ty_id: int, sig_id: int, return_
         if source_leaf_count < 0 {
             give back v4_ty_return_lend_source_opaque
         }
-        pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
-        pilot source_is_outer_lend: bool = param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut
         repeat until source_leaf_id >= source_leaf_count {
             pilot source_type = v4_ty_signature_param_lend_leaf_type_at(ty_id, sig_id, param_id, source_leaf_id)
-            if v4_ty_signature_lend_leaf_contract_matches(ty_id, sig_id, source_type, return_type, source_is_outer_lend) {
+            if v4_ty_signature_lend_leaf_contract_matches(ty_id, sig_id, source_type, return_type) {
                 pilot projection = v4_ty_signature_param_lend_leaf_projection_at(ty_id, sig_id, param_id, source_leaf_id)
                 pilot guard = v4_ty_signature_param_lend_leaf_route_guard_at(ty_id, sig_id, param_id, source_leaf_id)
                 payload = v4_ty_return_lend_source_payload_append_bounded(payload, word_from_int(param_id) + "|" + projection + "|" + guard, relation_count)
