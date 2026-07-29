@@ -1608,6 +1608,27 @@ task v4_borrowck_local_has_reaching_borrow(mir_id: int, body_id: int, local_name
     give back false
 }
 
+task v4_borrowck_rvalue_retains_aggregate_children(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if rvalue_id < 0 {
+        give back false
+    }
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_array {
+        pilot length_text = v4_ty_fixed_array_length_normalized_text(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+        if length_text == "0" {
+            give back false
+        }
+    }
+    give back true
+}
+
+task v4_borrowck_ty_is_fixed_aggregate(mir_id: int, type_text: word) -> bool {
+    if v4_ty_is_tuple_type(type_text) or v4_ty_is_fixed_array_type(type_text) {
+        give back true
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    give back v4_ty_shape_signature_id_for_name(ty_id, type_text) >= 0 or v4_ty_route_signature_id_for_name(ty_id, type_text) >= 0
+}
+
 task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalue_id: int, use_stmt: int, depth: int) -> bool {
     if rvalue_id < 0 {
         give back false
@@ -1661,7 +1682,7 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
         }
         give back false
     }
-    if v4_mir_rvalue_is_aggregate_kind(kind) {
+    if v4_mir_rvalue_is_aggregate_kind(kind) and v4_borrowck_rvalue_retains_aggregate_children(mir_id, body_id, rvalue_id) {
         pilot child_id = 0
         pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
         repeat until child_id >= child_count {
@@ -2497,7 +2518,7 @@ task v4_borrowck_check_stored_call_lends(borrow_id: int, result_id: int, mir_id:
         if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
             pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
             if rvalue_id >= 0 and v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call {
-                if v4_ty_type_contains_lend(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+                if v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
                     pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
                     pilot has_local_holder = false
                     if place_id >= 0 {
@@ -2582,12 +2603,20 @@ task v4_borrowck_check_fixed_hidden_closure_storage(borrow_id: int, result_id: i
     pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
     repeat until rvalue_id >= rvalue_count {
         pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-        if v4_borrowck_rvalue_is_fixed_aggregate_storage_kind(kind) {
+        pilot aggregate_value: bool = v4_borrowck_rvalue_is_fixed_aggregate_storage_kind(kind)
+        pilot aggregate_call: bool = kind == v4_mir_rvalue_call and v4_borrowck_ty_is_fixed_aggregate(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+        if (aggregate_value and v4_borrowck_rvalue_retains_aggregate_children(mir_id, body_id, rvalue_id)) or aggregate_call {
             pilot hidden_closure_lend = false
             pilot child_id = 0
             pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+            if aggregate_call {
+                child_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+            }
             repeat until child_id >= child_count or hidden_closure_lend {
                 pilot child_rvalue = v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)
+                if aggregate_call {
+                    child_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, child_id)
+                }
                 if v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, child_rvalue) {
                     if not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, child_rvalue)) {
                         hidden_closure_lend = true
