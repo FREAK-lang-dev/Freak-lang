@@ -3668,7 +3668,7 @@ task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder
                 pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
                 if place_id >= 0 {
                     pilot place_text = v4_mir_place_text(mir_id, body_id, place_id)
-                    if place_text != current_holder and v4_borrowck_paths_overlap(current_holder, place_text) {
+                    if v4_borrowck_paths_overlap(current_holder, place_text) and not v4_borrowck_path_write_definitely_covers(place_text, current_holder) {
                         used = true
                     }
                 }
