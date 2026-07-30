@@ -32,6 +32,9 @@ task v4_aggregate_edge_source() -> word {
     src = src + "task duplicate_pass<'a>(lend 'a view: Ship) -> (lend 'a Ship,lend 'a Ship) {\n"
     src = src + "    give back (lend view,lend view)\n"
     src = src + "}\n"
+    src = src + "task duplicate_projected_pass<'a>(views: (lend 'a Ship,int)) -> (lend 'a Ship,lend 'a Ship) {\n"
+    src = src + "    give back (views.0,views.0)\n"
+    src = src + "}\n"
     src = src + "fixed pilot BASE: int = 2\n"
     src = src + "fixed pilot WIDTH: int = 2\n"
     src = src + "task nested_array_pass<'a>(views: ([lend 'a Ship; BASE + WIDTH],int)) -> ([lend 'a Ship;4],int) {\n"
@@ -109,6 +112,27 @@ task v4_aggregate_edge_source() -> word {
     src = src + "    returned.1 = lend second\n"
     src = src + "    first.hp = 4\n"
     src = src + "    give back returned.0.hp + returned.1.hp\n"
+    src = src + "}\n"
+    src = src + "task duplicate_call_rebind_one(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot returned = duplicate_pass(lend first)\n"
+    src = src + "    returned.0 = lend second\n"
+    src = src + "    first.hp = 5\n"
+    src = src + "    give back returned.1.hp\n"
+    src = src + "}\n"
+    src = src + "task duplicate_projected_call_rebind_all(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views = (lend first,0)\n"
+    src = src + "    pilot returned = duplicate_projected_pass(views)\n"
+    src = src + "    returned.0 = lend second\n"
+    src = src + "    returned.1 = lend second\n"
+    src = src + "    first.hp = 6\n"
+    src = src + "    give back returned.0.hp + returned.1.hp\n"
+    src = src + "}\n"
+    src = src + "task nested_duplicate_call_rebind_all(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot wrapped = (duplicate_pass(lend first),0)\n"
+    src = src + "    wrapped.0.0 = lend second\n"
+    src = src + "    wrapped.0.1 = lend second\n"
+    src = src + "    first.hp = 7\n"
+    src = src + "    give back wrapped.1\n"
     src = src + "}\n"
     give back src
 }
@@ -224,9 +248,13 @@ say "aggregate-edge-duplicate-projection0=" + v4_aggregate_edge_projection_at(v4
 say "aggregate-edge-duplicate-projection1=" + v4_aggregate_edge_projection_at(v4_aggregate_edge_duplicate_projections, 1)
 say "aggregate-edge-duplicate-rebind-all=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "duplicate_rebind_all")
 say "aggregate-edge-duplicate-rebind-one=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "duplicate_rebind_one")
+say "aggregate-edge-call-projection-relation-limit=" + word_from_int(v4_borrowck_call_projection_relation_limit_value)
 say "aggregate-edge-duplicate-call-projection-count=" + word_from_int(array_len(v4_aggregate_edge_duplicate_call_projections))
 say "aggregate-edge-duplicate-call-projection0=" + v4_aggregate_edge_projection_at(v4_aggregate_edge_duplicate_call_projections, 0)
 say "aggregate-edge-duplicate-call-projection1=" + v4_aggregate_edge_projection_at(v4_aggregate_edge_duplicate_call_projections, 1)
 say "aggregate-edge-duplicate-call-rebind-all=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "duplicate_call_rebind_all")
+say "aggregate-edge-duplicate-call-rebind-one=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "duplicate_call_rebind_one")
+say "aggregate-edge-duplicate-projected-call-rebind-all=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "duplicate_projected_call_rebind_all")
+say "aggregate-edge-nested-duplicate-call-rebind-all=" + v4_aggregate_edge_status(v4_aggregate_edge_borrow, v4_aggregate_edge_resolve, "nested_duplicate_call_rebind_all")
 array_release(v4_aggregate_edge_duplicate_call_projections)
 array_release(v4_aggregate_edge_duplicate_projections)
