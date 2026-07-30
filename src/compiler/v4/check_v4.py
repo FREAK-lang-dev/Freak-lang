@@ -3510,6 +3510,23 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "contract region projected closure storage",
+        "fixture": "projected_closure_storage_smoke.fk",
+        "timeout": 120,
+        "memory_limit_mb": 96,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "projected-closure-parse-diagnostics=0",
+            "projected-closure-ty-diagnostics=0",
+            "projected-closure-mir-diagnostics=3",
+            "projected-closure-borrow-diagnostics=4",
+            "projected-closure-use-storage-rejected=blocked",
+            "projected-closure-overwrite-storage-clean=clean",
+            "projected-closure-dynamic-storage-diagnostics=1",
+        ],
+    },
+    {
         "name": "contract region fixed aggregate query invalidation",
         "fixture": "contract_region_fixed_aggregate_query_smoke.fk",
         "memory_limit_mb": 96,

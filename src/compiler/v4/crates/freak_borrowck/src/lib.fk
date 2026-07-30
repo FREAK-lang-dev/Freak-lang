@@ -1610,39 +1610,6 @@ task v4_borrowck_stmt_for_rvalue(mir_id: int, body_id: int, rvalue_id: int) -> i
     give back enclosing_stmt
 }
 
-task v4_borrowck_local_has_reaching_borrow(mir_id: int, body_id: int, local_name: word, use_stmt: int, depth: int) -> bool {
-    pilot use_block = 0 - 1
-    if use_stmt >= 0 {
-        use_block = v4_mir_stmt_block(mir_id, body_id, use_stmt)
-    }
-    pilot stmt_id = 0
-    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
-    repeat until stmt_id >= stmt_count {
-        pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
-        if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
-            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
-            if place_id >= 0 {
-                pilot place_text = v4_mir_place_text(mir_id, body_id, place_id)
-                if v4_borrowck_path_root(place_text) == local_name {
-                    pilot assigned_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-                    if assigned_rvalue >= 0 {
-                        pilot reaches = use_stmt < 0
-                        if not reaches {
-                            pilot origin_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
-                            reaches = v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, local_name, stmt_id, stmt_id, origin_block, use_stmt, use_block)
-                        }
-                        if reaches and v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, assigned_rvalue, stmt_id, depth + 1) {
-                            give back true
-                        }
-                    }
-                }
-            }
-        }
-        stmt_id += 1
-    }
-    give back false
-}
-
 task v4_borrowck_rvalue_retains_aggregate_children(mir_id: int, body_id: int, rvalue_id: int) -> bool {
     if rvalue_id < 0 {
         give back false
@@ -1664,7 +1631,114 @@ task v4_borrowck_ty_is_fixed_aggregate(mir_id: int, type_text: word) -> bool {
     give back v4_ty_shape_signature_id_for_name(ty_id, type_text) >= 0 or v4_ty_route_signature_id_for_name(ty_id, type_text) >= 0
 }
 
-task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalue_id: int, use_stmt: int, depth: int) -> bool {
+task v4_borrowck_path_type_may_hide_borrow(mir_id: int, body_id: int, path: word) -> bool {
+    pilot root = v4_borrowck_path_root(path)
+    if root == "" {
+        give back false
+    }
+    pilot local_ty = v4_mir_local_ty_for_name(mir_id, body_id, root)
+    give back v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), local_ty) or v4_ty_is_closure_type(local_ty) or local_ty.contains("closure[")
+}
+
+task v4_borrowck_rvalue_projection_is_borrow_capable_depth(mir_id: int, body_id: int, rvalue_id: int, projection: word, use_stmt: int, depth: int, seen: word) -> bool {
+    if projection == "" {
+        give back v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, rvalue_id, use_stmt, depth, seen)
+    }
+    if rvalue_id < 0 or depth > 32 {
+        if rvalue_id < 0 {
+            give back false
+        }
+        pilot deep_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+        give back v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), deep_ty) or v4_ty_is_closure_type(deep_ty) or deep_ty.contains("closure[")
+    }
+
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
+        pilot projected_path = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) + projection
+        if v4_borrowck_path_is_lent(mir_id, body_id, projected_path) {
+            give back true
+        }
+        give back v4_borrowck_path_has_reaching_borrow(mir_id, body_id, projected_path, use_stmt, depth + 1, seen)
+    }
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot segment = v4_borrowck_projection_first(projection)
+        pilot tail = v4_borrowck_projection_tail(projection)
+        pilot child_id = v4_borrowck_aggregate_child_for_segment(mir_id, body_id, rvalue_id, segment)
+        if child_id == 0 - 2 {
+            pilot candidate_id = 0
+            pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+            repeat until candidate_id >= child_count {
+                if v4_borrowck_rvalue_projection_is_borrow_capable_depth(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, candidate_id), tail, use_stmt, depth + 1, seen) {
+                    give back true
+                }
+                candidate_id += 1
+            }
+            give back false
+        }
+        if child_id >= 0 {
+            give back v4_borrowck_rvalue_projection_is_borrow_capable_depth(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), tail, use_stmt, depth + 1, seen)
+        }
+    }
+    give back v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, rvalue_id, use_stmt, depth + 1, seen)
+}
+
+task v4_borrowck_path_has_reaching_borrow(mir_id: int, body_id: int, path: word, use_stmt: int, depth: int, seen: word) -> bool {
+    pilot path_canon = v4_borrowck_path_canon(path)
+    pilot path_root = v4_borrowck_path_root(path_canon)
+    if path_canon == "" or path_root == "" {
+        give back false
+    }
+    if depth > 32 or v4_borrowck_holder_seen(seen, path_canon, use_stmt) {
+        give back v4_borrowck_path_type_may_hide_borrow(mir_id, body_id, path_canon)
+    }
+    seen = v4_borrowck_holder_seen_append(seen, path_canon, use_stmt)
+
+    pilot projected_query: bool = path_canon != path_root
+    pilot use_block = 0 - 1
+    if use_stmt >= 0 {
+        use_block = v4_mir_stmt_block(mir_id, body_id, use_stmt)
+    }
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+        if stmt_id != use_stmt and (stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign) {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            if place_id >= 0 {
+                pilot assigned_path = v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id))
+                pilot may_define: bool = v4_borrowck_path_root(assigned_path) == path_root
+                if projected_query {
+                    may_define = v4_borrowck_path_write_may_bind(assigned_path, path_canon)
+                }
+                if may_define {
+                    pilot assigned_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+                    if assigned_rvalue >= 0 {
+                        pilot tracked_path = assigned_path
+                        pilot assigned_projection = ""
+                        if projected_query {
+                            tracked_path = path_canon
+                            if assigned_path != path_canon and v4_borrowck_path_prefix_conflicts(assigned_path, path_canon) {
+                                assigned_projection = v4_slice(path_canon, assigned_path.length(), path_canon.length())
+                            }
+                        }
+                        pilot reaches = use_stmt < 0
+                        if not reaches {
+                            pilot origin_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+                            reaches = v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, tracked_path, stmt_id, stmt_id, origin_block, use_stmt, use_block)
+                        }
+                        if reaches and v4_borrowck_rvalue_projection_is_borrow_capable_depth(mir_id, body_id, assigned_rvalue, assigned_projection, stmt_id, depth + 1, seen) {
+                            give back true
+                        }
+                    }
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    give back false
+}
+
+task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalue_id: int, use_stmt: int, depth: int, seen: word) -> bool {
     if rvalue_id < 0 {
         give back false
     }
@@ -1690,17 +1764,14 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
         if v4_borrowck_path_is_lent(mir_id, body_id, capture_path) {
             give back true
         }
-        give back v4_borrowck_local_has_reaching_borrow(mir_id, body_id, capture_path, use_stmt, depth)
+        give back v4_borrowck_path_has_reaching_borrow(mir_id, body_id, capture_path, use_stmt, depth, seen)
     }
     if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
         pilot local_path = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
         if v4_borrowck_path_is_lent(mir_id, body_id, local_path) {
             give back true
         }
-        if kind == v4_mir_rvalue_use_local {
-            give back v4_borrowck_local_has_reaching_borrow(mir_id, body_id, local_path, use_stmt, depth)
-        }
-        give back false
+        give back v4_borrowck_path_has_reaching_borrow(mir_id, body_id, local_path, use_stmt, depth, seen)
     }
     if kind == v4_mir_rvalue_call and v4_ty_is_closure_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
         pilot call_stmt = v4_borrowck_stmt_for_rvalue(mir_id, body_id, rvalue_id)
@@ -1710,7 +1781,7 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
         pilot arg_id = 0
         pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
         repeat until arg_id >= arg_count {
-            if v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id), call_stmt, depth + 1) {
+            if v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id), call_stmt, depth + 1, seen) {
                 give back true
             }
             arg_id += 1
@@ -1721,7 +1792,7 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
         pilot child_id = 0
         pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
         repeat until child_id >= child_count {
-            if v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), use_stmt, depth + 1) {
+            if v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), use_stmt, depth + 1, seen) {
                 give back true
             }
             child_id += 1
@@ -1732,7 +1803,7 @@ task v4_borrowck_rvalue_is_borrow_capable_depth(mir_id: int, body_id: int, rvalu
 
 task v4_borrowck_rvalue_is_borrow_capable(mir_id: int, body_id: int, rvalue_id: int) -> bool {
     pilot use_stmt = v4_borrowck_stmt_for_rvalue(mir_id, body_id, rvalue_id)
-    give back v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, rvalue_id, use_stmt, 0)
+    give back v4_borrowck_rvalue_is_borrow_capable_depth(mir_id, body_id, rvalue_id, use_stmt, 0, "")
 }
 
 task v4_borrowck_provenance_union_borrow_capable_call_args(mir_id: int, body_id: int, use_stmt: int, call_rvalue: int, provenance_id: int) -> void {
