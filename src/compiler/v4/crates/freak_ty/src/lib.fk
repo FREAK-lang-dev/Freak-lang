@@ -1254,6 +1254,9 @@ task v4_ty_type_is_structurally_copy(ty_id: int, type_text: word, depth: int) ->
 }
 
 task v4_ty_type_satisfies_repeat_doctrine(ty_id: int, sig_id: int, type_text: word, doctrine_name: word) -> bool {
+    if doctrine_name == "Copy" and v4_ty_type_may_store_mut_lend(ty_id, type_text) {
+        give back false
+    }
     give back v4_ty_match_type_satisfies_doctrine_env(ty_id, sig_id, type_text, doctrine_name, "") != v4_ty_generic_env_fail
 }
 
