@@ -2604,7 +2604,8 @@ task v4_borrowck_check_fixed_hidden_closure_storage(borrow_id: int, result_id: i
     repeat until rvalue_id >= rvalue_count {
         pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
         pilot aggregate_value: bool = v4_borrowck_rvalue_is_fixed_aggregate_storage_kind(kind)
-        pilot aggregate_call: bool = kind == v4_mir_rvalue_call and v4_borrowck_ty_is_fixed_aggregate(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+        pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+        pilot aggregate_call: bool = kind == v4_mir_rvalue_call and result_ty.contains("closure[") and v4_borrowck_ty_is_fixed_aggregate(mir_id, result_ty)
         if (aggregate_value and v4_borrowck_rvalue_retains_aggregate_children(mir_id, body_id, rvalue_id)) or aggregate_call {
             pilot hidden_closure_lend = false
             pilot child_id = 0
