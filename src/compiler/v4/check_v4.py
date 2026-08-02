@@ -3398,6 +3398,23 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "Copy doctrine storage eligibility",
+        "fixture": "copy_doctrine_storage_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "copy-doctrine-parse-diagnostics=0",
+            "copy-doctrine-ty-diagnostics=0",
+            "copy-doctrine-mir-diagnostics=0",
+            "copy-doctrine-linear-field=Owned",
+            "copy-doctrine-owned-match=false",
+            "copy-doctrine-nominal-copy-eligible=true",
+            "copy-doctrine-linear-copy-eligible=false",
+            "copy-doctrine-nominal-transfer-copy=true",
+            "copy-doctrine-linear-transfer-copy=false",
+        ],
+    },
+    {
         "name": "contract region fixed aggregate loans",
         "fixture": "contract_region_fixed_aggregate_smoke.fk",
         "timeout": 240,
