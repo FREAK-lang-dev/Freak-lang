@@ -62,6 +62,12 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "task wrap<C>(value: C) -> (C,int) {\n"
     src = src + "    give back (value, 0)\n"
     src = src + "}\n"
+    src = src + "task empty_wrap<C>(value: C) -> [C;0] {\n"
+    src = src + "    give back []\n"
+    src = src + "}\n"
+    src = src + "task list_wrap<C>(value: C) -> List<C> {\n"
+    src = src + "    give back [value]\n"
+    src = src + "}\n"
     src = src + "task tuple_sibling_dead(first: Ship, second: Ship) -> int {\n"
     src = src + "    pilot views = (lend mut first, lend second)\n"
     src = src + "    second.hp = 2\n"
@@ -367,6 +373,21 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    first.hp = 24\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "task zero_length_closure_call_clean(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot empty = empty_wrap(reader)\n"
+    src = src + "    first.hp = 34\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task dynamic_closure_call_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot readers = list_wrap(reader)\n"
+    src = src + "    pilot extracted = readers[0]\n"
+    src = src + "    first.hp = 35\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
     src = src + "task dynamic_closure_storage_rejected(first: Ship) -> int {\n"
     src = src + "    pilot holder = (lend mut first, 0)\n"
     src = src + "    pilot reader = |_| => holder.0.hp\n"
@@ -645,6 +666,8 @@ say "fixed-aggregate-closure-capture-keeps-loan=" + v4_fixed_aggregate_status(v4
 say "fixed-aggregate-closure-forwarded-capture-keeps-loan=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "closure_forwarded_capture_keeps_loan")
 say "fixed-aggregate-wrapped-closure-call-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "wrapped_closure_call_rejected")
 say "fixed-aggregate-empty-closure-repeat-clean=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "empty_closure_repeat_clean")
+say "fixed-aggregate-zero-length-closure-call-clean=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "zero_length_closure_call_clean")
+say "fixed-aggregate-dynamic-closure-call-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_closure_call_storage_rejected")
 say "fixed-aggregate-dynamic-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_closure_storage_rejected")
 say "fixed-aggregate-dynamic-closure-storage-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_borrow_diag_contains(v4_fixed_aggregate_borrow, "Meiya cannot store a loan-capturing closure inside dynamic storage yet"))
 say "fixed-aggregate-dynamic-closure-storage-diagnostic-count=" + word_from_int(v4_fixed_aggregate_borrow_diag_count(v4_fixed_aggregate_borrow, "Meiya cannot store a loan-capturing closure inside dynamic storage yet"))
