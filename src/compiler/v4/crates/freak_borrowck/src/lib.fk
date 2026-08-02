@@ -3922,7 +3922,7 @@ task v4_borrowck_repeat_projection_candidates(mir_id: int, body_id: int, loan_st
     pilot rvalue_id = 0
     repeat until rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) or broad {
         pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-        if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
+        if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut or kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move {
             pilot path = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
             if path == base or path.starts_with(base + ".") or path.starts_with(base + "[") {
                 pilot slot_id = v4_borrowck_repeat_path_slot_index(base, path)

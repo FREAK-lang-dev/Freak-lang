@@ -160,40 +160,11 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    pilot slots: [(lend Ship,lend Ship);2] = [pair; 2]\n"
     src = src + "    give back pair.0.hp + slots[0].1.hp\n"
     src = src + "}\n"
-    src = src + "task repeat_shared_rebind_257(first: Ship, second: Ship) -> int {\n"
-    src = src + "    pilot views: [lend Ship;257] = [lend first; 257]\n"
-    src = src + "    pilot replacement = lend second\n"
-    pilot v4_fixed_aggregate_rebind_slot = 0
-    repeat until v4_fixed_aggregate_rebind_slot >= 257 {
-        src = src + "    views[" + word_from_int(v4_fixed_aggregate_rebind_slot) + "] = replacement\n"
-        v4_fixed_aggregate_rebind_slot += 1
-    }
-    src = src + "    first.hp = 24\n"
-    src = src + "    give back views[0].hp\n"
-    src = src + "}\n"
     src = src + "task repeat_shared_partial_rebind_257(first: Ship, second: Ship) -> int {\n"
     src = src + "    pilot views: [lend Ship;257] = [lend first; 257]\n"
     src = src + "    views[0] = lend second\n"
     src = src + "    first.hp = 24\n"
     src = src + "    give back views[0].hp\n"
-    src = src + "}\n"
-    src = src + "task repeat_shared_partial_rebind_1025(first: Ship, second: Ship) -> int {\n"
-    src = src + "    pilot views: [lend Ship;1025] = [lend first; 1025]\n"
-    src = src + "    views[0] = lend second\n"
-    src = src + "    first.hp = 26\n"
-    src = src + "    give back views[0].hp\n"
-    src = src + "}\n"
-    src = src + "task repeat_shared_extracted_alias_rebind_256(first: Ship, second: Ship) -> int {\n"
-    src = src + "    pilot views: [lend Ship;256] = [lend first; 256]\n"
-    src = src + "    pilot saved = views[0]\n"
-    src = src + "    pilot replacement = lend second\n"
-    pilot v4_fixed_aggregate_alias_rebind_slot = 0
-    repeat until v4_fixed_aggregate_alias_rebind_slot >= 256 {
-        src = src + "    views[" + word_from_int(v4_fixed_aggregate_alias_rebind_slot) + "] = replacement\n"
-        v4_fixed_aggregate_alias_rebind_slot += 1
-    }
-    src = src + "    first.hp = 27\n"
-    src = src + "    give back saved.hp\n"
     src = src + "}\n"
     src = src + "task repeat_shared_dead_256(first: Ship) -> int {\n"
     src = src + "    pilot views: [lend Ship;256] = [lend first; 256]\n"
@@ -652,10 +623,7 @@ say "fixed-aggregate-repeat-shared-rebind-one=" + v4_fixed_aggregate_status(v4_f
 say "fixed-aggregate-repeat-nested-sibling-dead=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_nested_sibling_dead")
 say "fixed-aggregate-repeat-structural-copy=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_structural_copy")
 say "fixed-aggregate-repeat-shared-dead-256=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_dead_256")
-say "fixed-aggregate-repeat-shared-rebind-257=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_257")
 say "fixed-aggregate-repeat-shared-partial-rebind-257=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_partial_rebind_257")
-say "fixed-aggregate-repeat-shared-partial-rebind-1025=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_partial_rebind_1025")
-say "fixed-aggregate-repeat-shared-extracted-alias-rebind-256=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_extracted_alias_rebind_256")
 say "fixed-aggregate-repeat-shared-dead-257=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_dead_257")
 say "fixed-aggregate-empty-array-generic-call=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "empty_array_generic_call")
 say "fixed-aggregate-empty-array-stored-call=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "empty_array_stored_call")

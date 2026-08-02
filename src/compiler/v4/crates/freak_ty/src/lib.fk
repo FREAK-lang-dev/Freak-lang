@@ -6905,6 +6905,23 @@ task v4_ty_impl_method_explicit_param_mode(ty_id: int, hir_item: int, method_id:
     give back v4_ty_impl_method_param_mode(ty_id, hir_item, method_id, param_id + shift)
 }
 
+task v4_ty_is_bare_type_pattern_binding(ty_id: int, type_text: word) -> bool {
+    if type_text == "" or v4_ty_is_lifetime_name(type_text) or v4_ty_is_declared_simple_type_name(ty_id, type_text) {
+        give back false
+    }
+    if not v4_lex_is_ident_start(type_text.char_at(0)) {
+        give back false
+    }
+    pilot idx = 1
+    repeat until idx >= type_text.length() {
+        if not v4_lex_is_ident_continue(type_text.char_at(idx)) {
+            give back false
+        }
+        idx += 1
+    }
+    give back true
+}
+
 task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word, env: word) -> word {
     if env == v4_ty_generic_env_fail {
         give back env
@@ -6925,6 +6942,11 @@ task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word,
     }
     if v4_ty_is_numeric(pattern_ty) and v4_ty_is_numeric(actual_ty) {
         give back env
+    }
+    -- Bind a bare impl generic before composite mismatch guards inspect the
+    -- concrete type substituted for it, such as T = Direct<'a>.
+    if v4_ty_is_bare_type_pattern_binding(ty_id, pattern_ty) {
+        give back v4_ty_generic_env_bind(env, pattern_ty, actual_ty)
     }
     if v4_ty_is_raw_pointer_type(pattern_ty) or v4_ty_is_raw_pointer_type(actual_ty) {
         if not v4_ty_is_raw_pointer_type(pattern_ty) or not v4_ty_is_raw_pointer_type(actual_ty) {
@@ -6984,9 +7006,6 @@ task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word,
             give back v4_ty_generic_env_fail
         }
         give back v4_ty_match_type_pattern_env(ty_id, v4_ty_fixed_array_element_type(pattern_ty), v4_ty_fixed_array_element_type(actual_ty), env)
-    }
-    if not v4_ty_is_declared_simple_type_name(ty_id, pattern_ty) {
-        give back v4_ty_generic_env_bind(env, pattern_ty, actual_ty)
     }
     if v4_ty_types_compatible(pattern_ty, actual_ty) {
         give back env
