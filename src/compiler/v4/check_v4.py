@@ -3149,6 +3149,19 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "contract region conditional projected alias",
+        "fixture": "contract_region_conditional_alias_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "conditional-alias-parse-diagnostics=0",
+            "conditional-alias-ty-diagnostics=0",
+            "conditional-alias-mir-diagnostics=0",
+            "conditional-alias-borrow-diagnostics=1",
+            "conditional-alias-status=blocked",
+        ],
+    },
+    {
         "name": "contract region generic lend escape",
         "fixture": "contract_region_generic_lend_escape_smoke.fk",
         "expect_mode": "line",

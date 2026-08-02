@@ -1,0 +1,35 @@
+-- V4 conditional projected mutable-alias liveness fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_conditional_alias_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task conditional_alias_targets(first: Ship, second: Ship, third: Ship, choose_right: bool) -> int {\n"
+    src = src + "    pilot left = (lend mut first, 0)\n"
+    src = src + "    pilot right = (lend mut second, 0)\n"
+    src = src + "    pilot access = lend mut left\n"
+    src = src + "    if choose_right {\n"
+    src = src + "        access = lend mut right\n"
+    src = src + "    }\n"
+    src = src + "    access.0 = lend mut third\n"
+    src = src + "    third.hp = 88\n"
+    src = src + "    give back left.0.hp + right.0.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_conditional_alias_borrow = v4_borrowck_text_cached("contract-region-conditional-alias.fk", v4_conditional_alias_source())
+pilot v4_conditional_alias_mir = v4_borrowck_mir_id(v4_conditional_alias_borrow)
+pilot v4_conditional_alias_ty = v4_mir_ty_id(v4_conditional_alias_mir)
+pilot v4_conditional_alias_resolve = v4_ty_resolve_id(v4_conditional_alias_ty)
+pilot v4_conditional_alias_hir = v4_resolve_hir_id(v4_conditional_alias_resolve)
+pilot v4_conditional_alias_tree = v4_hir_tree_id(v4_conditional_alias_hir)
+pilot v4_conditional_alias_def = v4_resolve_def_for_name(v4_conditional_alias_resolve, "conditional_alias_targets")
+pilot v4_conditional_alias_result = v4_borrowck_lookup_result(v4_conditional_alias_borrow, v4_conditional_alias_def)
+
+say "conditional-alias-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_conditional_alias_tree))
+say "conditional-alias-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_conditional_alias_ty))
+say "conditional-alias-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_conditional_alias_mir))
+say "conditional-alias-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_conditional_alias_borrow))
+say "conditional-alias-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_conditional_alias_result)

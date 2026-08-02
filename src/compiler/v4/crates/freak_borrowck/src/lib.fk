@@ -27,6 +27,7 @@ pilot v4_borrowck_provenance_opaque = "opaque"
 pilot v4_borrowck_provenance_memo_in_progress = "in-progress"
 pilot v4_borrowck_holder_projection_none = "#none"
 pilot v4_borrowck_holder_projection_whole = "#whole"
+pilot v4_borrowck_projected_alias_ambiguous = "#ambiguous-projected-alias"
 pilot v4_borrowck_provenance_memo_ready = "ready"
 
 pilot v4_borrowck_files = 0
@@ -3639,7 +3640,7 @@ task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, 
                         resolved = candidate
                         found = true
                     } else if resolved != candidate {
-                        give back ""
+                        give back v4_borrowck_projected_alias_ambiguous
                     }
                 }
             }
@@ -3648,6 +3649,9 @@ task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, 
     }
     if found {
         pilot transitive = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, resolved, use_stmt, alias_depth + 1)
+        if transitive == v4_borrowck_projected_alias_ambiguous {
+            give back transitive
+        }
         if transitive != "" and transitive != resolved {
             give back transitive
         }
@@ -3669,7 +3673,7 @@ task v4_borrowck_stmt_rebinds_holder_at(mir_id: int, body_id: int, stmt_id: int,
         give back false
     }
     pilot resolved = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, place_text, stmt_id, alias_depth)
-    give back resolved != "" and v4_borrowck_path_write_definitely_covers(resolved, holder)
+    give back resolved != "" and resolved != v4_borrowck_projected_alias_ambiguous and v4_borrowck_path_write_definitely_covers(resolved, holder)
 }
 
 task v4_borrowck_holder_reaches_stmt_without_rebind_depth(mir_id: int, body_id: int, holder: word, provenance_stmt: int, start_stmt: int, start_block: int, wanted_stmt: int, wanted_block: int, alias_depth: int) -> bool {
@@ -3783,7 +3787,9 @@ task v4_borrowck_hidden_holder_reaches_access(mir_id: int, body_id: int, holder:
         pilot current_stmt = word_to_int(array_get(holder_stmts, cursor))
         cursor += 1
         pilot reverse_alias = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, current_holder, current_stmt, 0)
-        if reverse_alias != "" and reverse_alias != current_holder and not v4_borrowck_holder_worklist_contains(holders, holder_stmts, reverse_alias, current_stmt) {
+        if reverse_alias == v4_borrowck_projected_alias_ambiguous {
+            reaches = true
+        } else if reverse_alias != "" and reverse_alias != current_holder and not v4_borrowck_holder_worklist_contains(holders, holder_stmts, reverse_alias, current_stmt) {
             array_push(holders, reverse_alias)
             array_push(holder_stmts, word_from_int(current_stmt))
         }
@@ -3823,7 +3829,9 @@ task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder
         pilot current_stmt = word_to_int(array_get(holder_stmts, cursor))
         cursor += 1
         pilot reverse_alias = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, current_holder, current_stmt, 0)
-        if reverse_alias != "" and reverse_alias != current_holder and not v4_borrowck_holder_worklist_contains(holders, holder_stmts, reverse_alias, current_stmt) {
+        if reverse_alias == v4_borrowck_projected_alias_ambiguous {
+            used = true
+        } else if reverse_alias != "" and reverse_alias != current_holder and not v4_borrowck_holder_worklist_contains(holders, holder_stmts, reverse_alias, current_stmt) {
             array_push(holders, reverse_alias)
             array_push(holder_stmts, word_from_int(current_stmt))
         }

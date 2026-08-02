@@ -2634,6 +2634,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "task v4_borrowck_repeat_path_slot_index(",
             "task v4_borrowck_repeat_projection_candidates(",
             "v4_mir_rvalue_capture_borrow_mut",
+            "v4_borrowck_projected_alias_ambiguous",
             "task v4_borrowck_repeat_projection_scan_help(",
             "v4_borrowck_holder_state",
             "task v4_borrowck_block_reaches(",
@@ -3132,6 +3133,16 @@ def audit_conformance(paths: List[Path]) -> int:
                 "repeat-projection-partial-rebind-1025=",
                 "repeat-projection-extracted-alias-rebind-256=",
                 "repeat-projection-capture-live=",
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_conditional_alias_smoke.fk",
+            (
+                "task conditional_alias_targets(first: Ship, second: Ship, third: Ship, choose_right: bool)",
+                "access = lend mut right",
+                "access.0 = lend mut third",
+                "conditional-alias-borrow-diagnostics=",
+                "conditional-alias-status=",
             ),
         ),
         (
@@ -3913,6 +3924,13 @@ def audit_conformance(paths: List[Path]) -> int:
             "repeat-projection-partial-rebind-1025=clean",
             "repeat-projection-extracted-alias-rebind-256=blocked",
             "repeat-projection-capture-live=blocked",
+        ),
+        "contract_region_conditional_alias_smoke.fk": (
+            "conditional-alias-parse-diagnostics=0",
+            "conditional-alias-ty-diagnostics=0",
+            "conditional-alias-mir-diagnostics=0",
+            "conditional-alias-borrow-diagnostics=1",
+            "conditional-alias-status=blocked",
         ),
         "contract_region_fixed_aggregate_query_smoke.fk": (
             "fixed-aggregate-query-byte-length-stable=true",
