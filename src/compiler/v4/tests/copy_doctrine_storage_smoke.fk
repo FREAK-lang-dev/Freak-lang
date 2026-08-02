@@ -25,6 +25,40 @@ task v4_copy_doctrine_borrow_restore_resets_cache(borrow_id: int, file_id: int, 
     give back restored == borrow_id and v4_borrowck_copy_cache_count() == 0
 }
 
+task v4_copy_doctrine_upstream_restore_cache_checks(ty_id: int, sig_id: int, mir_id: int) -> void {
+    pilot parse_generation = v4_session_semantic_restore_generation()
+    v4_ty_copy_doctrine_cache_store(ty_id, sig_id, "NominalCopy", "")
+    v4_borrowck_copy_cache_store(mir_id, sig_id, "NominalCopy", true)
+    pilot parse_primed = v4_ty_copy_doctrine_cache_count() > 0 and v4_borrowck_copy_cache_count() > 0
+    pilot parse_restore = v4_parse_snapshot_restore(v4_parse_snapshot())
+    pilot parse_restore_ok = parse_restore.starts_with("parse-snapshot-restore ok=1")
+    pilot parse_generation_advanced = v4_session_semantic_restore_generation() > parse_generation
+    pilot parse_ty_reset = v4_ty_copy_doctrine_cache_count() == 0
+    pilot parse_borrow_reset = v4_borrowck_copy_cache_count() == 0
+    say "copy-doctrine-parse-cache-primed=" + v4_copy_doctrine_bool(parse_primed)
+    say "copy-doctrine-parse-restore-ok=" + v4_copy_doctrine_bool(parse_restore_ok)
+    say "copy-doctrine-parse-generation-advanced=" + v4_copy_doctrine_bool(parse_generation_advanced)
+    say "copy-doctrine-parse-ty-cache-reset=" + v4_copy_doctrine_bool(parse_ty_reset)
+    say "copy-doctrine-parse-borrow-cache-reset=" + v4_copy_doctrine_bool(parse_borrow_reset)
+    say "copy-doctrine-parse-restore-cache-reset=" + v4_copy_doctrine_bool(parse_primed and parse_restore_ok and parse_generation_advanced and parse_ty_reset and parse_borrow_reset)
+
+    pilot hir_generation = v4_session_semantic_restore_generation()
+    v4_ty_copy_doctrine_cache_store(ty_id, sig_id, "NominalCopy", "")
+    v4_borrowck_copy_cache_store(mir_id, sig_id, "NominalCopy", true)
+    pilot hir_primed = v4_ty_copy_doctrine_cache_count() > 0 and v4_borrowck_copy_cache_count() > 0
+    pilot hir_restore = v4_hir_snapshot_restore(v4_hir_snapshot())
+    pilot hir_restore_ok = hir_restore.starts_with("hir-snapshot-restore ok=1")
+    pilot hir_generation_advanced = v4_session_semantic_restore_generation() > hir_generation
+    pilot hir_ty_reset = v4_ty_copy_doctrine_cache_count() == 0
+    pilot hir_borrow_reset = v4_borrowck_copy_cache_count() == 0
+    say "copy-doctrine-hir-cache-primed=" + v4_copy_doctrine_bool(hir_primed)
+    say "copy-doctrine-hir-restore-ok=" + v4_copy_doctrine_bool(hir_restore_ok)
+    say "copy-doctrine-hir-generation-advanced=" + v4_copy_doctrine_bool(hir_generation_advanced)
+    say "copy-doctrine-hir-ty-cache-reset=" + v4_copy_doctrine_bool(hir_ty_reset)
+    say "copy-doctrine-hir-borrow-cache-reset=" + v4_copy_doctrine_bool(hir_borrow_reset)
+    say "copy-doctrine-hir-restore-cache-reset=" + v4_copy_doctrine_bool(hir_primed and hir_restore_ok and hir_generation_advanced and hir_ty_reset and hir_borrow_reset)
+}
+
 task v4_copy_doctrine_source() -> word {
     pilot src = "doctrine Copy {\n"
     src = src + "}\n"
@@ -89,3 +123,4 @@ say "copy-doctrine-ty-cache-capacity=" + word_from_int(v4_ty_copy_doctrine_cache
 say "copy-doctrine-ty-cache-bounded=" + v4_copy_doctrine_bool(v4_ty_copy_doctrine_cache_count() <= v4_ty_copy_doctrine_cache_capacity())
 say "copy-doctrine-ty-restore-cache-reset=" + v4_copy_doctrine_bool(v4_copy_doctrine_ty_restore_resets_cache(v4_copy_doctrine_ty, v4_copy_doctrine_file, v4_copy_doctrine_resolve))
 say "copy-doctrine-borrow-restore-cache-reset=" + v4_copy_doctrine_bool(v4_copy_doctrine_borrow_restore_resets_cache(v4_copy_doctrine_borrow, v4_copy_doctrine_file, v4_copy_doctrine_mir))
+v4_copy_doctrine_upstream_restore_cache_checks(v4_copy_doctrine_ty, v4_copy_doctrine_sig, v4_copy_doctrine_mir)

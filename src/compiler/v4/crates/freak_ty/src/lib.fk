@@ -87,6 +87,7 @@ pilot v4_ty_copy_doctrine_cache_values = 0
 pilot v4_ty_copy_doctrine_cache_entry_count_value = 0
 pilot v4_ty_copy_doctrine_cache_capacity_value = 128
 pilot v4_ty_copy_doctrine_cache_next_row_value = 0
+pilot v4_ty_copy_doctrine_cache_restore_generation_value = 0
 pilot v4_ty_ready = 0
 
 task v4_ty_init() -> void {
@@ -2149,6 +2150,93 @@ task v4_ty_lend_storage_class_seen(ty_id: int, type_text: word, seen_types: word
 
 task v4_ty_type_lend_storage_class(ty_id: int, type_text: word) -> word {
     give back v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, false)
+}
+
+task v4_ty_type_retains_closure_storage_seen(ty_id: int, type_text: word, seen_types: word, depth: int) -> bool {
+    if depth > v4_ty_lend_storage_depth_limit { give back true }
+    if v4_ty_is_closure_type(type_text) or type_text.starts_with("closure[") { give back true }
+
+    if v4_ty_is_lend_type(type_text) {
+        give back v4_ty_type_retains_closure_storage_seen(ty_id, v4_ty_lend_target_type(type_text), seen_types, depth + 1)
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            if v4_ty_type_retains_closure_storage_seen(ty_id, v4_ty_tuple_slot_type(type_text, slot_id), seen_types, depth + 1) { give back true }
+            slot_id += 1
+        }
+        give back false
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        if v4_ty_fixed_array_length_normalized_text(ty_id, type_text) == "0" { give back false }
+        give back v4_ty_type_retains_closure_storage_seen(ty_id, v4_ty_fixed_array_element_type(type_text), seen_types, depth + 1)
+    }
+
+    pilot alias_lookup = v4_ty_alias_lookup_type_from_surface_type(ty_id, type_text)
+    if alias_lookup != "" {
+        pilot alias_key = "closure-alias:" + alias_lookup
+        if v4_ty_alias_cycle_seen_contains(seen_types, alias_key) { give back false }
+        pilot alias_target = v4_ty_alias_target_type(ty_id, alias_lookup)
+        if alias_target == "" or alias_target == v4_ty_unknown { give back false }
+        give back v4_ty_type_retains_closure_storage_seen(ty_id, alias_target, v4_ty_alias_cycle_seen_append(seen_types, alias_key), depth + 1)
+    }
+
+    pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
+    if storage_type == "" or storage_type == v4_ty_unknown { storage_type = type_text }
+
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, storage_type)
+    if shape_sig >= 0 {
+        pilot shape_key = "closure-shape:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, shape_key) { give back false }
+        pilot shape_seen = v4_ty_alias_cycle_seen_append(seen_types, shape_key)
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            pilot field_type = v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id)
+            field_type = v4_ty_apply_signature_generics(ty_id, shape_sig, storage_type, field_type)
+            if v4_ty_type_retains_closure_storage_seen(ty_id, field_type, shape_seen, depth + 1) { give back true }
+            field_id += 1
+        }
+        give back false
+    }
+
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, storage_type)
+    if route_sig >= 0 {
+        pilot route_key = "closure-route:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, route_key) { give back false }
+        pilot route_seen = v4_ty_alias_cycle_seen_append(seen_types, route_key)
+        pilot case_id = 0
+        pilot case_count = v4_ty_route_case_count(ty_id, route_sig)
+        repeat until case_id >= case_count {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field_id = 0
+            pilot field_count = v4_ty_route_case_field_count(ty_id, storage_type, case_name)
+            repeat until field_id >= field_count {
+                pilot field_type = v4_ty_route_case_field_surface_type(ty_id, storage_type, case_name, field_id)
+                field_type = v4_ty_apply_signature_generics(ty_id, route_sig, storage_type, field_type)
+                if v4_ty_type_retains_closure_storage_seen(ty_id, field_type, route_seen, depth + 1) { give back true }
+                field_id += 1
+            }
+            case_id += 1
+        }
+        give back false
+    }
+
+    if v4_ty_is_generic_instance_type(storage_type) {
+        pilot arg_id = 0
+        pilot arg_count = v4_ty_generic_arg_count(storage_type)
+        repeat until arg_id >= arg_count {
+            pilot arg_type = v4_ty_generic_arg(storage_type, arg_id)
+            if not v4_ty_is_lifetime_name(arg_type) and v4_ty_type_retains_closure_storage_seen(ty_id, arg_type, seen_types, depth + 1) { give back true }
+            arg_id += 1
+        }
+    }
+    give back false
+}
+
+task v4_ty_type_retains_closure_storage(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_type_retains_closure_storage_seen(ty_id, type_text, "", 0)
 }
 
 task v4_ty_lend_storage_class_confirms_lend(storage_kind: word) -> bool {
@@ -8087,8 +8175,18 @@ task v4_ty_match_doctrine_generic_arg_env(ty_id: int, sig_id: int, wanted_ty: wo
     give back v4_ty_generic_env_fail
 }
 
+task v4_ty_copy_doctrine_cache_sync_restore_generation() -> void {
+    pilot generation = v4_session_semantic_restore_generation()
+    if v4_ty_copy_doctrine_cache_restore_generation_value != generation {
+        v4_ty_copy_doctrine_cache_entry_count_value = 0
+        v4_ty_copy_doctrine_cache_next_row_value = 0
+        v4_ty_copy_doctrine_cache_restore_generation_value = generation
+    }
+}
+
 task v4_ty_copy_doctrine_cache_lookup(ty_id: int, sig_id: int, actual_ty: word) -> word {
     v4_ty_init()
+    v4_ty_copy_doctrine_cache_sync_restore_generation()
     pilot row = 0
     repeat until row >= v4_ty_copy_doctrine_cache_entry_count_value {
         pilot cached_type: word = array_get(v4_ty_copy_doctrine_cache_types, row)
@@ -8103,6 +8201,7 @@ task v4_ty_copy_doctrine_cache_lookup(ty_id: int, sig_id: int, actual_ty: word) 
 
 task v4_ty_copy_doctrine_cache_store(ty_id: int, sig_id: int, actual_ty: word, match_result: word) -> void {
     v4_ty_init()
+    v4_ty_copy_doctrine_cache_sync_restore_generation()
     pilot encoded = match_result
     if encoded == "" { encoded = "#ok" }
     pilot row = v4_ty_copy_doctrine_cache_entry_count_value
@@ -8132,9 +8231,11 @@ task v4_ty_copy_doctrine_cache_reset() -> void {
     v4_ty_init()
     v4_ty_copy_doctrine_cache_entry_count_value = 0
     v4_ty_copy_doctrine_cache_next_row_value = 0
+    v4_ty_copy_doctrine_cache_restore_generation_value = v4_session_semantic_restore_generation()
 }
 
 task v4_ty_copy_doctrine_cache_count() -> int {
+    v4_ty_copy_doctrine_cache_sync_restore_generation()
     give back v4_ty_copy_doctrine_cache_entry_count_value
 }
 
@@ -12945,6 +13046,7 @@ task v4_ty_restore_file_slot(ty_id: int, file_id: int, resolve_id: int) -> int {
     if ty_id < 0 {
         give back 0 - 1
     }
+    v4_session_semantic_restore_generation_advance()
     v4_ty_copy_doctrine_cache_reset()
     v4_ty_borrowed_return_source_cache_invalidate_file(ty_id)
     repeat until array_len(v4_ty_files) > ty_id {
@@ -12967,6 +13069,7 @@ task v4_ty_restore_signature_slot(ty_id: int, sig_id: int, def_id: word, sig_kin
     if sig_id < 0 {
         give back 0
     }
+    v4_session_semantic_restore_generation_advance()
     v4_ty_copy_doctrine_cache_reset()
     v4_ty_borrowed_return_source_cache_invalidate_signature(ty_id, sig_id)
     if v4_ty_child_handle_ensure_slot(v4_ty_defs_handle(ty_id), sig_id, "") == false {

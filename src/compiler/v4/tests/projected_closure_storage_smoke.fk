@@ -1,15 +1,28 @@
 -- V4 projected closure reaching-definition and overwrite fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_projected_closure_braces(content: word) -> word {
+    give back "{" + content + "}"
+}
+
 task v4_projected_closure_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
+    src = src + "shape ReaderBox {\n"
+    src = src + "    reader: closure[Callable,borrow]()->unknown\n"
+    src = src + "}\n"
     src = src + "task empty_wrap<C>(value: C) -> [C;0] {\n"
     src = src + "    give back []\n"
     src = src + "}\n"
+    src = src + "task nested_empty_wrap<C>(value: C) -> ([C;0],int) {\n"
+    src = src + "    give back ([], 0)\n"
+    src = src + "}\n"
     src = src + "task list_wrap<C>(value: C) -> List<C> {\n"
     src = src + "    give back [value]\n"
+    src = src + "}\n"
+    src = src + "task box(value: closure[Callable,borrow]()->unknown) -> ReaderBox {\n"
+    src = src + "    give back ReaderBox " + v4_projected_closure_braces(" reader: value ") + "\n"
     src = src + "}\n"
     src = src + "task projected_closure_use_storage_rejected(first: Ship) -> int {\n"
     src = src + "    pilot holder = (lend mut first, 0)\n"
@@ -38,12 +51,28 @@ task v4_projected_closure_source() -> word {
     src = src + "    first.hp = 32\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "task nested_zero_length_closure_call_clean(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot empty = nested_empty_wrap(reader)\n"
+    src = src + "    first.hp = 34\n"
+    src = src + "    give back empty.1\n"
+    src = src + "}\n"
     src = src + "task dynamic_closure_call_storage_rejected(first: Ship) -> int {\n"
     src = src + "    pilot holder = (lend mut first, 0)\n"
     src = src + "    pilot reader = |_| => holder.0.hp\n"
     src = src + "    pilot readers = list_wrap(reader)\n"
     src = src + "    pilot extracted = readers[0]\n"
     src = src + "    first.hp = 33\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task nominal_closure_call_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot boxed = box(reader)\n"
+    src = src + "    pilot readers = [boxed]\n"
+    src = src + "    pilot extracted = readers[0].reader\n"
+    src = src + "    first.hp = 35\n"
     src = src + "    give back extracted()\n"
     src = src + "}\n"
     give back src
@@ -87,5 +116,8 @@ say "projected-closure-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_cou
 say "projected-closure-use-storage-rejected=" + v4_projected_closure_status(v4_projected_closure_borrow, "projected_closure_use_storage_rejected")
 say "projected-closure-overwrite-storage-clean=" + v4_projected_closure_status(v4_projected_closure_borrow, "projected_closure_overwrite_storage_clean")
 say "projected-closure-zero-length-call-clean=" + v4_projected_closure_status(v4_projected_closure_borrow, "zero_length_closure_call_clean")
+say "projected-closure-nested-zero-length-call-clean=" + v4_projected_closure_status(v4_projected_closure_borrow, "nested_zero_length_closure_call_clean")
 say "projected-closure-dynamic-call-storage-rejected=" + v4_projected_closure_status(v4_projected_closure_borrow, "dynamic_closure_call_storage_rejected")
+say "projected-closure-nominal-call-storage-rejected=" + v4_projected_closure_status(v4_projected_closure_borrow, "nominal_closure_call_storage_rejected")
 say "projected-closure-dynamic-storage-diagnostics=" + word_from_int(v4_projected_closure_borrow_diag_count(v4_projected_closure_borrow, "Meiya cannot store a loan-capturing closure inside dynamic storage yet"))
+say "projected-closure-fixed-storage-diagnostics=" + word_from_int(v4_projected_closure_borrow_diag_count(v4_projected_closure_borrow, "Meiya cannot store a loan-capturing closure inside fixed aggregate storage yet"))

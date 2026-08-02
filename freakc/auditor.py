@@ -2642,6 +2642,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_borrowck_rvalue_resolves_lend_source",
             "v4_borrowck_rvalue_returns_holder",
             "v4_ty_type_is_structurally_copy",
+            "v4_ty_type_retains_closure_storage",
+            "task v4_borrowck_copy_cache_sync_restore_generation(",
             "task v4_borrowck_repeat_direct_slot_index(",
             "task v4_borrowck_repeat_slots_rebound_in_block(",
             "v4_borrowck_holder_state",
@@ -3077,6 +3079,26 @@ def audit_conformance(paths: List[Path]) -> int:
                 "aggregate-edge-call-projection-relation-limit=",
                 "v4_ty_type_stores_lend(",
                 "Meiya cannot substitute a lend-bearing type for a generic call yet",
+            ),
+        ),
+        (
+            v4_tests_return / "projected_closure_storage_smoke.fk",
+            (
+                "shape ReaderBox",
+                "reader: closure[Callable,borrow]()->unknown",
+                "task nested_empty_wrap<C>(value: C) -> ([C;0],int)",
+                "task nominal_closure_call_storage_rejected(first: Ship)",
+                "projected-closure-nested-zero-length-call-clean=",
+                "projected-closure-nominal-call-storage-rejected=",
+                "projected-closure-fixed-storage-diagnostics=",
+            ),
+        ),
+        (
+            v4_tests_return / "copy_doctrine_storage_smoke.fk",
+            (
+                "v4_session_semantic_restore_generation()",
+                "copy-doctrine-parse-restore-cache-reset=",
+                "copy-doctrine-hir-restore-cache-reset=",
             ),
         ),
         (

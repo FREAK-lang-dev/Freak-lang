@@ -117,6 +117,7 @@ pilot v4_borrowck_copy_cache_limit_value = 128
 pilot v4_borrowck_copy_cache_entry_count_value = 0
 pilot v4_borrowck_copy_cache_cursor = 0
 pilot v4_borrowck_copy_cache_evictions = 0
+pilot v4_borrowck_copy_cache_restore_generation_value = 0
 pilot v4_borrowck_call_projection_relation_limit_value = 1024
 pilot v4_borrowck_repeat_projection_scan_limit_value = 1024
 pilot v4_borrowck_ready = 0
@@ -435,8 +436,18 @@ task v4_borrowck_rhs_needs_move(rhs: word) -> bool {
     give back true
 }
 
+task v4_borrowck_copy_cache_sync_restore_generation() -> void {
+    pilot generation = v4_session_semantic_restore_generation()
+    if v4_borrowck_copy_cache_restore_generation_value != generation {
+        v4_borrowck_copy_cache_entry_count_value = 0
+        v4_borrowck_copy_cache_cursor = 0
+        v4_borrowck_copy_cache_restore_generation_value = generation
+    }
+}
+
 task v4_borrowck_copy_cache_lookup(mir_id: int, sig_id: int, ty_name: word) -> word {
     v4_borrowck_init()
+    v4_borrowck_copy_cache_sync_restore_generation()
     pilot cache_id = 0
     repeat until cache_id >= v4_borrowck_copy_cache_entry_count_value {
         pilot cached_type: word = array_get(v4_borrowck_copy_cache_types, cache_id)
@@ -451,6 +462,7 @@ task v4_borrowck_copy_cache_lookup(mir_id: int, sig_id: int, ty_name: word) -> w
 
 task v4_borrowck_copy_cache_store(mir_id: int, sig_id: int, ty_name: word, is_copy: bool) -> void {
     v4_borrowck_init()
+    v4_borrowck_copy_cache_sync_restore_generation()
     pilot encoded = "false"
     if is_copy { encoded = "true" }
     if v4_borrowck_copy_cache_entry_count_value < v4_borrowck_copy_cache_limit_value {
@@ -484,10 +496,12 @@ task v4_borrowck_copy_cache_reset() -> void {
     v4_borrowck_init()
     v4_borrowck_copy_cache_entry_count_value = 0
     v4_borrowck_copy_cache_cursor = 0
+    v4_borrowck_copy_cache_restore_generation_value = v4_session_semantic_restore_generation()
 }
 
 task v4_borrowck_copy_cache_count() -> int {
     v4_borrowck_init()
+    v4_borrowck_copy_cache_sync_restore_generation()
     give back v4_borrowck_copy_cache_entry_count_value
 }
 
@@ -3067,7 +3081,7 @@ task v4_borrowck_check_dynamic_lend_storage(borrow_id: int, result_id: int, mir_
         pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
         pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
         pilot dynamic_value: bool = v4_borrowck_rvalue_is_dynamic_lend_storage_kind(kind)
-        pilot dynamic_call: bool = kind == v4_mir_rvalue_call and result_ty.contains("closure[") and v4_borrowck_type_is_dynamic_lend_storage(result_ty)
+        pilot dynamic_call: bool = kind == v4_mir_rvalue_call and v4_borrowck_type_is_dynamic_lend_storage(result_ty) and v4_ty_type_retains_closure_storage(v4_mir_ty_id(mir_id), result_ty)
         if dynamic_value or dynamic_call {
             pilot stores_lend = v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), result_ty)
             pilot hidden_closure_lend = false
@@ -3130,7 +3144,7 @@ task v4_borrowck_check_fixed_hidden_closure_storage(borrow_id: int, result_id: i
         pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
         pilot aggregate_value: bool = v4_borrowck_rvalue_is_fixed_aggregate_storage_kind(kind)
         pilot result_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
-        pilot aggregate_call: bool = kind == v4_mir_rvalue_call and result_ty.contains("closure[") and v4_borrowck_ty_is_fixed_aggregate(mir_id, result_ty) and v4_borrowck_type_retains_aggregate_children(mir_id, result_ty)
+        pilot aggregate_call: bool = kind == v4_mir_rvalue_call and v4_borrowck_ty_is_fixed_aggregate(mir_id, result_ty) and v4_ty_type_retains_closure_storage(v4_mir_ty_id(mir_id), result_ty)
         if (aggregate_value and v4_borrowck_rvalue_retains_aggregate_children(mir_id, body_id, rvalue_id)) or aggregate_call {
             pilot hidden_closure_lend = false
             pilot child_id = 0
