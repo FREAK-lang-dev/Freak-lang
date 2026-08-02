@@ -3624,18 +3624,22 @@ task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, 
                         give back ""
                     }
                     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-                    if kind != v4_mir_rvalue_lend and kind != v4_mir_rvalue_lend_mut {
+                    pilot candidate = ""
+                    if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
+                        candidate = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) + suffix
+                    } else if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+                        pilot source_rvalue = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+                        if source_rvalue < 0 {
+                            give back ""
+                        }
+                        pilot source_kind = v4_mir_rvalue_kind(mir_id, body_id, source_rvalue)
+                        if source_kind != v4_mir_rvalue_use_local and source_kind != v4_mir_rvalue_use_place {
+                            give back ""
+                        }
+                        candidate = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, source_rvalue)) + suffix
+                    } else {
                         give back ""
                     }
-                    pilot source_rvalue = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
-                    if source_rvalue < 0 {
-                        give back ""
-                    }
-                    pilot source_kind = v4_mir_rvalue_kind(mir_id, body_id, source_rvalue)
-                    if source_kind != v4_mir_rvalue_use_local and source_kind != v4_mir_rvalue_use_place {
-                        give back ""
-                    }
-                    pilot candidate = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, source_rvalue)) + suffix
                     if not found {
                         resolved = candidate
                         found = true

@@ -16,6 +16,14 @@ task v4_conditional_alias_source() -> word {
     src = src + "    third.hp = 88\n"
     src = src + "    give back left.0.hp + right.0.hp\n"
     src = src + "}\n"
+    src = src + "task transferred_alias_target(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot access = lend mut holder\n"
+    src = src + "    pilot forwarded = access\n"
+    src = src + "    forwarded.0 = lend mut second\n"
+    src = src + "    second.hp = 89\n"
+    src = src + "    give back holder.0.hp\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -27,9 +35,12 @@ pilot v4_conditional_alias_hir = v4_resolve_hir_id(v4_conditional_alias_resolve)
 pilot v4_conditional_alias_tree = v4_hir_tree_id(v4_conditional_alias_hir)
 pilot v4_conditional_alias_def = v4_resolve_def_for_name(v4_conditional_alias_resolve, "conditional_alias_targets")
 pilot v4_conditional_alias_result = v4_borrowck_lookup_result(v4_conditional_alias_borrow, v4_conditional_alias_def)
+pilot v4_transferred_alias_def = v4_resolve_def_for_name(v4_conditional_alias_resolve, "transferred_alias_target")
+pilot v4_transferred_alias_result = v4_borrowck_lookup_result(v4_conditional_alias_borrow, v4_transferred_alias_def)
 
 say "conditional-alias-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_conditional_alias_tree))
 say "conditional-alias-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_conditional_alias_ty))
 say "conditional-alias-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_conditional_alias_mir))
 say "conditional-alias-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_conditional_alias_borrow))
 say "conditional-alias-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_conditional_alias_result)
+say "transferred-alias-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_transferred_alias_result)

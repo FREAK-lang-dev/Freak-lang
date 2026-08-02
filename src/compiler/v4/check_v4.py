@@ -3157,8 +3157,9 @@ EXECUTABLE_SMOKES = [
             "conditional-alias-parse-diagnostics=0",
             "conditional-alias-ty-diagnostics=0",
             "conditional-alias-mir-diagnostics=0",
-            "conditional-alias-borrow-diagnostics=1",
+            "conditional-alias-borrow-diagnostics=2",
             "conditional-alias-status=blocked",
+            "transferred-alias-status=blocked",
         ],
     },
     {

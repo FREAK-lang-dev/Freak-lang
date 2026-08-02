@@ -3141,8 +3141,11 @@ def audit_conformance(paths: List[Path]) -> int:
                 "task conditional_alias_targets(first: Ship, second: Ship, third: Ship, choose_right: bool)",
                 "access = lend mut right",
                 "access.0 = lend mut third",
+                "pilot forwarded = access",
+                "forwarded.0 = lend mut second",
                 "conditional-alias-borrow-diagnostics=",
                 "conditional-alias-status=",
+                "transferred-alias-status=",
             ),
         ),
         (
@@ -3929,8 +3932,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "conditional-alias-parse-diagnostics=0",
             "conditional-alias-ty-diagnostics=0",
             "conditional-alias-mir-diagnostics=0",
-            "conditional-alias-borrow-diagnostics=1",
+            "conditional-alias-borrow-diagnostics=2",
             "conditional-alias-status=blocked",
+            "transferred-alias-status=blocked",
         ),
         "contract_region_fixed_aggregate_query_smoke.fk": (
             "fixed-aggregate-query-byte-length-stable=true",
