@@ -55,3 +55,7 @@ say "copy-doctrine-nominal-copy-eligible=" + v4_copy_doctrine_bool(v4_ty_type_is
 say "copy-doctrine-linear-copy-eligible=" + v4_copy_doctrine_bool(v4_ty_type_is_doctrinal_copy_eligible(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "NominalLinearCopy", "", 0))
 say "copy-doctrine-nominal-transfer-copy=" + v4_copy_doctrine_bool(v4_borrowck_ty_is_copy(v4_copy_doctrine_mir, v4_copy_doctrine_body, "NominalCopy"))
 say "copy-doctrine-linear-transfer-copy=" + v4_copy_doctrine_bool(v4_borrowck_ty_is_copy(v4_copy_doctrine_mir, v4_copy_doctrine_body, "NominalLinearCopy"))
+say "copy-doctrine-cache-limit=" + word_from_int(v4_borrowck_copy_cache_limit())
+say "copy-doctrine-cache-bounded=" + v4_copy_doctrine_bool(v4_borrowck_copy_cache_count() <= v4_borrowck_copy_cache_limit())
+say "copy-doctrine-ty-cache-capacity=" + word_from_int(v4_ty_copy_doctrine_cache_capacity())
+say "copy-doctrine-ty-cache-bounded=" + v4_copy_doctrine_bool(v4_ty_copy_doctrine_cache_count() <= v4_ty_copy_doctrine_cache_capacity())

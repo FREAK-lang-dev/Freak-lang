@@ -3412,6 +3412,10 @@ EXECUTABLE_SMOKES = [
             "copy-doctrine-linear-copy-eligible=false",
             "copy-doctrine-nominal-transfer-copy=true",
             "copy-doctrine-linear-transfer-copy=false",
+            "copy-doctrine-cache-limit=128",
+            "copy-doctrine-cache-bounded=true",
+            "copy-doctrine-ty-cache-capacity=128",
+            "copy-doctrine-ty-cache-bounded=true",
         ],
     },
     {

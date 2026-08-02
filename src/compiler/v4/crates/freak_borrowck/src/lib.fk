@@ -109,6 +109,14 @@ pilot v4_borrowck_path_canon_cache_cursor = 0
 pilot v4_borrowck_path_canon_cache_evictions = 0
 pilot v4_borrowck_path_canon_value_cache_cursor = 0
 pilot v4_borrowck_path_canon_value_cache_evictions = 0
+pilot v4_borrowck_copy_cache_mir_ids = 0
+pilot v4_borrowck_copy_cache_sig_ids = 0
+pilot v4_borrowck_copy_cache_types = 0
+pilot v4_borrowck_copy_cache_values = 0
+pilot v4_borrowck_copy_cache_limit_value = 128
+pilot v4_borrowck_copy_cache_entry_count_value = 0
+pilot v4_borrowck_copy_cache_cursor = 0
+pilot v4_borrowck_copy_cache_evictions = 0
 pilot v4_borrowck_call_projection_relation_limit_value = 1024
 pilot v4_borrowck_repeat_projection_scan_limit_value = 1024
 pilot v4_borrowck_ready = 0
@@ -160,12 +168,18 @@ task v4_borrowck_init() -> void {
         v4_borrowck_path_canon_inputs = array_new()
         v4_borrowck_path_canon_outputs = array_new()
         v4_borrowck_path_canon_values = array_new()
+        v4_borrowck_copy_cache_mir_ids = array_new()
+        v4_borrowck_copy_cache_sig_ids = array_new()
+        v4_borrowck_copy_cache_types = array_new()
+        v4_borrowck_copy_cache_values = array_new()
         v4_borrowck_ready = 1
     }
 }
 
 task v4_borrowck_file_new(file_id: int, mir_id: int) -> int {
     v4_borrowck_init()
+    v4_borrowck_copy_cache_entry_count_value = 0
+    v4_borrowck_copy_cache_cursor = 0
     pilot borrow_id = array_len(v4_borrowck_files)
     array_push(v4_borrowck_files, word_from_int(file_id))
     array_push(v4_borrowck_mirs, word_from_int(mir_id))
@@ -422,12 +436,81 @@ task v4_borrowck_rhs_needs_move(rhs: word) -> bool {
     give back true
 }
 
+task v4_borrowck_copy_cache_lookup(mir_id: int, sig_id: int, ty_name: word) -> word {
+    v4_borrowck_init()
+    pilot cache_id = 0
+    repeat until cache_id >= v4_borrowck_copy_cache_entry_count_value {
+        pilot cached_type: word = array_get(v4_borrowck_copy_cache_types, cache_id)
+        if word_to_int(array_get(v4_borrowck_copy_cache_mir_ids, cache_id)) == mir_id and word_to_int(array_get(v4_borrowck_copy_cache_sig_ids, cache_id)) == sig_id and cached_type == ty_name {
+            pilot cached_value: word = array_get(v4_borrowck_copy_cache_values, cache_id)
+            give back cached_value
+        }
+        cache_id += 1
+    }
+    give back ""
+}
+
+task v4_borrowck_copy_cache_store(mir_id: int, sig_id: int, ty_name: word, is_copy: bool) -> void {
+    v4_borrowck_init()
+    pilot encoded = "false"
+    if is_copy { encoded = "true" }
+    if v4_borrowck_copy_cache_entry_count_value < v4_borrowck_copy_cache_limit_value {
+        pilot row = v4_borrowck_copy_cache_entry_count_value
+        v4_borrowck_copy_cache_entry_count_value += 1
+        if row < array_len(v4_borrowck_copy_cache_types) {
+            array_set(v4_borrowck_copy_cache_mir_ids, row, word_from_int(mir_id))
+            array_set(v4_borrowck_copy_cache_sig_ids, row, word_from_int(sig_id))
+            array_set(v4_borrowck_copy_cache_types, row, ty_name)
+            array_set(v4_borrowck_copy_cache_values, row, encoded)
+        } else {
+            array_push(v4_borrowck_copy_cache_mir_ids, word_from_int(mir_id))
+            array_push(v4_borrowck_copy_cache_sig_ids, word_from_int(sig_id))
+            array_push(v4_borrowck_copy_cache_types, ty_name)
+            array_push(v4_borrowck_copy_cache_values, encoded)
+        }
+        give back
+    }
+    array_set(v4_borrowck_copy_cache_mir_ids, v4_borrowck_copy_cache_cursor, word_from_int(mir_id))
+    array_set(v4_borrowck_copy_cache_sig_ids, v4_borrowck_copy_cache_cursor, word_from_int(sig_id))
+    array_set(v4_borrowck_copy_cache_types, v4_borrowck_copy_cache_cursor, ty_name)
+    array_set(v4_borrowck_copy_cache_values, v4_borrowck_copy_cache_cursor, encoded)
+    v4_borrowck_copy_cache_cursor += 1
+    if v4_borrowck_copy_cache_cursor >= v4_borrowck_copy_cache_limit_value {
+        v4_borrowck_copy_cache_cursor = 0
+    }
+    v4_borrowck_copy_cache_evictions += 1
+}
+
+task v4_borrowck_copy_cache_count() -> int {
+    v4_borrowck_init()
+    give back v4_borrowck_copy_cache_entry_count_value
+}
+
+task v4_borrowck_copy_cache_limit() -> int {
+    give back v4_borrowck_copy_cache_limit_value
+}
+
+task v4_borrowck_copy_cache_eviction_count() -> int {
+    give back v4_borrowck_copy_cache_evictions
+}
+
 task v4_borrowck_ty_is_copy(mir_id: int, body_id: int, ty_name: word) -> bool {
     pilot ty_id = v4_mir_ty_id(mir_id)
-    if v4_ty_type_is_structurally_copy(ty_id, ty_name, 0) {
-        give back true
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot cache_sig_id = sig_id
+    if not v4_ty_type_mentions_signature_generics(ty_id, sig_id, ty_name) {
+        cache_sig_id = 0 - 1
     }
-    give back v4_ty_type_satisfies_repeat_doctrine(ty_id, v4_mir_body_signature_id(mir_id, body_id), ty_name, "Copy")
+    pilot cached = v4_borrowck_copy_cache_lookup(mir_id, cache_sig_id, ty_name)
+    if cached != "" {
+        give back cached == "true"
+    }
+    pilot is_copy = v4_ty_type_is_structurally_copy(ty_id, ty_name, 0)
+    if not is_copy {
+        is_copy = v4_ty_type_satisfies_repeat_doctrine(ty_id, sig_id, ty_name, "Copy")
+    }
+    v4_borrowck_copy_cache_store(mir_id, cache_sig_id, ty_name, is_copy)
+    give back is_copy
 }
 
 task v4_borrowck_rvalue_transfer_kind(mir_id: int, body_id: int, rvalue_id: int) -> word {
