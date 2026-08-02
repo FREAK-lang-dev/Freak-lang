@@ -113,8 +113,7 @@ task v4_ty_init() -> void {
 
 task v4_ty_file_new(file_id: int, resolve_id: int) -> int {
     v4_ty_init()
-    v4_ty_copy_doctrine_cache_entry_count_value = 0
-    v4_ty_copy_doctrine_cache_next_row_value = 0
+    v4_ty_copy_doctrine_cache_reset()
     pilot ty_id = v4_ty_file_active_count_value
     if ty_id < array_len(v4_ty_files) {
         v4_ty_borrowed_return_source_cache_invalidate_file(ty_id)
@@ -1309,54 +1308,8 @@ task v4_ty_type_is_doctrinal_copy_eligible(ty_id: int, sig_id: int, type_text: w
     if v4_ty_match_type_satisfies_doctrine_env(ty_id, sig_id, storage_type, "Copy", "") == v4_ty_generic_env_fail {
         give back false
     }
-
-    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, storage_type)
-    if shape_sig >= 0 {
-        pilot shape_key = "copy-shape:" + storage_type
-        if v4_ty_alias_cycle_seen_contains(seen_types, shape_key) {
-            give back false
-        }
-        pilot shape_seen = v4_ty_alias_cycle_seen_append(seen_types, shape_key)
-        pilot field_id = 0
-        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
-        repeat until field_id >= field_count {
-            pilot field_type = v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id)
-            field_type = v4_ty_apply_signature_generics(ty_id, shape_sig, storage_type, field_type)
-            if not v4_ty_type_is_doctrinal_copy_eligible(ty_id, sig_id, field_type, shape_seen, depth + 1) {
-                give back false
-            }
-            field_id += 1
-        }
-        give back true
-    }
-
-    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, storage_type)
-    if route_sig >= 0 {
-        pilot route_key = "copy-route:" + storage_type
-        if v4_ty_alias_cycle_seen_contains(seen_types, route_key) {
-            give back false
-        }
-        pilot route_seen = v4_ty_alias_cycle_seen_append(seen_types, route_key)
-        pilot case_id = 0
-        pilot case_count = v4_ty_route_case_count(ty_id, route_sig)
-        repeat until case_id >= case_count {
-            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
-            pilot field_id = 0
-            pilot field_count = v4_ty_route_case_field_count(ty_id, storage_type, case_name)
-            repeat until field_id >= field_count {
-                pilot field_type = v4_ty_route_case_field_surface_type(ty_id, storage_type, case_name, field_id)
-                field_type = v4_ty_apply_signature_generics(ty_id, route_sig, storage_type, field_type)
-                if not v4_ty_type_is_doctrinal_copy_eligible(ty_id, sig_id, field_type, route_seen, depth + 1) {
-                    give back false
-                }
-                field_id += 1
-            }
-            case_id += 1
-        }
-        give back true
-    }
-
-    give back false
+    -- Concrete Copy impl matching validates every nominal field before succeeding.
+    give back true
 }
 
 task v4_ty_type_satisfies_repeat_doctrine(ty_id: int, sig_id: int, type_text: word, doctrine_name: word) -> bool {
@@ -7792,12 +7745,75 @@ task v4_ty_copy_doctrine_cache_store(ty_id: int, sig_id: int, actual_ty: word, m
     }
 }
 
+task v4_ty_copy_doctrine_cache_reset() -> void {
+    v4_ty_init()
+    v4_ty_copy_doctrine_cache_entry_count_value = 0
+    v4_ty_copy_doctrine_cache_next_row_value = 0
+}
+
 task v4_ty_copy_doctrine_cache_count() -> int {
     give back v4_ty_copy_doctrine_cache_entry_count_value
 }
 
 task v4_ty_copy_doctrine_cache_capacity() -> int {
     give back v4_ty_copy_doctrine_cache_capacity_value
+}
+
+task v4_ty_copy_impl_storage_is_eligible(ty_id: int, sig_id: int, type_text: word, seen_types: word, depth: int) -> bool {
+    if depth > v4_ty_lend_storage_depth_limit or not v4_ty_is_known(type_text) {
+        give back false
+    }
+    if v4_ty_type_is_structurally_copy(ty_id, type_text, depth) {
+        give back true
+    }
+
+    pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
+    if storage_type == "" or storage_type == v4_ty_unknown {
+        storage_type = type_text
+    }
+
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, storage_type)
+    if shape_sig >= 0 {
+        pilot shape_key = "copy-impl-shape:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, shape_key) { give back false }
+        pilot shape_seen = v4_ty_alias_cycle_seen_append(seen_types, shape_key)
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            pilot field_type = v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id)
+            field_type = v4_ty_apply_signature_generics(ty_id, shape_sig, storage_type, field_type)
+            if not v4_ty_type_is_doctrinal_copy_eligible(ty_id, sig_id, field_type, shape_seen, depth + 1) {
+                give back false
+            }
+            field_id += 1
+        }
+        give back true
+    }
+
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, storage_type)
+    if route_sig >= 0 {
+        pilot route_key = "copy-impl-route:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, route_key) { give back false }
+        pilot route_seen = v4_ty_alias_cycle_seen_append(seen_types, route_key)
+        pilot case_id = 0
+        pilot case_count = v4_ty_route_case_count(ty_id, route_sig)
+        repeat until case_id >= case_count {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field_id = 0
+            pilot field_count = v4_ty_route_case_field_count(ty_id, storage_type, case_name)
+            repeat until field_id >= field_count {
+                pilot field_type = v4_ty_route_case_field_surface_type(ty_id, storage_type, case_name, field_id)
+                field_type = v4_ty_apply_signature_generics(ty_id, route_sig, storage_type, field_type)
+                if not v4_ty_type_is_doctrinal_copy_eligible(ty_id, sig_id, field_type, route_seen, depth + 1) {
+                    give back false
+                }
+                field_id += 1
+            }
+            case_id += 1
+        }
+        give back true
+    }
+    give back false
 }
 
 task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {
@@ -7826,7 +7842,9 @@ task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, a
                         pilot impl_doctrine = v4_ty_apply_impl_generics(ty_id, hir_item, actual_ty, v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item))
                         pilot next_env = v4_ty_match_doctrine_ref_env(ty_id, sig_id, wanted_doctrine, impl_doctrine, env)
                         if next_env != v4_ty_generic_env_fail {
-                            give back next_env
+                            if wanted_lookup != "Copy" or v4_ty_copy_impl_storage_is_eligible(ty_id, sig_id, actual_ty, "", 0) {
+                                give back next_env
+                            }
                         }
                     }
                 }
@@ -7917,7 +7935,9 @@ task v4_ty_match_type_satisfies_doctrine_env_with_bounds(ty_id: int, doctrine_si
                         pilot impl_doctrine = v4_ty_apply_impl_generics(ty_id, hir_item, actual_ty, v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item))
                         pilot next_env = v4_ty_match_doctrine_ref_env(ty_id, doctrine_sig_id, wanted_doctrine, impl_doctrine, env)
                         if next_env != v4_ty_generic_env_fail {
-                            give back next_env
+                            if wanted_lookup != "Copy" or v4_ty_copy_impl_storage_is_eligible(ty_id, doctrine_sig_id, actual_ty, "", 0) {
+                                give back next_env
+                            }
                         }
                     }
                 }
@@ -12225,6 +12245,7 @@ task v4_ty_restore_file_slot(ty_id: int, file_id: int, resolve_id: int) -> int {
     if ty_id < 0 {
         give back 0 - 1
     }
+    v4_ty_copy_doctrine_cache_reset()
     v4_ty_borrowed_return_source_cache_invalidate_file(ty_id)
     repeat until array_len(v4_ty_files) > ty_id {
         v4_ty_file_new(0, 0)
@@ -12246,6 +12267,7 @@ task v4_ty_restore_signature_slot(ty_id: int, sig_id: int, def_id: word, sig_kin
     if sig_id < 0 {
         give back 0
     }
+    v4_ty_copy_doctrine_cache_reset()
     v4_ty_borrowed_return_source_cache_invalidate_signature(ty_id, sig_id)
     if v4_ty_child_handle_ensure_slot(v4_ty_defs_handle(ty_id), sig_id, "") == false {
         give back 0
@@ -12415,6 +12437,7 @@ task v4_ty_snapshot_restore(payload: word) -> word {
             inactive_ty_id += 1
         }
         v4_ty_file_active_count_value = restored_files
+        v4_ty_copy_doctrine_cache_reset()
     } else {
         v4_ty_file_active_count_value = previous_active_files
     }

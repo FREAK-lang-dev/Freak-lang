@@ -3266,7 +3266,8 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "copy-doctrine-parse-diagnostics=0",
             "copy-doctrine-ty-diagnostics=0",
-            "copy-doctrine-mir-diagnostics=0",
+            "copy-doctrine-mir-diagnostics=1",
+            "copy-doctrine-generic-bound-rejected=true",
             "copy-doctrine-linear-field=Owned",
             "copy-doctrine-owned-match=false",
             "copy-doctrine-nominal-copy-eligible=true",
@@ -3277,6 +3278,8 @@ EXECUTABLE_SMOKES = [
             "copy-doctrine-cache-bounded=true",
             "copy-doctrine-ty-cache-capacity=128",
             "copy-doctrine-ty-cache-bounded=true",
+            "copy-doctrine-ty-restore-cache-reset=true",
+            "copy-doctrine-borrow-restore-cache-reset=true",
         ],
     },
     {
