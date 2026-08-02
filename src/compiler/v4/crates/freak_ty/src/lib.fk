@@ -77,6 +77,13 @@ pilot v4_ty_borrowed_return_source_cache_payloads = 0
 pilot v4_ty_borrowed_return_source_cache_entry_count_value = 0
 pilot v4_ty_borrowed_return_source_cache_next_row_value = 0
 pilot v4_ty_borrowed_return_source_cache_builds_value = 0
+pilot v4_ty_copy_doctrine_cache_ty_ids = 0
+pilot v4_ty_copy_doctrine_cache_sig_ids = 0
+pilot v4_ty_copy_doctrine_cache_types = 0
+pilot v4_ty_copy_doctrine_cache_values = 0
+pilot v4_ty_copy_doctrine_cache_entry_count_value = 0
+pilot v4_ty_copy_doctrine_cache_capacity_value = 128
+pilot v4_ty_copy_doctrine_cache_next_row_value = 0
 pilot v4_ty_ready = 0
 
 task v4_ty_init() -> void {
@@ -96,12 +103,18 @@ task v4_ty_init() -> void {
         v4_ty_borrowed_return_source_cache_ty_ids = array_new()
         v4_ty_borrowed_return_source_cache_sig_ids = array_new()
         v4_ty_borrowed_return_source_cache_payloads = array_new()
+        v4_ty_copy_doctrine_cache_ty_ids = array_new()
+        v4_ty_copy_doctrine_cache_sig_ids = array_new()
+        v4_ty_copy_doctrine_cache_types = array_new()
+        v4_ty_copy_doctrine_cache_values = array_new()
         v4_ty_ready = 1
     }
 }
 
 task v4_ty_file_new(file_id: int, resolve_id: int) -> int {
     v4_ty_init()
+    v4_ty_copy_doctrine_cache_entry_count_value = 0
+    v4_ty_copy_doctrine_cache_next_row_value = 0
     pilot ty_id = v4_ty_file_active_count_value
     if ty_id < array_len(v4_ty_files) {
         v4_ty_borrowed_return_source_cache_invalidate_file(ty_id)
@@ -7738,7 +7751,56 @@ task v4_ty_match_doctrine_generic_arg_env(ty_id: int, sig_id: int, wanted_ty: wo
     give back v4_ty_generic_env_fail
 }
 
-task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {
+task v4_ty_copy_doctrine_cache_lookup(ty_id: int, sig_id: int, actual_ty: word) -> word {
+    v4_ty_init()
+    pilot row = 0
+    repeat until row >= v4_ty_copy_doctrine_cache_entry_count_value {
+        pilot cached_type: word = array_get(v4_ty_copy_doctrine_cache_types, row)
+        if word_to_int(array_get(v4_ty_copy_doctrine_cache_ty_ids, row)) == ty_id and word_to_int(array_get(v4_ty_copy_doctrine_cache_sig_ids, row)) == sig_id and cached_type == actual_ty {
+            pilot cached_value: word = array_get(v4_ty_copy_doctrine_cache_values, row)
+            give back cached_value
+        }
+        row += 1
+    }
+    give back ""
+}
+
+task v4_ty_copy_doctrine_cache_store(ty_id: int, sig_id: int, actual_ty: word, match_result: word) -> void {
+    v4_ty_init()
+    pilot encoded = match_result
+    if encoded == "" { encoded = "#ok" }
+    pilot row = v4_ty_copy_doctrine_cache_entry_count_value
+    if row >= v4_ty_copy_doctrine_cache_capacity_value {
+        row = v4_ty_copy_doctrine_cache_next_row_value
+        v4_ty_copy_doctrine_cache_next_row_value += 1
+        if v4_ty_copy_doctrine_cache_next_row_value >= v4_ty_copy_doctrine_cache_capacity_value {
+            v4_ty_copy_doctrine_cache_next_row_value = 0
+        }
+    } else {
+        v4_ty_copy_doctrine_cache_entry_count_value += 1
+    }
+    if row < array_len(v4_ty_copy_doctrine_cache_types) {
+        array_set(v4_ty_copy_doctrine_cache_ty_ids, row, word_from_int(ty_id))
+        array_set(v4_ty_copy_doctrine_cache_sig_ids, row, word_from_int(sig_id))
+        array_set(v4_ty_copy_doctrine_cache_types, row, actual_ty)
+        array_set(v4_ty_copy_doctrine_cache_values, row, encoded)
+    } else {
+        array_push(v4_ty_copy_doctrine_cache_ty_ids, word_from_int(ty_id))
+        array_push(v4_ty_copy_doctrine_cache_sig_ids, word_from_int(sig_id))
+        array_push(v4_ty_copy_doctrine_cache_types, actual_ty)
+        array_push(v4_ty_copy_doctrine_cache_values, encoded)
+    }
+}
+
+task v4_ty_copy_doctrine_cache_count() -> int {
+    give back v4_ty_copy_doctrine_cache_entry_count_value
+}
+
+task v4_ty_copy_doctrine_cache_capacity() -> int {
+    give back v4_ty_copy_doctrine_cache_capacity_value
+}
+
+task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {
     if env == v4_ty_generic_env_fail {
         give back env
     }
@@ -7791,6 +7853,26 @@ task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty:
         bound_idx += 1
     }
     give back v4_ty_generic_env_fail
+}
+
+task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {
+    pilot cacheable: bool = env == "" and doctrine_name == "Copy" and v4_ty_is_known(actual_ty)
+    pilot cache_sig_id = sig_id
+    if cacheable and not v4_ty_type_mentions_signature_generics(ty_id, sig_id, actual_ty) {
+        cache_sig_id = 0 - 1
+    }
+    if cacheable {
+        pilot cached = v4_ty_copy_doctrine_cache_lookup(ty_id, cache_sig_id, actual_ty)
+        if cached != "" {
+            if cached == "#ok" { give back "" }
+            give back cached
+        }
+    }
+    pilot match_result = v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id, sig_id, actual_ty, doctrine_name, env)
+    if cacheable {
+        v4_ty_copy_doctrine_cache_store(ty_id, cache_sig_id, actual_ty, match_result)
+    }
+    give back match_result
 }
 
 task v4_ty_match_type_can_coerce_to_dyn_env(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word, env: word) -> word {
