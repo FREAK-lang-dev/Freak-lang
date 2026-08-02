@@ -115,7 +115,8 @@ pilot v4_borrowck_copy_cache_limit_value = 128
 pilot v4_borrowck_copy_cache_entry_count_value = 0
 pilot v4_borrowck_copy_cache_cursor = 0
 pilot v4_borrowck_copy_cache_evictions = 0
-pilot v4_borrowck_repeat_projection_scan_limit_value = 1024
+pilot v4_borrowck_repeat_projection_scan_limit_value = 4096
+pilot v4_borrowck_repeat_projection_scan_exhausted_value = false
 pilot v4_borrowck_ready = 0
 
 task v4_borrowck_init() -> void {
@@ -3804,7 +3805,7 @@ task v4_borrowck_holder_used_at_or_after_write(mir_id: int, body_id: int, holder
     give back used
 }
 
-task v4_borrowck_repeat_direct_slot_index(base_holder: word, place_text: word) -> int {
+task v4_borrowck_repeat_path_slot_index(base_holder: word, place_text: word) -> int {
     pilot base = v4_borrowck_path_canon(base_holder)
     pilot place = v4_borrowck_path_canon(place_text)
     if base == "" or place.length() <= base.length() + 2 {
@@ -3814,7 +3815,7 @@ task v4_borrowck_repeat_direct_slot_index(base_holder: word, place_text: word) -
         give back 0 - 1
     }
     pilot close_idx = v4_borrowck_path_index_close(place, base.length())
-    if close_idx != place.length() - 1 {
+    if close_idx < 0 {
         give back 0 - 1
     }
     pilot index_text = v4_slice(place, base.length() + 1, close_idx)
@@ -3824,69 +3825,89 @@ task v4_borrowck_repeat_direct_slot_index(base_holder: word, place_text: word) -
     give back word_to_int(index_text)
 }
 
-task v4_borrowck_repeat_slots_rebound_in_block(mir_id: int, body_id: int, loan_stmt: int, loan_text: word, write_stmt: int, base_holder: word, slot_count: int) -> bool {
-    if v4_mir_stmt_block(mir_id, body_id, loan_stmt) != v4_mir_stmt_block(mir_id, body_id, write_stmt) {
-        give back false
+task v4_borrowck_repeat_projection_candidate_contains(candidates: int, slot_id: int) -> bool {
+    pilot candidate_id = 0
+    repeat until candidate_id >= array_len(candidates) {
+        if word_to_int(array_get(candidates, candidate_id)) == slot_id { give back true }
+        candidate_id += 1
+    }
+    give back false
+}
+
+task v4_borrowck_repeat_projection_candidate_add(candidates: int, slot_id: int) -> void {
+    if slot_id >= 0 and not v4_borrowck_repeat_projection_candidate_contains(candidates, slot_id) {
+        array_push(candidates, word_from_int(slot_id))
+    }
+}
+
+-- The -1 sentinel means the body names the whole array or a symbolic slot, so
+-- every projection may participate. Otherwise only concrete paths mentioned by
+-- MIR can create an alias or remain live after the conflicting write.
+task v4_borrowck_repeat_projection_candidates(mir_id: int, body_id: int, loan_stmt: int, base_holder: word, slot_count: int) -> int {
+    pilot candidates = array_new()
+    pilot base = v4_borrowck_path_canon(base_holder)
+    pilot broad = false
+
+    pilot rvalue_id = 0
+    repeat until rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) or broad {
+        pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+        if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
+            pilot path = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
+            if path == base or path.starts_with(base + ".") or path.starts_with(base + "[") {
+                pilot slot_id = v4_borrowck_repeat_path_slot_index(base, path)
+                if slot_id >= 0 and slot_id < slot_count {
+                    v4_borrowck_repeat_projection_candidate_add(candidates, slot_id)
+                } else {
+                    broad = true
+                }
+            }
+        }
+        rvalue_id += 1
     }
 
-    pilot rebound = array_new()
-    pilot slot_id = 0
-    repeat until slot_id >= slot_count {
-        array_push(rebound, "false")
-        slot_id += 1
-    }
-
-    pilot rebound_count = 0
-    pilot cached_replacement_local = ""
-    pilot cached_replacement_provenance = 0 - 1
-    pilot stmt_id = loan_stmt + 1
-    repeat until stmt_id >= write_stmt {
-        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == v4_mir_stmt_block(mir_id, body_id, loan_stmt) {
-            pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
-            if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
-                pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
-                if place_id >= 0 {
-                    pilot place_text = v4_mir_place_text(mir_id, body_id, place_id)
-                    if cached_replacement_local != "" and v4_borrowck_path_write_definitely_covers(place_text, cached_replacement_local) {
-                        cached_replacement_local = ""
-                        cached_replacement_provenance = 0 - 1
-                    }
-                    pilot rebound_slot = v4_borrowck_repeat_direct_slot_index(base_holder, place_text)
-                    pilot rebound_state = ""
-                    if rebound_slot >= 0 and rebound_slot < slot_count { rebound_state = array_get(rebound, rebound_slot) }
-                    if rebound_slot >= 0 and rebound_slot < slot_count and rebound_state != "true" {
-                        pilot replacement = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-                        if replacement >= 0 and v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, replacement)) {
-                            pilot replacement_provenance = 0 - 1
-                            pilot replacement_kind = v4_mir_rvalue_kind(mir_id, body_id, replacement)
-                            pilot replacement_local = ""
-                            if replacement_kind == v4_mir_rvalue_use_local {
-                                replacement_local = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, replacement))
-                            }
-                            if replacement_local != "" and replacement_local == cached_replacement_local {
-                                replacement_provenance = cached_replacement_provenance
-                            } else {
-                                replacement_provenance = v4_borrowck_return_lend_provenance(mir_id, body_id, stmt_id, replacement)
-                                cached_replacement_local = replacement_local
-                                cached_replacement_provenance = replacement_provenance
-                            }
-                            if v4_borrowck_provenance_is_known(replacement_provenance) and not v4_borrowck_provenance_overlaps_path(replacement_provenance, loan_text) {
-                                array_set(rebound, rebound_slot, "true")
-                                rebound_count += 1
-                            }
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) or broad {
+        if stmt_id != loan_stmt {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            if place_id >= 0 {
+                pilot path = v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id))
+                if path == base or path.starts_with(base + ".") or path.starts_with(base + "[") {
+                    pilot slot_id = v4_borrowck_repeat_path_slot_index(base, path)
+                    if slot_id >= 0 and slot_id < slot_count {
+                        -- A direct slot assignment retires provenance but does
+                        -- not make the old value live. Source rvalues already
+                        -- seed aliases, and descendant writes still count.
+                        pilot direct_slot = base + "[" + word_from_int(slot_id) + "]"
+                        if path != direct_slot {
+                            v4_borrowck_repeat_projection_candidate_add(candidates, slot_id)
                         }
+                    } else {
+                        broad = true
                     }
                 }
             }
         }
         stmt_id += 1
     }
-    array_release(rebound)
-    give back rebound_count == slot_count
+    if broad { array_push(candidates, "-1") }
+    give back candidates
+}
+
+task v4_borrowck_repeat_projection_scan_exhausted() -> bool {
+    give back v4_borrowck_repeat_projection_scan_exhausted_value
+}
+
+task v4_borrowck_repeat_projection_scan_help(slot_count: int) -> word {
+    pilot out = "Meiya conservatively keeps this repeat-filled loan live because its "
+    out = out + word_from_int(slot_count) + " projections exceed the exact liveness budget of "
+    out = out + word_from_int(v4_borrowck_repeat_projection_scan_limit_value)
+    out = out + "; split the borrowed array or shorten its live range"
+    give back out
 }
 
 -- Returns -1 when the initializer is not a repeat fill, otherwise 0/1 for dead/live.
 task v4_borrowck_repeat_fill_loan_live_at_write(mir_id: int, body_id: int, loan_stmt: int, loan_text: word, write_stmt: int, write_block: int) -> int {
+    v4_borrowck_repeat_projection_scan_exhausted_value = false
     if loan_stmt < 0 { give back 0 - 1 }
     pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
     if rvalue_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_array {
@@ -3905,28 +3926,40 @@ task v4_borrowck_repeat_fill_loan_live_at_write(mir_id: int, body_id: int, loan_
     if not v4_borrowck_place_is_local_storage_projection(mir_id, body_id, loan_place) { give back 1 }
     pilot base_holder = v4_mir_place_text(mir_id, body_id, loan_place)
 
-    -- Sparse bodies cannot contain a distinct retirement for every slot.
-    if slot_count >= 256 {
-        if slot_count <= v4_mir_body_stmt_count(mir_id, body_id) and v4_borrowck_repeat_slots_rebound_in_block(mir_id, body_id, loan_stmt, loan_text, write_stmt, base_holder, slot_count) {
-            give back 0
-        }
+    pilot candidates = v4_borrowck_repeat_projection_candidates(mir_id, body_id, loan_stmt, base_holder, slot_count)
+    pilot broad = v4_borrowck_repeat_projection_candidate_contains(candidates, 0 - 1)
+    if broad {
+        -- Path identity is required here: whole-array fallback confuses a
+        -- rebound slot with the original repeat value. Above the budget, fail
+        -- closed and report the conservative limit instead of changing rules.
         if slot_count > v4_borrowck_repeat_projection_scan_limit_value {
-            if v4_borrowck_holder_used_at_or_after_write(mir_id, body_id, base_holder, loan_stmt, write_stmt, write_block) { give back 1 }
-            give back 0
+            array_release(candidates)
+            v4_borrowck_repeat_projection_scan_exhausted_value = true
+            give back 1
+        }
+        array_release(candidates)
+        candidates = array_new()
+        pilot fill_slot = 0
+        repeat until fill_slot >= slot_count {
+            array_push(candidates, word_from_int(fill_slot))
+            fill_slot += 1
         }
     }
 
-    pilot slot_id = 0
-    repeat until slot_id >= slot_count {
+    pilot candidate_id = 0
+    repeat until candidate_id >= array_len(candidates) {
+        pilot slot_id = word_to_int(array_get(candidates, candidate_id))
         pilot projected_holder = base_holder + "[" + word_from_int(slot_id) + "]"
         if nested != v4_borrowck_holder_projection_whole {
             projected_holder = projected_holder + nested
         }
         if v4_borrowck_holder_used_at_or_after_write(mir_id, body_id, projected_holder, loan_stmt, write_stmt, write_block) {
+            array_release(candidates)
             give back 1
         }
-        slot_id += 1
+        candidate_id += 1
     }
+    array_release(candidates)
     give back 0
 }
 
@@ -4333,6 +4366,10 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
                             if v4_borrowck_explicit_loan_live_at_write(mir_id, body_id, loan_stmt, loan_text, write_stmt, write_block) {
                                 loan_conflicts = true
                                 help = v4_borrowck_mutable_conflict_help(loan_text, loan_stmt, write_block, write_text, write_stmt)
+                                if v4_borrowck_repeat_projection_scan_exhausted() {
+                                    pilot repeat_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
+                                    help = v4_borrowck_repeat_projection_scan_help(v4_mir_fixed_array_slot_count(mir_id, v4_mir_rvalue_ty(mir_id, body_id, repeat_rvalue)))
+                                }
                             }
                         }
                     } else if loan_stmt >= 0 and write_stmt >= 0 and loan_block >= 0 and write_block >= 0 and loan_block != write_block {
@@ -4346,6 +4383,10 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
                                     if v4_borrowck_explicit_loan_live_at_write(mir_id, body_id, loan_stmt, loan_text, write_stmt, write_block) {
                                         loan_conflicts = true
                                         help = v4_borrowck_cross_block_conflict_help(loan_text, loan_stmt, loan_block, write_text, write_stmt, write_block)
+                                        if v4_borrowck_repeat_projection_scan_exhausted() {
+                                            pilot repeat_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
+                                            help = v4_borrowck_repeat_projection_scan_help(v4_mir_fixed_array_slot_count(mir_id, v4_mir_rvalue_ty(mir_id, body_id, repeat_rvalue)))
+                                        }
                                     }
                                 }
                             }
