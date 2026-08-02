@@ -1,0 +1,57 @@
+-- V4 Copy doctrine ownership eligibility fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_copy_doctrine_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_copy_doctrine_source() -> word {
+    pilot src = "doctrine Copy {\n"
+    src = src + "}\n"
+    src = src + "shape Owned {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape NominalCopy {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape NominalLinearCopy {\n"
+    src = src + "    owned: Owned\n"
+    src = src + "}\n"
+    src = src + "shape Pair<A,B> {\n"
+    src = src + "    left: A\n"
+    src = src + "    right: B\n"
+    src = src + "}\n"
+    src = src + "impl Copy for NominalCopy {\n"
+    src = src + "}\n"
+    src = src + "impl Copy for NominalLinearCopy {\n"
+    src = src + "}\n"
+    src = src + "impl Copy for Pair<A,B> {\n"
+    src = src + "}\n"
+    src = src + "task copy_anchor(value: NominalCopy, linear: NominalLinearCopy) -> int {\n"
+    src = src + "    give back value.hp + linear.owned.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_copy_doctrine_borrow = v4_borrowck_text_cached("copy-doctrine-storage.fk", v4_copy_doctrine_source())
+pilot v4_copy_doctrine_mir = v4_borrowck_mir_id(v4_copy_doctrine_borrow)
+pilot v4_copy_doctrine_ty = v4_mir_ty_id(v4_copy_doctrine_mir)
+pilot v4_copy_doctrine_resolve = v4_ty_resolve_id(v4_copy_doctrine_ty)
+pilot v4_copy_doctrine_def = v4_resolve_def_for_name(v4_copy_doctrine_resolve, "copy_anchor")
+pilot v4_copy_doctrine_body = v4_mir_lookup_body(v4_copy_doctrine_mir, v4_copy_doctrine_def)
+pilot v4_copy_doctrine_sig = v4_mir_body_signature_id(v4_copy_doctrine_mir, v4_copy_doctrine_body)
+pilot v4_copy_doctrine_linear_sig = v4_ty_shape_signature_id_for_name(v4_copy_doctrine_ty, "NominalLinearCopy")
+pilot v4_copy_doctrine_linear_field = v4_ty_shape_field_surface_type(v4_copy_doctrine_ty, v4_copy_doctrine_linear_sig, 0)
+pilot v4_copy_doctrine_hir = v4_resolve_hir_id(v4_copy_doctrine_resolve)
+pilot v4_copy_doctrine_tree = v4_hir_tree_id(v4_copy_doctrine_hir)
+
+say "copy-doctrine-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_copy_doctrine_tree))
+say "copy-doctrine-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_copy_doctrine_ty))
+say "copy-doctrine-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_copy_doctrine_mir))
+say "copy-doctrine-linear-field=" + v4_copy_doctrine_linear_field
+say "copy-doctrine-owned-match=" + v4_copy_doctrine_bool(v4_ty_match_type_satisfies_doctrine_env(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "Owned", "Copy", "") != v4_ty_generic_env_fail)
+say "copy-doctrine-nominal-copy-eligible=" + v4_copy_doctrine_bool(v4_ty_type_is_doctrinal_copy_eligible(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "NominalCopy", "", 0))
+say "copy-doctrine-linear-copy-eligible=" + v4_copy_doctrine_bool(v4_ty_type_is_doctrinal_copy_eligible(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "NominalLinearCopy", "", 0))
+say "copy-doctrine-nominal-transfer-copy=" + v4_copy_doctrine_bool(v4_borrowck_ty_is_copy(v4_copy_doctrine_mir, v4_copy_doctrine_body, "NominalCopy"))
+say "copy-doctrine-linear-transfer-copy=" + v4_copy_doctrine_bool(v4_borrowck_ty_is_copy(v4_copy_doctrine_mir, v4_copy_doctrine_body, "NominalLinearCopy"))
