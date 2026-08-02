@@ -178,8 +178,7 @@ task v4_borrowck_init() -> void {
 
 task v4_borrowck_file_new(file_id: int, mir_id: int) -> int {
     v4_borrowck_init()
-    v4_borrowck_copy_cache_entry_count_value = 0
-    v4_borrowck_copy_cache_cursor = 0
+    v4_borrowck_copy_cache_reset()
     pilot borrow_id = array_len(v4_borrowck_files)
     array_push(v4_borrowck_files, word_from_int(file_id))
     array_push(v4_borrowck_mirs, word_from_int(mir_id))
@@ -479,6 +478,12 @@ task v4_borrowck_copy_cache_store(mir_id: int, sig_id: int, ty_name: word, is_co
         v4_borrowck_copy_cache_cursor = 0
     }
     v4_borrowck_copy_cache_evictions += 1
+}
+
+task v4_borrowck_copy_cache_reset() -> void {
+    v4_borrowck_init()
+    v4_borrowck_copy_cache_entry_count_value = 0
+    v4_borrowck_copy_cache_cursor = 0
 }
 
 task v4_borrowck_copy_cache_count() -> int {
@@ -5697,6 +5702,7 @@ task v4_borrowck_snapshot_validate(payload: word) -> word {
 
 task v4_borrowck_restore_file_slot(borrow_id: int, file_id: int, mir_id: int) -> int {
     v4_borrowck_init()
+    v4_borrowck_copy_cache_reset()
     repeat until array_len(v4_borrowck_files) > borrow_id {
         v4_borrowck_file_new(0, 0)
     }
@@ -5879,5 +5885,6 @@ task v4_borrowck_snapshot_restore(payload: word) -> word {
     out = out + " diagnostics=" + word_from_int(restored_diagnostics)
     out = out + " skipped-other=" + word_from_int(skipped_other)
     out = out + " arena-files=" + word_from_int(v4_borrowck_file_count())
+    v4_borrowck_copy_cache_reset()
     give back out
 }

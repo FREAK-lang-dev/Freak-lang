@@ -14,6 +14,9 @@ task v4_aggregate_boundary_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
+    src = src + "shape Fleet {\n"
+    src = src + "    ship: Ship\n"
+    src = src + "}\n"
     src = src + "shape PairView<'a,'b> {\n"
     src = src + "    left: lend mut 'a Ship\n"
     src = src + "    right: lend mut 'b Ship\n"
@@ -41,6 +44,9 @@ task v4_aggregate_boundary_source() -> word {
     src = src + "}\n"
     src = src + "task aggregate_outlives<'short,'long: 'short>(views: (lend 'long Ship,int)) -> (lend 'short Ship,int) {\n"
     src = src + "    give back views\n"
+    src = src + "}\n"
+    src = src + "task projected_tuple<'a>(lend 'a fleet: Fleet) -> (lend 'a Ship,int) {\n"
+    src = src + "    give back (lend fleet.ship, 0)\n"
     src = src + "}\n"
     src = src + "task array_pass<'a>(views: [lend mut 'a Ship;2]) -> [lend mut 'a Ship;2] {\n"
     src = src + "    give back views\n"
@@ -257,6 +263,9 @@ pilot v4_aggregate_boundary_outlives_def = v4_resolve_def_for_name(v4_aggregate_
 pilot v4_aggregate_boundary_outlives_sig = v4_ty_lookup_signature(v4_aggregate_boundary_ty, v4_aggregate_boundary_outlives_def)
 say "aggregate-boundary-outlives-source-count=" + word_from_int(v4_ty_signature_return_lend_source_count(v4_aggregate_boundary_ty, v4_aggregate_boundary_outlives_sig, 0))
 say "aggregate-boundary-outlives-source-projection=" + v4_ty_signature_return_lend_source_projection_at(v4_aggregate_boundary_ty, v4_aggregate_boundary_outlives_sig, 0, 0)
+pilot v4_aggregate_boundary_projected_tuple_def = v4_resolve_def_for_name(v4_aggregate_boundary_resolve, "projected_tuple")
+pilot v4_aggregate_boundary_projected_tuple_sig = v4_ty_lookup_signature(v4_aggregate_boundary_ty, v4_aggregate_boundary_projected_tuple_def)
+say "aggregate-boundary-projected-tuple-source-count=" + word_from_int(v4_ty_signature_return_lend_source_count(v4_aggregate_boundary_ty, v4_aggregate_boundary_projected_tuple_sig, 0))
 
 pilot v4_aggregate_boundary_array_def = v4_resolve_def_for_name(v4_aggregate_boundary_resolve, "array_pass")
 pilot v4_aggregate_boundary_array_sig = v4_ty_lookup_signature(v4_aggregate_boundary_ty, v4_aggregate_boundary_array_def)
