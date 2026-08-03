@@ -38,6 +38,16 @@ task v4_conditional_alias_source() -> word {
     src = src + "    first.hp = 90\n"
     src = src + "    give back holder.0.hp\n"
     src = src + "}\n"
+    src = src + "task transferred_alias_source_rebind(first: Ship, second: Ship, third: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot other = (lend mut second, 0)\n"
+    src = src + "    pilot access = lend mut holder\n"
+    src = src + "    pilot forwarded = access\n"
+    src = src + "    access = lend mut other\n"
+    src = src + "    forwarded.0 = lend mut third\n"
+    src = src + "    third.hp = 91\n"
+    src = src + "    give back holder.0.hp\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -53,6 +63,8 @@ pilot v4_transferred_alias_def = v4_resolve_def_for_name(v4_conditional_alias_re
 pilot v4_transferred_alias_result = v4_borrowck_lookup_result(v4_conditional_alias_borrow, v4_transferred_alias_def)
 pilot v4_transferred_alias_long_def = v4_resolve_def_for_name(v4_conditional_alias_resolve, "transferred_alias_long_release")
 pilot v4_transferred_alias_long_result = v4_borrowck_lookup_result(v4_conditional_alias_borrow, v4_transferred_alias_long_def)
+pilot v4_transferred_alias_rebind_def = v4_resolve_def_for_name(v4_conditional_alias_resolve, "transferred_alias_source_rebind")
+pilot v4_transferred_alias_rebind_result = v4_borrowck_lookup_result(v4_conditional_alias_borrow, v4_transferred_alias_rebind_def)
 
 say "conditional-alias-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_conditional_alias_tree))
 say "conditional-alias-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_conditional_alias_ty))
@@ -61,3 +73,4 @@ say "conditional-alias-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_cou
 say "conditional-alias-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_conditional_alias_result)
 say "transferred-alias-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_transferred_alias_result)
 say "transferred-alias-long-release-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_transferred_alias_long_result)
+say "transferred-alias-source-rebind-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_transferred_alias_rebind_result)

@@ -3641,6 +3641,16 @@ task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, 
                     } else {
                         give back ""
                     }
+                    -- Resolve a transferred alias at its definition. Looking it
+                    -- up at the later projected write lets an intervening rebind
+                    -- retroactively redirect an already-created alias.
+                    pilot transitive = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, candidate, stmt_id, alias_depth + 1)
+                    if transitive == v4_borrowck_projected_alias_ambiguous {
+                        give back transitive
+                    }
+                    if transitive != "" and transitive != candidate {
+                        candidate = transitive
+                    }
                     if not found {
                         resolved = candidate
                         found = true
@@ -3653,13 +3663,6 @@ task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, 
         stmt_id += 1
     }
     if found {
-        pilot transitive = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, resolved, use_stmt, alias_depth + 1)
-        if transitive == v4_borrowck_projected_alias_ambiguous {
-            give back transitive
-        }
-        if transitive != "" and transitive != resolved {
-            give back transitive
-        }
         give back resolved
     }
     give back ""
