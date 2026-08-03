@@ -5976,11 +5976,14 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "dyn-lend-erasure-parse-diagnostics=0",
             "dyn-lend-erasure-ty-diagnostics=0",
-            "dyn-lend-erasure-mir-diagnostics=1",
-            "dyn-lend-erasure-borrow-diagnostics=2",
+            "dyn-lend-erasure-mir-diagnostics=3",
+            "dyn-lend-erasure-borrow-diagnostics=6",
             "dyn-lend-erasure-status=blocked",
             "dyn-lend-erasure-mir-rejected=true",
             "dyn-lend-erasure-borrow-rejected=true",
+            "dyn-lend-erasure-mir-rejection-count=3",
+            "dyn-lend-erasure-shape-status=blocked",
+            "dyn-lend-erasure-call-status=blocked",
         ],
     },
     {

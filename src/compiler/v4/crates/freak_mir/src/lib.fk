@@ -2173,6 +2173,13 @@ task v4_mir_check_dyn_lend_erasure(mir_id: int, stmt_span: word, target_ty: word
     }
 }
 
+task v4_mir_check_dyn_lend_erasure_rvalue(mir_id: int, body_id: int, target_ty: word, source_rvalue: int, context: word) -> void {
+    if source_rvalue < 0 or source_rvalue >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        give back
+    }
+    v4_mir_check_dyn_lend_erasure(mir_id, v4_mir_rvalue_span(mir_id, body_id, source_rvalue), target_ty, v4_mir_rvalue_ty(mir_id, body_id, source_rvalue), context)
+}
+
 task v4_mir_check_assignment_types(mir_id: int, body_id: int, stmt_span: word, place_id: int, place_ty: word, value_ty: word) -> void {
     v4_mir_check_dyn_lend_erasure(mir_id, stmt_span, place_ty, value_ty, v4_mir_assignment_target_context(mir_id, body_id, place_id))
     if not v4_mir_types_compatible(mir_id, body_id, place_ty, value_ty) {
@@ -2500,6 +2507,7 @@ task v4_mir_body_signature_id(mir_id: int, body_id: int) -> int {
 
 task v4_mir_check_return_type(mir_id: int, body_id: int, stmt_span: word, actual_ty: word) -> void {
     pilot expected_ty = v4_mir_expected_return_type(mir_id, body_id)
+    v4_mir_check_dyn_lend_erasure(mir_id, stmt_span, expected_ty, actual_ty, v4_mir_body_name(mir_id, body_id) + " return")
     if not v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty) {
         pilot context = v4_mir_body_name(mir_id, body_id) + " return"
         v4_mir_add_type_mismatch_error(mir_id, stmt_span, "return type mismatch", v4_mir_body_name(mir_id, body_id) + " expects " + expected_ty + " but got " + actual_ty, context, expected_ty, actual_ty)
@@ -3449,6 +3457,7 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
                 pilot coerced_expected_ty = v4_ty_apply_generic_env(expected_ty, generic_env)
                 pilot coerced_arg_ty = v4_mir_expected_call_arg_type(coerced_expected_ty, param_mode)
                 if v4_ty_type_contains_dyn(coerced_arg_ty) {
+                    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, coerced_arg_ty, arg_rvalue, callee_name + " argument " + param_name)
                     v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, coerced_arg_ty)
                 }
             }
@@ -3595,6 +3604,7 @@ task v4_mir_check_callback_call_args(mir_id: int, body_id: int, stream_id: int, 
             } else {
                 pilot coerced_ty = v4_mir_coerced_value_type(mir_id, body_id, expected_ty, actual_ty)
                 if coerced_ty != actual_ty {
+                    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, coerced_ty, arg_rvalue, callee_text + " argument " + word_from_int(lower_arg_idx + 1))
                     v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, coerced_ty)
                 }
             }
@@ -4156,6 +4166,7 @@ task v4_mir_check_method_args(mir_id: int, body_id: int, stream_id: int, expr_sp
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             } else if v4_ty_type_contains_dyn(expected_ty) {
+                v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, arg_rvalue, label + " argument " + word_from_int(lower_arg_idx + 1))
                 v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, expected_ty)
             }
             args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
@@ -4210,6 +4221,8 @@ task v4_mir_check_ufcs_method_args(mir_id: int, body_id: int, stream_id: int, ex
         pilot actual_receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
         if not v4_ty_types_compatible(receiver_ty, actual_receiver_ty) {
             v4_mir_add_type_mismatch_error(mir_id, expr_span, "UFCS receiver type mismatch", label + " receiver expects " + receiver_ty + " but got " + actual_receiver_ty, label + " receiver", receiver_ty, actual_receiver_ty)
+        } else {
+            v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, receiver_ty, receiver_rvalue, label + " receiver")
         }
     }
 
@@ -4268,6 +4281,7 @@ task v4_mir_check_ufcs_method_args(mir_id: int, body_id: int, stream_id: int, ex
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             } else if v4_ty_type_contains_dyn(expected_ty) {
+                v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, arg_rvalue, label + " argument " + word_from_int(lower_arg_idx + 1))
                 v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, expected_ty)
             }
             call_args = v4_mir_call_args_payload_append(call_args, arg_rvalue)
@@ -4325,6 +4339,8 @@ task v4_mir_check_bound_ufcs_method_args(mir_id: int, body_id: int, stream_id: i
         pilot receiver_ok = v4_ty_types_compatible(receiver_ty, actual_receiver_ty)
         if not receiver_ok {
             v4_mir_add_type_mismatch_error(mir_id, expr_span, "UFCS receiver type mismatch", label + " receiver expects " + receiver_ty + " but got " + actual_receiver_ty, label + " receiver", receiver_ty, actual_receiver_ty)
+        } else {
+            v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, receiver_ty, receiver_rvalue, label + " receiver")
         }
     }
 
@@ -4388,6 +4404,7 @@ task v4_mir_check_bound_ufcs_method_args(mir_id: int, body_id: int, stream_id: i
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             } else if v4_ty_type_contains_dyn(expected_ty) {
+                v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, arg_rvalue, label + " argument " + word_from_int(lower_arg_idx + 1))
                 v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, expected_ty)
             }
             call_args = v4_mir_call_args_payload_append(call_args, arg_rvalue)
@@ -4486,6 +4503,7 @@ task v4_mir_check_bound_method_args(mir_id: int, body_id: int, stream_id: int, e
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             } else if v4_ty_type_contains_dyn(expected_ty) {
+                v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, arg_rvalue, label + " argument " + word_from_int(lower_arg_idx + 1))
                 v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, expected_ty)
             }
             args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
@@ -4678,6 +4696,7 @@ task v4_mir_lower_builtin_shared_new_arg(mir_id: int, body_id: int, stream_id: i
     pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
     pilot value_start = v4_mir_call_arg_value_start(stream_id, arg_start, arg_end)
     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, value_start, arg_end, target_ty)
+    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, target_ty, value_rvalue, owner_ty + "::new argument")
     give back v4_mir_call_args_payload_append("", value_rvalue)
 }
 
@@ -5640,6 +5659,7 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, lower_expected_ty)
                     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
                     array_set(children_handle, field_id, word_from_int(value_rvalue))
+                    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, value_rvalue, shape_name + "." + field_name)
                     pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
                     if next_env == v4_ty_generic_env_fail {
                         if expected_ty == "" {
@@ -5787,6 +5807,7 @@ task v4_mir_check_fixed_array_repeated_literal(mir_id: int, body_id: int, stream
     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, open_token + 1, repeat_token, expected_element_ty)
     pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
     array_push(children_handle, word_from_int(value_rvalue))
+    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_element_ty, value_rvalue, "fixed-array repeat value")
     if v4_ty_is_known(expected_element_ty) and not v4_ty_types_compatible(expected_element_ty, value_ty) {
         v4_mir_add_type_error(mir_id, expr_span, "array repeat value drift", "repeat value wants " + expected_element_ty + " but got " + value_ty)
     }
@@ -5842,6 +5863,7 @@ task v4_mir_check_fixed_array_literal(mir_id: int, body_id: int, stream_id: int,
         pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, element_rvalue)
         array_push(children_handle, word_from_int(element_rvalue))
         element_idx += 1
+        v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_element_ty, element_rvalue, "fixed-array element " + word_from_int(element_idx))
         if v4_ty_is_known(expected_element_ty) {
             if not v4_ty_types_compatible(expected_element_ty, actual_ty) {
                 v4_mir_add_type_error(mir_id, expr_span, "array element drift", "element " + word_from_int(element_idx) + " wants " + expected_element_ty + " but got " + actual_ty)
@@ -6551,6 +6573,7 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, lower_expected_ty)
                     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
                     array_set(children_handle, field_id, word_from_int(value_rvalue))
+                    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, value_rvalue, route_name + "::" + case_name + "." + field_name)
                     pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
                     if next_env == v4_ty_generic_env_fail {
                         if expected_ty == "" {

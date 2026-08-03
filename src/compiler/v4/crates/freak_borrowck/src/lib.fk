@@ -3070,33 +3070,101 @@ task v4_borrowck_type_is_dynamic_lend_storage(type_text: word) -> bool {
     give back base_name == "List" or base_name == "Map" or base_name == "Set" or base_name == "Lineup" or base_name == "maybe" or base_name == "result"
 }
 
+task v4_borrowck_dyn_erasure_source_ty(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    pilot source_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot source_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if source_kind == v4_mir_rvalue_use_local {
+        pilot source_root = v4_borrowck_path_root(v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
+        pilot local_ty = v4_mir_local_ty_for_name(mir_id, body_id, source_root)
+        if local_ty != "" and local_ty != v4_ty_unknown { source_ty = local_ty }
+    } else if source_kind == v4_mir_rvalue_use_place {
+        pilot place_id = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        if place_id >= 0 {
+            pilot place_ty = v4_mir_place_ty(mir_id, body_id, place_id)
+            if place_ty != "" and place_ty != v4_ty_unknown { source_ty = place_ty }
+        }
+    }
+    give back source_ty
+}
+
+task v4_borrowck_report_dyn_lend_erasure(borrow_id: int, result_id: int, mir_id: int, body_id: int, target_ty: word, rvalue_id: int, span: word) -> int {
+    if rvalue_id < 0 or not v4_ty_is_dyn_type(target_ty) { give back 0 }
+    pilot source_ty = v4_borrowck_dyn_erasure_source_ty(mir_id, body_id, rvalue_id)
+    if v4_ty_is_dyn_type(source_ty) { give back 0 }
+    if not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), source_ty) and not v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, rvalue_id) { give back 0 }
+
+    pilot help = v4_mir_body_name(mir_id, body_id) + " must keep " + source_ty + " concrete until dyn doctrine values carry Meiya loan provenance"
+    v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, "Meiya cannot erase a lend-bearing value into a dyn doctrine yet", help))
+    v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+    give back 1
+}
+
+task v4_borrowck_aggregate_child_target_ty(mir_id: int, body_id: int, rvalue_id: int, child_id: int) -> word {
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    pilot aggregate_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_tuple { give back v4_ty_tuple_slot_type(aggregate_ty, child_id) }
+    if kind == v4_mir_rvalue_array { give back v4_ty_fixed_array_element_type(aggregate_ty) }
+    if kind != v4_mir_rvalue_construct { give back v4_ty_unknown }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_is_route_type(ty_id, aggregate_ty) {
+        pilot case_name = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+        pilot next_case = v4_mir_path_right(case_name)
+        repeat until next_case == "" {
+            case_name = next_case
+            next_case = v4_mir_path_right(case_name)
+        }
+        give back v4_ty_route_case_field_type(ty_id, aggregate_ty, case_name, child_id)
+    }
+
+    pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, aggregate_ty)
+    if sig_id < 0 { give back v4_ty_unknown }
+    give back v4_ty_apply_signature_generics(ty_id, sig_id, aggregate_ty, v4_ty_shape_field_type(ty_id, sig_id, child_id))
+}
+
 task v4_borrowck_check_dyn_lend_erasure(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot stmt_id = 0
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
     repeat until stmt_id >= stmt_count {
         pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
-        if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
+        if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign or stmt_kind == v4_mir_stmt_return {
             pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
             pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-            if place_id >= 0 and rvalue_id >= 0 and v4_ty_is_dyn_type(v4_mir_place_ty(mir_id, body_id, place_id)) {
-                pilot source_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
-                pilot source_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-                if source_kind == v4_mir_rvalue_use_local or source_kind == v4_mir_rvalue_use_place {
-                    pilot source_root = v4_borrowck_path_root(v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
-                    pilot local_ty = v4_mir_local_ty_for_name(mir_id, body_id, source_root)
-                    if local_ty != "" and local_ty != v4_ty_unknown { source_ty = local_ty }
-                }
-                if v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), source_ty) or v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, rvalue_id) {
-                    pilot span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
-                    pilot help = v4_mir_body_name(mir_id, body_id) + " must keep " + source_ty + " concrete until dyn doctrine values carry Meiya loan provenance"
-                    v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, "Meiya cannot erase a lend-bearing value into a dyn doctrine yet", help))
-                    v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
-                    conflicts += 1
-                }
+            if place_id >= 0 and rvalue_id >= 0 {
+                conflicts += v4_borrowck_report_dyn_lend_erasure(borrow_id, result_id, mir_id, body_id, v4_mir_place_ty(mir_id, body_id, place_id), rvalue_id, v4_borrowck_use_diag_span(mir_id, body_id, stmt_id))
             }
         }
         stmt_id += 1
+    }
+
+    pilot rvalue_id = 0
+    pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
+    repeat until rvalue_id >= rvalue_count {
+        pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+        if kind == v4_mir_rvalue_call {
+            pilot arg_id = 0
+            pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
+            repeat until arg_id >= arg_count {
+                pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id)
+                if arg_rvalue >= 0 {
+                    conflicts += v4_borrowck_report_dyn_lend_erasure(borrow_id, result_id, mir_id, body_id, v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue), arg_rvalue, v4_mir_rvalue_span(mir_id, body_id, arg_rvalue))
+                }
+                arg_id += 1
+            }
+        } else if v4_mir_rvalue_is_aggregate_kind(kind) {
+            pilot child_id = 0
+            pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+            repeat until child_id >= child_count {
+                pilot child_rvalue = v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)
+                if child_rvalue >= 0 {
+                    pilot target_ty = v4_borrowck_aggregate_child_target_ty(mir_id, body_id, rvalue_id, child_id)
+                    conflicts += v4_borrowck_report_dyn_lend_erasure(borrow_id, result_id, mir_id, body_id, target_ty, child_rvalue, v4_mir_rvalue_span(mir_id, body_id, child_rvalue))
+                }
+                child_id += 1
+            }
+        }
+        rvalue_id += 1
     }
     give back conflicts
 }
