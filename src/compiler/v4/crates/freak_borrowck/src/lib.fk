@@ -1601,7 +1601,7 @@ task v4_borrowck_check_lend_contracts(borrow_id: int, result_id: int, mir_id: in
         pilot mode = v4_borrowck_local_mode_for_path(mir_id, body_id, path_text)
         pilot holder_projection = false
         if (path_kind == v4_borrowck_path_write or path_kind == v4_borrowck_path_move) and mode == v4_ty_param_mode_value {
-            mode = v4_borrowck_lend_holder_mode_for_projection(mir_id, body_id, path_text, path_kind == v4_borrowck_path_write)
+            mode = v4_borrowck_lend_holder_mode_for_projection(mir_id, body_id, path_text, true)
             holder_projection = mode != v4_ty_param_mode_value
         }
         if mode == v4_ty_param_mode_lend or mode == v4_ty_param_mode_lend_mut {
@@ -3613,32 +3613,57 @@ task v4_borrowck_path_prefix_conflicts_no_alloc(prefix: word, path_text: word) -
     give back next == "." or next == "["
 }
 
-task v4_borrowck_projected_lend_alias_prefix(mir_id: int, body_id: int, path: word) -> word {
+task v4_borrowck_path_canonical_length_no_alloc(path_text: word) -> int {
+    pilot length = 0
+    pilot idx = 0
+    repeat until idx >= path_text.length() {
+        pilot ch = path_text.char_at(idx)
+        if ch != " " and ch != "\t" and ch != "\r" and ch != "\n" {
+            length += 1
+        }
+        idx += 1
+    }
+    give back length
+}
+
+task v4_borrowck_projected_lend_alias_prefix(mir_id: int, body_id: int, path: word, use_stmt: int) -> word {
     pilot path_canon = v4_borrowck_path_canon(path)
     pilot root = v4_borrowck_path_root(path_canon)
-    if root == "" or path_canon == root {
+    if root == "" or path_canon == root or use_stmt < 0 {
         give back ""
     }
-    if v4_ty_is_lend_type(v4_mir_local_ty_for_name(mir_id, body_id, root)) {
+    pilot use_offset = v4_span_start(v4_mir_stmt_span(mir_id, body_id, use_stmt))
+    pilot root_local = v4_mir_find_local_visible_at(mir_id, body_id, root, use_offset)
+    if root_local < 0 {
+        give back ""
+    }
+    pilot root_ty = v4_mir_local_ty(mir_id, body_id, root_local)
+    if v4_ty_is_lend_type(root_ty) {
         give back root
     }
-    if not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_local_ty_for_name(mir_id, body_id, root)) {
+    if not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), root_ty) {
         give back ""
     }
 
     pilot prefix = ""
+    pilot prefix_canonical_length = 0
     pilot place_id = 0
     pilot place_count = v4_mir_body_place_count(mir_id, body_id)
     repeat until place_id >= place_count {
         pilot candidate = v4_mir_place_text(mir_id, body_id, place_id)
-        if candidate != path_canon and v4_borrowck_path_prefix_conflicts_no_alloc(candidate, path_canon) and v4_ty_is_lend_type(v4_mir_place_ty(mir_id, body_id, place_id)) {
-            if prefix == "" or candidate.length() < prefix.length() {
+        pilot candidate_offset = v4_span_start(v4_mir_place_span(mir_id, body_id, place_id))
+        if candidate_offset < 0 { candidate_offset = use_offset }
+        pilot candidate_root_local = v4_mir_find_local_visible_at(mir_id, body_id, root, candidate_offset)
+        if candidate_root_local == root_local and candidate != path_canon and v4_borrowck_path_prefix_conflicts_no_alloc(candidate, path_canon) and v4_ty_is_lend_type(v4_mir_place_ty(mir_id, body_id, place_id)) {
+            pilot candidate_canonical_length = v4_borrowck_path_canonical_length_no_alloc(candidate)
+            if prefix == "" or candidate_canonical_length < prefix_canonical_length {
                 prefix = candidate
+                prefix_canonical_length = candidate_canonical_length
             }
         }
         place_id += 1
     }
-    give back prefix
+    give back v4_borrowck_path_canon(prefix)
 }
 
 task v4_borrowck_projected_alias_candidate_from_rvalue(mir_id: int, body_id: int, rvalue_id: int, projection: word, suffix: word, depth: int) -> word {
@@ -3687,7 +3712,7 @@ task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, 
     if alias_root == "" {
         give back ""
     }
-    pilot alias_prefix = v4_borrowck_projected_lend_alias_prefix(mir_id, body_id, path_canon)
+    pilot alias_prefix = v4_borrowck_projected_lend_alias_prefix(mir_id, body_id, path_canon, use_stmt)
     if alias_prefix == "" {
         give back ""
     }

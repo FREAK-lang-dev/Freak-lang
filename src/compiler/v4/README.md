@@ -224,12 +224,18 @@ provenance queries. A use of `.0`, `.field`, or a constant `[index]` extends the
 loan stored in that child without making unrelated siblings live. Projection
 chains may cross lend-valued fixed-layout slots; each indirection is resolved
 at its defining statement before the final write is matched to the original
-holder. Whole-value uses and non-constant fixed-array projections include every
+holder. Prefix selection canonicalizes indexed paths once after its bounded
+scan and resolves reused local names at the statement where the projection is
+used. Whole-value uses and non-constant fixed-array projections include every
 possible child. A dynamic-index assignment overlaps every fixed slot, so it
 cannot retire or launder only one child's loan. `LoanMut` remains exclusive
 while its projected holder is live, and repeat-filling more than one fixed-array
 slot with the same mutable lend is rejected instead of duplicating one
 exclusive loan.
+
+Moving a lend-valued child out of an owned aggregate transfers that loan and
+uses the ordinary partial-move repair rules. Moving a child through an aggregate
+that is itself held behind `lend` or `lend mut` remains rejected.
 
 Projection assignments are first-class holder definitions. Rebinding one field
 retires only that field's previous loan, protects the newly stored owner through
