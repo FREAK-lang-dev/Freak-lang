@@ -74,7 +74,10 @@ order and nested block scope, excludes member-name tokens, and treats only
 live through the closure holder's final reachable use, recognizes assignment
 and resolved `lend mut self`/Shared mutable receiver calls, requires exclusive
 access for mutable captures, and consumes OneShot closures on call. Closure
-parameter editor facts likewise exclude `.`/`::` member positions. Capture
+effect summaries do not exist yet, so MIR rejects mutable closure writes into
+captured storage whose type may retain a lend instead of silently losing the
+installed loan at invocation. Closure parameter editor facts likewise exclude
+`.`/`::` member positions. Capture
 mode is visible through semantic, hover, definition, completion, LSP, MIR and
 borrowck snapshots, and deterministic all-family invalidation/diff reports.
 Nested and generic closure inference, borrowed-return closure contracts,
@@ -218,8 +221,10 @@ source fields cannot relabel a loan after lowering.
 
 Meiya carries those keys through local aggregate holder aliases and projection-aware
 provenance queries. A use of `.0`, `.field`, or a constant `[index]` extends the
-loan stored in that child without making unrelated siblings live. Whole-value
-uses and non-constant fixed-array projections conservatively include every
+loan stored in that child without making unrelated siblings live. Projection
+chains may cross lend-valued fixed-layout slots; each indirection is resolved
+at its defining statement before the final write is matched to the original
+holder. Whole-value uses and non-constant fixed-array projections include every
 possible child. A dynamic-index assignment overlaps every fixed slot, so it
 cannot retire or launder only one child's loan. `LoanMut` remains exclusive
 while its projected holder is live, and repeat-filling more than one fixed-array

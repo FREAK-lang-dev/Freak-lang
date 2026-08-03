@@ -3590,6 +3590,68 @@ task v4_borrowck_stmt_rebinds_holder(mir_id: int, body_id: int, stmt_id: int, ho
     give back v4_borrowck_path_write_definitely_covers(v4_mir_place_text(mir_id, body_id, place_id), holder)
 }
 
+task v4_borrowck_projected_lend_alias_prefix(mir_id: int, body_id: int, path: word) -> word {
+    pilot path_canon = v4_borrowck_path_canon(path)
+    pilot root = v4_borrowck_path_root(path_canon)
+    if root == "" or path_canon == root {
+        give back ""
+    }
+    if v4_ty_is_lend_type(v4_mir_local_ty_for_name(mir_id, body_id, root)) {
+        give back root
+    }
+
+    pilot prefix = ""
+    pilot place_id = 0
+    pilot place_count = v4_mir_body_place_count(mir_id, body_id)
+    repeat until place_id >= place_count {
+        pilot candidate = v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id))
+        if candidate != path_canon and v4_borrowck_path_prefix_conflicts(candidate, path_canon) and v4_ty_is_lend_type(v4_mir_place_ty(mir_id, body_id, place_id)) {
+            if prefix == "" or candidate.length() < prefix.length() {
+                prefix = candidate
+            }
+        }
+        place_id += 1
+    }
+    give back prefix
+}
+
+task v4_borrowck_projected_alias_candidate_from_rvalue(mir_id: int, body_id: int, rvalue_id: int, projection: word, suffix: word, depth: int) -> word {
+    if rvalue_id < 0 or depth > 32 {
+        give back v4_borrowck_projected_alias_ambiguous
+    }
+    projection = v4_borrowck_path_canon(projection)
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+
+    if projection != "" {
+        if v4_mir_rvalue_is_aggregate_kind(kind) {
+            pilot segment = v4_borrowck_projection_first(projection)
+            pilot child_id = v4_borrowck_aggregate_child_for_segment(mir_id, body_id, rvalue_id, segment)
+            if child_id == 0 - 2 {
+                give back v4_borrowck_projected_alias_ambiguous
+            }
+            if child_id < 0 {
+                give back ""
+            }
+            give back v4_borrowck_projected_alias_candidate_from_rvalue(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), v4_borrowck_projection_tail(projection), suffix, depth + 1)
+        }
+        if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+            give back v4_borrowck_projected_alias_candidate_from_rvalue(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), projection, suffix, depth + 1)
+        }
+        if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut or kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move {
+            give back v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) + projection + suffix
+        }
+        give back ""
+    }
+
+    if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+        give back v4_borrowck_projected_alias_candidate_from_rvalue(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), "", suffix, depth + 1)
+    }
+    if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut or kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move {
+        give back v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) + suffix
+    }
+    give back ""
+}
+
 task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, path: word, use_stmt: int, alias_depth: int) -> word {
     if alias_depth > v4_mir_body_stmt_count(mir_id, body_id) or use_stmt < 0 {
         give back ""
@@ -3599,13 +3661,11 @@ task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, 
     if alias_root == "" {
         give back ""
     }
-    if not v4_ty_is_lend_type(v4_mir_local_ty_for_name(mir_id, body_id, alias_root)) {
+    pilot alias_prefix = v4_borrowck_projected_lend_alias_prefix(mir_id, body_id, path_canon)
+    if alias_prefix == "" {
         give back ""
     }
-    pilot suffix = ""
-    if path_canon.length() > alias_root.length() {
-        suffix = v4_slice(path_canon, alias_root.length(), path_canon.length())
-    }
+    pilot suffix = v4_slice(path_canon, alias_prefix.length(), path_canon.length())
     if suffix == "" {
         give back ""
     }
@@ -3617,45 +3677,44 @@ task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, 
     repeat until stmt_id >= stmt_count {
         if stmt_id != use_stmt {
             pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
-            if place_id >= 0 and v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id)) == alias_root {
-                pilot origin_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
-                if v4_borrowck_holder_reaches_stmt_without_rebind_depth(mir_id, body_id, alias_root, stmt_id, stmt_id, origin_block, use_stmt, use_block, alias_depth + 1) {
-                    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
-                    if rvalue_id < 0 {
-                        give back ""
-                    }
-                    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-                    pilot candidate = ""
-                    if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
-                        candidate = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) + suffix
-                    } else if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
-                        pilot source_rvalue = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
-                        if source_rvalue < 0 {
+            if place_id >= 0 {
+                pilot assigned_path = v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id))
+                pilot definition_projection = ""
+                pilot definition_matches: bool = assigned_path == alias_prefix
+                if not definition_matches and v4_borrowck_path_prefix_conflicts(assigned_path, alias_prefix) {
+                    definition_projection = v4_slice(alias_prefix, assigned_path.length(), alias_prefix.length())
+                    definition_matches = true
+                }
+                if definition_matches {
+                    pilot origin_block = v4_mir_stmt_block(mir_id, body_id, stmt_id)
+                    if v4_borrowck_holder_reaches_stmt_without_rebind_depth(mir_id, body_id, alias_prefix, stmt_id, stmt_id, origin_block, use_stmt, use_block, alias_depth + 1) {
+                        pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+                        if rvalue_id < 0 {
                             give back ""
                         }
-                        pilot source_kind = v4_mir_rvalue_kind(mir_id, body_id, source_rvalue)
-                        if source_kind != v4_mir_rvalue_use_local and source_kind != v4_mir_rvalue_use_place {
+                        pilot candidate = v4_borrowck_projected_alias_candidate_from_rvalue(mir_id, body_id, rvalue_id, definition_projection, suffix, 0)
+                        if candidate == "" {
                             give back ""
                         }
-                        candidate = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, source_rvalue)) + suffix
-                    } else {
-                        give back ""
-                    }
-                    -- Resolve a transferred alias at its definition. Looking it
-                    -- up at the later projected write lets an intervening rebind
-                    -- retroactively redirect an already-created alias.
-                    pilot transitive = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, candidate, stmt_id, alias_depth + 1)
-                    if transitive == v4_borrowck_projected_alias_ambiguous {
-                        give back transitive
-                    }
-                    if transitive != "" and transitive != candidate {
-                        candidate = transitive
-                    }
-                    if not found {
-                        resolved = candidate
-                        found = true
-                    } else if resolved != candidate {
-                        give back v4_borrowck_projected_alias_ambiguous
+                        if candidate == v4_borrowck_projected_alias_ambiguous {
+                            give back candidate
+                        }
+                        -- Resolve a transferred alias at its definition. Looking it
+                        -- up at the later projected write lets an intervening rebind
+                        -- retroactively redirect an already-created alias.
+                        pilot transitive = v4_borrowck_resolve_projected_lend_alias_before(mir_id, body_id, candidate, stmt_id, alias_depth + 1)
+                        if transitive == v4_borrowck_projected_alias_ambiguous {
+                            give back transitive
+                        }
+                        if transitive != "" and transitive != candidate {
+                            candidate = transitive
+                        }
+                        if not found {
+                            resolved = candidate
+                            found = true
+                        } else if resolved != candidate {
+                            give back v4_borrowck_projected_alias_ambiguous
+                        }
                     }
                 }
             }

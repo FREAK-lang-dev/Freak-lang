@@ -51,6 +51,50 @@ task v4_conditional_alias_source() -> word {
     give back src
 }
 
+task v4_closure_aggregate_write_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task closure_installed_loan(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot writer = mut |_| " + "{" + " holder.0 = lend mut second " + "}" + "\n"
+    src = src + "    writer()\n"
+    src = src + "    second.hp = 92\n"
+    src = src + "    give back holder.0.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_nested_lend_projection_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task nested_lend_projection(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot aliases = (lend mut holder, 0)\n"
+    src = src + "    aliases.0.0 = lend mut second\n"
+    src = src + "    second.hp = 93\n"
+    src = src + "    give back holder.0.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_conditional_alias_has_mir_message(mir_id: int, wanted: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)) == wanted {
+            give back true
+        }
+        diag_id += 1
+    }
+    give back false
+}
+
+task v4_conditional_alias_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
 pilot v4_conditional_alias_borrow = v4_borrowck_text_cached("contract-region-conditional-alias.fk", v4_conditional_alias_source())
 pilot v4_conditional_alias_mir = v4_borrowck_mir_id(v4_conditional_alias_borrow)
 pilot v4_conditional_alias_ty = v4_mir_ty_id(v4_conditional_alias_mir)
@@ -66,6 +110,22 @@ pilot v4_transferred_alias_long_result = v4_borrowck_lookup_result(v4_conditiona
 pilot v4_transferred_alias_rebind_def = v4_resolve_def_for_name(v4_conditional_alias_resolve, "transferred_alias_source_rebind")
 pilot v4_transferred_alias_rebind_result = v4_borrowck_lookup_result(v4_conditional_alias_borrow, v4_transferred_alias_rebind_def)
 
+pilot v4_closure_aggregate_write_borrow = v4_borrowck_text_cached("contract-region-closure-aggregate-write.fk", v4_closure_aggregate_write_source())
+pilot v4_closure_aggregate_write_mir = v4_borrowck_mir_id(v4_closure_aggregate_write_borrow)
+pilot v4_closure_aggregate_write_ty = v4_mir_ty_id(v4_closure_aggregate_write_mir)
+pilot v4_closure_aggregate_write_resolve = v4_ty_resolve_id(v4_closure_aggregate_write_ty)
+pilot v4_closure_aggregate_write_hir = v4_resolve_hir_id(v4_closure_aggregate_write_resolve)
+pilot v4_closure_aggregate_write_tree = v4_hir_tree_id(v4_closure_aggregate_write_hir)
+
+pilot v4_nested_lend_projection_borrow = v4_borrowck_text_cached("contract-region-nested-lend-projection.fk", v4_nested_lend_projection_source())
+pilot v4_nested_lend_projection_mir = v4_borrowck_mir_id(v4_nested_lend_projection_borrow)
+pilot v4_nested_lend_projection_ty = v4_mir_ty_id(v4_nested_lend_projection_mir)
+pilot v4_nested_lend_projection_resolve = v4_ty_resolve_id(v4_nested_lend_projection_ty)
+pilot v4_nested_lend_projection_hir = v4_resolve_hir_id(v4_nested_lend_projection_resolve)
+pilot v4_nested_lend_projection_tree = v4_hir_tree_id(v4_nested_lend_projection_hir)
+pilot v4_nested_lend_projection_def = v4_resolve_def_for_name(v4_nested_lend_projection_resolve, "nested_lend_projection")
+pilot v4_nested_lend_projection_result = v4_borrowck_lookup_result(v4_nested_lend_projection_borrow, v4_nested_lend_projection_def)
+
 say "conditional-alias-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_conditional_alias_tree))
 say "conditional-alias-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_conditional_alias_ty))
 say "conditional-alias-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_conditional_alias_mir))
@@ -74,3 +134,12 @@ say "conditional-alias-status=" + v4_borrowck_result_status(v4_conditional_alias
 say "transferred-alias-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_transferred_alias_result)
 say "transferred-alias-long-release-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_transferred_alias_long_result)
 say "transferred-alias-source-rebind-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_transferred_alias_rebind_result)
+say "closure-aggregate-write-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_closure_aggregate_write_tree))
+say "closure-aggregate-write-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_closure_aggregate_write_ty))
+say "closure-aggregate-write-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_closure_aggregate_write_mir))
+say "closure-aggregate-write-rejected=" + v4_conditional_alias_bool(v4_conditional_alias_has_mir_message(v4_closure_aggregate_write_mir, "Meiya cannot model closure writes into loan-bearing captured storage yet"))
+say "nested-lend-projection-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_nested_lend_projection_tree))
+say "nested-lend-projection-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_nested_lend_projection_ty))
+say "nested-lend-projection-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_nested_lend_projection_mir))
+say "nested-lend-projection-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_nested_lend_projection_borrow))
+say "nested-lend-projection-status=" + v4_borrowck_result_status(v4_nested_lend_projection_borrow, v4_nested_lend_projection_result)
