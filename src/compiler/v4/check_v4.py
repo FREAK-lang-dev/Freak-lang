@@ -3333,6 +3333,7 @@ EXECUTABLE_SMOKES = [
             "fixed-aggregate-repeat-shared-rebind-all=clean",
             "fixed-aggregate-repeat-shared-rebind-one=blocked",
             "fixed-aggregate-repeat-nested-sibling-dead=clean",
+            "fixed-aggregate-repeat-nested-container-rebind=clean",
             "fixed-aggregate-repeat-structural-copy=clean",
             "fixed-aggregate-repeat-shared-dead-256=clean",
             "fixed-aggregate-repeat-shared-partial-rebind-257=clean",

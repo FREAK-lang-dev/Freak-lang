@@ -155,6 +155,12 @@ task v4_fixed_aggregate_source() -> word {
     src = src + "    first.hp = 22\n"
     src = src + "    give back slots[0].1.hp\n"
     src = src + "}\n"
+    src = src + "task repeat_nested_container_rebind(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder: ([lend Ship;2],int) = ([lend first; 2], 0)\n"
+    src = src + "    holder.0[0] = lend second\n"
+    src = src + "    first.hp = 23\n"
+    src = src + "    give back holder.0[0].hp\n"
+    src = src + "}\n"
     src = src + "task repeat_structural_copy(first: Ship, second: Ship) -> int {\n"
     src = src + "    pilot pair = (lend first, lend second)\n"
     src = src + "    pilot slots: [(lend Ship,lend Ship);2] = [pair; 2]\n"
@@ -621,6 +627,7 @@ say "fixed-aggregate-repeat-copy-diagnostic-count=" + word_from_int(v4_fixed_agg
 say "fixed-aggregate-repeat-shared-rebind-all=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_all")
 say "fixed-aggregate-repeat-shared-rebind-one=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_one")
 say "fixed-aggregate-repeat-nested-sibling-dead=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_nested_sibling_dead")
+say "fixed-aggregate-repeat-nested-container-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_nested_container_rebind")
 say "fixed-aggregate-repeat-structural-copy=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_structural_copy")
 say "fixed-aggregate-repeat-shared-dead-256=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_dead_256")
 say "fixed-aggregate-repeat-shared-partial-rebind-257=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_partial_rebind_257")

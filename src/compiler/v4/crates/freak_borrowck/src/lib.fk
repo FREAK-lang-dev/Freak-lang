@@ -118,6 +118,7 @@ pilot v4_borrowck_copy_cache_cursor = 0
 pilot v4_borrowck_copy_cache_evictions = 0
 pilot v4_borrowck_repeat_projection_scan_limit_value = 4096
 pilot v4_borrowck_repeat_projection_scan_exhausted_value = false
+pilot v4_borrowck_repeat_projection_scan_slot_count_value = 0
 pilot v4_borrowck_ready = 0
 
 task v4_borrowck_init() -> void {
@@ -3976,8 +3977,36 @@ task v4_borrowck_repeat_projection_candidates(mir_id: int, body_id: int, loan_st
     give back candidates
 }
 
+task v4_borrowck_repeat_projection_candidates_exact(mir_id: int, body_id: int, loan_stmt: int, base_holder: word, slot_count: int) -> int {
+    pilot candidates = v4_borrowck_repeat_projection_candidates(mir_id, body_id, loan_stmt, base_holder, slot_count)
+    if not v4_borrowck_repeat_projection_candidate_contains(candidates, 0 - 1) {
+        give back candidates
+    }
+    -- Whole-array or symbolic access requires path identity for every slot.
+    -- Above the budget, fail closed instead of confusing replacement values
+    -- with the original repeated loan.
+    if slot_count > v4_borrowck_repeat_projection_scan_limit_value {
+        array_release(candidates)
+        v4_borrowck_repeat_projection_scan_exhausted_value = true
+        v4_borrowck_repeat_projection_scan_slot_count_value = slot_count
+        give back 0 - 1
+    }
+    array_release(candidates)
+    candidates = array_new()
+    pilot fill_slot = 0
+    repeat until fill_slot >= slot_count {
+        array_push(candidates, word_from_int(fill_slot))
+        fill_slot += 1
+    }
+    give back candidates
+}
+
 task v4_borrowck_repeat_projection_scan_exhausted() -> bool {
     give back v4_borrowck_repeat_projection_scan_exhausted_value
+}
+
+task v4_borrowck_repeat_projection_scan_slot_count() -> int {
+    give back v4_borrowck_repeat_projection_scan_slot_count_value
 }
 
 task v4_borrowck_repeat_projection_scan_help(slot_count: int) -> word {
@@ -3991,6 +4020,7 @@ task v4_borrowck_repeat_projection_scan_help(slot_count: int) -> word {
 -- Returns -1 when the initializer is not a repeat fill, otherwise 0/1 for dead/live.
 task v4_borrowck_repeat_fill_loan_live_at_write(mir_id: int, body_id: int, loan_stmt: int, loan_text: word, write_stmt: int, write_block: int) -> int {
     v4_borrowck_repeat_projection_scan_exhausted_value = false
+    v4_borrowck_repeat_projection_scan_slot_count_value = 0
     if loan_stmt < 0 { give back 0 - 1 }
     pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
     if rvalue_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_array {
@@ -4009,25 +4039,8 @@ task v4_borrowck_repeat_fill_loan_live_at_write(mir_id: int, body_id: int, loan_
     if not v4_borrowck_place_is_local_storage_projection(mir_id, body_id, loan_place) { give back 1 }
     pilot base_holder = v4_mir_place_text(mir_id, body_id, loan_place)
 
-    pilot candidates = v4_borrowck_repeat_projection_candidates(mir_id, body_id, loan_stmt, base_holder, slot_count)
-    pilot broad = v4_borrowck_repeat_projection_candidate_contains(candidates, 0 - 1)
-    if broad {
-        -- Path identity is required here: whole-array fallback confuses a
-        -- rebound slot with the original repeat value. Above the budget, fail
-        -- closed and report the conservative limit instead of changing rules.
-        if slot_count > v4_borrowck_repeat_projection_scan_limit_value {
-            array_release(candidates)
-            v4_borrowck_repeat_projection_scan_exhausted_value = true
-            give back 1
-        }
-        array_release(candidates)
-        candidates = array_new()
-        pilot fill_slot = 0
-        repeat until fill_slot >= slot_count {
-            array_push(candidates, word_from_int(fill_slot))
-            fill_slot += 1
-        }
-    }
+    pilot candidates = v4_borrowck_repeat_projection_candidates_exact(mir_id, body_id, loan_stmt, base_holder, slot_count)
+    if candidates < 0 { give back 1 }
 
     pilot candidate_id = 0
     repeat until candidate_id >= array_len(candidates) {
@@ -4061,11 +4074,45 @@ task v4_borrowck_aggregate_source_liveness_at_write(mir_id: int, body_id: int, r
             if segment == v4_borrowck_holder_projection_none {
                 give back 2
             }
-            pilot child_holder = projected_holder
-            if segment != v4_borrowck_holder_projection_whole {
-                child_holder = child_holder + segment
+            pilot child_rvalue = v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)
+            pilot child_state = 0
+            if segment == "[*]" {
+                pilot slot_count = v4_mir_fixed_array_slot_count(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+                if slot_count < 0 { give back 2 }
+                if slot_count > 0 {
+                    pilot candidates = array_new()
+                    if slot_count == 1 {
+                        array_push(candidates, "0")
+                    } else {
+                        array_release(candidates)
+                        candidates = v4_borrowck_repeat_projection_candidates_exact(mir_id, body_id, holder_stmt, projected_holder, slot_count)
+                        if candidates < 0 { give back 2 }
+                        -- With no mentioned projection, one representative slot
+                        -- is enough to prove whether the repeated child carries
+                        -- this loan; every original slot is dead at the write.
+                        if array_len(candidates) == 0 { array_push(candidates, "0") }
+                    }
+                    pilot candidate_id = 0
+                    repeat until candidate_id >= array_len(candidates) {
+                        pilot slot_id = word_to_int(array_get(candidates, candidate_id))
+                        pilot child_holder = projected_holder + "[" + word_from_int(slot_id) + "]"
+                        pilot candidate_state = v4_borrowck_aggregate_source_liveness_at_write(mir_id, body_id, child_rvalue, loan_text, child_holder, holder_stmt, write_stmt, write_block, depth + 1)
+                        if candidate_state == 2 {
+                            array_release(candidates)
+                            give back 2
+                        }
+                        if candidate_state == 1 { child_state = 1 }
+                        candidate_id += 1
+                    }
+                    array_release(candidates)
+                }
+            } else {
+                pilot child_holder = projected_holder
+                if segment != v4_borrowck_holder_projection_whole {
+                    child_holder = child_holder + segment
+                }
+                child_state = v4_borrowck_aggregate_source_liveness_at_write(mir_id, body_id, child_rvalue, loan_text, child_holder, holder_stmt, write_stmt, write_block, depth + 1)
             }
-            pilot child_state = v4_borrowck_aggregate_source_liveness_at_write(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id), loan_text, child_holder, holder_stmt, write_stmt, write_block, depth + 1)
             if child_state == 2 {
                 give back 2
             }
@@ -4450,8 +4497,7 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
                                 loan_conflicts = true
                                 help = v4_borrowck_mutable_conflict_help(loan_text, loan_stmt, write_block, write_text, write_stmt)
                                 if v4_borrowck_repeat_projection_scan_exhausted() {
-                                    pilot repeat_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
-                                    help = v4_borrowck_repeat_projection_scan_help(v4_mir_fixed_array_slot_count(mir_id, v4_mir_rvalue_ty(mir_id, body_id, repeat_rvalue)))
+                                    help = v4_borrowck_repeat_projection_scan_help(v4_borrowck_repeat_projection_scan_slot_count())
                                 }
                             }
                         }
@@ -4467,8 +4513,7 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
                                         loan_conflicts = true
                                         help = v4_borrowck_cross_block_conflict_help(loan_text, loan_stmt, loan_block, write_text, write_stmt, write_block)
                                         if v4_borrowck_repeat_projection_scan_exhausted() {
-                                            pilot repeat_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
-                                            help = v4_borrowck_repeat_projection_scan_help(v4_mir_fixed_array_slot_count(mir_id, v4_mir_rvalue_ty(mir_id, body_id, repeat_rvalue)))
+                                            help = v4_borrowck_repeat_projection_scan_help(v4_borrowck_repeat_projection_scan_slot_count())
                                         }
                                     }
                                 }
