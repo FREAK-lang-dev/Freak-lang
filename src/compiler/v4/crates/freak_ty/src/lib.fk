@@ -1298,14 +1298,14 @@ task v4_ty_type_is_doctrinal_copy_eligible(ty_id: int, sig_id: int, type_text: w
     }
 
     if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text) {
-        give back v4_ty_match_type_satisfies_doctrine_env(ty_id, sig_id, type_text, "Copy", "") != v4_ty_generic_env_fail
+        give back v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id, sig_id, type_text, "Copy", "", seen_types, depth) != v4_ty_generic_env_fail
     }
 
     pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
     if storage_type == "" or storage_type == v4_ty_unknown {
         storage_type = type_text
     }
-    if v4_ty_match_type_satisfies_doctrine_env(ty_id, sig_id, storage_type, "Copy", "") == v4_ty_generic_env_fail {
+    if v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id, sig_id, storage_type, "Copy", "", seen_types, depth) == v4_ty_generic_env_fail {
         give back false
     }
     -- Concrete Copy impl matching validates every nominal field before succeeding.
@@ -7841,7 +7841,7 @@ task v4_ty_copy_impl_storage_is_eligible(ty_id: int, sig_id: int, type_text: wor
     give back false
 }
 
-task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {
+task v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word, copy_seen_types: word, copy_depth: int) -> word {
     if env == v4_ty_generic_env_fail {
         give back env
     }
@@ -7867,7 +7867,7 @@ task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, a
                         pilot impl_doctrine = v4_ty_apply_impl_generics(ty_id, hir_item, actual_ty, v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item))
                         pilot next_env = v4_ty_match_doctrine_ref_env(ty_id, sig_id, wanted_doctrine, impl_doctrine, env)
                         if next_env != v4_ty_generic_env_fail {
-                            if wanted_lookup != "Copy" or v4_ty_copy_impl_storage_is_eligible(ty_id, sig_id, actual_ty, "", 0) {
+                            if wanted_lookup != "Copy" or v4_ty_copy_impl_storage_is_eligible(ty_id, sig_id, actual_ty, copy_seen_types, copy_depth) {
                                 give back next_env
                             }
                         }
@@ -7896,6 +7896,10 @@ task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, a
         bound_idx += 1
     }
     give back v4_ty_generic_env_fail
+}
+
+task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {
+    give back v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id, sig_id, actual_ty, doctrine_name, env, "", 0)
 }
 
 task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {

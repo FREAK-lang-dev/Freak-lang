@@ -15,6 +15,15 @@ task v4_copy_doctrine_mir_diag_contains(mir_id: int, needle: word) -> bool {
     give back false
 }
 
+task v4_copy_doctrine_ty_diag_contains(ty_id: int, needle: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_ty_diag_count(ty_id) {
+        if v4_diag_message(v4_ty_diag(ty_id, diag_id)).contains(needle) { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
 task v4_copy_doctrine_ty_restore_resets_cache(ty_id: int, file_id: int, resolve_id: int) -> bool {
     pilot restored = v4_ty_restore_file_slot(ty_id, file_id, resolve_id)
     give back restored == ty_id and v4_ty_copy_doctrine_cache_count() == 0
@@ -37,6 +46,9 @@ task v4_copy_doctrine_source() -> word {
     src = src + "shape NominalLinearCopy {\n"
     src = src + "    owned: Owned\n"
     src = src + "}\n"
+    src = src + "shape Node {\n"
+    src = src + "    next: Node\n"
+    src = src + "}\n"
     src = src + "shape Pair<A,B> {\n"
     src = src + "    left: A\n"
     src = src + "    right: B\n"
@@ -44,6 +56,8 @@ task v4_copy_doctrine_source() -> word {
     src = src + "impl Copy for NominalCopy {\n"
     src = src + "}\n"
     src = src + "impl Copy for NominalLinearCopy {\n"
+    src = src + "}\n"
+    src = src + "impl Copy for Node {\n"
     src = src + "}\n"
     src = src + "impl Copy for Pair<A,B> {\n"
     src = src + "}\n"
@@ -56,6 +70,10 @@ task v4_copy_doctrine_source() -> word {
     src = src + "task invalid_copy_bound(linear: NominalLinearCopy) -> int {\n"
     src = src + "    pilot duplicated = duplicate_copy(linear)\n"
     src = src + "    give back duplicated.0.owned.hp\n"
+    src = src + "}\n"
+    src = src + "task invalid_recursive_copy(value: Node) -> int {\n"
+    src = src + "    pilot duplicated = [value; 2]\n"
+    src = src + "    give back 0\n"
     src = src + "}\n"
     give back src
 }
@@ -76,11 +94,13 @@ pilot v4_copy_doctrine_file = v4_ty_file_id(v4_copy_doctrine_ty)
 say "copy-doctrine-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_copy_doctrine_tree))
 say "copy-doctrine-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_copy_doctrine_ty))
 say "copy-doctrine-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_copy_doctrine_mir))
+say "copy-doctrine-recursive-type-diagnostic=" + v4_copy_doctrine_bool(v4_copy_doctrine_ty_diag_contains(v4_copy_doctrine_ty, "Yuuko infinite shape: Node contains itself by value"))
 say "copy-doctrine-generic-bound-rejected=" + v4_copy_doctrine_bool(v4_copy_doctrine_mir_diag_contains(v4_copy_doctrine_mir, "generic bound mismatch"))
 say "copy-doctrine-linear-field=" + v4_copy_doctrine_linear_field
 say "copy-doctrine-owned-match=" + v4_copy_doctrine_bool(v4_ty_match_type_satisfies_doctrine_env(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "Owned", "Copy", "") != v4_ty_generic_env_fail)
 say "copy-doctrine-nominal-copy-eligible=" + v4_copy_doctrine_bool(v4_ty_type_is_doctrinal_copy_eligible(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "NominalCopy", "", 0))
 say "copy-doctrine-linear-copy-eligible=" + v4_copy_doctrine_bool(v4_ty_type_is_doctrinal_copy_eligible(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "NominalLinearCopy", "", 0))
+say "copy-doctrine-recursive-copy-eligible=" + v4_copy_doctrine_bool(v4_ty_type_is_doctrinal_copy_eligible(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "Node", "", 0))
 say "copy-doctrine-nominal-transfer-copy=" + v4_copy_doctrine_bool(v4_borrowck_ty_is_copy(v4_copy_doctrine_mir, v4_copy_doctrine_body, "NominalCopy"))
 say "copy-doctrine-linear-transfer-copy=" + v4_copy_doctrine_bool(v4_borrowck_ty_is_copy(v4_copy_doctrine_mir, v4_copy_doctrine_body, "NominalLinearCopy"))
 say "copy-doctrine-cache-limit=" + word_from_int(v4_borrowck_copy_cache_limit())
