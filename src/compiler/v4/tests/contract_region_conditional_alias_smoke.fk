@@ -24,6 +24,20 @@ task v4_conditional_alias_source() -> word {
     src = src + "    second.hp = 89\n"
     src = src + "    give back holder.0.hp\n"
     src = src + "}\n"
+    src = src + "task transferred_alias_long_release(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot access = lend mut holder\n"
+    pilot transfer_id = 1
+    repeat until transfer_id > 19 {
+        pilot previous = "access"
+        if transfer_id > 1 { previous = "relay" + word_from_int(transfer_id - 1) }
+        src = src + "    pilot relay" + word_from_int(transfer_id) + " = " + previous + "\n"
+        transfer_id += 1
+    }
+    src = src + "    relay19.0 = lend mut second\n"
+    src = src + "    first.hp = 90\n"
+    src = src + "    give back holder.0.hp\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -37,6 +51,8 @@ pilot v4_conditional_alias_def = v4_resolve_def_for_name(v4_conditional_alias_re
 pilot v4_conditional_alias_result = v4_borrowck_lookup_result(v4_conditional_alias_borrow, v4_conditional_alias_def)
 pilot v4_transferred_alias_def = v4_resolve_def_for_name(v4_conditional_alias_resolve, "transferred_alias_target")
 pilot v4_transferred_alias_result = v4_borrowck_lookup_result(v4_conditional_alias_borrow, v4_transferred_alias_def)
+pilot v4_transferred_alias_long_def = v4_resolve_def_for_name(v4_conditional_alias_resolve, "transferred_alias_long_release")
+pilot v4_transferred_alias_long_result = v4_borrowck_lookup_result(v4_conditional_alias_borrow, v4_transferred_alias_long_def)
 
 say "conditional-alias-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_conditional_alias_tree))
 say "conditional-alias-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_conditional_alias_ty))
@@ -44,3 +60,4 @@ say "conditional-alias-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_co
 say "conditional-alias-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_conditional_alias_borrow))
 say "conditional-alias-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_conditional_alias_result)
 say "transferred-alias-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_transferred_alias_result)
+say "transferred-alias-long-release-status=" + v4_borrowck_result_status(v4_conditional_alias_borrow, v4_transferred_alias_long_result)

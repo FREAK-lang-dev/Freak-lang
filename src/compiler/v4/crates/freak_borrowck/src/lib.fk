@@ -3590,7 +3590,7 @@ task v4_borrowck_stmt_rebinds_holder(mir_id: int, body_id: int, stmt_id: int, ho
 }
 
 task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, path: word, use_stmt: int, alias_depth: int) -> word {
-    if alias_depth > 16 or use_stmt < 0 {
+    if alias_depth > v4_mir_body_stmt_count(mir_id, body_id) or use_stmt < 0 {
         give back ""
     }
     pilot path_canon = v4_borrowck_path_canon(path)

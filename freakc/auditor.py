@@ -3143,9 +3143,12 @@ def audit_conformance(paths: List[Path]) -> int:
                 "access.0 = lend mut third",
                 "pilot forwarded = access",
                 "forwarded.0 = lend mut second",
+                "task transferred_alias_long_release(first: Ship, second: Ship)",
+                "relay19.0 = lend mut second",
                 "conditional-alias-borrow-diagnostics=",
                 "conditional-alias-status=",
                 "transferred-alias-status=",
+                "transferred-alias-long-release-status=",
             ),
         ),
         (
@@ -3935,6 +3938,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "conditional-alias-borrow-diagnostics=2",
             "conditional-alias-status=blocked",
             "transferred-alias-status=blocked",
+            "transferred-alias-long-release-status=clean",
         ),
         "contract_region_fixed_aggregate_query_smoke.fk": (
             "fixed-aggregate-query-byte-length-stable=true",

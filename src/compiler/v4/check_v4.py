@@ -3160,6 +3160,7 @@ EXECUTABLE_SMOKES = [
             "conditional-alias-borrow-diagnostics=2",
             "conditional-alias-status=blocked",
             "transferred-alias-status=blocked",
+            "transferred-alias-long-release-status=clean",
         ],
     },
     {
