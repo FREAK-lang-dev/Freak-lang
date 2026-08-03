@@ -24,6 +24,18 @@ task v4_contract_region_generic_lend_escape_braces(inner: word) -> word {
     give back "{" + inner + "}"
 }
 
+task v4_contract_region_impl_for_target(ty_id: int, target_ty: word) -> int {
+    pilot hir_id = v4_resolve_hir_id(v4_ty_resolve_id(ty_id))
+    pilot hir_item = 0
+    repeat until hir_item >= v4_hir_item_count(hir_id) {
+        if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl and v4_ty_impl_target_type_from_hir(ty_id, hir_item) == target_ty {
+            give back hir_item
+        }
+        hir_item += 1
+    }
+    give back 0 - 1
+}
+
 task v4_contract_region_generic_lend_escape_local_rvalue(mir_id: int, body_id: int, local_name: word) -> int {
     pilot stmt_id = 0
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
@@ -105,6 +117,14 @@ task v4_contract_region_generic_lend_escape_source() -> word {
 task v4_contract_region_owner_generic_happy_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Direct<'a> {\n"
+    src = src + "    view: lend 'a Ship\n"
+    src = src + "}\n"
+    src = src + "impl Direct<'a> {\n"
+    src = src + "    task relay(self, value: Direct<'a>) -> Direct<'a> {\n"
+    src = src + "        give back value\n"
+    src = src + "    }\n"
     src = src + "}\n"
     src = src + "shape Box<T> {\n"
     src = src + "    value: T\n"
@@ -244,6 +264,9 @@ pilot v4_contract_region_owner_generic_happy_borrow_rvalue = v4_contract_region_
 pilot v4_contract_region_owner_generic_happy_borrow_arg = v4_mir_rvalue_call_arg(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_borrow_rvalue, 0)
 pilot v4_contract_region_owner_generic_happy_forged_borrow = v4_mir_add_rvalue(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_mir_rvalue_call, "forged shared.borrow()", "Shared<Ship>.borrow", 0 - 1, 0 - 1, V4_NO_SPAN, "lend Ship")
 v4_mir_set_rvalue_args_payload(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_forged_borrow, v4_mir_call_args_payload_append("", v4_contract_region_owner_generic_happy_borrow_arg))
+pilot v4_contract_region_owner_generic_happy_direct_impl = v4_contract_region_impl_for_target(v4_contract_region_owner_generic_happy_ty, "Direct<'a>")
+pilot v4_contract_region_owner_generic_happy_alpha_param = v4_ty_impl_method_explicit_param_type_for_owner(v4_contract_region_owner_generic_happy_ty, v4_contract_region_owner_generic_happy_direct_impl, 0, 0, "Direct<'b>")
+pilot v4_contract_region_owner_generic_happy_alpha_return = v4_ty_impl_method_return_type_for_owner(v4_contract_region_owner_generic_happy_ty, v4_contract_region_owner_generic_happy_direct_impl, 0, "Direct<'b>")
 
 say "contract-region-owner-generic-happy-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_contract_region_owner_generic_happy_tree))
 say "contract-region-owner-generic-happy-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_owner_generic_happy_ty))
@@ -258,6 +281,8 @@ say "contract-region-owner-generic-happy-borrow-identity=" + v4_mir_rvalue_built
 say "contract-region-owner-generic-happy-borrow-builtin=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_borrow_rvalue, v4_mir_builtin_shared_borrow))
 say "contract-region-owner-generic-happy-forged-identity-empty=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_builtin_method(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_forged_borrow) == "")
 say "contract-region-owner-generic-happy-forged-builtin=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_forged_borrow, v4_mir_builtin_shared_borrow))
+say "contract-region-owner-generic-happy-alpha-param=" + v4_contract_region_owner_generic_happy_alpha_param
+say "contract-region-owner-generic-happy-alpha-return=" + v4_contract_region_owner_generic_happy_alpha_return
 
 pilot v4_contract_region_owner_generic_negative_mir = v4_mir_text_cached("contract-region-owner-generic-negative.fk", v4_contract_region_owner_generic_negative_source())
 pilot v4_contract_region_owner_generic_negative_ty = v4_mir_ty_id(v4_contract_region_owner_generic_negative_mir)

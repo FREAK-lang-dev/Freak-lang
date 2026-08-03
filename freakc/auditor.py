@@ -4050,6 +4050,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-owner-generic-happy-borrow-builtin=true",
             "contract-region-owner-generic-happy-forged-identity-empty=true",
             "contract-region-owner-generic-happy-forged-builtin=false",
+            "contract-region-owner-generic-happy-alpha-param=Direct<'b>",
+            "contract-region-owner-generic-happy-alpha-return=Direct<'b>",
             "contract-region-owner-generic-negative-parse-diagnostics=0",
             "contract-region-owner-generic-negative-ty-diagnostics=1",
             "contract-region-owner-generic-negative-mir-diagnostics=9",

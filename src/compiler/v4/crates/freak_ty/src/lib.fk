@@ -6940,6 +6940,12 @@ task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word,
     if pattern_ty == actual_ty {
         give back env
     }
+    if v4_ty_is_lifetime_name(pattern_ty) or v4_ty_is_lifetime_name(actual_ty) {
+        if not v4_ty_is_lifetime_name(pattern_ty) or not v4_ty_is_lifetime_name(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        give back v4_ty_generic_env_bind(env, pattern_ty, actual_ty)
+    }
     if v4_ty_is_numeric(pattern_ty) and v4_ty_is_numeric(actual_ty) {
         give back env
     }
