@@ -16,6 +16,16 @@ task v4_repeat_projection_source() -> word {
     src = src + "    first.hp = 24\n"
     src = src + "    give back views[0].hp\n"
     src = src + "}\n"
+    src = src + "task repeat_nested_sibling_1024(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot slots: [(lend Ship,lend Ship);1024] = [(lend first,lend second);1024]\n"
+    src = src + "    first.hp = 25\n"
+    src = src + "    give back slots[0].1.hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_nested_sibling_1025(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot slots: [(lend Ship,lend Ship);1025] = [(lend first,lend second);1025]\n"
+    src = src + "    first.hp = 26\n"
+    src = src + "    give back slots[0].1.hp\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -43,3 +53,6 @@ say "repeat-projection-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_repe
 say "repeat-projection-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_repeat_projection_mir))
 say "repeat-projection-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_repeat_projection_borrow))
 say "repeat-projection-rebind-257=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_shared_rebind_257")
+say "repeat-projection-nested-sibling-1024=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_nested_sibling_1024")
+say "repeat-projection-nested-sibling-1025=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_nested_sibling_1025")
+say "repeat-projection-wildcard-sibling-alias=" + word_from_bool(v4_borrowck_paths_overlap("slots[*].0", "slots[0].1"))

@@ -1436,8 +1436,6 @@ task v4_borrowck_projection_paths_may_alias(left: word, right: word) -> bool {
                 if word_to_int(left_index) != word_to_int(right_index) {
                     give back false
                 }
-            } else {
-                give back true
             }
             left_idx = left_close + 1
             right_idx = right_close + 1
@@ -3072,6 +3070,37 @@ task v4_borrowck_type_is_dynamic_lend_storage(type_text: word) -> bool {
     give back base_name == "List" or base_name == "Map" or base_name == "Set" or base_name == "Lineup" or base_name == "maybe" or base_name == "result"
 }
 
+task v4_borrowck_check_dyn_lend_erasure(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
+    pilot conflicts = 0
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+        if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+            if place_id >= 0 and rvalue_id >= 0 and v4_ty_is_dyn_type(v4_mir_place_ty(mir_id, body_id, place_id)) {
+                pilot source_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+                pilot source_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+                if source_kind == v4_mir_rvalue_use_local or source_kind == v4_mir_rvalue_use_place {
+                    pilot source_root = v4_borrowck_path_root(v4_mir_rvalue_text(mir_id, body_id, rvalue_id))
+                    pilot local_ty = v4_mir_local_ty_for_name(mir_id, body_id, source_root)
+                    if local_ty != "" and local_ty != v4_ty_unknown { source_ty = local_ty }
+                }
+                if v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), source_ty) or v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, rvalue_id) {
+                    pilot span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
+                    pilot help = v4_mir_body_name(mir_id, body_id) + " must keep " + source_ty + " concrete until dyn doctrine values carry Meiya loan provenance"
+                    v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, "Meiya cannot erase a lend-bearing value into a dyn doctrine yet", help))
+                    v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                    conflicts += 1
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    give back conflicts
+}
+
 -- MIR emits the construction diagnostic while Meiya blocks the owning body.
 task v4_borrowck_check_dynamic_lend_storage(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot body_name = v4_mir_body_name(mir_id, body_id)
@@ -3136,6 +3165,18 @@ task v4_borrowck_rvalue_is_fixed_aggregate_storage_kind(kind: word) -> bool {
     give back kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_tuple
 }
 
+task v4_borrowck_call_arg_retained_in_fixed_result(mir_id: int, body_id: int, call_rvalue: int, arg_id: int) -> bool {
+    pilot sig_id = v4_mir_signature_id_for_name(mir_id, v4_mir_rvalue_op(mir_id, body_id, call_rvalue))
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if sig_id < 0 or not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+        give back true
+    }
+    if arg_id < 0 or arg_id >= v4_ty_signature_fixed_param_count(ty_id, sig_id) {
+        give back true
+    }
+    give back v4_ty_signature_source_can_project_target(ty_id, sig_id, v4_ty_signature_return_type(ty_id, sig_id), v4_ty_signature_param_type(ty_id, sig_id, arg_id))
+}
+
 task v4_borrowck_check_fixed_hidden_closure_storage(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot body_name = v4_mir_body_name(mir_id, body_id)
     pilot conflicts = 0
@@ -3158,7 +3199,11 @@ task v4_borrowck_check_fixed_hidden_closure_storage(borrow_id: int, result_id: i
                 if aggregate_call {
                     child_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, child_id)
                 }
-                if v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, child_rvalue) {
+                pilot child_retained = true
+                if aggregate_call {
+                    child_retained = v4_borrowck_call_arg_retained_in_fixed_result(mir_id, body_id, rvalue_id, child_id)
+                }
+                if child_retained and v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, child_rvalue) {
                     if not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, child_rvalue)) {
                         hidden_closure_lend = true
                     }
@@ -4223,18 +4268,22 @@ task v4_borrowck_resolve_projected_lend_alias_before(mir_id: int, body_id: int, 
                         give back ""
                     }
                     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-                    if kind != v4_mir_rvalue_lend and kind != v4_mir_rvalue_lend_mut {
+                    pilot candidate = ""
+                    if kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place {
+                        candidate = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) + suffix
+                    } else if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+                        pilot source_rvalue = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+                        if source_rvalue < 0 {
+                            give back ""
+                        }
+                        pilot source_kind = v4_mir_rvalue_kind(mir_id, body_id, source_rvalue)
+                        if source_kind != v4_mir_rvalue_use_local and source_kind != v4_mir_rvalue_use_place {
+                            give back ""
+                        }
+                        candidate = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, source_rvalue)) + suffix
+                    } else {
                         give back ""
                     }
-                    pilot source_rvalue = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
-                    if source_rvalue < 0 {
-                        give back ""
-                    }
-                    pilot source_kind = v4_mir_rvalue_kind(mir_id, body_id, source_rvalue)
-                    if source_kind != v4_mir_rvalue_use_local and source_kind != v4_mir_rvalue_use_place {
-                        give back ""
-                    }
-                    pilot candidate = v4_borrowck_path_canon(v4_mir_rvalue_text(mir_id, body_id, source_rvalue)) + suffix
                     if not found {
                         resolved = candidate
                         found = true
@@ -4610,7 +4659,9 @@ task v4_borrowck_repeat_fill_loan_live_at_write(mir_id: int, body_id: int, loan_
             give back 0
         }
         if slot_count > v4_borrowck_repeat_projection_scan_limit_value {
-            if v4_borrowck_holder_used_at_or_after_write(mir_id, body_id, base_holder, loan_stmt, write_stmt, write_block) { give back 1 }
+            pilot repeated_projection = base_holder + "[*]"
+            if nested != v4_borrowck_holder_projection_whole { repeated_projection = repeated_projection + nested }
+            if v4_borrowck_holder_used_at_or_after_write(mir_id, body_id, repeated_projection, loan_stmt, write_stmt, write_block) { give back 1 }
             give back 0
         }
     }
@@ -5404,6 +5455,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
         v4_borrowck_check_returned_lends(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_shared_guard_escapes(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_stored_call_lends(borrow_id, result_id, mir_id, body_idx)
+        v4_borrowck_check_dyn_lend_erasure(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_dynamic_lend_storage(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_fixed_hidden_closure_storage(borrow_id, result_id, mir_id, body_idx)
         v4_borrowck_check_repeated_mut_lend_aggregates(borrow_id, result_id, mir_id, body_idx)

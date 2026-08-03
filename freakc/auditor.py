@@ -3101,6 +3101,16 @@ def audit_conformance(paths: List[Path]) -> int:
             ),
         ),
         (
+            v4_tests_return / "fixed_closure_zero_branch_smoke.fk",
+            (
+                "shape Mixed<L,E>",
+                "empty: [E;0]",
+                "task mixed_wrap<L,E>(live: L, empty: E) -> Mixed<L,E>",
+                "fixed-closure-zero-status=",
+                "fixed-closure-zero-storage-diagnostics=",
+            ),
+        ),
+        (
             v4_tests_return / "copy_doctrine_storage_smoke.fk",
             (
                 "v4_session_semantic_restore_generation()",
@@ -3265,6 +3275,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 "task repeat_shared_rebind_257(first: Ship, second: Ship)",
                 "pilot replacement = lend second",
                 "repeat-projection-rebind-257=",
+                "repeat-projection-nested-sibling-1024=",
+                "repeat-projection-nested-sibling-1025=",
+                "repeat-projection-wildcard-sibling-alias=",
             ),
         ),
         (
@@ -3285,8 +3298,11 @@ def audit_conformance(paths: List[Path]) -> int:
                 "task conditional_alias_targets(first: Ship, second: Ship, third: Ship, choose_right: bool)",
                 "access = lend mut right",
                 "access.0 = lend mut third",
+                "pilot forwarded = access",
+                "forwarded.0 = lend mut second",
                 "conditional-alias-borrow-diagnostics=",
                 "conditional-alias-status=",
+                "transferred-alias-status=",
             ),
         ),
         (
@@ -4194,6 +4210,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "repeat-projection-mir-diagnostics=0",
             "repeat-projection-borrow-diagnostics=0",
             "repeat-projection-rebind-257=clean",
+            "repeat-projection-nested-sibling-1024=clean",
+            "repeat-projection-nested-sibling-1025=clean",
+            "repeat-projection-wildcard-sibling-alias=false",
         ),
         "contract_region_recursive_wrapper_smoke.fk": (
             "recursive-wrapper-parse-diagnostics=0",
@@ -4208,8 +4227,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "conditional-alias-parse-diagnostics=0",
             "conditional-alias-ty-diagnostics=0",
             "conditional-alias-mir-diagnostics=0",
-            "conditional-alias-borrow-diagnostics=1",
+            "conditional-alias-borrow-diagnostics=2",
             "conditional-alias-status=blocked",
+            "transferred-alias-status=blocked",
         ),
         "contract_region_fixed_aggregate_query_smoke.fk": (
             "fixed-aggregate-query-byte-length-stable=true",
@@ -5481,12 +5501,14 @@ def audit_conformance(paths: List[Path]) -> int:
     v4_lex_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_lex" / "src" / "lib.fk"
     v4_ty_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
     v4_mir_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_borrowck_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_borrowck" / "src" / "lib.fk"
     v4_editor_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
     v4_dyn_ty_smoke = repo / "src" / "compiler" / "v4" / "tests" / "dyn_doctrine_ty_smoke.fk"
     v4_dyn_mir_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_dyn_doctrine_smoke.fk"
     v4_dyn_mir_generic_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_dyn_doctrine_generic_smoke.fk"
     v4_dyn_mir_shared_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_dyn_doctrine_shared_smoke.fk"
     v4_dyn_mir_diagnostics_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_dyn_doctrine_diagnostics_smoke.fk"
+    v4_dyn_lend_erasure_smoke = repo / "src" / "compiler" / "v4" / "tests" / "dyn_doctrine_lend_erasure_smoke.fk"
     v4_dyn_editor_smoke = repo / "src" / "compiler" / "v4" / "tests" / "dyn_doctrine_editor_smoke.fk"
     v4_check_harness_dyn = repo / "src" / "compiler" / "v4" / "check_v4.py"
     if v4_lex_dyn.exists():
@@ -5521,6 +5543,16 @@ def audit_conformance(paths: List[Path]) -> int:
                 dyn_doctrine_missing.append(f"freak_mir: {needle}")
     else:
         dyn_doctrine_missing.append("freak_mir/src/lib.fk missing")
+    if v4_borrowck_dyn.exists():
+        borrowck_src = v4_borrowck_dyn.read_text(encoding="utf-8")
+        for needle in (
+            "task v4_borrowck_check_dyn_lend_erasure",
+            "Meiya cannot erase a lend-bearing value into a dyn doctrine yet",
+        ):
+            if needle not in borrowck_src:
+                dyn_doctrine_missing.append(f"freak_borrowck: {needle}")
+    else:
+        dyn_doctrine_missing.append("freak_borrowck/src/lib.fk missing")
     if v4_editor_dyn.exists():
         editor_src = v4_editor_dyn.read_text(encoding="utf-8")
         for needle in (
@@ -5573,6 +5605,17 @@ def audit_conformance(paths: List[Path]) -> int:
             dyn_doctrine_missing.append("mir_dyn_doctrine_diagnostics_smoke: dyn-mir-bad-message=")
     else:
         dyn_doctrine_missing.append("smoke fixture: mir_dyn_doctrine_diagnostics_smoke.fk")
+    if v4_dyn_lend_erasure_smoke.exists():
+        smoke_src = v4_dyn_lend_erasure_smoke.read_text(encoding="utf-8")
+        for needle in (
+            "pilot erased: dyn Widget = view",
+            "dyn-lend-erasure-mir-rejected=",
+            "dyn-lend-erasure-borrow-rejected=",
+        ):
+            if needle not in smoke_src:
+                dyn_doctrine_missing.append(f"dyn_doctrine_lend_erasure_smoke: {needle}")
+    else:
+        dyn_doctrine_missing.append("smoke fixture: dyn_doctrine_lend_erasure_smoke.fk")
     if v4_dyn_editor_smoke.exists():
         smoke_src = v4_dyn_editor_smoke.read_text(encoding="utf-8")
         for needle in (
@@ -5593,6 +5636,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "mir_dyn_doctrine_generic_smoke.fk",
             "mir_dyn_doctrine_shared_smoke.fk",
             "mir_dyn_doctrine_diagnostics_smoke.fk",
+            "dyn_doctrine_lend_erasure_smoke.fk",
             "dyn_doctrine_editor_smoke.fk",
             "dyn-editor-call-kind=Method",
         ):

@@ -3157,8 +3157,9 @@ EXECUTABLE_SMOKES = [
             "conditional-alias-parse-diagnostics=0",
             "conditional-alias-ty-diagnostics=0",
             "conditional-alias-mir-diagnostics=0",
-            "conditional-alias-borrow-diagnostics=1",
+            "conditional-alias-borrow-diagnostics=2",
             "conditional-alias-status=blocked",
+            "transferred-alias-status=blocked",
         ],
     },
     {
@@ -3600,6 +3601,9 @@ EXECUTABLE_SMOKES = [
             "repeat-projection-mir-diagnostics=0",
             "repeat-projection-borrow-diagnostics=0",
             "repeat-projection-rebind-257=clean",
+            "repeat-projection-nested-sibling-1024=clean",
+            "repeat-projection-nested-sibling-1025=clean",
+            "repeat-projection-wildcard-sibling-alias=false",
         ],
     },
     {
@@ -3622,6 +3626,20 @@ EXECUTABLE_SMOKES = [
             "projected-closure-nominal-call-storage-rejected=blocked",
             "projected-closure-dynamic-storage-diagnostics=2",
             "projected-closure-fixed-storage-diagnostics=1",
+        ],
+    },
+    {
+        "name": "fixed closure zero-sized branch",
+        "fixture": "fixed_closure_zero_branch_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "fixed-closure-zero-parse-diagnostics=0",
+            "fixed-closure-zero-ty-diagnostics=0",
+            "fixed-closure-zero-mir-diagnostics=0",
+            "fixed-closure-zero-borrow-diagnostics=0",
+            "fixed-closure-zero-status=clean",
+            "fixed-closure-zero-storage-diagnostics=0",
         ],
     },
     {
@@ -5948,6 +5966,21 @@ EXECUTABLE_SMOKES = [
             "dyn-mir-bad-list-help=take_list argument 1 expects List<dyn Widget> but got List<Button>",
             "dyn-mir-bad-holder-message=invalid local annotation type",
             "dyn-mir-bad-holder-help=Meiya lifetime debt: Holder expects 1 generic arguments in dyn doctrine of local declaration erased but received 0",
+        ],
+    },
+    {
+        "name": "dyn doctrine lend erasure",
+        "fixture": "dyn_doctrine_lend_erasure_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "dyn-lend-erasure-parse-diagnostics=0",
+            "dyn-lend-erasure-ty-diagnostics=0",
+            "dyn-lend-erasure-mir-diagnostics=1",
+            "dyn-lend-erasure-borrow-diagnostics=2",
+            "dyn-lend-erasure-status=blocked",
+            "dyn-lend-erasure-mir-rejected=true",
+            "dyn-lend-erasure-borrow-rejected=true",
         ],
     },
     {

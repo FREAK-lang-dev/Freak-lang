@@ -2167,7 +2167,14 @@ task v4_mir_types_compatible(mir_id: int, body_id: int, expected_ty: word, actua
     give back v4_ty_types_compatible_with_context(v4_mir_ty_id(mir_id), v4_mir_body_signature_id(mir_id, body_id), expected_ty, actual_ty)
 }
 
+task v4_mir_check_dyn_lend_erasure(mir_id: int, stmt_span: word, target_ty: word, source_ty: word, context: word) -> void {
+    if v4_ty_is_dyn_type(target_ty) and not v4_ty_is_dyn_type(source_ty) and v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), source_ty) {
+        v4_mir_add_type_error(mir_id, stmt_span, "dyn doctrine erasure cannot hide stored lends", context + " erases " + source_ty + " into " + target_ty + "; keep the concrete type visible until Meiya can preserve its loan provenance through the vtable")
+    }
+}
+
 task v4_mir_check_assignment_types(mir_id: int, body_id: int, stmt_span: word, place_id: int, place_ty: word, value_ty: word) -> void {
+    v4_mir_check_dyn_lend_erasure(mir_id, stmt_span, place_ty, value_ty, v4_mir_assignment_target_context(mir_id, body_id, place_id))
     if not v4_mir_types_compatible(mir_id, body_id, place_ty, value_ty) {
         pilot place_kind = v4_mir_place_unknown
         if place_id >= 0 {
@@ -2234,6 +2241,7 @@ task v4_mir_place_read_rvalue(mir_id: int, body_id: int, place_id: int, span: wo
 }
 
 task v4_mir_check_local_decl_type(mir_id: int, body_id: int, stmt_span: word, local_name: word, declared_ty: word, inferred_ty: word) -> void {
+    v4_mir_check_dyn_lend_erasure(mir_id, stmt_span, declared_ty, inferred_ty, "local " + local_name)
     if not v4_mir_types_compatible(mir_id, body_id, declared_ty, inferred_ty) {
         v4_mir_add_type_mismatch_error(mir_id, stmt_span, "local declaration type mismatch", local_name + " expects " + declared_ty + " but got " + inferred_ty, local_name, declared_ty, inferred_ty)
     }
