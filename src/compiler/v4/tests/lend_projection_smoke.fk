@@ -66,6 +66,18 @@ task v4_lend_projection_source() -> word {
     src = src + "    pilot hp = ship.hp\n"
     src = src + "    give back hp\n"
     src = src + "}\n"
+    src = src + "task move_owned_lend_field(first: Ship, replacement: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot moved = holder.0\n"
+    src = src + "    holder.0 = lend mut replacement\n"
+    src = src + "    give back moved.hp + holder.0.hp\n"
+    src = src + "}\n"
+    src = src + "task move_through_aggregate_lend(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot access = lend holder\n"
+    src = src + "    pilot moved = access.0\n"
+    src = src + "    give back moved.hp\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -102,6 +114,8 @@ pilot v4_lend_projection_index_move_def = v4_resolve_def_for_name(v4_lend_projec
 pilot v4_lend_projection_index_mut_move_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "index_mut_move_denied")
 pilot v4_lend_projection_before_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "read_before_write")
 pilot v4_lend_projection_after_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "read_after_write")
+pilot v4_lend_projection_owned_field_move_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "move_owned_lend_field")
+pilot v4_lend_projection_aggregate_lend_move_def = v4_resolve_def_for_name(v4_lend_projection_resolve, "move_through_aggregate_lend")
 
 pilot v4_lend_projection_field_read_body = v4_mir_lookup_body(v4_lend_projection_mir, v4_lend_projection_field_read_def)
 pilot v4_lend_projection_field_write_body = v4_mir_lookup_body(v4_lend_projection_mir, v4_lend_projection_field_write_def)
@@ -125,6 +139,8 @@ pilot v4_lend_projection_index_move_result = v4_borrowck_lookup_result(v4_lend_p
 pilot v4_lend_projection_index_mut_move_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_index_mut_move_def)
 pilot v4_lend_projection_before_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_before_def)
 pilot v4_lend_projection_after_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_after_def)
+pilot v4_lend_projection_owned_field_move_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_owned_field_move_def)
+pilot v4_lend_projection_aggregate_lend_move_result = v4_borrowck_lookup_result(v4_lend_projection_borrow, v4_lend_projection_aggregate_lend_move_def)
 
 say "projection-field-read-kind=" + v4_mir_rvalue_kind(v4_lend_projection_mir, v4_lend_projection_field_read_body, v4_lend_projection_field_read_rvalue)
 say "projection-field-read-ty=" + v4_mir_rvalue_ty(v4_lend_projection_mir, v4_lend_projection_field_read_body, v4_lend_projection_field_read_rvalue)
@@ -146,6 +162,8 @@ say "projection-index-move-status=" + v4_borrowck_result_status(v4_lend_projecti
 say "projection-index-mut-move-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_index_mut_move_result)
 say "projection-before-write-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_before_result)
 say "projection-after-write-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_after_result)
+say "projection-owned-field-move-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_owned_field_move_result)
+say "projection-aggregate-lend-move-status=" + v4_borrowck_result_status(v4_lend_projection_borrow, v4_lend_projection_aggregate_lend_move_result)
 say "projection-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_lend_projection_borrow))
 say "projection-immutable-write-diagnostics=" + word_from_int(v4_lend_projection_diag_count(v4_lend_projection_borrow, "Meiya refuses to mutate through an immutable lend"))
 say "projection-holder-move-diagnostics=" + word_from_int(v4_lend_projection_diag_count(v4_lend_projection_borrow, "Meiya refuses to move out through a lend holder"))
