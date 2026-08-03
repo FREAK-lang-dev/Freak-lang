@@ -2770,6 +2770,39 @@ task v4_borrowck_check_dynamic_lend_storage(borrow_id: int, result_id: int, mir_
         }
         rvalue_id += 1
     }
+
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_assign {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            pilot assigned_rvalue = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+            if place_id >= 0 and assigned_rvalue >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) != v4_mir_place_local {
+                pilot place_root = v4_borrowck_path_root(v4_mir_place_text(mir_id, body_id, place_id))
+                pilot stmt_offset = v4_span_start(v4_mir_stmt_span(mir_id, body_id, stmt_id))
+                pilot root_local = v4_mir_find_local_visible_at(mir_id, body_id, place_root, stmt_offset)
+                if root_local >= 0 and v4_borrowck_type_is_dynamic_lend_storage(v4_mir_local_ty(mir_id, body_id, root_local)) {
+                    pilot assigned_ty = v4_mir_rvalue_ty(mir_id, body_id, assigned_rvalue)
+                    pilot stores_lend = v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), assigned_ty)
+                    pilot hidden_closure_lend = false
+                    if not stores_lend and v4_borrowck_rvalue_is_borrow_capable(mir_id, body_id, assigned_rvalue) {
+                        stores_lend = true
+                        hidden_closure_lend = true
+                    }
+                    if stores_lend {
+                        if hidden_closure_lend {
+                            pilot span = v4_borrowck_use_diag_span(mir_id, body_id, stmt_id)
+                            pilot help = body_name + " writes a closure whose environment still borrows a local value into dynamic storage; keep the closure in a scalar local until dynamic closure provenance is implemented"
+                            v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, span, "Meiya cannot store a loan-capturing closure inside dynamic storage yet", help))
+                        }
+                        v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                        conflicts += 1
+                    }
+                }
+            }
+        }
+        stmt_id += 1
+    }
     give back conflicts
 }
 

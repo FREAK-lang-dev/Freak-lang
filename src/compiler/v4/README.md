@@ -237,6 +237,10 @@ Moving a lend-valued child out of an owned aggregate transfers that loan and
 uses the ordinary partial-move repair rules. Moving a child through an aggregate
 that is itself held behind `lend` or `lend mut` remains rejected.
 
+Dynamic containers remain outside closure-loan provenance. Meiya rejects both
+container construction and later indexed writes when the stored closure still
+captures a live loan.
+
 Projection assignments are first-class holder definitions. Rebinding one field
 retires only that field's previous loan, protects the newly stored owner through
 the field's final use, and leaves sibling provenance unchanged. Moving an

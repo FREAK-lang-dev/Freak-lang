@@ -3463,11 +3463,12 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "projected-closure-parse-diagnostics=0",
             "projected-closure-ty-diagnostics=0",
-            "projected-closure-mir-diagnostics=3",
-            "projected-closure-borrow-diagnostics=4",
+            "projected-closure-mir-diagnostics=4",
+            "projected-closure-borrow-diagnostics=6",
             "projected-closure-use-storage-rejected=blocked",
             "projected-closure-overwrite-storage-clean=clean",
-            "projected-closure-dynamic-storage-diagnostics=1",
+            "projected-closure-dynamic-write-rejected=blocked",
+            "projected-closure-dynamic-storage-diagnostics=2",
         ],
     },
     {

@@ -25,6 +25,14 @@ task v4_projected_closure_source() -> word {
     src = src + "    first.hp = 31\n"
     src = src + "    give back readers[0].0()\n"
     src = src + "}\n"
+    src = src + "task projected_closure_dynamic_write_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot readers = [|_| => 0]\n"
+    src = src + "    readers[0] = reader\n"
+    src = src + "    first.hp = 32\n"
+    src = src + "    give back readers[0]()\n"
+    src = src + "}\n"
     give back src
 }
 
@@ -65,4 +73,5 @@ say "projected-closure-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_pr
 say "projected-closure-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_projected_closure_borrow))
 say "projected-closure-use-storage-rejected=" + v4_projected_closure_status(v4_projected_closure_borrow, "projected_closure_use_storage_rejected")
 say "projected-closure-overwrite-storage-clean=" + v4_projected_closure_status(v4_projected_closure_borrow, "projected_closure_overwrite_storage_clean")
+say "projected-closure-dynamic-write-rejected=" + v4_projected_closure_status(v4_projected_closure_borrow, "projected_closure_dynamic_write_rejected")
 say "projected-closure-dynamic-storage-diagnostics=" + word_from_int(v4_projected_closure_borrow_diag_count(v4_projected_closure_borrow, "Meiya cannot store a loan-capturing closure inside dynamic storage yet"))
