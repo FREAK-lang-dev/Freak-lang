@@ -3590,6 +3590,29 @@ task v4_borrowck_stmt_rebinds_holder(mir_id: int, body_id: int, stmt_id: int, ho
     give back v4_borrowck_path_write_definitely_covers(v4_mir_place_text(mir_id, body_id, place_id), holder)
 }
 
+task v4_borrowck_path_prefix_conflicts_no_alloc(prefix: word, path_text: word) -> bool {
+    if prefix == "" or path_text == "" {
+        give back false
+    }
+    pilot prefix_idx = 0
+    pilot path_idx = 0
+    repeat until prefix_idx >= prefix.length() {
+        pilot ch = prefix.char_at(prefix_idx)
+        if ch != " " and ch != "\t" and ch != "\r" and ch != "\n" {
+            if path_idx >= path_text.length() or ch != path_text.char_at(path_idx) {
+                give back false
+            }
+            path_idx += 1
+        }
+        prefix_idx += 1
+    }
+    if path_idx >= path_text.length() {
+        give back false
+    }
+    pilot next = path_text.char_at(path_idx)
+    give back next == "." or next == "["
+}
+
 task v4_borrowck_projected_lend_alias_prefix(mir_id: int, body_id: int, path: word) -> word {
     pilot path_canon = v4_borrowck_path_canon(path)
     pilot root = v4_borrowck_path_root(path_canon)
@@ -3599,13 +3622,16 @@ task v4_borrowck_projected_lend_alias_prefix(mir_id: int, body_id: int, path: wo
     if v4_ty_is_lend_type(v4_mir_local_ty_for_name(mir_id, body_id, root)) {
         give back root
     }
+    if not v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_local_ty_for_name(mir_id, body_id, root)) {
+        give back ""
+    }
 
     pilot prefix = ""
     pilot place_id = 0
     pilot place_count = v4_mir_body_place_count(mir_id, body_id)
     repeat until place_id >= place_count {
-        pilot candidate = v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id))
-        if candidate != path_canon and v4_borrowck_path_prefix_conflicts(candidate, path_canon) and v4_ty_is_lend_type(v4_mir_place_ty(mir_id, body_id, place_id)) {
+        pilot candidate = v4_mir_place_text(mir_id, body_id, place_id)
+        if candidate != path_canon and v4_borrowck_path_prefix_conflicts_no_alloc(candidate, path_canon) and v4_ty_is_lend_type(v4_mir_place_ty(mir_id, body_id, place_id)) {
             if prefix == "" or candidate.length() < prefix.length() {
                 prefix = candidate
             }
