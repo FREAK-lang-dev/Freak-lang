@@ -1302,14 +1302,14 @@ task v4_ty_type_is_doctrinal_copy_eligible(ty_id: int, sig_id: int, type_text: w
     }
 
     if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text) {
-        give back v4_ty_match_type_satisfies_doctrine_env(ty_id, sig_id, type_text, "Copy", "") != v4_ty_generic_env_fail
+        give back v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id, sig_id, type_text, "Copy", "", seen_types, depth) != v4_ty_generic_env_fail
     }
 
     pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
     if storage_type == "" or storage_type == v4_ty_unknown {
         storage_type = type_text
     }
-    if v4_ty_match_type_satisfies_doctrine_env(ty_id, sig_id, storage_type, "Copy", "") == v4_ty_generic_env_fail {
+    if v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id, sig_id, storage_type, "Copy", "", seen_types, depth) == v4_ty_generic_env_fail {
         give back false
     }
     -- Concrete Copy impl matching validates every nominal field before succeeding.
@@ -2160,6 +2160,43 @@ task v4_ty_type_lend_storage_class(ty_id: int, type_text: word) -> word {
     give back v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, false)
 }
 
+task v4_ty_lend_storage_class_confirms_lend(storage_kind: word) -> bool {
+    give back storage_kind == v4_ty_lend_storage_fixed or storage_kind == v4_ty_lend_storage_unsupported
+}
+
+task v4_ty_lend_storage_class_is_incomplete(storage_kind: word) -> bool {
+    give back storage_kind == v4_ty_lend_storage_exhausted or storage_kind == v4_ty_lend_storage_opaque
+}
+
+task v4_ty_type_lend_storage_exhausted(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_is_incomplete(v4_ty_type_lend_storage_class(ty_id, type_text))
+}
+
+task v4_ty_type_stores_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_type_lend_storage_class(ty_id, type_text))
+}
+
+task v4_ty_type_may_store_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_type_lend_storage_class(ty_id, type_text) != v4_ty_lend_storage_none
+}
+
+task v4_ty_type_stores_mut_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, true))
+}
+
+task v4_ty_type_may_store_mut_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, true) != v4_ty_lend_storage_none
+}
+
+task v4_ty_type_stores_named_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, true, false))
+}
+
+task v4_ty_type_supports_fixed_lend_storage(ty_id: int, type_text: word) -> bool {
+    pilot storage_kind = v4_ty_type_lend_storage_class(ty_id, type_text)
+    give back storage_kind == v4_ty_lend_storage_none or storage_kind == v4_ty_lend_storage_fixed
+}
+
 task v4_ty_type_retains_closure_storage_seen(ty_id: int, type_text: word, seen_types: word, depth: int) -> bool {
     if depth > v4_ty_lend_storage_depth_limit { give back true }
     if v4_ty_is_closure_type(type_text) or type_text.starts_with("closure[") { give back true }
@@ -2245,43 +2282,6 @@ task v4_ty_type_retains_closure_storage_seen(ty_id: int, type_text: word, seen_t
 
 task v4_ty_type_retains_closure_storage(ty_id: int, type_text: word) -> bool {
     give back v4_ty_type_retains_closure_storage_seen(ty_id, type_text, "", 0)
-}
-
-task v4_ty_lend_storage_class_confirms_lend(storage_kind: word) -> bool {
-    give back storage_kind == v4_ty_lend_storage_fixed or storage_kind == v4_ty_lend_storage_unsupported
-}
-
-task v4_ty_lend_storage_class_is_incomplete(storage_kind: word) -> bool {
-    give back storage_kind == v4_ty_lend_storage_exhausted or storage_kind == v4_ty_lend_storage_opaque
-}
-
-task v4_ty_type_lend_storage_exhausted(ty_id: int, type_text: word) -> bool {
-    give back v4_ty_lend_storage_class_is_incomplete(v4_ty_type_lend_storage_class(ty_id, type_text))
-}
-
-task v4_ty_type_stores_lend(ty_id: int, type_text: word) -> bool {
-    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_type_lend_storage_class(ty_id, type_text))
-}
-
-task v4_ty_type_may_store_lend(ty_id: int, type_text: word) -> bool {
-    give back v4_ty_type_lend_storage_class(ty_id, type_text) != v4_ty_lend_storage_none
-}
-
-task v4_ty_type_stores_mut_lend(ty_id: int, type_text: word) -> bool {
-    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, true))
-}
-
-task v4_ty_type_may_store_mut_lend(ty_id: int, type_text: word) -> bool {
-    give back v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, true) != v4_ty_lend_storage_none
-}
-
-task v4_ty_type_stores_named_lend(ty_id: int, type_text: word) -> bool {
-    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, true, false))
-}
-
-task v4_ty_type_supports_fixed_lend_storage(ty_id: int, type_text: word) -> bool {
-    pilot storage_kind = v4_ty_type_lend_storage_class(ty_id, type_text)
-    give back storage_kind == v4_ty_lend_storage_none or storage_kind == v4_ty_lend_storage_fixed
 }
 
 task v4_ty_fixed_lend_leaf_count_seen(ty_id: int, type_text: word, seen_types: word, depth: int) -> int {
@@ -2383,6 +2383,7 @@ task v4_ty_fixed_lend_leaf_count(ty_id: int, type_text: word) -> int {
     }
     give back v4_ty_fixed_lend_leaf_count_seen(ty_id, type_text, "", 0)
 }
+
 task v4_ty_fixed_lend_leaf_type_at_seen(ty_id: int, type_text: word, seen_types: word, depth: int, leaf_id: int) -> word {
     if leaf_id < 0 or depth > v4_ty_lend_storage_depth_limit {
         give back v4_ty_unknown
@@ -2481,6 +2482,7 @@ task v4_ty_fixed_lend_leaf_type_at(ty_id: int, type_text: word, leaf_id: int) ->
     }
     give back v4_ty_fixed_lend_leaf_type_at_seen(ty_id, type_text, "", 0, leaf_id)
 }
+
 task v4_ty_fixed_lend_leaf_projection_at_seen(ty_id: int, type_text: word, seen_types: word, depth: int, leaf_id: int) -> word {
     if leaf_id < 0 or depth > v4_ty_lend_storage_depth_limit or v4_ty_is_lend_type(type_text) {
         give back ""
@@ -7419,6 +7421,12 @@ task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word,
     if pattern_ty == actual_ty {
         give back env
     }
+    if v4_ty_is_lifetime_name(pattern_ty) or v4_ty_is_lifetime_name(actual_ty) {
+        if not v4_ty_is_lifetime_name(pattern_ty) or not v4_ty_is_lifetime_name(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        give back v4_ty_generic_env_bind(env, pattern_ty, actual_ty)
+    }
     if v4_ty_is_numeric(pattern_ty) and v4_ty_is_numeric(actual_ty) {
         give back env
     }
@@ -8327,7 +8335,7 @@ task v4_ty_copy_impl_storage_is_eligible(ty_id: int, sig_id: int, type_text: wor
     give back false
 }
 
-task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {
+task v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word, copy_seen_types: word, copy_depth: int) -> word {
     if env == v4_ty_generic_env_fail {
         give back env
     }
@@ -8353,7 +8361,7 @@ task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, a
                         pilot impl_doctrine = v4_ty_apply_impl_generics(ty_id, hir_item, actual_ty, v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item))
                         pilot next_env = v4_ty_match_doctrine_ref_env(ty_id, sig_id, wanted_doctrine, impl_doctrine, env)
                         if next_env != v4_ty_generic_env_fail {
-                            if wanted_lookup != "Copy" or v4_ty_copy_impl_storage_is_eligible(ty_id, sig_id, actual_ty, "", 0) {
+                            if wanted_lookup != "Copy" or v4_ty_copy_impl_storage_is_eligible(ty_id, sig_id, actual_ty, copy_seen_types, copy_depth) {
                                 give back next_env
                             }
                         }
@@ -8382,6 +8390,10 @@ task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, a
         bound_idx += 1
     }
     give back v4_ty_generic_env_fail
+}
+
+task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {
+    give back v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id, sig_id, actual_ty, doctrine_name, env, "", 0)
 }
 
 task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {

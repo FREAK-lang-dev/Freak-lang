@@ -5814,7 +5814,7 @@ task v4_mir_check_fixed_array_repeated_literal(mir_id: int, body_id: int, stream
 
     pilot count_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, repeat_token + 1, close_token)
     pilot count_text = v4_mir_fixed_array_count_from_rvalue(mir_id, body_id, count_rvalue, expr_span)
-    if v4_ty_is_known(count_text) {
+    if v4_ty_is_known(count_text) and word_to_int(count_text) > 0 {
         if word_to_int(count_text) > 1 and v4_mir_rvalue_contains_mut_lend(mir_id, body_id, value_rvalue) {
             v4_mir_add_type_error(mir_id, expr_span, "fixed-array repeat cannot duplicate lend mut", "write each element explicitly so every slot receives a distinct exclusive loan")
         } else if not v4_ty_type_is_array_repeatable(v4_mir_ty_id(mir_id), v4_mir_body_signature_id(mir_id, body_id), value_ty) {
@@ -7109,6 +7109,9 @@ task v4_mir_closure_capture_diag(mir_id: int, mode: word, capture_name: word, ca
         }
         v4_mir_add_type_error(mir_id, capture_span, message, "use a mut closure when " + capture_name + " must be changed through the closure environment")
     }
+    if mutated and mode == v4_ty_closure_mode_mut and v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), capture_ty) {
+        v4_mir_add_type_error(mir_id, capture_span, "Meiya cannot model closure writes into loan-bearing captured storage yet", "move the rebind outside the closure or pass the projected slot through an explicit lend mut task; " + capture_name + " has type " + capture_ty + " and closure effect summaries are not available yet")
+    }
 }
 
 task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
@@ -7634,14 +7637,18 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
                     pilot slot_name = v4_slice(field_name, segment_start, segment_end)
                     current_text = current_text + "." + slot_name
 
+                    pilot tuple_ty = current_ty
+                    if v4_ty_is_lend_type(tuple_ty) {
+                        tuple_ty = v4_ty_lend_target_type(tuple_ty)
+                    }
                     pilot slot_ty = v4_ty_unknown
-                    if v4_ty_is_tuple_type(current_ty) {
-                        slot_ty = v4_ty_tuple_slot_type(current_ty, word_to_int(slot_name))
+                    if v4_ty_is_tuple_type(tuple_ty) {
+                        slot_ty = v4_ty_tuple_slot_type(tuple_ty, word_to_int(slot_name))
                         if not v4_ty_is_known(slot_ty) {
-                            v4_mir_add_type_error(mir_id, place_span, "tuple slot out of range", current_ty + " has no slot " + slot_name)
+                            v4_mir_add_type_error(mir_id, place_span, "tuple slot out of range", tuple_ty + " has no slot " + slot_name)
                         }
-                    } else if v4_ty_is_known(current_ty) {
-                        v4_mir_add_type_error(mir_id, place_span, "tuple slot access on non-tuple type", current_ty + " has no tuple slots")
+                    } else if v4_ty_is_known(tuple_ty) {
+                        v4_mir_add_type_error(mir_id, place_span, "tuple slot access on non-tuple type", tuple_ty + " has no tuple slots")
                     }
 
                     current_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, current_text, current_place, slot_name, 0 - 1, place_span, slot_ty)

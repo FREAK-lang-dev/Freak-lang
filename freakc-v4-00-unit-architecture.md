@@ -663,10 +663,10 @@ region solver described below and does not establish production backend support.
 
 | Layer | Owned fact | Implemented guarantee |
 |---|---|---|
-| `freak_ty` | Declared lifetime graph and fixed-layout leaf contracts | Explicit outlives bounds form a reflexive/transitive, cycle-safe graph. Scalar and fixed-layout ordinary static task parameters and returns are flattened into deterministic lend leaves carrying projection, mode, lifetime, and route guard. Every returned leaf must have at least one compatible source leaf; all compatible sources remain candidates, so indistinguishable same-lifetime siblings fail conservative rather than positional. Dynamic/wrapper carriers and aliases/doctrines/callbacks remain closed. |
-| `freak_mir` | Return-leaf to call-argument-leaf mappings | MIR maps every returned leaf candidate to a reordered call argument plus source projection and route guard. `-1` is opaque, `0` is proven empty, and positive counts are complete candidate sets. Tuple/shape projections remain field-sensitive; fixed-array task boundaries use `[*]`. This metadata carries no concrete owner identity. Declaration-order children require `freak-mir-snapshot-v5`. |
-| `freak_borrowck` / Meiya | Concrete owner-path provenance | Meiya seeds fixed-layout parameter leaves at body entry, validates every returned projection against source lifetime/mutability contracts, and resolves MIR call mappings to concrete caller paths. Call aliases retain return projections, preserving tuple/shape sibling expiry; wildcard arrays remain conservative. Source-less signatures and callee-owned escapes diagnose independently. Local rebinding, CFG fixed points, `LoanMut` exclusivity, bounded caches, and fail-closed resource limits remain in force. |
-| `freak_editor` plus query/snapshot crates | Tooling continuity | Aggregate task signatures and call results flow through existing semantic, hover, definition, symbol, completion, diagnostics, snapshot, and invalidation families. The executable query smoke edits a returned field use across an ordinary aggregate call, checks all 17 invalidation fields against the 00-Unit diff, proves all 17 families recompute, and pins exact semantic/hover/definition/symbol/completion facts before change, after change, and after restoring the original MIR/Meiya/editor state. No aggregate-only protocol exists. |
+| `freak_ty` | Declared lifetime graph, eligible parameter ids, and fixed-storage classification | An explicit bound such as `'long: 'short` is a directed edge. Declared binders are reflexive, direct edges close transitively, and cycles make their members mutually reachable. An iterative, cycle-safe worklist handles converging graphs and long chains without recursive stack growth. Named returns select every mode-compatible parameter whose lifetime reaches the return lifetime; elided returns select every mode-compatible borrowed parameter. Shared returns admit `lend` and `lend mut`; mutable returns admit only `lend mut`. TY classifies tuples, fixed arrays, shapes, and route payloads as the task-local fixed-layout vocabulary. Generic-call, owner-generic, and `Shared<T>::new` substitutions recursively expand nominal shapes/routes such as `Direct<'a>` before rejecting hidden lends. Classification exhaustion is a distinct fail-closed state with a targeted depth-budget diagnostic; conservative ownership queries treat it as possibly lend-bearing. Ordinary-task aggregate parameters and returns, aliases, doctrines, and callbacks remain closed to lend-bearing storage. |
+| `freak_mir` | Candidate call mappings and declaration-keyed aggregate children | MIR erases callee binder spelling from the caller-local result but maps every eligible signature parameter to its reordered call argument. `-1` means opaque/unproven, `0` is a proven-empty set, and a positive count is a fully mapped candidate set. This is candidate metadata, not caller ownership. Tuple slots and fixed-array indices are stable structural keys. Shape and route children are normalized into declaration order and recover their declared field projection independent of constructor source order. That representation requires `freak-mir-snapshot-v5`; v4 is rejected rather than reinterpreted. Direct nominal impl calls and overloaded operator dispatch on lend-bearing aggregate owners are rejected at the call boundary. Dynamic/container constructors still reject lend children while child type and span identity exist. |
+| `freak_borrowck` / Meiya | Concrete owner-path and projected-child provenance | Meiya resolves MIR candidates through projections, scalar and fixed-layout aggregate holders, projected reborrows, nested statically resolved ordinary calls, acyclic CFG joins, and loop headers/backedges. Aggregate provenance memos include the requested projection: field or slot uses resolve only that declaration-keyed child, while whole-value or dynamic-index uses conservatively union possible children. A dynamic-index assignment overlaps every fixed slot and therefore cannot retire or launder one child loan. Projection assignment is a holder definition: rebinding retires only the selected child's old loan, protects its new owner, and preserves siblings; aggregate moves into projected destinations retain relative child paths. This supplies field-sensitive final-use liveness and preserves `LoanMut` exclusivity for the relevant child. Restore starts a fresh provenance scratch generation. It discovers memo dependencies iteratively, records reverse edges, and schedules only dependants of changed memos in deterministic waves to reach a monotonic least fixed point. Known sets deduplicate and union every concrete caller owner; unresolved empty memos and path-growing projections become opaque. Only Meiya emits queryable `ReturnLoan` / `ReturnLoanMut` paths. Bounded integer/canonical-path cache rings and explicit memo/dependency/work/source/path budgets rebuild or fail closed without changing provenance semantics. |
+| `freak_editor` plus query/snapshot crates | Lifetime semantic, hover, definition, restore, and invalidation facts | Outlives-bound references resolve to the declared binder even when that declaration appears later or the bound is repeated. Distinct definitions and spans survive snapshot restore after the live editor arenas have been poisoned. Fixed-layout local type and provenance facts use the existing MIR, borrowck, editor, and query sections; no aggregate-only snapshot or LSP method exists. Stale or fingerprint-mismatched restored entries are not promoted. Source changes update all 17 invalidation report fields: 14 concrete query families plus three aggregate totals (`all`/`query`, `core`, and `editor`); explicit requests prove every concrete family recomputes and the totals refresh. The fixed-aggregate query smoke proves `A -> B -> restore A` and re-resolves MIR, borrowck, and editor IDs from the restored arenas. |
 
 TY's iterative lifetime closure uses queue/visited arrays as high-water scratch:
 each traversal resets the active prefix, later queries reuse capacity, and
@@ -722,10 +722,57 @@ cycle-safe worklists. A
 64-diamond fixture proves forward and reverse reachability without recursive
 stack growth.
 
-The runtime-value boundary is split by representation stability. Tuples, fixed
-arrays, shapes, and route payloads may contain shared or mutable lends both in
-local values and at ordinary static task parameter/return positions. This is a
-frontend ownership contract, not a backend calling convention or runtime ABI.
+The runtime-value storage boundary is split by representation stability.
+Task-local tuples, fixed arrays, shapes, and route payloads may contain shared
+or mutable lends. This is a frontend ownership fact, not an aggregate task ABI
+or a backend/runtime layout guarantee.
+
+MIR gives every supported child a stable projection key. Tuple slots use `.N`
+and fixed arrays use `[N]`; repeat-filled arrays use the conservative `[*]`
+identity. Shape and route constructor children are normalized into declaration
+order, then recovered by declared field name. Constructor source order cannot
+silently move Yuuko's field label onto a different Meiya loan.
+
+Meiya keys aggregate provenance by the rvalue and requested projection. Local
+aggregate holder aliases preserve that projection path. A later `.0`, `.field`, or
+constant `[index]` use therefore extends only the selected child's loan and
+does not keep unrelated siblings live. Whole-value uses and non-constant array
+indices conservatively union every possible child. Dynamic-index assignment
+targets overlap every fixed slot, so rebinding cannot selectively erase one
+child loan. `LoanMut` remains exclusive against overlapping owner observations,
+writes, moves, and loans while that projected holder is live. Repeat-filling multiple slots from one `lend mut` is
+diagnosed because one exclusive loan cannot be cloned into a formation.
+
+A projection assignment is a new holder definition, not a write into an opaque
+aggregate bunker. Rebinding `.left` releases only `.left`'s previous loan,
+installs protection for the newly stored owner, and leaves `.right` intact.
+When an aggregate moves into another projected destination, Meiya rebases the
+aggregate root while retaining every relative child projection, so Yuuko's map
+and Meiya's patrol describe the same owner paths.
+
+These facts use the existing tooling protocols. Declaration-order aggregate
+children require `freak-mir-snapshot-v5`; v4 is rejected rather than silently
+reinterpreted. Component restore, 00-Unit restore, and standalone
+`workspace/mirSnapshotRestore` each discard active provenance scratch and start
+a fresh generation. The fixed-aggregate query smoke checkpoints A, edits to B,
+then restores A and re-resolves MIR, borrowck, and editor IDs against restored
+arenas. The 14-section 00-Unit envelope, restore, manifest, diff, and health gain
+no aggregate-only format. Source changes still report all 17 invalidation fields
+and recompute the existing TY, MIR, borrowck, diagnostics, editor, and query
+families. No new LSP method is required.
+
+The exclusions are explicit. List and map storage plus the `some(...)`, `ok(...)`,
+and `err(...)` wrapper constructors remain rejected. Alias targets,
+doctrine or method contracts, callbacks, extern/FFI calls, and ordinary-task
+aggregate parameters or returns do not carry fixed-layout provenance.
+Generic-call, owner-generic, and `Shared<T>::new` substitution checks recursively
+expand nominal shapes and routes, so `Direct<'a>` cannot smuggle a lend through
+`T`. Direct nominal impl calls and overloaded operator dispatch on lend-bearing
+owners fail closed. Storage-classification depth exhaustion is reported
+separately and remains conservative. Body-derived source discovery, general
+lexical region inference, and `'static` classification are still open. Dynamic
+or wrapper storage and any backend or runtime aggregate-loan ABI remain beyond
+this checkpoint.
 
 TY enumerates fixed-layout lend leaves. Tuple slots use `.N`, shape fields use
 `.field`, fixed arrays use `[*]`, and route payloads add a constructor guard to
@@ -783,7 +830,7 @@ lower explicit, lexical-scope-aware capture environments, but borrowed-return
 closure contracts and forwarding remain unsupported. Loop-carried provenance fixed points are implemented for scalar
 and task-local fixed-layout holders used through statically resolved ordinary
 calls. General lexical region inference, `'static` storage classification,
-non-ordinary aggregate boundaries, and backend lowering remain future Meiya work. This
+aggregate task boundaries, and backend lowering remain future Meiya work. This
 checkpoint is a partial signature-contract source-set and local fixed-layout
 non-lexical liveness slice, not completed region inference, runtime ownership,
 or a completed production backend.

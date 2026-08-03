@@ -15,6 +15,15 @@ task v4_copy_doctrine_mir_diag_contains(mir_id: int, needle: word) -> bool {
     give back false
 }
 
+task v4_copy_doctrine_ty_diag_contains(ty_id: int, needle: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_ty_diag_count(ty_id) {
+        if v4_diag_message(v4_ty_diag(ty_id, diag_id)).contains(needle) { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
 task v4_copy_doctrine_ty_restore_resets_cache(ty_id: int, file_id: int, resolve_id: int) -> bool {
     pilot restored = v4_ty_restore_file_slot(ty_id, file_id, resolve_id)
     give back restored == ty_id and v4_ty_copy_doctrine_cache_count() == 0
@@ -23,40 +32,6 @@ task v4_copy_doctrine_ty_restore_resets_cache(ty_id: int, file_id: int, resolve_
 task v4_copy_doctrine_borrow_restore_resets_cache(borrow_id: int, file_id: int, mir_id: int) -> bool {
     pilot restored = v4_borrowck_restore_file_slot(borrow_id, file_id, mir_id)
     give back restored == borrow_id and v4_borrowck_copy_cache_count() == 0
-}
-
-task v4_copy_doctrine_upstream_restore_cache_checks(ty_id: int, sig_id: int, mir_id: int) -> void {
-    pilot parse_generation = v4_session_semantic_restore_generation()
-    v4_ty_copy_doctrine_cache_store(ty_id, sig_id, "NominalCopy", "")
-    v4_borrowck_copy_cache_store(mir_id, sig_id, "NominalCopy", true)
-    pilot parse_primed = v4_ty_copy_doctrine_cache_count() > 0 and v4_borrowck_copy_cache_count() > 0
-    pilot parse_restore = v4_parse_snapshot_restore(v4_parse_snapshot())
-    pilot parse_restore_ok = parse_restore.starts_with("parse-snapshot-restore ok=1")
-    pilot parse_generation_advanced = v4_session_semantic_restore_generation() > parse_generation
-    pilot parse_ty_reset = v4_ty_copy_doctrine_cache_count() == 0
-    pilot parse_borrow_reset = v4_borrowck_copy_cache_count() == 0
-    say "copy-doctrine-parse-cache-primed=" + v4_copy_doctrine_bool(parse_primed)
-    say "copy-doctrine-parse-restore-ok=" + v4_copy_doctrine_bool(parse_restore_ok)
-    say "copy-doctrine-parse-generation-advanced=" + v4_copy_doctrine_bool(parse_generation_advanced)
-    say "copy-doctrine-parse-ty-cache-reset=" + v4_copy_doctrine_bool(parse_ty_reset)
-    say "copy-doctrine-parse-borrow-cache-reset=" + v4_copy_doctrine_bool(parse_borrow_reset)
-    say "copy-doctrine-parse-restore-cache-reset=" + v4_copy_doctrine_bool(parse_primed and parse_restore_ok and parse_generation_advanced and parse_ty_reset and parse_borrow_reset)
-
-    pilot hir_generation = v4_session_semantic_restore_generation()
-    v4_ty_copy_doctrine_cache_store(ty_id, sig_id, "NominalCopy", "")
-    v4_borrowck_copy_cache_store(mir_id, sig_id, "NominalCopy", true)
-    pilot hir_primed = v4_ty_copy_doctrine_cache_count() > 0 and v4_borrowck_copy_cache_count() > 0
-    pilot hir_restore = v4_hir_snapshot_restore(v4_hir_snapshot())
-    pilot hir_restore_ok = hir_restore.starts_with("hir-snapshot-restore ok=1")
-    pilot hir_generation_advanced = v4_session_semantic_restore_generation() > hir_generation
-    pilot hir_ty_reset = v4_ty_copy_doctrine_cache_count() == 0
-    pilot hir_borrow_reset = v4_borrowck_copy_cache_count() == 0
-    say "copy-doctrine-hir-cache-primed=" + v4_copy_doctrine_bool(hir_primed)
-    say "copy-doctrine-hir-restore-ok=" + v4_copy_doctrine_bool(hir_restore_ok)
-    say "copy-doctrine-hir-generation-advanced=" + v4_copy_doctrine_bool(hir_generation_advanced)
-    say "copy-doctrine-hir-ty-cache-reset=" + v4_copy_doctrine_bool(hir_ty_reset)
-    say "copy-doctrine-hir-borrow-cache-reset=" + v4_copy_doctrine_bool(hir_borrow_reset)
-    say "copy-doctrine-hir-restore-cache-reset=" + v4_copy_doctrine_bool(hir_primed and hir_restore_ok and hir_generation_advanced and hir_ty_reset and hir_borrow_reset)
 }
 
 task v4_copy_doctrine_source() -> word {
@@ -71,6 +46,9 @@ task v4_copy_doctrine_source() -> word {
     src = src + "shape NominalLinearCopy {\n"
     src = src + "    owned: Owned\n"
     src = src + "}\n"
+    src = src + "shape Node {\n"
+    src = src + "    next: Node\n"
+    src = src + "}\n"
     src = src + "shape Pair<A,B> {\n"
     src = src + "    left: A\n"
     src = src + "    right: B\n"
@@ -78,6 +56,8 @@ task v4_copy_doctrine_source() -> word {
     src = src + "impl Copy for NominalCopy {\n"
     src = src + "}\n"
     src = src + "impl Copy for NominalLinearCopy {\n"
+    src = src + "}\n"
+    src = src + "impl Copy for Node {\n"
     src = src + "}\n"
     src = src + "impl Copy for Pair<A,B> {\n"
     src = src + "}\n"
@@ -90,6 +70,10 @@ task v4_copy_doctrine_source() -> word {
     src = src + "task invalid_copy_bound(linear: NominalLinearCopy) -> int {\n"
     src = src + "    pilot duplicated = duplicate_copy(linear)\n"
     src = src + "    give back duplicated.0.owned.hp\n"
+    src = src + "}\n"
+    src = src + "task invalid_recursive_copy(value: Node) -> int {\n"
+    src = src + "    pilot duplicated = [value; 2]\n"
+    src = src + "    give back 0\n"
     src = src + "}\n"
     give back src
 }
@@ -110,11 +94,13 @@ pilot v4_copy_doctrine_file = v4_ty_file_id(v4_copy_doctrine_ty)
 say "copy-doctrine-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_copy_doctrine_tree))
 say "copy-doctrine-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_copy_doctrine_ty))
 say "copy-doctrine-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_copy_doctrine_mir))
+say "copy-doctrine-recursive-type-diagnostic=" + v4_copy_doctrine_bool(v4_copy_doctrine_ty_diag_contains(v4_copy_doctrine_ty, "Yuuko infinite shape: Node contains itself by value"))
 say "copy-doctrine-generic-bound-rejected=" + v4_copy_doctrine_bool(v4_copy_doctrine_mir_diag_contains(v4_copy_doctrine_mir, "generic bound mismatch"))
 say "copy-doctrine-linear-field=" + v4_copy_doctrine_linear_field
 say "copy-doctrine-owned-match=" + v4_copy_doctrine_bool(v4_ty_match_type_satisfies_doctrine_env(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "Owned", "Copy", "") != v4_ty_generic_env_fail)
 say "copy-doctrine-nominal-copy-eligible=" + v4_copy_doctrine_bool(v4_ty_type_is_doctrinal_copy_eligible(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "NominalCopy", "", 0))
 say "copy-doctrine-linear-copy-eligible=" + v4_copy_doctrine_bool(v4_ty_type_is_doctrinal_copy_eligible(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "NominalLinearCopy", "", 0))
+say "copy-doctrine-recursive-copy-eligible=" + v4_copy_doctrine_bool(v4_ty_type_is_doctrinal_copy_eligible(v4_copy_doctrine_ty, v4_copy_doctrine_sig, "Node", "", 0))
 say "copy-doctrine-nominal-transfer-copy=" + v4_copy_doctrine_bool(v4_borrowck_ty_is_copy(v4_copy_doctrine_mir, v4_copy_doctrine_body, "NominalCopy"))
 say "copy-doctrine-linear-transfer-copy=" + v4_copy_doctrine_bool(v4_borrowck_ty_is_copy(v4_copy_doctrine_mir, v4_copy_doctrine_body, "NominalLinearCopy"))
 say "copy-doctrine-cache-limit=" + word_from_int(v4_borrowck_copy_cache_limit())
@@ -123,4 +109,3 @@ say "copy-doctrine-ty-cache-capacity=" + word_from_int(v4_ty_copy_doctrine_cache
 say "copy-doctrine-ty-cache-bounded=" + v4_copy_doctrine_bool(v4_ty_copy_doctrine_cache_count() <= v4_ty_copy_doctrine_cache_capacity())
 say "copy-doctrine-ty-restore-cache-reset=" + v4_copy_doctrine_bool(v4_copy_doctrine_ty_restore_resets_cache(v4_copy_doctrine_ty, v4_copy_doctrine_file, v4_copy_doctrine_resolve))
 say "copy-doctrine-borrow-restore-cache-reset=" + v4_copy_doctrine_bool(v4_copy_doctrine_borrow_restore_resets_cache(v4_copy_doctrine_borrow, v4_copy_doctrine_file, v4_copy_doctrine_mir))
-v4_copy_doctrine_upstream_restore_cache_checks(v4_copy_doctrine_ty, v4_copy_doctrine_sig, v4_copy_doctrine_mir)

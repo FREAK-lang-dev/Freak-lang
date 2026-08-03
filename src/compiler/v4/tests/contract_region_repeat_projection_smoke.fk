@@ -1,4 +1,4 @@
--- V4 repeat-filled aggregate projection scale fixture.
+-- V4 repeat-filled aggregate projection scale and capture fixture.
 -- Verification prepends the V4 crates before this file.
 
 task v4_repeat_projection_source() -> word {
@@ -8,23 +8,37 @@ task v4_repeat_projection_source() -> word {
     src = src + "task repeat_shared_rebind_257(first: Ship, second: Ship) -> int {\n"
     src = src + "    pilot views: [lend Ship;257] = [lend first; 257]\n"
     src = src + "    pilot replacement = lend second\n"
-    pilot slot_id = 0
-    repeat until slot_id >= 257 {
-        src = src + "    views[" + word_from_int(slot_id) + "] = replacement\n"
-        slot_id += 1
+    pilot rebind_slot_id = 0
+    repeat until rebind_slot_id >= 257 {
+        src = src + "    views[" + word_from_int(rebind_slot_id) + "] = replacement\n"
+        rebind_slot_id += 1
     }
     src = src + "    first.hp = 24\n"
     src = src + "    give back views[0].hp\n"
     src = src + "}\n"
-    src = src + "task repeat_nested_sibling_1024(first: Ship, second: Ship) -> int {\n"
-    src = src + "    pilot slots: [(lend Ship,lend Ship);1024] = [(lend first,lend second);1024]\n"
-    src = src + "    first.hp = 25\n"
-    src = src + "    give back slots[0].1.hp\n"
-    src = src + "}\n"
-    src = src + "task repeat_nested_sibling_1025(first: Ship, second: Ship) -> int {\n"
-    src = src + "    pilot slots: [(lend Ship,lend Ship);1025] = [(lend first,lend second);1025]\n"
+    src = src + "task repeat_shared_partial_rebind_1025(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;1025] = [lend first; 1025]\n"
+    src = src + "    views[0] = lend second\n"
     src = src + "    first.hp = 26\n"
-    src = src + "    give back slots[0].1.hp\n"
+    src = src + "    give back views[0].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_extracted_alias_rebind_256(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;256] = [lend first; 256]\n"
+    src = src + "    pilot saved = views[0]\n"
+    src = src + "    pilot replacement = lend second\n"
+    pilot slot_id = 0
+    repeat until slot_id >= 256 {
+        src = src + "    views[" + word_from_int(slot_id) + "] = replacement\n"
+        slot_id += 1
+    }
+    src = src + "    first.hp = 27\n"
+    src = src + "    give back saved.hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_capture_live(first: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;2] = [lend first; 2]\n"
+    src = src + "    pilot reader = |_| => views[0].hp\n"
+    src = src + "    first.hp = 28\n"
+    src = src + "    give back reader()\n"
     src = src + "}\n"
     give back src
 }
@@ -53,6 +67,6 @@ say "repeat-projection-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_repe
 say "repeat-projection-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_repeat_projection_mir))
 say "repeat-projection-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_repeat_projection_borrow))
 say "repeat-projection-rebind-257=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_shared_rebind_257")
-say "repeat-projection-nested-sibling-1024=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_nested_sibling_1024")
-say "repeat-projection-nested-sibling-1025=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_nested_sibling_1025")
-say "repeat-projection-wildcard-sibling-alias=" + word_from_bool(v4_borrowck_paths_overlap("slots[*].0", "slots[0].1"))
+say "repeat-projection-partial-rebind-1025=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_shared_partial_rebind_1025")
+say "repeat-projection-extracted-alias-rebind-256=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_shared_extracted_alias_rebind_256")
+say "repeat-projection-capture-live=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_shared_capture_live")
