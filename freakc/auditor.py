@@ -4843,6 +4843,28 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-resource-fixed-point-telemetry-stable=true",
             "contract-region-resource-bounds-opaque=true",
         ),
+        "contract_region_body_derived_probe_smoke.fk": (
+            "body-probe-parse-diagnostics=0",
+            "body-probe-ty-diagnostics=0",
+            "body-probe-mir-diagnostics=0",
+            "body-probe-borrow-diagnostics=2",
+            "body-probe-chain-two-hop=clean",
+            "body-probe-holder-build-chain=clean",
+            "body-probe-call-store-agg=clean",
+            "body-probe-call-store-scalar-agg=clean",
+            "body-probe-call-store-scalar=clean",
+            "body-probe-call-in-ctor=clean",
+            "body-probe-field-rebind-agg=clean",
+            "body-probe-nested-build=clean",
+            "body-probe-inner-rebind=clean",
+            "body-probe-chain-projected-agg=clean",
+            "body-probe-branch-join=clean",
+            "body-probe-loop-carried-local=clean",
+            "body-probe-mixed-owned-leaf=blocked",
+            "body-probe-branch-single-source=blocked",
+            "body-probe-owned-diagnostics=1",
+            "body-probe-unproven-diagnostics=1",
+        ),
     }
     if v4_check_harness_return.exists():
         harness_smokes, harness_errors = _literal_executable_smokes(v4_check_harness_return)

@@ -1123,8 +1123,14 @@ the rest is V4.
 > V4 closure expressions now carry capture ownership, but closure types cannot
 > yet declare borrowed-return
 > contracts, so returned-loan forwarding through closures remains unsupported.
-> Body-derived source discovery and general lexical
-> region inference are not part of this signature-contract slice. Lifetime
+> Body-derived source discovery is part of this slice: Meiya
+> walks reaching definitions so returned loans resolve through local holder
+> aliases, aggregate builds and moves into projected destinations, statically
+> resolved ordinary-call results stored in locals, acyclic CFG joins, and
+> bounded loop-header/backedge fixed points, with projection-assignment
+> rebinding and conservative dynamic-index overlap preserved. Unbound paths
+> fail closed with the origin diagnostic instead of guessing. General lexical
+> region inference is not part of this signature-contract slice. Lifetime
 > tokens, signature relations, and editor semantic/hover/definition facts on
 > outlives-bound references exist. Definitions target the declared binder even
 > when it appears later in the generic list or is referenced repeatedly, and
