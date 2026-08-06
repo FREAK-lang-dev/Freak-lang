@@ -247,8 +247,10 @@ the field's final use, and leaves sibling provenance unchanged. Moving an
 aggregate into a projected destination rebases its children under that
 destination while preserving each relative `.N`, `.field`, or `[N]` path.
 
-This is local storage, not an aggregate calling convention. TY still rejects
-named and elided lends nested inside ordinary-task parameter or return types.
+This is local storage, not an aggregate calling convention. Ordinary-task
+fixed-layout aggregate parameters and returns now preserve leaf provenance
+across the boundary. TY still rejects named and elided lends nested inside
+non-ordinary task parameter or return types.
 Generic-call, owner-generic, and `Shared<T>::new` substitution checks recursively
 expand nominal shapes and routes, so a type such as `Direct<'a>` cannot hide its
 `lend 'a` field behind a nominal name. Direct nominal impl calls and overloaded
@@ -258,8 +260,8 @@ bounded depth budget: exhaustion emits its own diagnostic, strict validators
 reject it, and conservative Meiya queries treat it as possibly lend-bearing.
 MIR continues to reject lend storage in list and map values plus the
 `some(...)`, `ok(...)`, and `err(...)` wrapper constructors. Alias targets,
-doctrine and method contracts, callbacks, extern/FFI boundaries, and aggregate
-task parameters or returns remain outside fixed-layout provenance.
+doctrine and method contracts, callbacks, extern/FFI boundaries, and
+non-ordinary aggregate task parameters or returns remain outside fixed-layout provenance.
 Malformed `lend 'a` and doubled-lifetime types receive spanned diagnostics.
 Contract-boundary smokes also pin normalized source paths and exact `start:end`
 byte ranges for signature-storage and unsupported-forwarding failures.

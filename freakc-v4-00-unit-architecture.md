@@ -763,8 +763,8 @@ families. No new LSP method is required.
 
 The exclusions are explicit. List and map storage plus the `some(...)`, `ok(...)`,
 and `err(...)` wrapper constructors remain rejected. Alias targets,
-doctrine or method contracts, callbacks, extern/FFI calls, and ordinary-task
-aggregate parameters or returns do not carry fixed-layout provenance.
+doctrine or method contracts, callbacks, extern/FFI calls, and
+non-ordinary aggregate task parameters or returns do not carry fixed-layout provenance.
 Generic-call, owner-generic, and `Shared<T>::new` substitution checks recursively
 expand nominal shapes and routes, so `Direct<'a>` cannot smuggle a lend through
 `T`. Direct nominal impl calls and overloaded operator dispatch on lend-bearing
@@ -830,7 +830,7 @@ lower explicit, lexical-scope-aware capture environments, but borrowed-return
 closure contracts and forwarding remain unsupported. Loop-carried provenance fixed points are implemented for scalar
 and task-local fixed-layout holders used through statically resolved ordinary
 calls. General lexical region inference, `'static` storage classification,
-aggregate task boundaries, and backend lowering remain future Meiya work. This
+non-ordinary aggregate task boundaries, and backend lowering remain future Meiya work. This
 checkpoint is a partial signature-contract source-set and local fixed-layout
 non-lexical liveness slice, not completed region inference, runtime ownership,
 or a completed production backend.
