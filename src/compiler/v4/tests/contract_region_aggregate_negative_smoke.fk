@@ -1,0 +1,68 @@
+-- V4 fixed-layout aggregate loan malformed-boundary fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_aggregate_negative_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_aggregate_negative_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_aggregate_negative_ty_diag_contains(ty_id: int, needle: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_ty_diag_count(ty_id) {
+        if v4_diag_message(v4_ty_diag(ty_id, diag_id)).contains(needle) { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
+task v4_aggregate_negative_borrow_diag_contains(borrow_id: int, needle: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)).contains(needle) { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
+task v4_aggregate_negative_source() -> word {
+    pilot src = "shape Ship " + v4_aggregate_negative_braces(" hp: int ") + "\n"
+    src = src + "task mutable_upgrade<'a>(views: (lend 'a Ship,int)) -> (lend mut 'a Ship,int) {\n"
+    src = src + "    give back (lend mut views.0,views.1)\n"
+    src = src + "}\n"
+    src = src + "task pair_pass<'a>(views: (lend mut 'a Ship,lend mut 'a Ship)) -> (lend mut 'a Ship,lend mut 'a Ship) " + v4_aggregate_negative_braces(" give back views ") + "\n"
+    src = src + "task mismatched_carrier(first: Ship) -> int {\n"
+    src = src + "    pilot views = (lend mut first,0)\n"
+    src = src + "    pilot returned = pair_pass(views)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_aggregate_negative_call_in_body(mir_id: int, body_id: int) -> int {
+    pilot rvalue_id = 0
+    repeat until rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call { give back rvalue_id }
+        rvalue_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_aggregate_negative_borrow = v4_borrowck_text_cached("contract-region-aggregate-negative.fk", v4_aggregate_negative_source())
+pilot v4_aggregate_negative_mir = v4_borrowck_mir_id(v4_aggregate_negative_borrow)
+pilot v4_aggregate_negative_ty = v4_mir_ty_id(v4_aggregate_negative_mir)
+pilot v4_aggregate_negative_resolve = v4_ty_resolve_id(v4_aggregate_negative_ty)
+pilot v4_aggregate_negative_upgrade_def = v4_resolve_def_for_name(v4_aggregate_negative_resolve, "mutable_upgrade")
+pilot v4_aggregate_negative_upgrade_sig = v4_ty_lookup_signature(v4_aggregate_negative_ty, v4_aggregate_negative_upgrade_def)
+pilot v4_aggregate_negative_mismatch_def = v4_resolve_def_for_name(v4_aggregate_negative_resolve, "mismatched_carrier")
+pilot v4_aggregate_negative_mismatch_body = v4_mir_lookup_body(v4_aggregate_negative_mir, v4_aggregate_negative_mismatch_def)
+pilot v4_aggregate_negative_mismatch_call = v4_aggregate_negative_call_in_body(v4_aggregate_negative_mir, v4_aggregate_negative_mismatch_body)
+pilot v4_aggregate_negative_mismatch_result = v4_borrowck_lookup_result(v4_aggregate_negative_borrow, v4_aggregate_negative_mismatch_def)
+say "aggregate-negative-upgrade-source-count=" + word_from_int(v4_ty_signature_return_lend_source_count(v4_aggregate_negative_ty, v4_aggregate_negative_upgrade_sig, 0))
+say "aggregate-negative-upgrade-diagnostic=" + v4_aggregate_negative_bool(v4_aggregate_negative_ty_diag_contains(v4_aggregate_negative_ty, "cannot find a source"))
+say "aggregate-negative-mismatch-map-count=" + word_from_int(v4_mir_rvalue_call_borrowed_source_arg_count_for_leaf(v4_aggregate_negative_mir, v4_aggregate_negative_mismatch_body, v4_aggregate_negative_mismatch_call, 0))
+say "aggregate-negative-mismatch-status=" + v4_borrowck_result_status(v4_aggregate_negative_borrow, v4_aggregate_negative_mismatch_result)
+say "aggregate-negative-mismatch-diagnostic=" + v4_aggregate_negative_bool(v4_aggregate_negative_borrow_diag_contains(v4_aggregate_negative_borrow, "cannot store this borrowed call result"))

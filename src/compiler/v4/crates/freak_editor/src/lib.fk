@@ -1782,11 +1782,9 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
         give back word_to_int(cached)
     }
 
+    -- Arena IDs are local to their producing query. Materialize editor facts
+    -- before deeper queries can append or restore downstream arenas.
     pilot stream_id = v4_lex_text_cached(path, text)
-    pilot hir_id = v4_hir_text_cached(path, text)
-    pilot resolve_id = v4_resolve_text_cached(path, text)
-    pilot ty_id = v4_ty_text_cached(path, text)
-    pilot mir_id = v4_mir_text_cached(path, text)
     pilot token_id = v4_editor_token_at(stream_id, offset)
     pilot token_kind = ""
     pilot token_value = ""
@@ -1797,6 +1795,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
         token_span = v4_lex_token_span(stream_id, token_id)
     }
 
+    pilot hir_id = v4_hir_text_cached(path, text)
     pilot hir_item = v4_editor_hir_item_at(hir_id, offset)
     pilot item_name = ""
     pilot item_kind = ""
@@ -1804,6 +1803,10 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
         item_name = v4_hir_item_name(hir_id, hir_item)
         item_kind = v4_hir_item_kind(hir_id, hir_item)
     }
+
+    pilot resolve_id = v4_resolve_text_cached(path, text)
+    pilot ty_id = v4_ty_text_cached(path, text)
+    pilot mir_id = v4_mir_text_cached(path, text)
 
     pilot symbol_id = 0 - 1
     if token_value != "" {

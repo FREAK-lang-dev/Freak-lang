@@ -4214,6 +4214,7 @@ task v4_unit_snapshot_restore_sources(payload: word) -> int {
 task v4_mir_snapshot_restore(payload: word) -> word {
     pilot restore_result = v4_mir_snapshot_restore_component(payload)
     if restore_result.starts_with("mir-snapshot-restore ok=1") {
+        v4_session_semantic_restore_generation_advance()
         v4_borrowck_provenance_scratch_reset()
     }
     give back restore_result

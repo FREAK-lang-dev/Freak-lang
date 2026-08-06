@@ -763,8 +763,8 @@ families. No new LSP method is required.
 
 The exclusions are explicit. List and map storage plus the `some(...)`, `ok(...)`,
 and `err(...)` wrapper constructors remain rejected. Alias targets,
-doctrine or method contracts, callbacks, extern/FFI calls, and ordinary-task
-aggregate parameters or returns do not carry fixed-layout provenance.
+doctrine or method contracts, callbacks, extern/FFI calls, and
+non-ordinary aggregate task parameters or returns do not carry fixed-layout provenance.
 Generic-call, owner-generic, and `Shared<T>::new` substitution checks recursively
 expand nominal shapes and routes, so `Direct<'a>` cannot smuggle a lend through
 `T`. Direct nominal impl calls and overloaded operator dispatch on lend-bearing
@@ -774,6 +774,50 @@ lexical region inference, and `'static` classification are still open. Dynamic
 or wrapper storage and any backend or runtime aggregate-loan ABI remain beyond
 this checkpoint.
 
+TY enumerates fixed-layout lend leaves. Tuple slots use `.N`, shape fields use
+`.field`, fixed arrays use `[*]`, and route payloads add a constructor guard to
+the physical field projection. Mode and lifetime travel with each leaf. Every
+returned leaf must have a compatible parameter leaf; named lifetimes require an
+outlives path and `lend mut` returns require mutable sources. All compatible
+leaves remain candidates, including same-lifetime siblings. A fixed carrier may
+expose at most 256 lend leaves and each returned leaf may name at most 256 source
+relations. Cycles, excessive depth, or either budget fail closed with a
+diagnostic; relation construction returns atomic `#opaque`, never a partial map.
+
+MIR carries those source relations across calls as return-leaf to argument-leaf
+edges. It does not guess owner paths. Meiya seeds parameter-leaf provenance at
+body entry, validates each returned aggregate projection, and resolves call
+edges against caller rvalues. An aggregate call alias retains its exact return
+projection. Tuple and shape sibling loans can therefore expire independently;
+fixed-array calls remain may-alias through `[*]`. Route guards preserve variant
+identity without changing the stable physical field path. Direct and nested
+constructors, including fieldless cases, are proven from the rvalue or one exact
+reaching local definition. Ambiguous reaching definitions remain conservative.
+Guard filtering that proves no active payload is `known-empty`; malformed or
+unresolved provenance is `opaque` and still fails closed.
+
+Local aggregate rules remain unchanged. Whole-value and dynamic-index uses union
+possible children, dynamic-index writes overlap every slot, projection rebinding
+retires only the selected holder, and aggregate moves preserve relative child
+paths. `LoanMut` remains exclusive, and repeated mutable-lend array fill is
+rejected.
+
+These facts use existing tooling protocols. Declaration-order children still
+require `freak-mir-snapshot-v5`; v4 is rejected. The query smoke constructs a
+shape, passes it through an ordinary lifetime-bearing task, changes the returned
+field use, checks all 17 invalidation fields against the 00-Unit diff, and then
+restores the original MIR, borrowck, diagnostics, and editor facts. No snapshot
+section or LSP endpoint was added.
+
+The exclusions are explicit. List/map and `some(...)` / `ok(...)` / `err(...)`
+storage remain rejected. Alias targets, doctrine/method contracts, callbacks,
+closures with borrowed returns, dynamic dispatch, and extern/FFI calls do not
+carry aggregate provenance. Concrete generic shape/route instantiations are valid
+ordinary-task carriers when their leaves are deterministic. Generic function-call
+and owner-generic method substitutions still expand nominal carriers and fail
+closed. Body-derived/general lexical inference,
+`'static`, dynamic/wrapper storage, index-sensitive array contracts, and any
+backend/runtime aggregate-loan ABI remain future Meiya work.
 Contract-boundary diagnostics retain source-backed spans. Registered smokes pin
 the normalized source path and exact `start:end` byte range for signature and
 unsupported-forwarding failures, so cache, snapshot, and recomputation work
@@ -786,7 +830,7 @@ lower explicit, lexical-scope-aware capture environments, but borrowed-return
 closure contracts and forwarding remain unsupported. Loop-carried provenance fixed points are implemented for scalar
 and task-local fixed-layout holders used through statically resolved ordinary
 calls. General lexical region inference, `'static` storage classification,
-aggregate task boundaries, and backend lowering remain future Meiya work. This
+non-ordinary aggregate task boundaries, and backend lowering remain future Meiya work. This
 checkpoint is a partial signature-contract source-set and local fixed-layout
 non-lexical liveness slice, not completed region inference, runtime ownership,
 or a completed production backend.
