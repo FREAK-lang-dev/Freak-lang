@@ -305,7 +305,7 @@ task v4_macro_ast_view_root(ast_view: word) -> word {
 }
 
 task v4_macro_span_view_new(source_view: word, span: word) -> word {
-    if not v4_macro_source_view_valid(source_view) or not v4_macro_api_span_valid(span) or v4_span_file(span) != v4_macro_source_view_id(source_view) {
+    if not v4_macro_source_view_valid(source_view) or not v4_macro_api_span_valid(span) or v4_span_file(span) != v4_macro_source_view_id(source_view) or v4_span_end(span) > v4_macro_source_view_byte_length(source_view) {
         give back ""
     }
     pilot out = v4_macro_api_pack_field(v4_macro_tag_span_view)
@@ -319,7 +319,7 @@ task v4_macro_span_view_valid(span_view: word) -> bool {
     }
     pilot source_view = v4_macro_api_field(span_view, 1)
     pilot span = v4_macro_api_field(span_view, 2)
-    give back v4_macro_source_view_valid(source_view) and v4_macro_api_span_valid(span) and v4_span_file(span) == v4_macro_source_view_id(source_view)
+    give back v4_macro_source_view_valid(source_view) and v4_macro_api_span_valid(span) and v4_span_file(span) == v4_macro_source_view_id(source_view) and v4_span_end(span) <= v4_macro_source_view_byte_length(source_view)
 }
 
 task v4_macro_span_view_source(span_view: word) -> word {
@@ -432,8 +432,16 @@ task v4_macro_diagnostic_help(diagnostic: word) -> word {
     give back v4_macro_api_field(diagnostic, 6)
 }
 
+-- freak_diag currently uses an unescaped pipe-delimited carrier. Preserve the
+-- richer structured value, but fail closed rather than corrupting its adapter.
+task v4_macro_diagnostic_compiler_representable(diagnostic: word) -> bool {
+    if not v4_macro_diagnostic_valid(diagnostic) { give back false }
+    pilot span = v4_macro_span_view_span(v4_macro_diagnostic_span(diagnostic))
+    give back v4_index_of_from(span, "|", 0) < 0 and v4_index_of_from(v4_macro_diagnostic_message(diagnostic), "|", 0) < 0 and v4_index_of_from(v4_macro_diagnostic_help(diagnostic), "|", 0) < 0
+}
+
 task v4_macro_diagnostic_to_compiler_diag(diagnostic: word) -> word {
-    if not v4_macro_diagnostic_valid(diagnostic) { give back "" }
+    if not v4_macro_diagnostic_compiler_representable(diagnostic) { give back "" }
     give back v4_diag_new(v4_macro_diagnostic_severity(diagnostic), v4_macro_span_view_span(v4_macro_diagnostic_span(diagnostic)), v4_macro_diagnostic_message(diagnostic), v4_macro_diagnostic_help(diagnostic))
 }
 

@@ -544,6 +544,10 @@ immutable source/AST/node/span view handles, and structured macro diagnostics.
 Its v1 capability set is closed to read-only views, diagnostic submission, and
 syntax builders; unknown capabilities fail closed. Filesystem, network,
 environment, clock, randomness, and process access are not capabilities.
+Span views are canonical and bounded by their source metadata. Structured
+diagnostics preserve their own length-prefixed fields; conversion to the
+bootstrap pipe-delimited compiler diagnostic fails closed when a field cannot
+be represented without corruption.
 
 The bootstrap exposes no macro host and executes no built-in or third-party
 macro. Diagnostic submission and builder operations return deterministic
