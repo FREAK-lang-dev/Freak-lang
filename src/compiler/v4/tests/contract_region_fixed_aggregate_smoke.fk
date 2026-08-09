@@ -1,0 +1,724 @@
+-- V4 local fixed-layout loan storage, projection, and liveness fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_fixed_aggregate_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_fixed_aggregate_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_fixed_aggregate_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "doctrine Cloneable {\n"
+    src = src + "}\n"
+    src = src + "doctrine Copy {\n"
+    src = src + "}\n"
+    src = src + "shape Owned {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape CloneOwned {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape NominalCopy {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "impl Cloneable for CloneOwned {\n"
+    src = src + "}\n"
+    src = src + "impl Copy for NominalCopy {\n"
+    src = src + "}\n"
+    src = src + "shape SharedOwned<'a> {\n"
+    src = src + "    view: lend 'a Ship\n"
+    src = src + "    owned: Owned\n"
+    src = src + "}\n"
+    src = src + "shape Pair<A,B> {\n"
+    src = src + "    left: A\n"
+    src = src + "    right: B\n"
+    src = src + "}\n"
+    src = src + "impl Copy for Pair<A,B> {\n"
+    src = src + "}\n"
+    src = src + "shape Direct<'a> {\n"
+    src = src + "    view: lend 'a Ship\n"
+    src = src + "}\n"
+    src = src + "shape Scoped<T,U> {\n"
+    src = src + "    view: T\n"
+    src = src + "}\n"
+    src = src + "route Stored<A,B> {\n"
+    src = src + "    Hold " + v4_fixed_aggregate_braces(" left: A, right: B ") + "\n"
+    src = src + "    Empty\n"
+    src = src + "}\n"
+    src = src + "task relay_mut(lend mut ship: Ship) -> lend mut Ship {\n"
+    src = src + "    give back lend mut ship\n"
+    src = src + "}\n"
+    src = src + "task identity<T>(value: T) -> T {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task wrap<C>(value: C) -> (C,int) {\n"
+    src = src + "    give back (value, 0)\n"
+    src = src + "}\n"
+    src = src + "task empty_wrap<C>(value: C) -> [C;0] {\n"
+    src = src + "    give back []\n"
+    src = src + "}\n"
+    src = src + "task list_wrap<C>(value: C) -> List<C> {\n"
+    src = src + "    give back [value]\n"
+    src = src + "}\n"
+    src = src + "task tuple_sibling_dead(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views = (lend mut first, lend second)\n"
+    src = src + "    second.hp = 2\n"
+    src = src + "    pilot final_use = views.0.hp\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task tuple_left_live(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views = (lend mut first, lend second)\n"
+    src = src + "    first.hp = 3\n"
+    src = src + "    pilot final_use = views.0.hp\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task array_sibling_dead(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend mut Ship;2] = [lend mut first, lend mut second]\n"
+    src = src + "    second.hp = 4\n"
+    src = src + "    pilot final_use = views[0].hp\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task array_left_live(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend mut Ship;2] = [lend mut first, lend mut second]\n"
+    src = src + "    first.hp = 5\n"
+    src = src + "    pilot final_use = views[0].hp\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task shape_sibling_dead(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views = Pair<lend mut Ship,lend mut Ship> " + v4_fixed_aggregate_braces(" right: lend mut second, left: lend mut first ") + "\n"
+    src = src + "    second.hp = 6\n"
+    src = src + "    pilot final_use = views.left.hp\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task shape_left_live(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views = Pair<lend mut Ship,lend mut Ship> " + v4_fixed_aggregate_braces(" right: lend mut second, left: lend mut first ") + "\n"
+    src = src + "    first.hp = 7\n"
+    src = src + "    pilot final_use = views.left.hp\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task explicit_mut_alias(first: Ship) -> int {\n"
+    src = src + "    pilot views = Pair<lend mut Ship,lend mut Ship> " + v4_fixed_aggregate_braces(" right: lend mut first, left: lend mut first ") + "\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task route_local(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot stored = Stored<lend Ship,lend Ship>::Hold " + v4_fixed_aggregate_braces(" right: lend second, left: lend first ") + "\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task route_pattern_capture_keeps_loan(first: Ship) -> int {\n"
+    src = src + "    pilot stored = Stored<lend mut Ship,int>::Hold " + v4_fixed_aggregate_braces(" left: lend mut first, right: 0 ") + "\n"
+    src = src + "    when stored {\n"
+    src = src + "        Stored::Hold " + v4_fixed_aggregate_braces(" left, right ") + " -> {\n"
+    src = src + "            first.hp = 24\n"
+    src = src + "            give back left.hp\n"
+    src = src + "        }\n"
+    src = src + "        Stored::Empty -> give back 0\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task direct_local<'a>(lend 'a first: Ship) -> int {\n"
+    src = src + "    pilot stored = Direct<'a> " + v4_fixed_aggregate_braces(" view: lend first ") + "\n"
+    src = src + "    pilot final_use = stored.view.hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task nested_local(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot inner: [lend Ship;1] = [lend second]\n"
+    src = src + "    pilot nested = ((lend first, 1), inner)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared(first: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;2] = [lend first; 2]\n"
+    src = src + "    pilot final_use = views[1].hp\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_rebind_all(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;2] = [lend first; 2]\n"
+    src = src + "    views[0] = lend second\n"
+    src = src + "    views[1] = lend second\n"
+    src = src + "    first.hp = 20\n"
+    src = src + "    give back views[0].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_rebind_one(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;2] = [lend first; 2]\n"
+    src = src + "    views[0] = lend second\n"
+    src = src + "    first.hp = 21\n"
+    src = src + "    give back views[1].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_nested_sibling_dead(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot slots: [(lend Ship,lend Ship);2] = [(lend first,lend second); 2]\n"
+    src = src + "    first.hp = 22\n"
+    src = src + "    give back slots[0].1.hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_nested_container_rebind(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder: ([lend Ship;2],int) = ([lend first; 2], 0)\n"
+    src = src + "    holder.0[0] = lend second\n"
+    src = src + "    first.hp = 23\n"
+    src = src + "    give back holder.0[0].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_structural_copy(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot pair = (lend first, lend second)\n"
+    src = src + "    pilot slots: [(lend Ship,lend Ship);2] = [pair; 2]\n"
+    src = src + "    give back pair.0.hp + slots[0].1.hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_partial_rebind_257(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;257] = [lend first; 257]\n"
+    src = src + "    views[0] = lend second\n"
+    src = src + "    first.hp = 24\n"
+    src = src + "    give back views[0].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_dead_256(first: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;256] = [lend first; 256]\n"
+    src = src + "    first.hp = 25\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_dead_257(first: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;257] = [lend first; 257]\n"
+    src = src + "    first.hp = 25\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task empty_array_generic_call(first: Ship) -> int {\n"
+    src = src + "    pilot empty: [lend Ship;0] = [lend first; 0]\n"
+    src = src + "    identity(empty)\n"
+    src = src + "    first.hp = 22\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task empty_array_stored_call(first: Ship) -> int {\n"
+    src = src + "    pilot empty: [lend Ship;0] = [lend first; 0]\n"
+    src = src + "    pilot copied: [lend Ship;0] = identity(empty)\n"
+    src = src + "    first.hp = 23\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task repeat_immutable_outer(first: Ship) -> int {\n"
+    src = src + "    pilot holder = Pair<lend mut Ship,int> " + v4_fixed_aggregate_braces(" left: lend mut first, right: 0 ") + "\n"
+    src = src + "    pilot shared = lend holder\n"
+    src = src + "    pilot copies = [shared; 2]\n"
+    src = src + "    give back copies[0].right\n"
+    src = src + "}\n"
+    src = src + "task repeat_owned_sibling(first: Ship, owned: Owned) -> int {\n"
+    src = src + "    pilot holder = SharedOwned<'_> " + v4_fixed_aggregate_braces(" view: lend first, owned: owned ") + "\n"
+    src = src + "    pilot copies = [holder; 2]\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task repeat_cloneable(value: CloneOwned) -> int {\n"
+    src = src + "    pilot copies = [value; 2]\n"
+    src = src + "    give back copies[0].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_nominal_copy(value: NominalCopy) -> int {\n"
+    src = src + "    pilot copies = [value; 2]\n"
+    src = src + "    give back value.hp + copies[0].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_mut(first: Ship) -> int {\n"
+    src = src + "    pilot views: [lend mut Ship;2] = [lend mut first; 2]\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task repeat_mut_one(first: Ship) -> int {\n"
+    src = src + "    pilot views: [lend mut Ship;1] = [lend mut first; 1]\n"
+    src = src + "    pilot final_use = views[0].hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task repeat_mut_aggregate(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder = Pair<lend mut Ship,lend Ship> " + v4_fixed_aggregate_braces(" right: lend second, left: lend mut first ") + "\n"
+    src = src + "    pilot copies: [Pair<lend mut Ship,lend Ship>;2] = [holder; 2]\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task aggregate_move(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views = Pair<lend mut Ship,lend Ship> " + v4_fixed_aggregate_braces(" left: lend mut first, right: lend second ") + "\n"
+    src = src + "    pilot moved = views\n"
+    src = src + "    pilot stale_use = views.left.hp\n"
+    src = src + "    give back moved.left.hp + stale_use\n"
+    src = src + "}\n"
+    src = src + "task sibling_rebind_keeps_left(first: Ship, second: Ship, third: Ship) -> int {\n"
+    src = src + "    pilot views = (lend mut first, lend mut second)\n"
+    src = src + "    views.1 = lend mut third\n"
+    src = src + "    first.hp = 9\n"
+    src = src + "    pilot final_use = views.0.hp\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task left_rebind_releases(first: Ship, second: Ship, third: Ship) -> int {\n"
+    src = src + "    pilot views = (lend mut first, lend mut second)\n"
+    src = src + "    views.0 = lend mut third\n"
+    src = src + "    first.hp = 10\n"
+    src = src + "    pilot final_use = views.0.hp\n"
+    src = src + "    pilot covered = (lend mut first, 0)\n"
+    src = src + "    first.hp = 10\n"
+    src = src + "    covered = (lend mut second, 0)\n"
+    src = src + "    give back final_use + covered.1\n"
+    src = src + "}\n"
+    src = src + "task duplicate_shared_rebind_releases(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views = (lend first, lend first)\n"
+    src = src + "    views.0 = lend second\n"
+    src = src + "    views.1 = lend second\n"
+    src = src + "    first.hp = 10\n"
+    src = src + "    give back views.0.hp\n"
+    src = src + "}\n"
+    src = src + "task left_rebind_protects_third(first: Ship, second: Ship, third: Ship) -> int {\n"
+    src = src + "    pilot views = (lend mut first, lend mut second)\n"
+    src = src + "    views.0 = lend mut third\n"
+    src = src + "    third.hp = 11\n"
+    src = src + "    pilot final_use = views.0.hp\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task immutable_holder_rebind(first: Ship, second: Ship, third: Ship) -> int {\n"
+    src = src + "    pilot views = (lend first, lend second)\n"
+    src = src + "    views.0 = lend third\n"
+    src = src + "    pilot final_use = views.0.hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task scoped_argument_shape_live(first: Ship) -> int {\n"
+    src = src + "    pilot stored = Scoped<lend mut Ship,std::ffi::c_int> " + v4_fixed_aggregate_braces(" view: lend mut first ") + "\n"
+    src = src + "    first.hp = 12\n"
+    src = src + "    pilot final_use = stored.view.hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task projection_destination_alias(first: Ship, second: Ship, third: Ship, fourth: Ship) -> int {\n"
+    src = src + "    pilot source = (lend mut first, lend mut second)\n"
+    src = src + "    pilot target = ((lend mut third, lend mut fourth), 0)\n"
+    src = src + "    target.0 = source\n"
+    src = src + "    first.hp = 13\n"
+    src = src + "    pilot final_use = target.0.0.hp\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task loop_rebind_before_backedge(first: Ship, second: Ship, sibling: Ship) -> int {\n"
+    src = src + "    pilot finished = false\n"
+    src = src + "    pilot holder = (lend mut second, lend sibling)\n"
+    src = src + "    repeat until finished {\n"
+    src = src + "        first.hp = 14\n"
+    src = src + "        holder.0 = lend mut first\n"
+    src = src + "        holder.0 = lend mut second\n"
+    src = src + "        finished = true\n"
+    src = src + "    }\n"
+    src = src + "    pilot final_use = holder.0.hp + holder.1.hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task loop_sibling_survives(first: Ship, second: Ship, third: Ship) -> int {\n"
+    src = src + "    pilot finished = false\n"
+    src = src + "    pilot holder = (lend mut first, lend mut second)\n"
+    src = src + "    repeat until finished {\n"
+    src = src + "        holder.0 = lend mut third\n"
+    src = src + "        finished = true\n"
+    src = src + "    }\n"
+    src = src + "    second.hp = 15\n"
+    src = src + "    pilot final_use = holder.1.hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task dynamic_index_preserves_old(first: Ship, second: Ship, third: Ship, index: int) -> int {\n"
+    src = src + "    pilot slots: [lend mut Ship;2] = [lend mut first, lend mut second]\n"
+    src = src + "    slots[index] = lend mut third\n"
+    src = src + "    first.hp = 16\n"
+    src = src + "    pilot final_use = slots[0].hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task dynamic_index_includes_new(first: Ship, second: Ship, third: Ship, index: int) -> int {\n"
+    src = src + "    pilot slots: [lend mut Ship;2] = [lend mut first, lend mut second]\n"
+    src = src + "    slots[index] = lend mut third\n"
+    src = src + "    third.hp = 17\n"
+    src = src + "    pilot final_use = slots[0].hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task repeat_mut_zero(first: Ship) -> int {\n"
+    src = src + "    pilot slots: [lend mut Ship;0] = [lend mut first; 0]\n"
+    src = src + "    first.hp = 18\n"
+    src = src + "    pilot moved = slots\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task mutate_through_stored(first: Ship) -> int {\n"
+    src = src + "    pilot views = (lend mut first, 0)\n"
+    src = src + "    views.0.hp = 19\n"
+    src = src + "    pilot final_use = views.0.hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    src = src + "task immutable_outer_lend(first: Ship) -> int {\n"
+    src = src + "    pilot holder = Pair<lend mut Ship,int> " + v4_fixed_aggregate_braces(" left: lend mut first, right: 0 ") + "\n"
+    src = src + "    pilot shared = lend holder\n"
+    src = src + "    pilot copy = shared\n"
+    src = src + "    shared.left.hp = 20\n"
+    src = src + "    copy.left.hp = 21\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task closure_capture_keeps_loan(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    first.hp = 22\n"
+    src = src + "    give back reader()\n"
+    src = src + "}\n"
+    src = src + "task closure_forwarded_capture_keeps_loan(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot forwarded = identity(reader)\n"
+    src = src + "    first.hp = 23\n"
+    src = src + "    give back forwarded()\n"
+    src = src + "}\n"
+    src = src + "task wrapped_closure_call_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = wrap(reader)\n"
+    src = src + "    first.hp = 24\n"
+    src = src + "    give back wrapped.0()\n"
+    src = src + "}\n"
+    src = src + "task empty_closure_repeat_clean(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot readers = [reader; 0]\n"
+    src = src + "    first.hp = 24\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task zero_length_closure_call_clean(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot empty = empty_wrap(reader)\n"
+    src = src + "    first.hp = 34\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task dynamic_closure_call_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot readers = list_wrap(reader)\n"
+    src = src + "    pilot extracted = readers[0]\n"
+    src = src + "    first.hp = 35\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task dynamic_closure_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot readers = [reader]\n"
+    src = src + "    pilot extracted = readers[0]\n"
+    src = src + "    first.hp = 25\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task dynamic_forwarded_closure_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot forwarded = identity(reader)\n"
+    src = src + "    pilot readers = [forwarded]\n"
+    src = src + "    pilot extracted = readers[0]\n"
+    src = src + "    first.hp = 26\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task forwarded_closure_rebind_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot forwarded = reader\n"
+    src = src + "    reader = |_| => 0\n"
+    src = src + "    pilot readers = [forwarded]\n"
+    src = src + "    pilot extracted = readers[0]\n"
+    src = src + "    first.hp = 27\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task projected_closure_assignment_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = (|_| => 0, 0)\n"
+    src = src + "    wrapped.0 = reader\n"
+    src = src + "    pilot readers = [wrapped]\n"
+    src = src + "    pilot extracted = readers[0].0\n"
+    src = src + "    first.hp = 29\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task mixed_lend_closure_storage_rejected(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = (lend mut second, reader)\n"
+    src = src + "    pilot extracted = wrapped.1\n"
+    src = src + "    first.hp = 28\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task plain_local_cycle_clean() -> int {\n"
+    src = src + "    pilot value = 0\n"
+    src = src + "    value = value\n"
+    src = src + "    pilot values = [value]\n"
+    src = src + "    give back values[0]\n"
+    src = src + "}\n"
+    src = src + "task dynamic_closure_conditional_rebind(first: Ship, flag: bool) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    if flag {\n"
+    src = src + "        reader = |_| => 0\n"
+    src = src + "    }\n"
+    src = src + "    pilot readers = [reader]\n"
+    src = src + "    pilot extracted = readers[0]\n"
+    src = src + "    first.hp = 26\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task fixed_closure_tuple_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = (reader, 0)\n"
+    src = src + "    pilot extracted = wrapped.0\n"
+    src = src + "    first.hp = 27\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task fixed_closure_repeat_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = [reader; 1]\n"
+    src = src + "    pilot extracted = wrapped[0]\n"
+    src = src + "    first.hp = 28\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task dynamic_wrapped_closure_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = (reader, 0)\n"
+    src = src + "    pilot readers = [wrapped]\n"
+    src = src + "    pilot extracted = readers[0].0\n"
+    src = src + "    first.hp = 29\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task dynamic_nested_move_closure_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot inner = |_| => holder.0.hp\n"
+    src = src + "    pilot outer = move |_| " + "{" + " give back inner() " + "}" + "\n"
+    src = src + "    pilot readers = [outer]\n"
+    src = src + "    pilot extracted = readers[0]\n"
+    src = src + "    first.hp = 30\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task mutable_lend_projection_protects_replacement(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot access = lend mut holder\n"
+    src = src + "    access.0 = lend mut second\n"
+    src = src + "    second.hp = 31\n"
+    src = src + "    give back holder.0.hp\n"
+    src = src + "}\n"
+    src = src + "task mutable_lend_projection_releases_replaced(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot access = lend mut holder\n"
+    src = src + "    access.0 = lend mut second\n"
+    src = src + "    first.hp = 32\n"
+    src = src + "    give back holder.0.hp\n"
+    src = src + "}\n"
+    src = src + "task returned_call_owner_live(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (relay_mut(lend mut first), 0)\n"
+    src = src + "    first.hp = 23\n"
+    src = src + "    give back holder.0.hp\n"
+    src = src + "}\n"
+    src = src + "task returned_call_duplicate_mut(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (relay_mut(lend mut first), 0)\n"
+    src = src + "    pilot duplicate = lend mut first\n"
+    src = src + "    give back holder.0.hp + duplicate.hp\n"
+    src = src + "}\n"
+    src = src + "task dynamic_index_rebind<'a,'b>(lend 'a first: Ship, lend 'b second: Ship, index: int) -> lend 'a Ship {\n"
+    src = src + "    pilot slots: [lend Ship;2] = [lend first, lend first]\n"
+    src = src + "    slots[index] = lend second\n"
+    src = src + "    give back slots[0]\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_fixed_aggregate_result_for(borrow_id: int, body_name: word) -> int {
+    pilot mir_id = v4_borrowck_mir_id(borrow_id)
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    pilot def_id = v4_resolve_def_for_name(resolve_id, body_name)
+    give back v4_borrowck_lookup_result(borrow_id, def_id)
+}
+
+task v4_fixed_aggregate_body_for(mir_id: int, body_name: word) -> int {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    pilot def_id = v4_resolve_def_for_name(resolve_id, body_name)
+    give back v4_mir_lookup_body(mir_id, def_id)
+}
+
+task v4_fixed_aggregate_local_stmt(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+        if place_id >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
+            if v4_mir_place_text(mir_id, body_id, place_id) == local_name { give back stmt_id }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_fixed_aggregate_local_rvalue(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+        if place_id >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
+            if v4_mir_place_text(mir_id, body_id, place_id) == local_name {
+                give back v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_fixed_aggregate_status(borrow_id: int, body_name: word) -> word {
+    pilot result_id = v4_fixed_aggregate_result_for(borrow_id, body_name)
+    give back v4_borrowck_result_status(borrow_id, result_id)
+}
+
+task v4_fixed_aggregate_mir_diag_contains(mir_id: int, needle: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)) == needle { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
+task v4_fixed_aggregate_mir_diag_count(mir_id: int, needle: word) -> int {
+    pilot count = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)) == needle { count += 1 }
+        diag_id += 1
+    }
+    give back count
+}
+
+task v4_fixed_aggregate_borrow_diag_contains(borrow_id: int, needle: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == needle { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
+task v4_fixed_aggregate_borrow_diag_count(borrow_id: int, needle: word) -> int {
+    pilot count = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == needle { count += 1 }
+        diag_id += 1
+    }
+    give back count
+}
+
+pilot v4_fixed_aggregate_borrow = v4_borrowck_text_cached("contract-region-fixed-aggregate.fk", v4_fixed_aggregate_source())
+pilot v4_fixed_aggregate_mir = v4_borrowck_mir_id(v4_fixed_aggregate_borrow)
+pilot v4_fixed_aggregate_ty = v4_mir_ty_id(v4_fixed_aggregate_mir)
+pilot v4_fixed_aggregate_resolve = v4_ty_resolve_id(v4_fixed_aggregate_ty)
+pilot v4_fixed_aggregate_hir = v4_resolve_hir_id(v4_fixed_aggregate_resolve)
+pilot v4_fixed_aggregate_tree = v4_hir_tree_id(v4_fixed_aggregate_hir)
+
+say "fixed-aggregate-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_fixed_aggregate_tree))
+say "fixed-aggregate-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_fixed_aggregate_ty))
+say "fixed-aggregate-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_fixed_aggregate_mir))
+say "fixed-aggregate-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_fixed_aggregate_borrow))
+say "fixed-aggregate-tuple-sibling-dead=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "tuple_sibling_dead")
+say "fixed-aggregate-tuple-left-live=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "tuple_left_live")
+say "fixed-aggregate-array-sibling-dead=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "array_sibling_dead")
+say "fixed-aggregate-array-left-live=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "array_left_live")
+say "fixed-aggregate-shape-sibling-dead=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "shape_sibling_dead")
+say "fixed-aggregate-shape-left-live=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "shape_left_live")
+say "fixed-aggregate-explicit-mut-alias=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "explicit_mut_alias")
+say "fixed-aggregate-route-local=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "route_local")
+say "fixed-aggregate-route-pattern-capture-keeps-loan=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "route_pattern_capture_keeps_loan")
+say "fixed-aggregate-direct-local=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "direct_local")
+say "fixed-aggregate-nested-local=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "nested_local")
+say "fixed-aggregate-repeat-shared=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared")
+say "fixed-aggregate-repeat-immutable-outer=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_immutable_outer")
+say "fixed-aggregate-repeat-owned-sibling=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_owned_sibling")
+say "fixed-aggregate-repeat-cloneable=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_cloneable")
+say "fixed-aggregate-repeat-nominal-copy=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_nominal_copy")
+say "fixed-aggregate-repeat-copy-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_mir_diag_contains(v4_fixed_aggregate_mir, "fixed-array repeat value must be Copy or Cloneable"))
+say "fixed-aggregate-repeat-copy-diagnostic-count=" + word_from_int(v4_fixed_aggregate_mir_diag_count(v4_fixed_aggregate_mir, "fixed-array repeat value must be Copy or Cloneable"))
+say "fixed-aggregate-repeat-shared-rebind-all=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_all")
+say "fixed-aggregate-repeat-shared-rebind-one=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_rebind_one")
+say "fixed-aggregate-repeat-nested-sibling-dead=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_nested_sibling_dead")
+say "fixed-aggregate-repeat-nested-container-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_nested_container_rebind")
+say "fixed-aggregate-repeat-structural-copy=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_structural_copy")
+say "fixed-aggregate-repeat-shared-dead-256=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_dead_256")
+say "fixed-aggregate-repeat-shared-partial-rebind-257=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_partial_rebind_257")
+say "fixed-aggregate-repeat-shared-dead-257=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_shared_dead_257")
+say "fixed-aggregate-empty-array-generic-call=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "empty_array_generic_call")
+say "fixed-aggregate-empty-array-stored-call=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "empty_array_stored_call")
+say "fixed-aggregate-empty-array-stores-lend=" + v4_fixed_aggregate_bool(v4_ty_type_stores_lend(v4_fixed_aggregate_ty, "[lend Ship;0]"))
+say "fixed-aggregate-empty-array-generic-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_mir_diag_contains(v4_fixed_aggregate_mir, "Meiya cannot substitute a lend-bearing type for a generic call yet"))
+say "fixed-aggregate-repeat-mut=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut")
+say "fixed-aggregate-repeat-mut-one=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_one")
+say "fixed-aggregate-repeat-mut-aggregate=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_aggregate")
+say "fixed-aggregate-move=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "aggregate_move")
+say "fixed-aggregate-sibling-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "sibling_rebind_keeps_left")
+say "fixed-aggregate-left-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "left_rebind_releases")
+say "fixed-aggregate-duplicate-shared-rebind-releases=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "duplicate_shared_rebind_releases")
+say "fixed-aggregate-left-rebind-protects-new=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "left_rebind_protects_third")
+say "fixed-aggregate-immutable-holder-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "immutable_holder_rebind")
+say "fixed-aggregate-scoped-argument-shape-live=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "scoped_argument_shape_live")
+say "fixed-aggregate-projection-destination-alias=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "projection_destination_alias")
+say "fixed-aggregate-loop-rebind-before-backedge=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "loop_rebind_before_backedge")
+
+pilot v4_fixed_aggregate_shape_body = v4_fixed_aggregate_body_for(v4_fixed_aggregate_mir, "shape_sibling_dead")
+say "fixed-aggregate-loop-sibling-survives=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "loop_sibling_survives")
+say "fixed-aggregate-dynamic-index-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_index_rebind")
+say "fixed-aggregate-dynamic-index-preserves-old=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_index_preserves_old")
+say "fixed-aggregate-dynamic-index-includes-new=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_index_includes_new")
+say "fixed-aggregate-repeat-mut-zero=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "repeat_mut_zero")
+say "fixed-aggregate-mutate-through-stored=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "mutate_through_stored")
+say "fixed-aggregate-immutable-outer-lend=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "immutable_outer_lend")
+say "fixed-aggregate-closure-capture-keeps-loan=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "closure_capture_keeps_loan")
+say "fixed-aggregate-closure-forwarded-capture-keeps-loan=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "closure_forwarded_capture_keeps_loan")
+say "fixed-aggregate-wrapped-closure-call-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "wrapped_closure_call_rejected")
+say "fixed-aggregate-empty-closure-repeat-clean=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "empty_closure_repeat_clean")
+say "fixed-aggregate-zero-length-closure-call-clean=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "zero_length_closure_call_clean")
+say "fixed-aggregate-dynamic-closure-call-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_closure_call_storage_rejected")
+say "fixed-aggregate-dynamic-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_closure_storage_rejected")
+say "fixed-aggregate-dynamic-closure-storage-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_borrow_diag_contains(v4_fixed_aggregate_borrow, "Meiya cannot store a loan-capturing closure inside dynamic storage yet"))
+say "fixed-aggregate-dynamic-closure-storage-diagnostic-count=" + word_from_int(v4_fixed_aggregate_borrow_diag_count(v4_fixed_aggregate_borrow, "Meiya cannot store a loan-capturing closure inside dynamic storage yet"))
+say "fixed-aggregate-fixed-closure-storage-diagnostic-count=" + word_from_int(v4_fixed_aggregate_borrow_diag_count(v4_fixed_aggregate_borrow, "Meiya cannot store a loan-capturing closure inside fixed aggregate storage yet"))
+say "fixed-aggregate-dynamic-forwarded-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_forwarded_closure_storage_rejected")
+say "fixed-aggregate-forwarded-closure-rebind-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "forwarded_closure_rebind_storage_rejected")
+say "fixed-aggregate-projected-closure-assignment-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "projected_closure_assignment_storage_rejected")
+say "fixed-aggregate-mixed-lend-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "mixed_lend_closure_storage_rejected")
+say "fixed-aggregate-plain-local-cycle=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "plain_local_cycle_clean")
+say "fixed-aggregate-dynamic-closure-conditional-rebind=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_closure_conditional_rebind")
+say "fixed-aggregate-fixed-closure-tuple-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "fixed_closure_tuple_storage_rejected")
+say "fixed-aggregate-fixed-closure-repeat-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "fixed_closure_repeat_storage_rejected")
+say "fixed-aggregate-dynamic-wrapped-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_wrapped_closure_storage_rejected")
+say "fixed-aggregate-dynamic-nested-move-closure-storage-rejected=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "dynamic_nested_move_closure_storage_rejected")
+say "fixed-aggregate-fixed-closure-storage-diagnostic=" + v4_fixed_aggregate_bool(v4_fixed_aggregate_borrow_diag_contains(v4_fixed_aggregate_borrow, "Meiya cannot store a loan-capturing closure inside fixed aggregate storage yet"))
+say "fixed-aggregate-mutable-lend-projection-protects-replacement=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "mutable_lend_projection_protects_replacement")
+say "fixed-aggregate-mutable-lend-projection-releases-replaced=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "mutable_lend_projection_releases_replaced")
+say "fixed-aggregate-returned-call-owner-live=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "returned_call_owner_live")
+say "fixed-aggregate-returned-call-duplicate-mut=" + v4_fixed_aggregate_status(v4_fixed_aggregate_borrow, "returned_call_duplicate_mut")
+say "fixed-aggregate-descendant-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("views.0.hp", "views.0"))
+say "fixed-aggregate-symbolic-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("slots[index]", "slots[0]"))
+say "fixed-aggregate-parent-write-may-bind=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_may_bind("slots", "slots[0]"))
+say "fixed-aggregate-dynamic-write-definite-slot0=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_definitely_covers("slots[index]", "slots[0]"))
+say "fixed-aggregate-concrete-write-definite-slot0=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_definitely_covers("slots[0]", "slots[0]"))
+say "fixed-aggregate-whole-write-definite-slot0=" + v4_fixed_aggregate_bool(v4_borrowck_path_write_definitely_covers("slots", "slots[0]"))
+pilot v4_fixed_aggregate_zero_body = v4_fixed_aggregate_body_for(v4_fixed_aggregate_mir, "repeat_mut_zero")
+pilot v4_fixed_aggregate_zero_stmt = v4_fixed_aggregate_local_stmt(v4_fixed_aggregate_mir, v4_fixed_aggregate_zero_body, "slots")
+say "fixed-aggregate-repeat-mut-zero-holder=" + v4_borrowck_explicit_loan_holder(v4_fixed_aggregate_mir, v4_fixed_aggregate_zero_body, v4_fixed_aggregate_zero_stmt, "first")
+pilot v4_fixed_aggregate_shape_rvalue = v4_fixed_aggregate_local_rvalue(v4_fixed_aggregate_mir, v4_fixed_aggregate_shape_body, "views")
+say "fixed-aggregate-shape-child0-projection=" + v4_mir_rvalue_aggregate_child_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_shape_body, v4_fixed_aggregate_shape_rvalue, 0)
+say "fixed-aggregate-shape-child1-projection=" + v4_mir_rvalue_aggregate_child_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_shape_body, v4_fixed_aggregate_shape_rvalue, 1)
+say "fixed-aggregate-shape-left-child-found=" + v4_fixed_aggregate_bool(v4_mir_rvalue_aggregate_child_for_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_shape_body, v4_fixed_aggregate_shape_rvalue, ".left") >= 0)
+say "fixed-aggregate-shape-right-child-found=" + v4_fixed_aggregate_bool(v4_mir_rvalue_aggregate_child_for_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_shape_body, v4_fixed_aggregate_shape_rvalue, ".right") >= 0)
+
+pilot v4_fixed_aggregate_route_body = v4_fixed_aggregate_body_for(v4_fixed_aggregate_mir, "route_local")
+pilot v4_fixed_aggregate_route_rvalue = v4_fixed_aggregate_local_rvalue(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_body, "stored")
+pilot v4_fixed_aggregate_route_stmt = v4_fixed_aggregate_local_stmt(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_body, "stored")
+say "fixed-aggregate-route-child0-projection=" + v4_mir_rvalue_aggregate_child_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_body, v4_fixed_aggregate_route_rvalue, 0)
+say "fixed-aggregate-route-child1-projection=" + v4_mir_rvalue_aggregate_child_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_body, v4_fixed_aggregate_route_rvalue, 1)
+say "fixed-aggregate-route-left-child-found=" + v4_fixed_aggregate_bool(v4_mir_rvalue_aggregate_child_for_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_body, v4_fixed_aggregate_route_rvalue, ".left") >= 0)
+say "fixed-aggregate-route-right-child-found=" + v4_fixed_aggregate_bool(v4_mir_rvalue_aggregate_child_for_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_body, v4_fixed_aggregate_route_rvalue, ".right") >= 0)
+say "fixed-aggregate-route-left-holder=" + v4_borrowck_explicit_loan_holder(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_body, v4_fixed_aggregate_route_stmt, "first")
+say "fixed-aggregate-route-right-holder=" + v4_borrowck_explicit_loan_holder(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_body, v4_fixed_aggregate_route_stmt, "second")
+
+pilot v4_fixed_aggregate_route_pattern_body = v4_fixed_aggregate_body_for(v4_fixed_aggregate_mir, "route_pattern_capture_keeps_loan")
+say "fixed-aggregate-route-pattern-left-type=" + v4_mir_local_ty_for_name(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_pattern_body, "left")
+
+pilot v4_fixed_aggregate_direct_body = v4_fixed_aggregate_body_for(v4_fixed_aggregate_mir, "direct_local")
+pilot v4_fixed_aggregate_direct_stmt = v4_fixed_aggregate_local_stmt(v4_fixed_aggregate_mir, v4_fixed_aggregate_direct_body, "stored")
+say "fixed-aggregate-direct-holder=" + v4_borrowck_explicit_loan_holder(v4_fixed_aggregate_mir, v4_fixed_aggregate_direct_body, v4_fixed_aggregate_direct_stmt, "first")
+
+say "fixed-aggregate-class-tuple=" + v4_ty_type_lend_storage_class(v4_fixed_aggregate_ty, "(lend int,int)")
+say "fixed-aggregate-class-array=" + v4_ty_type_lend_storage_class(v4_fixed_aggregate_ty, "[lend int;2]")
+say "fixed-aggregate-class-shape=" + v4_ty_type_lend_storage_class(v4_fixed_aggregate_ty, "Pair<lend int,int>")
+say "fixed-aggregate-class-route=" + v4_ty_type_lend_storage_class(v4_fixed_aggregate_ty, "Stored<lend int,int>")
+say "fixed-aggregate-class-direct-lifetime=" + v4_ty_type_lend_storage_class(v4_fixed_aggregate_ty, "Direct<'a>")
+say "fixed-aggregate-class-list=" + v4_ty_type_lend_storage_class(v4_fixed_aggregate_ty, "List<lend int>")
+say "fixed-aggregate-compact-lend-mut=" + v4_mir_compact_type_text("Stored< lend mut Ship , int >")
+say "fixed-aggregate-compact-lend-lifetime=" + v4_mir_compact_type_text("Stored< lend 'a Ship , int >")

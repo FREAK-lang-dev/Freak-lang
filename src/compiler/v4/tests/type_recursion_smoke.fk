@@ -233,8 +233,13 @@ say "type-recursion-alias-erased-mir-diagnostics=" + word_from_int(v4_mir_diag_c
 
 say "type-recursion-generic-growth-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_type_recursion_generic_growth_tree))
 say "type-recursion-generic-growth-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_type_recursion_generic_growth_ty))
-pilot v4_type_recursion_generic_growth_diag = v4_ty_diag(v4_type_recursion_generic_growth_ty, 0)
-say "type-recursion-generic-growth-diag0=" + v4_diag_message(v4_type_recursion_generic_growth_diag)
+pilot v4_type_recursion_generic_growth_diag_idx = 0
+repeat until v4_type_recursion_generic_growth_diag_idx >= v4_ty_diag_count(v4_type_recursion_generic_growth_ty) {
+    pilot v4_type_recursion_generic_growth_diag = v4_ty_diag(v4_type_recursion_generic_growth_ty, v4_type_recursion_generic_growth_diag_idx)
+    say "type-recursion-generic-growth-diag" + word_from_int(v4_type_recursion_generic_growth_diag_idx) + "=" + v4_diag_message(v4_type_recursion_generic_growth_diag)
+    say "type-recursion-generic-growth-diag" + word_from_int(v4_type_recursion_generic_growth_diag_idx) + "-span=" + v4_diag_span(v4_type_recursion_generic_growth_diag)
+    v4_type_recursion_generic_growth_diag_idx += 1
+}
 say "type-recursion-generic-growth-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_type_recursion_generic_growth_mir))
 
 say "type-recursion-generic-shadow-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_type_recursion_generic_shadow_tree))

@@ -434,6 +434,98 @@ task v4_editor_param_def(owner_def: word, param_name: word) -> word {
     give back owner_def + "::Param::" + param_name
 }
 
+task v4_editor_closure_param_def(owner_def: word, closure_id: int, param_name: word) -> word {
+    if owner_def == "" or closure_id < 0 or param_name == "" {
+        give back ""
+    }
+    give back owner_def + "::ClosureParam::" + word_from_int(closure_id) + "::" + param_name
+}
+
+task v4_editor_closure_param_marker_index(def_id: word) -> int {
+    pilot marker = "::ClosureParam::"
+    pilot idx = 0
+    repeat until idx + marker.length() > def_id.length() {
+        if v4_slice(def_id, idx, idx + marker.length()) == marker {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_closure_param_owner_def(def_id: word) -> word {
+    pilot marker = v4_editor_closure_param_marker_index(def_id)
+    if marker < 0 {
+        give back ""
+    }
+    give back v4_slice(def_id, 0, marker)
+}
+
+task v4_editor_closure_param_separator_index(def_id: word) -> int {
+    pilot marker = v4_editor_closure_param_marker_index(def_id)
+    if marker < 0 {
+        give back 0 - 1
+    }
+    pilot idx = marker + "::ClosureParam::".length()
+    repeat until idx + 1 >= def_id.length() {
+        if def_id.char_at(idx) == ":" and def_id.char_at(idx + 1) == ":" {
+            give back idx
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_closure_param_closure_id(def_id: word) -> int {
+    pilot marker = v4_editor_closure_param_marker_index(def_id)
+    pilot separator = v4_editor_closure_param_separator_index(def_id)
+    if marker < 0 or separator < 0 {
+        give back 0 - 1
+    }
+    pilot start = marker + "::ClosureParam::".length()
+    give back word_to_int(v4_slice(def_id, start, separator))
+}
+
+task v4_editor_closure_param_name_from_def(def_id: word) -> word {
+    pilot separator = v4_editor_closure_param_separator_index(def_id)
+    if separator < 0 or separator + 2 >= def_id.length() {
+        give back ""
+    }
+    give back v4_slice(def_id, separator + 2, def_id.length())
+}
+
+task v4_editor_closure_param_id_for_name(hir_id: int, hir_item: int, closure_id: int, param_name: word) -> int {
+    if hir_item < 0 or closure_id < 0 or param_name == "" {
+        give back 0 - 1
+    }
+    pilot param_id = 0
+    pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+    repeat until param_id >= param_count {
+        if v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id) == param_name {
+            give back param_id
+        }
+        param_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_editor_closure_param_type(ty_id: int, hir_id: int, hir_item: int, closure_id: int, param_id: int) -> word {
+    pilot param_ty = v4_hir_closure_param_type(hir_id, hir_item, closure_id, param_id)
+    if param_ty == "" {
+        give back v4_ty_unknown
+    }
+    pilot owner_sig = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
+    if owner_sig >= 0 {
+        param_ty = v4_ty_canonical_type_in_signature(ty_id, owner_sig, param_ty)
+    }
+    give back param_ty
+}
+
+task v4_editor_closure_param_detail(ty_id: int, hir_id: int, hir_item: int, closure_id: int, param_id: int) -> word {
+    pilot param_name = v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id)
+    give back "parameter " + param_name + ": " + v4_editor_closure_param_type(ty_id, hir_id, hir_item, closure_id, param_id)
+}
+
 task v4_editor_param_marker_index(def_id: word) -> int {
     pilot marker = "::Param::"
     pilot marker_len = marker.length()
@@ -735,6 +827,15 @@ task v4_editor_next_nontrivia_token(stream_id: int, token_id: int) -> int {
         idx += 1
     }
     give back 0 - 1
+}
+
+task v4_editor_identifier_is_member_name(stream_id: int, token_id: int) -> bool {
+    pilot previous = v4_editor_prev_nontrivia_token(stream_id, token_id)
+    if previous < 0 {
+        give back false
+    }
+    pilot previous_value = v4_lex_token_value(stream_id, previous)
+    give back previous_value == "." or previous_value == "::"
 }
 
 task v4_editor_method_call_owner(call_op: word, method_name: word) -> word {
@@ -1495,6 +1596,15 @@ task v4_editor_local_visible_at(mir_id: int, body_id: int, local_id: int, offset
     give back v4_mir_local_visible_at(mir_id, body_id, local_id, offset)
 }
 
+task v4_editor_local_type_display_at(mir_id: int, body_id: int, local_id: int, offset: int) -> word {
+    pilot display = v4_mir_local_type_display(mir_id, body_id, local_id)
+    pilot capture_mode = v4_mir_closure_capture_mode_at(mir_id, body_id, v4_mir_local_name(mir_id, body_id, local_id), offset)
+    if capture_mode != "" {
+        give back "capture " + capture_mode + " " + display
+    }
+    give back display
+}
+
 task v4_editor_semantic_fact_new(path: word, offset: int, token_id: int, token_kind: word, token_value: word, token_span: word, hir_item: int, item_name: word, item_kind: word, symbol_id: int, name: word, kind: word, def_id: word, type_display: word) -> int {
     v4_editor_init()
     pilot fact_id = v4_editor_sem_len
@@ -1672,11 +1782,9 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
         give back word_to_int(cached)
     }
 
+    -- Arena IDs are local to their producing query. Materialize editor facts
+    -- before deeper queries can append or restore downstream arenas.
     pilot stream_id = v4_lex_text_cached(path, text)
-    pilot hir_id = v4_hir_text_cached(path, text)
-    pilot resolve_id = v4_resolve_text_cached(path, text)
-    pilot ty_id = v4_ty_text_cached(path, text)
-    pilot mir_id = v4_mir_text_cached(path, text)
     pilot token_id = v4_editor_token_at(stream_id, offset)
     pilot token_kind = ""
     pilot token_value = ""
@@ -1687,6 +1795,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
         token_span = v4_lex_token_span(stream_id, token_id)
     }
 
+    pilot hir_id = v4_hir_text_cached(path, text)
     pilot hir_item = v4_editor_hir_item_at(hir_id, offset)
     pilot item_name = ""
     pilot item_kind = ""
@@ -1694,6 +1803,10 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
         item_name = v4_hir_item_name(hir_id, hir_item)
         item_kind = v4_hir_item_kind(hir_id, hir_item)
     }
+
+    pilot resolve_id = v4_resolve_text_cached(path, text)
+    pilot ty_id = v4_ty_text_cached(path, text)
+    pilot mir_id = v4_mir_text_cached(path, text)
 
     pilot symbol_id = 0 - 1
     if token_value != "" {
@@ -1811,6 +1924,18 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                 }
             }
         }
+        if not named_param_handled and hir_item >= 0 {
+            pilot closure_id = v4_hir_closure_at_offset(hir_id, hir_item, offset)
+            pilot closure_param_id = v4_editor_closure_param_id_for_name(hir_id, hir_item, closure_id, token_value)
+            if closure_param_id >= 0 and not v4_editor_identifier_is_member_name(stream_id, token_id) {
+                name = token_value
+                kind = "Parameter"
+                def_id = v4_editor_closure_param_def(v4_hir_item_def(hir_id, hir_item), closure_id, token_value)
+                type_display = v4_editor_closure_param_detail(ty_id, hir_id, hir_item, closure_id, closure_param_id)
+                symbol_id = 0 - 1
+                named_param_handled = true
+            }
+        }
         if not named_param_handled {
             if symbol_id < 0 and v4_editor_is_builtin_type_name(token_value) {
                 name = token_value
@@ -1889,7 +2014,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                                         name = token_value
                                         kind = "Local"
                                         def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
-                                        type_display = v4_mir_local_type_display(mir_id, body_id, local_id)
+                                        type_display = v4_editor_local_type_display_at(mir_id, body_id, local_id, offset)
                                     }
                                 }
                             }
@@ -1919,7 +2044,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                                 name = token_value
                                 kind = "Local"
                                 def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, token_value)
-                                type_display = v4_mir_local_type_display(mir_id, body_id, local_id)
+                                type_display = v4_editor_local_type_display_at(mir_id, body_id, local_id, offset)
                             }
                         }
                     }
@@ -2287,35 +2412,49 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
             }
         }
     } else if kind == "Parameter" {
-        pilot owner_def = v4_editor_param_owner_def(def_id)
-        pilot param_name = v4_editor_param_name_from_def(def_id)
-        pilot method_ref = v4_editor_impl_method_ref_for_def(ty_id, owner_def)
-        if method_ref != "" {
-            hir_item = v4_mir_method_ref_hir_item(method_ref)
-            span = v4_editor_impl_method_explicit_param_name_span(ty_id, hir_item, v4_mir_method_ref_method_id(method_ref), param_name)
+        pilot closure_owner_def = v4_editor_closure_param_owner_def(def_id)
+        if closure_owner_def != "" {
+            pilot closure_id = v4_editor_closure_param_closure_id(def_id)
+            pilot param_name = v4_editor_closure_param_name_from_def(def_id)
+            hir_item = v4_editor_hir_item_for_def(hir_id, closure_owner_def)
+            pilot closure_param_id = v4_editor_closure_param_id_for_name(hir_id, hir_item, closure_id, param_name)
+            if closure_param_id >= 0 {
+                span = v4_hir_closure_param_span(hir_id, hir_item, closure_id, closure_param_id)
+            }
             if v4_span_end(span) > v4_span_start(span) {
                 found = 1
             }
         } else {
-            pilot doctrine_owner_def = v4_editor_doctrine_method_owner_def(owner_def)
-            pilot doctrine_method_name = v4_editor_doctrine_method_name_from_def(owner_def)
-            if doctrine_owner_def != "" and doctrine_method_name != "" {
-                pilot doctrine_sig_id = v4_ty_lookup_signature(ty_id, doctrine_owner_def)
-                pilot doctrine_method_id = v4_editor_doctrine_method_id_for_name(ty_id, doctrine_sig_id, doctrine_method_name)
-                if doctrine_sig_id >= 0 and doctrine_method_id >= 0 {
-                    hir_item = v4_editor_hir_item_for_def(hir_id, doctrine_owner_def)
-                    span = v4_editor_doctrine_method_explicit_param_name_span(ty_id, doctrine_sig_id, doctrine_method_id, param_name)
-                    if v4_span_end(span) > v4_span_start(span) {
-                        found = 1
-                    }
+            pilot owner_def = v4_editor_param_owner_def(def_id)
+            pilot param_name = v4_editor_param_name_from_def(def_id)
+            pilot method_ref = v4_editor_impl_method_ref_for_def(ty_id, owner_def)
+            if method_ref != "" {
+                hir_item = v4_mir_method_ref_hir_item(method_ref)
+                span = v4_editor_impl_method_explicit_param_name_span(ty_id, hir_item, v4_mir_method_ref_method_id(method_ref), param_name)
+                if v4_span_end(span) > v4_span_start(span) {
+                    found = 1
                 }
             } else {
-                pilot sig_id = v4_ty_lookup_signature(ty_id, owner_def)
-                if sig_id >= 0 {
-                    hir_item = v4_editor_hir_item_for_def(hir_id, owner_def)
-                    span = v4_editor_signature_param_name_span(ty_id, sig_id, param_name)
-                    if v4_span_end(span) > v4_span_start(span) {
-                        found = 1
+                pilot doctrine_owner_def = v4_editor_doctrine_method_owner_def(owner_def)
+                pilot doctrine_method_name = v4_editor_doctrine_method_name_from_def(owner_def)
+                if doctrine_owner_def != "" and doctrine_method_name != "" {
+                    pilot doctrine_sig_id = v4_ty_lookup_signature(ty_id, doctrine_owner_def)
+                    pilot doctrine_method_id = v4_editor_doctrine_method_id_for_name(ty_id, doctrine_sig_id, doctrine_method_name)
+                    if doctrine_sig_id >= 0 and doctrine_method_id >= 0 {
+                        hir_item = v4_editor_hir_item_for_def(hir_id, doctrine_owner_def)
+                        span = v4_editor_doctrine_method_explicit_param_name_span(ty_id, doctrine_sig_id, doctrine_method_id, param_name)
+                        if v4_span_end(span) > v4_span_start(span) {
+                            found = 1
+                        }
+                    }
+                } else {
+                    pilot sig_id = v4_ty_lookup_signature(ty_id, owner_def)
+                    if sig_id >= 0 {
+                        hir_item = v4_editor_hir_item_for_def(hir_id, owner_def)
+                        span = v4_editor_signature_param_name_span(ty_id, sig_id, param_name)
+                        if v4_span_end(span) > v4_span_start(span) {
+                            found = 1
+                        }
                     }
                 }
             }
@@ -2830,13 +2969,26 @@ task v4_completion_add_locals_for_offset(completion_id: int, path: word, text: w
         give back
     }
 
+    pilot closure_id = v4_hir_closure_at_offset(hir_id, hir_item, offset)
+    if closure_id >= 0 {
+        pilot param_id = 0
+        pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+        repeat until param_id >= param_count {
+            pilot label = v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id)
+            if label != "" and label != "_" and not v4_completion_has_label(completion_id, label) {
+                v4_completion_add(completion_id, label, "parameter", v4_editor_closure_param_detail(ty_id, hir_id, hir_item, closure_id, param_id), label)
+            }
+            param_id += 1
+        }
+    }
+
     pilot local_id = 0
     pilot local_count = v4_mir_body_local_count(mir_id, body_id)
     repeat until local_id >= local_count {
         pilot label = v4_mir_local_name(mir_id, body_id, local_id)
         if label != "" and v4_editor_local_is_source_declared(stream_id, mir_id, body_id, local_id) and v4_editor_local_visible_at(mir_id, body_id, local_id, offset) {
             if not v4_completion_has_label(completion_id, label) {
-                v4_completion_add(completion_id, label, "local", v4_mir_local_type_display(mir_id, body_id, local_id), label)
+                v4_completion_add(completion_id, label, "local", v4_editor_local_type_display_at(mir_id, body_id, local_id, offset), label)
             }
         }
         local_id += 1

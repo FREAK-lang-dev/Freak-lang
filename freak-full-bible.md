@@ -44,10 +44,10 @@ Pipeline (full compiler):
 
 | Section | Status | Summary |
 |---|---|---|
-| §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer forms, explicit named lifetimes plus ordinary-task outlives bounds, and first-pass `dyn Doctrine` type/object-safety/coercion/editor facts through query slices. Still expanding: `prob_when`, stored lifetime-bearing aggregates, full dyn vtable lowering, and production backend depth for V4-only forms. |
+| §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer forms, explicit named lifetimes plus ordinary-task outlives bounds, first-pass `dyn Doctrine` type/object-safety/coercion/editor facts, and first-pass default/`copy`/`move`/`mut` closure capture semantics through resilient parse, HIR, TY, MIR, Meiya, editor, snapshot, LSP, and invalidation queries. Still expanding: `prob_when`, nested and generic closure typing, borrowed-return closure contracts, closure environment codegen, full dyn vtable lowering, and production backend depth for V4-only forms. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, projection/scalar-holder/projected-reborrow/statically resolved ordinary-call/reordered-argument/acyclic-join provenance, all-candidate final-use liveness (including elided multi-owner results), all-family query invalidation, queryable Meiya-owned `ReturnLoan` facts, editor definition/snapshot facts for outlives-bound references, generic lend-substitution rejection, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating through TY/MIR/Meiya. Body-derived/general lexical inference, actual aggregate/shape/route/container loan storage, loop-carried region fixed points, `'static`, general arena reclamation, runtime `Shared<T>`/`Weak<T>` depth, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure forwarding has no V4 expression syntax yet. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, projection/scalar-holder/projected-reborrow/statically resolved ordinary-call/reordered-argument/CFG-join provenance with bounded deterministic loop-header/backedge fixed points, all-candidate final-use liveness (including elided multi-owner results), and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed child provenance, projection-assignment rebinding (including conservative dynamic-index overlap), field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Generic-call, owner-generic, and `Shared<T>::new` checks recursively expose nominal shape/route lends before substitution; direct nominal impl and overloaded operator calls on lend-bearing owners fail closed, and classifier depth exhaustion has a distinct diagnostic. First-pass closure capture ownership (`CaptureBorrow`, `CaptureBorrowMut`, `CaptureCopy`, `CaptureMove`) with stored-closure loan liveness and OneShot consumption, queryable Meiya-owned loan/move facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating also exist. Declaration-order children use `freak-mir-snapshot-v5`; v4 is rejected, and restore re-resolves IDs in a fresh borrowck generation. Ordinary-task fixed-layout aggregate parameters and returns now preserve leaf provenance; non-ordinary aggregate task parameters and returns, dynamic and wrapper containers, lend-bearing aliases/doctrine/callback contracts, body-derived/general lexical inference, `'static`, general arena reclamation, runtime `Shared<T>`/`Weak<T>` depth, closure `Send`/`Sync`, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax exists, but borrowed-return closure contracts and forwarding do not yet. No fixed-aggregate backend or runtime ABI is claimed. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
@@ -101,7 +101,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.5 Shapes | ✅ Implemented — V4 also lowers concrete and doctrine-bound UFCS calls through MIR with receiver, argument, and editor diagnostics |
 | §1.6 Doctrines | ⚠️ Partial — `Add`/`Sub`/`Mul`/`Div`/`Neg`/`Eq` overloading ships; V4 also parses and enforces doctrine bounds plus multi-bound generics across TY/MIR/editor, carries bound static and UFCS calls with instantiated doctrine arguments, preserves body-generic identity over same-named global aliases, diagnoses overlapping bound methods, and provides first-pass `dyn Doctrine` type positions, object-safety diagnostics, coercion checks, MIR method dispatch facts, and editor facts; `Ord`/`Index`/`IndexMut` plus dyn fat-pointer/vtable codegen still expand |
 | §1.7 Control flow | ⚠️ Partial — V4 carries tuple, fixed-array, and route/variant payload pattern destructuring with exhaustiveness diagnostics plus `training arc with growth` mutation checks for local and projected places; `prob_when` and broader pattern ergonomics remain 🔜 V4 |
-| §1.8 Closures | ⚠️ Partial — `copy`/`move`/`mut` closure modes parsed, semantics 🔜 V4 |
+| §1.8 Closures | ⚠️ Partial — V4 carries default/`copy`/`move`/`mut` capture environments through HIR/TY/MIR/Meiya/editor/snapshot/invalidation; nested closure inference, borrowed-return contracts, `Send`/`Sync`, and backend environment codegen remain 🔜 V4 |
 | §1.9 Pipe operator `\|>` | ✅ Implemented |
 | §1.10 Error handling (`?`, `or else`, `check`) | ✅ Implemented |
 | §1.11 Generics | ⚠️ Partial — basic `<T>` plus doctrine and multi-bound generic constraints work in V4 query slices, including doctrine-bound instance, static, and UFCS method typing with generic doctrine-argument substitution before alias canonicalization and ambiguity diagnostics for overlapping methods; full backend/monomorphization depth still expands |
@@ -416,6 +416,27 @@ pilot counter = mut |_| { count += 1 }
 -- MutCallable — mutates captures, one active call at a time
 -- OneShot     — moves captures, callable exactly ONCE
 ```
+
+> **⚠️ V4 partial — Yuuko found the environment, Meiya guards the door:**
+> Maverick's resilient parser records arrow and block closures as `ClosureExpr`
+> nodes and emits `IncompleteNode` diagnostics for a missing parameter pipe,
+> body marker, expression, or parameter name without abandoning later items.
+> HIR normalizes all four capture modes; TY assigns inferred
+> `closure[Callable,borrow]`, `closure[Callable,copy]`,
+> `closure[MutCallable,mut]`, or `closure[OneShot,move]` identities. MIR lowers
+> explicit closure environments with `CaptureBorrow`, `CaptureBorrowMut`,
+> `CaptureCopy`, and `CaptureMove` children. Capture discovery respects nested
+> lexical scopes and member positions; `Callable` environments are Copy while
+> `MutCallable` and `OneShot` remain linear. Meiya keeps stored borrow captures
+> live through the closure holder's final reachable use, rejects owner access
+> during an exclusive capture, consumes OneShot closures on their first call,
+> and diagnoses non-Copy `copy` captures or assignment and resolved mutable
+> receiver calls through a non-`mut` environment. Semantic, hover, definition,
+> completion, LSP, snapshot restore,
+> and all-family source invalidation expose the same capture mode. Nested
+> closures, inferred generic parameter/return types, borrowed-return closure
+> contracts, `Send`/`Sync` proof, and native closure-environment codegen remain
+> later V4 work; this checkpoint is not a production backend claim.
 
 ### 1.9 Pipe Operator
 
@@ -1013,7 +1034,7 @@ the rest is V4.
 > invalidates matching file/signature rows before reuse. Meiya verifies returned origins against that contract
 > and follows them through projections, scalar local holders, nested statically
 > resolved ordinary calls, reordered named arguments, projected reborrows through
-> scalar lend holders, and acyclic CFG joins.
+> scalar lend holders, and CFG joins including loop headers and backedges.
 > MIR erases the callee binder spelling at the caller while retaining a
 > deterministic signature-source-to-call-argument candidate mapping on the call
 > rvalue. That mapping is not an ownership fact. Meiya resolves the candidates
@@ -1025,13 +1046,25 @@ the rest is V4.
 > invalidation report fields: 14 concrete query families plus three aggregate
 > totals (`all`/`query`, `core`, and `editor`). Subsequent requests prove every
 > concrete family recomputes through completion and refresh the totals,
-> including after an edit shrinks an elided result from multiple owners to one.
+> including after an edit shrinks an elided result from multiple owners to one
+> and shrinks a loop-carried owner set from two paths to one.
 > Document-symbol and completion invalidation are proven independently rather
 > than inferred from hover coverage.
 > Rebinding kills only that holder's provenance, restoring
 > from a descendant alias creates a new tracked state, and exact self-assignment
 > preserves the existing edge. Provenance expansion is memoized by MIR/body/use
-> location/rvalue within a borrowck generation. Active scratch counts reset for
+> location/rvalue within a borrowck generation. Recursive lookups form an
+> implicit dependency graph. Meiya discovers that graph through an iterative
+> memo worklist, records reverse dependency edges in per-memo adjacency lists,
+> and schedules only dependants of changed memos in deterministic waves, so long
+> acyclic holder chains do not recurse on the native call stack or trigger an
+> all-memo replay. A source phase
+> propagates owner paths, every unresolved empty memo (including a source-less
+> strongly connected component) becomes opaque, and an opacity phase propagates
+> that conservative state. Each phase is bounded by `memo_count + 1` waves;
+> revision-based convergence, solve-count, round, and limit telemetry are
+> queryable. Identity cycles are stable, projected path-growing cycles remain
+> opaque, and a failed bound fails closed for the generation. Active scratch counts reset for
 > each generation and are bounded by that generation's visited provenance graph;
 > state, source-row, and memo arrays reuse high-water capacity across
 > recomputation instead of accumulating history. Integer-word interning backs
@@ -1041,29 +1074,68 @@ the rest is V4.
 > same result and hot values reuse their row. The bootstrap C runtime grows its
 > array-handle table dynamically rather than imposing a hidden fixed ceiling;
 > displaced words remain in append-only arenas until general reclamation lands;
-> recursive provenance cycles stay conservatively opaque. Meiya rejects
+> source-less and path-growing provenance cycles stay conservatively opaque.
+> A generation also fails closed at 4,096 memo entries, 16,384 dependency edges,
+> 65,536 work items, 1,024 concrete source facts, or a 1,024-byte canonical owner
+> path. Per-borrow round/limit/solve/convergence/resource/work telemetry survives
+> snapshot v2 restore; legacy v1 snapshots import with default telemetry, while
+> truncated v2 records are rejected. Executable smokes force both the
+> convergence and resource branches. A solved-memo frontier keeps later
+> independent returned-loan roots from replaying prior fixed-point work; a
+> 256-root smoke pins that path to 512 processed items. CFG and holder-alias reachability use
+> explicit cycle-safe worklists, with a 64-diamond fixture guarding against
+> recursive stack growth. Meiya rejects
 > callee-owned escapes,
 > immutable-to-mutable upgrades, origins without the required outlives
 > relation, malformed lend targets, and `'static` borrowed contracts. Outer
 > ordinary-task lend parameters and borrowed returns remain legal contract
-> positions, but TY rejects both named and elided lends nested inside stored
-> signature types before normalization can erase their provenance. At
-> runtime-value expression lowering, MIR emits compile-time diagnostics for lend
-> children in tuple literals, fixed-array literals, repeat-filled fixed arrays,
-> list literals, shape values, route payloads, `some(...)`, `ok(...)`,
-> `err(...)`, map keys, and map values;
-> aliases and nested containers cannot make that storage sound. Generic call
-> substitution also rejects any lend-bearing actual type before `T` can hide a
-> loan inside an instantiated result. Method, dynamic,
-> callback, extern, and FFI returned-loan forwarding paths are explicitly
-> rejected rather than silently accepted. Closure forwarding cannot be expressed because V4
-> closure expression syntax has not landed. Loop-carried join fixed points still
-> require later Meiya work. Body-derived source discovery and general lexical
+> positions. Ordinary-task fixed-layout aggregate parameters and returns now
+> preserve leaf provenance across that boundary. Non-ordinary aggregate task
+> parameters and returns do not: TY rejects named or elided lends nested across
+> that boundary, as well as lend-bearing alias targets, doctrine contracts, and
+> callbacks, before normalization can erase provenance.
+>
+> Task-local tuples, fixed arrays, shapes, and route payloads may store lends.
+> Tuple slots and array indices are structural keys. Shape and route children
+> are normalized into declaration order and keyed by declared field, so source
+> constructor order cannot exchange their origins. Meiya carries that key
+> through local holder aliases and asks provenance for the selected `.N`, `.field`, or
+> constant `[index]`. This gives field-sensitive final-use liveness; whole-value
+> and non-constant index uses conservatively include every possible child.
+> Dynamic-index assignments overlap every fixed slot and cannot launder one
+> child's loan. `LoanMut` remains exclusive for the projected child, and a
+> repeat-filled fixed array cannot duplicate one mutable lend across several
+> slots.
+> Projection assignments are first-class holder definitions: rebinding one
+> field releases only its previous loan, protects the newly stored owner, and
+> preserves sibling loans. Moving an aggregate into a projected destination
+> retains each child's relative projection provenance under the new root.
+>
+> List and map storage plus the `some(...)`, `ok(...)`, and `err(...)` wrapper
+> constructors remain rejected. Generic-call, owner-generic, and
+> `Shared<T>::new` substitution checks recursively expand nominal shapes and
+> routes such as `Direct<'a>`, rejecting a hidden lend before `T` can erase it.
+> Direct nominal impl calls and overloaded operator dispatch on lend-bearing
+> owners fail closed. Classifier depth exhaustion emits a distinct diagnostic,
+> and conservative ownership queries continue to treat the type as possibly
+> lend-bearing. Method, dynamic, callback, extern, and FFI returned-loan
+> forwarding paths are explicitly rejected rather than silently accepted.
+> V4 closure expressions now carry capture ownership, but closure types cannot
+> yet declare borrowed-return
+> contracts, so returned-loan forwarding through closures remains unsupported.
+> Body-derived source discovery and general lexical
 > region inference are not part of this signature-contract slice. Lifetime
 > tokens, signature relations, and editor semantic/hover/definition facts on
 > outlives-bound references exist. Definitions target the declared binder even
 > when it appears later in the generic list or is referenced repeatedly, and
-> restored snapshots preserve those distinct definition spans. Contract-boundary
+> restored snapshots preserve those distinct definition spans. Declaration-order
+> aggregate children require `freak-mir-snapshot-v5`; v4 is rejected. Component
+> restore, 00-Unit restore, and standalone `workspace/mirSnapshotRestore` each
+> start a fresh provenance scratch generation, and the query smoke
+> proves `A -> B -> restore A` with MIR, borrowck, and editor IDs re-resolved.
+> Fixed-layout local facts otherwise use the existing MIR/borrowck snapshots and
+> 00-Unit restore/diff/health envelopes and all 17 invalidation report fields;
+> no aggregate-only LSP or snapshot protocol is introduced. Contract-boundary
 > diagnostics retain source-backed spans, with normalized source paths and exact
 > `start:end` byte ranges pinned for signature and unsupported-forwarding
 > failures. The first
@@ -1073,12 +1145,13 @@ the rest is V4.
 > `.humanity`; raw-pointer reads, including `.read()`, require `.cadet` or
 > higher and raw-pointer writes, including `.write(value)`, require `.pilot`
 > or higher; pointer arithmetic via `.offset(n)` and raw pointer retyping via
-> `.cast<U>()` require `.ace` or higher. Full region inference, runtime
-> ref-count/borrow-state guards, `Send`/`Sync`,
-> `direct_order [arch] { asm }`, and the full higher-rank operation matrix
-> remain V4 work. This is a partial signature-contract source-set and first-pass
-> non-lexical loan-liveness slice, not full region inference, full reference
-> lifetime proof, or production-backend completion.
+> `.cast<U>()` require `.ace` or higher. Full region inference, non-ordinary aggregate task boundaries,
+> runtime ref-count/borrow-state guards, `Send`/`Sync`,
+> `direct_order [arch] { asm }`, the full higher-rank operation matrix, and
+> fixed-aggregate backend lowering remain V4 work. This is a partial
+> signature-contract source-set and local fixed-layout non-lexical liveness
+> slice, not full region inference, full reference lifetime proof, a runtime
+> aggregate-loan ABI, or production-backend completion.
 
 The borrow checker enforces memory safety without a garbage collector.
 It runs as a separate pass after type checking, before code generation.
@@ -1165,11 +1238,23 @@ shape Important<'a> {
 > are deterministic and mode-compatible: shared returns may draw from `lend`
 > or `lend mut`, while mutable returns may draw only from `lend mut`. This is
 > signature-derived contract solving, not body-derived or general lexical
-> lifetime inference. Scalar local holders, projections, statically resolved
-> ordinary calls, reordered arguments, and acyclic joins are covered; aggregate
-> storage and non-ordinary forwarding remain outside the slice. `'_` remains
-> elided and cannot be declared or used as a bound. `'static` borrowed
-> contracts and lifetime-bearing shape storage remain V4 work.
+> lifetime inference.
+>
+> Scalar holders plus task-local tuples, fixed arrays, shapes such as
+> `Important<'a>`, and route payloads preserve declaration-keyed child
+> provenance. Projection assignment redefines only the selected holder, and an
+> aggregate move into a projected destination preserves relative child paths.
+> Field-sensitive final-use liveness and mutable exclusivity apply through local
+> projections, holder aliases, acyclic joins, and bounded loop-header/backedge
+> fixed points. Generic and owner-generic calls plus `Shared<T>::new` recursively
+> inspect nominal shape/route storage before substitution. Ordinary-task
+> fixed-layout aggregate parameters and returns now preserve leaf provenance;
+> non-ordinary aggregate task parameters and returns, alias types, doctrines,
+> callbacks, dynamic/wrapper containers, and non-ordinary forwarding remain
+> outside this slice. `'_` remains elided and cannot be declared or used
+> as a bound. `'static` borrowed contracts remain V4 work. This local ownership
+> support does not promise runtime layout, a runtime aggregate-loan ABI, or
+> backend lowering.
 
 ### 4.4 Shared Ownership and Aliasing
 

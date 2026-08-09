@@ -1,0 +1,75 @@
+-- V4 iterative CFG reachability stress fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_contract_region_cfg_worklist_stress_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task long_cfg_chain<'a>(lend 'a source: Ship, ready: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot view = lend source\n"
+    src = src + "    pilot gate = ready\n"
+    pilot branch_id = 0
+    repeat until branch_id >= 64 {
+        src = src + "    if gate {\n"
+        src = src + "        gate = false\n"
+        src = src + "    } else {\n"
+        src = src + "        gate = true\n"
+        src = src + "    }\n"
+        branch_id += 1
+    }
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_cfg_worklist_stress_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_contract_region_cfg_worklist_stress_return_block(mir_id: int, body_id: int) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+            give back v4_mir_stmt_block(mir_id, body_id, stmt_id)
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_contract_region_cfg_worklist_stress_source_at(borrow_id: int, result_id: int) -> word {
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_return_loan {
+            give back v4_borrowck_path_text(borrow_id, result_id, path_id)
+        }
+        path_id += 1
+    }
+    give back ""
+}
+
+pilot v4_contract_region_cfg_worklist_stress_source_text = v4_contract_region_cfg_worklist_stress_source()
+pilot v4_contract_region_cfg_worklist_stress_borrow = v4_borrowck_text_cached("contract-region-cfg-worklist-stress.fk", v4_contract_region_cfg_worklist_stress_source_text)
+pilot v4_contract_region_cfg_worklist_stress_mir = v4_borrowck_mir_id(v4_contract_region_cfg_worklist_stress_borrow)
+pilot v4_contract_region_cfg_worklist_stress_ty = v4_mir_ty_id(v4_contract_region_cfg_worklist_stress_mir)
+pilot v4_contract_region_cfg_worklist_stress_resolve = v4_ty_resolve_id(v4_contract_region_cfg_worklist_stress_ty)
+pilot v4_contract_region_cfg_worklist_stress_def = v4_resolve_def_for_name(v4_contract_region_cfg_worklist_stress_resolve, "long_cfg_chain")
+pilot v4_contract_region_cfg_worklist_stress_body = v4_mir_lookup_body(v4_contract_region_cfg_worklist_stress_mir, v4_contract_region_cfg_worklist_stress_def)
+pilot v4_contract_region_cfg_worklist_stress_result = v4_borrowck_lookup_result(v4_contract_region_cfg_worklist_stress_borrow, v4_contract_region_cfg_worklist_stress_def)
+pilot v4_contract_region_cfg_worklist_stress_blocks = v4_mir_body_block_count(v4_contract_region_cfg_worklist_stress_mir, v4_contract_region_cfg_worklist_stress_body)
+pilot v4_contract_region_cfg_worklist_stress_return = v4_contract_region_cfg_worklist_stress_return_block(v4_contract_region_cfg_worklist_stress_mir, v4_contract_region_cfg_worklist_stress_body)
+
+say "contract-region-cfg-worklist-stress-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_cfg_worklist_stress_ty))
+say "contract-region-cfg-worklist-stress-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_cfg_worklist_stress_mir))
+say "contract-region-cfg-worklist-stress-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_cfg_worklist_stress_borrow))
+say "contract-region-cfg-worklist-stress-block-count-bounded=" + v4_contract_region_cfg_worklist_stress_bool(v4_contract_region_cfg_worklist_stress_blocks >= 129 and v4_contract_region_cfg_worklist_stress_blocks < 512)
+say "contract-region-cfg-worklist-stress-return-block-valid=" + v4_contract_region_cfg_worklist_stress_bool(v4_contract_region_cfg_worklist_stress_return > 0 and v4_contract_region_cfg_worklist_stress_return < v4_contract_region_cfg_worklist_stress_blocks)
+say "contract-region-cfg-worklist-stress-forward-reachable=" + v4_contract_region_cfg_worklist_stress_bool(v4_borrowck_block_reaches(v4_contract_region_cfg_worklist_stress_mir, v4_contract_region_cfg_worklist_stress_body, 0, v4_contract_region_cfg_worklist_stress_return))
+say "contract-region-cfg-worklist-stress-reverse-unreachable=" + v4_contract_region_cfg_worklist_stress_bool(not v4_borrowck_block_reaches(v4_contract_region_cfg_worklist_stress_mir, v4_contract_region_cfg_worklist_stress_body, v4_contract_region_cfg_worklist_stress_return, 0))
+say "contract-region-cfg-worklist-stress-entry-acyclic=" + v4_contract_region_cfg_worklist_stress_bool(not v4_borrowck_block_can_cycle(v4_contract_region_cfg_worklist_stress_mir, v4_contract_region_cfg_worklist_stress_body, 0))
+say "contract-region-cfg-worklist-stress-status=" + v4_borrowck_result_status(v4_contract_region_cfg_worklist_stress_borrow, v4_contract_region_cfg_worklist_stress_result)
+say "contract-region-cfg-worklist-stress-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_cfg_worklist_stress_borrow, v4_contract_region_cfg_worklist_stress_result, v4_borrowck_path_return_loan))
+say "contract-region-cfg-worklist-stress-source=" + v4_contract_region_cfg_worklist_stress_source_at(v4_contract_region_cfg_worklist_stress_borrow, v4_contract_region_cfg_worklist_stress_result)
+say "contract-region-cfg-worklist-stress-converged=" + v4_contract_region_cfg_worklist_stress_bool(v4_borrowck_provenance_fixed_point_converged(v4_contract_region_cfg_worklist_stress_borrow))
+say "contract-region-cfg-worklist-stress-work-bounded=" + v4_contract_region_cfg_worklist_stress_bool(v4_borrowck_provenance_fixed_point_work_items(v4_contract_region_cfg_worklist_stress_borrow) <= v4_borrowck_provenance_work_item_limit())

@@ -1,0 +1,44 @@
+-- V4 recursive dynamic-wrapper lend-storage classification fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_recursive_wrapper_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Node<'a> {\n"
+    src = src + "    next: List<Node<'a>>\n"
+    src = src + "    view: lend 'a Ship\n"
+    src = src + "}\n"
+    src = src + "task recursive_pass<'a>(node: Node<'a>) -> Node<'a> {\n"
+    src = src + "    give back node\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_recursive_wrapper_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_recursive_wrapper_ty_diag_contains(ty_id: int, needle: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_ty_diag_count(ty_id) {
+        if v4_diag_message(v4_ty_diag(ty_id, diag_id)).contains(needle) { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
+pilot v4_recursive_wrapper_tree = v4_parse_stream(0, v4_lex_text(0, v4_recursive_wrapper_source()))
+pilot v4_recursive_wrapper_hir = v4_hir_lower_tree(0, v4_recursive_wrapper_tree)
+pilot v4_recursive_wrapper_resolve = v4_resolve_lower_hir(0, v4_recursive_wrapper_hir)
+pilot v4_recursive_wrapper_ty = v4_ty_lower_resolve(0, v4_recursive_wrapper_resolve)
+pilot v4_recursive_wrapper_mir = v4_mir_lower_ty(0, v4_recursive_wrapper_ty)
+
+say "recursive-wrapper-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_recursive_wrapper_tree))
+say "recursive-wrapper-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_recursive_wrapper_ty))
+say "recursive-wrapper-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_recursive_wrapper_mir))
+say "recursive-wrapper-storage-class=" + v4_ty_type_lend_storage_class(v4_recursive_wrapper_ty, "Node<'a>")
+say "recursive-wrapper-fixed-storage=" + v4_recursive_wrapper_bool(v4_ty_type_supports_fixed_lend_storage(v4_recursive_wrapper_ty, "Node<'a>"))
+say "recursive-wrapper-leaf-count=" + word_from_int(v4_ty_fixed_lend_leaf_count(v4_recursive_wrapper_ty, "Node<'a>"))
+say "recursive-wrapper-diagnostic=" + v4_recursive_wrapper_bool(v4_recursive_wrapper_ty_diag_contains(v4_recursive_wrapper_ty, "cannot store a named lend"))

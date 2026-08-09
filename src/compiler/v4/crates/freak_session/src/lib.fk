@@ -8,6 +8,16 @@ pilot v4_source_texts = 0
 pilot v4_source_revisions = 0
 pilot v4_source_fingerprints = 0
 pilot v4_source_ready = 0
+pilot v4_session_semantic_restore_generation_value = 0
+
+task v4_session_semantic_restore_generation() -> int {
+    give back v4_session_semantic_restore_generation_value
+}
+
+task v4_session_semantic_restore_generation_advance() -> int {
+    v4_session_semantic_restore_generation_value += 1
+    give back v4_session_semantic_restore_generation_value
+}
 
 task v4_session_init() -> void {
     if v4_source_ready == 0 {

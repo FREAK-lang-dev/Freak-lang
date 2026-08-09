@@ -169,6 +169,130 @@ task v4_hir_item_stream_id(hir_id: int) -> int {
     give back v4_parse_stream_id(tree_id)
 }
 
+task v4_hir_closure_count(hir_id: int, item_id: int) -> int {
+    if item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
+        give back 0
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back 0
+    }
+    give back v4_parse_closure_count(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+}
+
+task v4_hir_closure_parse_node(hir_id: int, item_id: int, closure_id: int) -> int {
+    if item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
+        give back 0 - 1
+    }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false {
+        give back 0 - 1
+    }
+    give back v4_parse_closure_node(tree_id, v4_hir_item_parse_node(hir_id, item_id), closure_id)
+}
+
+task v4_hir_closure_mode(hir_id: int, item_id: int, closure_id: int) -> word {
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot closure_node = v4_hir_closure_parse_node(hir_id, item_id, closure_id)
+    if closure_node < 0 {
+        give back ""
+    }
+    give back v4_parse_closure_mode(tree_id, closure_node)
+}
+
+task v4_hir_closure_span(hir_id: int, item_id: int, closure_id: int) -> word {
+    pilot closure_node = v4_hir_closure_parse_node(hir_id, item_id, closure_id)
+    if closure_node < 0 {
+        give back V4_NO_SPAN
+    }
+    give back v4_parse_node_span(v4_hir_tree_id(hir_id), closure_node)
+}
+
+task v4_hir_closure_body_kind(hir_id: int, item_id: int, closure_id: int) -> word {
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot closure_node = v4_hir_closure_parse_node(hir_id, item_id, closure_id)
+    if closure_node < 0 {
+        give back ""
+    }
+    give back v4_parse_closure_body_kind(tree_id, closure_node)
+}
+
+task v4_hir_closure_body_span(hir_id: int, item_id: int, closure_id: int) -> word {
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot closure_node = v4_hir_closure_parse_node(hir_id, item_id, closure_id)
+    if closure_node < 0 {
+        give back V4_NO_SPAN
+    }
+    give back v4_parse_closure_body_span(tree_id, closure_node)
+}
+
+task v4_hir_closure_body_start_token(hir_id: int, item_id: int, closure_id: int) -> int {
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot closure_node = v4_hir_closure_parse_node(hir_id, item_id, closure_id)
+    if closure_node < 0 {
+        give back 0 - 1
+    }
+    give back v4_parse_closure_body_start_token(tree_id, closure_node)
+}
+
+task v4_hir_closure_body_end_token(hir_id: int, item_id: int, closure_id: int) -> int {
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot closure_node = v4_hir_closure_parse_node(hir_id, item_id, closure_id)
+    if closure_node < 0 {
+        give back 0 - 1
+    }
+    give back v4_parse_closure_body_end_token(tree_id, closure_node)
+}
+
+task v4_hir_closure_param_count(hir_id: int, item_id: int, closure_id: int) -> int {
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot closure_node = v4_hir_closure_parse_node(hir_id, item_id, closure_id)
+    if closure_node < 0 {
+        give back 0
+    }
+    give back v4_parse_closure_param_count(tree_id, closure_node)
+}
+
+task v4_hir_closure_param_name(hir_id: int, item_id: int, closure_id: int, param_id: int) -> word {
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot closure_node = v4_hir_closure_parse_node(hir_id, item_id, closure_id)
+    if closure_node < 0 {
+        give back ""
+    }
+    give back v4_parse_closure_param_name(tree_id, closure_node, param_id)
+}
+
+task v4_hir_closure_param_type(hir_id: int, item_id: int, closure_id: int, param_id: int) -> word {
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot closure_node = v4_hir_closure_parse_node(hir_id, item_id, closure_id)
+    if closure_node < 0 {
+        give back ""
+    }
+    give back v4_parse_closure_param_type(tree_id, closure_node, param_id)
+}
+
+task v4_hir_closure_param_span(hir_id: int, item_id: int, closure_id: int, param_id: int) -> word {
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    pilot closure_node = v4_hir_closure_parse_node(hir_id, item_id, closure_id)
+    if closure_node < 0 {
+        give back V4_NO_SPAN
+    }
+    give back v4_parse_closure_param_span(tree_id, closure_node, param_id)
+}
+
+task v4_hir_closure_at_offset(hir_id: int, item_id: int, offset: int) -> int {
+    pilot closure_id = 0
+    pilot closure_count = v4_hir_closure_count(hir_id, item_id)
+    repeat until closure_id >= closure_count {
+        pilot span = v4_hir_closure_span(hir_id, item_id, closure_id)
+        if offset >= v4_span_start(span) and offset < v4_span_end(span) {
+            give back closure_id
+        }
+        closure_id += 1
+    }
+    give back 0 - 1
+}
+
 task v4_hir_item_decl_keyword(hir_id: int, item_id: int) -> word {
     if item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
         give back ""
@@ -827,5 +951,6 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     out = out + " diagnostics=" + word_from_int(restored_diagnostics)
     out = out + " skipped-other=" + word_from_int(skipped_other)
     out = out + " live-files=" + word_from_int(v4_hir_file_count())
+    v4_session_semantic_restore_generation_advance()
     give back out
 }

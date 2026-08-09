@@ -50,6 +50,11 @@ pilot v4_mir_rvalue_or_else = "OrElse"
 pilot v4_mir_rvalue_try = "Try"
 pilot v4_mir_rvalue_lend = "Lend"
 pilot v4_mir_rvalue_lend_mut = "LendMut"
+pilot v4_mir_rvalue_closure = "Closure"
+pilot v4_mir_rvalue_capture_borrow = "CaptureBorrow"
+pilot v4_mir_rvalue_capture_borrow_mut = "CaptureBorrowMut"
+pilot v4_mir_rvalue_capture_copy = "CaptureCopy"
+pilot v4_mir_rvalue_capture_move = "CaptureMove"
 pilot v4_mir_rvalue_unknown = "Unknown"
 
 pilot v4_mir_unary_neg = "Neg"
@@ -88,7 +93,7 @@ pilot v4_mir_place_index = "Index"
 pilot v4_mir_place_deref = "Deref"
 pilot v4_mir_place_return = "Return"
 pilot v4_mir_place_unknown = "Unknown"
-pilot v4_mir_snapshot_format = "freak-mir-snapshot-v4"
+pilot v4_mir_snapshot_format = "freak-mir-snapshot-v5"
 
 pilot v4_mir_files = 0
 pilot v4_mir_tys = 0
@@ -2162,7 +2167,21 @@ task v4_mir_types_compatible(mir_id: int, body_id: int, expected_ty: word, actua
     give back v4_ty_types_compatible_with_context(v4_mir_ty_id(mir_id), v4_mir_body_signature_id(mir_id, body_id), expected_ty, actual_ty)
 }
 
+task v4_mir_check_dyn_lend_erasure(mir_id: int, stmt_span: word, target_ty: word, source_ty: word, context: word) -> void {
+    if v4_ty_is_dyn_type(target_ty) and not v4_ty_is_dyn_type(source_ty) and v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), source_ty) {
+        v4_mir_add_type_error(mir_id, stmt_span, "dyn doctrine erasure cannot hide stored lends", context + " erases " + source_ty + " into " + target_ty + "; keep the concrete type visible until Meiya can preserve its loan provenance through the vtable")
+    }
+}
+
+task v4_mir_check_dyn_lend_erasure_rvalue(mir_id: int, body_id: int, target_ty: word, source_rvalue: int, context: word) -> void {
+    if source_rvalue < 0 or source_rvalue >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        give back
+    }
+    v4_mir_check_dyn_lend_erasure(mir_id, v4_mir_rvalue_span(mir_id, body_id, source_rvalue), target_ty, v4_mir_rvalue_ty(mir_id, body_id, source_rvalue), context)
+}
+
 task v4_mir_check_assignment_types(mir_id: int, body_id: int, stmt_span: word, place_id: int, place_ty: word, value_ty: word) -> void {
+    v4_mir_check_dyn_lend_erasure(mir_id, stmt_span, place_ty, value_ty, v4_mir_assignment_target_context(mir_id, body_id, place_id))
     if not v4_mir_types_compatible(mir_id, body_id, place_ty, value_ty) {
         pilot place_kind = v4_mir_place_unknown
         if place_id >= 0 {
@@ -2229,6 +2248,7 @@ task v4_mir_place_read_rvalue(mir_id: int, body_id: int, place_id: int, span: wo
 }
 
 task v4_mir_check_local_decl_type(mir_id: int, body_id: int, stmt_span: word, local_name: word, declared_ty: word, inferred_ty: word) -> void {
+    v4_mir_check_dyn_lend_erasure(mir_id, stmt_span, declared_ty, inferred_ty, "local " + local_name)
     if not v4_mir_types_compatible(mir_id, body_id, declared_ty, inferred_ty) {
         v4_mir_add_type_mismatch_error(mir_id, stmt_span, "local declaration type mismatch", local_name + " expects " + declared_ty + " but got " + inferred_ty, local_name, declared_ty, inferred_ty)
     }
@@ -2487,6 +2507,7 @@ task v4_mir_body_signature_id(mir_id: int, body_id: int) -> int {
 
 task v4_mir_check_return_type(mir_id: int, body_id: int, stmt_span: word, actual_ty: word) -> void {
     pilot expected_ty = v4_mir_expected_return_type(mir_id, body_id)
+    v4_mir_check_dyn_lend_erasure(mir_id, stmt_span, expected_ty, actual_ty, v4_mir_body_name(mir_id, body_id) + " return")
     if not v4_mir_types_compatible(mir_id, body_id, expected_ty, actual_ty) {
         pilot context = v4_mir_body_name(mir_id, body_id) + " return"
         v4_mir_add_type_mismatch_error(mir_id, stmt_span, "return type mismatch", v4_mir_body_name(mir_id, body_id) + " expects " + expected_ty + " but got " + actual_ty, context, expected_ty, actual_ty)
@@ -2803,7 +2824,7 @@ task v4_mir_call_args_payload_append(payload: word, rvalue_id: int) -> word {
 }
 
 task v4_mir_rvalue_is_aggregate_kind(kind: word) -> bool {
-    give back kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_map
+    give back kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_map or kind == v4_mir_rvalue_closure
 }
 
 task v4_mir_aggregate_children_payload(children_handle: int) -> word {
@@ -2892,6 +2913,51 @@ task v4_mir_rvalue_aggregate_child(mir_id: int, body_id: int, rvalue_id: int, ch
     give back v4_mir_call_args_payload_at(v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id), child_id)
 }
 
+task v4_mir_closure_capture_count(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_closure {
+        give back 0
+    }
+    give back v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+}
+
+task v4_mir_closure_capture(mir_id: int, body_id: int, rvalue_id: int, capture_id: int) -> int {
+    if rvalue_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_closure {
+        give back 0 - 1
+    }
+    give back v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, capture_id)
+}
+
+task v4_mir_capture_mode_for_kind(kind: word) -> word {
+    if kind == v4_mir_rvalue_capture_borrow { give back v4_ty_closure_mode_borrow }
+    if kind == v4_mir_rvalue_capture_borrow_mut { give back v4_ty_closure_mode_mut }
+    if kind == v4_mir_rvalue_capture_copy { give back v4_ty_closure_mode_copy }
+    if kind == v4_mir_rvalue_capture_move { give back v4_ty_closure_mode_move }
+    give back ""
+}
+
+task v4_mir_closure_capture_mode_at(mir_id: int, body_id: int, local_name: word, offset: int) -> word {
+    pilot rvalue_id = 0
+    pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
+    repeat until rvalue_id >= rvalue_count {
+        if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_closure {
+            pilot closure_span = v4_mir_rvalue_span(mir_id, body_id, rvalue_id)
+            if offset >= v4_span_start(closure_span) and offset < v4_span_end(closure_span) {
+                pilot capture_id = 0
+                pilot capture_count = v4_mir_closure_capture_count(mir_id, body_id, rvalue_id)
+                repeat until capture_id >= capture_count {
+                    pilot capture_rvalue = v4_mir_closure_capture(mir_id, body_id, rvalue_id, capture_id)
+                    if v4_mir_rvalue_text(mir_id, body_id, capture_rvalue) == local_name {
+                        give back v4_mir_capture_mode_for_kind(v4_mir_rvalue_kind(mir_id, body_id, capture_rvalue))
+                    }
+                    capture_id += 1
+                }
+            }
+        }
+        rvalue_id += 1
+    }
+    give back ""
+}
+
 task v4_mir_rvalue_call_borrowed_source_signature_id(mir_id: int, body_id: int, rvalue_id: int) -> int {
     if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
         give back 0 - 1
@@ -2906,97 +2972,177 @@ task v4_mir_rvalue_call_borrowed_source_signature_id(mir_id: int, body_id: int, 
         give back 0 - 1
     }
 
-    pilot call_return_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
-    if not v4_ty_is_lend_type(call_return_ty) {
-        give back 0 - 1
-    }
-
     pilot sig_id = v4_mir_signature_id_for_name(mir_id, v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
     if sig_id < 0 {
         give back 0 - 1
     }
     pilot ty_id = v4_mir_ty_id(mir_id)
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig or v4_ty_signature_extern_member_id(ty_id, sig_id) >= 0 {
+    if not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
         give back 0 - 1
     }
+
+    pilot call_return_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     pilot signature_return_ty = v4_ty_signature_return_type(ty_id, sig_id)
-    if not v4_ty_is_lend_type(signature_return_ty) or v4_ty_lend_mode(signature_return_ty) != v4_ty_lend_mode(call_return_ty) {
+    if not v4_ty_types_compatible_in_signature(ty_id, sig_id, signature_return_ty, call_return_ty) {
+        give back 0 - 1
+    }
+    if v4_ty_is_lend_type(signature_return_ty) {
+        if not v4_ty_is_lend_type(call_return_ty) or v4_ty_lend_mode(signature_return_ty) != v4_ty_lend_mode(call_return_ty) {
+            give back 0 - 1
+        }
+        give back sig_id
+    }
+    pilot signature_leaf_count = v4_ty_fixed_lend_leaf_count(ty_id, signature_return_ty)
+    pilot signature_has_lend_schema: bool = v4_ty_type_stores_lend(ty_id, signature_return_ty)
+    if signature_leaf_count == 0 and v4_ty_type_contains_lend(signature_return_ty) {
+        signature_has_lend_schema = true
+    }
+    if not v4_ty_type_supports_fixed_lend_storage(ty_id, signature_return_ty) or not signature_has_lend_schema {
+        give back 0 - 1
+    }
+    pilot call_leaf_count = v4_ty_fixed_lend_leaf_count(ty_id, call_return_ty)
+    pilot call_has_lend_schema: bool = v4_ty_type_may_store_lend(ty_id, call_return_ty)
+    if call_leaf_count == 0 and v4_ty_type_contains_lend(call_return_ty) {
+        call_has_lend_schema = true
+    }
+    if not v4_ty_type_supports_fixed_lend_storage(ty_id, call_return_ty) or not call_has_lend_schema {
         give back 0 - 1
     }
     give back sig_id
 }
 
-task v4_mir_rvalue_call_borrowed_source_arg_for_signature(mir_id: int, body_id: int, rvalue_id: int, sig_id: int, source_id: int) -> int {
-    if source_id < 0 {
-        give back 0 - 1
-    }
+task v4_mir_rvalue_call_return_lend_leaf_count(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    pilot sig_id = v4_mir_rvalue_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
+    if sig_id < 0 { give back 0 - 1 }
+    give back v4_ty_signature_return_lend_leaf_count(v4_mir_ty_id(mir_id), sig_id)
+}
 
+task v4_mir_rvalue_call_return_lend_leaf_projection_at(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> word {
+    pilot sig_id = v4_mir_rvalue_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
+    if sig_id < 0 { give back "" }
+    give back v4_ty_signature_return_lend_leaf_projection_at(v4_mir_ty_id(mir_id), sig_id, return_leaf_id)
+}
+
+task v4_mir_rvalue_call_return_lend_leaf_route_guard_at(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> word {
+    pilot sig_id = v4_mir_rvalue_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
+    if sig_id < 0 { give back "" }
+    give back v4_ty_signature_return_lend_leaf_route_guard_at(v4_mir_ty_id(mir_id), sig_id, return_leaf_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_payload_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> word {
+    pilot sig_id = v4_mir_rvalue_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
+    if sig_id < 0 or return_leaf_id < 0 { give back v4_ty_return_lend_source_opaque }
     pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot source_payload = v4_ty_signature_return_lend_source_payload(ty_id, sig_id, return_leaf_id)
+    pilot source_count = v4_ty_return_lend_source_payload_count(source_payload)
+    if source_count < 0 { give back v4_ty_return_lend_source_opaque }
+
     pilot fixed_param_count = v4_ty_signature_fixed_param_count(ty_id, sig_id)
     if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) < fixed_param_count {
-        give back 0 - 1
+        give back v4_ty_return_lend_source_opaque
     }
-    pilot param_id = v4_ty_signature_borrowed_return_source_param_at(ty_id, sig_id, source_id)
-    if param_id < 0 or param_id >= fixed_param_count {
-        give back 0 - 1
-    }
+    pilot mapped = ""
+    pilot source_id = 0
+    repeat until source_id >= source_count {
+        pilot edge = v4_ty_return_lend_source_payload_at(source_payload, source_id)
+        if edge == "" { give back v4_ty_return_lend_source_opaque }
+        pilot param_id = word_to_int(v4_resolve_snapshot_field_raw(edge, 0))
+        if param_id < 0 or param_id >= fixed_param_count {
+            give back v4_ty_return_lend_source_opaque
+        }
+        pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, param_id)
+        if arg_rvalue < 0 or arg_rvalue >= v4_mir_body_rvalue_count(mir_id, body_id) {
+            give back v4_ty_return_lend_source_opaque
+        }
 
-    pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, param_id)
-    if arg_rvalue < 0 or arg_rvalue >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        pilot arg_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+        pilot param_type = v4_ty_signature_param_type(ty_id, sig_id, param_id)
+        pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+        if param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut {
+            if not v4_ty_is_lend_type(arg_ty) {
+                give back v4_ty_return_lend_source_opaque
+            }
+            if param_mode == v4_ty_param_mode_lend_mut and not v4_ty_is_lend_mut_type(arg_ty) {
+                give back v4_ty_return_lend_source_opaque
+            }
+            if not v4_ty_types_compatible_in_signature(ty_id, sig_id, param_type, v4_ty_lend_target_type(arg_ty)) {
+                give back v4_ty_return_lend_source_opaque
+            }
+        } else {
+            if not v4_ty_type_supports_fixed_lend_storage(ty_id, arg_ty) or not v4_ty_type_may_store_lend(ty_id, arg_ty) {
+                give back v4_ty_return_lend_source_opaque
+            }
+            if not v4_ty_types_compatible_in_signature(ty_id, sig_id, param_type, arg_ty) {
+                give back v4_ty_return_lend_source_opaque
+            }
+        }
+        pilot projection = v4_resolve_snapshot_field_raw(edge, 1)
+        pilot guard = v4_resolve_snapshot_field_raw(edge, 2)
+        mapped = v4_ty_return_lend_source_payload_append(mapped, word_from_int(arg_rvalue) + "|" + projection + "|" + guard)
+        source_id += 1
+    }
+    give back mapped
+}
+
+task v4_mir_rvalue_call_borrowed_source_edge_at_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int, source_id: int) -> word {
+    give back v4_ty_return_lend_source_payload_at(v4_mir_rvalue_call_borrowed_source_payload_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id), source_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_for_leaf(mir_id: int, body_id: int, rvalue_id: int, sig_id: int, return_leaf_id: int, source_id: int) -> int {
+    pilot edge = v4_mir_rvalue_call_borrowed_source_edge_at_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id, source_id)
+    if edge == "" { give back 0 - 1 }
+    give back word_to_int(v4_resolve_snapshot_field_raw(edge, 0))
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_count_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> int {
+    give back v4_ty_return_lend_source_payload_count(v4_mir_rvalue_call_borrowed_source_payload_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id))
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_at_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int, source_id: int) -> int {
+    pilot edge = v4_mir_rvalue_call_borrowed_source_edge_at_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id, source_id)
+    if edge == "" { give back 0 - 1 }
+    give back word_to_int(v4_resolve_snapshot_field_raw(edge, 0))
+}
+
+task v4_mir_rvalue_call_borrowed_source_projection_at_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int, source_id: int) -> word {
+    pilot edge = v4_mir_rvalue_call_borrowed_source_edge_at_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id, source_id)
+    if edge == "" { give back "" }
+    give back v4_resolve_snapshot_field_raw(edge, 1)
+}
+
+task v4_mir_rvalue_call_borrowed_source_route_guard_at_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int, source_id: int) -> word {
+    pilot edge = v4_mir_rvalue_call_borrowed_source_edge_at_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id, source_id)
+    if edge == "" { give back "" }
+    give back v4_resolve_snapshot_field_raw(edge, 2)
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_for_signature(mir_id: int, body_id: int, rvalue_id: int, sig_id: int, source_id: int) -> int {
+    if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
         give back 0 - 1
     }
-    pilot arg_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
-    if not v4_ty_is_lend_type(arg_ty) {
-        give back 0 - 1
-    }
-    pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
-    if param_mode != v4_ty_param_mode_lend and param_mode != v4_ty_param_mode_lend_mut {
-        give back 0 - 1
-    }
-    if param_mode == v4_ty_param_mode_lend_mut and not v4_ty_is_lend_mut_type(arg_ty) {
-        give back 0 - 1
-    }
-    give back arg_rvalue
+    give back v4_mir_rvalue_call_borrowed_source_arg_for_leaf(mir_id, body_id, rvalue_id, sig_id, 0, source_id)
 }
 
 -- -1 is opaque/unproven, 0 is a proven empty TY source set, and positive counts are fully mapped.
 task v4_mir_rvalue_call_borrowed_source_arg_count(mir_id: int, body_id: int, rvalue_id: int) -> int {
-    pilot sig_id = v4_mir_rvalue_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
-    if sig_id < 0 {
+    if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
         give back 0 - 1
     }
-
-    pilot source_count = v4_ty_signature_borrowed_return_source_param_count(v4_mir_ty_id(mir_id), sig_id)
-    pilot source_id = 0
-    repeat until source_id >= source_count {
-        if v4_mir_rvalue_call_borrowed_source_arg_for_signature(mir_id, body_id, rvalue_id, sig_id, source_id) < 0 {
-            give back 0 - 1
-        }
-        source_id += 1
-    }
-    give back source_count
+    give back v4_mir_rvalue_call_borrowed_source_arg_count_for_leaf(mir_id, body_id, rvalue_id, 0)
 }
 
 task v4_mir_rvalue_call_borrowed_source_arg_at(mir_id: int, body_id: int, rvalue_id: int, source_id: int) -> int {
-    if source_id < 0 {
+    if source_id < 0 or not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
         give back 0 - 1
     }
-    pilot sig_id = v4_mir_rvalue_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
-    if sig_id < 0 {
-        give back 0 - 1
-    }
-    give back v4_mir_rvalue_call_borrowed_source_arg_for_signature(mir_id, body_id, rvalue_id, sig_id, source_id)
+    give back v4_mir_rvalue_call_borrowed_source_arg_at_for_leaf(mir_id, body_id, rvalue_id, 0, source_id)
 }
 
 -- Compatibility-only singular view; core logic must use the authoritative count/at source-set APIs.
 task v4_mir_rvalue_call_borrowed_source_arg(mir_id: int, body_id: int, rvalue_id: int) -> int {
     pilot source_count = v4_mir_rvalue_call_borrowed_source_arg_count(mir_id, body_id, rvalue_id)
-    if source_count <= 0 {
-        give back 0 - 1
-    }
-    if source_count > 1 {
-        give back 0 - 2
-    }
+    if source_count <= 0 { give back 0 - 1 }
+    if source_count > 1 { give back 0 - 2 }
     give back v4_mir_rvalue_call_borrowed_source_arg_at(mir_id, body_id, rvalue_id, 0)
 }
 
@@ -3091,6 +3237,26 @@ task v4_mir_add_lend_bearing_generic_call_error(mir_id: int, expr_span: word, ca
     help = help + "; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists"
     v4_mir_add_type_error(mir_id, expr_span, message, help)
 }
+task v4_mir_add_lend_storage_analysis_exhausted_error(mir_id: int, expr_span: word, callee_name: word, actual_ty: word) -> void {
+    pilot message = "Meiya's lend-storage analysis exhausted its depth budget"
+    pilot help = callee_name + " reaches type " + actual_ty
+    help = help + "; split deeply nested aggregate types or introduce a nominal shape before this ownership boundary"
+    v4_mir_add_type_error(mir_id, expr_span, message, help)
+}
+
+task v4_mir_reject_lend_storage_type(mir_id: int, expr_span: word, callee_name: word, relation: word, generic_name: word, actual_ty: word) -> bool {
+    pilot storage_kind = v4_ty_type_lend_storage_class(v4_mir_ty_id(mir_id), actual_ty)
+    if v4_ty_lend_storage_class_is_incomplete(storage_kind) {
+        v4_mir_add_lend_storage_analysis_exhausted_error(mir_id, expr_span, callee_name, actual_ty)
+        give back true
+    }
+    if v4_ty_lend_storage_class_confirms_lend(storage_kind) {
+        v4_mir_add_lend_bearing_generic_call_error(mir_id, expr_span, callee_name, relation, generic_name, actual_ty)
+        give back true
+    }
+    give back false
+}
+
 
 task v4_mir_reject_lend_bearing_generic_env(mir_id: int, expr_span: word, callee_name: word, relation: word, generic_env: word) -> bool {
     if generic_env == "" or generic_env == v4_ty_generic_env_fail {
@@ -3108,8 +3274,7 @@ task v4_mir_reject_lend_bearing_generic_env(mir_id: int, expr_span: word, callee
         if eq_pos > segment_start and eq_pos + 1 < segment_end {
             pilot generic_name = v4_slice(generic_env, segment_start, eq_pos)
             pilot actual_ty = v4_slice(generic_env, eq_pos + 1, segment_end)
-            if v4_ty_type_contains_lend(actual_ty) {
-                v4_mir_add_lend_bearing_generic_call_error(mir_id, expr_span, callee_name, relation, generic_name, actual_ty)
+            if v4_mir_reject_lend_storage_type(mir_id, expr_span, callee_name, relation, generic_name, actual_ty) {
                 rejected = true
             }
         }
@@ -3125,7 +3290,22 @@ task v4_mir_reject_lend_bearing_impl_owner_generics(mir_id: int, expr_span: word
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
     pilot generic_env = v4_ty_impl_generic_env_for_owner(ty_id, hir_item, owner_ty)
-    give back v4_mir_reject_lend_bearing_generic_env(mir_id, expr_span, callee_name, "derives owner generic", generic_env)
+    if v4_mir_reject_lend_bearing_generic_env(mir_id, expr_span, callee_name, "derives owner generic", generic_env) {
+        give back true
+    }
+    pilot owner_kind = v4_ty_type_lend_storage_class(ty_id, owner_ty)
+    if v4_ty_lend_storage_class_is_incomplete(owner_kind) {
+        v4_mir_add_lend_storage_analysis_exhausted_error(mir_id, expr_span, callee_name, owner_ty)
+        give back true
+    }
+    if v4_ty_lend_storage_class_confirms_lend(owner_kind) {
+        pilot message = "Meiya cannot carry a lend-bearing aggregate across a method call yet"
+        pilot help = callee_name + " uses receiver type " + owner_ty
+        help = help + "; keep fixed-layout lends local until aggregate method-call provenance lands"
+        v4_mir_add_type_error(mir_id, expr_span, message, help)
+        give back true
+    }
+    give back false
 }
 
 task v4_mir_reject_lend_bearing_call_generics(mir_id: int, expr_span: word, callee_name: word, sig_id: int, generic_env: word) -> bool {
@@ -3141,8 +3321,7 @@ task v4_mir_reject_lend_bearing_call_generics(mir_id: int, expr_span: word, call
         if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_idx) == false {
             pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_idx)
             pilot actual_ty = v4_ty_generic_env_lookup(generic_env, generic_name)
-            if actual_ty != "" and v4_ty_type_contains_lend(actual_ty) {
-                v4_mir_add_lend_bearing_generic_call_error(mir_id, expr_span, callee_name, "infers", generic_name, actual_ty)
+            if actual_ty != "" and v4_mir_reject_lend_storage_type(mir_id, expr_span, callee_name, "infers", generic_name, actual_ty) {
                 rejected = true
             }
         }
@@ -3278,6 +3457,7 @@ task v4_mir_check_call_args(mir_id: int, body_id: int, stream_id: int, expr_span
                 pilot coerced_expected_ty = v4_ty_apply_generic_env(expected_ty, generic_env)
                 pilot coerced_arg_ty = v4_mir_expected_call_arg_type(coerced_expected_ty, param_mode)
                 if v4_ty_type_contains_dyn(coerced_arg_ty) {
+                    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, coerced_arg_ty, arg_rvalue, callee_name + " argument " + param_name)
                     v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, coerced_arg_ty)
                 }
             }
@@ -3325,13 +3505,13 @@ task v4_mir_callback_type_contains_lend(mir_id: int, callback_ty: word) -> bool 
     pilot param_count = v4_ty_function_type_fixed_param_count(callback_ty)
     repeat until param_id >= param_count {
         pilot param_ty = v4_ty_canonical_type(ty_id, v4_ty_function_type_param_surface(callback_ty, param_id))
-        if v4_ty_is_lend_type(param_ty) {
+        if v4_ty_type_may_store_lend(ty_id, param_ty) {
             give back true
         }
         param_id += 1
     }
     pilot return_ty = v4_ty_canonical_type(ty_id, v4_ty_function_type_return_text(callback_ty))
-    give back v4_ty_is_lend_type(return_ty)
+    give back v4_ty_type_may_store_lend(ty_id, return_ty)
 }
 
 task v4_mir_check_callback_call_args(mir_id: int, body_id: int, stream_id: int, expr_span: word, callee_text: word, callback_ty: word, open_token: int, close_token: int) -> word {
@@ -3424,6 +3604,7 @@ task v4_mir_check_callback_call_args(mir_id: int, body_id: int, stream_id: int, 
             } else {
                 pilot coerced_ty = v4_mir_coerced_value_type(mir_id, body_id, expected_ty, actual_ty)
                 if coerced_ty != actual_ty {
+                    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, coerced_ty, arg_rvalue, callee_text + " argument " + word_from_int(lower_arg_idx + 1))
                     v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, coerced_ty)
                 }
             }
@@ -3872,7 +4053,11 @@ task v4_mir_try_lower_binary_operator_overload(mir_id: int, body_id: int, left_i
     }
 
     pilot method_name = v4_ty_impl_method_name(v4_mir_ty_id(mir_id), hir_item, method_id)
+    pilot owner_rejected = v4_mir_reject_lend_bearing_impl_owner_generics(mir_id, expr_span, left_ty + "." + method_name, left_ty, method_ref)
     pilot result_ty = v4_ty_impl_method_return_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, left_ty)
+    if owner_rejected {
+        result_ty = v4_ty_unknown
+    }
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, left_ty + "." + method_name, left_id, right_id, expr_span, result_ty)
     pilot args_payload = v4_mir_call_args_payload_append("", left_id)
     args_payload = v4_mir_call_args_payload_append(args_payload, right_id)
@@ -3900,7 +4085,11 @@ task v4_mir_try_lower_unary_operator_overload(mir_id: int, body_id: int, operand
     }
 
     pilot method_name = v4_ty_impl_method_name(v4_mir_ty_id(mir_id), hir_item, method_id)
+    pilot owner_rejected = v4_mir_reject_lend_bearing_impl_owner_generics(mir_id, expr_span, operand_ty + "." + method_name, operand_ty, method_ref)
     pilot result_ty = v4_ty_impl_method_return_type_for_owner(v4_mir_ty_id(mir_id), hir_item, method_id, operand_ty)
+    if owner_rejected {
+        result_ty = v4_ty_unknown
+    }
     pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, operand_ty + "." + method_name, operand_id, 0 - 1, expr_span, result_ty)
     v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, v4_mir_call_args_payload_append("", operand_id))
     give back call_rvalue
@@ -3977,6 +4166,7 @@ task v4_mir_check_method_args(mir_id: int, body_id: int, stream_id: int, expr_sp
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             } else if v4_ty_type_contains_dyn(expected_ty) {
+                v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, arg_rvalue, label + " argument " + word_from_int(lower_arg_idx + 1))
                 v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, expected_ty)
             }
             args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
@@ -4031,6 +4221,8 @@ task v4_mir_check_ufcs_method_args(mir_id: int, body_id: int, stream_id: int, ex
         pilot actual_receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
         if not v4_ty_types_compatible(receiver_ty, actual_receiver_ty) {
             v4_mir_add_type_mismatch_error(mir_id, expr_span, "UFCS receiver type mismatch", label + " receiver expects " + receiver_ty + " but got " + actual_receiver_ty, label + " receiver", receiver_ty, actual_receiver_ty)
+        } else {
+            v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, receiver_ty, receiver_rvalue, label + " receiver")
         }
     }
 
@@ -4089,6 +4281,7 @@ task v4_mir_check_ufcs_method_args(mir_id: int, body_id: int, stream_id: int, ex
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             } else if v4_ty_type_contains_dyn(expected_ty) {
+                v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, arg_rvalue, label + " argument " + word_from_int(lower_arg_idx + 1))
                 v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, expected_ty)
             }
             call_args = v4_mir_call_args_payload_append(call_args, arg_rvalue)
@@ -4146,6 +4339,8 @@ task v4_mir_check_bound_ufcs_method_args(mir_id: int, body_id: int, stream_id: i
         pilot receiver_ok = v4_ty_types_compatible(receiver_ty, actual_receiver_ty)
         if not receiver_ok {
             v4_mir_add_type_mismatch_error(mir_id, expr_span, "UFCS receiver type mismatch", label + " receiver expects " + receiver_ty + " but got " + actual_receiver_ty, label + " receiver", receiver_ty, actual_receiver_ty)
+        } else {
+            v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, receiver_ty, receiver_rvalue, label + " receiver")
         }
     }
 
@@ -4209,6 +4404,7 @@ task v4_mir_check_bound_ufcs_method_args(mir_id: int, body_id: int, stream_id: i
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             } else if v4_ty_type_contains_dyn(expected_ty) {
+                v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, arg_rvalue, label + " argument " + word_from_int(lower_arg_idx + 1))
                 v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, expected_ty)
             }
             call_args = v4_mir_call_args_payload_append(call_args, arg_rvalue)
@@ -4307,6 +4503,7 @@ task v4_mir_check_bound_method_args(mir_id: int, body_id: int, stream_id: int, e
                 pilot context = label + " argument " + word_from_int(lower_arg_idx + 1)
                 v4_mir_add_type_mismatch_error(mir_id, expr_span, "method argument drift", label + " argument " + word_from_int(lower_arg_idx + 1) + " wants " + expected_ty + ", but " + actual_ty + " arrived", context, expected_ty, actual_ty)
             } else if v4_ty_type_contains_dyn(expected_ty) {
+                v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, arg_rvalue, label + " argument " + word_from_int(lower_arg_idx + 1))
                 v4_mir_set_rvalue_ty(mir_id, body_id, arg_rvalue, expected_ty)
             }
             args_payload = v4_mir_call_args_payload_append(args_payload, arg_rvalue)
@@ -4499,6 +4696,7 @@ task v4_mir_lower_builtin_shared_new_arg(mir_id: int, body_id: int, stream_id: i
     pilot arg_end = v4_mir_call_arg_end(stream_id, arg_start, close_token)
     pilot value_start = v4_mir_call_arg_value_start(stream_id, arg_start, arg_end)
     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, value_start, arg_end, target_ty)
+    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, target_ty, value_rvalue, owner_ty + "::new argument")
     give back v4_mir_call_args_payload_append("", value_rvalue)
 }
 
@@ -4589,11 +4787,7 @@ task v4_mir_try_lower_builtin_shared_associated_method(mir_id: int, body_id: int
     }
 
     pilot target_ty = v4_ty_shared_target_type(owner_ty)
-    pilot owner_generic_rejected = false
-    if v4_ty_type_contains_lend(target_ty) {
-        v4_mir_add_lend_bearing_generic_call_error(mir_id, expr_span, owner_ty + "::new", "derives owner generic", "T", target_ty)
-        owner_generic_rejected = true
-    }
+    pilot owner_generic_rejected = v4_mir_reject_lend_storage_type(mir_id, expr_span, owner_ty + "::new", "derives owner generic", "T", target_ty)
     pilot args_payload = v4_mir_lower_builtin_shared_new_arg(mir_id, body_id, stream_id, expr_span, owner_ty, target_ty, open_token, close_token)
     pilot result_ty = owner_ty
     if owner_generic_rejected {
@@ -5380,15 +5574,39 @@ task v4_mir_generic_ctor_context_help(base_name: word, ctor_suffix: word) -> wor
     give back base_name + " has type parameters; write " + base_name + "<int>" + ctor_suffix + " or use an expected " + base_name + "<int>"
 }
 
--- Preserve aggregate child identity, but reject lend-containing storage until extraction and drop facts exist.
+task v4_mir_prepare_declaration_order_children(children_handle: int, child_count: int) -> void {
+    pilot child_id = 0
+    repeat until child_id >= child_count {
+        array_push(children_handle, "-1")
+        child_id += 1
+    }
+}
+
+task v4_mir_complete_declaration_order_children(mir_id: int, body_id: int, children_handle: int, span: word, context: word) -> void {
+    pilot child_id = 0
+    repeat until child_id >= array_len(children_handle) {
+        if word_to_int(array_get(children_handle, child_id)) < 0 {
+            pilot missing = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, context + " missing child " + word_from_int(child_id), "", 0 - 1, 0 - 1, span, v4_ty_unknown)
+            array_set(children_handle, child_id, word_from_int(missing))
+        }
+        child_id += 1
+    }
+}
+
+-- Dynamic containers stay conservative until their elements gain stable projection identity.
 task v4_mir_reject_aggregate_lend_child(mir_id: int, body_id: int, aggregate_context: word, child_context: word, child_rvalue: int) -> bool {
     if child_rvalue < 0 or child_rvalue >= v4_mir_body_rvalue_count(mir_id, body_id) {
         give back false
     }
 
     pilot child_ty = v4_mir_rvalue_ty(mir_id, body_id, child_rvalue)
-    if not v4_ty_type_contains_lend(child_ty) {
+    pilot storage_kind = v4_ty_type_lend_storage_class(v4_mir_ty_id(mir_id), child_ty)
+    if storage_kind == v4_ty_lend_storage_none {
         give back false
+    }
+    if v4_ty_lend_storage_class_is_incomplete(storage_kind) {
+        v4_mir_add_lend_storage_analysis_exhausted_error(mir_id, v4_mir_rvalue_span(mir_id, body_id, child_rvalue), aggregate_context, child_ty)
+        give back true
     }
 
     pilot message = "Meiya cannot store a lend inside " + aggregate_context + " yet"
@@ -5405,9 +5623,10 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
     }
 
     pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
+    v4_mir_prepare_declaration_order_children(children_handle, field_count)
     pilot env = seed_env
     pilot seen_fields = ""
-    pilot aggregate_lend_reported = false
     pilot field_start = v4_mir_skip_trivia(stream_id, open_token + 1)
     if field_start < close_token {
         repeat until field_start >= close_token {
@@ -5439,10 +5658,8 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                     }
                     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, lower_expected_ty)
                     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
-                    array_push(children_handle, word_from_int(value_rvalue))
-                    if not aggregate_lend_reported {
-                        aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "shape " + shape_name, "field " + field_name + " of " + shape_name, value_rvalue)
-                    }
+                    array_set(children_handle, field_id, word_from_int(value_rvalue))
+                    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, value_rvalue, shape_name + "." + field_name)
                     pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
                     if next_env == v4_ty_generic_env_fail {
                         if expected_ty == "" {
@@ -5460,14 +5677,14 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
     }
 
     pilot field_idx = 0
-    pilot field_count = v4_ty_shape_field_count(v4_mir_ty_id(mir_id), sig_id)
     repeat until field_idx >= field_count {
-        pilot required_name = v4_ty_shape_field_name(v4_mir_ty_id(mir_id), sig_id, field_idx)
+        pilot required_name = v4_ty_shape_field_name(ty_id, sig_id, field_idx)
         if required_name != "" and not v4_mir_name_list_contains(seen_fields, required_name) {
             v4_mir_add_type_error(mir_id, expr_span, "missing shape field", shape_name + " requires field " + required_name)
         }
         field_idx += 1
     }
+    v4_mir_complete_declaration_order_children(mir_id, body_id, children_handle, expr_span, "shape " + shape_name)
     give back env
 }
 
@@ -5544,6 +5761,27 @@ task v4_mir_const_integer_text_from_rvalue(mir_id: int, body_id: int, rvalue_id:
     give back v4_ty_unknown
 }
 
+task v4_mir_rvalue_contains_mut_lend(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if rvalue_id < 0 {
+        give back false
+    }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_lend_mut or v4_ty_type_may_store_mut_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        give back true
+    }
+    if v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot child_id = 0
+        pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+        repeat until child_id >= child_count {
+            if v4_mir_rvalue_contains_mut_lend(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)) {
+                give back true
+            }
+            child_id += 1
+        }
+    }
+    give back false
+}
+
 task v4_mir_fixed_array_count_from_rvalue(mir_id: int, body_id: int, count_rvalue: int, expr_span: word) -> word {
     pilot count_kind = v4_mir_rvalue_kind(mir_id, body_id, count_rvalue)
     pilot count_ty = v4_mir_rvalue_ty(mir_id, body_id, count_rvalue)
@@ -5569,13 +5807,20 @@ task v4_mir_check_fixed_array_repeated_literal(mir_id: int, body_id: int, stream
     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, open_token + 1, repeat_token, expected_element_ty)
     pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
     array_push(children_handle, word_from_int(value_rvalue))
-    v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a fixed array", "the repeated fixed-array value", value_rvalue)
+    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_element_ty, value_rvalue, "fixed-array repeat value")
     if v4_ty_is_known(expected_element_ty) and not v4_ty_types_compatible(expected_element_ty, value_ty) {
         v4_mir_add_type_error(mir_id, expr_span, "array repeat value drift", "repeat value wants " + expected_element_ty + " but got " + value_ty)
     }
 
     pilot count_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, repeat_token + 1, close_token)
     pilot count_text = v4_mir_fixed_array_count_from_rvalue(mir_id, body_id, count_rvalue, expr_span)
+    if v4_ty_is_known(count_text) and word_to_int(count_text) > 0 {
+        if word_to_int(count_text) > 1 and v4_mir_rvalue_contains_mut_lend(mir_id, body_id, value_rvalue) {
+            v4_mir_add_type_error(mir_id, expr_span, "fixed-array repeat cannot duplicate lend mut", "write each element explicitly so every slot receives a distinct exclusive loan")
+        } else if not v4_ty_type_is_array_repeatable(v4_mir_ty_id(mir_id), v4_mir_body_signature_id(mir_id, body_id), value_ty) {
+            v4_mir_add_type_error(mir_id, expr_span, "fixed-array repeat value must be Copy or Cloneable", "implement Copy or Cloneable for " + value_ty + ", or write each element explicitly")
+        }
+    }
     if v4_ty_is_known(expected_length) and v4_ty_is_known(count_text) and expected_length != count_text {
         v4_mir_add_type_error(mir_id, expr_span, "array length mismatch", expected_ty + " expects " + expected_length + " elements but got " + count_text)
     }
@@ -5612,16 +5857,13 @@ task v4_mir_check_fixed_array_literal(mir_id: int, body_id: int, stream_id: int,
 
     pilot element_ty = expected_element_ty
     pilot element_idx = 0
-    pilot aggregate_lend_reported = false
     repeat until element_start >= close_token {
         pilot element_end = v4_mir_list_element_end(stream_id, element_start, close_token)
         pilot element_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, element_start, element_end, expected_element_ty)
         pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, element_rvalue)
         array_push(children_handle, word_from_int(element_rvalue))
         element_idx += 1
-        if not aggregate_lend_reported {
-            aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a fixed array", "fixed-array element " + word_from_int(element_idx), element_rvalue)
-        }
+        v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_element_ty, element_rvalue, "fixed-array element " + word_from_int(element_idx))
         if v4_ty_is_known(expected_element_ty) {
             if not v4_ty_types_compatible(expected_element_ty, actual_ty) {
                 v4_mir_add_type_error(mir_id, expr_span, "array element drift", "element " + word_from_int(element_idx) + " wants " + expected_element_ty + " but got " + actual_ty)
@@ -5798,7 +6040,6 @@ task v4_mir_try_lower_tuple_literal(mir_id: int, body_id: int, stream_id: int, f
     pilot element_count = 0
     pilot children_handle = array_new()
     pilot has_unknown = false
-    pilot aggregate_lend_reported = false
     repeat until element_start >= last {
         pilot element_end = v4_mir_list_element_end(stream_id, element_start, last)
         if element_start >= element_end {
@@ -5809,9 +6050,6 @@ task v4_mir_try_lower_tuple_literal(mir_id: int, body_id: int, stream_id: int, f
             pilot element_ty = v4_mir_rvalue_ty(mir_id, body_id, element_rvalue)
             array_push(children_handle, word_from_int(element_rvalue))
             element_count += 1
-            if not aggregate_lend_reported {
-                aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "a tuple", "tuple element " + word_from_int(element_count), element_rvalue)
-            }
             if not v4_ty_is_known(element_ty) {
                 has_unknown = true
             } else {
@@ -6021,6 +6259,91 @@ task v4_mir_route_case_text(route_name: word, case_name: word) -> word {
     give back route_name + "::" + case_name
 }
 
+task v4_mir_fixed_array_projection_index(projection: word) -> int {
+    if projection.length() < 3 or projection.char_at(0) != "[" or projection.char_at(projection.length() - 1) != "]" {
+        give back 0 - 1
+    }
+    pilot index_text = v4_slice(projection, 1, projection.length() - 1)
+    if not v4_ty_is_integer_text_literal(index_text) or index_text.char_at(0) == "-" {
+        give back 0 - 1
+    }
+    give back word_to_int(index_text)
+}
+
+task v4_mir_rvalue_aggregate_child_projection(mir_id: int, body_id: int, rvalue_id: int, child_id: int) -> word {
+    if v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id) < 0 {
+        give back ""
+    }
+
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_tuple {
+        give back "." + word_from_int(child_id)
+    }
+    if kind == v4_mir_rvalue_array {
+        pilot slot_count = v4_mir_fixed_array_slot_count(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+        if slot_count < 0 {
+            give back ""
+        }
+        if v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id) == 1 and slot_count > 1 {
+            give back "[*]"
+        }
+        if child_id >= slot_count {
+            give back ""
+        }
+        give back "[" + word_from_int(child_id) + "]"
+    }
+    if kind != v4_mir_rvalue_construct {
+        give back ""
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot aggregate_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot field_name = ""
+    if v4_ty_is_route_type(ty_id, aggregate_ty) {
+        pilot case_name = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+        pilot next_case = v4_mir_path_right(case_name)
+        repeat until next_case == "" {
+            case_name = next_case
+            next_case = v4_mir_path_right(case_name)
+        }
+        field_name = v4_ty_route_case_field_name(ty_id, aggregate_ty, case_name, child_id)
+    } else {
+        pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, aggregate_ty)
+        if sig_id >= 0 {
+            field_name = v4_ty_shape_field_name(ty_id, sig_id, child_id)
+        }
+    }
+    if field_name == "" {
+        give back ""
+    }
+    give back "." + field_name
+}
+
+task v4_mir_rvalue_aggregate_child_for_projection(mir_id: int, body_id: int, rvalue_id: int, projection: word) -> int {
+    pilot child_count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id)
+    if child_count <= 0 or projection == "" {
+        give back 0 - 1
+    }
+
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_array and v4_mir_rvalue_aggregate_child_projection(mir_id, body_id, rvalue_id, 0) == "[*]" {
+        pilot slot_count = v4_mir_fixed_array_slot_count(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+        pilot projection_index = v4_mir_fixed_array_projection_index(projection)
+        if projection == "[*]" or (projection_index >= 0 and projection_index < slot_count) {
+            give back v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, 0)
+        }
+        give back 0 - 1
+    }
+
+    pilot child_id = 0
+    repeat until child_id >= child_count {
+        if v4_mir_rvalue_aggregate_child_projection(mir_id, body_id, rvalue_id, child_id) == projection {
+            give back v4_mir_rvalue_aggregate_child(mir_id, body_id, rvalue_id, child_id)
+        }
+        child_id += 1
+    }
+    give back 0 - 1
+}
+
 task v4_mir_type_char_is_space(ch: word) -> bool {
     give back ch == " " or ch == "\n" or ch == "\t" or ch == "\r"
 }
@@ -6045,6 +6368,22 @@ task v4_mir_type_has_dyn_keyword_at(type_text: word, idx: int) -> bool {
     give back v4_mir_type_char_is_space(type_text.char_at(idx + 3))
 }
 
+task v4_mir_type_has_lend_keyword_at(type_text: word, idx: int) -> bool {
+    if idx < 0 or idx + 4 > type_text.length() {
+        give back false
+    }
+    if v4_slice(type_text, idx, idx + 4) != "lend" {
+        give back false
+    }
+    if idx > 0 and not v4_mir_type_char_can_precede_dyn_keyword(type_text.char_at(idx - 1)) {
+        give back false
+    }
+    if idx + 4 >= type_text.length() {
+        give back false
+    }
+    give back v4_mir_type_char_is_space(type_text.char_at(idx + 4))
+}
+
 task v4_mir_compact_type_text(type_text: word) -> word {
     pilot out = ""
     pilot idx = 0
@@ -6055,6 +6394,31 @@ task v4_mir_compact_type_text(type_text: word) -> word {
             idx += 3
             repeat until idx >= type_text.length() or not v4_mir_type_char_is_space(type_text.char_at(idx)) {
                 idx += 1
+            }
+        } else if v4_mir_type_has_lend_keyword_at(type_text, idx) {
+            out = out + "lend "
+            idx += 4
+            repeat until idx >= type_text.length() or not v4_mir_type_char_is_space(type_text.char_at(idx)) {
+                idx += 1
+            }
+            if idx + 3 < type_text.length() and v4_slice(type_text, idx, idx + 3) == "mut" and v4_mir_type_char_is_space(type_text.char_at(idx + 3)) {
+                out = out + "mut "
+                idx += 3
+                repeat until idx >= type_text.length() or not v4_mir_type_char_is_space(type_text.char_at(idx)) {
+                    idx += 1
+                }
+            }
+            if idx < type_text.length() and type_text.char_at(idx) == "'" {
+                repeat until idx >= type_text.length() or v4_mir_type_char_is_space(type_text.char_at(idx)) {
+                    out = out + type_text.char_at(idx)
+                    idx += 1
+                }
+                if idx < type_text.length() and v4_mir_type_char_is_space(type_text.char_at(idx)) {
+                    out = out + " "
+                    repeat until idx >= type_text.length() or not v4_mir_type_char_is_space(type_text.char_at(idx)) {
+                        idx += 1
+                    }
+                }
             }
         } else if not v4_mir_type_char_is_space(ch) {
             out = out + ch
@@ -6174,9 +6538,9 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
 
     pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
     pilot route_sig_name = v4_ty_signature_name(ty_id, sig_id)
+    v4_mir_prepare_declaration_order_children(children_handle, field_count)
     pilot env = seed_env
     pilot seen_fields = ""
-    pilot aggregate_lend_reported = false
     pilot field_start = v4_mir_skip_trivia(stream_id, open_token + 1)
     if field_start < close_token {
         repeat until field_start >= close_token {
@@ -6208,11 +6572,8 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
                     }
                     pilot value_rvalue = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, colon_token + 1, field_end, lower_expected_ty)
                     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, value_rvalue)
-                    array_push(children_handle, word_from_int(value_rvalue))
-                    if not aggregate_lend_reported {
-                        pilot route_case = v4_mir_route_case_text(route_name, case_name)
-                        aggregate_lend_reported = v4_mir_reject_aggregate_lend_child(mir_id, body_id, "route case " + route_case, "field " + field_name + " of " + route_case, value_rvalue)
-                    }
+                    array_set(children_handle, field_id, word_from_int(value_rvalue))
+                    v4_mir_check_dyn_lend_erasure_rvalue(mir_id, body_id, expected_ty, value_rvalue, route_name + "::" + case_name + "." + field_name)
                     pilot next_env = v4_ty_match_signature_type_env(ty_id, sig_id, raw_expected_ty, actual_ty, env)
                     if next_env == v4_ty_generic_env_fail {
                         if expected_ty == "" {
@@ -6237,6 +6598,7 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
         }
         field_idx += 1
     }
+    v4_mir_complete_declaration_order_children(mir_id, body_id, children_handle, expr_span, "route case " + v4_mir_route_case_text(route_name, case_name))
     give back env
 }
 
@@ -6533,6 +6895,311 @@ task v4_mir_lend_operand_expected_ty(expected_ty: word) -> word {
     give back v4_ty_unknown
 }
 
+task v4_mir_closure_capture_kind(mode: word) -> word {
+    if mode == v4_ty_closure_mode_copy { give back v4_mir_rvalue_capture_copy }
+    if mode == v4_ty_closure_mode_move { give back v4_mir_rvalue_capture_move }
+    if mode == v4_ty_closure_mode_mut { give back v4_mir_rvalue_capture_borrow_mut }
+    give back v4_mir_rvalue_capture_borrow
+}
+
+task v4_mir_closure_param_names(mir_id: int, body_id: int, closure_offset: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id < 0 {
+        give back ""
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    pilot closure_id = v4_hir_closure_at_offset(hir_id, hir_item, closure_offset)
+    if closure_id < 0 {
+        give back ""
+    }
+    pilot names = ""
+    pilot param_id = 0
+    pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+    repeat until param_id >= param_count {
+        names = v4_mir_name_list_add(names, v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id))
+        param_id += 1
+    }
+    give back names
+}
+
+task v4_mir_closure_type_for_body_offset(mir_id: int, body_id: int, closure_offset: int) -> word {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id < 0 {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_closure_type_for_offset(ty_id, v4_ty_signature_hir_item(ty_id, sig_id), closure_offset)
+}
+
+task v4_mir_closure_receiver_call_is_mutating(mir_id: int, body_id: int, stream_id: int, occurrence_token: int, body_end: int, capture_ty: word) -> bool {
+    pilot dot_token = v4_mir_next_nontrivia(stream_id, occurrence_token + 1, body_end)
+    if dot_token >= body_end or v4_lex_token_value(stream_id, dot_token) != "." {
+        give back false
+    }
+    pilot method_token = v4_mir_next_nontrivia(stream_id, dot_token + 1, body_end)
+    if method_token >= body_end {
+        give back false
+    }
+    pilot open_token = v4_mir_next_nontrivia(stream_id, method_token + 1, body_end)
+    if open_token >= body_end or v4_lex_token_value(stream_id, open_token) != "(" {
+        give back false
+    }
+
+    pilot method_name = v4_lex_token_value(stream_id, method_token)
+    pilot shared_base = v4_mir_nominal_builtin_shared_base(mir_id, capture_ty)
+    if shared_base != "" and (method_name == "borrow_mut" or method_name == "get_mut") {
+        give back true
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot method_ref = v4_mir_find_method_ref(mir_id, capture_ty, method_name, true)
+    if method_ref != "" {
+        pilot hir_item = v4_mir_method_ref_hir_item(method_ref)
+        pilot method_id = v4_mir_method_ref_method_id(method_ref)
+        give back v4_ty_impl_method_param_mode(ty_id, hir_item, method_id, 0) == v4_ty_param_mode_lend_mut
+    }
+
+    pilot bound_ref = v4_mir_find_dyn_method_ref(mir_id, capture_ty, method_name, true)
+    if bound_ref == "" {
+        bound_ref = v4_mir_find_bound_method_ref(mir_id, body_id, capture_ty, method_name, true)
+    }
+    if bound_ref != "" {
+        give back v4_ty_doctrine_method_param_mode(ty_id, v4_mir_bound_method_ref_sig_id(bound_ref), v4_mir_bound_method_ref_method_id(bound_ref), 0) == v4_ty_param_mode_lend_mut
+    }
+    give back false
+}
+
+task v4_mir_closure_occurrence_is_mutated(mir_id: int, body_id: int, stream_id: int, occurrence_token: int, body_end: int, capture_ty: word) -> bool {
+    if v4_mir_closure_receiver_call_is_mutating(mir_id, body_id, stream_id, occurrence_token, body_end, capture_ty) {
+        give back true
+    }
+    pilot idx = occurrence_token + 1
+    pilot depth = 0
+    repeat until idx >= body_end {
+        pilot token_type = v4_lex_token_type(stream_id, idx)
+        pilot value = v4_lex_token_value(stream_id, idx)
+        if token_type != v4_tok_trivia {
+            if value == "(" or value == "[" {
+                depth += 1
+            } else if value == ")" or value == "]" {
+                if depth > 0 { depth -= 1 }
+            } else if depth == 0 and v4_mir_assignment_operator(value) {
+                give back true
+            } else if depth == 0 and (value == ";" or value == "}" or value == "{") {
+                give back false
+            }
+        } else if value == "\n" and depth == 0 {
+            give back false
+        }
+        idx += 1
+    }
+    give back false
+}
+
+task v4_mir_closure_local_decl_name_token(stream_id: int, token_id: int, body_end: int) -> int {
+    if token_id < 0 or token_id >= body_end or v4_lex_token_value(stream_id, token_id) != "pilot" {
+        give back 0 - 1
+    }
+    pilot name_token = v4_mir_next_nontrivia(stream_id, token_id + 1, body_end)
+    if name_token >= body_end {
+        give back 0 - 1
+    }
+    pilot token_type = v4_lex_token_type(stream_id, name_token)
+    if token_type != v4_tok_ident and token_type != v4_tok_keyword {
+        give back 0 - 1
+    }
+    give back name_token
+}
+
+task v4_mir_closure_identifier_is_member_name(stream_id: int, token_id: int, body_start: int) -> bool {
+    pilot previous = v4_mir_prev_nontrivia(stream_id, token_id - 1, body_start)
+    if previous < body_start {
+        give back false
+    }
+    pilot previous_value = v4_lex_token_value(stream_id, previous)
+    give back previous_value == "." or previous_value == "::"
+}
+
+task v4_mir_closure_scope_store(names_handle: int, depths_handle: int, active: int, name: word, depth: int) -> void {
+    if active < array_len(names_handle) {
+        array_set(names_handle, active, name)
+        array_set(depths_handle, active, word_from_int(depth))
+    } else {
+        array_push(names_handle, name)
+        array_push(depths_handle, word_from_int(depth))
+    }
+}
+
+task v4_mir_closure_scope_pop(depths_handle: int, active: int, depth: int) -> int {
+    repeat until active <= 0 {
+        pilot local_depth = word_to_int(array_get(depths_handle, active - 1))
+        if local_depth < depth {
+            give back active
+        }
+        active -= 1
+    }
+    give back active
+}
+
+task v4_mir_closure_scope_contains(names_handle: int, active: int, wanted: word) -> bool {
+    pilot local_id = active - 1
+    repeat until local_id < 0 {
+        pilot local_name: word = array_get(names_handle, local_id)
+        if local_name == wanted {
+            give back true
+        }
+        local_id -= 1
+    }
+    give back false
+}
+
+task v4_mir_closure_capture_is_mutated(mir_id: int, body_id: int, stream_id: int, capture_name: word, capture_ty: word, body_start: int, body_end: int, param_names: word) -> bool {
+    pilot local_names_handle = array_new()
+    pilot local_depths_handle = array_new()
+    pilot local_active = 0
+    pilot scope_depth = 0
+    pilot idx = body_start
+    repeat until idx >= body_end {
+        pilot token_type = v4_lex_token_type(stream_id, idx)
+        pilot token_value = v4_lex_token_value(stream_id, idx)
+        if token_value == "{" {
+            scope_depth += 1
+            idx += 1
+        } else if token_value == "}" {
+            local_active = v4_mir_closure_scope_pop(local_depths_handle, local_active, scope_depth)
+            if scope_depth > 0 { scope_depth -= 1 }
+            idx += 1
+        } else {
+            pilot decl_name_token = v4_mir_closure_local_decl_name_token(stream_id, idx, body_end)
+            if decl_name_token >= 0 {
+                v4_mir_closure_scope_store(local_names_handle, local_depths_handle, local_active, v4_lex_token_value(stream_id, decl_name_token), scope_depth)
+                local_active += 1
+                idx = decl_name_token + 1
+            } else {
+                if (token_type == v4_tok_ident or token_type == v4_tok_keyword) and token_value == capture_name {
+                    if not v4_mir_name_list_contains(param_names, capture_name) and not v4_mir_closure_scope_contains(local_names_handle, local_active, capture_name) and not v4_mir_closure_identifier_is_member_name(stream_id, idx, body_start) {
+                        if v4_mir_closure_occurrence_is_mutated(mir_id, body_id, stream_id, idx, body_end, capture_ty) {
+                            array_release(local_names_handle)
+                            array_release(local_depths_handle)
+                            give back true
+                        }
+                    }
+                }
+                idx += 1
+            }
+        }
+    }
+    array_release(local_names_handle)
+    array_release(local_depths_handle)
+    give back false
+}
+
+task v4_mir_closure_capture_diag(mir_id: int, mode: word, capture_name: word, capture_ty: word, capture_span: word, mutated: bool) -> void {
+    if mode == v4_ty_closure_mode_copy and not v4_ty_is_copy_type(capture_ty) {
+        v4_mir_add_type_error(mir_id, capture_span, "Yuuko cannot copy this closure capture", capture_name + " has type " + capture_ty + "; use a move closure to transfer ownership or a default closure to borrow it")
+    }
+    if mutated and mode != v4_ty_closure_mode_mut {
+        pilot message = "Meiya keeps this closure capture immutable"
+        if mode == v4_ty_closure_mode_move {
+            message = "Meiya will not mutate an owned capture without a mut contract"
+        } else if mode == v4_ty_closure_mode_copy {
+            message = "A copied closure capture remains immutable"
+        }
+        v4_mir_add_type_error(mir_id, capture_span, message, "use a mut closure when " + capture_name + " must be changed through the closure environment")
+    }
+    if mutated and mode == v4_ty_closure_mode_mut and v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), capture_ty) {
+        v4_mir_add_type_error(mir_id, capture_span, "Meiya cannot model closure writes into loan-bearing captured storage yet", "move the rebind outside the closure or pass the projected slot through an explicit lend mut task; " + capture_name + " has type " + capture_ty + " and closure effect summaries are not available yet")
+    }
+}
+
+task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
+    pilot mode = v4_ty_closure_mode_borrow
+    pilot open_token = first
+    pilot first_value = v4_lex_token_value(stream_id, first)
+    if first_value == v4_ty_closure_mode_copy or first_value == v4_ty_closure_mode_move or first_value == v4_ty_closure_mode_mut {
+        mode = first_value
+        open_token = v4_mir_next_nontrivia(stream_id, first + 1, last + 1)
+    }
+    if open_token > last or v4_lex_token_value(stream_id, open_token) != "|" {
+        give back 0 - 1
+    }
+
+    pilot close_token = v4_parse_closure_close_pipe(stream_id, open_token, last + 1)
+    if close_token < 0 {
+        give back 0 - 1
+    }
+    pilot body_marker = v4_mir_next_nontrivia(stream_id, close_token + 1, last + 1)
+    if body_marker > last {
+        give back 0 - 1
+    }
+    pilot marker_value = v4_lex_token_value(stream_id, body_marker)
+    if marker_value != "=>" and marker_value != "{" {
+        give back 0 - 1
+    }
+
+    pilot body_start = v4_mir_next_nontrivia(stream_id, body_marker + 1, last + 1)
+    pilot body_end = last + 1
+    if marker_value == "{" and v4_lex_token_value(stream_id, last) == "}" {
+        body_end = last
+    }
+    pilot closure_offset = v4_span_start(v4_lex_token_span(stream_id, first))
+    pilot param_names = v4_mir_closure_param_names(mir_id, body_id, closure_offset)
+    pilot local_names_handle = array_new()
+    pilot local_depths_handle = array_new()
+    pilot local_active = 0
+    pilot scope_depth = 0
+    pilot captured_names = ""
+    pilot children_handle = array_new()
+    pilot idx = body_start
+    repeat until idx >= body_end {
+        pilot token_type = v4_lex_token_type(stream_id, idx)
+        pilot token_value = v4_lex_token_value(stream_id, idx)
+        if token_value == "{" {
+            scope_depth += 1
+            idx += 1
+        } else if token_value == "}" {
+            local_active = v4_mir_closure_scope_pop(local_depths_handle, local_active, scope_depth)
+            if scope_depth > 0 { scope_depth -= 1 }
+            idx += 1
+        } else {
+            pilot decl_name_token = v4_mir_closure_local_decl_name_token(stream_id, idx, body_end)
+            if decl_name_token >= 0 {
+                v4_mir_closure_scope_store(local_names_handle, local_depths_handle, local_active, v4_lex_token_value(stream_id, decl_name_token), scope_depth)
+                local_active += 1
+                idx = decl_name_token + 1
+            } else {
+                if token_type == v4_tok_ident or token_type == v4_tok_keyword {
+                    pilot capture_name = token_value
+                    if not v4_mir_name_list_contains(param_names, capture_name) and not v4_mir_closure_scope_contains(local_names_handle, local_active, capture_name) and not v4_mir_name_list_contains(captured_names, capture_name) and not v4_mir_closure_identifier_is_member_name(stream_id, idx, body_start) {
+                        pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, capture_name, v4_span_start(expr_span))
+                        if local_id >= 0 {
+                            captured_names = v4_mir_name_list_add(captured_names, capture_name)
+                            pilot capture_ty = v4_mir_local_ty(mir_id, body_id, local_id)
+                            pilot capture_span = v4_lex_token_span(stream_id, idx)
+                            pilot mutated = v4_mir_closure_capture_is_mutated(mir_id, body_id, stream_id, capture_name, capture_ty, body_start, body_end, param_names)
+                            v4_mir_closure_capture_diag(mir_id, mode, capture_name, capture_ty, capture_span, mutated)
+                            pilot capture_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_closure_capture_kind(mode), capture_name, mode, 0 - 1, 0 - 1, capture_span, capture_ty)
+                            array_push(children_handle, word_from_int(capture_rvalue))
+                        }
+                    }
+                }
+                idx += 1
+            }
+        }
+    }
+    array_release(local_names_handle)
+    array_release(local_depths_handle)
+
+    pilot closure_ty = v4_mir_closure_type_for_body_offset(mir_id, body_id, closure_offset)
+    if not v4_ty_is_closure_type(closure_ty) {
+        closure_ty = v4_ty_closure_type_prefix(mode) + "()->" + v4_ty_unknown
+    }
+    pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
+    give back v4_mir_add_aggregate_rvalue(mir_id, body_id, v4_mir_rvalue_closure, expr_text, mode, expr_span, closure_ty, children_handle)
+}
+
 task v4_mir_lend_source_is_place(mir_id: int, body_id: int, rvalue_id: int) -> bool {
     if rvalue_id < 0 {
         give back false
@@ -6567,8 +7234,15 @@ task v4_mir_try_lower_lend_expr(mir_id: int, body_id: int, stream_id: int, first
         v4_mir_add_type_error(mir_id, expr_span, "lend source must be a place", "Meiya can only loan a named local, field, index, or deref place; store the value first")
     }
 
+    pilot result_ty = v4_ty_lend_type(operand_ty, mode)
+    if v4_ty_is_lend_type(expected_ty) and v4_ty_lend_mode(expected_ty) == mode and v4_ty_types_compatible(v4_ty_lend_target_type(expected_ty), operand_ty) {
+        pilot expected_lifetime = v4_ty_lend_lifetime(expected_ty)
+        if expected_lifetime != "" {
+            result_ty = v4_ty_lend_type_with_lifetime(operand_ty, mode, expected_lifetime)
+        }
+    }
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-    give back v4_mir_add_rvalue(mir_id, body_id, rvalue_kind, expr_text, mode, operand_id, 0 - 1, expr_span, v4_ty_lend_type(operand_ty, mode))
+    give back v4_mir_add_rvalue(mir_id, body_id, rvalue_kind, expr_text, mode, operand_id, 0 - 1, expr_span, result_ty)
 }
 
 task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, expected_ty: word) -> int {
@@ -6594,6 +7268,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         if close_group == last {
             give back v4_mir_lower_expr_expected(mir_id, body_id, stream_id, first + 1, last, expected_ty)
         }
+    }
+
+    pilot closure_rvalue = v4_mir_try_lower_closure_expr(mir_id, body_id, stream_id, first, last, expr_span)
+    if closure_rvalue >= 0 {
+        give back closure_rvalue
     }
 
     pilot or_else_rvalue = v4_mir_try_lower_or_else_expr(mir_id, body_id, stream_id, first, last, expr_span, expected_ty)
@@ -6748,6 +7427,15 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
             pilot return_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_function_type_return_text(callee_ty))
             pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, v4_mir_rvalue_text(mir_id, body_id, callee_rvalue), callee_rvalue, 0 - 1, expr_span, return_ty)
             v4_mir_set_rvalue_abi(mir_id, body_id, call_rvalue, v4_ty_function_type_call_abi(callee_ty))
+            v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, args_payload)
+            give back call_rvalue
+        }
+
+        if v4_ty_is_closure_type(callee_ty) {
+            pilot callable_ty = v4_ty_closure_as_task_type(callee_ty)
+            pilot args_payload = v4_mir_check_callback_call_args(mir_id, body_id, stream_id, expr_span, v4_mir_expr_text(stream_id, first, next_token), callable_ty, next_token, close_token)
+            pilot return_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_closure_return_type(callee_ty))
+            pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, v4_mir_rvalue_text(mir_id, body_id, callee_rvalue), callee_rvalue, 0 - 1, expr_span, return_ty)
             v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, args_payload)
             give back call_rvalue
         }
@@ -6949,14 +7637,18 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
                     pilot slot_name = v4_slice(field_name, segment_start, segment_end)
                     current_text = current_text + "." + slot_name
 
+                    pilot tuple_ty = current_ty
+                    if v4_ty_is_lend_type(tuple_ty) {
+                        tuple_ty = v4_ty_lend_target_type(tuple_ty)
+                    }
                     pilot slot_ty = v4_ty_unknown
-                    if v4_ty_is_tuple_type(current_ty) {
-                        slot_ty = v4_ty_tuple_slot_type(current_ty, word_to_int(slot_name))
+                    if v4_ty_is_tuple_type(tuple_ty) {
+                        slot_ty = v4_ty_tuple_slot_type(tuple_ty, word_to_int(slot_name))
                         if not v4_ty_is_known(slot_ty) {
-                            v4_mir_add_type_error(mir_id, place_span, "tuple slot out of range", current_ty + " has no slot " + slot_name)
+                            v4_mir_add_type_error(mir_id, place_span, "tuple slot out of range", tuple_ty + " has no slot " + slot_name)
                         }
-                    } else if v4_ty_is_known(current_ty) {
-                        v4_mir_add_type_error(mir_id, place_span, "tuple slot access on non-tuple type", current_ty + " has no tuple slots")
+                    } else if v4_ty_is_known(tuple_ty) {
+                        v4_mir_add_type_error(mir_id, place_span, "tuple slot access on non-tuple type", tuple_ty + " has no tuple slots")
                     }
 
                     current_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, current_text, current_place, slot_name, 0 - 1, place_span, slot_ty)
@@ -10461,7 +11153,7 @@ task v4_mir_snapshot_place_kind_is_known(kind: word) -> bool {
 }
 
 task v4_mir_snapshot_rvalue_kind_is_known(kind: word) -> bool {
-    give back kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_char or kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_use_symbol or kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_map or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_loop_item or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut or kind == v4_mir_rvalue_unknown
+    give back kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_char or kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_use_symbol or kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_map or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_loop_item or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut or kind == v4_mir_rvalue_closure or kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut or kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move or kind == v4_mir_rvalue_unknown
 }
 
 task v4_mir_snapshot_block_record_is_valid(block_record: word, block_id: int, block_count: int) -> bool {
@@ -11351,7 +12043,7 @@ task v4_mir_snapshot_restore_diag_line(line: word) -> int {
     give back v4_mir_restore_diag_slot(mir_id, diag_id, diag)
 }
 
-task v4_mir_snapshot_restore(payload: word) -> word {
+task v4_mir_snapshot_restore_component(payload: word) -> word {
     pilot validation = v4_mir_snapshot_validate(payload)
     if validation.starts_with("mir-snapshot-import ok=1") == false {
         give back "mir-snapshot-restore ok=0 reason=validation-failed\n" + validation

@@ -1,0 +1,147 @@
+-- V4 closure capture vertical-slice smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_closure_capture_source() -> word {
+    pilot src = "task exercise() -> int {\n"
+    src = src + "    pilot threshold: int = 100\n"
+    src = src + "    pilot title: word = \"ace\"\n"
+    src = src + "    pilot count: int = 0\n"
+    src = src + "    pilot borrowed = |x: int| => x > threshold\n"
+    src = src + "    pilot copied = copy |x: int| => x > threshold\n"
+    src = src + "    pilot owned = move |_| " + "{" + " say title " + "}" + "\n"
+    src = src + "    pilot counter = mut |_| " + "{" + " count += 1 " + "}" + "\n"
+    src = src + "    pilot identity = |value: int| " + "{" + " give back value " + "}" + "\n"
+    src = src + "    pilot block_result: int = identity(5)\n"
+    src = src + "    pilot shadow = |_| " + "{" + " pilot count: int = 1; say count " + "}" + "\n"
+    src = src + "    pilot member_title: word = \"ace\"\n"
+    src = src + "    pilot length: int = 3\n"
+    src = src + "    pilot member = |_| => member_title.length()\n"
+    src = src + "    pilot first = borrowed(101)\n"
+    src = src + "    pilot second = borrowed(99)\n"
+    src = src + "    pilot copied_result = copied(101)\n"
+    src = src + "    counter()\n"
+    src = src + "    owned()\n"
+    src = src + "    give back count\n"
+    src = src + "}\n"
+    src = src + "task scoped_capture() -> void {\n"
+    src = src + "    pilot count: int = 10\n"
+    src = src + "    pilot ready: bool = true\n"
+    src = src + "    pilot scoped = |_| " + "{" + " if ready " + "{" + " pilot count: int = 1; say count " + "}" + "; say count " + "}" + "\n"
+    src = src + "    scoped()\n"
+    src = src + "}\n"
+    src = src + "task callable_copy() -> void {\n"
+    src = src + "    pilot threshold: int = 10\n"
+    src = src + "    pilot inner = |_| => threshold\n"
+    src = src + "    pilot outer = copy |_| => inner()\n"
+    src = src + "    outer()\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_closure_capture_rvalue_for_mode(mir_id: int, body_id: int, mode: word) -> int {
+    pilot rvalue_id = 0
+    pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
+    repeat until rvalue_id >= rvalue_count {
+        if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_closure and v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == mode {
+            give back rvalue_id
+        }
+        rvalue_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_closure_capture_rvalue_for_mode_ordinal(mir_id: int, body_id: int, mode: word, wanted_ordinal: int) -> int {
+    pilot seen = 0
+    pilot rvalue_id = 0
+    pilot rvalue_count = v4_mir_body_rvalue_count(mir_id, body_id)
+    repeat until rvalue_id >= rvalue_count {
+        if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_closure and v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == mode {
+            if seen == wanted_ordinal {
+                give back rvalue_id
+            }
+            seen += 1
+        }
+        rvalue_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_closure_capture_path_count(borrow_id: int, result_id: int, kind: word, text: word) -> int {
+    pilot count = 0
+    pilot path_id = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    repeat until path_id >= path_count {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == kind and v4_borrowck_path_text(borrow_id, result_id, path_id) == text {
+            count += 1
+        }
+        path_id += 1
+    }
+    give back count
+}
+
+task v4_closure_capture_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+pilot v4_closure_capture_stream = v4_lex_text(0, v4_closure_capture_source())
+pilot v4_closure_capture_tree = v4_parse_stream(0, v4_closure_capture_stream)
+pilot v4_closure_capture_hir = v4_hir_lower_tree(0, v4_closure_capture_tree)
+pilot v4_closure_capture_resolve = v4_resolve_lower_hir(0, v4_closure_capture_hir)
+pilot v4_closure_capture_ty = v4_ty_lower_resolve(0, v4_closure_capture_resolve)
+pilot v4_closure_capture_mir = v4_mir_lower_ty(0, v4_closure_capture_ty)
+pilot v4_closure_capture_borrow = v4_borrowck_check_mir(0, v4_closure_capture_mir)
+pilot v4_closure_capture_def = v4_resolve_def_for_name(v4_closure_capture_resolve, "exercise")
+pilot v4_closure_capture_sig = v4_ty_lookup_signature(v4_closure_capture_ty, v4_closure_capture_def)
+pilot v4_closure_capture_item = v4_ty_signature_hir_item(v4_closure_capture_ty, v4_closure_capture_sig)
+pilot v4_closure_capture_body = v4_mir_lookup_body(v4_closure_capture_mir, v4_closure_capture_def)
+pilot v4_closure_capture_result = v4_borrowck_lookup_result(v4_closure_capture_borrow, v4_closure_capture_def)
+pilot v4_closure_capture_borrow_rvalue = v4_closure_capture_rvalue_for_mode(v4_closure_capture_mir, v4_closure_capture_body, v4_ty_closure_mode_borrow)
+pilot v4_closure_capture_copy_rvalue = v4_closure_capture_rvalue_for_mode(v4_closure_capture_mir, v4_closure_capture_body, v4_ty_closure_mode_copy)
+pilot v4_closure_capture_move_rvalue = v4_closure_capture_rvalue_for_mode(v4_closure_capture_mir, v4_closure_capture_body, v4_ty_closure_mode_move)
+pilot v4_closure_capture_mut_rvalue = v4_closure_capture_rvalue_for_mode(v4_closure_capture_mir, v4_closure_capture_body, v4_ty_closure_mode_mut)
+pilot v4_closure_capture_shadow_rvalue = v4_closure_capture_rvalue_for_mode_ordinal(v4_closure_capture_mir, v4_closure_capture_body, v4_ty_closure_mode_borrow, 2)
+pilot v4_closure_capture_member_rvalue = v4_closure_capture_rvalue_for_mode_ordinal(v4_closure_capture_mir, v4_closure_capture_body, v4_ty_closure_mode_borrow, 3)
+pilot v4_closure_capture_scoped_def = v4_resolve_def_for_name(v4_closure_capture_resolve, "scoped_capture")
+pilot v4_closure_capture_scoped_body = v4_mir_lookup_body(v4_closure_capture_mir, v4_closure_capture_scoped_def)
+pilot v4_closure_capture_scoped_rvalue = v4_closure_capture_rvalue_for_mode(v4_closure_capture_mir, v4_closure_capture_scoped_body, v4_ty_closure_mode_borrow)
+pilot v4_closure_capture_callable_def = v4_resolve_def_for_name(v4_closure_capture_resolve, "callable_copy")
+pilot v4_closure_capture_callable_body = v4_mir_lookup_body(v4_closure_capture_mir, v4_closure_capture_callable_def)
+pilot v4_closure_capture_callable_rvalue = v4_closure_capture_rvalue_for_mode(v4_closure_capture_mir, v4_closure_capture_callable_body, v4_ty_closure_mode_copy)
+pilot v4_closure_capture_callable_child = v4_mir_closure_capture(v4_closure_capture_mir, v4_closure_capture_callable_body, v4_closure_capture_callable_rvalue, 0)
+
+say "closure-capture-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_closure_capture_tree))
+say "closure-capture-hir-count=" + word_from_int(v4_hir_closure_count(v4_closure_capture_hir, v4_closure_capture_item))
+say "closure-capture-hir-mode0=" + v4_hir_closure_mode(v4_closure_capture_hir, v4_closure_capture_item, 0)
+say "closure-capture-hir-mode1=" + v4_hir_closure_mode(v4_closure_capture_hir, v4_closure_capture_item, 1)
+say "closure-capture-hir-mode2=" + v4_hir_closure_mode(v4_closure_capture_hir, v4_closure_capture_item, 2)
+say "closure-capture-hir-mode3=" + v4_hir_closure_mode(v4_closure_capture_hir, v4_closure_capture_item, 3)
+say "closure-capture-ty0=" + v4_ty_closure_type_at(v4_closure_capture_ty, v4_closure_capture_item, 0)
+say "closure-capture-ty1=" + v4_ty_closure_type_at(v4_closure_capture_ty, v4_closure_capture_item, 1)
+say "closure-capture-ty2=" + v4_ty_closure_type_at(v4_closure_capture_ty, v4_closure_capture_item, 2)
+say "closure-capture-ty3=" + v4_ty_closure_type_at(v4_closure_capture_ty, v4_closure_capture_item, 3)
+say "closure-capture-block-ty=" + v4_ty_closure_type_at(v4_closure_capture_ty, v4_closure_capture_item, 4)
+say "closure-capture-mir-borrow-kind=" + v4_mir_rvalue_kind(v4_closure_capture_mir, v4_closure_capture_body, v4_mir_closure_capture(v4_closure_capture_mir, v4_closure_capture_body, v4_closure_capture_borrow_rvalue, 0))
+say "closure-capture-mir-copy-kind=" + v4_mir_rvalue_kind(v4_closure_capture_mir, v4_closure_capture_body, v4_mir_closure_capture(v4_closure_capture_mir, v4_closure_capture_body, v4_closure_capture_copy_rvalue, 0))
+say "closure-capture-mir-move-kind=" + v4_mir_rvalue_kind(v4_closure_capture_mir, v4_closure_capture_body, v4_mir_closure_capture(v4_closure_capture_mir, v4_closure_capture_body, v4_closure_capture_move_rvalue, 0))
+say "closure-capture-mir-mut-kind=" + v4_mir_rvalue_kind(v4_closure_capture_mir, v4_closure_capture_body, v4_mir_closure_capture(v4_closure_capture_mir, v4_closure_capture_body, v4_closure_capture_mut_rvalue, 0))
+say "closure-capture-borrow-path=" + word_from_int(v4_closure_capture_path_count(v4_closure_capture_borrow, v4_closure_capture_result, v4_borrowck_path_loan, "threshold"))
+say "closure-capture-copy-path=" + word_from_int(v4_closure_capture_path_count(v4_closure_capture_borrow, v4_closure_capture_result, v4_borrowck_path_copy, "threshold"))
+say "closure-capture-move-path=" + word_from_int(v4_closure_capture_path_count(v4_closure_capture_borrow, v4_closure_capture_result, v4_borrowck_path_move, "title"))
+say "closure-capture-mut-path=" + word_from_int(v4_closure_capture_path_count(v4_closure_capture_borrow, v4_closure_capture_result, v4_borrowck_path_loan_mut, "count"))
+say "closure-capture-shadow-count=" + word_from_int(v4_mir_closure_capture_count(v4_closure_capture_mir, v4_closure_capture_body, v4_closure_capture_shadow_rvalue))
+say "closure-capture-member-count=" + word_from_int(v4_mir_closure_capture_count(v4_closure_capture_mir, v4_closure_capture_body, v4_closure_capture_member_rvalue))
+say "closure-capture-member-name=" + v4_mir_rvalue_text(v4_closure_capture_mir, v4_closure_capture_body, v4_mir_closure_capture(v4_closure_capture_mir, v4_closure_capture_body, v4_closure_capture_member_rvalue, 0))
+say "closure-capture-scoped-count=" + word_from_int(v4_mir_closure_capture_count(v4_closure_capture_mir, v4_closure_capture_scoped_body, v4_closure_capture_scoped_rvalue))
+say "closure-capture-scoped-name0=" + v4_mir_rvalue_text(v4_closure_capture_mir, v4_closure_capture_scoped_body, v4_mir_closure_capture(v4_closure_capture_mir, v4_closure_capture_scoped_body, v4_closure_capture_scoped_rvalue, 0))
+say "closure-capture-scoped-name1=" + v4_mir_rvalue_text(v4_closure_capture_mir, v4_closure_capture_scoped_body, v4_mir_closure_capture(v4_closure_capture_mir, v4_closure_capture_scoped_body, v4_closure_capture_scoped_rvalue, 1))
+say "closure-capture-callable-copy-kind=" + v4_mir_rvalue_kind(v4_closure_capture_mir, v4_closure_capture_callable_body, v4_closure_capture_callable_child)
+say "closure-capture-callable-copy-type=" + v4_closure_capture_bool(v4_ty_is_copy_type(v4_mir_rvalue_ty(v4_closure_capture_mir, v4_closure_capture_callable_body, v4_closure_capture_callable_child)))
+say "closure-capture-status=" + v4_borrowck_result_status(v4_closure_capture_borrow, v4_closure_capture_result)
+say "closure-capture-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_closure_capture_mir))
+say "closure-capture-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_closure_capture_borrow))
+pilot v4_closure_capture_snapshot_ok = "false"
+if v4_mir_snapshot_validate(v4_mir_snapshot()).starts_with("mir-snapshot-import ok=1") {
+    v4_closure_capture_snapshot_ok = "true"
+}
+say "closure-capture-mir-snapshot-ok=" + v4_closure_capture_snapshot_ok

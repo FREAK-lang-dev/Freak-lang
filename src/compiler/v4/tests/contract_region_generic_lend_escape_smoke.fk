@@ -24,6 +24,18 @@ task v4_contract_region_generic_lend_escape_braces(inner: word) -> word {
     give back "{" + inner + "}"
 }
 
+task v4_contract_region_impl_for_target(ty_id: int, target_ty: word) -> int {
+    pilot hir_id = v4_resolve_hir_id(v4_ty_resolve_id(ty_id))
+    pilot hir_item = 0
+    repeat until hir_item >= v4_hir_item_count(hir_id) {
+        if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl and v4_ty_impl_target_type_from_hir(ty_id, hir_item) == target_ty {
+            give back hir_item
+        }
+        hir_item += 1
+    }
+    give back 0 - 1
+}
+
 task v4_contract_region_generic_lend_escape_local_rvalue(mir_id: int, body_id: int, local_name: word) -> int {
     pilot stmt_id = 0
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
@@ -41,21 +53,28 @@ task v4_contract_region_mir_snapshot_integrity(mir_id: int, body_id: int, borrow
     array_set(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), borrow_rvalue, v4_mir_builtin_shared_clone)
     say "contract-region-builtin-identity-poisoned-before-restore=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_builtin_method(mir_id, body_id, borrow_rvalue) == v4_mir_builtin_shared_clone)
 
-    pilot missing_field_snapshot = "mir-snapshot|format=freak-mir-snapshot-v4|files=1|bodies=1|blocks=0|locals=0|statements=0|places=0|rvalues=1|diagnostics=0\n"
+    pilot missing_field_snapshot = "mir-snapshot|format=freak-mir-snapshot-v5|files=1|bodies=1|blocks=0|locals=0|statements=0|places=0|rvalues=1|diagnostics=0\n"
     missing_field_snapshot = missing_field_snapshot + "mir|0|0|0|1|0\n"
     missing_field_snapshot = missing_field_snapshot + "mir-body|0|0||||0|0|0|0|1\n"
     missing_field_snapshot = missing_field_snapshot + "mir-rvalue|0|0|0||||-1|-1||||\n"
-    missing_field_snapshot = missing_field_snapshot + "end|freak-mir-snapshot-v4"
+    missing_field_snapshot = missing_field_snapshot + "end|freak-mir-snapshot-v5"
     pilot missing_field_validation = v4_mir_snapshot_validate(missing_field_snapshot)
     pilot missing_field_restore = v4_mir_snapshot_restore(missing_field_snapshot)
     say "contract-region-mir-snapshot-missing-field-validation-rejected=" + v4_contract_region_generic_lend_escape_bool(missing_field_validation.starts_with("mir-snapshot-import ok=0"))
     say "contract-region-mir-snapshot-missing-field-restore-rejected=" + v4_contract_region_generic_lend_escape_bool(missing_field_restore.starts_with("mir-snapshot-restore ok=0"))
 
-    pilot child_first_snapshot = "mir-snapshot|format=freak-mir-snapshot-v4|files=1|bodies=1|blocks=1|locals=0|statements=0|places=0|rvalues=0|diagnostics=0\n"
+    pilot legacy_snapshot = "mir-snapshot|format=freak-mir-snapshot-v4|files=0|bodies=0|blocks=0|locals=0|statements=0|places=0|rvalues=0|diagnostics=0\n"
+    legacy_snapshot = legacy_snapshot + "end|freak-mir-snapshot-v4"
+    pilot legacy_validation = v4_mir_snapshot_validate(legacy_snapshot)
+    pilot legacy_restore = v4_mir_snapshot_restore(legacy_snapshot)
+    say "contract-region-mir-snapshot-v4-validation-rejected=" + v4_contract_region_generic_lend_escape_bool(legacy_validation.starts_with("mir-snapshot-import ok=0"))
+    say "contract-region-mir-snapshot-v4-restore-rejected=" + v4_contract_region_generic_lend_escape_bool(legacy_restore.starts_with("mir-snapshot-restore ok=0"))
+
+    pilot child_first_snapshot = "mir-snapshot|format=freak-mir-snapshot-v5|files=1|bodies=1|blocks=1|locals=0|statements=0|places=0|rvalues=0|diagnostics=0\n"
     child_first_snapshot = child_first_snapshot + "mir|0|0|0|1|0\n"
     child_first_snapshot = child_first_snapshot + "mir-block|0|0|0|\n"
     child_first_snapshot = child_first_snapshot + "mir-body|0|0||||0|0|0|0|0\n"
-    child_first_snapshot = child_first_snapshot + "end|freak-mir-snapshot-v4"
+    child_first_snapshot = child_first_snapshot + "end|freak-mir-snapshot-v5"
     pilot child_first_validation = v4_mir_snapshot_validate(child_first_snapshot)
     pilot child_first_restore = v4_mir_snapshot_restore(child_first_snapshot)
     say "contract-region-mir-snapshot-child-before-parent-validation-rejected=" + v4_contract_region_generic_lend_escape_bool(child_first_validation.starts_with("mir-snapshot-import ok=0"))
@@ -73,6 +92,9 @@ task v4_contract_region_generic_lend_escape_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
+    src = src + "shape Direct<'a> {\n"
+    src = src + "    view: lend 'a Ship\n"
+    src = src + "}\n"
     src = src + "task wrap<T>(value: T) -> maybe<T> {\n"
     src = src + "    give back some(value)\n"
     src = src + "}\n"
@@ -84,12 +106,25 @@ task v4_contract_region_generic_lend_escape_source() -> word {
     src = src + "    pilot direct = identity(lend value)\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
+    src = src + "task reviewer_nominal_escape<'a>(lend 'a value: Ship) -> int {\n"
+    src = src + "    pilot stored = Direct<'a> " + v4_contract_region_generic_lend_escape_braces(" view: lend value ") + "\n"
+    src = src + "    pilot escaped = identity(stored)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
     give back src
 }
 
 task v4_contract_region_owner_generic_happy_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Direct<'a> {\n"
+    src = src + "    view: lend 'a Ship\n"
+    src = src + "}\n"
+    src = src + "impl Direct<'a> {\n"
+    src = src + "    task relay(self, value: Direct<'a>) -> Direct<'a> {\n"
+    src = src + "        give back value\n"
+    src = src + "    }\n"
     src = src + "}\n"
     src = src + "shape Box<T> {\n"
     src = src + "    value: T\n"
@@ -116,15 +151,29 @@ task v4_contract_region_owner_generic_negative_source() -> word {
     pilot src = "shape Ship {\n"
     src = src + "    hp: int\n"
     src = src + "}\n"
+    src = src + "shape Direct<'a> {\n"
+    src = src + "    view: lend 'a Ship\n"
+    src = src + "}\n"
     src = src + "shape Box<T> {\n"
     src = src + "    value: T\n"
     src = src + "}\n"
+    src = src + "doctrine Add " + v4_contract_region_generic_lend_escape_braces(" task add(self, other: Self) -> Self ") + "\n"
     src = src + "impl Box<T> {\n"
     src = src + "    task keep(self) -> Box<T> {\n"
     src = src + "        give back self\n"
     src = src + "    }\n"
     src = src + "    task pack(value: T) -> Box<T> {\n"
     src = src + "        give back Box<T> " + v4_contract_region_generic_lend_escape_braces(" value: value ") + "\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Direct<'a> {\n"
+    src = src + "    task keep(self) -> Direct<'a> {\n"
+    src = src + "        give back self\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Add for Box<T> {\n"
+    src = src + "    task add(self, other: Box<T>) -> Box<T> {\n"
+    src = src + "        give back self\n"
     src = src + "    }\n"
     src = src + "}\n"
     src = src + "task instance_escape(box: Box<lend Ship>) -> int {\n"
@@ -134,6 +183,13 @@ task v4_contract_region_owner_generic_negative_source() -> word {
     src = src + "task owner_escape<'a>(lend 'a first: Ship, lend 'a second: Ship) -> int {\n"
     src = src + "    pilot hidden_associated = Box<lend Ship>::pack(lend first)\n"
     src = src + "    pilot hidden_shared = Shared<lend Ship>::new(lend second)\n"
+    src = src + "    pilot stored = Direct<'a> " + v4_contract_region_generic_lend_escape_braces(" view: lend first ") + "\n"
+    src = src + "    pilot hidden_nominal_associated = Box<Direct<'a>>::pack(stored)\n"
+    src = src + "    pilot wrapped = Box<Direct<'a>> " + v4_contract_region_generic_lend_escape_braces(" value: stored ") + "\n"
+    src = src + "    pilot hidden_nominal_instance = wrapped.keep()\n"
+    src = src + "    pilot hidden_nominal_shared = Shared<Direct<'a>>::new(stored)\n"
+    src = src + "    pilot hidden_direct_instance = stored.keep()\n"
+    src = src + "    pilot hidden_operator = wrapped + wrapped\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
     give back src
@@ -173,11 +229,16 @@ pilot v4_contract_region_generic_lend_escape_wrapped = v4_mir_find_local(v4_cont
 pilot v4_contract_region_generic_lend_escape_direct = v4_mir_find_local(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_body, "direct")
 pilot v4_contract_region_generic_lend_escape_wrapped_ty = v4_mir_local_ty(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_body, v4_contract_region_generic_lend_escape_wrapped)
 pilot v4_contract_region_generic_lend_escape_direct_ty = v4_mir_local_ty(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_body, v4_contract_region_generic_lend_escape_direct)
+pilot v4_contract_region_generic_lend_escape_nominal_def = v4_resolve_def_for_name(v4_contract_region_generic_lend_escape_resolve, "reviewer_nominal_escape")
+pilot v4_contract_region_generic_lend_escape_nominal_body = v4_mir_lookup_body(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_nominal_def)
+pilot v4_contract_region_generic_lend_escape_nominal_local = v4_mir_find_local(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_nominal_body, "escaped")
+pilot v4_contract_region_generic_lend_escape_nominal_ty = v4_mir_local_ty(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_nominal_body, v4_contract_region_generic_lend_escape_nominal_local)
 pilot v4_contract_region_generic_lend_escape_message = "Meiya cannot substitute a lend-bearing type for a generic call yet"
 
 say "contract-region-generic-lend-escape-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_contract_region_generic_lend_escape_tree))
 say "contract-region-generic-lend-escape-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_generic_lend_escape_ty))
 say "contract-region-generic-lend-escape-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_generic_lend_escape_mir))
+pilot v4_contract_region_method_boundary_message = "Meiya cannot carry a lend-bearing aggregate across a method call yet"
 say "contract-region-generic-lend-escape-meiya-count=" + word_from_int(v4_contract_region_generic_lend_escape_diag_count(v4_contract_region_generic_lend_escape_mir, v4_contract_region_generic_lend_escape_message))
 say "contract-region-generic-lend-escape-wrap-type=" + v4_contract_region_generic_lend_escape_wrapped_ty
 say "contract-region-generic-lend-escape-wrap-hidden-loan=" + v4_contract_region_generic_lend_escape_bool(v4_ty_type_contains_lend(v4_contract_region_generic_lend_escape_wrapped_ty))
@@ -187,6 +248,9 @@ say "contract-region-generic-lend-escape-diag0-message=" + v4_diag_message(v4_mi
 say "contract-region-generic-lend-escape-diag0-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_generic_lend_escape_mir, 0))
 say "contract-region-generic-lend-escape-diag1-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_generic_lend_escape_mir, 1))
 say "contract-region-generic-lend-escape-diag1-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_generic_lend_escape_mir, 1))
+say "contract-region-generic-lend-escape-nominal-type=" + v4_contract_region_generic_lend_escape_nominal_ty
+say "contract-region-generic-lend-escape-diag2-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_generic_lend_escape_mir, 2))
+say "contract-region-generic-lend-escape-diag2-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_generic_lend_escape_mir, 2))
 
 pilot v4_contract_region_owner_generic_happy_mir = v4_mir_text_cached("contract-region-owner-generic-happy.fk", v4_contract_region_owner_generic_happy_source())
 pilot v4_contract_region_owner_generic_happy_ty = v4_mir_ty_id(v4_contract_region_owner_generic_happy_mir)
@@ -200,6 +264,9 @@ pilot v4_contract_region_owner_generic_happy_borrow_rvalue = v4_contract_region_
 pilot v4_contract_region_owner_generic_happy_borrow_arg = v4_mir_rvalue_call_arg(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_borrow_rvalue, 0)
 pilot v4_contract_region_owner_generic_happy_forged_borrow = v4_mir_add_rvalue(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_mir_rvalue_call, "forged shared.borrow()", "Shared<Ship>.borrow", 0 - 1, 0 - 1, V4_NO_SPAN, "lend Ship")
 v4_mir_set_rvalue_args_payload(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_forged_borrow, v4_mir_call_args_payload_append("", v4_contract_region_owner_generic_happy_borrow_arg))
+pilot v4_contract_region_owner_generic_happy_direct_impl = v4_contract_region_impl_for_target(v4_contract_region_owner_generic_happy_ty, "Direct<'a>")
+pilot v4_contract_region_owner_generic_happy_alpha_param = v4_ty_impl_method_explicit_param_type_for_owner(v4_contract_region_owner_generic_happy_ty, v4_contract_region_owner_generic_happy_direct_impl, 0, 0, "Direct<'b>")
+pilot v4_contract_region_owner_generic_happy_alpha_return = v4_ty_impl_method_return_type_for_owner(v4_contract_region_owner_generic_happy_ty, v4_contract_region_owner_generic_happy_direct_impl, 0, "Direct<'b>")
 
 say "contract-region-owner-generic-happy-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_contract_region_owner_generic_happy_tree))
 say "contract-region-owner-generic-happy-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_owner_generic_happy_ty))
@@ -214,6 +281,8 @@ say "contract-region-owner-generic-happy-borrow-identity=" + v4_mir_rvalue_built
 say "contract-region-owner-generic-happy-borrow-builtin=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_borrow_rvalue, v4_mir_builtin_shared_borrow))
 say "contract-region-owner-generic-happy-forged-identity-empty=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_builtin_method(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_forged_borrow) == "")
 say "contract-region-owner-generic-happy-forged-builtin=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(v4_contract_region_owner_generic_happy_mir, v4_contract_region_owner_generic_happy_body, v4_contract_region_owner_generic_happy_forged_borrow, v4_mir_builtin_shared_borrow))
+say "contract-region-owner-generic-happy-alpha-param=" + v4_contract_region_owner_generic_happy_alpha_param
+say "contract-region-owner-generic-happy-alpha-return=" + v4_contract_region_owner_generic_happy_alpha_return
 
 pilot v4_contract_region_owner_generic_negative_mir = v4_mir_text_cached("contract-region-owner-generic-negative.fk", v4_contract_region_owner_generic_negative_source())
 pilot v4_contract_region_owner_generic_negative_ty = v4_mir_ty_id(v4_contract_region_owner_generic_negative_mir)
@@ -226,25 +295,48 @@ pilot v4_contract_region_owner_generic_negative_owner_def = v4_resolve_def_for_n
 pilot v4_contract_region_owner_generic_negative_owner_body = v4_mir_lookup_body(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_def)
 pilot v4_contract_region_owner_generic_negative_shared_rvalue = v4_contract_region_generic_lend_escape_local_rvalue(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, "hidden_shared")
 
+pilot v4_contract_region_owner_generic_negative_nominal_associated_rvalue = v4_contract_region_generic_lend_escape_local_rvalue(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, "hidden_nominal_associated")
+pilot v4_contract_region_owner_generic_negative_nominal_instance_rvalue = v4_contract_region_generic_lend_escape_local_rvalue(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, "hidden_nominal_instance")
+pilot v4_contract_region_owner_generic_negative_nominal_shared_rvalue = v4_contract_region_generic_lend_escape_local_rvalue(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, "hidden_nominal_shared")
 say "contract-region-owner-generic-negative-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_contract_region_owner_generic_negative_tree))
 say "contract-region-owner-generic-negative-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_owner_generic_negative_ty))
 say "contract-region-owner-generic-negative-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_owner_generic_negative_mir))
 say "contract-region-owner-generic-negative-meiya-count=" + word_from_int(v4_contract_region_generic_lend_escape_diag_count(v4_contract_region_owner_generic_negative_mir, v4_contract_region_generic_lend_escape_message))
+pilot v4_contract_region_owner_generic_negative_direct_rvalue = v4_contract_region_generic_lend_escape_local_rvalue(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, "hidden_direct_instance")
+pilot v4_contract_region_owner_generic_negative_operator_rvalue = v4_contract_region_generic_lend_escape_local_rvalue(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, "hidden_operator")
 say "contract-region-owner-generic-negative-instance-type=" + v4_mir_local_ty_for_name(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_instance_body, "hidden_instance")
 say "contract-region-owner-generic-negative-associated-type=" + v4_mir_local_ty_for_name(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, "hidden_associated")
 say "contract-region-owner-generic-negative-shared-type=" + v4_mir_local_ty_for_name(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, "hidden_shared")
 say "contract-region-owner-generic-negative-shared-identity-empty=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_builtin_method(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, v4_contract_region_owner_generic_negative_shared_rvalue) == "")
 say "contract-region-owner-generic-negative-shared-builtin=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, v4_contract_region_owner_generic_negative_shared_rvalue, v4_mir_builtin_shared_new))
+say "contract-region-owner-generic-negative-method-boundary-count=" + word_from_int(v4_contract_region_generic_lend_escape_diag_count(v4_contract_region_owner_generic_negative_mir, v4_contract_region_method_boundary_message))
 say "contract-region-owner-generic-negative-diag0-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 0))
+say "contract-region-owner-generic-negative-nominal-associated-type=" + v4_mir_local_ty_for_name(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, "hidden_nominal_associated")
+say "contract-region-owner-generic-negative-nominal-instance-type=" + v4_mir_local_ty_for_name(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, "hidden_nominal_instance")
+say "contract-region-owner-generic-negative-nominal-shared-type=" + v4_mir_local_ty_for_name(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, "hidden_nominal_shared")
+say "contract-region-owner-generic-negative-nominal-associated-identity-empty=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_builtin_method(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, v4_contract_region_owner_generic_negative_nominal_associated_rvalue) == "")
+say "contract-region-owner-generic-negative-nominal-instance-identity-empty=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_builtin_method(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, v4_contract_region_owner_generic_negative_nominal_instance_rvalue) == "")
+say "contract-region-owner-generic-negative-nominal-shared-identity-empty=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_builtin_method(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, v4_contract_region_owner_generic_negative_nominal_shared_rvalue) == "")
+say "contract-region-owner-generic-negative-nominal-shared-builtin=" + v4_contract_region_generic_lend_escape_bool(v4_mir_rvalue_is_builtin_shared_method(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, v4_contract_region_owner_generic_negative_nominal_shared_rvalue, v4_mir_builtin_shared_new))
 say "contract-region-owner-generic-negative-diag0-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 0))
 say "contract-region-owner-generic-negative-diag1-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 1))
 say "contract-region-owner-generic-negative-diag1-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 1))
 say "contract-region-owner-generic-negative-diag2-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 2))
 say "contract-region-owner-generic-negative-diag2-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 2))
+say "contract-region-owner-generic-negative-direct-instance-type=" + v4_mir_rvalue_ty(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, v4_contract_region_owner_generic_negative_direct_rvalue)
+say "contract-region-owner-generic-negative-operator-type=" + v4_mir_rvalue_ty(v4_contract_region_owner_generic_negative_mir, v4_contract_region_owner_generic_negative_owner_body, v4_contract_region_owner_generic_negative_operator_rvalue)
+say "contract-region-owner-generic-negative-diag7-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 7))
+say "contract-region-owner-generic-negative-diag8-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 8))
 say "contract-region-owner-generic-negative-diag3-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 3))
 say "contract-region-owner-generic-negative-diag3-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 3))
 
 pilot v4_contract_region_shadowed_shared_mir = v4_mir_text_cached("contract-region-shadowed-shared.fk", v4_contract_region_shadowed_shared_source())
+say "contract-region-owner-generic-negative-diag4-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 4))
+say "contract-region-owner-generic-negative-diag4-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 4))
+say "contract-region-owner-generic-negative-diag5-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 5))
+say "contract-region-owner-generic-negative-diag5-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 5))
+say "contract-region-owner-generic-negative-diag6-message=" + v4_diag_message(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 6))
+say "contract-region-owner-generic-negative-diag6-help=" + v4_diag_help(v4_mir_diag(v4_contract_region_owner_generic_negative_mir, 6))
 pilot v4_contract_region_shadowed_shared_ty = v4_mir_ty_id(v4_contract_region_shadowed_shared_mir)
 pilot v4_contract_region_shadowed_shared_resolve = v4_ty_resolve_id(v4_contract_region_shadowed_shared_ty)
 pilot v4_contract_region_shadowed_shared_hir = v4_resolve_hir_id(v4_contract_region_shadowed_shared_resolve)

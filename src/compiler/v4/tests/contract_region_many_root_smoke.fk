@@ -1,0 +1,65 @@
+-- V4 independent returned-loan root scaling smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+pilot v4_contract_region_many_root_count = 256
+
+task v4_contract_region_many_root_source() -> word {
+    pilot parts = array_new()
+    array_push(parts, "shape Ship {\n")
+    array_push(parts, "    hp: int\n")
+    array_push(parts, "}\n")
+    array_push(parts, "task borrow_many<'a>(lend 'a source: Ship) -> lend 'a Ship {\n")
+    array_push(parts, "    give back lend source\n")
+    array_push(parts, "}\n")
+    give back word_join(parts)
+}
+
+task v4_contract_region_many_root_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_contract_region_many_root_results_clean(borrow_id: int) -> bool {
+    if v4_borrowck_result_count(borrow_id) != 1 {
+        give back false
+    }
+    if v4_borrowck_result_status(borrow_id, 0) != v4_borrowck_clean {
+        give back false
+    }
+    give back v4_borrowck_path_count_by_kind(borrow_id, 0, v4_borrowck_path_return_loan) == 1
+}
+
+pilot v4_contract_region_many_root_path = "contract-region-many-root.fk"
+pilot v4_contract_region_many_root_source_text = v4_contract_region_many_root_source()
+pilot v4_contract_region_many_root_borrow = v4_borrowck_text_cached(v4_contract_region_many_root_path, v4_contract_region_many_root_source_text)
+pilot v4_contract_region_many_root_mir = v4_borrowck_mir_id(v4_contract_region_many_root_borrow)
+pilot v4_contract_region_many_root_ty = v4_mir_ty_id(v4_contract_region_many_root_mir)
+pilot v4_contract_region_many_root_resolve = v4_ty_resolve_id(v4_contract_region_many_root_ty)
+pilot v4_contract_region_many_root_def = v4_resolve_def_for_name(v4_contract_region_many_root_resolve, "borrow_many")
+pilot v4_contract_region_many_root_body = v4_mir_lookup_body(v4_contract_region_many_root_mir, v4_contract_region_many_root_def)
+pilot v4_contract_region_many_root_rvalue = v4_mir_stmt_rvalue(v4_contract_region_many_root_mir, v4_contract_region_many_root_body, 0)
+pilot v4_contract_region_many_root_roots_clean = true
+pilot v4_contract_region_many_root_root_id = 1
+pilot v4_contract_region_many_root_work = 0
+repeat until v4_contract_region_many_root_root_id >= v4_contract_region_many_root_count {
+    pilot provenance_id = v4_borrowck_return_lend_provenance(v4_contract_region_many_root_mir, v4_contract_region_many_root_body, v4_contract_region_many_root_root_id, v4_contract_region_many_root_rvalue)
+    if not v4_borrowck_provenance_is_known(provenance_id) or v4_borrowck_provenance_count(provenance_id) != 1 or v4_borrowck_provenance_path_at(provenance_id, 0) != "source" {
+        v4_contract_region_many_root_roots_clean = false
+    }
+    v4_contract_region_many_root_root_id += 1
+}
+v4_borrowck_store_provenance_telemetry(v4_contract_region_many_root_borrow)
+v4_contract_region_many_root_work = v4_borrowck_provenance_fixed_point_work_items(v4_contract_region_many_root_borrow)
+
+say "contract-region-many-root-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_many_root_ty))
+say "contract-region-many-root-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_many_root_mir))
+say "contract-region-many-root-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_many_root_borrow))
+say "contract-region-many-root-results=" + word_from_int(v4_borrowck_result_count(v4_contract_region_many_root_borrow))
+say "contract-region-many-root-memos=" + word_from_int(v4_borrowck_provenance_memo_active_count())
+say "contract-region-many-root-solves=" + word_from_int(v4_borrowck_provenance_fixed_point_solve_count(v4_contract_region_many_root_borrow))
+say "contract-region-many-root-work-items=" + word_from_int(v4_contract_region_many_root_work)
+say "contract-region-many-root-results-clean=" + v4_contract_region_many_root_bool(v4_contract_region_many_root_results_clean(v4_contract_region_many_root_borrow) and v4_contract_region_many_root_roots_clean)
+say "contract-region-many-root-converged=" + v4_contract_region_many_root_bool(v4_borrowck_provenance_fixed_point_converged(v4_contract_region_many_root_borrow))
+say "contract-region-many-root-resource-exhausted=" + v4_contract_region_many_root_bool(v4_borrowck_provenance_resource_exhausted(v4_contract_region_many_root_borrow))
+say "contract-region-many-root-linear-work=" + v4_contract_region_many_root_bool(v4_contract_region_many_root_work <= v4_contract_region_many_root_count * 2)
+say "contract-region-many-root-work-bounded=" + v4_contract_region_many_root_bool(v4_contract_region_many_root_work < v4_borrowck_provenance_work_item_limit())

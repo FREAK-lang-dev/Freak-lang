@@ -4210,6 +4210,16 @@ task v4_unit_snapshot_restore_sources(payload: word) -> int {
     give back restored
 }
 
+-- MIR restore invalidates every provenance memo regardless of the caller or transport.
+task v4_mir_snapshot_restore(payload: word) -> word {
+    pilot restore_result = v4_mir_snapshot_restore_component(payload)
+    if restore_result.starts_with("mir-snapshot-restore ok=1") {
+        v4_session_semantic_restore_generation_advance()
+        v4_borrowck_provenance_scratch_reset()
+    }
+    give back restore_result
+}
+
 task v4_unit_snapshot_restore_section_payload(section_name: word, section_payload: word) -> word {
     if section_payload == "" {
         give back section_name + "-snapshot-restore ok=0 reason=missing-section"

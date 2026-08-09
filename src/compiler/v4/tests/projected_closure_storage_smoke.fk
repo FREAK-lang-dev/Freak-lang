@@ -1,0 +1,77 @@
+-- V4 projected closure reaching-definition and overwrite fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_projected_closure_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task projected_closure_use_storage_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = (|_| => 0, 0)\n"
+    src = src + "    wrapped.0 = reader\n"
+    src = src + "    pilot readers = [wrapped.0]\n"
+    src = src + "    pilot extracted = readers[0]\n"
+    src = src + "    first.hp = 30\n"
+    src = src + "    give back extracted()\n"
+    src = src + "}\n"
+    src = src + "task projected_closure_overwrite_storage_clean(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot wrapped = (|_| => 0, 0)\n"
+    src = src + "    wrapped.0 = reader\n"
+    src = src + "    wrapped.0 = |_| => 0\n"
+    src = src + "    pilot readers = [wrapped]\n"
+    src = src + "    first.hp = 31\n"
+    src = src + "    give back readers[0].0()\n"
+    src = src + "}\n"
+    src = src + "task projected_closure_dynamic_write_rejected(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot readers = [|_| => 0]\n"
+    src = src + "    readers[0] = reader\n"
+    src = src + "    first.hp = 32\n"
+    src = src + "    give back readers[0]()\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_projected_closure_result_for(borrow_id: int, body_name: word) -> int {
+    pilot mir_id = v4_borrowck_mir_id(borrow_id)
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    pilot def_id = v4_resolve_def_for_name(resolve_id, body_name)
+    give back v4_borrowck_lookup_result(borrow_id, def_id)
+}
+
+task v4_projected_closure_status(borrow_id: int, body_name: word) -> word {
+    give back v4_borrowck_result_status(borrow_id, v4_projected_closure_result_for(borrow_id, body_name))
+}
+
+task v4_projected_closure_borrow_diag_count(borrow_id: int, needle: word) -> int {
+    pilot count = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == needle {
+            count += 1
+        }
+        diag_id += 1
+    }
+    give back count
+}
+
+pilot v4_projected_closure_borrow = v4_borrowck_text_cached("contract-region-projected-closure.fk", v4_projected_closure_source())
+pilot v4_projected_closure_mir = v4_borrowck_mir_id(v4_projected_closure_borrow)
+pilot v4_projected_closure_ty = v4_mir_ty_id(v4_projected_closure_mir)
+pilot v4_projected_closure_resolve = v4_ty_resolve_id(v4_projected_closure_ty)
+pilot v4_projected_closure_hir = v4_resolve_hir_id(v4_projected_closure_resolve)
+pilot v4_projected_closure_tree = v4_hir_tree_id(v4_projected_closure_hir)
+
+say "projected-closure-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_projected_closure_tree))
+say "projected-closure-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_projected_closure_ty))
+say "projected-closure-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_projected_closure_mir))
+say "projected-closure-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_projected_closure_borrow))
+say "projected-closure-use-storage-rejected=" + v4_projected_closure_status(v4_projected_closure_borrow, "projected_closure_use_storage_rejected")
+say "projected-closure-overwrite-storage-clean=" + v4_projected_closure_status(v4_projected_closure_borrow, "projected_closure_overwrite_storage_clean")
+say "projected-closure-dynamic-write-rejected=" + v4_projected_closure_status(v4_projected_closure_borrow, "projected_closure_dynamic_write_rejected")
+say "projected-closure-dynamic-storage-diagnostics=" + word_from_int(v4_projected_closure_borrow_diag_count(v4_projected_closure_borrow, "Meiya cannot store a loan-capturing closure inside dynamic storage yet"))

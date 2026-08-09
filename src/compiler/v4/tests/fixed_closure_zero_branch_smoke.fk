@@ -1,0 +1,55 @@
+-- V4 fixed aggregate closure retention through zero-sized generic branches.
+-- Verification prepends the V4 crates before this file.
+
+task v4_fixed_closure_zero_braces(content: word) -> word {
+    give back "{" + content + "}"
+}
+
+task v4_fixed_closure_zero_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Mixed<L,E> {\n"
+    src = src + "    live: L\n"
+    src = src + "    empty: [E;0]\n"
+    src = src + "}\n"
+    src = src + "task mixed_wrap<L,E>(live: L, empty: E) -> Mixed<L,E> {\n"
+    src = src + "    pilot zero: [E;0] = []\n"
+    src = src + "    give back Mixed<L,E> " + v4_fixed_closure_zero_braces(" live: live, empty: zero ") + "\n"
+    src = src + "}\n"
+    src = src + "task mixed_zero_branch_clean(first: Ship) -> int {\n"
+    src = src + "    pilot holder = (lend mut first, 0)\n"
+    src = src + "    pilot reader = |_| => holder.0.hp\n"
+    src = src + "    pilot live = |_| => 41\n"
+    src = src + "    pilot mixed = mixed_wrap(live, reader)\n"
+    src = src + "    first.hp = 36\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_fixed_closure_zero_diag_count(borrow_id: int, message: word) -> int {
+    pilot count = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message { count += 1 }
+        diag_id += 1
+    }
+    give back count
+}
+
+pilot v4_fixed_closure_zero_borrow = v4_borrowck_text_cached("fixed-closure-zero-branch.fk", v4_fixed_closure_zero_source())
+pilot v4_fixed_closure_zero_mir = v4_borrowck_mir_id(v4_fixed_closure_zero_borrow)
+pilot v4_fixed_closure_zero_ty = v4_mir_ty_id(v4_fixed_closure_zero_mir)
+pilot v4_fixed_closure_zero_resolve = v4_ty_resolve_id(v4_fixed_closure_zero_ty)
+pilot v4_fixed_closure_zero_hir = v4_resolve_hir_id(v4_fixed_closure_zero_resolve)
+pilot v4_fixed_closure_zero_tree = v4_hir_tree_id(v4_fixed_closure_zero_hir)
+pilot v4_fixed_closure_zero_def = v4_resolve_def_for_name(v4_fixed_closure_zero_resolve, "mixed_zero_branch_clean")
+pilot v4_fixed_closure_zero_result = v4_borrowck_lookup_result(v4_fixed_closure_zero_borrow, v4_fixed_closure_zero_def)
+
+say "fixed-closure-zero-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_fixed_closure_zero_tree))
+say "fixed-closure-zero-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_fixed_closure_zero_ty))
+say "fixed-closure-zero-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_fixed_closure_zero_mir))
+say "fixed-closure-zero-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_fixed_closure_zero_borrow))
+say "fixed-closure-zero-status=" + v4_borrowck_result_status(v4_fixed_closure_zero_borrow, v4_fixed_closure_zero_result)
+say "fixed-closure-zero-storage-diagnostics=" + word_from_int(v4_fixed_closure_zero_diag_count(v4_fixed_closure_zero_borrow, "Meiya cannot store a loan-capturing closure inside fixed aggregate storage yet"))

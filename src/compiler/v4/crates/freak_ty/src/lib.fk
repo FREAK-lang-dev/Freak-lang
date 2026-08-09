@@ -34,11 +34,27 @@ pilot v4_ty_attribute_sig = "attribute-signature"
 pilot v4_ty_error_sig = "error-signature"
 pilot v4_ty_snapshot_format = "freak-ty-snapshot-v1"
 pilot v4_ty_generic_env_fail = "#fail"
+pilot v4_ty_lend_storage_none = "none"
+pilot v4_ty_lend_storage_fixed = "fixed"
+pilot v4_ty_lend_storage_unsupported = "unsupported"
+pilot v4_ty_lend_storage_opaque = "opaque"
+pilot v4_ty_lend_storage_exhausted = "exhausted"
+pilot v4_ty_lend_storage_depth_limit = 32
+pilot v4_ty_fixed_lend_leaf_limit = 256
+pilot v4_ty_return_lend_source_limit = 256
+pilot v4_ty_return_lend_source_opaque = "#opaque"
 pilot v4_ty_generic_kind_type = "type"
 pilot v4_ty_generic_kind_lifetime = "lifetime"
 pilot v4_ty_param_mode_value = "value"
 pilot v4_ty_param_mode_lend = "lend"
 pilot v4_ty_param_mode_lend_mut = "lend mut"
+pilot v4_ty_closure_mode_borrow = "borrow"
+pilot v4_ty_closure_mode_copy = "copy"
+pilot v4_ty_closure_mode_move = "move"
+pilot v4_ty_closure_mode_mut = "mut"
+pilot v4_ty_closure_callable = "Callable"
+pilot v4_ty_closure_mut_callable = "MutCallable"
+pilot v4_ty_closure_one_shot = "OneShot"
 
 pilot v4_ty_files = 0
 pilot v4_ty_resolves = 0
@@ -64,6 +80,14 @@ pilot v4_ty_borrowed_return_source_cache_payloads = 0
 pilot v4_ty_borrowed_return_source_cache_entry_count_value = 0
 pilot v4_ty_borrowed_return_source_cache_next_row_value = 0
 pilot v4_ty_borrowed_return_source_cache_builds_value = 0
+pilot v4_ty_copy_doctrine_cache_ty_ids = 0
+pilot v4_ty_copy_doctrine_cache_sig_ids = 0
+pilot v4_ty_copy_doctrine_cache_types = 0
+pilot v4_ty_copy_doctrine_cache_values = 0
+pilot v4_ty_copy_doctrine_cache_entry_count_value = 0
+pilot v4_ty_copy_doctrine_cache_capacity_value = 128
+pilot v4_ty_copy_doctrine_cache_next_row_value = 0
+pilot v4_ty_copy_doctrine_cache_restore_generation_value = 0
 pilot v4_ty_ready = 0
 
 task v4_ty_init() -> void {
@@ -83,12 +107,17 @@ task v4_ty_init() -> void {
         v4_ty_borrowed_return_source_cache_ty_ids = array_new()
         v4_ty_borrowed_return_source_cache_sig_ids = array_new()
         v4_ty_borrowed_return_source_cache_payloads = array_new()
+        v4_ty_copy_doctrine_cache_ty_ids = array_new()
+        v4_ty_copy_doctrine_cache_sig_ids = array_new()
+        v4_ty_copy_doctrine_cache_types = array_new()
+        v4_ty_copy_doctrine_cache_values = array_new()
         v4_ty_ready = 1
     }
 }
 
 task v4_ty_file_new(file_id: int, resolve_id: int) -> int {
     v4_ty_init()
+    v4_ty_copy_doctrine_cache_reset()
     pilot ty_id = v4_ty_file_active_count_value
     if ty_id < array_len(v4_ty_files) {
         v4_ty_borrowed_return_source_cache_invalidate_file(ty_id)
@@ -493,6 +522,77 @@ task v4_ty_is_surface_task_function_type(type_text: word) -> bool {
 
 task v4_ty_is_surface_extern_function_pointer_type(type_text: word) -> bool {
     give back type_text.starts_with("extern[") and v4_ty_is_surface_task_function_type(type_text)
+}
+
+task v4_ty_closure_doctrine_for_mode(mode: word) -> word {
+    if mode == v4_ty_closure_mode_mut {
+        give back v4_ty_closure_mut_callable
+    }
+    if mode == v4_ty_closure_mode_move {
+        give back v4_ty_closure_one_shot
+    }
+    give back v4_ty_closure_callable
+}
+
+task v4_ty_closure_type_prefix(mode: word) -> word {
+    give back "closure[" + v4_ty_closure_doctrine_for_mode(mode) + "," + mode + "]"
+}
+
+task v4_ty_is_closure_type(type_text: word) -> bool {
+    if type_text.starts_with("closure[") == false {
+        give back false
+    }
+    pilot close_bracket = v4_index_of_from(type_text, "]", 8)
+    if close_bracket < 0 or close_bracket + 1 >= type_text.length() {
+        give back false
+    }
+    give back type_text.char_at(close_bracket + 1) == "("
+}
+
+task v4_ty_closure_spec(type_text: word) -> word {
+    if v4_ty_is_closure_type(type_text) == false {
+        give back ""
+    }
+    pilot close_bracket = v4_index_of_from(type_text, "]", 8)
+    give back v4_slice(type_text, 8, close_bracket)
+}
+
+task v4_ty_closure_doctrine(type_text: word) -> word {
+    pilot spec = v4_ty_closure_spec(type_text)
+    pilot comma = v4_index_of_from(spec, ",", 0)
+    if comma < 0 {
+        give back ""
+    }
+    give back v4_slice(spec, 0, comma)
+}
+
+task v4_ty_closure_mode(type_text: word) -> word {
+    pilot spec = v4_ty_closure_spec(type_text)
+    pilot comma = v4_index_of_from(spec, ",", 0)
+    if comma < 0 or comma + 1 >= spec.length() {
+        give back ""
+    }
+    give back v4_slice(spec, comma + 1, spec.length())
+}
+
+task v4_ty_closure_as_task_type(type_text: word) -> word {
+    if v4_ty_is_closure_type(type_text) == false {
+        give back v4_ty_unknown
+    }
+    pilot close_bracket = v4_index_of_from(type_text, "]", 8)
+    give back "task" + v4_slice(type_text, close_bracket + 1, type_text.length())
+}
+
+task v4_ty_closure_param_count(type_text: word) -> int {
+    give back v4_ty_function_type_param_count(v4_ty_closure_as_task_type(type_text))
+}
+
+task v4_ty_closure_param_type(type_text: word, param_id: int) -> word {
+    give back v4_ty_function_type_param_surface(v4_ty_closure_as_task_type(type_text), param_id)
+}
+
+task v4_ty_closure_return_type(type_text: word) -> word {
+    give back v4_ty_function_type_return_text(v4_ty_closure_as_task_type(type_text))
 }
 
 task v4_ty_function_type_open_paren(type_text: word) -> int {
@@ -1127,6 +1227,9 @@ task v4_ty_is_copy_type(ty_name: word) -> bool {
     if v4_ty_is_lend_type(ty_name) {
         give back v4_ty_is_lend_mut_type(ty_name) == false
     }
+    if v4_ty_is_closure_type(ty_name) {
+        give back v4_ty_closure_doctrine(ty_name) == v4_ty_closure_callable
+    }
     if ty_name == v4_ty_int or ty_name == v4_ty_uint or ty_name == v4_ty_tiny or ty_name == v4_ty_num {
         give back true
     }
@@ -1137,6 +1240,100 @@ task v4_ty_is_copy_type(ty_name: word) -> bool {
         give back true
     }
     give back false
+}
+
+task v4_ty_type_is_structurally_copy(ty_id: int, type_text: word, depth: int) -> bool {
+    if depth > v4_ty_lend_storage_depth_limit or not v4_ty_is_known(type_text) {
+        give back false
+    }
+    if v4_ty_is_copy_type(type_text) {
+        give back true
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            if not v4_ty_type_is_structurally_copy(ty_id, v4_ty_tuple_slot_type(type_text, slot_id), depth + 1) {
+                give back false
+            }
+            slot_id += 1
+        }
+        give back true
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_type_is_structurally_copy(ty_id, v4_ty_fixed_array_element_type(type_text), depth + 1)
+    }
+    give back false
+}
+
+task v4_ty_type_is_doctrinal_copy_eligible(ty_id: int, sig_id: int, type_text: word, seen_types: word, depth: int) -> bool {
+    if depth > v4_ty_lend_storage_depth_limit or not v4_ty_is_known(type_text) {
+        give back false
+    }
+    if v4_ty_is_copy_type(type_text) {
+        give back true
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            if not v4_ty_type_is_doctrinal_copy_eligible(ty_id, sig_id, v4_ty_tuple_slot_type(type_text, slot_id), seen_types, depth + 1) {
+                give back false
+            }
+            slot_id += 1
+        }
+        give back true
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_type_is_doctrinal_copy_eligible(ty_id, sig_id, v4_ty_fixed_array_element_type(type_text), seen_types, depth + 1)
+    }
+
+    pilot alias_lookup = v4_ty_alias_lookup_type_from_surface_type(ty_id, type_text)
+    if alias_lookup != "" {
+        pilot alias_key = "copy-alias:" + alias_lookup
+        if v4_ty_alias_cycle_seen_contains(seen_types, alias_key) {
+            give back false
+        }
+        pilot alias_target = v4_ty_alias_target_type(ty_id, alias_lookup)
+        if alias_target == "" or alias_target == v4_ty_unknown {
+            give back false
+        }
+        give back v4_ty_type_is_doctrinal_copy_eligible(ty_id, sig_id, alias_target, v4_ty_alias_cycle_seen_append(seen_types, alias_key), depth + 1)
+    }
+
+    if sig_id >= 0 and v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text) {
+        give back v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id, sig_id, type_text, "Copy", "", seen_types, depth) != v4_ty_generic_env_fail
+    }
+
+    pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
+    if storage_type == "" or storage_type == v4_ty_unknown {
+        storage_type = type_text
+    }
+    if v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id, sig_id, storage_type, "Copy", "", seen_types, depth) == v4_ty_generic_env_fail {
+        give back false
+    }
+    -- Concrete Copy impl matching validates every nominal field before succeeding.
+    give back true
+}
+
+task v4_ty_type_satisfies_repeat_doctrine(ty_id: int, sig_id: int, type_text: word, doctrine_name: word) -> bool {
+    if v4_ty_match_type_satisfies_doctrine_env(ty_id, sig_id, type_text, doctrine_name, "") == v4_ty_generic_env_fail {
+        give back false
+    }
+    if doctrine_name == "Copy" {
+        give back v4_ty_type_is_doctrinal_copy_eligible(ty_id, sig_id, type_text, "", 0)
+    }
+    give back true
+}
+
+task v4_ty_type_is_array_repeatable(ty_id: int, sig_id: int, type_text: word) -> bool {
+    if v4_ty_type_is_structurally_copy(ty_id, type_text, 0) {
+        give back true
+    }
+    if v4_ty_type_satisfies_repeat_doctrine(ty_id, sig_id, type_text, "Copy") {
+        give back true
+    }
+    give back v4_ty_type_satisfies_repeat_doctrine(ty_id, sig_id, type_text, "Cloneable")
 }
 
 task v4_ty_is_primitive_type(ty_name: word) -> bool {
@@ -1779,6 +1976,670 @@ task v4_ty_type_contains_lend(type_text: word) -> bool {
     give back false
 }
 
+-- Fixed lend storage may recurse only through tuples, arrays, shapes, and routes.
+task v4_ty_lend_storage_class_merge(left_kind: word, right_kind: word) -> word {
+    if left_kind == v4_ty_lend_storage_unsupported or right_kind == v4_ty_lend_storage_unsupported {
+        give back v4_ty_lend_storage_unsupported
+    }
+    if left_kind == v4_ty_lend_storage_exhausted or right_kind == v4_ty_lend_storage_exhausted {
+        give back v4_ty_lend_storage_exhausted
+    }
+    if left_kind == v4_ty_lend_storage_opaque or right_kind == v4_ty_lend_storage_opaque {
+        give back v4_ty_lend_storage_opaque
+    }
+    if left_kind == v4_ty_lend_storage_fixed or right_kind == v4_ty_lend_storage_fixed {
+        give back v4_ty_lend_storage_fixed
+    }
+    give back v4_ty_lend_storage_none
+}
+
+task v4_ty_lend_storage_wrap_unsupported(child_kind: word) -> word {
+    if child_kind == v4_ty_lend_storage_none {
+        give back v4_ty_lend_storage_none
+    }
+    if child_kind == v4_ty_lend_storage_exhausted {
+        give back v4_ty_lend_storage_exhausted
+    }
+    if child_kind == v4_ty_lend_storage_opaque {
+        give back v4_ty_lend_storage_opaque
+    }
+    give back v4_ty_lend_storage_unsupported
+}
+
+task v4_ty_lend_storage_class_seen(ty_id: int, type_text: word, seen_types: word, depth: int, named_only: bool, mutable_only: bool) -> word {
+    if type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lifetime_name(type_text) {
+        give back v4_ty_lend_storage_none
+    }
+    if depth > v4_ty_lend_storage_depth_limit {
+        give back v4_ty_lend_storage_exhausted
+    }
+
+    if v4_ty_is_lend_type(type_text) {
+        pilot lifetime_name = v4_ty_lend_lifetime(type_text)
+        pilot lifetime_matches: bool = not named_only or (lifetime_name != "" and lifetime_name != "'_")
+        pilot mutability_matches: bool = not mutable_only or v4_ty_is_lend_mut_type(type_text)
+        if lifetime_matches and mutability_matches {
+            give back v4_ty_lend_storage_fixed
+        }
+        -- A lend stores only its own capability; fields in the referent are not nested in the lend value.
+        give back v4_ty_lend_storage_none
+    }
+
+    if v4_ty_is_surface_task_function_type(type_text) {
+        pilot function_kind = v4_ty_lend_storage_none
+        pilot param_id = 0
+        pilot param_count = v4_ty_function_type_param_count(type_text)
+        repeat until param_id >= param_count {
+            pilot param_surface = v4_ty_function_type_param_surface(type_text, param_id)
+            if param_surface != "..." {
+                function_kind = v4_ty_lend_storage_class_merge(function_kind, v4_ty_lend_storage_class_seen(ty_id, param_surface, seen_types, depth + 1, named_only, mutable_only))
+            }
+            param_id += 1
+        }
+        function_kind = v4_ty_lend_storage_class_merge(function_kind, v4_ty_lend_storage_class_seen(ty_id, v4_ty_function_type_return_text(type_text), seen_types, depth + 1, named_only, mutable_only))
+        give back v4_ty_lend_storage_wrap_unsupported(function_kind)
+    }
+
+    if v4_ty_is_raw_pointer_type(type_text) {
+        pilot pointer_kind = v4_ty_lend_storage_class_seen(ty_id, v4_ty_raw_pointer_target_type(type_text), seen_types, depth + 1, named_only, mutable_only)
+        give back v4_ty_lend_storage_wrap_unsupported(pointer_kind)
+    }
+
+    if v4_ty_is_dyn_type(type_text) {
+        pilot doctrine_kind = v4_ty_lend_storage_class_seen(ty_id, v4_ty_dyn_doctrine_name(type_text), seen_types, depth + 1, named_only, mutable_only)
+        give back v4_ty_lend_storage_wrap_unsupported(doctrine_kind)
+    }
+
+    if v4_ty_is_tuple_type(type_text) {
+        pilot tuple_kind = v4_ty_lend_storage_none
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            tuple_kind = v4_ty_lend_storage_class_merge(tuple_kind, v4_ty_lend_storage_class_seen(ty_id, v4_ty_tuple_slot_type(type_text, slot_id), seen_types, depth + 1, named_only, mutable_only))
+            slot_id += 1
+        }
+        give back tuple_kind
+    }
+
+    if v4_ty_is_fixed_array_type(type_text) {
+        if v4_ty_fixed_array_length_normalized_text(ty_id, type_text) == "0" {
+            give back v4_ty_lend_storage_none
+        }
+        give back v4_ty_lend_storage_class_seen(ty_id, v4_ty_fixed_array_element_type(type_text), seen_types, depth + 1, named_only, mutable_only)
+    }
+
+    pilot alias_lookup = v4_ty_alias_lookup_type_from_surface_type(ty_id, type_text)
+    if alias_lookup != "" {
+        pilot alias_key = "alias:" + alias_lookup
+        if v4_ty_alias_cycle_seen_contains(seen_types, alias_key) {
+            give back v4_ty_lend_storage_none
+        }
+        pilot alias_target = v4_ty_alias_target_type(ty_id, alias_lookup)
+        if alias_target == "" or alias_target == v4_ty_unknown {
+            give back v4_ty_lend_storage_none
+        }
+        pilot alias_kind = v4_ty_lend_storage_class_seen(ty_id, alias_target, v4_ty_alias_cycle_seen_append(seen_types, alias_key), depth + 1, named_only, mutable_only)
+        give back v4_ty_lend_storage_wrap_unsupported(alias_kind)
+    }
+
+    pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
+    if storage_type == "" or storage_type == v4_ty_unknown {
+        storage_type = type_text
+    }
+
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, storage_type)
+    if shape_sig >= 0 {
+        pilot shape_key = "shape:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, shape_key) {
+            pilot probe_key = "lend-storage-cycle-probe"
+            if v4_ty_alias_cycle_seen_contains(seen_types, probe_key) {
+                give back v4_ty_lend_storage_none
+            }
+            give back v4_ty_lend_storage_class_seen(ty_id, storage_type, v4_ty_alias_cycle_seen_append("", probe_key), depth + 1, named_only, mutable_only)
+        }
+        pilot shape_seen = v4_ty_alias_cycle_seen_append(seen_types, shape_key)
+        pilot shape_kind = v4_ty_lend_storage_none
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            pilot field_type = v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id)
+            field_type = v4_ty_apply_signature_generics(ty_id, shape_sig, storage_type, field_type)
+            shape_kind = v4_ty_lend_storage_class_merge(shape_kind, v4_ty_lend_storage_class_seen(ty_id, field_type, shape_seen, depth + 1, named_only, mutable_only))
+            field_id += 1
+        }
+        give back shape_kind
+    }
+
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, storage_type)
+    if route_sig >= 0 {
+        pilot route_key = "route:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, route_key) {
+            pilot probe_key = "lend-storage-cycle-probe"
+            if v4_ty_alias_cycle_seen_contains(seen_types, probe_key) {
+                give back v4_ty_lend_storage_none
+            }
+            give back v4_ty_lend_storage_class_seen(ty_id, storage_type, v4_ty_alias_cycle_seen_append("", probe_key), depth + 1, named_only, mutable_only)
+        }
+        pilot route_seen = v4_ty_alias_cycle_seen_append(seen_types, route_key)
+        pilot route_kind = v4_ty_lend_storage_none
+        pilot case_id = 0
+        pilot case_count = v4_ty_route_case_count(ty_id, route_sig)
+        repeat until case_id >= case_count {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field_id = 0
+            pilot field_count = v4_ty_route_case_field_count(ty_id, storage_type, case_name)
+            repeat until field_id >= field_count {
+                pilot field_type = v4_ty_route_case_field_surface_type(ty_id, storage_type, case_name, field_id)
+                field_type = v4_ty_apply_signature_generics(ty_id, route_sig, storage_type, field_type)
+                route_kind = v4_ty_lend_storage_class_merge(route_kind, v4_ty_lend_storage_class_seen(ty_id, field_type, route_seen, depth + 1, named_only, mutable_only))
+                field_id += 1
+            }
+            case_id += 1
+        }
+        give back route_kind
+    }
+
+    if v4_ty_is_generic_instance_type(storage_type) {
+        pilot generic_kind = v4_ty_lend_storage_none
+        pilot arg_id = 0
+        pilot arg_count = v4_ty_generic_arg_count(storage_type)
+        repeat until arg_id >= arg_count {
+            pilot arg_type = v4_ty_generic_arg(storage_type, arg_id)
+            if not v4_ty_is_lifetime_name(arg_type) {
+                generic_kind = v4_ty_lend_storage_class_merge(generic_kind, v4_ty_lend_storage_class_seen(ty_id, arg_type, seen_types, depth + 1, named_only, mutable_only))
+            }
+            arg_id += 1
+        }
+        give back v4_ty_lend_storage_wrap_unsupported(generic_kind)
+    }
+
+    give back v4_ty_lend_storage_none
+}
+
+task v4_ty_type_lend_storage_class(ty_id: int, type_text: word) -> word {
+    give back v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, false)
+}
+
+task v4_ty_lend_storage_class_confirms_lend(storage_kind: word) -> bool {
+    give back storage_kind == v4_ty_lend_storage_fixed or storage_kind == v4_ty_lend_storage_unsupported
+}
+
+task v4_ty_lend_storage_class_is_incomplete(storage_kind: word) -> bool {
+    give back storage_kind == v4_ty_lend_storage_exhausted or storage_kind == v4_ty_lend_storage_opaque
+}
+
+task v4_ty_type_lend_storage_exhausted(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_is_incomplete(v4_ty_type_lend_storage_class(ty_id, type_text))
+}
+
+task v4_ty_type_stores_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_type_lend_storage_class(ty_id, type_text))
+}
+
+task v4_ty_type_may_store_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_type_lend_storage_class(ty_id, type_text) != v4_ty_lend_storage_none
+}
+
+task v4_ty_type_stores_mut_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, true))
+}
+
+task v4_ty_type_may_store_mut_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, false, true) != v4_ty_lend_storage_none
+}
+
+task v4_ty_type_stores_named_lend(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_lend_storage_class_confirms_lend(v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, true, false))
+}
+
+task v4_ty_type_supports_fixed_lend_storage(ty_id: int, type_text: word) -> bool {
+    pilot storage_kind = v4_ty_type_lend_storage_class(ty_id, type_text)
+    give back storage_kind == v4_ty_lend_storage_none or storage_kind == v4_ty_lend_storage_fixed
+}
+
+task v4_ty_type_retains_closure_storage_seen(ty_id: int, type_text: word, seen_types: word, depth: int) -> bool {
+    if depth > v4_ty_lend_storage_depth_limit { give back true }
+    if v4_ty_is_closure_type(type_text) or type_text.starts_with("closure[") { give back true }
+
+    if v4_ty_is_lend_type(type_text) {
+        give back v4_ty_type_retains_closure_storage_seen(ty_id, v4_ty_lend_target_type(type_text), seen_types, depth + 1)
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            if v4_ty_type_retains_closure_storage_seen(ty_id, v4_ty_tuple_slot_type(type_text, slot_id), seen_types, depth + 1) { give back true }
+            slot_id += 1
+        }
+        give back false
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        if v4_ty_fixed_array_length_normalized_text(ty_id, type_text) == "0" { give back false }
+        give back v4_ty_type_retains_closure_storage_seen(ty_id, v4_ty_fixed_array_element_type(type_text), seen_types, depth + 1)
+    }
+
+    pilot alias_lookup = v4_ty_alias_lookup_type_from_surface_type(ty_id, type_text)
+    if alias_lookup != "" {
+        pilot alias_key = "closure-alias:" + alias_lookup
+        if v4_ty_alias_cycle_seen_contains(seen_types, alias_key) { give back false }
+        pilot alias_target = v4_ty_alias_target_type(ty_id, alias_lookup)
+        if alias_target == "" or alias_target == v4_ty_unknown { give back false }
+        give back v4_ty_type_retains_closure_storage_seen(ty_id, alias_target, v4_ty_alias_cycle_seen_append(seen_types, alias_key), depth + 1)
+    }
+
+    pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
+    if storage_type == "" or storage_type == v4_ty_unknown { storage_type = type_text }
+
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, storage_type)
+    if shape_sig >= 0 {
+        pilot shape_key = "closure-shape:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, shape_key) { give back false }
+        pilot shape_seen = v4_ty_alias_cycle_seen_append(seen_types, shape_key)
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            pilot field_type = v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id)
+            field_type = v4_ty_apply_signature_generics(ty_id, shape_sig, storage_type, field_type)
+            if v4_ty_type_retains_closure_storage_seen(ty_id, field_type, shape_seen, depth + 1) { give back true }
+            field_id += 1
+        }
+        give back false
+    }
+
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, storage_type)
+    if route_sig >= 0 {
+        pilot route_key = "closure-route:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, route_key) { give back false }
+        pilot route_seen = v4_ty_alias_cycle_seen_append(seen_types, route_key)
+        pilot case_id = 0
+        pilot case_count = v4_ty_route_case_count(ty_id, route_sig)
+        repeat until case_id >= case_count {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field_id = 0
+            pilot field_count = v4_ty_route_case_field_count(ty_id, storage_type, case_name)
+            repeat until field_id >= field_count {
+                pilot field_type = v4_ty_route_case_field_surface_type(ty_id, storage_type, case_name, field_id)
+                field_type = v4_ty_apply_signature_generics(ty_id, route_sig, storage_type, field_type)
+                if v4_ty_type_retains_closure_storage_seen(ty_id, field_type, route_seen, depth + 1) { give back true }
+                field_id += 1
+            }
+            case_id += 1
+        }
+        give back false
+    }
+
+    if v4_ty_is_generic_instance_type(storage_type) {
+        pilot arg_id = 0
+        pilot arg_count = v4_ty_generic_arg_count(storage_type)
+        repeat until arg_id >= arg_count {
+            pilot arg_type = v4_ty_generic_arg(storage_type, arg_id)
+            if not v4_ty_is_lifetime_name(arg_type) and v4_ty_type_retains_closure_storage_seen(ty_id, arg_type, seen_types, depth + 1) { give back true }
+            arg_id += 1
+        }
+    }
+    give back false
+}
+
+task v4_ty_type_retains_closure_storage(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_type_retains_closure_storage_seen(ty_id, type_text, "", 0)
+}
+
+task v4_ty_fixed_lend_leaf_count_seen(ty_id: int, type_text: word, seen_types: word, depth: int) -> int {
+    if type_text == "" or type_text == v4_ty_unknown or v4_ty_is_lifetime_name(type_text) {
+        give back 0
+    }
+    if depth > v4_ty_lend_storage_depth_limit {
+        give back 0 - 1
+    }
+    if v4_ty_is_lend_type(type_text) {
+        give back 1
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot count = 0
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, v4_ty_tuple_slot_type(type_text, slot_id), seen_types, depth + 1)
+            if child_count < 0 {
+                give back 0 - 1
+            }
+            count += child_count
+            if count > v4_ty_fixed_lend_leaf_limit { give back 0 - 1 }
+            slot_id += 1
+        }
+        give back count
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        pilot length_text = v4_ty_fixed_array_length_normalized_text(ty_id, type_text)
+        if length_text == "0" {
+            give back 0
+        }
+        give back v4_ty_fixed_lend_leaf_count_seen(ty_id, v4_ty_fixed_array_element_type(type_text), seen_types, depth + 1)
+    }
+
+    pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
+    if storage_type == "" or storage_type == v4_ty_unknown {
+        storage_type = type_text
+    }
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, storage_type)
+    if shape_sig >= 0 {
+        pilot shape_key = "shape:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, shape_key) {
+            give back 0 - 1
+        }
+        pilot shape_seen = v4_ty_alias_cycle_seen_append(seen_types, shape_key)
+        pilot count = 0
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            pilot field_type = v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id)
+            field_type = v4_ty_apply_signature_generics(ty_id, shape_sig, storage_type, field_type)
+            pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, field_type, shape_seen, depth + 1)
+            if child_count < 0 {
+                give back 0 - 1
+            }
+            count += child_count
+            if count > v4_ty_fixed_lend_leaf_limit { give back 0 - 1 }
+            field_id += 1
+        }
+        give back count
+    }
+
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, storage_type)
+    if route_sig >= 0 {
+        pilot route_key = "route:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, route_key) {
+            give back 0 - 1
+        }
+        pilot route_seen = v4_ty_alias_cycle_seen_append(seen_types, route_key)
+        pilot count = 0
+        pilot case_id = 0
+        pilot case_count = v4_ty_route_case_count(ty_id, route_sig)
+        repeat until case_id >= case_count {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field_id = 0
+            pilot field_count = v4_ty_route_case_field_count(ty_id, storage_type, case_name)
+            repeat until field_id >= field_count {
+                pilot field_type = v4_ty_route_case_field_surface_type(ty_id, storage_type, case_name, field_id)
+                field_type = v4_ty_apply_signature_generics(ty_id, route_sig, storage_type, field_type)
+                pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, field_type, route_seen, depth + 1)
+                if child_count < 0 {
+                    give back 0 - 1
+                }
+                count += child_count
+                if count > v4_ty_fixed_lend_leaf_limit { give back 0 - 1 }
+                field_id += 1
+            }
+            case_id += 1
+        }
+        give back count
+    }
+    give back 0
+}
+
+task v4_ty_fixed_lend_leaf_count(ty_id: int, type_text: word) -> int {
+    if not v4_ty_type_supports_fixed_lend_storage(ty_id, type_text) {
+        give back 0 - 1
+    }
+    give back v4_ty_fixed_lend_leaf_count_seen(ty_id, type_text, "", 0)
+}
+
+task v4_ty_fixed_lend_leaf_type_at_seen(ty_id: int, type_text: word, seen_types: word, depth: int, leaf_id: int) -> word {
+    if leaf_id < 0 or depth > v4_ty_lend_storage_depth_limit {
+        give back v4_ty_unknown
+    }
+    if v4_ty_is_lend_type(type_text) {
+        if leaf_id == 0 {
+            give back type_text
+        }
+        give back v4_ty_unknown
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            pilot slot_type = v4_ty_tuple_slot_type(type_text, slot_id)
+            pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, slot_type, seen_types, depth + 1)
+            if child_count < 0 {
+                give back v4_ty_unknown
+            }
+            if leaf_id < child_count {
+                give back v4_ty_fixed_lend_leaf_type_at_seen(ty_id, slot_type, seen_types, depth + 1, leaf_id)
+            }
+            leaf_id -= child_count
+            slot_id += 1
+        }
+        give back v4_ty_unknown
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_fixed_lend_leaf_type_at_seen(ty_id, v4_ty_fixed_array_element_type(type_text), seen_types, depth + 1, leaf_id)
+    }
+
+    pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
+    if storage_type == "" or storage_type == v4_ty_unknown {
+        storage_type = type_text
+    }
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, storage_type)
+    if shape_sig >= 0 {
+        pilot shape_key = "shape:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, shape_key) {
+            give back v4_ty_unknown
+        }
+        pilot shape_seen = v4_ty_alias_cycle_seen_append(seen_types, shape_key)
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            pilot field_type = v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id)
+            field_type = v4_ty_apply_signature_generics(ty_id, shape_sig, storage_type, field_type)
+            pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, field_type, shape_seen, depth + 1)
+            if child_count < 0 {
+                give back v4_ty_unknown
+            }
+            if leaf_id < child_count {
+                give back v4_ty_fixed_lend_leaf_type_at_seen(ty_id, field_type, shape_seen, depth + 1, leaf_id)
+            }
+            leaf_id -= child_count
+            field_id += 1
+        }
+        give back v4_ty_unknown
+    }
+
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, storage_type)
+    if route_sig >= 0 {
+        pilot route_key = "route:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, route_key) {
+            give back v4_ty_unknown
+        }
+        pilot route_seen = v4_ty_alias_cycle_seen_append(seen_types, route_key)
+        pilot case_id = 0
+        pilot case_count = v4_ty_route_case_count(ty_id, route_sig)
+        repeat until case_id >= case_count {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field_id = 0
+            pilot field_count = v4_ty_route_case_field_count(ty_id, storage_type, case_name)
+            repeat until field_id >= field_count {
+                pilot field_type = v4_ty_route_case_field_surface_type(ty_id, storage_type, case_name, field_id)
+                field_type = v4_ty_apply_signature_generics(ty_id, route_sig, storage_type, field_type)
+                pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, field_type, route_seen, depth + 1)
+                if child_count < 0 {
+                    give back v4_ty_unknown
+                }
+                if leaf_id < child_count {
+                    give back v4_ty_fixed_lend_leaf_type_at_seen(ty_id, field_type, route_seen, depth + 1, leaf_id)
+                }
+                leaf_id -= child_count
+                field_id += 1
+            }
+            case_id += 1
+        }
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_fixed_lend_leaf_type_at(ty_id: int, type_text: word, leaf_id: int) -> word {
+    if not v4_ty_type_supports_fixed_lend_storage(ty_id, type_text) {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_fixed_lend_leaf_type_at_seen(ty_id, type_text, "", 0, leaf_id)
+}
+
+task v4_ty_fixed_lend_leaf_projection_at_seen(ty_id: int, type_text: word, seen_types: word, depth: int, leaf_id: int) -> word {
+    if leaf_id < 0 or depth > v4_ty_lend_storage_depth_limit or v4_ty_is_lend_type(type_text) {
+        give back ""
+    }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            pilot slot_type = v4_ty_tuple_slot_type(type_text, slot_id)
+            pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, slot_type, seen_types, depth + 1)
+            if child_count < 0 { give back "" }
+            if leaf_id < child_count {
+                give back "." + word_from_int(slot_id) + v4_ty_fixed_lend_leaf_projection_at_seen(ty_id, slot_type, seen_types, depth + 1, leaf_id)
+            }
+            leaf_id -= child_count
+            slot_id += 1
+        }
+        give back ""
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back "[*]" + v4_ty_fixed_lend_leaf_projection_at_seen(ty_id, v4_ty_fixed_array_element_type(type_text), seen_types, depth + 1, leaf_id)
+    }
+
+    pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
+    if storage_type == "" or storage_type == v4_ty_unknown { storage_type = type_text }
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, storage_type)
+    if shape_sig >= 0 {
+        pilot shape_key = "shape:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, shape_key) { give back "" }
+        pilot shape_seen = v4_ty_alias_cycle_seen_append(seen_types, shape_key)
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            pilot field_type = v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id)
+            field_type = v4_ty_apply_signature_generics(ty_id, shape_sig, storage_type, field_type)
+            pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, field_type, shape_seen, depth + 1)
+            if child_count < 0 { give back "" }
+            if leaf_id < child_count {
+                give back "." + v4_ty_shape_field_name(ty_id, shape_sig, field_id) + v4_ty_fixed_lend_leaf_projection_at_seen(ty_id, field_type, shape_seen, depth + 1, leaf_id)
+            }
+            leaf_id -= child_count
+            field_id += 1
+        }
+        give back ""
+    }
+
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, storage_type)
+    if route_sig >= 0 {
+        pilot route_key = "route:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, route_key) { give back "" }
+        pilot route_seen = v4_ty_alias_cycle_seen_append(seen_types, route_key)
+        pilot case_id = 0
+        pilot case_count = v4_ty_route_case_count(ty_id, route_sig)
+        repeat until case_id >= case_count {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field_id = 0
+            pilot field_count = v4_ty_route_case_field_count(ty_id, storage_type, case_name)
+            repeat until field_id >= field_count {
+                pilot field_type = v4_ty_route_case_field_surface_type(ty_id, storage_type, case_name, field_id)
+                field_type = v4_ty_apply_signature_generics(ty_id, route_sig, storage_type, field_type)
+                pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, field_type, route_seen, depth + 1)
+                if child_count < 0 { give back "" }
+                if leaf_id < child_count {
+                    give back "." + v4_ty_route_case_field_name(ty_id, storage_type, case_name, field_id) + v4_ty_fixed_lend_leaf_projection_at_seen(ty_id, field_type, route_seen, depth + 1, leaf_id)
+                }
+                leaf_id -= child_count
+                field_id += 1
+            }
+            case_id += 1
+        }
+    }
+    give back ""
+}
+
+task v4_ty_fixed_lend_leaf_projection_at(ty_id: int, type_text: word, leaf_id: int) -> word {
+    if leaf_id < 0 or not v4_ty_type_supports_fixed_lend_storage(ty_id, type_text) {
+        give back ""
+    }
+    give back v4_ty_fixed_lend_leaf_projection_at_seen(ty_id, type_text, "", 0, leaf_id)
+}
+
+task v4_ty_fixed_lend_leaf_route_guard_at_seen(ty_id: int, type_text: word, seen_types: word, depth: int, leaf_id: int) -> word {
+    if leaf_id < 0 or depth > v4_ty_lend_storage_depth_limit or v4_ty_is_lend_type(type_text) { give back "" }
+    if v4_ty_is_tuple_type(type_text) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(type_text)
+        repeat until slot_id >= slot_count {
+            pilot slot_type = v4_ty_tuple_slot_type(type_text, slot_id)
+            pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, slot_type, seen_types, depth + 1)
+            if child_count < 0 { give back "" }
+            if leaf_id < child_count { give back v4_ty_fixed_lend_leaf_route_guard_at_seen(ty_id, slot_type, seen_types, depth + 1, leaf_id) }
+            leaf_id -= child_count
+            slot_id += 1
+        }
+        give back ""
+    }
+    if v4_ty_is_fixed_array_type(type_text) {
+        give back v4_ty_fixed_lend_leaf_route_guard_at_seen(ty_id, v4_ty_fixed_array_element_type(type_text), seen_types, depth + 1, leaf_id)
+    }
+
+    pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
+    if storage_type == "" or storage_type == v4_ty_unknown { storage_type = type_text }
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, storage_type)
+    if shape_sig >= 0 {
+        pilot shape_key = "shape:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, shape_key) { give back "" }
+        pilot shape_seen = v4_ty_alias_cycle_seen_append(seen_types, shape_key)
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            pilot field_type = v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id)
+            field_type = v4_ty_apply_signature_generics(ty_id, shape_sig, storage_type, field_type)
+            pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, field_type, shape_seen, depth + 1)
+            if child_count < 0 { give back "" }
+            if leaf_id < child_count { give back v4_ty_fixed_lend_leaf_route_guard_at_seen(ty_id, field_type, shape_seen, depth + 1, leaf_id) }
+            leaf_id -= child_count
+            field_id += 1
+        }
+        give back ""
+    }
+
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, storage_type)
+    if route_sig >= 0 {
+        pilot route_key = "route:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, route_key) { give back "" }
+        pilot route_seen = v4_ty_alias_cycle_seen_append(seen_types, route_key)
+        pilot case_id = 0
+        pilot case_count = v4_ty_route_case_count(ty_id, route_sig)
+        repeat until case_id >= case_count {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field_id = 0
+            pilot field_count = v4_ty_route_case_field_count(ty_id, storage_type, case_name)
+            repeat until field_id >= field_count {
+                pilot field_type = v4_ty_route_case_field_surface_type(ty_id, storage_type, case_name, field_id)
+                field_type = v4_ty_apply_signature_generics(ty_id, route_sig, storage_type, field_type)
+                pilot child_count = v4_ty_fixed_lend_leaf_count_seen(ty_id, field_type, route_seen, depth + 1)
+                if child_count < 0 { give back "" }
+                if leaf_id < child_count {
+                    pilot child_guard = v4_ty_fixed_lend_leaf_route_guard_at_seen(ty_id, field_type, route_seen, depth + 1, leaf_id)
+                    pilot guard = storage_type + "::" + case_name
+                    if child_guard != "" { guard = guard + "/" + child_guard }
+                    give back guard
+                }
+                leaf_id -= child_count
+                field_id += 1
+            }
+            case_id += 1
+        }
+    }
+    give back ""
+}
+
+task v4_ty_fixed_lend_leaf_route_guard_at(ty_id: int, type_text: word, leaf_id: int) -> word {
+    if leaf_id < 0 or not v4_ty_type_supports_fixed_lend_storage(ty_id, type_text) { give back "" }
+    give back v4_ty_fixed_lend_leaf_route_guard_at_seen(ty_id, type_text, "", 0, leaf_id)
+}
+
 task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
     if not v4_ty_is_known(expected_ty) or not v4_ty_is_known(actual_ty) {
         give back true
@@ -1803,6 +2664,32 @@ task v4_ty_types_compatible(expected_ty: word, actual_ty: word) -> bool {
     }
     if v4_ty_is_numeric(expected_ty) and v4_ty_is_numeric(actual_ty) {
         give back true
+    }
+    if v4_ty_is_tuple_type(expected_ty) or v4_ty_is_tuple_type(actual_ty) {
+        if not v4_ty_is_tuple_type(expected_ty) or not v4_ty_is_tuple_type(actual_ty) {
+            give back false
+        }
+        pilot expected_slots = v4_ty_tuple_slot_count(expected_ty)
+        if expected_slots != v4_ty_tuple_slot_count(actual_ty) {
+            give back false
+        }
+        pilot slot_id = 0
+        repeat until slot_id >= expected_slots {
+            if not v4_ty_types_compatible(v4_ty_tuple_slot_type(expected_ty, slot_id), v4_ty_tuple_slot_type(actual_ty, slot_id)) {
+                give back false
+            }
+            slot_id += 1
+        }
+        give back true
+    }
+    if v4_ty_is_fixed_array_type(expected_ty) or v4_ty_is_fixed_array_type(actual_ty) {
+        if not v4_ty_is_fixed_array_type(expected_ty) or not v4_ty_is_fixed_array_type(actual_ty) {
+            give back false
+        }
+        if v4_ty_fixed_array_length_text(expected_ty) != v4_ty_fixed_array_length_text(actual_ty) {
+            give back false
+        }
+        give back v4_ty_types_compatible(v4_ty_fixed_array_element_type(expected_ty), v4_ty_fixed_array_element_type(actual_ty))
     }
     if v4_ty_is_raw_pointer_type(expected_ty) and v4_ty_is_raw_pointer_type(actual_ty) {
         if v4_ty_raw_pointer_prefix(expected_ty) != v4_ty_raw_pointer_prefix(actual_ty) {
@@ -4293,6 +5180,160 @@ task v4_ty_infer_arrow_expr_return(stream_id: int, start_token: int, end_token: 
     give back v4_ty_unknown
 }
 
+task v4_ty_closure_param_type_for_name(ty_id: int, hir_item: int, closure_id: int, param_name: word) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot owner_sig = v4_ty_signature_for_hir_item(ty_id, hir_item)
+    pilot param_id = 0
+    pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+    repeat until param_id >= param_count {
+        if v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id) == param_name {
+            pilot param_ty = v4_hir_closure_param_type(hir_id, hir_item, closure_id, param_id)
+            if param_ty == "" {
+                give back v4_ty_unknown
+            }
+            if owner_sig >= 0 {
+                param_ty = v4_ty_canonical_type_in_signature(ty_id, owner_sig, param_ty)
+            }
+            give back param_ty
+        }
+        param_id += 1
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_infer_closure_block_return(ty_id: int, hir_item: int, closure_id: int, stream_id: int, start_token: int, end_token: int) -> word {
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_value(stream_id, idx) == "give" {
+            pilot back_token = v4_ty_next_nontrivia(stream_id, idx + 1, end_token)
+            if back_token < end_token and v4_lex_token_value(stream_id, back_token) == "back" {
+                pilot expr_token = v4_ty_next_nontrivia(stream_id, back_token + 1, end_token)
+                if expr_token >= end_token or v4_lex_token_value(stream_id, expr_token) == "}" {
+                    give back v4_ty_void
+                }
+                pilot inferred = v4_ty_infer_arrow_expr_return(stream_id, expr_token, end_token)
+                if inferred != v4_ty_unknown {
+                    give back inferred
+                }
+                pilot token_type = v4_lex_token_type(stream_id, expr_token)
+                if token_type == v4_tok_ident or token_type == v4_tok_keyword {
+                    pilot after_expr = v4_ty_next_nontrivia(stream_id, expr_token + 1, end_token)
+                    if after_expr >= end_token or v4_lex_token_value(stream_id, after_expr) == ";" or v4_lex_token_value(stream_id, after_expr) == "}" {
+                        give back v4_ty_closure_param_type_for_name(ty_id, hir_item, closure_id, v4_lex_token_value(stream_id, expr_token))
+                    }
+                }
+                give back v4_ty_unknown
+            }
+        }
+        idx += 1
+    }
+    give back v4_ty_void
+}
+
+task v4_ty_validate_closure_params(ty_id: int) -> void {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back
+    }
+    pilot hir_item = 0
+    pilot hir_count = v4_hir_item_count(hir_id)
+    repeat until hir_item >= hir_count {
+        pilot closure_id = 0
+        pilot closure_count = v4_hir_closure_count(hir_id, hir_item)
+        repeat until closure_id >= closure_count {
+            pilot param_id = 0
+            pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+            repeat until param_id >= param_count {
+                pilot param_name = v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id)
+                if param_name != "" and param_name != "_" {
+                    pilot earlier_id = 0
+                    repeat until earlier_id >= param_id {
+                        if v4_hir_closure_param_name(hir_id, hir_item, closure_id, earlier_id) == param_name {
+                            v4_ty_add_error_diag(ty_id, v4_hir_closure_param_span(hir_id, hir_item, closure_id, param_id), "Yuuko found a repeated closure parameter", "rename the second " + param_name + " parameter so every role in the closure cast is unambiguous")
+                            earlier_id = param_id
+                        } else {
+                            earlier_id += 1
+                        }
+                    }
+                }
+                param_id += 1
+            }
+            closure_id += 1
+        }
+        hir_item += 1
+    }
+}
+
+task v4_ty_signature_for_hir_item(ty_id: int, hir_item: int) -> int {
+    pilot sig_id = 0
+    pilot sig_count = v4_ty_signature_count(ty_id)
+    repeat until sig_id >= sig_count {
+        if v4_ty_signature_hir_item(ty_id, sig_id) == hir_item and v4_ty_signature_extern_member_id(ty_id, sig_id) < 0 {
+            give back sig_id
+        }
+        sig_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_closure_type_at(ty_id: int, hir_item: int, closure_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or closure_id < 0 or closure_id >= v4_hir_closure_count(hir_id, hir_item) {
+        give back v4_ty_unknown
+    }
+
+    pilot mode = v4_hir_closure_mode(hir_id, hir_item, closure_id)
+    if mode == "" {
+        mode = v4_ty_closure_mode_borrow
+    }
+    pilot owner_sig = v4_ty_signature_for_hir_item(ty_id, hir_item)
+    pilot out = v4_ty_closure_type_prefix(mode) + "("
+    pilot param_id = 0
+    pilot param_count = v4_hir_closure_param_count(hir_id, hir_item, closure_id)
+    if param_count == 1 and v4_hir_closure_param_name(hir_id, hir_item, closure_id, 0) == "_" and v4_hir_closure_param_type(hir_id, hir_item, closure_id, 0) == "" {
+        param_count = 0
+    }
+    repeat until param_id >= param_count {
+        if param_id > 0 {
+            out = out + ","
+        }
+        pilot param_name = v4_hir_closure_param_name(hir_id, hir_item, closure_id, param_id)
+        pilot param_ty = v4_hir_closure_param_type(hir_id, hir_item, closure_id, param_id)
+        if param_ty == "" {
+            param_ty = v4_ty_unknown
+        } else if owner_sig >= 0 {
+            param_ty = v4_ty_canonical_type_in_signature(ty_id, owner_sig, param_ty)
+        }
+        if param_name != "" {
+            out = out + param_name + ":"
+        }
+        out = out + param_ty
+        param_id += 1
+    }
+
+    pilot return_ty = v4_ty_void
+    pilot body_kind = v4_hir_closure_body_kind(hir_id, hir_item, closure_id)
+    pilot stream_id = v4_hir_item_stream_id(hir_id)
+    if body_kind == "expr" {
+        return_ty = v4_ty_infer_arrow_expr_return(stream_id, v4_hir_closure_body_start_token(hir_id, hir_item, closure_id), v4_hir_closure_body_end_token(hir_id, hir_item, closure_id))
+    } else if body_kind == "block" {
+        return_ty = v4_ty_infer_closure_block_return(ty_id, hir_item, closure_id, stream_id, v4_hir_closure_body_start_token(hir_id, hir_item, closure_id), v4_hir_closure_body_end_token(hir_id, hir_item, closure_id))
+    }
+    give back out + ")->" + return_ty
+}
+
+task v4_ty_closure_type_for_offset(ty_id: int, hir_item: int, offset: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 {
+        give back v4_ty_unknown
+    }
+    pilot closure_id = v4_hir_closure_at_offset(hir_id, hir_item, offset)
+    if closure_id < 0 {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_closure_type_at(ty_id, hir_item, closure_id)
+}
+
 task v4_ty_route_surface_keyword(hir_id: int, hir_item: int) -> word {
     if hir_item >= 0 and v4_hir_route_is_variant(hir_id, hir_item) {
         give back "variant"
@@ -6345,6 +7386,23 @@ task v4_ty_impl_method_explicit_param_mode(ty_id: int, hir_item: int, method_id:
     give back v4_ty_impl_method_param_mode(ty_id, hir_item, method_id, param_id + shift)
 }
 
+task v4_ty_is_bare_type_pattern_binding(ty_id: int, type_text: word) -> bool {
+    if type_text == "" or v4_ty_is_lifetime_name(type_text) or v4_ty_is_declared_simple_type_name(ty_id, type_text) {
+        give back false
+    }
+    if not v4_lex_is_ident_start(type_text.char_at(0)) {
+        give back false
+    }
+    pilot idx = 1
+    repeat until idx >= type_text.length() {
+        if not v4_lex_is_ident_continue(type_text.char_at(idx)) {
+            give back false
+        }
+        idx += 1
+    }
+    give back true
+}
+
 task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word, env: word) -> word {
     if env == v4_ty_generic_env_fail {
         give back env
@@ -6363,16 +7421,33 @@ task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word,
     if pattern_ty == actual_ty {
         give back env
     }
+    if v4_ty_is_lifetime_name(pattern_ty) or v4_ty_is_lifetime_name(actual_ty) {
+        if not v4_ty_is_lifetime_name(pattern_ty) or not v4_ty_is_lifetime_name(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        give back v4_ty_generic_env_bind(env, pattern_ty, actual_ty)
+    }
     if v4_ty_is_numeric(pattern_ty) and v4_ty_is_numeric(actual_ty) {
         give back env
     }
-    if v4_ty_is_raw_pointer_type(pattern_ty) and v4_ty_is_raw_pointer_type(actual_ty) {
+    -- Bind a bare impl generic before composite mismatch guards inspect the
+    -- concrete type substituted for it, such as T = Direct<'a>.
+    if v4_ty_is_bare_type_pattern_binding(ty_id, pattern_ty) {
+        give back v4_ty_generic_env_bind(env, pattern_ty, actual_ty)
+    }
+    if v4_ty_is_raw_pointer_type(pattern_ty) or v4_ty_is_raw_pointer_type(actual_ty) {
+        if not v4_ty_is_raw_pointer_type(pattern_ty) or not v4_ty_is_raw_pointer_type(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
         if v4_ty_raw_pointer_prefix(pattern_ty) != v4_ty_raw_pointer_prefix(actual_ty) {
             give back v4_ty_generic_env_fail
         }
         give back v4_ty_match_type_pattern_env(ty_id, v4_ty_raw_pointer_target_type(pattern_ty), v4_ty_raw_pointer_target_type(actual_ty), env)
     }
-    if v4_ty_is_generic_instance_type(pattern_ty) and v4_ty_is_generic_instance_type(actual_ty) {
+    if v4_ty_is_generic_instance_type(pattern_ty) or v4_ty_is_generic_instance_type(actual_ty) {
+        if not v4_ty_is_generic_instance_type(pattern_ty) or not v4_ty_is_generic_instance_type(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
         if v4_ty_generic_base_name(pattern_ty) != v4_ty_generic_base_name(actual_ty) {
             give back v4_ty_generic_env_fail
         }
@@ -6391,7 +7466,10 @@ task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word,
         }
         give back next_env
     }
-    if v4_ty_is_tuple_type(pattern_ty) and v4_ty_is_tuple_type(actual_ty) {
+    if v4_ty_is_tuple_type(pattern_ty) or v4_ty_is_tuple_type(actual_ty) {
+        if not v4_ty_is_tuple_type(pattern_ty) or not v4_ty_is_tuple_type(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
         if v4_ty_tuple_slot_count(pattern_ty) != v4_ty_tuple_slot_count(actual_ty) {
             give back v4_ty_generic_env_fail
         }
@@ -6407,14 +7485,14 @@ task v4_ty_match_type_pattern_env(ty_id: int, pattern_ty: word, actual_ty: word,
         }
         give back next_env
     }
-    if v4_ty_is_fixed_array_type(pattern_ty) and v4_ty_is_fixed_array_type(actual_ty) {
+    if v4_ty_is_fixed_array_type(pattern_ty) or v4_ty_is_fixed_array_type(actual_ty) {
+        if not v4_ty_is_fixed_array_type(pattern_ty) or not v4_ty_is_fixed_array_type(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
         if v4_ty_fixed_array_length_normalized_text(ty_id, pattern_ty) != v4_ty_fixed_array_length_normalized_text(ty_id, actual_ty) {
             give back v4_ty_generic_env_fail
         }
         give back v4_ty_match_type_pattern_env(ty_id, v4_ty_fixed_array_element_type(pattern_ty), v4_ty_fixed_array_element_type(actual_ty), env)
-    }
-    if not v4_ty_is_declared_simple_type_name(ty_id, pattern_ty) {
-        give back v4_ty_generic_env_bind(env, pattern_ty, actual_ty)
     }
     if v4_ty_types_compatible(pattern_ty, actual_ty) {
         give back env
@@ -6720,6 +7798,18 @@ task v4_ty_doctrine_method_param_name(ty_id: int, sig_id: int, method_id: int, p
     pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
     pilot end_token = v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
     give back v4_ty_param_name_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_doctrine_method_param_mode(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot open_token = v4_ty_doctrine_method_param_open_token(ty_id, sig_id, method_id)
+    pilot close_token = v4_ty_doctrine_method_param_close_token(ty_id, sig_id, method_id)
+    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+        give back v4_ty_param_mode_value
+    }
+    pilot start_token = v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
+    pilot end_token = v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
+    give back v4_ty_param_mode_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_doctrine_method_param_surface_type(ty_id: int, sig_id: int, method_id: int, param_id: int) -> word {
@@ -7120,7 +8210,132 @@ task v4_ty_match_doctrine_generic_arg_env(ty_id: int, sig_id: int, wanted_ty: wo
     give back v4_ty_generic_env_fail
 }
 
-task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {
+task v4_ty_copy_doctrine_cache_sync_restore_generation() -> void {
+    pilot generation = v4_session_semantic_restore_generation()
+    if v4_ty_copy_doctrine_cache_restore_generation_value != generation {
+        v4_ty_copy_doctrine_cache_entry_count_value = 0
+        v4_ty_copy_doctrine_cache_next_row_value = 0
+        v4_ty_copy_doctrine_cache_restore_generation_value = generation
+    }
+}
+
+task v4_ty_copy_doctrine_cache_lookup(ty_id: int, sig_id: int, actual_ty: word) -> word {
+    v4_ty_init()
+    v4_ty_copy_doctrine_cache_sync_restore_generation()
+    pilot row = 0
+    repeat until row >= v4_ty_copy_doctrine_cache_entry_count_value {
+        pilot cached_type: word = array_get(v4_ty_copy_doctrine_cache_types, row)
+        if word_to_int(array_get(v4_ty_copy_doctrine_cache_ty_ids, row)) == ty_id and word_to_int(array_get(v4_ty_copy_doctrine_cache_sig_ids, row)) == sig_id and cached_type == actual_ty {
+            pilot cached_value: word = array_get(v4_ty_copy_doctrine_cache_values, row)
+            give back cached_value
+        }
+        row += 1
+    }
+    give back ""
+}
+
+task v4_ty_copy_doctrine_cache_store(ty_id: int, sig_id: int, actual_ty: word, match_result: word) -> void {
+    v4_ty_init()
+    v4_ty_copy_doctrine_cache_sync_restore_generation()
+    pilot encoded = match_result
+    if encoded == "" { encoded = "#ok" }
+    pilot row = v4_ty_copy_doctrine_cache_entry_count_value
+    if row >= v4_ty_copy_doctrine_cache_capacity_value {
+        row = v4_ty_copy_doctrine_cache_next_row_value
+        v4_ty_copy_doctrine_cache_next_row_value += 1
+        if v4_ty_copy_doctrine_cache_next_row_value >= v4_ty_copy_doctrine_cache_capacity_value {
+            v4_ty_copy_doctrine_cache_next_row_value = 0
+        }
+    } else {
+        v4_ty_copy_doctrine_cache_entry_count_value += 1
+    }
+    if row < array_len(v4_ty_copy_doctrine_cache_types) {
+        array_set(v4_ty_copy_doctrine_cache_ty_ids, row, word_from_int(ty_id))
+        array_set(v4_ty_copy_doctrine_cache_sig_ids, row, word_from_int(sig_id))
+        array_set(v4_ty_copy_doctrine_cache_types, row, actual_ty)
+        array_set(v4_ty_copy_doctrine_cache_values, row, encoded)
+    } else {
+        array_push(v4_ty_copy_doctrine_cache_ty_ids, word_from_int(ty_id))
+        array_push(v4_ty_copy_doctrine_cache_sig_ids, word_from_int(sig_id))
+        array_push(v4_ty_copy_doctrine_cache_types, actual_ty)
+        array_push(v4_ty_copy_doctrine_cache_values, encoded)
+    }
+}
+
+task v4_ty_copy_doctrine_cache_reset() -> void {
+    v4_ty_init()
+    v4_ty_copy_doctrine_cache_entry_count_value = 0
+    v4_ty_copy_doctrine_cache_next_row_value = 0
+    v4_ty_copy_doctrine_cache_restore_generation_value = v4_session_semantic_restore_generation()
+}
+
+task v4_ty_copy_doctrine_cache_count() -> int {
+    v4_ty_copy_doctrine_cache_sync_restore_generation()
+    give back v4_ty_copy_doctrine_cache_entry_count_value
+}
+
+task v4_ty_copy_doctrine_cache_capacity() -> int {
+    give back v4_ty_copy_doctrine_cache_capacity_value
+}
+
+task v4_ty_copy_impl_storage_is_eligible(ty_id: int, sig_id: int, type_text: word, seen_types: word, depth: int) -> bool {
+    if depth > v4_ty_lend_storage_depth_limit or not v4_ty_is_known(type_text) {
+        give back false
+    }
+    if v4_ty_type_is_structurally_copy(ty_id, type_text, depth) {
+        give back true
+    }
+
+    pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, type_text)
+    if storage_type == "" or storage_type == v4_ty_unknown {
+        storage_type = type_text
+    }
+
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, storage_type)
+    if shape_sig >= 0 {
+        pilot shape_key = "copy-impl-shape:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, shape_key) { give back false }
+        pilot shape_seen = v4_ty_alias_cycle_seen_append(seen_types, shape_key)
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            pilot field_type = v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id)
+            field_type = v4_ty_apply_signature_generics(ty_id, shape_sig, storage_type, field_type)
+            if not v4_ty_type_is_doctrinal_copy_eligible(ty_id, sig_id, field_type, shape_seen, depth + 1) {
+                give back false
+            }
+            field_id += 1
+        }
+        give back true
+    }
+
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, storage_type)
+    if route_sig >= 0 {
+        pilot route_key = "copy-impl-route:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, route_key) { give back false }
+        pilot route_seen = v4_ty_alias_cycle_seen_append(seen_types, route_key)
+        pilot case_id = 0
+        pilot case_count = v4_ty_route_case_count(ty_id, route_sig)
+        repeat until case_id >= case_count {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field_id = 0
+            pilot field_count = v4_ty_route_case_field_count(ty_id, storage_type, case_name)
+            repeat until field_id >= field_count {
+                pilot field_type = v4_ty_route_case_field_surface_type(ty_id, storage_type, case_name, field_id)
+                field_type = v4_ty_apply_signature_generics(ty_id, route_sig, storage_type, field_type)
+                if not v4_ty_type_is_doctrinal_copy_eligible(ty_id, sig_id, field_type, route_seen, depth + 1) {
+                    give back false
+                }
+                field_id += 1
+            }
+            case_id += 1
+        }
+        give back true
+    }
+    give back false
+}
+
+task v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word, copy_seen_types: word, copy_depth: int) -> word {
     if env == v4_ty_generic_env_fail {
         give back env
     }
@@ -7146,7 +8361,9 @@ task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty:
                         pilot impl_doctrine = v4_ty_apply_impl_generics(ty_id, hir_item, actual_ty, v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item))
                         pilot next_env = v4_ty_match_doctrine_ref_env(ty_id, sig_id, wanted_doctrine, impl_doctrine, env)
                         if next_env != v4_ty_generic_env_fail {
-                            give back next_env
+                            if wanted_lookup != "Copy" or v4_ty_copy_impl_storage_is_eligible(ty_id, sig_id, actual_ty, copy_seen_types, copy_depth) {
+                                give back next_env
+                            }
                         }
                     }
                 }
@@ -7173,6 +8390,30 @@ task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty:
         bound_idx += 1
     }
     give back v4_ty_generic_env_fail
+}
+
+task v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {
+    give back v4_ty_match_type_satisfies_doctrine_env_uncached_seen(ty_id, sig_id, actual_ty, doctrine_name, env, "", 0)
+}
+
+task v4_ty_match_type_satisfies_doctrine_env(ty_id: int, sig_id: int, actual_ty: word, doctrine_name: word, env: word) -> word {
+    pilot cacheable: bool = env == "" and doctrine_name == "Copy" and v4_ty_is_known(actual_ty)
+    pilot cache_sig_id = sig_id
+    if cacheable and not v4_ty_type_mentions_signature_generics(ty_id, sig_id, actual_ty) {
+        cache_sig_id = 0 - 1
+    }
+    if cacheable {
+        pilot cached = v4_ty_copy_doctrine_cache_lookup(ty_id, cache_sig_id, actual_ty)
+        if cached != "" {
+            if cached == "#ok" { give back "" }
+            give back cached
+        }
+    }
+    pilot match_result = v4_ty_match_type_satisfies_doctrine_env_uncached(ty_id, sig_id, actual_ty, doctrine_name, env)
+    if cacheable {
+        v4_ty_copy_doctrine_cache_store(ty_id, cache_sig_id, actual_ty, match_result)
+    }
+    give back match_result
 }
 
 task v4_ty_match_type_can_coerce_to_dyn_env(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word, env: word) -> word {
@@ -7217,7 +8458,9 @@ task v4_ty_match_type_satisfies_doctrine_env_with_bounds(ty_id: int, doctrine_si
                         pilot impl_doctrine = v4_ty_apply_impl_generics(ty_id, hir_item, actual_ty, v4_ty_impl_doctrine_name_from_hir(ty_id, hir_item))
                         pilot next_env = v4_ty_match_doctrine_ref_env(ty_id, doctrine_sig_id, wanted_doctrine, impl_doctrine, env)
                         if next_env != v4_ty_generic_env_fail {
-                            give back next_env
+                            if wanted_lookup != "Copy" or v4_ty_copy_impl_storage_is_eligible(ty_id, doctrine_sig_id, actual_ty, "", 0) {
+                                give back next_env
+                            }
                         }
                     }
                 }
@@ -7460,6 +8703,309 @@ task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, symbol_def
 
 task v4_ty_signature_return_type(ty_id: int, sig_id: int) -> word {
     give back v4_ty_canonical_type_in_signature(ty_id, sig_id, v4_ty_signature_return_surface_type(ty_id, sig_id))
+}
+
+task v4_ty_signature_return_lend_leaf_count(ty_id: int, sig_id: int) -> int {
+    if not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+        give back 0 - 1
+    }
+    pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
+    if v4_ty_is_lend_type(return_ty) {
+        give back 1
+    }
+
+    give back v4_ty_fixed_lend_leaf_count(ty_id, return_ty)
+}
+
+task v4_ty_signature_return_lend_leaf_type_at(ty_id: int, sig_id: int, leaf_id: int) -> word {
+    if leaf_id < 0 or not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+        give back v4_ty_unknown
+    }
+    pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
+    if v4_ty_is_lend_type(return_ty) {
+        if leaf_id == 0 { give back return_ty }
+        give back v4_ty_unknown
+    }
+
+    give back v4_ty_fixed_lend_leaf_type_at(ty_id, return_ty, leaf_id)
+}
+
+task v4_ty_signature_return_lend_leaf_projection_at(ty_id: int, sig_id: int, leaf_id: int) -> word {
+    if leaf_id < 0 or not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+        give back ""
+    }
+    pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
+    if v4_ty_is_lend_type(return_ty) {
+        give back ""
+    }
+    give back v4_ty_fixed_lend_leaf_projection_at(ty_id, return_ty, leaf_id)
+}
+
+task v4_ty_signature_return_lend_leaf_route_guard_at(ty_id: int, sig_id: int, leaf_id: int) -> word {
+    if leaf_id < 0 or not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+        give back ""
+    }
+    pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
+    if v4_ty_is_lend_type(return_ty) {
+        give back ""
+    }
+    give back v4_ty_fixed_lend_leaf_route_guard_at(ty_id, return_ty, leaf_id)
+}
+
+task v4_ty_signature_param_lend_leaf_count(ty_id: int, sig_id: int, param_id: int) -> int {
+    if param_id < 0 or param_id >= v4_ty_signature_param_count(ty_id, sig_id) {
+        give back 0 - 1
+    }
+    pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+    if param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut {
+        give back 1
+    }
+    give back v4_ty_fixed_lend_leaf_count(ty_id, v4_ty_signature_param_type(ty_id, sig_id, param_id))
+}
+
+task v4_ty_signature_param_lend_leaf_type_at(ty_id: int, sig_id: int, param_id: int, leaf_id: int) -> word {
+    if leaf_id < 0 or param_id < 0 or param_id >= v4_ty_signature_param_count(ty_id, sig_id) {
+        give back v4_ty_unknown
+    }
+    pilot param_type = v4_ty_signature_param_type(ty_id, sig_id, param_id)
+    pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+    if param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut {
+        if leaf_id == 0 {
+            give back v4_ty_lend_type_with_lifetime(param_type, param_mode, v4_ty_signature_param_lifetime(ty_id, sig_id, param_id))
+        }
+        give back v4_ty_unknown
+    }
+    give back v4_ty_fixed_lend_leaf_type_at(ty_id, param_type, leaf_id)
+}
+
+task v4_ty_signature_param_lend_leaf_projection_at(ty_id: int, sig_id: int, param_id: int, leaf_id: int) -> word {
+    if leaf_id < 0 or param_id < 0 or param_id >= v4_ty_signature_param_count(ty_id, sig_id) {
+        give back ""
+    }
+    pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+    if param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut {
+        give back ""
+    }
+    give back v4_ty_fixed_lend_leaf_projection_at(ty_id, v4_ty_signature_param_type(ty_id, sig_id, param_id), leaf_id)
+}
+
+task v4_ty_signature_param_lend_leaf_route_guard_at(ty_id: int, sig_id: int, param_id: int, leaf_id: int) -> word {
+    if leaf_id < 0 or param_id < 0 or param_id >= v4_ty_signature_param_count(ty_id, sig_id) {
+        give back ""
+    }
+    pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+    if param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut {
+        give back ""
+    }
+    give back v4_ty_fixed_lend_leaf_route_guard_at(ty_id, v4_ty_signature_param_type(ty_id, sig_id, param_id), leaf_id)
+}
+
+task v4_ty_signature_source_can_project_target_seen(ty_id: int, sig_id: int, source_ty: word, target_ty: word, seen_types: word, depth: int) -> bool {
+    if depth > v4_ty_lend_storage_depth_limit { give back false }
+    if v4_ty_types_same_in_signature(ty_id, sig_id, source_ty, target_ty) { give back true }
+    if v4_ty_is_lend_type(source_ty) {
+        give back v4_ty_signature_source_can_project_target_seen(ty_id, sig_id, v4_ty_lend_target_type(source_ty), target_ty, seen_types, depth + 1)
+    }
+    if v4_ty_is_tuple_type(source_ty) {
+        pilot slot_id = 0
+        pilot slot_count = v4_ty_tuple_slot_count(source_ty)
+        repeat until slot_id >= slot_count {
+            if v4_ty_signature_source_can_project_target_seen(ty_id, sig_id, v4_ty_tuple_slot_type(source_ty, slot_id), target_ty, seen_types, depth + 1) { give back true }
+            slot_id += 1
+        }
+        give back false
+    }
+    if v4_ty_is_fixed_array_type(source_ty) {
+        if v4_ty_fixed_array_length_normalized_text(ty_id, source_ty) == "0" { give back false }
+        give back v4_ty_signature_source_can_project_target_seen(ty_id, sig_id, v4_ty_fixed_array_element_type(source_ty), target_ty, seen_types, depth + 1)
+    }
+
+    pilot alias_lookup = v4_ty_alias_lookup_type_from_surface_type(ty_id, source_ty)
+    if alias_lookup != "" {
+        pilot alias_key = "source-target-alias:" + alias_lookup
+        if v4_ty_alias_cycle_seen_contains(seen_types, alias_key) { give back false }
+        pilot alias_target = v4_ty_alias_target_type(ty_id, alias_lookup)
+        if alias_target == "" or alias_target == v4_ty_unknown { give back false }
+        give back v4_ty_signature_source_can_project_target_seen(ty_id, sig_id, alias_target, target_ty, v4_ty_alias_cycle_seen_append(seen_types, alias_key), depth + 1)
+    }
+
+    pilot storage_type = v4_ty_type_recursion_expand_import_type(ty_id, source_ty)
+    if storage_type == "" or storage_type == v4_ty_unknown { storage_type = source_ty }
+    pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, storage_type)
+    if shape_sig >= 0 {
+        pilot shape_key = "source-target-shape:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, shape_key) { give back false }
+        pilot shape_seen = v4_ty_alias_cycle_seen_append(seen_types, shape_key)
+        pilot field_id = 0
+        pilot field_count = v4_ty_shape_field_count(ty_id, shape_sig)
+        repeat until field_id >= field_count {
+            pilot field_type = v4_ty_shape_field_surface_type(ty_id, shape_sig, field_id)
+            field_type = v4_ty_apply_signature_generics(ty_id, shape_sig, storage_type, field_type)
+            if v4_ty_signature_source_can_project_target_seen(ty_id, sig_id, field_type, target_ty, shape_seen, depth + 1) { give back true }
+            field_id += 1
+        }
+        give back false
+    }
+
+    pilot route_sig = v4_ty_route_signature_id_for_name(ty_id, storage_type)
+    if route_sig >= 0 {
+        pilot route_key = "source-target-route:" + storage_type
+        if v4_ty_alias_cycle_seen_contains(seen_types, route_key) { give back false }
+        pilot route_seen = v4_ty_alias_cycle_seen_append(seen_types, route_key)
+        pilot case_id = 0
+        pilot case_count = v4_ty_route_case_count(ty_id, route_sig)
+        repeat until case_id >= case_count {
+            pilot case_name = v4_ty_route_case_name(ty_id, route_sig, case_id)
+            pilot field_id = 0
+            pilot field_count = v4_ty_route_case_field_count(ty_id, storage_type, case_name)
+            repeat until field_id >= field_count {
+                pilot field_type = v4_ty_route_case_field_surface_type(ty_id, storage_type, case_name, field_id)
+                field_type = v4_ty_apply_signature_generics(ty_id, route_sig, storage_type, field_type)
+                if v4_ty_signature_source_can_project_target_seen(ty_id, sig_id, field_type, target_ty, route_seen, depth + 1) { give back true }
+                field_id += 1
+            }
+            case_id += 1
+        }
+    }
+    give back false
+}
+
+task v4_ty_signature_source_can_project_target(ty_id: int, sig_id: int, source_ty: word, target_ty: word) -> bool {
+    give back v4_ty_signature_source_can_project_target_seen(ty_id, sig_id, source_ty, target_ty, "", 0)
+}
+
+task v4_ty_signature_lend_leaf_contract_matches(ty_id: int, sig_id: int, source_type: word, return_type: word, require_target_match: bool) -> bool {
+    if not v4_ty_is_lend_type(source_type) or not v4_ty_is_lend_type(return_type) {
+        give back false
+    }
+    if v4_ty_is_lend_mut_type(return_type) and not v4_ty_is_lend_mut_type(source_type) {
+        give back false
+    }
+    if require_target_match and not v4_ty_types_same_in_signature(ty_id, sig_id, v4_ty_lend_target_type(return_type), v4_ty_lend_target_type(source_type)) {
+        give back false
+    }
+
+    pilot return_lifetime = v4_ty_lend_lifetime(return_type)
+    pilot source_lifetime = v4_ty_lend_lifetime(source_type)
+    if return_lifetime == "'static" or source_lifetime == "'static" {
+        give back false
+    }
+    if return_lifetime == "" or return_lifetime == "'_" {
+        give back true
+    }
+    if source_lifetime == "" or source_lifetime == "'_" {
+        give back false
+    }
+    give back v4_ty_signature_lifetime_outlives(ty_id, sig_id, source_lifetime, return_lifetime)
+}
+
+task v4_ty_return_lend_source_payload_append(payload: word, edge: word) -> word {
+    if payload == "" { give back edge }
+    give back payload + "\n" + edge
+}
+
+task v4_ty_return_lend_source_payload_append_bounded(payload: word, edge: word, relation_count: int) -> word {
+    if payload == v4_ty_return_lend_source_opaque or relation_count < 0 or relation_count >= v4_ty_return_lend_source_limit {
+        give back v4_ty_return_lend_source_opaque
+    }
+    give back v4_ty_return_lend_source_payload_append(payload, edge)
+}
+
+task v4_ty_return_lend_source_payload_count(payload: word) -> int {
+    if payload == v4_ty_return_lend_source_opaque { give back 0 - 1 }
+    if payload == "" { give back 0 }
+    pilot count = 1
+    pilot idx = 0
+    repeat until idx >= payload.length() {
+        if payload.char_at(idx) == "\n" { count += 1 }
+        idx += 1
+    }
+    give back count
+}
+
+task v4_ty_return_lend_source_payload_at(payload: word, source_id: int) -> word {
+    if payload == v4_ty_return_lend_source_opaque or payload == "" or source_id < 0 { give back "" }
+    pilot current = 0
+    pilot segment_start = 0
+    pilot idx = 0
+    repeat until idx >= payload.length() {
+        if payload.char_at(idx) == "\n" {
+            if current == source_id { give back v4_slice(payload, segment_start, idx) }
+            current += 1
+            segment_start = idx + 1
+        }
+        idx += 1
+    }
+    if current == source_id and segment_start < payload.length() {
+        give back v4_slice(payload, segment_start, payload.length())
+    }
+    give back ""
+}
+
+task v4_ty_signature_return_lend_source_payload(ty_id: int, sig_id: int, return_leaf_id: int) -> word {
+    if return_leaf_id < 0 or not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+        give back v4_ty_return_lend_source_opaque
+    }
+    pilot return_type = v4_ty_signature_return_lend_leaf_type_at(ty_id, sig_id, return_leaf_id)
+    if not v4_ty_is_lend_type(return_type) {
+        give back v4_ty_return_lend_source_opaque
+    }
+
+    pilot payload = ""
+    pilot relation_count = 0
+    pilot return_is_scalar_lend: bool = v4_ty_is_lend_type(v4_ty_signature_return_type(ty_id, sig_id))
+    pilot param_id = 0
+    pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    repeat until param_id >= param_count {
+        pilot source_leaf_id = 0
+        pilot source_leaf_count = v4_ty_signature_param_lend_leaf_count(ty_id, sig_id, param_id)
+        if source_leaf_count < 0 {
+            give back v4_ty_return_lend_source_opaque
+        }
+        repeat until source_leaf_id >= source_leaf_count {
+            pilot source_type = v4_ty_signature_param_lend_leaf_type_at(ty_id, sig_id, param_id, source_leaf_id)
+            pilot param_mode: word = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+            pilot source_is_outer_lend: bool = param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut
+            pilot source_can_project_target = v4_ty_signature_source_can_project_target(ty_id, sig_id, v4_ty_lend_target_type(source_type), v4_ty_lend_target_type(return_type))
+            pilot require_target_match: bool = not (source_is_outer_lend and (return_is_scalar_lend or source_can_project_target))
+            if v4_ty_signature_lend_leaf_contract_matches(ty_id, sig_id, source_type, return_type, require_target_match) {
+                pilot projection = v4_ty_signature_param_lend_leaf_projection_at(ty_id, sig_id, param_id, source_leaf_id)
+                pilot guard = v4_ty_signature_param_lend_leaf_route_guard_at(ty_id, sig_id, param_id, source_leaf_id)
+                payload = v4_ty_return_lend_source_payload_append_bounded(payload, word_from_int(param_id) + "|" + projection + "|" + guard, relation_count)
+                if payload == v4_ty_return_lend_source_opaque { give back payload }
+                relation_count += 1
+            }
+            source_leaf_id += 1
+        }
+        param_id += 1
+    }
+    give back payload
+}
+
+task v4_ty_signature_return_lend_source_edge_at(ty_id: int, sig_id: int, return_leaf_id: int, source_id: int) -> word {
+    give back v4_ty_return_lend_source_payload_at(v4_ty_signature_return_lend_source_payload(ty_id, sig_id, return_leaf_id), source_id)
+}
+
+task v4_ty_signature_return_lend_source_count(ty_id: int, sig_id: int, return_leaf_id: int) -> int {
+    give back v4_ty_return_lend_source_payload_count(v4_ty_signature_return_lend_source_payload(ty_id, sig_id, return_leaf_id))
+}
+
+task v4_ty_signature_return_lend_source_param_at(ty_id: int, sig_id: int, return_leaf_id: int, source_id: int) -> int {
+    pilot edge = v4_ty_signature_return_lend_source_edge_at(ty_id, sig_id, return_leaf_id, source_id)
+    if edge == "" { give back 0 - 1 }
+    give back word_to_int(v4_resolve_snapshot_field_raw(edge, 0))
+}
+
+task v4_ty_signature_return_lend_source_projection_at(ty_id: int, sig_id: int, return_leaf_id: int, source_id: int) -> word {
+    pilot edge = v4_ty_signature_return_lend_source_edge_at(ty_id, sig_id, return_leaf_id, source_id)
+    if edge == "" { give back "" }
+    give back v4_resolve_snapshot_field_raw(edge, 1)
+}
+
+task v4_ty_signature_return_lend_source_route_guard_at(ty_id: int, sig_id: int, return_leaf_id: int, source_id: int) -> word {
+    pilot edge = v4_ty_signature_return_lend_source_edge_at(ty_id, sig_id, return_leaf_id, source_id)
+    if edge == "" { give back "" }
+    give back v4_resolve_snapshot_field_raw(edge, 2)
 }
 
 task v4_ty_signature_param_is_borrowed_return_source(ty_id: int, sig_id: int, param_id: int, return_ty: word) -> bool {
@@ -8233,8 +9779,7 @@ task v4_ty_route_case_field_name(ty_id: int, route_name: word, case_name: word, 
     give back v4_lex_token_value(stream_id, first)
 }
 
-task v4_ty_route_case_field_type(ty_id: int, route_name: word, case_name: word, field_id: int) -> word {
-    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+task v4_ty_route_case_field_surface_type(ty_id: int, route_name: word, case_name: word, field_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_route_case_field_segment_start(ty_id, route_name, case_name, field_id)
     pilot end_token = v4_ty_route_case_field_segment_end(ty_id, route_name, case_name, field_id)
@@ -8249,6 +9794,15 @@ task v4_ty_route_case_field_type(ty_id: int, route_name: word, case_name: word, 
     pilot type_start = v4_ty_skip_trivia(stream_id, colon_token + 1)
     pilot field_ty = v4_ty_type_text(stream_id, type_start, end_token)
     if field_ty == "" {
+        give back v4_ty_unknown
+    }
+    give back field_ty
+}
+
+task v4_ty_route_case_field_type(ty_id: int, route_name: word, case_name: word, field_id: int) -> word {
+    pilot sig_id = v4_ty_route_signature_id_for_name(ty_id, route_name)
+    pilot field_ty = v4_ty_route_case_field_surface_type(ty_id, route_name, case_name, field_id)
+    if sig_id < 0 or field_ty == "" or field_ty == v4_ty_unknown {
         give back v4_ty_unknown
     }
     pilot instance_name = v4_ty_canonical_type(ty_id, route_name)
@@ -8815,17 +10369,106 @@ task v4_ty_validate_signature_type_generic_contracts(ty_id: int, sig_id: int, ty
     }
 }
 
+task v4_ty_add_lend_storage_exhausted_diag(ty_id: int, type_text: word, context: word, context_span: word) -> void {
+    pilot message = "Meiya's lend-storage analysis exhausted its depth budget"
+    pilot help = context + " has type " + type_text
+    help = help + "; split deeply nested aggregate types or introduce a nominal shape before this ownership boundary"
+    v4_ty_add_error_diag(ty_id, context_span, message, help)
+}
+
 task v4_ty_validate_no_lend_storage(ty_id: int, type_text: word, context: word, context_span: word) -> void {
-    if v4_ty_type_contains_named_lend(type_text) {
+    pilot storage_kind = v4_ty_type_lend_storage_class(ty_id, type_text)
+    if v4_ty_lend_storage_class_is_incomplete(storage_kind) {
+        v4_ty_add_lend_storage_exhausted_diag(ty_id, type_text, context, context_span)
+        give back
+    }
+    if storage_kind == v4_ty_lend_storage_none {
+        give back
+    }
+    pilot named_kind = v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, true, false)
+    if v4_ty_lend_storage_class_is_incomplete(named_kind) {
+        v4_ty_add_lend_storage_exhausted_diag(ty_id, type_text, context, context_span)
+        give back
+    }
+    if v4_ty_lend_storage_class_confirms_lend(named_kind) {
         v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a named lend in " + context + " yet", "keep named lifetimes on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands")
         give back
     }
-    if v4_ty_type_contains_lend(type_text) {
-        v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a lend in " + context + " yet", "keep elided lends on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands")
+    v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a lend in " + context + " yet", "keep elided lends on ordinary task lend parameters and outer borrowed returns until aggregate provenance lands")
+}
+
+task v4_ty_validate_fixed_lend_storage(ty_id: int, type_text: word, context: word, context_span: word) -> void {
+    pilot storage_kind = v4_ty_type_lend_storage_class(ty_id, type_text)
+    if v4_ty_lend_storage_class_is_incomplete(storage_kind) {
+        v4_ty_add_lend_storage_exhausted_diag(ty_id, type_text, context, context_span)
+        give back
+    }
+    if storage_kind == v4_ty_lend_storage_none or storage_kind == v4_ty_lend_storage_fixed {
+        give back
+    }
+    pilot named_kind = v4_ty_lend_storage_class_seen(ty_id, type_text, "", 0, true, false)
+    if v4_ty_lend_storage_class_is_incomplete(named_kind) {
+        v4_ty_add_lend_storage_exhausted_diag(ty_id, type_text, context, context_span)
+        give back
+    }
+    if v4_ty_lend_storage_class_confirms_lend(named_kind) {
+        v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a named lend in " + context + " yet", "use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance")
+        give back
+    }
+    v4_ty_add_error_diag(ty_id, context_span, "Meiya cannot store a lend in " + context + " yet", "use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance")
+}
+
+task v4_ty_validate_nested_param_lend_contracts(ty_id: int, sig_id: int, param_id: int, param_type: word, param_span: word) -> void {
+    pilot leaf_count = v4_ty_fixed_lend_leaf_count(ty_id, param_type)
+    if leaf_count < 0 {
+        v4_ty_add_error_diag(ty_id, param_span, "Meiya cannot enumerate fixed-layout loan leaves in parameter " + word_from_int(param_id), "keep lend-bearing parameter layouts acyclic and at or below " + word_from_int(v4_ty_fixed_lend_leaf_limit) + " leaves")
+        give back
+    }
+    pilot leaf_id = 0
+    repeat until leaf_id >= leaf_count {
+        pilot leaf_type = v4_ty_fixed_lend_leaf_type_at(ty_id, param_type, leaf_id)
+        if v4_ty_lend_lifetime(leaf_type) == "'static" {
+            pilot projection = v4_ty_fixed_lend_leaf_projection_at(ty_id, param_type, leaf_id)
+            v4_ty_add_error_diag(ty_id, param_span, "Meiya cannot accept a static lend at parameter projection " + projection + " yet", "'static needs source-storage classification before callers may promise an immortal loan")
+        }
+        leaf_id += 1
+    }
+}
+
+task v4_ty_validate_aggregate_return_lend_contracts(ty_id: int, sig_id: int, return_type: word, return_span: word) -> void {
+    pilot leaf_count = v4_ty_signature_return_lend_leaf_count(ty_id, sig_id)
+    if leaf_count < 0 {
+        v4_ty_add_error_diag(ty_id, return_span, "Meiya cannot enumerate fixed-layout returned loan leaves", "keep lend-bearing return layouts acyclic and at or below " + word_from_int(v4_ty_fixed_lend_leaf_limit) + " leaves")
+        give back
+    }
+    pilot leaf_id = 0
+    repeat until leaf_id >= leaf_count {
+        pilot leaf_type = v4_ty_signature_return_lend_leaf_type_at(ty_id, sig_id, leaf_id)
+        pilot projection = v4_ty_signature_return_lend_leaf_projection_at(ty_id, sig_id, leaf_id)
+        pilot guard = v4_ty_signature_return_lend_leaf_route_guard_at(ty_id, sig_id, leaf_id)
+        pilot display_projection = projection
+        if guard != "" { display_projection = guard + projection }
+        pilot return_lifetime = v4_ty_lend_lifetime(leaf_type)
+        if return_lifetime == "'static" {
+            v4_ty_add_error_diag(ty_id, return_span, "Meiya cannot prove a static borrowed return at " + display_projection + " yet", "'static returned loans need global-storage provenance before this contract can be sound")
+        } else {
+            pilot source_count = v4_ty_signature_return_lend_source_count(ty_id, sig_id, leaf_id)
+            if source_count < 0 {
+                v4_ty_add_error_diag(ty_id, return_span, "Meiya cannot enumerate sources for returned aggregate loan at " + display_projection, "keep compatible source leaves at or below " + word_from_int(v4_ty_return_lend_source_limit) + " and use an acyclic fixed layout")
+            } else if source_count == 0 {
+                pilot message = "Meiya cannot find a source for returned aggregate loan at " + display_projection
+                if return_lifetime != "" and return_lifetime != "'_" {
+                    message = "Meiya cannot find a source for returned lifetime " + return_lifetime + " at " + display_projection
+                }
+                v4_ty_add_error_diag(ty_id, return_span, message, "add a compatible lend parameter leaf whose declared lifetime outlives this returned projection")
+            }
+        }
+        leaf_id += 1
     }
 }
 
 task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
+    pilot ordinary_static = v4_ty_signature_is_ordinary_static_task(ty_id, sig_id)
     pilot param_id = 0
     pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
     repeat until param_id >= param_count {
@@ -8833,8 +10476,16 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
             pilot param_type = v4_ty_signature_param_type(ty_id, sig_id, param_id)
             pilot param_context = "parameter " + word_from_int(param_id) + " of " + v4_ty_signature_name(ty_id, sig_id)
             pilot param_span = v4_ty_signature_param_type_span(ty_id, sig_id, param_id)
+            pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
             v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, param_type, param_context, param_span)
-            v4_ty_validate_no_lend_storage(ty_id, param_type, param_context, param_span)
+            if ordinary_static and param_mode == v4_ty_param_mode_value {
+                v4_ty_validate_fixed_lend_storage(ty_id, param_type, param_context, param_span)
+                if v4_ty_type_supports_fixed_lend_storage(ty_id, param_type) {
+                    v4_ty_validate_nested_param_lend_contracts(ty_id, sig_id, param_id, param_type, param_span)
+                }
+            } else {
+                v4_ty_validate_no_lend_storage(ty_id, param_type, param_context, param_span)
+            }
             pilot param_lifetime = v4_ty_signature_param_lifetime(ty_id, sig_id, param_id)
             if param_lifetime == "'static" {
                 v4_ty_add_error_diag(ty_id, v4_ty_signature_param_lifetime_span(ty_id, sig_id, param_id), "Meiya cannot accept a static lend parameter yet", "'static needs source-storage classification before callers may promise an immortal loan")
@@ -8853,6 +10504,11 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     }
     if v4_ty_is_lend_type(return_contract) {
         v4_ty_validate_no_lend_storage(ty_id, v4_ty_lend_target_type(return_contract), "target of returned lend on " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
+    } else if ordinary_static {
+        v4_ty_validate_fixed_lend_storage(ty_id, return_contract, "return type of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
+        if v4_ty_type_supports_fixed_lend_storage(ty_id, return_contract) {
+            v4_ty_validate_aggregate_return_lend_contracts(ty_id, sig_id, return_contract, v4_ty_signature_return_span(ty_id, sig_id))
+        }
     } else {
         v4_ty_validate_no_lend_storage(ty_id, return_contract, "return type of " + v4_ty_signature_name(ty_id, sig_id), v4_ty_signature_return_span(ty_id, sig_id))
     }
@@ -8861,7 +10517,7 @@ task v4_ty_validate_task_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         if return_lifetime == "'static" {
             v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot prove a static borrowed return yet", "'static returned loans need global-storage provenance before this contract can be sound")
         } else if return_lifetime != "" and return_lifetime != "'_" and v4_ty_signature_accepts_lifetime(ty_id, sig_id, return_lifetime) {
-            if v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+            if ordinary_static {
                 if v4_ty_signature_borrowed_return_source_param_count(ty_id, sig_id) <= 0 {
                     v4_ty_add_error_diag(ty_id, v4_ty_signature_return_span(ty_id, sig_id), "Meiya cannot find a source for returned lifetime " + return_lifetime, "add a lend parameter whose declared lifetime outlives " + return_lifetime)
                 }
@@ -8904,11 +10560,12 @@ task v4_ty_validate_shape_signature_lifetimes(ty_id: int, sig_id: int) -> void {
     pilot field_id = 0
     pilot field_count = v4_ty_shape_field_count(ty_id, sig_id)
     repeat until field_id >= field_count {
+        pilot field_surface = v4_ty_shape_field_surface_type(ty_id, sig_id, field_id)
         pilot field_type = v4_ty_shape_field_type(ty_id, sig_id, field_id)
         pilot field_context = "field " + v4_ty_shape_field_name(ty_id, sig_id, field_id) + " of " + v4_ty_signature_name(ty_id, sig_id)
         pilot field_span = v4_ty_shape_field_type_span(ty_id, sig_id, field_id)
         v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, field_type, field_context, field_span)
-        v4_ty_validate_no_lend_storage(ty_id, field_type, field_context, field_span)
+        v4_ty_validate_fixed_lend_storage(ty_id, field_surface, field_context, field_span)
         field_id += 1
     }
 }
@@ -8922,11 +10579,12 @@ task v4_ty_validate_route_signature_lifetimes(ty_id: int, sig_id: int) -> void {
         pilot field_id = 0
         pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
         repeat until field_id >= field_count {
+            pilot field_surface = v4_ty_route_case_field_surface_type(ty_id, route_name, case_name, field_id)
             pilot field_type = v4_ty_route_case_field_type(ty_id, route_name, case_name, field_id)
             pilot field_context = "field " + v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) + " of " + route_name + "::" + case_name
             pilot field_span = v4_ty_route_case_field_type_span(ty_id, route_name, case_name, field_id)
             v4_ty_validate_signature_type_lifetimes(ty_id, sig_id, field_type, field_context, field_span)
-            v4_ty_validate_no_lend_storage(ty_id, field_type, field_context, field_span)
+            v4_ty_validate_fixed_lend_storage(ty_id, field_surface, field_context, field_span)
             field_id += 1
         }
         case_id += 1
@@ -10181,16 +11839,19 @@ task v4_ty_match_signature_type_env_mode(ty_id: int, sig_id: int, expected_ty: w
     if not v4_ty_is_known(expected_ty) or not v4_ty_is_known(actual_ty) {
         give back env
     }
-    if expected_ty == actual_ty {
-        give back env
-    }
     if sig_id >= 0 {
         if v4_ty_signature_declares_lifetime_name(ty_id, sig_id, expected_ty) {
-            give back env
+            if not v4_ty_is_lifetime_name(actual_ty) {
+                give back v4_ty_generic_env_fail
+            }
+            give back v4_ty_generic_env_bind(env, expected_ty, actual_ty)
         }
         if v4_ty_signature_declares_type_generic_name(ty_id, sig_id, expected_ty) {
             give back v4_ty_generic_env_bind(env, expected_ty, actual_ty)
         }
+    }
+    if expected_ty == actual_ty {
+        give back env
     }
     if v4_ty_is_lend_type(expected_ty) or v4_ty_is_lend_type(actual_ty) {
         if not v4_ty_is_lend_type(expected_ty) or not v4_ty_is_lend_type(actual_ty) {
@@ -10199,7 +11860,18 @@ task v4_ty_match_signature_type_env_mode(ty_id: int, sig_id: int, expected_ty: w
         if v4_ty_lend_mode(expected_ty) != v4_ty_lend_mode(actual_ty) {
             give back v4_ty_generic_env_fail
         }
-        give back v4_ty_match_signature_type_env_mode(ty_id, sig_id, v4_ty_lend_target_type(expected_ty), v4_ty_lend_target_type(actual_ty), env, allow_dyn_coerce)
+        pilot next_env = env
+        pilot expected_lifetime = v4_ty_lend_lifetime(expected_ty)
+        if expected_lifetime != "" {
+            pilot actual_lifetime = v4_ty_lend_lifetime(actual_ty)
+            if actual_lifetime != "" and actual_lifetime != "'_" {
+                next_env = v4_ty_match_signature_type_env_mode(ty_id, sig_id, expected_lifetime, actual_lifetime, next_env, false)
+                if next_env == v4_ty_generic_env_fail {
+                    give back next_env
+                }
+            }
+        }
+        give back v4_ty_match_signature_type_env_mode(ty_id, sig_id, v4_ty_lend_target_type(expected_ty), v4_ty_lend_target_type(actual_ty), next_env, allow_dyn_coerce)
     }
     if v4_ty_is_dyn_type(expected_ty) {
         if allow_dyn_coerce or v4_ty_is_dyn_type(actual_ty) {
@@ -10280,6 +11952,33 @@ task v4_ty_match_signature_type_env(ty_id: int, sig_id: int, expected_ty: word, 
 
 task v4_ty_match_signature_type_env_no_dyn_coerce(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word, env: word) -> word {
     give back v4_ty_match_signature_type_env_mode(ty_id, sig_id, expected_ty, actual_ty, env, false)
+}
+
+task v4_ty_signature_generic_identity_env(ty_id: int, sig_id: int) -> word {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back v4_ty_generic_env_fail
+    }
+    pilot env = ""
+    pilot generic_id = 0
+    pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
+    repeat until generic_id >= generic_count {
+        pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_id)
+        if generic_name == "" {
+            give back v4_ty_generic_env_fail
+        }
+        env = v4_ty_generic_env_bind(env, generic_name, generic_name)
+        if env == v4_ty_generic_env_fail {
+            give back env
+        }
+        generic_id += 1
+    }
+    give back env
+}
+
+task v4_ty_types_same_in_signature(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word) -> bool {
+    pilot identity_env = v4_ty_signature_generic_identity_env(ty_id, sig_id)
+    if identity_env == v4_ty_generic_env_fail { give back false }
+    give back v4_ty_match_signature_type_env(ty_id, sig_id, expected_ty, actual_ty, identity_env) != v4_ty_generic_env_fail
 }
 
 task v4_ty_types_compatible_in_signature(ty_id: int, sig_id: int, expected_ty: word, actual_ty: word) -> bool {
@@ -10372,11 +12071,30 @@ task v4_ty_type_mentions_signature_generics(ty_id: int, sig_id: int, type_text: 
     if type_text == "" or type_text == v4_ty_unknown {
         give back false
     }
-    if v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text) {
+    if v4_ty_signature_declares_type_generic_name(ty_id, sig_id, type_text) or v4_ty_signature_declares_lifetime_name(ty_id, sig_id, type_text) {
         give back true
     }
     if v4_ty_is_lend_type(type_text) {
+        pilot lifetime_name = v4_ty_lend_lifetime(type_text)
+        if lifetime_name != "" and v4_ty_signature_declares_lifetime_name(ty_id, sig_id, lifetime_name) {
+            give back true
+        }
         give back v4_ty_type_mentions_signature_generics(ty_id, sig_id, v4_ty_lend_target_type(type_text))
+    }
+    if v4_ty_is_surface_task_function_type(type_text) {
+        pilot param_id = 0
+        pilot param_count = v4_ty_function_type_param_count(type_text)
+        repeat until param_id >= param_count {
+            pilot param_surface = v4_ty_function_type_param_surface(type_text, param_id)
+            if param_surface != "..." and v4_ty_type_mentions_signature_generics(ty_id, sig_id, param_surface) {
+                give back true
+            }
+            param_id += 1
+        }
+        give back v4_ty_type_mentions_signature_generics(ty_id, sig_id, v4_ty_function_type_return_text(type_text))
+    }
+    if v4_ty_is_raw_pointer_type(type_text) {
+        give back v4_ty_type_mentions_signature_generics(ty_id, sig_id, v4_ty_raw_pointer_target_type(type_text))
     }
     if v4_ty_is_dyn_type(type_text) {
         give back v4_ty_type_mentions_signature_generics(ty_id, sig_id, v4_ty_dyn_doctrine_name(type_text))
@@ -10414,18 +12132,25 @@ task v4_ty_signature_generic_env_for_instance(ty_id: int, sig_id: int, instance_
         give back ""
     }
     if v4_ty_signature_generic_count(ty_id, sig_id) != v4_ty_generic_arg_count(instance_ty) {
-        give back ""
+        give back v4_ty_generic_env_fail
     }
 
     pilot env = ""
     pilot generic_idx = 0
     pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
     repeat until generic_idx >= generic_count {
-        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_idx) == false {
-            env = v4_ty_generic_env_bind(env, v4_ty_signature_generic_name(ty_id, sig_id, generic_idx), v4_ty_generic_arg(instance_ty, generic_idx))
-            if env == v4_ty_generic_env_fail {
-                give back ""
+        pilot generic_name = v4_ty_signature_generic_name(ty_id, sig_id, generic_idx)
+        pilot actual_ty = v4_ty_generic_arg(instance_ty, generic_idx)
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_idx) {
+            if not v4_ty_is_lifetime_name(actual_ty) {
+                give back v4_ty_generic_env_fail
             }
+        } else if v4_ty_is_lifetime_name(actual_ty) {
+            give back v4_ty_generic_env_fail
+        }
+        env = v4_ty_generic_env_bind(env, generic_name, actual_ty)
+        if env == v4_ty_generic_env_fail {
+            give back env
         }
         generic_idx += 1
     }
@@ -10433,13 +12158,22 @@ task v4_ty_signature_generic_env_for_instance(ty_id: int, sig_id: int, instance_
 }
 
 task v4_ty_signature_generic_env_complete(ty_id: int, sig_id: int, env: word) -> bool {
+    if env == v4_ty_generic_env_fail {
+        give back false
+    }
     pilot generic_idx = 0
     pilot generic_count = v4_ty_signature_generic_count(ty_id, sig_id)
     repeat until generic_idx >= generic_count {
-        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_idx) == false {
-            if v4_ty_generic_env_lookup(env, v4_ty_signature_generic_name(ty_id, sig_id, generic_idx)) == "" {
+        pilot actual_ty = v4_ty_generic_env_lookup(env, v4_ty_signature_generic_name(ty_id, sig_id, generic_idx))
+        if actual_ty == "" {
+            give back false
+        }
+        if v4_ty_signature_generic_is_lifetime(ty_id, sig_id, generic_idx) {
+            if not v4_ty_is_lifetime_name(actual_ty) {
                 give back false
             }
+        } else if v4_ty_is_lifetime_name(actual_ty) {
+            give back false
         }
         generic_idx += 1
     }
@@ -10742,6 +12476,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
         symbol_idx += 1
     }
 
+    v4_ty_validate_closure_params(ty_id)
     v4_ty_validate_lifetime_contracts(ty_id)
     v4_ty_validate_repr_contracts(ty_id)
     v4_ty_validate_layout_contracts(ty_id)
@@ -11426,6 +13161,8 @@ task v4_ty_restore_file_slot(ty_id: int, file_id: int, resolve_id: int) -> int {
     if ty_id < 0 {
         give back 0 - 1
     }
+    v4_session_semantic_restore_generation_advance()
+    v4_ty_copy_doctrine_cache_reset()
     v4_ty_borrowed_return_source_cache_invalidate_file(ty_id)
     repeat until array_len(v4_ty_files) > ty_id {
         v4_ty_file_new(0, 0)
@@ -11447,6 +13184,8 @@ task v4_ty_restore_signature_slot(ty_id: int, sig_id: int, def_id: word, sig_kin
     if sig_id < 0 {
         give back 0
     }
+    v4_session_semantic_restore_generation_advance()
+    v4_ty_copy_doctrine_cache_reset()
     v4_ty_borrowed_return_source_cache_invalidate_signature(ty_id, sig_id)
     if v4_ty_child_handle_ensure_slot(v4_ty_defs_handle(ty_id), sig_id, "") == false {
         give back 0
@@ -11616,6 +13355,7 @@ task v4_ty_snapshot_restore(payload: word) -> word {
             inactive_ty_id += 1
         }
         v4_ty_file_active_count_value = restored_files
+        v4_ty_copy_doctrine_cache_reset()
     } else {
         v4_ty_file_active_count_value = previous_active_files
     }
