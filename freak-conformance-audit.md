@@ -564,7 +564,7 @@ remain open.
 |---|---|---|
 | All core keywords lexed | ✅ | ✅ |
 | Multi-word keywords (`give back`, `for each`, `training arc`, `trust me`, `for science`, `repeat until`, etc.) | ✅ | ✅ |
-| Keyword casing and canonical token values | ⚠️ | 📖 V4 — ordinary keywords require exact lowercase spellings; a table-driven V4 smoke covers `task` acceptance, `Task`/`TASK` recovery, `Pilot`/`Some`/`SOME` identifier preservation, adjacent identifiers, snapshot values, and uppercase-only `NAKAMA`/`TSUNDERE` cases |
+| Keyword casing and canonical token values | ⚠️ | 📖 V4 — the currently implemented V4 vocabulary requires exact lowercase ordinary keywords without claiming shipping-V3 parity or pre-reserving destination-only words; a table-driven smoke covers `task` acceptance, `Task`/`TASK` recovery, `Pilot`/`Some`/`SOME` identifier preservation, adjacent identifiers, snapshot values, and uppercase-only `NAKAMA`/`TSUNDERE` cases |
 | Multi-word operators (`PLUS ULTRA`, `FINAL FORM`, `NAKAMA`, `TSUNDERE`) | ⚠️ | 📖 V4 (parsed in lexer? need to verify in v3) |
 | `--` line comment | ✅ | ✅ |
 | `done` block delimiter | ✅ | ✅ |
