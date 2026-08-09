@@ -163,16 +163,16 @@ task v4_hir_item_parse_node(hir_id: int, item_id: int) -> int {
     give back word_to_int(array_get(v4_hir_parse_nodes_handle(hir_id), item_id))
 }
 
-task v4_hir_item_tree_id(hir_id: int) -> int {
+task v4_hir_item_expansion_id(hir_id: int) -> int {
     give back v4_hir_expansion_id(hir_id)
 }
 
 task v4_hir_item_stream_id(hir_id: int) -> int {
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back 0 - 1
     }
-    give back v4_expand_stream_id(tree_id)
+    give back v4_expand_stream_id(expansion_id)
 }
 
 task v4_hir_closure_count(hir_id: int, item_id: int) -> int {
@@ -303,11 +303,11 @@ task v4_hir_item_decl_keyword(hir_id: int, item_id: int) -> word {
     if item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_node_decl_keyword(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back v4_expand_node_decl_keyword(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
 task v4_hir_route_is_variant(hir_id: int, item_id: int) -> bool {
@@ -321,77 +321,77 @@ task v4_hir_import_path(hir_id: int, item_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_import {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_import_path(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back v4_expand_import_path(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
 task v4_hir_import_alias(hir_id: int, item_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_import {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_import_alias(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back v4_expand_import_alias(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
 task v4_hir_import_binding(hir_id: int, item_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_import {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_import_binding(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back v4_expand_import_binding(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
 task v4_hir_attribute_arg(hir_id: int, item_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_attribute {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_attribute_arg_text(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back v4_expand_attribute_arg_text(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
 task v4_hir_alias_target(hir_id: int, item_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_alias {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_alias_target(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back v4_expand_alias_target(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
 task v4_hir_const_type(hir_id: int, item_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_const {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_const_type(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back v4_expand_const_type(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
 task v4_hir_const_init(hir_id: int, item_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_const {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_const_init(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back v4_expand_const_init(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
 task v4_hir_item_attribute_start(hir_id: int, item_id: int) -> int {
@@ -474,66 +474,66 @@ task v4_hir_extern_abi(hir_id: int, item_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_extern_abi(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back v4_expand_extern_abi(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
 task v4_hir_extern_member_count(hir_id: int, item_id: int) -> int {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
         give back 0
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back 0
     }
-    give back v4_expand_extern_member_count(tree_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back v4_expand_extern_member_count(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
 }
 
 task v4_hir_extern_member_name(hir_id: int, item_id: int, member_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_extern_member_name(tree_id, v4_hir_item_parse_node(hir_id, item_id), member_id)
+    give back v4_expand_extern_member_name(expansion_id, v4_hir_item_parse_node(hir_id, item_id), member_id)
 }
 
 task v4_hir_extern_member_attribute_count(hir_id: int, item_id: int, member_id: int) -> int {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
         give back 0
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back 0
     }
-    give back v4_expand_extern_member_attribute_count(tree_id, v4_hir_item_parse_node(hir_id, item_id), member_id)
+    give back v4_expand_extern_member_attribute_count(expansion_id, v4_hir_item_parse_node(hir_id, item_id), member_id)
 }
 
 task v4_hir_extern_member_attribute_name(hir_id: int, item_id: int, member_id: int, attr_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_extern_member_attribute_name(tree_id, v4_hir_item_parse_node(hir_id, item_id), member_id, attr_id)
+    give back v4_expand_extern_member_attribute_name(expansion_id, v4_hir_item_parse_node(hir_id, item_id), member_id, attr_id)
 }
 
 task v4_hir_extern_member_attribute_arg(hir_id: int, item_id: int, member_id: int, attr_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern {
         give back ""
     }
-    pilot tree_id = v4_hir_item_tree_id(hir_id)
-    if v4_expand_tree_exists(tree_id) == false {
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
+    if v4_expand_tree_exists(expansion_id) == false {
         give back ""
     }
-    give back v4_expand_extern_member_attribute_arg(tree_id, v4_hir_item_parse_node(hir_id, item_id), member_id, attr_id)
+    give back v4_expand_extern_member_attribute_arg(expansion_id, v4_hir_item_parse_node(hir_id, item_id), member_id, attr_id)
 }
 
 task v4_hir_diag(hir_id: int, diag_id: int) -> word {
