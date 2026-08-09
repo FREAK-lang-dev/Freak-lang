@@ -1,6 +1,254 @@
 -- V4 current 00-Unit snapshot and restore smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_unit_snapshot_integrity_assert(case_name: word, passed: bool) -> word {
+    pilot out = "unit-snapshot-integrity|case=" + case_name
+    if passed {
+        out = out + "|ok=1"
+    } else {
+        out = out + "|ok=0"
+    }
+    give back out
+}
+
+task v4_unit_snapshot_restore_is_atomic(restore_text: word, expected_state: word) -> int {
+    if restore_text.starts_with("00-unit-snapshot-restore ok=0 ") {
+        if v4_unit_snapshot() == expected_state {
+            give back 1
+        }
+    }
+    give back 0
+}
+
+task v4_unit_snapshot_fixture_header_with_sections(line: word, sections: int) -> word {
+    pilot out = "00-unit-snapshot"
+    out = out + "|format=" + v4_unit_snapshot_key_value(line, "format")
+    out = out + "|sources=" + v4_unit_snapshot_key_value(line, "sources")
+    out = out + "|sections=" + word_from_int(sections)
+    out = out + "|identity=" + v4_unit_snapshot_escape(v4_unit_snapshot_key_value(line, "identity"))
+    give back out
+}
+
+task v4_unit_snapshot_fixture_variant(payload: word, section_name: word, mode: word) -> word {
+    pilot out = ""
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        pilot output_line = line
+        pilot copies = 1
+        pilot kind = v4_unit_snapshot_field_raw(line, 0)
+
+        if kind == "00-unit-snapshot" {
+            pilot declared_sections = word_to_int(v4_unit_snapshot_key_value(line, "sections"))
+            if mode == "missing" {
+                declared_sections -= 1
+            } else if mode == "duplicate" {
+                declared_sections += 1
+            }
+            output_line = v4_unit_snapshot_fixture_header_with_sections(line, declared_sections)
+        } else if kind == "unit-section" and v4_unit_snapshot_field_raw(line, 1) == section_name {
+            if mode == "missing" {
+                copies = 0
+            } else if mode == "duplicate" {
+                copies = 2
+            } else if mode == "corrupt" {
+                output_line = v4_unit_snapshot_section_line_with_identity(section_name, v4_unit_snapshot_field(line, 2), "corrupt-inner-payload")
+            } else if mode == "unknown" {
+                output_line = v4_unit_snapshot_section_line_with_identity("unknown", v4_unit_snapshot_field(line, 2), v4_unit_snapshot_field(line, 3))
+            }
+        }
+
+        pilot copy_id = 0
+        repeat until copy_id >= copies {
+            if out != "" { out = out + "\n" }
+            out = out + output_line
+            copy_id += 1
+        }
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_unit_snapshot_fixture_header_with_sources(line: word, sources: int) -> word {
+    pilot out = "00-unit-snapshot"
+    out = out + "|format=" + v4_unit_snapshot_key_value(line, "format")
+    out = out + "|sources=" + word_from_int(sources)
+    out = out + "|sections=" + v4_unit_snapshot_key_value(line, "sections")
+    out = out + "|identity=" + v4_unit_snapshot_escape(v4_unit_snapshot_key_value(line, "identity"))
+    give back out
+}
+
+task v4_unit_snapshot_fixture_source_line(line: word, source_id: int, path: word, fingerprint: word) -> word {
+    pilot out = "unit-source|" + word_from_int(source_id)
+    out = out + "|" + v4_unit_snapshot_escape(path)
+    out = out + "|" + v4_unit_snapshot_field_raw(line, 3)
+    out = out + "|" + v4_unit_snapshot_escape(fingerprint)
+    out = out + "|" + v4_unit_snapshot_escape(v4_unit_snapshot_field(line, 5))
+    give back out
+}
+
+task v4_unit_snapshot_fixture_source_variant(payload: word, mode: word) -> word {
+    pilot out = ""
+    pilot declared_sources = 0
+    pilot changed_source = 0
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        pilot output_line = line
+        pilot kind = v4_unit_snapshot_field_raw(line, 0)
+        if kind == "00-unit-snapshot" {
+            declared_sources = word_to_int(v4_unit_snapshot_key_value(line, "sources"))
+            pilot output_sources = declared_sources
+            if mode == "duplicate-id" or mode == "duplicate-path" { output_sources += 1 }
+            output_line = v4_unit_snapshot_fixture_header_with_sources(line, output_sources)
+        } else if kind == "unit-source" and changed_source == 0 {
+            pilot source_id = word_to_int(v4_unit_snapshot_field_raw(line, 1))
+            pilot source_path = v4_unit_snapshot_field(line, 2)
+            pilot fingerprint = v4_unit_snapshot_field(line, 4)
+            if mode == "negative-id" {
+                output_line = v4_unit_snapshot_fixture_source_line(line, 0 - 1, source_path, fingerprint)
+            } else if mode == "sparse-id" {
+                output_line = v4_unit_snapshot_fixture_source_line(line, declared_sources, source_path, fingerprint)
+            } else if mode == "forged-fingerprint" {
+                output_line = v4_unit_snapshot_fixture_source_line(line, source_id, source_path, "forged-fingerprint")
+            } else if mode == "duplicate-id" {
+                output_line = line + "\n" + line
+            } else if mode == "duplicate-path" {
+                output_line = line + "\n" + v4_unit_snapshot_fixture_source_line(line, declared_sources, source_path, fingerprint)
+            }
+            changed_source = 1
+        }
+        if out != "" { out = out + "\n" }
+        out = out + output_line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_unit_snapshot_fixture_section_line(payload: word, section_name: word) -> word {
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if v4_unit_snapshot_field_raw(line, 0) == "unit-section" and v4_unit_snapshot_field_raw(line, 1) == section_name {
+            give back line
+        }
+        line_id += 1
+    }
+    give back ""
+}
+
+task v4_unit_snapshot_fixture_splice_section(base_payload: word, donor_payload: word, section_name: word) -> word {
+    pilot donor_line = v4_unit_snapshot_fixture_section_line(donor_payload, section_name)
+    pilot out = ""
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(base_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(base_payload, line_id)
+        pilot output_line = line
+        if v4_unit_snapshot_field_raw(line, 0) == "unit-section" and v4_unit_snapshot_field_raw(line, 1) == section_name {
+            output_line = donor_line
+        }
+        if out != "" { out = out + "\n" }
+        out = out + output_line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_unit_snapshot_fixture_splice_section_rebound(base_payload: word, donor_payload: word, section_name: word) -> word {
+    pilot donor_line = v4_unit_snapshot_fixture_section_line(donor_payload, section_name)
+    pilot base_header = v4_unit_snapshot_line(base_payload, 0)
+    pilot base_identity = v4_unit_snapshot_key_value(base_header, "identity")
+    pilot rebound_line = v4_unit_snapshot_section_line_with_identity(section_name, base_identity, v4_unit_snapshot_field(donor_line, 3))
+    pilot out = ""
+    pilot line_id = 0
+    pilot line_count = v4_unit_snapshot_line_count(base_payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_unit_snapshot_line(base_payload, line_id)
+        if v4_unit_snapshot_field_raw(line, 0) == "unit-section" and v4_unit_snapshot_field_raw(line, 1) == section_name {
+            line = rebound_line
+        }
+        if out != "" { out = out + "\n" }
+        out = out + line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_unit_snapshot_splice_is_atomic(base_payload: word, donor_payload: word, section_name: word) -> word {
+    pilot spliced = v4_unit_snapshot_fixture_splice_section(base_payload, donor_payload, section_name)
+    pilot restore_result = v4_unit_snapshot_restore(spliced)
+    give back v4_unit_snapshot_integrity_assert("cross-snapshot-splice-atomic", restore_result.starts_with("00-unit-snapshot-restore ok=0 ") and v4_unit_snapshot() == base_payload)
+}
+
+task v4_unit_snapshot_reset_compiler_state() -> void {
+    v4_source_ready = 0
+    v4_query_ready = 0
+    v4_query_entry_len = 0
+    v4_query_dep_len = 0
+    v4_query_hit_total = 0
+    v4_query_miss_total = 0
+    v4_query_store_total = 0
+    v4_query_revision = 1
+    v4_lex_ready = 0
+    v4_parse_ready = 0
+    v4_hir_ready = 0
+    v4_resolve_ready = 0
+    v4_ty_ready = 0
+    v4_ty_file_active_count_value = 0
+    v4_ty_lifetime_outlives_scratch_active = 0
+    v4_ty_lifetime_outlives_scratch_generation_value = 0
+    v4_ty_borrowed_return_source_cache_entry_count_value = 0
+    v4_ty_borrowed_return_source_cache_next_row_value = 0
+    v4_ty_borrowed_return_source_cache_builds_value = 0
+    v4_mir_ready = 0
+    v4_borrowck_ready = 0
+    v4_borrowck_provenance_state_active = 0
+    v4_borrowck_provenance_source_active = 0
+    v4_borrowck_provenance_generation_value = 0
+    v4_borrowck_provenance_memo_active = 0
+    v4_borrowck_provenance_memo_hits_value = 0
+    v4_borrowck_provenance_integer_cache_cursor = 0
+    v4_borrowck_provenance_integer_cache_evictions = 0
+    v4_borrowck_path_canon_cache_cursor = 0
+    v4_borrowck_path_canon_cache_evictions = 0
+    v4_borrowck_path_canon_value_cache_cursor = 0
+    v4_borrowck_path_canon_value_cache_evictions = 0
+    v4_driver_ready = 0
+    v4_editor_ready = 0
+    v4_editor_sem_len = 0
+    v4_editor_hover_len = 0
+    v4_editor_defn_len = 0
+    v4_editor_doc_len = 0
+    v4_editor_comp_len = 0
+    v4_session_init()
+    v4_query_init()
+    v4_lex_init()
+    v4_parse_init()
+    v4_hir_init()
+    v4_resolve_init()
+    v4_ty_init()
+    v4_mir_init()
+    v4_borrowck_init()
+    v4_driver_init()
+    v4_editor_init()
+}
+
+task v4_unit_snapshot_fresh_restore_assert(payload: word) -> void {
+    v4_unit_snapshot_reset_compiler_state()
+    pilot parents_empty = v4_source_count() == 0 and v4_lex_stream_count() == 0 and v4_parse_tree_count() == 0 and v4_hir_file_count() == 0 and v4_resolve_index_count() == 0 and v4_ty_file_count() == 0
+    say v4_unit_snapshot_integrity_assert("fresh-parent-arenas-empty", parents_empty)
+    pilot validation = v4_unit_snapshot_validate(payload)
+    say v4_unit_snapshot_integrity_assert("fresh-preflight-accepted", validation.starts_with("00-unit-snapshot-import ok=1 "))
+    pilot restore_result = v4_unit_snapshot_restore(payload)
+    say v4_unit_snapshot_integrity_assert("fresh-complete-restore", restore_result.starts_with("00-unit-snapshot-restore ok=1 "))
+    pilot ty_payload = v4_unit_snapshot_section_payload(payload, "ty")
+    say v4_unit_snapshot_integrity_assert("fresh-post-restore-ty-strict", v4_ty_snapshot_validate(ty_payload).starts_with("ty-snapshot-import ok=1"))
+}
+
 pilot v4_unit_snapshot_source = "task main() -> int {\n"
 v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot name = \"Yuuko|Meiya\"\n"
 v4_unit_snapshot_source = v4_unit_snapshot_source + "    pilot bad = name - 1\n"
@@ -14,16 +262,66 @@ say v4_lsp_definition_text("unit-snapshot.fk", v4_unit_snapshot_source, 5)
 say v4_lsp_document_symbols_text("unit-snapshot.fk", v4_unit_snapshot_source)
 say v4_lsp_completion_text("unit-snapshot.fk", v4_unit_snapshot_source, 0)
 
+pilot v4_unit_snapshot_current_validation = ""
+pilot v4_unit_snapshot_current_manifest = ""
+pilot v4_unit_snapshot_current_health = ""
 say v4_unit_snapshot_ref_store("before", v4_unit_snapshot())
-say v4_unit_snapshot_validate(v4_unit_snapshot_ref_text("before"))
-say v4_unit_snapshot_manifest(v4_unit_snapshot_ref_text("before"))
-say v4_unit_snapshot_health(v4_unit_snapshot_ref_text("before"))
+v4_unit_snapshot_current_validation = v4_unit_snapshot_validate(v4_unit_snapshot_ref_text("before"))
+v4_unit_snapshot_current_manifest = v4_unit_snapshot_manifest(v4_unit_snapshot_ref_text("before"))
+v4_unit_snapshot_current_health = v4_unit_snapshot_health(v4_unit_snapshot_ref_text("before"))
+say v4_unit_snapshot_current_validation
+say v4_unit_snapshot_current_manifest
+say v4_unit_snapshot_current_health
+say v4_unit_snapshot_integrity_assert("current-snapshot-validated", v4_unit_snapshot_current_validation.starts_with("00-unit-snapshot-import ok=1 "))
+say v4_unit_snapshot_integrity_assert("current-manifest-valid", v4_unit_snapshot_current_manifest.starts_with("00-unit-manifest|format=freak-00-unit-manifest-v1|ok=1|"))
+say v4_unit_snapshot_integrity_assert("current-health-valid", v4_unit_snapshot_current_health.starts_with("00-unit-health|format=freak-00-unit-health-v1|ok=1|"))
 
-pilot v4_unit_diagnostics_payload = v4_unit_snapshot_section_payload(v4_unit_snapshot_ref_text("before"), "diagnostics")
+pilot v4_unit_snapshot_before = ""
+pilot v4_unit_snapshot_before_semantic_count = 0
+pilot v4_unit_snapshot_before_hover_count = 0
+pilot v4_unit_snapshot_before_definition_count = 0
+pilot v4_unit_snapshot_missing = ""
+pilot v4_unit_snapshot_duplicate = ""
+pilot v4_unit_snapshot_corrupt = ""
+pilot v4_unit_snapshot_unknown = ""
+pilot v4_unit_snapshot_missing_validation = ""
+pilot v4_unit_snapshot_duplicate_validation = ""
+pilot v4_unit_snapshot_corrupt_validation = ""
+pilot v4_unit_snapshot_unknown_validation = ""
+v4_unit_snapshot_before = v4_unit_snapshot_ref_text("before")
+v4_unit_snapshot_before_semantic_count = v4_semantic_fact_count()
+v4_unit_snapshot_before_hover_count = v4_hover_count()
+v4_unit_snapshot_before_definition_count = v4_definition_at_count()
+v4_unit_snapshot_missing = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "completion", "missing")
+v4_unit_snapshot_duplicate = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "completion", "duplicate")
+v4_unit_snapshot_corrupt = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "lex", "corrupt")
+v4_unit_snapshot_unknown = v4_unit_snapshot_fixture_variant(v4_unit_snapshot_before, "completion", "unknown")
+v4_unit_snapshot_missing_validation = v4_unit_snapshot_validate(v4_unit_snapshot_missing)
+v4_unit_snapshot_duplicate_validation = v4_unit_snapshot_validate(v4_unit_snapshot_duplicate)
+v4_unit_snapshot_corrupt_validation = v4_unit_snapshot_validate(v4_unit_snapshot_corrupt)
+v4_unit_snapshot_unknown_validation = v4_unit_snapshot_validate(v4_unit_snapshot_unknown)
+say v4_unit_snapshot_missing_validation
+say v4_unit_snapshot_duplicate_validation
+say v4_unit_snapshot_corrupt_validation
+say v4_unit_snapshot_unknown_validation
+say v4_unit_snapshot_integrity_assert("missing-section", v4_unit_snapshot_missing_validation.starts_with("00-unit-snapshot-import ok=0 "))
+say v4_unit_snapshot_integrity_assert("duplicate-section", v4_unit_snapshot_duplicate_validation.starts_with("00-unit-snapshot-import ok=0 "))
+say v4_unit_snapshot_integrity_assert("corrupt-inner-payload", v4_unit_snapshot_corrupt_validation.starts_with("00-unit-snapshot-import ok=0 "))
+say v4_unit_snapshot_integrity_assert("unknown-section", v4_unit_snapshot_unknown_validation.starts_with("00-unit-snapshot-import ok=0 "))
+pilot v4_unit_snapshot_before_file_id = 0
+pilot v4_unit_snapshot_before_revision = 0
+v4_unit_snapshot_before_file_id = v4_source_find("unit-snapshot.fk")
+v4_unit_snapshot_before_revision = v4_source_revision(v4_unit_snapshot_before_file_id)
+
+pilot v4_unit_diagnostics_payload = ""
+pilot v4_unit_diagnostics_validation = ""
 v4_unit_diagnostics_payload = v4_diagnostics_snapshot()
-say "unit-diagnostics-section-validation=" + v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload)
+v4_unit_diagnostics_validation = v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload)
+say "unit-diagnostics-section-validation=" + v4_unit_diagnostics_validation
+say v4_unit_snapshot_integrity_assert("current-diagnostics-valid", v4_unit_diagnostics_validation.starts_with("diagnostics-snapshot-import ok=1 "))
 pilot v4_unit_diagnostics_line_idx = 0
-pilot v4_unit_diagnostics_line_count = v4_diagnostics_snapshot_line_count(v4_unit_diagnostics_payload)
+pilot v4_unit_diagnostics_line_count = 0
+v4_unit_diagnostics_line_count = v4_diagnostics_snapshot_line_count(v4_unit_diagnostics_payload)
 repeat until v4_unit_diagnostics_line_idx >= v4_unit_diagnostics_line_count {
     pilot v4_unit_diagnostics_line = v4_diagnostics_snapshot_line(v4_unit_diagnostics_payload, v4_unit_diagnostics_line_idx)
     if v4_unit_diagnostics_line.starts_with("diagnostic|") {
@@ -31,6 +329,29 @@ repeat until v4_unit_diagnostics_line_idx >= v4_unit_diagnostics_line_count {
     }
     v4_unit_diagnostics_line_idx += 1
 }
+
+pilot v4_unit_snapshot_same_source_base = ""
+pilot v4_unit_snapshot_same_source_file = 0
+pilot v4_unit_snapshot_same_source_fingerprint = ""
+pilot v4_unit_snapshot_same_source_donor = ""
+pilot v4_unit_snapshot_same_source_base_identity = ""
+pilot v4_unit_snapshot_same_source_donor_identity = ""
+pilot v4_unit_snapshot_same_source_spliced = ""
+pilot v4_unit_snapshot_same_source_validation = ""
+pilot v4_unit_snapshot_same_source_restore = ""
+v4_unit_snapshot_same_source_base = v4_unit_snapshot_before
+v4_unit_snapshot_same_source_file = v4_source_find("unit-snapshot.fk")
+v4_unit_snapshot_same_source_fingerprint = v4_source_fingerprint(v4_unit_snapshot_same_source_file)
+v4_query_store("unit-snapshot:same-source-checkpoint", v4_unit_snapshot_same_source_fingerprint, "donor-only-query")
+v4_unit_snapshot_same_source_donor = v4_unit_snapshot()
+v4_unit_snapshot_same_source_base_identity = v4_unit_snapshot_key_value(v4_unit_snapshot_line(v4_unit_snapshot_same_source_base, 0), "identity")
+v4_unit_snapshot_same_source_donor_identity = v4_unit_snapshot_key_value(v4_unit_snapshot_line(v4_unit_snapshot_same_source_donor, 0), "identity")
+say v4_unit_snapshot_integrity_assert("same-source-checkpoint-setup", v4_unit_snapshot_same_source_base_identity != v4_unit_snapshot_same_source_donor_identity)
+v4_unit_snapshot_same_source_spliced = v4_unit_snapshot_fixture_splice_section_rebound(v4_unit_snapshot_same_source_base, v4_unit_snapshot_same_source_donor, "query")
+v4_unit_snapshot_same_source_validation = v4_unit_snapshot_validate(v4_unit_snapshot_same_source_spliced)
+say v4_unit_snapshot_integrity_assert("same-source-rebound-splice-rejected", v4_unit_snapshot_same_source_validation.starts_with("00-unit-snapshot-import ok=0 ") and v4_unit_snapshot_same_source_validation.contains("identity-matches=0") and v4_unit_snapshot_same_source_validation.contains("section-identity-mismatches=0"))
+v4_unit_snapshot_same_source_restore = v4_unit_snapshot_restore(v4_unit_snapshot_same_source_spliced)
+say v4_unit_snapshot_integrity_assert("same-source-rebound-splice-atomic", v4_unit_snapshot_same_source_restore.starts_with("00-unit-snapshot-restore ok=0 ") and v4_unit_snapshot() == v4_unit_snapshot_same_source_donor)
 
 pilot v4_unit_snapshot_source_changed = "task main() -> int {\n"
 v4_unit_snapshot_source_changed = v4_unit_snapshot_source_changed + "    pilot name = \"Yuuko|Meiya|XM3\"\n"
@@ -45,12 +366,116 @@ say v4_diagnostics_text("unit-snapshot.fk", v4_unit_snapshot_source_changed)
 
 say v4_unit_snapshot_manifest(v4_unit_snapshot())
 say v4_unit_snapshot_health(v4_unit_snapshot())
-pilot v4_unit_diagnostics_payload_changed = v4_unit_snapshot_section_payload(v4_unit_snapshot(), "diagnostics")
-say "unit-diagnostics-changed-section-validation=" + v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload_changed)
+pilot v4_unit_diagnostics_payload_changed = ""
+pilot v4_unit_diagnostics_validation_changed = ""
+v4_unit_diagnostics_payload_changed = v4_unit_snapshot_section_payload(v4_unit_snapshot(), "diagnostics")
+v4_unit_diagnostics_validation_changed = v4_diagnostics_snapshot_validate(v4_unit_diagnostics_payload_changed)
+say "unit-diagnostics-changed-section-validation=" + v4_unit_diagnostics_validation_changed
+say v4_unit_snapshot_integrity_assert("changed-diagnostics-valid", v4_unit_diagnostics_validation_changed.starts_with("diagnostics-snapshot-import ok=1 "))
 say v4_lsp_handle_text_request("workspace/unitSnapshotManifest", "unit-snapshot.fk", v4_unit_snapshot(), 0)
 say v4_lsp_handle_text_request("workspace/unitSnapshotHealth", "unit-snapshot.fk", v4_unit_snapshot(), 0)
+say v4_unit_snapshot_splice_is_atomic(v4_unit_snapshot(), v4_unit_snapshot_before, "ty")
 
-say v4_unit_snapshot_restore(v4_unit_snapshot_ref_text("before"))
+pilot v4_unit_snapshot_atomic_state = ""
+pilot v4_unit_snapshot_negative_id = ""
+pilot v4_unit_snapshot_sparse_id = ""
+pilot v4_unit_snapshot_duplicate_id = ""
+pilot v4_unit_snapshot_duplicate_path = ""
+pilot v4_unit_snapshot_forged_fingerprint = ""
+pilot v4_unit_snapshot_atomic_result = ""
+pilot v4_unit_snapshot_atomic_ok = 1
+v4_unit_snapshot_atomic_state = v4_unit_snapshot()
+v4_unit_snapshot_negative_id = v4_unit_snapshot_fixture_source_variant(v4_unit_snapshot_atomic_state, "negative-id")
+v4_unit_snapshot_sparse_id = v4_unit_snapshot_fixture_source_variant(v4_unit_snapshot_atomic_state, "sparse-id")
+v4_unit_snapshot_duplicate_id = v4_unit_snapshot_fixture_source_variant(v4_unit_snapshot_atomic_state, "duplicate-id")
+v4_unit_snapshot_duplicate_path = v4_unit_snapshot_fixture_source_variant(v4_unit_snapshot_atomic_state, "duplicate-path")
+v4_unit_snapshot_forged_fingerprint = v4_unit_snapshot_fixture_source_variant(v4_unit_snapshot_atomic_state, "forged-fingerprint")
+v4_unit_snapshot_atomic_result = v4_unit_snapshot_restore(v4_unit_snapshot_negative_id)
+v4_unit_snapshot_atomic_ok = v4_unit_snapshot_atomic_ok * v4_unit_snapshot_restore_is_atomic(v4_unit_snapshot_atomic_result, v4_unit_snapshot_atomic_state)
+say v4_unit_snapshot_integrity_assert("negative-source-id-atomic", v4_unit_snapshot_atomic_ok == 1)
+v4_unit_snapshot_atomic_result = v4_unit_snapshot_restore(v4_unit_snapshot_sparse_id)
+v4_unit_snapshot_atomic_ok = v4_unit_snapshot_atomic_ok * v4_unit_snapshot_restore_is_atomic(v4_unit_snapshot_atomic_result, v4_unit_snapshot_atomic_state)
+say v4_unit_snapshot_integrity_assert("sparse-source-id-atomic", v4_unit_snapshot_atomic_ok == 1)
+v4_unit_snapshot_atomic_result = v4_unit_snapshot_restore(v4_unit_snapshot_duplicate_id)
+v4_unit_snapshot_atomic_ok = v4_unit_snapshot_atomic_ok * v4_unit_snapshot_restore_is_atomic(v4_unit_snapshot_atomic_result, v4_unit_snapshot_atomic_state)
+say v4_unit_snapshot_integrity_assert("duplicate-source-id-atomic", v4_unit_snapshot_atomic_ok == 1)
+v4_unit_snapshot_atomic_result = v4_unit_snapshot_restore(v4_unit_snapshot_duplicate_path)
+v4_unit_snapshot_atomic_ok = v4_unit_snapshot_atomic_ok * v4_unit_snapshot_restore_is_atomic(v4_unit_snapshot_atomic_result, v4_unit_snapshot_atomic_state)
+say v4_unit_snapshot_integrity_assert("duplicate-source-path-atomic", v4_unit_snapshot_atomic_ok == 1)
+v4_unit_snapshot_atomic_result = v4_unit_snapshot_restore(v4_unit_snapshot_forged_fingerprint)
+v4_unit_snapshot_atomic_ok = v4_unit_snapshot_atomic_ok * v4_unit_snapshot_restore_is_atomic(v4_unit_snapshot_atomic_result, v4_unit_snapshot_atomic_state)
+say v4_unit_snapshot_integrity_assert("forged-source-fingerprint-atomic", v4_unit_snapshot_atomic_ok == 1)
+
+pilot v4_unit_snapshot_preflight_text = ""
+pilot v4_unit_snapshot_preflight_revision = 0
+pilot v4_unit_snapshot_failed_restore = ""
+v4_unit_snapshot_preflight_text = v4_source_text(v4_unit_snapshot_before_file_id)
+v4_unit_snapshot_preflight_revision = v4_source_revision(v4_unit_snapshot_before_file_id)
+v4_unit_snapshot_failed_restore = v4_unit_snapshot_restore(v4_unit_snapshot_missing)
+say v4_unit_snapshot_failed_restore
+say v4_unit_snapshot_integrity_assert("invalid-restore-rejected", v4_unit_snapshot_failed_restore.starts_with("00-unit-snapshot-restore ok=0 ") and v4_unit_snapshot_atomic_ok == 1)
+say v4_unit_snapshot_integrity_assert("preflight-preserves-source-text", v4_source_text(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_preflight_text)
+say v4_unit_snapshot_integrity_assert("preflight-preserves-source-revision", v4_source_revision(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_preflight_revision)
+
+pilot v4_unit_snapshot_extra_path = "unit-snapshot-extra.fk"
+pilot v4_unit_snapshot_extra_source = "task extra() -> int {\n"
+v4_unit_snapshot_extra_source = v4_unit_snapshot_extra_source + "    give back 1\n"
+v4_unit_snapshot_extra_source = v4_unit_snapshot_extra_source + "}\n"
+pilot v4_unit_snapshot_extra_file_id = 0
+pilot v4_unit_snapshot_extra_semantic_id = 0
+pilot v4_unit_snapshot_extra_hover_id = 0
+pilot v4_unit_snapshot_extra_definition_id = 0
+pilot v4_unit_snapshot_extra_query_key = ""
+pilot v4_unit_snapshot_extra_query_input = "snapshot-extra-input"
+pilot v4_unit_snapshot_extra_state = ""
+v4_unit_snapshot_extra_file_id = v4_source_set_text(v4_unit_snapshot_extra_path, v4_unit_snapshot_extra_source)
+v4_check_syntax_text(v4_unit_snapshot_extra_path, v4_unit_snapshot_extra_source)
+v4_unit_snapshot_extra_semantic_id = v4_editor_semantic_fact_new(v4_unit_snapshot_extra_path, 5, 0 - 1, "identifier", "extra", V4_NO_SPAN, 0 - 1, "extra", "task", 0 - 1, "extra", "task", "extra::task", "task() -> int")
+v4_unit_snapshot_extra_hover_id = v4_editor_hover_new(v4_unit_snapshot_extra_path, 5, v4_unit_snapshot_extra_semantic_id, "extra", "task", "task() -> int", "**extra**")
+v4_unit_snapshot_extra_definition_id = v4_editor_definition_new(v4_unit_snapshot_extra_path, 5, v4_unit_snapshot_extra_semantic_id, "extra", "task", "extra::task", 0 - 1, V4_NO_SPAN, 1)
+v4_unit_snapshot_extra_query_key = "snapshot-extra:" + v4_unit_snapshot_extra_path
+v4_query_store(v4_unit_snapshot_extra_query_key, v4_unit_snapshot_extra_query_input, "stale-cache-hit")
+v4_unit_snapshot_extra_state = v4_unit_snapshot()
+say v4_unit_snapshot_integrity_assert("extras-visible-before-restore", v4_source_find(v4_unit_snapshot_extra_path) == v4_unit_snapshot_extra_file_id and v4_semantic_fact_exists(v4_unit_snapshot_extra_semantic_id) and v4_hover_exists(v4_unit_snapshot_extra_hover_id) and v4_definition_at_exists(v4_unit_snapshot_extra_definition_id))
+say v4_unit_snapshot_integrity_assert("extra-cache-hit-before-restore", v4_query_get(v4_unit_snapshot_extra_query_key, v4_unit_snapshot_extra_query_input) == "stale-cache-hit")
+
+pilot v4_unit_snapshot_valid_restore = ""
+v4_unit_snapshot_valid_restore = v4_unit_snapshot_restore(v4_unit_snapshot_before)
+say v4_unit_snapshot_valid_restore
+say v4_unit_snapshot_integrity_assert("valid-restore", v4_unit_snapshot_valid_restore.starts_with("00-unit-snapshot-restore ok=1 "))
+say v4_unit_snapshot_integrity_assert("valid-restore-source-text", v4_source_text(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_source)
+say v4_unit_snapshot_integrity_assert("valid-restore-source-revision", v4_source_revision(v4_unit_snapshot_before_file_id) == v4_unit_snapshot_before_revision)
+say v4_unit_snapshot_integrity_assert("extra-source-removed", v4_source_find(v4_unit_snapshot_extra_path) < 0 and v4_source_path(v4_unit_snapshot_extra_file_id) == "")
+say v4_unit_snapshot_integrity_assert("extra-semantic-removed", v4_semantic_fact_count() == v4_unit_snapshot_before_semantic_count and v4_semantic_fact_exists(v4_unit_snapshot_extra_semantic_id) == false and v4_semantic_at_path(v4_unit_snapshot_extra_semantic_id) == "")
+say v4_unit_snapshot_integrity_assert("extra-hover-removed", v4_hover_count() == v4_unit_snapshot_before_hover_count and v4_hover_exists(v4_unit_snapshot_extra_hover_id) == false and v4_hover_path(v4_unit_snapshot_extra_hover_id) == "")
+say v4_unit_snapshot_integrity_assert("extra-definition-removed", v4_definition_at_count() == v4_unit_snapshot_before_definition_count and v4_definition_at_exists(v4_unit_snapshot_extra_definition_id) == false and v4_definition_at_path(v4_unit_snapshot_extra_definition_id) == "")
+say v4_unit_snapshot_integrity_assert("extra-query-removed", v4_query_entry_count_for_key(v4_unit_snapshot_extra_query_key) == 0)
+say v4_unit_snapshot_integrity_assert("extra-cache-miss-after-restore", v4_query_get(v4_unit_snapshot_extra_query_key, v4_unit_snapshot_extra_query_input) == "")
+pilot v4_unit_snapshot_foreign_validation = ""
+pilot v4_unit_snapshot_reused_source = ""
+pilot v4_unit_snapshot_reused_source_id = 0
+v4_unit_snapshot_foreign_validation = v4_unit_snapshot_validate(v4_unit_snapshot_extra_state)
+v4_unit_snapshot_reused_source = "task reused() -> int {\n"
+v4_unit_snapshot_reused_source = v4_unit_snapshot_reused_source + "    give back 2\n"
+v4_unit_snapshot_reused_source = v4_unit_snapshot_reused_source + "}\n"
+v4_unit_snapshot_reused_source_id = v4_source_set_text("unit-snapshot-reused.fk", v4_unit_snapshot_reused_source)
+say v4_unit_snapshot_integrity_assert("foreign-context-validation-accepted", v4_unit_snapshot_foreign_validation.starts_with("00-unit-snapshot-import ok=1 "))
+say v4_unit_snapshot_integrity_assert("foreign-context-source-id-reused", v4_unit_snapshot_reused_source_id == v4_unit_snapshot_extra_file_id)
+v4_unit_snapshot_restore(v4_unit_snapshot_before)
+pilot v4_unit_snapshot_soak_id = 0
+pilot v4_unit_snapshot_soak_ok = true
+repeat until v4_unit_snapshot_soak_id >= 80 {
+    pilot v4_unit_snapshot_soak_payload = v4_unit_snapshot()
+    if not v4_unit_snapshot_soak_payload.starts_with("00-unit-snapshot|format=freak-00-unit-snapshot-v2") {
+        v4_unit_snapshot_soak_ok = false
+    }
+    v4_unit_snapshot_soak_id += 1
+}
+say v4_unit_snapshot_integrity_assert("snapshot-soak-80", v4_unit_snapshot_soak_ok)
 say v4_lsp_handle_text_request("workspace/unitSnapshotRestore", "unit-snapshot.fk", v4_unit_snapshot_ref_text("before"), 0)
 say v4_lsp_handle_request("workspace/unitSnapshotRestore", "unit-snapshot.fk", 0)
-say v4_unit_snapshot_restore("00-unit-snapshot|format=wrong\nend|wrong")
+pilot v4_unit_snapshot_wrong_format_restore = ""
+v4_unit_snapshot_wrong_format_restore = v4_unit_snapshot_restore("00-unit-snapshot|format=wrong\nend|wrong")
+say v4_unit_snapshot_wrong_format_restore
+say v4_unit_snapshot_integrity_assert("wrong-format-restore-rejected", v4_unit_snapshot_wrong_format_restore.starts_with("00-unit-snapshot-restore ok=0 "))
+v4_unit_snapshot_fresh_restore_assert(v4_unit_snapshot_before)

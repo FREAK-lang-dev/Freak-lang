@@ -1,0 +1,254 @@
+-- V4 closure capture editor, snapshot, LSP, and invalidation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_closure_editor_source(mode: word) -> word {
+    pilot src = "task evaluate() -> bool {\n"
+    src = src + "    pilot threshold: int = 100\n"
+    src = src + "    pilot check = " + mode + "|value: int| => value > threshold\n"
+    src = src + "    give back check(120)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_closure_editor_member_source() -> word {
+    pilot src = "shape Item {\n"
+    src = src + "    score: int\n"
+    src = src + "}\n"
+    src = src + "impl Item {\n"
+    src = src + "    task value(self) -> int {\n"
+    src = src + "        give back self.score\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task inspect() -> int {\n"
+    src = src + "    pilot item: Item = Item " + "{" + " score: 1 " + "}" + "\n"
+    src = src + "    pilot read = |value: int| => item.value() + value\n"
+    src = src + "    give back read(2)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_closure_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    repeat until token_id >= v4_lex_token_count(stream_id) {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal { give back token_id }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_closure_editor_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_closure_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 { give back 0 - 1 }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_closure_editor_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_closure_editor_member_resolution_ok() -> bool {
+    pilot path = "closure-editor-member.fk"
+    pilot source = v4_closure_editor_member_source()
+    pilot stream_id = v4_lex_text(2, source)
+    pilot param_decl_offset = v4_closure_editor_offset(stream_id, "value", 1)
+    pilot member_token = 0 - 1
+    pilot token_id = 0
+    repeat until token_id >= v4_lex_token_count(stream_id) or member_token >= 0 {
+        if v4_lex_token_value(stream_id, token_id) == "value" {
+            pilot previous = v4_editor_prev_nontrivia_token(stream_id, token_id)
+            if previous >= 0 and v4_lex_token_value(stream_id, previous) == "." {
+                member_token = token_id
+            }
+        }
+        token_id += 1
+    }
+    if member_token < 0 {
+        give back false
+    }
+    pilot member_offset = v4_span_start(v4_lex_token_span(stream_id, member_token))
+    pilot semantic = v4_semantic_at_text_cached(path, source, member_offset)
+    pilot hover = v4_hover_text_cached(path, source, member_offset)
+    pilot definition = v4_definition_at_text_cached(path, source, member_offset)
+    if v4_semantic_at_kind(semantic) == "Parameter" or v4_hover_kind(hover) == "Parameter" or v4_definition_at_kind(definition) == "Parameter" {
+        give back false
+    }
+    if v4_definition_at_found(definition) == 1 {
+        give back v4_span_start(v4_definition_at_span(definition)) != param_decl_offset
+    }
+    give back true
+}
+
+task v4_closure_editor_completion_item(completion_id: int, wanted: word) -> int {
+    pilot item_id = 0
+    repeat until item_id >= v4_completion_count(completion_id) {
+        if v4_completion_label(completion_id, item_id) == wanted { give back item_id }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_closure_editor_completion_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 { give back "" }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_closure_editor_report_positive(report: word) -> bool {
+    if word_to_int(v4_unit_snapshot_key_value(report, "query-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "core-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "syntax-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "lex-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "parse-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "hir-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "resolve-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "ty-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "mir-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "borrowck-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "diagnostics-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "editor-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "semantic-at-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "hover-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "definition-at-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "document-symbols-invalidations-added")) <= 0 { give back false }
+    give back word_to_int(v4_unit_snapshot_key_value(report, "completion-invalidations-added")) > 0
+}
+
+task v4_closure_editor_report_key_matches(report: word, diff_line: word, key: word) -> bool {
+    give back v4_unit_snapshot_key_value(report, key) == v4_unit_snapshot_key_value(diff_line, key)
+}
+
+task v4_closure_editor_reports_match(report: word, diff_line: word) -> bool {
+    if not v4_closure_editor_report_key_matches(report, diff_line, "query-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "core-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "syntax-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "lex-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "parse-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "hir-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "resolve-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "ty-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "mir-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "borrowck-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "diagnostics-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "editor-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "semantic-at-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "hover-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "definition-at-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "document-symbols-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "completion-invalidations-added") { give back false }
+    give back true
+}
+
+pilot v4_closure_editor_path = "closure-editor.fk"
+pilot v4_closure_editor_before = v4_closure_editor_source("")
+pilot v4_closure_editor_before_stream = v4_lex_text(0, v4_closure_editor_before)
+pilot v4_closure_editor_before_decl = v4_closure_editor_offset(v4_closure_editor_before_stream, "threshold", 0)
+pilot v4_closure_editor_before_use = v4_closure_editor_offset(v4_closure_editor_before_stream, "threshold", 1)
+pilot v4_closure_editor_param_decl = v4_closure_editor_offset(v4_closure_editor_before_stream, "value", 0)
+pilot v4_closure_editor_param_use = v4_closure_editor_offset(v4_closure_editor_before_stream, "value", 1)
+
+v4_lsp_open_document(v4_closure_editor_path, v4_closure_editor_before)
+pilot v4_closure_editor_lex = v4_lex_text_cached(v4_closure_editor_path, v4_closure_editor_before)
+pilot v4_closure_editor_parse = v4_parse_text_cached(v4_closure_editor_path, v4_closure_editor_before)
+pilot v4_closure_editor_hir = v4_hir_text_cached(v4_closure_editor_path, v4_closure_editor_before)
+pilot v4_closure_editor_resolve = v4_resolve_text_cached(v4_closure_editor_path, v4_closure_editor_before)
+pilot v4_closure_editor_ty = v4_ty_text_cached(v4_closure_editor_path, v4_closure_editor_before)
+pilot v4_closure_editor_mir = v4_mir_text_cached(v4_closure_editor_path, v4_closure_editor_before)
+pilot v4_closure_editor_borrow = v4_borrowck_text_cached(v4_closure_editor_path, v4_closure_editor_before)
+pilot v4_closure_editor_diagnostics = v4_diagnostics_text_cached(v4_closure_editor_path, v4_closure_editor_before)
+pilot v4_closure_editor_semantic = v4_semantic_at_text_cached(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_before_use)
+pilot v4_closure_editor_hover = v4_hover_text_cached(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_before_use)
+pilot v4_closure_editor_definition = v4_definition_at_text_cached(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_before_use)
+pilot v4_closure_editor_symbols = v4_document_symbols_text_cached(v4_closure_editor_path, v4_closure_editor_before)
+pilot v4_closure_editor_completion = v4_completion_text_cached(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_before_use)
+pilot v4_closure_editor_threshold_completion = v4_closure_editor_completion_item(v4_closure_editor_completion, "threshold")
+pilot v4_closure_editor_param_semantic = v4_semantic_at_text_cached(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_param_use)
+pilot v4_closure_editor_param_hover = v4_hover_text_cached(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_param_use)
+pilot v4_closure_editor_param_definition = v4_definition_at_text_cached(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_param_use)
+pilot v4_closure_editor_param_completion = v4_completion_text_cached(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_param_use)
+pilot v4_closure_editor_param_completion_item = v4_closure_editor_completion_item(v4_closure_editor_param_completion, "value")
+pilot v4_closure_editor_syntax = v4_check_syntax_text(v4_closure_editor_path, v4_closure_editor_before)
+
+say "closure-editor-before-semantic=" + v4_semantic_at_type(v4_closure_editor_semantic)
+say "closure-editor-before-hover=" + v4_hover_type(v4_closure_editor_hover)
+say "closure-editor-before-definition-found=" + word_from_int(v4_definition_at_found(v4_closure_editor_definition))
+say "closure-editor-before-definition-matches=" + v4_closure_editor_bool(v4_span_start(v4_definition_at_span(v4_closure_editor_definition)) == v4_closure_editor_before_decl)
+say "closure-editor-before-completion=" + v4_closure_editor_completion_detail_or_empty(v4_closure_editor_completion, v4_closure_editor_threshold_completion)
+say "closure-editor-param-semantic=" + v4_semantic_at_type(v4_closure_editor_param_semantic)
+say "closure-editor-param-hover=" + v4_hover_type(v4_closure_editor_param_hover)
+say "closure-editor-param-definition-found=" + word_from_int(v4_definition_at_found(v4_closure_editor_param_definition))
+say "closure-editor-param-definition-matches=" + v4_closure_editor_bool(v4_span_start(v4_definition_at_span(v4_closure_editor_param_definition)) == v4_closure_editor_param_decl)
+say "closure-editor-param-completion=" + v4_closure_editor_completion_detail_or_empty(v4_closure_editor_param_completion, v4_closure_editor_param_completion_item)
+say "closure-editor-param-lsp-hover=" + v4_closure_editor_bool(v4_lsp_hover_text(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_param_use).contains("parameter value: int"))
+say "closure-editor-param-lsp-definition=" + v4_closure_editor_bool(v4_lsp_definition_text(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_param_use).contains("location|" + v4_closure_editor_path))
+say "closure-editor-param-lsp-completion=" + v4_closure_editor_bool(v4_lsp_completion_text(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_param_use).contains("parameter value: int"))
+say "closure-editor-lsp-hover=" + v4_closure_editor_bool(v4_lsp_hover_text(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_before_use).contains("capture borrow int"))
+say "closure-editor-lsp-definition=" + v4_closure_editor_bool(v4_lsp_definition_text(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_before_use).contains("location|" + v4_closure_editor_path))
+say "closure-editor-lsp-completion=" + v4_closure_editor_bool(v4_lsp_completion_text(v4_closure_editor_path, v4_closure_editor_before, v4_closure_editor_before_use).contains("capture borrow int"))
+
+pilot v4_closure_editor_semantic_payload = v4_semantic_snapshot()
+pilot v4_closure_editor_hover_payload = v4_hover_snapshot()
+pilot v4_closure_editor_definition_payload = v4_definition_snapshot()
+pilot v4_closure_editor_completion_payload = v4_completion_snapshot()
+pilot v4_closure_editor_mir_payload = v4_mir_snapshot()
+pilot v4_closure_editor_borrow_payload = v4_borrowck_snapshot()
+say "closure-editor-semantic-snapshot-valid=" + v4_closure_editor_bool(v4_semantic_snapshot_validate(v4_closure_editor_semantic_payload).starts_with("semantic-snapshot-import ok=1"))
+say "closure-editor-hover-snapshot-valid=" + v4_closure_editor_bool(v4_hover_snapshot_validate(v4_closure_editor_hover_payload).starts_with("hover-snapshot-import ok=1"))
+say "closure-editor-definition-snapshot-valid=" + v4_closure_editor_bool(v4_definition_snapshot_validate(v4_closure_editor_definition_payload).starts_with("definition-snapshot-import ok=1"))
+say "closure-editor-completion-snapshot-valid=" + v4_closure_editor_bool(v4_completion_snapshot_validate(v4_closure_editor_completion_payload).starts_with("completion-snapshot-import ok=1"))
+say "closure-editor-mir-snapshot-valid=" + v4_closure_editor_bool(v4_mir_snapshot_validate(v4_closure_editor_mir_payload).starts_with("mir-snapshot-import ok=1"))
+say "closure-editor-borrow-snapshot-valid=" + v4_closure_editor_bool(v4_borrowck_snapshot_validate(v4_closure_editor_borrow_payload).starts_with("borrowck-snapshot-import ok=1"))
+say "closure-editor-semantic-snapshot-restored=" + v4_closure_editor_bool(v4_semantic_snapshot_restore(v4_closure_editor_semantic_payload).starts_with("semantic-snapshot-restore ok=1"))
+say "closure-editor-hover-snapshot-restored=" + v4_closure_editor_bool(v4_hover_snapshot_restore(v4_closure_editor_hover_payload).starts_with("hover-snapshot-restore ok=1"))
+say "closure-editor-definition-snapshot-restored=" + v4_closure_editor_bool(v4_definition_snapshot_restore(v4_closure_editor_definition_payload).starts_with("definition-snapshot-restore ok=1"))
+say "closure-editor-completion-snapshot-restored=" + v4_closure_editor_bool(v4_completion_snapshot_restore(v4_closure_editor_completion_payload).starts_with("completion-snapshot-restore ok=1"))
+say "closure-editor-mir-snapshot-restored=" + v4_closure_editor_bool(v4_mir_snapshot_restore(v4_closure_editor_mir_payload).starts_with("mir-snapshot-restore ok=1"))
+say "closure-editor-borrow-snapshot-restored=" + v4_closure_editor_bool(v4_borrowck_snapshot_restore(v4_closure_editor_borrow_payload).starts_with("borrowck-snapshot-restore ok=1"))
+say "closure-editor-restored-semantic=" + v4_semantic_at_type(v4_closure_editor_semantic)
+say "closure-editor-restored-hover=" + v4_hover_type(v4_closure_editor_hover)
+say "closure-editor-restored-completion=" + v4_closure_editor_completion_detail_or_empty(v4_closure_editor_completion, v4_closure_editor_threshold_completion)
+
+pilot v4_closure_editor_before_unit = ""
+pilot v4_closure_editor_after = v4_closure_editor_source("copy ")
+pilot v4_closure_editor_change = ""
+pilot v4_closure_editor_report = ""
+pilot v4_closure_editor_after_unit = ""
+pilot v4_closure_editor_diff = ""
+pilot v4_closure_editor_diff_line = ""
+pilot v4_closure_editor_after_stream = 0
+pilot v4_closure_editor_after_use = 0
+pilot v4_closure_editor_after_semantic = 0
+pilot v4_closure_editor_after_hover = 0
+pilot v4_closure_editor_after_definition = 0
+pilot v4_closure_editor_after_completion = 0
+pilot v4_closure_editor_after_threshold = 0
+
+-- These assignments intentionally execute after the snapshot restore calls above.
+v4_closure_editor_before_unit = v4_unit_snapshot()
+v4_closure_editor_change = v4_lsp_handle_text_request("textDocument/didChange", v4_closure_editor_path, v4_closure_editor_after, 0)
+v4_closure_editor_report = v4_unit_snapshot_line(v4_closure_editor_change, 2)
+v4_closure_editor_after_unit = v4_unit_snapshot()
+v4_closure_editor_diff = v4_unit_snapshot_diff(v4_closure_editor_before_unit, v4_closure_editor_after_unit)
+v4_closure_editor_diff_line = v4_unit_snapshot_health_diff_line(v4_closure_editor_diff)
+say "closure-editor-invalidation-positive=" + v4_closure_editor_bool(v4_closure_editor_report_positive(v4_closure_editor_report))
+say "closure-editor-invalidation-matches-diff=" + v4_closure_editor_bool(v4_closure_editor_reports_match(v4_closure_editor_report, v4_closure_editor_diff_line))
+
+v4_closure_editor_after_stream = v4_lex_text(1, v4_closure_editor_after)
+v4_closure_editor_after_use = v4_closure_editor_offset(v4_closure_editor_after_stream, "threshold", 1)
+v4_closure_editor_after_semantic = v4_semantic_at_text_cached(v4_closure_editor_path, v4_closure_editor_after, v4_closure_editor_after_use)
+v4_closure_editor_after_hover = v4_hover_text_cached(v4_closure_editor_path, v4_closure_editor_after, v4_closure_editor_after_use)
+v4_closure_editor_after_definition = v4_definition_at_text_cached(v4_closure_editor_path, v4_closure_editor_after, v4_closure_editor_after_use)
+v4_closure_editor_after_completion = v4_completion_text_cached(v4_closure_editor_path, v4_closure_editor_after, v4_closure_editor_after_use)
+v4_closure_editor_after_threshold = v4_closure_editor_completion_item(v4_closure_editor_after_completion, "threshold")
+say "closure-editor-after-semantic=" + v4_semantic_at_type(v4_closure_editor_after_semantic)
+say "closure-editor-after-hover=" + v4_hover_type(v4_closure_editor_after_hover)
+say "closure-editor-after-definition-found=" + word_from_int(v4_definition_at_found(v4_closure_editor_after_definition))
+say "closure-editor-after-definition-matches=" + v4_closure_editor_bool(v4_span_start(v4_definition_at_span(v4_closure_editor_after_definition)) == v4_closure_editor_before_decl)
+say "closure-editor-after-completion=" + v4_closure_editor_completion_detail_or_empty(v4_closure_editor_after_completion, v4_closure_editor_after_threshold)
+say "closure-editor-after-lsp-hover=" + v4_closure_editor_bool(v4_lsp_hover_text(v4_closure_editor_path, v4_closure_editor_after, v4_closure_editor_after_use).contains("capture copy int"))
+say "closure-editor-after-lsp-definition=" + v4_closure_editor_bool(v4_lsp_definition_text(v4_closure_editor_path, v4_closure_editor_after, v4_closure_editor_after_use).contains("location|" + v4_closure_editor_path))
+say "closure-editor-after-lsp-completion=" + v4_closure_editor_bool(v4_lsp_completion_text(v4_closure_editor_path, v4_closure_editor_after, v4_closure_editor_after_use).contains("capture copy int"))
+say "closure-editor-member-resolution=" + v4_closure_editor_bool(v4_closure_editor_member_resolution_ok())

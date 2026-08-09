@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
+import os
+import re
+import signal
 import shutil
 import subprocess
 import sys
+import threading
+import time
+from collections import Counter
 from pathlib import Path
 
 
@@ -44,6 +51,163 @@ CRATES_ROOT = V4_ROOT / "crates"
 TESTS_ROOT = V4_ROOT / "tests"
 RUNTIME_ROOT = ROOT / "freakc" / "runtime"
 RUNTIME_BUILD_ROOT = ROOT / "build" / "v4_smoke"
+RUNNER_RETAINED_MEMORY_LIMIT_MB = 256
+RUNNER_PEAK_RETAINED_BYTES = 0
+C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
+C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
+    {
+        "mir_snapshot_resource_smoke.fk",
+        "query_invalidation_resource_smoke.fk",
+    }
+)
+
+
+def current_process_memory_bytes() -> int | None:
+    if sys.platform.startswith("win"):
+        import ctypes
+        from ctypes import wintypes
+
+        class ProcessMemoryCountersEx(ctypes.Structure):
+            _fields_ = [
+                ("cb", wintypes.DWORD),
+                ("PageFaultCount", wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+                ("PrivateUsage", ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        psapi = ctypes.WinDLL("psapi", use_last_error=True)
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        psapi.GetProcessMemoryInfo.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(ProcessMemoryCountersEx),
+            wintypes.DWORD,
+        ]
+        psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+        counters = ProcessMemoryCountersEx()
+        counters.cb = ctypes.sizeof(counters)
+        if not psapi.GetProcessMemoryInfo(
+            kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb
+        ):
+            return None
+        return int(counters.PrivateUsage)
+
+    if sys.platform == "darwin":
+        import ctypes
+
+        class ProcTaskInfo(ctypes.Structure):
+            _fields_ = [
+                ("pti_virtual_size", ctypes.c_uint64),
+                ("pti_resident_size", ctypes.c_uint64),
+                ("pti_total_user", ctypes.c_uint64),
+                ("pti_total_system", ctypes.c_uint64),
+                ("pti_threads_user", ctypes.c_uint64),
+                ("pti_threads_system", ctypes.c_uint64),
+                ("pti_policy", ctypes.c_int32),
+                ("pti_faults", ctypes.c_int32),
+                ("pti_pageins", ctypes.c_int32),
+                ("pti_cow_faults", ctypes.c_int32),
+                ("pti_messages_sent", ctypes.c_int32),
+                ("pti_messages_received", ctypes.c_int32),
+                ("pti_syscalls_mach", ctypes.c_int32),
+                ("pti_syscalls_unix", ctypes.c_int32),
+                ("pti_csw", ctypes.c_int32),
+                ("pti_threadnum", ctypes.c_int32),
+                ("pti_numrunning", ctypes.c_int32),
+                ("pti_priority", ctypes.c_int32),
+            ]
+
+        try:
+            libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+            libproc.proc_pidinfo.argtypes = [
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_uint64,
+                ctypes.c_void_p,
+                ctypes.c_int,
+            ]
+            libproc.proc_pidinfo.restype = ctypes.c_int
+            info = ProcTaskInfo()
+            info_size = ctypes.sizeof(info)
+            returned = libproc.proc_pidinfo(
+                os.getpid(), 4, 0, ctypes.byref(info), info_size
+            )
+            if returned != info_size:
+                return None
+            return int(info.pti_resident_size)
+        except (OSError, AttributeError):
+            return None
+
+    status_path = Path("/proc/self/status")
+    if status_path.exists():
+        try:
+            values: dict[str, int] = {}
+            for line in status_path.read_text(encoding="ascii", errors="replace").splitlines():
+                if line.startswith("VmRSS:") or line.startswith("VmSwap:"):
+                    key, value, _unit = line.split()
+                    values[key[:-1]] = int(value) * 1024
+            if values:
+                return values.get("VmRSS", 0) + values.get("VmSwap", 0)
+        except (OSError, ValueError):
+            return None
+
+    try:
+        import resource
+
+        usage = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        return usage * 1024
+    except (ImportError, ValueError):
+        return None
+
+
+def process_memory_sampler_is_required() -> bool:
+    return (
+        sys.platform.startswith("win")
+        or sys.platform.startswith("linux")
+        or sys.platform == "darwin"
+    )
+
+
+def check_process_memory_sampler() -> None:
+    measured = current_process_memory_bytes()
+    if measured is None or measured <= 0:
+        if process_memory_sampler_is_required():
+            raise RuntimeError(
+                f"check_v4 memory sampler unavailable on supported platform {sys.platform}"
+            )
+        print(f"runner memory sampler: unavailable platform={sys.platform}")
+        return
+    print(
+        "runner memory sampler: "
+        f"current={measured / (1024 * 1024):.1f}MB platform={sys.platform}"
+    )
+
+
+def check_runner_retained_memory() -> None:
+    global RUNNER_PEAK_RETAINED_BYTES
+    gc.collect()
+    measured = current_process_memory_bytes()
+    if measured is None:
+        if process_memory_sampler_is_required():
+            raise RuntimeError(
+                f"check_v4 memory sampler unavailable on supported platform {sys.platform}"
+            )
+        return
+    RUNNER_PEAK_RETAINED_BYTES = max(RUNNER_PEAK_RETAINED_BYTES, measured)
+    limit_bytes = RUNNER_RETAINED_MEMORY_LIMIT_MB * 1024 * 1024
+    if measured > limit_bytes:
+        raise RuntimeError(
+            "check_v4 retained-memory limit exceeded: "
+            f"observed={measured / (1024 * 1024):.1f}MB "
+            f"limit={RUNNER_RETAINED_MEMORY_LIMIT_MB}MB"
+        )
 
 CRATE_BOUNDARY_REQUIRED = {
     "freak_driver": [
@@ -87,6 +251,7 @@ CRATE_BOUNDARY_REQUIRED = {
         ("unit snapshot restore", "task v4_unit_snapshot_restore(payload: word) -> word {"),
         ("invalidation report", "task v4_unit_invalidation_report(path: word) -> word {"),
         ("restore confirm coordination", "task v4_driver_confirm_restored_document(path: word) -> word {"),
+        ("MIR restore coordination", "task v4_mir_snapshot_restore(payload: word) -> word {"),
     ],
     "freak_lsp": [
         (
@@ -180,6 +345,7 @@ CRATE_BOUNDARY_FORBIDDEN = {
         ("unit snapshot diff", "task v4_unit_snapshot_diff("),
         ("unit snapshot health", "task v4_unit_snapshot_health("),
         ("invalidation report", "task v4_unit_invalidation_report("),
+        ("borrowck restore coordination", "v4_borrowck_provenance_scratch_reset("),
     ],
 }
 
@@ -267,7 +433,7 @@ UNIT_SNAPSHOT_SECTIONS = [
     },
     {
         "name": "ty",
-        "validate": "v4_ty_snapshot_validate(section_payload)",
+        "validate": "v4_ty_snapshot_validate_detached(section_payload)",
         "restore": "v4_ty_snapshot_restore(section_payload)",
         "endpoint": "workspace/tySnapshotRestore",
     },
@@ -349,6 +515,29 @@ INVALIDATION_FAMILY_FIELDS = [
 
 EXECUTABLE_SMOKES = [
     {
+        "name": "stable word checksum",
+        "fixture": "word_checksum_smoke.fk",
+        "expect_exact": [
+            "word-checksum-value=7930048856234073878",
+            "word-checksum-stable=true",
+            "word-checksum-sensitive=true",
+            "word-snapshot-escape=%25%7CYuuko%0A%0AMeiya%0D",
+            "word-snapshot-roundtrip=true",
+            "word-snapshot-lines=3",
+            "word-snapshot-empty-line=true",
+            "word-snapshot-fields=3",
+            "word-snapshot-empty-field=true",
+            "word-substring=ernat",
+            "span-malformed-sign-rejected=true",
+            "span-malformed-digit-rejected=true",
+            "span-overflow-rejected=true",
+            "word-join=Yuuko + Meiya",
+            "word-join-handle-reuse=true",
+            "array-handle-generation=true",
+        ],
+        "expect": [],
+    },
+    {
         "name": "query invalidation",
         "fixture": "query_invalidation_smoke.fk",
         "expect": [
@@ -358,6 +547,18 @@ EXECUTABLE_SMOKES = [
             "editor-invalidations-added=",
             "invalidation-match-first=true",
             "invalidation-match-second=true",
+            "invalidation-positive-first=true",
+            "invalidation-generation-match-first=true",
+            "invalidation-positive-second=true",
+            "invalidation-generation-match-second=true",
+        ],
+        "expect_exact": [
+            "invalidation-match-first=true",
+            "invalidation-match-second=true",
+            "invalidation-positive-first=true",
+            "invalidation-generation-match-first=true",
+            "invalidation-positive-second=true",
+            "invalidation-generation-match-second=true",
         ],
     },
     {
@@ -374,23 +575,60 @@ EXECUTABLE_SMOKES = [
     {
         "name": "unit snapshot current/restore",
         "fixture": "unit_snapshot_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
         "timeout": 180,
+        "memory_limit_mb": 128,
         "expect": [
-            "00-unit-snapshot-ref|name=before",
-            "00-unit-snapshot-import ok=1",
-            "unit-diagnostics-section-validation=diagnostics-snapshot-import ok=1",
-            "00-unit-manifest|format=freak-00-unit-manifest-v1|ok=1",
-            "00-unit-health|format=freak-00-unit-health-v1|ok=1",
-            "unit-diagnostics-changed-section-validation=diagnostics-snapshot-import ok=1 format=freak-diagnostics-snapshot-v1 lines=2 sets=0 diagnostics=0",
             "ok|workspace/unitSnapshotManifest",
             "ok|workspace/unitSnapshotHealth",
-            "00-unit-snapshot-restore ok=1",
             "ok|workspace/unitSnapshotRestore",
+            "unit-snapshot-integrity|case=current-snapshot-validated|ok=1",
+            "unit-snapshot-integrity|case=current-manifest-valid|ok=1",
+            "unit-snapshot-integrity|case=current-health-valid|ok=1",
+            "unit-snapshot-integrity|case=same-source-checkpoint-setup|ok=1",
+            "unit-snapshot-integrity|case=same-source-rebound-splice-rejected|ok=1",
+            "unit-snapshot-integrity|case=same-source-rebound-splice-atomic|ok=1",
+            "unit-snapshot-integrity|case=missing-section|ok=1",
+            "unit-snapshot-integrity|case=duplicate-section|ok=1",
+            "unit-snapshot-integrity|case=corrupt-inner-payload|ok=1",
+            "unit-snapshot-integrity|case=unknown-section|ok=1",
+            "unit-snapshot-integrity|case=current-diagnostics-valid|ok=1",
+            "unit-snapshot-integrity|case=changed-diagnostics-valid|ok=1",
+            "unit-snapshot-integrity|case=negative-source-id-atomic|ok=1",
+            "unit-snapshot-integrity|case=sparse-source-id-atomic|ok=1",
+            "unit-snapshot-integrity|case=duplicate-source-id-atomic|ok=1",
+            "unit-snapshot-integrity|case=duplicate-source-path-atomic|ok=1",
+            "unit-snapshot-integrity|case=forged-source-fingerprint-atomic|ok=1",
+            "unit-snapshot-integrity|case=invalid-restore-rejected|ok=1",
+            "unit-snapshot-integrity|case=preflight-preserves-source-text|ok=1",
+            "unit-snapshot-integrity|case=preflight-preserves-source-revision|ok=1",
+            "unit-snapshot-integrity|case=extras-visible-before-restore|ok=1",
+            "unit-snapshot-integrity|case=extra-cache-hit-before-restore|ok=1",
+            "unit-snapshot-integrity|case=valid-restore|ok=1",
+            "unit-snapshot-integrity|case=valid-restore-source-text|ok=1",
+            "unit-snapshot-integrity|case=valid-restore-source-revision|ok=1",
+            "unit-snapshot-integrity|case=extra-source-removed|ok=1",
+            "unit-snapshot-integrity|case=extra-semantic-removed|ok=1",
+            "unit-snapshot-integrity|case=extra-hover-removed|ok=1",
+            "unit-snapshot-integrity|case=extra-definition-removed|ok=1",
+            "unit-snapshot-integrity|case=extra-query-removed|ok=1",
+            "unit-snapshot-integrity|case=extra-cache-miss-after-restore|ok=1",
+            "unit-snapshot-integrity|case=foreign-context-validation-accepted|ok=1",
+            "unit-snapshot-integrity|case=foreign-context-source-id-reused|ok=1",
+            "unit-snapshot-integrity|case=snapshot-soak-80|ok=1",
+            "unit-snapshot-integrity|case=wrong-format-restore-rejected|ok=1",
+            "unit-snapshot-integrity|case=cross-snapshot-splice-atomic|ok=1",
+            "unit-snapshot-integrity|case=fresh-parent-arenas-empty|ok=1",
+            "unit-snapshot-integrity|case=fresh-preflight-accepted|ok=1",
+            "unit-snapshot-integrity|case=fresh-complete-restore|ok=1",
+            "unit-snapshot-integrity|case=fresh-post-restore-ty-strict|ok=1",
         ],
     },
     {
         "name": "unit snapshot const current/restore",
         "fixture": "unit_snapshot_const_smoke.fk",
+        "memory_limit_mb": 128,
         "timeout": 300,
         "expect": [
             "ok|textDocument/didOpen",
@@ -405,6 +643,7 @@ EXECUTABLE_SMOKES = [
     {
         "name": "unit snapshot diff",
         "fixture": "unit_snapshot_diff_smoke.fk",
+        "memory_limit_mb": 128,
         "timeout": 120,
         "expect": [
             "00-unit-snapshot-ref|name=before-diff",
@@ -419,6 +658,59 @@ EXECUTABLE_SMOKES = [
             "section-diff|name=query|state=changed",
             "ok|workspace/unitSnapshotDiff",
             "error|workspace/unitSnapshotDiff|-32602|method requires snapshot diff input",
+        ],
+    },
+    {
+        "name": "query invalidation resource bound",
+        "fixture": "query_invalidation_resource_smoke.fk",
+        "memory_limit_mb": 64,
+        "timeout": 120,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "query-invalidation-resource-changes=96",
+            "query-invalidation-resource-direct=600",
+            "query-invalidation-resource-response=true",
+            "query-invalidation-resource-dependents=true",
+            "query-invalidation-resource-change-probe=true",
+            "query-invalidation-resource-array-probe=true",
+            "query-invalidation-resource-handle-capacity-bounded=true",
+            "query-invalidation-resource-handle-capacity-stable=true",
+        ],
+    },
+    {
+        "name": "unit snapshot multi-source resource bound",
+        "fixture": "unit_snapshot_multisource_resource_smoke.fk",
+        "memory_limit_mb": 64,
+        "timeout": 180,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "snapshot-multisource-count=192",
+            "snapshot-multisource-valid=true",
+            "snapshot-multisource-manifest=true",
+            "snapshot-multisource-diff=true",
+            "snapshot-multisource-health=true",
+            "snapshot-multisource-health-diff=true",
+            "snapshot-multisource-duplicate-ids=true",
+            "snapshot-multisource-duplicate-paths=true",
+        ],
+    },
+    {
+        "name": "MIR snapshot resource bound",
+        "fixture": "mir_snapshot_resource_smoke.fk",
+        "memory_limit_mb": 64,
+        "timeout": 120,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "mir-snapshot-resource-iterations=64",
+            "mir-snapshot-resource-valid=true",
+            "mir-snapshot-resource-cycle-iterations=64",
+            "mir-snapshot-resource-cycles-rejected=true",
+            "mir-snapshot-resource-array-probe=true",
+            "mir-snapshot-resource-handle-capacity-bounded=true",
+            "mir-snapshot-resource-handle-capacity-stable=true",
         ],
     },
     {
@@ -945,6 +1237,7 @@ EXECUTABLE_SMOKES = [
             "confirm-dirty-after=",
             "query-explain key=syntax:snapshot-confirm.fk",
             "ok|workspace/querySnapshotConfirm",
+            "query-confirm-contract|case=two-source-core-ids-blocked|ok=1",
         ],
     },
     {
@@ -1163,6 +1456,11 @@ EXECUTABLE_SMOKES = [
             "document-symbols-snapshot-restored-salute-kind=Method",
             "document-symbols-snapshot-restored-pack-found=true",
             "document-symbols-snapshot-restored-pack-type=task Pilot::pack(...) -> Pilot",
+            "document-symbols-snapshot-exact-restore=true",
+            "document-symbols-snapshot-stale-child-hidden=true",
+            "document-symbols-snapshot-child-first-atomic=true",
+            "document-symbols-snapshot-duplicate-child-atomic=true",
+            "document-symbols-snapshot-declared-count-atomic=true",
         ],
     },
     {
@@ -1215,6 +1513,11 @@ EXECUTABLE_SMOKES = [
             "completion-snapshot-restored-timeout-found=true",
             "completion-snapshot-restored-timeout-detail=parameter timeout: int",
             "completion-snapshot-restored-timeout-insert=timeout: ",
+            "completion-snapshot-exact-restore=true",
+            "completion-snapshot-stale-child-hidden=true",
+            "completion-snapshot-child-first-atomic=true",
+            "completion-snapshot-duplicate-child-atomic=true",
+            "completion-snapshot-declared-count-atomic=true",
         ],
     },
     {
@@ -1296,6 +1599,30 @@ EXECUTABLE_SMOKES = [
             "query-snapshot-restore ok=1",
             "query-confirm ok=1 path=ty-snapshot.fk",
             "restored-main-signature=task main(...) -> word",
+            "ty-restore-malformed-rejected=true",
+            "ty-restore-malformed-atomic=true",
+            "ty-restore-extra-visible-before=true",
+            "ty-restore-active-files-exact=true",
+            "ty-restore-extra-file-hidden=true",
+            "ty-restore-extra-children-hidden=true",
+            "ty-restore-retained-handles-reused=true",
+            "ty-restore-retained-capacity-stable=true",
+            "ty-restore-top-slot-reused=true",
+            "ty-restore-top-capacity-stable=true",
+            "ty-restore-repeat-no-growth=true",
+        ],
+        "expect_exact": [
+            "ty-signature-unknown-kind-validate-rejected=true",
+            "ty-signature-unknown-kind-restore-rejected=true",
+            "ty-signature-unknown-kind-state-stable=true",
+            "ty-signature-dangling-hir-validate-rejected=true",
+            "ty-signature-dangling-hir-restore-rejected=true",
+            "ty-signature-dangling-hir-state-stable=true",
+            "ty-signature-inferred-const-type-validate-rejected=true",
+            "ty-signature-inferred-const-type-restore-rejected=true",
+            "ty-signature-inferred-const-type-state-stable=true",
+            "ty-inferred-const-source-display=fixed pilot LEVEL",
+            "ty-inferred-const-rendered-display=fixed pilot LEVEL: int",
         ],
     },
     {
@@ -1511,7 +1838,14 @@ EXECUTABLE_SMOKES = [
             "borrowck-snapshot-bytes=",
             "borrowck-snapshot-escape=Loan%7Cx%25y%0AMeiya",
             "borrowck-snapshot-unescape=Loan|x%y",
+            "borrowck-snapshot-dropif-count=1",
+            "borrowck-snapshot-dropif-kind=DropIf",
+            "borrowck-snapshot-dropif-text=x",
+            "borrowck-snapshot-dropif-line=borrowck-path|",
             "borrowck-snapshot-restore ok=1",
+            "restored-dropif-count=1",
+            "restored-dropif-kind=DropIf",
+            "restored-dropif-text=x",
             "ok|workspace/borrowckSnapshotRestore",
             "error|workspace/borrowckSnapshotRestore|-32602|",
             "query-snapshot-restore ok=1",
@@ -1534,6 +1868,30 @@ EXECUTABLE_SMOKES = [
             "loop-diagnostics=0",
             "bad-growth-diagnostics=1",
             "bad-growth-message=training arc with growth must mutate condition subject",
+            "field-growth-diagnostics=0",
+            "field-growth-block-cond=training arc until ship . power >= 8 max 4 with growth",
+            "bad-field-growth-diagnostics=1",
+            "bad-field-growth-help=Yuuko found no progress for ship.power",
+            "arm-growth-diagnostics=0",
+            "base-growth-diagnostics=0",
+            "expr-growth-diagnostics=0",
+            "paren-growth-diagnostics=0",
+            "prefix-growth-diagnostics=0",
+        ],
+    },
+    {
+        "name": "MIR for-each iterable evaluates once",
+        "fixture": "mir_for_each_eval_once_smoke.fk",
+        "expect": [
+            "for-each-once-source-kind=LocalInit",
+            "for-each-once-source-rvalue=Call",
+            "for-each-once-loop-rvalue=UseLocal",
+            "for-each-once-loop-source=_for_each_source",
+            "for-each-once-preheader=true",
+            "for-each-once-source-moves=1",
+            "for-each-once-move-in-preheader=true",
+            "for-each-once-move-not-header=true",
+            "for-each-once-mir-diagnostics=0",
         ],
     },
     {
@@ -1546,13 +1904,13 @@ EXECUTABLE_SMOKES = [
             "break-continue-countdown-continue-kind=Continue",
             "break-continue-countdown-continue-target=2",
             "break-continue-countdown-continue-epilogue-term=Goto",
-            "break-continue-countdown-continue-epilogue-target=0",
+            "break-continue-countdown-continue-epilogue-target=4",
             "break-continue-countdown-continue-epilogue-kind=Assign",
             "break-continue-countdown-continue-epilogue-rhs=_repeat_i - 1",
             "break-continue-sortie-break-kind=Break",
             "break-continue-sortie-break-target=2",
             "break-continue-sortie-continue-kind=Continue",
-            "break-continue-sortie-continue-target=0",
+            "break-continue-sortie-continue-target=3",
             "break-continue-bad-diagnostics=2",
             "break-continue-bad-message0=break outside loop",
             "break-continue-bad-help0=Yuuko cannot cut away from a loop that is not active",
@@ -1564,28 +1922,24 @@ EXECUTABLE_SMOKES = [
         "name": "MIR for-each pattern bindings",
         "fixture": "mir_for_each_pattern_smoke.fk",
         "expect": [
-            "for-each-pattern-body-locals=9",
-            "for-each-pattern-body-stmts=14",
-            "for-each-pattern-local3-name=_for_each_item",
-            "for-each-pattern-local3-ty=(int,word)",
-            "for-each-pattern-local4-name=power",
-            "for-each-pattern-local4-ty=int",
-            "for-each-pattern-local5-name=label",
-            "for-each-pattern-local5-ty=word",
-            "for-each-pattern-local6-name=_for_each_item2",
-            "for-each-pattern-local6-ty=List<int>",
-            "for-each-pattern-local7-name=left",
-            "for-each-pattern-local7-ty=int",
-            "for-each-pattern-local8-name=right",
-            "for-each-pattern-local8-ty=int",
-            "for-each-pattern-stmt3-kind=LocalInit",
-            "for-each-pattern-stmt3-lhs=_for_each_item",
-            "for-each-pattern-stmt6-kind=Loop",
-            "for-each-pattern-stmt6-lhs=( power , label )",
-            "for-each-pattern-stmt8-kind=LocalInit",
-            "for-each-pattern-stmt8-lhs=_for_each_item2",
-            "for-each-pattern-stmt11-kind=Loop",
-            "for-each-pattern-stmt11-lhs=[ left , right ]",
+            "for-each-pattern-body-locals=11",
+            "for-each-pattern-body-stmts=16",
+            "for-each-pattern-source1-ty=List<(int,word)>",
+            "for-each-pattern-item1-ty=(int,word)",
+            "for-each-pattern-power-local-ty=int",
+            "for-each-pattern-label-local-ty=word",
+            "for-each-pattern-source2-ty=List<List<int>>",
+            "for-each-pattern-item2-ty=List<int>",
+            "for-each-pattern-left-local-ty=int",
+            "for-each-pattern-right-local-ty=int",
+            "for-each-pattern-first-item-stmt-kind=LocalInit",
+            "for-each-pattern-first-item-stmt-lhs=_for_each_item",
+            "for-each-pattern-first-loop-kind=Loop",
+            "for-each-pattern-first-loop-lhs=( power , label )",
+            "for-each-pattern-second-item-stmt-kind=LocalInit",
+            "for-each-pattern-second-item-stmt-lhs=_for_each_item2",
+            "for-each-pattern-second-loop-kind=Loop",
+            "for-each-pattern-second-loop-lhs=[ left , right ]",
             "for-each-pattern-first-item-kind=LoopItem",
             "for-each-pattern-first-item-op=LoopItem",
             "for-each-pattern-first-item-ty=(int,word)",
@@ -1681,6 +2035,18 @@ EXECUTABLE_SMOKES = [
             "alias-route-when-code-ty=int",
             "alias-route-check-code-kind=UsePlace",
             "alias-route-check-code-ty=int",
+            "alias-route-missing-when-diagnostics=1",
+            "alias-route-missing-when-message=non-exhaustive route when",
+            "alias-route-missing-when-help=missing Event::Closed",
+            "alias-route-duplicate-when-diagnostics=2",
+            "alias-route-duplicate-when-message=unreachable when arm",
+            "alias-route-duplicate-when-help=Event::Key was already covered by an earlier arm",
+            "alias-route-missing-check-diagnostics=2",
+            "alias-route-missing-check-message=non-exhaustive check route",
+            "alias-route-missing-check-help=missing Event::Closed",
+            "alias-route-duplicate-check-diagnostics=2",
+            "alias-route-duplicate-check-message=unreachable check route arm",
+            "alias-route-duplicate-check-help=Event::Key was already covered by an earlier arm",
         ],
     },
     {
@@ -1720,6 +2086,45 @@ EXECUTABLE_SMOKES = [
             "generic-alias-shape-sig-name=Box",
             "generic-alias-shape-field-int-ty=int",
             "generic-alias-shape-field-word-ty=word",
+        ],
+    },
+    {
+        "name": "alias nominality doctrine impl diagnostics",
+        "fixture": "alias_nominality_smoke.fk",
+        "expect": [
+            "alias-nominality-bad-parse-diagnostics=0",
+            "alias-nominality-diagnostics=1",
+            "alias-nominality-bad-ty-diagnostics=1",
+            "alias-nominality-bad-message=Yuuko nominality breach: alias Name cannot receive doctrine Display",
+            "alias-nominality-bad-help=Name aliases int; use a one-field shape when Name needs its own doctrine impl",
+            "alias-nominality-bad-name-satisfies=false",
+            "alias-nominality-bad-int-satisfies=false",
+            "alias-nominality-bad-method-ref-empty=true",
+            "alias-nominality-bad-doctrine-method-ref-empty=true",
+            "alias-nominality-shape-parse-diagnostics=0",
+            "alias-nominality-shape-ty-diagnostics=0",
+            "alias-nominality-shape-satisfies=true",
+            "alias-nominality-shape-method-ref-present=true",
+            "alias-nominality-imported-parse-diagnostics=0",
+            "alias-nominality-imported-ty-diagnostics=1",
+            "alias-nominality-imported-message=Yuuko nominality breach: alias util::Name cannot receive doctrine Display",
+            "alias-nominality-imported-help=util::Name aliases int; use a one-field shape when util::Name needs its own doctrine impl",
+            "alias-nominality-imported-name-satisfies=false",
+            "alias-nominality-imported-expanded-satisfies=false",
+            "alias-nominality-imported-method-ref-empty=true",
+            "alias-nominality-imported-doctrine-method-ref-empty=true",
+            "alias-nominality-glob-parse-diagnostics=0",
+            "alias-nominality-glob-ty-diagnostics=1",
+            "alias-nominality-glob-message=Yuuko nominality breach: alias util::Name cannot receive doctrine Display",
+            "alias-nominality-glob-help=util::Name aliases int; use a one-field shape when util::Name needs its own doctrine impl",
+            "alias-nominality-glob-name-satisfies=false",
+            "alias-nominality-glob-expanded-satisfies=false",
+            "alias-nominality-glob-method-ref-empty=true",
+            "alias-nominality-glob-doctrine-method-ref-empty=true",
+            "alias-nominality-inherent-parse-diagnostics=0",
+            "alias-nominality-inherent-ty-diagnostics=0",
+            "alias-nominality-inherent-name-method-ref-present=true",
+            "alias-nominality-inherent-box-method-ref-present=true",
         ],
     },
     {
@@ -1903,6 +2308,8 @@ EXECUTABLE_SMOKES = [
     {
         "name": "lifetime type signatures",
         "fixture": "lifetime_ty_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
         "expect": [
             "lifetime-ty-borrow-signature=task borrow<'a,T>(...) -> T",
             "lifetime-ty-borrow-generic-count=2",
@@ -1916,23 +2323,23 @@ EXECUTABLE_SMOKES = [
             "lifetime-ty-borrow-type-generic0-name=T",
             "lifetime-ty-borrow-param-type=T",
             "lifetime-ty-borrow-return=T",
-            "lifetime-ty-static-signature=task static_name<'static>(...) -> word",
-            "lifetime-ty-static-lifetime-count=1",
-            "lifetime-ty-static-lifetime0-name='static",
-            "lifetime-ty-static-type-generic-count=0",
+            "lifetime-ty-long-signature=task long_name<'long>(...) -> word",
+            "lifetime-ty-long-lifetime-count=1",
+            "lifetime-ty-long-lifetime0-name='long",
+            "lifetime-ty-long-type-generic-count=0",
             "lifetime-ty-refbox-signature=shape RefBox<'a,T>",
             "lifetime-ty-refbox-lifetime0-name='a",
             "lifetime-ty-refbox-type-generic0-name=T",
             "lifetime-ty-refbox-field-value=int",
-            "lifetime-ty-refbox-env-lifetime=",
+            "lifetime-ty-refbox-env-lifetime='short",
             "lifetime-ty-refbox-env-type=int",
             "lifetime-ty-refbox-env-complete=true",
-            "lifetime-ty-refbox-instance-for-env=RefBox<'a,int>",
-            "lifetime-ty-borrow-env-lifetime=",
+            "lifetime-ty-refbox-instance-for-env=RefBox<'short,int>",
+            "lifetime-ty-borrow-env-lifetime='short",
             "lifetime-ty-borrow-env-type=int",
             "lifetime-ty-borrow-env-complete=true",
             "lifetime-ty-lifetime-compatible=true",
-            "lifetime-ty-mentions-lifetime-only=false",
+            "lifetime-ty-mentions-lifetime-only=true",
             "lifetime-ty-mentions-type=true",
             "lifetime-ty-mentions-mixed=true",
             "lifetime-ty-lendable-signature=doctrine Lendable<'a,T>",
@@ -2004,10 +2411,1821 @@ EXECUTABLE_SMOKES = [
             "lifetime-editor-definition-span-start=13",
             "lifetime-editor-symbol-count=1",
             "lifetime-editor-symbol0-type=shape RefBox<'a,T>",
-            "lifetime-editor-completion-count=28",
+            "lifetime-editor-completion-count=29",
             "lifetime-editor-completion1-label='a",
             "lifetime-editor-completion1-kind=lifetime",
             "lifetime-editor-completion1-detail=lifetime 'a on shape RefBox<'a,T>",
+        ],
+    },
+    {
+        "name": "returned-loan editor and LSP facts",
+        "fixture": "lend_return_editor_smoke.fk",
+        "expect": [
+            "lend-return-editor-semantic-kind=Local",
+            "lend-return-editor-semantic-type=lend Ship",
+            "lend-return-editor-hover-kind=Local",
+            "lend-return-editor-hover-type=lend Ship",
+            "lend-return-editor-definition-kind=Local",
+            "lend-return-editor-definition-found=1",
+            "lend-return-editor-definition-matches=true",
+            "lend-return-editor-diagnostics=0",
+            "ok|textDocument/hover",
+            "hover|markdown",
+            "**view** `Local`",
+            "ok|textDocument/publishDiagnostics",
+            "diagnostics|0",
+        ],
+    },
+    {
+        "name": "named lifetime returned-loan provenance",
+        "fixture": "named_lifetime_return_smoke.fk",
+        "expect": [
+            "named-lifetime-param0-name=left",
+            "named-lifetime-param0-mode=lend",
+            "named-lifetime-param0-region='left",
+            "named-lifetime-param1-region='right",
+            "named-lifetime-return=lend 'left Ship",
+            "named-lifetime-return-region='left",
+            "named-lifetime-return-target=Ship",
+            "named-lifetime-source-param=0",
+            "named-lifetime-projection-source-param=0",
+            "named-lifetime-param0-local-type=lend 'left Ship",
+            "named-lifetime-ty-diagnostics=0",
+            "named-lifetime-mir-diagnostics=0",
+            "named-lifetime-select-status=clean",
+            "named-lifetime-forward-status=clean",
+            "named-lifetime-reordered-status=clean",
+            "named-lifetime-projection-status=clean",
+            "named-lifetime-wrong-status=blocked",
+            "named-lifetime-wrong-holder-status=blocked",
+            "named-lifetime-wrong-call-status=blocked",
+            "named-lifetime-mut-status=clean",
+            "named-lifetime-source-move-status=blocked",
+            "named-lifetime-non-source-move-status=clean",
+            "named-lifetime-projection-move-status=blocked",
+            "named-lifetime-holder-move-status=blocked",
+            "named-lifetime-nested-move-status=blocked",
+            "named-lifetime-ambiguous-holder-move-status=blocked",
+            "named-lifetime-call-local-type=lend Ship",
+            "named-lifetime-select-path-source=left",
+            "named-lifetime-reordered-path-source=first",
+            "named-lifetime-projection-path-source=fleet.ship",
+            "named-lifetime-mut-path-kind=ReturnLoanMut",
+            "named-lifetime-mismatch-diagnostics=3",
+            "borrowck-snapshot-import ok=1",
+            "borrowck-snapshot-restore ok=1",
+            "named-lifetime-restored-source=left",
+        ],
+    },
+    {
+        "name": "named lifetime returned-loan diagnostics",
+        "fixture": "named_lifetime_diagnostics_smoke.fk",
+        "expect": [
+            "named-lifetime-diag-count=12",
+            "named-lifetime-diag-repeated-source=-2",
+            "named-lifetime-diag-missing-source=-1",
+            "named-lifetime-diag-anonymous-source=0",
+            "named-lifetime-diag0=Meiya cannot find a source for returned lifetime 'a",
+            "named-lifetime-diag0-span=0@",
+            "named-lifetime-diag1=Meiya lifetime debt: 'ghost is used on borrowed parameter only but is not declared on undeclared",
+            "named-lifetime-diag1-span=0@",
+            "named-lifetime-diag2=Meiya lifetime debt: 'ghost is used in return type of undeclared but is not declared on undeclared",
+            "named-lifetime-diag2-span=0@",
+            "named-lifetime-diag3=Meiya cannot accept a static lend parameter yet",
+            "named-lifetime-diag3-span=0@",
+            "named-lifetime-diag4=Meiya cannot prove a static borrowed return yet",
+            "named-lifetime-diag4-span=0@",
+            "named-lifetime-diag5=Meiya lifetime debt: 'static is reserved and cannot be declared on reserved_static",
+            "named-lifetime-diag5-span=0@",
+            "named-lifetime-diag6=Meiya lifetime debt: '_ is reserved and cannot be declared on reserved_anonymous",
+            "named-lifetime-diag6-span=0@",
+            "named-lifetime-diag7=Meiya cannot store a named lend in alias target of StoredAlias yet",
+            "named-lifetime-diag7-span=0@",
+            "named-lifetime-diag8=Meiya cannot store a named lend in parameter 0 of nested_storage yet",
+            "named-lifetime-diag8-span=0@",
+            "named-lifetime-diag9=Meiya cannot store a named lend in return type of nested_storage yet",
+            "named-lifetime-diag9-span=0@",
+            "named-lifetime-diag10=Meiya lifetime debt: lend type has no valid target in return type of missing_target",
+            "named-lifetime-diag10-span=0@",
+            "named-lifetime-diag11=Meiya lifetime debt: lend type has no valid target in return type of doubled_target",
+            "named-lifetime-diag11-span=0@",
+        ],
+    },
+    {
+        "name": "named lifetime editor and LSP facts",
+        "fixture": "named_lifetime_editor_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "named-lifetime-editor-param-region-kind=Lifetime",
+            "named-lifetime-editor-param-region-type=lifetime 'left on task select_left<'left,'right>(...) -> lend 'left Ship",
+            "named-lifetime-editor-return-region-kind=Lifetime",
+            "named-lifetime-editor-return-region-type=lifetime 'left on task select_left<'left,'right>(...) -> lend 'left Ship",
+            "named-lifetime-editor-region-definition=1",
+            "named-lifetime-editor-region-definition-matches=true",
+            "named-lifetime-editor-param-kind=Local",
+            "named-lifetime-editor-param-type=lend 'left Ship",
+            "named-lifetime-editor-param-hover=lend 'left Ship",
+            "named-lifetime-editor-param-definition=1",
+            "named-lifetime-editor-param-definition-matches=true",
+            "named-lifetime-editor-label-kind=Parameter",
+            "named-lifetime-editor-label-type=parameter left: Ship",
+            "named-lifetime-editor-label-definition=1",
+            "named-lifetime-editor-label-definition-matches=true",
+            "named-lifetime-editor-elided-definition=0",
+            "named-lifetime-editor-diagnostics=0",
+            "ok|textDocument/hover",
+            "**left** `Local`",
+            "ok|textDocument/definition",
+            "location|named-lifetime-editor.fk|1|17|1|22|'left|Lifetime",
+            "ok|textDocument/publishDiagnostics",
+            "diagnostics|0",
+            "semantic-snapshot-import ok=1 format=freak-semantic-snapshot-v1 lines=7 facts=5 declared-facts=5 invalid-ids=0 invalid-offsets=0 invalid-references=0 ordering-errors=0 malformed=0 headers=1 ends=1",
+            "hover-snapshot-import ok=1 format=freak-hover-snapshot-v1 lines=4 hovers=2 declared-hovers=2 semantic-facts=5 invalid-ids=0 invalid-offsets=0 invalid-semantic-refs=0 ordering-errors=0 malformed=0 headers=1 ends=1",
+            "definition-snapshot-import ok=1 format=freak-definition-snapshot-v1 lines=6 definitions=4 declared-definitions=4 semantic-facts=5 invalid-ids=0 invalid-offsets=0 invalid-semantic-refs=0 invalid-hir-refs=0 invalid-found-flags=0 ordering-errors=0 malformed=0 headers=1 ends=1",
+            "diagnostics-snapshot-import ok=1 format=freak-diagnostics-snapshot-v1 lines=3 sets=1 diagnostics=0 malformed=0 headers=1 ends=1",
+            "semantic-snapshot-restore ok=1 facts=5 skipped-other=0 arena-facts=5",
+            "hover-snapshot-restore ok=1 hovers=2 skipped-other=0 arena-hovers=2",
+            "definition-snapshot-restore ok=1 definitions=4 skipped-other=0 arena-definitions=4",
+            "diagnostics-snapshot-restore ok=1 sets=1 diagnostics=0 skipped-other=0 arena-sets=1",
+            "query-snapshot-restore ok=1 generation=2 entries=19 edges=73 dirty=19 cache=19 deps=73 skipped-generations=1 skipped-invalidations=0 skipped-telemetry=19 skipped-other=0",
+            "query-confirm ok=1 path=named-lifetime-editor.fk generation=3 considered=19 matched=19 promoted=19 blocked=0 already-valid=0 dirty-nonrestored=0 mismatched=0 dirty=0",
+            "named-lifetime-editor-restored-label-kind=Parameter",
+            "named-lifetime-editor-restored-label-type=parameter left: Ship",
+            "named-lifetime-editor-restored-hover-type=lifetime 'left on task select_left<'left,'right>(...) -> lend 'left Ship",
+            "named-lifetime-editor-restored-definition=1",
+            "named-lifetime-editor-restored-definition-matches=true",
+        ],
+    },
+    {
+        "name": "named lifetime query invalidation",
+        "fixture": "named_lifetime_query_invalidation_smoke.fk",
+        "expect": [
+            "named-lifetime-query-before-diagnostics=1",
+            "named-lifetime-query-before-message=Meiya refuses a returned loan from the wrong lifetime",
+            "named-lifetime-query-before-semantic=lend 'right Ship",
+            "named-lifetime-query-before-hover=lend 'right Ship",
+            "named-lifetime-query-before-definition=1",
+            "named-lifetime-query-before-definition-matches=true",
+            "ok|textDocument/didChange",
+            "invalidation-contract|path=named-lifetime-invalidation.fk",
+            "named-lifetime-query-ty-invalidated=true",
+            "named-lifetime-query-borrowck-invalidated=true",
+            "named-lifetime-query-diagnostics-invalidated=true",
+            "named-lifetime-query-semantic-invalidated=true",
+            "named-lifetime-query-hover-invalidated=true",
+            "named-lifetime-query-definition-invalidated=true",
+            "named-lifetime-query-after-diagnostics=0",
+            "named-lifetime-query-after-semantic=lend 'left Ship",
+            "named-lifetime-query-after-hover=lend 'left Ship",
+            "named-lifetime-query-after-definition=1",
+            "named-lifetime-query-after-definition-matches=true",
+            "ok|textDocument/publishDiagnostics",
+            "diagnostics|0",
+        ],
+    },
+    {
+        "name": "returned-loan query invalidation",
+        "fixture": "lend_return_query_invalidation_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "lend-return-query-before-diagnostics=0",
+            "lend-return-query-before-message=none",
+            "lend-return-query-before-semantic=lend Ship",
+            "lend-return-query-before-hover=lend Ship",
+            "lend-return-query-before-definition=1",
+            "ok|textDocument/didChange",
+            "invalidation-contract|path=lend-return-invalidation.fk|generation=2|reason=didChange:lend-return-invalidation.fk|query-invalidations-added=11|core-invalidations-added=8|syntax-invalidations-added=0|lex-invalidations-added=1|parse-invalidations-added=1|hir-invalidations-added=1|resolve-invalidations-added=1|ty-invalidations-added=1|mir-invalidations-added=1|borrowck-invalidations-added=1|diagnostics-invalidations-added=1|editor-invalidations-added=3|semantic-at-invalidations-added=1|hover-invalidations-added=1|definition-at-invalidations-added=1|document-symbols-invalidations-added=0|completion-invalidations-added=0|dirty=11|first=lex:lend-return-invalidation.fk",
+            "lend-return-query-borrowck-invalidated=true",
+            "lend-return-query-diagnostics-invalidated=true",
+            "lend-return-query-semantic-invalidated=true",
+            "lend-return-query-hover-invalidated=true",
+            "lend-return-query-definition-invalidated=true",
+            "lend-return-query-after-diagnostics=0",
+            "lend-return-query-after-semantic=lend Ship",
+            "ok|textDocument/publishDiagnostics",
+            "diagnostics|0",
+        ],
+    },
+    {
+        "name": "contract region source sets",
+        "fixture": "contract_region_source_set_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-source-set-ty-diagnostics=0",
+            "contract-region-source-set-mir-diagnostics=0",
+            "contract-region-source-set-borrow-diagnostics=0",
+            "contract-region-source-set-choose-status=clean",
+            "contract-region-source-set-forward-status=clean",
+            "contract-region-source-set-projection-status=clean",
+            "contract-region-source-set-choose-source0=right",
+            "contract-region-source-set-choose-source1=left",
+            "contract-region-source-set-choose-source-count=2",
+            "contract-region-source-set-forward-source0=first",
+            "contract-region-source-set-forward-source1=second",
+            "contract-region-source-set-forward-source-count=2",
+            "contract-region-source-set-projection-source0=fleet.lead",
+            "contract-region-source-set-projection-source1=spare",
+            "contract-region-source-set-projection-source-count=2",
+        ],
+    },
+    {
+        "name": "closure capture modes",
+        "fixture": "closure_capture_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "closure-capture-parse-diagnostics=0",
+            "closure-capture-hir-count=7",
+            "closure-capture-hir-mode0=borrow",
+            "closure-capture-hir-mode1=copy",
+            "closure-capture-hir-mode2=move",
+            "closure-capture-hir-mode3=mut",
+            "closure-capture-ty0=closure[Callable,borrow](x:int)->unknown",
+            "closure-capture-ty1=closure[Callable,copy](x:int)->unknown",
+            "closure-capture-ty2=closure[OneShot,move]()->void",
+            "closure-capture-ty3=closure[MutCallable,mut]()->void",
+            "closure-capture-block-ty=closure[Callable,borrow](value:int)->int",
+            "closure-capture-mir-borrow-kind=CaptureBorrow",
+            "closure-capture-mir-copy-kind=CaptureCopy",
+            "closure-capture-mir-move-kind=CaptureMove",
+            "closure-capture-mir-mut-kind=CaptureBorrowMut",
+            "closure-capture-borrow-path=1",
+            "closure-capture-copy-path=1",
+            "closure-capture-move-path=1",
+            "closure-capture-mut-path=1",
+            "closure-capture-shadow-count=0",
+            "closure-capture-member-count=1",
+            "closure-capture-member-name=member_title",
+            "closure-capture-scoped-count=2",
+            "closure-capture-scoped-name0=ready",
+            "closure-capture-scoped-name1=count",
+            "closure-capture-callable-copy-kind=CaptureCopy",
+            "closure-capture-callable-copy-type=true",
+            "closure-capture-status=clean",
+            "closure-capture-mir-diagnostics=0",
+            "closure-capture-borrow-diagnostics=0",
+            "closure-capture-mir-snapshot-ok=true",
+        ],
+    },
+    {
+        "name": "closure capture diagnostics",
+        "fixture": "closure_capture_negative_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "closure-negative-parse-diagnostics=0",
+            "closure-negative-ty-diagnostics=1",
+            "closure-negative-mir-diagnostics=4",
+            "closure-negative-borrow-diagnostics=9",
+            "closure-negative-copy-message=true",
+            "closure-negative-immutable-message=true",
+            "closure-negative-immutable-message-count=2",
+            "closure-negative-oneshot-status=blocked",
+            "closure-negative-mut-alias-status=blocked",
+            "closure-negative-borrow-write-status=blocked",
+            "closure-negative-borrow-alias-status=blocked",
+            "closure-negative-mut-transfer-status=blocked",
+            "closure-negative-duplicate-param-message=true",
+            "closure-negative-oneshot-message=true",
+            "closure-negative-mut-read-message=true",
+            "closure-negative-borrow-write-message=true",
+            "closure-negative-move-message-count=2",
+            "closure-negative-rewrite-message-count=2",
+        ],
+    },
+    {
+        "name": "closure parser recovery",
+        "fixture": "closure_recovery_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "closure-recovery-closure-count=6",
+            "closure-recovery-all-malformed-recorded=true",
+            "closure-recovery-following-closure-preserved=true",
+            "closure-recovery-survivor-present=true",
+            "closure-recovery-snapshot-valid=true",
+        ],
+    },
+    {
+        "name": "closure capture editor and invalidation",
+        "fixture": "closure_capture_editor_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "closure-editor-before-semantic=capture borrow int",
+            "closure-editor-before-hover=capture borrow int",
+            "closure-editor-before-definition-found=1",
+            "closure-editor-before-definition-matches=true",
+            "closure-editor-before-completion=capture borrow int",
+            "closure-editor-param-semantic=parameter value: int",
+            "closure-editor-param-hover=parameter value: int",
+            "closure-editor-param-definition-found=1",
+            "closure-editor-param-definition-matches=true",
+            "closure-editor-param-completion=parameter value: int",
+            "closure-editor-param-lsp-hover=true",
+            "closure-editor-param-lsp-definition=true",
+            "closure-editor-param-lsp-completion=true",
+            "closure-editor-lsp-hover=true",
+            "closure-editor-lsp-definition=true",
+            "closure-editor-lsp-completion=true",
+            "closure-editor-semantic-snapshot-valid=true",
+            "closure-editor-hover-snapshot-valid=true",
+            "closure-editor-definition-snapshot-valid=true",
+            "closure-editor-completion-snapshot-valid=true",
+            "closure-editor-mir-snapshot-valid=true",
+            "closure-editor-borrow-snapshot-valid=true",
+            "closure-editor-semantic-snapshot-restored=true",
+            "closure-editor-hover-snapshot-restored=true",
+            "closure-editor-definition-snapshot-restored=true",
+            "closure-editor-completion-snapshot-restored=true",
+            "closure-editor-mir-snapshot-restored=true",
+            "closure-editor-borrow-snapshot-restored=true",
+            "closure-editor-restored-semantic=capture borrow int",
+            "closure-editor-restored-hover=capture borrow int",
+            "closure-editor-restored-completion=capture borrow int",
+            "closure-editor-invalidation-positive=true",
+            "closure-editor-invalidation-matches-diff=true",
+            "closure-editor-after-semantic=capture copy int",
+            "closure-editor-after-hover=capture copy int",
+            "closure-editor-after-definition-found=1",
+            "closure-editor-after-definition-matches=true",
+            "closure-editor-after-completion=capture copy int",
+            "closure-editor-after-lsp-hover=true",
+            "closure-editor-after-lsp-definition=true",
+            "closure-editor-after-lsp-completion=true",
+            "closure-editor-member-resolution=true",
+        ],
+    },
+    {
+        "name": "contract region mutability",
+        "fixture": "contract_region_mutability_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-mutability-ty-diagnostics=0",
+            "contract-region-mutability-mir-diagnostics=0",
+            "contract-region-mutability-shared-status=clean",
+            "contract-region-mutability-mut-status=clean",
+            "contract-region-mutability-ineligible-status=blocked",
+            "contract-region-mutability-shared-source0=observed",
+            "contract-region-mutability-shared-source1=writable",
+            "contract-region-mutability-shared-source-count=2",
+            "contract-region-mutability-mut-source0=right",
+            "contract-region-mutability-mut-source1=left",
+            "contract-region-mutability-mut-source-count=2",
+            "contract-region-mutability-borrow-diagnostics=1",
+            "contract-region-mutability-diag0=Meiya refuses a mutable reloan from an immutable lend",
+            "contract-region-mutability-diag0-span=0@615:633",
+        ],
+    },
+    {
+        "name": "contract region outlives closure",
+        "fixture": "contract_region_outlives_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-outlives-direct-raw-bound-count=1",
+            "contract-region-outlives-direct-long-raw-bound='short",
+            "contract-region-outlives-transitive-middle-raw-bound='short",
+            "contract-region-outlives-transitive-long-raw-bound='middle",
+            "contract-region-outlives-multiple-raw-bound-count=2",
+            "contract-region-outlives-multiple-raw-bound0='short",
+            "contract-region-outlives-multiple-raw-bound1='middle",
+            "contract-region-outlives-direct-short-reflexive=true",
+            "contract-region-outlives-direct-long-outlives-short=true",
+            "contract-region-outlives-transitive-middle-outlives-short=true",
+            "contract-region-outlives-transitive-long-outlives-middle=true",
+            "contract-region-outlives-transitive-long-outlives-short=true",
+            "contract-region-outlives-multiple-long-outlives-short=true",
+            "contract-region-outlives-multiple-long-outlives-middle=true",
+            "contract-region-outlives-equivalent-left-outlives-right=true",
+            "contract-region-outlives-equivalent-right-outlives-left=true",
+            "contract-region-outlives-ty-diagnostics=0",
+            "contract-region-outlives-mir-diagnostics=0",
+            "contract-region-outlives-borrow-diagnostics=0",
+            "contract-region-outlives-direct-status=clean",
+            "contract-region-outlives-transitive-status=clean",
+            "contract-region-outlives-multiple-status=clean",
+            "contract-region-outlives-equivalent-status=clean",
+            "contract-region-outlives-direct-source-count=2",
+            "contract-region-outlives-transitive-source-count=3",
+            "contract-region-outlives-multiple-source-count=1",
+            "contract-region-outlives-equivalent-source-count=1",
+        ],
+    },
+    {
+        "name": "contract region relation diagnostics",
+        "fixture": "contract_region_relation_negative_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-relation-negative-reverse-raw-bound='long",
+            "contract-region-relation-negative-reverse-long-outlives-short=false",
+            "contract-region-relation-negative-reverse-short-outlives-long=true",
+            "contract-region-relation-negative-missing-long-outlives-short=false",
+            "contract-region-relation-negative-ty-diagnostics=0",
+            "contract-region-relation-negative-mir-diagnostics=0",
+            "contract-region-relation-negative-reverse-status=blocked",
+            "contract-region-relation-negative-missing-status=blocked",
+            "contract-region-relation-negative-borrow-diagnostics=2",
+            "contract-region-relation-negative-diag0=Meiya refuses a returned loan from the wrong lifetime",
+            "contract-region-relation-negative-diag1=Meiya refuses a returned loan from the wrong lifetime",
+        ],
+    },
+    {
+        "name": "contract region relation stress",
+        "fixture": "contract_region_relation_stress_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-relation-stress-parse-diagnostics=0",
+            "contract-region-relation-stress-ty-diagnostics=0",
+            "contract-region-relation-stress-fibonacci-lifetime-count=21",
+            "contract-region-relation-stress-fibonacci-disconnected=false",
+            "contract-region-relation-stress-fibonacci-transitive=true",
+            "contract-region-relation-stress-fibonacci-plus-bound=true",
+            "contract-region-relation-stress-chain-lifetime-count=28",
+            "contract-region-relation-stress-chain-reachable=true",
+            "contract-region-relation-stress-chain-reverse=false",
+            "contract-region-relation-stress-cycle-left-right=true",
+            "contract-region-relation-stress-cycle-right-left=true",
+            "contract-region-relation-stress-declared-reflexive=true",
+            "contract-region-relation-stress-undeclared-reflexive=false",
+            "contract-region-relation-stress-static-reflexive=false",
+            "contract-region-relation-stress-extern-gated=false",
+            "contract-region-relation-stress-source-set-count=2",
+            "contract-region-relation-stress-repetitions=3",
+            "contract-region-relation-stress-scratch-active=2",
+            "contract-region-relation-stress-scratch-capacity=28",
+            "contract-region-relation-stress-scratch-generation-delta=6",
+            "contract-region-relation-stress-scratch-generation-sequence=true",
+            "contract-region-relation-stress-semantics-stable=true",
+            "contract-region-relation-stress-scratch-active-stable=true",
+            "contract-region-relation-stress-scratch-active-within-capacity=true",
+            "contract-region-relation-stress-scratch-capacity-stable=true",
+            "contract-region-relation-stress-source-cache-build-delta=0",
+            "contract-region-relation-stress-source-cache-stable=true",
+            "contract-region-relation-stress-no-historical-growth=true",
+        ],
+    },
+    {
+        "name": "contract region bound diagnostics",
+        "fixture": "contract_region_bound_diagnostics_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-bound-diagnostics-undeclared-raw-bound='ghost",
+            "contract-region-bound-diagnostics-reserved-raw-bound='static",
+            "contract-region-bound-diagnostics-elided-raw-bound='_",
+            "contract-region-bound-diagnostics-empty-raw-bound-count=0",
+            "contract-region-bound-diagnostics-lifetime-doctrine-raw-bound=Copy",
+            "contract-region-bound-diagnostics-type-lifetime-raw-bound='a",
+            "contract-region-bound-diagnostics-shape-kind=shape-signature",
+            "contract-region-bound-diagnostics-shape-lifetime-doctrine-raw-bound=Copy",
+            "contract-region-bound-diagnostics-shape-lifetime-doctrine-filtered-count=0",
+            "contract-region-bound-diagnostics-shape-outlives=false",
+            "contract-region-bound-diagnostics-route-kind=route-signature",
+            "contract-region-bound-diagnostics-route-type-lifetime-raw-bound='a",
+            "contract-region-bound-diagnostics-route-type-lifetime-filtered-count=0",
+            "contract-region-bound-diagnostics-doctrine-kind=doctrine-signature",
+            "contract-region-bound-diagnostics-doctrine-empty-type-raw-count=0",
+            "contract-region-bound-diagnostics-doctrine-empty-type-clause=true",
+            "contract-region-bound-diagnostics-alias-kind=alias-signature",
+            "contract-region-bound-diagnostics-alias-mixed-raw-count=2",
+            "contract-region-bound-diagnostics-alias-mixed-raw0=Copy",
+            "contract-region-bound-diagnostics-alias-mixed-raw1='a",
+            "contract-region-bound-diagnostics-alias-mixed-filtered-count=1",
+            "contract-region-bound-diagnostics-alias-mixed-filtered0=Copy",
+            "contract-region-bound-diagnostics-extern-kind=task-signature",
+            "contract-region-bound-diagnostics-extern-member-id=0",
+            "contract-region-bound-diagnostics-extern-generic-count=3",
+            "contract-region-bound-diagnostics-extern-long-raw-bound='short",
+            "contract-region-bound-diagnostics-extern-empty-type-raw-count=0",
+            "contract-region-bound-diagnostics-extern-empty-type-clause=true",
+            "contract-region-bound-diagnostics-extern-ordinary-static=false",
+            "contract-region-bound-diagnostics-extern-outlives=false",
+            "contract-region-bound-diagnostics-extern-source-count=0",
+            "contract-region-bound-diagnostics-extern-source-at0=-1",
+            "contract-region-bound-diagnostics-count=11",
+            "contract-region-bound-diagnostics-diag0=Meiya lifetime debt: lifetime bound 'ghost on 'a is not declared on undeclared_bound",
+            "contract-region-bound-diagnostics-diag1=Meiya lifetime debt: 'static is reserved and cannot be used as a lifetime bound on 'a",
+            "contract-region-bound-diagnostics-diag2=Meiya lifetime debt: '_ is elided and cannot be used as a lifetime bound on 'a",
+            "contract-region-bound-diagnostics-diag3=Meiya lifetime debt: empty generic bound on 'a in empty_bound",
+            "contract-region-bound-diagnostics-diag4=Meiya lifetime debt: lifetime 'a may only use lifetime bounds, but found Copy",
+            "contract-region-bound-diagnostics-diag5=Meiya lifetime debt: type generic T cannot use lifetime bound 'a",
+            "contract-region-bound-diagnostics-diag6=Meiya lifetime debt: lifetime 'a may only use lifetime bounds, but found Copy",
+            "contract-region-bound-diagnostics-diag6-span=0@495:503",
+            "contract-region-bound-diagnostics-diag7=Meiya lifetime debt: type generic T cannot use lifetime bound 'a",
+            "contract-region-bound-diagnostics-diag7-span=0@548:553",
+            "contract-region-bound-diagnostics-diag8=Meiya lifetime debt: empty generic bound on T in DoctrineEmptyType",
+            "contract-region-bound-diagnostics-diag8-span=0@600:602",
+            "contract-region-bound-diagnostics-diag9=Meiya lifetime debt: type generic T cannot use lifetime bound 'a",
+            "contract-region-bound-diagnostics-diag9-span=0@658:670",
+            "contract-region-bound-diagnostics-diag10=Meiya lifetime debt: empty generic bound on T in extern_empty_type",
+            "contract-region-bound-diagnostics-diag10-span=0@743:745",
+        ],
+    },
+    {
+        "name": "contract region loop fixed point",
+        "fixture": "contract_region_loop_fixed_point_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-loop-fixed-point-ty-diagnostics=0",
+            "contract-region-loop-fixed-point-mir-diagnostics=0",
+            "contract-region-loop-fixed-point-borrow-diagnostics=0",
+            "contract-region-loop-fixed-point-direct-status=clean",
+            "contract-region-loop-fixed-point-direct-source-count=2",
+            "contract-region-loop-fixed-point-direct-source0=first",
+            "contract-region-loop-fixed-point-direct-source1=second",
+            "contract-region-loop-fixed-point-alias-status=clean",
+            "contract-region-loop-fixed-point-alias-source-count=2",
+            "contract-region-loop-fixed-point-alias-has-first=true",
+            "contract-region-loop-fixed-point-alias-has-second=true",
+            "contract-region-loop-fixed-point-dedup-status=clean",
+            "contract-region-loop-fixed-point-dedup-source-count=1",
+            "contract-region-loop-fixed-point-dedup-source0=source",
+            "contract-region-loop-fixed-point-ring-status=clean",
+            "contract-region-loop-fixed-point-ring-source-count=12",
+            "contract-region-loop-fixed-point-ring-source0=source0",
+            "contract-region-loop-fixed-point-ring-source11=source11",
+            "contract-region-loop-fixed-point-converged=true",
+            "contract-region-loop-fixed-point-solved=true",
+            "contract-region-loop-fixed-point-rounds-positive=true",
+            "contract-region-loop-fixed-point-rounds-bounded=true",
+            "contract-region-loop-fixed-point-multi-round=true",
+            "contract-region-loop-fixed-point-memo-cycle-observed=true",
+            "borrowck-snapshot-import ok=1 format=freak-borrowck-snapshot-v2 lines=120 files=1 results=4 paths=113 diagnostics=0 malformed=0 headers=1 ends=1",
+            "borrowck-snapshot-restore ok=1 files=1 results=4 paths=113 diagnostics=0 skipped-other=0 arena-files=1",
+            "contract-region-loop-fixed-point-restored-alias-status=clean",
+            "contract-region-loop-fixed-point-restored-alias-source-count=2",
+            "contract-region-loop-fixed-point-restored-alias-has-first=true",
+            "contract-region-loop-fixed-point-restored-alias-has-second=true",
+            "contract-region-loop-fixed-point-restored-ring-source-count=12",
+            "contract-region-loop-fixed-point-restored-ring-source11=source11",
+        ],
+    },
+    {
+        "name": "contract region many independent roots",
+        "fixture": "contract_region_many_root_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-many-root-ty-diagnostics=0",
+            "contract-region-many-root-mir-diagnostics=0",
+            "contract-region-many-root-borrow-diagnostics=0",
+            "contract-region-many-root-results=1",
+            "contract-region-many-root-memos=256",
+            "contract-region-many-root-solves=256",
+            "contract-region-many-root-work-items=512",
+            "contract-region-many-root-results-clean=true",
+            "contract-region-many-root-converged=true",
+            "contract-region-many-root-resource-exhausted=false",
+            "contract-region-many-root-linear-work=true",
+            "contract-region-many-root-work-bounded=true",
+        ],
+    },
+    {
+        "name": "contract region loop fail closed",
+        "fixture": "contract_region_loop_fail_closed_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-loop-fail-closed-round-status=blocked",
+            "contract-region-loop-fail-closed-round-diagnostics=1",
+            "contract-region-loop-fail-closed-round-message=Meiya cannot establish the origin of this returned loan",
+            "contract-region-loop-fail-closed-round-source-count=0",
+            "contract-region-loop-fail-closed-round-converged=false",
+            "contract-region-loop-fail-closed-round-resource-exhausted=false",
+            "contract-region-loop-fail-closed-round-cap-hit=true",
+            "contract-region-loop-fail-closed-budget-status=blocked",
+            "contract-region-loop-fail-closed-budget-diagnostics=1",
+            "contract-region-loop-fail-closed-budget-message=Meiya cannot establish the origin of this returned loan",
+            "contract-region-loop-fail-closed-budget-source-count=0",
+            "contract-region-loop-fail-closed-budget-converged=false",
+            "contract-region-loop-fail-closed-budget-resource-exhausted=true",
+            "contract-region-loop-fail-closed-budget-facts-bounded=true",
+            "contract-region-loop-fail-closed-path-resource-exhausted=true",
+            "contract-region-loop-fail-closed-path-facts-bounded=true",
+            "contract-region-loop-fail-closed-path-opaque=true",
+            "contract-region-loop-fail-closed-dependency-resource-exhausted=true",
+            "contract-region-loop-fail-closed-dependency-edges-bounded=true",
+            "contract-region-loop-fail-closed-dependency-opaque=true",
+            "contract-region-loop-fail-closed-work-resource-exhausted=true",
+            "contract-region-loop-fail-closed-work-queue-bounded=true",
+            "contract-region-loop-fail-closed-work-opaque=true",
+            "borrowck-snapshot-import ok=1 format=freak-borrowck-snapshot-v2 lines=76 files=2 results=2 paths=68 diagnostics=2 malformed=0 headers=1 ends=1",
+            "contract-region-loop-fail-closed-snapshot-poisoned=true",
+            "borrowck-snapshot-restore ok=1 files=2 results=2 paths=68 diagnostics=2 skipped-other=0 arena-files=2",
+            "contract-region-loop-fail-closed-restored-round-status=blocked",
+            "contract-region-loop-fail-closed-restored-budget-status=blocked",
+            "contract-region-loop-fail-closed-restored-round-converged=false",
+            "contract-region-loop-fail-closed-restored-budget-resource-exhausted=true",
+            "contract-region-loop-fail-closed-truncated-v2-rejected=true",
+            "contract-region-loop-fail-closed-legacy-v1-imported=true",
+            "contract-region-loop-fail-closed-legacy-v1-restored=true",
+            "contract-region-loop-fail-closed-legacy-v1-rounds=0",
+            "contract-region-loop-fail-closed-legacy-v1-limit=0",
+            "contract-region-loop-fail-closed-legacy-v1-solves=0",
+            "contract-region-loop-fail-closed-legacy-v1-converged=true",
+            "contract-region-loop-fail-closed-legacy-v1-resource-exhausted=false",
+            "contract-region-loop-fail-closed-legacy-v1-work-items=0",
+        ],
+    },
+    {
+        "name": "contract region loop dependency stress",
+        "fixture": "contract_region_loop_dependency_stress_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-loop-dependency-stress-ty-diagnostics=0",
+            "contract-region-loop-dependency-stress-mir-diagnostics=0",
+            "contract-region-loop-dependency-stress-borrow-diagnostics=0",
+            "contract-region-loop-dependency-stress-status=clean",
+            "contract-region-loop-dependency-stress-source-count=1",
+            "contract-region-loop-dependency-stress-source=source",
+            "contract-region-loop-dependency-stress-memos=50",
+            "contract-region-loop-dependency-stress-memo-depth-proven=true",
+            "contract-region-loop-dependency-stress-multi-round=true",
+            "contract-region-loop-dependency-stress-rounds-bounded=true",
+            "contract-region-loop-dependency-stress-converged=true",
+            "contract-region-loop-dependency-stress-resource-exhausted=false",
+            "contract-region-loop-dependency-stress-work-bounded=true",
+        ],
+    },
+    {
+        "name": "contract region CFG worklist stress",
+        "fixture": "contract_region_cfg_worklist_stress_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-cfg-worklist-stress-ty-diagnostics=0",
+            "contract-region-cfg-worklist-stress-mir-diagnostics=0",
+            "contract-region-cfg-worklist-stress-borrow-diagnostics=0",
+            "contract-region-cfg-worklist-stress-block-count-bounded=true",
+            "contract-region-cfg-worklist-stress-return-block-valid=true",
+            "contract-region-cfg-worklist-stress-forward-reachable=true",
+            "contract-region-cfg-worklist-stress-reverse-unreachable=true",
+            "contract-region-cfg-worklist-stress-entry-acyclic=true",
+            "contract-region-cfg-worklist-stress-status=clean",
+            "contract-region-cfg-worklist-stress-source-count=1",
+            "contract-region-cfg-worklist-stress-source=source",
+            "contract-region-cfg-worklist-stress-converged=true",
+            "contract-region-cfg-worklist-stress-work-bounded=true",
+        ],
+    },
+    {
+        "name": "contract region storage boundary",
+        "fixture": "contract_region_storage_negative_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-storage-ty-diagnostics=4",
+            "contract-region-storage-ty-diagnostics-exact-four=true",
+            "contract-region-storage-ty-diag0=Meiya cannot store a named lend in parameter 0 of named_signature_escape yet",
+            "contract-region-storage-ty-diag0-help=use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance",
+            "contract-region-storage-ty-diag1=Meiya cannot store a named lend in return type of named_signature_escape yet",
+            "contract-region-storage-ty-diag1-help=use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance",
+            "contract-region-storage-ty-diag2=Meiya cannot store a lend in parameter 0 of elided_signature_escape yet",
+            "contract-region-storage-ty-diag2-help=use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance",
+            "contract-region-storage-ty-diag3=Meiya cannot store a lend in return type of elided_signature_escape yet",
+            "contract-region-storage-ty-diag3-help=use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance",
+            "contract-region-storage-mir-diagnostics=10",
+            "contract-region-storage-mir-diagnostics-exact-ten=true",
+            "contract-region-storage-mir-diag0=Meiya cannot store a named lend in parameter 0 of named_signature_escape yet",
+            "contract-region-storage-mir-diag0-help=use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance",
+            "contract-region-storage-mir-diag1=Meiya cannot store a named lend in return type of named_signature_escape yet",
+            "contract-region-storage-mir-diag1-help=use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance",
+            "contract-region-storage-mir-diag2=Meiya cannot store a lend in parameter 0 of elided_signature_escape yet",
+            "contract-region-storage-mir-diag2-help=use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance",
+            "contract-region-storage-mir-diag3=Meiya cannot store a lend in return type of elided_signature_escape yet",
+            "contract-region-storage-mir-diag3-help=use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance",
+            "contract-region-storage-list-literal-diag=Meiya cannot store a lend inside a list yet",
+            "contract-region-storage-list-literal-detail=list_literal_source_set constructs list element 1 with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-some-diag=Meiya cannot store a lend inside a maybe some() yet",
+            "contract-region-storage-some-detail=maybe_source_set constructs the some() payload with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-ok-diag=Meiya cannot store a lend inside a result ok() yet",
+            "contract-region-storage-ok-detail=result_ok_source_set constructs the ok() payload with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-err-diag=Meiya cannot store a lend inside a result err() yet",
+            "contract-region-storage-err-detail=result_err_source_set constructs the err() payload with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-map-key-diag=Meiya cannot store a lend inside a map yet",
+            "contract-region-storage-map-key-detail=map_key_source_set constructs map entry 1 key with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-map-value-diag=Meiya cannot store a lend inside a map yet",
+            "contract-region-storage-map-value-detail=map_value_source_set constructs map entry 1 value with type lend Ship; keep this borrowed value in a scalar local holder until MIR can preserve aggregate child provenance",
+            "contract-region-storage-choose-status=clean",
+            "contract-region-storage-local-holder-status=clean",
+            "contract-region-storage-elided-holder-status=clean",
+            "contract-region-storage-tuple-status=clean",
+            "contract-region-storage-fixed-array-literal-status=clean",
+            "contract-region-storage-fixed-array-repeat-status=clean",
+            "contract-region-storage-list-literal-status=blocked",
+            "contract-region-storage-shape-value-status=clean",
+            "contract-region-storage-route-payload-status=clean",
+            "contract-region-storage-some-status=blocked",
+            "contract-region-storage-ok-status=blocked",
+            "contract-region-storage-err-status=blocked",
+            "contract-region-storage-map-key-status=blocked",
+            "contract-region-storage-map-value-status=blocked",
+            "contract-region-storage-named-signature-status=clean",
+            "contract-region-storage-elided-signature-status=clean",
+            "contract-region-storage-borrow-diagnostics=10",
+            "contract-region-storage-borrow-diagnostics-exact-ten=true",
+            "contract-region-storage-borrow-diags-match-mir=true",
+            "contract-region-storage-deep-class=exhausted",
+            "contract-region-storage-deep-confirmed-lend=false",
+            "contract-region-storage-deep-may-store-lend=true",
+            "contract-region-storage-deep-wrapper-class=exhausted",
+            "contract-region-storage-deep-wrapper-confirmed-lend=false",
+            "contract-region-storage-deep-wrapper-may-store-lend=true",
+            "contract-region-storage-deep-diagnostic-added=true",
+            "contract-region-storage-deep-diagnostic=Meiya's lend-storage analysis exhausted its depth budget",
+        ],
+    },
+    {
+        "name": "contract region conditional projected alias",
+        "fixture": "contract_region_conditional_alias_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "conditional-alias-parse-diagnostics=0",
+            "conditional-alias-ty-diagnostics=0",
+            "conditional-alias-mir-diagnostics=0",
+            "conditional-alias-borrow-diagnostics=3",
+            "conditional-alias-status=blocked",
+            "transferred-alias-status=blocked",
+            "transferred-alias-long-release-status=clean",
+            "transferred-alias-source-rebind-status=blocked",
+            "closure-aggregate-write-parse-diagnostics=0",
+            "closure-aggregate-write-ty-diagnostics=0",
+            "closure-aggregate-write-mir-diagnostics=1",
+            "closure-aggregate-write-rejected=true",
+            "nested-lend-projection-parse-diagnostics=0",
+            "nested-lend-projection-ty-diagnostics=0",
+            "nested-lend-projection-mir-diagnostics=0",
+            "nested-lend-projection-borrow-diagnostics=1",
+            "nested-lend-projection-status=blocked",
+            "indexed-nested-lend-projection-parse-diagnostics=0",
+            "indexed-nested-lend-projection-ty-diagnostics=0",
+            "indexed-nested-lend-projection-mir-diagnostics=0",
+            "indexed-nested-lend-projection-borrow-diagnostics=1",
+            "indexed-nested-lend-projection-status=blocked",
+            "shadowed-alias-parse-diagnostics=0",
+            "shadowed-alias-ty-diagnostics=0",
+            "shadowed-alias-mir-diagnostics=0",
+            "shadowed-alias-borrow-diagnostics=1",
+            "shadowed-alias-status=blocked",
+        ],
+    },
+    {
+        "name": "contract region recursive wrapper storage",
+        "fixture": "contract_region_recursive_wrapper_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "recursive-wrapper-parse-diagnostics=0",
+            "recursive-wrapper-ty-diagnostics=3",
+            "recursive-wrapper-mir-diagnostics=3",
+            "recursive-wrapper-storage-class=unsupported",
+            "recursive-wrapper-fixed-storage=false",
+            "recursive-wrapper-leaf-count=-1",
+            "recursive-wrapper-diagnostic=true",
+        ],
+    },
+    {
+        "name": "contract region generic lend escape",
+        "fixture": "contract_region_generic_lend_escape_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-generic-lend-escape-parse-diagnostics=0",
+            "contract-region-generic-lend-escape-ty-diagnostics=0",
+            "contract-region-generic-lend-escape-mir-diagnostics=3",
+            "contract-region-generic-lend-escape-meiya-count=3",
+            "contract-region-generic-lend-escape-wrap-type=maybe<T>",
+            "contract-region-generic-lend-escape-wrap-hidden-loan=false",
+            "contract-region-generic-lend-escape-identity-type=T",
+            "contract-region-generic-lend-escape-identity-outer-loan=false",
+            "contract-region-generic-lend-escape-diag0-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
+            "contract-region-generic-lend-escape-diag0-help=wrap infers T as lend Ship; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists",
+            "contract-region-generic-lend-escape-diag1-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
+           "contract-region-generic-lend-escape-diag1-help=identity infers T as lend Ship; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists",
+            "contract-region-generic-lend-escape-nominal-type=T",
+            "contract-region-generic-lend-escape-diag2-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
+            "contract-region-generic-lend-escape-diag2-help=identity infers T as Direct<'a>; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists",
+            "contract-region-owner-generic-happy-parse-diagnostics=0",
+            "contract-region-owner-generic-happy-ty-diagnostics=0",
+            "contract-region-owner-generic-happy-mir-diagnostics=0",
+            "contract-region-owner-generic-happy-instance-type=Box<Ship>",
+            "contract-region-owner-generic-happy-associated-type=Box<Ship>",
+            "contract-region-owner-generic-happy-shared-type=Shared<Ship>",
+            "contract-region-owner-generic-happy-borrow-type=lend Ship",
+            "contract-region-owner-generic-happy-new-identity=builtin::Shared::new",
+            "contract-region-owner-generic-happy-new-builtin=true",
+            "contract-region-owner-generic-happy-borrow-identity=builtin::Shared::borrow",
+            "contract-region-owner-generic-happy-borrow-builtin=true",
+            "contract-region-owner-generic-happy-forged-identity-empty=true",
+            "contract-region-owner-generic-happy-forged-builtin=false",
+            "contract-region-owner-generic-happy-alpha-param=Direct<'b>",
+            "contract-region-owner-generic-happy-alpha-return=Direct<'b>",
+            "contract-region-owner-generic-negative-parse-diagnostics=0",
+            "contract-region-owner-generic-negative-ty-diagnostics=0",
+            "contract-region-owner-generic-negative-mir-diagnostics=8",
+            "contract-region-owner-generic-negative-meiya-count=7",
+            "contract-region-owner-generic-negative-instance-type=unknown",
+            "contract-region-owner-generic-negative-associated-type=unknown",
+            "contract-region-owner-generic-negative-shared-type=unknown",
+            "contract-region-owner-generic-negative-shared-identity-empty=true",
+            "contract-region-owner-generic-negative-shared-builtin=false",
+            "contract-region-owner-generic-negative-method-boundary-count=1",
+            "contract-region-owner-generic-negative-nominal-associated-type=unknown",
+            "contract-region-owner-generic-negative-nominal-instance-type=unknown",
+            "contract-region-owner-generic-negative-nominal-shared-type=unknown",
+            "contract-region-owner-generic-negative-nominal-associated-identity-empty=true",
+            "contract-region-owner-generic-negative-nominal-instance-identity-empty=true",
+            "contract-region-owner-generic-negative-nominal-shared-identity-empty=true",
+            "contract-region-owner-generic-negative-nominal-shared-builtin=false",
+            "contract-region-owner-generic-negative-direct-instance-type=unknown",
+            "contract-region-owner-generic-negative-operator-type=unknown",
+            "contract-region-owner-generic-negative-diag6-message=Meiya cannot carry a lend-bearing aggregate across a method call yet",
+            "contract-region-owner-generic-negative-diag7-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
+            "contract-region-owner-generic-negative-diag0-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
+            "contract-region-owner-generic-negative-diag0-help=Box<lend Ship>.keep derives owner generic T as lend Ship; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists",
+            "contract-region-owner-generic-negative-diag1-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
+            "contract-region-owner-generic-negative-diag1-help=Box<lend Ship>::pack derives owner generic T as lend Ship; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists",
+            "contract-region-owner-generic-negative-diag2-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
+            "contract-region-owner-generic-negative-diag2-help=Shared<lend Ship>::new derives owner generic T as lend Ship; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists",
+            "contract-region-owner-generic-negative-diag3-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
+            "contract-region-owner-generic-negative-diag3-help=Box<Direct<'a>>::pack derives owner generic T as Direct<'a>; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists",
+            "contract-region-owner-generic-negative-diag4-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
+            "contract-region-owner-generic-negative-diag4-help=Box<Direct<'a>>.keep derives owner generic T as Direct<'a>; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists",
+            "contract-region-owner-generic-negative-diag5-message=Meiya cannot substitute a lend-bearing type for a generic call yet",
+            "contract-region-owner-generic-negative-diag5-help=Shared<Direct<'a>>::new derives owner generic T as Direct<'a>; keep lends on explicit lend parameters and outer borrowed returns until generic provenance exists",
+            "contract-region-shadowed-shared-parse-diagnostics=0",
+            "contract-region-shadowed-shared-ty-diagnostics=0",
+            "contract-region-shadowed-shared-mir-diagnostics=0",
+            "contract-region-shadowed-shared-borrow-type=Ship",
+            "contract-region-shadowed-shared-new-type=Shared<Ship>",
+            "contract-region-shadowed-shared-borrow-identity-empty=true",
+            "contract-region-shadowed-shared-borrow-builtin=false",
+            "contract-region-shadowed-shared-new-identity-empty=true",
+            "contract-region-shadowed-shared-new-builtin=false",
+            "contract-region-builtin-identity-poisoned-before-restore=true",
+            "contract-region-mir-snapshot-missing-field-validation-rejected=true",
+            "contract-region-mir-snapshot-missing-field-restore-rejected=true",
+            "contract-region-mir-snapshot-v4-validation-rejected=true",
+            "contract-region-mir-snapshot-v4-restore-rejected=true",
+            "contract-region-mir-snapshot-child-before-parent-validation-rejected=true",
+            "contract-region-mir-snapshot-child-before-parent-restore-rejected=true",
+            "contract-region-mir-snapshot-invalid-restore-state-stable=true",
+            "contract-region-builtin-identity-restore-ok=true",
+            "contract-region-builtin-identity-borrow-after-restore=true",
+            "contract-region-builtin-identity-forged-after-restore=false",
+            "contract-region-builtin-identity-shadow-after-restore=false",
+        ],
+    },
+    {
+        "name": "contract region aggregate visibility",
+        "fixture": "contract_region_aggregate_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-aggregate-branch-status=blocked",
+            "contract-region-aggregate-branch-tuple-child-count=2",
+            "contract-region-aggregate-branch-mutation-conflicts=1",
+            "contract-region-aggregate-branch-final-use-visible=true",
+            "contract-region-aggregate-get-mut-status=blocked",
+            "contract-region-aggregate-get-mut-list-child-count=1",
+            "contract-region-aggregate-get-mut-storage-rejections=1",
+            "contract-region-aggregate-get-mut-storage-rejected=true",
+            "contract-region-aggregate-get-mut-loan-mut-paths=1",
+            "contract-region-aggregate-get-mut-transfer-visible=true",
+        ],
+    },
+    {
+        "name": "contract region aggregate core task boundaries",
+        "fixture": "contract_region_aggregate_boundary_smoke.fk",
+        "timeout": 90,
+        "memory_limit_mb": 96,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "aggregate-boundary-core-parse-diagnostics=0",
+            "aggregate-boundary-core-ty-diagnostics=0",
+            "aggregate-boundary-core-mir-diagnostics=0",
+            "aggregate-boundary-core-borrow-diagnostics=7",
+            "aggregate-boundary-tuple-owner-live=blocked",
+            "aggregate-boundary-tuple-sibling-dead=clean",
+            "aggregate-boundary-same-lifetime-first-live=blocked",
+            "aggregate-boundary-same-lifetime-second-live=blocked",
+            "aggregate-boundary-array-owner-live=blocked",
+            "aggregate-boundary-array-sibling-live=blocked",
+            "aggregate-boundary-shape-owner-live=blocked",
+            "aggregate-boundary-shape-sibling-dead=clean",
+            "aggregate-boundary-empty-array-call=clean",
+            "aggregate-boundary-outlives-owner-live=blocked",
+            "aggregate-boundary-tuple-leaves=2",
+            "aggregate-boundary-tuple-leaf0=.0",
+            "aggregate-boundary-tuple-leaf1=.1",
+            "aggregate-boundary-tuple-source0-count=1",
+            "aggregate-boundary-tuple-source0-projection=.0",
+            "aggregate-boundary-tuple-source1-count=1",
+            "aggregate-boundary-tuple-source1-projection=.1",
+            "aggregate-boundary-same-source0-count=2",
+            "aggregate-boundary-same-source1-count=2",
+            "aggregate-boundary-same-source0-projection0=.0",
+            "aggregate-boundary-same-source0-projection1=.1",
+            "aggregate-boundary-outlives-source-count=1",
+            "aggregate-boundary-outlives-source-projection=.0",
+            "aggregate-boundary-projected-tuple-source-count=1",
+            "aggregate-boundary-array-leaves=1",
+            "aggregate-boundary-array-projection=[*]",
+            "aggregate-boundary-empty-array-leaves=0",
+            "aggregate-boundary-shape-leaves=2",
+            "aggregate-boundary-shape-leaf0=.left",
+            "aggregate-boundary-shape-leaf1=.right",
+            "aggregate-boundary-mir-call-leaves=2",
+            "aggregate-boundary-mir-call-source0-projection=.0",
+            "aggregate-boundary-mir-call-source1-projection=.1",
+            "aggregate-boundary-mir-empty-call-leaves=0",
+            "aggregate-boundary-empty-call-provenance-known-empty=true",
+            "aggregate-boundary-empty-call-provenance-count=0",
+            "aggregate-boundary-rewrite-diagnostic=true",
+        ],
+    },
+    {
+        "name": "contract region aggregate route task boundaries",
+        "fixture": "contract_region_aggregate_route_boundary_smoke.fk",
+        "timeout": 90,
+        "memory_limit_mb": 96,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "aggregate-boundary-route-parse-diagnostics=0",
+            "aggregate-boundary-route-ty-diagnostics=1",
+            "aggregate-boundary-route-mir-diagnostics=1",
+            "aggregate-boundary-route-borrow-diagnostics=4",
+            "aggregate-boundary-route-roundtrip=clean",
+            "aggregate-boundary-route-owner-live=blocked",
+            "aggregate-boundary-route-empty-clean=clean",
+            "aggregate-boundary-shape-to-route=clean",
+            "aggregate-boundary-shape-to-route-forward=clean",
+            "aggregate-boundary-shape-to-route-roundtrip=clean",
+            "aggregate-boundary-nested-empty=clean",
+            "aggregate-boundary-owned-escape=blocked",
+            "aggregate-boundary-nested-owned-escape=blocked",
+            "aggregate-boundary-route-ty-diag0=Meiya cannot find a source for returned lifetime 'a at .0",
+            "aggregate-boundary-route-ty-diag0-help=add a compatible lend parameter leaf whose declared lifetime outlives this returned projection",
+            "aggregate-boundary-route-leaves=1",
+            "aggregate-boundary-route-guard=RoutedView<'a>::Hold",
+            "aggregate-boundary-route-source-guard=RoutedView<'a>::Hold",
+            "aggregate-boundary-nested-route-guard=OuterView<'a>::Wrap/InnerView<'a>::Hold",
+            "aggregate-boundary-owned-diagnostic=true",
+        ],
+    },
+    {
+        "name": "contract region aggregate zero and const edges",
+        "fixture": "contract_region_aggregate_edge_smoke.fk",
+        "memory_limit_mb": 96,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "aggregate-edge-parse-diagnostics=0",
+            "aggregate-edge-ty-diagnostics=0",
+            "aggregate-edge-mir-diagnostics=0",
+            "aggregate-edge-borrow-diagnostics=3",
+            "aggregate-edge-nested-const-roundtrip=clean",
+            "aggregate-edge-nested-const-call-leaves=1",
+            "aggregate-edge-nested-const-source-projection=.0[*]",
+            "aggregate-edge-empty-generic-call=clean",
+            "aggregate-edge-empty-generic-type=[lend mut Ship;0]",
+            "aggregate-edge-empty-array-stores-lend=false",
+            "aggregate-edge-empty-generic-diagnostic=false",
+            "aggregate-edge-different-target-source-count=1",
+            "aggregate-edge-different-target-sibling-dead=clean",
+            "aggregate-edge-generic-target-source-count=1",
+            "aggregate-edge-generic-target-sibling-dead=clean",
+            "aggregate-edge-projected-call-sibling-dead=clean",
+            "aggregate-edge-projected-call-owner-live=blocked",
+            "aggregate-edge-returned-call-leaf-rebind=clean",
+            "aggregate-edge-returned-call-leaf-holder=returned.0",
+            "aggregate-edge-projected-scalar-source-count=1",
+            "aggregate-edge-projected-scalar-roundtrip=clean",
+            "aggregate-edge-duplicate-projection-count=2",
+            "aggregate-edge-duplicate-projection0=.0",
+            "aggregate-edge-duplicate-projection1=.1",
+            "aggregate-edge-duplicate-rebind-all=clean",
+            "aggregate-edge-duplicate-rebind-one=blocked",
+            "aggregate-edge-call-projection-relation-limit=1024",
+            "aggregate-edge-duplicate-call-projection-count=2",
+            "aggregate-edge-duplicate-call-projection0=.0",
+            "aggregate-edge-duplicate-call-projection1=.1",
+            "aggregate-edge-duplicate-call-rebind-all=clean",
+            "aggregate-edge-duplicate-call-rebind-one=blocked",
+            "aggregate-edge-duplicate-projected-call-rebind-all=clean",
+            "aggregate-edge-nested-duplicate-call-rebind-all=clean",
+        ],
+    },
+    {
+        "name": "contract region aggregate resource budgets",
+        "fixture": "contract_region_aggregate_budget_smoke.fk",
+        "timeout": 120,
+        "memory_limit_mb": 96,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "aggregate-budget-leaf-limit=256",
+            "aggregate-budget-source-limit=256",
+            "aggregate-budget-wide-leaves=-1",
+            "aggregate-budget-recursive-leaves=-1",
+            "aggregate-budget-fanout-sources=-1",
+            "aggregate-budget-fanout-opaque=true",
+            "aggregate-budget-leaf-diagnostic=true",
+            "aggregate-budget-source-cutoff-atomic=true",
+        ],
+    },
+    {
+        "name": "contract region aggregate malformed boundaries",
+        "fixture": "contract_region_aggregate_negative_smoke.fk",
+        "memory_limit_mb": 96,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "aggregate-negative-upgrade-source-count=0",
+            "aggregate-negative-upgrade-diagnostic=true",
+            "aggregate-negative-mismatch-map-count=-1",
+            "aggregate-negative-mismatch-status=blocked",
+            "aggregate-negative-mismatch-diagnostic=true",
+        ],
+    },
+    {
+        "name": "Copy doctrine storage eligibility",
+        "fixture": "copy_doctrine_storage_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "copy-doctrine-parse-diagnostics=0",
+            "copy-doctrine-ty-diagnostics=2",
+            "copy-doctrine-mir-diagnostics=4",
+            "copy-doctrine-recursive-type-diagnostic=true",
+            "copy-doctrine-generic-bound-rejected=true",
+            "copy-doctrine-linear-field=Owned",
+            "copy-doctrine-owned-match=false",
+            "copy-doctrine-nominal-copy-eligible=true",
+            "copy-doctrine-linear-copy-eligible=false",
+            "copy-doctrine-recursive-copy-eligible=false",
+            "copy-doctrine-nominal-transfer-copy=true",
+            "copy-doctrine-linear-transfer-copy=false",
+            "copy-doctrine-cache-limit=128",
+            "copy-doctrine-cache-bounded=true",
+            "copy-doctrine-ty-cache-capacity=128",
+            "copy-doctrine-ty-cache-bounded=true",
+            "copy-doctrine-ty-restore-cache-reset=true",
+            "copy-doctrine-borrow-restore-cache-reset=true",
+        ],
+    },
+    {
+        "name": "contract region fixed aggregate loans",
+        "fixture": "contract_region_fixed_aggregate_smoke.fk",
+        "timeout": 240,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "fixed-aggregate-parse-diagnostics=0",
+            "fixed-aggregate-ty-diagnostics=0",
+            "fixed-aggregate-mir-diagnostics=8",
+            "fixed-aggregate-borrow-diagnostics=45",
+            "fixed-aggregate-tuple-sibling-dead=clean",
+            "fixed-aggregate-tuple-left-live=blocked",
+            "fixed-aggregate-array-sibling-dead=clean",
+            "fixed-aggregate-array-left-live=blocked",
+            "fixed-aggregate-shape-sibling-dead=clean",
+            "fixed-aggregate-shape-left-live=blocked",
+            "fixed-aggregate-explicit-mut-alias=blocked",
+            "fixed-aggregate-route-local=clean",
+            "fixed-aggregate-route-pattern-capture-keeps-loan=blocked",
+            "fixed-aggregate-direct-local=clean",
+            "fixed-aggregate-nested-local=clean",
+            "fixed-aggregate-repeat-shared=clean",
+            "fixed-aggregate-repeat-immutable-outer=clean",
+            "fixed-aggregate-repeat-owned-sibling=clean",
+            "fixed-aggregate-repeat-cloneable=clean",
+            "fixed-aggregate-repeat-nominal-copy=clean",
+            "fixed-aggregate-repeat-copy-diagnostic=true",
+            "fixed-aggregate-repeat-copy-diagnostic-count=2",
+            "fixed-aggregate-repeat-shared-rebind-all=clean",
+            "fixed-aggregate-repeat-shared-rebind-one=blocked",
+            "fixed-aggregate-repeat-nested-sibling-dead=clean",
+            "fixed-aggregate-repeat-nested-container-rebind=clean",
+            "fixed-aggregate-repeat-structural-copy=clean",
+            "fixed-aggregate-repeat-shared-dead-256=clean",
+            "fixed-aggregate-repeat-shared-partial-rebind-257=clean",
+            "fixed-aggregate-repeat-shared-dead-257=clean",
+            "fixed-aggregate-empty-array-generic-call=clean",
+            "fixed-aggregate-empty-array-stored-call=clean",
+            "fixed-aggregate-empty-array-stores-lend=false",
+            "fixed-aggregate-empty-array-generic-diagnostic=false",
+            "fixed-aggregate-repeat-mut=blocked",
+            "fixed-aggregate-repeat-mut-one=clean",
+            "fixed-aggregate-repeat-mut-aggregate=blocked",
+            "fixed-aggregate-move=blocked",
+            "fixed-aggregate-sibling-rebind=blocked",
+            "fixed-aggregate-left-rebind=clean",
+            "fixed-aggregate-duplicate-shared-rebind-releases=clean",
+            "fixed-aggregate-left-rebind-protects-new=blocked",
+            "fixed-aggregate-immutable-holder-rebind=clean",
+            "fixed-aggregate-scoped-argument-shape-live=blocked",
+            "fixed-aggregate-projection-destination-alias=blocked",
+            "fixed-aggregate-loop-rebind-before-backedge=clean",
+            "fixed-aggregate-shape-child0-projection=.left",
+            "fixed-aggregate-loop-sibling-survives=blocked",
+            "fixed-aggregate-dynamic-index-rebind=blocked",
+            "fixed-aggregate-dynamic-index-preserves-old=blocked",
+            "fixed-aggregate-dynamic-index-includes-new=blocked",
+            "fixed-aggregate-repeat-mut-zero=clean",
+            "fixed-aggregate-mutate-through-stored=clean",
+            "fixed-aggregate-immutable-outer-lend=blocked",
+            "fixed-aggregate-closure-capture-keeps-loan=blocked",
+            "fixed-aggregate-closure-forwarded-capture-keeps-loan=blocked",
+            "fixed-aggregate-wrapped-closure-call-rejected=blocked",
+            "fixed-aggregate-empty-closure-repeat-clean=clean",
+            "fixed-aggregate-zero-length-closure-call-clean=clean",
+            "fixed-aggregate-dynamic-closure-call-storage-rejected=blocked",
+            "fixed-aggregate-dynamic-closure-storage-rejected=blocked",
+            "fixed-aggregate-dynamic-closure-storage-diagnostic=true",
+            "fixed-aggregate-dynamic-closure-storage-diagnostic-count=8",
+            "fixed-aggregate-fixed-closure-storage-diagnostic-count=5",
+            "fixed-aggregate-dynamic-forwarded-closure-storage-rejected=blocked",
+            "fixed-aggregate-forwarded-closure-rebind-storage-rejected=blocked",
+            "fixed-aggregate-mixed-lend-closure-storage-rejected=blocked",
+            "fixed-aggregate-projected-closure-assignment-storage-rejected=blocked",
+            "fixed-aggregate-plain-local-cycle=clean",
+            "fixed-aggregate-dynamic-closure-conditional-rebind=blocked",
+            "fixed-aggregate-fixed-closure-tuple-storage-rejected=blocked",
+            "fixed-aggregate-fixed-closure-repeat-storage-rejected=blocked",
+            "fixed-aggregate-dynamic-wrapped-closure-storage-rejected=blocked",
+            "fixed-aggregate-dynamic-nested-move-closure-storage-rejected=blocked",
+            "fixed-aggregate-fixed-closure-storage-diagnostic=true",
+            "fixed-aggregate-mutable-lend-projection-protects-replacement=blocked",
+            "fixed-aggregate-mutable-lend-projection-releases-replaced=clean",
+            "fixed-aggregate-returned-call-owner-live=blocked",
+            "fixed-aggregate-returned-call-duplicate-mut=blocked",
+            "fixed-aggregate-descendant-write-may-bind=false",
+            "fixed-aggregate-symbolic-write-may-bind=true",
+            "fixed-aggregate-parent-write-may-bind=true",
+            "fixed-aggregate-dynamic-write-definite-slot0=false",
+            "fixed-aggregate-concrete-write-definite-slot0=true",
+            "fixed-aggregate-whole-write-definite-slot0=true",
+            "fixed-aggregate-repeat-mut-zero-holder=@temporary",
+            "fixed-aggregate-shape-child1-projection=.right",
+            "fixed-aggregate-shape-left-child-found=true",
+            "fixed-aggregate-shape-right-child-found=true",
+            "fixed-aggregate-route-child0-projection=.left",
+            "fixed-aggregate-route-child1-projection=.right",
+            "fixed-aggregate-route-left-child-found=true",
+            "fixed-aggregate-route-right-child-found=true",
+            "fixed-aggregate-route-left-holder=stored.left",
+            "fixed-aggregate-route-right-holder=stored.right",
+            "fixed-aggregate-route-pattern-left-type=lend mut Ship",
+            "fixed-aggregate-direct-holder=stored.view",
+            "fixed-aggregate-class-tuple=fixed",
+            "fixed-aggregate-class-array=fixed",
+            "fixed-aggregate-class-shape=fixed",
+            "fixed-aggregate-class-route=fixed",
+            "fixed-aggregate-class-direct-lifetime=fixed",
+            "fixed-aggregate-class-list=unsupported",
+            "fixed-aggregate-compact-lend-mut=Stored<lend mut Ship,int>",
+            "fixed-aggregate-compact-lend-lifetime=Stored<lend 'a Ship,int>",
+        ],
+    },
+    {
+        "name": "contract region repeat projection scale",
+        "fixture": "contract_region_repeat_projection_smoke.fk",
+        "timeout": 180,
+        "memory_limit_mb": 96,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "repeat-projection-parse-diagnostics=0",
+            "repeat-projection-ty-diagnostics=0",
+            "repeat-projection-mir-diagnostics=0",
+            "repeat-projection-borrow-diagnostics=2",
+            "repeat-projection-rebind-257=clean",
+            "repeat-projection-partial-rebind-1025=clean",
+            "repeat-projection-extracted-alias-rebind-256=blocked",
+            "repeat-projection-capture-live=blocked",
+        ],
+    },
+    {
+        "name": "contract region projected closure storage",
+        "fixture": "projected_closure_storage_smoke.fk",
+        "timeout": 120,
+        "memory_limit_mb": 96,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "projected-closure-parse-diagnostics=0",
+            "projected-closure-ty-diagnostics=0",
+            "projected-closure-mir-diagnostics=4",
+            "projected-closure-borrow-diagnostics=6",
+            "projected-closure-use-storage-rejected=blocked",
+            "projected-closure-overwrite-storage-clean=clean",
+            "projected-closure-dynamic-write-rejected=blocked",
+            "projected-closure-dynamic-storage-diagnostics=2",
+        ],
+    },
+    {
+        "name": "fixed closure zero-sized branch",
+        "fixture": "fixed_closure_zero_branch_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "fixed-closure-zero-parse-diagnostics=0",
+            "fixed-closure-zero-ty-diagnostics=0",
+            "fixed-closure-zero-mir-diagnostics=0",
+            "fixed-closure-zero-borrow-diagnostics=0",
+            "fixed-closure-zero-status=clean",
+            "fixed-closure-zero-storage-diagnostics=0",
+        ],
+    },
+    {
+        "name": "contract region fixed aggregate query invalidation",
+        "fixture": "contract_region_fixed_aggregate_query_smoke.fk",
+        "memory_limit_mb": 96,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "fixed-aggregate-query-byte-length-stable=true",
+            "fixed-aggregate-query-offset-stable=true",
+            "fixed-aggregate-query-before-status=blocked",
+            "fixed-aggregate-query-before-shape-facts=true",
+            "fixed-aggregate-query-before-editor-coherent=true",
+            "fixed-aggregate-query-all-17-invalidations-positive=true",
+            "fixed-aggregate-query-invalidation-matches-diff=true",
+            "fixed-aggregate-query-health-ok=true",
+            "fixed-aggregate-query-after-status=clean",
+            "fixed-aggregate-query-after-diagnostics=0",
+            "fixed-aggregate-query-after-shape-facts=true",
+            "fixed-aggregate-query-after-editor-coherent=true",
+            "fixed-aggregate-query-snapshot-restored=true",
+            "fixed-aggregate-query-restore-generation-advanced=true",
+            "fixed-aggregate-query-restored-status=blocked",
+            "fixed-aggregate-query-restored-diagnostics=1",
+            "fixed-aggregate-query-restored-shape-facts=true",
+            "fixed-aggregate-query-restored-editor-coherent=true",
+        ],
+    },
+    {
+        "name": "contract region source cache churn",
+        "fixture": "contract_region_source_cache_churn_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-source-cache-churn-parse-diagnostics=0",
+            "contract-region-source-cache-churn-ty-diagnostics=0",
+            "contract-region-source-cache-churn-capacity=32",
+            "contract-region-source-cache-churn-source-signatures=1",
+            "contract-region-source-cache-churn-churn-rows=35",
+            "contract-region-source-cache-churn-initial-build-delta=1",
+            "contract-region-source-cache-churn-initial-entry-count=1",
+            "contract-region-source-cache-churn-bounded-after-fill=true",
+            "contract-region-source-cache-churn-evicted-first-rebuild-delta=1",
+            "contract-region-source-cache-churn-evicted-first-count=2",
+            "contract-region-source-cache-churn-evicted-first-order=true",
+            "contract-region-source-cache-churn-entry-count-after-rebuild=32",
+            "contract-region-source-cache-churn-known-empty-first-build-delta=1",
+            "contract-region-source-cache-churn-known-empty-second-build-delta=0",
+            "contract-region-source-cache-churn-known-empty-count=0",
+            "contract-region-source-cache-churn-known-empty-count-again=0",
+            "contract-region-source-cache-churn-known-empty-cached=true",
+            "contract-region-source-cache-churn-signature-restore-ok=1",
+            "contract-region-source-cache-churn-signature-restore-entry-count-after-invalidate=31",
+            "contract-region-source-cache-churn-signature-restore-rebuild-delta=1",
+            "contract-region-source-cache-churn-signature-restore-order=true",
+            "contract-region-source-cache-churn-file-restore-ok=true",
+            "contract-region-source-cache-churn-file-restore-child-handles-reused=true",
+            "contract-region-source-cache-churn-file-restore-cleared-signatures=true",
+            "contract-region-source-cache-churn-file-restore-cleared-diagnostics=true",
+            "contract-region-source-cache-churn-file-restore-entry-count-after-invalidate=0",
+            "contract-region-source-cache-churn-file-signature-restore-ok=1",
+            "contract-region-source-cache-churn-file-restore-rebuild-delta=1",
+            "contract-region-source-cache-churn-file-restore-entry-count-after-rebuild=1",
+            "contract-region-source-cache-churn-file-restore-order=true",
+            "contract-region-source-cache-churn-repeated-file-restore-ok=true",
+            "contract-region-source-cache-churn-repeated-file-restore-child-handles-reused=true",
+            "contract-region-source-cache-churn-repeated-file-restore-cleared-signatures=true",
+            "contract-region-source-cache-churn-repeated-file-restore-cleared-diagnostics=true",
+            "contract-region-source-cache-churn-repeated-file-restore-entry-count-after-invalidate=0",
+            "contract-region-source-cache-churn-repeated-file-signature-restore-ok=1",
+            "contract-region-source-cache-churn-repeated-file-restore-rebuild-delta=1",
+            "contract-region-source-cache-churn-repeated-file-restore-entry-count-after-rebuild=1",
+            "contract-region-source-cache-churn-repeated-file-restore-order=true",
+            "contract-region-source-cache-churn-snapshot-bad-declared-validation-rejected=true",
+            "contract-region-source-cache-churn-snapshot-child-before-parent-validation-rejected=true",
+            "contract-region-source-cache-churn-snapshot-bad-declared-restore-rejected=true",
+            "contract-region-source-cache-churn-snapshot-child-before-parent-restore-rejected=true",
+            "contract-region-source-cache-churn-snapshot-invalid-restore-state-stable=true",
+            "contract-region-source-cache-churn-bounded-final=true",
+        ],
+    },
+    {
+        "name": "contract region unsupported boundaries",
+        "fixture": "contract_region_boundary_negative_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-boundary-negative-diagnostics=3",
+            "contract-region-boundary-negative-diagnostics-exact-three=true",
+            "contract-region-boundary-negative-diag0=Meiya cannot store a named lend in parameter 0 of callback_boundary yet",
+            "contract-region-boundary-negative-diag0-source-path=contract-region-boundary-negative.fk",
+            "contract-region-boundary-negative-diag0-range=163:224",
+            "contract-region-boundary-negative-diag0-help=use a direct lend, tuple, fixed array, shape, or route payload; dynamic containers, callbacks, aliases, and doctrines remain outside fixed aggregate provenance",
+            "contract-region-boundary-negative-diag1=Meiya cannot accept a static lend parameter yet",
+            "contract-region-boundary-negative-diag1-source-path=contract-region-boundary-negative.fk",
+            "contract-region-boundary-negative-diag1-range=279:286",
+            "contract-region-boundary-negative-diag1-help='static needs source-storage classification before callers may promise an immortal loan",
+            "contract-region-boundary-negative-diag2=Meiya cannot prove a static borrowed return yet",
+            "contract-region-boundary-negative-diag2-source-path=contract-region-boundary-negative.fk",
+            "contract-region-boundary-negative-diag2-range=303:320",
+            "contract-region-boundary-negative-diag2-help='static returned loans need global-storage provenance before this contract can be sound",
+        ],
+    },
+    {
+        "name": "contract region forwarding boundaries",
+        "fixture": "contract_region_forwarding_boundary_negative_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-forwarding-method-ty-diagnostics=0",
+            "contract-region-forwarding-method-mir-diagnostics=1",
+            "contract-region-forwarding-method-borrow-diagnostics=2",
+            "contract-region-forwarding-method-status=blocked",
+            "contract-region-forwarding-method-invocation-diagnostic-count=1",
+            "contract-region-forwarding-method-invocation-message=Meiya cannot establish the origin of this returned loan",
+            "contract-region-forwarding-method-invocation-source-path=contract-region-forwarding-method.fk",
+            "contract-region-forwarding-method-invocation-range=255:282",
+            "contract-region-forwarding-method-rejected=true",
+            "contract-region-forwarding-method-silently-accepted=false",
+            "contract-region-forwarding-dynamic-ty-diagnostics=0",
+            "contract-region-forwarding-dynamic-mir-diagnostics=1",
+            "contract-region-forwarding-dynamic-borrow-diagnostics=2",
+            "contract-region-forwarding-dynamic-status=blocked",
+            "contract-region-forwarding-dynamic-invocation-diagnostic-count=1",
+            "contract-region-forwarding-dynamic-invocation-message=Meiya cannot establish the origin of this returned loan",
+            "contract-region-forwarding-dynamic-invocation-source-path=contract-region-forwarding-dynamic.fk",
+            "contract-region-forwarding-dynamic-invocation-range=346:373",
+            "contract-region-forwarding-dynamic-rejected=true",
+            "contract-region-forwarding-dynamic-silently-accepted=false",
+            "contract-region-forwarding-callback-ty-diagnostics=1",
+            "contract-region-forwarding-callback-mir-diagnostics=2",
+            "contract-region-forwarding-callback-borrow-diagnostics=2",
+            "contract-region-forwarding-callback-status=clean",
+            "contract-region-forwarding-callback-invocation-diagnostic-count=1",
+            "contract-region-forwarding-callback-invocation-message=call target is not callable",
+            "contract-region-forwarding-callback-invocation-source-path=contract-region-forwarding-callback.fk",
+            "contract-region-forwarding-callback-invocation-range=136:150",
+            "contract-region-forwarding-callback-rejected=true",
+            "contract-region-forwarding-callback-silently-accepted=false",
+            "contract-region-forwarding-extern-ty-diagnostics=4",
+            "contract-region-forwarding-extern-mir-diagnostics=4",
+            "contract-region-forwarding-extern-borrow-diagnostics=5",
+            "contract-region-forwarding-extern-status=blocked",
+            "contract-region-forwarding-extern-invocation-diagnostic-count=1",
+            "contract-region-forwarding-extern-invocation-message=Meiya cannot establish the origin of this returned loan",
+            "contract-region-forwarding-extern-invocation-source-path=contract-region-forwarding-extern.fk",
+            "contract-region-forwarding-extern-invocation-range=162:187",
+            "contract-region-forwarding-extern-rejected=true",
+            "contract-region-forwarding-extern-silently-accepted=false",
+            "contract-region-forwarding-ffi-ty-diagnostics=3",
+            "contract-region-forwarding-ffi-mir-diagnostics=5",
+            "contract-region-forwarding-ffi-borrow-diagnostics=5",
+            "contract-region-forwarding-ffi-ty-diag0=Meiya cannot store a lend in field choose of HookTable yet",
+            "contract-region-forwarding-ffi-mir-diag0=Meiya cannot store a lend in field choose of HookTable yet",
+            "contract-region-forwarding-ffi-borrow-diag0=Meiya cannot store a lend in field choose of HookTable yet",
+            "contract-region-forwarding-ffi-status=clean",
+            "contract-region-forwarding-ffi-invocation-diagnostic-count=1",
+            "contract-region-forwarding-ffi-invocation-message=Meiya cannot forward borrowed values through an FFI callback yet",
+            "contract-region-forwarding-ffi-invocation-source-path=contract-region-forwarding-ffi.fk",
+            "contract-region-forwarding-ffi-invocation-range=198:222",
+            "contract-region-forwarding-ffi-rejected=true",
+            "contract-region-forwarding-ffi-silently-accepted=false",
+            "contract-region-forwarding-closure-coverage=unsupported-no-borrowed-closure-contract",
+        ],
+    },
+    {
+        "name": "contract region editor facts",
+        "fixture": "contract_region_editor_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-editor-bound-semantic-name='out",
+            "contract-region-editor-bound-semantic-kind=Lifetime",
+            "contract-region-editor-bound-semantic-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "contract-region-editor-bound-semantic-def-matches-binder=true",
+            "contract-region-editor-bound-hover-name='out",
+            "contract-region-editor-bound-hover-kind=Lifetime",
+            "contract-region-editor-bound-hover-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "contract-region-editor-bound-hover-name-matches-binder=true",
+            "contract-region-editor-bound-hover-type-matches-binder=true",
+            "contract-region-editor-bound-definition-found=1",
+            "contract-region-editor-bound-definition-matches-later-binder=true",
+            "contract-region-editor-bound-definition-not-long-binder=true",
+            "contract-region-editor-bound-definition-not-bound-use=true",
+            "contract-region-editor-repeated-definition-found=1",
+            "contract-region-editor-repeated-definition-matches-later-binder=true",
+            "contract-region-editor-alt-definition-found=1",
+            "contract-region-editor-alt-definition-matches-alt-binder=true",
+            "contract-region-editor-definition-records-distinct=true",
+            "contract-region-editor-definition-binders-distinct=true",
+            "ok|textDocument/hover",
+            "**'out** `Lifetime`",
+            "ok|textDocument/definition",
+            "location|contract-region-editor.fk|3|33|3|37|'out|Lifetime",
+            "contract-region-editor-poison-before-restore-semantic=true",
+            "contract-region-editor-poison-before-restore-hover=true",
+            "contract-region-editor-poison-before-restore-definition=true",
+            "contract-region-editor-poison-before-restore-all=true",
+            "contract-region-editor-restored-semantic-facts-exact=true",
+            "contract-region-editor-restored-hover-facts-exact=true",
+            "contract-region-editor-restored-definition-facts-exact=true",
+            "contract-region-editor-blocked-key-confirmed=true",
+            "contract-region-editor-mismatched-key-confirmed=true",
+            "contract-region-editor-syntax-key-promoted=true",
+            "contract-region-editor-document-confirm-clean=true",
+            "contract-region-editor-document-query-family-valid=true",
+            "contract-region-editor-document-core-family-valid=true",
+            "contract-region-editor-document-editor-family-valid=true",
+            "contract-region-editor-document-semantic-family-valid=true",
+            "contract-region-editor-document-hover-family-valid=true",
+            "contract-region-editor-document-definition-family-valid=true",
+            "contract-region-editor-restored-semantic-query-nonempty=true",
+            "contract-region-editor-restored-hover-query-nonempty=true",
+            "contract-region-editor-restored-definition-query-nonempty=true",
+            "contract-region-editor-restored-repeated-definition-query-nonempty=true",
+            "contract-region-editor-restored-alt-definition-query-nonempty=true",
+            "contract-region-editor-restored-semantic-kind=Lifetime",
+            "contract-region-editor-restored-semantic-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "contract-region-editor-restored-semantic-def-stable=true",
+            "contract-region-editor-restored-semantic-value-stable=true",
+            "contract-region-editor-restored-semantic-span-stable=true",
+            "contract-region-editor-restored-hover-kind=Lifetime",
+            "contract-region-editor-restored-hover-type=lifetime 'out on task shorten<'long:'out+'out,'out,'wide:'alt,'alt>(...) -> lend 'out Ship",
+            "contract-region-editor-restored-hover-type-stable=true",
+            "contract-region-editor-restored-hover-value-stable=true",
+            "contract-region-editor-restored-definition-found=1",
+            "contract-region-editor-restored-definition-span-stable=true",
+            "contract-region-editor-restored-definition-value-stable=true",
+            "contract-region-editor-restored-definition-matches-later-binder=true",
+            "contract-region-editor-restored-repeated-definition-matches-later-binder=true",
+            "contract-region-editor-restored-alt-definition-matches-alt-binder=true",
+            "contract-region-editor-restored-definition-records-distinct=true",
+            "contract-region-editor-restored-definition-spans-distinct=true",
+        ],
+    },
+    {
+        "name": "contract region query invalidation",
+        "fixture": "contract_region_query_invalidation_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-query-before-diagnostics=0",
+            "contract-region-query-before-status=clean",
+            "contract-region-query-before-source-count=2",
+            "contract-region-query-before-long-outlives-out=true",
+            "contract-region-query-before-long-outlives-alt=false",
+            "contract-region-query-before-bound-definition=1",
+           "contract-region-query-before-bound-definition-matches-out-binder=true",
+            "contract-region-query-before-bound-semantic=lifetime 'out on task shorten<'long:'out,'out,'alt>(...) -> lend 'out Ship",
+            "contract-region-query-before-bound-hover=lifetime 'out on task shorten<'long:'out,'out,'alt>(...) -> lend 'out Ship",
+            "contract-region-query-bound-offset-stable=true",
+            "ok|textDocument/didChange",
+            "contract-region-query-query-invalidated=true",
+            "contract-region-query-core-invalidated=true",
+            "contract-region-query-syntax-invalidated=true",
+            "contract-region-query-lex-invalidated=true",
+            "contract-region-query-parse-invalidated=true",
+            "contract-region-query-hir-invalidated=true",
+            "contract-region-query-resolve-invalidated=true",
+            "contract-region-query-ty-invalidated=true",
+            "contract-region-query-mir-invalidated=true",
+            "contract-region-query-borrowck-invalidated=true",
+            "contract-region-query-diagnostics-invalidated=true",
+            "contract-region-query-editor-invalidated=true",
+            "contract-region-query-semantic-invalidated=true",
+            "contract-region-query-hover-invalidated=true",
+            "contract-region-query-definition-invalidated=true",
+            "contract-region-query-document-symbols-invalidated=true",
+            "contract-region-query-completion-invalidated=true",
+            "contract-region-query-all-17-invalidations-positive=true",
+            "contract-region-query-query-recomputed=true",
+            "contract-region-query-core-recomputed=true",
+            "contract-region-query-syntax-recomputed=true",
+            "contract-region-query-lex-recomputed=true",
+            "contract-region-query-parse-recomputed=true",
+            "contract-region-query-hir-recomputed=true",
+            "contract-region-query-resolve-recomputed=true",
+            "contract-region-query-ty-recomputed=true",
+            "contract-region-query-mir-recomputed=true",
+            "contract-region-query-borrowck-recomputed=true",
+            "contract-region-query-diagnostics-recomputed=true",
+            "contract-region-query-editor-recomputed=true",
+            "contract-region-query-semantic-recomputed=true",
+            "contract-region-query-hover-recomputed=true",
+            "contract-region-query-definition-recomputed=true",
+            "contract-region-query-document-symbols-recomputed=true",
+            "contract-region-query-completion-recomputed=true",
+            "contract-region-query-all-17-recomputations-positive=true",
+            "contract-region-query-after-diagnostics=1",
+            "contract-region-query-after-message=Meiya refuses a returned loan from the wrong lifetime",
+            "contract-region-query-after-status=blocked",
+            "contract-region-query-after-source-count=1",
+            "contract-region-query-after-long-outlives-out=false",
+            "contract-region-query-after-long-outlives-alt=true",
+            "contract-region-query-after-bound-definition=1",
+           "contract-region-query-after-bound-definition-matches-alt-binder=true",
+            "contract-region-query-after-bound-semantic=lifetime 'alt on task shorten<'long:'alt,'out,'alt>(...) -> lend 'out Ship",
+            "contract-region-query-after-bound-hover=lifetime 'alt on task shorten<'long:'alt,'out,'alt>(...) -> lend 'out Ship",
+            "contract-region-query-bound-definition-changed=true",
+            "diagnostics|1",
+        ],
+    },
+    {
+        "name": "contract region projected lend holder",
+        "fixture": "contract_region_projected_holder_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-projected-holder-ty-diagnostics=0",
+            "contract-region-projected-holder-mir-diagnostics=0",
+            "contract-region-projected-holder-borrow-diagnostics=2",
+            "contract-region-projected-holder-status=clean",
+            "contract-region-projected-holder-chain-status=clean",
+            "contract-region-projected-holder-owned-status=blocked",
+            "contract-region-projected-holder-control-status=blocked",
+            "contract-region-projected-holder-cycle-status=clean",
+            "contract-region-projected-holder-source=fleet.ship",
+            "contract-region-projected-holder-chain-source=fleet.ship",
+            "contract-region-projected-holder-owned-diagnostics=2",
+            "contract-region-projected-holder-opaque-diagnostics=0",
+            "contract-region-projected-holder-cycle-source-count=1",
+            "contract-region-projected-holder-cycle-source=fleet.ship",
+            "contract-region-projected-holder-tuple-status=clean",
+            "contract-region-projected-holder-array-status=clean",
+            "contract-region-projected-holder-shape-status=clean",
+            "contract-region-projected-holder-tuple-source=fleet.ship",
+            "contract-region-projected-holder-array-source=fleet.ship",
+            "contract-region-projected-holder-shape-source=fleet.ship",
+        ],
+    },
+    {
+        "name": "contract region owner liveness",
+        "fixture": "contract_region_liveness_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-liveness-ty-diagnostics=0",
+            "contract-region-liveness-mir-diagnostics=0",
+            "contract-region-liveness-borrow-diagnostics=3",
+            "contract-region-liveness-move-conflict-diagnostics=3",
+            "contract-region-liveness-signature-source-count=2",
+            "contract-region-liveness-ordinary-call-source-count=2",
+            "contract-region-liveness-ordinary-call-source0=lend first",
+            "contract-region-liveness-ordinary-call-source1=lend second",
+            "contract-region-liveness-choose-status=clean",
+            "contract-region-liveness-forward-status=clean",
+            "contract-region-liveness-first-before-status=blocked",
+            "contract-region-liveness-second-before-status=blocked",
+            "contract-region-liveness-unrelated-before-status=clean",
+            "contract-region-liveness-first-after-status=clean",
+            "contract-region-liveness-second-after-status=clean",
+            "contract-region-liveness-nested-second-before-status=blocked",
+            "contract-region-liveness-choose-return-source-count=2",
+            "contract-region-liveness-choose-return-source0=first",
+            "contract-region-liveness-choose-return-source1=second",
+            "contract-region-liveness-forward-return-source-count=2",
+            "contract-region-liveness-forward-return-source0=first",
+            "contract-region-liveness-forward-return-source1=second",
+            "contract-region-liveness-empty-union-state=known",
+            "contract-region-liveness-empty-union-count=0",
+            "contract-region-liveness-empty-union-known-empty=true",
+            "contract-region-liveness-opaque-overlaps-any-owner=true",
+            "contract-region-liveness-snapshot-format=freak-borrowck-snapshot-v2",
+            "contract-region-liveness-snapshot-poisoned-before-restore=true",
+            "contract-region-liveness-restored-choose-return-source-count=2",
+            "contract-region-liveness-restored-choose-return-source0=first",
+            "contract-region-liveness-restored-choose-return-source1=second",
+            "contract-region-liveness-restored-forward-return-source-count=2",
+            "contract-region-liveness-restored-forward-return-source0=first",
+            "contract-region-liveness-restored-forward-return-source1=second",
+            "contract-region-liveness-restored-choose-order-stable=true",
+            "contract-region-liveness-restored-forward-order-stable=true",
+        ],
+    },
+    {
+        "name": "contract region elided owner liveness",
+        "fixture": "contract_region_elided_liveness_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-elided-liveness-ty-diagnostics=0",
+            "contract-region-elided-liveness-mir-diagnostics=0",
+            "contract-region-elided-liveness-borrow-diagnostics=2",
+            "contract-region-elided-liveness-move-conflict-diagnostics=2",
+            "contract-region-elided-liveness-signature-source-count=2",
+            "contract-region-elided-liveness-signature-source0-index=0",
+            "contract-region-elided-liveness-signature-source0-name=first",
+            "contract-region-elided-liveness-signature-source1-index=1",
+            "contract-region-elided-liveness-signature-source1-name=second",
+            "contract-region-elided-liveness-call-source-count=2",
+            "contract-region-elided-liveness-call-source0=lend first",
+            "contract-region-elided-liveness-call-source1=lend second",
+            "contract-region-elided-liveness-choose-status=clean",
+            "contract-region-elided-liveness-first-before-status=blocked",
+            "contract-region-elided-liveness-second-before-status=blocked",
+            "contract-region-elided-liveness-unrelated-before-status=clean",
+            "contract-region-elided-liveness-first-after-status=clean",
+            "contract-region-elided-liveness-second-after-status=clean",
+        ],
+    },
+    {
+        "name": "contract region elided query invalidation",
+        "fixture": "contract_region_elided_query_invalidation_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-elided-query-before-diagnostics=0",
+            "contract-region-elided-query-before-message=none",
+            "contract-region-elided-query-before-choose-status=clean",
+            "contract-region-elided-query-before-loop-status=clean",
+            "contract-region-elided-query-before-loop-source-count=2",
+            "contract-region-elided-query-before-loop-source0=first",
+            "contract-region-elided-query-before-loop-source1=second",
+            "contract-region-elided-query-before-loop-converged=true",
+            "contract-region-elided-query-before-observe-status=clean",
+            "contract-region-elided-query-before-source-count=2",
+            "contract-region-elided-query-before-source0=first",
+            "contract-region-elided-query-before-source1=second",
+            "contract-region-elided-query-before-call-source-count=2",
+            "contract-region-elided-query-before-call-source0=lend first",
+            "contract-region-elided-query-before-call-source1=lend second",
+            "contract-region-elided-query-before-semantic=lend Ship",
+            "contract-region-elided-query-before-hover=lend Ship",
+            "contract-region-elided-query-before-definition=1",
+            "contract-region-elided-query-editor-offset-stable=true",
+            "contract-region-elided-query-ty-restore-poisoned=true",
+            "contract-region-elided-query-ty-restore-slot-applied=true",
+            "contract-region-elided-query-ty-restored-source-count=2",
+            "contract-region-elided-query-ty-restored-source0=first",
+            "contract-region-elided-query-ty-restored-source1=second",
+            "contract-region-elided-query-ty-restored-source-order-stable=true",
+            "contract-region-elided-query-ty-restore-cache-builds-added=1",
+            "contract-region-elided-query-query-invalidations-added=14",
+            "contract-region-elided-query-core-invalidations-added=9",
+            "contract-region-elided-query-syntax-invalidations-added=1",
+            "contract-region-elided-query-lex-invalidations-added=1",
+            "contract-region-elided-query-parse-invalidations-added=1",
+            "contract-region-elided-query-hir-invalidations-added=1",
+            "contract-region-elided-query-resolve-invalidations-added=1",
+            "contract-region-elided-query-ty-invalidations-added=1",
+            "contract-region-elided-query-mir-invalidations-added=1",
+            "contract-region-elided-query-borrowck-invalidations-added=1",
+            "contract-region-elided-query-diagnostics-invalidations-added=1",
+            "contract-region-elided-query-editor-invalidations-added=5",
+            "contract-region-elided-query-semantic-invalidations-added=1",
+            "contract-region-elided-query-hover-invalidations-added=1",
+            "contract-region-elided-query-definition-invalidations-added=1",
+            "contract-region-elided-query-document-symbols-invalidations-added=1",
+            "contract-region-elided-query-completion-invalidations-added=1",
+            "contract-region-elided-query-all-17-invalidations-positive=true",
+            "contract-region-elided-query-query-recomputations-added=14",
+            "contract-region-elided-query-core-recomputations-added=9",
+            "contract-region-elided-query-syntax-recomputations-added=1",
+            "contract-region-elided-query-lex-recomputations-added=1",
+            "contract-region-elided-query-parse-recomputations-added=1",
+            "contract-region-elided-query-hir-recomputations-added=1",
+            "contract-region-elided-query-resolve-recomputations-added=1",
+            "contract-region-elided-query-ty-recomputations-added=1",
+            "contract-region-elided-query-mir-recomputations-added=1",
+            "contract-region-elided-query-borrowck-recomputations-added=1",
+            "contract-region-elided-query-diagnostics-recomputations-added=1",
+            "contract-region-elided-query-editor-recomputations-added=5",
+            "contract-region-elided-query-semantic-recomputations-added=1",
+            "contract-region-elided-query-hover-recomputations-added=1",
+            "contract-region-elided-query-definition-recomputations-added=1",
+            "contract-region-elided-query-document-symbols-recomputations-added=1",
+            "contract-region-elided-query-completion-recomputations-added=1",
+            "contract-region-elided-query-all-17-recomputations-positive=true",
+            "contract-region-elided-query-after-diagnostics=0",
+            "contract-region-elided-query-after-message=none",
+            "contract-region-elided-query-after-choose-status=clean",
+            "contract-region-elided-query-after-loop-status=clean",
+            "contract-region-elided-query-after-loop-source-count=1",
+            "contract-region-elided-query-after-loop-source0=first",
+            "contract-region-elided-query-after-loop-converged=true",
+            "contract-region-elided-query-after-observe-status=clean",
+            "contract-region-elided-query-after-source-count=1",
+            "contract-region-elided-query-after-source0=first",
+            "contract-region-elided-query-after-call-source-count=1",
+            "contract-region-elided-query-after-call-source0=lend first",
+            "contract-region-elided-query-after-semantic=Ship",
+            "contract-region-elided-query-after-hover=Ship",
+            "contract-region-elided-query-after-definition=1",
+            "diagnostics|0",
+        ],
+    },
+    {
+        "name": "contract region loop query invalidation",
+        "fixture": "contract_region_loop_query_invalidation_smoke.fk",
+        "memory_limit_mb": 96,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-loop-query-byte-length-stable=true",
+            "contract-region-loop-query-offset-stable=true",
+            "contract-region-loop-query-before-status=clean",
+            "contract-region-loop-query-before-source-count=2",
+            "contract-region-loop-query-before-source0=first",
+            "contract-region-loop-query-before-source1=second",
+            "contract-region-loop-query-before-signature-sources=2",
+            "contract-region-loop-query-before-editor-coherent=true",
+            "contract-region-loop-query-all-17-invalidations-positive=true",
+            "contract-region-loop-query-invalidation-matches-diff=true",
+            "contract-region-loop-query-health-ok=true",
+            "contract-region-loop-query-after-status=clean",
+            "contract-region-loop-query-after-source-count=1",
+            "contract-region-loop-query-after-source0=first",
+            "contract-region-loop-query-after-converged=true",
+            "contract-region-loop-query-signature-stable=true",
+            "contract-region-loop-query-after-diagnostics=0",
+            "contract-region-loop-query-after-editor-coherent=true",
+            "contract-region-loop-query-all-17-recomputations-positive=true",
+            "contract-region-loop-query-snapshot-restored=true",
+            "contract-region-loop-query-restored-status=clean",
+            "contract-region-loop-query-restored-source-count=1",
+            "contract-region-loop-query-restored-editor-coherent=true",
+        ],
+    },
+    {
+        "name": "contract region provenance resources",
+        "fixture": "contract_region_resource_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "contract-region-resource-ty-diagnostics=0",
+            "contract-region-resource-mir-diagnostics=0",
+            "contract-region-resource-borrow-diagnostics=0",
+            "contract-region-resource-diamond-status=clean",
+            "contract-region-resource-loop-status=clean",
+            "contract-region-resource-diamond-source-count=2",
+            "contract-region-resource-diamond-source0=first",
+            "contract-region-resource-diamond-source1=second",
+            "contract-region-resource-loop-source-count=1",
+            "contract-region-resource-loop-source0=source",
+            "contract-region-resource-recomputations=8",
+            "contract-region-resource-generation-delta=8",
+            "contract-region-resource-generation-sequence=true",
+            "contract-region-resource-semantics-stable=true",
+            "contract-region-resource-source-order-stable=true",
+            "contract-region-resource-memo-hits=true",
+            "contract-region-resource-one-state-per-memo=true",
+            "contract-region-resource-active-counts-stable=true",
+            "contract-region-resource-active-within-capacity=true",
+            "contract-region-resource-capacities-reused=true",
+            "contract-region-resource-integer-intern-count=128",
+            "contract-region-resource-integer-intern-capacity=128",
+            "contract-region-resource-integer-intern-count-stable=true",
+            "contract-region-resource-integer-cache-bounded=true",
+            "contract-region-resource-integer-rebuild-correct=true",
+            "contract-region-resource-canonical-path-cache-count=128",
+            "contract-region-resource-canonical-path-cache-capacity=128",
+            "contract-region-resource-canonical-path-cache-count-stable=true",
+            "contract-region-resource-canonical-value-cache-count=128",
+            "contract-region-resource-canonical-value-cache-capacity=128",
+            "contract-region-resource-canonical-value-cache-count-stable=true",
+            "contract-region-resource-canonical-path-cache-bounded=true",
+            "contract-region-resource-canonical-path-rebuild-correct=true",
+            "contract-region-resource-cache-evictions-observed=true",
+            "contract-region-resource-hot-reuse-stable=true",
+            "contract-region-resource-steady-integer-eviction-delta=0",
+            "contract-region-resource-steady-path-eviction-delta=0",
+            "contract-region-resource-steady-path-value-eviction-delta=0",
+            "contract-region-resource-steady-state-evictions-stable=true",
+            "contract-region-resource-no-historical-growth=true",
+            "contract-region-resource-runtime-array-growth=true",
+            "contract-region-resource-loop-semantics-stable=true",
+            "contract-region-resource-fixed-point-converged=true",
+            "contract-region-resource-fixed-point-rounds-bounded=true",
+            "contract-region-resource-fixed-point-solves-positive=true",
+            "contract-region-resource-fixed-point-work-bounded=true",
+            "contract-region-resource-fixed-point-telemetry-stable=true",
+            "contract-region-resource-bounds-opaque=true",
         ],
     },
     {
@@ -2036,7 +4254,7 @@ EXECUTABLE_SMOKES = [
             "semantic-core-symbol-alias-name=Score",
             "semantic-core-symbol-alias-kind=Alias",
             "semantic-core-symbol-alias-type=alias Score = int",
-            "semantic-core-completion-count=31",
+            "semantic-core-completion-count=32",
             "semantic-core-completion-variant-found=true",
             "semantic-core-completion-variant-kind=keyword",
             "semantic-core-completion-variant-detail=declare a variant route",
@@ -2074,7 +4292,7 @@ EXECUTABLE_SMOKES = [
             "route-case-symbol2-name=Event::Closed",
             "route-case-symbol2-kind=RouteCase",
             "route-case-symbol2-type=variant case Event::Closed",
-            "route-case-completion-count=33",
+            "route-case-completion-count=34",
             "route-case-completion-key-found=true",
             "route-case-completion-key-detail=variant case Event::Key { code: int, repeat: bool }",
             "route-case-completion-closed-found=true",
@@ -2124,7 +4342,7 @@ EXECUTABLE_SMOKES = [
             "check-route-editor-key-code-definition-kind=Local",
             "check-route-editor-key-code-definition-found=1",
             "check-route-editor-key-code-definition-matches=true",
-            "check-route-editor-completion-count=33",
+            "check-route-editor-completion-count=34",
             "check-route-editor-key-code-found=true",
             "check-route-editor-key-code-kind=local",
             "check-route-editor-key-code-detail=int",
@@ -2150,7 +4368,7 @@ EXECUTABLE_SMOKES = [
             "only-on-editor-code-definition-kind=Local",
             "only-on-editor-code-definition-found=1",
             "only-on-editor-code-definition-matches=true",
-            "only-on-editor-block-completion-count=33",
+            "only-on-editor-block-completion-count=34",
             "only-on-editor-code-found=true",
             "only-on-editor-code-detail=int",
             "only-on-editor-held-found=true",
@@ -2183,7 +4401,7 @@ EXECUTABLE_SMOKES = [
             "alias-pattern-symbol1-type=alias PairList = List<Pair>",
             "alias-pattern-symbol2-name=Wing",
             "alias-pattern-symbol2-type=alias Wing = [int;2]",
-            "alias-pattern-completion-count=39",
+            "alias-pattern-completion-count=40",
             "alias-pattern-left-found=true",
             "alias-pattern-left-detail=int",
             "alias-pattern-codename-found=true",
@@ -2214,7 +4432,7 @@ EXECUTABLE_SMOKES = [
             "alias-route-editor-code-definition-kind=Local",
             "alias-route-editor-code-definition-found=1",
             "alias-route-editor-code-definition-matches=true",
-            "alias-route-editor-block-completion-count=34",
+            "alias-route-editor-block-completion-count=35",
             "alias-route-editor-code-found=true",
             "alias-route-editor-code-detail=int",
             "alias-route-editor-held-found=true",
@@ -2310,7 +4528,8 @@ EXECUTABLE_SMOKES = [
             "generic-alias-method-editor-take-completion-echo-found=false",
             "generic-alias-method-editor-pack-completion-pack-found=true",
             "generic-alias-method-editor-pack-completion-pack-detail=task Box<int>::pack(...) -> Box<int>",
-            "generic-alias-method-editor-pack-completion-take-found=false",
+            "generic-alias-method-editor-pack-completion-take-found=true",
+            "generic-alias-method-editor-pack-completion-take-detail=task Box<int>::take(...) -> int",
             "generic-alias-method-editor-pack-completion-echo-found=false",
         ],
     },
@@ -2445,7 +4664,8 @@ EXECUTABLE_SMOKES = [
             "completion-instance-pack-found=false",
             "completion-static-pack-found=true",
             "completion-static-pack-detail=task Pilot::pack(...) -> Pilot",
-            "completion-static-salute-found=false",
+            "completion-static-salute-found=true",
+            "completion-static-salute-detail=task Pilot::salute(...) -> int",
         ],
     },
     {
@@ -2469,7 +4689,7 @@ EXECUTABLE_SMOKES = [
             "local-editor-symbol0-type=alias Pair = (int,word)",
             "local-editor-symbol1-name=Grid",
             "local-editor-symbol1-type=alias Grid = [[int;2];2]",
-            "local-editor-completion-count=32",
+            "local-editor-completion-count=33",
             "local-editor-completion-pair-found=true",
             "local-editor-completion-pair-kind=local",
             "local-editor-completion-pair-detail=(int,word)",
@@ -2624,11 +4844,11 @@ EXECUTABLE_SMOKES = [
         "name": "local scope-aware editor facts",
         "fixture": "local_scope_editor_smoke.fk",
         "expect": [
-            "local-scope-before-count=29",
+            "local-scope-before-count=30",
             "local-scope-before-seed-found=true",
             "local-scope-before-early-found=true",
             "local-scope-before-pair-found=false",
-            "local-scope-after-count=30",
+            "local-scope-after-count=31",
             "local-scope-after-pair-found=true",
             "local-scope-after-pair-kind=local",
             "local-scope-after-pair-detail=(int,word)",
@@ -2730,7 +4950,7 @@ EXECUTABLE_SMOKES = [
             "check-destructure-editor-label-definition-kind=Local",
             "check-destructure-editor-label-definition-found=1",
             "check-destructure-editor-label-definition-matches=true",
-            "check-destructure-editor-label-completion-count=33",
+            "check-destructure-editor-label-completion-count=34",
             "check-destructure-editor-power-found=true",
             "check-destructure-editor-power-detail=int",
             "check-destructure-editor-label-found=true",
@@ -2741,7 +4961,7 @@ EXECUTABLE_SMOKES = [
             "check-destructure-editor-right-definition-kind=Local",
             "check-destructure-editor-right-definition-found=1",
             "check-destructure-editor-right-definition-matches=true",
-            "check-destructure-editor-right-completion-count=33",
+            "check-destructure-editor-right-completion-count=34",
             "check-destructure-editor-left-found=true",
             "check-destructure-editor-left-detail=int",
             "check-destructure-editor-right-found=true",
@@ -3064,10 +5284,76 @@ EXECUTABLE_SMOKES = [
             "store i64 %value, ptr %p",
             "raw-ptr-write-outside-mir-diag-count=1",
             "raw-ptr-write-outside-mir-diag0-message=raw-pointer deref needs trust me block",
+            "raw-ptr-write-cadet-mir-diag-count=1",
+            "raw-ptr-write-cadet-mir-diag0-message=trust me honor level too low",
+            "raw-ptr-write-cadet-mir-diag0-help=raw-pointer write requires .pilot or higher; current honor is .cadet",
             "raw-ptr-write-const-mir-diag-count=1",
             "raw-ptr-write-const-mir-diag0-message=raw-pointer write needs *mut T",
             "raw-ptr-write-wrong-mir-diag-count=1",
             "raw-ptr-write-wrong-mir-diag0-message=raw-pointer deref needs *T or *mut T",
+        ],
+    },
+    {
+        "name": "raw pointer methods",
+        "fixture": "raw_pointer_methods_smoke.fk",
+        "expect": [
+            "raw-ptr-method-good-ty-diag-count=0",
+            "raw-ptr-method-good-mir-diag-count=0",
+            "raw-ptr-method-good-call-count=3",
+            "= load i64, ptr",
+            "store i64 %value, ptr %p",
+            "call ccc i64 @RawPtrWrite(i64 41)",
+            "raw-ptr-method-collide-call-line=call ccc i64 @RawPtrWrite(i64 41)",
+            "raw-ptr-method-read-rvalue-kind=Unary",
+            "raw-ptr-method-read-rvalue-op=Deref",
+            "raw-ptr-method-write-rvalue-kind=Call",
+            "raw-ptr-method-write-rvalue-op=#RawPtrWrite",
+            "raw-ptr-method-bad-mir-diag-count=5",
+            "raw-ptr-method-bad-diag0-message=raw-pointer deref needs trust me block",
+            "raw-ptr-method-bad-diag1-message=trust me honor level too low",
+            "raw-ptr-method-bad-diag1-help=raw-pointer write requires .pilot or higher; current honor is .cadet",
+            "raw-ptr-method-bad-diag2-message=raw-pointer write needs *mut T",
+            "raw-ptr-method-bad-diag3-message=raw-pointer method arity mismatch",
+            "raw-ptr-method-bad-diag4-message=raw-pointer method arity mismatch",
+        ],
+    },
+    {
+        "name": "raw pointer offset cast",
+        "fixture": "raw_pointer_offset_cast_smoke.fk",
+        "expect": [
+            "raw-ptr-oc-good-ty-diag-count=0",
+            "raw-ptr-oc-good-mir-diag-count=0",
+            "= getelementptr i64, ptr %p, i64 2",
+            "= getelementptr i8, ptr %p, i64 0",
+            "raw-ptr-oc-offset-rvalue-op=PtrOffset",
+            "raw-ptr-oc-offset-rvalue-ty=*constint",
+            "raw-ptr-oc-cast-rvalue-op=PtrCast",
+            "raw-ptr-oc-cast-rvalue-ty=*consttiny",
+            "raw-ptr-oc-cast-mut-rvalue-ty=*muttiny",
+            "raw-ptr-oc-bad-mir-diag-count=21",
+            "raw-ptr-oc-bad-diag0-message=raw-pointer offset needs trust me block",
+            "raw-ptr-oc-bad-diag1-message=trust me honor level too low",
+            "raw-ptr-oc-bad-diag1-help=raw-pointer offset requires .ace or higher; current honor is .pilot",
+            "raw-ptr-oc-bad-diag2-message=raw-pointer cast needs trust me block",
+            "raw-ptr-oc-bad-diag3-message=trust me honor level too low",
+            "raw-ptr-oc-bad-diag3-help=raw-pointer cast requires .ace or higher; current honor is .pilot",
+            "raw-ptr-oc-bad-diag4-message=offset takes one argument",
+            "raw-ptr-oc-bad-diag5-message=raw-pointer method arity mismatch",
+            "raw-ptr-oc-bad-diag6-message=cast target type is invalid",
+            "raw-ptr-oc-bad-diag7-message=cast target syntax is invalid",
+            "raw-ptr-oc-bad-diag8-message=cast needs a target type parameter",
+            "raw-ptr-oc-bad-diag9-message=offset argument must be int or uint",
+            "raw-ptr-oc-bad-diag10-message=offset argument must be int or uint",
+            "raw-ptr-oc-bad-diag11-message=offset target type must not be void",
+            "raw-ptr-oc-bad-diag12-message=offset target type must be concrete",
+            "raw-ptr-oc-bad-diag13-message=offset target type must be scalar",
+            "raw-ptr-oc-bad-diag14-message=offset target type must be scalar",
+            "raw-ptr-oc-bad-diag15-message=offset target type must be scalar",
+            "raw-ptr-oc-bad-diag16-message=offset target type must be scalar",
+            "raw-ptr-oc-bad-diag17-message=offset target type must be scalar",
+            "raw-ptr-oc-bad-diag18-message=offset target type must not be never",
+            "raw-ptr-oc-bad-diag19-message=offset target type must be declared",
+            "raw-ptr-oc-bad-diag20-message=cast target type is invalid",
         ],
     },
     {
@@ -3115,6 +5401,15 @@ EXECUTABLE_SMOKES = [
             "trust-me-missing-level-mir-diag-count=1",
             "trust-me-missing-level-mir-diag0-message=trust me block needs honor level",
             "trust-me-missing-level-mir-diag0-help=name the honor level after the dot, e.g. .pilot",
+            "trust-me-honor-rank-cadet=1",
+            "trust-me-honor-rank-pilot=2",
+            "trust-me-honor-rank-ace=3",
+            "trust-me-honor-rank-commander=4",
+            "trust-me-honor-rank-humanity=5",
+            "trust-me-honor-rank-rookie=0",
+            "trust-me-unknown-level-mir-diag-count=1",
+            "trust-me-unknown-level-mir-diag0-message=trust me honor level unknown",
+            "trust-me-unknown-level-mir-diag0-help=valid honor levels: .cadet, .pilot, .ace, .commander, .humanity",
         ],
     },
     {
@@ -3454,6 +5749,43 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "MIR doctrine-bound associated calls",
+        "fixture": "mir_bound_associated_smoke.fk",
+        "expect": [
+            "bound-associated-good-parse-diagnostics=0",
+            "bound-associated-good-ty-diagnostics=0",
+            "bound-associated-good-mir-diagnostics=0",
+            "bound-associated-ufcs-kind=Call",
+            "bound-associated-ufcs-op=T::score",
+            "bound-associated-ufcs-ty=int",
+            "bound-associated-ufcs-arg-count=2",
+            "bound-associated-ufcs-receiver-ty=T",
+            "bound-associated-ufcs-bonus-ty=int",
+            "bound-associated-static-kind=Call",
+            "bound-associated-static-op=T::baseline",
+            "bound-associated-static-ty=int",
+            "bound-associated-static-arg-count=0",
+            "bound-associated-dotted-op=T.score",
+            "bound-associated-dotted-ty=int",
+            "bound-associated-dotted-bonus-ty=int",
+            "bound-associated-bad-parse-diagnostics=0",
+            "bound-associated-bad-ty-diagnostics=0",
+            "bound-associated-bad-mir-diagnostics=6",
+            "bound-associated-bad-diag0-message=UFCS receiver type mismatch",
+            "bound-associated-bad-diag0-help=T::score receiver expects T but got int",
+            "bound-associated-bad-diag1-message=method argument drift",
+            "bound-associated-bad-diag1-help=T::score argument 1 wants int, but word arrived",
+            "bound-associated-bad-diag2-message=method call arity drift",
+            "bound-associated-bad-diag2-help=T::baseline takes 0 explicit arguments but got 1",
+            "bound-associated-bad-diag3-message=UFCS method call arity drift",
+            "bound-associated-bad-diag3-help=T::score takes receiver plus 1 explicit arguments but got 0",
+            "bound-associated-bad-diag4-message=ambiguous doctrine-bound method",
+            "bound-associated-bad-diag4-help=T::convert matches Convert<int> and Convert<word>; Yuuko cannot choose a doctrine timeline by declaration order",
+            "bound-associated-bad-diag5-message=ambiguous doctrine-bound method",
+            "bound-associated-bad-diag5-help=T.convert matches Convert<int> and Convert<word>; Yuuko cannot choose a doctrine timeline by declaration order",
+        ],
+    },
+    {
         "name": "generic doctrine bound editor facts",
         "fixture": "generic_bounds_editor_smoke.fk",
         "expect": [
@@ -3480,6 +5812,197 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "doctrine-bound associated editor facts",
+        "fixture": "bound_associated_editor_smoke.fk",
+        "expect": [
+            "bound-associated-editor-ufcs-kind=Method",
+            "bound-associated-editor-ufcs-type=task T::score(...) -> int",
+            "bound-associated-editor-static-kind=Method",
+            "bound-associated-editor-static-type=task T::baseline(...) -> int",
+            "bound-associated-editor-dotted-kind=Method",
+            "bound-associated-editor-dotted-type=task T::score(...) -> int",
+            "bound-associated-editor-bonus-kind=Parameter",
+            "bound-associated-editor-bonus-type=parameter bonus: int",
+            "bound-associated-editor-ufcs-hover-type=task T::score(...) -> int",
+            "bound-associated-editor-static-hover-type=task T::baseline(...) -> int",
+            "bound-associated-editor-ufcs-definition-kind=Method",
+            "bound-associated-editor-ufcs-definition-matches=true",
+            "bound-associated-editor-static-definition-kind=Method",
+            "bound-associated-editor-static-definition-matches=true",
+            "bound-associated-editor-bonus-definition-kind=Parameter",
+            "bound-associated-editor-bonus-definition-matches=true",
+            "bound-associated-editor-score-completion-found=true",
+            "bound-associated-editor-score-completion-detail=task T::score(...) -> int",
+            "bound-associated-editor-baseline-completion-found=true",
+            "bound-associated-editor-baseline-completion-detail=task T::baseline(...) -> int",
+            "bound-associated-editor-bonus-completion-found=true",
+            "bound-associated-editor-bonus-completion-detail=parameter bonus: int",
+            "bound-associated-editor-ambiguous-mir-diagnostics=1",
+            "bound-associated-editor-ambiguous-completion-found=false",
+        ],
+    },
+    {
+        "name": "dyn doctrine type contracts",
+        "fixture": "dyn_doctrine_ty_smoke.fk",
+        "expect": [
+            "dyn-ty-param=dyn Widget",
+            "dyn-ty-return=dyn Widget",
+            "dyn-ty-boxed-list=List<dyn Widget>",
+            "dyn-ty-boxed-shared=Shared<dyn Widget>",
+            "dyn-ty-is-dyn=true",
+            "dyn-ty-doctrine=Widget",
+            "dyn-ty-display-int-doctrine=Displayable<int>",
+            "dyn-ty-display-int-lookup=Displayable<int>",
+            "dyn-ty-display-int-base=Displayable",
+            "dyn-ty-widget-object-safe=true",
+            "dyn-ty-factory-object-safe=false",
+            "dyn-ty-factory-issue=Factory::method make has no receiver",
+            "dyn-ty-cloner-object-safe=false",
+            "dyn-ty-cloner-issue=Cloner::method clone return mentions Self",
+            "dyn-ty-visitor-object-safe=false",
+            "dyn-ty-visitor-issue=Visitor::method visit parameter cb mentions Self",
+            "dyn-ty-mapper-object-safe=false",
+            "dyn-ty-mapper-issue=Mapper::method map has generic parameters",
+            "dyn-ty-holder-borrow-return=lend int",
+            "dyn-ty-holder-ptr-return=*constint",
+            "dyn-ty-handler-callback-return=extern[C]task(x:int)->void",
+            "dyn-ty-imported-panel-sig-found=true",
+            "dyn-ty-imported-panel-safe=true",
+            "dyn-ty-imported-panel-coerces-label=true",
+            "dyn-ty-button-coerces=true",
+            "dyn-ty-rock-coerces=false",
+            "dyn-ty-display-int-coerces-number=true",
+            "dyn-ty-display-int-coerces-float=false",
+            "dyn-ty-display-word-coerces-number=false",
+            "dyn-ty-accept-env=T=int",
+            "dyn-ty-list-button-compatible=false",
+            "dyn-ty-shared-button-compatible=true",
+            "dyn-ty-weak-button-compatible=true",
+            "dyn-ty-lend-button-compatible=true",
+            "dyn-ty-caller-bound-lend-compatible=true",
+            "dyn-ty-diag-count=7",
+            "dyn-ty-diag0-message=dyn doctrine is unknown",
+            "dyn-ty-diag1-message=dyn doctrine is not object safe",
+            "dyn-ty-diag2-message=dyn doctrine is not object safe",
+            "dyn-ty-diag3-message=dyn doctrine is not object safe",
+            "dyn-ty-diag4-message=dyn doctrine is not object safe",
+            "dyn-ty-diag5-message=Meiya lifetime debt: Holder expects 1 generic arguments in dyn doctrine of parameter 0 of bad_holder but received 0",
+            "dyn-ty-diag6-message=dyn doctrine is unknown",
+            "dyn-ty-diag6-help=dyn Ghost needs a declared doctrine before Yuuko can build a vtable",
+            "dyn-ty-prelude-shared-carrier=true",
+            "dyn-ty-prelude-weak-carrier=true",
+            "dyn-ty-shadowed-shared-carrier=false",
+            "dyn-ty-shadowed-weak-carrier=false",
+            "dyn-ty-shadowed-shared-coerces=false",
+            "dyn-ty-shadowed-weak-coerces=false",
+        ],
+    },
+    {
+        "name": "MIR dyn doctrine dispatch",
+        "fixture": "mir_dyn_doctrine_smoke.fk",
+        "expect": [
+            "dyn-mir-paint-diagnostics=0",
+            "dyn-mir-widget-local-type=dyn Widget",
+            "dyn-mir-widget-init-ty=dyn Widget",
+            "dyn-mir-repaint-assign-ty=dyn Widget",
+            "dyn-mir-return-kind=Call",
+            "dyn-mir-return-op=dyn Widget.draw",
+            "dyn-mir-return-ty=word",
+            "dyn-mir-erase-widget-local-type=dyn Widget",
+            "dyn-mir-erase-direct-return-place-ty=dyn Widget",
+            "dyn-mir-forward-arg-ty=dyn Widget",
+            "dyn-mir-callback-arg-ty=dyn Widget",
+            "dyn-mir-lend-erase-return-place-ty=lend dyn Widget",
+            "dyn-mir-paint-lend-return-ty=word",
+            "dyn-mir-call-set-return-ty=word",
+            "dyn-mir-call-set-arg-ty=dyn Widget",
+            "dyn-mir-compact-dynwidget=dynWidget",
+            "dyn-mir-compact-list-dyn=List<dyn Widget>",
+        ],
+    },
+    {
+        "name": "MIR generic dyn doctrine dispatch",
+        "fixture": "mir_dyn_doctrine_generic_smoke.fk",
+        "expect": [
+            "dyn-generic-mir-diagnostics=0",
+            "dyn-mir-use-accept-return-ty=int",
+            "dyn-mir-use-bound-return-ty=int",
+            "dyn-mir-forward-accept-return-ty=word",
+            "dyn-mir-forward-accept-arg-ty=dyn Displayable<int>",
+            "dyn-mir-read-box-return-ty=int",
+        ],
+    },
+    {
+        "name": "MIR Shared and Weak dyn doctrine dispatch",
+        "fixture": "mir_dyn_doctrine_shared_smoke.fk",
+        "expect": [
+            "dyn-shared-mir-diagnostics=0",
+            "dyn-mir-share-return-place-ty=Shared<dyn Widget>",
+            "dyn-mir-weaken-return-place-ty=Weak<dyn Widget>",
+            "dyn-mir-forward-shared-return-ty=word",
+            "dyn-mir-forward-shared-arg-ty=Shared<dyn Widget>",
+            "dyn-mir-forward-weak-return-ty=word",
+            "dyn-mir-forward-weak-arg-ty=Weak<dyn Widget>",
+        ],
+    },
+    {
+        "name": "MIR dyn doctrine diagnostics",
+        "fixture": "mir_dyn_doctrine_diagnostics_smoke.fk",
+        "expect": [
+            "dyn-mir-diagnostics=4",
+            "dyn-mir-bad-message=local declaration type mismatch",
+            "dyn-mir-bad-help=widget expects dyn Widget but got Rock",
+            "dyn-mir-bad-list-message=call argument type mismatch",
+            "dyn-mir-bad-list-help=take_list argument 1 expects List<dyn Widget> but got List<Button>",
+            "dyn-mir-bad-holder-message=invalid local annotation type",
+            "dyn-mir-bad-holder-help=Meiya lifetime debt: Holder expects 1 generic arguments in dyn doctrine of local declaration erased but received 0",
+        ],
+    },
+    {
+        "name": "dyn doctrine lend erasure",
+        "fixture": "dyn_doctrine_lend_erasure_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "dyn-lend-erasure-parse-diagnostics=0",
+            "dyn-lend-erasure-ty-diagnostics=0",
+            "dyn-lend-erasure-mir-diagnostics=3",
+            "dyn-lend-erasure-borrow-diagnostics=6",
+            "dyn-lend-erasure-status=blocked",
+            "dyn-lend-erasure-mir-rejected=true",
+            "dyn-lend-erasure-borrow-rejected=true",
+            "dyn-lend-erasure-mir-rejection-count=3",
+            "dyn-lend-erasure-shape-status=blocked",
+            "dyn-lend-erasure-call-status=blocked",
+        ],
+    },
+    {
+        "name": "dyn doctrine editor facts",
+        "fixture": "dyn_doctrine_editor_smoke.fk",
+        "expect": [
+            "dyn-editor-call-kind=Method",
+            "dyn-editor-call-type=task dyn Widget::draw(...) -> word",
+            "dyn-editor-hover-kind=Method",
+            "dyn-editor-hover-type=task dyn Widget::draw(...) -> word",
+            "dyn-editor-definition-kind=Method",
+            "dyn-editor-definition-found=1",
+            "dyn-editor-definition-matches-decl=true",
+            "dyn-editor-lend-call-kind=Method",
+            "dyn-editor-lend-call-type=task dyn Widget::draw(...) -> word",
+            "dyn-editor-lend-hover-kind=Method",
+            "dyn-editor-lend-hover-type=task dyn Widget::draw(...) -> word",
+            "dyn-editor-lend-definition-kind=Method",
+            "dyn-editor-lend-definition-found=1",
+            "dyn-editor-lend-definition-matches-decl=true",
+            "dyn-editor-symbol-count=4",
+            "dyn-editor-draw-symbol-kind=Method",
+            "dyn-editor-draw-symbol-type=task Widget::draw(...) -> word",
+            "dyn-editor-completion-draw-found=true",
+            "dyn-editor-completion-draw-detail=task dyn Widget::draw(...) -> word",
+            "dyn-editor-completion-dyn-found=true",
+            "dyn-editor-completion-dyn-kind=keyword",
+        ],
+    },    {
         "name": "MIR call return typing",
         "fixture": "mir_call_return_smoke.fk",
         "expect": [
@@ -3731,7 +6254,9 @@ EXECUTABLE_SMOKES = [
             "return-mixed-after-term=Return",
             "return-mixed-after-stmts=1",
             "return-mixed-else-term=Return",
-            "return-loop-entry-term=If",
+            "return-loop-entry-term=Goto",
+            "return-loop-entry-targets-header=true",
+            "return-loop-header-term=If",
             "return-loop-body-term=Return",
             "return-loop-body-target=-1",
             "return-loop-after-term=Return",
@@ -4045,26 +6570,26 @@ EXECUTABLE_SMOKES = [
         "name": "MIR typed loop conditions",
         "fixture": "mir_loop_condition_smoke.fk",
         "expect": [
-            "loop-cond-body-blocks=11",
+            "loop-cond-body-blocks=13",
             "loop-cond-body-stmts=11",
-            "repeat-left-branch-block=0",
+            "repeat-left-branch-block=3",
             "repeat-left-branch-cond=power > 4",
-            "repeat-left-branch-rhs=eval#3 short#4",
+            "repeat-left-branch-rhs=eval#4 short#5",
             "repeat-left-rvalue-kind=Binary",
             "repeat-left-rvalue-op=Gt",
-            "repeat-loop-block=5",
+            "repeat-loop-block=6",
             "repeat-loop-cond=until power > 4 and ready",
             "repeat-stmt-kind=Loop",
             "repeat-stmt-lhs=power > 4 and ready",
             "repeat-stmt-rvalue-kind=UseLocal",
             "repeat-stmt-rvalue-op=_bool_sc",
             "repeat-stmt-rvalue-ty=bool",
-            "training-left-branch-block=2",
+            "training-left-branch-block=9",
             "training-left-branch-cond=power >= 8",
-            "training-left-branch-rhs=short#9 eval#8",
+            "training-left-branch-rhs=short#11 eval#10",
             "training-left-rvalue-kind=Binary",
             "training-left-rvalue-op=Ge",
-            "training-loop-block=10",
+            "training-loop-block=12",
             "training-loop-cond=training arc until power >= 8 or ready max 4",
             "training-cond-stmt-kind=Loop",
             "training-cond-stmt-lhs=power >= 8 or ready",
@@ -4087,9 +6612,11 @@ EXECUTABLE_SMOKES = [
         "name": "MIR repeat-N-times lowering",
         "fixture": "mir_repeat_times_smoke.fk",
         "expect": [
-            "times-body-blocks=4",
-            "times-entry-term=If",
-            "times-entry-cond=_repeat_i > 0",
+            "times-body-blocks=5",
+            "times-entry-term=Goto",
+            "times-entry-target=4",
+            "times-condition-term=If",
+            "times-condition-cond=_repeat_i > 0",
             "times-loop-stmt-kind=Loop",
             "times-loop-stmt-lhs=repeat n times",
             "times-loop-rvalue-kind=Binary",
@@ -4587,6 +7114,71 @@ EXECUTABLE_SMOKES = [
             "alias-cycle-diag4=Yuuko alias loop: alias Pair expands forever via Pair -> Pair",
             "alias-cycle-diag4-span=0@101:112",
             "alias-cycle-mir-diagnostics=5",
+        ],
+    },
+    {
+        "name": "direct type recursion diagnostics",
+        "fixture": "type_recursion_smoke.fk",
+        "expect": [
+            "type-recursion-parse-diagnostics=0",
+            "type-recursion-ty-diagnostics=10",
+            "type-recursion-safe-shared-path=",
+            "type-recursion-safe-weak-path=",
+            "type-recursion-safe-list-path=",
+            "type-recursion-safe-raw-path=",
+            "type-recursion-diag0=Yuuko alias loop: alias BadAlias expands forever via BadAlias -> BadAlias",
+            "type-recursion-diag0-span=0@639:652",
+            "type-recursion-diag1=Yuuko infinite shape: Direct contains itself by value via Direct -> Direct",
+            "type-recursion-diag1-span=0@25:31",
+            "type-recursion-diag2=Yuuko infinite shape: Left contains itself by value via Left -> Right -> Left",
+            "type-recursion-diag2-span=0@58:63",
+            "type-recursion-diag3=Yuuko infinite shape: Right contains itself by value via Right -> Left -> Right",
+            "type-recursion-diag3-span=0@90:94",
+            "type-recursion-diag4=Yuuko infinite shape: GenericNode contains itself by value via GenericNode -> InlineBox<GenericNode> -> GenericNode",
+            "type-recursion-diag4-span=0@192:214",
+            "type-recursion-diag5=Yuuko infinite shape: Node contains itself by value via Node -> Box<GenericAlias> -> GenericAlias -> Box<Node> -> Node",
+            "type-recursion-diag5-span=0@270:287",
+            "type-recursion-diag6=Yuuko infinite shape: AliasHolder contains itself by value via AliasHolder -> AliasNode -> AliasHolder",
+            "type-recursion-diag6-span=0@350:359",
+            "type-recursion-diag7=Yuuko infinite shape: DeepNode contains itself by value via DeepNode -> DeepA1 -> DeepA2 -> DeepA3 -> DeepA4 -> DeepA5 -> DeepA6 -> DeepA7 -> DeepA8 -> DeepA9 -> DeepA10 -> DeepNode",
+            "type-recursion-diag7-span=0@613:619",
+            "type-recursion-diag8=Yuuko infinite variant: BadRoute contains itself by value via BadRoute -> BadRoute",
+            "type-recursion-diag8-span=0@692:700",
+            "type-recursion-diag9=Yuuko infinite variant: GenericRoute contains itself by value via GenericRoute -> InlineBox<GenericRoute> -> GenericRoute",
+            "type-recursion-diag9-span=0@755:778",
+            "type-recursion-mir-diagnostics=10",
+            "type-recursion-shadow-parse-diagnostics=0",
+            "type-recursion-shadow-ty-diagnostics=1",
+            "type-recursion-shadow-diag0=Yuuko infinite shape: ShadowNode contains itself by value via ShadowNode -> Shared<ShadowNode> -> ShadowNode",
+            "type-recursion-shadow-diag0-span=1@62:80",
+            "type-recursion-shadow-mir-diagnostics=1",
+            "type-recursion-import-parse-diagnostics=0",
+            "type-recursion-import-ty-diagnostics=2",
+            "type-recursion-import-diag0=Yuuko infinite shape: util::ImportedNode contains itself by value via util::ImportedNode -> util::ImportedNode",
+            "type-recursion-import-diag0-span=2@37:49",
+            "type-recursion-import-diag1=Yuuko infinite shape: ImportShadowNode contains itself by value via ImportShadowNode -> util::Shared<ImportShadowNode> -> ImportShadowNode",
+            "type-recursion-import-diag1-span=2@192:216",
+            "type-recursion-import-mir-diagnostics=2",
+            "type-recursion-alias-erased-parse-diagnostics=0",
+            "type-recursion-alias-erased-ty-diagnostics=0",
+            "type-recursion-alias-erased-mir-diagnostics=0",
+            "type-recursion-generic-growth-parse-diagnostics=0",
+            "type-recursion-generic-growth-ty-diagnostics=3",
+            "type-recursion-generic-growth-diag0=Meiya's lend-storage analysis exhausted its depth budget",
+            "type-recursion-generic-growth-diag0-span=4@26:39",
+            "type-recursion-generic-growth-diag1=Meiya's lend-storage analysis exhausted its depth budget",
+            "type-recursion-generic-growth-diag1-span=4@64:76",
+            "type-recursion-generic-growth-diag2=Yuuko infinite shape: Wrap contains itself by value via Wrap -> Wrap",
+            "type-recursion-generic-growth-diag2-span=4@26:39",
+            "type-recursion-generic-growth-mir-diagnostics=3",
+            "type-recursion-generic-shadow-parse-diagnostics=0",
+            "type-recursion-generic-shadow-ty-diagnostics=1",
+            "type-recursion-generic-shadow-diag0=Meiya lifetime debt: generic Node shadows its owner Node; Yuuko needs one identity per timeline",
+            "type-recursion-generic-shadow-mir-diagnostics=1",
+            "type-recursion-import-local-parse-diagnostics=0",
+            "type-recursion-import-local-ty-diagnostics=1",
+            "type-recursion-import-local-diag0=Yuuko infinite shape: Node contains itself by value via Node -> Node",
+            "type-recursion-import-local-mir-diagnostics=1",
         ],
     },
     {
@@ -5369,7 +7961,7 @@ EXECUTABLE_SMOKES = [
             "echo-local1-ty=T",
             "echo-return-kind=UseLocal",
             "echo-return-ty=T",
-            "method-main-locals=6",
+            "method-main-locals=8",
             "method-main-local0-name=box",
             "method-main-local0-ty=Box<int>",
             "method-main-local2-name=boosted",
@@ -5380,6 +7972,10 @@ EXECUTABLE_SMOKES = [
             "method-main-local4-ty=int",
             "method-main-local5-name=echoed",
             "method-main-local5-ty=int",
+            "method-main-local6-name=ufcs_boosted",
+            "method-main-local6-ty=int",
+            "method-main-local7-name=ufcs_taken",
+            "method-main-local7-ty=int",
             "instance-call-kind=Call",
             "instance-call-op=Pilot.boost",
             "instance-call-ty=int",
@@ -5392,13 +7988,32 @@ EXECUTABLE_SMOKES = [
             "generic-echo-call-kind=Call",
             "generic-echo-call-op=Box<int>.echo",
             "generic-echo-call-ty=int",
+            "ufcs-boost-call-kind=Call",
+            "ufcs-boost-call-op=Pilot::boost",
+            "ufcs-boost-call-ty=int",
+            "ufcs-boost-arg-count=2",
+            "ufcs-boost-arg0-text=ship",
+            "ufcs-boost-arg0-ty=Pilot",
+            "ufcs-boost-arg1-text=3",
+            "ufcs-boost-arg1-ty=int",
+            "ufcs-take-call-kind=Call",
+            "ufcs-take-call-op=Box<int>::take",
+            "ufcs-take-call-ty=int",
+            "ufcs-take-arg-count=1",
+            "ufcs-take-arg0-text=box",
+            "ufcs-take-arg0-ty=Box<int>",
             "method-good-diagnostics=0",
             "bad-receiver-static-diagnostics=1",
             "bad-receiver-static-message=method wants associated syntax",
             "bad-receiver-static-help=Pilot::ace is static; call it with :: instead of a receiver",
-            "bad-associated-instance-diagnostics=1",
-            "bad-associated-instance-message=associated call needs a receiver",
-            "bad-associated-instance-help=Pilot::boost is an instance method; call it through a value",
+            "bad-associated-instance-diagnostics=2",
+            "bad-associated-instance-message=UFCS method call arity drift",
+            "bad-associated-instance-help=Pilot::boost takes receiver plus 1 explicit arguments but got 1",
+            "bad-associated-instance-message1=UFCS receiver type mismatch",
+            "bad-associated-instance-help1=Pilot::boost receiver expects Pilot but got int",
+            "bad-ufcs-receiver-diagnostics=1",
+            "bad-ufcs-receiver-message=UFCS receiver type mismatch",
+            "bad-ufcs-receiver-help=Pilot::boost receiver expects Pilot but got int",
             "bad-missing-diagnostics=1",
             "bad-missing-message=receiver has no matching method",
             "bad-missing-help=Pilot offers no method evade",
@@ -5414,6 +8029,12 @@ EXECUTABLE_SMOKES = [
             "bad-generic-arg-diagnostics=1",
             "bad-generic-arg-message=method argument drift",
             "bad-generic-arg-help=Box<int>.echo argument 1 wants int, but word arrived",
+            "bad-method-type-arg-diagnostics=1",
+            "bad-method-type-arg-message=method takes no type arguments",
+            "bad-method-type-arg-help=Box<int>.take is not a generic method; remove <tiny> before the call parentheses",
+            "bad-associated-type-arg-binary-diagnostics=2",
+            "bad-associated-type-arg-binary-message=method takes no type arguments",
+            "bad-associated-type-arg-binary-help=Meter::level is not a generic method; remove <tiny> before the call parentheses",
         ],
     },
     {
@@ -5439,7 +8060,8 @@ EXECUTABLE_SMOKES = [
             "generic-alias-method-bad-arg-diagnostics=1",
             "generic-alias-method-bad-arg-message=method argument drift",
             "generic-alias-method-bad-associated-diagnostics=1",
-            "generic-alias-method-bad-associated-message=associated call needs a receiver",
+            "generic-alias-method-bad-associated-message=UFCS method call arity drift",
+            "generic-alias-method-bad-associated-help=IntCrate::take takes receiver plus 0 explicit arguments but got 0",
         ],
     },
     {
@@ -5488,11 +8110,32 @@ EXECUTABLE_SMOKES = [
         "fixture": "mir_snapshot_smoke.fk",
         "expect": [
             "mir-snapshot-bytes=",
-            "mir-snapshot|format=freak-mir-snapshot-v4",
+            "mir-snapshot|format=freak-mir-snapshot-v5",
             "mir-snapshot-restore ok=1",
             "ok|workspace/mirSnapshotRestore",
             "borrowck-ok borrow=",
             "error|workspace/mirSnapshotRestore|-32602|",
+        ],
+        "expect_exact": [
+            "mir-snapshot-direct-restore-generation-advanced=true",
+            "mir-snapshot-lsp-restore-generation-advanced=true",
+            "mir-snapshot-graph-self-cycle-validate-rejected=true",
+            "mir-snapshot-graph-self-cycle-restore-rejected=true",
+            "mir-snapshot-graph-self-cycle-state-stable=true",
+            "mir-snapshot-graph-dangling-edge-validate-rejected=true",
+            "mir-snapshot-graph-dangling-edge-restore-rejected=true",
+            "mir-snapshot-graph-dangling-edge-state-stable=true",
+            "mir-snapshot-graph-unknown-kind-validate-rejected=true",
+            "mir-snapshot-graph-unknown-kind-restore-rejected=true",
+            "mir-snapshot-graph-unknown-kind-state-stable=true",
+            "mir-snapshot-graph-mixed-direct-cycle-validate-rejected=true",
+            "mir-snapshot-graph-mixed-direct-cycle-restore-rejected=true",
+            "mir-snapshot-graph-mixed-direct-cycle-state-stable=true",
+            "mir-snapshot-graph-mixed-transitive-cycle-validate-rejected=true",
+            "mir-snapshot-graph-mixed-transitive-cycle-restore-rejected=true",
+            "mir-snapshot-graph-mixed-transitive-cycle-state-stable=true",
+            "mir-snapshot-graph-forward-base-projection-valid-validate-accepted=true",
+            "mir-snapshot-graph-forward-base-projection-valid-state-stable=true",
         ],
     },
     {
@@ -5570,11 +8213,218 @@ EXECUTABLE_SMOKES = [
             "lend-live-call-holder-status=blocked",
             "lend-live-cycle-status=blocked",
             "lend-live-diagnostics=5",
-            "lend-live-diag0=Meiya refuses this rewrite while the value is borrowed",
-            "lend-live-diag1=Meiya tracks this loan into a later block",
-            "lend-live-diag2=Meiya refuses this rewrite while the value is borrowed",
-            "lend-live-diag3=Meiya tracks this loan into a later block",
+            "lend-live-diag0=Meiya cannot substitute a lend-bearing type for a generic call yet",
+            "lend-live-diag1=Meiya refuses this rewrite while the value is borrowed",
+            "lend-live-diag2=Meiya tracks this loan into a later block",
+            "lend-live-diag3=Meiya refuses this rewrite while the value is borrowed",
             "lend-live-diag4=Meiya tracks this loan into a later block",
+        ],
+    },
+    {
+        "name": "Meiya live lend move conflicts",
+        "fixture": "lend_move_conflict_smoke.fk",
+        "expect": [
+            "lend-move-same-live-status=blocked",
+            "lend-move-same-released-status=clean",
+            "lend-move-call-live-status=blocked",
+            "lend-move-call-released-status=clean",
+            "lend-move-cross-live-status=blocked",
+            "lend-move-call-scoped-status=clean",
+            "lend-move-same-call-status=blocked",
+            "lend-move-cycle-late-status=blocked",
+            "lend-move-call-live-moves=1",
+            "lend-move-diagnostics=6",
+            "lend-move-same-message-count=4",
+            "lend-move-cross-message-count=1",
+            "lend-move-diag0=Meiya refuses this move while the value is borrowed",
+            "lend-move-diag1=Meiya refuses this move while the value is borrowed",
+            "lend-move-diag2=Meiya carries this loan across a move boundary",
+        ],
+    },
+    {
+        "name": "Meiya exclusive lend conflicts",
+        "fixture": "lend_exclusive_conflict_smoke.fk",
+        "expect": [
+            "exclusive-mut-path-kind=LoanMut",
+            "exclusive-mut-first-status=blocked",
+            "exclusive-shared-first-status=blocked",
+            "exclusive-released-status=clean",
+            "exclusive-two-shared-status=clean",
+            "exclusive-same-call-status=blocked",
+            "exclusive-shared-call-status=clean",
+            "exclusive-mut-rewrite-status=blocked",
+            "exclusive-cross-status=blocked",
+            "exclusive-diagnostics=5",
+            "exclusive-same-message-count=3",
+            "exclusive-cross-message-count=1",
+            "exclusive-rewrite-message-count=1",
+            "exclusive-diag0=Meiya refuses overlapping mutable lends",
+            "exclusive-diag4=Meiya carries an exclusive lend across another loan boundary",
+        ],
+    },
+    {
+        "name": "Meiya mutable lend owner reads",
+        "fixture": "lend_mut_read_conflict_smoke.fk",
+        "expect": [
+            "mut-read-local-status=blocked",
+            "mut-read-copy-status=blocked",
+            "mut-read-released-status=clean",
+            "mut-read-same-call-status=blocked",
+            "mut-read-cross-status=blocked",
+            "mut-read-immutable-status=clean",
+            "mut-read-diagnostics=4",
+            "mut-read-same-message-count=3",
+            "mut-read-cross-message-count=1",
+            "mut-read-diag0=Meiya refuses observation through an exclusive lend",
+            "mut-read-diag3=Meiya carries an exclusive lend across an observation boundary",
+        ],
+    },
+    {
+        "name": "Meiya lend holder projections",
+        "fixture": "lend_projection_smoke.fk",
+        "expect": [
+            "projection-field-read-kind=UsePlace",
+            "projection-field-read-ty=int",
+            "projection-field-write-kind=Field",
+            "projection-field-write-ty=int",
+            "projection-index-read-kind=UsePlace",
+            "projection-index-read-ty=int",
+            "projection-index-write-kind=Index",
+            "projection-index-write-ty=int",
+            "projection-field-read-status=clean",
+            "projection-field-write-status=clean",
+            "projection-field-denied-status=blocked",
+            "projection-index-read-status=clean",
+            "projection-index-write-status=clean",
+            "projection-index-denied-status=blocked",
+            "projection-field-move-status=blocked",
+            "projection-field-mut-move-status=blocked",
+            "projection-index-move-status=blocked",
+            "projection-index-mut-move-status=blocked",
+            "projection-before-write-status=blocked",
+            "projection-after-write-status=clean",
+            "projection-owned-field-move-status=clean",
+            "projection-aggregate-lend-move-status=blocked",
+            "projection-diagnostics=8",
+            "projection-immutable-write-diagnostics=2",
+            "projection-holder-move-diagnostics=5",
+            "projection-owner-read-diagnostics=1",
+        ],
+    },
+    {
+        "name": "Meiya returned loan provenance",
+        "fixture": "lend_return_smoke.fk",
+        "expect": [
+            "lend-return-signature-return=lend Ship",
+            "lend-return-ty-diagnostics=0",
+            "lend-return-mir-diagnostics=0",
+            "lend-return-rvalue-kind=Lend",
+            "lend-return-rvalue-ty=lend Ship",
+            "lend-return-shared-status=clean",
+            "lend-return-mutable-status=clean",
+            "lend-return-downgrade-status=clean",
+            "lend-return-holder-status=clean",
+            "lend-return-owned-status=blocked",
+            "lend-return-holder-owned-status=blocked",
+            "lend-return-upgrade-status=blocked",
+            "lend-return-forward-status=clean",
+            "lend-return-forward-holder-status=clean",
+            "lend-return-forward-branches-status=clean",
+            "lend-return-forward-ambiguous-branches-status=clean",
+            "lend-return-forward-ambiguous-call-status=clean",
+            "lend-return-mutable-forward-status=clean",
+            "lend-return-loop-carried-status=blocked",
+            "lend-return-stored-forward-live-move-status=blocked",
+            "lend-return-stored-forward-released-move-status=clean",
+            "lend-return-forward-region-kind=ReturnLoan",
+            "lend-return-forward-region-source=ship",
+            "lend-return-forward-holder-region-source=ship",
+            "lend-return-forward-branches-region-source=ship",
+            "lend-return-mutable-forward-region-kind=ReturnLoanMut",
+            "lend-return-forward-region-snapshot=borrowck-path|",
+            "|ReturnLoan|ship|",
+            "lend-return-stored-call-status=clean",
+            "lend-return-stored-call-move-status=blocked",
+            "lend-return-stored-call-write-status=blocked",
+            "lend-return-stored-call-alias-move-status=blocked",
+            "lend-return-stored-call-alias-released-status=clean",
+            "lend-return-stored-call-alias-rebound-before-status=clean",
+            "lend-return-stored-call-alias-rebound-after-status=clean",
+            "lend-return-stored-call-source-rebound-alias-status=blocked",
+            "lend-return-stored-call-alias-rebound-all-routes-status=clean",
+            "lend-return-stored-call-alias-rebound-one-route-status=blocked",
+            "lend-return-stored-call-alias-restored-source-status=blocked",
+            "lend-return-stored-call-alias-self-assign-status=blocked",
+            "lend-return-diagnostics=12",
+            "lend-return-owned-diagnostics=3",
+            "lend-return-upgrade-diagnostics=1",
+            "lend-return-unproven-diagnostics=0",
+            "lend-return-ambiguous-diagnostics=0",
+            "lend-return-stored-call-diagnostics=0",
+            "lend-return-call-move-diagnostics=6",
+            "lend-return-call-cross-move-diagnostics=1",
+            "lend-return-call-write-diagnostics=1",
+            "lend-return-query-forward-status=clean",
+            "borrowck-snapshot-import ok=1",
+            "borrowck-snapshot-restore ok=1",
+            "lend-return-restored-forward-status=clean",
+            "lend-return-restored-forward-region-source=ship",
+        ],
+    },
+    {
+        "name": "Meiya Shared and Weak ownership surface",
+        "fixture": "shared_weak_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "shared-weak-ty-shared=1",
+            "shared-weak-ty-weak=1",
+            "shared-weak-ty-shared-mut=1",
+            "shared-weak-root-ty=Shared<Ship>",
+            "shared-weak-copy-ty=Shared<Ship>",
+            "shared-weak-weak-ty=Weak<Ship>",
+            "shared-weak-revived-ty=maybe<Shared<Ship>>",
+            "shared-weak-clone-args=1",
+            "shared-weak-clone-arg-text=root",
+            "shared-weak-downgrade-args=1",
+            "shared-weak-downgrade-arg-text=root",
+            "shared-weak-upgrade-args=1",
+            "shared-weak-upgrade-arg-text=weak",
+            "shared-weak-view-ty=lend Ship",
+            "shared-weak-guard-ty=result<SharedMut<Ship>,BorrowError>",
+            "shared-weak-unique-ty=maybe<lend mut Ship>",
+            "shared-weak-new-status=clean",
+            "shared-weak-handles-status=clean",
+            "shared-weak-borrow-status=clean",
+            "shared-weak-mut-status=clean",
+            "shared-weak-unique-status=clean",
+            "shared-weak-direct-status=clean",
+            "shared-weak-result-status=clean",
+            "shared-weak-error-status=clean",
+            "shared-weak-leak-status=blocked",
+            "shared-weak-view-escape-status=blocked",
+            "shared-weak-ty-diagnostics=0",
+            "shared-weak-mir-diagnostics=1",
+            "shared-weak-borrow-diagnostics=3",
+            "shared-weak-direct-diagnostics=1",
+            "shared-weak-guard-escape-diagnostics=1",
+            "shared-weak-view-escape-diagnostics=1",
+            "shared-alias-ty-diagnostics=0",
+            "shared-alias-mir-diagnostics=0",
+            "shared-alias-borrow-diagnostics=3",
+            "shared-alias-borrow-diagnostics-exact-three=true",
+            "shared-alias-get-mut-uncontended-status=clean",
+            "shared-alias-get-mut-conflict-status=blocked",
+            "shared-alias-get-mut-clone-first-status=clean",
+            "shared-alias-stored-borrow-escape-status=blocked",
+            "shared-alias-symbolic-index-status=blocked",
+            "shared-alias-concrete-index-status=clean",
+            "shared-alias-get-mut-conflict-diagnostics=1",
+            "shared-alias-stored-borrow-escape-diagnostics=1",
+            "shared-alias-symbolic-index-diagnostics=1",
+            "shared-alias-symbolic-equal-possible-overlap=true",
+            "shared-alias-symbolic-vs-literal-overlap=true",
+            "shared-alias-concrete-distinct-overlap=false",
         ],
     },
     {
@@ -5582,10 +8432,10 @@ EXECUTABLE_SMOKES = [
         "fixture": "borrowck_rvalue_paths_smoke.fk",
         "expect": [
             "rvalue-paths-status=clean",
-            "rvalue-paths-total=15",
+            "rvalue-paths-total=14",
             "rvalue-paths-copies=2",
             "rvalue-paths-moves=2",
-            "rvalue-paths-drops=4",
+            "rvalue-paths-drops=3",
             "rvalue-paths-value-loan=1",
             "rvalue-paths-value-move=1",
             "rvalue-paths-fallback-move=1",
@@ -5628,11 +8478,17 @@ EXECUTABLE_SMOKES = [
             "partial-move-conflict-status=blocked",
             "partial-move-clean-status=clean",
             "partial-move-repaired-status=clean",
-            "partial-move-diagnostics=1",
+            "partial-move-cycle-status=blocked",
+            "partial-move-cross-repaired-status=clean",
+            "partial-move-cross-unrepaired-status=blocked",
+            "partial-move-diagnostics=3",
             "partial-move-message=Meiya remembers the field you already moved",
             "partial-move-help=ship.callsign was moved at statement 0, so statement 1 cannot use ship yet",
             "partial-move-where=7:5",
             "partial-move-render=error at 7:5: Meiya remembers the field you already moved\\nhelp: ship.callsign was moved at statement 0, so statement 1 cannot use ship yet",
+            "partial-move-cycle-message=Meiya remembers the field you already moved",
+            "partial-move-cross-message=Meiya carries that partial move across the CFG",
+            "partial-move-cross-help=ship.callsign was moved in block 0 at statement 0, so block 2 statement 3 cannot use ship yet",
         ],
     },
     {
@@ -5645,6 +8501,68 @@ EXECUTABLE_SMOKES = [
             "drop-order-1=x",
             "drop-order-2=b",
             "drop-order-3=a",
+            "drop-moved-status=clean",
+            "drop-moved-count=1",
+            "drop-moved-0=y",
+            "drop-moved-1=",
+            "drop-reinit-status=clean",
+            "drop-reinit-count=2",
+            "drop-reinit-0=y",
+            "drop-reinit-1=x",
+            "drop-move-reassign-status=clean",
+            "drop-move-reassign-count=1",
+            "drop-move-reassign-0=x",
+            "drop-move-reassign-1=",
+            "drop-branch-moved-status=clean",
+            "drop-branch-moved-count=1",
+            "drop-branch-moved-0=ready",
+            "drop-branch-moved-1=",
+            "drop-branch-partial-status=clean",
+            "drop-branch-partial-count=2",
+            "drop-branch-partial-0=ready",
+            "drop-branch-partial-1=",
+            "drop-branch-partial-if-count=1",
+            "drop-branch-partial-if-0=x",
+            "drop-branch-partial-if-1=",
+            "drop-branch-reinit-status=clean",
+            "drop-branch-reinit-count=2",
+            "drop-branch-reinit-if-count=0",
+            "drop-branch-reinit-0=x",
+            "drop-branch-reinit-1=ready",
+            "drop-branch-merge-reinit-status=clean",
+            "drop-branch-merge-reinit-count=2",
+            "drop-branch-merge-reinit-if-count=0",
+            "drop-branch-merge-reinit-0=x",
+            "drop-branch-merge-reinit-1=ready",
+            "drop-branch-declared-local-status=clean",
+            "drop-branch-declared-local-count=2",
+            "drop-branch-declared-local-if-count=1",
+            "drop-branch-declared-local-if-0=x",
+            "drop-loop-before-move-status=clean",
+            "drop-loop-before-move-count=1",
+            "drop-loop-before-move-0=ready",
+            "drop-loop-before-move-1=",
+            "drop-loop-moves-inside-status=clean",
+            "drop-loop-moves-inside-count=2",
+            "drop-loop-moves-inside-0=ready",
+            "drop-loop-moves-inside-1=",
+            "drop-loop-moves-inside-if-count=1",
+            "drop-loop-moves-inside-if-0=x",
+            "drop-loop-moves-inside-if-1=",
+            "drop-loop-reinit-after-move-status=clean",
+            "drop-loop-reinit-after-move-count=2",
+            "drop-loop-reinit-after-move-0=ready",
+            "drop-loop-reinit-after-move-if-count=1",
+            "drop-loop-reinit-after-move-if-0=x",
+            "drop-loop-declared-local-status=clean",
+            "drop-loop-declared-local-count=2",
+            "drop-loop-declared-local-if-count=1",
+            "drop-loop-declared-local-if-0=x",
+            "drop-route-branch-moved-status=clean",
+            "drop-route-branch-moved-count=1",
+            "drop-route-branch-moved-0=_when_subject",
+            "drop-route-branch-moved-1=",
+            "drop-route-branch-moved-2=",
         ],
     },
     {
@@ -5804,6 +8722,14 @@ def check_tooling_interfaces() -> None:
 def check_snapshot_inventories() -> None:
     readme = read_text(V4_ROOT / "README.md")
     snapshot_source = read_text(crate_path("freak_snapshot"))
+    lex_source = read_text(crate_path("freak_lex"))
+    query_source = read_text(crate_path("freak_query"))
+    runtime_header = read_text(RUNTIME_ROOT / "freak_runtime.h")
+    runtime_source = read_text(RUNTIME_ROOT / "freak_runtime.c")
+    llvm_runtime_source = read_text(RUNTIME_ROOT / "freak_llvm_runtime.c")
+    emitter_source = read_text(ROOT / "freakc" / "emitter.py")
+    llvm_emitter_source = read_text(ROOT / "src" / "compiler" / "v3" / "emit_llvm.fk")
+    check_source = read_text(V4_ROOT / "check_v4.py")
     violations: list[str] = []
 
     expected_section_count = len(UNIT_SNAPSHOT_SECTIONS)
@@ -5820,6 +8746,180 @@ def check_snapshot_inventories() -> None:
             violations.append(f"snapshot restore missing: {name}")
         if section["endpoint"] not in readme:
             violations.append(f"snapshot docs missing endpoint: {section['endpoint']}")
+
+    if "v4_ty_snapshot_validate(ty_payload)" not in snapshot_source:
+        violations.append("snapshot strict TY context validator missing")
+
+    resource_methods = [
+        "snapshot_escape",
+        "snapshot_unescape",
+        "snapshot_line_count",
+        "snapshot_line",
+        "snapshot_field_count",
+        "snapshot_field_raw",
+    ]
+    for method in resource_methods:
+        if f"freak_word_{method}" not in runtime_header:
+            violations.append(f"snapshot runtime primitive missing: {method}")
+        if f'"{method}"' not in emitter_source:
+            violations.append(f"snapshot emitter primitive missing: {method}")
+    if "value.snapshot_escape()" not in lex_source:
+        violations.append("lex snapshot escape bypasses runtime primitive")
+    if "value.snapshot_escape()" not in query_source:
+        violations.append("query snapshot escape bypasses runtime primitive")
+    if "Snapshot codec resource contract" not in readme:
+        violations.append("snapshot resource contract docs missing")
+    for process_tree_contract in (
+        "class WindowsJob:",
+        "JOB_MEMORY",
+        'popen_kwargs["creationflags"] = 0x00000004',
+        "NtResumeProcess",
+        'popen_kwargs["start_new_session"] = True',
+        "os.killpg",
+        "posix_process_group_memory_bytes",
+    ):
+        if process_tree_contract not in check_source:
+            violations.append(
+                f"runtime process-tree guard missing: {process_tree_contract}"
+            )
+    for runner_memory_contract in (
+        "RUNNER_RETAINED_MEMORY_LIMIT_MB = 256",
+        "def check_process_memory_sampler() -> None:",
+        "def check_runner_retained_memory() -> None:",
+        "memory sampler unavailable on supported platform",
+        "libproc.proc_pidinfo",
+        "pti_resident_size",
+        "del c_source",
+    ):
+        if runner_memory_contract not in check_source:
+            violations.append(
+                f"check runner retained-memory guard missing: {runner_memory_contract}"
+            )
+    retained_artifact_symbol = "fixture_" + "artifacts"
+    if retained_artifact_symbol in check_source:
+        violations.append("check runner retains generated fixture artifacts")
+
+    if "freak_word freak_word_join(int64_t handle);" not in runtime_header:
+        violations.append("snapshot linear word join primitive missing")
+    if '"word_join"' not in emitter_source:
+        violations.append("snapshot word join emitter typing missing")
+    if "void freak_array_release(int64_t handle);" not in runtime_header:
+        violations.append("snapshot array release primitive missing")
+    if "freak_array_release(handle);" not in runtime_source:
+        violations.append("snapshot C word join does not release its parts array")
+    if "freak_llvm_array_release(handle);" not in llvm_runtime_source:
+        violations.append("snapshot LLVM word join does not release its parts array")
+    if "generation != generation" not in runtime_source or "generation != generation" not in llvm_runtime_source:
+        violations.append("array free-list handles are not generation checked")
+    if 'val == "array_release"' not in llvm_emitter_source:
+        violations.append("LLVM array release lowering missing")
+    if 'val == "substring"' not in llvm_emitter_source:
+        violations.append("LLVM substring method lowering missing")
+    if "@freak_llvm_word_substring(i64, i64, i64)" not in llvm_emitter_source:
+        violations.append("LLVM substring declaration missing")
+    mir_source = read_text(crate_path("freak_mir"))
+    linear_snapshot_sources = {
+        "lex": lex_source,
+        "parse": read_text(crate_path("freak_parse")),
+        "hir": read_text(crate_path("freak_hir")),
+        "resolve": read_text(crate_path("freak_resolve")),
+        "ty": read_text(crate_path("freak_ty")),
+        "mir": mir_source,
+        "borrowck": read_text(crate_path("freak_borrowck")),
+        "query": query_source,
+    }
+    for family, source in linear_snapshot_sources.items():
+        if "give back word_join(parts)" not in source:
+            violations.append(f"snapshot serializer is not linear: {family}")
+    if snapshot_source.count("give back word_join(parts)") < 7:
+        violations.append("snapshot/editor serializers are not uniformly linear")
+    linear_unit_snapshot_tasks = (
+        "v4_unit_snapshot_source_identity_current",
+        "v4_unit_snapshot_source_identity_from_payload",
+        "v4_unit_snapshot_checkpoint_identity_from_digests",
+        "v4_unit_snapshot_validate",
+        "v4_unit_snapshot_manifest",
+        "v4_unit_snapshot_diff_source_record",
+        "v4_unit_snapshot_diff_section_record",
+        "v4_unit_snapshot_query_entry_diff_record",
+        "v4_unit_snapshot_query_invalidation_diff_record",
+        "v4_unit_snapshot_query_invalidation_diff_details",
+        "v4_unit_snapshot_query_entry_diff_details",
+        "v4_unit_snapshot_diff",
+        "v4_unit_snapshot_diff_input",
+        "v4_unit_snapshot_diff_ref_input",
+        "v4_unit_snapshot_health_section_lines",
+        "v4_unit_snapshot_health_query_line",
+        "v4_unit_snapshot_health_diff_line",
+        "v4_unit_snapshot_health_append_diff",
+        "v4_unit_snapshot_health",
+    )
+    for task_name in linear_unit_snapshot_tasks:
+        task_match = re.search(
+            rf"task {re.escape(task_name)}\([^\n]*\) -> [^\n]+ \{{(.*?)(?=\ntask |\Z)",
+            snapshot_source,
+            re.DOTALL,
+        )
+        if task_match is None or "word_join(parts)" not in task_match.group(1):
+            violations.append(f"unit snapshot serializer is not linear: {task_name}")
+    for source_index_contract in (
+        "v4_unit_snapshot_word_array_count",
+        "v4_unit_snapshot_collect_source_index",
+        "v4_unit_snapshot_source_index_line_by_path",
+    ):
+        if source_index_contract not in snapshot_source:
+            violations.append(
+                f"unit snapshot source index contract missing: {source_index_contract}"
+            )
+    if "pilot earlier_line_id" in snapshot_source:
+        violations.append("unit snapshot source validation rescans prior payload lines")
+    if "unit_snapshot_multisource_resource_smoke.fk" not in check_source:
+        violations.append("multi-source snapshot resource smoke missing")
+    for handle_release_contract in (
+        "v4_mir_snapshot_release_body_graph_arrays",
+        "array_release(states)",
+        "array_release(v4_mir_loop_break_targets)",
+        "array_release(v4_mir_loop_continue_targets)",
+        "array_release(v4_mir_scope_spans)",
+        "array_release(v4_mir_trust_me_honor_ranks)",
+    ):
+        if handle_release_contract not in mir_source:
+            violations.append(
+                f"MIR snapshot scratch release missing: {handle_release_contract}"
+            )
+    query_invalidate_match = re.search(
+        r"task v4_query_invalidate_dependents_at_generation\([^\n]*\) -> int \{(.*?)(?=\ntask |\Z)",
+        query_source,
+        re.DOTALL,
+    )
+    if query_invalidate_match is None:
+        violations.append("query invalidation implementation missing")
+    else:
+        for handle_release_contract in (
+            "array_release(seen)",
+            "array_release(work)",
+        ):
+            if handle_release_contract not in query_invalidate_match.group(1):
+                violations.append(
+                    f"query invalidation scratch release missing: {handle_release_contract}"
+                )
+    for resource_fixture in (
+        "mir_snapshot_resource_smoke.fk",
+        "query_invalidation_resource_smoke.fk",
+    ):
+        if resource_fixture not in check_source:
+            violations.append(f"scratch-handle resource smoke missing: {resource_fixture}")
+    if "FREAK_ARRAY_LIVE_LIMIT" not in runtime_source:
+        violations.append("C smoke runtime live-array limit hook missing")
+    if C_ARRAY_HANDLE_RESOURCE_LIMIT != 1024:
+        violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
+    if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
+        {
+            "mir_snapshot_resource_smoke.fk",
+            "query_invalidation_resource_smoke.fk",
+        }
+    ):
+        violations.append("scratch-handle resource smoke limit coverage drifted")
 
     for family, public_field in INVALIDATION_FAMILY_FIELDS:
         if f'family == "{family}"' not in snapshot_source:
@@ -5874,8 +8974,11 @@ def parse_source(source: str, label: str):
 
 
 def check_individual_parse(paths: list[Path]) -> None:
-    for path in paths:
+    for index, path in enumerate(paths):
         parse_source(read_text(path), rel(path))
+        if (index + 1) % 16 == 0:
+            check_runner_retained_memory()
+    check_runner_retained_memory()
     print(f"parse individual: {len(paths)} files")
 
 
@@ -5900,6 +9003,9 @@ def check_flattened_crates() -> str:
             print(f"... {len(diagnostics) - 80} more diagnostics")
         raise SystemExit(1)
     print(f"flattened crates: statements={len(program.statements)}")
+    del diagnostics
+    del program
+    check_runner_retained_memory()
     return source
 
 
@@ -5925,14 +9031,510 @@ def transpile_fixture(base_source: str, fixture: Path) -> tuple[str, bool]:
     return c_source, uses_ui
 
 
-def check_fixture_transpile(base_source: str, fixtures: list[Path]) -> dict[Path, tuple[str, bool]]:
-    artifacts: dict[Path, tuple[str, bool]] = {}
+def check_fixture_transpile(base_source: str, fixtures: list[Path]) -> None:
     for fixture in fixtures:
         label = rel(fixture)
         c_source, uses_ui = transpile_fixture(base_source, fixture)
-        artifacts[fixture] = (c_source, uses_ui)
         print(f"fixture transpile: {label} c_bytes={len(c_source)} uses_ui={uses_ui}")
-    return artifacts
+        del c_source
+        check_runner_retained_memory()
+
+
+class BoundedPipeCapture:
+    def __init__(self, limit_bytes: int, tail_bytes: int = 8192) -> None:
+        self.limit_bytes = limit_bytes
+        self.tail_bytes = tail_bytes
+        self.total_bytes = 0
+        self.exceeded = False
+        self.data = bytearray()
+        self.lock = threading.Lock()
+
+    def read_from(self, pipe) -> None:
+        try:
+            while True:
+                chunk = pipe.read(64 * 1024)
+                if not chunk:
+                    return
+                with self.lock:
+                    self.total_bytes += len(chunk)
+                    self.data.extend(chunk)
+                    if self.exceeded or len(self.data) > self.limit_bytes:
+                        self.exceeded = True
+                        if len(self.data) > self.tail_bytes:
+                            del self.data[:-self.tail_bytes]
+        finally:
+            pipe.close()
+
+    def snapshot(self) -> tuple[int, bool, bytes]:
+        with self.lock:
+            return self.total_bytes, self.exceeded, bytes(self.data)
+
+
+class WindowsJob:
+    def __init__(self, memory_limit_bytes: int | None) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        class JobObjectBasicLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class IoCounters(ctypes.Structure):
+            _fields_ = [
+                ("ReadOperationCount", ctypes.c_uint64),
+                ("WriteOperationCount", ctypes.c_uint64),
+                ("OtherOperationCount", ctypes.c_uint64),
+                ("ReadTransferCount", ctypes.c_uint64),
+                ("WriteTransferCount", ctypes.c_uint64),
+                ("OtherTransferCount", ctypes.c_uint64),
+            ]
+
+        class JobObjectExtendedLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", JobObjectBasicLimitInformation),
+                ("IoInfo", IoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        self.ctypes = ctypes
+        self.wintypes = wintypes
+        self.info_type = JobObjectExtendedLimitInformation
+        self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.ntdll = ctypes.WinDLL("ntdll")
+        self.kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        self.kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        self.kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+        ]
+        self.kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        self.kernel32.QueryInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.c_void_p,
+        ]
+        self.kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+        self.kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        self.kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        self.kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        self.kernel32.TerminateJobObject.restype = wintypes.BOOL
+        self.kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        self.kernel32.CloseHandle.restype = wintypes.BOOL
+        self.ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+        self.ntdll.NtResumeProcess.restype = ctypes.c_long
+        self.ntdll.RtlNtStatusToDosError.argtypes = [ctypes.c_long]
+        self.ntdll.RtlNtStatusToDosError.restype = wintypes.ULONG
+
+        self.handle = self.kernel32.CreateJobObjectW(None, None)
+        if not self.handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+
+        info = self.info_type()
+        info.BasicLimitInformation.LimitFlags = 0x00002000  # KILL_ON_JOB_CLOSE
+        if memory_limit_bytes is not None:
+            info.BasicLimitInformation.LimitFlags |= 0x00000200  # JOB_MEMORY
+            info.JobMemoryLimit = memory_limit_bytes
+        if not self.kernel32.SetInformationJobObject(
+            self.handle, 9, ctypes.byref(info), ctypes.sizeof(info)
+        ):
+            error = ctypes.WinError(ctypes.get_last_error())
+            self.close()
+            raise error
+
+    def assign(self, process: subprocess.Popen[bytes]) -> None:
+        if not self.kernel32.AssignProcessToJobObject(self.handle, process._handle):
+            raise self.ctypes.WinError(self.ctypes.get_last_error())
+
+    def resume(self, process: subprocess.Popen[bytes]) -> None:
+        status = self.ntdll.NtResumeProcess(process._handle)
+        if status != 0:
+            error = self.ntdll.RtlNtStatusToDosError(status)
+            raise self.ctypes.WinError(error)
+
+    def memory_bytes(self) -> int | None:
+        if not self.handle:
+            return None
+        info = self.info_type()
+        if not self.kernel32.QueryInformationJobObject(
+            self.handle, 9, self.ctypes.byref(info), self.ctypes.sizeof(info), None
+        ):
+            return None
+        return max(int(info.PeakProcessMemoryUsed), int(info.PeakJobMemoryUsed))
+
+    def terminate(self) -> None:
+        if self.handle:
+            self.kernel32.TerminateJobObject(self.handle, 1)
+
+    def close(self) -> None:
+        if self.handle:
+            self.kernel32.CloseHandle(self.handle)
+            self.handle = None
+
+
+def posix_process_group_memory_bytes(group_id: int) -> int | None:
+    proc_root = Path("/proc")
+    try:
+        if proc_root.exists():
+            total_kb = 0
+            found = False
+            for entry in proc_root.iterdir():
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    stat = (entry / "stat").read_text(encoding="ascii", errors="replace")
+                except OSError:
+                    continue
+                close_paren = stat.rfind(")")
+                if close_paren < 0:
+                    continue
+                fields = stat[close_paren + 2 :].split()
+                if len(fields) < 3 or int(fields[2]) != group_id:
+                    continue
+                found = True
+                try:
+                    status_lines = (entry / "status").read_text(
+                        encoding="ascii", errors="replace"
+                    ).splitlines()
+                except OSError:
+                    continue
+                for line in status_lines:
+                    if line.startswith("VmRSS:") or line.startswith("VmSwap:"):
+                        total_kb += int(line.split()[1])
+            return total_kb * 1024 if found else None
+
+        measured = subprocess.run(
+            ["ps", "-axo", "pgid=,rss="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if measured.returncode == 0:
+            rss_kb = 0
+            found = False
+            for line in measured.stdout.splitlines():
+                fields = line.split()
+                if len(fields) == 2 and int(fields[0]) == group_id:
+                    found = True
+                    rss_kb += int(fields[1])
+            return rss_kb * 1024 if found else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return None
+
+
+class ProcessTree:
+    def __init__(
+        self,
+        process: subprocess.Popen[bytes],
+        windows_job: WindowsJob | None,
+    ) -> None:
+        self.process = process
+        self.windows_job = windows_job
+
+    @classmethod
+    def spawn(
+        cls,
+        command: list[str],
+        memory_limit_bytes: int | None,
+    ) -> ProcessTree:
+        windows_job = WindowsJob(memory_limit_bytes) if sys.platform.startswith("win") else None
+        popen_kwargs: dict[str, object] = {}
+        if windows_job is not None:
+            popen_kwargs["creationflags"] = 0x00000004  # CREATE_SUSPENDED
+        else:
+            popen_kwargs["start_new_session"] = True
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                **popen_kwargs,
+            )
+        except BaseException:
+            if windows_job is not None:
+                windows_job.close()
+            raise
+        if windows_job is not None:
+            try:
+                windows_job.assign(process)
+                windows_job.resume(process)
+            except BaseException:
+                windows_job.terminate()
+                if process.poll() is None:
+                    process.kill()
+                process.wait()
+                windows_job.close()
+                raise
+        return cls(process, windows_job)
+
+    def memory_bytes(self) -> int | None:
+        if self.windows_job is not None:
+            return self.windows_job.memory_bytes()
+        return posix_process_group_memory_bytes(self.process.pid)
+
+    def terminate(self) -> None:
+        if self.windows_job is not None:
+            self.windows_job.terminate()
+        else:
+            try:
+                os.killpg(self.process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        if self.process.poll() is None:
+            self.process.kill()
+
+    def close(self) -> None:
+        if self.windows_job is not None:
+            self.windows_job.close()
+
+
+def run_with_heartbeat(
+    command: list[str],
+    *,
+    label: str,
+    timeout_seconds: int | None = None,
+    memory_limit_mb: int | None = None,
+    output_limit_mb: int = 8,
+) -> subprocess.CompletedProcess[str]:
+    memory_limit_bytes = None
+    if memory_limit_mb is not None:
+        memory_limit_bytes = memory_limit_mb * 1024 * 1024
+    process_tree = ProcessTree.spawn(command, memory_limit_bytes)
+    process = process_tree.process
+    assert process.stdout is not None
+    assert process.stderr is not None
+    output_limit_bytes = output_limit_mb * 1024 * 1024
+    stdout_capture = BoundedPipeCapture(output_limit_bytes)
+    stderr_capture = BoundedPipeCapture(output_limit_bytes)
+    stdout_thread = threading.Thread(
+        target=stdout_capture.read_from,
+        args=(process.stdout,),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=stderr_capture.read_from,
+        args=(process.stderr,),
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+    started = time.monotonic()
+    next_heartbeat = started + 30.0
+    peak_memory_bytes = process_tree.memory_bytes() or 0
+    process_tree_closed = False
+
+    def stop_process_tree() -> None:
+        nonlocal peak_memory_bytes, process_tree_closed
+        if process_tree_closed:
+            return
+        measured = process_tree.memory_bytes()
+        if measured is not None:
+            peak_memory_bytes = max(peak_memory_bytes, measured)
+        process_tree.terminate()
+        if process.poll() is None:
+            process.wait()
+        measured = process_tree.memory_bytes()
+        if measured is not None:
+            peak_memory_bytes = max(peak_memory_bytes, measured)
+        process_tree.close()
+        process_tree_closed = True
+
+    def captured_text() -> tuple[str, str]:
+        stdout_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
+        stdout_bytes = stdout_capture.snapshot()[2]
+        stderr_bytes = stderr_capture.snapshot()[2]
+        return (
+            stdout_bytes.decode("utf-8", errors="replace"),
+            stderr_bytes.decode("utf-8", errors="replace"),
+        )
+
+    try:
+        while True:
+            stdout_total, stdout_exceeded, _ = stdout_capture.snapshot()
+            stderr_total, stderr_exceeded, _ = stderr_capture.snapshot()
+            if stdout_exceeded or stderr_exceeded:
+                stop_process_tree()
+                stdout, stderr = captured_text()
+                raise RuntimeError(
+                    f"{label} exceeded output limit: "
+                    f"stdout={stdout_total / (1024 * 1024):.1f}MB "
+                    f"stderr={stderr_total / (1024 * 1024):.1f}MB "
+                    f"limit={output_limit_mb}MB-per-stream\n"
+                    f"stdout-tail={stdout[-2000:]}\n"
+                    f"stderr-tail={stderr[-2000:]}"
+                )
+
+            measured_memory = process_tree.memory_bytes()
+            if measured_memory is not None:
+                peak_memory_bytes = max(peak_memory_bytes, measured_memory)
+                if memory_limit_bytes is not None and measured_memory > memory_limit_bytes:
+                    stop_process_tree()
+                    stdout, stderr = captured_text()
+                    raise RuntimeError(
+                        f"{label} exceeded memory limit: "
+                        f"observed={measured_memory / (1024 * 1024):.1f}MB "
+                        f"limit={memory_limit_mb}MB\n"
+                        f"stdout-tail={stdout[-2000:]}\n"
+                        f"stderr-tail={stderr[-2000:]}"
+                    )
+
+            wait_seconds = 0.25
+            if timeout_seconds is not None:
+                elapsed = time.monotonic() - started
+                remaining = timeout_seconds - elapsed
+                if remaining <= 0:
+                    stop_process_tree()
+                    stdout, stderr = captured_text()
+                    raise subprocess.TimeoutExpired(
+                        command,
+                        timeout_seconds,
+                        output=stdout,
+                        stderr=stderr,
+                    )
+                wait_seconds = min(wait_seconds, remaining)
+
+            try:
+                process.wait(timeout=wait_seconds)
+                stop_process_tree()
+                stdout, stderr = captured_text()
+                stdout_total, stdout_exceeded, _ = stdout_capture.snapshot()
+                stderr_total, stderr_exceeded, _ = stderr_capture.snapshot()
+                if stdout_exceeded or stderr_exceeded:
+                    raise RuntimeError(
+                        f"{label} exceeded output limit: "
+                        f"stdout={stdout_total / (1024 * 1024):.1f}MB "
+                        f"stderr={stderr_total / (1024 * 1024):.1f}MB "
+                        f"limit={output_limit_mb}MB-per-stream\n"
+                        f"stdout-tail={stdout[-2000:]}\n"
+                        f"stderr-tail={stderr[-2000:]}"
+                    )
+                if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes:
+                    raise RuntimeError(
+                        f"{label} exceeded memory limit: "
+                        f"peak={peak_memory_bytes / (1024 * 1024):.1f}MB "
+                        f"limit={memory_limit_mb}MB\n"
+                        f"stdout-tail={stdout[-2000:]}\n"
+                        f"stderr-tail={stderr[-2000:]}"
+                    )
+                elapsed_seconds = time.monotonic() - started
+                print(
+                    f"{label} complete elapsed={elapsed_seconds:.1f}s "
+                    f"peak-memory={peak_memory_bytes / (1024 * 1024):.1f}MB",
+                    flush=True,
+                )
+                return subprocess.CompletedProcess(
+                    command,
+                    process.returncode,
+                    stdout,
+                    stderr,
+                )
+            except subprocess.TimeoutExpired:
+                now = time.monotonic()
+                if now >= next_heartbeat:
+                    elapsed_seconds = int(now - started)
+                    print(
+                        f"{label} pending elapsed={elapsed_seconds}s "
+                        f"peak-memory={peak_memory_bytes / (1024 * 1024):.1f}MB",
+                        flush=True,
+                    )
+                    next_heartbeat = now + 30.0
+    except BaseException:
+        stop_process_tree()
+        raise
+
+
+def process_is_running(process_id: int) -> bool:
+    if sys.platform.startswith("win"):
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(0x1000, False, process_id)
+        if not handle:
+            return False
+        try:
+            exit_code = wintypes.DWORD()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))) and exit_code.value == 259
+        finally:
+            kernel32.CloseHandle(handle)
+
+    status_path = Path(f"/proc/{process_id}/status")
+    if status_path.exists():
+        try:
+            for line in status_path.read_text(encoding="ascii", errors="replace").splitlines():
+                if line.startswith("State:"):
+                    return "Z" not in line.split()[1]
+        except OSError:
+            return False
+    try:
+        measured = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(process_id)],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        state = measured.stdout.strip()
+        if measured.returncode != 0 or not state:
+            return False
+        return not state.startswith("Z")
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        os.kill(process_id, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def check_process_tree_guard() -> None:
+    child_code = "import time; time.sleep(30)"
+    parent_code = (
+        "import subprocess,sys; "
+        f"child=subprocess.Popen([sys.executable,'-c',{child_code!r}]); "
+        "print(f'guard-child={child.pid}', file=sys.stderr, flush=True)"
+    )
+    executed = run_with_heartbeat(
+        [sys.executable, "-c", parent_code],
+        label="process-tree guard self-test",
+        timeout_seconds=10,
+        memory_limit_mb=64,
+    )
+    match = re.search(r"guard-child=(\d+)", executed.stderr)
+    if executed.returncode != 0 or match is None:
+        raise RuntimeError("process-tree guard self-test did not report its descendant")
+    child_id = int(match.group(1))
+    deadline = time.monotonic() + 2.0
+    while process_is_running(child_id) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if process_is_running(child_id):
+        raise RuntimeError(f"process-tree guard left descendant {child_id} running")
+    print("process-tree guard: descendant terminated")
 
 
 def compile_runtime_smoke(
@@ -5942,6 +9544,7 @@ def compile_runtime_smoke(
     runtime_source: str,
     fixture: Path,
     c_source: str,
+    extra_cflags: tuple[str, ...] = (),
 ) -> tuple[Path, bool]:
     suffix = ".exe" if sys.platform.startswith("win") else ""
     c_path = RUNTIME_BUILD_ROOT / f"{fixture.stem}.fk.c"
@@ -5953,6 +9556,7 @@ def compile_runtime_smoke(
         include_arg,
         runtime_source,
         c_source,
+        *extra_cflags,
     )
 
     write_text_if_changed(c_path, c_source)
@@ -5968,10 +9572,15 @@ def compile_runtime_smoke(
         include_arg,
         "-w",
         "-O0",
+        *extra_cflags,
     ]
     if sys.platform.startswith("linux"):
         compile_cmd.append("-lm")
-    compiled = subprocess.run(compile_cmd, cwd=ROOT, text=True, capture_output=True)
+    compiled = run_with_heartbeat(
+        compile_cmd,
+        label=f"runtime compile: {rel(fixture)}",
+        memory_limit_mb=1024,
+    )
     if compiled.returncode != 0:
         print(f"runtime compile failed: {rel(fixture)}")
         print(compiled.stdout)
@@ -6079,10 +9688,320 @@ def select_smokes(filters: list[str], excludes: list[str], shard_spec: str) -> l
     return apply_smoke_shard(selected, shard_spec)
 
 
+def keyed_output_prefix(line: str) -> str | None:
+    """Return the stable key prefix for a key=value output record."""
+    for marker in ("|ok=", "|pass=", "|status="):
+        prefix, separator, _ = line.partition(marker)
+        if separator and prefix:
+            return prefix + separator
+
+    key, separator, _ = line.partition("=")
+    if not separator or not key or "|" in key:
+        return None
+    return key + separator
+
+
+def unique_output_failures(
+    registered_lines: list[str], output_line_counts: Counter[str]
+) -> list[tuple[str, int, int, int | None]]:
+    failures: list[tuple[str, int, int, int | None]] = []
+    registered_counts = Counter(registered_lines)
+    for line, registered_count in registered_counts.items():
+        output_count = output_line_counts[line]
+        key_prefix = keyed_output_prefix(line)
+        keyed_output_count = None
+        if key_prefix is not None:
+            keyed_output_count = sum(
+                count
+                for output_line, count in output_line_counts.items()
+                if output_line.startswith(key_prefix)
+            )
+        if (
+            registered_count != 1
+            or output_count != 1
+            or (keyed_output_count is not None and keyed_output_count != 1)
+        ):
+            failures.append(
+                (line, registered_count, output_count, keyed_output_count)
+            )
+    return failures
+
+
+def check_llvm_runtime_primitives(clang: str, include_arg: str) -> None:
+    source_path = RUNTIME_BUILD_ROOT / "llvm_runtime_primitives_smoke.c"
+    exe_suffix = ".exe" if sys.platform.startswith("win") else ""
+    exe_path = RUNTIME_BUILD_ROOT / f"llvm_runtime_primitives_smoke{exe_suffix}"
+    stamp_path = RUNTIME_BUILD_ROOT / "llvm_runtime_primitives_smoke.compile.sha256"
+    runtime_c = RUNTIME_ROOT / "freak_runtime.c"
+    llvm_runtime_c = RUNTIME_ROOT / "freak_llvm_runtime.c"
+    source = r'''#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int64_t freak_llvm_array_new(void);
+void freak_llvm_array_push(int64_t handle, int64_t item);
+int64_t freak_llvm_array_get(int64_t handle, int64_t index);
+int64_t freak_llvm_array_len(int64_t handle);
+void freak_llvm_array_release(int64_t handle);
+int64_t freak_llvm_word_join(int64_t handle);
+int64_t freak_llvm_word_substring(int64_t value, int64_t start, int64_t length);
+
+int main(void) {
+    for (int64_t index = 0; index < 1100; index++) {
+        int64_t handle = freak_llvm_array_new();
+        freak_llvm_array_push(handle, (int64_t)(intptr_t)"reused");
+        int64_t joined = freak_llvm_word_join(handle);
+        if (strcmp((const char*)(intptr_t)joined, "reused") != 0) return 10;
+        free((void*)(intptr_t)joined);
+    }
+
+    int64_t released = freak_llvm_array_new();
+    freak_llvm_array_release(released);
+    int64_t reused = freak_llvm_array_new();
+    if (reused == released) return 11;
+    freak_llvm_array_push(released, (int64_t)(intptr_t)"stale");
+    if (freak_llvm_array_len(released) != 0) return 12;
+    if (freak_llvm_array_len(reused) != 0) return 13;
+    freak_llvm_array_push(reused, (int64_t)(intptr_t)"fresh");
+    if (freak_llvm_array_len(reused) != 1) return 14;
+    if (strcmp((const char*)(intptr_t)freak_llvm_array_get(reused, 0), "fresh") != 0) return 15;
+    freak_llvm_array_release(reused);
+
+    int64_t sliced = freak_llvm_word_substring(
+        (int64_t)(intptr_t)"Alternative", 3, 5
+    );
+    if (strcmp((const char*)(intptr_t)sliced, "ernat") != 0) return 16;
+    free((void*)(intptr_t)sliced);
+    puts("llvm-runtime-primitives=ok");
+    return 0;
+}
+'''
+    runtime_source = read_text(runtime_c)
+    llvm_runtime_source = read_text(llvm_runtime_c)
+    compile_key = hash_text(
+        "v4-llvm-runtime-primitives-v1",
+        clang,
+        source,
+        runtime_source,
+        llvm_runtime_source,
+    )
+    write_text_if_changed(source_path, source)
+
+    compiled_now = not (
+        exe_path.exists()
+        and stamp_path.exists()
+        and read_text(stamp_path).strip() == compile_key
+    )
+    if compiled_now:
+        compile_cmd = [
+            clang,
+            "-o",
+            str(exe_path),
+            str(source_path),
+            str(runtime_c),
+            str(llvm_runtime_c),
+            include_arg,
+            "-w",
+            "-O0",
+        ]
+        if sys.platform.startswith("linux"):
+            compile_cmd.append("-lm")
+        compiled = run_with_heartbeat(
+            compile_cmd,
+            label="LLVM runtime primitive compile",
+            memory_limit_mb=512,
+        )
+        if compiled.returncode != 0:
+            print("LLVM runtime primitive compile failed")
+            print((compiled.stdout + compiled.stderr)[:4000])
+            raise SystemExit(1)
+        stamp_path.write_text(compile_key, encoding="utf-8")
+
+    executed = run_with_heartbeat(
+        [str(exe_path)],
+        label="LLVM runtime primitive execute",
+        timeout_seconds=30,
+        memory_limit_mb=64,
+    )
+    output = executed.stdout + executed.stderr
+    if executed.returncode != 0 or output.splitlines() != ["llvm-runtime-primitives=ok"]:
+        print(f"LLVM runtime primitive smoke failed: exit={executed.returncode}")
+        print(output[:4000])
+        raise SystemExit(1)
+    compile_mode = "clang" if compiled_now else "cache"
+    print(f"LLVM runtime primitives: compile={compile_mode} output_bytes={len(output)}")
+
+
+def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
+    suffix = ".exe" if sys.platform.startswith("win") else ""
+    compiler_source_path = RUNTIME_BUILD_ROOT / "v3_llvm_substring_compiler.fk"
+    compiler_c_path = Path(str(compiler_source_path) + ".c")
+    stage0_path = RUNTIME_BUILD_ROOT / f"v3_llvm_substring_stage0{suffix}"
+    stage2_path = RUNTIME_BUILD_ROOT / f"v3_llvm_substring_stage2{suffix}"
+    fixture_path = RUNTIME_BUILD_ROOT / "v3_llvm_substring.fk"
+    llvm_path = Path(str(fixture_path) + ".ll")
+    exe_path = RUNTIME_BUILD_ROOT / f"v3_llvm_substring{suffix}"
+    stamp_path = RUNTIME_BUILD_ROOT / "v3_llvm_substring_pipeline.sha256"
+    bootstrap_c_path = ROOT / "build" / "freakc_v3.fk.c"
+    runtime_c = RUNTIME_ROOT / "freak_runtime.c"
+    llvm_runtime_c = RUNTIME_ROOT / "freak_llvm_runtime.c"
+    v3_sources = [
+        ROOT / "src" / "compiler" / "v3" / name
+        for name in (
+            "globals.fk",
+            "helpers.fk",
+            "lexer.fk",
+            "parser.fk",
+            "checker.fk",
+            "emit_c.fk",
+            "emit_llvm.fk",
+            "main.fk",
+        )
+    ]
+    compiler_source = "\n".join(read_text(path) for path in v3_sources)
+    fixture_source = 'say "Alternative".substring(3, 5)\n'
+    bootstrap_c = read_text(bootstrap_c_path)
+    runtime_source = read_text(runtime_c)
+    llvm_runtime_source = read_text(llvm_runtime_c)
+    pipeline_key = hash_text(
+        "v4-v3-llvm-substring-pipeline-v1",
+        clang,
+        bootstrap_c,
+        compiler_source,
+        fixture_source,
+        runtime_source,
+        llvm_runtime_source,
+    )
+    write_text_if_changed(compiler_source_path, compiler_source)
+    write_text_if_changed(fixture_path, fixture_source)
+
+    compiled_now = not (
+        exe_path.exists()
+        and stamp_path.exists()
+        and read_text(stamp_path).strip() == pipeline_key
+    )
+    if compiled_now:
+        platform_link_args: list[str] = []
+        if sys.platform.startswith("win"):
+            platform_link_args.append("-lws2_32")
+        else:
+            platform_link_args.append("-lm")
+
+        stage0 = run_with_heartbeat(
+            [
+                clang,
+                "-o",
+                str(stage0_path),
+                str(bootstrap_c_path),
+                str(runtime_c),
+                include_arg,
+                "-w",
+                "-O0",
+                *platform_link_args,
+            ],
+            label="V3 LLVM substring stage0 compile",
+            memory_limit_mb=1024,
+        )
+        if stage0.returncode != 0:
+            raise RuntimeError(
+                "V3 LLVM substring stage0 compile failed\n"
+                + (stage0.stdout + stage0.stderr)[-4000:]
+            )
+
+        transpiled = run_with_heartbeat(
+            [str(stage0_path), str(compiler_source_path), "--c"],
+            label="V3 LLVM substring current compiler transpile",
+            timeout_seconds=300,
+            memory_limit_mb=512,
+        )
+        if transpiled.returncode != 0 or not compiler_c_path.exists():
+            raise RuntimeError(
+                "V3 LLVM substring current compiler transpile failed\n"
+                + (transpiled.stdout + transpiled.stderr)[-4000:]
+            )
+
+        stage2 = run_with_heartbeat(
+            [
+                clang,
+                "-o",
+                str(stage2_path),
+                str(compiler_c_path),
+                str(runtime_c),
+                include_arg,
+                "-w",
+                "-O0",
+                *platform_link_args,
+            ],
+            label="V3 LLVM substring current compiler link",
+            memory_limit_mb=1024,
+        )
+        if stage2.returncode != 0:
+            raise RuntimeError(
+                "V3 LLVM substring current compiler link failed\n"
+                + (stage2.stdout + stage2.stderr)[-4000:]
+            )
+
+        emitted = run_with_heartbeat(
+            [str(stage2_path), str(fixture_path), "--llvm", "--opt=0"],
+            label="V3 LLVM substring emit",
+            timeout_seconds=120,
+            memory_limit_mb=512,
+        )
+        if emitted.returncode != 0 or not llvm_path.exists():
+            raise RuntimeError(
+                "V3 LLVM substring emit failed\n"
+                + (emitted.stdout + emitted.stderr)[-4000:]
+            )
+        llvm_source = read_text(llvm_path)
+        if "@freak_llvm_word_substring" not in llvm_source:
+            raise RuntimeError("V3 LLVM substring emit omitted the runtime call")
+
+        link_command = [
+            clang,
+            "-o",
+            str(exe_path),
+            str(llvm_path),
+            str(llvm_runtime_c),
+            str(runtime_c),
+            include_arg,
+            "-w",
+            "-O0",
+            *platform_link_args,
+        ]
+        if sys.platform.startswith("linux"):
+            link_command.append("-Wl,-z,muldefs")
+        linked = run_with_heartbeat(
+            link_command,
+            label="V3 LLVM substring native link",
+            memory_limit_mb=1024,
+        )
+        if linked.returncode != 0:
+            raise RuntimeError(
+                "V3 LLVM substring native link failed\n"
+                + (linked.stdout + linked.stderr)[-4000:]
+            )
+
+    executed = run_with_heartbeat(
+        [str(exe_path)],
+        label="V3 LLVM substring execute",
+        timeout_seconds=30,
+        memory_limit_mb=64,
+    )
+    if executed.returncode != 0 or executed.stdout.splitlines() != ["ernat"]:
+        raise RuntimeError(
+            "V3 LLVM substring pipeline execution failed\n"
+            + (executed.stdout + executed.stderr)[-4000:]
+        )
+    if compiled_now:
+        stamp_path.write_text(pipeline_key, encoding="utf-8")
+    compile_mode = "bootstrap" if compiled_now else "cache"
+    print(f"V3 LLVM substring pipeline: compile={compile_mode}")
+
+
 def check_executable_smokes(
     base_source: str,
     smokes: list[dict[str, object]],
-    fixture_artifacts: dict[Path, tuple[str, bool]],
 ) -> None:
     clang = shutil.which("clang")
     if clang is None:
@@ -6093,22 +10012,27 @@ def check_executable_smokes(
     runtime_c = RUNTIME_ROOT / "freak_runtime.c"
     runtime_smoke_c = RUNTIME_BUILD_ROOT / "freak_runtime_v4_smoke.c"
     runtime_source = read_text(runtime_c)
-    runtime_source = runtime_source.replace("#define FREAK_MAX_ARRAYS 256", "#define FREAK_MAX_ARRAYS 8192")
     write_text_if_changed(runtime_smoke_c, runtime_source)
     include_arg = f"-I{RUNTIME_ROOT}"
+    check_process_tree_guard()
+    check_llvm_runtime_primitives(clang, include_arg)
+    check_v3_llvm_substring_pipeline(clang, include_arg)
 
     for smoke in smokes:
         fixture = TESTS_ROOT / str(smoke["fixture"])
         label = rel(fixture)
-        artifact = fixture_artifacts.get(fixture)
-        if artifact is None:
-            artifact = transpile_fixture(base_source, fixture)
-            fixture_artifacts[fixture] = artifact
-        c_source, uses_ui = artifact
+        c_source, uses_ui = transpile_fixture(base_source, fixture)
+        print(f"fixture transpile: {label} c_bytes={len(c_source)} uses_ui={uses_ui}")
         if uses_ui:
             print(f"runtime smoke failed: {label} unexpectedly requires UI")
             raise SystemExit(1)
 
+        print(f"runtime smoke start: {smoke['name']} fixture={label}")
+        extra_cflags: tuple[str, ...] = ()
+        if fixture.name in C_ARRAY_HANDLE_RESOURCE_FIXTURES:
+            extra_cflags = (
+                f"-DFREAK_ARRAY_LIVE_LIMIT={C_ARRAY_HANDLE_RESOURCE_LIMIT}",
+            )
         exe_path, compiled = compile_runtime_smoke(
             clang,
             include_arg,
@@ -6116,20 +10040,51 @@ def check_executable_smokes(
             runtime_source,
             fixture,
             c_source,
+            extra_cflags,
         )
         timeout_seconds = int(smoke.get("timeout", 60))
-        executed = subprocess.run([str(exe_path)], cwd=ROOT, text=True, capture_output=True, timeout=timeout_seconds)
+        default_memory_limit_mb = 128 if "snapshot" in fixture.stem else 512
+        executed = run_with_heartbeat(
+            [str(exe_path)],
+            label=f"runtime execute: {label}",
+            timeout_seconds=timeout_seconds,
+            memory_limit_mb=int(smoke.get("memory_limit_mb", default_memory_limit_mb)),
+        )
         output = executed.stdout + executed.stderr
         if executed.returncode != 0:
             print(f"runtime execution failed: {label} exit={executed.returncode}")
             print(output[:4000])
             raise SystemExit(1)
 
-        missing = [needle for needle in smoke["expect"] if needle not in output]
-        if missing:
+        output_lines = output.splitlines()
+        output_line_counts = Counter(output_lines)
+        if smoke.get("expect_mode") == "line":
+            missing = [needle for needle in smoke["expect"] if needle not in output_lines]
+        else:
+            missing = [needle for needle in smoke["expect"] if needle not in output]
+        missing_exact = [line for line in smoke.get("expect_exact", []) if line not in output_lines]
+        missing.extend(missing_exact)
+        unique_failures: list[tuple[str, int, int, int | None]] = []
+        if smoke.get("expect_unique"):
+            registered_lines = [*smoke["expect"], *smoke.get("expect_exact", [])]
+            unique_failures = unique_output_failures(
+                registered_lines, output_line_counts
+            )
+        if missing or unique_failures:
             print(f"runtime smoke failed: {label}")
             for needle in missing:
                 print(f"missing output: {needle}")
+            for line, registered_count, output_count, keyed_output_count in unique_failures:
+                keyed_detail = (
+                    ""
+                    if keyed_output_count is None
+                    else f" keyed_emitted={keyed_output_count}"
+                )
+                print(
+                    "non-unique output: "
+                    f"registered={registered_count} emitted={output_count}"
+                    f"{keyed_detail} line={line}"
+                )
             print(output[:4000])
             raise SystemExit(1)
 
@@ -6138,6 +10093,12 @@ def check_executable_smokes(
             f"runtime smoke: {smoke['name']} fixture={label} "
             f"compile={compile_mode} output_bytes={len(output)}"
         )
+        del c_source
+        del executed
+        del output
+        del output_lines
+        del output_line_counts
+        check_runner_retained_memory()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -6171,7 +10132,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global RUNNER_PEAK_RETAINED_BYTES
+    RUNNER_PEAK_RETAINED_BYTES = 0
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(line_buffering=True)
     args = parse_args(argv)
+    check_process_memory_sampler()
     crates = crate_paths()
     fixtures = fixture_paths()
     all_files = crates + fixtures + [V4_ROOT / "README.md"]
@@ -6207,9 +10175,22 @@ def main(argv: list[str] | None = None) -> int:
             mode_bits.append(f"shard={args.smoke_shard}")
         print("mode: targeted " + " ".join(mode_bits))
 
-    fixture_artifacts = check_fixture_transpile(base_source, transpile_targets)
-    if not args.fast:
-        check_executable_smokes(base_source, selected_smokes, fixture_artifacts)
+    if args.fast:
+        check_fixture_transpile(base_source, transpile_targets)
+    else:
+        runtime_targets = {TESTS_ROOT / str(smoke["fixture"]) for smoke in selected_smokes}
+        check_fixture_transpile(
+            base_source,
+            [fixture for fixture in transpile_targets if fixture not in runtime_targets],
+        )
+        check_executable_smokes(base_source, selected_smokes)
+    check_runner_retained_memory()
+    if RUNNER_PEAK_RETAINED_BYTES > 0:
+        print(
+            "runner memory: "
+            f"peak-retained={RUNNER_PEAK_RETAINED_BYTES / (1024 * 1024):.1f}MB "
+            f"limit={RUNNER_RETAINED_MEMORY_LIMIT_MB}MB"
+        )
     print("Maverick checks passed")
     return 0
 

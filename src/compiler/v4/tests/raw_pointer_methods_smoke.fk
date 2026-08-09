@@ -1,0 +1,110 @@
+-- V4 raw-pointer method forms smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_raw_ptr_methods_good_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task lookup() -> *const std::ffi::c_int\n"
+    src = src + "    task lookup_mut() -> *mut std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task read_method() -> std::ffi::c_int {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"read via method\" on my honor as .cadet {\n"
+    src = src + "        give back p.read()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task write_method(value: std::ffi::c_int) -> void {\n"
+    src = src + "    pilot p = lookup_mut()\n"
+    src = src + "    trust me \"write via method\" on my honor as .pilot {\n"
+    src = src + "        p.write(value)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task RawPtrWrite(value: std::ffi::c_int) -> std::ffi::c_int {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task collide() -> std::ffi::c_int {\n"
+    src = src + "    give back RawPtrWrite(41)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_raw_ptr_methods_bad_source() -> word {
+    pilot src = "extern [C] {\n"
+    src = src + "    task lookup() -> *const std::ffi::c_int\n"
+    src = src + "    task lookup_mut() -> *mut std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task read_outside() -> std::ffi::c_int {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    give back p.read()\n"
+    src = src + "}\n"
+    src = src + "task write_cadet(value: std::ffi::c_int) -> void {\n"
+    src = src + "    pilot p = lookup_mut()\n"
+    src = src + "    trust me \"too junior\" on my honor as .cadet {\n"
+    src = src + "        p.write(value)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task write_const(value: std::ffi::c_int) -> void {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"const write\" on my honor as .pilot {\n"
+    src = src + "        p.write(value)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task read_arity() -> std::ffi::c_int {\n"
+    src = src + "    pilot p = lookup()\n"
+    src = src + "    trust me \"bad read\" on my honor as .cadet {\n"
+    src = src + "        give back p.read(0)\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task write_arity(value: std::ffi::c_int) -> void {\n"
+    src = src + "    pilot p = lookup_mut()\n"
+    src = src + "    trust me \"bad write\" on my honor as .pilot {\n"
+    src = src + "        p.write()\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_raw_ptr_methods_good_text = v4_raw_ptr_methods_good_source()
+pilot v4_raw_ptr_methods_good_stream = v4_lex_text(0, v4_raw_ptr_methods_good_text)
+pilot v4_raw_ptr_methods_good_tree = v4_parse_stream(0, v4_raw_ptr_methods_good_stream)
+pilot v4_raw_ptr_methods_good_hir = v4_hir_lower_tree(0, v4_raw_ptr_methods_good_tree)
+pilot v4_raw_ptr_methods_good_resolve = v4_resolve_lower_hir(0, v4_raw_ptr_methods_good_hir)
+pilot v4_raw_ptr_methods_good_ty = v4_ty_lower_resolve(0, v4_raw_ptr_methods_good_resolve)
+pilot v4_raw_ptr_methods_good_mir = v4_mir_lower_ty(0, v4_raw_ptr_methods_good_ty)
+pilot v4_raw_ptr_methods_good_llvm = v4_codegen_llvm_lower_mir(0, v4_raw_ptr_methods_good_mir)
+
+pilot v4_raw_ptr_methods_read_body = v4_codegen_llvm_find_body(v4_raw_ptr_methods_good_llvm, "read_method")
+pilot v4_raw_ptr_methods_write_body = v4_codegen_llvm_find_body(v4_raw_ptr_methods_good_llvm, "write_method")
+pilot v4_raw_ptr_methods_collide_body = v4_codegen_llvm_find_body(v4_raw_ptr_methods_good_llvm, "collide")
+pilot v4_raw_ptr_methods_collide_call = v4_codegen_llvm_find_call(v4_raw_ptr_methods_good_llvm, "collide", "RawPtrWrite")
+pilot v4_raw_ptr_methods_read_def = v4_resolve_def_for_name(v4_raw_ptr_methods_good_resolve, "read_method")
+pilot v4_raw_ptr_methods_write_def = v4_resolve_def_for_name(v4_raw_ptr_methods_good_resolve, "write_method")
+pilot v4_raw_ptr_methods_read_mir_body = v4_mir_lookup_body(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_read_def)
+pilot v4_raw_ptr_methods_write_mir_body = v4_mir_lookup_body(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_write_def)
+
+say "raw-ptr-method-good-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_raw_ptr_methods_good_ty))
+say "raw-ptr-method-good-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_methods_good_mir))
+say "raw-ptr-method-good-call-count=" + word_from_int(v4_codegen_llvm_call_count(v4_raw_ptr_methods_good_llvm))
+say "raw-ptr-method-read-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_methods_good_llvm, v4_raw_ptr_methods_read_body)
+say "raw-ptr-method-write-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_methods_good_llvm, v4_raw_ptr_methods_write_body)
+say "raw-ptr-method-collide-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_methods_good_llvm, v4_raw_ptr_methods_collide_body)
+say "raw-ptr-method-collide-call-line=" + v4_codegen_llvm_call_line(v4_raw_ptr_methods_good_llvm, v4_raw_ptr_methods_collide_call)
+say "raw-ptr-method-read-rvalue-kind=" + v4_mir_rvalue_kind(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_read_mir_body, v4_mir_stmt_rvalue(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_read_mir_body, 1))
+say "raw-ptr-method-read-rvalue-op=" + v4_mir_rvalue_op(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_read_mir_body, v4_mir_stmt_rvalue(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_read_mir_body, 1))
+say "raw-ptr-method-write-rvalue-kind=" + v4_mir_rvalue_kind(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_write_mir_body, v4_mir_stmt_rvalue(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_write_mir_body, 1))
+say "raw-ptr-method-write-rvalue-op=" + v4_mir_rvalue_op(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_write_mir_body, v4_mir_stmt_rvalue(v4_raw_ptr_methods_good_mir, v4_raw_ptr_methods_write_mir_body, 1))
+
+pilot v4_raw_ptr_methods_bad_text = v4_raw_ptr_methods_bad_source()
+pilot v4_raw_ptr_methods_bad_stream = v4_lex_text(1, v4_raw_ptr_methods_bad_text)
+pilot v4_raw_ptr_methods_bad_tree = v4_parse_stream(1, v4_raw_ptr_methods_bad_stream)
+pilot v4_raw_ptr_methods_bad_hir = v4_hir_lower_tree(1, v4_raw_ptr_methods_bad_tree)
+pilot v4_raw_ptr_methods_bad_resolve = v4_resolve_lower_hir(1, v4_raw_ptr_methods_bad_hir)
+pilot v4_raw_ptr_methods_bad_ty = v4_ty_lower_resolve(1, v4_raw_ptr_methods_bad_resolve)
+pilot v4_raw_ptr_methods_bad_mir = v4_mir_lower_ty(1, v4_raw_ptr_methods_bad_ty)
+
+say "raw-ptr-method-bad-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_methods_bad_mir))
+say "raw-ptr-method-bad-diag0-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_methods_bad_mir, 0))
+say "raw-ptr-method-bad-diag1-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_methods_bad_mir, 1))
+say "raw-ptr-method-bad-diag1-help=" + v4_diag_help(v4_mir_diag(v4_raw_ptr_methods_bad_mir, 1))
+say "raw-ptr-method-bad-diag2-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_methods_bad_mir, 2))
+say "raw-ptr-method-bad-diag3-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_methods_bad_mir, 3))
+say "raw-ptr-method-bad-diag4-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_methods_bad_mir, 4))

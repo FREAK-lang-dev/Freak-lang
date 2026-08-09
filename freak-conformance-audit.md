@@ -7,6 +7,10 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**V4 closure checkpoint (2026-07-18):** Maverick now carries resilient default/`copy`/`move`/`mut` closure syntax through HIR, TY, MIR, Meiya, editor/LSP facts, snapshot restore, and deterministic all-family invalidation. Capture discovery is lexical-scope and member-position aware, Callable environments can be copied, and resolved mutable receiver calls require `mut` capture. This is a frontend/query and ownership checkpoint; native closure-environment codegen, nested/generic closure inference, borrowed-return closure contracts, and `Send`/`Sync` proof remain open.
+
+**V4 loop-provenance checkpoint (2026-07-18):** Meiya now computes deterministic least fixed points for returned-loan provenance across loop headers, backedges, and mutually recursive scalar-holder aliases. Concrete owner sets are monotonic and deduplicated; identity cycles converge, source-less or path-growing cycles fail closed, convergence is bounded and queryable, snapshots retain the solved `ReturnLoan` facts, a live source edit proves all-family invalidation/recomputation while shrinking a two-owner loop to one owner, and a solved-memo frontier keeps 256 independent roots linear instead of replaying every earlier memo.
+
 ---
 
 ## 1. Executive summary
@@ -16,8 +20,8 @@
 | Bible sections audited | 17 (§1–§17) | + cheatsheet §15 |
 | Testable contracts identified | ~445 | derived from Phase-1 exploration |
 | Contracts ✅ aligned | ~150 (34%) | core syntax, primitives, basic stdlib, audit suite, Phase-1 BC, LB10 line-table DWARF |
-| Contracts ⚠️ stubbed | ~108 (24%) | parsed but not enforced (anime layer, partial doctrines, Phase-1 BC default-off) |
-| Contracts ❌ missing | ~187 (42%) | variants, mood/prob/power/causality, squadron, full BC, dyn dispatch, FFI surface, error voices |
+| Contracts ⚠️ stubbed | ~120 (27%) | parsed/carried but not yet production-complete (anime layer, V4 semantic-core carriers, first-pass closure captures, partial doctrines including first-pass dyn Doctrine, Phase-1 BC default-off) |
+| Contracts ❌ missing | ~175 (39%) | mood/prob/power/causality, squadron, remaining full-BC depth, dyn vtable/codegen dispatch, remaining FFI/runtime surface, error voices |
 | Verdict 🛠 fix code | 0 remaining | all 11 cheap fixes shipped (audit cmds, audit-conformance, Ord/Index, freak test, test_maybe + test_pipe, winget, LB10) |
 | Verdict 📖 amend bible (V4 tag) | ~140 | bulk of the gaps — bible §0.2 reflects |
 | Verdict ✅ already aligned | ~150 | preserved as-is |
@@ -49,18 +53,18 @@ The bible itself acknowledges (line 12) that "FREAK Lite (the Python → C trans
 
 | # | Bible promise | Reality | Severity | Verdict |
 |---|---|---|---|---|
-| 1 | `variant` sum types with destructuring patterns | Not in lexer/parser/checker | 🔴 | 📖 V4 |
+| 1 | `variant` sum types with destructuring patterns | V4 parses `variant` through the route representation, carries payload constructors/patterns through TY/MIR/editor, and now pins alias-backed exhaustiveness diagnostics; backend layout still expands | 🟡 | 📖 V4 |
 | 2 | `mood`, `prob`, `power`, `causality` types | No layer | 🔴 | 📖 V4 |
 | 3 | `prob_when` branching | Not parsed | 🔴 | 📖 V4 |
-| 4 | Pattern destructuring in `when` | Literal patterns only | 🔴 | 📖 V4 |
+| 4 | Pattern destructuring in `when` | V4 lowers tuple, fixed-array, and route/variant payload patterns with refutable-pattern and exhaustiveness diagnostics; broader pattern forms still expand | 🟡 | 📖 V4 |
 | 5 | Squadron concurrency: `xm3`, `sortie`, `formation`, `briefing room`, `wingman` | Only `std::thread` | 🔴 | 📖 V4 |
-| 6 | Full borrow checker: `lend`/`lend mut`, `'a` lifetimes, `Shared<T>`/`Weak<T>` | Phase-1 BC only (mut + move), behind `--strict-borrow` | 🟡 | 📖 split into Phase-1 (current) + V4 sections |
-| 7 | `dyn Doctrine` dynamic dispatch | Not implemented | 🔴 | 📖 V4 |
+| 6 | Full borrow checker: `lend`/`lend mut`, `'a` lifetimes, `Shared<T>`/`Weak<T>` | v0.13.x has Phase-1 mut/move checking; V4 now carries explicit ordinary-task outlives bounds with reflexive/transitive cycle-safe closure, controlled named/elided multi-source returned loans, bounded cache/resource contracts, projected-holder reborrows, deterministic loop-header/backedge provenance fixed points, recursive nominal lend-substitution rejection plus fail-closed direct nominal impl/operator calls and distinct classifier-exhaustion diagnostics, first-pass default/`copy`/`move`/`mut` closure capture ownership, and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed provenance, projection-assignment rebinding (including conservative dynamic-index overlap), field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Declaration-order children require `freak-mir-snapshot-v5`; v4 is rejected and restore re-resolves IDs in fresh provenance scratch. Body-derived/general lexical inference, non-ordinary aggregate task boundaries, dynamic and wrapper containers, lend-bearing aliases/doctrines/callbacks, `'static`, general arena reclamation, runtime shared ownership, closure `Send`/`Sync`, native closure codegen, and fixed-aggregate backend lowering remain. Method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax now exists but borrowed-return closure contracts do not | 🟡 | 📖 split into Phase-1 (current) + V4 sections |
+| 7 | `dyn Doctrine` dynamic dispatch | V4 now carries `dyn Doctrine` type text, unknown-doctrine/object-safety diagnostics, concrete and generic coercion checks, MIR method-call facts, and editor facts; real fat-pointer/vtable backend dispatch still expands | 🟡 | 📖 V4 |
 | 8 | Operator doctrines `Ord`, `Index`, `IndexMut` | Only Add/Sub/Mul/Div/Neg/Eq wired | 🟡 | 🛠 fix if cheap, else 📖 V4 |
 | 9 | `eventually` LIFO deferred execution | Emitted as inline block | 🟡 | 📖 clarify current; full deferred V4 |
 | 10 | `payoff` strict enforcement, `isekai` export validation | Comments only | 🟡 | 📖 V4 strict mode |
 | 11 | Death-flag tiers, `@nakige`/`@experiment` caller-prefix enforcement | Annotations parsed, enforcement absent | 🟡 | 📖 V4 |
-| 12 | `tiny`, `uint`, `char`, `big`, `float32`, fixed `[T; N]` | Type checker knows int/num/word/bool/void only | 🔴 | 📖 V4 (add minimal aliases now) |
+| 12 | `tiny`, `uint`, `char`, `big`, `float32`, fixed `[T; N]`, tuples | V4 carries primitive carriers, tuple/fixed-array type text, numeric suffixes, TY/MIR facts, and scalar LLVM type plans for primitive carriers; runtime semantics, tuple/fixed-array layout, and full production backend depth still expand | 🟡 | 📖 V4 |
 | 13 | Audit commands in native CLI | Python-only; `build/freak.exe` doesn't dispatch | 🟡 | 🛠 wire native CLI |
 | 14 | Error voices (Meiya/Yuuko/Sagiri/Kasumi/Takeru/Mana/Hayase/Sumika/00-Unit) | Mostly generic errors | 🟡 | 📖 V4 |
 | 15 | FFI surface: `extern [C]` calling conventions, `@layout`, raw pointer ops | V4 has landed substantial section-16 work; per-landing breakdown lives in [§16 below](#§16-system-boundaries-ffi). Trust-me-gated raw pointer ops, runtime panic-catch in trampoline bodies, and deeper ABI coverage still expand | 🟡 | 📖 V4 |
@@ -98,7 +102,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | String interpolation `"{expr}"` | ✅ | ✅ | [freakc/emitter.py:1050-1100](freakc/emitter.py) |
 | Arrow shorthand `task square(x) => x*x` | ✅ | ✅ | parsed and emitted |
 | `done` synonym for `}` | ✅ | ✅ | |
-| Named parameters at call site `connect(host: "x", port: 80)` | ❌ | 📖 V4 | not parsed; bible promises it |
+| Named parameters at call site `connect(host: "x", port: 80)` | ⚠️ | 📖 V4 | V4 lowers named call-site arguments for task calls, generic calls, instance methods, associated methods, and extern/callback calls, with unknown/duplicate/missing/positional-after-named diagnostics plus editor completion/definition facts; production backend parity still expands |
 
 #### §1.3 Types — Primitive ([freak-full-bible.md:73-93](freak-full-bible.md))
 
@@ -106,19 +110,19 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 |---|---|---|---|
 | `num` | ✅ | ✅ | |
 | `int` | ✅ | ✅ | |
-| `uint` | ❌ | 📖 V4 | type checker treats as `int`; no unsigned semantics |
-| `tiny` (u8) | ❌ | 📖 V4 | not in checker |
-| `float` (f64) | ⚠️ | 📖 V4 | aliased to num at codegen |
-| `float32` | ❌ | 📖 V4 | not in checker |
-| `big` (arbitrary precision) | ❌ | 📖 V4 | no big-int runtime |
+| `uint` | ⚠️ | 📖 V4 | V4 carries `uint` through TY/MIR/LLVM type plans and numeric suffix inference; complete unsigned runtime/backend semantics still expand |
+| `tiny` (u8) | ⚠️ | 📖 V4 | V4 carries `tiny` through TY/MIR/LLVM type plans, numeric suffix inference, and FFI scalar checks; complete runtime/backend semantics still expand |
+| `float` (f64) | ⚠️ | 📖 V4 | V4 carries `float` as distinct surface text with LLVM double mapping; broader numeric semantics still expand |
+| `float32` | ⚠️ | 📖 V4 | V4 carries `float32` through TY/MIR/LLVM type plans and variadic promotion checks; complete runtime/backend semantics still expand |
+| `big` (arbitrary precision) | ⚠️ | 📖 V4 | V4 carries `big` through TY/MIR/codegen placeholders and numeric suffix inference; arbitrary-precision runtime remains later |
 | `word` (UTF-8 string fat pointer) | ✅ | ✅ | runtime fat pointer; |
 | `bool` (true/false/yes/no/hai/iie) | ✅ | ✅ | [freakc/lexer.py:130-137](freakc/lexer.py) |
-| `char` (Unicode scalar 32-bit) | ❌ | 📖 V4 | no codepoint type |
+| `char` (Unicode scalar 32-bit) | ⚠️ | 📖 V4 | V4 carries char literals and `char` through TY/MIR/LLVM type plans; full Unicode scalar validation/runtime remains later |
 | `void` | ✅ | ✅ | |
-| `never` (bottom type) | ❌ | 📖 V4 | no never-type inference |
-| `[T; N]` fixed-size array | ⚠️ | 📖 V4 | dynamic List<T> exists; fixed arrays not stack-allocated |
-| `(A, B, ...)` tuple | ❌ | 📖 V4 | parser doesn't handle tuple types |
-| `*T`, `*const T`, `*mut T` raw pointers | ⚠️ | 📖 V4 | only via `extern`; no in-language pointer arithmetic |
+| `never` (bottom type) | ⚠️ | 📖 V4 | V4 carries the bottom type and compatibility rule in TY; full divergence/control-flow inference still expands |
+| `[T; N]` fixed-size array | ⚠️ | 📖 V4 | V4 parses/carries fixed-array type text, literal/repeat-fill MIR facts, const length arithmetic, destructuring, and LLVM type plans; stack layout/runtime depth still expands |
+| `(A, B, ...)` tuple | ⚠️ | 📖 V4 | V4 parses/carries tuple type text, tuple literals, slot access, destructuring, and TY/MIR/editor facts; final backend layout still expands |
+| `*T`, `*const T`, `*mut T` raw pointers | ⚠️ | 📖 V4 | via `extern` plus trust-me-gated deref/read/write/offset/cast operations; raw allocation/freeing still expand |
 
 #### §1.4 Types — Compound
 
@@ -138,7 +142,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Field access `instance.field` | ✅ | ✅ | |
 | `Foo { field: value }` instantiation | ✅ | ✅ | |
 | Method calls `instance.method()` | ✅ | ✅ | |
-| `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | not commonly tested |
+| `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | V4 lowers concrete impl UFCS calls like `Pilot::boost(ship, bonus: 3)`, generic-owner `Box<int>::take(box)`, and doctrine-bound calls like `T::score(value, bonus: 2)` into MIR with receiver/value arguments plus arity and receiver-type diagnostics. Doctrine-bound static calls such as `T::baseline()` carry instantiated doctrine arguments through editor facts; body generics outrank same-named global aliases, and overlapping bound methods produce an ambiguity diagnostic instead of declaration-order dispatch. Production backend parity still expands |
 
 #### §1.6 Doctrines (Traits)
 
@@ -152,22 +156,22 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Operator overloading: `Ord` (`<`, `>`, `<=`, `>=`) | ⚠️ | 🛠 wired in Python compiler (4 methods: lt/gt/le/ge); V3 emitter still missing — V4 |
 | Operator overloading: `Index` | ✅ | ✅ wired in Python compiler ([freakc/emitter.py:924-934](freakc/emitter.py)); V3 emitter still missing — V4 |
 | Operator overloading: `IndexMut` (`a[i] = x`) | ❌ | 📖 V4 | requires lvalue-assignment rewrite |
-| `dyn Doctrine` dynamic dispatch with vtable | ❌ | 📖 V4 | no vtable codegen |
-| Multi-bound generics `T: A + B` | ⚠️ | 📖 V4 | V4 parses top-level `+` bounds and carries them through TY/MIR/editor queries; dyn/object-safe surfaces still expand |
-| `dyn` object-safety rules | ❌ | 📖 V4 | not implemented |
+| `dyn Doctrine` dynamic dispatch with vtable | ⚠️ | 📖 V4 | V4 carries dyn type positions, coercion checks, MIR call facts, and editor facts; runtime fat-pointer/vtable codegen is still missing |
+| Multi-bound generics `T: A + B` | ⚠️ | 📖 V4 | V4 parses top-level `+` bounds and carries them through TY/MIR/editor queries, including generic coercion into `dyn Doctrine`; production monomorphization still expands |
+| `dyn` object-safety rules | ⚠️ | 📖 V4 | V4 TY/MIR now diagnose unknown dyn doctrines plus first-pass object-safety failures (`Self` in dispatched signatures and no-receiver methods), and validates concrete/generic coercion into dyn slots; richer `where Self: Sized` nuance and backend vtables still expand |
 
 #### §1.7 Control Flow
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
 | `if`/`else` | ✅ | ✅ | |
-| `when` pattern matching with literal patterns | ⚠️ | 📖 V4 | only literals, no destructuring |
-| `when` pattern destructuring `Variant::Case { field }` | ❌ | 📖 V4 | core gap |
+| `when` pattern matching with literal patterns | ⚠️ | 📖 V4 | V4 also lowers tuple, fixed-array, and route/variant payload patterns; production V3 remains narrower |
+| `when` pattern destructuring `Variant::Case { field }` | ⚠️ | 📖 V4 | V4 carries payload destructuring, refutable-pattern checks, exhaustive route/variant `when`, and alias-backed duplicate/unreachable diagnostics; broader pattern ergonomics still expand |
 | `for each item in list` | ✅ | ✅ | |
 | `repeat N times` | ✅ | ✅ | |
 | `repeat until condition` | ✅ | ✅ | |
 | `training arc until cond max N sessions` | ✅ | ✅ | parsed and emitted as bounded while |
-| `training arc with growth` variant | ❌ | 📖 V4 | not enforced |
+| `training arc with growth` variant | ⚠️ | 📖 V4 | V4 MIR enforces condition-subject mutation for local and projected places; full production backend parity still pending |
 | `prob_when expr { >= 0.9 -> ... }` | ❌ | 📖 V4 | not parsed |
 | `break`/`continue` | ✅ | ✅ | |
 
@@ -176,10 +180,10 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
 | `\|x\| => expr` lambda syntax | ✅ | ✅ | [freakc/emitter.py:1339-1424](freakc/emitter.py) |
-| Default immutable-borrow capture | ⚠️ | 📖 V4 | no enforcement; closures capture by value |
-| `copy` closure mode (thread-safe) | ❌ | 📖 V4 | parsed but no semantics |
-| `move` closure (OneShot) | ❌ | 📖 V4 | parsed but no semantics |
-| `mut` closure (MutCallable) | ❌ | 📖 V4 | parsed but no semantics |
+| Default immutable-borrow capture | ⚠️ | 📖 V4 | V4 MIR emits `CaptureBorrow`; Meiya ties the loan to the stored closure holder and blocks owner rewrites/moves while a later reachable closure use keeps it live. Nested closures and backend environment layout remain |
+| `copy` closure mode (thread-safe) | ⚠️ | 📖 V4 | V4 MIR emits `CaptureCopy` and rejects non-Copy captured types. Thread-safe `Send`/`Sync` proof and native environment codegen remain, so the full thread-safe promise is not yet complete |
+| `move` closure (OneShot) | ⚠️ | 📖 V4 | V4 TY assigns `closure[OneShot,move]`; MIR emits `CaptureMove`; Meiya consumes the closure local on call and rejects a second invocation |
+| `mut` closure (MutCallable) | ⚠️ | 📖 V4 | V4 TY assigns `closure[MutCallable,mut]`; MIR emits `CaptureBorrowMut`; Meiya enforces exclusive capture access and a non-`mut` closure cannot rewrite an outer binding |
 
 #### §1.9 Pipe Operator
 
@@ -199,8 +203,8 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
 | `task name<T>(x: T)` parametric type params | ⚠️ | 📖 V4 | parsed; monomorphization via emitter is partial |
-| Trait bounds `T: Doctrine` | ⚠️ | 📖 V4 | V4 enforces doctrine bounds on generic call sites and bound-method editor facts; backend/monomorphization depth still expands |
-| Multi-bound `T: A + B` | ⚠️ | 📖 V4 | V4 parses and enforces multiple doctrine bounds across generic calls and bound-method tooling; broader generic depth remains |
+| Trait bounds `T: Doctrine` | ⚠️ | 📖 V4 | V4 enforces doctrine bounds on generic call sites, instance methods, bound static methods, and doctrine-bound UFCS. Instantiated doctrine arguments propagate before alias canonicalization through MIR/editor parameter and return facts, generic names outrank global aliases, and overlapping bound-method names diagnose ambiguity; backend/monomorphization depth still expands |
+| Multi-bound `T: A + B` | ⚠️ | 📖 V4 | V4 parses and enforces multiple doctrine bounds across generic calls and bound-method tooling, including associated and UFCS lookup; broader generic depth remains |
 
 #### §1.12 Borrow Checker — see §4 below
 
@@ -210,9 +214,11 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `variant Foo { Case1, Case2 { fields } }` sum types | ❌ | 📖 V4 | parser has no variant production |
-| Pattern matching on variants exhaustive | ❌ | 📖 V4 | depends on variants |
-| `alias Matrix = [[num; 4]; 4]` type aliases | ❌ | 📖 V4 | not parsed |
+| `variant Foo { Case1, Case2 { fields } }` sum types | ⚠️ | 📖 V4 | V4 parses `variant` as the route-family sum-type representation and carries cases through TY/MIR/editor/snapshot queries; final backend layout remains later |
+| Pattern matching on variants exhaustive | ⚠️ | 📖 V4 | V4 diagnoses missing and unreachable route/variant arms, including alias-backed scrutinee types |
+| `alias Matrix = [[num; 4]; 4]` type aliases | ⚠️ | 📖 V4 | V4 parses aliases, canonicalizes through TY/MIR, diagnoses alias cycles, and preserves editor/query facts; production V3 remains narrower. This does not make aliases nominal types. |
+| `impl Doctrine for Alias` rejected as alias nominality violation | ⚠️ | 📖 V4 | Promoted V4 Semantic Core contract: aliases remain compile-time substitutions, so naming an alias cannot create a fresh doctrine impl slot. Use a nominal `shape` / `variant` when distinct doctrine identity is required. The conformance guard expects `v4_ty_validate_alias_nominality`, `alias-nominality-diagnostics=1`, and `alias nominality` markers. |
+| Direct recursive shapes/variants rejected unless indirection breaks the value cycle | ⚠️ | 📖 V4 | V4 TY now rejects direct, mutual, alias-mediated, deep-alias, generic-wrapper, import-expanded, and recursive-alias owned recursion for shapes and variants, while allowing recursion through builtin `Shared<T>`, `Weak<T>`, `List<T>`, and raw pointers. Locally declared or imported carrier-name shadows are not trusted as indirection, local type names win over imports, phantom generic alias args are not followed after erasure, recursive generic nominal walks are bounded, and owner-name generic shadows diagnose before recursion walking. The conformance guard expects `v4_ty_validate_direct_type_recursion`, `type-recursion-ty-diagnostics=10`, `type-recursion-import-ty-diagnostics=2`, and `Yuuko infinite shape` / `Yuuko infinite variant` smoke markers. |
 | `fixed pilot NAME: T = const_expr` root-level constants | ⚠️ | 📖 V4 | cycle detection works; integer const chains/arithmetic, tuple/list/repeat-fill plus generic shape/route-constructor type inference, const task calls, constructor payload validation, and declared initializer mismatch diagnostics are in V4, full const-eval remains |
 
 #### §1.15 Literals
@@ -274,21 +280,150 @@ Phase-1 (currently shipped, behind `--strict-borrow`):
 | `pilot x` immutable, `pilot mut x` mutable | ✅ | ✅ | "This binding was sworn to silence." for immutable reassign |
 | Default mode: leak-everything (no BC) | ✅ | ✅ | bible should make this explicit |
 
-V4 (not implemented):
+V4 (partially implemented unless marked otherwise):
 
 | §4 contract | Status | Verdict |
 |---|---|---|
 | `lend p: T` immutable borrow parameter | ⚠️ | 📖 V4 — TY/MIR carry the contract; Meiya rejects immutable-lend writes and moves out of borrowed params |
-| `lend mut p: T` exclusive mutable borrow | ⚠️ | 📖 V4 — TY/MIR carry the contract; mutable lends may write but still cannot be moved/dropped by the callee |
-| `lend value` / `lend mut value` expressions | ⚠️ | 📖 V4 — MIR lowers explicit borrow rvalues; Meiya tracks bound-local uses and expires call-only lends at the call boundary |
-| Borrow-vs-move rules | ⚠️ | 📖 V4 — borrowed-parameter move blocking plus first-pass non-lexical explicit-loan rewrite conflicts exist; full region inference still expands |
-| Lifetime parameters `'a` | ⚠️ | 📖 V4 — lex/TY/editor diagnostics exist; full region inference remains |
-| Inferred lifetimes / elision | ❌ | 📖 V4 |
-| `Shared<T>` ref-counted | ❌ | 📖 V4 |
-| `Weak<T>` non-owning observer | ❌ | 📖 V4 |
-| `.borrow()` / `.borrow_mut()` / `.get_mut()` | ❌ | 📖 V4 |
-| `trust me "reason" on my honor as .level { }` honor levels (cadet/pilot/ace/commander/humanity) | ⚠️ | 📖 V4 (parsed for audit, not enforced) |
+| `lend mut p: T` exclusive mutable borrow | ⚠️ | 📖 V4 — TY/MIR carry the contract; mutable lends may write but still cannot be moved/dropped by the callee; explicit `LoanMut` paths reject overlapping live explicit loans and owner-side observations |
+| `lend value` / `lend mut value` expressions | ⚠️ | 📖 V4 — MIR lowers explicit borrow rvalues and typed field/index projections through loan holders; Meiya permits writes only through `lend mut`, rejects non-Copy moves out through either holder mode, tracks projected mutable writes for liveness, rejects aliased `lend mut` call arguments and owner reads during live mutable loans, and expires sequential call-only lends at the call boundary |
+| Borrowed returns `-> lend T` / `-> lend mut T` | ⚠️ | 📖 V4 — TY/MIR carry elided and explicit `-> lend 'a T` / `-> lend mut 'a T` shapes. Ordinary-task named returns deterministically select every mode-compatible parameter whose declared lifetime equals or outlives the return lifetime; elided returns select every mode-compatible borrowed parameter. Shared returns accept `lend` and `lend mut`, while mutable returns accept only `lend mut`. MIR owns the deterministic signature-source-to-call-argument candidate mapping, not owner provenance; Meiya resolves concrete caller paths through projections, scalar holders, projected scalar-holder reborrows, statically resolved ordinary calls, reordered args, acyclic CFG joins, and bounded deterministic loop-header/backedge fixed points, then emits `ReturnLoan` / `ReturnLoanMut`. Those paths keep all candidate owners live through the final reachable holder use and survive snapshots/invalidation. Callee-owned escape, immutable-to-mutable upgrades, missing outlives relations, malformed targets, lend-bearing generic substitutions, `'static`, non-ordinary aggregate task boundaries, and unsupported carriers diagnose. Method/dynamic/callback/extern/FFI forwarding calls are explicitly rejected. Closure expressions now carry capture ownership, but closure types cannot yet express borrowed-return contracts |
+| Task-local fixed-layout loan storage | ⚠️ | 📖 V4 — tuples, fixed arrays, shapes, and route payloads may store shared or mutable lends in local values. Tuple/array slots use structural keys; shape/route children are normalized to declaration order and keyed by declared field. Projection assignment redefines only that holder: its old loan ends, its new owner is protected, and siblings survive; aggregate moves into projected destinations retain relative child provenance. Projection-aware provenance gives field-sensitive final-use liveness, conservative whole/dynamic-index unions, and `LoanMut` exclusivity; repeated mutable-lend array fill is rejected. Generic-call, owner-generic, and `Shared<T>::new` checks recursively expand nominal shapes/routes such as `Direct<'a>`. Declaration-order children require `freak-mir-snapshot-v5`; v4 is rejected, restore starts fresh borrowck provenance scratch, and `A -> B -> restore A` re-resolves MIR/borrowck/editor IDs. Ordinary-task fixed-layout aggregate parameters and returns now preserve leaf provenance; non-ordinary aggregate task boundaries, dynamic and wrapper containers, aliases, doctrines, callbacks, general lexical inference, runtime ABI/layout, and backend lowering remain open |
+| Borrow-vs-move rules | ⚠️ | 📖 V4 — borrowed-parameter move blocking plus first-pass non-lexical explicit-loan rewrite and owned-move conflicts, including call arguments, all-path CFG repair proof for partial moves, statement-order-aware linear moved-local drop suppression, all-exit CFG drop suppression, and conditional `DropIf` markers for mixed moved/initialized exits with loop backedge state preservation, exist; full region inference still expands |
+| Lifetime parameters `'a` | ⚠️ | 📖 V4 — lexer/parser/TY preserve named lifetime binders and explicit ordinary-task `'long: 'short` relations on lend parameters/returns. Declared binders are reflexive, direct edges close transitively, cycles produce mutual reachability, and an iterative worklist handles converging/long graphs without recursive stack growth. Semantic/hover/definition facts cover declarations and outlives-bound references; repeated or forward bound references resolve to the declared binder, and distinct spans survive editor snapshots. Spanned diagnostics and full query invalidation/recomputation are covered. `'_` remains elided and cannot be declared or used as a bound; `'static` ordinary-task borrowed contracts remain reserved. Local fixed-layout storage is covered by the preceding row; body-derived/general lexical solving and lifetime-bearing non-ordinary aggregate task boundaries remain open |
+| Inferred lifetimes / elision | ⚠️ | 📖 V4 — direct/local reloan returns and statically resolved ordinary calls use deterministic signature-derived source sets. Elided shared returns collect all `lend`/`lend mut` parameters and elided mutable returns collect only `lend mut` parameters; named returns apply the same mode rule plus reflexive/direct/transitive outlives eligibility. Candidate selection deliberately ignores top-level pointee type. Stored elided multi-owner results keep every candidate owner live through final reachable holder use; loop-carried scalar and fixed-layout local-holder joins converge to deterministic owner sets; and source edits that change eligible signature sources, aggregate children, or a loop backedge invalidate and recompute TY/MIR/borrowck/diagnostic/editor queries. This is not body-derived/general lexical inference; non-ordinary aggregate task boundaries, unsupported carriers, and non-ordinary forwarding remain open |
+| `Shared<T>` ref-counted | ⚠️ | 📖 V4 — TY/MIR recognize `Shared<T>`, `Shared<T>::new`, `.clone()`, and `.downgrade()` with receiver operands preserved as read-only call arguments; runtime counters/drop glue still expand |
+| `Weak<T>` non-owning observer | ⚠️ | 📖 V4 — TY/MIR recognize `Weak<T>` and `.upgrade()` with receiver operands preserved; direct `.borrow()` / `.borrow_mut()` / `.get_mut()` on `Weak<T>` now diagnose before Meiya trusts a view |
+| `.borrow()` / `.borrow_mut()` / `.get_mut()` | ⚠️ | 📖 V4 — Shared methods lower to `lend T`, `result<SharedMut<T>,BorrowError>`, and `maybe<lend mut T>`; escaping actual `SharedMut<T>` guards are rejected without rejecting `result<SharedMut<T>,BorrowError>` error paths, runtime guard state remains |
+| `trust me "reason" on my honor as .level { }` honor levels (cadet/pilot/ace/commander/humanity) | ⚠️ | 📖 V4 — MIR validates the known honor ladder, rejects unknown levels, permits raw-pointer reads at `.cadet+`, requires `.pilot+` for raw-pointer writes, and requires `.ace+` for pointer offset/cast; inline asm and the full higher-rank operation matrix still expand |
 | `direct_order [arch] { asm }` inline assembly | ❌ | 📖 V4 |
+
+Contract-region checkpoint (**⚠️ V4 partial**): TY permits outer ordinary-task
+lend parameters and borrowed returns plus lend-bearing task-local tuples, fixed
+arrays, shapes, and route payloads. This is the complete fixed-layout storage
+set for the checkpoint.
+
+MIR assigns tuple slots and array indices structural keys and normalizes shape
+or route children into declaration order. Meiya keys provenance by that child
+projection. A projected use extends only the selected field's loan; whole-value
+and non-constant index uses conservatively union possible children. A dynamic-
+index assignment overlaps every fixed slot and cannot launder one child's loan.
+Mutable children retain `LoanMut` exclusivity, and repeat-filling multiple array
+slots from one mutable lend is rejected.
+
+Projection assignments are first-class holder definitions. Rebinding one field
+releases only its prior loan, protects the newly stored owner, and preserves
+sibling provenance. Aggregate moves into projected destinations retain their
+relative child projections under the destination root.
+
+The boundary remains closed for list/map storage, `some(...)`, `ok(...)`, and
+`err(...)`; alias targets; doctrines and methods; callbacks and extern/FFI
+forwarding; non-ordinary aggregate task parameters and returns; and lend-bearing generic
+task-call substitutions. Generic-call, owner-generic, and `Shared<T>::new`
+checks recursively expand nominal shapes/routes such as `Direct<'a>`, so these
+cases diagnose before provenance can be erased. Direct nominal impl calls and
+overloaded operator dispatch on lend-bearing owners fail closed. Recursive
+classification depth exhaustion emits its own diagnostic and remains
+conservative for ownership queries.
+
+Declaration-order children require `freak-mir-snapshot-v5`; v4 is rejected
+rather than reinterpreted. Component restore, 00-Unit restore, and standalone
+`workspace/mirSnapshotRestore` each start a fresh provenance scratch generation.
+The fixed-aggregate query smoke proves `A -> B -> restore A` and
+re-resolves MIR, borrowck, and editor IDs from restored arenas. Fixed-layout
+facts otherwise use the existing MIR/borrowck component snapshots and 00-Unit
+restore, manifest, diff, and health protocols. Source edits invalidate
+all 17 report fields, comprising 14 concrete query families plus
+three aggregate totals (`all`/`query`, `core`, and `editor`); subsequent requests
+recompute every
+concrete family and refresh the totals. No aggregate-only snapshot section or
+LSP method is introduced. The same lane changes a loop-carried returned-loan
+set from two owners to one without losing semantic, hover, definition, symbol,
+or completion facts. Contract-boundary diagnostics retain normalized source
+paths and exact `start:end` byte ranges. Dynamic and wrapper containers remain
+out of scope. This checkpoint does not claim a runtime aggregate-loan ABI or
+production backend lowering.
+
+MIR maps return leaves to reordered call arguments and source projections. Meiya
+seeds aggregate parameter provenance, validates every callee return leaf, and
+resolves those mappings to concrete caller owner paths. Call aliases preserve
+tuple and shape projections, so unrelated siblings may expire. Fixed-array task
+boundaries use `[*]` and remain may-alias. Route guards preserve constructor
+identity. Direct, nested, and fieldless constructor cases use exact rvalue or
+reaching-definition proof; ambiguous control flow remains conservative. A
+guard-filtered `known-empty` result is distinct from unresolved `opaque`
+provenance. Source-less signatures and callee-owned aggregate escapes diagnose
+independently.
+
+Task-local projection behavior remains field-sensitive. Rebinding one field
+retires only its prior loan, protects the new owner, and preserves siblings.
+Whole/dynamic-index uses union candidates, dynamic writes overlap every slot,
+aggregate moves retain relative child paths, repeated mutable-lend array fill is
+rejected, and `LoanMut` remains exclusive.
+
+The boundary remains closed for list/map and `some(...)` / `ok(...)` / `err(...)`
+storage; aliases; doctrines and methods; callbacks; closures with borrowed
+returns; dynamic dispatch; and extern/FFI calls. Concrete generic fixed carriers are
+allowed in ordinary task signatures; unresolved generic function-call and
+owner-generic method substitutions still recursively expose nominal lends and fail
+closed. Classifier exhaustion remains a distinct fail-closed diagnostic.
+
+The upgraded fixed-aggregate query smoke passes a shape through an ordinary
+lifetime-bearing task, edits the returned field use, checks all 17 invalidation
+fields against the 00-Unit diff, and restores the original MIR, borrowck,
+diagnostics, semantic, hover, definition, symbol, and completion facts. Existing
+MIR/borrowck snapshots and 00-Unit restore/manifest/diff/health protocols are
+unchanged; no aggregate-only LSP method or snapshot section exists.
+
+Declaration-order children still require `freak-mir-snapshot-v5`; v4 is rejected.
+Contract diagnostics retain normalized source paths and exact byte spans. This
+checkpoint does not claim body-derived/general lexical inference, `'static`,
+non-ordinary aggregate forwarding, dynamic/wrapper storage, index-sensitive
+array contracts, a runtime aggregate-loan ABI, or production backend lowering.
+Closure-capture checkpoint (**⚠️ V4 partial**): the resilient parser produces
+`ClosureExpr`, `ClosureParam`, and `ClosureBody` nodes and recovers malformed
+forms with `IncompleteNode`. HIR normalizes default/`copy`/`move`/`mut`; TY
+assigns `Callable`, `MutCallable`, or `OneShot`; MIR stores explicit capture
+children with lexical-scope-aware local shadowing and member-token filtering.
+Only Callable environments are Copy, and Meiya enforces copy legality,
+assignment plus resolved mutable receiver contracts, stored-capture loan
+liveness, and OneShot consumption. Capture-aware semantic,
+hover, definition, completion, LSP, component snapshot restore, and deterministic
+17-field invalidation/diff checks are executable. Nested closure discovery,
+generic inference, borrowed-return closure contracts, `Send`/`Sync`, and backend
+closure layout remain open.
+
+The resource contract is reuse, not a claim of a complete solver. Lifetime
+closure runs on high-water queue/visited scratch. Eligible returned-loan formal
+parameter ids use a bounded flat ring keyed by immutable `(ty_id, sig_id)`;
+ordered payloads avoid per-signature child arrays, known-empty rows remain
+observable, eviction rebuilds deterministically, and TY snapshot restore
+invalidates matching rows. Meiya bounds its integer-word, canonical-value, and
+exact-input caches as rings and proves eviction/rebuild plus hot-entry reuse.
+The bootstrap runtime grows its array-handle table dynamically, while general
+append-only arena reclamation remains open. This remains signature-derived
+source sets plus partial non-lexical liveness. Loop provenance uses iterative
+dependency discovery, per-memo reverse dependency adjacency lists, deterministic
+changed-memo worklists, monotonic owner-set union, and a solved-memo frontier
+that limits later top-level queries to newly added roots. Each source/opacity
+phase has a `new_memo_count + 1` bound, with revision-based convergence and
+fail-closed opacity for unresolved empty
+memos, path-growing cycles, or explicit memo/dependency/work/source-fact/path-byte
+budget exhaustion. CFG and holder-alias reachability are cycle-safe iterative
+worklists, with a 64-diamond stress fixture. A solver smoke drives 256 independent roots
+through one valid MIR loan and pins the result to 512 processed work items.
+Exact telemetry is keyed per
+borrowck result, stable across repeated generations, and preserved by the
+v2 borrowck snapshot together with solved `ReturnLoan` facts. Legacy v1 imports
+receive default telemetry; truncated v2 telemetry records fail validation.
+A byte-length-stable,
+backedge-only edit separately proves all-family invalidation, matching
+snapshot-diff health, recomputation, editor coherence, and 00-Unit restore
+without changing the task signature.
+Body-derived/general lexical region inference, `'static` classification,
+dynamic and wrapper container storage, aliases/doctrines/callbacks, non-ordinary
+aggregate task boundaries, a runtime aggregate-loan ABI, and production backend
+completion remain open.
 
 ---
 
@@ -426,9 +561,9 @@ V4 (not implemented):
 | `done` block delimiter | ✅ | ✅ |
 | `\|\|` xm3 branch separator | ❌ | 📖 V4 (lexer treats as logical OR; xm3 not parsed) |
 | `@identifier` annotation | ✅ | ✅ |
-| `'identifier` lifetime | ❌ | 📖 V4 |
+| `'identifier` lifetime | ⚠️ | 📖 V4 — tokenized and preserved through ordinary-task binders, outlives-bound references, and TY/editor/query contracts; broader region grammar and solving remain |
 | `prob[lo..hi]` lex form | ❌ | 📖 V4 |
-| Number suffixes `42u`, `3.14f`, `42t`, `999b` | ❌ | 📖 V4 |
+| Number suffixes `42u`, `3.14f`, `42t`, `999b` | ⚠️ | 📖 V4 — lexer/TY/value normalization smokes exist; production backend semantics still expand |
 
 ---
 
@@ -464,9 +599,10 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 | Isekai export validation | ❌ | 📖 V4 |
 | Variant exhaustiveness | ❌ | 📖 V4 (no variants) |
 | Type alias expansion | ❌ | 📖 V4 |
+| Alias nominality for doctrine impl targets | ⚠️ | 📖 V4 | V4 TY must reject `impl Doctrine for Alias` instead of giving aliases a fresh nominal identity; broader alias completeness remains tracked by the alias expansion row. |
 | Root-level `fixed pilot` cycle detection | ✅ | ✅ |
 | Fixed array length compile-time constants | ⚠️ | 📖 V4 (literal + integer root-const arithmetic works; broader const-eval remains) |
-| `dyn` object-safety rules | ❌ | 📖 V4 |
+| `dyn` object-safety rules | ⚠️ | 📖 V4 | V4 TY/MIR now diagnose unknown dyn doctrines plus first-pass object-safety failures (`Self` in dispatched signatures and no-receiver methods), and validates concrete/generic coercion into dyn slots; richer `where Self: Sized` nuance and backend vtables still expand |
 | FFI safety (FFI-safe types only in extern) | ⚠️ | 📖 V4 | V4 now rejects bare `word` / `int` extern boundaries, raw pointers to non-FFI pointees like `*const word` / `*const PlainShape`, and non-FFI-safe `@layout(...)` fields; fieldless `@repr(...)` routes/variants are accepted as FFI-safe boundary types; extern variadics now validate final-slot/ABI contracts plus scalar vararg promotion for `tiny`/`bool`/`char`/`float32`, extern callback values now invoke through MIR/LLVM, and plain task values now diagnose explicitly when they try to cross into foreign callback slots, while trust-me wrappers and panic-boundary callback rules still expand |
 | Layout annotations validation | ❌ | 📖 V4 |
 | Visibility rules enforcement | ⚠️ | 📖 V4 |
@@ -480,7 +616,7 @@ Critical Phase-A finding: Python parser fails on **30+ files** including V3 self
 | `power<N>` erased at runtime | N/A | 📖 V4 |
 | `mood` compiles to uint8_t | ❌ | 📖 V4 |
 | Variants → tag + payload | ❌ | 📖 V4 |
-| `dyn` → fat pointer + vtable | ❌ | 📖 V4 |
+| `dyn` → fat pointer + vtable | ❌ | 📖 V4 | TY/MIR/editor facts exist, but codegen has not emitted the runtime fat-pointer/vtable representation yet |
 | `Shared<T>` ref-count header | ❌ | 📖 V4 |
 | Extern calls emit target ABI | ⚠️ | 📖 V4 |
 | `deus_ex_machina` → pragma optimize | ❌ | 📖 V4 (currently plain block) |
@@ -571,12 +707,14 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 - `trust me "reason" on my honor as .level { ... }` block parses (reason and honor clauses optional); body lowers transparently through MIR with malformed-form diagnostics
 - `*ptr` raw-pointer deref read: requires `*T`/`*mut T` operand, gated on being inside a trust-me block (bible §16.4), lowers to LLVM `load <pointee>, ptr %op`; diagnoses both wrong-type derefs and outside-trust-me derefs
 - `*ptr = value` raw-pointer deref write: requires `*mut T` operand (not `*T`/`*const T`), gated on being inside a trust-me block, lowers to LLVM `store <pointee> <value>, ptr <ptr>`; diagnoses non-pointer LHS, `*const`/`*` mutability mismatch, and outside-trust-me writes
+- raw-pointer `.read()` and `.write(value)` method forms: lower to the same LLVM `load`/`store` operations as `*ptr` / `*ptr = value`, preserve `.cadet+` read and `.pilot+` write honor gates, diagnose const-write and arity errors, and stay out of the normal LLVM call index
+- raw-pointer `.offset(n)` and `.cast<U>()` method forms: lower to LLVM `getelementptr`, preserve raw-pointer const/mut shape, require `.ace+` honor, diagnose outside-trust, low-honor, arity, missing target type, and non-integer offset cases, and disambiguate generic method calls before binary `<` / `>` lowering
 - fieldless `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` route/variant validation plus FFI-safe boundary acceptance
 
 **Still V4:**
 
 - runtime panic-catch inside the trampoline body
-- trust-me-gated raw pointer method forms (`.read()`, `.write()`, `.offset()`, `.cast<U>()`)
+- raw pointer allocation/freeing helpers beyond the existing method surface
 - `std::os` platform modules
 - error-code translation
 - deeper ABI/runtime guarantees
@@ -594,7 +732,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | Stack-unwinder import diagnostic | ⚠️ | 📖 V4 | V4 TY emits a warning when an extern block declares `setjmp`/`_setjmp`/`sigsetjmp`/`__sigsetjmp`, `longjmp`/`_longjmp`/`siglongjmp`, an Itanium `_Unwind_*` or `__cxa_*` primitive, or Windows `RaiseException` — matched by member name or `@link_name("...")` override; help text points users at C shims that translate to integer error codes; `@allow_unwinder` on the member or the enclosing extern block silences the warning for low-level code (kernels, JITs, coroutine engines) that genuinely needs the primitive |
 | Stack-unwinder call-site warning | ⚠️ | 📖 V4 | V4 MIR fires a second warning at every call site that invokes a known unwinder extern, sharing the same `@allow_unwinder` opt-out as the declaration warning; the call-site help text mentions both the C-shim fix and the opt-out attribute |
 | `@repr(u32)` discriminant size | ⚠️ | 📖 V4 | V4 now carries `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` through TY, rejects bad repr kinds, payload cases, and non-constant explicit discriminants, accepts valid fieldless repr routes/variants in FFI-safe type positions, and exposes discriminant text/value plus boundary diagnostics through the smoke/query/tooling lanes; codegen-level tagged-layout guarantees still expand |
-| Raw pointer ops (`*ptr`, `.read()`, `.offset()`, `.cast<U>()`, `.is_null()`) | ⚠️ | 📖 V4 | V4 lowers `.is_null()` to LLVM `icmp eq ptr %p, null` outside `trust me` (bible §16.4 explicitly permits null-checks anywhere), `*ptr` reads to LLVM `load <pointee>, ptr %op` gated on a surrounding `trust me` block (`raw-pointer deref needs trust me block` diagnostic for derefs outside one), and `*ptr = value` writes to LLVM `store <pointee> <value>, ptr <ptr>` with the same trust-me gating plus a `raw-pointer write needs *mut T` diagnostic for writes through `*const T`/`*T`; the method forms `.read()`/`.write()`/`.offset()`/`.cast<U>()`, allocation, and freeing are still 🔜 V4 |
+| Raw pointer ops (`*ptr`, `.read()`, `.write(value)`, `.offset()`, `.cast<U>()`, `.is_null()`) | ⚠️ | 📖 V4 | V4 lowers `.is_null()` to LLVM `icmp eq ptr %p, null` outside `trust me` (bible §16.4 explicitly permits null-checks anywhere), `*ptr` and `.read()` reads to LLVM `load <pointee>, ptr %op` gated on a surrounding `.cadet+` `trust me` block (`raw-pointer deref needs trust me block` diagnostic for derefs outside one), `*ptr = value` / `.write(value)` writes to LLVM `store <pointee> <value>, ptr <ptr>` with `.pilot+` honor gating plus `raw-pointer write needs *mut T`, type-mismatch, and method-arity diagnostics, and `.offset(n)` / `.cast<U>()` lower to LLVM `getelementptr` with `.ace+` honor gating plus arity, missing-target, and non-integer-offset diagnostics; allocation and freeing are still 🔜 V4 |
 | `std::os` platform modules | ❌ | 📖 V4 |
 | Error code → `result<T, OsError>` wrapping | ❌ | 📖 V4 |
 | errno/GetLastError preservation | ❌ | 📖 V4 |
@@ -676,7 +814,7 @@ K. **§17 Internals/IDE** — wholesale V4 tag.
 
 ### Out-of-scope (V4 work, surfaced for tracking)
 
-Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, `std::test`, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer ops, broader layout-stability enforcement, panic infrastructure, IDE-grade tolerant parser.
+Variants, mood/prob/power/causality, prob_when, pattern destructuring, squadron concurrency, full borrow checker, dyn dispatch, FFI surface, error voice routing, eventually-as-truly-deferred, payoff strict enforcement, isekai export validation, death-flag tiers, missing numeric types (`tiny`/`uint`/`char`/`big`/`float32`/fixed `[T;N]`), `std::thread`, `std::anime`, `std::narrative`, `std::test`, build modes, named call-site arguments, glob imports, package-private visibility, lifetime annotations, raw pointer allocation/freeing, broader layout-stability enforcement, panic infrastructure, IDE-grade tolerant parser.
 
 ---
 
@@ -740,18 +878,19 @@ Phase-1 BC working as advertised.
 This is where V4 will need test coverage. **Out of scope for this audit; surfaced for V4 milestone planning.**
 
 - §1.6 doctrines: 0 standalone tests
-- §1.11 generics: 0 tests
+- §1.11 generics: V4 TY/MIR/editor smokes now cover generic calls, constructors, alias-backed shapes/routes, multi-bound doctrine constraints, doctrine-bound static/UFCS dispatch with instantiated doctrine arguments, and generic coercion into `dyn Doctrine`; production monomorphization depth still expands
 - §1.13 module imports: 0 tests
-- §1.14 variants/aliases: 0 tests (variants don't exist)
+- §1.14 variants/aliases: V4 smokes now cover route-family variants, payload patterns, alias cycles, alias-backed exhaustiveness, direct recursive shape/variant rejection, editor facts, and alias nominality; backend layout still expands
 - §2.1 power<N>: 0 tests
 - §2.2 prob[lo..hi]: 0 tests
 - §2.3 causality<T>: 0 tests
 - §2.4 mood: 0 tests
 - §3.1 xm3: 0 tests
 - §3.2 squadron: 0 tests
-- §4 borrow checker: 5 tests, **not in CI**
+- §1.8 closures: V4 smokes now cover resilient malformed-syntax recovery; default/`copy`/`move`/`mut` HIR/TY/MIR identities; capture ownership and mutation diagnostics; OneShot repeat-call rejection; stored shared/exclusive capture conflicts; capture-aware editor/LSP facts; MIR/borrowck/editor snapshot restore; and all-family invalidation/diff agreement. Nested/generic closure inference, borrowed-return contracts, `Send`/`Sync`, and backend closure environments remain
+- §4 borrow checker: registered V4 contract-region smokes cover repeated-source named/elided sets; iterative explicit/reflexive/transitive/cyclic outlives closure with converging-graph and long-chain stress on high-water scratch; bounded flat per-`(ty_id,sig_id)` returned-source caching with known-empty, eviction, and restore rebuild contracts; shared/mutable mode filtering; MIR candidate mappings versus Meiya-owned `ReturnLoan` paths; projection/scalar-holder/projected-reborrow/statically resolved ordinary-call/reordered-argument/acyclic-join provenance; bounded deterministic loop-header/backedge fixed points with mutual alias cycles, deduplication, fail-closed ownership rejection, telemetry/resource reuse, snapshot restore, two-owner-to-one-owner source edits, and 256 independent roots pinned to linear fixed-point work; task-local tuple/fixed-array/shape/route lend storage with declaration-keyed children, projected field-sensitive liveness, conservative whole/dynamic-index unions, and mutable exclusivity; generic lend-substitution and nested signature-storage rejection; retained construction-time list/map/`some`/`ok`/`err` rejection; generation-local provenance scratch plus bounded integer/canonical cache churn and rebuild; stable diagnostic source paths/ranges; explicit method/dynamic/callback/extern/FFI forwarding rejection; closure capture ownership and liveness; and snapshot restore plus invalidation/recomputation assertions covering all 17 report fields (14 concrete query families and three aggregate totals: `all`/`query`, `core`, and `editor`) for outlives-bound references, source-set edits, aggregate-child edits, loop-backedge edits, and closure mode edits. Remaining gaps include body-derived/general lexical inference, dynamic/wrapper containers, lend-bearing aliases/doctrines/callbacks, non-ordinary aggregate task boundaries, borrowed-return closure contracts, `'static`, general arena reclamation, runtime ownership depth, closure `Send`/`Sync`, fixed-aggregate backend lowering, and production backend completion
 - §5.2 foreshadow: only `audit_demo.fk`, no error cases
-- §5.3 routes: 0 tests
+- §5.3 routes: V4 smokes now cover route/variant constructors, exhaustive `when`, `check route`, alias-backed diagnostics, and route-locked `only on`; full visual-novel route semantics still expand
 - §5.4 anime operators: `tests/anime.fk` only
 - §5.5 deus_ex_machina: only `audit_demo.fk`
 - §5.7 isekai/eventually: 2 files, no error cases

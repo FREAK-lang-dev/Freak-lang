@@ -16,10 +16,126 @@ task v4_borrowck_drop_order_nth_drop_text(borrow_id: int, result_id: int, wanted
     give back ""
 }
 
+task v4_borrowck_drop_order_nth_path_text(borrow_id: int, result_id: int, wanted_kind: word, wanted: int) -> word {
+    pilot seen = 0
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == wanted_kind {
+            if seen == wanted {
+                give back v4_borrowck_path_text(borrow_id, result_id, path_id)
+            }
+            seen += 1
+        }
+        path_id += 1
+    }
+    give back ""
+}
+
 task v4_borrowck_drop_order_source() -> word {
-    pilot src = "task order(a: word, b: word) -> int {\n"
+    pilot src = "route Outcome {\n"
+    src = src + "    Victory / Defeat / Retreat\n"
+    src = src + "}\n"
+    src = src + "task order(a: word, b: word) -> int {\n"
     src = src + "    pilot x = \"x\"\n"
     src = src + "    pilot y = \"y\"\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task take(value: word) -> word {\n"
+    src = src + "    give back value\n"
+    src = src + "}\n"
+    src = src + "task consume(value: word) -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task moved_local() -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    pilot y = x\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task reinit_local() -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    pilot y = x\n"
+    src = src + "    x = \"again\"\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task move_reassign() -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    x = take(x)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task branch_moved(ready: bool) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    if ready {\n"
+    src = src + "        consume(x)\n"
+    src = src + "    } else {\n"
+    src = src + "        consume(x)\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task branch_partial(ready: bool) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    if ready {\n"
+    src = src + "        consume(x)\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task branch_reinit(ready: bool) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    if ready {\n"
+    src = src + "        consume(x)\n"
+    src = src + "        x = \"again\"\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task branch_merge_reinit(ready: bool) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    if ready {\n"
+    src = src + "    } else {\n"
+    src = src + "        consume(x)\n"
+    src = src + "    }\n"
+    src = src + "    x = \"again\"\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task branch_declared_local(ready: bool) -> int {\n"
+    src = src + "    if ready {\n"
+    src = src + "        pilot x = \"x\"\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task loop_before_move(ready: bool) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    repeat until ready {\n"
+    src = src + "    }\n"
+    src = src + "    consume(x)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task loop_moves_inside(ready: bool) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    repeat until ready {\n"
+    src = src + "        consume(x)\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task loop_reinit_after_move(ready: bool) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    consume(x)\n"
+    src = src + "    repeat until ready {\n"
+    src = src + "        x = \"again\"\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task loop_declared_local(ready: bool) -> int {\n"
+    src = src + "    repeat until ready {\n"
+    src = src + "        pilot x = \"x\"\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task route_branch_moved(outcome: Outcome) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    when outcome {\n"
+    src = src + "        Victory -> consume(x)\n"
+    src = src + "        Defeat -> consume(x)\n"
+    src = src + "        Retreat -> consume(x)\n"
+    src = src + "    }\n"
     src = src + "    give back 0\n"
     src = src + "}\n"
     give back src
@@ -33,7 +149,33 @@ pilot v4_borrowck_drop_order_ty = v4_ty_lower_resolve(0, v4_borrowck_drop_order_
 pilot v4_borrowck_drop_order_mir = v4_mir_lower_ty(0, v4_borrowck_drop_order_ty)
 pilot v4_borrowck_drop_order_check = v4_borrowck_check_mir(0, v4_borrowck_drop_order_mir)
 pilot v4_borrowck_drop_order_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "order")
+pilot v4_borrowck_drop_order_moved_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "moved_local")
+pilot v4_borrowck_drop_order_reinit_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "reinit_local")
+pilot v4_borrowck_drop_order_move_reassign_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "move_reassign")
+pilot v4_borrowck_drop_order_branch_moved_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "branch_moved")
+pilot v4_borrowck_drop_order_branch_partial_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "branch_partial")
+pilot v4_borrowck_drop_order_branch_reinit_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "branch_reinit")
+pilot v4_borrowck_drop_order_branch_merge_reinit_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "branch_merge_reinit")
+pilot v4_borrowck_drop_order_branch_declared_local_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "branch_declared_local")
+pilot v4_borrowck_drop_order_loop_before_move_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "loop_before_move")
+pilot v4_borrowck_drop_order_loop_moves_inside_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "loop_moves_inside")
+pilot v4_borrowck_drop_order_loop_reinit_after_move_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "loop_reinit_after_move")
+pilot v4_borrowck_drop_order_loop_declared_local_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "loop_declared_local")
+pilot v4_borrowck_drop_order_route_branch_moved_def = v4_resolve_def_for_name(v4_borrowck_drop_order_resolve, "route_branch_moved")
 pilot v4_borrowck_drop_order_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_def)
+pilot v4_borrowck_drop_order_moved_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_moved_def)
+pilot v4_borrowck_drop_order_reinit_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_reinit_def)
+pilot v4_borrowck_drop_order_move_reassign_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_def)
+pilot v4_borrowck_drop_order_branch_moved_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_moved_def)
+pilot v4_borrowck_drop_order_branch_partial_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_def)
+pilot v4_borrowck_drop_order_branch_reinit_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_def)
+pilot v4_borrowck_drop_order_branch_merge_reinit_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_merge_reinit_def)
+pilot v4_borrowck_drop_order_branch_declared_local_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_declared_local_def)
+pilot v4_borrowck_drop_order_loop_before_move_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_before_move_def)
+pilot v4_borrowck_drop_order_loop_moves_inside_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_moves_inside_def)
+pilot v4_borrowck_drop_order_loop_reinit_after_move_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_reinit_after_move_def)
+pilot v4_borrowck_drop_order_loop_declared_local_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_declared_local_def)
+pilot v4_borrowck_drop_order_route_branch_moved_result = v4_borrowck_lookup_result(v4_borrowck_drop_order_check, v4_borrowck_drop_order_route_branch_moved_def)
 
 say v4_borrowck_summary(v4_borrowck_drop_order_check)
 say "drop-order-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result)
@@ -42,3 +184,65 @@ say "drop-order-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_orde
 say "drop-order-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result, 1)
 say "drop-order-2=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result, 2)
 say "drop-order-3=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_result, 3)
+say "drop-moved-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_moved_result)
+say "drop-moved-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_moved_result))
+say "drop-moved-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_moved_result, 0)
+say "drop-moved-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_moved_result, 1)
+say "drop-reinit-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_reinit_result)
+say "drop-reinit-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_reinit_result))
+say "drop-reinit-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_reinit_result, 0)
+say "drop-reinit-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_reinit_result, 1)
+say "drop-move-reassign-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_result)
+say "drop-move-reassign-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_result))
+say "drop-move-reassign-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_result, 0)
+say "drop-move-reassign-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_move_reassign_result, 1)
+say "drop-branch-moved-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_moved_result)
+say "drop-branch-moved-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_moved_result))
+say "drop-branch-moved-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_moved_result, 0)
+say "drop-branch-moved-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_moved_result, 1)
+say "drop-branch-partial-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result)
+say "drop-branch-partial-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result))
+say "drop-branch-partial-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, 0)
+say "drop-branch-partial-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, 1)
+say "drop-branch-partial-if-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, v4_borrowck_path_drop_if))
+say "drop-branch-partial-if-0=" + v4_borrowck_drop_order_nth_path_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, v4_borrowck_path_drop_if, 0)
+say "drop-branch-partial-if-1=" + v4_borrowck_drop_order_nth_path_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_partial_result, v4_borrowck_path_drop_if, 1)
+say "drop-branch-reinit-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_result)
+say "drop-branch-reinit-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_result))
+say "drop-branch-reinit-if-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_result, v4_borrowck_path_drop_if))
+say "drop-branch-reinit-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_result, 0)
+say "drop-branch-reinit-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_reinit_result, 1)
+say "drop-branch-merge-reinit-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_merge_reinit_result)
+say "drop-branch-merge-reinit-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_merge_reinit_result))
+say "drop-branch-merge-reinit-if-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_merge_reinit_result, v4_borrowck_path_drop_if))
+say "drop-branch-merge-reinit-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_merge_reinit_result, 0)
+say "drop-branch-merge-reinit-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_merge_reinit_result, 1)
+say "drop-branch-declared-local-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_declared_local_result)
+say "drop-branch-declared-local-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_declared_local_result))
+say "drop-branch-declared-local-if-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_declared_local_result, v4_borrowck_path_drop_if))
+say "drop-branch-declared-local-if-0=" + v4_borrowck_drop_order_nth_path_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_branch_declared_local_result, v4_borrowck_path_drop_if, 0)
+say "drop-loop-before-move-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_before_move_result)
+say "drop-loop-before-move-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_before_move_result))
+say "drop-loop-before-move-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_before_move_result, 0)
+say "drop-loop-before-move-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_before_move_result, 1)
+say "drop-loop-moves-inside-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_moves_inside_result)
+say "drop-loop-moves-inside-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_moves_inside_result))
+say "drop-loop-moves-inside-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_moves_inside_result, 0)
+say "drop-loop-moves-inside-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_moves_inside_result, 1)
+say "drop-loop-moves-inside-if-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_moves_inside_result, v4_borrowck_path_drop_if))
+say "drop-loop-moves-inside-if-0=" + v4_borrowck_drop_order_nth_path_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_moves_inside_result, v4_borrowck_path_drop_if, 0)
+say "drop-loop-moves-inside-if-1=" + v4_borrowck_drop_order_nth_path_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_moves_inside_result, v4_borrowck_path_drop_if, 1)
+say "drop-loop-reinit-after-move-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_reinit_after_move_result)
+say "drop-loop-reinit-after-move-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_reinit_after_move_result))
+say "drop-loop-reinit-after-move-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_reinit_after_move_result, 0)
+say "drop-loop-reinit-after-move-if-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_reinit_after_move_result, v4_borrowck_path_drop_if))
+say "drop-loop-reinit-after-move-if-0=" + v4_borrowck_drop_order_nth_path_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_reinit_after_move_result, v4_borrowck_path_drop_if, 0)
+say "drop-loop-declared-local-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_declared_local_result)
+say "drop-loop-declared-local-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_declared_local_result))
+say "drop-loop-declared-local-if-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_declared_local_result, v4_borrowck_path_drop_if))
+say "drop-loop-declared-local-if-0=" + v4_borrowck_drop_order_nth_path_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_loop_declared_local_result, v4_borrowck_path_drop_if, 0)
+say "drop-route-branch-moved-status=" + v4_borrowck_result_status(v4_borrowck_drop_order_check, v4_borrowck_drop_order_route_branch_moved_result)
+say "drop-route-branch-moved-count=" + word_from_int(v4_borrowck_result_drops(v4_borrowck_drop_order_check, v4_borrowck_drop_order_route_branch_moved_result))
+say "drop-route-branch-moved-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_route_branch_moved_result, 0)
+say "drop-route-branch-moved-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_route_branch_moved_result, 1)
+say "drop-route-branch-moved-2=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_route_branch_moved_result, 2)

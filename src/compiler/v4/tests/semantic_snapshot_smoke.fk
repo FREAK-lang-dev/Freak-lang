@@ -1,6 +1,41 @@
 -- V4 semantic-at arena snapshot smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_semantic_snapshot_fixture_first_id(payload: word, replacement_id: int) -> word {
+    pilot out = ""
+    pilot replaced = 0
+    pilot line_id = 0
+    pilot line_count = v4_semantic_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_semantic_snapshot_line(payload, line_id)
+        pilot output_line = line
+        if replaced == 0 and v4_semantic_snapshot_field_raw(line, 0) == "semantic" {
+            output_line = "semantic|" + word_from_int(replacement_id)
+            pilot field_id = 2
+            pilot field_count = v4_semantic_snapshot_field_count(line)
+            repeat until field_id >= field_count {
+                output_line = output_line + "|" + v4_semantic_snapshot_field_raw(line, field_id)
+                field_id += 1
+            }
+            replaced = 1
+        }
+        if out != "" { out = out + "\n" }
+        out = out + output_line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_semantic_snapshot_negative_id_atomic(payload: word) -> word {
+    pilot expected_state = v4_semantic_snapshot()
+    pilot invalid_payload = v4_semantic_snapshot_fixture_first_id(payload, 0 - 1)
+    pilot restore_result = v4_semantic_snapshot_restore(invalid_payload)
+    if restore_result.starts_with("semantic-snapshot-restore ok=0 ") and v4_semantic_snapshot() == expected_state {
+        give back "semantic-snapshot-negative-id-atomic=true"
+    }
+    give back "semantic-snapshot-negative-id-atomic=false"
+}
+
 task v4_semantic_snapshot_find_token(stream_id: int, value: word, ordinal: int) -> int {
     pilot seen = 0
     pilot token_id = 0
@@ -116,6 +151,7 @@ say v4_semantic_snapshot_summary()
 pilot v4_semantic_snapshot_payload = v4_semantic_snapshot()
 say v4_semantic_snapshot_validate(v4_semantic_snapshot_payload)
 say "semantic-snapshot-bytes=" + word_from_int(v4_semantic_snapshot_payload.length())
+say v4_semantic_snapshot_negative_id_atomic(v4_semantic_snapshot_payload)
 say v4_semantic_snapshot_fact_line(v4_semantic_snapshot_method)
 say v4_parse_snapshot_restore(v4_parse_snapshot())
 say v4_hir_snapshot_restore(v4_hir_snapshot())

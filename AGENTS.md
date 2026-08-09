@@ -1,792 +1,537 @@
-# AGENTS.md — FREAK Language Project
-## Context & Continuity Guide for AI Sessions
+# AGENTS.md - FREAK Language Project
 
-> This file gives any Codex session everything it needs to continue work on the FREAK project without re-reading every spec file from scratch. It is a living document — update it when significant decisions are made or milestones are completed.
+## Purpose
 
----
+This is the operating contract for AI sessions working on FREAK. It records
+repository rules, delivery gates, and current architecture boundaries. It is
+not the language specification, roadmap history, CLI reference, or changelog.
+Use the canonical documents listed below for those facts.
 
-## Git Commit Policy
+FREAK is a compiled, statically typed, memory-safe systems language. Sources use
+the `.fk` extension and anime/visual-novel vocabulary. That identity is
+load-bearing: preserve it in syntax, diagnostics, documentation, and tooling
+while keeping engineering decisions precise.
 
-**Commit after every significant change.** Do not let work accumulate uncommitted. Specifically:
+## Ground Truth
 
-- **Always commit after**: completing a milestone, fixing a compiler bug, adding a new runtime function, adding a new CLI subcommand, updating CI/release workflows, changing the build system, or any change that took more than ~15 minutes of work.
-- **Commit message style**: short imperative summary line, then blank line, then bullet points if needed. Example: `Add process::exec and process::exec_capture to runtime`
-- **Stage specific files** — avoid `git add -A`. Never commit `.env`, credentials, or multi-GB build artifacts.
-- **Before starting risky work** (refactors, parser changes, emitter rewrites): make sure the current state is committed so you can revert if needed.
-- **After a successful build/test cycle**: if you just verified something works end-to-end, that's a natural commit point. Don't wait.
-- **Commit automatically** — do not ask for permission before committing. Just commit after completing significant work. Push to the current topic branch silently when appropriate.
-- **No AI attribution** — do NOT include `Co-Authored-By` trailers or any other AI/Codex attribution in commit messages. Commits should look like they came from the repo owner alone.
-
-The cost of committing too often is zero. The cost of losing work because you forgot to commit is real — it has happened before on this project.
-
----
-
-## Branching & Worktrees
-
-**`main` is protected.** Never push directly to `main`. Every change — feature, fix, doc, refactor — goes on a topic branch and lands via pull request after CI is green. Branch protection on GitHub will reject direct pushes; there's no admin bypass.
-
-### Branch naming
-
-- `feat/<slug>` — new features
-- `fix/<slug>` — bug fixes
-- `docs/<slug>` / `chore/<slug>` / `refactor/<slug>` — non-shipping work
-- `release/v0.X.Y` — release prep (optional)
-- `claude/<slug>-<token>` — what the Claude Code web harness auto-creates; keep as-is when you're already on one
-
-If a session starts you on a `claude/...` branch, develop and push there. If you're starting fresh work without a designated branch, create a `feat/...` or `fix/...` branch — do not commit to `main`.
-
-### Pull request flow
-
-1. Work on the topic branch, commit often per the policy above.
-2. Push with `git push -u origin <branch-name>`.
-3. Open a PR targeting `main` only when the user asks for one. Use the template that auto-populates.
-4. CI must pass on Linux, macOS, and Windows before merge.
-5. Squash-merge (linear history is enforced). Branch is deleted on merge.
-
-### Worktrees (for parallel and risky work)
-
-Use git worktrees — via the Agent tool's `isolation: "worktree"` option — in two cases:
-
-1. **Parallel agents.** Any time you spawn two or more agents concurrently (Sprint A/B/C-style work in the section below), give each one its own worktree. Prevents agents from clobbering each other's uncommitted changes.
-2. **Risky or long-running work** (>15 min refactors, parser rewrites, emitter changes). Develop in an isolated worktree, validate it builds and tests pass, then merge the resulting branch back via PR. The live checkout stays stable.
-
-Single short-lived agents on a single branch can run in the normal checkout — worktrees aren't required for every spawn, just when isolation matters. The harness auto-cleans worktrees that produced no changes; ones with commits return their branch + path so you can open a PR from them.
-
----
-
-## What Is FREAK?
-
-**FREAK** is a compiled, statically-typed, memory-safe systems programming language with syntax and aesthetics inspired by anime and visual novels. It is intentionally weird and the weirdness is load-bearing — the naming, the keywords, the error system, the themes — all of it is part of the design, not decoration.
-
-Key facts:
-- Files use the `.fk` extension
-- The authoritative spec is `freak-full-bible.md` — if code disagrees with the bible, **the bible wins**
-- Version name: **Alternative-4 Edition** — current release **v0.14.0 "Maverick"**
-- The self-hosting compiler (`freakc_self.exe`) is a major credibility milestone and should be prominently featured in public materials
-
----
-
-## Bible Conformance & the V4 Roadmap
-
-The bible describes the *full* language. The *current* compiler ships a strict subset of it. Two documents are the load-bearing references for what works today vs. what is V4 work:
-
-- **[freak-full-bible.md §0.2](freak-full-bible.md)** — section-by-section status matrix (✅ Implemented / ⚠️ Partial / 🔜 V4) with per-row notes inside each section. Always read this first when you're planning a feature change — the row tells you whether you're patching v0.13.x or building V4.
-- **[freak-conformance-audit.md](freak-conformance-audit.md)** — per-contract audit doc. Has the executive summary (~145 contracts ✅, ~110 ⚠️, ~190 ❌), the top-18 divergences table, the triage list (🛠 fix vs. 📖 amend), and the untested-contract list for V4 milestone planning.
-
-**V4 is the destination.** All features the bible describes that are not yet in v0.13.x are tagged 🔜 V4 — they ship with the V4 self-hosting compiler. The plan is: v0.13.x final patch → V4 work across multiple milestones → 1.0.0. When you find a bible promise that the code doesn't honor, the default verdict is **amend the bible to mark the feature V4** rather than rush a v0.13.x implementation. Cheap exceptions (wiring missing CLI dispatch, small operator doctrine fixes) are still allowed but should be called out explicitly.
-
-**`freak audit-conformance`** is the single command that gates the v0.13.x baseline. It checks: bible + audit doc presence, native CLI binary, lexer keywords, audit dispatch consistency between the Python and native CLIs, stdlib module presence, the `--strict-borrow` flag, and the `deus_ex_machina` 20-word rule. Run it any time you've touched the compiler, runtime, CLI, or stdlib — exit 0 means the v0.13.x scope is intact. V4-tagged contracts are intentionally skipped so the command stays green during V4 development.
-
-**Whenever a 🔜 V4 row promotes to ⚠️ or ✅**, update both `freak-full-bible.md` §0.2 and `freak-conformance-audit.md` so the two documents stay in sync, and add a corresponding check to `audit_conformance` in `freakc/auditor.py` so regressions are caught.
-
----
-
-## Task Log
-
-- **2026-04-24**: Updated project version to v0.13.2 across documentation (README.md, AGENTS.md, CLAUDE.md) and packaging manifests.
-- **2026-04-27**: Conformance audit pass against `freak-full-bible.md`. Added `freak-conformance-audit.md`, new `freak audit-conformance` command (Python + native CLI), bible §0 Implementation Status matrix, V4 admonitions across §1-§17. Wired Ord operator doctrine in Python emitter and added `freak test` shim. CI cat chain updated to bundle `src/cli/audit.fk`.
-- **2026-04-28**: v0.13.x final patch. Both SKIP'd suite tests (`test_maybe.fk`, `test_pipe.fk`) now pass — suite at 14/14. LB10 minimal DWARF (LineTablesOnly) wired in `src/compiler/v3/emit_llvm.fk`. Winget 0.13.2 manifest restored + release workflow path made dynamic. Tagged v0.13.3 — final v0.13.x patch before V4.
-
----
-
-## The Ecosystem
-
-| Component | Description | Status |
-|---|---|---|
-| **FREAK** | Core language, `.fk` files | ✅ Self-hosting |
-| **Hangar** | Package manager (`hangar.toml`) | ✅ v2 native FREAK |
-| **COCKPIT** | Immediate-mode UI framework for FREAK (official public name; replaces freak-ui) | 🚧 In progress (MA–MG track) |
-| **HFML** | Hyper-Freak Markup Language (like Blazor/Razor, compiles to COCKPIT) | 📐 Planned (MH0–MH9) |
-| **CFS** | Cascading Freak Sheets (CSS-inspired, compiles to COCKPIT Theme structs) | 📐 Roadmapped |
-| **FreakScript** | Lighter GC'd sibling (JS to FREAK's Java), browser/embeddable runtimes | 📐 Specced (`freakscript-bible.md`) |
-| **PEAK** | "Pure Expression, Anime Kernel" — fully independent functional language, immutability-first | 📐 Roadmapped |
-| **Sortie** | JetBrains-style IDE written in FREAK, with FREAK-specific tooling | 📐 Specced (`sortie-ide-spec.md`) |
-| **NEXUS** | Native game framework, scene/actor/stage vocabulary | 📐 Roadmapped |
-| **SIGNAL** | Full-stack web framework, end-to-end type sharing FREAK ↔ FreakScript | 📐 Roadmapped |
-| **freak-pilot** | FREAK-specialized coding assistant (long-term, needs community/dataset) | 🔮 Future |
-
-> **PEAK is a fully independent language, not a transpiler to FREAK.** This distinction matters for architecture decisions.
-
-> **HFML codegen requires COCKPIT Phase C to be complete.** Lexer/parser work can proceed independently.
-
----
-
-## Repository Structure
-
-```
-Freak-lang/
-├── freakc/                    # Python → C transpiler (v1 compiler)
-│   ├── __main__.py            # Entry: python -m freakc file.fk
-│   ├── lexer.py
-│   ├── parser.py
-│   ├── checker.py             # Type checker
-│   ├── emitter.py             # C emitter (primary backend)
-│   ├── auditor.py             # Audit commands (science/trust/miracles/foreshadow)
-│   └── runtime/
-│       ├── freak_runtime.h    # Runtime type definitions
-│       └── freak_runtime.c    # Runtime implementations
-├── src/
-│   ├── compiler/              # Self-hosting compiler source (.fk files)
-│   │   ├── main.fk
-│   │   ├── lexer.fk
-│   │   ├── parser.fk
-│   │   ├── ast.fk
-│   │   ├── checker.fk
-│   │   ├── emitter.fk
-│   │   └── backend/
-│   │       └── llvm.fk        # LLVM IR backend
-│   └── cli/                   # Native CLI (replaces Python CLI)
-│       ├── main.fk            # CLI entry point, subcommand dispatch
-│       ├── build.fk           # Compile pipeline (transpile + clang)
-│       ├── run.fk             # Build + execute
-│       ├── version.fk         # Version display and help
-│       ├── toml.fk            # TOML parser/writer for hangar.toml
-│       └── hangar.fk          # Package manager (init/add/remove/install/version)
-├── self_hosted/               # Self-hosting bootstrap output
-│   ├── main.fk                # Self-hosting compiler entry point
-│   ├── freakc_self.exe        # Stage 1: Python-compiled self-hosting binary
-│   ├── freakc_self2.exe       # Stage 2: Self-compiled binary (M15 achieved)
-│   ├── muvluv/                # muvluv Hangar package
-│   └── ui/                    # COCKPIT prototype
-├── build/
-│   ├── compiler/              # Build artifacts
-│   ├── freakc_v2.fk           # v2 compiler source
-│   └── freakc_v2.exe
-├── tests/                     # Test programs (.fk + compiled binaries)
-│   ├── hello.fk               # Canonical hello world
-│   ├── anime.fk
-│   ├── closures.fk
-│   ├── maybe.fk
-│   ├── operator_overload.fk
-│   ├── process.fk
-│   ├── bytes.fk
-│   ├── shapes.fk
-│   ├── rpg_console.fk
-│   └── ...
-├── std/                       # Standard library stubs
-├── packages/                  # Hangar packages
-├── freak-full-bible.md        # ⭐ AUTHORITATIVE LANGUAGE SPEC
-├── freak-todo.md              # Development checklist with milestone tracking
-├── freak-distribution-llvm-plan.md  # LLVM backend + distribution strategy
-├── freak-ui-plan.md           # COCKPIT implementation plan
-├── .github/
-│   └── workflows/
-│       ├── ci.yml             # CI: test on push/PR (3 platforms)
-│       └── release.yml        # Release: build binaries on tag push (4 platforms)
-├── README.md                  # Public-facing README (M10 complete)
-├── bootstrap.bat              # Windows self-hosting bootstrap script
-├── run.sh                     # Linux/macOS run helper
-├── install.sh                 # Linux/macOS installer (curl | bash)
-├── install.ps1                # Windows installer (irm | iex)
-└── AGENTS.md                  # This file
-```
-
-**Docs generated so far** (in `.projects/` knowledge folder):
-- `freak-docs.html` — full HTML docs site
-- `freak-std.html` — standard library reference (11 modules documented)
-- `freakscript-bible.md` — FreakScript spec
-- `hfml-plan.md` — HFML implementation plan
-- `sortie-ide-spec.md` — Sortie IDE spec
-- `freak-future-roadmap.md` — CFS, PEAK, NEXUS, SIGNAL roadmap
-
----
-
-## Milestone Status
-
-### Core Milestones (M-series)
-
-```
-[x] M1  — hello.fk compiles and runs
-[x] M2  — variables, tasks, if/when/loops all work
-[x] M3  — closures and pipes work
-[x] M4  — maybe<T> and result<T,E> fully work
-[x] M5  — type checker catching real errors
-[x] M6  — `freak run` CLI works end-to-end
-[x] M7  — Audit commands (freak audit-science/trust/miracles/foreshadow-audit)
-[x] M8  — muvluv installable via Hangar
-[x] M9  — BETA early warning system runs in FREAK
-[x] M10 — GitHub repo public, README written
-[x] M11 — std::process, std::thread, std::bytes done
-[x] M12 — operator overloading (Add/Sub/Mul/Div/Neg/Eq via doctrines)
-[x] M13 — freak-http and freak-json published to Hangar
-[ ] M14 — freak-image and freak-zip exist
-[x] M15 — self-hosting compiler bootstrap COMPLETE (freakc_self.exe compiles hello.fk)
-[x] M16 — std::fs, std::math, std::time integrated in v2 compiler
-```
-
-### COCKPIT Milestones (MA–MG track)
-```
-[x] MA  — Window system (std::ui platform abstraction + Win32 backend, emitter wired)
-[x] MB  — Layout engine (flex-like immediate-mode layout)
-[x] MC  — Widget library (buttons, labels, text input, sliders, checkbox)
-[x] MD  — Theming system (5 themes: default/light/terminal/alternative/muvluv)
-[x] ME  — Extended widgets (dropdown, tabs, progress bar, tooltip, modal, scroll area)
-[x] MF  — Animation system (delta_time, easing functions, tween system)
-[ ] MG  — Polish and publish COCKPIT to Hangar
-```
-
-### HFML Milestones (MH0–MH9 track)
-Pending — depends on COCKPIT Phase C for codegen; lexer/parser can start earlier.
-
-### LLVM Backend Milestones (LB-series)
-```
-[x] LB1  — LLVM IR emitter: hello world compiles via clang
-[x] LB2  — All FREAK primitives map to LLVM types
-[x] LB3  — All control flow emits correct IR (if/when/loops/break/continue)
-[x] LB4  — Shapes (structs) and impl methods work
-[x] LB5  — freak_runtime.h functions replaced by IR intrinsics (platform-dependent C remains: stdin, popen, sockets, UI)
-[x] LB6  — freak build uses LLVM backend by default
-[ ] LB7  — JIT mode: freak run executes via OrcJIT (no binary written) — deferred to V4
-[x] LB8  — Optimization levels: --opt=0/1/2/3
-[x] LB9  — Cross-compilation: freak build --target x86_64-linux
-[x] LB10 — Debug info: minimal LineTablesOnly DWARF (DISubprogram + per-instruction !dbg)
-```
-
-### Distribution Milestones (D-series)
-```
-[x] D1  — GitHub Actions CI on Linux/macOS/Windows
-[x] D2  — Release workflow: 4-platform binary matrix on tag push
-[x] D3  — v0.8.0 released with downloadable binaries
-[x] D4  — Install scripts: install.sh (Linux/macOS) + install.ps1 (Windows)
-[x] D5  — Hangar bootstrap: hangar install freak / hangar upgrade freak
-[ ] D6  — Homebrew formula
-[ ] D7  — Scoop/Winget manifests
-```
-
----
-
-## Compiler Architecture
-
-### Current Pipeline (Python → C → native)
-
-```
-.fk source
-    ↓  python -m freakc
-    ↓  Lexer (lexer.py)       → tokens
-    ↓  Parser (parser.py)     → AST
-    ↓  Type Checker           → typed AST
-    ↓  C Emitter (emitter.py) → .fk.c
-    ↓  clang / MSVC           → native binary
-```
-
-**The C backend is not going away** — it becomes `freak build --target c` for portability.
-
-### Target Pipeline (FREAK → LLVM IR → native)
-
-```
-.fk source
-    ↓  Lexer / Parser (unchanged)
-    ↓  Type Checker (unchanged)
-    ↓  IR Lowering (freakc/ir/emitter.py)
-    ↓  LLVM IR (.ll / bitcode)
-    ↓  llc / opt
-    ↓  LLD (LLVM's linker)
-    native binary
-```
-
-Why LLVM: removes Clang dependency, enables JIT, direct DWARF debug info, proper LTO, cross-compilation built in. See `freak-distribution-llvm-plan.md` for full details.
-
-**LLVM IR type mapping:**
-| FREAK | LLVM IR |
+| Concern | Authority |
 |---|---|
-| `int` | `i64` |
-| `uint` | `i64` (unsigned semantics) |
-| `num` | `double` |
-| `tiny` | `i8` |
-| `bool` | `i1` |
-| `word` | `%freak_word = type { i8*, i64, i64 }` |
-| `maybe<T>` | `%freak_maybe_T = type { i1, T }` |
-| `result<T,E>` | `%freak_result_T_E = type { i1, T, E }` |
-| `List<T>` | `%freak_list_T = type { T*, i64, i64 }` |
-| `shape Foo {}` | `%Foo = type { fields... }` |
+| Normative language semantics | `freak-full-bible.md` |
+| Tracked implementation gaps | `freak-conformance-audit.md`, verified against code and executable checks |
+| V4 architecture | `freakc-v4-00-unit-architecture.md` |
+| V4 crate boundaries and protocols | `src/compiler/v4/README.md` |
+| Public usage and installation | `README.md` |
+| Distribution and LLVM history | `freak-distribution-llvm-plan.md` |
+| Current COCKPIT implementation | `packages/cockpit/` |
+| COCKPIT design history | `freak-ui-plan.md` |
 
-### Self-Hosting Compiler
+Current facts:
 
-The self-hosting compiler lives in `src/compiler/` (`.fk` sources) and `self_hosted/` (compiled artifacts).
+- Public release: **v0.14.0 "Maverick"**.
+- Shipping compiler: self-hosted V3, emitting LLVM IR and linking natively. The
+  C backend remains a portability target.
+- V4 implementation: `src/compiler/v4/`.
+- V4 00-Unit bootstrap is complete, but V4 is not a full V3 replacement.
+- Current primary V4 gate: **Meiya borrow/lifetime analysis**. Named
+  unique-source returned loans have landed; general outlives relations,
+  multi-source regions, loop fixed points, and stored lifetime-bearing values
+  remain constrained.
+- Compiler display versions must agree in `src/cli/version.fk` and
+  `src/compiler/v3/globals.fk`; release workflows and packaging manifests are
+  the authority for platform assets and must be audited before tagging.
 
-Bootstrap sequence (`bootstrap.bat`):
-1. **Stage 0** — Python `freakc` compiles `self_hosted/main.fk` → `freakc_self.exe`
-2. **Stage 1** — `freakc_self.exe` compiles itself → `main.fk.c` → `freakc_self2.exe` (via clang)
-3. **Stage 2** — `freakc_self2.exe` compiles `tests/hello.fk` → `hello_self.exe` ✅
+If implementation semantics and the bible disagree, the bible wins unless the
+task explicitly amends or clarifies the language. If an implementation-status
+claim disagrees with executable evidence, treat that as a blocking documentation
+defect: verify the behavior and update the status documents rather than
+regressing working code to match a stale matrix. Never silently redefine the
+language to match an implementation shortcut.
 
-**M15 is complete.** The self-hosting compiler can compile itself.
+## Non-Negotiables
 
----
+1. Keep V4 modular. Do not move editor facts, snapshot formats, or transport
+   state back into `freak_driver`.
+2. Land language features as vertical slices, not isolated crate promises.
+3. Update conformance documentation with semantic behavior.
+4. Never push directly to `main`; use a topic branch and pull request.
+5. Do not revert, stage, or commit unrelated user changes.
+6. Stage explicit paths. Avoid `git add -A` in mixed worktrees.
+7. Commit after meaningful milestones and successful verification.
+8. Do not add AI attribution or `Co-Authored-By` trailers.
+9. Every PR gets self-review; every non-typo PR also gets an independent
+   reviewer.
+10. Passing tests do not override an unresolved correctness finding.
+11. Do not weaken tests, diagnostics, or contracts merely to make CI green.
+12. Leave the branch clean, documented, and reproducibly verifiable.
 
-## Language Quick Reference
+## Starting A Task
 
-### Core Keywords
+1. Inspect `git status --short --branch`, current worktrees, and recent history.
+2. Fetch `origin` before creating a new branch or worktree when network and
+   repository mutation are allowed.
+3. Read the relevant authority documents and nearby implementation before
+   choosing a design.
+4. Identify unrelated dirty files and exclude them from the work.
+5. Define the behavioral exit gate and the smallest checks that prove it.
+6. Decide whether the task needs one lane, parallel read-only exploration, or
+   isolated write lanes. Unclear work may use parallel explorers, but writers
+   wait until ownership and contracts are concrete.
 
-| FREAK | Meaning |
-|---|---|
-| `pilot` | variable declaration (`var`) |
-| `fixed pilot` | immutable binding (`const`) |
-| `task` | function declaration (`fn`/`func`) |
-| `give back` | return |
-| `say` | print (always available, no import) |
-| `when` | pattern matching (`match`/`switch`) |
-| `shape` | struct |
-| `doctrine` | trait/interface |
-| `impl` | implementation block |
-| `trust-me` | unsafe block |
-| `training arc` | bounded loop (compiler-verified termination) |
-| `for each` | iterator loop |
-| `repeat N times` | counted loop |
-| `foreshadow` / `payoff` | narrative debt variables (must be resolved before scope end) |
-| `deus_ex_machina` | dramatic escape hatch block (monologue ≥ 20 words required) |
-| `isekai` | isolated fresh scope with `bringing back {}` exports |
-| `eventually` | deferred execution block |
-| `launch` | marks a task as public/exported |
-| `done` | synonym for `}` |
+When the user explicitly asks for a formal goal, create one concrete goal with
+an end state, non-goals, a pinned base commit, verification requirements,
+delivery expectations, lane dependencies, and a resource budget. Do not infer
+a formal goal from ordinary work. Track substantial goals through `scoped ->
+active -> integrating -> verifying -> complete`; `blocked` and `cancelled` are
+terminal alternatives. Mark a goal complete only after every stated gate is
+satisfied; difficulty or slow CI is not a blocker by itself.
 
-### Type System
+These are planning labels, not replacements for the goal tool's status
+contract. User/system controls pause, resume, and cancellation; use `blocked`
+only when the tool's repeated-blocker threshold is met.
 
-```
-num          -- 64-bit float (default numeric, context-narrows to int)
-int          -- 64-bit signed integer
-uint         -- 64-bit unsigned integer
-tiny         -- 8-bit unsigned (byte)
-float        -- 64-bit IEEE 754
-float32      -- 32-bit IEEE 754
-big          -- arbitrary precision integer (never overflows)
-word         -- UTF-8 string (fat pointer: data + byte_len + char_count)
-bool         -- true/false/yes/no/hai/iie
-char         -- Unicode scalar value (32-bit)
-void         -- unit type
-[T; N]       -- fixed-size array (stack)
-(A, B, ...)  -- tuple
-*T           -- raw pointer (trust-me blocks only)
-*mut T       -- raw mutable pointer (trust-me blocks only)
+Explicit read-only or no-network instructions take precedence: do not fetch,
+prune, create branches/worktrees, touch the index, commit, push, or open a PR in
+that mode.
 
-maybe<T>     -- optional: some(42) | nobody
-result<T,E>  -- success/failure: ok(val) | err("msg")
-List<T>      -- dynamic array: [1, 2, 3]
-Map<K,V>     -- hash map: { "key": value }
-Set<T>       -- unique collection
-Lineup<T>    -- FIFO queue
-mood         -- .chill | .focused | .hype | .mono_no_aware | .muv_luv
-prob[lo..hi] -- value constrained to probability range
-power<N>     -- number guaranteed ≥ N at compile time
-route        -- tagged union / enum with data
-```
+### Dirty Worktrees
 
-### Operator Overloading (via Doctrines)
+This repository often has unrelated local work. Never clean it speculatively.
 
-Implemented in Phase 14. Emitter tracks `impl_doctrines` dict:
-- `a + b` → `TypeName_add(&a, b)` when left type implements `Add`
-- `a == b` → `TypeName_equals(&a, b)` when type implements `Eq`
-- `word` implements `Add` for concatenation
-
-Built-in operator doctrines: `Add`, `Sub`, `Mul`, `Div`, `Neg`, `Eq`, `Ord`, `Index`, `IndexMut`.
-
-### String Interpolation
-
-```fk
-say "Hello, {name}! Power: {power}."
--- {expr} inside double-quoted strings
+```powershell
+git status --short --branch
+git diff -- <intended-path>
+git diff --cached --name-only
 ```
 
-### Error Propagation
+If the checkout is mixed, stale, on `main`, or attached to a deleted remote
+branch, create a clean worktree from the recorded intended `BASE_SHA`. Use
+`origin/main` only for confirmed standalone work. Keep the original checkout
+untouched.
 
-```fk
-pilot data = fs::read(path)?   -- propagates err up, unwraps ok
-pilot val = maybe_val or else default_val
+## Git Delivery
+
+### Branches And Worktrees
+
+Preferred branches:
+
+- `feat/<slug>` for features
+- `fix/<slug>` for defects
+- `docs/<slug>` for documentation
+- `refactor/<slug>` for structural changes
+- `chore/<slug>` for tooling and maintenance
+- `release/v0.X.Y` for release preparation
+- Existing harness prefixes such as `TeRiRi/...` or `claude/...` may be kept
+  when work already belongs there
+
+Create risky, long-running, or parallel write work in an isolated worktree.
+Pin the intended baseline first; do not assume a moving `origin/main` is the
+right base for work that depends on a topic branch:
+
+```powershell
+git fetch origin
+$BASE_SHA = git rev-parse origin/main
+git worktree add -b feat/v4-example C:\tmp\freak-v4-example $BASE_SHA
 ```
 
-### Concurrency
+Before recursive removal or relocation, resolve and verify the exact absolute
+path. Never broadly delete `C:\tmp`, the repository root, or a computed path
+that has not been checked.
 
-```fk
-use std::thread::spawn
-use std::sync::Channel
+### Commits
 
-pilot (tx, rx) = Channel::new()
-pilot handle = spawn(copy(tx) || {
-    tx.send("message")
-})
-pilot msg = rx.recv()
-handle.join()
+Commit automatically after a compiler/runtime bug fix, semantic slice,
+workflow change, conformance milestone, risky refactor, or verified end-to-end
+checkpoint. Keep commits scoped and independently understandable.
+
+Use an imperative summary:
+
+```text
+Add V4 returned-loan outlives diagnostics
+
+- Carry relation facts through MIR queries
+- Add Meiya and editor invalidation smokes
 ```
 
-Squadron model (structured concurrency) is preferred over raw `std::thread`. Use `std::thread` as the escape hatch.
+Do not accumulate unrelated subsystems into one commit solely to reduce commit
+count. Do not rewrite or squash user commits unless explicitly asked.
 
-### Annotations
+### Pull Requests
 
-```fk
-@protagonist   -- main character (one per program)
-@nakige        -- this will hurt (acknowledged sad content)
-@experiment    -- scientific context
-@season_finale -- one allowed per program
-@deprecated    -- do not use
-```
+Open a PR when the user asks, the active goal requires it, or the established
+task convention says completed branches get PRs. Target `main`. Default to a
+draft while review or CI is incomplete.
 
----
+The PR body must state:
 
-## Standard Library Modules
+- what behavior changed
+- why the design belongs at its chosen ownership boundary
+- local validation performed
+- CI or platform validation still pending
+- known conservative boundaries or follow-up work
 
-| Module | What it provides | Status |
+Agents do not merge unless the user explicitly requests it. Before updating or
+declaring a PR ready, fetch its live merge state, checks, reviews, issue
+comments, and inline review threads.
+
+All readiness evidence is tied to the current PR head SHA. A new commit
+invalidates earlier self-review, CI, and independent-review evidence until those
+gates run on the new head or the reviewer explicitly verifies its delta.
+
+## Goal And Agent Orchestration
+
+Parallelism is useful only when work can be partitioned. Use as many agents as
+there are independent lanes that materially shorten the critical path, not as
+an arbitrary measure of effort.
+
+### Roles
+
+| Role | Responsibility | Writes? |
 |---|---|---|
-| `std::math` | abs, min, max, clamp, pow, sqrt, gcd, lcm, factorial, fibonacci | ✅ Pure FREAK |
-| `std::math3d` | Vector2/3/4, Matrix4x4, dot/cross/normalize, transforms | ✅ Pure FREAK |
-| `std::string` | starts_with, ends_with, contains, trim, replace, substring, index_of | ✅ Pure FREAK |
-| `std::convert` | int_to_hex/bin/oct, char_to_digit, bool_to_word | ✅ Pure FREAK |
-| `std::algorithm` | sort, binary_search, find, contains, reverse, copy, unique, sum/max/min | ✅ Pure FREAK |
-| `std::json` | Parse and serialize JSON (recursive descent, value pool) | ✅ Pure FREAK |
-| `std::http` | HTTP/1.1 client (GET/POST/PUT/DELETE) over TCP sockets | ✅ Pure FREAK + C runtime |
-| `std::zip` | ZIP archive read/write for text entries | ✅ Pure FREAK + external backend |
-| `std::fs` | File I/O | ✅ C runtime |
-| `std::process` | Spawn processes, read env, CLI args | ✅ C runtime |
-| `std::time` | Timestamps, durations, sleep | ✅ C runtime |
-| `std::bytes` | `ByteBuffer` for binary I/O | ✅ C runtime |
-| `std::thread` | Threads, atomics, channels | 📐 Planned |
-| `std::net` | TCP, UDP sockets (low-level) | ✅ C runtime |
-| `std::ui` | Native window, events, canvas | 🚧 In progress |
-| `std::anime` | Mood arithmetic, power checks | 📐 Planned |
-| `std::narrative` | Death flags, foreshadow logs | 📐 Planned |
-| `std::test` | Tests with vibes ratings | 📐 Planned |
+| Lead | contract, decomposition, integration, final checks, delivery | yes |
+| Explorer | bounded codebase or design question | no |
+| Worker | one owned implementation lane | yes |
+| Reviewer | adversarial diff review and test-gap analysis | no |
 
-`std::narrative` ships with the compiler. The `foreshadow_log.unpaid` field should be 0 at program end — this is a compiler warning if it isn't.
+Conformance, CI, release, security, and platform work are specializations of
+these roles, not separate permission models. An agent has one role at a time.
 
----
+The author of a patch cannot be its independent reviewer. Close agents when
+their result has been integrated or recorded so concurrency remains available.
 
-## CLI Commands
+### Isolation And Ownership
 
-```bash
-# Native CLI (build/freak.exe)
-freak build file.fk              # compile to native binary (default: LLVM backend)
-freak build file.fk --c          # compile using C backend
-freak build file.fk --opt=3      # set optimization level
-freak build file.fk --target=x86_64-linux-gnu  # cross-compile
-freak run file.fk                # build and execute
-freak check file.fk              # type check only
-freak transpile file.fk          # transpile only (emit .c or .ll)
-freak --version                  # show version
-freak help                       # show help
-freak test                       # run regression suite (wraps tests/suite/run_tests.py)
+- Read-only explorers and reviewers may inspect the same immutable commit or
+  diff and do not need branches, worktrees, or commits. If a review tool must
+  generate artifacts, write them outside the repository.
+- Explorers and reviewers do not fetch, switch branches, mutate refs/worktrees,
+  touch files or the index, commit, push, or resolve conflicts. Explicitly
+  reassign the agent as a worker before granting writes; that agent can no
+  longer independently review the resulting patch.
+- Pin one `BASE_SHA` for a multi-agent goal and record any prerequisite commit
+  used by a dependent lane.
+- Give a cohesive multi-worker goal a dedicated integration branch/worktree.
+- Every write-capable lane gets its own branch and worktree from the pinned
+  base or a recorded prerequisite commit.
+- One write-capable owner per file at a time.
+- Ownership transfer requires a committed handoff and explicit reassignment in
+  the lane ledger.
+- Agents integrate committed work, not loose patches or copied worktrees.
+- The lead resolves conflicts and verifies the integrated tree.
+- A lane that produces no useful change should not create merge noise.
 
-# Hangar package manager (standalone or via freak)
-hangar init                       # create project skeleton + hangar.toml
-hangar add pkg repo               # add dependency
-hangar remove pkg                 # remove dependency
-hangar install                    # install all dependencies
-hangar install freak              # download freak binary
-hangar version                    # show project version
-hangar version patch              # bump patch version
-# Also available as: freak hangar <cmd>
+Partition by independently testable feature responsibility. Prefer one owner
+for an end-to-end vertical slice when its compiler layers are tightly coupled.
+Crate-shaped lanes are acceptable only after the shared semantic contract is
+stable and their write sets are genuinely disjoint; do not turn the roadmap
+into a sequence of crate completions.
 
-# Legacy Python CLI (still available as bootstrap)
-python -m freakc build file.fk
-python -m freakc run file.fk
+Integration-owned files normally stay with the lead: `AGENTS.md`, root
+`README.md`, bible/audit documents, `freakc/auditor.py`,
+`src/compiler/v4/check_v4.py`, and workflow files. If a worker owns one, record
+the exception in the lane ledger. Ownership returns to the lead only after the
+worker's committed handoff is accepted.
 
-# Audit commands (native CLI shells out to the Python implementation;
-# native FREAK port lands with V4)
-freak audit-conformance          # verify v0.13.x baseline against the bible
-freak audit-science              # list 'for science,' call sites
-freak audit-trust                # list 'trust me' blocks with honor levels
-freak audit-miracles             # list deus_ex_machina blocks (>3 warn, >10 err)
-freak foreshadow-audit           # foreshadow/payoff pairs and unpaid debt
+### Agent Brief
+
+Every delegated task must name:
+
+```text
+Goal and observable exit condition
+Pinned base commit and branch/worktree
+Owned files or responsibility
+Files and behaviors explicitly out of scope
+Required focused checks
+Expected output: commit hash or findings, files, checks, risks
 ```
 
-### Bootstrap
+Workers must be told other work may exist and must not revert it. If ownership
+or checks cannot be stated, the work is not ready for a write agent.
 
-```bat
-# Windows — full self-hosting bootstrap
-bootstrap.bat
+### Integration Order
 
-# Linux/macOS — compile and run a .fk file
-./run.sh file.fk
-```
+1. Inspect each lane diff, commit evidence, and focused checks.
+2. Reject unrelated or generated churn.
+3. Integrate stable contracts before their consumers, one committed lane at a
+   time.
+4. Re-run affected checks after each risky integration or conflict resolution.
+5. Apply integration-owned docs, audit guards, and harness registration.
+6. Review the final integrated diff. This review is mandatory when two or more
+   workers contributed, even if every lane was reviewed separately.
+7. Resolve findings, then run the broad gate once on the integrated branch.
+8. Push and, when required, open or update the PR as a draft.
+9. Complete remote CI and review disposition during verification.
 
----
+Run at most one `check_v4.py` process at a time on one host, including focused
+smokes and shards: every invocation initializes broad compiler state. Workers
+prepare focused commands; the lead coordinates their serialized execution and
+owns broad integration checks. This protects iteration time, RAM, pagefile, and
+temporary storage without reducing coverage.
 
-## Hangar Package Manager
+Only the lead rebases, resolves cross-lane conflicts, removes worktrees, deletes
+branches, prunes repository state, or performs repository-wide cleanup. Before
+cleanup, verify the exact path, a clean worktree, and that no unique commit
+would be lost. Stop child processes before replacing a timed-out lane or check.
 
-`hangar.toml` format:
+## Review Policy
 
-```toml
-[project]
-name = "my-project"
-version = "0.1.0"
+Review is a correctness gate, not a ceremonial summary.
 
-[dependencies]
-cockpit = { git = "https://github.com/yourname/cockpit", version = "latest" }
-muvluv   = { git = "https://github.com/FREAK-lang-dev/muvluv", version = "latest" }
-```
+### Required Reviews
 
-Dependencies install to `hangar_modules/` (or `hangar_cache/` for downloaded deps).
+Every PR receives a lead self-review of the immutable
+`git diff $BASE_SHA...$HEAD_SHA` before readiness.
+Every PR except a literal typo-only change receives an independent review. The
+reviewer must not have authored or fixed any commit under review; if they edit
+the patch, assign a different reviewer. Record the reviewed SHA, checks, verdict,
+and known residual risk in the PR.
 
-**Hangar cannot bootstrap FREAK itself** — an external install script is the necessary distribution entry point. This is a known architectural constraint.
+Independent review is particularly important when any of these are true:
 
-Long-term vision: Hangar becomes the universal entry point (Rustup model). `hangar install freak` fetches the compiler. `hangar upgrade freak` updates it. A tiny Python/Go bootstrapper is the short-term solution; a pre-compiled Hangar binary is the correct long-term approach.
+- parser, HIR, resolve, TY, MIR, borrowck, LLVM, query, snapshot, LSP, runtime,
+  security, CI, release, packaging, or installer behavior changes
+- public language semantics, diagnostics, protocols, or conformance status
+  changes
+- two or more write lanes contributed to one integration branch
+- a fix addresses memory safety, ownership soundness, ABI behavior, data loss,
+  or platform-specific execution
+- the patch is large enough that tests alone could conceal an architectural
+  regression
 
----
+Policy, architecture, release, and normative documentation changes are not
+typo-only changes.
 
-## COCKPIT Framework
+### Finding Severity
 
-Immediate-mode UI — no widget trees, no callbacks, no retained state. Call widget functions in order, frame renders.
-
-```
-Your FREAK app
-     │
-     ▼
-COCKPIT (Hangar)      ← widgets, layout, theming, input
-     │
-     ▼
-std::ui               ← window, events, raw draw calls
-     │
-     ├── Windows: Win32 / Direct2D
-     ├── macOS:   Cocoa / CoreGraphics
-     └── Linux:   X11 / Cairo
-```
-
-### Themes
-
-| Theme | Mood | Vibe |
+| Severity | Meaning | Disposition |
 |---|---|---|
-| `Theme::default()` | `.focused` | Dark. Professional. Ready. |
-| `Theme::light()` | `.chill` | Light. Calm. Readable. |
-| `Theme::terminal()` | `.hype` | Green on black. Pure. |
-| `Theme::alternative()` | `.muv_luv` | Navy and pink. Dangerous. |
-| `Theme::muvluv()` | `.mono_no_aware` | Red and black. You know what you've done. |
+| P0 | exploit, data loss, systemic unsoundness, destructive workflow | stop; fix before any PR readiness |
+| P1 | correctness bug, soundness hole, major regression, broken required path | fix before readiness or merge |
+| P2 | meaningful edge-case risk, contract drift, missing important coverage | fix or record a concrete evidence-based rejection |
+| P3 | non-blocking clarity, maintainability, or optional test improvement | fix, reject, or link a tracked follow-up |
 
----
+Review output starts with findings ordered by severity and includes exact
+file/line references, reproduction or reasoning, and missing tests. Summaries
+come after findings. A reviewer should say explicitly when no actionable issue
+was found and identify residual risk.
 
-## muvluv Package (Official Flagship)
+The lead must disposition every P0/P1 and every actionable P2. Rejecting a
+finding requires technical evidence; passing CI alone is not evidence that the
+finding is wrong.
 
-The flagship Hangar package. Located in `self_hosted/muvluv/`. Installable via Hangar (M8 complete).
+### Self-Review Checklist
 
-Key types:
-- `Eishi` — name, power, status, callsign
-- `BETA::Tier` — Soldier → Grappler → Destroyer → Tank → Laser → Fort → BRAIN
-- `TSF` — model, variant, mounted_weapon, os_version
-- `COSMO` module — `request_strike()` (orbital bombardment stub)
-- `YuukoLab` — helpers for `@experiment` scaffolding
+Before push or PR update, the author/lead checks the current head:
 
-The **BETA early warning system** (M9) is the showcase program that uses this package.
+1. The immutable `git diff $BASE_SHA...$HEAD_SHA` contains only intended
+   commits and files; unstaged and cached diffs contain no uncommitted residue.
+2. Changed callers, data formats, query keys, and restoration paths still agree.
+3. Error paths and conservative boundaries are tested, not only happy paths.
+4. Layout, invalidation, snapshots, and editor facts stay deterministic where
+   applicable.
+5. Docs and conformance claims do not exceed implementation.
+6. No debug artifacts, generated binaries, credentials, or temporary files are
+   staged.
+7. The worktree is clean after commit and the pushed SHA matches the PR head.
 
----
+### GitHub Review Threads
 
-## Distribution Strategy
+- Inspect issue comments, submitted reviews, and inline review threads after a
+  push that requests review and immediately before declaring readiness.
+- Automated comments are evidence to investigate, not authority to obey or
+  dismiss. Reproduce the claim against the current head.
+- Give every thread one explicit disposition: `fixed in <sha>`, `rejected
+  because <evidence>`, `duplicate of <link>`, or, for P3 only, `follow-up
+  <issue>`.
+- Resolve a thread only after its disposition is pushed and explained.
+- An outdated or collapsed thread still requires semantic disposition.
+- A requested automated review is pending until its verdict or no-findings
+  signal exists for the current head. Request a refresh when it reviewed an
+  older SHA.
+- A late comment on a closed or merged PR must be evaluated against current
+  `main`. Valid P0/P1 findings require an immediate hotfix or revert assessment
+  and block affected releases. Valid P2 findings require a tracked issue and
+  focused follow-up PR. Do not resurrect or rewrite the merged branch.
 
-See `freak-distribution-llvm-plan.md` for full detail.
+### CI Failures
 
-### GitHub Releases Binary Matrix
+Inspect the failing step and logs before rerunning. Classify the failure as:
 
-Every tagged release builds:
-- `freakc-linux-x64`, `freakc-linux-arm64`
-- `freakc-macos-x64`, `freakc-macos-arm64`
-- `freakc-windows-x64.exe`
-- Same matrix for `hangar`
-- `SHA256SUMS` checksum file
+- implementation or test regression
+- deterministic resource/test-runner defect
+- platform-specific behavior
+- external infrastructure interruption
 
-### Install Scripts (working)
+All applicable checks must complete successfully on the current head; pending,
+cancelled, or failed current-head checks block readiness. One rerun is
+reasonable for a clearly documented infrastructure interruption. A repeated
+failure is a defect until evidence proves otherwise. Never remove a fixture,
+loosen an assertion, or inflate a timeout without understanding the underlying
+behavior.
 
-```bash
-# Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.sh | bash
+### Ready And Merge Gates
 
-# Windows
-irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
+A PR is ready only when:
 
-# Via Hangar (if you already have Python + freakc)
-python -m freakc hangar install freak
-python -m freakc hangar upgrade freak
+- the intended branch is pushed and mergeable against current `main`
+- required local checks pass
+- required CI is green on every registered platform/job
+- no review comment is unseen, undispositioned, or unresolved
+- no P0/P1 remains and actionable P2 findings are resolved or rejected with
+  evidence
+- conformance and public docs match the actual behavior
+- the PR describes remaining conservative boundaries
+
+Record the final evidence in a PR comment. Any subsequent commit invalidates
+the record:
+
+```text
+Merge gate @ <head-sha>
+Self-review: complete
+Independent review: <reviewer>, <reviewed-sha>, <verdict>
+CI: all applicable current-head checks green
+Unresolved threads: 0
+Deferred findings: <issue links or none>
 ```
 
-Long-term: Homebrew formula, Scoop/Winget manifests.
+Repository rulesets should enforce current-head required checks and review
+thread resolution where the host supports them. These gates still apply when a
+server-side setting lags behind policy.
 
----
+## V4 Engineering Rules
 
-## Testing
+### Dependency Order
 
-Test syntax:
+Work by dependency gate, not bible chapter or crate completion:
 
-```fk
-test "addition works" {
-    expect 2 + 2 to be 4
-}
+1. Semantic shapes and type forms
+2. Meiya ownership, loans, lifetimes, drops, captures, and shared ownership
+3. FFI, layout, ABI, raw-pointer boundaries, and native OS surfaces
+4. Concurrency after ownership rules are stable
+5. Advanced/anime semantic layers
+6. Conformance sweep and production backend depth
 
-test "sad path" @nakige {
-    expect character.survives_ending to be false
-}
+The current primary gate is step 2. Do not start concurrency semantics that
+depend on unsettled ownership contracts.
+
+### Vertical Slice Contract
+
+A V4 language addition is complete only when every affected layer agrees:
+
+```text
+source/parse -> HIR/resolve -> TY -> MIR -> Meiya/codegen
+             -> query/editor/snapshot/LSP -> smokes -> conformance docs
 ```
 
-Test output includes a **vibes rating**:
-```
-✓ addition works
-✓ sad path
+Not every slice changes every crate, but every crate that owns an affected fact
+must be considered. Minimum coverage is one happy path and one targeted
+diagnostic; add editor/invalidation/snapshot coverage when tooling facts change.
 
-vibes: MONO_NO_AWARE  (almost there. so close.)
-```
+### Crate Ownership
 
-Test files in `tests/` directory. Run with `python -m freakc test` or `freak test`.
+V4 crate order is defined in `src/compiler/v4/check_v4.py`. Core boundaries:
 
----
-
-## Build System Notes
-
-### Windows (current dev environment)
-
-- Compiler: `clang` (MSVC toolchain available, use clang for FREAK builds)
-- Runtime: `freakc/runtime/freak_runtime.c` + `freak_runtime.h`
-- Build command: `clang -o output.exe source.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O3`
-- Bootstrap: `bootstrap.bat`
-
-### Version String (hardcoded — update before tagging releases!)
-
-The version is hardcoded in **two files** that must be updated together before tagging a release:
-
-- `src/cli/version.fk` → `pilot CLI_VERSION = "0.14.0"` and `CLI_CODENAME = "Maverick"` (shown by `freak version`)
-- `src/compiler/v3/globals.fk` → `pilot FREAKC_VERSION = "0.14.0"` and `FREAKC_CODENAME = "Maverick"` (shown by `freakc_v3 --version`)
-
-If you forget, the installed binary will report the old version even though the release tag is newer. This has happened before (v0.10.0 shipped reporting 0.9.0).
-
-### LLVM Backend Progress (V3 — current default)
-
-The V3 LLVM IR backend (`src/compiler/v3/emit_llvm.fk`) is the **default** backend as of v0.13.3. The pipeline is:
-
-```
-.fk source → V3 compiler (freakc_v3.exe) → .ll → clang/lld → native binary
-```
-
-Bootstrap: `build_cli.bat` (Windows) or CI workflow. Pre-compiled bootstrap at `build/freakc_v3.fk.c`.
-
-**Working features:** all control flow, shapes/impl, arrays (LLVM-compatible pool), string methods, fs::read/write/append/exists/delete (via std/runtime.fk), process, math, UI, TCP, JSON, HTTP.
-
-**Runtime:** LLVM builds link `freak_llvm_runtime.c` (libc wrappers, LLVM-compatible array pool, time, process_exec_capture) + `freak_runtime.c` (word/string methods, C-backend arrays — separate pool).
-
-**Not yet implemented:** JIT (LB7) — deferred to V4.
-
----
-
-## Key Design Principles
-
-1. **The anime/VN identity is load-bearing.** Not superficial. It must be preserved in all documentation, contribution guidelines, error messages, and tooling.
-
-2. **The bible wins.** `freak-full-bible.md` is authoritative. If the compiler disagrees, fix the compiler.
-
-3. **Self-hosting is the credibility signal.** M15 is done. Lead with this in all public communications.
-
-4. **FreakScript retains FREAK's personality, drops systems complexity.** The JS-to-Java analogy is the guiding frame.
-
-5. **PEAK is independent.** It is not a transpiler target for FREAK. It compiles separately.
-
-6. **Hangar can now bootstrap FREAK.** `hangar install freak` downloads the compiler. Install scripts are the entry point for first-time users without Python.
-
-7. **Get M1 working before doing anything else.** (Done. But the principle stands for new features — a running minimal version beats a perfect unfinished one.)
-
----
-
-## Pending High-Priority Work
-
-In rough priority order:
-
-1. ~~**LLVM IR backend (LB1–LB4)**~~ — ✅ Done.
-2. ~~**GitHub Actions CI/CD**~~ — ✅ Done.
-3. ~~**Hangar bootstrapper**~~ — ✅ Done.
-4. ~~**Native CLI rewrite**~~ — ✅ Done. `build/freak.exe` replaces `python -m freakc`. Includes compiler + CLI + Hangar + semver library in a single ~450KB binary. `hangar.exe` is a BusyBox-style copy that dispatches to package manager mode.
-5. ~~**LLVM IR backend (LB5–LB10)**~~ — ~~LB5 (runtime intrinsics)~~, ~~LB6 (default backend)~~, ~~LB8 (opt levels)~~, ~~LB9 (cross-compilation)~~, ~~LB10 (DWARF line info)~~ done. **LB7 (JIT)** is the only remaining item — deferred to V4.
-6. ~~**COCKPIT Phase MA–MF**~~ — ✅ Done. Window system, layout, widgets (core + extended), themes, animation. **MG (accessibility + polish)** is incremental work — substantial enough that v0.13.x ships with MA–MF and MG continues across V4.
-7. **HFML lexer/parser (MH0–MH3)** — V4 work. Can start before COCKPIT Phase C is fully done.
-8. ~~**M13: freak-http + freak-json**~~ — ✅ Done. std::json (pure FREAK) + std::http (TCP sockets + pure FREAK).
-9. **Sortie IDE Phase 1** — VS Code extension. V4 / parallel track.
-10. ~~**Update CI/release workflows**~~ — ✅ Done. Workflows build `freak.exe` + `hangar.exe`. Install scripts updated with `runtime.fk`.
-11. ~~**Conformance audit**~~ — ✅ Done. `freak audit-conformance` gates the v0.13.x baseline; `freak-conformance-audit.md` is the single source of truth for what's V4 vs ⚠️ vs ✅.
-12. ~~**Distribution: Homebrew / Scoop / Winget**~~ — ✅ Done. `packaging/{homebrew,scoop,winget}/` with the release workflow patching checksums on tag.
-13. ~~**Suite test fixes**~~ — ✅ Done. Both previously-skipped tests (`test_maybe.fk`, `test_pipe.fk`) now pass; suite at 14/14.
-
-**Remaining v0.13.x items**: none in scope. v0.13.x final patch ready when a tag is cut. The `--strict-borrow` Phase-1 BC is on by opt-in — promoting it to default-on is V4 work and will require fixing std/ files that aren't yet BC-clean.
-
----
-
-## Agent Teams (Parallel Development)
-
-This project uses Codex agent teams to parallelize work. Enable with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `.Codex/settings.local.json` (already configured).
-
-### How to Use
-
-Ask Codex to create a team with 2–4 agents targeting independent work streams. Example:
-```
-Create a team: one agent works on X, another on Y, a third on Z.
-```
-
-### Parallelizable Sprint Ideas
-
-These are groups of tasks that can safely run in parallel (no merge conflicts, independent subsystems):
-
-**Sprint A — Language Features**
-- Agent 1: **LB7 — JIT mode** (OrcJIT integration, `freak run` without writing a binary)
-- Agent 2: **LB10 — DWARF debug info** (DIBuilder, source line mappings in IR)
-- Agent 3: **M14 — freak-image + freak-zip** (new std library modules, pure FREAK + C runtime)
-
-**Sprint B — UI Stack**
-- Agent 1: **COCKPIT Phase MA completion** (wire extern declarations in emitter so std::ui calls compile)
-- Agent 2: **COCKPIT Phase MB** (layout engine — flex-like immediate-mode positioning)
-- Agent 3: **HFML lexer/parser (MH0–MH2)** (independent of COCKPIT runtime, just parsing)
-
-**Sprint C — Tooling & Distribution**
-- Agent 1: **Sortie IDE Phase 1** (VS Code extension — syntax highlighting, snippets, error lens)
-- Agent 2: **D6 — Homebrew formula** + **D7 — Scoop/Winget manifests**
-- Agent 3: **std::test framework** (test runner, vibes ratings, `freak test` command)
-
-**Sprint D — Ecosystem Expansion**
-- Agent 1: **FreakScript bootstrap** (lexer/parser from `freakscript-bible.md`, separate from FREAK compiler)
-- Agent 2: **std::thread** (threads, atomics, channels — C runtime + FREAK wrappers)
-- Agent 3: **std::anime + std::narrative** (mood arithmetic, death flags, foreshadow tracking)
-
-**Sprint E — Compiler Hardening**
-- Agent 1: **Error message improvements** (anime-themed diagnostics with source spans)
-- Agent 2: **Compiler test suite** (automated regression tests for all language features)
-- Agent 3: **Cross-platform CI validation** (ensure all tests pass on Linux/macOS/Windows)
-
-### Guidelines
-
-- Keep teams to 3–5 agents (token cost scales linearly)
-- Each agent should work in a different directory/subsystem to avoid conflicts
-- Commit after every significant change (per Git Commit Policy above)
-- The team lead coordinates, reviews output, and resolves any conflicts
-
----
-
-## File Quick Reference
-
-| File | What it is |
+| Crate | Owns |
 |---|---|
-| `freak-full-bible.md` | ⭐ Complete authoritative language spec (Alternative-4) |
-| `freak-todo.md` | Development checklist, all milestones |
-| `freak-distribution-llvm-plan.md` | LLVM backend + Hangar bootstrapping + distribution |
-| `freak-ui-plan.md` | COCKPIT implementation plan (MA–MG) |
-| `freakc/__main__.py` | Python compiler entry point |
-| `freakc/emitter.py` | C code emitter |
-| `freakc/runtime/freak_runtime.h` | C runtime type definitions |
-| `freakc/runtime/freak_runtime.c` | C runtime implementations |
-| `self_hosted/main.fk` | Self-hosting compiler main entry point |
-| `self_hosted/freakc_self.exe` | Python-bootstrapped self-hosting binary |
-| `tests/hello.fk` | Canonical hello world |
-| `tests/rpg_console.fk` | Larger showcase program |
-| `bootstrap.bat` | Full self-hosting bootstrap (Windows) |
-| `run.sh` | Compile + run helper (Linux/macOS) |
-| `install.sh` | Linux/macOS binary installer |
-| `install.ps1` | Windows binary installer |
-| `.github/workflows/ci.yml` | CI workflow (3 platforms) |
-| `.github/workflows/release.yml` | Release workflow (4 platform binaries) |
-| `freakc/hangar.py` | Hangar package manager (Python, legacy) |
-| `freakc/runtime/freak_llvm_runtime.c` | LLVM backend runtime |
-| `src/cli/main.fk` | Native CLI entry point (replaces Python CLI) |
-| `src/cli/build.fk` | CLI build pipeline (transpile + clang) |
-| `src/cli/run.fk` | CLI run pipeline (build + execute) |
-| `src/cli/toml.fk` | TOML parser/writer for hangar.toml |
-| `src/cli/hangar.fk` | Hangar package manager (native FREAK) |
-| `src/cli/version.fk` | Version display and help |
-| `std/json.fk` | JSON parser and serializer (pure FREAK) |
-| `std/http.fk` | HTTP/1.1 client (pure FREAK + TCP runtime) |
-| `std/algorithm.fk` | Sort, search, aggregate algorithms (pure FREAK) |
-| `std/convert.fk` | Type conversion utilities (pure FREAK) |
-| `std/version.fk` | Semver library (parse, compare, bump, constraints) |
-| `build_cli.bat` | Build script for native CLI binary |
-| `build/freak.exe` | Native CLI binary (compiler + CLI + Hangar) |
-| `build/hangar.exe` | Standalone package manager (BusyBox copy of freak.exe) |
+| `freak_lex` | tokens and lexical recovery |
+| `freak_parse` | resilient syntax trees and recovery nodes |
+| `freak_hir` | desugared high-level forms |
+| `freak_resolve` | names, scopes, and definition identity |
+| `freak_ty` | inference, type contracts, and type diagnostics |
+| `freak_mir` | CFG lowering, places, drops, and MIR diagnostics |
+| `freak_borrowck` | Meiya loans, moves, lifetimes, and ownership analysis |
+| `freak_codegen_llvm` | LLVM lowering and backend contracts |
+| `freak_query` | memoized storage and invalidation graph mechanics |
+| `freak_driver` | orchestration, not editor/snapshot ownership |
+| `freak_editor` | semantic, hover, definition, symbol, completion facts |
+| `freak_snapshot` | formats, manifests, diffs, health, restore coordination |
+| `freak_lsp` | transport-facing wrappers only |
 
----
+When adding a tooling endpoint, put analysis in its owning crate, stable
+serialization/validation in `freak_snapshot`, orchestration in `freak_driver`,
+and transport framing in `freak_lsp`.
 
-*"It was always going to end this way."*
-*— COCKPIT mono_no_aware theme, on program exit*
+### Conformance Updates
+
+When behavior promotes from planned to partial/implemented:
+
+1. Update the relevant bible status and normative note.
+2. Update `freak-conformance-audit.md` without overstating coverage.
+3. Add or extend `freakc/auditor.py` when the contract should be guarded.
+4. Register focused executable fixtures in `check_v4.py`.
+5. Run `python -u -m freakc audit-conformance`.
+
+## Verification And Resource Safety
+
+Choose the smallest check that proves the edit, then broaden at integration.
+
+```powershell
+# Focused V4 executable smoke
+python -u src/compiler/v4/check_v4.py --smoke "name"
+
+# Deterministic runtime shard
+python -u src/compiler/v4/check_v4.py --smoke-shard 1/6
+
+# Broad parse/transpile gate
+python -u src/compiler/v4/check_v4.py --fast
+
+# Full local V4 runtime gate when justified
+python -u src/compiler/v4/check_v4.py
+
+# Baseline language/conformance contract
+python -u -m freakc audit-conformance
+
+# Shipping compiler/runtime suite
+python -u tests/suite/run_tests.py
+
+# Python syntax and diff hygiene
+python -u -m py_compile <changed-python-files>
+git diff --check
+```
+
+Rules:
+
+- Use targeted smokes during implementation. Let CI provide the final full
+  cross-platform matrix when local duplication adds no evidence.
+- Run only one `check_v4.py` process at a time on one host. Run unfiltered
+  `--fast` or full gates only with confirmed resource headroom or in CI.
+- Run Python checks unbuffered (`-u`) so long phases remain observable.
+- If RAM, pagefile, disk, or runtime grows unexpectedly, stop and isolate the
+  exact fixture/process. Do not wait for host OOM.
+- Before a long-running local check, record its exact command and launcher PID
+  or tool session ID. Cancel through that session's termination API or an
+  OS-specific PID-tree operation.
+- Generated compiler smokes should avoid several complete compiler pipelines in
+  one executable. Split independent contracts across process-isolated fixtures
+  while preserving assertions.
+- A new public tooling endpoint requires the full V4 gate before readiness.
+- A timeout or OOM is an inconclusive verification failure until classified.
+  Record the exact phase and fixture before retrying; do not reduce coverage.
+- On interruption, terminate only the recorded launcher's process tree. Never
+  kill Python, Clang, or test processes globally by process name.
+- Treat CRLF normalization warnings as informational unless they accompany
+  unintended content churn; whitespace errors are blockers.
+
+## Repository Pointers
+
+```text
+freakc/                         Python bootstrap compiler, auditor, C runtimes
+src/cli/                        Native CLI and Hangar dispatch
+src/compiler/v3/                Shipping self-hosted compiler
+src/compiler/v4/                Modular 00-Unit compiler and executable smokes
+std/                            Standard library modules
+tests/                          Shipping language/runtime tests
+packaging/                      Homebrew, Scoop, Winget, release assets
+.github/workflows/              CI, V4 CI, and release workflows
+```
+
+For syntax, types, annotations, stdlib inventory, and error voices, read the
+bible and audit rather than copying snapshots here. For commands, installation,
+and package-manager usage, read `README.md` and native CLI help. For release
+assets and platform matrices, inspect the workflows and packaging manifests.
+
+## Maintaining This Contract
+
+Update this file only when repository-wide operating policy, current V4 gate,
+canonical authority, or a repeated safety lesson changes. Keep historical
+milestones in their proper roadmap/changelog documents. Prefer links over copied
+inventories, and remove stale instructions when adding replacements.

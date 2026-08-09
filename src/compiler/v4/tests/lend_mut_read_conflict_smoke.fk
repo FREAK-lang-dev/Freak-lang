@@ -1,0 +1,87 @@
+-- V4 explicit lend mut versus owner observation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lend_mut_read_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task peek(lend mut edit: Ship, hp: int) -> int {\n"
+    src = src + "    give back hp\n"
+    src = src + "}\n"
+    src = src + "task local_read(ship: Ship) -> int {\n"
+    src = src + "    pilot edit = lend mut ship\n"
+    src = src + "    ship.hp\n"
+    src = src + "    edit\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task copy_read(ship: Ship) -> int {\n"
+    src = src + "    pilot edit = lend mut ship\n"
+    src = src + "    pilot hp = ship.hp\n"
+    src = src + "    edit\n"
+    src = src + "    give back hp\n"
+    src = src + "}\n"
+    src = src + "task released_read(ship: Ship) -> int {\n"
+    src = src + "    pilot edit = lend mut ship\n"
+    src = src + "    edit\n"
+    src = src + "    pilot hp = ship.hp\n"
+    src = src + "    give back hp\n"
+    src = src + "}\n"
+    src = src + "task same_call(ship: Ship) -> int {\n"
+    src = src + "    give back peek(lend mut ship, ship.hp)\n"
+    src = src + "}\n"
+    src = src + "task cross_read(ship: Ship, ready: bool) -> int {\n"
+    src = src + "    pilot edit = lend mut ship\n"
+    src = src + "    if ready {\n"
+    src = src + "        ship.hp\n"
+    src = src + "    }\n"
+    src = src + "    edit\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task immutable_read(ship: Ship) -> int {\n"
+    src = src + "    pilot view = lend ship\n"
+    src = src + "    pilot hp = ship.hp\n"
+    src = src + "    view\n"
+    src = src + "    give back hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_lend_mut_read_diag_count(borrow_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+pilot v4_lend_mut_read_src = v4_lend_mut_read_source()
+pilot v4_lend_mut_read_stream = v4_lex_text(0, v4_lend_mut_read_src)
+pilot v4_lend_mut_read_tree = v4_parse_stream(0, v4_lend_mut_read_stream)
+pilot v4_lend_mut_read_hir = v4_hir_lower_tree(0, v4_lend_mut_read_tree)
+pilot v4_lend_mut_read_resolve = v4_resolve_lower_hir(0, v4_lend_mut_read_hir)
+pilot v4_lend_mut_read_ty = v4_ty_lower_resolve(0, v4_lend_mut_read_resolve)
+pilot v4_lend_mut_read_mir = v4_mir_lower_ty(0, v4_lend_mut_read_ty)
+pilot v4_lend_mut_read_borrow = v4_borrowck_check_mir(0, v4_lend_mut_read_mir)
+
+pilot v4_lend_mut_read_local_result = v4_borrowck_lookup_result(v4_lend_mut_read_borrow, v4_resolve_def_for_name(v4_lend_mut_read_resolve, "local_read"))
+pilot v4_lend_mut_read_copy_result = v4_borrowck_lookup_result(v4_lend_mut_read_borrow, v4_resolve_def_for_name(v4_lend_mut_read_resolve, "copy_read"))
+pilot v4_lend_mut_read_released_result = v4_borrowck_lookup_result(v4_lend_mut_read_borrow, v4_resolve_def_for_name(v4_lend_mut_read_resolve, "released_read"))
+pilot v4_lend_mut_read_same_call_result = v4_borrowck_lookup_result(v4_lend_mut_read_borrow, v4_resolve_def_for_name(v4_lend_mut_read_resolve, "same_call"))
+pilot v4_lend_mut_read_cross_result = v4_borrowck_lookup_result(v4_lend_mut_read_borrow, v4_resolve_def_for_name(v4_lend_mut_read_resolve, "cross_read"))
+pilot v4_lend_mut_read_immutable_result = v4_borrowck_lookup_result(v4_lend_mut_read_borrow, v4_resolve_def_for_name(v4_lend_mut_read_resolve, "immutable_read"))
+
+say "mut-read-local-status=" + v4_borrowck_result_status(v4_lend_mut_read_borrow, v4_lend_mut_read_local_result)
+say "mut-read-copy-status=" + v4_borrowck_result_status(v4_lend_mut_read_borrow, v4_lend_mut_read_copy_result)
+say "mut-read-released-status=" + v4_borrowck_result_status(v4_lend_mut_read_borrow, v4_lend_mut_read_released_result)
+say "mut-read-same-call-status=" + v4_borrowck_result_status(v4_lend_mut_read_borrow, v4_lend_mut_read_same_call_result)
+say "mut-read-cross-status=" + v4_borrowck_result_status(v4_lend_mut_read_borrow, v4_lend_mut_read_cross_result)
+say "mut-read-immutable-status=" + v4_borrowck_result_status(v4_lend_mut_read_borrow, v4_lend_mut_read_immutable_result)
+say "mut-read-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_lend_mut_read_borrow))
+say "mut-read-same-message-count=" + word_from_int(v4_lend_mut_read_diag_count(v4_lend_mut_read_borrow, "Meiya refuses observation through an exclusive lend"))
+say "mut-read-cross-message-count=" + word_from_int(v4_lend_mut_read_diag_count(v4_lend_mut_read_borrow, "Meiya carries an exclusive lend across an observation boundary"))
+say "mut-read-diag0=" + v4_diag_message(v4_borrowck_diag(v4_lend_mut_read_borrow, 0))
+say "mut-read-diag3=" + v4_diag_message(v4_borrowck_diag(v4_lend_mut_read_borrow, 3))

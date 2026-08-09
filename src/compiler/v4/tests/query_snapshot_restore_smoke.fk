@@ -1,6 +1,64 @@
 -- V4 query snapshot restore smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_query_slot_snapshot_payload(entry_count: int, edge_count: int, record_lines: word) -> word {
+    pilot out = "snapshot|format=freak-query-snapshot-v1|generation=1|generations=1|entries=" + word_from_int(entry_count) + "|edges=" + word_from_int(edge_count) + "|invalidations=0|telemetry=0"
+    out = out + "\ngeneration|1|bootstrap"
+    out = out + record_lines
+    out = out + "\nend|freak-query-snapshot-v1"
+    give back out
+}
+
+task v4_query_slot_rejection_contract(case_name: word, payload: word, sentinel_key: word, sentinel_input: word) -> word {
+    pilot before_generation = v4_query_generation()
+    pilot before_cache = v4_query_cache_size()
+    pilot before_deps = v4_query_dep_count()
+    pilot before_entry = v4_query_find(sentinel_key, sentinel_input)
+    pilot before_output = ""
+    pilot before_state = ""
+    if before_entry >= 0 {
+        before_output = v4_query_entry_output(before_entry)
+        before_state = v4_query_entry_state(before_entry)
+    }
+
+    pilot validation = v4_query_snapshot_validate(payload)
+    pilot restore = v4_query_snapshot_restore(payload)
+    pilot after_entry = v4_query_find(sentinel_key, sentinel_input)
+    pilot passed = validation.starts_with("query-snapshot-import ok=0")
+    passed = passed and restore.starts_with("query-snapshot-restore ok=0 reason=validation-failed")
+    passed = passed and v4_query_generation() == before_generation
+    passed = passed and v4_query_cache_size() == before_cache
+    passed = passed and v4_query_dep_count() == before_deps
+    passed = passed and before_entry >= 0 and after_entry == before_entry
+    if after_entry >= 0 {
+        passed = passed and v4_query_entry_output(after_entry) == before_output
+        passed = passed and v4_query_entry_state(after_entry) == before_state
+    } else {
+        passed = false
+    }
+
+    pilot out = "query-slot-contract|case=" + case_name
+    if passed { out = out + "|ok=1" } else { out = out + "|ok=0" }
+    give back out
+}
+
+task v4_query_slot_integrity_run() -> void {
+    pilot sentinel_key = "query-slot-integrity:sentinel"
+    pilot sentinel_input = "fingerprint"
+    v4_query_store(sentinel_key, sentinel_input, "warm")
+    v4_query_record_dep(sentinel_key, "query-slot-integrity:dependency")
+
+    pilot negative = v4_query_slot_snapshot_payload(1, 0, "\nentry|-1|negative|input|output|valid|1|1|store:new")
+    pilot sparse = v4_query_slot_snapshot_payload(0, 1, "\nedge|1|sparse-from|sparse-to")
+    pilot duplicate = v4_query_slot_snapshot_payload(2, 0, "\nentry|0|duplicate-a|input|output|valid|1|1|store:new\nentry|0|duplicate-b|input|output|valid|1|1|store:new")
+    pilot huge = v4_query_slot_snapshot_payload(0, 1, "\nedge|1000000|huge-from|huge-to")
+
+    say v4_query_slot_rejection_contract("negative-id-atomic", negative, sentinel_key, sentinel_input)
+    say v4_query_slot_rejection_contract("sparse-id-atomic", sparse, sentinel_key, sentinel_input)
+    say v4_query_slot_rejection_contract("duplicate-id-atomic", duplicate, sentinel_key, sentinel_input)
+    say v4_query_slot_rejection_contract("huge-id-atomic", huge, sentinel_key, sentinel_input)
+}
+
 pilot v4_restore_source = "task main() => \"warm|cache\"\n"
 v4_restore_source = v4_restore_source + "shape Pilot\n"
 
@@ -17,3 +75,4 @@ say v4_lsp_query_snapshot_restore_text(v4_restore_payload)
 say v4_lsp_handle_text_request("workspace/querySnapshotRestore", "snapshot-restore.fk", v4_restore_payload, 0)
 say v4_lsp_handle_request("workspace/querySnapshotRestore", "snapshot-restore.fk", 0)
 say v4_query_snapshot_restore("snapshot|format=wrong\nend|wrong")
+v4_query_slot_integrity_run()

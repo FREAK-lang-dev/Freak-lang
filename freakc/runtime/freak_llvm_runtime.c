@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifdef _WIN32
@@ -114,25 +115,56 @@ typedef struct {
     int64_t* data;
     int64_t  length;
     int64_t  capacity;
+    int64_t  next_free;
+    uint32_t generation;
+    bool     in_use;
 } freak_llvm_dyn_array;
 static freak_llvm_dyn_array freak_llvm_arrays[FREAK_LLVM_MAX_ARRAYS];
 static int64_t freak_llvm_array_count = 0;
+static int64_t freak_llvm_array_free_head = -1;
+
+#define FREAK_LLVM_ARRAY_GENERATION_MAX UINT32_C(0x7fffffff)
+
+static int64_t freak_llvm_array_make_handle(int64_t slot, uint32_t generation) {
+    return (int64_t)(((uint64_t)generation << 32) | (uint64_t)(uint32_t)slot);
+}
+
+static int64_t freak_llvm_array_slot_for_handle(int64_t handle) {
+    if (handle < 0) return -1;
+    uint64_t raw = (uint64_t)handle;
+    int64_t slot = (int64_t)(uint32_t)(raw & UINT64_C(0xffffffff));
+    uint32_t generation = (uint32_t)(raw >> 32);
+    if (slot < 0 || slot >= freak_llvm_array_count) return -1;
+    freak_llvm_dyn_array* array = &freak_llvm_arrays[slot];
+    if (!array->in_use || array->generation != generation) return -1;
+    return slot;
+}
 
 int64_t freak_llvm_array_new(void) {
-    if (freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS) {
-        fprintf(stderr, "FREAK: too many arrays (max %d)\n", FREAK_LLVM_MAX_ARRAYS);
-        exit(1);
+    int64_t h = freak_llvm_array_free_head;
+    if (h >= 0) {
+        freak_llvm_array_free_head = freak_llvm_arrays[h].next_free;
+        freak_llvm_arrays[h].generation += 1;
+    } else {
+        if (freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS) {
+            fprintf(stderr, "FREAK: too many live arrays (max %d)\n", FREAK_LLVM_MAX_ARRAYS);
+            exit(1);
+        }
+        h = freak_llvm_array_count++;
+        freak_llvm_arrays[h].generation = 1;
     }
-    int64_t h = freak_llvm_array_count++;
     freak_llvm_arrays[h].length = 0;
     freak_llvm_arrays[h].capacity = 64;
+    freak_llvm_arrays[h].next_free = -1;
+    freak_llvm_arrays[h].in_use = true;
     freak_llvm_arrays[h].data = (int64_t*)malloc(64 * sizeof(int64_t));
     if (!freak_llvm_arrays[h].data) { fprintf(stderr, "FREAK: OOM\n"); exit(1); }
-    return h;
+    return freak_llvm_array_make_handle(h, freak_llvm_arrays[h].generation);
 }
 void freak_llvm_array_push(int64_t handle, int64_t item) {
-    if (handle < 0 || handle >= freak_llvm_array_count) return;
-    freak_llvm_dyn_array* a = &freak_llvm_arrays[handle];
+    int64_t slot = freak_llvm_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
     if (a->length >= a->capacity) {
         a->capacity *= 2;
         a->data = (int64_t*)realloc(a->data, (size_t)a->capacity * sizeof(int64_t));
@@ -141,24 +173,78 @@ void freak_llvm_array_push(int64_t handle, int64_t item) {
     a->data[a->length++] = item;
 }
 int64_t freak_llvm_array_get(int64_t handle, int64_t index) {
-    if (handle < 0 || handle >= freak_llvm_array_count) return 0;
-    freak_llvm_dyn_array* a = &freak_llvm_arrays[handle];
+    int64_t slot = freak_llvm_array_slot_for_handle(handle);
+    if (slot < 0) return 0;
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
     if (index < 0 || index >= a->length) return 0;
     return a->data[index];
 }
 int64_t freak_llvm_array_len(int64_t handle) {
-    if (handle < 0 || handle >= freak_llvm_array_count) return 0;
-    return freak_llvm_arrays[handle].length;
+    int64_t slot = freak_llvm_array_slot_for_handle(handle);
+    if (slot < 0) return 0;
+    return freak_llvm_arrays[slot].length;
 }
 void freak_llvm_array_set(int64_t handle, int64_t index, int64_t item) {
-    if (handle < 0 || handle >= freak_llvm_array_count) return;
-    freak_llvm_dyn_array* a = &freak_llvm_arrays[handle];
+    int64_t slot = freak_llvm_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
     if (index < 0 || index >= a->length) {
         fprintf(stderr, "FREAK: array_set index %lld out of bounds (len %lld)\n",
                 (long long)index, (long long)a->length);
         exit(1);
     }
     a->data[index] = item;
+}
+
+void freak_llvm_array_release(int64_t handle) {
+    int64_t slot = freak_llvm_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
+    free(a->data);
+    a->data = NULL;
+    a->length = 0;
+    a->capacity = 0;
+    a->in_use = false;
+    if (a->generation >= FREAK_LLVM_ARRAY_GENERATION_MAX) {
+        a->next_free = -1;
+        return;
+    }
+    a->next_free = freak_llvm_array_free_head;
+    freak_llvm_array_free_head = slot;
+}
+
+int64_t freak_llvm_word_join(int64_t handle) {
+    int64_t slot = freak_llvm_array_slot_for_handle(handle);
+    if (slot < 0) return (int64_t)"";
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
+    size_t total = 0;
+    for (int64_t index = 0; index < a->length; index++) {
+        const char* part = (const char*)a->data[index];
+        size_t part_length = part ? strlen(part) : 0;
+        if (part_length > SIZE_MAX - total - 1) {
+            fprintf(stderr, "FREAK: joined word is too large\n");
+            exit(1);
+        }
+        total += part_length;
+    }
+
+    char* joined = (char*)malloc(total + 1);
+    if (!joined) {
+        fprintf(stderr, "FREAK: out of memory joining words\n");
+        exit(1);
+    }
+    size_t offset = 0;
+    for (int64_t index = 0; index < a->length; index++) {
+        const char* part = (const char*)a->data[index];
+        size_t part_length = part ? strlen(part) : 0;
+        if (part_length > 0) {
+            memcpy(joined + offset, part, part_length);
+            offset += part_length;
+        }
+    }
+    joined[total] = '\0';
+    freak_llvm_array_release(handle);
+    return (int64_t)joined;
 }
 
 /* ── Shape (struct) helpers ─────────────────────────── */

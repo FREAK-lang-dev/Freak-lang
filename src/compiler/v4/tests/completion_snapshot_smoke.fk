@@ -237,3 +237,37 @@ say "completion-snapshot-restored-bound-rank-detail=" + v4_completion_snapshot_d
 say "completion-snapshot-restored-bound-display-found=" + v4_completion_snapshot_bool_word(v4_completion_restored_bound_display >= 0)
 say "completion-snapshot-restored-bound-display-detail=" + v4_completion_snapshot_detail_or_empty(v4_completion_bound_restored_id, v4_completion_restored_bound_display)
 say v4_driver_confirm_restored_document_text("completion-snapshot.fk", "task changed() => 7\n")
+
+pilot v4_completion_contract_small = ""
+pilot v4_completion_contract_child_first = ""
+pilot v4_completion_contract_duplicate_child = ""
+pilot v4_completion_contract_declared_mismatch = ""
+pilot v4_completion_contract_atomic_state = ""
+pilot v4_completion_contract_result = ""
+v4_completion_contract_small = "completion-snapshot|format=" + v4_completion_snapshot_format + "|completions=1|items=1\n"
+v4_completion_contract_small = v4_completion_contract_small + "completion|0|retained-completion.fk|0|1\n"
+v4_completion_contract_small = v4_completion_contract_small + "completion-item|0|0|kept|keyword|kept-detail|kept\n"
+v4_completion_contract_small = v4_completion_contract_small + "end|" + v4_completion_snapshot_format
+v4_completion_contract_result = v4_completion_snapshot_restore(v4_completion_contract_small)
+say "completion-snapshot-exact-restore=" + v4_completion_snapshot_bool_word(v4_completion_contract_result.starts_with("completion-snapshot-restore ok=1 ") and v4_completion_snapshot() == v4_completion_contract_small)
+say "completion-snapshot-stale-child-hidden=" + v4_completion_snapshot_bool_word(v4_completion_count(0) == 1 and v4_completion_label(0, 1) == "" and v4_completion_kind(0, 1) == "" and v4_completion_detail(0, 1) == "" and v4_completion_insert_text(0, 1) == "")
+v4_completion_contract_atomic_state = v4_completion_snapshot()
+v4_completion_contract_child_first = "completion-snapshot|format=" + v4_completion_snapshot_format + "|completions=1|items=1\n"
+v4_completion_contract_child_first = v4_completion_contract_child_first + "completion-item|0|0|bad|keyword|bad-detail|bad\n"
+v4_completion_contract_child_first = v4_completion_contract_child_first + "completion|0|bad-completion.fk|0|1\n"
+v4_completion_contract_child_first = v4_completion_contract_child_first + "end|" + v4_completion_snapshot_format
+v4_completion_contract_result = v4_completion_snapshot_restore(v4_completion_contract_child_first)
+say "completion-snapshot-child-first-atomic=" + v4_completion_snapshot_bool_word(v4_completion_contract_result.starts_with("completion-snapshot-restore ok=0 ") and v4_completion_snapshot() == v4_completion_contract_atomic_state)
+v4_completion_contract_duplicate_child = "completion-snapshot|format=" + v4_completion_snapshot_format + "|completions=1|items=2\n"
+v4_completion_contract_duplicate_child = v4_completion_contract_duplicate_child + "completion|0|bad-completion.fk|0|2\n"
+v4_completion_contract_duplicate_child = v4_completion_contract_duplicate_child + "completion-item|0|0|first|keyword|first-detail|first\n"
+v4_completion_contract_duplicate_child = v4_completion_contract_duplicate_child + "completion-item|0|0|duplicate|keyword|duplicate-detail|duplicate\n"
+v4_completion_contract_duplicate_child = v4_completion_contract_duplicate_child + "end|" + v4_completion_snapshot_format
+v4_completion_contract_result = v4_completion_snapshot_restore(v4_completion_contract_duplicate_child)
+say "completion-snapshot-duplicate-child-atomic=" + v4_completion_snapshot_bool_word(v4_completion_contract_result.starts_with("completion-snapshot-restore ok=0 ") and v4_completion_snapshot() == v4_completion_contract_atomic_state)
+v4_completion_contract_declared_mismatch = "completion-snapshot|format=" + v4_completion_snapshot_format + "|completions=1|items=2\n"
+v4_completion_contract_declared_mismatch = v4_completion_contract_declared_mismatch + "completion|0|bad-completion.fk|0|1\n"
+v4_completion_contract_declared_mismatch = v4_completion_contract_declared_mismatch + "completion-item|0|0|only|keyword|only-detail|only\n"
+v4_completion_contract_declared_mismatch = v4_completion_contract_declared_mismatch + "end|" + v4_completion_snapshot_format
+v4_completion_contract_result = v4_completion_snapshot_restore(v4_completion_contract_declared_mismatch)
+say "completion-snapshot-declared-count-atomic=" + v4_completion_snapshot_bool_word(v4_completion_contract_result.starts_with("completion-snapshot-restore ok=0 ") and v4_completion_snapshot() == v4_completion_contract_atomic_state)

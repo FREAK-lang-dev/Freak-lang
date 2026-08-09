@@ -1,0 +1,140 @@
+-- V4 doctrine-bound associated method editor smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_bound_associated_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_bound_associated_editor_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_bound_associated_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_bound_associated_editor_find_completion(completion_id: int, label: word) -> int {
+    pilot item_id = 0
+    pilot item_count = v4_completion_count(completion_id)
+    repeat until item_id >= item_count {
+        if v4_completion_label(completion_id, item_id) == label {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_bound_associated_editor_bool_word(flag: bool) -> word {
+    if flag {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_bound_associated_editor_detail_or_empty(completion_id: int, item_id: int) -> word {
+    if item_id < 0 {
+        give back ""
+    }
+    give back v4_completion_detail(completion_id, item_id)
+}
+
+task v4_bound_associated_editor_source_text() -> word {
+    pilot src = "alias Value = word\n"
+    src = src + "alias T = word\n"
+    src = src + "doctrine Scored<Value> {\n"
+    src = src + "    task score(self, bonus: Value) -> Value\n"
+    src = src + "    task baseline() -> Value\n"
+    src = src + "}\n"
+    src = src + "task evaluate<T: Scored<int>>(value: T) -> int {\n"
+    src = src + "    pilot boosted = T::score(value, bonus: 2)\n"
+    src = src + "    pilot base = T::baseline()\n"
+    src = src + "    pilot dotted = value.score(bonus: 3)\n"
+    src = src + "    pilot suggested = T::score(value, 4)\n"
+    src = src + "    give back boosted + base + dotted + suggested\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_bound_associated_editor_ambiguous_source_text() -> word {
+    pilot src = "doctrine Convert<Item> {\n"
+    src = src + "    task convert(self, input: Item) -> Item\n"
+    src = src + "}\n"
+    src = src + "task ambiguous<T: Convert<int> + Convert<word>>(value: T) -> int {\n"
+    src = src + "    pilot result = T::convert(value, 1)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_bound_associated_editor_path = "bound-associated-editor.fk"
+pilot v4_bound_associated_editor_source = v4_bound_associated_editor_source_text()
+pilot v4_bound_associated_editor_stream = v4_lex_text(0, v4_bound_associated_editor_source)
+pilot v4_bound_associated_editor_score_decl_offset = v4_bound_associated_editor_token_offset(v4_bound_associated_editor_stream, "score", 0)
+pilot v4_bound_associated_editor_baseline_decl_offset = v4_bound_associated_editor_token_offset(v4_bound_associated_editor_stream, "baseline", 0)
+pilot v4_bound_associated_editor_bonus_decl_offset = v4_bound_associated_editor_token_offset(v4_bound_associated_editor_stream, "bonus", 0)
+pilot v4_bound_associated_editor_ufcs_score_offset = v4_bound_associated_editor_token_offset(v4_bound_associated_editor_stream, "score", 1)
+pilot v4_bound_associated_editor_static_offset = v4_bound_associated_editor_token_offset(v4_bound_associated_editor_stream, "baseline", 1)
+pilot v4_bound_associated_editor_dotted_offset = v4_bound_associated_editor_token_offset(v4_bound_associated_editor_stream, "score", 2)
+pilot v4_bound_associated_editor_bonus_label_offset = v4_bound_associated_editor_token_offset(v4_bound_associated_editor_stream, "bonus", 1)
+pilot v4_bound_associated_editor_bonus_value_offset = v4_bound_associated_editor_token_offset(v4_bound_associated_editor_stream, "4", 0)
+
+pilot v4_bound_associated_editor_ufcs_sem = v4_semantic_at_text_cached(v4_bound_associated_editor_path, v4_bound_associated_editor_source, v4_bound_associated_editor_ufcs_score_offset)
+pilot v4_bound_associated_editor_static_sem = v4_semantic_at_text_cached(v4_bound_associated_editor_path, v4_bound_associated_editor_source, v4_bound_associated_editor_static_offset)
+pilot v4_bound_associated_editor_dotted_sem = v4_semantic_at_text_cached(v4_bound_associated_editor_path, v4_bound_associated_editor_source, v4_bound_associated_editor_dotted_offset)
+pilot v4_bound_associated_editor_bonus_sem = v4_semantic_at_text_cached(v4_bound_associated_editor_path, v4_bound_associated_editor_source, v4_bound_associated_editor_bonus_label_offset)
+pilot v4_bound_associated_editor_ufcs_hover = v4_hover_text_cached(v4_bound_associated_editor_path, v4_bound_associated_editor_source, v4_bound_associated_editor_ufcs_score_offset)
+pilot v4_bound_associated_editor_static_hover = v4_hover_text_cached(v4_bound_associated_editor_path, v4_bound_associated_editor_source, v4_bound_associated_editor_static_offset)
+pilot v4_bound_associated_editor_ufcs_definition = v4_definition_at_text_cached(v4_bound_associated_editor_path, v4_bound_associated_editor_source, v4_bound_associated_editor_ufcs_score_offset)
+pilot v4_bound_associated_editor_static_definition = v4_definition_at_text_cached(v4_bound_associated_editor_path, v4_bound_associated_editor_source, v4_bound_associated_editor_static_offset)
+pilot v4_bound_associated_editor_bonus_definition = v4_definition_at_text_cached(v4_bound_associated_editor_path, v4_bound_associated_editor_source, v4_bound_associated_editor_bonus_label_offset)
+pilot v4_bound_associated_editor_completion = v4_completion_text_cached(v4_bound_associated_editor_path, v4_bound_associated_editor_source, v4_bound_associated_editor_ufcs_score_offset)
+pilot v4_bound_associated_editor_arg_completion = v4_completion_text_cached(v4_bound_associated_editor_path, v4_bound_associated_editor_source, v4_bound_associated_editor_bonus_value_offset)
+pilot v4_bound_associated_editor_score_item = v4_bound_associated_editor_find_completion(v4_bound_associated_editor_completion, "score")
+pilot v4_bound_associated_editor_baseline_item = v4_bound_associated_editor_find_completion(v4_bound_associated_editor_completion, "baseline")
+pilot v4_bound_associated_editor_bonus_item = v4_bound_associated_editor_find_completion(v4_bound_associated_editor_arg_completion, "bonus:")
+
+say "bound-associated-editor-ufcs-kind=" + v4_semantic_at_kind(v4_bound_associated_editor_ufcs_sem)
+say "bound-associated-editor-ufcs-type=" + v4_semantic_at_type(v4_bound_associated_editor_ufcs_sem)
+say "bound-associated-editor-static-kind=" + v4_semantic_at_kind(v4_bound_associated_editor_static_sem)
+say "bound-associated-editor-static-type=" + v4_semantic_at_type(v4_bound_associated_editor_static_sem)
+say "bound-associated-editor-dotted-kind=" + v4_semantic_at_kind(v4_bound_associated_editor_dotted_sem)
+say "bound-associated-editor-dotted-type=" + v4_semantic_at_type(v4_bound_associated_editor_dotted_sem)
+say "bound-associated-editor-bonus-kind=" + v4_semantic_at_kind(v4_bound_associated_editor_bonus_sem)
+say "bound-associated-editor-bonus-type=" + v4_semantic_at_type(v4_bound_associated_editor_bonus_sem)
+say "bound-associated-editor-ufcs-hover-type=" + v4_hover_type(v4_bound_associated_editor_ufcs_hover)
+say "bound-associated-editor-static-hover-type=" + v4_hover_type(v4_bound_associated_editor_static_hover)
+say "bound-associated-editor-ufcs-definition-kind=" + v4_definition_at_kind(v4_bound_associated_editor_ufcs_definition)
+say "bound-associated-editor-ufcs-definition-matches=" + v4_bound_associated_editor_bool_word(v4_span_start(v4_definition_at_span(v4_bound_associated_editor_ufcs_definition)) == v4_bound_associated_editor_score_decl_offset)
+say "bound-associated-editor-static-definition-kind=" + v4_definition_at_kind(v4_bound_associated_editor_static_definition)
+say "bound-associated-editor-static-definition-matches=" + v4_bound_associated_editor_bool_word(v4_span_start(v4_definition_at_span(v4_bound_associated_editor_static_definition)) == v4_bound_associated_editor_baseline_decl_offset)
+say "bound-associated-editor-bonus-definition-kind=" + v4_definition_at_kind(v4_bound_associated_editor_bonus_definition)
+say "bound-associated-editor-bonus-definition-matches=" + v4_bound_associated_editor_bool_word(v4_span_start(v4_definition_at_span(v4_bound_associated_editor_bonus_definition)) == v4_bound_associated_editor_bonus_decl_offset)
+say "bound-associated-editor-score-completion-found=" + v4_bound_associated_editor_bool_word(v4_bound_associated_editor_score_item >= 0)
+say "bound-associated-editor-score-completion-detail=" + v4_bound_associated_editor_detail_or_empty(v4_bound_associated_editor_completion, v4_bound_associated_editor_score_item)
+say "bound-associated-editor-baseline-completion-found=" + v4_bound_associated_editor_bool_word(v4_bound_associated_editor_baseline_item >= 0)
+say "bound-associated-editor-baseline-completion-detail=" + v4_bound_associated_editor_detail_or_empty(v4_bound_associated_editor_completion, v4_bound_associated_editor_baseline_item)
+say "bound-associated-editor-bonus-completion-found=" + v4_bound_associated_editor_bool_word(v4_bound_associated_editor_bonus_item >= 0)
+say "bound-associated-editor-bonus-completion-detail=" + v4_bound_associated_editor_detail_or_empty(v4_bound_associated_editor_arg_completion, v4_bound_associated_editor_bonus_item)
+
+pilot v4_bound_associated_editor_ambiguous_path = "bound-associated-editor-ambiguous.fk"
+pilot v4_bound_associated_editor_ambiguous_source = v4_bound_associated_editor_ambiguous_source_text()
+pilot v4_bound_associated_editor_ambiguous_stream = v4_lex_text(1, v4_bound_associated_editor_ambiguous_source)
+pilot v4_bound_associated_editor_ambiguous_offset = v4_bound_associated_editor_token_offset(v4_bound_associated_editor_ambiguous_stream, "convert", 1)
+pilot v4_bound_associated_editor_ambiguous_mir = v4_mir_text_cached(v4_bound_associated_editor_ambiguous_path, v4_bound_associated_editor_ambiguous_source)
+pilot v4_bound_associated_editor_ambiguous_completion = v4_completion_text_cached(v4_bound_associated_editor_ambiguous_path, v4_bound_associated_editor_ambiguous_source, v4_bound_associated_editor_ambiguous_offset)
+pilot v4_bound_associated_editor_ambiguous_item = v4_bound_associated_editor_find_completion(v4_bound_associated_editor_ambiguous_completion, "convert")
+say "bound-associated-editor-ambiguous-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_bound_associated_editor_ambiguous_mir))
+say "bound-associated-editor-ambiguous-completion-found=" + v4_bound_associated_editor_bool_word(v4_bound_associated_editor_ambiguous_item >= 0)

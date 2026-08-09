@@ -13,6 +13,18 @@ task v4_mir_return_terminal_stmt_count_in_block(mir_id: int, body_id: int, block
     give back total
 }
 
+task v4_mir_return_terminal_find_stmt_kind(mir_id: int, body_id: int, kind: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == kind {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
 task v4_mir_return_terminal_source() -> word {
     pilot src = "task branch(power: int) -> int {\n"
     src = src + "    if power > 0 {\n"
@@ -76,9 +88,16 @@ say "return-mixed-else-term=" + v4_mir_block_terminator(v4_mir_return_mixed_else
 pilot v4_mir_return_loop_def = v4_resolve_def_for_name(v4_mir_return_terminal_resolve, "loop_stop")
 pilot v4_mir_return_loop_body = v4_mir_lookup_body(v4_mir_return_terminal_mir, v4_mir_return_loop_def)
 pilot v4_mir_return_loop_entry = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_loop_body, 0)
-pilot v4_mir_return_loop_body_block = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_loop_body, 1)
-pilot v4_mir_return_loop_after = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_loop_body, 2)
+pilot v4_mir_return_loop_stmt = v4_mir_return_terminal_find_stmt_kind(v4_mir_return_terminal_mir, v4_mir_return_loop_body, v4_mir_stmt_loop)
+pilot v4_mir_return_loop_header_id = v4_mir_stmt_block(v4_mir_return_terminal_mir, v4_mir_return_loop_body, v4_mir_return_loop_stmt)
+pilot v4_mir_return_loop_header = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_loop_body, v4_mir_return_loop_header_id)
+pilot v4_mir_return_loop_body_id = v4_mir_block_target(v4_mir_return_loop_header)
+pilot v4_mir_return_loop_after_id = v4_mir_block_else_target(v4_mir_return_loop_header)
+pilot v4_mir_return_loop_body_block = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_loop_body, v4_mir_return_loop_body_id)
+pilot v4_mir_return_loop_after = v4_mir_body_block(v4_mir_return_terminal_mir, v4_mir_return_loop_body, v4_mir_return_loop_after_id)
 say "return-loop-entry-term=" + v4_mir_block_terminator(v4_mir_return_loop_entry)
+say "return-loop-entry-targets-header=" + word_from_bool(v4_mir_block_target(v4_mir_return_loop_entry) == v4_mir_return_loop_header_id)
+say "return-loop-header-term=" + v4_mir_block_terminator(v4_mir_return_loop_header)
 say "return-loop-body-term=" + v4_mir_block_terminator(v4_mir_return_loop_body_block)
 say "return-loop-body-target=" + word_from_int(v4_mir_block_target(v4_mir_return_loop_body_block))
 say "return-loop-after-term=" + v4_mir_block_terminator(v4_mir_return_loop_after)

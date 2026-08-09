@@ -1,0 +1,55 @@
+-- Stable word checksum smoke for persisted 00-Unit identities.
+
+task v4_array_generation_is_safe() -> bool {
+    pilot stale_array = array_new()
+    array_push(stale_array, "old")
+    array_release(stale_array)
+    pilot fresh_array = array_new()
+    pilot generation_ok = stale_array != fresh_array and array_len(stale_array) == 0
+    array_push(stale_array, "stale")
+    array_push(fresh_array, "fresh")
+    pilot fresh_value: word = array_get(fresh_array, 0)
+    generation_ok = generation_ok and array_len(stale_array) == 0 and array_len(fresh_array) == 1 and fresh_value == "fresh"
+    array_release(fresh_array)
+    give back generation_ok
+}
+
+pilot v4_checksum_text = "00-Unit|Yuuko|Meiya"
+pilot v4_checksum_value = v4_checksum_text.checksum()
+say "word-checksum-value=" + word_from_int(v4_checksum_value)
+say "word-checksum-stable=" + word_from_bool(v4_checksum_value == 7930048856234073878)
+say "word-checksum-sensitive=" + word_from_bool(v4_checksum_value != "00-Unit|Yuuko|Meiya!".checksum())
+
+pilot v4_snapshot_scan_raw = "%|Yuuko\n\nMeiya\r"
+pilot v4_snapshot_scan_escaped = v4_snapshot_scan_raw.snapshot_escape()
+pilot v4_snapshot_scan_fields = "alpha||omega"
+say "word-snapshot-escape=" + v4_snapshot_scan_escaped
+say "word-snapshot-roundtrip=" + word_from_bool(v4_snapshot_scan_escaped.snapshot_unescape() == v4_snapshot_scan_raw)
+say "word-snapshot-lines=" + word_from_int(v4_snapshot_scan_raw.snapshot_line_count())
+say "word-snapshot-empty-line=" + word_from_bool(v4_snapshot_scan_raw.snapshot_line(1) == "")
+say "word-snapshot-fields=" + word_from_int(v4_snapshot_scan_fields.snapshot_field_count())
+say "word-snapshot-empty-field=" + word_from_bool(v4_snapshot_scan_fields.snapshot_field_raw(1) == "")
+say "word-substring=" + "Alternative".substring(3, 5)
+say "span-malformed-sign-rejected=" + word_from_bool(v4_span_start("0:1@-1:2") == 0)
+say "span-malformed-digit-rejected=" + word_from_bool(v4_span_start("0:1@12x:20") == 0)
+say "span-overflow-rejected=" + word_from_bool(v4_span_start("0:1@9223372036854775808:20") == 0)
+
+pilot v4_join_parts = array_new()
+array_push(v4_join_parts, "Yuuko")
+array_push(v4_join_parts, " + ")
+array_push(v4_join_parts, "Meiya")
+say "word-join=" + word_join(v4_join_parts)
+
+pilot v4_join_reuse_ok = true
+pilot v4_join_reuse_id = 0
+repeat until v4_join_reuse_id >= 1100 {
+    pilot v4_reused_parts = array_new()
+    array_push(v4_reused_parts, "reused")
+    if word_join(v4_reused_parts) != "reused" {
+        v4_join_reuse_ok = false
+    }
+    v4_join_reuse_id += 1
+}
+say "word-join-handle-reuse=" + word_from_bool(v4_join_reuse_ok)
+
+say "array-handle-generation=" + word_from_bool(v4_array_generation_is_safe())

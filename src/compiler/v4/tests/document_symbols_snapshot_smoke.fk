@@ -133,3 +133,37 @@ say "document-symbols-snapshot-restored-salute-kind=" + v4_doc_snapshot_kind_or_
 say "document-symbols-snapshot-restored-pack-found=" + v4_doc_snapshot_bool_word(v4_doc_restored_pack >= 0)
 say "document-symbols-snapshot-restored-pack-type=" + v4_doc_snapshot_type_or_empty(v4_doc_restored_id, v4_doc_restored_pack)
 say v4_driver_confirm_restored_document_text("document-symbols-snapshot.fk", "task changed() => 7\n")
+
+pilot v4_doc_contract_small = ""
+pilot v4_doc_contract_child_first = ""
+pilot v4_doc_contract_duplicate_child = ""
+pilot v4_doc_contract_declared_mismatch = ""
+pilot v4_doc_contract_atomic_state = ""
+pilot v4_doc_contract_result = ""
+v4_doc_contract_small = "document-symbols-snapshot|format=" + v4_document_symbols_snapshot_format + "|documents=1|symbols=1\n"
+v4_doc_contract_small = v4_doc_contract_small + "document-symbols|0|retained-document.fk|1\n"
+v4_doc_contract_small = v4_doc_contract_small + "document-symbol|0|0|kept|Task|kept::task|0|0:0:0|task() -> int\n"
+v4_doc_contract_small = v4_doc_contract_small + "end|" + v4_document_symbols_snapshot_format
+v4_doc_contract_result = v4_document_symbols_snapshot_restore(v4_doc_contract_small)
+say "document-symbols-snapshot-exact-restore=" + v4_doc_snapshot_bool_word(v4_doc_contract_result.starts_with("document-symbols-snapshot-restore ok=1 ") and v4_document_symbols_snapshot() == v4_doc_contract_small)
+say "document-symbols-snapshot-stale-child-hidden=" + v4_doc_snapshot_bool_word(v4_document_symbol_count(0) == 1 and v4_document_symbol_name(0, 1) == "" and v4_document_symbol_hir_item(0, 1) < 0 and v4_document_symbol_type(0, 1) == v4_ty_unknown)
+v4_doc_contract_atomic_state = v4_document_symbols_snapshot()
+v4_doc_contract_child_first = "document-symbols-snapshot|format=" + v4_document_symbols_snapshot_format + "|documents=1|symbols=1\n"
+v4_doc_contract_child_first = v4_doc_contract_child_first + "document-symbol|0|0|bad|Task|bad::task|0|0:0:0|task() -> int\n"
+v4_doc_contract_child_first = v4_doc_contract_child_first + "document-symbols|0|bad-document.fk|1\n"
+v4_doc_contract_child_first = v4_doc_contract_child_first + "end|" + v4_document_symbols_snapshot_format
+v4_doc_contract_result = v4_document_symbols_snapshot_restore(v4_doc_contract_child_first)
+say "document-symbols-snapshot-child-first-atomic=" + v4_doc_snapshot_bool_word(v4_doc_contract_result.starts_with("document-symbols-snapshot-restore ok=0 ") and v4_document_symbols_snapshot() == v4_doc_contract_atomic_state)
+v4_doc_contract_duplicate_child = "document-symbols-snapshot|format=" + v4_document_symbols_snapshot_format + "|documents=1|symbols=2\n"
+v4_doc_contract_duplicate_child = v4_doc_contract_duplicate_child + "document-symbols|0|bad-document.fk|2\n"
+v4_doc_contract_duplicate_child = v4_doc_contract_duplicate_child + "document-symbol|0|0|first|Task|first::task|0|0:0:0|task() -> int\n"
+v4_doc_contract_duplicate_child = v4_doc_contract_duplicate_child + "document-symbol|0|0|duplicate|Task|duplicate::task|1|0:0:0|task() -> int\n"
+v4_doc_contract_duplicate_child = v4_doc_contract_duplicate_child + "end|" + v4_document_symbols_snapshot_format
+v4_doc_contract_result = v4_document_symbols_snapshot_restore(v4_doc_contract_duplicate_child)
+say "document-symbols-snapshot-duplicate-child-atomic=" + v4_doc_snapshot_bool_word(v4_doc_contract_result.starts_with("document-symbols-snapshot-restore ok=0 ") and v4_document_symbols_snapshot() == v4_doc_contract_atomic_state)
+v4_doc_contract_declared_mismatch = "document-symbols-snapshot|format=" + v4_document_symbols_snapshot_format + "|documents=1|symbols=2\n"
+v4_doc_contract_declared_mismatch = v4_doc_contract_declared_mismatch + "document-symbols|0|bad-document.fk|1\n"
+v4_doc_contract_declared_mismatch = v4_doc_contract_declared_mismatch + "document-symbol|0|0|only|Task|only::task|0|0:0:0|task() -> int\n"
+v4_doc_contract_declared_mismatch = v4_doc_contract_declared_mismatch + "end|" + v4_document_symbols_snapshot_format
+v4_doc_contract_result = v4_document_symbols_snapshot_restore(v4_doc_contract_declared_mismatch)
+say "document-symbols-snapshot-declared-count-atomic=" + v4_doc_snapshot_bool_word(v4_doc_contract_result.starts_with("document-symbols-snapshot-restore ok=0 ") and v4_document_symbols_snapshot() == v4_doc_contract_atomic_state)

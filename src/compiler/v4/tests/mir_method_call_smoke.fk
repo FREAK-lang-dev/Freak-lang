@@ -36,7 +36,9 @@ task v4_mir_method_good_source() -> word {
     src = src + "    pilot ace = Pilot::ace(\"Valkyrie-1\")\n"
     src = src + "    pilot taken = box.take()\n"
     src = src + "    pilot echoed = box.echo(5)\n"
-    src = src + "    give back boosted + ace.hp + taken + echoed\n"
+    src = src + "    pilot ufcs_boosted = Pilot::boost(ship, bonus: 3)\n"
+    src = src + "    pilot ufcs_taken = Box<int>::take(box)\n"
+    src = src + "    give back boosted + ace.hp + taken + echoed + ufcs_boosted + ufcs_taken\n"
     src = src + "}\n"
     give back src
 }
@@ -54,6 +56,14 @@ task v4_mir_method_bad_associated_instance_source() -> word {
     pilot src = v4_mir_method_prelude()
     src = src + "task bad() -> void {\n"
     src = src + "    pilot boosted = Pilot::boost(2)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_method_bad_ufcs_receiver_source() -> word {
+    pilot src = v4_mir_method_prelude()
+    src = src + "task bad() -> void {\n"
+    src = src + "    pilot boosted = Pilot::boost(7, bonus: 2)\n"
     src = src + "}\n"
     give back src
 }
@@ -105,6 +115,37 @@ task v4_mir_method_bad_generic_arg_source() -> word {
     src = src + "}\n"
     src = src + "task bad(box: Box<int>) -> void {\n"
     src = src + "    pilot echoed = box.echo(\"nope\")\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_method_bad_type_arg_source() -> word {
+    pilot src = v4_mir_method_prelude()
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "impl Box<T> {\n"
+    src = src + "    task take(self) -> T {\n"
+    src = src + "        give back self.value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task bad(box: Box<int>) -> void {\n"
+    src = src + "    pilot taken = box.take<tiny>()\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_method_bad_associated_type_arg_binary_source() -> word {
+    pilot src = "shape Meter {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "impl Meter {\n"
+    src = src + "    task level() -> int {\n"
+    src = src + "        give back 7\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task bad() -> bool {\n"
+    src = src + "    give back Meter::level<tiny>() == Meter::level<tiny>()\n"
     src = src + "}\n"
     give back src
 }
@@ -169,6 +210,11 @@ pilot v4_mir_method_take_return = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_
 pilot v4_mir_method_echo_return = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_echo_body, 0)
 pilot v4_mir_method_generic_take_call = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_main_body, 3)
 pilot v4_mir_method_generic_echo_call = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_main_body, 4)
+pilot v4_mir_method_ufcs_boost_call = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_main_body, 5)
+pilot v4_mir_method_ufcs_take_call = v4_mir_stmt_rvalue(v4_mir_method_good_mir, v4_mir_method_main_body, 6)
+pilot v4_mir_method_ufcs_boost_arg0 = v4_mir_rvalue_call_arg(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_boost_call, 0)
+pilot v4_mir_method_ufcs_boost_arg1 = v4_mir_rvalue_call_arg(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_boost_call, 1)
+pilot v4_mir_method_ufcs_take_arg0 = v4_mir_rvalue_call_arg(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_take_call, 0)
 
 pilot v4_mir_method_boost_found = "no"
 if v4_mir_method_boost_body >= 0 {
@@ -221,6 +267,10 @@ say "method-main-local4-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mi
 say "method-main-local4-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_main_body, 4)
 say "method-main-local5-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_main_body, 5)
 say "method-main-local5-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_main_body, 5)
+say "method-main-local6-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_main_body, 6)
+say "method-main-local6-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_main_body, 6)
+say "method-main-local7-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_main_body, 7)
+say "method-main-local7-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_main_body, 7)
 say "instance-call-kind=" + v4_mir_rvalue_kind(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_instance_call)
 say "instance-call-op=" + v4_mir_rvalue_op(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_instance_call)
 say "instance-call-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_instance_call)
@@ -233,6 +283,20 @@ say "generic-take-call-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_me
 say "generic-echo-call-kind=" + v4_mir_rvalue_kind(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_generic_echo_call)
 say "generic-echo-call-op=" + v4_mir_rvalue_op(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_generic_echo_call)
 say "generic-echo-call-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_generic_echo_call)
+say "ufcs-boost-call-kind=" + v4_mir_rvalue_kind(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_boost_call)
+say "ufcs-boost-call-op=" + v4_mir_rvalue_op(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_boost_call)
+say "ufcs-boost-call-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_boost_call)
+say "ufcs-boost-arg-count=" + word_from_int(v4_mir_rvalue_call_arg_count(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_boost_call))
+say "ufcs-boost-arg0-text=" + v4_mir_rvalue_text(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_boost_arg0)
+say "ufcs-boost-arg0-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_boost_arg0)
+say "ufcs-boost-arg1-text=" + v4_mir_rvalue_text(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_boost_arg1)
+say "ufcs-boost-arg1-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_boost_arg1)
+say "ufcs-take-call-kind=" + v4_mir_rvalue_kind(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_take_call)
+say "ufcs-take-call-op=" + v4_mir_rvalue_op(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_take_call)
+say "ufcs-take-call-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_take_call)
+say "ufcs-take-arg-count=" + word_from_int(v4_mir_rvalue_call_arg_count(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_take_call))
+say "ufcs-take-arg0-text=" + v4_mir_rvalue_text(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_take_arg0)
+say "ufcs-take-arg0-ty=" + v4_mir_rvalue_ty(v4_mir_method_good_mir, v4_mir_method_main_body, v4_mir_method_ufcs_take_arg0)
 say "method-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_good_mir))
 
 pilot v4_mir_method_bad_receiver_static_stream = v4_lex_text(1, v4_mir_method_bad_receiver_static_source())
@@ -256,6 +320,19 @@ pilot v4_mir_method_bad_associated_instance_mir = v4_mir_lower_ty(2, v4_mir_meth
 say "bad-associated-instance-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_bad_associated_instance_mir))
 say "bad-associated-instance-message=" + v4_diag_message(v4_mir_diag(v4_mir_method_bad_associated_instance_mir, 0))
 say "bad-associated-instance-help=" + v4_diag_help(v4_mir_diag(v4_mir_method_bad_associated_instance_mir, 0))
+say "bad-associated-instance-message1=" + v4_diag_message(v4_mir_diag(v4_mir_method_bad_associated_instance_mir, 1))
+say "bad-associated-instance-help1=" + v4_diag_help(v4_mir_diag(v4_mir_method_bad_associated_instance_mir, 1))
+
+pilot v4_mir_method_bad_ufcs_receiver_stream = v4_lex_text(10, v4_mir_method_bad_ufcs_receiver_source())
+pilot v4_mir_method_bad_ufcs_receiver_tree = v4_parse_stream(10, v4_mir_method_bad_ufcs_receiver_stream)
+pilot v4_mir_method_bad_ufcs_receiver_hir = v4_hir_lower_tree(10, v4_mir_method_bad_ufcs_receiver_tree)
+pilot v4_mir_method_bad_ufcs_receiver_resolve = v4_resolve_lower_hir(10, v4_mir_method_bad_ufcs_receiver_hir)
+pilot v4_mir_method_bad_ufcs_receiver_ty = v4_ty_lower_resolve(10, v4_mir_method_bad_ufcs_receiver_resolve)
+pilot v4_mir_method_bad_ufcs_receiver_mir = v4_mir_lower_ty(10, v4_mir_method_bad_ufcs_receiver_ty)
+
+say "bad-ufcs-receiver-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_bad_ufcs_receiver_mir))
+say "bad-ufcs-receiver-message=" + v4_diag_message(v4_mir_diag(v4_mir_method_bad_ufcs_receiver_mir, 0))
+say "bad-ufcs-receiver-help=" + v4_diag_help(v4_mir_diag(v4_mir_method_bad_ufcs_receiver_mir, 0))
 
 pilot v4_mir_method_bad_missing_stream = v4_lex_text(3, v4_mir_method_bad_missing_source())
 pilot v4_mir_method_bad_missing_tree = v4_parse_stream(3, v4_mir_method_bad_missing_stream)
@@ -311,3 +388,25 @@ pilot v4_mir_method_bad_generic_arg_mir = v4_mir_lower_ty(7, v4_mir_method_bad_g
 say "bad-generic-arg-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_bad_generic_arg_mir))
 say "bad-generic-arg-message=" + v4_diag_message(v4_mir_diag(v4_mir_method_bad_generic_arg_mir, 0))
 say "bad-generic-arg-help=" + v4_diag_help(v4_mir_diag(v4_mir_method_bad_generic_arg_mir, 0))
+
+pilot v4_mir_method_bad_type_arg_stream = v4_lex_text(8, v4_mir_method_bad_type_arg_source())
+pilot v4_mir_method_bad_type_arg_tree = v4_parse_stream(8, v4_mir_method_bad_type_arg_stream)
+pilot v4_mir_method_bad_type_arg_hir = v4_hir_lower_tree(8, v4_mir_method_bad_type_arg_tree)
+pilot v4_mir_method_bad_type_arg_resolve = v4_resolve_lower_hir(8, v4_mir_method_bad_type_arg_hir)
+pilot v4_mir_method_bad_type_arg_ty = v4_ty_lower_resolve(8, v4_mir_method_bad_type_arg_resolve)
+pilot v4_mir_method_bad_type_arg_mir = v4_mir_lower_ty(8, v4_mir_method_bad_type_arg_ty)
+
+say "bad-method-type-arg-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_bad_type_arg_mir))
+say "bad-method-type-arg-message=" + v4_diag_message(v4_mir_diag(v4_mir_method_bad_type_arg_mir, 0))
+say "bad-method-type-arg-help=" + v4_diag_help(v4_mir_diag(v4_mir_method_bad_type_arg_mir, 0))
+
+pilot v4_mir_method_bad_assoc_type_arg_binary_stream = v4_lex_text(9, v4_mir_method_bad_associated_type_arg_binary_source())
+pilot v4_mir_method_bad_assoc_type_arg_binary_tree = v4_parse_stream(9, v4_mir_method_bad_assoc_type_arg_binary_stream)
+pilot v4_mir_method_bad_assoc_type_arg_binary_hir = v4_hir_lower_tree(9, v4_mir_method_bad_assoc_type_arg_binary_tree)
+pilot v4_mir_method_bad_assoc_type_arg_binary_resolve = v4_resolve_lower_hir(9, v4_mir_method_bad_assoc_type_arg_binary_hir)
+pilot v4_mir_method_bad_assoc_type_arg_binary_ty = v4_ty_lower_resolve(9, v4_mir_method_bad_assoc_type_arg_binary_resolve)
+pilot v4_mir_method_bad_assoc_type_arg_binary_mir = v4_mir_lower_ty(9, v4_mir_method_bad_assoc_type_arg_binary_ty)
+
+say "bad-associated-type-arg-binary-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_method_bad_assoc_type_arg_binary_mir))
+say "bad-associated-type-arg-binary-message=" + v4_diag_message(v4_mir_diag(v4_mir_method_bad_assoc_type_arg_binary_mir, 0))
+say "bad-associated-type-arg-binary-help=" + v4_diag_help(v4_mir_diag(v4_mir_method_bad_assoc_type_arg_binary_mir, 0))

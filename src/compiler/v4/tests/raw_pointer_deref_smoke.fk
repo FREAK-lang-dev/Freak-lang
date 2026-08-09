@@ -10,7 +10,7 @@ task v4_raw_ptr_deref_good_source() -> word {
     src = src + "}\n"
     src = src + "task probe() -> std::ffi::c_int {\n"
     src = src + "    pilot p = lookup()\n"
-    src = src + "    trust me \"first read\" on my honor as .pilot {\n"
+    src = src + "    trust me \"first read\" on my honor as .cadet {\n"
     src = src + "        give back *p\n"
     src = src + "    }\n"
     src = src + "}\n"

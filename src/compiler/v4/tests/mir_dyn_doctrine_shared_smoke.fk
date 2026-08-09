@@ -1,0 +1,66 @@
+-- V4 Shared/Weak dyn doctrine MIR smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_dyn_shared_mir_source() -> word {
+    pilot src = "doctrine Widget {\n"
+    src = src + "    task draw(self) -> word\n"
+    src = src + "}\n"
+    src = src + "shape Button {\n"
+    src = src + "    label: word\n"
+    src = src + "}\n"
+    src = src + "impl Widget for Button {\n"
+    src = src + "    task draw(self) -> word {\n"
+    src = src + "        give back self.label\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task share(button: Button) -> Shared<dyn Widget> {\n"
+    src = src + "    give back Shared<Button>::new(button)\n"
+    src = src + "}\n"
+    src = src + "task weaken(root: Shared<Button>) -> Weak<dyn Widget> {\n"
+    src = src + "    give back root.downgrade()\n"
+    src = src + "}\n"
+    src = src + "task consume_shared(w: Shared<dyn Widget>) -> word {\n"
+    src = src + "    give back \"shared\"\n"
+    src = src + "}\n"
+    src = src + "task consume_weak(w: Weak<dyn Widget>) -> word {\n"
+    src = src + "    give back \"weak\"\n"
+    src = src + "}\n"
+    src = src + "task forward_shared<T: Widget>(value: Shared<T>) -> word {\n"
+    src = src + "    give back consume_shared(value)\n"
+    src = src + "}\n"
+    src = src + "task forward_weak<T: Widget>(value: Weak<T>) -> word {\n"
+    src = src + "    give back consume_weak(value)\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_dyn_shared_mir_text = v4_dyn_shared_mir_source()
+pilot v4_dyn_shared_mir_stream = v4_lex_text(0, v4_dyn_shared_mir_text)
+pilot v4_dyn_shared_mir_tree = v4_parse_stream(0, v4_dyn_shared_mir_stream)
+pilot v4_dyn_shared_mir_hir = v4_hir_lower_tree(0, v4_dyn_shared_mir_tree)
+pilot v4_dyn_shared_mir_resolve = v4_resolve_lower_hir(0, v4_dyn_shared_mir_hir)
+pilot v4_dyn_shared_mir_ty = v4_ty_lower_resolve(0, v4_dyn_shared_mir_resolve)
+pilot v4_dyn_shared_mir_id = v4_mir_lower_ty(0, v4_dyn_shared_mir_ty)
+pilot v4_dyn_shared_share_def = v4_resolve_def_for_name(v4_dyn_shared_mir_resolve, "share")
+pilot v4_dyn_shared_share_body = v4_mir_lookup_body(v4_dyn_shared_mir_id, v4_dyn_shared_share_def)
+pilot v4_dyn_shared_share_return_place = v4_mir_stmt_place(v4_dyn_shared_mir_id, v4_dyn_shared_share_body, 0)
+pilot v4_dyn_shared_weaken_def = v4_resolve_def_for_name(v4_dyn_shared_mir_resolve, "weaken")
+pilot v4_dyn_shared_weaken_body = v4_mir_lookup_body(v4_dyn_shared_mir_id, v4_dyn_shared_weaken_def)
+pilot v4_dyn_shared_weaken_return_place = v4_mir_stmt_place(v4_dyn_shared_mir_id, v4_dyn_shared_weaken_body, 0)
+pilot v4_dyn_shared_forward_def = v4_resolve_def_for_name(v4_dyn_shared_mir_resolve, "forward_shared")
+pilot v4_dyn_shared_forward_body = v4_mir_lookup_body(v4_dyn_shared_mir_id, v4_dyn_shared_forward_def)
+pilot v4_dyn_shared_forward_return = v4_mir_stmt_rvalue(v4_dyn_shared_mir_id, v4_dyn_shared_forward_body, 0)
+pilot v4_dyn_shared_forward_arg = v4_mir_rvalue_call_arg(v4_dyn_shared_mir_id, v4_dyn_shared_forward_body, v4_dyn_shared_forward_return, 0)
+pilot v4_dyn_shared_forward_weak_def = v4_resolve_def_for_name(v4_dyn_shared_mir_resolve, "forward_weak")
+pilot v4_dyn_shared_forward_weak_body = v4_mir_lookup_body(v4_dyn_shared_mir_id, v4_dyn_shared_forward_weak_def)
+pilot v4_dyn_shared_forward_weak_return = v4_mir_stmt_rvalue(v4_dyn_shared_mir_id, v4_dyn_shared_forward_weak_body, 0)
+pilot v4_dyn_shared_forward_weak_arg = v4_mir_rvalue_call_arg(v4_dyn_shared_mir_id, v4_dyn_shared_forward_weak_body, v4_dyn_shared_forward_weak_return, 0)
+
+say v4_mir_summary(v4_dyn_shared_mir_id)
+say "dyn-shared-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_shared_mir_id))
+say "dyn-mir-share-return-place-ty=" + v4_mir_place_ty(v4_dyn_shared_mir_id, v4_dyn_shared_share_body, v4_dyn_shared_share_return_place)
+say "dyn-mir-weaken-return-place-ty=" + v4_mir_place_ty(v4_dyn_shared_mir_id, v4_dyn_shared_weaken_body, v4_dyn_shared_weaken_return_place)
+say "dyn-mir-forward-shared-return-ty=" + v4_mir_rvalue_ty(v4_dyn_shared_mir_id, v4_dyn_shared_forward_body, v4_dyn_shared_forward_return)
+say "dyn-mir-forward-shared-arg-ty=" + v4_mir_rvalue_ty(v4_dyn_shared_mir_id, v4_dyn_shared_forward_body, v4_dyn_shared_forward_arg)
+say "dyn-mir-forward-weak-return-ty=" + v4_mir_rvalue_ty(v4_dyn_shared_mir_id, v4_dyn_shared_forward_weak_body, v4_dyn_shared_forward_weak_return)
+say "dyn-mir-forward-weak-arg-ty=" + v4_mir_rvalue_ty(v4_dyn_shared_mir_id, v4_dyn_shared_forward_weak_body, v4_dyn_shared_forward_weak_arg)

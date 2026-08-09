@@ -1,0 +1,258 @@
+-- V4 contract-region fixed-layout and conservative dynamic storage fixture.
+-- Verification prepends the V4 crates before this file.
+-- One cached borrowck request owns the only compiler pipeline in this executable.
+-- Outer ordinary-task lends, scalar holders, and fixed-layout aggregates stay legal.
+-- Dynamic or opaque constructors that cannot preserve a lend child's provenance
+-- must reject it before creating their MIR node.
+
+task v4_contract_region_storage_negative_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_storage_negative_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_contract_region_storage_negative_deep_lend_free_type() -> word {
+    pilot type_text = "int"
+    pilot depth = 0
+    repeat until depth >= 34 {
+        type_text = "(" + type_text + ",int)"
+        depth += 1
+    }
+    give back type_text
+}
+
+task v4_contract_region_storage_negative_deep_wrapper_type() -> word {
+    pilot type_text = "int"
+    pilot depth = 0
+    repeat until depth >= 34 {
+        type_text = "List<" + type_text + ">"
+        depth += 1
+    }
+    give back type_text
+}
+
+task v4_contract_region_storage_negative_print_exhaustion(ty_id: int) -> void {
+    pilot type_text = v4_contract_region_storage_negative_deep_lend_free_type()
+    say "contract-region-storage-deep-class=" + v4_ty_type_lend_storage_class(ty_id, type_text)
+    say "contract-region-storage-deep-confirmed-lend=" + v4_contract_region_storage_negative_bool(v4_ty_type_stores_lend(ty_id, type_text))
+    say "contract-region-storage-deep-may-store-lend=" + v4_contract_region_storage_negative_bool(v4_ty_type_may_store_lend(ty_id, type_text))
+    pilot wrapper_type = v4_contract_region_storage_negative_deep_wrapper_type()
+    say "contract-region-storage-deep-wrapper-class=" + v4_ty_type_lend_storage_class(ty_id, wrapper_type)
+    say "contract-region-storage-deep-wrapper-confirmed-lend=" + v4_contract_region_storage_negative_bool(v4_ty_type_stores_lend(ty_id, wrapper_type))
+    say "contract-region-storage-deep-wrapper-may-store-lend=" + v4_contract_region_storage_negative_bool(v4_ty_type_may_store_lend(ty_id, wrapper_type))
+    pilot before = v4_ty_diag_count(ty_id)
+    v4_ty_validate_no_lend_storage(ty_id, type_text, "deep synthetic boundary", V4_NO_SPAN)
+    pilot after = v4_ty_diag_count(ty_id)
+    pilot diag = v4_ty_diag(ty_id, before)
+    say "contract-region-storage-deep-diagnostic-added=" + v4_contract_region_storage_negative_bool(after == before + 1)
+    say "contract-region-storage-deep-diagnostic=" + v4_diag_message(diag)
+    say "contract-region-storage-deep-help=" + v4_diag_help(diag)
+}
+
+task v4_contract_region_storage_negative_diag_for_body(mir_id: int, body_name: word) -> word {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        pilot diag = v4_mir_diag(mir_id, diag_id)
+        if v4_diag_help(diag).starts_with(body_name + " constructs ") {
+            give back diag
+        }
+        diag_id += 1
+    }
+    give back ""
+}
+
+task v4_contract_region_storage_negative_print_case_diag(mir_id: int, case_name: word, body_name: word) -> void {
+    pilot diag = v4_contract_region_storage_negative_diag_for_body(mir_id, body_name)
+    say "contract-region-storage-" + case_name + "-diag=" + v4_diag_message(diag)
+    say "contract-region-storage-" + case_name + "-detail=" + v4_diag_help(diag)
+}
+
+task v4_contract_region_storage_negative_diags_match(borrow_id: int, mir_id: int) -> bool {
+    pilot diag_count = v4_mir_diag_count(mir_id)
+    if v4_borrowck_diag_count(borrow_id) != diag_count {
+        give back false
+    }
+    pilot diag_id = 0
+    repeat until diag_id >= diag_count {
+        if v4_borrowck_diag(borrow_id, diag_id) != v4_mir_diag(mir_id, diag_id) {
+            give back false
+        }
+        diag_id += 1
+    }
+    give back true
+}
+
+task v4_contract_region_storage_negative_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Box<T> {\n"
+    src = src + "    value: T\n"
+    src = src + "}\n"
+    src = src + "route Stored<T> {\n"
+    src = src + "    Hold " + v4_contract_region_storage_negative_braces(" value: T ") + "\n"
+    src = src + "}\n"
+    src = src + "task choose<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> lend 'a Ship {\n"
+    src = src + "    if take_first {\n"
+    src = src + "        give back lend first\n"
+    src = src + "    }\n"
+    src = src + "    give back lend second\n"
+    src = src + "}\n"
+    src = src + "task stored_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot view = choose(lend first, lend second, take_first)\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task elided_scalar_holder(lend value: Ship) -> lend Ship {\n"
+    src = src + "    pilot view = lend value\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task tuple_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
+    src = src + "    pilot views = (choose(lend first, lend second, take_first), 7)\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task fixed_array_literal_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
+    src = src + "    pilot views: [lend Ship; 1] = [choose(lend first, lend second, take_first)]\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task fixed_array_repeat_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
+    src = src + "    pilot views = [choose(lend first, lend second, take_first); 2]\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task list_literal_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
+    src = src + "    pilot views = [choose(lend first, lend second, take_first)]\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task shape_value_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
+    src = src + "    pilot view = Box " + v4_contract_region_storage_negative_braces(" value: choose(lend first, lend second, take_first) ") + "\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task route_payload_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
+    src = src + "    pilot view = Stored::Hold " + v4_contract_region_storage_negative_braces(" value: choose(lend first, lend second, take_first) ") + "\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task maybe_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
+    src = src + "    pilot view: maybe<lend Ship> = some(choose(lend first, lend second, take_first))\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task result_ok_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
+    src = src + "    pilot view: result<lend Ship,word> = ok(choose(lend first, lend second, take_first))\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task result_err_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
+    src = src + "    pilot view: result<int,lend Ship> = err(choose(lend first, lend second, take_first))\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task map_key_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
+    src = src + "    pilot views: Map<lend Ship,int> = " + v4_contract_region_storage_negative_braces("choose(lend first, lend second, take_first): 1") + "\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task map_value_source_set<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> int {\n"
+    src = src + "    pilot views: Map<word,lend Ship> = " + v4_contract_region_storage_negative_braces("\"ship\": choose(lend first, lend second, take_first)") + "\n"
+    src = src + "    give back 7\n"
+    src = src + "}\n"
+    src = src + "task named_signature_escape<'a>(value: maybe<result<Map<word,lend 'a Ship>,int>>) -> maybe<result<Map<word,lend 'a Ship>,int>> {\n"
+    src = src + "    give back nobody\n"
+    src = src + "}\n"
+    src = src + "task elided_signature_escape(value: maybe<result<Map<word,lend Ship>,int>>) -> maybe<result<Map<word,lend Ship>,int>> {\n"
+    src = src + "    give back nobody\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_contract_region_storage_negative_borrow = v4_borrowck_text_cached("contract-region-storage-negative.fk", v4_contract_region_storage_negative_source())
+pilot v4_contract_region_storage_negative_mir = v4_borrowck_mir_id(v4_contract_region_storage_negative_borrow)
+pilot v4_contract_region_storage_negative_ty = v4_mir_ty_id(v4_contract_region_storage_negative_mir)
+pilot v4_contract_region_storage_negative_resolve = v4_ty_resolve_id(v4_contract_region_storage_negative_ty)
+
+pilot v4_contract_region_storage_negative_ty_count = v4_ty_diag_count(v4_contract_region_storage_negative_ty)
+say "contract-region-storage-ty-diagnostics=" + word_from_int(v4_contract_region_storage_negative_ty_count)
+say "contract-region-storage-ty-diagnostics-exact-four=" + v4_contract_region_storage_negative_bool(v4_contract_region_storage_negative_ty_count == 4)
+pilot v4_contract_region_storage_negative_ty_diag_id = 0
+repeat until v4_contract_region_storage_negative_ty_diag_id >= v4_contract_region_storage_negative_ty_count {
+    pilot v4_contract_region_storage_negative_ty_diag = v4_ty_diag(v4_contract_region_storage_negative_ty, v4_contract_region_storage_negative_ty_diag_id)
+    say "contract-region-storage-ty-diag" + word_from_int(v4_contract_region_storage_negative_ty_diag_id) + "=" + v4_diag_message(v4_contract_region_storage_negative_ty_diag)
+    say "contract-region-storage-ty-diag" + word_from_int(v4_contract_region_storage_negative_ty_diag_id) + "-help=" + v4_diag_help(v4_contract_region_storage_negative_ty_diag)
+    say "contract-region-storage-ty-diag" + word_from_int(v4_contract_region_storage_negative_ty_diag_id) + "-span=" + v4_diag_span(v4_contract_region_storage_negative_ty_diag)
+    v4_contract_region_storage_negative_ty_diag_id += 1
+}
+
+pilot v4_contract_region_storage_negative_mir_count = v4_mir_diag_count(v4_contract_region_storage_negative_mir)
+say "contract-region-storage-mir-diagnostics=" + word_from_int(v4_contract_region_storage_negative_mir_count)
+say "contract-region-storage-mir-diagnostics-exact-ten=" + v4_contract_region_storage_negative_bool(v4_contract_region_storage_negative_mir_count == 10)
+pilot v4_contract_region_storage_negative_mir_diag_id = 0
+repeat until v4_contract_region_storage_negative_mir_diag_id >= v4_contract_region_storage_negative_mir_count {
+    pilot v4_contract_region_storage_negative_mir_diag = v4_mir_diag(v4_contract_region_storage_negative_mir, v4_contract_region_storage_negative_mir_diag_id)
+    say "contract-region-storage-mir-diag" + word_from_int(v4_contract_region_storage_negative_mir_diag_id) + "=" + v4_diag_message(v4_contract_region_storage_negative_mir_diag)
+    say "contract-region-storage-mir-diag" + word_from_int(v4_contract_region_storage_negative_mir_diag_id) + "-help=" + v4_diag_help(v4_contract_region_storage_negative_mir_diag)
+    say "contract-region-storage-mir-diag" + word_from_int(v4_contract_region_storage_negative_mir_diag_id) + "-span=" + v4_diag_span(v4_contract_region_storage_negative_mir_diag)
+    v4_contract_region_storage_negative_mir_diag_id += 1
+}
+
+v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "list-literal", "list_literal_source_set")
+v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "some", "maybe_source_set")
+v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "ok", "result_ok_source_set")
+v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "err", "result_err_source_set")
+v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "map-key", "map_key_source_set")
+v4_contract_region_storage_negative_print_case_diag(v4_contract_region_storage_negative_mir, "map-value", "map_value_source_set")
+
+pilot v4_contract_region_storage_negative_choose_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "choose")
+pilot v4_contract_region_storage_negative_choose_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_choose_def)
+pilot v4_contract_region_storage_negative_local_holder_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "stored_source_set")
+pilot v4_contract_region_storage_negative_local_holder_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_local_holder_def)
+pilot v4_contract_region_storage_negative_elided_holder_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "elided_scalar_holder")
+pilot v4_contract_region_storage_negative_elided_holder_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_elided_holder_def)
+pilot v4_contract_region_storage_negative_tuple_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "tuple_source_set")
+pilot v4_contract_region_storage_negative_tuple_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_tuple_def)
+pilot v4_contract_region_storage_negative_fixed_array_literal_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "fixed_array_literal_source_set")
+pilot v4_contract_region_storage_negative_fixed_array_literal_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_fixed_array_literal_def)
+pilot v4_contract_region_storage_negative_fixed_array_repeat_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "fixed_array_repeat_source_set")
+pilot v4_contract_region_storage_negative_fixed_array_repeat_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_fixed_array_repeat_def)
+pilot v4_contract_region_storage_negative_list_literal_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "list_literal_source_set")
+pilot v4_contract_region_storage_negative_list_literal_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_list_literal_def)
+pilot v4_contract_region_storage_negative_shape_value_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "shape_value_source_set")
+pilot v4_contract_region_storage_negative_shape_value_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_shape_value_def)
+pilot v4_contract_region_storage_negative_route_payload_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "route_payload_source_set")
+pilot v4_contract_region_storage_negative_route_payload_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_route_payload_def)
+pilot v4_contract_region_storage_negative_some_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "maybe_source_set")
+pilot v4_contract_region_storage_negative_some_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_some_def)
+pilot v4_contract_region_storage_negative_ok_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "result_ok_source_set")
+pilot v4_contract_region_storage_negative_ok_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_ok_def)
+pilot v4_contract_region_storage_negative_err_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "result_err_source_set")
+pilot v4_contract_region_storage_negative_err_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_err_def)
+pilot v4_contract_region_storage_negative_map_key_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "map_key_source_set")
+pilot v4_contract_region_storage_negative_map_key_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_map_key_def)
+pilot v4_contract_region_storage_negative_map_value_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "map_value_source_set")
+pilot v4_contract_region_storage_negative_map_value_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_map_value_def)
+pilot v4_contract_region_storage_negative_named_signature_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "named_signature_escape")
+pilot v4_contract_region_storage_negative_named_signature_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_named_signature_def)
+pilot v4_contract_region_storage_negative_elided_signature_def = v4_resolve_def_for_name(v4_contract_region_storage_negative_resolve, "elided_signature_escape")
+pilot v4_contract_region_storage_negative_elided_signature_result = v4_borrowck_lookup_result(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_elided_signature_def)
+
+say "contract-region-storage-choose-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_choose_result)
+say "contract-region-storage-local-holder-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_local_holder_result)
+say "contract-region-storage-elided-holder-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_elided_holder_result)
+say "contract-region-storage-tuple-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_tuple_result)
+say "contract-region-storage-fixed-array-literal-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_fixed_array_literal_result)
+say "contract-region-storage-fixed-array-repeat-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_fixed_array_repeat_result)
+say "contract-region-storage-list-literal-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_list_literal_result)
+say "contract-region-storage-shape-value-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_shape_value_result)
+say "contract-region-storage-route-payload-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_route_payload_result)
+say "contract-region-storage-some-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_some_result)
+say "contract-region-storage-ok-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_ok_result)
+say "contract-region-storage-err-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_err_result)
+say "contract-region-storage-map-key-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_map_key_result)
+say "contract-region-storage-map-value-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_map_value_result)
+say "contract-region-storage-named-signature-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_named_signature_result)
+say "contract-region-storage-elided-signature-status=" + v4_borrowck_result_status(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_elided_signature_result)
+
+pilot v4_contract_region_storage_negative_borrow_count = v4_borrowck_diag_count(v4_contract_region_storage_negative_borrow)
+say "contract-region-storage-borrow-diagnostics=" + word_from_int(v4_contract_region_storage_negative_borrow_count)
+say "contract-region-storage-borrow-diagnostics-exact-ten=" + v4_contract_region_storage_negative_bool(v4_contract_region_storage_negative_borrow_count == 10)
+say "contract-region-storage-borrow-diags-match-mir=" + v4_contract_region_storage_negative_bool(v4_contract_region_storage_negative_diags_match(v4_contract_region_storage_negative_borrow, v4_contract_region_storage_negative_mir))
+
+v4_contract_region_storage_negative_print_exhaustion(v4_contract_region_storage_negative_ty)

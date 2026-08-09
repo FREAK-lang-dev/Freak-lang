@@ -1,0 +1,52 @@
+-- V4 fixed-layout aggregate loan resource-budget fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_aggregate_budget_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_aggregate_budget_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_aggregate_budget_diag_contains(ty_id: int, needle: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_ty_diag_count(ty_id) {
+        if v4_diag_message(v4_ty_diag(ty_id, diag_id)).contains(needle) { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
+task v4_aggregate_budget_source() -> word {
+    pilot src = "shape Ship " + v4_aggregate_budget_braces(" hp: int ") + "\n"
+    src = src + "shape Recursive<'a> " + v4_aggregate_budget_braces(" next: Recursive<'a>, view: lend 'a Ship ") + "\n"
+    src = src + "task recursive_pass<'a>(value: Recursive<'a>) -> Recursive<'a> " + v4_aggregate_budget_braces(" give back value ") + "\n"
+    give back src
+}
+
+pilot v4_aggregate_budget_ty = v4_ty_text_cached("contract-region-aggregate-budget.fk", v4_aggregate_budget_source())
+pilot v4_aggregate_budget_resolve = v4_ty_resolve_id(v4_aggregate_budget_ty)
+pilot v4_aggregate_budget_recursive_def = v4_resolve_def_for_name(v4_aggregate_budget_resolve, "recursive_pass")
+pilot v4_aggregate_budget_recursive_sig = v4_ty_lookup_signature(v4_aggregate_budget_ty, v4_aggregate_budget_recursive_def)
+pilot v4_aggregate_budget_wide_type = "lend 'a Ship"
+pilot v4_aggregate_budget_depth = 0
+repeat until v4_aggregate_budget_depth >= 9 {
+    v4_aggregate_budget_wide_type = "(" + v4_aggregate_budget_wide_type + "," + v4_aggregate_budget_wide_type + ")"
+    v4_aggregate_budget_depth += 1
+}
+pilot v4_aggregate_budget_payload = ""
+pilot v4_aggregate_budget_relation = 0
+repeat until v4_aggregate_budget_relation >= 257 {
+    v4_aggregate_budget_payload = v4_ty_return_lend_source_payload_append_bounded(v4_aggregate_budget_payload, "0|.0|", v4_aggregate_budget_relation)
+    v4_aggregate_budget_relation += 1
+}
+say "aggregate-budget-leaf-limit=" + word_from_int(v4_ty_fixed_lend_leaf_limit)
+say "aggregate-budget-source-limit=" + word_from_int(v4_ty_return_lend_source_limit)
+say "aggregate-budget-wide-leaves=" + word_from_int(v4_ty_fixed_lend_leaf_count(v4_aggregate_budget_ty, v4_aggregate_budget_wide_type))
+say "aggregate-budget-recursive-leaves=" + word_from_int(v4_ty_signature_return_lend_leaf_count(v4_aggregate_budget_ty, v4_aggregate_budget_recursive_sig))
+say "aggregate-budget-fanout-sources=" + word_from_int(v4_ty_return_lend_source_payload_count(v4_aggregate_budget_payload))
+say "aggregate-budget-fanout-opaque=" + v4_aggregate_budget_bool(v4_aggregate_budget_payload == v4_ty_return_lend_source_opaque)
+say "aggregate-budget-leaf-diagnostic=" + v4_aggregate_budget_bool(v4_aggregate_budget_diag_contains(v4_aggregate_budget_ty, "cannot enumerate fixed-layout"))
+say "aggregate-budget-source-cutoff-atomic=" + v4_aggregate_budget_bool(v4_aggregate_budget_payload == v4_ty_return_lend_source_opaque and v4_ty_return_lend_source_payload_count(v4_aggregate_budget_payload) == 0 - 1)

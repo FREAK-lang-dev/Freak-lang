@@ -1,0 +1,79 @@
+-- V4 generic dyn doctrine MIR smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_dyn_generic_mir_source() -> word {
+    pilot src = "alias Score = int\n"
+    src = src + "doctrine Displayable<T> {\n"
+    src = src + "    task display(self) -> word\n"
+    src = src + "}\n"
+    src = src + "doctrine Holder<T> {\n"
+    src = src + "    task get(self) -> T\n"
+    src = src + "}\n"
+    src = src + "shape NumberLabel {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "shape IntBox {\n"
+    src = src + "    value: int\n"
+    src = src + "}\n"
+    src = src + "impl Displayable<Score> for NumberLabel {\n"
+    src = src + "    task display(self) -> word {\n"
+    src = src + "        give back \"number\"\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "impl Holder<int> for IntBox {\n"
+    src = src + "    task get(self) -> int {\n"
+    src = src + "        give back self.value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task accept<T>(d: dyn Displayable<T>, sample: T) -> T {\n"
+    src = src + "    give back sample\n"
+    src = src + "}\n"
+    src = src + "task use<T, U: Displayable<T>>(u: U, sample: T) -> T {\n"
+    src = src + "    give back sample\n"
+    src = src + "}\n"
+    src = src + "task use_accept(label: NumberLabel) -> int {\n"
+    src = src + "    give back accept(label, 1)\n"
+    src = src + "}\n"
+    src = src + "task use_bound(label: NumberLabel) -> int {\n"
+    src = src + "    give back use(label, 1)\n"
+    src = src + "}\n"
+    src = src + "task show_one<T>(d: dyn Displayable<T>) -> word {\n"
+    src = src + "    give back d.display()\n"
+    src = src + "}\n"
+    src = src + "task forward_accept<U: Displayable<int>>(u: U) -> word {\n"
+    src = src + "    give back show_one(u)\n"
+    src = src + "}\n"
+    src = src + "task read_box(h: dyn Holder<int>) -> int {\n"
+    src = src + "    give back h.get()\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_dyn_generic_mir_text = v4_dyn_generic_mir_source()
+pilot v4_dyn_generic_mir_stream = v4_lex_text(0, v4_dyn_generic_mir_text)
+pilot v4_dyn_generic_mir_tree = v4_parse_stream(0, v4_dyn_generic_mir_stream)
+pilot v4_dyn_generic_mir_hir = v4_hir_lower_tree(0, v4_dyn_generic_mir_tree)
+pilot v4_dyn_generic_mir_resolve = v4_resolve_lower_hir(0, v4_dyn_generic_mir_hir)
+pilot v4_dyn_generic_mir_ty = v4_ty_lower_resolve(0, v4_dyn_generic_mir_resolve)
+pilot v4_dyn_generic_mir_id = v4_mir_lower_ty(0, v4_dyn_generic_mir_ty)
+pilot v4_dyn_generic_use_accept_def = v4_resolve_def_for_name(v4_dyn_generic_mir_resolve, "use_accept")
+pilot v4_dyn_generic_use_accept_body = v4_mir_lookup_body(v4_dyn_generic_mir_id, v4_dyn_generic_use_accept_def)
+pilot v4_dyn_generic_use_accept_return = v4_mir_stmt_rvalue(v4_dyn_generic_mir_id, v4_dyn_generic_use_accept_body, 0)
+pilot v4_dyn_generic_use_bound_def = v4_resolve_def_for_name(v4_dyn_generic_mir_resolve, "use_bound")
+pilot v4_dyn_generic_use_bound_body = v4_mir_lookup_body(v4_dyn_generic_mir_id, v4_dyn_generic_use_bound_def)
+pilot v4_dyn_generic_use_bound_return = v4_mir_stmt_rvalue(v4_dyn_generic_mir_id, v4_dyn_generic_use_bound_body, 0)
+pilot v4_dyn_generic_forward_accept_def = v4_resolve_def_for_name(v4_dyn_generic_mir_resolve, "forward_accept")
+pilot v4_dyn_generic_forward_accept_body = v4_mir_lookup_body(v4_dyn_generic_mir_id, v4_dyn_generic_forward_accept_def)
+pilot v4_dyn_generic_forward_accept_return = v4_mir_stmt_rvalue(v4_dyn_generic_mir_id, v4_dyn_generic_forward_accept_body, 0)
+pilot v4_dyn_generic_forward_accept_arg = v4_mir_rvalue_call_arg(v4_dyn_generic_mir_id, v4_dyn_generic_forward_accept_body, v4_dyn_generic_forward_accept_return, 0)
+pilot v4_dyn_generic_read_box_def = v4_resolve_def_for_name(v4_dyn_generic_mir_resolve, "read_box")
+pilot v4_dyn_generic_read_box_body = v4_mir_lookup_body(v4_dyn_generic_mir_id, v4_dyn_generic_read_box_def)
+pilot v4_dyn_generic_read_box_return = v4_mir_stmt_rvalue(v4_dyn_generic_mir_id, v4_dyn_generic_read_box_body, 0)
+
+say v4_mir_summary(v4_dyn_generic_mir_id)
+say "dyn-generic-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_generic_mir_id))
+say "dyn-mir-use-accept-return-ty=" + v4_mir_rvalue_ty(v4_dyn_generic_mir_id, v4_dyn_generic_use_accept_body, v4_dyn_generic_use_accept_return)
+say "dyn-mir-use-bound-return-ty=" + v4_mir_rvalue_ty(v4_dyn_generic_mir_id, v4_dyn_generic_use_bound_body, v4_dyn_generic_use_bound_return)
+say "dyn-mir-forward-accept-return-ty=" + v4_mir_rvalue_ty(v4_dyn_generic_mir_id, v4_dyn_generic_forward_accept_body, v4_dyn_generic_forward_accept_return)
+say "dyn-mir-forward-accept-arg-ty=" + v4_mir_rvalue_ty(v4_dyn_generic_mir_id, v4_dyn_generic_forward_accept_body, v4_dyn_generic_forward_accept_arg)
+say "dyn-mir-read-box-return-ty=" + v4_mir_rvalue_ty(v4_dyn_generic_mir_id, v4_dyn_generic_read_box_body, v4_dyn_generic_read_box_return)

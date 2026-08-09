@@ -16,7 +16,7 @@ task v4_lifetime_ty_source() -> word {
     pilot src = "task borrow<'a, T>(value: T) -> T {\n"
     src = src + "    give back value\n"
     src = src + "}\n"
-    src = src + "task static_name<'static>(name: word) -> word {\n"
+    src = src + "task long_name<'long>(name: word) -> word {\n"
     src = src + "    give back name\n"
     src = src + "}\n"
     src = src + "shape RefBox<'a, T> {\n"
@@ -40,7 +40,7 @@ pilot v4_lifetime_ty_resolve = v4_resolve_lower_hir(0, v4_lifetime_ty_hir)
 pilot v4_lifetime_ty_ty = v4_ty_lower_resolve(0, v4_lifetime_ty_resolve)
 
 pilot v4_lifetime_ty_borrow_def = v4_resolve_def_for_name(v4_lifetime_ty_resolve, "borrow")
-pilot v4_lifetime_ty_static_def = v4_resolve_def_for_name(v4_lifetime_ty_resolve, "static_name")
+pilot v4_lifetime_ty_static_def = v4_resolve_def_for_name(v4_lifetime_ty_resolve, "long_name")
 pilot v4_lifetime_ty_refbox_def = v4_resolve_def_for_name(v4_lifetime_ty_resolve, "RefBox")
 pilot v4_lifetime_ty_lendable_def = v4_resolve_def_for_name(v4_lifetime_ty_resolve, "Lendable")
 pilot v4_lifetime_ty_loan_def = v4_resolve_def_for_name(v4_lifetime_ty_resolve, "Loan")
@@ -66,10 +66,10 @@ say "lifetime-ty-borrow-type-generic0-name=" + v4_ty_signature_type_generic_name
 say "lifetime-ty-borrow-param-type=" + v4_ty_signature_param_type(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig, 0)
 say "lifetime-ty-borrow-return=" + v4_ty_signature_return_type(v4_lifetime_ty_ty, v4_lifetime_ty_borrow_sig)
 
-say "lifetime-ty-static-signature=" + v4_ty_signature_of(v4_lifetime_ty_ty, v4_lifetime_ty_static_def)
-say "lifetime-ty-static-lifetime-count=" + word_from_int(v4_ty_signature_lifetime_count(v4_lifetime_ty_ty, v4_lifetime_ty_static_sig))
-say "lifetime-ty-static-lifetime0-name=" + v4_ty_signature_lifetime_name(v4_lifetime_ty_ty, v4_lifetime_ty_static_sig, 0)
-say "lifetime-ty-static-type-generic-count=" + word_from_int(v4_ty_signature_type_generic_count(v4_lifetime_ty_ty, v4_lifetime_ty_static_sig))
+say "lifetime-ty-long-signature=" + v4_ty_signature_of(v4_lifetime_ty_ty, v4_lifetime_ty_static_def)
+say "lifetime-ty-long-lifetime-count=" + word_from_int(v4_ty_signature_lifetime_count(v4_lifetime_ty_ty, v4_lifetime_ty_static_sig))
+say "lifetime-ty-long-lifetime0-name=" + v4_ty_signature_lifetime_name(v4_lifetime_ty_ty, v4_lifetime_ty_static_sig, 0)
+say "lifetime-ty-long-type-generic-count=" + word_from_int(v4_ty_signature_type_generic_count(v4_lifetime_ty_ty, v4_lifetime_ty_static_sig))
 
 say "lifetime-ty-refbox-signature=" + v4_ty_signature_of(v4_lifetime_ty_ty, v4_lifetime_ty_refbox_def)
 say "lifetime-ty-refbox-lifetime0-name=" + v4_ty_signature_lifetime_name(v4_lifetime_ty_ty, v4_lifetime_ty_refbox_sig, 0)

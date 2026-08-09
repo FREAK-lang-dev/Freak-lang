@@ -1,0 +1,61 @@
+-- V4 contract-region repeated-source and ordinary-call forwarding fixture.
+-- Verification prepends the V4 crates before this file.
+-- One cached borrowck request owns the only compiler pipeline in this executable.
+
+task v4_contract_region_source_set_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Fleet {\n"
+    src = src + "    lead: Ship\n"
+    src = src + "}\n"
+    src = src + "task choose<'a>(lend 'a left: Ship, lend 'a right: Ship, take_left: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot view = lend right\n"
+    src = src + "    if take_left {\n"
+    src = src + "        view = lend left\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task forward<'a>(lend 'a first: Ship, lend 'a second: Ship, take_first: bool) -> lend 'a Ship {\n"
+    src = src + "    give back choose(lend first, lend second, take_first)\n"
+    src = src + "}\n"
+    src = src + "task forward_reordered_projection<'a>(lend 'a fleet: Fleet, lend 'a spare: Ship, use_lead: bool) -> lend 'a Ship {\n"
+    src = src + "    give back choose(take_left: use_lead, right: lend spare, left: lend fleet.lead)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_source_set_emit_sources(prefix: word, borrow_id: int, result_id: int) -> void {
+    pilot path_id = 0
+    pilot source_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_return_loan {
+            say prefix + "-source" + word_from_int(source_id) + "=" + v4_borrowck_path_text(borrow_id, result_id, path_id)
+            source_id += 1
+        }
+        path_id += 1
+    }
+    say prefix + "-source-count=" + word_from_int(source_id)
+}
+
+pilot v4_contract_region_source_set_borrow = v4_borrowck_text_cached("contract-region-source-set.fk", v4_contract_region_source_set_source())
+pilot v4_contract_region_source_set_mir = v4_borrowck_mir_id(v4_contract_region_source_set_borrow)
+pilot v4_contract_region_source_set_ty = v4_mir_ty_id(v4_contract_region_source_set_mir)
+pilot v4_contract_region_source_set_resolve = v4_ty_resolve_id(v4_contract_region_source_set_ty)
+
+pilot v4_contract_region_source_set_choose_def = v4_resolve_def_for_name(v4_contract_region_source_set_resolve, "choose")
+pilot v4_contract_region_source_set_forward_def = v4_resolve_def_for_name(v4_contract_region_source_set_resolve, "forward")
+pilot v4_contract_region_source_set_projection_def = v4_resolve_def_for_name(v4_contract_region_source_set_resolve, "forward_reordered_projection")
+pilot v4_contract_region_source_set_choose_result = v4_borrowck_lookup_result(v4_contract_region_source_set_borrow, v4_contract_region_source_set_choose_def)
+pilot v4_contract_region_source_set_forward_result = v4_borrowck_lookup_result(v4_contract_region_source_set_borrow, v4_contract_region_source_set_forward_def)
+pilot v4_contract_region_source_set_projection_result = v4_borrowck_lookup_result(v4_contract_region_source_set_borrow, v4_contract_region_source_set_projection_def)
+
+say "contract-region-source-set-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_source_set_ty))
+say "contract-region-source-set-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_source_set_mir))
+say "contract-region-source-set-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_source_set_borrow))
+say "contract-region-source-set-choose-status=" + v4_borrowck_result_status(v4_contract_region_source_set_borrow, v4_contract_region_source_set_choose_result)
+say "contract-region-source-set-forward-status=" + v4_borrowck_result_status(v4_contract_region_source_set_borrow, v4_contract_region_source_set_forward_result)
+say "contract-region-source-set-projection-status=" + v4_borrowck_result_status(v4_contract_region_source_set_borrow, v4_contract_region_source_set_projection_result)
+v4_contract_region_source_set_emit_sources("contract-region-source-set-choose", v4_contract_region_source_set_borrow, v4_contract_region_source_set_choose_result)
+v4_contract_region_source_set_emit_sources("contract-region-source-set-forward", v4_contract_region_source_set_borrow, v4_contract_region_source_set_forward_result)
+v4_contract_region_source_set_emit_sources("contract-region-source-set-projection", v4_contract_region_source_set_borrow, v4_contract_region_source_set_projection_result)

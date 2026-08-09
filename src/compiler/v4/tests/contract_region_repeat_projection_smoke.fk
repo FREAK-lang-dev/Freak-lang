@@ -1,0 +1,72 @@
+-- V4 repeat-filled aggregate projection scale and capture fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_repeat_projection_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_rebind_257(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;257] = [lend first; 257]\n"
+    src = src + "    pilot replacement = lend second\n"
+    pilot rebind_slot_id = 0
+    repeat until rebind_slot_id >= 257 {
+        src = src + "    views[" + word_from_int(rebind_slot_id) + "] = replacement\n"
+        rebind_slot_id += 1
+    }
+    src = src + "    first.hp = 24\n"
+    src = src + "    give back views[0].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_partial_rebind_1025(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;1025] = [lend first; 1025]\n"
+    src = src + "    views[0] = lend second\n"
+    src = src + "    first.hp = 26\n"
+    src = src + "    give back views[0].hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_extracted_alias_rebind_256(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;256] = [lend first; 256]\n"
+    src = src + "    pilot saved = views[0]\n"
+    src = src + "    pilot replacement = lend second\n"
+    pilot slot_id = 0
+    repeat until slot_id >= 256 {
+        src = src + "    views[" + word_from_int(slot_id) + "] = replacement\n"
+        slot_id += 1
+    }
+    src = src + "    first.hp = 27\n"
+    src = src + "    give back saved.hp\n"
+    src = src + "}\n"
+    src = src + "task repeat_shared_capture_live(first: Ship) -> int {\n"
+    src = src + "    pilot views: [lend Ship;2] = [lend first; 2]\n"
+    src = src + "    pilot reader = |_| => views[0].hp\n"
+    src = src + "    first.hp = 28\n"
+    src = src + "    give back reader()\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_repeat_projection_result_for(borrow_id: int, body_name: word) -> int {
+    pilot mir_id = v4_borrowck_mir_id(borrow_id)
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    pilot def_id = v4_resolve_def_for_name(resolve_id, body_name)
+    give back v4_borrowck_lookup_result(borrow_id, def_id)
+}
+
+task v4_repeat_projection_status(borrow_id: int, body_name: word) -> word {
+    give back v4_borrowck_result_status(borrow_id, v4_repeat_projection_result_for(borrow_id, body_name))
+}
+
+pilot v4_repeat_projection_borrow = v4_borrowck_text_cached("contract-region-repeat-projection.fk", v4_repeat_projection_source())
+pilot v4_repeat_projection_mir = v4_borrowck_mir_id(v4_repeat_projection_borrow)
+pilot v4_repeat_projection_ty = v4_mir_ty_id(v4_repeat_projection_mir)
+pilot v4_repeat_projection_resolve = v4_ty_resolve_id(v4_repeat_projection_ty)
+pilot v4_repeat_projection_hir = v4_resolve_hir_id(v4_repeat_projection_resolve)
+pilot v4_repeat_projection_tree = v4_hir_tree_id(v4_repeat_projection_hir)
+
+say "repeat-projection-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_repeat_projection_tree))
+say "repeat-projection-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_repeat_projection_ty))
+say "repeat-projection-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_repeat_projection_mir))
+say "repeat-projection-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_repeat_projection_borrow))
+say "repeat-projection-rebind-257=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_shared_rebind_257")
+say "repeat-projection-partial-rebind-1025=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_shared_partial_rebind_1025")
+say "repeat-projection-extracted-alias-rebind-256=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_shared_extracted_alias_rebind_256")
+say "repeat-projection-capture-live=" + v4_repeat_projection_status(v4_repeat_projection_borrow, "repeat_shared_capture_live")

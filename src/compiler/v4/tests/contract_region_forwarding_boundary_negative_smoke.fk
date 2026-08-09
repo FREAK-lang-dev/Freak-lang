@@ -1,0 +1,225 @@
+-- V4 returned-loan forwarding boundary invocation fixture.
+-- Verification prepends the V4 crates before this file.
+-- Every supported source form has an explicit silent-acceptance sentinel.
+
+task v4_contract_region_forwarding_boundary_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_forwarding_boundary_mir_diag_count(mir_id: int, message: word) -> int {
+    pilot found = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)) == message {
+            found += 1
+        }
+        diag_id += 1
+    }
+    give back found
+}
+
+task v4_contract_region_forwarding_boundary_mir_diag_span(mir_id: int, message: word) -> word {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        pilot diag = v4_mir_diag(mir_id, diag_id)
+        if v4_diag_message(diag) == message {
+            give back v4_diag_span(diag)
+        }
+        diag_id += 1
+    }
+    give back V4_NO_SPAN
+}
+
+task v4_contract_region_forwarding_boundary_borrow_diag_count(borrow_id: int, message: word) -> int {
+    pilot found = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            found += 1
+        }
+        diag_id += 1
+    }
+    give back found
+}
+
+task v4_contract_region_forwarding_boundary_borrow_diag_span(borrow_id: int, message: word) -> word {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        pilot diag = v4_borrowck_diag(borrow_id, diag_id)
+        if v4_diag_message(diag) == message {
+            give back v4_diag_span(diag)
+        }
+        diag_id += 1
+    }
+    give back V4_NO_SPAN
+}
+
+task v4_contract_region_forwarding_boundary_method_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Selector {\n"
+    src = src + "    slot: int\n"
+    src = src + "}\n"
+    src = src + "impl Selector {\n"
+    src = src + "    task choose(self, lend source: Ship) -> lend Ship {\n"
+    src = src + "        give back lend source\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task method_forward(selector: Selector, lend ship: Ship) -> lend Ship {\n"
+    src = src + "    give back selector.choose(lend ship)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_forwarding_boundary_dynamic_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "doctrine Chooser {\n"
+    src = src + "    task choose(self, lend source: Ship) -> lend Ship\n"
+    src = src + "}\n"
+    src = src + "shape Selector {\n"
+    src = src + "    slot: int\n"
+    src = src + "}\n"
+    src = src + "impl Chooser for Selector {\n"
+    src = src + "    task choose(self, lend source: Ship) -> lend Ship {\n"
+    src = src + "        give back lend source\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task dynamic_forward(selector: dyn Chooser, lend ship: Ship) -> lend Ship {\n"
+    src = src + "    give back selector.choose(lend ship)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_forwarding_boundary_callback_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task callback_forward(cb: task(source: lend Ship) -> lend Ship, lend ship: Ship) -> lend Ship {\n"
+    src = src + "    give back cb(lend ship)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_forwarding_boundary_extern_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "extern [C] {\n"
+    src = src + "    task extern_choose(source: lend Ship) -> lend Ship\n"
+    src = src + "}\n"
+    src = src + "task extern_forward(lend ship: Ship) -> lend Ship {\n"
+    src = src + "    give back extern_choose(lend ship)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_forwarding_boundary_ffi_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "@layout(C)\n"
+    src = src + "shape HookTable {\n"
+    src = src + "    choose: extern [C] task(source: lend Ship) -> lend Ship\n"
+    src = src + "}\n"
+    src = src + "task ffi_forward(hooks: HookTable, lend ship: Ship) -> lend Ship {\n"
+    src = src + "    give back hooks.choose(lend ship)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_forwarding_boundary_emit(prefix: word, borrow_id: int, task_name: word, invocation_layer: word, invocation_message: word) -> void {
+    pilot mir_id = v4_borrowck_mir_id(borrow_id)
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot resolve_id = v4_ty_resolve_id(ty_id)
+    pilot def_id = v4_resolve_def_for_name(resolve_id, task_name)
+    pilot result_id = v4_borrowck_lookup_result(borrow_id, def_id)
+    pilot ty_count = v4_ty_diag_count(ty_id)
+    pilot mir_count = v4_mir_diag_count(mir_id)
+    pilot borrow_count = v4_borrowck_diag_count(borrow_id)
+    pilot status = v4_borrowck_result_status(borrow_id, result_id)
+    pilot invocation_diagnostic_count = 0
+    pilot invocation_span = V4_NO_SPAN
+    if invocation_layer == "mir" {
+        invocation_diagnostic_count = v4_contract_region_forwarding_boundary_mir_diag_count(mir_id, invocation_message)
+        invocation_span = v4_contract_region_forwarding_boundary_mir_diag_span(mir_id, invocation_message)
+    } else if invocation_layer == "borrowck" {
+        invocation_diagnostic_count = v4_contract_region_forwarding_boundary_borrow_diag_count(borrow_id, invocation_message)
+        invocation_span = v4_contract_region_forwarding_boundary_borrow_diag_span(borrow_id, invocation_message)
+    }
+    pilot rejected: bool = invocation_diagnostic_count > 0
+    pilot invocation_source_path = ""
+    pilot invocation_range = "0:0"
+    if rejected {
+        invocation_source_path = v4_source_path(word_to_int(v4_span_file(invocation_span)))
+        invocation_range = word_from_int(v4_span_start(invocation_span)) + ":" + word_from_int(v4_span_end(invocation_span))
+    }
+
+    say prefix + "-ty-diagnostics=" + word_from_int(ty_count)
+    say prefix + "-mir-diagnostics=" + word_from_int(mir_count)
+    say prefix + "-borrow-diagnostics=" + word_from_int(borrow_count)
+    say prefix + "-status=" + status
+    say prefix + "-invocation-diagnostic-count=" + word_from_int(invocation_diagnostic_count)
+    say prefix + "-invocation-message=" + invocation_message
+    say prefix + "-invocation-span=" + invocation_span
+    say prefix + "-invocation-source-path=" + invocation_source_path
+    say prefix + "-invocation-range=" + invocation_range
+    say prefix + "-rejected=" + v4_contract_region_forwarding_boundary_bool(rejected)
+    say prefix + "-silently-accepted=" + v4_contract_region_forwarding_boundary_bool(rejected == false)
+
+    if ty_count > 0 {
+        pilot ty_diag = v4_ty_diag(ty_id, 0)
+        pilot ty_last_diag = v4_ty_diag(ty_id, ty_count - 1)
+        say prefix + "-ty-diag0=" + v4_diag_message(ty_diag)
+        say prefix + "-ty-diag0-span=" + v4_diag_span(ty_diag)
+        say prefix + "-ty-last-diag=" + v4_diag_message(ty_last_diag)
+        say prefix + "-ty-last-diag-span=" + v4_diag_span(ty_last_diag)
+    } else {
+        say prefix + "-ty-diag0=none"
+        say prefix + "-ty-last-diag=none"
+    }
+    if mir_count > 0 {
+        pilot mir_diag = v4_mir_diag(mir_id, 0)
+        say prefix + "-mir-diag0=" + v4_diag_message(mir_diag)
+        say prefix + "-mir-diag0-span=" + v4_diag_span(mir_diag)
+    } else {
+        say prefix + "-mir-diag0=none"
+    }
+    if borrow_count > 0 {
+        pilot borrow_diag = v4_borrowck_diag(borrow_id, 0)
+        pilot borrow_last_diag = v4_borrowck_diag(borrow_id, borrow_count - 1)
+        say prefix + "-borrow-diag0=" + v4_diag_message(borrow_diag)
+        say prefix + "-borrow-diag0-span=" + v4_diag_span(borrow_diag)
+        say prefix + "-borrow-last-diag=" + v4_diag_message(borrow_last_diag)
+        say prefix + "-borrow-last-diag-span=" + v4_diag_span(borrow_last_diag)
+    } else {
+        say prefix + "-borrow-diag0=none"
+        say prefix + "-borrow-last-diag=none"
+    }
+}
+
+pilot v4_contract_region_forwarding_boundary_unproven_message = "Meiya cannot establish the origin of this returned loan"
+pilot v4_contract_region_forwarding_boundary_callback_message = "call target is not callable"
+pilot v4_contract_region_forwarding_boundary_ffi_message = "Meiya cannot forward borrowed values through an FFI callback yet"
+
+pilot v4_contract_region_forwarding_boundary_method_borrow = v4_borrowck_text_cached("contract-region-forwarding-method.fk", v4_contract_region_forwarding_boundary_method_source())
+v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-method", v4_contract_region_forwarding_boundary_method_borrow, "method_forward", "borrowck", v4_contract_region_forwarding_boundary_unproven_message)
+
+pilot v4_contract_region_forwarding_boundary_dynamic_borrow = v4_borrowck_text_cached("contract-region-forwarding-dynamic.fk", v4_contract_region_forwarding_boundary_dynamic_source())
+v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-dynamic", v4_contract_region_forwarding_boundary_dynamic_borrow, "dynamic_forward", "borrowck", v4_contract_region_forwarding_boundary_unproven_message)
+
+pilot v4_contract_region_forwarding_boundary_callback_borrow = v4_borrowck_text_cached("contract-region-forwarding-callback.fk", v4_contract_region_forwarding_boundary_callback_source())
+v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-callback", v4_contract_region_forwarding_boundary_callback_borrow, "callback_forward", "mir", v4_contract_region_forwarding_boundary_callback_message)
+
+pilot v4_contract_region_forwarding_boundary_extern_borrow = v4_borrowck_text_cached("contract-region-forwarding-extern.fk", v4_contract_region_forwarding_boundary_extern_source())
+v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-extern", v4_contract_region_forwarding_boundary_extern_borrow, "extern_forward", "borrowck", v4_contract_region_forwarding_boundary_unproven_message)
+
+pilot v4_contract_region_forwarding_boundary_ffi_borrow = v4_borrowck_text_cached("contract-region-forwarding-ffi.fk", v4_contract_region_forwarding_boundary_ffi_source())
+v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-ffi", v4_contract_region_forwarding_boundary_ffi_borrow, "ffi_forward", "mir", v4_contract_region_forwarding_boundary_ffi_message)
+
+say "contract-region-forwarding-closure-coverage=unsupported-no-borrowed-closure-contract"
