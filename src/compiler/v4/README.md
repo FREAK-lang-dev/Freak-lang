@@ -378,6 +378,23 @@ freak_span -> freak_diag -> freak_arena -> freak_intern -> freak_session -> frea
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
 
+### Keyword Casing Contract
+
+`freak_lex` owns keyword canonicalization. Ordinary keyword words are matched
+case-insensitively and emitted as `keyword` tokens with lowercase values, so
+`task`, `Task`, and `TASK` all reach `freak_parse` as the single value `task`.
+The token span continues to identify the original source spelling.
+
+The single-word anime operators `NAKAMA` and `TSUNDERE` are intentionally
+uppercase-only and retain those uppercase token values; mixed- or lowercase
+spellings remain identifiers. The bible-level `PLUS ULTRA` and `FINAL FORM`
+operators use canonical uppercase token values after case-insensitive phrase
+matching, but combined-token support for those multi-word forms remains
+outside the current V4 lexer slice. The
+`keyword casing matrix` smoke fixes the accepted/rejected spellings, adjacent
+identifier boundaries, parser dispatch, snapshot token values, and recovery
+diagnostic in one table-driven contract.
+
 ## Public Tooling Protocols
 
 V4 tools speak small line protocols. Every transport-facing method is wrapped by `freak_lsp` as either:

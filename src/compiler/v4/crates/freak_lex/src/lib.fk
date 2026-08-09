@@ -282,30 +282,40 @@ task v4_lex_is_bool_word(text_word: word) -> bool {
     give back lower == "true" or lower == "false" or lower == "yes" or lower == "no" or lower == "hai" or lower == "iie"
 }
 
-task v4_lex_is_keyword_word(text_word: word) -> bool {
+task v4_lex_canonical_keyword_word(text_word: word) -> word {
+    -- Ordinary FREAK vocabulary is case-insensitive and crosses the lexer
+    -- boundary in lowercase. Anime operators keep their load-bearing,
+    -- uppercase spellings and must be matched before ordinary normalization.
+    if text_word == "NAKAMA" or text_word == "TSUNDERE" {
+        give back text_word
+    }
     pilot lower = text_word.to_lower()
     if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "alias" or lower == "impl" or lower == "doctrine" or lower == "launch" {
-        give back true
+        give back lower
     }
     if lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "dyn" or lower == "break" or lower == "continue" {
-        give back true
+        give back lower
     }
     if lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" {
-        give back true
+        give back lower
     }
     if lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "or" {
-        give back true
+        give back lower
     }
     if lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "variant" or lower == "sadly" or lower == "deus_ex_machina" {
-        give back true
+        give back lower
     }
-    if lower == "isekai" or lower == "eventually" or lower == "and" or lower == "not" or lower == "nakama" or lower == "tsundere" or lower == "extern" {
-        give back true
+    if lower == "isekai" or lower == "eventually" or lower == "and" or lower == "not" or lower == "extern" {
+        give back lower
     }
     if lower == "give" or lower == "back" or lower == "trust" or lower == "me" or lower == "training" or lower == "arc" or lower == "bringing" {
-        give back true
+        give back lower
     }
-    give back false
+    give back ""
+}
+
+task v4_lex_is_keyword_word(text_word: word) -> bool {
+    give back v4_lex_canonical_keyword_word(text_word) != ""
 }
 
 task v4_lex_is_symbol_start(ch: word) -> bool {
@@ -402,10 +412,11 @@ task v4_lex_text(file_id: int, text: word) -> int {
                 col_no += 1
             }
             pilot ident_text = v4_slice(text, start_pos, pos)
+            pilot canonical_keyword = v4_lex_canonical_keyword_word(ident_text)
             if v4_lex_is_bool_word(ident_text) {
                 v4_lex_add_token(stream_id, v4_tok_bool, ident_text, v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
-            } else if v4_lex_is_keyword_word(ident_text) {
-                v4_lex_add_token(stream_id, v4_tok_keyword, ident_text, v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
+            } else if canonical_keyword != "" {
+                v4_lex_add_token(stream_id, v4_tok_keyword, canonical_keyword, v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
             } else {
                 v4_lex_add_token(stream_id, v4_tok_ident, ident_text, v4_span_new(word_from_int(file_id), start_pos, pos), start_line, start_col)
             }

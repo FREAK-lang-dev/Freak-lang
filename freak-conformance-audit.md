@@ -556,6 +556,7 @@ completion remain open.
 |---|---|---|
 | All core keywords lexed | ✅ | ✅ |
 | Multi-word keywords (`give back`, `for each`, `training arc`, `trust me`, `for science`, `repeat until`, etc.) | ✅ | ✅ |
+| Keyword casing and canonical token values | ⚠️ | 📖 V4 — ordinary keyword words are matched case-insensitively and stored lowercase; a table-driven V4 smoke covers `task`/`Task`/`TASK`, adjacent identifiers, parser dispatch, snapshot values, and uppercase-only `NAKAMA`/`TSUNDERE` rejection cases |
 | Multi-word operators (`PLUS ULTRA`, `FINAL FORM`, `NAKAMA`, `TSUNDERE`) | ⚠️ | 📖 V4 (parsed in lexer? need to verify in v3) |
 | `--` line comment | ✅ | ✅ |
 | `done` block delimiter | ✅ | ✅ |
