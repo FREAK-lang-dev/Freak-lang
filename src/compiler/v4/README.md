@@ -387,12 +387,18 @@ does not define user macros, attribute rewriting, hygiene, gensyms, execution
 hooks, or a public macro API; it preserves all existing frontend semantics.
 ### Keyword Casing Contract
 
-`freak_lex` owns keyword classification. Ordinary keyword words use their exact
-lowercase spelling and are emitted as `keyword` tokens with that canonical
-value. Noncanonical forms such as `Task`, `TASK`, and `ShApE` remain identifiers;
-when used where a declaration keyword is required, `freak_parse` produces its
-normal targeted recovery diagnostic. This preserves valid identifier spellings
-such as `Pilot`, `Some`, and `SOME` instead of silently rewriting them.
+`freak_lex` owns keyword classification for the currently implemented V4
+vocabulary. Ordinary keyword words use their exact lowercase spelling and are
+emitted as `keyword` tokens with that canonical value. Noncanonical forms such
+as `Task`, `TASK`, and `ShApE` remain identifiers; when used where a declaration
+keyword is required, `freak_parse` produces its normal targeted recovery
+diagnostic. This preserves valid identifier spellings such as `Pilot`, `Some`,
+and `SOME` instead of silently rewriting them.
+
+This contract is V4-only: it neither changes shipping V3 behavior nor
+pre-reserves bible destination vocabulary whose parser and semantic slices have
+not landed. Concurrency and caller-prefix words therefore stay with their
+future vertical slices instead of becoming lexer-only promises in this slice.
 
 The single-word anime operators `NAKAMA` and `TSUNDERE` are intentionally
 uppercase-only and retain those uppercase token values; mixed- or lowercase
