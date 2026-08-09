@@ -1,0 +1,126 @@
+-- V4 named lend lifetime editor and LSP smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_named_lifetime_editor_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    repeat until token_id >= v4_lex_token_count(stream_id) {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_named_lifetime_editor_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_named_lifetime_editor_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0 - 1
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_named_lifetime_editor_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_named_lifetime_editor_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_named_lifetime_editor_source_text() -> word {
+    pilot src = "shape Ship " + v4_named_lifetime_editor_braces(" hp: int ") + "\n"
+    src = src + "task select_left<'left, 'right>(lend 'left left: Ship, lend 'right right: Ship) -> lend 'left Ship {\n"
+    src = src + "    give back lend left\n"
+    src = src + "}\n"
+    src = src + "task call_named(lend first: Ship, lend second: Ship) -> lend Ship {\n"
+    src = src + "    give back select_left(right: lend second, left: lend first)\n"
+    src = src + "}\n"
+    src = src + "task elided(lend '_ only: Ship) -> lend '_ Ship {\n"
+    src = src + "    give back lend only\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_named_lifetime_editor_source = v4_named_lifetime_editor_source_text()
+pilot v4_named_lifetime_editor_stream = v4_lex_text(0, v4_named_lifetime_editor_source)
+pilot v4_named_lifetime_editor_decl_region_offset = v4_named_lifetime_editor_offset(v4_named_lifetime_editor_stream, "'left", 0)
+pilot v4_named_lifetime_editor_param_region_offset = v4_named_lifetime_editor_offset(v4_named_lifetime_editor_stream, "'left", 1)
+pilot v4_named_lifetime_editor_return_region_offset = v4_named_lifetime_editor_offset(v4_named_lifetime_editor_stream, "'left", 2)
+pilot v4_named_lifetime_editor_param_decl_offset = v4_named_lifetime_editor_offset(v4_named_lifetime_editor_stream, "left", 0)
+pilot v4_named_lifetime_editor_param_use_offset = v4_named_lifetime_editor_offset(v4_named_lifetime_editor_stream, "left", 1)
+pilot v4_named_lifetime_editor_label_offset = v4_named_lifetime_editor_offset(v4_named_lifetime_editor_stream, "left", 2)
+pilot v4_named_lifetime_editor_elided_return_offset = v4_named_lifetime_editor_offset(v4_named_lifetime_editor_stream, "'_", 1)
+
+pilot v4_named_lifetime_editor_param_region = v4_semantic_at_text_cached("named-lifetime-editor.fk", v4_named_lifetime_editor_source, v4_named_lifetime_editor_param_region_offset)
+pilot v4_named_lifetime_editor_return_region = v4_hover_text_cached("named-lifetime-editor.fk", v4_named_lifetime_editor_source, v4_named_lifetime_editor_return_region_offset)
+pilot v4_named_lifetime_editor_region_definition = v4_definition_at_text_cached("named-lifetime-editor.fk", v4_named_lifetime_editor_source, v4_named_lifetime_editor_return_region_offset)
+pilot v4_named_lifetime_editor_param = v4_semantic_at_text_cached("named-lifetime-editor.fk", v4_named_lifetime_editor_source, v4_named_lifetime_editor_param_use_offset)
+pilot v4_named_lifetime_editor_param_hover = v4_hover_text_cached("named-lifetime-editor.fk", v4_named_lifetime_editor_source, v4_named_lifetime_editor_param_use_offset)
+pilot v4_named_lifetime_editor_param_definition = v4_definition_at_text_cached("named-lifetime-editor.fk", v4_named_lifetime_editor_source, v4_named_lifetime_editor_param_use_offset)
+pilot v4_named_lifetime_editor_label = v4_semantic_at_text_cached("named-lifetime-editor.fk", v4_named_lifetime_editor_source, v4_named_lifetime_editor_label_offset)
+pilot v4_named_lifetime_editor_label_definition = v4_definition_at_text_cached("named-lifetime-editor.fk", v4_named_lifetime_editor_source, v4_named_lifetime_editor_label_offset)
+pilot v4_named_lifetime_editor_elided_definition = v4_definition_at_text_cached("named-lifetime-editor.fk", v4_named_lifetime_editor_source, v4_named_lifetime_editor_elided_return_offset)
+pilot v4_named_lifetime_editor_diagnostics = v4_diagnostics_text_cached("named-lifetime-editor.fk", v4_named_lifetime_editor_source)
+
+pilot v4_named_lifetime_editor_semantic_payload = v4_semantic_snapshot()
+pilot v4_named_lifetime_editor_hover_payload = v4_hover_snapshot()
+pilot v4_named_lifetime_editor_definition_payload = v4_definition_snapshot()
+pilot v4_named_lifetime_editor_diagnostics_payload = v4_diagnostics_snapshot()
+pilot v4_named_lifetime_editor_query_payload = v4_query_snapshot()
+
+say "named-lifetime-editor-param-region-kind=" + v4_semantic_at_kind(v4_named_lifetime_editor_param_region)
+say "named-lifetime-editor-param-region-type=" + v4_semantic_at_type(v4_named_lifetime_editor_param_region)
+say "named-lifetime-editor-return-region-kind=" + v4_hover_kind(v4_named_lifetime_editor_return_region)
+say "named-lifetime-editor-return-region-type=" + v4_hover_type(v4_named_lifetime_editor_return_region)
+say "named-lifetime-editor-region-definition=" + word_from_int(v4_definition_at_found(v4_named_lifetime_editor_region_definition))
+say "named-lifetime-editor-region-definition-matches=" + v4_named_lifetime_editor_bool(v4_span_start(v4_definition_at_span(v4_named_lifetime_editor_region_definition)) == v4_named_lifetime_editor_decl_region_offset)
+say "named-lifetime-editor-param-kind=" + v4_semantic_at_kind(v4_named_lifetime_editor_param)
+say "named-lifetime-editor-param-type=" + v4_semantic_at_type(v4_named_lifetime_editor_param)
+say "named-lifetime-editor-param-hover=" + v4_hover_type(v4_named_lifetime_editor_param_hover)
+say "named-lifetime-editor-param-definition=" + word_from_int(v4_definition_at_found(v4_named_lifetime_editor_param_definition))
+say "named-lifetime-editor-param-definition-matches=" + v4_named_lifetime_editor_bool(v4_span_start(v4_definition_at_span(v4_named_lifetime_editor_param_definition)) == v4_named_lifetime_editor_param_decl_offset)
+say "named-lifetime-editor-label-kind=" + v4_semantic_at_kind(v4_named_lifetime_editor_label)
+say "named-lifetime-editor-label-type=" + v4_semantic_at_type(v4_named_lifetime_editor_label)
+say "named-lifetime-editor-label-definition=" + word_from_int(v4_definition_at_found(v4_named_lifetime_editor_label_definition))
+say "named-lifetime-editor-label-definition-matches=" + v4_named_lifetime_editor_bool(v4_span_start(v4_definition_at_span(v4_named_lifetime_editor_label_definition)) == v4_named_lifetime_editor_param_decl_offset)
+say "named-lifetime-editor-elided-definition=" + word_from_int(v4_definition_at_found(v4_named_lifetime_editor_elided_definition))
+say "named-lifetime-editor-diagnostics=" + word_from_int(v4_diagnostics_count(v4_named_lifetime_editor_diagnostics))
+say v4_lsp_hover_text("named-lifetime-editor.fk", v4_named_lifetime_editor_source, v4_named_lifetime_editor_param_use_offset)
+say v4_lsp_definition_text("named-lifetime-editor.fk", v4_named_lifetime_editor_source, v4_named_lifetime_editor_return_region_offset)
+say v4_lsp_diagnostics_text("named-lifetime-editor.fk", v4_named_lifetime_editor_source)
+
+say v4_semantic_snapshot_validate(v4_named_lifetime_editor_semantic_payload)
+say v4_hover_snapshot_validate(v4_named_lifetime_editor_hover_payload)
+say v4_definition_snapshot_validate(v4_named_lifetime_editor_definition_payload)
+say v4_diagnostics_snapshot_validate(v4_named_lifetime_editor_diagnostics_payload)
+say v4_parse_snapshot_restore(v4_parse_snapshot())
+say v4_hir_snapshot_restore(v4_hir_snapshot())
+say v4_resolve_snapshot_restore(v4_resolve_snapshot())
+say v4_ty_snapshot_restore(v4_ty_snapshot())
+say v4_mir_snapshot_restore(v4_mir_snapshot())
+say v4_borrowck_snapshot_restore(v4_borrowck_snapshot())
+say v4_semantic_snapshot_restore(v4_named_lifetime_editor_semantic_payload)
+say v4_hover_snapshot_restore(v4_named_lifetime_editor_hover_payload)
+say v4_definition_snapshot_restore(v4_named_lifetime_editor_definition_payload)
+say v4_diagnostics_snapshot_restore(v4_named_lifetime_editor_diagnostics_payload)
+say v4_query_snapshot_restore(v4_named_lifetime_editor_query_payload)
+say v4_driver_confirm_restored_document_text("named-lifetime-editor.fk", v4_named_lifetime_editor_source)
+
+pilot v4_named_lifetime_editor_file = v4_source_find("named-lifetime-editor.fk")
+pilot v4_named_lifetime_editor_fingerprint = v4_source_fingerprint(v4_named_lifetime_editor_file)
+pilot v4_named_lifetime_editor_restored_label = word_to_int(v4_query_get(v4_semantic_at_query_key("named-lifetime-editor.fk", v4_named_lifetime_editor_label_offset), v4_named_lifetime_editor_fingerprint))
+pilot v4_named_lifetime_editor_restored_hover = word_to_int(v4_query_get(v4_hover_query_key("named-lifetime-editor.fk", v4_named_lifetime_editor_return_region_offset), v4_named_lifetime_editor_fingerprint))
+pilot v4_named_lifetime_editor_restored_definition = word_to_int(v4_query_get(v4_definition_at_query_key("named-lifetime-editor.fk", v4_named_lifetime_editor_return_region_offset), v4_named_lifetime_editor_fingerprint))
+say "named-lifetime-editor-restored-label-kind=" + v4_semantic_at_kind(v4_named_lifetime_editor_restored_label)
+say "named-lifetime-editor-restored-label-type=" + v4_semantic_at_type(v4_named_lifetime_editor_restored_label)
+say "named-lifetime-editor-restored-hover-type=" + v4_hover_type(v4_named_lifetime_editor_restored_hover)
+say "named-lifetime-editor-restored-definition=" + word_from_int(v4_definition_at_found(v4_named_lifetime_editor_restored_definition))
+say "named-lifetime-editor-restored-definition-matches=" + v4_named_lifetime_editor_bool(v4_span_start(v4_definition_at_span(v4_named_lifetime_editor_restored_definition)) == v4_named_lifetime_editor_decl_region_offset)

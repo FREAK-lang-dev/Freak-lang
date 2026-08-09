@@ -28,6 +28,20 @@ task v4_raw_ptr_write_outside_trust_source() -> word {
     give back src
 }
 
+task v4_raw_ptr_write_cadet_source() -> word {
+    -- .cadet can read raw pointers, but raw-pointer writes require .pilot.
+    pilot src = "extern [C] {\n"
+    src = src + "    task lookup_mut() -> *mut std::ffi::c_int\n"
+    src = src + "}\n"
+    src = src + "task stash_cadet(value: std::ffi::c_int) -> void {\n"
+    src = src + "    pilot p = lookup_mut()\n"
+    src = src + "    trust me \"too junior\" on my honor as .cadet {\n"
+    src = src + "        *p = value\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    give back src
+}
+
 task v4_raw_ptr_write_const_source() -> word {
     -- Write through *const T should diagnose mutability.
     pilot src = "extern [C] {\n"
@@ -78,6 +92,18 @@ pilot v4_raw_ptr_write_outside_mir = v4_mir_lower_ty(1, v4_raw_ptr_write_outside
 
 say "raw-ptr-write-outside-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_write_outside_mir))
 say "raw-ptr-write-outside-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_write_outside_mir, 0))
+
+pilot v4_raw_ptr_write_cadet_text = v4_raw_ptr_write_cadet_source()
+pilot v4_raw_ptr_write_cadet_stream = v4_lex_text(4, v4_raw_ptr_write_cadet_text)
+pilot v4_raw_ptr_write_cadet_tree = v4_parse_stream(4, v4_raw_ptr_write_cadet_stream)
+pilot v4_raw_ptr_write_cadet_hir = v4_hir_lower_tree(4, v4_raw_ptr_write_cadet_tree)
+pilot v4_raw_ptr_write_cadet_resolve = v4_resolve_lower_hir(4, v4_raw_ptr_write_cadet_hir)
+pilot v4_raw_ptr_write_cadet_ty = v4_ty_lower_resolve(4, v4_raw_ptr_write_cadet_resolve)
+pilot v4_raw_ptr_write_cadet_mir = v4_mir_lower_ty(4, v4_raw_ptr_write_cadet_ty)
+
+say "raw-ptr-write-cadet-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_write_cadet_mir))
+say "raw-ptr-write-cadet-mir-diag0-message=" + v4_diag_message(v4_mir_diag(v4_raw_ptr_write_cadet_mir, 0))
+say "raw-ptr-write-cadet-mir-diag0-help=" + v4_diag_help(v4_mir_diag(v4_raw_ptr_write_cadet_mir, 0))
 
 pilot v4_raw_ptr_write_const_text = v4_raw_ptr_write_const_source()
 pilot v4_raw_ptr_write_const_stream = v4_lex_text(2, v4_raw_ptr_write_const_text)

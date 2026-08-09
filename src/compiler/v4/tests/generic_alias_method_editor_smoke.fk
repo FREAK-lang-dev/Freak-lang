@@ -155,4 +155,5 @@ say "generic-alias-method-editor-take-completion-echo-found=" + v4_generic_alias
 say "generic-alias-method-editor-pack-completion-pack-found=" + v4_generic_alias_method_editor_bool_word(v4_generic_alias_method_editor_pack_completion_pack >= 0)
 say "generic-alias-method-editor-pack-completion-pack-detail=" + v4_generic_alias_method_editor_completion_detail_or_empty(v4_generic_alias_method_editor_pack_completion, v4_generic_alias_method_editor_pack_completion_pack)
 say "generic-alias-method-editor-pack-completion-take-found=" + v4_generic_alias_method_editor_bool_word(v4_generic_alias_method_editor_pack_completion_take >= 0)
+say "generic-alias-method-editor-pack-completion-take-detail=" + v4_generic_alias_method_editor_completion_detail_or_empty(v4_generic_alias_method_editor_pack_completion, v4_generic_alias_method_editor_pack_completion_take)
 say "generic-alias-method-editor-pack-completion-echo-found=" + v4_generic_alias_method_editor_bool_word(v4_generic_alias_method_editor_pack_completion_echo >= 0)

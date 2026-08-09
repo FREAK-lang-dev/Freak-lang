@@ -1,0 +1,114 @@
+-- V4 elided returned-loan source-set liveness fixture.
+-- Verification prepends the V4 crates before this file.
+-- The callee returns its first input, but its elided signature must conservatively
+-- keep both compatible borrowed owners live at every call site.
+
+task v4_contract_region_elided_liveness_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task choose(lend first: Ship, lend second: Ship) -> lend Ship {\n"
+    src = src + "    give back lend first\n"
+    src = src + "}\n"
+    src = src + "task move_first_before(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot view = choose(lend first, lend second)\n"
+    src = src + "    pilot moved = first\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task move_second_before(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot view = choose(lend first, lend second)\n"
+    src = src + "    pilot moved = second\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task move_unrelated_before(first: Ship, second: Ship, unrelated: Ship) -> int {\n"
+    src = src + "    pilot view = choose(lend first, lend second)\n"
+    src = src + "    pilot moved = unrelated\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task move_first_after(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot view = choose(lend first, lend second)\n"
+    src = src + "    pilot hp = view.hp\n"
+    src = src + "    pilot moved = first\n"
+    src = src + "    give back hp\n"
+    src = src + "}\n"
+    src = src + "task move_second_after(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot view = choose(lend first, lend second)\n"
+    src = src + "    pilot hp = view.hp\n"
+    src = src + "    pilot moved = second\n"
+    src = src + "    give back hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_elided_liveness_find_call(mir_id: int, body_id: int) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+        if rvalue_id >= 0 {
+            if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call {
+                give back rvalue_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_contract_region_elided_liveness_diag_count(borrow_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+pilot v4_contract_region_elided_liveness_path = "contract-region-elided-liveness.fk"
+pilot v4_contract_region_elided_liveness_borrow = v4_borrowck_text_cached(v4_contract_region_elided_liveness_path, v4_contract_region_elided_liveness_source())
+pilot v4_contract_region_elided_liveness_mir = v4_borrowck_mir_id(v4_contract_region_elided_liveness_borrow)
+pilot v4_contract_region_elided_liveness_ty = v4_mir_ty_id(v4_contract_region_elided_liveness_mir)
+pilot v4_contract_region_elided_liveness_resolve = v4_ty_resolve_id(v4_contract_region_elided_liveness_ty)
+
+pilot v4_contract_region_elided_liveness_choose_def = v4_resolve_def_for_name(v4_contract_region_elided_liveness_resolve, "choose")
+pilot v4_contract_region_elided_liveness_first_before_def = v4_resolve_def_for_name(v4_contract_region_elided_liveness_resolve, "move_first_before")
+pilot v4_contract_region_elided_liveness_second_before_def = v4_resolve_def_for_name(v4_contract_region_elided_liveness_resolve, "move_second_before")
+pilot v4_contract_region_elided_liveness_unrelated_before_def = v4_resolve_def_for_name(v4_contract_region_elided_liveness_resolve, "move_unrelated_before")
+pilot v4_contract_region_elided_liveness_first_after_def = v4_resolve_def_for_name(v4_contract_region_elided_liveness_resolve, "move_first_after")
+pilot v4_contract_region_elided_liveness_second_after_def = v4_resolve_def_for_name(v4_contract_region_elided_liveness_resolve, "move_second_after")
+
+pilot v4_contract_region_elided_liveness_choose_sig = v4_ty_lookup_signature(v4_contract_region_elided_liveness_ty, v4_contract_region_elided_liveness_choose_def)
+pilot v4_contract_region_elided_liveness_source0_param = v4_ty_signature_borrowed_return_source_param_at(v4_contract_region_elided_liveness_ty, v4_contract_region_elided_liveness_choose_sig, 0)
+pilot v4_contract_region_elided_liveness_source1_param = v4_ty_signature_borrowed_return_source_param_at(v4_contract_region_elided_liveness_ty, v4_contract_region_elided_liveness_choose_sig, 1)
+pilot v4_contract_region_elided_liveness_first_before_body = v4_mir_lookup_body(v4_contract_region_elided_liveness_mir, v4_contract_region_elided_liveness_first_before_def)
+pilot v4_contract_region_elided_liveness_first_before_call = v4_contract_region_elided_liveness_find_call(v4_contract_region_elided_liveness_mir, v4_contract_region_elided_liveness_first_before_body)
+pilot v4_contract_region_elided_liveness_call_source0 = v4_mir_rvalue_call_borrowed_source_arg_at(v4_contract_region_elided_liveness_mir, v4_contract_region_elided_liveness_first_before_body, v4_contract_region_elided_liveness_first_before_call, 0)
+pilot v4_contract_region_elided_liveness_call_source1 = v4_mir_rvalue_call_borrowed_source_arg_at(v4_contract_region_elided_liveness_mir, v4_contract_region_elided_liveness_first_before_body, v4_contract_region_elided_liveness_first_before_call, 1)
+
+pilot v4_contract_region_elided_liveness_choose_result = v4_borrowck_lookup_result(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_choose_def)
+pilot v4_contract_region_elided_liveness_first_before_result = v4_borrowck_lookup_result(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_first_before_def)
+pilot v4_contract_region_elided_liveness_second_before_result = v4_borrowck_lookup_result(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_second_before_def)
+pilot v4_contract_region_elided_liveness_unrelated_before_result = v4_borrowck_lookup_result(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_unrelated_before_def)
+pilot v4_contract_region_elided_liveness_first_after_result = v4_borrowck_lookup_result(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_first_after_def)
+pilot v4_contract_region_elided_liveness_second_after_result = v4_borrowck_lookup_result(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_second_after_def)
+
+say "contract-region-elided-liveness-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_elided_liveness_ty))
+say "contract-region-elided-liveness-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_elided_liveness_mir))
+say "contract-region-elided-liveness-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_elided_liveness_borrow))
+say "contract-region-elided-liveness-move-conflict-diagnostics=" + word_from_int(v4_contract_region_elided_liveness_diag_count(v4_contract_region_elided_liveness_borrow, "Meiya refuses this move while the value is borrowed"))
+say "contract-region-elided-liveness-signature-source-count=" + word_from_int(v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_elided_liveness_ty, v4_contract_region_elided_liveness_choose_sig))
+say "contract-region-elided-liveness-signature-source0-index=" + word_from_int(v4_contract_region_elided_liveness_source0_param)
+say "contract-region-elided-liveness-signature-source0-name=" + v4_ty_signature_param_name(v4_contract_region_elided_liveness_ty, v4_contract_region_elided_liveness_choose_sig, v4_contract_region_elided_liveness_source0_param)
+say "contract-region-elided-liveness-signature-source1-index=" + word_from_int(v4_contract_region_elided_liveness_source1_param)
+say "contract-region-elided-liveness-signature-source1-name=" + v4_ty_signature_param_name(v4_contract_region_elided_liveness_ty, v4_contract_region_elided_liveness_choose_sig, v4_contract_region_elided_liveness_source1_param)
+say "contract-region-elided-liveness-call-source-count=" + word_from_int(v4_mir_rvalue_call_borrowed_source_arg_count(v4_contract_region_elided_liveness_mir, v4_contract_region_elided_liveness_first_before_body, v4_contract_region_elided_liveness_first_before_call))
+say "contract-region-elided-liveness-call-source0=" + v4_mir_rvalue_text(v4_contract_region_elided_liveness_mir, v4_contract_region_elided_liveness_first_before_body, v4_contract_region_elided_liveness_call_source0)
+say "contract-region-elided-liveness-call-source1=" + v4_mir_rvalue_text(v4_contract_region_elided_liveness_mir, v4_contract_region_elided_liveness_first_before_body, v4_contract_region_elided_liveness_call_source1)
+say "contract-region-elided-liveness-choose-status=" + v4_borrowck_result_status(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_choose_result)
+say "contract-region-elided-liveness-first-before-status=" + v4_borrowck_result_status(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_first_before_result)
+say "contract-region-elided-liveness-second-before-status=" + v4_borrowck_result_status(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_second_before_result)
+say "contract-region-elided-liveness-unrelated-before-status=" + v4_borrowck_result_status(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_unrelated_before_result)
+say "contract-region-elided-liveness-first-after-status=" + v4_borrowck_result_status(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_first_after_result)
+say "contract-region-elided-liveness-second-after-status=" + v4_borrowck_result_status(v4_contract_region_elided_liveness_borrow, v4_contract_region_elided_liveness_second_after_result)

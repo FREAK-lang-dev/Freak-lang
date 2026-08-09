@@ -16,17 +16,18 @@ task v4_span_new(file_id: word, start_byte: int, end_byte: int) -> word {
 }
 
 task v4_slice(text: word, start_pos: int, end_pos: int) -> word {
-    pilot out = ""
-    pilot i = start_pos
+    pilot start = start_pos
+    if start < 0 {
+        start = 0
+    }
     pilot limit = end_pos
     if limit > text.length() {
         limit = text.length()
     }
-    repeat until i >= limit {
-        out = out + text.char_at(i)
-        i += 1
+    if limit <= start {
+        give back ""
     }
-    give back out
+    give back text.substring(start, limit - start)
 }
 
 task v4_index_of_from(text: word, needle: word, start_pos: int) -> int {
@@ -39,6 +40,51 @@ task v4_index_of_from(text: word, needle: word, start_pos: int) -> int {
         i += 1
     }
     give back 0 - 1
+}
+
+task v4_decimal_digit(ch: word) -> int {
+    if ch == "0" { give back 0 }
+    if ch == "1" { give back 1 }
+    if ch == "2" { give back 2 }
+    if ch == "3" { give back 3 }
+    if ch == "4" { give back 4 }
+    if ch == "5" { give back 5 }
+    if ch == "6" { give back 6 }
+    if ch == "7" { give back 7 }
+    if ch == "8" { give back 8 }
+    if ch == "9" { give back 9 }
+    give back 0 - 1
+}
+
+task v4_nonnegative_int_range(text: word, start_pos: int, end_pos: int) -> int {
+    pilot start = start_pos
+    if start < 0 {
+        start = 0
+    }
+    pilot limit = end_pos
+    if limit > text.length() {
+        limit = text.length()
+    }
+    if start >= limit {
+        give back 0 - 1
+    }
+    pilot value = 0
+    pilot i = start
+    repeat until i >= limit {
+        pilot digit = v4_decimal_digit(text.char_at(i))
+        if digit < 0 {
+            give back 0 - 1
+        }
+        if value > 922337203685477580 {
+            give back 0 - 1
+        }
+        if value == 922337203685477580 and digit > 7 {
+            give back 0 - 1
+        }
+        value = value * 10 + digit
+        i += 1
+    }
+    give back value
 }
 
 task v4_span_file(span: word) -> word {
@@ -58,7 +104,9 @@ task v4_span_start(span: word) -> int {
     if colon_pos < 0 {
         give back 0
     }
-    give back word_to_int(v4_slice(span, at_pos + 1, colon_pos))
+    pilot parsed = v4_nonnegative_int_range(span, at_pos + 1, colon_pos)
+    if parsed < 0 { give back 0 }
+    give back parsed
 }
 
 task v4_span_end(span: word) -> int {
@@ -70,7 +118,9 @@ task v4_span_end(span: word) -> int {
     if colon_pos < 0 {
         give back 0
     }
-    give back word_to_int(v4_slice(span, colon_pos + 1, span.length()))
+    pilot parsed = v4_nonnegative_int_range(span, colon_pos + 1, span.length())
+    if parsed < 0 { give back 0 }
+    give back parsed
 }
 
 task v4_span_len(span: word) -> int {

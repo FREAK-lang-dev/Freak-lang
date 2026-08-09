@@ -1,0 +1,56 @@
+-- V4 iterative provenance dependency-discovery stress fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_contract_region_loop_dependency_stress_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task long_holder_chain<'a>(lend 'a source: Ship) -> lend 'a Ship {\n"
+    src = src + "    pilot view0 = lend source\n"
+    pilot link_id = 1
+    repeat until link_id > 48 {
+        src = src + "    pilot view" + word_from_int(link_id) + " = view" + word_from_int(link_id - 1) + "\n"
+        link_id += 1
+    }
+    src = src + "    give back view48\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_loop_dependency_stress_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_contract_region_loop_dependency_stress_source_at(borrow_id: int, result_id: int) -> word {
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_return_loan {
+            give back v4_borrowck_path_text(borrow_id, result_id, path_id)
+        }
+        path_id += 1
+    }
+    give back ""
+}
+
+pilot v4_contract_region_loop_dependency_stress_source_text = v4_contract_region_loop_dependency_stress_source()
+pilot v4_contract_region_loop_dependency_stress_borrow = v4_borrowck_text_cached("contract-region-loop-dependency-stress.fk", v4_contract_region_loop_dependency_stress_source_text)
+pilot v4_contract_region_loop_dependency_stress_mir = v4_borrowck_mir_id(v4_contract_region_loop_dependency_stress_borrow)
+pilot v4_contract_region_loop_dependency_stress_ty = v4_mir_ty_id(v4_contract_region_loop_dependency_stress_mir)
+pilot v4_contract_region_loop_dependency_stress_resolve = v4_ty_resolve_id(v4_contract_region_loop_dependency_stress_ty)
+pilot v4_contract_region_loop_dependency_stress_def = v4_resolve_def_for_name(v4_contract_region_loop_dependency_stress_resolve, "long_holder_chain")
+pilot v4_contract_region_loop_dependency_stress_result = v4_borrowck_lookup_result(v4_contract_region_loop_dependency_stress_borrow, v4_contract_region_loop_dependency_stress_def)
+
+say "contract-region-loop-dependency-stress-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_loop_dependency_stress_ty))
+say "contract-region-loop-dependency-stress-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_loop_dependency_stress_mir))
+say "contract-region-loop-dependency-stress-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_loop_dependency_stress_borrow))
+say "contract-region-loop-dependency-stress-status=" + v4_borrowck_result_status(v4_contract_region_loop_dependency_stress_borrow, v4_contract_region_loop_dependency_stress_result)
+say "contract-region-loop-dependency-stress-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_loop_dependency_stress_borrow, v4_contract_region_loop_dependency_stress_result, v4_borrowck_path_return_loan))
+say "contract-region-loop-dependency-stress-source=" + v4_contract_region_loop_dependency_stress_source_at(v4_contract_region_loop_dependency_stress_borrow, v4_contract_region_loop_dependency_stress_result)
+say "contract-region-loop-dependency-stress-memos=" + word_from_int(v4_borrowck_provenance_memo_active_count())
+say "contract-region-loop-dependency-stress-memo-depth-proven=" + v4_contract_region_loop_dependency_stress_bool(v4_borrowck_provenance_memo_active_count() >= 50)
+say "contract-region-loop-dependency-stress-multi-round=" + v4_contract_region_loop_dependency_stress_bool(v4_borrowck_provenance_fixed_point_rounds(v4_contract_region_loop_dependency_stress_borrow) >= 49)
+say "contract-region-loop-dependency-stress-rounds-bounded=" + v4_contract_region_loop_dependency_stress_bool(v4_borrowck_provenance_fixed_point_rounds(v4_contract_region_loop_dependency_stress_borrow) <= v4_borrowck_provenance_fixed_point_limit(v4_contract_region_loop_dependency_stress_borrow))
+say "contract-region-loop-dependency-stress-converged=" + v4_contract_region_loop_dependency_stress_bool(v4_borrowck_provenance_fixed_point_converged(v4_contract_region_loop_dependency_stress_borrow))
+say "contract-region-loop-dependency-stress-resource-exhausted=" + v4_contract_region_loop_dependency_stress_bool(v4_borrowck_provenance_resource_exhausted(v4_contract_region_loop_dependency_stress_borrow))
+say "contract-region-loop-dependency-stress-work-bounded=" + v4_contract_region_loop_dependency_stress_bool(v4_borrowck_provenance_fixed_point_work_items(v4_contract_region_loop_dependency_stress_borrow) <= v4_borrowck_provenance_work_item_limit())

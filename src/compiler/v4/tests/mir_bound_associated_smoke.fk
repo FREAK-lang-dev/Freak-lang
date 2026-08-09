@@ -1,0 +1,117 @@
+-- V4 doctrine-bound associated and UFCS method smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_bound_associated_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_mir_bound_associated_prelude() -> word {
+    pilot src = "alias Value = word\n"
+    src = src + "alias T = word\n"
+    src = src + "doctrine Scored<Value> {\n"
+    src = src + "    task score(self, bonus: Value) -> Value\n"
+    src = src + "    task baseline() -> Value\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bound_associated_good_source() -> word {
+    pilot src = v4_mir_bound_associated_prelude()
+    src = src + "shape Pilot " + v4_mir_bound_associated_braces(" points: int ") + "\n"
+    src = src + "impl Scored<int> for Pilot {\n"
+    src = src + "    task score(self, bonus: int) -> int {\n"
+    src = src + "        give back self.points + bonus\n"
+    src = src + "    }\n"
+    src = src + "    task baseline() -> int {\n"
+    src = src + "        give back 10\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task evaluate<T: Scored<int>>(value: T) -> int {\n"
+    src = src + "    pilot boosted = T::score(value, bonus: 2)\n"
+    src = src + "    pilot base = T::baseline()\n"
+    src = src + "    pilot dotted = value.score(bonus: 3)\n"
+    src = src + "    give back boosted + base + dotted\n"
+    src = src + "}\n"
+    src = src + "task main(ship: Pilot) -> int {\n"
+    src = src + "    give back evaluate(ship)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_bound_associated_bad_source() -> word {
+    pilot src = v4_mir_bound_associated_prelude()
+    src = src + "doctrine Convert<Item> {\n"
+    src = src + "    task convert(self, input: Item) -> Item\n"
+    src = src + "}\n"
+    src = src + "task bad_receiver<T: Scored<int>>(value: T) -> int {\n"
+    src = src + "    give back T::score(7, bonus: 2)\n"
+    src = src + "}\n"
+    src = src + "task bad_argument<T: Scored<int>>(value: T) -> int {\n"
+    src = src + "    give back T::score(value, bonus: \"wrong\")\n"
+    src = src + "}\n"
+    src = src + "task bad_static<T: Scored<int>>(value: T) -> int {\n"
+    src = src + "    give back T::baseline(value)\n"
+    src = src + "}\n"
+    src = src + "task missing_receiver<T: Scored<int>>() -> int {\n"
+    src = src + "    give back T::score()\n"
+    src = src + "}\n"
+    src = src + "task ambiguous_ufcs<T: Convert<int> + Convert<word>>(value: T) -> int {\n"
+    src = src + "    pilot result = T::convert(value, 1)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task ambiguous_dotted<T: Convert<int> + Convert<word>>(value: T) -> int {\n"
+    src = src + "    pilot result = value.convert(1)\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_mir_bound_associated_good_stream = v4_lex_text(0, v4_mir_bound_associated_good_source())
+pilot v4_mir_bound_associated_good_tree = v4_parse_stream(0, v4_mir_bound_associated_good_stream)
+pilot v4_mir_bound_associated_good_hir = v4_hir_lower_tree(0, v4_mir_bound_associated_good_tree)
+pilot v4_mir_bound_associated_good_resolve = v4_resolve_lower_hir(0, v4_mir_bound_associated_good_hir)
+pilot v4_mir_bound_associated_good_ty = v4_ty_lower_resolve(0, v4_mir_bound_associated_good_resolve)
+pilot v4_mir_bound_associated_good_mir = v4_mir_lower_ty(0, v4_mir_bound_associated_good_ty)
+pilot v4_mir_bound_associated_evaluate_def = v4_resolve_def_for_name(v4_mir_bound_associated_good_resolve, "evaluate")
+pilot v4_mir_bound_associated_evaluate_body = v4_mir_lookup_body(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_def)
+pilot v4_mir_bound_associated_ufcs = v4_mir_stmt_rvalue(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, 0)
+pilot v4_mir_bound_associated_static = v4_mir_stmt_rvalue(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, 1)
+pilot v4_mir_bound_associated_dotted = v4_mir_stmt_rvalue(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, 2)
+pilot v4_mir_bound_associated_ufcs_receiver = v4_mir_rvalue_call_arg(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_ufcs, 0)
+pilot v4_mir_bound_associated_ufcs_bonus = v4_mir_rvalue_call_arg(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_ufcs, 1)
+pilot v4_mir_bound_associated_dotted_bonus = v4_mir_rvalue_call_arg(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_dotted, 1)
+
+say "bound-associated-good-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_mir_bound_associated_good_tree))
+say "bound-associated-good-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_mir_bound_associated_good_ty))
+say "bound-associated-good-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bound_associated_good_mir))
+say "bound-associated-ufcs-kind=" + v4_mir_rvalue_kind(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_ufcs)
+say "bound-associated-ufcs-op=" + v4_mir_rvalue_op(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_ufcs)
+say "bound-associated-ufcs-ty=" + v4_mir_rvalue_ty(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_ufcs)
+say "bound-associated-ufcs-arg-count=" + word_from_int(v4_mir_rvalue_call_arg_count(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_ufcs))
+say "bound-associated-ufcs-receiver-ty=" + v4_mir_rvalue_ty(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_ufcs_receiver)
+say "bound-associated-ufcs-bonus-ty=" + v4_mir_rvalue_ty(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_ufcs_bonus)
+say "bound-associated-static-kind=" + v4_mir_rvalue_kind(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_static)
+say "bound-associated-static-op=" + v4_mir_rvalue_op(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_static)
+say "bound-associated-static-ty=" + v4_mir_rvalue_ty(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_static)
+say "bound-associated-static-arg-count=" + word_from_int(v4_mir_rvalue_call_arg_count(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_static))
+say "bound-associated-dotted-op=" + v4_mir_rvalue_op(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_dotted)
+say "bound-associated-dotted-ty=" + v4_mir_rvalue_ty(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_dotted)
+say "bound-associated-dotted-bonus-ty=" + v4_mir_rvalue_ty(v4_mir_bound_associated_good_mir, v4_mir_bound_associated_evaluate_body, v4_mir_bound_associated_dotted_bonus)
+
+pilot v4_mir_bound_associated_bad_stream = v4_lex_text(1, v4_mir_bound_associated_bad_source())
+pilot v4_mir_bound_associated_bad_tree = v4_parse_stream(1, v4_mir_bound_associated_bad_stream)
+pilot v4_mir_bound_associated_bad_hir = v4_hir_lower_tree(1, v4_mir_bound_associated_bad_tree)
+pilot v4_mir_bound_associated_bad_resolve = v4_resolve_lower_hir(1, v4_mir_bound_associated_bad_hir)
+pilot v4_mir_bound_associated_bad_ty = v4_ty_lower_resolve(1, v4_mir_bound_associated_bad_resolve)
+pilot v4_mir_bound_associated_bad_mir = v4_mir_lower_ty(1, v4_mir_bound_associated_bad_ty)
+
+say "bound-associated-bad-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_mir_bound_associated_bad_tree))
+say "bound-associated-bad-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_mir_bound_associated_bad_ty))
+say "bound-associated-bad-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bound_associated_bad_mir))
+pilot v4_mir_bound_associated_bad_diag_id = 0
+repeat until v4_mir_bound_associated_bad_diag_id >= v4_mir_diag_count(v4_mir_bound_associated_bad_mir) {
+    pilot diag = v4_mir_diag(v4_mir_bound_associated_bad_mir, v4_mir_bound_associated_bad_diag_id)
+    say "bound-associated-bad-diag" + word_from_int(v4_mir_bound_associated_bad_diag_id) + "-message=" + v4_diag_message(diag)
+    say "bound-associated-bad-diag" + word_from_int(v4_mir_bound_associated_bad_diag_id) + "-help=" + v4_diag_help(diag)
+    v4_mir_bound_associated_bad_diag_id += 1
+}

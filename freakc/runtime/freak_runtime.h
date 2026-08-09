@@ -209,6 +209,18 @@ freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s);
 /* Get character at index (0-based) as a single-char word. */
 freak_word freak_word_char_at(freak_word w, int64_t index);
 
+/* Stable, allocation-free FNV-1a checksum for persisted compiler data. */
+int64_t freak_word_checksum(freak_word w);
+
+/* Linear-time wire-format helpers used by compiler snapshots. Each returned
+   word is produced with at most one allocation. */
+freak_word freak_word_snapshot_escape(freak_word w);
+freak_word freak_word_snapshot_unescape(freak_word w);
+int64_t freak_word_snapshot_line_count(freak_word w);
+freak_word freak_word_snapshot_line(freak_word w, int64_t wanted);
+int64_t freak_word_snapshot_field_count(freak_word w);
+freak_word freak_word_snapshot_field_raw(freak_word w, int64_t wanted);
+
 /* Get a substring from start (inclusive) with given length. */
 freak_word freak_word_substring(freak_word w, int64_t start, int64_t len);
 
@@ -337,6 +349,13 @@ int64_t freak_array_len(int64_t handle);
 
 /* Set item at index. Panics if out of bounds. */
 void freak_array_set(int64_t handle, int64_t index, freak_word item);
+
+/* Release an array slot so a later array_new call can reuse it with a new
+   generation-tagged handle. Stale handles remain invalid. */
+void freak_array_release(int64_t handle);
+
+/* Join every word in an array with one allocation and release the handle. */
+freak_word freak_word_join(int64_t handle);
 
 /* ------------------------------------------------------------------ */
 /*  TCP Socket primitives                                             */

@@ -16,8 +16,10 @@ pilot v4_query_states = 0
 pilot v4_query_entry_generations = 0
 pilot v4_query_entry_last_generations = 0
 pilot v4_query_entry_last_events = 0
+pilot v4_query_entry_len = 0
 pilot v4_query_dep_from = 0
 pilot v4_query_dep_to = 0
+pilot v4_query_dep_len = 0
 pilot v4_query_generation_reasons = 0
 pilot v4_query_invalidated_keys = 0
 pilot v4_query_invalidated_generations = 0
@@ -143,7 +145,7 @@ task v4_query_record_invalidation(key: word, generation: int, reason: word) -> v
 task v4_query_find(key: word, input_fingerprint: word) -> int {
     v4_query_init()
     pilot i = 0
-    pilot count = array_len(v4_query_keys)
+    pilot count = v4_query_entry_len
     repeat until i >= count {
         pilot entry_key: word = array_get(v4_query_keys, i)
         pilot entry_input: word = array_get(v4_query_inputs, i)
@@ -189,14 +191,25 @@ task v4_query_store(key: word, input_fingerprint: word, output: word) -> int {
         give back idx
     }
 
-    pilot new_idx = array_len(v4_query_keys)
-    array_push(v4_query_keys, key)
-    array_push(v4_query_inputs, input_fingerprint)
-    array_push(v4_query_outputs, output)
-    array_push(v4_query_states, v4_query_valid)
-    array_push(v4_query_entry_generations, word_from_int(v4_query_generation()))
-    array_push(v4_query_entry_last_generations, word_from_int(v4_query_generation()))
-    array_push(v4_query_entry_last_events, "store:new")
+    pilot new_idx = v4_query_entry_len
+    if new_idx < array_len(v4_query_keys) {
+        array_set(v4_query_keys, new_idx, key)
+        array_set(v4_query_inputs, new_idx, input_fingerprint)
+        array_set(v4_query_outputs, new_idx, output)
+        array_set(v4_query_states, new_idx, v4_query_valid)
+        array_set(v4_query_entry_generations, new_idx, word_from_int(v4_query_generation()))
+        array_set(v4_query_entry_last_generations, new_idx, word_from_int(v4_query_generation()))
+        array_set(v4_query_entry_last_events, new_idx, "store:new")
+    } else {
+        array_push(v4_query_keys, key)
+        array_push(v4_query_inputs, input_fingerprint)
+        array_push(v4_query_outputs, output)
+        array_push(v4_query_states, v4_query_valid)
+        array_push(v4_query_entry_generations, word_from_int(v4_query_generation()))
+        array_push(v4_query_entry_last_generations, word_from_int(v4_query_generation()))
+        array_push(v4_query_entry_last_events, "store:new")
+    }
+    v4_query_entry_len += 1
     v4_query_record_store(key)
     give back new_idx
 }
@@ -204,7 +217,7 @@ task v4_query_store(key: word, input_fingerprint: word, output: word) -> int {
 task v4_query_mark_dirty_key(key: word) -> void {
     v4_query_init()
     pilot i = 0
-    pilot count = array_len(v4_query_keys)
+    pilot count = v4_query_entry_len
     repeat until i >= count {
         pilot entry_key: word = array_get(v4_query_keys, i)
         if entry_key == key {
@@ -220,7 +233,7 @@ task v4_query_mark_dirty_key_at_generation(key: word, generation: int, reason: w
     v4_query_init()
     pilot dirtied = 0
     pilot i = 0
-    pilot count = array_len(v4_query_keys)
+    pilot count = v4_query_entry_len
     repeat until i >= count {
         pilot entry_key: word = array_get(v4_query_keys, i)
         pilot entry_state: word = array_get(v4_query_states, i)
@@ -242,7 +255,7 @@ task v4_query_dirtyable_prefix_count(prefix: word) -> int {
     v4_query_init()
     pilot dirtied = 0
     pilot i = 0
-    pilot count = array_len(v4_query_keys)
+    pilot count = v4_query_entry_len
     repeat until i >= count {
         pilot key: word = array_get(v4_query_keys, i)
         if key.starts_with(prefix) {
@@ -260,7 +273,7 @@ task v4_query_invalidate_prefix_at_generation(prefix: word, generation: int, rea
     v4_query_init()
     pilot dirtied = 0
     pilot i = 0
-    pilot count = array_len(v4_query_keys)
+    pilot count = v4_query_entry_len
     repeat until i >= count {
         pilot key: word = array_get(v4_query_keys, i)
         if key.starts_with(prefix) {
@@ -303,7 +316,7 @@ task v4_query_invalidate_prefix(prefix: word) -> int {
 task v4_query_record_dep(from_key: word, to_key: word) -> void {
     v4_query_init()
     pilot i = 0
-    pilot count = array_len(v4_query_dep_from)
+    pilot count = v4_query_dep_len
     repeat until i >= count {
         pilot dep_from: word = array_get(v4_query_dep_from, i)
         pilot dep_to: word = array_get(v4_query_dep_to, i)
@@ -314,13 +327,19 @@ task v4_query_record_dep(from_key: word, to_key: word) -> void {
         }
         i += 1
     }
-    array_push(v4_query_dep_from, from_key)
-    array_push(v4_query_dep_to, to_key)
+    if v4_query_dep_len < array_len(v4_query_dep_from) {
+        array_set(v4_query_dep_from, v4_query_dep_len, from_key)
+        array_set(v4_query_dep_to, v4_query_dep_len, to_key)
+    } else {
+        array_push(v4_query_dep_from, from_key)
+        array_push(v4_query_dep_to, to_key)
+    }
+    v4_query_dep_len += 1
 }
 
 task v4_query_dep_count() -> int {
     v4_query_init()
-    give back array_len(v4_query_dep_from)
+    give back v4_query_dep_len
 }
 
 task v4_query_dep_from_key(dep_id: int) -> word {
@@ -358,7 +377,7 @@ task v4_query_direct_dependency_count(key: word) -> int {
     v4_query_init()
     pilot found = 0
     pilot dep_id = 0
-    pilot dep_count = array_len(v4_query_dep_from)
+    pilot dep_count = v4_query_dep_len
     repeat until dep_id >= dep_count {
         pilot dep_from: word = array_get(v4_query_dep_from, dep_id)
         if dep_from == key {
@@ -373,7 +392,7 @@ task v4_query_direct_dependent_count(key: word) -> int {
     v4_query_init()
     pilot found = 0
     pilot dep_id = 0
-    pilot dep_count = array_len(v4_query_dep_to)
+    pilot dep_count = v4_query_dep_len
     repeat until dep_id >= dep_count {
         pilot dep_to: word = array_get(v4_query_dep_to, dep_id)
         if dep_to == key {
@@ -388,7 +407,7 @@ task v4_query_direct_dependency_at(key: word, wanted: int) -> word {
     v4_query_init()
     pilot found = 0
     pilot dep_id = 0
-    pilot dep_count = array_len(v4_query_dep_from)
+    pilot dep_count = v4_query_dep_len
     repeat until dep_id >= dep_count {
         pilot dep_from: word = array_get(v4_query_dep_from, dep_id)
         if dep_from == key {
@@ -406,7 +425,7 @@ task v4_query_direct_dependent_at(key: word, wanted: int) -> word {
     v4_query_init()
     pilot found = 0
     pilot dep_id = 0
-    pilot dep_count = array_len(v4_query_dep_to)
+    pilot dep_count = v4_query_dep_len
     repeat until dep_id >= dep_count {
         pilot dep_to: word = array_get(v4_query_dep_to, dep_id)
         if dep_to == key {
@@ -432,7 +451,7 @@ task v4_query_invalidate_dependents_at_generation(root_key: word, generation: in
     repeat until work_id >= array_len(work) {
         pilot target: word = array_get(work, work_id)
         pilot dep_id = 0
-        pilot dep_count = array_len(v4_query_dep_to)
+        pilot dep_count = v4_query_dep_len
         repeat until dep_id >= dep_count {
             pilot dep_to: word = array_get(v4_query_dep_to, dep_id)
             if dep_to == target {
@@ -446,6 +465,8 @@ task v4_query_invalidate_dependents_at_generation(root_key: word, generation: in
         }
         work_id += 1
     }
+    array_release(seen)
+    array_release(work)
     give back dirtied
 }
 
@@ -476,7 +497,7 @@ task v4_query_graph_summary() -> word {
     pilot roots = 0
     pilot leaves = 0
     pilot key_id = 0
-    pilot key_count = array_len(v4_query_keys)
+    pilot key_count = v4_query_entry_len
     repeat until key_id >= key_count {
         pilot key: word = array_get(v4_query_keys, key_id)
         if v4_query_direct_dependency_count(key) == 0 {
@@ -501,7 +522,7 @@ task v4_query_entry_count_for_key(key: word) -> int {
     v4_query_init()
     pilot found = 0
     pilot entry_id = 0
-    pilot entry_count = array_len(v4_query_keys)
+    pilot entry_count = v4_query_entry_len
     repeat until entry_id >= entry_count {
         pilot entry_key: word = array_get(v4_query_keys, entry_id)
         if entry_key == key {
@@ -516,7 +537,7 @@ task v4_query_entry_at_key(key: word, wanted: int) -> int {
     v4_query_init()
     pilot found = 0
     pilot entry_id = 0
-    pilot entry_count = array_len(v4_query_keys)
+    pilot entry_count = v4_query_entry_len
     repeat until entry_id >= entry_count {
         pilot entry_key: word = array_get(v4_query_keys, entry_id)
         if entry_key == key {
@@ -799,7 +820,7 @@ task v4_query_explain(key: word) -> word {
 
 task v4_query_cache_size() -> int {
     v4_query_init()
-    give back array_len(v4_query_keys)
+    give back v4_query_entry_len
 }
 
 task v4_query_invalidated_count() -> int {
@@ -826,7 +847,7 @@ task v4_query_dirty_count() -> int {
     v4_query_init()
     pilot dirty = 0
     pilot i = 0
-    pilot count = array_len(v4_query_states)
+    pilot count = v4_query_entry_len
     repeat until i >= count {
         pilot state: word = array_get(v4_query_states, i)
         if state == v4_query_dirty {
@@ -890,131 +911,27 @@ task v4_query_telemetry_summary() -> word {
 }
 
 task v4_query_snapshot_escape(value: word) -> word {
-    pilot out = ""
-    pilot i = 0
-    repeat until i >= value.length() {
-        pilot ch = value.char_at(i)
-        if ch == "%" {
-            out = out + "%25"
-        } else if ch == "|" {
-            out = out + "%7C"
-        } else if ch == "\n" {
-            out = out + "%0A"
-        } else if ch == "\r" {
-            out = out + "%0D"
-        } else {
-            out = out + ch
-        }
-        i += 1
-    }
-    give back out
+    give back value.snapshot_escape()
 }
 
 task v4_query_snapshot_unescape(value: word) -> word {
-    pilot out = ""
-    pilot i = 0
-    repeat until i >= value.length() {
-        pilot ch = value.char_at(i)
-        if ch == "%" and i + 2 < value.length() {
-            pilot code = v4_slice(value, i, i + 3)
-            if code == "%25" {
-                out = out + "%"
-                i += 3
-            } else if code == "%7C" {
-                out = out + "|"
-                i += 3
-            } else if code == "%0A" {
-                out = out + "\n"
-                i += 3
-            } else if code == "%0D" {
-                out = out + "\r"
-                i += 3
-            } else {
-                out = out + ch
-                i += 1
-            }
-        } else {
-            out = out + ch
-            i += 1
-        }
-    }
-    give back out
+    give back value.snapshot_unescape()
 }
 
 task v4_query_snapshot_line_count(payload: word) -> int {
-    if payload == "" {
-        give back 0
-    }
-    pilot count = 1
-    pilot i = 0
-    repeat until i >= payload.length() {
-        if payload.char_at(i) == "\n" {
-            count += 1
-        }
-        i += 1
-    }
-    give back count
+    give back payload.snapshot_line_count()
 }
 
 task v4_query_snapshot_line(payload: word, wanted: int) -> word {
-    if wanted < 0 {
-        give back ""
-    }
-    pilot line_id = 0
-    pilot start_pos = 0
-    pilot i = 0
-    repeat until i >= payload.length() {
-        if payload.char_at(i) == "\n" {
-            if line_id == wanted {
-                give back v4_slice(payload, start_pos, i)
-            }
-            line_id += 1
-            start_pos = i + 1
-        }
-        i += 1
-    }
-    if line_id == wanted {
-        give back v4_slice(payload, start_pos, payload.length())
-    }
-    give back ""
+    give back payload.snapshot_line(wanted)
 }
 
 task v4_query_snapshot_field_count(line: word) -> int {
-    if line == "" {
-        give back 0
-    }
-    pilot count = 1
-    pilot i = 0
-    repeat until i >= line.length() {
-        if line.char_at(i) == "|" {
-            count += 1
-        }
-        i += 1
-    }
-    give back count
+    give back line.snapshot_field_count()
 }
 
 task v4_query_snapshot_field_raw(line: word, wanted: int) -> word {
-    if wanted < 0 {
-        give back ""
-    }
-    pilot field_id = 0
-    pilot start_pos = 0
-    pilot i = 0
-    repeat until i >= line.length() {
-        if line.char_at(i) == "|" {
-            if field_id == wanted {
-                give back v4_slice(line, start_pos, i)
-            }
-            field_id += 1
-            start_pos = i + 1
-        }
-        i += 1
-    }
-    if field_id == wanted {
-        give back v4_slice(line, start_pos, line.length())
-    }
-    give back ""
+    give back line.snapshot_field_raw(wanted)
 }
 
 task v4_query_snapshot_field(line: word, wanted: int) -> word {
@@ -1112,45 +1029,52 @@ task v4_query_snapshot_telemetry_line(telemetry_id: int) -> word {
 
 task v4_query_snapshot() -> word {
     v4_query_init()
-    pilot out = v4_query_snapshot_header()
+    pilot parts = array_new()
+    array_push(parts, v4_query_snapshot_header())
 
     pilot generation_id = 0
     pilot generation_count = v4_query_generation_count()
     repeat until generation_id >= generation_count {
-        out = out + "\n" + v4_query_snapshot_generation_line(generation_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_query_snapshot_generation_line(generation_id))
         generation_id += 1
     }
 
     pilot entry_id = 0
     pilot entry_count = v4_query_cache_size()
     repeat until entry_id >= entry_count {
-        out = out + "\n" + v4_query_snapshot_entry_line(entry_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_query_snapshot_entry_line(entry_id))
         entry_id += 1
     }
 
     pilot dep_id = 0
     pilot dep_count = v4_query_dep_count()
     repeat until dep_id >= dep_count {
-        out = out + "\n" + v4_query_snapshot_edge_line(dep_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_query_snapshot_edge_line(dep_id))
         dep_id += 1
     }
 
     pilot invalidation_id = 0
     pilot invalidation_count = v4_query_invalidated_count()
     repeat until invalidation_id >= invalidation_count {
-        out = out + "\n" + v4_query_snapshot_invalidation_line(invalidation_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_query_snapshot_invalidation_line(invalidation_id))
         invalidation_id += 1
     }
 
     pilot telemetry_id = 0
     pilot telemetry_count = v4_query_telemetry_key_count()
     repeat until telemetry_id >= telemetry_count {
-        out = out + "\n" + v4_query_snapshot_telemetry_line(telemetry_id)
+        array_push(parts, "\n")
+        array_push(parts, v4_query_snapshot_telemetry_line(telemetry_id))
         telemetry_id += 1
     }
 
-    out = out + "\nend|" + v4_query_snapshot_format
-    give back out
+    array_push(parts, "\nend|")
+    array_push(parts, v4_query_snapshot_format)
+    give back word_join(parts)
 }
 
 task v4_query_snapshot_record_expected_fields(kind: word) -> int {
@@ -1184,10 +1108,23 @@ task v4_query_snapshot_record_is_valid(line: word) -> bool {
     if expected == 0 {
         give back false
     }
-    if v4_query_snapshot_field_count(line) < expected {
+    if v4_query_snapshot_field_count(line) != expected {
         give back false
     }
     give back true
+}
+
+task v4_query_snapshot_canonical_nonnegative_int(raw: word) -> int {
+    if raw == "" { give back 0 - 1 }
+    pilot value = word_to_int(raw)
+    if value < 0 { give back 0 - 1 }
+    if word_from_int(value) != raw { give back 0 - 1 }
+    give back value
+}
+
+task v4_query_snapshot_header_field_is(line: word, field_id: int, key: word) -> bool {
+    pilot prefix = key + "="
+    give back v4_query_snapshot_field_raw(line, field_id).starts_with(prefix)
 }
 
 task v4_query_snapshot_validate(payload: word) -> word {
@@ -1201,38 +1138,116 @@ task v4_query_snapshot_validate(payload: word) -> word {
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_generation = 0 - 1
+    pilot declared_generations = 0 - 1
+    pilot declared_entries = 0 - 1
+    pilot declared_edges = 0 - 1
+    pilot declared_invalidations = 0 - 1
+    pilot declared_telemetry = 0 - 1
+    pilot phase = 0
 
     pilot line_id = 0
     repeat until line_id >= lines {
         pilot line = v4_query_snapshot_line(payload, line_id)
-        if line != "" {
+        if line == "" {
+            malformed += 1
+        } else {
             pilot kind = v4_query_snapshot_field_raw(line, 0)
-            if v4_query_snapshot_record_is_valid(line) == false {
+            if saw_end > 0 {
+                malformed += 1
+            } else if v4_query_snapshot_record_is_valid(line) == false {
                 malformed += 1
             } else if kind == "snapshot" {
                 saw_header += 1
+                if line_id != 0 or saw_header != 1 or phase != 0 { malformed += 1 }
+                if v4_query_snapshot_field_raw(line, 1) != "format=" + v4_query_snapshot_format { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 2, "generation") { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 3, "generations") { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 4, "entries") { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 5, "edges") { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 6, "invalidations") { malformed += 1 }
+                if not v4_query_snapshot_header_field_is(line, 7, "telemetry") { malformed += 1 }
                 format = v4_query_snapshot_key_value(line, "format")
                 if format != v4_query_snapshot_format {
                     malformed += 1
                 }
+                declared_generation = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "generation"))
+                declared_generations = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "generations"))
+                declared_entries = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "entries"))
+                declared_edges = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "edges"))
+                declared_invalidations = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "invalidations"))
+                declared_telemetry = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_key_value(line, "telemetry"))
+                if declared_generation <= 0 { malformed += 1 }
+                if declared_generations <= 0 or declared_generations > lines { malformed += 1 }
+                if declared_entries < 0 or declared_entries > lines { malformed += 1 }
+                if declared_edges < 0 or declared_edges > lines { malformed += 1 }
+                if declared_invalidations < 0 or declared_invalidations > lines { malformed += 1 }
+                if declared_telemetry < 0 or declared_telemetry > lines { malformed += 1 }
             } else if kind == "generation" {
+                if saw_header != 1 or phase > 1 { malformed += 1 }
+                phase = 1
+                pilot generation_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
+                if generation_id < 0 or generation_id != generations + 1 or generation_id > declared_generations {
+                    malformed += 1
+                }
                 generations += 1
             } else if kind == "entry" {
+                if saw_header != 1 or phase > 2 { malformed += 1 }
+                phase = 2
+                pilot entry_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
+                pilot stored_generation = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 6))
+                pilot last_generation = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 7))
+                if entry_id < 0 or entry_id != entries or entry_id >= declared_entries { malformed += 1 }
+                if stored_generation < 0 or stored_generation > declared_generation { malformed += 1 }
+                if last_generation < 0 or last_generation > declared_generation { malformed += 1 }
                 entries += 1
             } else if kind == "edge" {
+                if saw_header != 1 or phase > 3 { malformed += 1 }
+                phase = 3
+                pilot dep_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
+                if dep_id < 0 or dep_id != edges or dep_id >= declared_edges { malformed += 1 }
                 edges += 1
             } else if kind == "invalidation" {
+                if saw_header != 1 or phase > 4 { malformed += 1 }
+                phase = 4
+                pilot invalidation_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
+                pilot invalidation_generation = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 3))
+                if invalidation_id < 0 or invalidation_id != invalidations or invalidation_id >= declared_invalidations {
+                    malformed += 1
+                }
+                if invalidation_generation < 0 or invalidation_generation > declared_generation { malformed += 1 }
                 invalidations += 1
             } else if kind == "telemetry" {
+                if saw_header != 1 or phase > 5 { malformed += 1 }
+                phase = 5
+                pilot telemetry_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
+                pilot telemetry_hits = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 3))
+                pilot telemetry_misses = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 4))
+                pilot telemetry_stores = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 5))
+                if telemetry_id < 0 or telemetry_id != telemetry or telemetry_id >= declared_telemetry { malformed += 1 }
+                if telemetry_hits < 0 or telemetry_misses < 0 or telemetry_stores < 0 { malformed += 1 }
                 telemetry += 1
             } else if kind == "end" {
                 saw_end += 1
+                phase = 6
+                if saw_header != 1 or line_id != lines - 1 { malformed += 1 }
                 if v4_query_snapshot_field(line, 1) != v4_query_snapshot_format {
                     malformed += 1
                 }
             }
         }
         line_id += 1
+    }
+
+    if declared_generation != declared_generations { malformed += 1 }
+    if generations != declared_generations { malformed += 1 }
+    if entries != declared_entries { malformed += 1 }
+    if edges != declared_edges { malformed += 1 }
+    if invalidations != declared_invalidations { malformed += 1 }
+    if telemetry != declared_telemetry { malformed += 1 }
+    if declared_generations >= 0 and declared_generations <= lines and declared_entries >= 0 and declared_entries <= lines and declared_edges >= 0 and declared_edges <= lines and declared_invalidations >= 0 and declared_invalidations <= lines and declared_telemetry >= 0 and declared_telemetry <= lines {
+        pilot declared_records = declared_generations + declared_entries + declared_edges + declared_invalidations + declared_telemetry
+        if declared_records != lines - 2 { malformed += 1 }
     }
 
     pilot import_ok = 1
@@ -1265,32 +1280,81 @@ task v4_query_snapshot_validate_is_ok(payload: word) -> bool {
     give back v4_query_snapshot_validate(payload).starts_with("query-snapshot-import ok=1")
 }
 
-task v4_query_restore_entry(key: word, input_fingerprint: word, output: word, stored_generation: int, imported_event: word) -> int {
+task v4_query_begin_snapshot_restore() -> void {
     v4_query_init()
+
+    pilot entry_id = 0
+    pilot entry_capacity = array_len(v4_query_keys)
+    repeat until entry_id >= entry_capacity {
+        array_set(v4_query_keys, entry_id, "")
+        array_set(v4_query_inputs, entry_id, "")
+        array_set(v4_query_outputs, entry_id, "")
+        array_set(v4_query_states, entry_id, v4_query_dirty)
+        array_set(v4_query_entry_generations, entry_id, "0")
+        array_set(v4_query_entry_last_generations, entry_id, word_from_int(v4_query_generation()))
+        array_set(v4_query_entry_last_events, entry_id, "restore:absent")
+        entry_id += 1
+    }
+    v4_query_entry_len = 0
+
+    pilot dep_id = 0
+    pilot dep_capacity = array_len(v4_query_dep_from)
+    repeat until dep_id >= dep_capacity {
+        array_set(v4_query_dep_from, dep_id, "")
+        array_set(v4_query_dep_to, dep_id, "")
+        dep_id += 1
+    }
+    v4_query_dep_len = 0
+}
+
+task v4_query_restore_entry_slot(entry_id: int, key: word, input_fingerprint: word, output: word, stored_generation: int, imported_event: word) -> int {
+    v4_query_init()
+    if entry_id < 0 or entry_id != v4_query_entry_len {
+        give back 0 - 1
+    }
     pilot generation = stored_generation
     if generation <= 0 {
         generation = v4_query_generation()
     }
 
-    pilot idx = v4_query_find(key, input_fingerprint)
-    if idx >= 0 {
-        array_set(v4_query_outputs, idx, output)
-        array_set(v4_query_states, idx, v4_query_dirty)
-        array_set(v4_query_entry_generations, idx, word_from_int(generation))
-        array_set(v4_query_entry_last_generations, idx, word_from_int(v4_query_generation()))
-        array_set(v4_query_entry_last_events, idx, "restore:dirty:" + imported_event)
-        give back idx
+    repeat until array_len(v4_query_keys) > entry_id {
+        array_push(v4_query_keys, "")
+        array_push(v4_query_inputs, "")
+        array_push(v4_query_outputs, "")
+        array_push(v4_query_states, v4_query_dirty)
+        array_push(v4_query_entry_generations, "0")
+        array_push(v4_query_entry_last_generations, "0")
+        array_push(v4_query_entry_last_events, "restore:absent")
     }
 
-    pilot new_idx = array_len(v4_query_keys)
-    array_push(v4_query_keys, key)
-    array_push(v4_query_inputs, input_fingerprint)
-    array_push(v4_query_outputs, output)
-    array_push(v4_query_states, v4_query_dirty)
-    array_push(v4_query_entry_generations, word_from_int(generation))
-    array_push(v4_query_entry_last_generations, word_from_int(v4_query_generation()))
-    array_push(v4_query_entry_last_events, "restore:dirty:" + imported_event)
-    give back new_idx
+    array_set(v4_query_keys, entry_id, key)
+    array_set(v4_query_inputs, entry_id, input_fingerprint)
+    array_set(v4_query_outputs, entry_id, output)
+    array_set(v4_query_states, entry_id, v4_query_dirty)
+    array_set(v4_query_entry_generations, entry_id, word_from_int(generation))
+    array_set(v4_query_entry_last_generations, entry_id, word_from_int(v4_query_generation()))
+    array_set(v4_query_entry_last_events, entry_id, "restore:dirty:" + imported_event)
+    if v4_query_entry_len <= entry_id {
+        v4_query_entry_len = entry_id + 1
+    }
+    give back entry_id
+}
+
+task v4_query_restore_dep_slot(dep_id: int, from_key: word, to_key: word) -> int {
+    v4_query_init()
+    if dep_id < 0 or dep_id != v4_query_dep_len {
+        give back 0 - 1
+    }
+    repeat until array_len(v4_query_dep_from) > dep_id {
+        array_push(v4_query_dep_from, "")
+        array_push(v4_query_dep_to, "")
+    }
+    array_set(v4_query_dep_from, dep_id, from_key)
+    array_set(v4_query_dep_to, dep_id, to_key)
+    if v4_query_dep_len <= dep_id {
+        v4_query_dep_len = dep_id + 1
+    }
+    give back dep_id
 }
 
 task v4_query_snapshot_restore_entry_line(line: word) -> int {
@@ -1301,12 +1365,16 @@ task v4_query_snapshot_restore_entry_line(line: word) -> int {
         give back 0
     }
 
+    pilot entry_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
     pilot key = v4_query_snapshot_field(line, 2)
     pilot input_fingerprint = v4_query_snapshot_field(line, 3)
     pilot output = v4_query_snapshot_field(line, 4)
-    pilot stored_generation = word_to_int(v4_query_snapshot_field_raw(line, 6))
+    pilot stored_generation = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 6))
     pilot imported_event = v4_query_snapshot_field(line, 8)
-    v4_query_restore_entry(key, input_fingerprint, output, stored_generation, imported_event)
+    if entry_id < 0 or stored_generation < 0 { give back 0 }
+    if v4_query_restore_entry_slot(entry_id, key, input_fingerprint, output, stored_generation, imported_event) < 0 {
+        give back 0
+    }
     give back 1
 }
 
@@ -1318,9 +1386,11 @@ task v4_query_snapshot_restore_edge_line(line: word) -> int {
         give back 0
     }
 
+    pilot dep_id = v4_query_snapshot_canonical_nonnegative_int(v4_query_snapshot_field_raw(line, 1))
     pilot from_key = v4_query_snapshot_field(line, 2)
     pilot to_key = v4_query_snapshot_field(line, 3)
-    v4_query_record_dep(from_key, to_key)
+    if dep_id < 0 { give back 0 }
+    if v4_query_restore_dep_slot(dep_id, from_key, to_key) < 0 { give back 0 }
     give back 1
 }
 
@@ -1331,6 +1401,7 @@ task v4_query_snapshot_restore(payload: word) -> word {
     }
 
     pilot restore_generation = v4_query_bump_generation("snapshot-restore")
+    v4_query_begin_snapshot_restore()
     pilot restored_entries = 0
     pilot restored_edges = 0
     pilot skipped_generations = 0

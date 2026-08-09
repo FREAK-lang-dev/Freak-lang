@@ -1,0 +1,37 @@
+-- V4 multi-source 00-Unit snapshot resource smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_unit_snapshot_multisource_text() -> word {
+    pilot parts = array_new()
+    pilot line_id = 0
+    repeat until line_id >= 12 {
+        array_push(parts, "-- Yuuko records a stable source payload while Meiya watches every ownership boundary.\n")
+        line_id += 1
+    }
+    give back word_join(parts)
+}
+
+pilot v4_unit_snapshot_multisource_expected = 192
+pilot v4_unit_snapshot_multisource_payload = v4_unit_snapshot_multisource_text()
+pilot v4_unit_snapshot_multisource_id = 0
+repeat until v4_unit_snapshot_multisource_id >= v4_unit_snapshot_multisource_expected {
+    pilot v4_unit_snapshot_multisource_path = "snapshot-resource-" + word_from_int(v4_unit_snapshot_multisource_id) + ".fk"
+    v4_source_set_text(v4_unit_snapshot_multisource_path, v4_unit_snapshot_multisource_payload)
+    v4_unit_snapshot_multisource_id += 1
+}
+
+pilot v4_unit_snapshot_multisource_snapshot = v4_unit_snapshot()
+pilot v4_unit_snapshot_multisource_validation = v4_unit_snapshot_validate(v4_unit_snapshot_multisource_snapshot)
+pilot v4_unit_snapshot_multisource_manifest = v4_unit_snapshot_manifest(v4_unit_snapshot_multisource_snapshot)
+pilot v4_unit_snapshot_multisource_diff = v4_unit_snapshot_diff(v4_unit_snapshot_multisource_snapshot, v4_unit_snapshot_multisource_snapshot)
+pilot v4_unit_snapshot_multisource_health = v4_unit_snapshot_health(v4_unit_snapshot_multisource_snapshot)
+pilot v4_unit_snapshot_multisource_health_diff = v4_unit_snapshot_health_append_diff(v4_unit_snapshot_multisource_health, v4_unit_snapshot_multisource_diff)
+
+say "snapshot-multisource-count=" + word_from_int(v4_source_count())
+say "snapshot-multisource-valid=" + word_from_bool(v4_unit_snapshot_multisource_validation.starts_with("00-unit-snapshot-import ok=1"))
+say "snapshot-multisource-manifest=" + word_from_bool(v4_unit_snapshot_multisource_manifest.starts_with("00-unit-manifest|format=" + v4_unit_snapshot_manifest_format + "|ok=1"))
+say "snapshot-multisource-diff=" + word_from_bool(v4_unit_snapshot_multisource_diff.starts_with("00-unit-diff|format=" + v4_unit_snapshot_diff_format + "|ok=1"))
+say "snapshot-multisource-health=" + word_from_bool(v4_unit_snapshot_multisource_health.starts_with("00-unit-health|format=" + v4_unit_snapshot_health_format + "|ok=1"))
+say "snapshot-multisource-health-diff=" + word_from_bool(v4_unit_snapshot_multisource_health_diff.contains("health-diff|ok=1"))
+say "snapshot-multisource-duplicate-ids=" + word_from_bool(v4_unit_snapshot_multisource_validation.contains("duplicate-source-ids=0"))
+say "snapshot-multisource-duplicate-paths=" + word_from_bool(v4_unit_snapshot_multisource_validation.contains("duplicate-source-paths=0"))

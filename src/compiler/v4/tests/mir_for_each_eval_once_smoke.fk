@@ -1,0 +1,81 @@
+-- V4 MIR for-each iterable evaluation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_for_each_once_source() -> word {
+    pilot src = "task rows(value: word) -> [word; 1] {\n"
+    src = src + "    give back [value]\n"
+    src = src + "}\n"
+    src = src + "task sortie() -> int {\n"
+    src = src + "    pilot source = \"first\"\n"
+    src = src + "    for each item in rows(source) {\n"
+    src = src + "        source = \"again\"\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_for_each_once_find_stmt(mir_id: int, body_id: int, kind: word, lhs: word) -> int {
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == kind and v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == lhs {
+            give back stmt_id
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_for_each_once_move_count(borrow_id: int, result_id: int, path_text: word) -> int {
+    pilot count = 0
+    pilot path_id = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    repeat until path_id >= path_count {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_move and v4_borrowck_path_text(borrow_id, result_id, path_id) == path_text {
+            count += 1
+        }
+        path_id += 1
+    }
+    give back count
+}
+
+task v4_mir_for_each_once_move_block(borrow_id: int, result_id: int, path_text: word) -> int {
+    pilot path_id = 0
+    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    repeat until path_id >= path_count {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_move and v4_borrowck_path_text(borrow_id, result_id, path_id) == path_text {
+            give back v4_borrowck_path_block(borrow_id, result_id, path_id)
+        }
+        path_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_mir_for_each_once_stream = v4_lex_text(0, v4_mir_for_each_once_source())
+pilot v4_mir_for_each_once_tree = v4_parse_stream(0, v4_mir_for_each_once_stream)
+pilot v4_mir_for_each_once_hir = v4_hir_lower_tree(0, v4_mir_for_each_once_tree)
+pilot v4_mir_for_each_once_resolve = v4_resolve_lower_hir(0, v4_mir_for_each_once_hir)
+pilot v4_mir_for_each_once_ty = v4_ty_lower_resolve(0, v4_mir_for_each_once_resolve)
+pilot v4_mir_for_each_once_mir = v4_mir_lower_ty(0, v4_mir_for_each_once_ty)
+pilot v4_mir_for_each_once_def = v4_resolve_def_for_name(v4_mir_for_each_once_resolve, "sortie")
+pilot v4_mir_for_each_once_body = v4_mir_lookup_body(v4_mir_for_each_once_mir, v4_mir_for_each_once_def)
+pilot v4_mir_for_each_once_source_stmt = v4_mir_for_each_once_find_stmt(v4_mir_for_each_once_mir, v4_mir_for_each_once_body, v4_mir_stmt_local, "_for_each_source")
+pilot v4_mir_for_each_once_loop_stmt = v4_mir_for_each_once_find_stmt(v4_mir_for_each_once_mir, v4_mir_for_each_once_body, v4_mir_stmt_loop, "item")
+pilot v4_mir_for_each_once_source_rvalue = v4_mir_stmt_rvalue(v4_mir_for_each_once_mir, v4_mir_for_each_once_body, v4_mir_for_each_once_source_stmt)
+pilot v4_mir_for_each_once_loop_rvalue = v4_mir_stmt_rvalue(v4_mir_for_each_once_mir, v4_mir_for_each_once_body, v4_mir_for_each_once_loop_stmt)
+pilot v4_mir_for_each_once_source_block = v4_mir_stmt_block(v4_mir_for_each_once_mir, v4_mir_for_each_once_body, v4_mir_for_each_once_source_stmt)
+pilot v4_mir_for_each_once_loop_block = v4_mir_stmt_block(v4_mir_for_each_once_mir, v4_mir_for_each_once_body, v4_mir_for_each_once_loop_stmt)
+pilot v4_mir_for_each_once_borrow = v4_borrowck_check_mir(0, v4_mir_for_each_once_mir)
+pilot v4_mir_for_each_once_result = v4_borrowck_lookup_result(v4_mir_for_each_once_borrow, v4_mir_for_each_once_def)
+pilot v4_mir_for_each_once_move_block_value = v4_mir_for_each_once_move_block(v4_mir_for_each_once_borrow, v4_mir_for_each_once_result, "source")
+
+say "for-each-once-source-kind=" + v4_mir_stmt_kind(v4_mir_for_each_once_mir, v4_mir_for_each_once_body, v4_mir_for_each_once_source_stmt)
+say "for-each-once-source-rvalue=" + v4_mir_rvalue_kind(v4_mir_for_each_once_mir, v4_mir_for_each_once_body, v4_mir_for_each_once_source_rvalue)
+say "for-each-once-loop-rvalue=" + v4_mir_rvalue_kind(v4_mir_for_each_once_mir, v4_mir_for_each_once_body, v4_mir_for_each_once_loop_rvalue)
+say "for-each-once-loop-source=" + v4_mir_rvalue_text(v4_mir_for_each_once_mir, v4_mir_for_each_once_body, v4_mir_for_each_once_loop_rvalue)
+say "for-each-once-preheader=" + word_from_bool(v4_mir_for_each_once_source_block != v4_mir_for_each_once_loop_block)
+say "for-each-once-source-moves=" + word_from_int(v4_mir_for_each_once_move_count(v4_mir_for_each_once_borrow, v4_mir_for_each_once_result, "source"))
+say "for-each-once-move-in-preheader=" + word_from_bool(v4_mir_for_each_once_move_block_value == v4_mir_for_each_once_source_block)
+say "for-each-once-move-not-header=" + word_from_bool(v4_mir_for_each_once_move_block_value != v4_mir_for_each_once_loop_block)
+say "for-each-once-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_for_each_once_mir))

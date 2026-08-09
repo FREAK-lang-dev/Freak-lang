@@ -28,6 +28,117 @@ task v4_mir_loop_make_bad_growth_source() -> word {
     give back src
 }
 
+task v4_mir_loop_make_field_growth_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    power: int\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task train(ship: Ship) -> int {\n"
+    src = src + "    training arc until ship.power >= 8 max 4 sessions with growth {\n"
+    src = src + "        ship.power += 1\n"
+    src = src + "    }\n"
+    src = src + "    give back ship.power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_loop_make_bad_field_growth_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    power: int\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task train(ship: Ship) -> int {\n"
+    src = src + "    training arc until ship.power >= 8 max 4 sessions with growth {\n"
+    src = src + "        ship.hp += 1\n"
+    src = src + "    }\n"
+    src = src + "    give back ship.power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_loop_make_arm_growth_source() -> word {
+    pilot src = "task train() -> int {\n"
+    src = src + "    pilot power = 1\n"
+    src = src + "    training arc until power >= 8 max 4 sessions with growth {\n"
+    src = src + "        when power {\n"
+    src = src + "            _ -> power += 1\n"
+    src = src + "        }\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_loop_make_base_growth_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    power: int\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task train(ship: Ship) -> int {\n"
+    src = src + "    training arc until ship.power >= 8 max 4 sessions with growth {\n"
+    src = src + "        ship = ship\n"
+    src = src + "    }\n"
+    src = src + "    give back ship.power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_loop_make_expr_growth_source() -> word {
+    pilot src = "task train() -> int {\n"
+    src = src + "    pilot power = 1\n"
+    src = src + "    pilot bonus = 2\n"
+    src = src + "    training arc until power + bonus >= 8 max 4 sessions with growth {\n"
+    src = src + "        power += 1\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_loop_make_paren_growth_source() -> word {
+    pilot src = "task train() -> int {\n"
+    src = src + "    pilot power = 1\n"
+    src = src + "    training arc until (power >= 8) max 4 sessions with growth {\n"
+    src = src + "        power += 1\n"
+    src = src + "    }\n"
+    src = src + "    give back power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_loop_make_prefix_growth_source() -> word {
+    pilot src = "shape Engine {\n"
+    src = src + "    power: int\n"
+    src = src + "}\n"
+    src = src + "shape Ship {\n"
+    src = src + "    engine: Engine\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task train(ship: Ship) -> int {\n"
+    src = src + "    training arc until ship.engine.power >= 8 max 4 sessions with growth {\n"
+    src = src + "        ship.engine = ship.engine\n"
+    src = src + "    }\n"
+    src = src + "    give back ship.engine.power\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_loop_nth_loop_stmt(mir_id: int, body_id: int, wanted: int) -> int {
+    pilot seen = 0
+    pilot stmt_id = 0
+    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+    repeat until stmt_id >= stmt_count {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_loop {
+            if seen == wanted {
+                give back stmt_id
+            }
+            seen += 1
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
 pilot v4_mir_loop_source = v4_mir_loop_make_source()
 pilot v4_mir_loop_stream = v4_lex_text(0, v4_mir_loop_source)
 pilot v4_mir_loop_tree = v4_parse_stream(0, v4_mir_loop_stream)
@@ -37,10 +148,12 @@ pilot v4_mir_loop_ty = v4_ty_lower_resolve(0, v4_mir_loop_resolve)
 pilot v4_mir_loop_mir = v4_mir_lower_ty(0, v4_mir_loop_ty)
 pilot v4_mir_loop_main_def = v4_resolve_def_for_name(v4_mir_loop_resolve, "main")
 pilot v4_mir_loop_main_body = v4_mir_lookup_body(v4_mir_loop_mir, v4_mir_loop_main_def)
-pilot v4_mir_loop_for_stmt = 4
-pilot v4_mir_loop_training_stmt = 6
-pilot v4_mir_loop_for_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, 0)
-pilot v4_mir_loop_training_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, 2)
+pilot v4_mir_loop_for_stmt = v4_mir_loop_nth_loop_stmt(v4_mir_loop_mir, v4_mir_loop_main_body, 0)
+pilot v4_mir_loop_training_stmt = v4_mir_loop_nth_loop_stmt(v4_mir_loop_mir, v4_mir_loop_main_body, 1)
+pilot v4_mir_loop_for_block_id = v4_mir_stmt_block(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_for_stmt)
+pilot v4_mir_loop_training_block_id = v4_mir_stmt_block(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_training_stmt)
+pilot v4_mir_loop_for_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_for_block_id)
+pilot v4_mir_loop_training_block = v4_mir_body_block(v4_mir_loop_mir, v4_mir_loop_main_body, v4_mir_loop_training_block_id)
 
 say v4_lex_summary(v4_mir_loop_stream)
 say v4_parse_summary(v4_mir_loop_tree)
@@ -77,3 +190,80 @@ pilot v4_mir_bad_growth_mir = v4_mir_lower_ty(1, v4_mir_bad_growth_ty)
 
 say "bad-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_growth_mir))
 say "bad-growth-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_growth_mir, 0))
+
+pilot v4_mir_field_growth_source = v4_mir_loop_make_field_growth_source()
+pilot v4_mir_field_growth_stream = v4_lex_text(2, v4_mir_field_growth_source)
+pilot v4_mir_field_growth_tree = v4_parse_stream(2, v4_mir_field_growth_stream)
+pilot v4_mir_field_growth_hir = v4_hir_lower_tree(2, v4_mir_field_growth_tree)
+pilot v4_mir_field_growth_resolve = v4_resolve_lower_hir(2, v4_mir_field_growth_hir)
+pilot v4_mir_field_growth_ty = v4_ty_lower_resolve(2, v4_mir_field_growth_resolve)
+pilot v4_mir_field_growth_mir = v4_mir_lower_ty(2, v4_mir_field_growth_ty)
+pilot v4_mir_field_growth_def = v4_resolve_def_for_name(v4_mir_field_growth_resolve, "train")
+pilot v4_mir_field_growth_body = v4_mir_lookup_body(v4_mir_field_growth_mir, v4_mir_field_growth_def)
+pilot v4_mir_field_growth_stmt = v4_mir_loop_nth_loop_stmt(v4_mir_field_growth_mir, v4_mir_field_growth_body, 0)
+pilot v4_mir_field_growth_block_id = v4_mir_stmt_block(v4_mir_field_growth_mir, v4_mir_field_growth_body, v4_mir_field_growth_stmt)
+pilot v4_mir_field_growth_block = v4_mir_body_block(v4_mir_field_growth_mir, v4_mir_field_growth_body, v4_mir_field_growth_block_id)
+
+say "field-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_field_growth_mir))
+say "field-growth-block-cond=" + v4_mir_block_condition(v4_mir_field_growth_block)
+
+pilot v4_mir_bad_field_growth_source = v4_mir_loop_make_bad_field_growth_source()
+pilot v4_mir_bad_field_growth_stream = v4_lex_text(3, v4_mir_bad_field_growth_source)
+pilot v4_mir_bad_field_growth_tree = v4_parse_stream(3, v4_mir_bad_field_growth_stream)
+pilot v4_mir_bad_field_growth_hir = v4_hir_lower_tree(3, v4_mir_bad_field_growth_tree)
+pilot v4_mir_bad_field_growth_resolve = v4_resolve_lower_hir(3, v4_mir_bad_field_growth_hir)
+pilot v4_mir_bad_field_growth_ty = v4_ty_lower_resolve(3, v4_mir_bad_field_growth_resolve)
+pilot v4_mir_bad_field_growth_mir = v4_mir_lower_ty(3, v4_mir_bad_field_growth_ty)
+
+say "bad-field-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_field_growth_mir))
+say "bad-field-growth-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_field_growth_mir, 0))
+
+pilot v4_mir_arm_growth_source = v4_mir_loop_make_arm_growth_source()
+pilot v4_mir_arm_growth_stream = v4_lex_text(4, v4_mir_arm_growth_source)
+pilot v4_mir_arm_growth_tree = v4_parse_stream(4, v4_mir_arm_growth_stream)
+pilot v4_mir_arm_growth_hir = v4_hir_lower_tree(4, v4_mir_arm_growth_tree)
+pilot v4_mir_arm_growth_resolve = v4_resolve_lower_hir(4, v4_mir_arm_growth_hir)
+pilot v4_mir_arm_growth_ty = v4_ty_lower_resolve(4, v4_mir_arm_growth_resolve)
+pilot v4_mir_arm_growth_mir = v4_mir_lower_ty(4, v4_mir_arm_growth_ty)
+
+say "arm-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_arm_growth_mir))
+
+pilot v4_mir_base_growth_source = v4_mir_loop_make_base_growth_source()
+pilot v4_mir_base_growth_stream = v4_lex_text(5, v4_mir_base_growth_source)
+pilot v4_mir_base_growth_tree = v4_parse_stream(5, v4_mir_base_growth_stream)
+pilot v4_mir_base_growth_hir = v4_hir_lower_tree(5, v4_mir_base_growth_tree)
+pilot v4_mir_base_growth_resolve = v4_resolve_lower_hir(5, v4_mir_base_growth_hir)
+pilot v4_mir_base_growth_ty = v4_ty_lower_resolve(5, v4_mir_base_growth_resolve)
+pilot v4_mir_base_growth_mir = v4_mir_lower_ty(5, v4_mir_base_growth_ty)
+
+say "base-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_base_growth_mir))
+
+pilot v4_mir_expr_growth_source = v4_mir_loop_make_expr_growth_source()
+pilot v4_mir_expr_growth_stream = v4_lex_text(6, v4_mir_expr_growth_source)
+pilot v4_mir_expr_growth_tree = v4_parse_stream(6, v4_mir_expr_growth_stream)
+pilot v4_mir_expr_growth_hir = v4_hir_lower_tree(6, v4_mir_expr_growth_tree)
+pilot v4_mir_expr_growth_resolve = v4_resolve_lower_hir(6, v4_mir_expr_growth_hir)
+pilot v4_mir_expr_growth_ty = v4_ty_lower_resolve(6, v4_mir_expr_growth_resolve)
+pilot v4_mir_expr_growth_mir = v4_mir_lower_ty(6, v4_mir_expr_growth_ty)
+
+say "expr-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_expr_growth_mir))
+
+pilot v4_mir_paren_growth_source = v4_mir_loop_make_paren_growth_source()
+pilot v4_mir_paren_growth_stream = v4_lex_text(7, v4_mir_paren_growth_source)
+pilot v4_mir_paren_growth_tree = v4_parse_stream(7, v4_mir_paren_growth_stream)
+pilot v4_mir_paren_growth_hir = v4_hir_lower_tree(7, v4_mir_paren_growth_tree)
+pilot v4_mir_paren_growth_resolve = v4_resolve_lower_hir(7, v4_mir_paren_growth_hir)
+pilot v4_mir_paren_growth_ty = v4_ty_lower_resolve(7, v4_mir_paren_growth_resolve)
+pilot v4_mir_paren_growth_mir = v4_mir_lower_ty(7, v4_mir_paren_growth_ty)
+
+say "paren-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_paren_growth_mir))
+
+pilot v4_mir_prefix_growth_source = v4_mir_loop_make_prefix_growth_source()
+pilot v4_mir_prefix_growth_stream = v4_lex_text(8, v4_mir_prefix_growth_source)
+pilot v4_mir_prefix_growth_tree = v4_parse_stream(8, v4_mir_prefix_growth_stream)
+pilot v4_mir_prefix_growth_hir = v4_hir_lower_tree(8, v4_mir_prefix_growth_tree)
+pilot v4_mir_prefix_growth_resolve = v4_resolve_lower_hir(8, v4_mir_prefix_growth_hir)
+pilot v4_mir_prefix_growth_ty = v4_ty_lower_resolve(8, v4_mir_prefix_growth_resolve)
+pilot v4_mir_prefix_growth_mir = v4_mir_lower_ty(8, v4_mir_prefix_growth_ty)
+
+say "prefix-growth-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_prefix_growth_mir))

@@ -1,0 +1,90 @@
+-- V4 dyn doctrine lend-erasure rejection fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_dyn_lend_erasure_braces(content: word) -> word {
+    give back "{" + content + "}"
+}
+
+task v4_dyn_lend_erasure_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape View<'a> {\n"
+    src = src + "    view: lend 'a Ship\n"
+    src = src + "}\n"
+    src = src + "doctrine Widget {\n"
+    src = src + "    task draw(self) -> int\n"
+    src = src + "}\n"
+    src = src + "shape Box {\n"
+    src = src + "    item: dyn Widget\n"
+    src = src + "}\n"
+    src = src + "impl Widget for View<'a> {\n"
+    src = src + "    task draw(self) -> int {\n"
+    src = src + "        give back self.view.hp\n"
+    src = src + "    }\n"
+    src = src + "}\n"
+    src = src + "task erase_lend(first: Ship) -> int {\n"
+    src = src + "    pilot view = View<'_> " + v4_dyn_lend_erasure_braces(" view: lend first ") + "\n"
+    src = src + "    pilot erased: dyn Widget = view\n"
+    src = src + "    first.hp = 7\n"
+    src = src + "    give back erased.draw()\n"
+    src = src + "}\n"
+    src = src + "task accept_widget(widget: dyn Widget) -> int {\n"
+    src = src + "    give back widget.draw()\n"
+    src = src + "}\n"
+    src = src + "task erase_lend_in_shape(first: Ship) -> int {\n"
+    src = src + "    pilot view = View<'_> " + v4_dyn_lend_erasure_braces(" view: lend first ") + "\n"
+    src = src + "    pilot boxed = Box " + v4_dyn_lend_erasure_braces(" item: view ") + "\n"
+    src = src + "    first.hp = 8\n"
+    src = src + "    give back boxed.item.draw()\n"
+    src = src + "}\n"
+    src = src + "task erase_lend_in_call(first: Ship) -> int {\n"
+    src = src + "    pilot view = View<'_> " + v4_dyn_lend_erasure_braces(" view: lend first ") + "\n"
+    src = src + "    give back accept_widget(view)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_dyn_lend_erasure_has_diag(borrow_id: int, message: word) -> bool {
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message { give back true }
+        diag_id += 1
+    }
+    give back false
+}
+
+task v4_dyn_lend_erasure_mir_diag_count(mir_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        if v4_diag_message(v4_mir_diag(mir_id, diag_id)) == message { total += 1 }
+        diag_id += 1
+    }
+    give back total
+}
+
+pilot v4_dyn_lend_erasure_borrow = v4_borrowck_text_cached("dyn-doctrine-lend-erasure.fk", v4_dyn_lend_erasure_source())
+pilot v4_dyn_lend_erasure_mir = v4_borrowck_mir_id(v4_dyn_lend_erasure_borrow)
+pilot v4_dyn_lend_erasure_ty = v4_mir_ty_id(v4_dyn_lend_erasure_mir)
+pilot v4_dyn_lend_erasure_resolve = v4_ty_resolve_id(v4_dyn_lend_erasure_ty)
+pilot v4_dyn_lend_erasure_hir = v4_resolve_hir_id(v4_dyn_lend_erasure_resolve)
+pilot v4_dyn_lend_erasure_tree = v4_hir_tree_id(v4_dyn_lend_erasure_hir)
+pilot v4_dyn_lend_erasure_def = v4_resolve_def_for_name(v4_dyn_lend_erasure_resolve, "erase_lend")
+pilot v4_dyn_lend_erasure_result = v4_borrowck_lookup_result(v4_dyn_lend_erasure_borrow, v4_dyn_lend_erasure_def)
+pilot v4_dyn_lend_erasure_shape_def = v4_resolve_def_for_name(v4_dyn_lend_erasure_resolve, "erase_lend_in_shape")
+pilot v4_dyn_lend_erasure_shape_result = v4_borrowck_lookup_result(v4_dyn_lend_erasure_borrow, v4_dyn_lend_erasure_shape_def)
+pilot v4_dyn_lend_erasure_call_def = v4_resolve_def_for_name(v4_dyn_lend_erasure_resolve, "erase_lend_in_call")
+pilot v4_dyn_lend_erasure_call_result = v4_borrowck_lookup_result(v4_dyn_lend_erasure_borrow, v4_dyn_lend_erasure_call_def)
+pilot v4_dyn_lend_erasure_mir_message = "dyn doctrine erasure cannot hide stored lends"
+
+say "dyn-lend-erasure-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_dyn_lend_erasure_tree))
+say "dyn-lend-erasure-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_dyn_lend_erasure_ty))
+say "dyn-lend-erasure-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_dyn_lend_erasure_mir))
+say "dyn-lend-erasure-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_dyn_lend_erasure_borrow))
+say "dyn-lend-erasure-status=" + v4_borrowck_result_status(v4_dyn_lend_erasure_borrow, v4_dyn_lend_erasure_result)
+say "dyn-lend-erasure-mir-rejected=" + word_from_bool(v4_dyn_lend_erasure_has_diag(v4_dyn_lend_erasure_borrow, "dyn doctrine erasure cannot hide stored lends"))
+say "dyn-lend-erasure-borrow-rejected=" + word_from_bool(v4_dyn_lend_erasure_has_diag(v4_dyn_lend_erasure_borrow, "Meiya cannot erase a lend-bearing value into a dyn doctrine yet"))
+say "dyn-lend-erasure-mir-rejection-count=" + word_from_int(v4_dyn_lend_erasure_mir_diag_count(v4_dyn_lend_erasure_mir, v4_dyn_lend_erasure_mir_message))
+say "dyn-lend-erasure-shape-status=" + v4_borrowck_result_status(v4_dyn_lend_erasure_borrow, v4_dyn_lend_erasure_shape_result)
+say "dyn-lend-erasure-call-status=" + v4_borrowck_result_status(v4_dyn_lend_erasure_borrow, v4_dyn_lend_erasure_call_result)

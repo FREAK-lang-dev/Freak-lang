@@ -1,0 +1,101 @@
+-- V4 returned-loan query invalidation smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_lend_return_query_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_lend_return_query_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal {
+                give back token_id
+            }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_lend_return_query_token_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_lend_return_query_find_token(stream_id, value, ordinal)
+    if token_id < 0 {
+        give back 0 - 1
+    }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_lend_return_query_ambiguous_source() -> word {
+    pilot src = "shape Ship " + v4_lend_return_query_braces(" hp: int ") + "\n"
+    src = src + "task choose_first(lend first: Ship, lend second: Ship) -> lend Ship {\n"
+    src = src + "    give back lend first\n"
+    src = src + "}\n"
+    src = src + "task forward(lend ship: Ship) -> lend Ship {\n"
+    src = src + "    pilot view = choose_first(lend ship, lend ship)\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_lend_return_query_clean_source() -> word {
+    pilot src = "shape Ship " + v4_lend_return_query_braces(" hp: int ") + "\n"
+    src = src + "task shared_reloan(lend ship: Ship) -> lend Ship {\n"
+    src = src + "    give back lend ship\n"
+    src = src + "}\n"
+    src = src + "task forward(lend ship: Ship) -> lend Ship {\n"
+    src = src + "    pilot view = shared_reloan(lend ship)\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_lend_return_query_invalidation_positive(report: word, key: word) -> word {
+    if word_to_int(v4_unit_snapshot_key_value(report, key)) > 0 {
+        give back "true"
+    }
+    give back "false"
+}
+
+pilot v4_lend_return_query_path = "lend-return-invalidation.fk"
+pilot v4_lend_return_query_before = v4_lend_return_query_ambiguous_source()
+pilot v4_lend_return_query_before_stream = v4_lex_text(0, v4_lend_return_query_before)
+pilot v4_lend_return_query_before_view = v4_lend_return_query_token_offset(v4_lend_return_query_before_stream, "view", 1)
+v4_lsp_open_document(v4_lend_return_query_path, v4_lend_return_query_before)
+pilot v4_lend_return_query_before_borrow = v4_borrowck_text_cached(v4_lend_return_query_path, v4_lend_return_query_before)
+pilot v4_lend_return_query_before_diagnostics = v4_diagnostics_text_cached(v4_lend_return_query_path, v4_lend_return_query_before)
+pilot v4_lend_return_query_before_semantic = v4_semantic_at_text_cached(v4_lend_return_query_path, v4_lend_return_query_before, v4_lend_return_query_before_view)
+pilot v4_lend_return_query_before_hover = v4_hover_text_cached(v4_lend_return_query_path, v4_lend_return_query_before, v4_lend_return_query_before_view)
+pilot v4_lend_return_query_before_definition = v4_definition_at_text_cached(v4_lend_return_query_path, v4_lend_return_query_before, v4_lend_return_query_before_view)
+
+pilot v4_lend_return_query_before_diag_count = v4_diagnostics_count(v4_lend_return_query_before_diagnostics)
+say "lend-return-query-before-diagnostics=" + word_from_int(v4_lend_return_query_before_diag_count)
+if v4_lend_return_query_before_diag_count > 0 {
+    say "lend-return-query-before-message=" + v4_diag_message(v4_diagnostics_diag(v4_lend_return_query_before_diagnostics, 0))
+} else {
+    say "lend-return-query-before-message=none"
+}
+say "lend-return-query-before-semantic=" + v4_semantic_at_type(v4_lend_return_query_before_semantic)
+say "lend-return-query-before-hover=" + v4_hover_type(v4_lend_return_query_before_hover)
+say "lend-return-query-before-definition=" + word_from_int(v4_definition_at_found(v4_lend_return_query_before_definition))
+
+pilot v4_lend_return_query_after = v4_lend_return_query_clean_source()
+pilot v4_lend_return_query_change_response = v4_lsp_handle_text_request("textDocument/didChange", v4_lend_return_query_path, v4_lend_return_query_after, 0)
+say v4_lend_return_query_change_response
+pilot v4_lend_return_query_report = v4_unit_snapshot_line(v4_lend_return_query_change_response, 2)
+say "lend-return-query-borrowck-invalidated=" + v4_lend_return_query_invalidation_positive(v4_lend_return_query_report, "borrowck-invalidations-added")
+say "lend-return-query-diagnostics-invalidated=" + v4_lend_return_query_invalidation_positive(v4_lend_return_query_report, "diagnostics-invalidations-added")
+say "lend-return-query-semantic-invalidated=" + v4_lend_return_query_invalidation_positive(v4_lend_return_query_report, "semantic-at-invalidations-added")
+say "lend-return-query-hover-invalidated=" + v4_lend_return_query_invalidation_positive(v4_lend_return_query_report, "hover-invalidations-added")
+say "lend-return-query-definition-invalidated=" + v4_lend_return_query_invalidation_positive(v4_lend_return_query_report, "definition-at-invalidations-added")
+
+pilot v4_lend_return_query_after_stream = v4_lex_text(1, v4_lend_return_query_after)
+pilot v4_lend_return_query_after_view = v4_lend_return_query_token_offset(v4_lend_return_query_after_stream, "view", 1)
+pilot v4_lend_return_query_after_diagnostics = v4_diagnostics_text_cached(v4_lend_return_query_path, v4_lend_return_query_after)
+pilot v4_lend_return_query_after_semantic = v4_semantic_at_text_cached(v4_lend_return_query_path, v4_lend_return_query_after, v4_lend_return_query_after_view)
+say "lend-return-query-after-diagnostics=" + word_from_int(v4_diagnostics_count(v4_lend_return_query_after_diagnostics))
+say "lend-return-query-after-semantic=" + v4_semantic_at_type(v4_lend_return_query_after_semantic)
+say v4_lsp_diagnostics_text(v4_lend_return_query_path, v4_lend_return_query_after)

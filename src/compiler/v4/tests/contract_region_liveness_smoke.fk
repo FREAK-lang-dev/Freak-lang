@@ -1,0 +1,221 @@
+-- V4 contract-region multi-source ordinary-call liveness fixture.
+-- Verification prepends the V4 crates before this file.
+-- One cached borrowck request owns the only compiler pipeline in this executable.
+
+task v4_contract_region_liveness_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "task choose<'a>(lend 'a first: Ship, lend 'a second: Ship, use_second: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot view = lend first\n"
+    src = src + "    if use_second {\n"
+    src = src + "        view = lend second\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task forward<'a>(lend 'a first: Ship, lend 'a second: Ship, use_second: bool) -> lend 'a Ship {\n"
+    src = src + "    give back choose(lend first, lend second, use_second)\n"
+    src = src + "}\n"
+    src = src + "task move_first_before(first: Ship, second: Ship, use_second: bool) -> int {\n"
+    src = src + "    pilot view = choose(lend first, lend second, use_second)\n"
+    src = src + "    pilot moved = first\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task move_second_before(first: Ship, second: Ship, use_second: bool) -> int {\n"
+    src = src + "    pilot view = choose(lend first, lend second, use_second)\n"
+    src = src + "    pilot moved = second\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task move_unrelated_before(first: Ship, second: Ship, unrelated: Ship, use_second: bool) -> int {\n"
+    src = src + "    pilot view = choose(lend first, lend second, use_second)\n"
+    src = src + "    pilot moved = unrelated\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    src = src + "task move_first_after(first: Ship, second: Ship, use_second: bool) -> int {\n"
+    src = src + "    pilot view = choose(lend first, lend second, use_second)\n"
+    src = src + "    pilot hp = view.hp\n"
+    src = src + "    pilot moved = first\n"
+    src = src + "    give back hp\n"
+    src = src + "}\n"
+    src = src + "task move_second_after(first: Ship, second: Ship, use_second: bool) -> int {\n"
+    src = src + "    pilot view = choose(lend first, lend second, use_second)\n"
+    src = src + "    pilot hp = view.hp\n"
+    src = src + "    pilot moved = second\n"
+    src = src + "    give back hp\n"
+    src = src + "}\n"
+    src = src + "task nested_move_second_before(first: Ship, second: Ship, use_second: bool) -> int {\n"
+    src = src + "    pilot view = forward(lend first, lend second, use_second)\n"
+    src = src + "    pilot moved = second\n"
+    src = src + "    give back view.hp\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_contract_region_liveness_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_contract_region_liveness_return_path_at(borrow_id: int, result_id: int, wanted: int) -> int {
+    pilot seen = 0
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_return_loan {
+            if seen == wanted {
+                give back path_id
+            }
+            seen += 1
+        }
+        path_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_contract_region_liveness_find_call(mir_id: int, body_id: int) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+        if rvalue_id >= 0 {
+            if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_call {
+                give back rvalue_id
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_contract_region_liveness_find_local_init(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_local {
+            pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+            if place_id >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
+                if v4_mir_place_text(mir_id, body_id, place_id) == local_name {
+                    give back stmt_id
+                }
+            }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_contract_region_liveness_diag_count(borrow_id: int, message: word) -> int {
+    pilot total = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)) == message {
+            total += 1
+        }
+        diag_id += 1
+    }
+    give back total
+}
+
+pilot v4_contract_region_liveness_path = "contract-region-liveness.fk"
+pilot v4_contract_region_liveness_borrow = v4_borrowck_text_cached(v4_contract_region_liveness_path, v4_contract_region_liveness_source())
+pilot v4_contract_region_liveness_mir = v4_borrowck_mir_id(v4_contract_region_liveness_borrow)
+pilot v4_contract_region_liveness_ty = v4_mir_ty_id(v4_contract_region_liveness_mir)
+pilot v4_contract_region_liveness_resolve = v4_ty_resolve_id(v4_contract_region_liveness_ty)
+
+pilot v4_contract_region_liveness_choose_def = v4_resolve_def_for_name(v4_contract_region_liveness_resolve, "choose")
+pilot v4_contract_region_liveness_forward_def = v4_resolve_def_for_name(v4_contract_region_liveness_resolve, "forward")
+pilot v4_contract_region_liveness_first_before_def = v4_resolve_def_for_name(v4_contract_region_liveness_resolve, "move_first_before")
+pilot v4_contract_region_liveness_second_before_def = v4_resolve_def_for_name(v4_contract_region_liveness_resolve, "move_second_before")
+pilot v4_contract_region_liveness_unrelated_before_def = v4_resolve_def_for_name(v4_contract_region_liveness_resolve, "move_unrelated_before")
+pilot v4_contract_region_liveness_first_after_def = v4_resolve_def_for_name(v4_contract_region_liveness_resolve, "move_first_after")
+pilot v4_contract_region_liveness_second_after_def = v4_resolve_def_for_name(v4_contract_region_liveness_resolve, "move_second_after")
+pilot v4_contract_region_liveness_nested_before_def = v4_resolve_def_for_name(v4_contract_region_liveness_resolve, "nested_move_second_before")
+
+pilot v4_contract_region_liveness_choose_sig = v4_ty_lookup_signature(v4_contract_region_liveness_ty, v4_contract_region_liveness_choose_def)
+pilot v4_contract_region_liveness_choose_result = v4_borrowck_lookup_result(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_def)
+pilot v4_contract_region_liveness_forward_result = v4_borrowck_lookup_result(v4_contract_region_liveness_borrow, v4_contract_region_liveness_forward_def)
+pilot v4_contract_region_liveness_first_before_result = v4_borrowck_lookup_result(v4_contract_region_liveness_borrow, v4_contract_region_liveness_first_before_def)
+pilot v4_contract_region_liveness_second_before_result = v4_borrowck_lookup_result(v4_contract_region_liveness_borrow, v4_contract_region_liveness_second_before_def)
+pilot v4_contract_region_liveness_unrelated_before_result = v4_borrowck_lookup_result(v4_contract_region_liveness_borrow, v4_contract_region_liveness_unrelated_before_def)
+pilot v4_contract_region_liveness_first_after_result = v4_borrowck_lookup_result(v4_contract_region_liveness_borrow, v4_contract_region_liveness_first_after_def)
+pilot v4_contract_region_liveness_second_after_result = v4_borrowck_lookup_result(v4_contract_region_liveness_borrow, v4_contract_region_liveness_second_after_def)
+pilot v4_contract_region_liveness_nested_before_result = v4_borrowck_lookup_result(v4_contract_region_liveness_borrow, v4_contract_region_liveness_nested_before_def)
+
+pilot v4_contract_region_liveness_first_before_body = v4_mir_lookup_body(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_def)
+pilot v4_contract_region_liveness_first_before_call = v4_contract_region_liveness_find_call(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body)
+pilot v4_contract_region_liveness_call_source0 = v4_mir_rvalue_call_borrowed_source_arg_at(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body, v4_contract_region_liveness_first_before_call, 0)
+pilot v4_contract_region_liveness_call_source1 = v4_mir_rvalue_call_borrowed_source_arg_at(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body, v4_contract_region_liveness_first_before_call, 1)
+pilot v4_contract_region_liveness_first_after_body = v4_mir_lookup_body(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_after_def)
+pilot v4_contract_region_liveness_hp_stmt = v4_contract_region_liveness_find_local_init(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_after_body, "hp")
+pilot v4_contract_region_liveness_hp_rvalue = v4_mir_stmt_rvalue(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_after_body, v4_contract_region_liveness_hp_stmt)
+
+pilot v4_contract_region_liveness_choose_path0 = v4_contract_region_liveness_return_path_at(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_result, 0)
+pilot v4_contract_region_liveness_choose_path1 = v4_contract_region_liveness_return_path_at(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_result, 1)
+pilot v4_contract_region_liveness_forward_path0 = v4_contract_region_liveness_return_path_at(v4_contract_region_liveness_borrow, v4_contract_region_liveness_forward_result, 0)
+pilot v4_contract_region_liveness_forward_path1 = v4_contract_region_liveness_return_path_at(v4_contract_region_liveness_borrow, v4_contract_region_liveness_forward_result, 1)
+pilot v4_contract_region_liveness_choose_source0 = v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_result, v4_contract_region_liveness_choose_path0)
+pilot v4_contract_region_liveness_choose_source1 = v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_result, v4_contract_region_liveness_choose_path1)
+pilot v4_contract_region_liveness_forward_source0 = v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_forward_result, v4_contract_region_liveness_forward_path0)
+pilot v4_contract_region_liveness_forward_source1 = v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_forward_result, v4_contract_region_liveness_forward_path1)
+
+say "contract-region-liveness-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_contract_region_liveness_ty))
+say "contract-region-liveness-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_contract_region_liveness_mir))
+say "contract-region-liveness-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_contract_region_liveness_borrow))
+say "contract-region-liveness-move-conflict-diagnostics=" + word_from_int(v4_contract_region_liveness_diag_count(v4_contract_region_liveness_borrow, "Meiya refuses this move while the value is borrowed"))
+say "contract-region-liveness-signature-source-count=" + word_from_int(v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_liveness_ty, v4_contract_region_liveness_choose_sig))
+say "contract-region-liveness-ordinary-call-source-count=" + word_from_int(v4_mir_rvalue_call_borrowed_source_arg_count(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body, v4_contract_region_liveness_first_before_call))
+say "contract-region-liveness-ordinary-call-source0=" + v4_mir_rvalue_text(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body, v4_contract_region_liveness_call_source0)
+say "contract-region-liveness-ordinary-call-source1=" + v4_mir_rvalue_text(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_before_body, v4_contract_region_liveness_call_source1)
+say "contract-region-liveness-copied-projection-type=" + v4_mir_rvalue_ty(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_after_body, v4_contract_region_liveness_hp_rvalue)
+say "contract-region-liveness-copied-projection-not-loan-alias=" + v4_contract_region_liveness_bool(v4_borrowck_holder_alias_from_stmt(v4_contract_region_liveness_mir, v4_contract_region_liveness_first_after_body, v4_contract_region_liveness_hp_stmt, "view") == "")
+say "contract-region-liveness-choose-status=" + v4_borrowck_result_status(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_result)
+say "contract-region-liveness-forward-status=" + v4_borrowck_result_status(v4_contract_region_liveness_borrow, v4_contract_region_liveness_forward_result)
+say "contract-region-liveness-first-before-status=" + v4_borrowck_result_status(v4_contract_region_liveness_borrow, v4_contract_region_liveness_first_before_result)
+say "contract-region-liveness-second-before-status=" + v4_borrowck_result_status(v4_contract_region_liveness_borrow, v4_contract_region_liveness_second_before_result)
+say "contract-region-liveness-unrelated-before-status=" + v4_borrowck_result_status(v4_contract_region_liveness_borrow, v4_contract_region_liveness_unrelated_before_result)
+say "contract-region-liveness-first-after-status=" + v4_borrowck_result_status(v4_contract_region_liveness_borrow, v4_contract_region_liveness_first_after_result)
+say "contract-region-liveness-second-after-status=" + v4_borrowck_result_status(v4_contract_region_liveness_borrow, v4_contract_region_liveness_second_after_result)
+say "contract-region-liveness-nested-second-before-status=" + v4_borrowck_result_status(v4_contract_region_liveness_borrow, v4_contract_region_liveness_nested_before_result)
+say "contract-region-liveness-choose-return-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_result, v4_borrowck_path_return_loan))
+say "contract-region-liveness-choose-return-source0=" + v4_contract_region_liveness_choose_source0
+say "contract-region-liveness-choose-return-source1=" + v4_contract_region_liveness_choose_source1
+say "contract-region-liveness-forward-return-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_liveness_borrow, v4_contract_region_liveness_forward_result, v4_borrowck_path_return_loan))
+say "contract-region-liveness-forward-return-source0=" + v4_contract_region_liveness_forward_source0
+say "contract-region-liveness-forward-return-source1=" + v4_contract_region_liveness_forward_source1
+
+pilot v4_contract_region_liveness_empty_provenance = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+pilot v4_contract_region_liveness_empty_union = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
+v4_borrowck_provenance_union_into(v4_contract_region_liveness_empty_union, v4_contract_region_liveness_empty_provenance)
+say "contract-region-liveness-empty-union-state=" + v4_borrowck_provenance_state(v4_contract_region_liveness_empty_union)
+say "contract-region-liveness-empty-union-count=" + word_from_int(v4_borrowck_provenance_count(v4_contract_region_liveness_empty_union))
+say "contract-region-liveness-empty-union-known-empty=" + v4_contract_region_liveness_bool(v4_borrowck_provenance_is_known_empty(v4_contract_region_liveness_empty_union))
+pilot v4_contract_region_liveness_opaque_provenance = v4_borrowck_provenance_new(v4_borrowck_provenance_opaque)
+say "contract-region-liveness-opaque-overlaps-any-owner=" + v4_contract_region_liveness_bool(v4_borrowck_provenance_overlaps_path(v4_contract_region_liveness_opaque_provenance, "unrelated.owner"))
+
+pilot v4_contract_region_liveness_snapshot = v4_borrowck_snapshot()
+pilot v4_contract_region_liveness_restored_choose_result = 0 - 1
+pilot v4_contract_region_liveness_restored_forward_result = 0 - 1
+pilot v4_contract_region_liveness_restored_choose_path0 = 0 - 1
+pilot v4_contract_region_liveness_restored_choose_path1 = 0 - 1
+pilot v4_contract_region_liveness_restored_forward_path0 = 0 - 1
+pilot v4_contract_region_liveness_restored_forward_path1 = 0 - 1
+say "contract-region-liveness-snapshot-format=" + v4_borrowck_snapshot_key_value(v4_borrowck_snapshot_line(v4_contract_region_liveness_snapshot, 0), "format")
+say v4_borrowck_snapshot_validate(v4_contract_region_liveness_snapshot)
+array_set(v4_borrowck_result_path_texts_handle(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_result), v4_contract_region_liveness_choose_path0, "poisoned.choose")
+array_set(v4_borrowck_result_path_texts_handle(v4_contract_region_liveness_borrow, v4_contract_region_liveness_forward_result), v4_contract_region_liveness_forward_path1, "poisoned.forward")
+say "contract-region-liveness-snapshot-poisoned-before-restore=" + v4_contract_region_liveness_bool(v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_result, v4_contract_region_liveness_choose_path0) == "poisoned.choose" and v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_forward_result, v4_contract_region_liveness_forward_path1) == "poisoned.forward")
+say v4_borrowck_snapshot_restore(v4_contract_region_liveness_snapshot)
+
+v4_contract_region_liveness_restored_choose_result = v4_borrowck_lookup_result(v4_contract_region_liveness_borrow, v4_contract_region_liveness_choose_def)
+v4_contract_region_liveness_restored_forward_result = v4_borrowck_lookup_result(v4_contract_region_liveness_borrow, v4_contract_region_liveness_forward_def)
+v4_contract_region_liveness_restored_choose_path0 = v4_contract_region_liveness_return_path_at(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_choose_result, 0)
+v4_contract_region_liveness_restored_choose_path1 = v4_contract_region_liveness_return_path_at(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_choose_result, 1)
+v4_contract_region_liveness_restored_forward_path0 = v4_contract_region_liveness_return_path_at(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_forward_result, 0)
+v4_contract_region_liveness_restored_forward_path1 = v4_contract_region_liveness_return_path_at(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_forward_result, 1)
+say "contract-region-liveness-restored-choose-return-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_choose_result, v4_borrowck_path_return_loan))
+say "contract-region-liveness-restored-choose-return-source0=" + v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_choose_result, v4_contract_region_liveness_restored_choose_path0)
+say "contract-region-liveness-restored-choose-return-source1=" + v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_choose_result, v4_contract_region_liveness_restored_choose_path1)
+say "contract-region-liveness-restored-forward-return-source-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_forward_result, v4_borrowck_path_return_loan))
+say "contract-region-liveness-restored-forward-return-source0=" + v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_forward_result, v4_contract_region_liveness_restored_forward_path0)
+say "contract-region-liveness-restored-forward-return-source1=" + v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_forward_result, v4_contract_region_liveness_restored_forward_path1)
+say "contract-region-liveness-restored-choose-order-stable=" + v4_contract_region_liveness_bool(v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_choose_result, v4_contract_region_liveness_restored_choose_path0) == v4_contract_region_liveness_choose_source0)
+say "contract-region-liveness-restored-forward-order-stable=" + v4_contract_region_liveness_bool(v4_borrowck_path_text(v4_contract_region_liveness_borrow, v4_contract_region_liveness_restored_forward_result, v4_contract_region_liveness_restored_forward_path1) == v4_contract_region_liveness_forward_source1)

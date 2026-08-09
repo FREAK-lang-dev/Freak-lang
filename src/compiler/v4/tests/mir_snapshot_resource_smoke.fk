@@ -1,0 +1,127 @@
+-- V4 MIR snapshot scratch-handle resource smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_snapshot_resource_source() -> word {
+    pilot src = "task helper(value: int) -> int {\n"
+    src = src + "    pilot next = value + 1\n"
+    src = src + "    give back next\n"
+    src = src + "}\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    pilot answer = helper(41)\n"
+    src = src + "    give back answer\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_mir_snapshot_resource_array_probe() -> bool {
+    pilot probe = array_new()
+    array_push(probe, "alive")
+    pilot probe_ok = array_len(probe) == 1
+    array_release(probe)
+    give back probe_ok
+}
+
+task v4_mir_snapshot_resource_available_handles() -> int {
+    pilot handles = array_new()
+    pilot available = 0
+    pilot exhausted = false
+    repeat until exhausted or available >= 2048 {
+        pilot candidate = array_new()
+        array_push(candidate, "alive")
+        if array_len(candidate) != 1 {
+            exhausted = true
+        } else {
+            array_push(handles, word_from_int(candidate))
+            available += 1
+        }
+    }
+
+    pilot handle_id = 0
+    repeat until handle_id >= array_len(handles) {
+        array_release(word_to_int(array_get(handles, handle_id)))
+        handle_id += 1
+    }
+    array_release(handles)
+    give back available
+}
+
+task v4_mir_snapshot_resource_cycle_rvalue(line: word) -> word {
+    pilot parts = array_new()
+    pilot rvalue_id = v4_mir_snapshot_field_raw(line, 3)
+    array_push(parts, "mir-rvalue|")
+    array_push(parts, v4_mir_snapshot_field_raw(line, 1))
+    array_push(parts, "|")
+    array_push(parts, v4_mir_snapshot_field_raw(line, 2))
+    array_push(parts, "|")
+    array_push(parts, rvalue_id)
+    array_push(parts, "|")
+    array_push(parts, v4_mir_snapshot_escape(v4_mir_rvalue_tuple))
+    array_push(parts, "|")
+    array_push(parts, v4_mir_snapshot_field_raw(line, 5))
+    array_push(parts, "|")
+    array_push(parts, v4_mir_snapshot_field_raw(line, 6))
+    array_push(parts, "|-1|-1|")
+    array_push(parts, v4_mir_snapshot_field_raw(line, 9))
+    array_push(parts, "|")
+    array_push(parts, v4_mir_snapshot_field_raw(line, 10))
+    array_push(parts, "|")
+    array_push(parts, v4_mir_snapshot_field_raw(line, 11))
+    array_push(parts, "|")
+    array_push(parts, v4_mir_snapshot_escape(rvalue_id))
+    array_push(parts, "|")
+    array_push(parts, v4_mir_snapshot_field_raw(line, 13))
+    give back word_join(parts)
+}
+
+task v4_mir_snapshot_resource_cycle_payload(payload: word) -> word {
+    pilot parts = array_new()
+    pilot replaced = false
+    pilot line_id = 0
+    pilot line_count = v4_mir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_mir_snapshot_line(payload, line_id)
+        if not replaced and v4_mir_snapshot_field_raw(line, 0) == "mir-rvalue" {
+            line = v4_mir_snapshot_resource_cycle_rvalue(line)
+            replaced = true
+        }
+        if line_id > 0 { array_push(parts, "\n") }
+        array_push(parts, line)
+        line_id += 1
+    }
+    give back word_join(parts)
+}
+
+pilot v4_mir_snapshot_resource_mir = v4_mir_text_cached("mir-snapshot-resource.fk", v4_mir_snapshot_resource_source())
+pilot v4_mir_snapshot_resource_payload = v4_mir_snapshot()
+pilot v4_mir_snapshot_resource_cycle = v4_mir_snapshot_resource_cycle_payload(v4_mir_snapshot_resource_payload)
+pilot v4_mir_snapshot_resource_capacity_before = v4_mir_snapshot_resource_available_handles()
+pilot v4_mir_snapshot_resource_iterations = 0
+pilot v4_mir_snapshot_resource_valid = true
+repeat until v4_mir_snapshot_resource_iterations >= 64 {
+    pilot v4_mir_snapshot_resource_validation = v4_mir_snapshot_validate(v4_mir_snapshot_resource_payload)
+    if not v4_mir_snapshot_resource_validation.starts_with("mir-snapshot-import ok=1") {
+        v4_mir_snapshot_resource_valid = false
+    }
+    v4_mir_snapshot_resource_iterations += 1
+}
+
+pilot v4_mir_snapshot_resource_cycle_iterations = 0
+pilot v4_mir_snapshot_resource_cycles_rejected = true
+repeat until v4_mir_snapshot_resource_cycle_iterations >= 64 {
+    pilot v4_mir_snapshot_resource_cycle_validation = v4_mir_snapshot_validate(v4_mir_snapshot_resource_cycle)
+    if not v4_mir_snapshot_resource_cycle_validation.starts_with("mir-snapshot-import ok=0") {
+        v4_mir_snapshot_resource_cycles_rejected = false
+    }
+    v4_mir_snapshot_resource_cycle_iterations += 1
+}
+
+pilot v4_mir_snapshot_resource_probe_ok = v4_mir_snapshot_resource_array_probe()
+pilot v4_mir_snapshot_resource_capacity_after = v4_mir_snapshot_resource_available_handles()
+
+say "mir-snapshot-resource-iterations=" + word_from_int(v4_mir_snapshot_resource_iterations)
+say "mir-snapshot-resource-valid=" + word_from_bool(v4_mir_snapshot_resource_valid)
+say "mir-snapshot-resource-cycle-iterations=" + word_from_int(v4_mir_snapshot_resource_cycle_iterations)
+say "mir-snapshot-resource-cycles-rejected=" + word_from_bool(v4_mir_snapshot_resource_cycles_rejected)
+say "mir-snapshot-resource-array-probe=" + word_from_bool(v4_mir_snapshot_resource_probe_ok)
+say "mir-snapshot-resource-handle-capacity-bounded=" + word_from_bool(v4_mir_snapshot_resource_capacity_before > 0 and v4_mir_snapshot_resource_capacity_before < 2048)
+say "mir-snapshot-resource-handle-capacity-stable=" + word_from_bool(v4_mir_snapshot_resource_capacity_after == v4_mir_snapshot_resource_capacity_before)

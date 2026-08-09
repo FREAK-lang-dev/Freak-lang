@@ -1,6 +1,31 @@
 -- V4 Meiya borrow-check arena snapshot smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+task v4_borrowck_snapshot_path_index_by_kind(borrow_id: int, result_id: int, wanted_kind: word) -> int {
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == wanted_kind {
+            give back path_id
+        }
+        path_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_borrowck_snapshot_dropif_source() -> word {
+    pilot src = "task consume(value: word) -> int {\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task maybe_drop(ready: bool) -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    if ready {\n"
+    src = src + "        consume(x)\n"
+    src = src + "    }\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    give back src
+}
+
 pilot v4_borrowck_snapshot_source = "task main() -> int {\n"
 v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    pilot x = 40\n"
 v4_borrowck_snapshot_source = v4_borrowck_snapshot_source + "    pilot y = x + 2\n"
@@ -25,6 +50,21 @@ pilot v4_borrowck_snapshot_result = v4_borrowck_lookup_result(v4_borrowck_snapsh
 say v4_borrowck_summary(v4_borrowck_snapshot_id)
 say v4_borrowck_snapshot_summary()
 
+pilot v4_borrowck_snapshot_dropif_text = v4_borrowck_snapshot_dropif_source()
+pilot v4_borrowck_snapshot_dropif_stream = v4_lex_text(77, v4_borrowck_snapshot_dropif_text)
+pilot v4_borrowck_snapshot_dropif_tree = v4_parse_stream(77, v4_borrowck_snapshot_dropif_stream)
+pilot v4_borrowck_snapshot_dropif_hir = v4_hir_lower_tree(77, v4_borrowck_snapshot_dropif_tree)
+pilot v4_borrowck_snapshot_dropif_resolve = v4_resolve_lower_hir(77, v4_borrowck_snapshot_dropif_hir)
+pilot v4_borrowck_snapshot_dropif_ty = v4_ty_lower_resolve(77, v4_borrowck_snapshot_dropif_resolve)
+pilot v4_borrowck_snapshot_dropif_mir = v4_mir_lower_ty(77, v4_borrowck_snapshot_dropif_ty)
+pilot v4_borrowck_snapshot_dropif_check = v4_borrowck_check_mir(77, v4_borrowck_snapshot_dropif_mir)
+pilot v4_borrowck_snapshot_dropif_def = v4_resolve_def_for_name(v4_borrowck_snapshot_dropif_resolve, "maybe_drop")
+pilot v4_borrowck_snapshot_dropif_result = v4_borrowck_lookup_result(v4_borrowck_snapshot_dropif_check, v4_borrowck_snapshot_dropif_def)
+pilot v4_borrowck_snapshot_dropif_path = v4_borrowck_snapshot_path_index_by_kind(v4_borrowck_snapshot_dropif_check, v4_borrowck_snapshot_dropif_result, v4_borrowck_path_drop_if)
+say "borrowck-snapshot-dropif-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrowck_snapshot_dropif_check, v4_borrowck_snapshot_dropif_result, v4_borrowck_path_drop_if))
+say "borrowck-snapshot-dropif-kind=" + v4_borrowck_path_kind(v4_borrowck_snapshot_dropif_check, v4_borrowck_snapshot_dropif_result, v4_borrowck_snapshot_dropif_path)
+say "borrowck-snapshot-dropif-text=" + v4_borrowck_path_text(v4_borrowck_snapshot_dropif_check, v4_borrowck_snapshot_dropif_result, v4_borrowck_snapshot_dropif_path)
+
 pilot v4_borrowck_snapshot_payload = v4_borrowck_snapshot()
 say v4_borrowck_snapshot_validate(v4_borrowck_snapshot_payload)
 say "borrowck-snapshot-bytes=" + word_from_int(v4_borrowck_snapshot_payload.length())
@@ -34,12 +74,18 @@ say v4_borrowck_snapshot_file_line(v4_borrowck_snapshot_id)
 say v4_borrowck_snapshot_result_line(v4_borrowck_snapshot_id, v4_borrowck_snapshot_result)
 say v4_borrowck_snapshot_path_line(v4_borrowck_snapshot_id, v4_borrowck_snapshot_result, 0)
 say v4_borrowck_snapshot_diag_line(v4_borrowck_snapshot_id, 0)
+say "borrowck-snapshot-dropif-line=" + v4_borrowck_snapshot_path_line(v4_borrowck_snapshot_dropif_check, v4_borrowck_snapshot_dropif_result, v4_borrowck_snapshot_dropif_path)
 say v4_parse_snapshot_restore(v4_parse_snapshot())
 say v4_hir_snapshot_restore(v4_hir_snapshot())
 say v4_resolve_snapshot_restore(v4_resolve_snapshot())
 say v4_ty_snapshot_restore(v4_ty_snapshot())
 say v4_mir_snapshot_restore(v4_mir_snapshot())
 say v4_borrowck_snapshot_restore(v4_borrowck_snapshot_payload)
+pilot v4_borrowck_restored_dropif_result = v4_borrowck_lookup_result(v4_borrowck_snapshot_dropif_check, v4_borrowck_snapshot_dropif_def)
+pilot v4_borrowck_restored_dropif_path = v4_borrowck_snapshot_path_index_by_kind(v4_borrowck_snapshot_dropif_check, v4_borrowck_restored_dropif_result, v4_borrowck_path_drop_if)
+say "restored-dropif-count=" + word_from_int(v4_borrowck_path_count_by_kind(v4_borrowck_snapshot_dropif_check, v4_borrowck_restored_dropif_result, v4_borrowck_path_drop_if))
+say "restored-dropif-kind=" + v4_borrowck_path_kind(v4_borrowck_snapshot_dropif_check, v4_borrowck_restored_dropif_result, v4_borrowck_restored_dropif_path)
+say "restored-dropif-text=" + v4_borrowck_path_text(v4_borrowck_snapshot_dropif_check, v4_borrowck_restored_dropif_result, v4_borrowck_restored_dropif_path)
 say v4_lsp_borrowck_snapshot_text()
 say v4_lsp_borrowck_snapshot_restore_text(v4_borrowck_snapshot_payload)
 say v4_lsp_handle_text_request("workspace/borrowckSnapshotRestore", "borrowck-snapshot.fk", v4_borrowck_snapshot_payload, 0)
