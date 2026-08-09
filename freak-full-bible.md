@@ -2124,7 +2124,23 @@ deus_ex_machina / declare was / prob when
 fixed pilot / launch(package) / launch(universe)
 ```
 
-### 8.3 Special Lexer Notes
+### 8.3 Keyword Casing
+
+Ordinary keyword vocabulary uses exact lowercase spellings. Compiler token
+streams expose those lowercase values as keywords; noncanonical forms such as
+`Task`, `TASK`, and `ShApE` remain identifiers and therefore receive parser
+recovery diagnostics when used in keyword-required positions. This boundary
+preserves intentional identifiers such as `Pilot`, `Some`, and `SOME` instead
+of rewriting their spelling.
+
+The multi-word anime operators `PLUS ULTRA` and `FINAL FORM` are matched
+case-insensitively but expose their canonical uppercase token values. The
+single-word anime operators `NAKAMA` and `TSUNDERE` are intentional
+uppercase-only vocabulary; mixed- or lowercase variants are identifiers.
+Implementations must enumerate those case-sensitive words before ordinary
+keyword classification instead of accidentally lowercasing them.
+
+### 8.4 Special Lexer Notes
 
 - `--` starts a line comment, skip to end of line
 - `done` closes blocks (synonym for `}`)
