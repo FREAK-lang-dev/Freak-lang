@@ -389,11 +389,7 @@ that carrier, including through its compatibility tree entrypoint. The public
 defining competing types. This bootstrap does not define user macros, attribute
 rewriting, hygiene, gensyms, or execution hooks, and preserves all existing
 frontend semantics.
-ExpandedFile arena records an expansion id, source file, forwarded parse tree,
-and deterministic `identity:fileN:treeN` provenance. HIR always lowers that
-carrier, including through its compatibility tree entrypoint. This bootstrap
-does not define user macros, attribute rewriting, hygiene, gensyms, execution
-hooks, or a public macro API; it preserves all existing frontend semantics.
+
 ### Keyword Casing Contract
 
 `freak_lex` owns keyword classification. Ordinary keyword words use their exact
