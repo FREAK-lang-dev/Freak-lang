@@ -129,9 +129,9 @@ task v4_contract_region_loop_fail_closed_run_all() -> int {
     pilot dependency_first = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
     pilot dependency_second = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
     pilot dependency_third = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
-    pilot dependency_first_memo = v4_borrowck_provenance_memo_add(0, 0, 0, 0, dependency_first)
-    pilot dependency_second_memo = v4_borrowck_provenance_memo_add(0, 0, 1, 1, dependency_second)
-    pilot dependency_third_memo = v4_borrowck_provenance_memo_add(0, 0, 2, 2, dependency_third)
+    pilot dependency_first_memo = v4_borrowck_provenance_memo_add(0, 0, 0, 0, "", dependency_first)
+    pilot dependency_second_memo = v4_borrowck_provenance_memo_add(0, 0, 1, 1, "", dependency_second)
+    pilot dependency_third_memo = v4_borrowck_provenance_memo_add(0, 0, 2, 2, "", dependency_third)
     v4_borrowck_provenance_dependency_add(dependency_first_memo, dependency_second_memo)
     v4_borrowck_provenance_dependency_add(dependency_first_memo, dependency_third_memo)
     v4_contract_region_loop_fail_closed_dependency_resource_exhausted = v4_borrowck_provenance_resource_exhausted_value
@@ -143,8 +143,8 @@ task v4_contract_region_loop_fail_closed_run_all() -> int {
     v4_borrowck_provenance_work_item_limit_value = 1
     pilot work_first = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
     pilot work_second = v4_borrowck_provenance_new(v4_borrowck_provenance_known)
-    v4_borrowck_provenance_memo_add(0, 0, 0, 0, work_first)
-    v4_borrowck_provenance_memo_add(0, 0, 1, 1, work_second)
+    v4_borrowck_provenance_memo_add(0, 0, 0, 0, "", work_first)
+    v4_borrowck_provenance_memo_add(0, 0, 1, 1, "", work_second)
     v4_borrowck_provenance_run_fixed_point_phase(3)
     v4_contract_region_loop_fail_closed_work_resource_exhausted = v4_borrowck_provenance_resource_exhausted_value
     v4_contract_region_loop_fail_closed_work_queue_bounded = v4_borrowck_provenance_worklist_active <= v4_borrowck_provenance_work_item_limit()

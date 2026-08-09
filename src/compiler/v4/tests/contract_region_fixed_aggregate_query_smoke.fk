@@ -1,0 +1,236 @@
+-- V4 fixed-layout aggregate loan query, editor, invalidation, and restore fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_fixed_aggregate_query_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_fixed_aggregate_query_source(selector: word) -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Pair<A,B> {\n"
+    src = src + "    left: A\n"
+    src = src + "    rght: B\n"
+    src = src + "}\n"
+    src = src + "task observe(first: Ship, second: Ship) -> int {\n"
+    src = src + "    pilot views = Pair<lend mut Ship,lend mut Ship> " + v4_fixed_aggregate_query_braces(" rght: lend mut second, left: lend mut first ") + "\n"
+    src = src + "    first.hp = 7\n"
+    src = src + "    pilot final_use = views." + selector + ".hp\n"
+    src = src + "    give back final_use\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_fixed_aggregate_query_find_token(stream_id: int, value: word, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token_id = 0
+    repeat until token_id >= v4_lex_token_count(stream_id) {
+        if v4_lex_token_value(stream_id, token_id) == value {
+            if seen == ordinal { give back token_id }
+            seen += 1
+        }
+        token_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_fixed_aggregate_query_offset(stream_id: int, value: word, ordinal: int) -> int {
+    pilot token_id = v4_fixed_aggregate_query_find_token(stream_id, value, ordinal)
+    if token_id < 0 { give back 0 - 1 }
+    give back v4_span_start(v4_lex_token_span(stream_id, token_id))
+}
+
+task v4_fixed_aggregate_query_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_fixed_aggregate_query_report_positive(report: word) -> bool {
+    if word_to_int(v4_unit_snapshot_key_value(report, "query-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "core-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "syntax-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "lex-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "parse-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "hir-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "resolve-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "ty-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "mir-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "borrowck-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "diagnostics-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "editor-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "semantic-at-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "hover-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "definition-at-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "document-symbols-invalidations-added")) <= 0 { give back false }
+    give back word_to_int(v4_unit_snapshot_key_value(report, "completion-invalidations-added")) > 0
+}
+
+task v4_fixed_aggregate_query_reports_match(report: word, diff_line: word) -> bool {
+    pilot keys = array_new()
+    array_push(keys, "query-invalidations-added")
+    array_push(keys, "core-invalidations-added")
+    array_push(keys, "syntax-invalidations-added")
+    array_push(keys, "lex-invalidations-added")
+    array_push(keys, "parse-invalidations-added")
+    array_push(keys, "hir-invalidations-added")
+    array_push(keys, "resolve-invalidations-added")
+    array_push(keys, "ty-invalidations-added")
+    array_push(keys, "mir-invalidations-added")
+    array_push(keys, "borrowck-invalidations-added")
+    array_push(keys, "diagnostics-invalidations-added")
+    array_push(keys, "editor-invalidations-added")
+    array_push(keys, "semantic-at-invalidations-added")
+    array_push(keys, "hover-invalidations-added")
+    array_push(keys, "definition-at-invalidations-added")
+    array_push(keys, "document-symbols-invalidations-added")
+    array_push(keys, "completion-invalidations-added")
+    pilot key_id = 0
+    repeat until key_id >= array_len(keys) {
+        pilot key: word = array_get(keys, key_id)
+        if v4_unit_snapshot_key_value(report, key) != v4_unit_snapshot_key_value(diff_line, key) {
+            give back false
+        }
+        key_id += 1
+    }
+    give back true
+}
+
+task v4_fixed_aggregate_query_local_stmt(mir_id: int, body_id: int, local_name: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        pilot place_id = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+        if place_id >= 0 and v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local {
+            if v4_mir_place_text(mir_id, body_id, place_id) == local_name { give back stmt_id }
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_fixed_aggregate_query_editor_coherent(semantic_id: int, hover_id: int, definition_id: int, symbols_id: int, completion_id: int, declaration_offset: int) -> bool {
+    give back v4_semantic_at_type(semantic_id) == v4_hover_type(hover_id) and v4_definition_at_found(definition_id) == 1 and v4_span_start(v4_definition_at_span(definition_id)) == declaration_offset and v4_document_symbol_count(symbols_id) > 0 and v4_completion_count(completion_id) > 0
+}
+
+task v4_fixed_aggregate_query_shape_facts(mir_id: int, body_id: int, stmt_id: int) -> bool {
+    if stmt_id < 0 { give back false }
+    pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+    if v4_mir_rvalue_aggregate_child_count(mir_id, body_id, rvalue_id) != 2 { give back false }
+    if v4_mir_rvalue_aggregate_child_projection(mir_id, body_id, rvalue_id, 0) != ".left" { give back false }
+    if v4_mir_rvalue_aggregate_child_projection(mir_id, body_id, rvalue_id, 1) != ".rght" { give back false }
+    pilot left_child = v4_mir_rvalue_aggregate_child_for_projection(mir_id, body_id, rvalue_id, ".left")
+    pilot right_child = v4_mir_rvalue_aggregate_child_for_projection(mir_id, body_id, rvalue_id, ".rght")
+    if left_child < 0 or right_child < 0 { give back false }
+    if not v4_mir_rvalue_text(mir_id, body_id, left_child).contains("first") { give back false }
+    if not v4_mir_rvalue_text(mir_id, body_id, right_child).contains("second") { give back false }
+    if v4_borrowck_explicit_loan_holder(mir_id, body_id, stmt_id, "first") != "views.left" { give back false }
+    give back v4_borrowck_explicit_loan_holder(mir_id, body_id, stmt_id, "second") == "views.rght"
+}
+
+pilot v4_fixed_aggregate_query_path = "contract-region-fixed-aggregate-query.fk"
+pilot v4_fixed_aggregate_query_before = v4_fixed_aggregate_query_source("left")
+pilot v4_fixed_aggregate_query_after = v4_fixed_aggregate_query_source("rght")
+pilot v4_fixed_aggregate_query_before_stream = v4_lex_text(0, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_after_stream = v4_lex_text(1, v4_fixed_aggregate_query_after)
+pilot v4_fixed_aggregate_query_before_decl = v4_fixed_aggregate_query_offset(v4_fixed_aggregate_query_before_stream, "views", 0)
+pilot v4_fixed_aggregate_query_before_use = v4_fixed_aggregate_query_offset(v4_fixed_aggregate_query_before_stream, "views", 1)
+pilot v4_fixed_aggregate_query_after_decl = v4_fixed_aggregate_query_offset(v4_fixed_aggregate_query_after_stream, "views", 0)
+pilot v4_fixed_aggregate_query_after_use = v4_fixed_aggregate_query_offset(v4_fixed_aggregate_query_after_stream, "views", 1)
+
+v4_lsp_open_document(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_before_lex = v4_lex_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_before_parse = v4_parse_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_before_hir = v4_hir_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_before_resolve = v4_resolve_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_before_ty = v4_ty_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_before_mir = v4_mir_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_before_borrow = v4_borrowck_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_before_diagnostics = v4_diagnostics_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_before_semantic = v4_semantic_at_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before, v4_fixed_aggregate_query_before_use)
+pilot v4_fixed_aggregate_query_before_hover = v4_hover_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before, v4_fixed_aggregate_query_before_use)
+pilot v4_fixed_aggregate_query_before_definition = v4_definition_at_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before, v4_fixed_aggregate_query_before_use)
+pilot v4_fixed_aggregate_query_before_symbols = v4_document_symbols_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_before_completion = v4_completion_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before, v4_fixed_aggregate_query_before_use)
+pilot v4_fixed_aggregate_query_before_syntax = v4_check_syntax_text(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_before_def = v4_resolve_def_for_name(v4_fixed_aggregate_query_before_resolve, "observe")
+pilot v4_fixed_aggregate_query_before_body = v4_mir_lookup_body(v4_fixed_aggregate_query_before_mir, v4_fixed_aggregate_query_before_def)
+pilot v4_fixed_aggregate_query_before_result = v4_borrowck_lookup_result(v4_fixed_aggregate_query_before_borrow, v4_fixed_aggregate_query_before_def)
+pilot v4_fixed_aggregate_query_before_stmt = v4_fixed_aggregate_query_local_stmt(v4_fixed_aggregate_query_before_mir, v4_fixed_aggregate_query_before_body, "views")
+pilot v4_fixed_aggregate_query_before_status_value = v4_borrowck_result_status(v4_fixed_aggregate_query_before_borrow, v4_fixed_aggregate_query_before_result)
+pilot v4_fixed_aggregate_query_before_shape_facts_value = v4_fixed_aggregate_query_shape_facts(v4_fixed_aggregate_query_before_mir, v4_fixed_aggregate_query_before_body, v4_fixed_aggregate_query_before_stmt)
+pilot v4_fixed_aggregate_query_before_editor_coherent_value = v4_fixed_aggregate_query_editor_coherent(v4_fixed_aggregate_query_before_semantic, v4_fixed_aggregate_query_before_hover, v4_fixed_aggregate_query_before_definition, v4_fixed_aggregate_query_before_symbols, v4_fixed_aggregate_query_before_completion, v4_fixed_aggregate_query_before_decl)
+
+say "fixed-aggregate-query-byte-length-stable=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_before.length() == v4_fixed_aggregate_query_after.length())
+say "fixed-aggregate-query-offset-stable=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_before_use == v4_fixed_aggregate_query_after_use and v4_fixed_aggregate_query_before_decl == v4_fixed_aggregate_query_after_decl)
+say "fixed-aggregate-query-before-status=" + v4_fixed_aggregate_query_before_status_value
+say "fixed-aggregate-query-before-shape-facts=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_before_shape_facts_value)
+say "fixed-aggregate-query-before-editor-coherent=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_before_editor_coherent_value)
+
+pilot v4_fixed_aggregate_query_before_unit = v4_unit_snapshot()
+pilot v4_fixed_aggregate_query_change = v4_lsp_handle_text_request("textDocument/didChange", v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after, 0)
+pilot v4_fixed_aggregate_query_report = v4_unit_snapshot_line(v4_fixed_aggregate_query_change, 2)
+pilot v4_fixed_aggregate_query_invalidated_unit = v4_unit_snapshot()
+pilot v4_fixed_aggregate_query_diff = v4_unit_snapshot_diff(v4_fixed_aggregate_query_before_unit, v4_fixed_aggregate_query_invalidated_unit)
+pilot v4_fixed_aggregate_query_diff_line = v4_unit_snapshot_health_diff_line(v4_fixed_aggregate_query_diff)
+pilot v4_fixed_aggregate_query_health = v4_unit_snapshot_health_append_diff(v4_unit_snapshot_health(v4_fixed_aggregate_query_invalidated_unit), v4_fixed_aggregate_query_diff)
+
+say "fixed-aggregate-query-all-17-invalidations-positive=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_report_positive(v4_fixed_aggregate_query_report))
+say "fixed-aggregate-query-invalidation-matches-diff=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_reports_match(v4_fixed_aggregate_query_report, v4_fixed_aggregate_query_diff_line))
+say "fixed-aggregate-query-health-ok=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_health.starts_with("00-unit-health|format=" + v4_unit_snapshot_health_format + "|ok=1") and v4_fixed_aggregate_query_health.contains("health-diff|ok=1"))
+
+pilot v4_fixed_aggregate_query_after_lex = v4_lex_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after)
+pilot v4_fixed_aggregate_query_after_parse = v4_parse_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after)
+pilot v4_fixed_aggregate_query_after_hir = v4_hir_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after)
+pilot v4_fixed_aggregate_query_after_resolve = v4_resolve_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after)
+pilot v4_fixed_aggregate_query_after_ty = v4_ty_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after)
+pilot v4_fixed_aggregate_query_after_mir = v4_mir_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after)
+pilot v4_fixed_aggregate_query_after_borrow = v4_borrowck_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after)
+pilot v4_fixed_aggregate_query_after_diagnostics = v4_diagnostics_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after)
+pilot v4_fixed_aggregate_query_after_semantic = v4_semantic_at_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after, v4_fixed_aggregate_query_after_use)
+pilot v4_fixed_aggregate_query_after_hover = v4_hover_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after, v4_fixed_aggregate_query_after_use)
+pilot v4_fixed_aggregate_query_after_definition = v4_definition_at_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after, v4_fixed_aggregate_query_after_use)
+pilot v4_fixed_aggregate_query_after_symbols = v4_document_symbols_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after)
+pilot v4_fixed_aggregate_query_after_completion = v4_completion_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after, v4_fixed_aggregate_query_after_use)
+pilot v4_fixed_aggregate_query_after_syntax = v4_check_syntax_text(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_after)
+pilot v4_fixed_aggregate_query_after_def = v4_resolve_def_for_name(v4_fixed_aggregate_query_after_resolve, "observe")
+pilot v4_fixed_aggregate_query_after_body = v4_mir_lookup_body(v4_fixed_aggregate_query_after_mir, v4_fixed_aggregate_query_after_def)
+pilot v4_fixed_aggregate_query_after_result = v4_borrowck_lookup_result(v4_fixed_aggregate_query_after_borrow, v4_fixed_aggregate_query_after_def)
+pilot v4_fixed_aggregate_query_after_stmt = v4_fixed_aggregate_query_local_stmt(v4_fixed_aggregate_query_after_mir, v4_fixed_aggregate_query_after_body, "views")
+pilot v4_fixed_aggregate_query_after_status_value = v4_borrowck_result_status(v4_fixed_aggregate_query_after_borrow, v4_fixed_aggregate_query_after_result)
+pilot v4_fixed_aggregate_query_after_diagnostics_value = v4_diagnostics_count(v4_fixed_aggregate_query_after_diagnostics)
+pilot v4_fixed_aggregate_query_after_shape_facts_value = v4_fixed_aggregate_query_shape_facts(v4_fixed_aggregate_query_after_mir, v4_fixed_aggregate_query_after_body, v4_fixed_aggregate_query_after_stmt)
+pilot v4_fixed_aggregate_query_after_editor_coherent_value = v4_fixed_aggregate_query_editor_coherent(v4_fixed_aggregate_query_after_semantic, v4_fixed_aggregate_query_after_hover, v4_fixed_aggregate_query_after_definition, v4_fixed_aggregate_query_after_symbols, v4_fixed_aggregate_query_after_completion, v4_fixed_aggregate_query_after_decl)
+
+say "fixed-aggregate-query-after-status=" + v4_fixed_aggregate_query_after_status_value
+say "fixed-aggregate-query-after-diagnostics=" + word_from_int(v4_fixed_aggregate_query_after_diagnostics_value)
+say "fixed-aggregate-query-after-shape-facts=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_after_shape_facts_value)
+say "fixed-aggregate-query-after-editor-coherent=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_after_editor_coherent_value)
+
+pilot v4_fixed_aggregate_query_recomputed_unit = v4_unit_snapshot()
+pilot v4_fixed_aggregate_query_restore_generation_before = v4_borrowck_provenance_scratch_generation()
+pilot v4_fixed_aggregate_query_restore = v4_unit_snapshot_restore(v4_fixed_aggregate_query_before_unit)
+pilot v4_fixed_aggregate_query_restore_generation_after = v4_borrowck_provenance_scratch_generation()
+pilot v4_fixed_aggregate_query_restored_lex = v4_lex_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_restored_parse = v4_parse_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_restored_hir = v4_hir_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_restored_resolve = v4_resolve_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_restored_ty = v4_ty_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_restored_mir = v4_mir_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_restored_borrow = v4_borrowck_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_restored_diagnostics = v4_diagnostics_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_restored_semantic = v4_semantic_at_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before, v4_fixed_aggregate_query_before_use)
+pilot v4_fixed_aggregate_query_restored_hover = v4_hover_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before, v4_fixed_aggregate_query_before_use)
+pilot v4_fixed_aggregate_query_restored_definition = v4_definition_at_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before, v4_fixed_aggregate_query_before_use)
+pilot v4_fixed_aggregate_query_restored_symbols = v4_document_symbols_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before)
+pilot v4_fixed_aggregate_query_restored_completion = v4_completion_text_cached(v4_fixed_aggregate_query_path, v4_fixed_aggregate_query_before, v4_fixed_aggregate_query_before_use)
+pilot v4_fixed_aggregate_query_restored_def = v4_resolve_def_for_name(v4_fixed_aggregate_query_restored_resolve, "observe")
+pilot v4_fixed_aggregate_query_restored_body = v4_mir_lookup_body(v4_fixed_aggregate_query_restored_mir, v4_fixed_aggregate_query_restored_def)
+pilot v4_fixed_aggregate_query_restored_result = v4_borrowck_lookup_result(v4_fixed_aggregate_query_restored_borrow, v4_fixed_aggregate_query_restored_def)
+pilot v4_fixed_aggregate_query_restored_stmt = v4_fixed_aggregate_query_local_stmt(v4_fixed_aggregate_query_restored_mir, v4_fixed_aggregate_query_restored_body, "views")
+
+say "fixed-aggregate-query-snapshot-restored=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_restore.starts_with("00-unit-snapshot-restore ok=1"))
+say "fixed-aggregate-query-restore-generation-advanced=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_restore_generation_after > v4_fixed_aggregate_query_restore_generation_before)
+say "fixed-aggregate-query-restored-status=" + v4_borrowck_result_status(v4_fixed_aggregate_query_restored_borrow, v4_fixed_aggregate_query_restored_result)
+say "fixed-aggregate-query-restored-diagnostics=" + word_from_int(v4_diagnostics_count(v4_fixed_aggregate_query_restored_diagnostics))
+say "fixed-aggregate-query-restored-shape-facts=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_shape_facts(v4_fixed_aggregate_query_restored_mir, v4_fixed_aggregate_query_restored_body, v4_fixed_aggregate_query_restored_stmt))
+say "fixed-aggregate-query-restored-editor-coherent=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_editor_coherent(v4_fixed_aggregate_query_restored_semantic, v4_fixed_aggregate_query_restored_hover, v4_fixed_aggregate_query_restored_definition, v4_fixed_aggregate_query_restored_symbols, v4_fixed_aggregate_query_restored_completion, v4_fixed_aggregate_query_before_decl))

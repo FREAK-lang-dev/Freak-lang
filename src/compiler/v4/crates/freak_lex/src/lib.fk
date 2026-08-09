@@ -835,5 +835,6 @@ task v4_lex_snapshot_restore(payload: word) -> word {
     out = out + " diagnostics=" + word_from_int(restored_diagnostics)
     out = out + " skipped-other=" + word_from_int(skipped_other)
     out = out + " live-streams=" + word_from_int(v4_lex_stream_count())
+    v4_session_semantic_restore_generation_advance()
     give back out
 }

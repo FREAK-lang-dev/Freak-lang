@@ -74,7 +74,10 @@ order and nested block scope, excludes member-name tokens, and treats only
 live through the closure holder's final reachable use, recognizes assignment
 and resolved `lend mut self`/Shared mutable receiver calls, requires exclusive
 access for mutable captures, and consumes OneShot closures on call. Closure
-parameter editor facts likewise exclude `.`/`::` member positions. Capture
+effect summaries do not exist yet, so MIR rejects mutable closure writes into
+captured storage whose type may retain a lend instead of silently losing the
+installed loan at invocation. Closure parameter editor facts likewise exclude
+`.`/`::` member positions. Capture
 mode is visible through semantic, hover, definition, completion, LSP, MIR and
 borrowck snapshots, and deterministic all-family invalidation/diff reports.
 Nested and generic closure inference, borrowed-return closure contracts,
@@ -210,16 +213,55 @@ completion after 00-Unit restore.
 
 The current sound boundary is deliberately narrow. Named or elided lends may be
 outer ordinary-task parameter and borrowed-return contracts, and their results
-may flow through scalar local holders. TY rejects named and elided lends nested
-inside stored signature types before normalization can erase their provenance.
-Generic call substitution is also closed: inferring a lend-bearing actual for a
-type parameter is diagnosed before `T` can hide the loan inside `maybe<T>`, a
-tuple, or another generic result.
-During runtime-value expression lowering, MIR emits compile-time diagnostics for
-lend children in tuple literals, fixed-array literals, repeat-filled fixed
-arrays, list literals, shape values, route payloads, `some(...)`, `ok(...)`,
-`err(...)`, map keys, and map values.
-Aggregate/shape/route/container storage is therefore not supported.
+may flow through scalar holders or task-local fixed-layout aggregates. The
+local aggregate vocabulary is exactly tuples, fixed arrays, shapes, and route
+payloads. Tuple slots and array indices are structural keys; MIR normalizes
+shape and route constructor children into declaration order, so reordered
+source fields cannot relabel a loan after lowering.
+
+Meiya carries those keys through local aggregate holder aliases and projection-aware
+provenance queries. A use of `.0`, `.field`, or a constant `[index]` extends the
+loan stored in that child without making unrelated siblings live. Projection
+chains may cross lend-valued fixed-layout slots; each indirection is resolved
+at its defining statement before the final write is matched to the original
+holder. Prefix selection canonicalizes indexed paths once after its bounded
+scan and resolves reused local names at the statement where the projection is
+used. Whole-value uses and non-constant fixed-array projections include every
+possible child. A dynamic-index assignment overlaps every fixed slot, so it
+cannot retire or launder only one child's loan. `LoanMut` remains exclusive
+while its projected holder is live, and repeat-filling more than one fixed-array
+slot with the same mutable lend is rejected instead of duplicating one
+exclusive loan.
+
+Moving a lend-valued child out of an owned aggregate transfers that loan and
+uses the ordinary partial-move repair rules. Moving a child through an aggregate
+that is itself held behind `lend` or `lend mut` remains rejected.
+
+Dynamic containers remain outside closure-loan provenance. Meiya rejects both
+container construction and later indexed writes when the stored closure still
+captures a live loan.
+
+Projection assignments are first-class holder definitions. Rebinding one field
+retires only that field's previous loan, protects the newly stored owner through
+the field's final use, and leaves sibling provenance unchanged. Moving an
+aggregate into a projected destination rebases its children under that
+destination while preserving each relative `.N`, `.field`, or `[N]` path.
+
+This is local storage, not an aggregate calling convention. Ordinary-task
+fixed-layout aggregate parameters and returns now preserve leaf provenance
+across the boundary. TY still rejects named and elided lends nested inside
+non-ordinary task parameter or return types.
+Generic-call, owner-generic, and `Shared<T>::new` substitution checks recursively
+expand nominal shapes and routes, so a type such as `Direct<'a>` cannot hide its
+`lend 'a` field behind a nominal name. Direct nominal impl calls and overloaded
+operator dispatch on lend-bearing aggregate owners fail closed at this boundary
+instead of manufacturing a result type. The recursive storage classifier has a
+bounded depth budget: exhaustion emits its own diagnostic, strict validators
+reject it, and conservative Meiya queries treat it as possibly lend-bearing.
+MIR continues to reject lend storage in list and map values plus the
+`some(...)`, `ok(...)`, and `err(...)` wrapper constructors. Alias targets,
+doctrine and method contracts, callbacks, extern/FFI boundaries, and
+non-ordinary aggregate task parameters or returns remain outside fixed-layout provenance.
 Malformed `lend 'a` and doubled-lifetime types receive spanned diagnostics.
 Contract-boundary smokes also pin normalized source paths and exact `start:end`
 byte ranges for signature-storage and unsupported-forwarding failures.
@@ -228,9 +270,18 @@ explicitly rejected rather than silently accepted. Closure expressions now
 carry capture ownership, but their types cannot yet express borrowed-return
 contracts, so closure returned-loan forwarding remains unsupported. Source sets come from signature
 contracts; body-derived source discovery and general lexical lifetime inference
-remain open. This is a contract-region source-set and non-lexical liveness
-slice, not full region inference. These TY/MIR/Meiya/editor facts do not imply a
-completed production backend.
+remain open. Fixed-layout editor facts, MIR/borrowck snapshots, restore, and
+source-change invalidation use the existing query families and 00-Unit
+protocols; no aggregate-specific LSP endpoint or snapshot section is added.
+Declaration-order aggregate children require `freak-mir-snapshot-v5`; v4 is
+rejected rather than reinterpreted. Component restore, 00-Unit restore, and the
+standalone `workspace/mirSnapshotRestore` path each start a fresh borrowck
+provenance scratch generation. The query smoke proves `A -> B -> restore A` with
+MIR, borrowck, and editor IDs re-resolved from restored arenas instead of reused.
+This is a contract-region source-set and non-lexical liveness slice. It is not full region inference.
+These TY/MIR/Meiya/editor facts do not imply a completed
+production backend or runtime aggregate-loan ABI. Dynamic and wrapper-container
+storage remains outside this slice.
 The first `Shared<T>` / `Weak<T>` ownership surface now exists in TY/MIR:
 `Shared<T>::new`, `.clone()`, `.downgrade()`, `.borrow()`, `.borrow_mut()`,
 `.get_mut()`, and `Weak<T>.upgrade()` lower to stable wrapper types, while
