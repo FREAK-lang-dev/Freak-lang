@@ -287,6 +287,13 @@ CRATE_BOUNDARY_REQUIRED = {
 CRATE_BOUNDARY_FORBIDDEN = {
     "freak_expand": [
         ("macro API task", "task v4_macro_"),
+        ("macro context type", "MacroContext"),
+        ("macro context task", "macro_context"),
+        ("macro or expansion builder", "_builder"),
+        ("plugin execution", "plugin"),
+        ("third-party execution", "third_party"),
+        ("syntax rewriting", "task v4_expand_rewrite"),
+        ("expansion execution", "task v4_expand_execute"),
         ("hygiene implementation", "task v4_expand_hygiene"),
         ("gensym implementation", "task v4_expand_gensym"),
     ],
@@ -769,7 +776,7 @@ EXECUTABLE_SMOKES = [
         "expect_exact": [
             "expand-identity-stage=true",
             "expand-identity-stable=true",
-            "expand-identity-provenance=identity:file0:tree0",
+            "expand-identity-provenance=identity:file1:tree1",
             "expand-identity-hir-parent=true",
             "expand-identity-item-equivalent=true",
         ],
@@ -791,6 +798,8 @@ EXECUTABLE_SMOKES = [
             "expand-unit-diff=true",
             "expand-unit-health=true",
             "expand-lsp-restore=true",
+            "expand-component-restore-truncated=true",
+            "expand-unit-restore-truncated=true",
             "expand-lsp-missing-payload=true",
             "expand-query-recomputed=true",
         ],

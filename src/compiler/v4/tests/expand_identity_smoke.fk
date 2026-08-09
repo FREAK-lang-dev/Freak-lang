@@ -1,19 +1,31 @@
 -- V4 identity expansion flow smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-pilot v4_expand_identity_source = "@protagonist\n"
-v4_expand_identity_source = v4_expand_identity_source + "task main() => \"hi\"\n"
-v4_expand_identity_source = v4_expand_identity_source + "shape Pilot\n"
+pilot v4_expand_identity_prelude_source = "task prelude() => 0\n"
+pilot v4_expand_identity_source = "@protagonist\ntask main() => \"hi\"\nshape Pilot\n"
+pilot v4_expand_identity_prelude_file = 0
+pilot v4_expand_identity_prelude_stream = 0
+pilot v4_expand_identity_prelude_tree = 0
+pilot v4_expand_identity_file = 0
+pilot v4_expand_identity_stream = 0
+pilot v4_expand_identity_tree = 0
+pilot v4_expand_identity_id = 0
+pilot v4_expand_identity_repeat = 0
+pilot v4_expand_identity_hir = 0
+pilot v4_expand_identity_compat_hir = 0
 
-pilot v4_expand_identity_file = v4_source_set_text("expand-identity.fk", v4_expand_identity_source)
-pilot v4_expand_identity_stream = v4_lex_text(v4_expand_identity_file, v4_expand_identity_source)
-pilot v4_expand_identity_tree = v4_parse_stream(v4_expand_identity_file, v4_expand_identity_stream)
-pilot v4_expand_identity_id = v4_expand_identity(v4_expand_identity_file, v4_expand_identity_tree)
-pilot v4_expand_identity_repeat = v4_expand_identity(v4_expand_identity_file, v4_expand_identity_tree)
-pilot v4_expand_identity_hir = v4_hir_lower_expanded(v4_expand_identity_file, v4_expand_identity_id)
-pilot v4_expand_identity_compat_hir = v4_hir_lower_tree(v4_expand_identity_file, v4_expand_identity_tree)
+v4_expand_identity_prelude_file = v4_source_set_text("expand-identity-prelude.fk", v4_expand_identity_prelude_source)
+v4_expand_identity_prelude_stream = v4_lex_text(v4_expand_identity_prelude_file, v4_expand_identity_prelude_source)
+v4_expand_identity_prelude_tree = v4_parse_stream(v4_expand_identity_prelude_file, v4_expand_identity_prelude_stream)
+v4_expand_identity_file = v4_source_set_text("expand-identity.fk", v4_expand_identity_source)
+v4_expand_identity_stream = v4_lex_text(v4_expand_identity_file, v4_expand_identity_source)
+v4_expand_identity_tree = v4_parse_stream(v4_expand_identity_file, v4_expand_identity_stream)
+v4_expand_identity_id = v4_expand_identity(v4_expand_identity_file, v4_expand_identity_tree)
+v4_expand_identity_repeat = v4_expand_identity(v4_expand_identity_file, v4_expand_identity_tree)
+v4_expand_identity_hir = v4_hir_lower_expanded(v4_expand_identity_file, v4_expand_identity_id)
+v4_expand_identity_compat_hir = v4_hir_lower_tree(v4_expand_identity_file, v4_expand_identity_tree)
 
-say "expand-identity-stage=" + word_from_bool(v4_expand_parse_tree_id(v4_expand_identity_id) == v4_expand_identity_tree and v4_hir_expansion_id(v4_expand_identity_hir) == v4_expand_identity_id)
+say "expand-identity-stage=" + word_from_bool(v4_expand_identity_id != v4_expand_identity_tree and v4_expand_parse_tree_id(v4_expand_identity_id) == v4_expand_identity_tree and v4_hir_expansion_id(v4_expand_identity_hir) == v4_expand_identity_id)
 say "expand-identity-stable=" + word_from_bool(v4_expand_identity_repeat == v4_expand_identity_id)
 say "expand-identity-provenance=" + v4_expand_provenance(v4_expand_identity_id)
 say "expand-identity-hir-parent=" + word_from_bool(v4_hir_tree_id(v4_expand_identity_hir) == v4_expand_identity_tree)

@@ -13,6 +13,7 @@ pilot v4_expand_snapshot_format = "freak-expand-snapshot-v1"
 pilot v4_expand_files = 0
 pilot v4_expand_trees = 0
 pilot v4_expand_provenance_kinds = 0
+pilot v4_expand_file_len = 0
 pilot v4_expand_ready = 0
 
 task v4_expand_init() -> void {
@@ -20,19 +21,20 @@ task v4_expand_init() -> void {
         v4_expand_files = array_new()
         v4_expand_trees = array_new()
         v4_expand_provenance_kinds = array_new()
+        v4_expand_file_len = 0
         v4_expand_ready = 1
     }
 }
 
 task v4_expand_file_count() -> int {
     v4_expand_init()
-    give back array_len(v4_expand_files)
+    give back v4_expand_file_len
 }
 
 task v4_expand_file_exists(expansion_id: int) -> bool {
     v4_expand_init()
     if expansion_id < 0 { give back false }
-    if expansion_id >= array_len(v4_expand_files) { give back false }
+    if expansion_id >= v4_expand_file_len { give back false }
     give back true
 }
 
@@ -82,9 +84,16 @@ task v4_expand_identity(file_id: int, tree_id: int) -> int {
     if existing >= 0 { give back existing }
 
     pilot expansion_id = v4_expand_file_count()
-    array_push(v4_expand_files, word_from_int(file_id))
-    array_push(v4_expand_trees, word_from_int(tree_id))
-    array_push(v4_expand_provenance_kinds, v4_expand_provenance_identity)
+    if expansion_id < array_len(v4_expand_files) {
+        array_set(v4_expand_files, expansion_id, word_from_int(file_id))
+        array_set(v4_expand_trees, expansion_id, word_from_int(tree_id))
+        array_set(v4_expand_provenance_kinds, expansion_id, v4_expand_provenance_identity)
+    } else {
+        array_push(v4_expand_files, word_from_int(file_id))
+        array_push(v4_expand_trees, word_from_int(tree_id))
+        array_push(v4_expand_provenance_kinds, v4_expand_provenance_identity)
+    }
+    v4_expand_file_len += 1
     give back expansion_id
 }
 
@@ -387,7 +396,7 @@ task v4_expand_snapshot_validate(payload: word) -> word {
 
 task v4_expand_restore_file_slot(expansion_id: int, file_id: int, tree_id: int, provenance_kind: word) -> int {
     v4_expand_init()
-    repeat until v4_expand_file_count() > expansion_id {
+    repeat until array_len(v4_expand_files) > expansion_id {
         array_push(v4_expand_files, "0")
         array_push(v4_expand_trees, "0")
         array_push(v4_expand_provenance_kinds, v4_expand_provenance_identity)
@@ -395,7 +404,13 @@ task v4_expand_restore_file_slot(expansion_id: int, file_id: int, tree_id: int, 
     array_set(v4_expand_files, expansion_id, word_from_int(file_id))
     array_set(v4_expand_trees, expansion_id, word_from_int(tree_id))
     array_set(v4_expand_provenance_kinds, expansion_id, provenance_kind)
+    if expansion_id >= v4_expand_file_len { v4_expand_file_len = expansion_id + 1 }
     give back 1
+}
+
+task v4_expand_begin_snapshot_restore() -> void {
+    v4_expand_init()
+    v4_expand_file_len = 0
 }
 
 task v4_expand_snapshot_restore_file_line(line: word) -> int {
@@ -410,6 +425,7 @@ task v4_expand_snapshot_restore(payload: word) -> word {
         give back "expand-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    v4_expand_begin_snapshot_restore()
     pilot restored_files = 0
     pilot skipped_other = 0
     pilot line_id = 0

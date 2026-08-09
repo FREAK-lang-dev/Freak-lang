@@ -2297,6 +2297,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "\n### 4.1 Ownership Rules",
             (
                 "Borrowed return types now flow through TY/MIR.",
+                "all 18\n> invalidation report fields",
+                "15 concrete query families",
                 "three aggregate\n> totals",
                 "`some(...)`, `ok(...)`",
                 "Task-local tuples, fixed arrays, shapes, and route payloads",
@@ -2355,6 +2357,8 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 "Implemented Contract-Region Checkpoint (V4 Partial)",
                 "(ty_id, sig_id)",
+                "18 invalidation report fields",
+                "15 concrete query families",
                 "three aggregate totals",
                 "`some(...)`, `ok(...)`",
                 "task-local fixed-layout vocabulary",
