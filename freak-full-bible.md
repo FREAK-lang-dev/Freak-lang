@@ -2124,20 +2124,25 @@ deus_ex_machina / declare was / prob when
 fixed pilot / launch(package) / launch(universe)
 ```
 
-### 8.3 Keyword Casing
+### 8.3 V4 Keyword Casing
 
-Ordinary keyword vocabulary uses exact lowercase spellings. Compiler token
-streams expose those lowercase values as keywords; noncanonical forms such as
-`Task`, `TASK`, and `ShApE` remain identifiers and therefore receive parser
-recovery diagnostics when used in keyword-required positions. This boundary
-preserves intentional identifiers such as `Pilot`, `Some`, and `SOME` instead
-of rewriting their spelling.
+> **⚠️ V4 implementation contract.** This subsection applies to the currently
+> implemented vocabulary in Maverick's `freak_lex`. It does not change the
+> shipping V3 lexer/parser behavior, and it does not pre-reserve destination
+> tokens from §8.1 before their parser and semantic vertical slices land.
+
+Within that current V4 vocabulary, ordinary keyword words use exact lowercase
+spellings. V4 token streams expose those lowercase values as keywords;
+noncanonical forms such as `Task`, `TASK`, and `ShApE` remain identifiers and
+therefore receive parser recovery diagnostics when used in keyword-required
+positions. This boundary preserves intentional identifiers such as `Pilot`,
+`Some`, and `SOME` instead of rewriting their spelling.
 
 The multi-word anime operators `PLUS ULTRA` and `FINAL FORM` are matched
 case-insensitively but expose their canonical uppercase token values. The
 single-word anime operators `NAKAMA` and `TSUNDERE` are intentional
 uppercase-only vocabulary; mixed- or lowercase variants are identifiers.
-Implementations must enumerate those case-sensitive words before ordinary
+V4 implementations must enumerate those case-sensitive words before ordinary
 keyword classification instead of accidentally lowercasing them.
 
 ### 8.4 Special Lexer Notes
