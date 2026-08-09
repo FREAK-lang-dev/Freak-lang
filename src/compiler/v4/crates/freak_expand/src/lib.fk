@@ -239,6 +239,10 @@ task v4_expand_alias_target(expansion_id: int, node_id: int) -> word {
     give back v4_parse_alias_target(v4_expand_parse_tree_id(expansion_id), node_id)
 }
 
+task v4_expand_alias_target_span(expansion_id: int, node_id: int) -> word {
+    give back v4_parse_alias_target_span(v4_expand_parse_tree_id(expansion_id), node_id)
+}
+
 task v4_expand_const_type(expansion_id: int, node_id: int) -> word {
     give back v4_parse_const_type(v4_expand_parse_tree_id(expansion_id), node_id)
 }
