@@ -352,6 +352,7 @@ The first landing is intentionally small and isolated from the V3 compiler:
 crates/
   freak_span/      source ids, spans, line/column helpers
   freak_diag/      diagnostic encoding and severity helpers
+  freak_macro_api/ versioned, capability-limited read views, diagnostics, and non-executing builders
   freak_arena/     append-only word arenas for early compiler storage
   freak_intern/    string interning table
   freak_session/   source database and revision tracking
@@ -374,17 +375,20 @@ crates/
 Current FREAK compilation still works best with concatenated source files, so these crates use globally unique `v4_` names and a dependency order that can be flattened by a later bootstrap script:
 
 ```text
-freak_span -> freak_diag -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
+freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
 ```
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
 
 `freak_expand` is currently an identity-only architecture stage. Its internal
-ExpandedFile arena records an expansion id, source file, forwarded parse tree,
-and deterministic `identity:fileN:treeN` provenance. HIR always lowers that
-carrier, including through its compatibility tree entrypoint. This bootstrap
-does not define user macros, attribute rewriting, hygiene, gensyms, execution
-hooks, or a public macro API; it preserves all existing frontend semantics.
+ExpandedFile arena records an internal arena id, source file, forwarded parse
+tree, and deterministic `identity:fileN:treeN` provenance. HIR always lowers
+that carrier, including through its compatibility tree entrypoint. The public
+`ExpansionId` and generated-node provenance value contracts live only in
+`freak_macro_api`; expansion exposes narrow delegating bridges instead of
+defining competing types. This bootstrap does not define user macros, attribute
+rewriting, hygiene, gensyms, or execution hooks, and preserves all existing
+frontend semantics.
 
 ## Public Tooling Protocols
 
@@ -533,6 +537,21 @@ workspace/querySnapshotConfirm
 ```
 
 ## Crate Boundary Rules
+
+`freak_macro_api` is the single public ownership boundary for future macro
+contracts. It owns `ExpansionId`, generated-node provenance, `MacroContext`,
+immutable source/AST/node/span view handles, and structured macro diagnostics.
+Its v1 capability set is closed to read-only views, diagnostic submission, and
+syntax builders; unknown capabilities fail closed. Filesystem, network,
+environment, clock, randomness, and process access are not capabilities.
+
+The bootstrap exposes no macro host and executes no built-in or third-party
+macro. Diagnostic submission and builder operations return deterministic
+`unsupported` results without mutating compiler state. The major API version is
+an exact compatibility boundary; hosts may accept only supported minor versions
+within that major. Future expansion code consumes these public identities, while
+dependency guards reject parser/query/TY/MIR/backend internals in the API crate
+and reserved macro implementation internals in later compiler crates.
 
 Future V4 work must preserve the split that 00-Unit exists to prove:
 

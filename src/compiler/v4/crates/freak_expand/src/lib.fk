@@ -1,7 +1,8 @@
 -- ===================================================================
 -- freak_expand - V4 identity expansion bootstrap
 -- ===================================================================
--- Depends on freak_parse. This crate is the only Parse -> Expand bridge.
+-- Depends on freak_macro_api and freak_parse. This crate is the only
+-- Parse -> Expand bridge.
 -- The bootstrap ExpandedFile carrier records a stable arena id, its source
 -- file, the forwarded parse tree, and identity provenance. It deliberately
 -- defines no public macro API, hygiene model, or syntax-rewriting contract;
@@ -59,6 +60,25 @@ task v4_expand_provenance(expansion_id: int) -> word {
     out = out + ":file" + word_from_int(v4_expand_file_id(expansion_id))
     out = out + ":tree" + word_from_int(v4_expand_parse_tree_id(expansion_id))
     give back out
+}
+
+-- Public macro-facing identity values are defined only by freak_macro_api.
+-- The integer accepted here is an internal ExpandedFile arena key, not a
+-- competing ExpansionId type.
+task v4_expand_contract_expansion_id(expanded_file_id: int) -> word {
+    if v4_expand_file_exists(expanded_file_id) == false { give back "" }
+    pilot source_id = word_from_int(v4_expand_file_id(expanded_file_id))
+    give back v4_expansion_id_new(source_id, expanded_file_id, 0)
+}
+
+task v4_expand_contract_expansion_matches(expanded_file_id: int, expansion_id: word) -> bool {
+    give back v4_expansion_id_valid(expansion_id) and expansion_id == v4_expand_contract_expansion_id(expanded_file_id)
+}
+
+task v4_expand_contract_generated_provenance(expanded_file_id: int, origin_span: word, output_index: int) -> word {
+    pilot expansion_id = v4_expand_contract_expansion_id(expanded_file_id)
+    if expansion_id == "" { give back "" }
+    give back v4_generated_node_provenance_new(expansion_id, origin_span, output_index)
 }
 
 task v4_expand_find_identity(file_id: int, tree_id: int) -> int {

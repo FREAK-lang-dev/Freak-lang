@@ -18,6 +18,7 @@ from pathlib import Path
 CRATE_ORDER = [
     "freak_span",
     "freak_diag",
+    "freak_macro_api",
     "freak_arena",
     "freak_intern",
     "freak_session",
@@ -211,10 +212,30 @@ def check_runner_retained_memory() -> None:
         )
 
 CRATE_BOUNDARY_REQUIRED = {
+    "freak_macro_api": [
+        (
+            "capability-limited ownership comment",
+            "-- freak_macro_api - versioned, capability-limited macro contracts",
+        ),
+        ("version policy", "task v4_macro_api_version_supported(major: int, minor: int) -> bool {"),
+        ("capability policy", "task v4_macro_api_has_capability(capabilities: int, capability: int) -> bool {"),
+        ("host unavailable stub", "task v4_macro_api_host_available() -> bool {"),
+        ("ExpansionId owner", "task v4_expansion_id_new(source_id: word, invocation_id: int, generation: int) -> word {"),
+        ("generated provenance owner", "task v4_generated_node_provenance_new(expansion_id: word, origin_span: word, output_index: int) -> word {"),
+        ("read-only source view", "task v4_macro_source_view_new(source_id: word, revision: int, byte_length: int) -> word {"),
+        ("read-only AST view", "task v4_macro_ast_view_new(source_view: word, root_handle: word) -> word {"),
+        ("read-only node view", "task v4_macro_node_view_new("),
+        ("read-only span view", "task v4_macro_span_view_new(source_view: word, span: word) -> word {"),
+        ("structured diagnostic", "task v4_macro_diagnostic_new("),
+        ("builder unsupported stub", "task v4_macro_builder_add_node("),
+    ],
     "freak_expand": [
         ("expansion ownership comment", "-- freak_expand - V4 identity expansion bootstrap"),
+        ("macro API dependency", "-- Depends on freak_macro_api and freak_parse."),
         ("identity expansion carrier", "task v4_expand_identity(file_id: int, tree_id: int) -> int {"),
         ("expanded file provenance", "task v4_expand_provenance(expansion_id: int) -> word {"),
+        ("public ExpansionId bridge", "task v4_expand_contract_expansion_id(expanded_file_id: int) -> word {"),
+        ("generated provenance bridge", "task v4_expand_contract_generated_provenance("),
         ("expansion snapshot", "task v4_expand_snapshot() -> word {"),
     ],
     "freak_hir": [
@@ -285,8 +306,24 @@ CRATE_BOUNDARY_REQUIRED = {
 }
 
 CRATE_BOUNDARY_FORBIDDEN = {
+    "freak_macro_api": [
+        ("mutable array storage", "array_"),
+        ("source database internals", "v4_source_"),
+        ("lexer internals", "v4_lex_"),
+        ("parser internals", "v4_parse_"),
+        ("HIR internals", "v4_hir_"),
+        ("resolve internals", "v4_resolve_"),
+        ("type internals", "v4_ty_"),
+        ("MIR internals", "v4_mir_"),
+        ("borrow checker internals", "v4_borrowck_"),
+        ("backend internals", "v4_codegen_"),
+        ("query internals", "v4_query_"),
+        ("driver internals", "v4_driver_"),
+    ],
     "freak_expand": [
         ("macro API task", "task v4_macro_"),
+        ("public ExpansionId definition", "task v4_expansion_id_"),
+        ("generated provenance definition", "task v4_generated_node_provenance_"),
         ("macro context type", "MacroContext"),
         ("macro context task", "macro_context"),
         ("macro or expansion builder", "_builder"),
@@ -375,6 +412,15 @@ CRATE_BOUNDARY_FORBIDDEN = {
         ("borrowck restore coordination", "v4_borrowck_provenance_scratch_reset("),
     ],
 }
+
+MACRO_IMPLEMENTATION_INTERNAL_MARKERS = [
+    "freak_macro_impl",
+    "freak_macro_host",
+    "freak_macro_runtime",
+    "v4_macro_impl_",
+    "v4_macro_host_",
+    "v4_macro_runtime_",
+]
 
 TOOLING_INTERFACE_ENDPOINTS = [
     "workspace/queryTelemetry",
@@ -550,6 +596,39 @@ INVALIDATION_FAMILY_FIELDS = [
 ]
 
 EXECUTABLE_SMOKES = [
+    {
+        "name": "macro API contract",
+        "fixture": "macro_api_contract_smoke.fk",
+        "expect_exact": [
+            "macro-api-format=freak-macro-api-contract-v1",
+            "macro-api-version=1.0",
+            "macro-api-version-supported=true",
+            "macro-api-future-version-rejected=true",
+            "macro-api-unknown-capabilities-rejected=true",
+            "macro-api-host-unavailable=true",
+            "macro-api-effects-denied=true",
+            "macro-api-context-valid=true",
+            "macro-api-context-capabilities=true",
+            "macro-api-expansion-owned=true",
+            "macro-api-provenance-owned=true",
+            "macro-api-cross-source-provenance-rejected=true",
+            "macro-api-expand-bridge-id=true",
+            "macro-api-expand-bridge-provenance=true",
+            "macro-api-source-view-readonly=true",
+            "macro-api-ast-view-readonly=true",
+            "macro-api-span-view-readonly=true",
+            "macro-api-node-view-readonly=true",
+            "macro-api-diagnostic-structured=true",
+            "macro-api-diagnostic-submit-unsupported=true",
+            "macro-api-builder-valid=true",
+            "macro-api-builder-cannot-execute=true",
+            "macro-api-builder-add-unsupported=true",
+            "macro-api-builder-finish-unsupported=true",
+            "macro-api-builder-deterministic=true",
+            "macro-api-compiler-state-unchanged=true",
+        ],
+        "expect": [],
+    },
     {
         "name": "stable word checksum",
         "fixture": "word_checksum_smoke.fk",
@@ -8764,6 +8843,15 @@ def check_crate_boundaries() -> None:
         for label, needle in checks:
             if needle in text:
                 violations.append(f"boundary violation: {crate} owns {label}")
+
+    macro_api_index = CRATE_ORDER.index("freak_macro_api")
+    for crate in CRATE_ORDER[macro_api_index + 1 :]:
+        text = read_text(crate_path(crate))
+        for marker in MACRO_IMPLEMENTATION_INTERNAL_MARKERS:
+            if marker in text:
+                violations.append(
+                    f"boundary violation: {crate} depends on macro implementation internal {marker}"
+                )
 
     if violations:
         for violation in violations:
