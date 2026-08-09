@@ -52,6 +52,7 @@ task v4_fixed_aggregate_query_report_positive(report: word) -> bool {
     if word_to_int(v4_unit_snapshot_key_value(report, "syntax-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "lex-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "parse-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "expand-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "hir-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "resolve-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "ty-invalidations-added")) <= 0 { give back false }
@@ -73,6 +74,7 @@ task v4_fixed_aggregate_query_reports_match(report: word, diff_line: word) -> bo
     array_push(keys, "syntax-invalidations-added")
     array_push(keys, "lex-invalidations-added")
     array_push(keys, "parse-invalidations-added")
+    array_push(keys, "expand-invalidations-added")
     array_push(keys, "hir-invalidations-added")
     array_push(keys, "resolve-invalidations-added")
     array_push(keys, "ty-invalidations-added")
@@ -174,7 +176,7 @@ pilot v4_fixed_aggregate_query_diff = v4_unit_snapshot_diff(v4_fixed_aggregate_q
 pilot v4_fixed_aggregate_query_diff_line = v4_unit_snapshot_health_diff_line(v4_fixed_aggregate_query_diff)
 pilot v4_fixed_aggregate_query_health = v4_unit_snapshot_health_append_diff(v4_unit_snapshot_health(v4_fixed_aggregate_query_invalidated_unit), v4_fixed_aggregate_query_diff)
 
-say "fixed-aggregate-query-all-17-invalidations-positive=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_report_positive(v4_fixed_aggregate_query_report))
+say "fixed-aggregate-query-all-18-invalidations-positive=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_report_positive(v4_fixed_aggregate_query_report))
 say "fixed-aggregate-query-invalidation-matches-diff=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_reports_match(v4_fixed_aggregate_query_report, v4_fixed_aggregate_query_diff_line))
 say "fixed-aggregate-query-health-ok=" + v4_fixed_aggregate_query_bool(v4_fixed_aggregate_query_health.starts_with("00-unit-health|format=" + v4_unit_snapshot_health_format + "|ok=1") and v4_fixed_aggregate_query_health.contains("health-diff|ok=1"))
 

@@ -2,9 +2,9 @@
 -- freak_driver - early V4 driver facade
 -- ===================================================================
 -- Depends on freak_span, freak_diag, freak_session, freak_lex, freak_parse,
--- freak_hir, freak_resolve, freak_ty, freak_mir, freak_borrowck, and
+-- freak_expand, freak_hir, freak_resolve, freak_ty, freak_mir, freak_borrowck, and
 -- freak_query. Syntax checking is currently a query-backed source, lexing,
--- parse, HIR, resolve, type signature, MIR, and Meiya scaffold path.
+-- parse, identity expansion, HIR, resolve, type signature, MIR, and Meiya path.
 
 pilot FREAKC_V4_VERSION = "0.1.0-bootstrap"
 pilot FREAKC_V4_CODENAME = "00-Unit"
@@ -37,6 +37,10 @@ task v4_lex_query_key(path: word) -> word {
 
 task v4_parse_query_key(path: word) -> word {
     give back "parse:" + path
+}
+
+task v4_expand_query_key(path: word) -> word {
+    give back "expand:" + path
 }
 
 task v4_hir_query_key(path: word) -> word {
@@ -126,6 +130,39 @@ task v4_parse_file(path: word) -> word {
     give back summary
 }
 
+task v4_expand_text_cached(path: word, text: word) -> int {
+    v4_driver_init()
+
+    pilot file_id = v4_source_set_text(path, text)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot key = v4_expand_query_key(path)
+    pilot cached = v4_query_get(key, fingerprint)
+    if cached != "" {
+        give back word_to_int(cached)
+    }
+
+    pilot tree_id = v4_parse_text_cached(path, text)
+    pilot expansion_id = v4_expand_identity(file_id, tree_id)
+    v4_query_store(key, fingerprint, word_from_int(expansion_id))
+    v4_query_record_dep(key, v4_parse_query_key(path))
+    give back expansion_id
+}
+
+task v4_expand_file(path: word) -> word {
+    pilot text = fs::read(path)
+    if text == "" {
+        pilot span = v4_span_new("0", 0, 0)
+        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
+        give back v4_diag_render(diag, "")
+    }
+
+    pilot expansion_id = v4_expand_text_cached(path, text)
+    pilot file_id = v4_source_find(path)
+    pilot summary = v4_expand_summary(expansion_id)
+    summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
+    give back summary
+}
+
 task v4_hir_text_cached(path: word, text: word) -> int {
     v4_driver_init()
 
@@ -137,10 +174,10 @@ task v4_hir_text_cached(path: word, text: word) -> int {
         give back word_to_int(cached)
     }
 
-    pilot tree_id = v4_parse_text_cached(path, text)
-    pilot hir_id = v4_hir_lower_tree(file_id, tree_id)
+    pilot expansion_id = v4_expand_text_cached(path, text)
+    pilot hir_id = v4_hir_lower_expanded(file_id, expansion_id)
     v4_query_store(key, fingerprint, word_from_int(hir_id))
-    v4_query_record_dep(key, v4_parse_query_key(path))
+    v4_query_record_dep(key, v4_expand_query_key(path))
     give back hir_id
 }
 
@@ -445,6 +482,7 @@ task v4_diagnostics_text_cached(path: word, text: word) -> int {
     v4_query_record_dep(key, "source:" + path)
     v4_query_record_dep(key, v4_lex_query_key(path))
     v4_query_record_dep(key, v4_parse_query_key(path))
+    v4_query_record_dep(key, v4_expand_query_key(path))
     v4_query_record_dep(key, v4_hir_query_key(path))
     v4_query_record_dep(key, v4_resolve_query_key(path))
     v4_query_record_dep(key, v4_ty_query_key(path))
@@ -512,6 +550,7 @@ task v4_check_syntax_text(path: word, text: word) -> word {
     v4_query_record_dep(key, "source:" + path)
     v4_query_record_dep(key, v4_lex_query_key(path))
     v4_query_record_dep(key, v4_parse_query_key(path))
+    v4_query_record_dep(key, v4_expand_query_key(path))
     v4_query_record_dep(key, v4_hir_query_key(path))
     v4_query_record_dep(key, v4_resolve_query_key(path))
     v4_query_record_dep(key, v4_ty_query_key(path))
