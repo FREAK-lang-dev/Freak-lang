@@ -2138,9 +2138,10 @@ therefore receive parser recovery diagnostics when used in keyword-required
 positions. This boundary preserves intentional identifiers such as `Pilot`,
 `Some`, and `SOME` instead of rewriting their spelling.
 
-The multi-word anime operators `PLUS ULTRA` and `FINAL FORM` are matched
-case-insensitively but expose their canonical uppercase token values. The
-single-word anime operators `NAKAMA` and `TSUNDERE` are intentional
+The multi-word anime operators `PLUS ULTRA` and `FINAL FORM` retain their
+bible-level case-insensitive phrase-matching contract and canonical uppercase
+token values, but combined-token support remains outside the current V4 lexer
+slice. The single-word anime operators `NAKAMA` and `TSUNDERE` are intentional
 uppercase-only vocabulary; mixed- or lowercase variants are identifiers.
 V4 implementations must enumerate those case-sensitive words before ordinary
 keyword classification instead of accidentally lowercasing them.
