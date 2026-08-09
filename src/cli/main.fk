@@ -210,7 +210,8 @@ task freakc_cli_main() -> void {
                 process::exit(1)
             }
         } else if subcmd == "run" {
-            cli_run(src_file, target, opt, cross)
+            pilot run_exit = cli_run(src_file, target, opt, cross)
+            if run_exit != 0 { process::exit(run_exit) }
         } else if subcmd == "check" {
             -- Type-check only: read, lex, parse, check — no emit
             pilot source: word = fs::read(src_file)

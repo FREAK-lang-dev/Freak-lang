@@ -162,6 +162,10 @@ jobs:
           ./build/freak$EXT build tests/fs_runtime_test.fk
           ./tests/fs_runtime_test$EXT
 
+      - name: Test - V3 run freshness and installer cleanup
+        shell: bash
+        run: python -u tests/v3_run_freshness.py ./build/freak$EXT
+
       - name: Test suite (regression tests)
         shell: bash
         run: |

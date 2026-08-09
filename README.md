@@ -140,7 +140,7 @@ curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/inst
 irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
 ```
 
-This downloads the latest `freak` binary and runtime to `~/.freak` (or `%APPDATA%\freak` on Windows) and adds it to your PATH. Open a new terminal and you're ready.
+This downloads the latest `freak` binary and runtime to `~/.freak` (or `%APPDATA%\freak` on Windows) and adds it to your PATH. Installer-managed `runtime/` and `std/` trees are staged and replaced as complete units during upgrades, so files retired by a release do not linger. Open a new terminal and you're ready.
 
 > **Requires:** [Clang](https://releases.llvm.org/) for native compilation. Most systems have it already — run `clang --version` to check.
 
@@ -166,6 +166,11 @@ Compile and run:
 ```bash
 freak run hello.fk
 ```
+
+`freak run` reuses the adjacent `.freak-run-cache` sidecar only when the
+source, loaded standard library, compiler/toolchain identity, backend flags,
+and runtime inputs still match. A failed or racing rebuild invalidates the
+sidecar and never executes an older binary as if it were fresh.
 
 Or build separately:
 

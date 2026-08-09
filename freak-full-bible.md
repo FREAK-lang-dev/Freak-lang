@@ -2472,7 +2472,7 @@ alternative     -- special mode. enables ALL anime features. full causality.
 
 | Subcommand / flag | v0.14.0 status |
 |---|---|
-| `freak run`, `freak build`, `freak check`, `freak transpile` | ✅ Implemented |
+| `freak run`, `freak build`, `freak check`, `freak transpile` | ✅ Implemented — `run` caches only with a content fingerprint over source, loaded stdlib, compiler/toolchain identity, backend flags, and runtime inputs. Failed or racing rebuilds invalidate proof and never execute an older artifact. |
 | `freak version`, `freak help`, `freak init`, `freak flex`, `freak doctor`, `freak upgrade` | ✅ Implemented |
 | `freak hangar <cmd>` and standalone `hangar` binary | ✅ Implemented |
 | `freak audit-science`, `freak audit-trust`, `freak audit-miracles`, `freak foreshadow-audit` | ✅ Implemented (native CLI shells out to Python; native FREAK port is V4) |

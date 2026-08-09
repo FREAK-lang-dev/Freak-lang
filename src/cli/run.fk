@@ -1,13 +1,79 @@
 -- ===================================================================
 -- FREAK CLI — Run Pipeline
 -- ===================================================================
--- Handles: build + execute the resulting binary.
+-- Handles: freshness check, build when needed, then execute the binary.
 -- ===================================================================
 
-task cli_run(src_file: word, target: word, opt: word, cross: word) -> void {
-    pilot binary: word = cli_build(src_file, target, opt, cross)
-    if binary == "" {
-        give back
+pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v1"
+
+task cli_run_file_fingerprint(path: word) -> word {
+    if path == "" { give back "<empty-path>:missing" }
+    if not fs::exists(path) { give back path + ":missing" }
+    pilot contents: word = fs::read(path)
+    give back path + ":" + word_from_int(contents.length()) + ":" + word_from_int(contents.checksum())
+}
+
+task cli_run_fingerprint(src_file: word, target: word, opt: word, cross: word) -> word {
+    pilot source: word = fs::read(src_file)
+    if source == "" { give back "" }
+
+    pilot std_source: word = cli_load_std(source, target)
+    pilot runtime_dir: word = cli_find_runtime_dir()
+    pilot strict_label = "0"
+    if strict_borrow { strict_label = "1" }
+
+    pilot material = CLI_RUN_CACHE_SCHEMA
+    material = material + "|cli=" + CLI_VERSION + "|compiler=" + FREAKC_VERSION
+    material = material + "|self=" + cli_run_file_fingerprint(process::arg(0))
+    material = material + "|source-path=" + src_file
+    material = material + "|source=" + word_from_int(source.length()) + ":" + word_from_int(source.checksum())
+    material = material + "|std=" + word_from_int(std_source.length()) + ":" + word_from_int(std_source.checksum())
+    material = material + "|target=" + target + "|opt=" + opt + "|cross=" + cross + "|strict=" + strict_label
+    material = material + "|clang=" + cli_clang_version_line(cli_find_clang_command())
+    material = material + "|runtime-dir=" + runtime_dir
+    if runtime_dir != "" {
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.c")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.h")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_llvm_runtime.c")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.o")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_llvm_runtime.o")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.obj")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_llvm_runtime.obj")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/ui/win32_backend.c")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/ui/freak_ui_platform.h")
+    }
+
+    give back word_from_int(material.checksum())
+}
+
+task cli_run(src_file: word, target: word, opt: word, cross: word) -> int {
+    pilot binary: word = cli_binary_path(src_file)
+    pilot cache_file = binary + ".freak-run-cache"
+    pilot fingerprint = cli_run_fingerprint(src_file, target, opt, cross)
+    pilot cache_hit = false
+
+    if fingerprint != "" and fs::exists(binary) and fs::exists(cache_file) {
+        if fs::read(cache_file) == fingerprint { cache_hit = true }
+    }
+
+    if cache_hit {
+        say ""
+        say "  " + C_BGREEN + SYM_CHECK + " FRESH" + C_RESET + C_DIM + "  run cache hit" + C_RESET
+    } else {
+        -- Invalidate first. A rejected rebuild may leave an older binary on
+        -- disk, but it must never leave proof that the binary is fresh.
+        if fs::exists(cache_file) { fs::delete(cache_file) }
+        binary = cli_build(src_file, target, opt, cross)
+        if binary == "" { give back 1 }
+
+        pilot confirmed = cli_run_fingerprint(src_file, target, opt, cross)
+        if confirmed == "" or confirmed != fingerprint {
+            say ""
+            say "  " + C_BRED + SYM_CROSS + " RUN ABORTED" + C_RESET + " Build inputs changed while compiling."
+            say "  " + C_DIM + "Run the command again after the files stop changing." + C_RESET
+            give back 1
+        }
+        fs::write(cache_file, confirmed)
     }
 
     say cli_box_top(45)
@@ -27,4 +93,5 @@ task cli_run(src_file: word, target: word, opt: word, cross: word) -> void {
         say "  " + C_BGREEN + SYM_CHECK + " DONE" + C_RESET + C_DIM + " (" + word_from_int(run_elapsed) + "ms)" + C_RESET
     }
     say ""
+    give back run_code
 }

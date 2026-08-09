@@ -186,6 +186,12 @@ task cli_strip_fk(path: word) -> word {
     give back path
 }
 
+task cli_binary_path(src_file: word) -> word {
+    pilot binary = cli_strip_fk(src_file)
+    if cli_is_windows() { binary = binary + ".exe" }
+    give back binary
+}
+
 task cli_is_windows() -> bool {
     pilot windir: word = process::env("WINDIR")
     if windir != "" { give back true }
@@ -321,8 +327,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     }
 
     -- Determine output binary name
-    pilot out_bin = cli_strip_fk(src_file)
-    if cli_is_windows() { out_bin = out_bin + ".exe" }
+    pilot out_bin = cli_binary_path(src_file)
 
     pilot is_win = cli_is_windows()
     pilot use_bundle = false
@@ -587,6 +592,12 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     -- Full build pipeline: read source, transpile, compile.
     -- Returns the output binary path, or "" on error.
     cli_build_start_ms = time::now_ms()
+
+    -- Any explicit build may replace the adjacent executable. Invalidate run
+    -- proof before doing work so failed builds and non-run builds cannot leave
+    -- a sidecar describing an older artifact.
+    pilot run_cache_file = cli_binary_path(src_file) + ".freak-run-cache"
+    if fs::exists(run_cache_file) { fs::delete(run_cache_file) }
 
     pilot source: word = fs::read(src_file)
     if source == "" {

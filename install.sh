@@ -5,6 +5,17 @@ set -euo pipefail
 
 REPO="FREAK-lang-dev/Freak-lang"
 INSTALL_DIR="${FREAK_HOME:-$HOME/.freak}"
+
+if [ -z "$INSTALL_DIR" ]; then
+    printf "Refusing unsafe FREAK install directory: %s\n" "$INSTALL_DIR" >&2
+    exit 1
+fi
+mkdir -p -- "$INSTALL_DIR"
+INSTALL_DIR=$(cd "$INSTALL_DIR" && pwd -P)
+if [ "$INSTALL_DIR" = "/" ]; then
+    printf "Refusing unsafe FREAK install directory: %s\n" "$INSTALL_DIR" >&2
+    exit 1
+fi
 BIN_DIR="$INSTALL_DIR/bin"
 
 info()  { printf "\033[1;34m>\033[0m %s\n" "$*"; }
@@ -52,6 +63,54 @@ TARBALL_OK=false
 
 TMPDIR_INSTALL=$(mktemp -d)
 trap "rm -rf '$TMPDIR_INSTALL'" EXIT
+STAGE_DIR="$TMPDIR_INSTALL/stage"
+STAGE_BIN="$STAGE_DIR/bin"
+STAGE_RUNTIME="$STAGE_DIR/runtime"
+STAGE_STD="$STAGE_DIR/std"
+mkdir -p "$STAGE_BIN" "$STAGE_RUNTIME/ui" "$STAGE_STD"
+
+RUNTIME_FILES=(freak_runtime.c freak_runtime.h freak_llvm_runtime.c)
+RUNTIME_UI_FILES=(win32_backend.c freak_ui_platform.h)
+STD_FILES=(math.fk math3d.fk zip.fk string.fk convert.fk algorithm.fk json.fk http.fk version.fk runtime.fk)
+
+fetch_file() {
+    local url="$1"
+    local destination="$2"
+    if command -v curl &>/dev/null; then
+        curl -fsSL "$url" -o "$destination"
+    else
+        wget -q "$url" -O "$destination"
+    fi
+}
+
+validate_stage() {
+    [ -f "$STAGE_BIN/freak" ] || err "Staged compiler is missing"
+    [ -f "$STAGE_BIN/hangar" ] || err "Staged Hangar is missing"
+    local file
+    for file in "${RUNTIME_FILES[@]}"; do
+        [ -f "$STAGE_RUNTIME/$file" ] || err "Staged runtime is missing $file"
+    done
+    for file in "${RUNTIME_UI_FILES[@]}"; do
+        [ -f "$STAGE_RUNTIME/ui/$file" ] || err "Staged runtime is missing ui/$file"
+    done
+    for file in "${STD_FILES[@]}"; do
+        [ -f "$STAGE_STD/$file" ] || err "Staged stdlib is missing $file"
+    done
+}
+
+install_stage() {
+    validate_stage
+    mkdir -p "$BIN_DIR"
+    install -m 755 "$STAGE_BIN/freak" "$BIN_DIR/freak"
+    install -m 755 "$STAGE_BIN/hangar" "$BIN_DIR/hangar"
+
+    # runtime/ and std/ are installer-managed trees. Replacing those exact
+    # directories removes files retired by a newer distribution.
+    rm -rf -- "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"
+    mkdir -p "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"
+    cp -R "$STAGE_RUNTIME/." "$INSTALL_DIR/runtime/"
+    cp -R "$STAGE_STD/." "$INSTALL_DIR/std/"
+}
 
 info "Downloading ${TARGET}.tar.gz..."
 if command -v curl &>/dev/null; then
@@ -68,54 +127,35 @@ if [ "$TARBALL_OK" = true ]; then
     info "Extracting distribution..."
     tar xzf "$TMPDIR_INSTALL/freak.tar.gz" -C "$TMPDIR_INSTALL"
 
-    # Install from extracted tarball
-    mkdir -p "$BIN_DIR" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"
-    cp "$TMPDIR_INSTALL/freak/bin/freak" "$BIN_DIR/freak"
-    chmod +x "$BIN_DIR/freak"
-    cp "$TMPDIR_INSTALL/freak/bin/hangar" "$BIN_DIR/hangar" 2>/dev/null || cp "$BIN_DIR/freak" "$BIN_DIR/hangar"
-    chmod +x "$BIN_DIR/hangar"
-    cp "$TMPDIR_INSTALL/freak/runtime/"* "$INSTALL_DIR/runtime/" 2>/dev/null || true
-    cp "$TMPDIR_INSTALL/freak/std/"* "$INSTALL_DIR/std/" 2>/dev/null || true
+    cp "$TMPDIR_INSTALL/freak/bin/freak" "$STAGE_BIN/freak"
+    cp "$TMPDIR_INSTALL/freak/bin/hangar" "$STAGE_BIN/hangar" 2>/dev/null || cp "$STAGE_BIN/freak" "$STAGE_BIN/hangar"
+    cp -R "$TMPDIR_INSTALL/freak/runtime/." "$STAGE_RUNTIME/"
+    cp -R "$TMPDIR_INSTALL/freak/std/." "$STAGE_STD/"
 else
     # Fallback: download standalone binary + individual files from source
     info "Tarball not available, falling back to standalone binary..."
     DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST/$TARGET"
 
-    mkdir -p "$BIN_DIR"
-
-    if command -v curl &>/dev/null; then
-        curl -fsSL "$DOWNLOAD_URL" -o "$BIN_DIR/freak"
-    else
-        wget -q "$DOWNLOAD_URL" -O "$BIN_DIR/freak"
-    fi
-
-    chmod +x "$BIN_DIR/freak"
-    # Create hangar as copy of freak (BusyBox pattern)
-    cp "$BIN_DIR/freak" "$BIN_DIR/hangar"
-    chmod +x "$BIN_DIR/hangar"
+    fetch_file "$DOWNLOAD_URL" "$STAGE_BIN/freak"
+    cp "$STAGE_BIN/freak" "$STAGE_BIN/hangar"
 
     # Download runtime files from source tree
     RUNTIME_URL="https://raw.githubusercontent.com/$REPO/$LATEST/freakc/runtime"
-    mkdir -p "$INSTALL_DIR/runtime"
-    for file in freak_runtime.c freak_runtime.h freak_llvm_runtime.c; do
-        if command -v curl &>/dev/null; then
-            curl -fsSL "$RUNTIME_URL/$file" -o "$INSTALL_DIR/runtime/$file" 2>/dev/null || true
-        else
-            wget -q "$RUNTIME_URL/$file" -O "$INSTALL_DIR/runtime/$file" 2>/dev/null || true
-        fi
+    for file in "${RUNTIME_FILES[@]}"; do
+        fetch_file "$RUNTIME_URL/$file" "$STAGE_RUNTIME/$file"
+    done
+    for file in "${RUNTIME_UI_FILES[@]}"; do
+        fetch_file "$RUNTIME_URL/ui/$file" "$STAGE_RUNTIME/ui/$file"
     done
 
     # Download standard library
     STD_URL="https://raw.githubusercontent.com/$REPO/$LATEST/std"
-    mkdir -p "$INSTALL_DIR/std"
-    for file in math.fk math3d.fk zip.fk string.fk convert.fk algorithm.fk json.fk http.fk version.fk; do
-        if command -v curl &>/dev/null; then
-            curl -fsSL "$STD_URL/$file" -o "$INSTALL_DIR/std/$file" 2>/dev/null || true
-        else
-            wget -q "$STD_URL/$file" -O "$INSTALL_DIR/std/$file" 2>/dev/null || true
-        fi
+    for file in "${STD_FILES[@]}"; do
+        fetch_file "$STD_URL/$file" "$STAGE_STD/$file"
     done
 fi
+
+install_stage
 
 # Add to PATH
 add_to_path() {

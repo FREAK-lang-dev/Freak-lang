@@ -1662,6 +1662,70 @@ def audit_conformance(paths: List[Path]) -> int:
     if not bc_ok:
         failures.append("--strict-borrow not handled in src/cli/main.fk")
 
+    # Check 6b: V3 run freshness and distribution replacement contracts.
+    run_freshness_missing: List[str] = []
+    freshness_sources = {
+        "run pipeline": (
+            repo / "src" / "cli" / "run.fk",
+            (
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v1"',
+                "task cli_run_fingerprint",
+                "fs::delete(cache_file)",
+                "confirmed != fingerprint",
+                "run cache hit",
+            ),
+        ),
+        "build invalidation": (
+            repo / "src" / "cli" / "build.fk",
+            ('pilot run_cache_file = cli_binary_path(src_file) + ".freak-run-cache"', "fs::delete(run_cache_file)"),
+        ),
+        "main dispatch": (
+            cli_main,
+            ("pilot run_exit = cli_run", "process::exit(run_exit)"),
+        ),
+        "regression": (
+            repo / "tests" / "v3_run_freshness.py",
+            ("CACHE_A", "CACHE_B", "failed rebuild left stale freshness proof"),
+        ),
+        "POSIX installer": (
+            repo / "install.sh",
+            ('STAGE_DIR="$TMPDIR_INSTALL/stage"', 'rm -rf -- "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"', "runtime.fk", "zip.fk"),
+        ),
+        "Windows installer": (
+            repo / "install.ps1",
+            ('$StageDir = Join-Path $TmpDir "stage"', "Remove-Item -LiteralPath $target -Recurse -Force", "runtime.fk", "zip.fk"),
+        ),
+        "release payload": (
+            repo / ".github" / "workflows" / "release.yml",
+            ("dist/freak/runtime/ui", "std/runtime.fk", "std/zip.fk"),
+        ),
+    }
+    for label, (source_path, needles) in freshness_sources.items():
+        if not source_path.exists():
+            run_freshness_missing.append(f"{label}: {source_path.name} missing")
+            continue
+        source_text = source_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in source_text:
+                run_freshness_missing.append(f"{label}: {needle}")
+    bible_text = bible.read_text(encoding="utf-8") if bible.exists() else ""
+    audit_text = audit_doc.read_text(encoding="utf-8") if audit_doc.exists() else ""
+    for label, text in (("bible", bible_text), ("audit", audit_text)):
+        if "Failed or racing rebuilds invalidate" not in text:
+            run_freshness_missing.append(f"{label}: freshness boundary")
+    add(
+        "V3 run freshness",
+        not run_freshness_missing,
+        "content cache + stale-run gate + staged installers wired"
+        if not run_freshness_missing
+        else f"{len(run_freshness_missing)} gap(s)",
+    )
+    if run_freshness_missing:
+        failures.append(
+            "V3 run freshness/install cleanup regressed: "
+            + "; ".join(run_freshness_missing)
+        )
+
     # ── Check 7: deus_ex_machina 20-word rule still enforced ──
     parser_path = repo / "freakc" / "parser.py"
     dem_ok = False

@@ -643,7 +643,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 | Subcommand | Status | Verdict | Notes |
 |---|---|---|---|
-| `freak run file.fk` | ✅ | ✅ | |
+| `freak run file.fk` | ✅ | ✅ | Content-fingerprinted sidecar covers source, loaded stdlib, compiler/toolchain identity, backend flags, and runtime inputs. Failed or racing rebuilds invalidate the sidecar before an older binary can run. |
 | `freak build file.fk` | ✅ | ✅ | |
 | `freak check file.fk` | ✅ | ✅ | |
 | `freak transpile file.fk` | ✅ | ✅ | |

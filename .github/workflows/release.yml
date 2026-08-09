@@ -102,7 +102,7 @@ jobs:
       - name: Package release artifact
         shell: bash
         run: |
-          mkdir -p dist/freak/bin dist/freak/runtime dist/freak/std
+          mkdir -p dist/freak/bin dist/freak/runtime/ui dist/freak/std
           cp build/freak${{ matrix.ext }} dist/freak/bin/freak${{ matrix.ext }}
           cp build/hangar${{ matrix.ext }} dist/freak/bin/hangar${{ matrix.ext }}
           # Ship pre-compiled .o files (preferred) + .c/.h source (fallback)
@@ -111,6 +111,8 @@ jobs:
           cp freakc/runtime/freak_runtime.c dist/freak/runtime/
           cp freakc/runtime/freak_runtime.h dist/freak/runtime/
           cp freakc/runtime/freak_llvm_runtime.c dist/freak/runtime/
+          cp freakc/runtime/ui/win32_backend.c dist/freak/runtime/ui/
+          cp freakc/runtime/ui/freak_ui_platform.h dist/freak/runtime/ui/
           # Ship standard library
           cp std/math.fk dist/freak/std/
           cp std/math3d.fk dist/freak/std/
@@ -121,6 +123,7 @@ jobs:
           cp std/http.fk dist/freak/std/
           cp std/version.fk dist/freak/std/
           cp std/runtime.fk dist/freak/std/
+          cp std/zip.fk dist/freak/std/
           # Standalone binaries for direct download
           cp build/freak${{ matrix.ext }} dist/freak-${{ matrix.target }}${{ matrix.ext }}
           cp build/hangar${{ matrix.ext }} dist/hangar-${{ matrix.target }}${{ matrix.ext }}
