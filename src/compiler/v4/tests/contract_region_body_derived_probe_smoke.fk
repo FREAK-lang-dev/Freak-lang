@@ -114,6 +114,21 @@ task v4_body_probe_status(borrow_id: int, resolve_id: int, name: word) -> word {
     give back v4_borrowck_result_status(borrow_id, result_id)
 }
 
+task v4_body_probe_emit_sources(prefix: word, borrow_id: int, resolve_id: int, name: word) -> void {
+    pilot def_id = v4_resolve_def_for_name(resolve_id, name)
+    pilot result_id = v4_borrowck_lookup_result(borrow_id, def_id)
+    pilot path_id = 0
+    pilot source_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_return_loan {
+            say prefix + "-source" + word_from_int(source_id) + "=" + v4_borrowck_path_text(borrow_id, result_id, path_id)
+            source_id += 1
+        }
+        path_id += 1
+    }
+    say prefix + "-source-count=" + word_from_int(source_id)
+}
+
 task v4_body_probe_diag_count(borrow_id: int, needle: word) -> int {
     pilot count = 0
     pilot diag_id = 0
@@ -150,5 +165,8 @@ say "body-probe-mixed-owned-leaf=" + v4_body_probe_status(v4_body_probe_borrow, 
 say "body-probe-branch-join=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "branch_join")
 say "body-probe-branch-single-source=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "branch_single_source")
 say "body-probe-loop-carried-local=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "loop_carried_local")
+v4_body_probe_emit_sources("body-probe-field-rebind", v4_body_probe_borrow, v4_body_probe_resolve, "field_rebind_agg")
+v4_body_probe_emit_sources("body-probe-inner-rebind", v4_body_probe_borrow, v4_body_probe_resolve, "inner_rebind")
+v4_body_probe_emit_sources("body-probe-branch-join", v4_body_probe_borrow, v4_body_probe_resolve, "branch_join")
 say "body-probe-owned-diagnostics=" + word_from_int(v4_body_probe_diag_count(v4_body_probe_borrow, "loan of an owned value"))
 say "body-probe-unproven-diagnostics=" + word_from_int(v4_body_probe_diag_count(v4_body_probe_borrow, "Meiya cannot establish the origin of this returned loan"))
