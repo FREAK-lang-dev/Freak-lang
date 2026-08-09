@@ -195,6 +195,7 @@ task v4_unit_snapshot_reset_compiler_state() -> void {
     v4_query_revision = 1
     v4_lex_ready = 0
     v4_parse_ready = 0
+    v4_expand_ready = 0
     v4_hir_ready = 0
     v4_resolve_ready = 0
     v4_ty_ready = 0
@@ -228,6 +229,7 @@ task v4_unit_snapshot_reset_compiler_state() -> void {
     v4_query_init()
     v4_lex_init()
     v4_parse_init()
+    v4_expand_init()
     v4_hir_init()
     v4_resolve_init()
     v4_ty_init()
@@ -239,7 +241,7 @@ task v4_unit_snapshot_reset_compiler_state() -> void {
 
 task v4_unit_snapshot_fresh_restore_assert(payload: word) -> void {
     v4_unit_snapshot_reset_compiler_state()
-    pilot parents_empty = v4_source_count() == 0 and v4_lex_stream_count() == 0 and v4_parse_tree_count() == 0 and v4_hir_file_count() == 0 and v4_resolve_index_count() == 0 and v4_ty_file_count() == 0
+    pilot parents_empty = v4_source_count() == 0 and v4_lex_stream_count() == 0 and v4_parse_tree_count() == 0 and v4_expand_file_count() == 0 and v4_hir_file_count() == 0 and v4_resolve_index_count() == 0 and v4_ty_file_count() == 0
     say v4_unit_snapshot_integrity_assert("fresh-parent-arenas-empty", parents_empty)
     pilot validation = v4_unit_snapshot_validate(payload)
     say v4_unit_snapshot_integrity_assert("fresh-preflight-accepted", validation.starts_with("00-unit-snapshot-import ok=1 "))
@@ -466,7 +468,7 @@ pilot v4_unit_snapshot_soak_id = 0
 pilot v4_unit_snapshot_soak_ok = true
 repeat until v4_unit_snapshot_soak_id >= 80 {
     pilot v4_unit_snapshot_soak_payload = v4_unit_snapshot()
-    if not v4_unit_snapshot_soak_payload.starts_with("00-unit-snapshot|format=freak-00-unit-snapshot-v2") {
+    if not v4_unit_snapshot_soak_payload.starts_with("00-unit-snapshot|format=freak-00-unit-snapshot-v3") {
         v4_unit_snapshot_soak_ok = false
     }
     v4_unit_snapshot_soak_id += 1

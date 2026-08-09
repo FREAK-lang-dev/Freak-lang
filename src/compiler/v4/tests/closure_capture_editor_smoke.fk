@@ -103,6 +103,7 @@ task v4_closure_editor_report_positive(report: word) -> bool {
     if word_to_int(v4_unit_snapshot_key_value(report, "syntax-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "lex-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "parse-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "expand-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "hir-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "resolve-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "ty-invalidations-added")) <= 0 { give back false }
@@ -127,6 +128,7 @@ task v4_closure_editor_reports_match(report: word, diff_line: word) -> bool {
     if not v4_closure_editor_report_key_matches(report, diff_line, "syntax-invalidations-added") { give back false }
     if not v4_closure_editor_report_key_matches(report, diff_line, "lex-invalidations-added") { give back false }
     if not v4_closure_editor_report_key_matches(report, diff_line, "parse-invalidations-added") { give back false }
+    if not v4_closure_editor_report_key_matches(report, diff_line, "expand-invalidations-added") { give back false }
     if not v4_closure_editor_report_key_matches(report, diff_line, "hir-invalidations-added") { give back false }
     if not v4_closure_editor_report_key_matches(report, diff_line, "resolve-invalidations-added") { give back false }
     if not v4_closure_editor_report_key_matches(report, diff_line, "ty-invalidations-added") { give back false }

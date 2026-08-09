@@ -66,6 +66,7 @@ task v4_contract_region_query_all_invalidations_positive(report: word) -> word {
     if v4_contract_region_query_positive(report, "syntax-invalidations-added") != "true" { give back "false" }
     if v4_contract_region_query_positive(report, "lex-invalidations-added") != "true" { give back "false" }
     if v4_contract_region_query_positive(report, "parse-invalidations-added") != "true" { give back "false" }
+    if v4_contract_region_query_positive(report, "expand-invalidations-added") != "true" { give back "false" }
     if v4_contract_region_query_positive(report, "hir-invalidations-added") != "true" { give back "false" }
     if v4_contract_region_query_positive(report, "resolve-invalidations-added") != "true" { give back "false" }
     if v4_contract_region_query_positive(report, "ty-invalidations-added") != "true" { give back "false" }
@@ -119,6 +120,7 @@ pilot v4_contract_region_query_core_misses_before = v4_contract_region_query_fam
 pilot v4_contract_region_query_syntax_misses_before = v4_contract_region_query_family_misses(v4_contract_region_query_path, "syntax")
 pilot v4_contract_region_query_lex_misses_before = v4_contract_region_query_family_misses(v4_contract_region_query_path, "lex")
 pilot v4_contract_region_query_parse_misses_before = v4_contract_region_query_family_misses(v4_contract_region_query_path, "parse")
+pilot v4_contract_region_query_expand_misses_before = v4_contract_region_query_family_misses(v4_contract_region_query_path, "expand")
 pilot v4_contract_region_query_hir_misses_before = v4_contract_region_query_family_misses(v4_contract_region_query_path, "hir")
 pilot v4_contract_region_query_resolve_misses_before = v4_contract_region_query_family_misses(v4_contract_region_query_path, "resolve")
 pilot v4_contract_region_query_ty_misses_before = v4_contract_region_query_family_misses(v4_contract_region_query_path, "ty")
@@ -159,6 +161,7 @@ say "contract-region-query-core-invalidated=" + v4_contract_region_query_positiv
 say "contract-region-query-syntax-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "syntax-invalidations-added")
 say "contract-region-query-lex-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "lex-invalidations-added")
 say "contract-region-query-parse-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "parse-invalidations-added")
+say "contract-region-query-expand-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "expand-invalidations-added")
 say "contract-region-query-hir-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "hir-invalidations-added")
 say "contract-region-query-resolve-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "resolve-invalidations-added")
 say "contract-region-query-ty-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "ty-invalidations-added")
@@ -171,7 +174,7 @@ say "contract-region-query-hover-invalidated=" + v4_contract_region_query_positi
 say "contract-region-query-definition-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "definition-at-invalidations-added")
 say "contract-region-query-document-symbols-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "document-symbols-invalidations-added")
 say "contract-region-query-completion-invalidated=" + v4_contract_region_query_positive(v4_contract_region_query_report, "completion-invalidations-added")
-say "contract-region-query-all-17-invalidations-positive=" + v4_contract_region_query_all_invalidations_positive(v4_contract_region_query_report)
+say "contract-region-query-all-18-invalidations-positive=" + v4_contract_region_query_all_invalidations_positive(v4_contract_region_query_report)
 
 pilot v4_contract_region_query_after_syntax = ""
 pilot v4_contract_region_query_after_borrow = 0 - 1
@@ -210,6 +213,7 @@ if v4_contract_region_query_family_misses(v4_contract_region_query_path, "core")
 if v4_contract_region_query_family_misses(v4_contract_region_query_path, "syntax") <= v4_contract_region_query_syntax_misses_before { v4_contract_region_query_all_recomputations_positive = false }
 if v4_contract_region_query_family_misses(v4_contract_region_query_path, "lex") <= v4_contract_region_query_lex_misses_before { v4_contract_region_query_all_recomputations_positive = false }
 if v4_contract_region_query_family_misses(v4_contract_region_query_path, "parse") <= v4_contract_region_query_parse_misses_before { v4_contract_region_query_all_recomputations_positive = false }
+if v4_contract_region_query_family_misses(v4_contract_region_query_path, "expand") <= v4_contract_region_query_expand_misses_before { v4_contract_region_query_all_recomputations_positive = false }
 if v4_contract_region_query_family_misses(v4_contract_region_query_path, "hir") <= v4_contract_region_query_hir_misses_before { v4_contract_region_query_all_recomputations_positive = false }
 if v4_contract_region_query_family_misses(v4_contract_region_query_path, "resolve") <= v4_contract_region_query_resolve_misses_before { v4_contract_region_query_all_recomputations_positive = false }
 if v4_contract_region_query_family_misses(v4_contract_region_query_path, "ty") <= v4_contract_region_query_ty_misses_before { v4_contract_region_query_all_recomputations_positive = false }
@@ -228,6 +232,7 @@ say "contract-region-query-core-recomputed=" + v4_contract_region_query_family_r
 say "contract-region-query-syntax-recomputed=" + v4_contract_region_query_family_recomputed(v4_contract_region_query_path, "syntax", v4_contract_region_query_syntax_misses_before)
 say "contract-region-query-lex-recomputed=" + v4_contract_region_query_family_recomputed(v4_contract_region_query_path, "lex", v4_contract_region_query_lex_misses_before)
 say "contract-region-query-parse-recomputed=" + v4_contract_region_query_family_recomputed(v4_contract_region_query_path, "parse", v4_contract_region_query_parse_misses_before)
+say "contract-region-query-expand-recomputed=" + v4_contract_region_query_family_recomputed(v4_contract_region_query_path, "expand", v4_contract_region_query_expand_misses_before)
 say "contract-region-query-hir-recomputed=" + v4_contract_region_query_family_recomputed(v4_contract_region_query_path, "hir", v4_contract_region_query_hir_misses_before)
 say "contract-region-query-resolve-recomputed=" + v4_contract_region_query_family_recomputed(v4_contract_region_query_path, "resolve", v4_contract_region_query_resolve_misses_before)
 say "contract-region-query-ty-recomputed=" + v4_contract_region_query_family_recomputed(v4_contract_region_query_path, "ty", v4_contract_region_query_ty_misses_before)
@@ -240,7 +245,7 @@ say "contract-region-query-hover-recomputed=" + v4_contract_region_query_family_
 say "contract-region-query-definition-recomputed=" + v4_contract_region_query_family_recomputed(v4_contract_region_query_path, "definition-at", v4_contract_region_query_definition_misses_before)
 say "contract-region-query-document-symbols-recomputed=" + v4_contract_region_query_family_recomputed(v4_contract_region_query_path, "document-symbols", v4_contract_region_query_document_symbols_misses_before)
 say "contract-region-query-completion-recomputed=" + v4_contract_region_query_family_recomputed(v4_contract_region_query_path, "completion", v4_contract_region_query_completion_misses_before)
-say "contract-region-query-all-17-recomputations-positive=" + v4_contract_region_query_bool(v4_contract_region_query_all_recomputations_positive)
+say "contract-region-query-all-18-recomputations-positive=" + v4_contract_region_query_bool(v4_contract_region_query_all_recomputations_positive)
 v4_contract_region_query_after_diagnostic_count = v4_diagnostics_count(v4_contract_region_query_after_diagnostics)
 say "contract-region-query-after-diagnostics=" + word_from_int(v4_contract_region_query_after_diagnostic_count)
 if v4_contract_region_query_after_diagnostic_count > 0 {

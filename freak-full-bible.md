@@ -1042,8 +1042,8 @@ the rest is V4.
 > `ReturnLoan` / `ReturnLoanMut` facts.
 > Those facts survive borrowck/editor snapshot restore. Stored named or elided
 > ordinary-call results and copied scalar holder aliases retain every candidate
-> owner through the holder's final reachable use. Source edits update all 17
-> invalidation report fields: 14 concrete query families plus three aggregate
+> owner through the holder's final reachable use. Source edits update all 18
+> invalidation report fields: 15 concrete query families plus three aggregate
 > totals (`all`/`query`, `core`, and `editor`). Subsequent requests prove every
 > concrete family recomputes through completion and refresh the totals,
 > including after an edit shrinks an elided result from multiple owners to one
@@ -1134,7 +1134,7 @@ the rest is V4.
 > start a fresh provenance scratch generation, and the query smoke
 > proves `A -> B -> restore A` with MIR, borrowck, and editor IDs re-resolved.
 > Fixed-layout local facts otherwise use the existing MIR/borrowck snapshots and
-> 00-Unit restore/diff/health envelopes and all 17 invalidation report fields;
+> 00-Unit restore/diff/health envelopes and all 18 invalidation report fields;
 > no aggregate-only LSP or snapshot protocol is introduced. Contract-boundary
 > diagnostics retain source-backed spans, with normalized source paths and exact
 > `start:end` byte ranges pinned for signature and unsupported-forwarding
