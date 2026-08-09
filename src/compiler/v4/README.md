@@ -385,6 +385,24 @@ and deterministic `identity:fileN:treeN` provenance. HIR always lowers that
 carrier, including through its compatibility tree entrypoint. This bootstrap
 does not define user macros, attribute rewriting, hygiene, gensyms, execution
 hooks, or a public macro API; it preserves all existing frontend semantics.
+### Keyword Casing Contract
+
+`freak_lex` owns keyword classification. Ordinary keyword words use their exact
+lowercase spelling and are emitted as `keyword` tokens with that canonical
+value. Noncanonical forms such as `Task`, `TASK`, and `ShApE` remain identifiers;
+when used where a declaration keyword is required, `freak_parse` produces its
+normal targeted recovery diagnostic. This preserves valid identifier spellings
+such as `Pilot`, `Some`, and `SOME` instead of silently rewriting them.
+
+The single-word anime operators `NAKAMA` and `TSUNDERE` are intentionally
+uppercase-only and retain those uppercase token values; mixed- or lowercase
+spellings remain identifiers. The bible-level `PLUS ULTRA` and `FINAL FORM`
+operators use canonical uppercase token values after case-insensitive phrase
+matching, but combined-token support for those multi-word forms remains
+outside the current V4 lexer slice. The
+`keyword casing matrix` smoke fixes the canonical and identifier spellings,
+adjacent identifier boundaries, parser dispatch, snapshot token values, and
+noncanonical-keyword recovery diagnostic in one table-driven contract.
 
 ## Public Tooling Protocols
 
