@@ -283,13 +283,16 @@ task v4_lex_is_bool_word(text_word: word) -> bool {
 }
 
 task v4_lex_canonical_keyword_word(text_word: word) -> word {
-    -- Ordinary FREAK vocabulary is case-insensitive and crosses the lexer
-    -- boundary in lowercase. Anime operators keep their load-bearing,
-    -- uppercase spellings and must be matched before ordinary normalization.
+    -- Ordinary FREAK vocabulary uses exact lowercase spellings. Anime
+    -- operators keep their load-bearing uppercase spellings and must be
+    -- matched before rejecting noncanonical ordinary-keyword casing.
     if text_word == "NAKAMA" or text_word == "TSUNDERE" {
         give back text_word
     }
     pilot lower = text_word.to_lower()
+    if text_word != lower {
+        give back ""
+    }
     if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "alias" or lower == "impl" or lower == "doctrine" or lower == "launch" {
         give back lower
     }

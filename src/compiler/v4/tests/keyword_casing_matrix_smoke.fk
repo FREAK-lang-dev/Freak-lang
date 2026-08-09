@@ -1,27 +1,47 @@
 -- V4 keyword casing and canonical-token matrix.
--- Ordinary keywords normalize to lowercase; the anime operators below are
--- intentionally uppercase-only. Adjacent identifier text must stay intact.
+-- Ordinary keywords use exact lowercase spellings; the anime operators below
+-- are intentionally uppercase-only. Other casing and adjacent identifier text
+-- must stay intact for parser recovery and identifier consumers.
 
 task v4_keyword_case_run_matrix() -> int {
     pilot inputs = array_new()
     pilot expected_types = array_new()
     pilot expected_values = array_new()
 
-    array_push(inputs, "Task")
-    array_push(expected_types, v4_tok_keyword)
-    array_push(expected_values, "task")
-    array_push(inputs, "TASK")
-    array_push(expected_types, v4_tok_keyword)
-    array_push(expected_values, "task")
     array_push(inputs, "task")
     array_push(expected_types, v4_tok_keyword)
     array_push(expected_values, "task")
+    array_push(inputs, "Task")
+    array_push(expected_types, v4_tok_ident)
+    array_push(expected_values, "Task")
+    array_push(inputs, "TASK")
+    array_push(expected_types, v4_tok_ident)
+    array_push(expected_values, "TASK")
     array_push(inputs, "TaSk")
-    array_push(expected_types, v4_tok_keyword)
-    array_push(expected_values, "task")
-    array_push(inputs, "ShApE")
+    array_push(expected_types, v4_tok_ident)
+    array_push(expected_values, "TaSk")
+    array_push(inputs, "shape")
     array_push(expected_types, v4_tok_keyword)
     array_push(expected_values, "shape")
+    array_push(inputs, "ShApE")
+    array_push(expected_types, v4_tok_ident)
+    array_push(expected_values, "ShApE")
+
+    array_push(inputs, "pilot")
+    array_push(expected_types, v4_tok_keyword)
+    array_push(expected_values, "pilot")
+    array_push(inputs, "Pilot")
+    array_push(expected_types, v4_tok_ident)
+    array_push(expected_values, "Pilot")
+    array_push(inputs, "some")
+    array_push(expected_types, v4_tok_keyword)
+    array_push(expected_values, "some")
+    array_push(inputs, "Some")
+    array_push(expected_types, v4_tok_ident)
+    array_push(expected_values, "Some")
+    array_push(inputs, "SOME")
+    array_push(expected_types, v4_tok_ident)
+    array_push(expected_values, "SOME")
 
     array_push(inputs, "NAKAMA")
     array_push(expected_types, v4_tok_keyword)
@@ -74,8 +94,6 @@ task v4_keyword_case_run_matrix() -> int {
 
 task v4_keyword_case_parser_source() -> word {
     pilot source = "task lower() {\n"
-    source = source + "}\nTask mixed() {\n"
-    source = source + "}\nTASK upper() {\n"
     source = source + "}\n"
     give back source
 }
@@ -83,6 +101,7 @@ task v4_keyword_case_parser_source() -> word {
 pilot v4_keyword_case_mismatches = v4_keyword_case_run_matrix()
 say "keyword-case-mismatches=" + word_from_int(v4_keyword_case_mismatches)
 say "keyword-case-snapshot=" + v4_lex_snapshot_token_line(0, 0)
+say "keyword-case-identifier-snapshot=" + v4_lex_snapshot_token_line(7, 0)
 
 pilot v4_keyword_case_parse_source = v4_keyword_case_parser_source()
 pilot v4_keyword_case_parse_stream = v4_lex_text(100, v4_keyword_case_parse_source)
@@ -90,10 +109,8 @@ pilot v4_keyword_case_parse_tree = v4_parse_stream(100, v4_keyword_case_parse_st
 say "keyword-case-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_keyword_case_parse_tree))
 say "keyword-case-parse-tasks=" + word_from_int(v4_parse_child_count_by_kind(v4_keyword_case_parse_tree, 0, v4_node_task))
 say "keyword-case-parse-lower=" + v4_parse_node_value(v4_keyword_case_parse_tree, v4_parse_child_by_kind(v4_keyword_case_parse_tree, 0, v4_node_task, 0))
-say "keyword-case-parse-mixed=" + v4_parse_node_value(v4_keyword_case_parse_tree, v4_parse_child_by_kind(v4_keyword_case_parse_tree, 0, v4_node_task, 1))
-say "keyword-case-parse-upper=" + v4_parse_node_value(v4_keyword_case_parse_tree, v4_parse_child_by_kind(v4_keyword_case_parse_tree, 0, v4_node_task, 2))
 
-pilot v4_keyword_case_reject_source = "Nakama impostor() => 0\n"
+pilot v4_keyword_case_reject_source = "Task impostor() => 0\n"
 pilot v4_keyword_case_reject_stream = v4_lex_text(101, v4_keyword_case_reject_source)
 pilot v4_keyword_case_reject_tree = v4_parse_stream(101, v4_keyword_case_reject_stream)
 say "keyword-case-reject-token-type=" + v4_lex_token_type(v4_keyword_case_reject_stream, 0)

@@ -2126,18 +2126,19 @@ fixed pilot / launch(package) / launch(universe)
 
 ### 8.3 Keyword Casing
 
-Ordinary keyword vocabulary is ASCII case-insensitive: `task`, `Task`, and
-`TASK` identify the same keyword. Compiler token streams must expose one
-canonical lowercase keyword value so later parser and tooling dispatch cannot
-depend on the source spelling; source spans preserve the spelling that the
-author wrote.
+Ordinary keyword vocabulary uses exact lowercase spellings. Compiler token
+streams expose those lowercase values as keywords; noncanonical forms such as
+`Task`, `TASK`, and `ShApE` remain identifiers and therefore receive parser
+recovery diagnostics when used in keyword-required positions. This boundary
+preserves intentional identifiers such as `Pilot`, `Some`, and `SOME` instead
+of rewriting their spelling.
 
 The multi-word anime operators `PLUS ULTRA` and `FINAL FORM` are matched
 case-insensitively but expose their canonical uppercase token values. The
 single-word anime operators `NAKAMA` and `TSUNDERE` are intentional
 uppercase-only vocabulary; mixed- or lowercase variants are identifiers.
 Implementations must enumerate those case-sensitive words before ordinary
-keyword normalization instead of accidentally lowercasing them.
+keyword classification instead of accidentally lowercasing them.
 
 ### 8.4 Special Lexer Notes
 
