@@ -173,8 +173,17 @@ task v4_expansion_id_generation(expansion_id: word) -> int {
     give back v4_macro_api_int_field(expansion_id, 3)
 }
 
+-- The span crate's accessors deliberately recover malformed fields as zero.
+-- Contract handles must instead fail closed and preserve one canonical wire form.
+task v4_macro_api_span_valid(span: word) -> bool {
+    pilot file_id = v4_span_file(span)
+    pilot start_byte = v4_span_start(span)
+    pilot end_byte = v4_span_end(span)
+    give back span != V4_NO_SPAN and file_id != "" and file_id != V4_NO_FILE and end_byte >= start_byte and v4_span_new(file_id, start_byte, end_byte) == span
+}
+
 task v4_generated_node_provenance_new(expansion_id: word, origin_span: word, output_index: int) -> word {
-    if not v4_expansion_id_valid(expansion_id) or origin_span == V4_NO_SPAN or v4_span_file(origin_span) != v4_expansion_id_source(expansion_id) or output_index < 0 {
+    if not v4_expansion_id_valid(expansion_id) or not v4_macro_api_span_valid(origin_span) or v4_span_file(origin_span) != v4_expansion_id_source(expansion_id) or output_index < 0 {
         give back ""
     }
     pilot out = v4_macro_api_pack_field(v4_macro_tag_generated_provenance)
@@ -189,7 +198,7 @@ task v4_generated_node_provenance_valid(provenance: word) -> bool {
     }
     pilot expansion_id = v4_macro_api_field(provenance, 1)
     pilot origin_span = v4_macro_api_field(provenance, 2)
-    give back v4_expansion_id_valid(expansion_id) and origin_span != V4_NO_SPAN and v4_span_file(origin_span) == v4_expansion_id_source(expansion_id) and v4_span_end(origin_span) >= v4_span_start(origin_span) and v4_macro_api_int_field(provenance, 3) >= 0
+    give back v4_expansion_id_valid(expansion_id) and v4_macro_api_span_valid(origin_span) and v4_span_file(origin_span) == v4_expansion_id_source(expansion_id) and v4_macro_api_int_field(provenance, 3) >= 0
 }
 
 task v4_generated_node_provenance_expansion(provenance: word) -> word {
@@ -296,7 +305,7 @@ task v4_macro_ast_view_root(ast_view: word) -> word {
 }
 
 task v4_macro_span_view_new(source_view: word, span: word) -> word {
-    if not v4_macro_source_view_valid(source_view) or v4_span_file(span) != v4_macro_source_view_id(source_view) or v4_span_end(span) < v4_span_start(span) {
+    if not v4_macro_source_view_valid(source_view) or not v4_macro_api_span_valid(span) or v4_span_file(span) != v4_macro_source_view_id(source_view) {
         give back ""
     }
     pilot out = v4_macro_api_pack_field(v4_macro_tag_span_view)
@@ -310,7 +319,7 @@ task v4_macro_span_view_valid(span_view: word) -> bool {
     }
     pilot source_view = v4_macro_api_field(span_view, 1)
     pilot span = v4_macro_api_field(span_view, 2)
-    give back v4_macro_source_view_valid(source_view) and v4_span_file(span) == v4_macro_source_view_id(source_view) and v4_span_end(span) >= v4_span_start(span)
+    give back v4_macro_source_view_valid(source_view) and v4_macro_api_span_valid(span) and v4_span_file(span) == v4_macro_source_view_id(source_view)
 }
 
 task v4_macro_span_view_source(span_view: word) -> word {

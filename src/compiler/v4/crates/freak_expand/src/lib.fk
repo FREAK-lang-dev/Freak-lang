@@ -6,7 +6,8 @@
 -- The bootstrap ExpandedFile carrier records a stable arena id, its source
 -- file, the forwarded parse tree, and identity provenance. It deliberately
 -- defines no public macro API, hygiene model, or syntax-rewriting contract;
--- a later freak_macro_api slice can wrap or replace these internal carriers.
+-- freak_macro_api owns public expansion identities while the narrow bridge
+-- below wraps these internal carriers without exposing their arena storage.
 
 pilot v4_expand_provenance_identity = "identity"
 pilot v4_expand_snapshot_format = "freak-expand-snapshot-v1"
