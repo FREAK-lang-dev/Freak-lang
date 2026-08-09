@@ -1591,6 +1591,7 @@ task v4_driver_query_key_matches_path(path: word, key: word) -> bool {
     if key == v4_check_syntax_query_key(path) { give back true }
     if key == v4_lex_query_key(path) { give back true }
     if key == v4_parse_query_key(path) { give back true }
+    if key == v4_expand_query_key(path) { give back true }
     if key == v4_hir_query_key(path) { give back true }
     if key == v4_resolve_query_key(path) { give back true }
     if key == v4_ty_query_key(path) { give back true }
@@ -1609,6 +1610,7 @@ task v4_unit_invalidation_family_matches_path_key(path: word, family: word, key:
     if family == "syntax" { give back key == v4_check_syntax_query_key(path) }
     if family == "lex" { give back key == v4_lex_query_key(path) }
     if family == "parse" { give back key == v4_parse_query_key(path) }
+    if family == "expand" { give back key == v4_expand_query_key(path) }
     if family == "hir" { give back key == v4_hir_query_key(path) }
     if family == "resolve" { give back key == v4_resolve_query_key(path) }
     if family == "ty" { give back key == v4_ty_query_key(path) }
@@ -1624,6 +1626,7 @@ task v4_unit_invalidation_family_matches_path_key(path: word, family: word, key:
         if v4_unit_invalidation_family_matches_path_key(path, "syntax", key) { give back true }
         if v4_unit_invalidation_family_matches_path_key(path, "lex", key) { give back true }
         if v4_unit_invalidation_family_matches_path_key(path, "parse", key) { give back true }
+        if v4_unit_invalidation_family_matches_path_key(path, "expand", key) { give back true }
         if v4_unit_invalidation_family_matches_path_key(path, "hir", key) { give back true }
         if v4_unit_invalidation_family_matches_path_key(path, "resolve", key) { give back true }
         if v4_unit_invalidation_family_matches_path_key(path, "ty", key) { give back true }
@@ -1646,6 +1649,7 @@ task v4_unit_invalidation_family_matches_any_key(family: word, key: word) -> boo
     if family == "syntax" { give back key.starts_with("syntax:") }
     if family == "lex" { give back key.starts_with("lex:") }
     if family == "parse" { give back key.starts_with("parse:") }
+    if family == "expand" { give back key.starts_with("expand:") }
     if family == "hir" { give back key.starts_with("hir:") }
     if family == "resolve" { give back key.starts_with("resolve:") }
     if family == "ty" { give back key.starts_with("ty:") }
@@ -1661,6 +1665,7 @@ task v4_unit_invalidation_family_matches_any_key(family: word, key: word) -> boo
         if v4_unit_invalidation_family_matches_any_key("syntax", key) { give back true }
         if v4_unit_invalidation_family_matches_any_key("lex", key) { give back true }
         if v4_unit_invalidation_family_matches_any_key("parse", key) { give back true }
+        if v4_unit_invalidation_family_matches_any_key("expand", key) { give back true }
         if v4_unit_invalidation_family_matches_any_key("hir", key) { give back true }
         if v4_unit_invalidation_family_matches_any_key("resolve", key) { give back true }
         if v4_unit_invalidation_family_matches_any_key("ty", key) { give back true }
@@ -1788,6 +1793,7 @@ task v4_unit_invalidation_report_at_generation(path: word, generation: int) -> w
     out = out + "|syntax-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "syntax", resolved_generation))
     out = out + "|lex-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "lex", resolved_generation))
     out = out + "|parse-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "parse", resolved_generation))
+    out = out + "|expand-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "expand", resolved_generation))
     out = out + "|hir-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "hir", resolved_generation))
     out = out + "|resolve-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "resolve", resolved_generation))
     out = out + "|ty-invalidations-added=" + word_from_int(v4_unit_invalidation_family_count_at_generation(path, "ty", resolved_generation))
@@ -1839,12 +1845,21 @@ task v4_driver_restored_parse_matches(path: word, file_id: int, fingerprint: wor
     give back v4_driver_restored_lex_matches(path, file_id, fingerprint, stream_id)
 }
 
+task v4_driver_restored_expand_matches(path: word, file_id: int, fingerprint: word, expansion_id: int) -> bool {
+    if v4_expand_file_exists(expansion_id) == false { give back false }
+    if v4_expand_file_id(expansion_id) != file_id { give back false }
+    if v4_expand_provenance_kind(expansion_id) != v4_expand_provenance_identity { give back false }
+    if v4_driver_restored_parent_id(v4_expand_query_key(path), fingerprint) != expansion_id { give back false }
+    pilot tree_id = v4_expand_parse_tree_id(expansion_id)
+    give back v4_driver_restored_parse_matches(path, file_id, fingerprint, tree_id)
+}
+
 task v4_driver_restored_hir_matches(path: word, file_id: int, fingerprint: word, hir_id: int) -> bool {
     if v4_hir_file_exists(hir_id) == false { give back false }
     if v4_hir_file_id(hir_id) != file_id { give back false }
     if v4_driver_restored_parent_id(v4_hir_query_key(path), fingerprint) != hir_id { give back false }
-    pilot tree_id = v4_hir_tree_id(hir_id)
-    give back v4_driver_restored_parse_matches(path, file_id, fingerprint, tree_id)
+    pilot expansion_id = v4_hir_expansion_id(hir_id)
+    give back v4_driver_restored_expand_matches(path, file_id, fingerprint, expansion_id)
 }
 
 task v4_driver_restored_resolve_matches(path: word, file_id: int, fingerprint: word, resolve_id: int) -> bool {
@@ -1902,6 +1917,9 @@ task v4_driver_query_entry_can_promote(path: word, entry_id: int) -> int {
     if key == v4_parse_query_key(path) {
         if v4_driver_restored_parse_matches(path, file_id, fingerprint, output_id) { give back 1 }
     }
+    if key == v4_expand_query_key(path) {
+        if v4_driver_restored_expand_matches(path, file_id, fingerprint, output_id) { give back 1 }
+    }
     if key == v4_hir_query_key(path) {
         if v4_driver_restored_hir_matches(path, file_id, fingerprint, output_id) { give back 1 }
     }
@@ -1936,8 +1954,8 @@ task v4_driver_query_entry_can_promote(path: word, entry_id: int) -> int {
                                 if v4_resolve_exists(resolve_id) {
                                     pilot hir_id = v4_resolve_hir_id(resolve_id)
                                     if v4_hir_file_exists(hir_id) {
-                                        pilot tree_id = v4_hir_tree_id(hir_id)
-                                        if v4_parse_tree_exists(tree_id) {
+                                        pilot expansion_id = v4_hir_expansion_id(hir_id)
+                                        if v4_expand_tree_exists(expansion_id) {
                                             give back 1
                                         }
                                     }
@@ -2131,7 +2149,7 @@ task v4_driver_confirm_restored_document_text(path: word, text: word) -> word {
 }
 
 
-pilot v4_unit_snapshot_format = "freak-00-unit-snapshot-v2"
+pilot v4_unit_snapshot_format = "freak-00-unit-snapshot-v3"
 pilot v4_unit_snapshot_manifest_format = "freak-00-unit-manifest-v1"
 pilot v4_unit_snapshot_diff_format = "freak-00-unit-snapshot-diff-v1"
 pilot v4_unit_snapshot_diff_input_format = "freak-00-unit-snapshot-diff-input-v1"
@@ -2221,24 +2239,25 @@ task v4_unit_snapshot_key_value(line: word, wanted_key: word) -> word {
 }
 
 task v4_unit_snapshot_section_count() -> int {
-    give back 14
+    give back 15
 }
 
 task v4_unit_snapshot_section_name_at(section_id: int) -> word {
     if section_id == 0 { give back "lex" }
     if section_id == 1 { give back "parse" }
-    if section_id == 2 { give back "hir" }
-    if section_id == 3 { give back "resolve" }
-    if section_id == 4 { give back "ty" }
-    if section_id == 5 { give back "mir" }
-    if section_id == 6 { give back "borrowck" }
-    if section_id == 7 { give back "diagnostics" }
-    if section_id == 8 { give back "semantic" }
-    if section_id == 9 { give back "hover" }
-    if section_id == 10 { give back "definition" }
-    if section_id == 11 { give back "document-symbols" }
-    if section_id == 12 { give back "completion" }
-    if section_id == 13 { give back "query" }
+    if section_id == 2 { give back "expand" }
+    if section_id == 3 { give back "hir" }
+    if section_id == 4 { give back "resolve" }
+    if section_id == 5 { give back "ty" }
+    if section_id == 6 { give back "mir" }
+    if section_id == 7 { give back "borrowck" }
+    if section_id == 8 { give back "diagnostics" }
+    if section_id == 9 { give back "semantic" }
+    if section_id == 10 { give back "hover" }
+    if section_id == 11 { give back "definition" }
+    if section_id == 12 { give back "document-symbols" }
+    if section_id == 13 { give back "completion" }
+    if section_id == 14 { give back "query" }
     give back ""
 }
 
@@ -2451,7 +2470,7 @@ task v4_unit_snapshot_section_identity_digest(section_name: word, section_payloa
     give back v4_unit_snapshot_identity_digest("section-content-v1-" + section_name, section_payload)
 }
 
-task v4_unit_snapshot_checkpoint_identity_from_digests(source_identity: word, lex_digest: word, parse_digest: word, hir_digest: word, resolve_digest: word, ty_digest: word, mir_digest: word, borrowck_digest: word, diagnostics_digest: word, semantic_digest: word, hover_digest: word, definition_digest: word, document_symbols_digest: word, completion_digest: word, query_digest: word) -> word {
+task v4_unit_snapshot_checkpoint_identity_from_digests(source_identity: word, lex_digest: word, parse_digest: word, expand_digest: word, hir_digest: word, resolve_digest: word, ty_digest: word, mir_digest: word, borrowck_digest: word, diagnostics_digest: word, semantic_digest: word, hover_digest: word, definition_digest: word, document_symbols_digest: word, completion_digest: word, query_digest: word) -> word {
     pilot parts = array_new()
     array_push(parts, "source=")
     array_push(parts, source_identity)
@@ -2459,6 +2478,8 @@ task v4_unit_snapshot_checkpoint_identity_from_digests(source_identity: word, le
     array_push(parts, lex_digest)
     array_push(parts, "\nparse=")
     array_push(parts, parse_digest)
+    array_push(parts, "\nexpand=")
+    array_push(parts, expand_digest)
     array_push(parts, "\nhir=")
     array_push(parts, hir_digest)
     array_push(parts, "\nresolve=")
@@ -2487,8 +2508,8 @@ task v4_unit_snapshot_checkpoint_identity_from_digests(source_identity: word, le
     give back v4_unit_snapshot_identity_digest("checkpoint-content-v1", material)
 }
 
-task v4_unit_snapshot_checkpoint_identity(source_identity: word, lex_payload: word, parse_payload: word, hir_payload: word, resolve_payload: word, ty_payload: word, mir_payload: word, borrowck_payload: word, diagnostics_payload: word, semantic_payload: word, hover_payload: word, definition_payload: word, document_symbols_payload: word, completion_payload: word, query_payload: word) -> word {
-    give back v4_unit_snapshot_checkpoint_identity_from_digests(source_identity, v4_unit_snapshot_section_identity_digest("lex", lex_payload), v4_unit_snapshot_section_identity_digest("parse", parse_payload), v4_unit_snapshot_section_identity_digest("hir", hir_payload), v4_unit_snapshot_section_identity_digest("resolve", resolve_payload), v4_unit_snapshot_section_identity_digest("ty", ty_payload), v4_unit_snapshot_section_identity_digest("mir", mir_payload), v4_unit_snapshot_section_identity_digest("borrowck", borrowck_payload), v4_unit_snapshot_section_identity_digest("diagnostics", diagnostics_payload), v4_unit_snapshot_section_identity_digest("semantic", semantic_payload), v4_unit_snapshot_section_identity_digest("hover", hover_payload), v4_unit_snapshot_section_identity_digest("definition", definition_payload), v4_unit_snapshot_section_identity_digest("document-symbols", document_symbols_payload), v4_unit_snapshot_section_identity_digest("completion", completion_payload), v4_unit_snapshot_section_identity_digest("query", query_payload))
+task v4_unit_snapshot_checkpoint_identity(source_identity: word, lex_payload: word, parse_payload: word, expand_payload: word, hir_payload: word, resolve_payload: word, ty_payload: word, mir_payload: word, borrowck_payload: word, diagnostics_payload: word, semantic_payload: word, hover_payload: word, definition_payload: word, document_symbols_payload: word, completion_payload: word, query_payload: word) -> word {
+    give back v4_unit_snapshot_checkpoint_identity_from_digests(source_identity, v4_unit_snapshot_section_identity_digest("lex", lex_payload), v4_unit_snapshot_section_identity_digest("parse", parse_payload), v4_unit_snapshot_section_identity_digest("expand", expand_payload), v4_unit_snapshot_section_identity_digest("hir", hir_payload), v4_unit_snapshot_section_identity_digest("resolve", resolve_payload), v4_unit_snapshot_section_identity_digest("ty", ty_payload), v4_unit_snapshot_section_identity_digest("mir", mir_payload), v4_unit_snapshot_section_identity_digest("borrowck", borrowck_payload), v4_unit_snapshot_section_identity_digest("diagnostics", diagnostics_payload), v4_unit_snapshot_section_identity_digest("semantic", semantic_payload), v4_unit_snapshot_section_identity_digest("hover", hover_payload), v4_unit_snapshot_section_identity_digest("definition", definition_payload), v4_unit_snapshot_section_identity_digest("document-symbols", document_symbols_payload), v4_unit_snapshot_section_identity_digest("completion", completion_payload), v4_unit_snapshot_section_identity_digest("query", query_payload))
 }
 
 task v4_unit_snapshot_summary() -> word {
@@ -2532,6 +2553,7 @@ task v4_unit_snapshot() -> word {
     v4_driver_init()
     pilot lex_payload = v4_lex_snapshot()
     pilot parse_payload = v4_parse_snapshot()
+    pilot expand_payload = v4_expand_snapshot()
     pilot hir_payload = v4_hir_snapshot()
     pilot resolve_payload = v4_resolve_snapshot()
     pilot ty_payload = v4_ty_snapshot()
@@ -2545,7 +2567,7 @@ task v4_unit_snapshot() -> word {
     pilot completion_payload = v4_completion_snapshot()
     pilot query_payload = v4_query_snapshot()
     pilot source_identity = v4_unit_snapshot_source_identity_current()
-    pilot checkpoint_identity = v4_unit_snapshot_checkpoint_identity(source_identity, lex_payload, parse_payload, hir_payload, resolve_payload, ty_payload, mir_payload, borrowck_payload, diagnostics_payload, semantic_payload, hover_payload, definition_payload, document_symbols_payload, completion_payload, query_payload)
+    pilot checkpoint_identity = v4_unit_snapshot_checkpoint_identity(source_identity, lex_payload, parse_payload, expand_payload, hir_payload, resolve_payload, ty_payload, mir_payload, borrowck_payload, diagnostics_payload, semantic_payload, hover_payload, definition_payload, document_symbols_payload, completion_payload, query_payload)
     pilot parts = array_new()
     array_push(parts, v4_unit_snapshot_header_with_identity(checkpoint_identity))
 
@@ -2562,6 +2584,8 @@ task v4_unit_snapshot() -> word {
     array_push(parts, v4_unit_snapshot_section_line_with_identity("lex", checkpoint_identity, lex_payload))
     array_push(parts, "\n")
     array_push(parts, v4_unit_snapshot_section_line_with_identity("parse", checkpoint_identity, parse_payload))
+    array_push(parts, "\n")
+    array_push(parts, v4_unit_snapshot_section_line_with_identity("expand", checkpoint_identity, expand_payload))
     array_push(parts, "\n")
     array_push(parts, v4_unit_snapshot_section_line_with_identity("hir", checkpoint_identity, hir_payload))
     array_push(parts, "\n")
@@ -2651,6 +2675,7 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     pilot computed_identity = ""
     pilot lex_digest = ""
     pilot parse_digest = ""
+    pilot expand_digest = ""
     pilot hir_digest = ""
     pilot resolve_digest = ""
     pilot ty_digest = ""
@@ -2665,6 +2690,7 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     pilot query_digest = ""
     pilot lex_occurrences = 0
     pilot parse_occurrences = 0
+    pilot expand_occurrences = 0
     pilot hir_occurrences = 0
     pilot resolve_occurrences = 0
     pilot ty_occurrences = 0
@@ -2774,6 +2800,10 @@ task v4_unit_snapshot_validate(payload: word) -> word {
                         parse_digest = section_digest
                         parse_occurrences += 1
                     }
+                    if section_name == "expand" {
+                        expand_digest = section_digest
+                        expand_occurrences += 1
+                    }
                     if section_name == "hir" {
                         hir_digest = section_digest
                         hir_occurrences += 1
@@ -2855,12 +2885,13 @@ task v4_unit_snapshot_validate(payload: word) -> word {
     array_release(seen_source_paths)
     array_release(seen_source_ids)
 
-    computed_identity = v4_unit_snapshot_checkpoint_identity_from_digests(source_identity, lex_digest, parse_digest, hir_digest, resolve_digest, ty_digest, mir_digest, borrowck_digest, diagnostics_digest, semantic_digest, hover_digest, definition_digest, document_symbols_digest, completion_digest, query_digest)
+    computed_identity = v4_unit_snapshot_checkpoint_identity_from_digests(source_identity, lex_digest, parse_digest, expand_digest, hir_digest, resolve_digest, ty_digest, mir_digest, borrowck_digest, diagnostics_digest, semantic_digest, hover_digest, definition_digest, document_symbols_digest, completion_digest, query_digest)
 
     pilot missing_sections = 0
     pilot duplicate_sections = 0
     if lex_occurrences == 0 { missing_sections += 1 } else if lex_occurrences > 1 { duplicate_sections += lex_occurrences - 1 }
     if parse_occurrences == 0 { missing_sections += 1 } else if parse_occurrences > 1 { duplicate_sections += parse_occurrences - 1 }
+    if expand_occurrences == 0 { missing_sections += 1 } else if expand_occurrences > 1 { duplicate_sections += expand_occurrences - 1 }
     if hir_occurrences == 0 { missing_sections += 1 } else if hir_occurrences > 1 { duplicate_sections += hir_occurrences - 1 }
     if resolve_occurrences == 0 { missing_sections += 1 } else if resolve_occurrences > 1 { duplicate_sections += resolve_occurrences - 1 }
     if ty_occurrences == 0 { missing_sections += 1 } else if ty_occurrences > 1 { duplicate_sections += ty_occurrences - 1 }
@@ -2988,11 +3019,12 @@ task v4_unit_snapshot_restore_parent_context(payload: word) -> bool {
     if v4_unit_snapshot_restore_sources(payload) != declared_sources { give back false }
 
     pilot parent_id = 0
-    repeat until parent_id >= 4 {
+    repeat until parent_id >= 5 {
         pilot section_name = "lex"
         if parent_id == 1 { section_name = "parse" }
-        if parent_id == 2 { section_name = "hir" }
-        if parent_id == 3 { section_name = "resolve" }
+        if parent_id == 2 { section_name = "expand" }
+        if parent_id == 3 { section_name = "hir" }
+        if parent_id == 4 { section_name = "resolve" }
         pilot restore_result = v4_unit_snapshot_restore_section_result(payload, section_name)
         if v4_unit_snapshot_section_restore_ok(section_name, restore_result) == 0 { give back false }
         parent_id += 1
@@ -3032,6 +3064,7 @@ task v4_unit_snapshot_payload_record_count(section_payload: word) -> int {
 task v4_unit_snapshot_section_validate(section_name: word, section_payload: word) -> word {
     if section_name == "lex" { give back v4_lex_snapshot_validate(section_payload) }
     if section_name == "parse" { give back v4_parse_snapshot_validate(section_payload) }
+    if section_name == "expand" { give back v4_expand_snapshot_validate(section_payload) }
     if section_name == "hir" { give back v4_hir_snapshot_validate(section_payload) }
     if section_name == "resolve" { give back v4_resolve_snapshot_validate(section_payload) }
     if section_name == "ty" { give back v4_ty_snapshot_validate_detached(section_payload) }
@@ -3050,6 +3083,7 @@ task v4_unit_snapshot_section_validate(section_name: word, section_payload: word
 task v4_unit_snapshot_section_validation_prefix(section_name: word) -> word {
     if section_name == "lex" { give back "lex-snapshot-import ok=1" }
     if section_name == "parse" { give back "parse-snapshot-import ok=1" }
+    if section_name == "expand" { give back "expand-snapshot-import ok=1" }
     if section_name == "hir" { give back "hir-snapshot-import ok=1" }
     if section_name == "resolve" { give back "resolve-snapshot-import ok=1" }
     if section_name == "ty" { give back "ty-snapshot-import ok=1" }
@@ -3672,6 +3706,7 @@ task v4_unit_snapshot_diff(snapshot_before_payload: word, snapshot_after_payload
     pilot syntax_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "syntax")
     pilot lex_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "lex")
     pilot parse_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "parse")
+    pilot expand_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "expand")
     pilot hir_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "hir")
     pilot resolve_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "resolve")
     pilot ty_invalidations_added = v4_unit_snapshot_query_new_invalidation_family_count(snapshot_before_query, snapshot_after_query, "ty")
@@ -3738,6 +3773,8 @@ task v4_unit_snapshot_diff(snapshot_before_payload: word, snapshot_after_payload
     array_push(parts, word_from_int(lex_invalidations_added))
     array_push(parts, "|parse-invalidations-added=")
     array_push(parts, word_from_int(parse_invalidations_added))
+    array_push(parts, "|expand-invalidations-added=")
+    array_push(parts, word_from_int(expand_invalidations_added))
     array_push(parts, "|hir-invalidations-added=")
     array_push(parts, word_from_int(hir_invalidations_added))
     array_push(parts, "|resolve-invalidations-added=")
@@ -4034,6 +4071,7 @@ task v4_unit_snapshot_health_diff_line(diff_payload: word) -> word {
     v4_unit_snapshot_health_diff_push_field(parts, diff_payload, "syntax-invalidations-added")
     v4_unit_snapshot_health_diff_push_field(parts, diff_payload, "lex-invalidations-added")
     v4_unit_snapshot_health_diff_push_field(parts, diff_payload, "parse-invalidations-added")
+    v4_unit_snapshot_health_diff_push_field(parts, diff_payload, "expand-invalidations-added")
     v4_unit_snapshot_health_diff_push_field(parts, diff_payload, "hir-invalidations-added")
     v4_unit_snapshot_health_diff_push_field(parts, diff_payload, "resolve-invalidations-added")
     v4_unit_snapshot_health_diff_push_field(parts, diff_payload, "ty-invalidations-added")
@@ -4229,6 +4267,8 @@ task v4_unit_snapshot_restore_section_payload(section_name: word, section_payloa
         give back v4_lex_snapshot_restore(section_payload)
     } else if section_name == "parse" {
         give back v4_parse_snapshot_restore(section_payload)
+    } else if section_name == "expand" {
+        give back v4_expand_snapshot_restore(section_payload)
     } else if section_name == "hir" {
         give back v4_hir_snapshot_restore(section_payload)
     } else if section_name == "resolve" {
@@ -4300,6 +4340,7 @@ task v4_unit_snapshot_restore_prevalidated(payload: word) -> word {
     pilot restored_sources = 0
     pilot lex_payload = ""
     pilot parse_payload = ""
+    pilot expand_payload = ""
     pilot hir_payload = ""
     pilot resolve_payload = ""
     pilot ty_payload = ""
@@ -4326,6 +4367,7 @@ task v4_unit_snapshot_restore_prevalidated(payload: word) -> word {
                 pilot payload_section = v4_unit_snapshot_field(payload_line, 3)
                 if payload_section_name == "lex" { lex_payload = payload_section }
                 if payload_section_name == "parse" { parse_payload = payload_section }
+                if payload_section_name == "expand" { expand_payload = payload_section }
                 if payload_section_name == "hir" { hir_payload = payload_section }
                 if payload_section_name == "resolve" { resolve_payload = payload_section }
                 if payload_section_name == "ty" { ty_payload = payload_section }
@@ -4356,6 +4398,7 @@ task v4_unit_snapshot_restore_prevalidated(payload: word) -> word {
         pilot section_name = v4_unit_snapshot_section_name_at(section_id)
         pilot section_payload = lex_payload
         if section_name == "parse" { section_payload = parse_payload }
+        if section_name == "expand" { section_payload = expand_payload }
         if section_name == "hir" { section_payload = hir_payload }
         if section_name == "resolve" { section_payload = resolve_payload }
         if section_name == "ty" { section_payload = ty_payload }
