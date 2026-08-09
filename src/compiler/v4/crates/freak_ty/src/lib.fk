@@ -357,21 +357,6 @@ task v4_ty_alias_target_type_for_sig(ty_id: int, sig_id: int) -> word {
     if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_alias_sig {
         give back v4_ty_unknown
     }
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
-    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
-    if stream_id >= 0 and start_token >= 0 and end_token > start_token {
-        pilot eq_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, "=")
-        if eq_token >= 0 {
-            pilot target_start = v4_ty_skip_trivia(stream_id, eq_token + 1)
-            if target_start < end_token {
-                pilot normalized_target = v4_ty_type_text(stream_id, target_start, end_token)
-                if normalized_target != "" {
-                    give back normalized_target
-                }
-            }
-        }
-    }
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
     if hir_id < 0 or hir_item < 0 {
@@ -10111,22 +10096,12 @@ task v4_ty_signature_accepts_lifetime(ty_id: int, sig_id: int, lifetime_name: wo
 }
 
 task v4_ty_alias_target_span(ty_id: int, sig_id: int) -> word {
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
-    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
-    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
         give back V4_NO_SPAN
     }
-
-    pilot eq_token = v4_ty_find_top_level_token(stream_id, start_token, end_token, "=")
-    if eq_token < 0 {
-        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
-    }
-    pilot type_start = v4_ty_skip_trivia(stream_id, eq_token + 1)
-    if type_start >= end_token {
-        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
-    }
-    give back v4_ty_span_from_tokens(stream_id, type_start, end_token)
+    give back v4_hir_alias_target_span(hir_id, hir_item)
 }
 
 task v4_ty_validate_signature_generic_names(ty_id: int, sig_id: int) -> void {
