@@ -1,0 +1,72 @@
+-- V4 No Syntax Past HIR alias-target boundary smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_alias_hir_boundary_bool(value: bool) -> word {
+    if value {
+        give back "true"
+    }
+    give back "false"
+}
+
+task v4_alias_hir_boundary_source() -> word {
+    pilot src = "alias Score = int\n"
+    src = src + "alias Matrix = [[num; 4]; 4]\n"
+    src = src + "alias Borrowed<'a> = lend mut 'a Score\n"
+    give back src
+}
+
+pilot v4_alias_hir_boundary_src = v4_alias_hir_boundary_source()
+pilot v4_alias_hir_boundary_stream = v4_lex_text(0, v4_alias_hir_boundary_src)
+pilot v4_alias_hir_boundary_tree = v4_parse_stream(0, v4_alias_hir_boundary_stream)
+pilot v4_alias_hir_boundary_hir = v4_hir_lower_tree(0, v4_alias_hir_boundary_tree)
+pilot v4_alias_hir_boundary_resolve = v4_resolve_lower_hir(0, v4_alias_hir_boundary_hir)
+pilot v4_alias_hir_boundary_ty = v4_ty_lower_resolve(0, v4_alias_hir_boundary_resolve)
+
+pilot v4_alias_hir_boundary_score_def = v4_resolve_def_for_name(v4_alias_hir_boundary_resolve, "Score")
+pilot v4_alias_hir_boundary_matrix_def = v4_resolve_def_for_name(v4_alias_hir_boundary_resolve, "Matrix")
+pilot v4_alias_hir_boundary_borrowed_def = v4_resolve_def_for_name(v4_alias_hir_boundary_resolve, "Borrowed")
+pilot v4_alias_hir_boundary_score_sig = v4_ty_lookup_signature(v4_alias_hir_boundary_ty, v4_alias_hir_boundary_score_def)
+pilot v4_alias_hir_boundary_matrix_sig = v4_ty_lookup_signature(v4_alias_hir_boundary_ty, v4_alias_hir_boundary_matrix_def)
+pilot v4_alias_hir_boundary_borrowed_sig = v4_ty_lookup_signature(v4_alias_hir_boundary_ty, v4_alias_hir_boundary_borrowed_def)
+pilot v4_alias_hir_boundary_score_item = v4_ty_signature_hir_item(v4_alias_hir_boundary_ty, v4_alias_hir_boundary_score_sig)
+pilot v4_alias_hir_boundary_matrix_item = v4_ty_signature_hir_item(v4_alias_hir_boundary_ty, v4_alias_hir_boundary_matrix_sig)
+pilot v4_alias_hir_boundary_borrowed_item = v4_ty_signature_hir_item(v4_alias_hir_boundary_ty, v4_alias_hir_boundary_borrowed_sig)
+pilot v4_alias_hir_boundary_expansion = v4_hir_expansion_id(v4_alias_hir_boundary_hir)
+pilot v4_alias_hir_boundary_matrix_node = v4_hir_item_parse_node(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_matrix_item)
+pilot v4_alias_hir_boundary_borrowed_node = v4_hir_item_parse_node(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_borrowed_item)
+
+pilot v4_alias_hir_boundary_matrix_expanded_type = v4_expand_alias_target(v4_alias_hir_boundary_expansion, v4_alias_hir_boundary_matrix_node)
+pilot v4_alias_hir_boundary_borrowed_expanded_type = v4_expand_alias_target(v4_alias_hir_boundary_expansion, v4_alias_hir_boundary_borrowed_node)
+pilot v4_alias_hir_boundary_score_hir_type = v4_hir_alias_target(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_score_item)
+pilot v4_alias_hir_boundary_matrix_hir_type = v4_hir_alias_target(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_matrix_item)
+pilot v4_alias_hir_boundary_borrowed_hir_type = v4_hir_alias_target(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_borrowed_item)
+pilot v4_alias_hir_boundary_matrix_ty_type = v4_ty_alias_target_type_for_sig(v4_alias_hir_boundary_ty, v4_alias_hir_boundary_matrix_sig)
+pilot v4_alias_hir_boundary_borrowed_ty_type = v4_ty_alias_target_type_for_sig(v4_alias_hir_boundary_ty, v4_alias_hir_boundary_borrowed_sig)
+
+say "alias-hir-boundary-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_alias_hir_boundary_tree))
+say "alias-hir-boundary-expanded-matrix-target=" + v4_alias_hir_boundary_matrix_expanded_type
+say "alias-hir-boundary-expanded-matrix-span=" + v4_expand_alias_target_span(v4_alias_hir_boundary_expansion, v4_alias_hir_boundary_matrix_node)
+say "alias-hir-boundary-expanded-borrowed-target=" + v4_alias_hir_boundary_borrowed_expanded_type
+say "alias-hir-boundary-expanded-borrowed-span=" + v4_expand_alias_target_span(v4_alias_hir_boundary_expansion, v4_alias_hir_boundary_borrowed_node)
+say "alias-hir-boundary-score-target=" + v4_alias_hir_boundary_score_hir_type
+say "alias-hir-boundary-score-span=" + v4_hir_alias_target_span(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_score_item)
+say "alias-hir-boundary-matrix-target=" + v4_alias_hir_boundary_matrix_hir_type
+say "alias-hir-boundary-matrix-span=" + v4_hir_alias_target_span(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_matrix_item)
+say "alias-hir-boundary-borrowed-target=" + v4_alias_hir_boundary_borrowed_hir_type
+say "alias-hir-boundary-borrowed-span=" + v4_hir_alias_target_span(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_borrowed_item)
+say "alias-hir-boundary-matrix-ty-target=" + v4_alias_hir_boundary_matrix_ty_type
+say "alias-hir-boundary-borrowed-ty-target=" + v4_alias_hir_boundary_borrowed_ty_type
+say "alias-hir-boundary-matrix-equivalent=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_matrix_hir_type == v4_alias_hir_boundary_matrix_ty_type)
+say "alias-hir-boundary-borrowed-equivalent=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_borrowed_hir_type == v4_alias_hir_boundary_borrowed_ty_type)
+say "alias-hir-boundary-matrix-expanded-hir-equivalent=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_matrix_expanded_type == v4_alias_hir_boundary_matrix_hir_type)
+say "alias-hir-boundary-borrowed-expanded-hir-equivalent=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_borrowed_expanded_type == v4_alias_hir_boundary_borrowed_hir_type)
+say "alias-hir-boundary-matrix-canonical=" + v4_ty_canonical_type(v4_alias_hir_boundary_ty, "Matrix")
+say "alias-hir-boundary-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_alias_hir_boundary_ty))
+pilot v4_alias_hir_boundary_diag = v4_ty_diag(v4_alias_hir_boundary_ty, 0)
+say "alias-hir-boundary-diag=" + v4_diag_message(v4_alias_hir_boundary_diag)
+say "alias-hir-boundary-diag-span=" + v4_diag_span(v4_alias_hir_boundary_diag)
+
+pilot v4_alias_hir_boundary_snapshot = v4_hir_snapshot()
+say v4_hir_snapshot_restore(v4_alias_hir_boundary_snapshot)
+say "alias-hir-boundary-restored-matrix-target=" + v4_hir_alias_target(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_matrix_item)
+say "alias-hir-boundary-restored-matrix-span=" + v4_hir_alias_target_span(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_matrix_item)

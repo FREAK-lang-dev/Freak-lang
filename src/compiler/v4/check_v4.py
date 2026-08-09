@@ -7153,6 +7153,36 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "alias HIR semantic boundary",
+        "fixture": "alias_hir_boundary_smoke.fk",
+        "expect": [
+            "alias-hir-boundary-parse-diagnostics=0",
+            "alias-hir-boundary-expanded-matrix-target=[[num;4];4]",
+            "alias-hir-boundary-expanded-matrix-span=0@33:46",
+            "alias-hir-boundary-expanded-borrowed-target=lend mut 'a Score",
+            "alias-hir-boundary-expanded-borrowed-span=0@68:85",
+            "alias-hir-boundary-score-target=int",
+            "alias-hir-boundary-score-span=0@14:17",
+            "alias-hir-boundary-matrix-target=[[num;4];4]",
+            "alias-hir-boundary-matrix-span=0@33:46",
+            "alias-hir-boundary-borrowed-target=lend mut 'a Score",
+            "alias-hir-boundary-borrowed-span=0@68:85",
+            "alias-hir-boundary-matrix-ty-target=[[num;4];4]",
+            "alias-hir-boundary-borrowed-ty-target=lend mut 'a Score",
+            "alias-hir-boundary-matrix-equivalent=true",
+            "alias-hir-boundary-borrowed-equivalent=true",
+            "alias-hir-boundary-matrix-expanded-hir-equivalent=true",
+            "alias-hir-boundary-borrowed-expanded-hir-equivalent=true",
+            "alias-hir-boundary-matrix-canonical=[[num;4];4]",
+            "alias-hir-boundary-ty-diagnostics=1",
+            "alias-hir-boundary-diag=Meiya cannot store a named lend in alias target of Borrowed yet",
+            "alias-hir-boundary-diag-span=0@68:85",
+            "hir-snapshot-restore ok=1",
+            "alias-hir-boundary-restored-matrix-target=[[num;4];4]",
+            "alias-hir-boundary-restored-matrix-span=0@33:46",
+        ],
+    },
+    {
         "name": "type aliases",
         "fixture": "alias_type_smoke.fk",
         "expect": [
@@ -8909,6 +8939,93 @@ def check_crate_boundaries() -> None:
     print(f"boundary rules: {', '.join(boundary_crates)}")
 
 
+def freak_task_body(source: str, task_name: str) -> str | None:
+    match = re.search(
+        rf"task {re.escape(task_name)}\([^\n]*\) -> [^\n]+ \{{(.*?)(?=\ntask |\Z)",
+        source,
+        re.DOTALL,
+    )
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def check_alias_hir_boundary() -> None:
+    expand_source = read_text(crate_path("freak_expand"))
+    hir_source = read_text(crate_path("freak_hir"))
+    ty_source = read_text(crate_path("freak_ty"))
+    violations: list[str] = []
+
+    for task_name in ("v4_expand_alias_target", "v4_expand_alias_target_span"):
+        if freak_task_body(expand_source, task_name) is None:
+            violations.append(f"alias expansion accessor missing: {task_name}")
+
+    for marker in (
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v3"',
+        "pilot v4_hir_alias_target_types = 0",
+        "pilot v4_hir_alias_target_spans = 0",
+        "v4_hir_lower_alias_target_type",
+        "alias-targets=",
+    ):
+        if marker not in hir_source:
+            violations.append(f"alias HIR boundary missing: {marker}")
+
+    for task_name in ("v4_hir_alias_target", "v4_hir_alias_target_span"):
+        body = freak_task_body(hir_source, task_name)
+        if body is None:
+            violations.append(f"alias HIR accessor missing: {task_name}")
+            continue
+        for forbidden in ("v4_expand_", "v4_parse_", "v4_lex_", "_token"):
+            if forbidden in body:
+                violations.append(
+                    f"alias HIR accessor reconstructs syntax: {task_name} uses {forbidden}"
+                )
+
+    lower_body = freak_task_body(hir_source, "v4_hir_lower_alias_target_type")
+    if lower_body is None:
+        violations.append("alias HIR lowering adapter missing")
+    else:
+        for required in ("v4_expand_alias_target", "v4_expand_alias_target_span"):
+            if required not in lower_body:
+                violations.append(f"alias HIR lowering bypasses expansion: {required}")
+        for forbidden in ("v4_parse_", "v4_lex_", "_token"):
+            if forbidden in lower_body:
+                violations.append(
+                    f"alias HIR lowering reconstructs syntax: uses {forbidden}"
+                )
+
+    ty_contracts = {
+        "v4_ty_alias_target_type_for_sig": "v4_hir_alias_target",
+        "v4_ty_alias_target_span": "v4_hir_alias_target_span",
+    }
+    for task_name, required in ty_contracts.items():
+        body = freak_task_body(ty_source, task_name)
+        if body is None:
+            violations.append(f"alias TY adapter missing: {task_name}")
+            continue
+        if required not in body:
+            violations.append(f"alias TY adapter bypasses HIR: {task_name}")
+        for forbidden in (
+            "v4_parse_",
+            "v4_lex_",
+            "v4_expand_",
+            "_token",
+            "v4_ty_type_text",
+            "v4_ty_span_from_tokens",
+        ):
+            if forbidden in body:
+                violations.append(
+                    f"alias TY adapter reconstructs syntax: {task_name} uses {forbidden}"
+                )
+
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+
+    print("no syntax past HIR: alias target type and span")
+
+
 def check_tooling_interfaces() -> None:
     readme = read_text(V4_ROOT / "README.md")
     lsp_source = read_text(crate_path("freak_lsp"))
@@ -10365,6 +10482,7 @@ def main(argv: list[str] | None = None) -> int:
     check_individual_parse(crates + fixtures)
     check_smoke_inventory(fixtures)
     check_crate_boundaries()
+    check_alias_hir_boundary()
     check_tooling_interfaces()
     check_snapshot_inventories()
     base_source = check_flattened_crates()

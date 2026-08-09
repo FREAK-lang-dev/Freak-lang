@@ -62,6 +62,14 @@ MIR parameter/return typing and editor hover, definition, and completion facts.
 Doctrine substitution runs before alias canonicalization, body generics outrank
 same-named global aliases, and overlapping bound methods diagnose ambiguity
 instead of selecting whichever doctrine Yuuko happened to inspect first.
+The first **No Syntax Past HIR** boundary is intentionally narrower than those
+semantic slices: alias target type text and its exact source span are normalized
+once at the expanded-AST-to-HIR boundary, stored and snapshotted by `freak_hir`,
+and consumed by `freak_ty` without reconstructing the declaration from token
+ranges. A harness guard rejects any return of alias-target token scraping in TY.
+Task parameter and return types, shape/route fields, const annotations,
+doctrine/extern types, MIR body syntax, and all other type families remain
+explicit follow-up slices; this boundary changes ownership, not alias semantics.
 Closures now form a complete first-pass frontend/query slice. The resilient
 parser records arrow and block forms as `ClosureExpr` trees and leaves
 `IncompleteNode` recovery facts for missing pipes, body markers, expressions,
@@ -359,7 +367,7 @@ crates/
   freak_lex/       lossless token streams with trivia and diagnostics
   freak_parse/     resilient top-level syntax tree and recovery nodes
   freak_expand/    identity ExpandedFile/provenance forwarding into HIR
-  freak_hir/       top-level item lowering and stable def ids
+  freak_hir/       top-level item lowering, normalized alias-target type facts, and stable def ids
   freak_resolve/   file-local semantic index and duplicate diagnostics
   freak_ty/        item-level signatures and primitive type helpers
   freak_mir/       typed task MIR bodies, CFG blocks, locals, places, rvalues, diagnostics
