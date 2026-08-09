@@ -155,7 +155,13 @@ task v4_expansion_id_valid(expansion_id: word) -> bool {
     if not v4_macro_api_record_valid(expansion_id, v4_macro_tag_expansion_id, 4) {
         give back false
     }
-    give back v4_macro_api_field(expansion_id, 1) != "" and v4_macro_api_int_field(expansion_id, 2) >= 0 and v4_macro_api_int_field(expansion_id, 3) >= 0
+    pilot source_id = v4_macro_api_field(expansion_id, 1)
+    pilot invocation_id = v4_macro_api_int_field(expansion_id, 2)
+    pilot generation = v4_macro_api_int_field(expansion_id, 3)
+    if source_id == "" or invocation_id < 0 or generation < 0 {
+        give back false
+    }
+    give back v4_expansion_id_new(source_id, invocation_id, generation) == expansion_id
 }
 
 task v4_expansion_id_source(expansion_id: word) -> word {
@@ -336,7 +342,7 @@ task v4_macro_node_view_new(ast_view: word, node_handle: word, node_kind: word, 
     if not v4_macro_ast_view_valid(ast_view) or node_handle == "" or node_kind == "" or not v4_macro_span_view_valid(span_view) {
         give back ""
     }
-    if v4_macro_source_view_id(v4_macro_ast_view_source(ast_view)) != v4_macro_source_view_id(v4_macro_span_view_source(span_view)) {
+    if v4_macro_ast_view_source(ast_view) != v4_macro_span_view_source(span_view) {
         give back ""
     }
     if provenance != "" and not v4_generated_node_provenance_valid(provenance) {
@@ -357,8 +363,8 @@ task v4_macro_node_view_valid(node_view: word) -> bool {
     pilot ast_view = v4_macro_api_field(node_view, 1)
     pilot span_view = v4_macro_api_field(node_view, 4)
     pilot provenance = v4_macro_api_field(node_view, 5)
-    pilot same_source: bool = v4_macro_source_view_id(v4_macro_ast_view_source(ast_view)) == v4_macro_source_view_id(v4_macro_span_view_source(span_view))
-    give back v4_macro_ast_view_valid(ast_view) and v4_macro_api_field(node_view, 2) != "" and v4_macro_api_field(node_view, 3) != "" and v4_macro_span_view_valid(span_view) and same_source and (provenance == "" or v4_generated_node_provenance_valid(provenance))
+    pilot same_source_view: bool = v4_macro_ast_view_source(ast_view) == v4_macro_span_view_source(span_view)
+    give back v4_macro_ast_view_valid(ast_view) and v4_macro_api_field(node_view, 2) != "" and v4_macro_api_field(node_view, 3) != "" and v4_macro_span_view_valid(span_view) and same_source_view and (provenance == "" or v4_generated_node_provenance_valid(provenance))
 }
 
 task v4_macro_node_view_handle(node_view: word) -> word {

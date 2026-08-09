@@ -2,7 +2,8 @@
 -- freak_expand - V4 identity expansion bootstrap
 -- ===================================================================
 -- Depends on freak_macro_api and freak_parse. This crate is the only
--- Parse -> Expand bridge.
+-- Parse -> Expand bridge. It also consumes freak_session's semantic restore
+-- epoch, which the existing snapshot restore boundary already owns.
 -- The bootstrap ExpandedFile carrier records a stable arena id, its source
 -- file, the forwarded parse tree, and identity provenance. It deliberately
 -- defines no public macro API, hygiene model, or syntax-rewriting contract;
@@ -15,6 +16,7 @@ pilot v4_expand_snapshot_format = "freak-expand-snapshot-v1"
 pilot v4_expand_files = 0
 pilot v4_expand_trees = 0
 pilot v4_expand_provenance_kinds = 0
+pilot v4_expand_generations = 0
 pilot v4_expand_file_len = 0
 pilot v4_expand_ready = 0
 
@@ -23,6 +25,7 @@ task v4_expand_init() -> void {
         v4_expand_files = array_new()
         v4_expand_trees = array_new()
         v4_expand_provenance_kinds = array_new()
+        v4_expand_generations = array_new()
         v4_expand_file_len = 0
         v4_expand_ready = 1
     }
@@ -55,6 +58,11 @@ task v4_expand_provenance_kind(expansion_id: int) -> word {
     give back array_get(v4_expand_provenance_kinds, expansion_id)
 }
 
+task v4_expand_generation(expansion_id: int) -> int {
+    if v4_expand_file_exists(expansion_id) == false { give back 0 - 1 }
+    give back word_to_int(array_get(v4_expand_generations, expansion_id))
+}
+
 task v4_expand_provenance(expansion_id: int) -> word {
     if v4_expand_file_exists(expansion_id) == false { give back "" }
     pilot out = v4_expand_provenance_kind(expansion_id)
@@ -69,7 +77,7 @@ task v4_expand_provenance(expansion_id: int) -> word {
 task v4_expand_contract_expansion_id(expanded_file_id: int) -> word {
     if v4_expand_file_exists(expanded_file_id) == false { give back "" }
     pilot source_id = word_from_int(v4_expand_file_id(expanded_file_id))
-    give back v4_expansion_id_new(source_id, expanded_file_id, 0)
+    give back v4_expansion_id_new(source_id, expanded_file_id, v4_expand_generation(expanded_file_id))
 }
 
 task v4_expand_contract_expansion_matches(expanded_file_id: int, expansion_id: word) -> bool {
@@ -109,10 +117,12 @@ task v4_expand_identity(file_id: int, tree_id: int) -> int {
         array_set(v4_expand_files, expansion_id, word_from_int(file_id))
         array_set(v4_expand_trees, expansion_id, word_from_int(tree_id))
         array_set(v4_expand_provenance_kinds, expansion_id, v4_expand_provenance_identity)
+        array_set(v4_expand_generations, expansion_id, word_from_int(v4_session_semantic_restore_generation()))
     } else {
         array_push(v4_expand_files, word_from_int(file_id))
         array_push(v4_expand_trees, word_from_int(tree_id))
         array_push(v4_expand_provenance_kinds, v4_expand_provenance_identity)
+        array_push(v4_expand_generations, word_from_int(v4_session_semantic_restore_generation()))
     }
     v4_expand_file_len += 1
     give back expansion_id
@@ -421,16 +431,19 @@ task v4_expand_restore_file_slot(expansion_id: int, file_id: int, tree_id: int, 
         array_push(v4_expand_files, "0")
         array_push(v4_expand_trees, "0")
         array_push(v4_expand_provenance_kinds, v4_expand_provenance_identity)
+        array_push(v4_expand_generations, "0")
     }
     array_set(v4_expand_files, expansion_id, word_from_int(file_id))
     array_set(v4_expand_trees, expansion_id, word_from_int(tree_id))
     array_set(v4_expand_provenance_kinds, expansion_id, provenance_kind)
+    array_set(v4_expand_generations, expansion_id, word_from_int(v4_session_semantic_restore_generation()))
     if expansion_id >= v4_expand_file_len { v4_expand_file_len = expansion_id + 1 }
     give back 1
 }
 
 task v4_expand_begin_snapshot_restore() -> void {
     v4_expand_init()
+    v4_session_semantic_restore_generation_advance()
     v4_expand_file_len = 0
 }
 
@@ -468,6 +481,5 @@ task v4_expand_snapshot_restore(payload: word) -> word {
     out = out + " files=" + word_from_int(restored_files)
     out = out + " skipped-other=" + word_from_int(skipped_other)
     out = out + " live-files=" + word_from_int(v4_expand_file_count())
-    v4_session_semantic_restore_generation_advance()
     give back out
 }

@@ -571,6 +571,10 @@ Span views are canonical and bounded by their source metadata. Structured
 diagnostics preserve their own length-prefixed fields; conversion to the
 bootstrap pipe-delimited compiler diagnostic fails closed when a field cannot
 be represented without corruption.
+Node views require their AST and span handles to name the exact same immutable
+source view, including revision. Expansion identities use canonical numeric
+fields and carry the owning ExpandedFile slot's semantic restore generation so
+restored or reused arena slots cannot impersonate stale macro contexts.
 
 The bootstrap exposes no macro host and executes no built-in or third-party
 macro. Diagnostic submission and builder operations return deterministic
