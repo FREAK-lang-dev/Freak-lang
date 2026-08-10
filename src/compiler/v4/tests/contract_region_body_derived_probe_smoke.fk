@@ -1,0 +1,190 @@
+-- V4 body-derived returned-loan source-discovery guard fixture.
+-- Pins the executable boundary: reaching-definition walks (local aliases,
+-- aggregate builds into locals, call results stored in locals, call-in-ctor,
+-- projection rebinding, nested moves, acyclic CFG joins, loop-carried local
+-- holders) resolve returned-loan provenance; unbound paths and owned leaves
+-- fail closed with the origin and owned-escape diagnostics.
+
+task v4_body_probe_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_body_probe_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_body_probe_source() -> word {
+    pilot src = "shape Ship {\n"
+    src = src + "    hp: int\n"
+    src = src + "}\n"
+    src = src + "shape Fleet {\n"
+    src = src + "    ship: Ship\n"
+    src = src + "}\n"
+    src = src + "shape View<'a> {\n"
+    src = src + "    lead: lend 'a Ship\n"
+    src = src + "}\n"
+    src = src + "shape Holder<'a> {\n"
+    src = src + "    inner: View<'a>\n"
+    src = src + "}\n"
+    src = src + "task pick_view<'a>(lend 'a fleet: Fleet, lend 'a ship: Ship) -> View<'a> {\n"
+    src = src + "    give back View<'a> " + v4_body_probe_braces(" lead: lend fleet.ship ") + "\n"
+    src = src + "}\n"
+    src = src + "task choose<'a>(lend 'a fleet: Fleet, lend 'a ship: Ship) -> lend 'a Ship {\n"
+    src = src + "    give back lend fleet.ship\n"
+    src = src + "}\n"
+    src = src + "task chain_two_hop<'a>(lend 'a fleet: Fleet) -> lend 'a Ship {\n"
+    src = src + "    pilot v1 = lend fleet.ship\n"
+    src = src + "    pilot v2 = v1\n"
+    src = src + "    give back v2\n"
+    src = src + "}\n"
+    src = src + "task holder_build_chain<'a>(lend 'a fleet: Fleet) -> View<'a> {\n"
+    src = src + "    pilot v1 = lend fleet.ship\n"
+    src = src + "    pilot v2 = View<'a> " + v4_body_probe_braces(" lead: v1 ") + "\n"
+    src = src + "    give back v2\n"
+    src = src + "}\n"
+    src = src + "task call_store_agg<'a>(lend 'a fleet: Fleet, lend 'a ship: Ship) -> View<'a> {\n"
+    src = src + "    pilot pick = pick_view(lend fleet, lend ship)\n"
+    src = src + "    give back pick\n"
+    src = src + "}\n"
+    src = src + "task call_store_scalar_agg<'a>(lend 'a fleet: Fleet, lend 'a ship: Ship) -> View<'a> {\n"
+    src = src + "    pilot lead = choose(lend fleet, lend ship)\n"
+    src = src + "    pilot view = View<'a> " + v4_body_probe_braces(" lead: lead ") + "\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task call_store_scalar<'a>(lend 'a fleet: Fleet, lend 'a ship: Ship) -> lend 'a Ship {\n"
+    src = src + "    pilot lead = choose(lend fleet, lend ship)\n"
+    src = src + "    give back lead\n"
+    src = src + "}\n"
+    src = src + "task call_in_ctor<'a>(lend 'a fleet: Fleet, lend 'a ship: Ship) -> View<'a> {\n"
+    src = src + "    give back View<'a> " + v4_body_probe_braces(" lead: choose(lend fleet, lend ship) ") + "\n"
+    src = src + "}\n"
+    src = src + "task field_rebind_agg<'a>(lend 'a fleet: Fleet, view: View<'a>) -> View<'a> {\n"
+    src = src + "    view.lead = lend fleet.ship\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task conditional_field_rebind<'a>(lend 'a fleet: Fleet, view: View<'a>, ready: bool) -> View<'a> {\n"
+    src = src + "    if ready {\n"
+    src = src + "        view.lead = lend fleet.ship\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task nested_build<'a>(lend 'a fleet: Fleet, holder: Holder<'a>) -> Holder<'a> {\n"
+    src = src + "    pilot out = Holder<'a> " + v4_body_probe_braces(" inner: holder.inner ") + "\n"
+    src = src + "    give back out\n"
+    src = src + "}\n"
+    src = src + "task inner_rebind<'a>(lend 'a fleet: Fleet, holder: Holder<'a>) -> Holder<'a> {\n"
+    src = src + "    holder.inner = View<'a> " + v4_body_probe_braces(" lead: lend fleet.ship ") + "\n"
+    src = src + "    give back holder\n"
+    src = src + "}\n"
+    src = src + "task chain_projected_agg<'a>(lend 'a fleet: Fleet, holder: Holder<'a>) -> lend 'a Ship {\n"
+    src = src + "    pilot inner = holder.inner\n"
+    src = src + "    pilot lead = inner.lead\n"
+    src = src + "    give back lead\n"
+    src = src + "}\n"
+    src = src + "task mixed_owned_leaf<'a>(lend 'a fleet: Fleet, ship: Ship) -> View<'a> {\n"
+    src = src + "    pilot view = View<'a> " + v4_body_probe_braces(" lead: lend ship ") + "\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    src = src + "task branch_join<'a>(lend 'a fleet: Fleet, lend 'a other: Ship, ready: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot v: lend 'a Ship\n"
+    src = src + "    if ready {\n"
+    src = src + "        v = lend fleet.ship\n"
+    src = src + "    } else {\n"
+    src = src + "        v = lend other\n"
+    src = src + "    }\n"
+    src = src + "    give back v\n"
+    src = src + "}\n"
+    src = src + "task branch_single_source<'a>(lend 'a fleet: Fleet, ready: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot v: lend 'a Ship\n"
+    src = src + "    if ready {\n"
+    src = src + "        v = lend fleet.ship\n"
+    src = src + "    }\n"
+    src = src + "    give back v\n"
+    src = src + "}\n"
+    src = src + "task loop_carried_local<'a>(lend 'a fleet: Fleet, ready: bool) -> lend 'a Ship {\n"
+    src = src + "    pilot v = lend fleet.ship\n"
+    src = src + "    pilot finished = ready\n"
+    src = src + "    repeat until finished {\n"
+    src = src + "        v = lend fleet.ship\n"
+    src = src + "        finished = true\n"
+    src = src + "    }\n"
+    src = src + "    give back v\n"
+    src = src + "}\n"
+    src = src + "task loop_param_rebind<'a>(lend 'a fleet: Fleet, view: View<'a>, ready: bool) -> View<'a> {\n"
+    src = src + "    pilot finished = ready\n"
+    src = src + "    repeat until finished {\n"
+    src = src + "        view.lead = lend fleet.ship\n"
+    src = src + "        finished = true\n"
+    src = src + "    }\n"
+    src = src + "    give back view\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_body_probe_status(borrow_id: int, resolve_id: int, name: word) -> word {
+    pilot def_id = v4_resolve_def_for_name(resolve_id, name)
+    pilot result_id = v4_borrowck_lookup_result(borrow_id, def_id)
+    give back v4_borrowck_result_status(borrow_id, result_id)
+}
+
+task v4_body_probe_emit_sources(prefix: word, borrow_id: int, resolve_id: int, name: word) -> void {
+    pilot def_id = v4_resolve_def_for_name(resolve_id, name)
+    pilot result_id = v4_borrowck_lookup_result(borrow_id, def_id)
+    pilot path_id = 0
+    pilot source_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == v4_borrowck_path_return_loan {
+            say prefix + "-source" + word_from_int(source_id) + "=" + v4_borrowck_path_text(borrow_id, result_id, path_id)
+            source_id += 1
+        }
+        path_id += 1
+    }
+    say prefix + "-source-count=" + word_from_int(source_id)
+}
+
+task v4_body_probe_diag_count(borrow_id: int, needle: word) -> int {
+    pilot count = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        if v4_diag_message(v4_borrowck_diag(borrow_id, diag_id)).contains(needle) { count += 1 }
+        diag_id += 1
+    }
+    give back count
+}
+
+pilot v4_body_probe_source_text = v4_body_probe_source()
+pilot v4_body_probe_borrow = v4_borrowck_text_cached("contract-region-body-derived-probe.fk", v4_body_probe_source_text)
+pilot v4_body_probe_mir = v4_borrowck_mir_id(v4_body_probe_borrow)
+pilot v4_body_probe_ty = v4_mir_ty_id(v4_body_probe_mir)
+pilot v4_body_probe_resolve = v4_ty_resolve_id(v4_body_probe_ty)
+pilot v4_body_probe_hir = v4_resolve_hir_id(v4_body_probe_resolve)
+pilot v4_body_probe_tree = v4_hir_tree_id(v4_body_probe_hir)
+
+say "body-probe-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_body_probe_tree))
+say "body-probe-ty-diagnostics=" + word_from_int(v4_ty_diag_count(v4_body_probe_ty))
+say "body-probe-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_body_probe_mir))
+say "body-probe-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_body_probe_borrow))
+say "body-probe-chain-two-hop=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "chain_two_hop")
+say "body-probe-holder-build-chain=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "holder_build_chain")
+say "body-probe-call-store-agg=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "call_store_agg")
+say "body-probe-call-store-scalar-agg=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "call_store_scalar_agg")
+say "body-probe-call-store-scalar=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "call_store_scalar")
+say "body-probe-call-in-ctor=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "call_in_ctor")
+say "body-probe-field-rebind-agg=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "field_rebind_agg")
+say "body-probe-conditional-field-rebind=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "conditional_field_rebind")
+say "body-probe-nested-build=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "nested_build")
+say "body-probe-inner-rebind=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "inner_rebind")
+say "body-probe-chain-projected-agg=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "chain_projected_agg")
+say "body-probe-mixed-owned-leaf=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "mixed_owned_leaf")
+say "body-probe-branch-join=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "branch_join")
+say "body-probe-branch-single-source=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "branch_single_source")
+say "body-probe-loop-carried-local=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "loop_carried_local")
+say "body-probe-loop-param-rebind=" + v4_body_probe_status(v4_body_probe_borrow, v4_body_probe_resolve, "loop_param_rebind")
+v4_body_probe_emit_sources("body-probe-field-rebind", v4_body_probe_borrow, v4_body_probe_resolve, "field_rebind_agg")
+v4_body_probe_emit_sources("body-probe-inner-rebind", v4_body_probe_borrow, v4_body_probe_resolve, "inner_rebind")
+v4_body_probe_emit_sources("body-probe-branch-join", v4_body_probe_borrow, v4_body_probe_resolve, "branch_join")
+v4_body_probe_emit_sources("body-probe-conditional-field-rebind", v4_body_probe_borrow, v4_body_probe_resolve, "conditional_field_rebind")
+v4_body_probe_emit_sources("body-probe-loop-param-rebind", v4_body_probe_borrow, v4_body_probe_resolve, "loop_param_rebind")
+say "body-probe-owned-diagnostics=" + word_from_int(v4_body_probe_diag_count(v4_body_probe_borrow, "loan of an owned value"))
+say "body-probe-unproven-diagnostics=" + word_from_int(v4_body_probe_diag_count(v4_body_probe_borrow, "Meiya cannot establish the origin of this returned loan"))

@@ -2605,6 +2605,99 @@ def audit_conformance(paths: List[Path]) -> int:
                 contract_region_missing.append(
                     f"{doc_path.name}: contract-region checkpoint missing {needle!r}"
                 )
+    contract_region_status_docs = (
+        (
+            bible,
+            (
+                (
+                    "Borrowed return types now flow through TY/MIR.",
+                    "\n### 4.1 Ownership Rules",
+                    (
+                        "Body-derived provenance/source discovery is implemented in this slice",
+                    ),
+                ),
+                (
+                    "the current 00-Unit slice supports",
+                    "\n> Scalar holders",
+                    (
+                        "Lifetime eligibility remains signature-derived from declared ordinary-task contracts",
+                    ),
+                ),
+            ),
+            (
+                "body-derived/general lexical inference",
+                "not body-derived or general lexical",
+            ),
+        ),
+        (
+            audit_doc,
+            (
+                (
+                    "| Borrowed returns `-> lend T` / `-> lend mut T` |",
+                    "\nContract-region checkpoint (",
+                    ("Lifetime eligibility remains signature-derived",),
+                ),
+                (
+                    "Contract-region checkpoint (",
+                    "\nClosure-capture checkpoint (",
+                    (
+                        "Body-derived provenance/source discovery through reaching definitions is\nimplemented",
+                    ),
+                ),
+            ),
+            (
+                "Body-derived/general lexical inference",
+                "body-derived/general lexical solving",
+                "not body-derived/general lexical inference",
+                "does not claim body-derived/general lexical inference",
+                "Remaining gaps include body-derived/general lexical inference",
+            ),
+        ),
+        (
+            repo / "src" / "compiler" / "v4" / "README.md",
+            (
+                (
+                    "Borrowed return types now carry through TY/MIR.",
+                    "\nThe first `Shared<T>` / `Weak<T>` ownership surface",
+                    (
+                        "Body-derived provenance/source discovery through reaching definitions is\nimplemented",
+                        "Lifetime\neligibility remains signature-derived from declared ordinary-task contracts",
+                    ),
+                ),
+            ),
+            (
+                "body-derived source discovery and general lexical lifetime inference\nremain open",
+            ),
+        ),
+    )
+    for (
+        doc_path,
+        status_sections,
+        stale_statuses,
+    ) in contract_region_status_docs:
+        if not doc_path.exists():
+            contract_region_missing.append(
+                f"contract-region status documentation missing: {doc_path.name}"
+            )
+            continue
+        doc_source = doc_path.read_text(encoding="utf-8")
+        for start_marker, end_marker, required_statuses in status_sections:
+            checkpoint = _bounded_text_section(doc_source, start_marker, end_marker)
+            if checkpoint is None:
+                contract_region_missing.append(
+                    f"{doc_path.name}: contract-region status boundaries missing"
+                )
+                continue
+            for required_status in required_statuses:
+                if required_status not in checkpoint:
+                    contract_region_missing.append(
+                        f"{doc_path.name}: contract-region checkpoint status missing {required_status!r}"
+                    )
+        for stale_status in stale_statuses:
+            if stale_status in doc_source:
+                contract_region_missing.append(
+                    f"{doc_path.name}: stale contract-region status {stale_status!r}"
+                )
     if v4_ty_lib_return.exists():
         ty_src = v4_ty_lib_return.read_text(encoding="utf-8")
         for needle in (
@@ -2998,6 +3091,21 @@ def audit_conformance(paths: List[Path]) -> int:
                 "contract-region-source-set-choose-status=",
                 'v4_contract_region_source_set_emit_sources("contract-region-source-set-forward"',
                 'v4_contract_region_source_set_emit_sources("contract-region-source-set-projection"',
+            ),
+        ),
+        (
+            v4_tests_return / "contract_region_body_derived_probe_smoke.fk",
+            (
+                "task field_rebind_agg<'a>(lend 'a fleet: Fleet, view: View<'a>)",
+                "view.lead = lend fleet.ship",
+                "task conditional_field_rebind<'a>(lend 'a fleet: Fleet, view: View<'a>",
+                "task loop_param_rebind<'a>(lend 'a fleet: Fleet, view: View<'a>",
+                "task branch_join<'a>(lend 'a fleet: Fleet, lend 'a other: Ship",
+                'v4_body_probe_emit_sources("body-probe-field-rebind"',
+                'v4_body_probe_emit_sources("body-probe-inner-rebind"',
+                'v4_body_probe_emit_sources("body-probe-branch-join"',
+                'v4_body_probe_emit_sources("body-probe-conditional-field-rebind"',
+                'v4_body_probe_emit_sources("body-probe-loop-param-rebind"',
             ),
         ),
         (
@@ -5027,6 +5135,43 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-resource-fixed-point-work-bounded=true",
             "contract-region-resource-fixed-point-telemetry-stable=true",
             "contract-region-resource-bounds-opaque=true",
+        ),
+        "contract_region_body_derived_probe_smoke.fk": (
+            "body-probe-parse-diagnostics=0",
+            "body-probe-ty-diagnostics=0",
+            "body-probe-mir-diagnostics=0",
+            "body-probe-borrow-diagnostics=2",
+            "body-probe-chain-two-hop=clean",
+            "body-probe-holder-build-chain=clean",
+            "body-probe-call-store-agg=clean",
+            "body-probe-call-store-scalar-agg=clean",
+            "body-probe-call-store-scalar=clean",
+            "body-probe-call-in-ctor=clean",
+            "body-probe-field-rebind-agg=clean",
+            "body-probe-conditional-field-rebind=clean",
+            "body-probe-nested-build=clean",
+            "body-probe-inner-rebind=clean",
+            "body-probe-chain-projected-agg=clean",
+            "body-probe-branch-join=clean",
+            "body-probe-loop-carried-local=clean",
+            "body-probe-loop-param-rebind=clean",
+            "body-probe-mixed-owned-leaf=blocked",
+            "body-probe-branch-single-source=blocked",
+            "body-probe-field-rebind-source0=fleet.ship",
+            "body-probe-field-rebind-source-count=1",
+            "body-probe-inner-rebind-source0=fleet.ship",
+            "body-probe-inner-rebind-source-count=1",
+            "body-probe-branch-join-source0=other",
+            "body-probe-branch-join-source1=fleet.ship",
+            "body-probe-branch-join-source-count=2",
+            "body-probe-conditional-field-rebind-source0=view.lead",
+            "body-probe-conditional-field-rebind-source1=fleet.ship",
+            "body-probe-conditional-field-rebind-source-count=2",
+            "body-probe-loop-param-rebind-source0=view.lead",
+            "body-probe-loop-param-rebind-source1=fleet.ship",
+            "body-probe-loop-param-rebind-source-count=2",
+            "body-probe-owned-diagnostics=1",
+            "body-probe-unproven-diagnostics=1",
         ),
     }
     if v4_check_harness_return.exists():
