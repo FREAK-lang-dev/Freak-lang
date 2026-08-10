@@ -10,6 +10,7 @@ pilot v4_expand_contract_file = 0
 pilot v4_expand_contract_fingerprint = ""
 pilot v4_expand_contract_key = ""
 pilot v4_expand_contract_id = 0
+pilot v4_expand_contract_public_id = ""
 pilot v4_expand_contract_component = ""
 pilot v4_expand_contract_lsp_snapshot = ""
 pilot v4_expand_contract_before = ""
@@ -19,6 +20,7 @@ pilot v4_expand_contract_report = ""
 pilot v4_expand_contract_hir_after = 0
 pilot v4_expand_contract_fingerprint_after = ""
 pilot v4_expand_contract_id_after = 0
+pilot v4_expand_contract_public_id_after = ""
 pilot v4_expand_contract_tree_after = 0
 pilot v4_expand_contract_recomputed = false
 pilot v4_expand_contract_after = ""
@@ -27,6 +29,10 @@ pilot v4_expand_contract_health = ""
 pilot v4_expand_contract_lsp_restore = ""
 pilot v4_expand_contract_component_truncated = false
 pilot v4_expand_contract_reintroduced = 0
+pilot v4_expand_contract_hir_reintroduced = 0
+pilot v4_expand_contract_public_reintroduced = ""
+pilot v4_expand_contract_component_query_recomputed = false
+pilot v4_expand_contract_restore_generation_unique = false
 pilot v4_expand_contract_unit_restore = ""
 pilot v4_expand_contract_unit_truncated = false
 pilot v4_expand_contract_lsp_missing = ""
@@ -37,6 +43,7 @@ v4_expand_contract_file = v4_source_find(v4_expand_contract_path)
 v4_expand_contract_fingerprint = v4_source_fingerprint(v4_expand_contract_file)
 v4_expand_contract_key = v4_expand_query_key(v4_expand_contract_path)
 v4_expand_contract_id = word_to_int(v4_query_get(v4_expand_contract_key, v4_expand_contract_fingerprint))
+v4_expand_contract_public_id = v4_expand_contract_expansion_id(v4_expand_contract_id)
 v4_expand_contract_component = v4_expand_snapshot()
 v4_expand_contract_lsp_snapshot = v4_lsp_expand_snapshot_text()
 v4_expand_contract_before = v4_unit_snapshot()
@@ -57,6 +64,7 @@ say "expand-lex-invalidation-count=" + v4_unit_snapshot_key_value(v4_expand_cont
 v4_expand_contract_hir_after = v4_hir_text_cached(v4_expand_contract_path, v4_expand_contract_changed)
 v4_expand_contract_fingerprint_after = v4_source_fingerprint(v4_expand_contract_file)
 v4_expand_contract_id_after = word_to_int(v4_query_get(v4_expand_contract_key, v4_expand_contract_fingerprint_after))
+v4_expand_contract_public_id_after = v4_expand_contract_expansion_id(v4_expand_contract_id_after)
 v4_expand_contract_tree_after = v4_expand_parse_tree_id(v4_expand_contract_id_after)
 v4_expand_contract_recomputed = v4_expand_contract_id_after > v4_expand_contract_id and v4_hir_expansion_id(v4_expand_contract_hir_after) == v4_expand_contract_id_after and v4_expand_contract_tree_after != v4_expand_parse_tree_id(v4_expand_contract_id)
 v4_expand_contract_after = v4_unit_snapshot()
@@ -64,7 +72,11 @@ v4_expand_contract_diff = v4_unit_snapshot_diff(v4_expand_contract_before, v4_ex
 v4_expand_contract_health = v4_unit_snapshot_health(v4_expand_contract_after)
 v4_expand_contract_lsp_restore = v4_lsp_expand_snapshot_restore_text(v4_expand_contract_component)
 v4_expand_contract_component_truncated = v4_expand_file_count() == 1 and v4_expand_file_exists(v4_expand_contract_id_after) == false and v4_expand_snapshot() == v4_expand_contract_component
-v4_expand_contract_reintroduced = v4_expand_identity(v4_expand_contract_file, v4_expand_contract_tree_after)
+v4_expand_contract_reintroduced = v4_expand_text_cached(v4_expand_contract_path, v4_expand_contract_changed)
+v4_expand_contract_hir_reintroduced = v4_hir_text_cached(v4_expand_contract_path, v4_expand_contract_changed)
+v4_expand_contract_public_reintroduced = v4_expand_contract_expansion_id(v4_expand_contract_reintroduced)
+v4_expand_contract_component_query_recomputed = v4_expand_contract_reintroduced == v4_expand_contract_id_after and v4_expand_file_exists(v4_expand_contract_reintroduced) and v4_hir_expansion_id(v4_expand_contract_hir_reintroduced) == v4_expand_contract_reintroduced
+v4_expand_contract_restore_generation_unique = v4_expansion_id_valid(v4_expand_contract_public_id) and v4_expand_contract_reintroduced == v4_expand_contract_id_after and v4_expansion_id_source(v4_expand_contract_public_reintroduced) == v4_expansion_id_source(v4_expand_contract_public_id_after) and v4_expansion_id_invocation(v4_expand_contract_public_reintroduced) == v4_expansion_id_invocation(v4_expand_contract_public_id_after) and v4_expansion_id_generation(v4_expand_contract_public_reintroduced) > v4_expansion_id_generation(v4_expand_contract_public_id_after) and v4_expand_contract_public_reintroduced != v4_expand_contract_public_id_after and not v4_expand_contract_expansion_matches(v4_expand_contract_reintroduced, v4_expand_contract_public_id_after) and v4_expand_contract_expansion_matches(v4_expand_contract_reintroduced, v4_expand_contract_public_reintroduced)
 v4_expand_contract_unit_restore = v4_unit_snapshot_restore(v4_expand_contract_before)
 v4_expand_contract_unit_truncated = v4_expand_contract_unit_restore.starts_with("00-unit-snapshot-restore ok=1 ") and v4_expand_file_count() == 1 and v4_expand_file_exists(v4_expand_contract_reintroduced) == false and v4_expand_snapshot() == v4_expand_contract_component
 v4_expand_contract_lsp_missing = v4_lsp_handle_request("workspace/expandSnapshotRestore", v4_expand_contract_path, 0)
@@ -73,6 +85,8 @@ say "expand-unit-diff=" + word_from_bool(v4_expand_contract_diff.starts_with("00
 say "expand-unit-health=" + word_from_bool(v4_expand_contract_health.starts_with("00-unit-health|format=freak-00-unit-health-v1|ok=1"))
 say "expand-lsp-restore=" + word_from_bool(v4_expand_contract_lsp_restore.starts_with("ok|workspace/expandSnapshotRestore\nexpand-snapshot-restore ok=1 ") and v4_expand_contract_lsp_restore.contains("live-files=1"))
 say "expand-component-restore-truncated=" + word_from_bool(v4_expand_contract_component_truncated)
+say "expand-component-restore-query-recomputed=" + word_from_bool(v4_expand_contract_component_query_recomputed)
 say "expand-unit-restore-truncated=" + word_from_bool(v4_expand_contract_unit_truncated)
 say "expand-lsp-missing-payload=" + word_from_bool(v4_expand_contract_lsp_missing == "error|workspace/expandSnapshotRestore|-32602|method requires snapshot text")
 say "expand-query-recomputed=" + word_from_bool(v4_expand_contract_recomputed)
+say "expand-contract-restore-generation=" + word_from_bool(v4_expand_contract_restore_generation_unique)

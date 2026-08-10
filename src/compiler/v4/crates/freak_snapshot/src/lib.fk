@@ -4258,6 +4258,30 @@ task v4_mir_snapshot_restore(payload: word) -> word {
     give back restore_result
 }
 
+-- A standalone expansion restore replaces arena slots without restoring the
+-- query section. Dirty every cached expansion and its transitive dependents at
+-- one generation so no valid query can retain an id removed by the restore.
+task v4_expand_snapshot_restore_with_queries(payload: word) -> word {
+    pilot restore_result = v4_expand_snapshot_restore(payload)
+    if restore_result.starts_with("expand-snapshot-restore ok=1") == false {
+        give back restore_result
+    }
+
+    pilot generation = v4_query_bump_generation("restore:expand-component")
+    pilot invalidated = 0
+    pilot entry_id = 0
+    pilot entry_count = v4_query_cache_size()
+    repeat until entry_id >= entry_count {
+        pilot key = v4_query_entry_key(entry_id)
+        if key.starts_with("expand:") {
+            invalidated += v4_query_mark_dirty_key_at_generation(key, generation, "restore:expand-component")
+            invalidated += v4_query_invalidate_dependents_at_generation(key, generation, "restore:expand-component")
+        }
+        entry_id += 1
+    }
+    give back restore_result + " query-invalidations=" + word_from_int(invalidated)
+}
+
 task v4_unit_snapshot_restore_section_payload(section_name: word, section_payload: word) -> word {
     if section_payload == "" {
         give back section_name + "-snapshot-restore ok=0 reason=missing-section"

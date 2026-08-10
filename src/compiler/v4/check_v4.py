@@ -18,6 +18,7 @@ from pathlib import Path
 CRATE_ORDER = [
     "freak_span",
     "freak_diag",
+    "freak_macro_api",
     "freak_arena",
     "freak_intern",
     "freak_session",
@@ -211,10 +212,30 @@ def check_runner_retained_memory() -> None:
         )
 
 CRATE_BOUNDARY_REQUIRED = {
+    "freak_macro_api": [
+        (
+            "capability-limited ownership comment",
+            "-- freak_macro_api - versioned, capability-limited macro contracts",
+        ),
+        ("version policy", "task v4_macro_api_version_supported(major: int, minor: int) -> bool {"),
+        ("capability policy", "task v4_macro_api_has_capability(capabilities: int, capability: int) -> bool {"),
+        ("host unavailable stub", "task v4_macro_api_host_available() -> bool {"),
+        ("ExpansionId owner", "task v4_expansion_id_new(source_id: word, invocation_id: int, generation: int) -> word {"),
+        ("generated provenance owner", "task v4_generated_node_provenance_new(expansion_id: word, origin_span: word, output_index: int) -> word {"),
+        ("read-only source view", "task v4_macro_source_view_new(source_id: word, revision: int, byte_length: int) -> word {"),
+        ("read-only AST view", "task v4_macro_ast_view_new(source_view: word, root_handle: word) -> word {"),
+        ("read-only node view", "task v4_macro_node_view_new("),
+        ("read-only span view", "task v4_macro_span_view_new(source_view: word, span: word) -> word {"),
+        ("structured diagnostic", "task v4_macro_diagnostic_new("),
+        ("builder unsupported stub", "task v4_macro_builder_add_node("),
+    ],
     "freak_expand": [
         ("expansion ownership comment", "-- freak_expand - V4 identity expansion bootstrap"),
+        ("macro API dependency", "-- Depends on freak_macro_api and freak_parse."),
         ("identity expansion carrier", "task v4_expand_identity(file_id: int, tree_id: int) -> int {"),
         ("expanded file provenance", "task v4_expand_provenance(expansion_id: int) -> word {"),
+        ("public ExpansionId bridge", "task v4_expand_contract_expansion_id(expanded_file_id: int) -> word {"),
+        ("generated provenance bridge", "task v4_expand_contract_generated_provenance("),
         ("expansion snapshot", "task v4_expand_snapshot() -> word {"),
     ],
     "freak_hir": [
@@ -285,8 +306,24 @@ CRATE_BOUNDARY_REQUIRED = {
 }
 
 CRATE_BOUNDARY_FORBIDDEN = {
+    "freak_macro_api": [
+        ("mutable array storage", "array_"),
+        ("source database internals", "v4_source_"),
+        ("lexer internals", "v4_lex_"),
+        ("parser internals", "v4_parse_"),
+        ("HIR internals", "v4_hir_"),
+        ("resolve internals", "v4_resolve_"),
+        ("type internals", "v4_ty_"),
+        ("MIR internals", "v4_mir_"),
+        ("borrow checker internals", "v4_borrowck_"),
+        ("backend internals", "v4_codegen_"),
+        ("query internals", "v4_query_"),
+        ("driver internals", "v4_driver_"),
+    ],
     "freak_expand": [
         ("macro API task", "task v4_macro_"),
+        ("public ExpansionId definition", "task v4_expansion_id_"),
+        ("generated provenance definition", "task v4_generated_node_provenance_"),
         ("macro context type", "MacroContext"),
         ("macro context task", "macro_context"),
         ("macro or expansion builder", "_builder"),
@@ -375,6 +412,15 @@ CRATE_BOUNDARY_FORBIDDEN = {
         ("borrowck restore coordination", "v4_borrowck_provenance_scratch_reset("),
     ],
 }
+
+MACRO_IMPLEMENTATION_INTERNAL_MARKERS = [
+    "freak_macro_impl",
+    "freak_macro_host",
+    "freak_macro_runtime",
+    "v4_macro_impl_",
+    "v4_macro_host_",
+    "v4_macro_runtime_",
+]
 
 TOOLING_INTERFACE_ENDPOINTS = [
     "workspace/queryTelemetry",
@@ -550,6 +596,49 @@ INVALIDATION_FAMILY_FIELDS = [
 ]
 
 EXECUTABLE_SMOKES = [
+    {
+        "name": "macro API contract",
+        "fixture": "macro_api_contract_smoke.fk",
+        "expect_exact": [
+            "macro-api-format=freak-macro-api-contract-v1",
+            "macro-api-version=1.0",
+            "macro-api-version-supported=true",
+            "macro-api-future-version-rejected=true",
+            "macro-api-unknown-capabilities-rejected=true",
+            "macro-api-host-unavailable=true",
+            "macro-api-effects-denied=true",
+            "macro-api-context-valid=true",
+            "macro-api-context-capabilities=true",
+            "macro-api-expansion-owned=true",
+            "macro-api-noncanonical-expansion-rejected=true",
+            "macro-api-provenance-owned=true",
+            "macro-api-cross-source-provenance-rejected=true",
+            "macro-api-reversed-provenance-rejected=true",
+            "macro-api-malformed-span-rejected=true",
+            "macro-api-out-of-bounds-span-rejected=true",
+            "macro-api-out-of-bounds-span-validator-rejected=true",
+            "macro-api-expand-bridge-id=true",
+            "macro-api-expand-bridge-provenance=true",
+            "macro-api-source-view-readonly=true",
+            "macro-api-ast-view-readonly=true",
+            "macro-api-span-view-readonly=true",
+            "macro-api-node-view-readonly=true",
+            "macro-api-mixed-revision-node-rejected=true",
+            "macro-api-diagnostic-structured=true",
+            "macro-api-cross-source-diagnostic-rejected=true",
+            "macro-api-diagnostic-adapter-fails-closed=true",
+            "macro-api-diagnostic-help-adapter-fails-closed=true",
+            "macro-api-diagnostic-span-adapter-fails-closed=true",
+            "macro-api-diagnostic-submit-unsupported=true",
+            "macro-api-builder-valid=true",
+            "macro-api-builder-cannot-execute=true",
+            "macro-api-builder-add-unsupported=true",
+            "macro-api-builder-finish-unsupported=true",
+            "macro-api-builder-deterministic=true",
+            "macro-api-compiler-state-unchanged=true",
+        ],
+        "expect": [],
+    },
     {
         "name": "stable word checksum",
         "fixture": "word_checksum_smoke.fk",
@@ -840,9 +929,11 @@ EXECUTABLE_SMOKES = [
             "expand-unit-health=true",
             "expand-lsp-restore=true",
             "expand-component-restore-truncated=true",
+            "expand-component-restore-query-recomputed=true",
             "expand-unit-restore-truncated=true",
             "expand-lsp-missing-payload=true",
             "expand-query-recomputed=true",
+            "expand-contract-restore-generation=true",
         ],
         "expect": [],
     },
@@ -7112,6 +7203,38 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "alias HIR semantic boundary",
+        "fixture": "alias_hir_boundary_smoke.fk",
+        "expect": [
+            "alias-hir-boundary-parse-diagnostics=0",
+            "alias-hir-boundary-expanded-matrix-target=[[num;4];4]",
+            "alias-hir-boundary-expanded-matrix-span=0@33:46",
+            "alias-hir-boundary-expanded-borrowed-target=lend mut 'a Score",
+            "alias-hir-boundary-expanded-borrowed-span=0@68:85",
+            "alias-hir-boundary-score-target=int",
+            "alias-hir-boundary-score-span=0@14:17",
+            "alias-hir-boundary-matrix-target=[[num;4];4]",
+            "alias-hir-boundary-matrix-span=0@33:46",
+            "alias-hir-boundary-borrowed-target=lend mut 'a Score",
+            "alias-hir-boundary-borrowed-span=0@68:85",
+            "alias-hir-boundary-matrix-ty-target=[[num;4];4]",
+            "alias-hir-boundary-borrowed-ty-target=lend mut 'a Score",
+            "alias-hir-boundary-matrix-equivalent=true",
+            "alias-hir-boundary-borrowed-equivalent=true",
+            "alias-hir-boundary-matrix-expanded-hir-equivalent=true",
+            "alias-hir-boundary-borrowed-expanded-hir-equivalent=true",
+            "alias-hir-boundary-matrix-canonical=[[num;4];4]",
+            "alias-hir-boundary-ty-diagnostics=1",
+            "alias-hir-boundary-diag=Meiya cannot store a named lend in alias target of Borrowed yet",
+            "alias-hir-boundary-diag-span=0@68:85",
+            "alias-hir-boundary-malformed-snapshot-rejected=true",
+            "alias-hir-boundary-declared-alias-count-rejected=true",
+            "hir-snapshot-restore ok=1",
+            "alias-hir-boundary-restored-matrix-target=[[num;4];4]",
+            "alias-hir-boundary-restored-matrix-span=0@33:46",
+        ],
+    },
+    {
         "name": "type aliases",
         "fixture": "alias_type_smoke.fk",
         "expect": [
@@ -8851,12 +8974,108 @@ def check_crate_boundaries() -> None:
             if needle in text:
                 violations.append(f"boundary violation: {crate} owns {label}")
 
+    macro_api_index = CRATE_ORDER.index("freak_macro_api")
+    for crate in CRATE_ORDER[macro_api_index + 1 :]:
+        text = read_text(crate_path(crate))
+        for marker in MACRO_IMPLEMENTATION_INTERNAL_MARKERS:
+            if marker in text:
+                violations.append(
+                    f"boundary violation: {crate} depends on macro implementation internal {marker}"
+                )
+
     if violations:
         for violation in violations:
             print(violation)
         raise SystemExit(1)
 
     print(f"boundary rules: {', '.join(boundary_crates)}")
+
+
+def freak_task_body(source: str, task_name: str) -> str | None:
+    match = re.search(
+        rf"task {re.escape(task_name)}\([^\n]*\) -> [^\n]+ \{{(.*?)(?=\ntask |\Z)",
+        source,
+        re.DOTALL,
+    )
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def check_alias_hir_boundary() -> None:
+    expand_source = read_text(crate_path("freak_expand"))
+    hir_source = read_text(crate_path("freak_hir"))
+    ty_source = read_text(crate_path("freak_ty"))
+    violations: list[str] = []
+
+    for task_name in ("v4_expand_alias_target", "v4_expand_alias_target_span"):
+        if freak_task_body(expand_source, task_name) is None:
+            violations.append(f"alias expansion accessor missing: {task_name}")
+
+    for marker in (
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v3"',
+        "pilot v4_hir_alias_target_types = 0",
+        "pilot v4_hir_alias_target_spans = 0",
+        "v4_hir_lower_alias_target_type",
+        "alias-targets=",
+    ):
+        if marker not in hir_source:
+            violations.append(f"alias HIR boundary missing: {marker}")
+
+    for task_name in ("v4_hir_alias_target", "v4_hir_alias_target_span"):
+        body = freak_task_body(hir_source, task_name)
+        if body is None:
+            violations.append(f"alias HIR accessor missing: {task_name}")
+            continue
+        for forbidden in ("v4_expand_", "v4_parse_", "v4_lex_", "_token"):
+            if forbidden in body:
+                violations.append(
+                    f"alias HIR accessor reconstructs syntax: {task_name} uses {forbidden}"
+                )
+
+    lower_body = freak_task_body(hir_source, "v4_hir_lower_alias_target_type")
+    if lower_body is None:
+        violations.append("alias HIR lowering adapter missing")
+    else:
+        for required in ("v4_expand_alias_target", "v4_expand_alias_target_span"):
+            if required not in lower_body:
+                violations.append(f"alias HIR lowering bypasses expansion: {required}")
+        for forbidden in ("v4_parse_", "v4_lex_", "_token"):
+            if forbidden in lower_body:
+                violations.append(
+                    f"alias HIR lowering reconstructs syntax: uses {forbidden}"
+                )
+
+    ty_contracts = {
+        "v4_ty_alias_target_type_for_sig": "v4_hir_alias_target",
+        "v4_ty_alias_target_span": "v4_hir_alias_target_span",
+    }
+    for task_name, required in ty_contracts.items():
+        body = freak_task_body(ty_source, task_name)
+        if body is None:
+            violations.append(f"alias TY adapter missing: {task_name}")
+            continue
+        if required not in body:
+            violations.append(f"alias TY adapter bypasses HIR: {task_name}")
+        for forbidden in (
+            "v4_parse_",
+            "v4_lex_",
+            "v4_expand_",
+            "_token",
+            "v4_ty_type_text",
+            "v4_ty_span_from_tokens",
+        ):
+            if forbidden in body:
+                violations.append(
+                    f"alias TY adapter reconstructs syntax: {task_name} uses {forbidden}"
+                )
+
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+
+    print("no syntax past HIR: alias target type and span")
 
 
 def check_tooling_interfaces() -> None:
@@ -10315,6 +10534,7 @@ def main(argv: list[str] | None = None) -> int:
     check_individual_parse(crates + fixtures)
     check_smoke_inventory(fixtures)
     check_crate_boundaries()
+    check_alias_hir_boundary()
     check_tooling_interfaces()
     check_snapshot_inventories()
     base_source = check_flattened_crates()
