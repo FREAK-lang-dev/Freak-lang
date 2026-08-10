@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+extern int64_t freak_llvm_word_adopt(int64_t pointer);
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifdef _WIN32
 __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
@@ -101,7 +102,7 @@ int64_t freak_llvm_process_exec_capture(int64_t cmd_p) {
 #else
     pclose(fp);
 #endif
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* ── Time ──────────────────────────────────────────── */
@@ -256,7 +257,7 @@ int64_t freak_llvm_word_join(int64_t handle) {
     }
     joined[total] = '\0';
     freak_llvm_array_release(handle);
-    return (int64_t)joined;
+    return freak_llvm_word_adopt((int64_t)joined);
 }
 
 /* ── Shape (struct) helpers ─────────────────────────── */
@@ -385,7 +386,7 @@ int64_t freak_llvm_char_to_word(int64_t code) {
         len = 4;
     }
     buf[len] = '\0';
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* ── Math bridge (LLVM i64-bitcast-double → real <math.h>) ─ */
@@ -502,7 +503,7 @@ int64_t freak_llvm_tcp_recv(int64_t fd, int64_t max_bytes) {
 #endif
     if (n <= 0) { free(buf); return (int64_t)""; }
     buf[n] = '\0';
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* freak_tcp_recv_all(fd, max_bytes) -> read until connection closes */
@@ -522,7 +523,7 @@ int64_t freak_llvm_tcp_recv_all(int64_t fd, int64_t max_bytes) {
         total += n;
     }
     buf[total] = '\0';
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* freak_tcp_close(fd) -> void */

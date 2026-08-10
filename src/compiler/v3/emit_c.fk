@@ -543,6 +543,21 @@ task emit_stmt(eid: word) -> void {
             give back
         }
 
+        -- A word replacement must evaluate its RHS before releasing the old
+        -- owned buffer (`name = name + suffix`), and direct self-assignment
+        -- must keep the shared pointer alive.
+        if lhs_kind == EXPR_IDENT and op_w == "=" {
+            pilot lhs_name: word = array_get(ast_expr_vals, lhs_idx)
+            if emt_get_var_type(lhs_name) == "w" {
+                emit("{ freak_word __freak_word_replacement = ")
+                emit_expr(rhs_w)
+                emit("; freak_word_replace_owned(&")
+                emit_expr(expr_id_w)
+                emit_line(", __freak_word_replacement); }")
+                give back
+            }
+        }
+
         emit_expr(expr_id_w)
         emit(" " + op_w + " ")
         emit_expr(rhs_w)

@@ -1305,6 +1305,11 @@ task llvm_emit_stmt_assign(eid: word) -> void {
     pilot reg = llvm_emit_expr(rhs_w)
     pilot var_ptr = llvm_var_ptr(var_name_expr)
     if name_w == "=" {
+        if llvm_get_var_type(var_name_expr).starts_with("w") {
+            pilot previous_reg = next_reg()
+            llvm_emit_line("    " + previous_reg + " = load i64, i64* " + var_ptr)
+            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous_reg + ", i64 " + reg + ")")
+        }
         llvm_emit_line("    store i64 " + reg + ", i64* " + var_ptr)
         give back
     }
@@ -1558,6 +1563,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_llvm_word_from_bool(i64)")
     llvm_emit_line("declare i64 @freak_llvm_char_to_word(i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_concat(i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_word_release_replaced(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_eq(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_neq(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_length(i64)")

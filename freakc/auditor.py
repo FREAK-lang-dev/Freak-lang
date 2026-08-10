@@ -1716,6 +1716,23 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "freakc" / "runtime" / "freak_llvm_runtime.c",
             ("freak_llvm_normalize_process_status", "WIFEXITED"),
         ),
+        "word ownership runtime": (
+            repo / "freakc" / "runtime" / "freak_runtime.c",
+            (
+                "freak_word_replace_owned",
+                "freak_llvm_word_release_replaced",
+                "freak_llvm_word_adopt",
+            ),
+        ),
+        "word ownership regression": (
+            repo / "tests" / "v3_word_ownership.py",
+            (
+                "repeat 512 times",
+                "-fsanitize=address",
+                "LeakSanitizer",
+                "text = text",
+            ),
+        ),
         "POSIX installer": (
             repo / "install.sh",
             (

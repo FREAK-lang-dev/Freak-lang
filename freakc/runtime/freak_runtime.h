@@ -49,6 +49,10 @@ freak_word freak_word_own(char* s, size_t len);
 /* Concatenate two words — allocates. */
 freak_word freak_word_concat(freak_word a, freak_word b);
 
+/* Evaluate the replacement first, then release the previous owned buffer.
+   Pointer equality keeps direct self-assignment safe. */
+void freak_word_replace_owned(freak_word* slot, freak_word replacement);
+
 /* Equality test (byte-wise). */
 bool freak_word_eq(freak_word a, freak_word b);
 

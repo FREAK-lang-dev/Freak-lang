@@ -106,6 +106,9 @@ jobs:
       - name: V3 parser/type errors gate code generation
         run: python -u tests/v3_codegen_error_gate.py ./build/freak$EXT
 
+      - name: V3 word replacement ownership
+        run: python -u tests/v3_word_ownership.py ./build/freak$EXT
+
       - name: CLI smoke test - doctor JSON
         shell: bash
         run: |

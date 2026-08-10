@@ -186,6 +186,13 @@ revalidates that proof immediately before launch. Concurrent commands targeting
 the same output are not serialized; use distinct outputs or avoid overlapping
 runs when another process may replace the binary after that final check.
 
+Plain V3 `word` replacement now evaluates the new value before releasing the
+superseded owned buffer on both C and LLVM backends, including safe
+self-assignment and `name = name + suffix`. The CI regression runs the repeated
+replacement case under AddressSanitizer on POSIX and LeakSanitizer on Linux. Concatenation still
+copies the growing prefix each time, so repeated append remains O(n^2); this
+ownership fix does not claim to solve that separate performance cost.
+
 Or build separately:
 
 ```bash

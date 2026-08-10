@@ -88,6 +88,14 @@ freak_word freak_word_concat(freak_word a, freak_word b) {
     return freak_word_own(buf, total);
 }
 
+void freak_word_replace_owned(freak_word* slot, freak_word replacement) {
+    if (!slot) return;
+    if (slot->heap && slot->data && slot->data != replacement.data) {
+        free((void*)slot->data);
+    }
+    *slot = replacement;
+}
+
 bool freak_word_eq(freak_word a, freak_word b) {
     if (a.length != b.length) return false;
     return memcmp(a.data, b.data, a.length) == 0;
@@ -1178,10 +1186,50 @@ void freak_llvm_setup_args(int64_t argc, int64_t argv) {
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct freak_llvm_owned_word {
+    void* pointer;
+    struct freak_llvm_owned_word* next;
+} freak_llvm_owned_word;
+
+static freak_llvm_owned_word* freak_llvm_owned_words = NULL;
+
+int64_t freak_llvm_word_adopt(int64_t pointer) {
+    if (!pointer) return pointer;
+    freak_llvm_owned_word* current = freak_llvm_owned_words;
+    while (current) {
+        if (current->pointer == (void*)pointer) return pointer;
+        current = current->next;
+    }
+    freak_llvm_owned_word* owned = (freak_llvm_owned_word*)malloc(sizeof(*owned));
+    if (!owned) {
+        fprintf(stderr, "FREAK: out of memory tracking an owned word\n");
+        exit(1);
+    }
+    owned->pointer = (void*)pointer;
+    owned->next = freak_llvm_owned_words;
+    freak_llvm_owned_words = owned;
+    return pointer;
+}
+
+void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement) {
+    if (!previous || previous == replacement) return;
+    freak_llvm_owned_word** link = &freak_llvm_owned_words;
+    while (*link) {
+        freak_llvm_owned_word* owned = *link;
+        if (owned->pointer == (void*)previous) {
+            *link = owned->next;
+            free(owned->pointer);
+            free(owned);
+            return;
+        }
+        link = &owned->next;
+    }
+}
+
 int64_t freak_llvm_word_from_int(int64_t n) {
     char* buf = (char*)malloc(32);
     snprintf(buf, 32, "%lld", (long long)n);
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 int64_t freak_llvm_word_from_bool(int64_t b) {
@@ -1197,7 +1245,7 @@ int64_t freak_llvm_word_concat(int64_t a, int64_t b) {
     char* buf = (char*)malloc(len);
     strcpy(buf, sa);
     strcat(buf, sb);
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 int64_t freak_llvm_word_eq(int64_t a, int64_t b) {
@@ -1227,12 +1275,14 @@ int64_t freak_llvm_word_checksum(int64_t a) {
 int64_t freak_llvm_word_snapshot_escape(int64_t a) {
     const char* sa = (const char*)a;
     freak_word out = freak_word_snapshot_escape(freak_word_lit(sa ? sa : ""));
+    if (out.heap) return freak_llvm_word_adopt((int64_t)out.data);
     return (int64_t)out.data;
 }
 
 int64_t freak_llvm_word_snapshot_unescape(int64_t a) {
     const char* sa = (const char*)a;
     freak_word out = freak_word_snapshot_unescape(freak_word_lit(sa ? sa : ""));
+    if (out.heap) return freak_llvm_word_adopt((int64_t)out.data);
     return (int64_t)out.data;
 }
 
@@ -1244,6 +1294,7 @@ int64_t freak_llvm_word_snapshot_line_count(int64_t a) {
 int64_t freak_llvm_word_snapshot_line(int64_t a, int64_t wanted) {
     const char* sa = (const char*)a;
     freak_word out = freak_word_snapshot_line(freak_word_lit(sa ? sa : ""), wanted);
+    if (out.heap) return freak_llvm_word_adopt((int64_t)out.data);
     return (int64_t)out.data;
 }
 
@@ -1255,6 +1306,7 @@ int64_t freak_llvm_word_snapshot_field_count(int64_t a) {
 int64_t freak_llvm_word_snapshot_field_raw(int64_t a, int64_t wanted) {
     const char* sa = (const char*)a;
     freak_word out = freak_word_snapshot_field_raw(freak_word_lit(sa ? sa : ""), wanted);
+    if (out.heap) return freak_llvm_word_adopt((int64_t)out.data);
     return (int64_t)out.data;
 }
 
@@ -1269,6 +1321,7 @@ int64_t freak_llvm_word_char_at(int64_t a, int64_t idx) {
 int64_t freak_llvm_word_substring(int64_t a, int64_t start, int64_t len) {
     const char* sa = (const char*)a;
     freak_word out = freak_word_substring(freak_word_lit(sa ? sa : ""), start, len);
+    if (out.heap) return freak_llvm_word_adopt((int64_t)out.data);
     return (int64_t)out.data;
 }
 
@@ -1303,7 +1356,7 @@ int64_t freak_llvm_word_to_upper(int64_t a) {
     for (char* p = buf; *p; p++) {
         if (*p >= 'a' && *p <= 'z') *p -= 32;
     }
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 int64_t freak_llvm_word_to_lower(int64_t a) {
@@ -1313,7 +1366,7 @@ int64_t freak_llvm_word_to_lower(int64_t a) {
     for (char* p = buf; *p; p++) {
         if (*p >= 'A' && *p <= 'Z') *p += 32;
     }
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 int64_t freak_llvm_word_trim(int64_t a) {
@@ -1390,9 +1443,9 @@ int64_t freak_llvm_ask(int64_t prompt) {
         if (len > 0 && buf[len - 1] == '\n') {
             buf[len - 1] = '\0';
         }
-        return (int64_t)_strdup(buf);
+        return freak_llvm_word_adopt((int64_t)_strdup(buf));
     }
-    return (int64_t)_strdup("");
+    return freak_llvm_word_adopt((int64_t)_strdup(""));
 }
 
 int64_t freak_process_args_count(void) {
