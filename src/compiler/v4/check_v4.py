@@ -285,6 +285,8 @@ CRATE_BOUNDARY_REQUIRED = {
         ("invalidation report", "task v4_unit_invalidation_report(path: word) -> word {"),
         ("restore confirm coordination", "task v4_driver_confirm_restored_document(path: word) -> word {"),
         ("MIR restore coordination", "task v4_mir_snapshot_restore(payload: word) -> word {"),
+        ("expansion restore query coordination", "task v4_expand_snapshot_restore_with_queries(payload: word) -> word {"),
+        ("HIR restore query coordination", "task v4_hir_snapshot_restore_with_queries(payload: word) -> word {"),
     ],
     "freak_lsp": [
         (
@@ -608,10 +610,12 @@ EXECUTABLE_SMOKES = [
             "macro-api-host-unavailable=true",
             "macro-api-effects-denied=true",
             "macro-api-context-valid=true",
+            "macro-api-noncanonical-context-rejected=true",
             "macro-api-context-capabilities=true",
             "macro-api-expansion-owned=true",
             "macro-api-noncanonical-expansion-rejected=true",
             "macro-api-provenance-owned=true",
+            "macro-api-noncanonical-provenance-rejected=true",
             "macro-api-cross-source-provenance-rejected=true",
             "macro-api-reversed-provenance-rejected=true",
             "macro-api-malformed-span-rejected=true",
@@ -620,21 +624,29 @@ EXECUTABLE_SMOKES = [
             "macro-api-expand-bridge-id=true",
             "macro-api-expand-bridge-provenance=true",
             "macro-api-source-view-readonly=true",
+            "macro-api-noncanonical-source-view-rejected=true",
             "macro-api-ast-view-readonly=true",
             "macro-api-span-view-readonly=true",
             "macro-api-node-view-readonly=true",
             "macro-api-mixed-revision-node-rejected=true",
+            "macro-api-cross-source-node-provenance-rejected=true",
             "macro-api-diagnostic-structured=true",
+            "macro-api-noncanonical-diagnostic-rejected=true",
             "macro-api-cross-source-diagnostic-rejected=true",
             "macro-api-diagnostic-adapter-fails-closed=true",
             "macro-api-diagnostic-help-adapter-fails-closed=true",
             "macro-api-diagnostic-span-adapter-fails-closed=true",
             "macro-api-diagnostic-submit-unsupported=true",
+            "macro-api-capability-denied=true",
+            "macro-api-mismatched-expansion-invalid=true",
             "macro-api-builder-valid=true",
+            "macro-api-builder-open-capability-denied=true",
             "macro-api-builder-cannot-execute=true",
             "macro-api-builder-add-unsupported=true",
             "macro-api-builder-finish-unsupported=true",
             "macro-api-builder-deterministic=true",
+            "macro-api-builder-add-invalid=true",
+            "macro-api-builder-finish-invalid=true",
             "macro-api-compiler-state-unchanged=true",
         ],
         "expect": [],
@@ -931,6 +943,7 @@ EXECUTABLE_SMOKES = [
             "expand-component-restore-truncated=true",
             "expand-component-restore-query-recomputed=true",
             "expand-unit-restore-truncated=true",
+            "expand-named-section-restore-query-recomputed=true",
             "expand-lsp-missing-payload=true",
             "expand-query-recomputed=true",
             "expand-contract-restore-generation=true",
@@ -7207,6 +7220,8 @@ EXECUTABLE_SMOKES = [
         "fixture": "alias_hir_boundary_smoke.fk",
         "expect": [
             "alias-hir-boundary-parse-diagnostics=0",
+            "alias-hir-boundary-terminator-excluded=true",
+            "alias-hir-boundary-incomplete-sentinel=true",
             "alias-hir-boundary-expanded-matrix-target=[[num;4];4]",
             "alias-hir-boundary-expanded-matrix-span=0@33:46",
             "alias-hir-boundary-expanded-borrowed-target=lend mut 'a Score",
@@ -7229,7 +7244,21 @@ EXECUTABLE_SMOKES = [
             "alias-hir-boundary-diag-span=0@68:85",
             "alias-hir-boundary-malformed-snapshot-rejected=true",
             "alias-hir-boundary-declared-alias-count-rejected=true",
+            "alias-hir-boundary-foreign-span-rejected=true",
+            "alias-hir-boundary-out-of-item-span-rejected=true",
+            "alias-hir-boundary-zero-span-rejected=true",
+            "alias-hir-boundary-duplicate-slot-rejected=true",
+            "alias-hir-boundary-reordered-child-roundtrip=true",
+            "alias-hir-boundary-smaller-validation-accepted=true",
+            "alias-hir-boundary-smaller-restore-ok=true",
+            "alias-hir-boundary-smaller-live-files=1",
+            "alias-hir-boundary-smaller-snapshot-canonical=true",
+            "alias-hir-boundary-smaller-restore-truncates=true",
+            "alias-hir-boundary-smaller-next-allocation-fresh=true",
+            "alias-hir-boundary-component-restore-query-recomputed=true",
+            "alias-hir-boundary-named-restore-query-recomputed=true",
             "hir-snapshot-restore ok=1",
+            "alias-hir-boundary-incomplete-roundtrip=true",
             "alias-hir-boundary-restored-matrix-target=[[num;4];4]",
             "alias-hir-boundary-restored-matrix-span=0@33:46",
         ],
@@ -8991,15 +9020,89 @@ def check_crate_boundaries() -> None:
     print(f"boundary rules: {', '.join(boundary_crates)}")
 
 
+def freak_char_literal_length(source: str, index: int, limit: int) -> int:
+    if index + 2 >= limit or source[index] != "'":
+        return 0
+    value = source[index + 1]
+    if value == "\\":
+        if index + 3 < limit and source[index + 2] in "nrt0'\"\\" and source[index + 3] == "'":
+            return 4
+        return 0
+    if value != "\n" and source[index + 2] == "'":
+        return 3
+    return 0
+
+
+def freak_matching_brace(source: str, open_index: int, limit: int) -> int | None:
+    depth = 0
+    literal_quote: str | None = None
+    escaped = False
+    in_comment = False
+    index = open_index
+    while index < limit:
+        char = source[index]
+        if in_comment:
+            if char == "\n":
+                in_comment = False
+            index += 1
+            continue
+        if literal_quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == literal_quote:
+                literal_quote = None
+            index += 1
+            continue
+        if char == '"':
+            literal_quote = char
+            index += 1
+            continue
+        char_literal_length = freak_char_literal_length(source, index, limit)
+        if char_literal_length > 0:
+            index += char_literal_length
+            continue
+        if char == "-" and index + 1 < limit and source[index + 1] == "-":
+            in_comment = True
+            index += 2
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
 def freak_task_body(source: str, task_name: str) -> str | None:
-    match = re.search(
-        rf"task {re.escape(task_name)}\([^\n]*\) -> [^\n]+ \{{(.*?)(?=\ntask |\Z)",
-        source,
-        re.DOTALL,
-    )
+    match = re.search(rf"(?m)^task[ \t]+{re.escape(task_name)}[ \t]*\(", source)
     if match is None:
         return None
-    return match.group(1)
+
+    signature_end = source.find("\n", match.start())
+    if signature_end < 0:
+        signature_end = len(source)
+    signature = source[match.start() : signature_end]
+
+    arrow_index = signature.find("=>")
+    brace_index = signature.find("{")
+    if arrow_index >= 0 and (brace_index < 0 or arrow_index < brace_index):
+        return signature[arrow_index + 2 :]
+    if brace_index >= 0:
+        open_index = match.start() + brace_index
+        close_index = freak_matching_brace(source, open_index, len(source))
+        if close_index is None:
+            return source[open_index + 1 : signature_end]
+        return source[open_index + 1 : close_index]
+
+    done_match = re.search(r"(?m)^done[ \t]*$", source[signature_end + 1 :])
+    if done_match is not None:
+        body_start = signature_end + 1
+        return source[body_start : body_start + done_match.start()]
+    return ""
 
 
 def check_alias_hir_boundary() -> None:
@@ -9007,6 +9110,33 @@ def check_alias_hir_boundary() -> None:
     hir_source = read_text(crate_path("freak_hir"))
     ty_source = read_text(crate_path("freak_ty"))
     violations: list[str] = []
+
+    extractor_sample = (
+        "task brace_sample() -> void {\n"
+        "    say \"{safe}\"\n"
+        "pilot close: char = '}'\n"
+        "pilot quote: char = '\\''\n"
+        "pilot loan: lend 'a word = value\n"
+        "pilot local = v4_parse_inside\n"
+        "}\n"
+        "pilot later = v4_parse_outside\n"
+        "task arrow_sample() => 1\n"
+        "shape Later\n"
+        "task done_sample() -> void\n"
+        "fixed pilot local = 1\n"
+        "    say \"safe\"\n"
+        "done\n"
+        "doctrine Final\n"
+    )
+    brace_body = freak_task_body(extractor_sample, "brace_sample")
+    arrow_body = freak_task_body(extractor_sample, "arrow_sample")
+    done_body = freak_task_body(extractor_sample, "done_sample")
+    if brace_body is None or "v4_parse_inside" not in brace_body or "v4_parse_outside" in brace_body or "pilot close" not in brace_body or "pilot quote" not in brace_body or "lend 'a" not in brace_body or "say" not in brace_body:
+        violations.append("alias HIR guard task extractor leaks past brace task")
+    if arrow_body is None or arrow_body.strip() != "1":
+        violations.append("alias HIR guard task extractor misses arrow task")
+    if done_body is None or "fixed pilot local" not in done_body or "say \"safe\"" not in done_body or "doctrine Final" in done_body:
+        violations.append("alias HIR guard task extractor leaks past done task")
 
     for task_name in ("v4_expand_alias_target", "v4_expand_alias_target_span"):
         if freak_task_body(expand_source, task_name) is None:
