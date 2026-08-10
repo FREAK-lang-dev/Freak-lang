@@ -595,6 +595,42 @@ task v4_parse_find_top_level_token(stream_id: int, start_token: int, end_token: 
     give back 0 - 1
 }
 
+task v4_parse_type_text_needs_separator(previous: word, before_previous: word, previous_type: word, value: word) -> bool {
+    if previous == "lend" or previous == "dyn" {
+        give back true
+    }
+    if previous == "mut" and before_previous == "lend" {
+        give back true
+    }
+    if previous_type == v4_tok_lifetime {
+        give back value != ":" and value != "+" and value != "," and value != ">" and value != ")" and value != "]" and value != ";"
+    }
+    give back false
+}
+
+task v4_parse_type_text(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot out = ""
+    pilot previous = ""
+    pilot before_previous = ""
+    pilot previous_type = ""
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        pilot token_type = v4_lex_token_type(stream_id, idx)
+        if token_type != v4_tok_trivia and token_type != v4_tok_eof {
+            pilot value = v4_lex_token_value(stream_id, idx)
+            if out != "" and v4_parse_type_text_needs_separator(previous, before_previous, previous_type, value) {
+                out = out + " "
+            }
+            out = out + value
+            before_previous = previous
+            previous = value
+            previous_type = token_type
+        }
+        idx += 1
+    }
+    give back out
+}
+
 task v4_parse_alias_target_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
     pilot equals_token = v4_parse_find_token_value(stream_id, start_token, end_token, "=")
     if equals_token < 0 {
@@ -604,7 +640,7 @@ task v4_parse_alias_target_from_tokens(stream_id: int, start_token: int, end_tok
     if target_start >= end_token {
         give back ""
     }
-    give back v4_parse_text(stream_id, target_start, end_token)
+    give back v4_parse_type_text(stream_id, target_start, end_token)
 }
 
 task v4_parse_const_name_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
@@ -709,6 +745,38 @@ task v4_parse_alias_target(tree_id: int, node_id: int) -> word {
         give back ""
     }
     give back v4_parse_alias_target_from_tokens(stream_id, start_token + 1, end_token)
+}
+
+task v4_parse_alias_target_span(tree_id: int, node_id: int) -> word {
+    if v4_parse_node_kind(tree_id, node_id) != v4_node_alias {
+        give back V4_NO_SPAN
+    }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    pilot start_token = v4_parse_node_start_token(tree_id, node_id)
+    pilot end_token = v4_parse_node_end_token(tree_id, node_id)
+    if start_token < 0 or end_token <= start_token {
+        give back V4_NO_SPAN
+    }
+
+    pilot equals_token = v4_parse_find_token_value(stream_id, start_token + 1, end_token, "=")
+    if equals_token < 0 {
+        give back v4_parse_node_span(tree_id, node_id)
+    }
+    pilot target_start = v4_parse_skip_trivia(stream_id, equals_token + 1)
+    if target_start >= end_token {
+        give back v4_parse_node_span(tree_id, node_id)
+    }
+    pilot target_end = end_token
+    if target_end > target_start and v4_lex_token_type(stream_id, target_end - 1) == v4_tok_eof {
+        target_end -= 1
+    }
+    repeat until target_end <= target_start or v4_lex_token_type(stream_id, target_end - 1) != v4_tok_trivia {
+        target_end -= 1
+    }
+    if target_end <= target_start {
+        give back v4_parse_node_span(tree_id, node_id)
+    }
+    give back v4_parse_make_span(stream_id, target_start, target_end)
 }
 
 task v4_parse_const_type(tree_id: int, node_id: int) -> word {

@@ -1,0 +1,538 @@
+-- ===================================================================
+-- freak_macro_api - versioned, capability-limited macro contracts
+-- ===================================================================
+-- Depends only on freak_span and freak_diag. Values are immutable,
+-- length-prefixed words: no parser arena, query cache, semantic state,
+-- backend state, or host effect is exposed through this boundary.
+
+pilot v4_macro_api_wire_format = "freak-macro-api-contract-v1"
+pilot v4_macro_api_version_major = 1
+pilot v4_macro_api_version_minor = 0
+
+pilot v4_macro_cap_read_views = 1
+pilot v4_macro_cap_emit_diagnostic = 2
+pilot v4_macro_cap_build_syntax = 4
+pilot v4_macro_cap_all = 7
+
+pilot v4_macro_result_ok = "ok"
+pilot v4_macro_result_unsupported = "unsupported"
+pilot v4_macro_result_invalid = "invalid"
+
+pilot v4_macro_tag_expansion_id = "ExpansionId"
+pilot v4_macro_tag_generated_provenance = "GeneratedNodeProvenance"
+pilot v4_macro_tag_context = "MacroContext"
+pilot v4_macro_tag_source_view = "SourceView"
+pilot v4_macro_tag_ast_view = "AstView"
+pilot v4_macro_tag_span_view = "SpanView"
+pilot v4_macro_tag_node_view = "NodeView"
+pilot v4_macro_tag_diagnostic = "MacroDiagnostic"
+pilot v4_macro_tag_builder = "MacroBuilderStub"
+pilot v4_macro_tag_result = "MacroApiResult"
+
+task v4_macro_api_pack_field(field: word) -> word {
+    give back word_from_int(field.length()) + ":" + field
+}
+
+task v4_macro_api_field_count(record: word) -> int {
+    pilot count = 0
+    pilot cursor = 0
+    repeat until cursor >= record.length() {
+        pilot colon = v4_index_of_from(record, ":", cursor)
+        if colon < cursor {
+            give back 0 - 1
+        }
+        pilot field_len = v4_nonnegative_int_range(record, cursor, colon)
+        if field_len < 0 {
+            give back 0 - 1
+        }
+        pilot field_start = colon + 1
+        if field_len > record.length() - field_start {
+            give back 0 - 1
+        }
+        cursor = field_start + field_len
+        count += 1
+    }
+    if cursor != record.length() {
+        give back 0 - 1
+    }
+    give back count
+}
+
+task v4_macro_api_field(record: word, wanted: int) -> word {
+    if wanted < 0 {
+        give back ""
+    }
+    pilot field_id = 0
+    pilot cursor = 0
+    repeat until cursor >= record.length() {
+        pilot colon = v4_index_of_from(record, ":", cursor)
+        if colon < cursor {
+            give back ""
+        }
+        pilot field_len = v4_nonnegative_int_range(record, cursor, colon)
+        if field_len < 0 {
+            give back ""
+        }
+        pilot field_start = colon + 1
+        if field_len > record.length() - field_start {
+            give back ""
+        }
+        pilot field_end = field_start + field_len
+        if field_id == wanted {
+            give back v4_slice(record, field_start, field_end)
+        }
+        cursor = field_end
+        field_id += 1
+    }
+    give back ""
+}
+
+task v4_macro_api_record_valid(record: word, tag: word, field_count: int) -> bool {
+    give back v4_macro_api_field_count(record) == field_count and v4_macro_api_field(record, 0) == tag
+}
+
+task v4_macro_api_int_field(record: word, field_id: int) -> int {
+    pilot field = v4_macro_api_field(record, field_id)
+    pilot value = v4_nonnegative_int_range(field, 0, field.length())
+    if value < 0 {
+        give back 0 - 1
+    }
+    give back value
+}
+
+task v4_macro_api_version() -> word {
+    give back word_from_int(v4_macro_api_version_major) + "." + word_from_int(v4_macro_api_version_minor)
+}
+
+task v4_macro_api_version_supported(major: int, minor: int) -> bool {
+    give back major == v4_macro_api_version_major and minor >= 0 and minor <= v4_macro_api_version_minor
+}
+
+task v4_macro_api_capabilities_valid(capabilities: int) -> bool {
+    give back capabilities >= 0 and capabilities <= v4_macro_cap_all
+}
+
+task v4_macro_api_has_capability(capabilities: int, capability: int) -> bool {
+    if not v4_macro_api_capabilities_valid(capabilities) {
+        give back false
+    }
+    if capability == v4_macro_cap_read_views {
+        give back capabilities % 2 == 1
+    }
+    if capability == v4_macro_cap_emit_diagnostic {
+        give back (capabilities / 2) % 2 == 1
+    }
+    if capability == v4_macro_cap_build_syntax {
+        give back (capabilities / 4) % 2 == 1
+    }
+    give back false
+}
+
+task v4_macro_api_host_available() -> bool {
+    give back false
+}
+
+task v4_macro_api_host_effect_allowed(effect: word) -> bool {
+    -- Filesystem, network, environment, clock, randomness, and process
+    -- access remain outside the public capability set. Unknown effects
+    -- are denied by the same fail-closed rule.
+    give back false
+}
+
+-- ExpansionId and generated-node provenance are owned here so expansion
+-- stages and future sandbox hosts cannot grow competing identity types.
+task v4_expansion_id_new(source_id: word, invocation_id: int, generation: int) -> word {
+    if source_id == "" or invocation_id < 0 or generation < 0 {
+        give back ""
+    }
+    pilot out = v4_macro_api_pack_field(v4_macro_tag_expansion_id)
+    out = out + v4_macro_api_pack_field(source_id)
+    out = out + v4_macro_api_pack_field(word_from_int(invocation_id))
+    give back out + v4_macro_api_pack_field(word_from_int(generation))
+}
+
+task v4_expansion_id_valid(expansion_id: word) -> bool {
+    if not v4_macro_api_record_valid(expansion_id, v4_macro_tag_expansion_id, 4) {
+        give back false
+    }
+    pilot source_id = v4_macro_api_field(expansion_id, 1)
+    pilot invocation_id = v4_macro_api_int_field(expansion_id, 2)
+    pilot generation = v4_macro_api_int_field(expansion_id, 3)
+    if source_id == "" or invocation_id < 0 or generation < 0 {
+        give back false
+    }
+    give back v4_expansion_id_new(source_id, invocation_id, generation) == expansion_id
+}
+
+task v4_expansion_id_source(expansion_id: word) -> word {
+    if not v4_expansion_id_valid(expansion_id) { give back "" }
+    give back v4_macro_api_field(expansion_id, 1)
+}
+
+task v4_expansion_id_invocation(expansion_id: word) -> int {
+    if not v4_expansion_id_valid(expansion_id) { give back 0 - 1 }
+    give back v4_macro_api_int_field(expansion_id, 2)
+}
+
+task v4_expansion_id_generation(expansion_id: word) -> int {
+    if not v4_expansion_id_valid(expansion_id) { give back 0 - 1 }
+    give back v4_macro_api_int_field(expansion_id, 3)
+}
+
+-- The span crate's accessors deliberately recover malformed fields as zero.
+-- Contract handles must instead fail closed and preserve one canonical wire form.
+task v4_macro_api_span_valid(span: word) -> bool {
+    pilot file_id = v4_span_file(span)
+    pilot start_byte = v4_span_start(span)
+    pilot end_byte = v4_span_end(span)
+    give back span != V4_NO_SPAN and file_id != "" and file_id != V4_NO_FILE and end_byte >= start_byte and v4_span_new(file_id, start_byte, end_byte) == span
+}
+
+task v4_generated_node_provenance_new(expansion_id: word, origin_span: word, output_index: int) -> word {
+    if not v4_expansion_id_valid(expansion_id) or not v4_macro_api_span_valid(origin_span) or v4_span_file(origin_span) != v4_expansion_id_source(expansion_id) or output_index < 0 {
+        give back ""
+    }
+    pilot out = v4_macro_api_pack_field(v4_macro_tag_generated_provenance)
+    out = out + v4_macro_api_pack_field(expansion_id)
+    out = out + v4_macro_api_pack_field(origin_span)
+    give back out + v4_macro_api_pack_field(word_from_int(output_index))
+}
+
+task v4_generated_node_provenance_valid(provenance: word) -> bool {
+    if not v4_macro_api_record_valid(provenance, v4_macro_tag_generated_provenance, 4) {
+        give back false
+    }
+    pilot expansion_id = v4_macro_api_field(provenance, 1)
+    pilot origin_span = v4_macro_api_field(provenance, 2)
+    give back v4_expansion_id_valid(expansion_id) and v4_macro_api_span_valid(origin_span) and v4_span_file(origin_span) == v4_expansion_id_source(expansion_id) and v4_macro_api_int_field(provenance, 3) >= 0
+}
+
+task v4_generated_node_provenance_expansion(provenance: word) -> word {
+    if not v4_generated_node_provenance_valid(provenance) { give back "" }
+    give back v4_macro_api_field(provenance, 1)
+}
+
+task v4_generated_node_provenance_origin_span(provenance: word) -> word {
+    if not v4_generated_node_provenance_valid(provenance) { give back V4_NO_SPAN }
+    give back v4_macro_api_field(provenance, 2)
+}
+
+task v4_generated_node_provenance_output_index(provenance: word) -> int {
+    if not v4_generated_node_provenance_valid(provenance) { give back 0 - 1 }
+    give back v4_macro_api_int_field(provenance, 3)
+}
+
+task v4_macro_context_new(expansion_id: word, capabilities: int) -> word {
+    if not v4_expansion_id_valid(expansion_id) or not v4_macro_api_capabilities_valid(capabilities) {
+        give back ""
+    }
+    pilot out = v4_macro_api_pack_field(v4_macro_tag_context)
+    out = out + v4_macro_api_pack_field(word_from_int(v4_macro_api_version_major))
+    out = out + v4_macro_api_pack_field(word_from_int(v4_macro_api_version_minor))
+    out = out + v4_macro_api_pack_field(word_from_int(capabilities))
+    give back out + v4_macro_api_pack_field(expansion_id)
+}
+
+task v4_macro_context_valid(context: word) -> bool {
+    if not v4_macro_api_record_valid(context, v4_macro_tag_context, 5) {
+        give back false
+    }
+    pilot supported_version: bool = v4_macro_api_version_supported(v4_macro_api_int_field(context, 1), v4_macro_api_int_field(context, 2))
+    give back supported_version and v4_macro_api_capabilities_valid(v4_macro_api_int_field(context, 3)) and v4_expansion_id_valid(v4_macro_api_field(context, 4))
+}
+
+task v4_macro_context_capabilities(context: word) -> int {
+    if not v4_macro_context_valid(context) { give back 0 }
+    give back v4_macro_api_int_field(context, 3)
+}
+
+task v4_macro_context_has_capability(context: word, capability: int) -> bool {
+    if not v4_macro_context_valid(context) { give back false }
+    give back v4_macro_api_has_capability(v4_macro_context_capabilities(context), capability)
+}
+
+task v4_macro_context_expansion(context: word) -> word {
+    if not v4_macro_context_valid(context) { give back "" }
+    give back v4_macro_api_field(context, 4)
+}
+
+-- View values carry only opaque host identities plus stable metadata.
+-- They expose no source text buffer, parser node index, or mutable arena.
+task v4_macro_source_view_new(source_id: word, revision: int, byte_length: int) -> word {
+    if source_id == "" or revision < 0 or byte_length < 0 {
+        give back ""
+    }
+    pilot out = v4_macro_api_pack_field(v4_macro_tag_source_view)
+    out = out + v4_macro_api_pack_field(source_id)
+    out = out + v4_macro_api_pack_field(word_from_int(revision))
+    give back out + v4_macro_api_pack_field(word_from_int(byte_length))
+}
+
+task v4_macro_source_view_valid(source_view: word) -> bool {
+    give back v4_macro_api_record_valid(source_view, v4_macro_tag_source_view, 4) and v4_macro_api_field(source_view, 1) != "" and v4_macro_api_int_field(source_view, 2) >= 0 and v4_macro_api_int_field(source_view, 3) >= 0
+}
+
+task v4_macro_source_view_id(source_view: word) -> word {
+    if not v4_macro_source_view_valid(source_view) { give back "" }
+    give back v4_macro_api_field(source_view, 1)
+}
+
+task v4_macro_source_view_revision(source_view: word) -> int {
+    if not v4_macro_source_view_valid(source_view) { give back 0 - 1 }
+    give back v4_macro_api_int_field(source_view, 2)
+}
+
+task v4_macro_source_view_byte_length(source_view: word) -> int {
+    if not v4_macro_source_view_valid(source_view) { give back 0 - 1 }
+    give back v4_macro_api_int_field(source_view, 3)
+}
+
+task v4_macro_ast_view_new(source_view: word, root_handle: word) -> word {
+    if not v4_macro_source_view_valid(source_view) or root_handle == "" {
+        give back ""
+    }
+    pilot out = v4_macro_api_pack_field(v4_macro_tag_ast_view)
+    out = out + v4_macro_api_pack_field(source_view)
+    give back out + v4_macro_api_pack_field(root_handle)
+}
+
+task v4_macro_ast_view_valid(ast_view: word) -> bool {
+    give back v4_macro_api_record_valid(ast_view, v4_macro_tag_ast_view, 3) and v4_macro_source_view_valid(v4_macro_api_field(ast_view, 1)) and v4_macro_api_field(ast_view, 2) != ""
+}
+
+task v4_macro_ast_view_source(ast_view: word) -> word {
+    if not v4_macro_ast_view_valid(ast_view) { give back "" }
+    give back v4_macro_api_field(ast_view, 1)
+}
+
+task v4_macro_ast_view_root(ast_view: word) -> word {
+    if not v4_macro_ast_view_valid(ast_view) { give back "" }
+    give back v4_macro_api_field(ast_view, 2)
+}
+
+task v4_macro_span_view_new(source_view: word, span: word) -> word {
+    if not v4_macro_source_view_valid(source_view) or not v4_macro_api_span_valid(span) or v4_span_file(span) != v4_macro_source_view_id(source_view) or v4_span_end(span) > v4_macro_source_view_byte_length(source_view) {
+        give back ""
+    }
+    pilot out = v4_macro_api_pack_field(v4_macro_tag_span_view)
+    out = out + v4_macro_api_pack_field(source_view)
+    give back out + v4_macro_api_pack_field(span)
+}
+
+task v4_macro_span_view_valid(span_view: word) -> bool {
+    if not v4_macro_api_record_valid(span_view, v4_macro_tag_span_view, 3) {
+        give back false
+    }
+    pilot source_view = v4_macro_api_field(span_view, 1)
+    pilot span = v4_macro_api_field(span_view, 2)
+    give back v4_macro_source_view_valid(source_view) and v4_macro_api_span_valid(span) and v4_span_file(span) == v4_macro_source_view_id(source_view) and v4_span_end(span) <= v4_macro_source_view_byte_length(source_view)
+}
+
+task v4_macro_span_view_source(span_view: word) -> word {
+    if not v4_macro_span_view_valid(span_view) { give back "" }
+    give back v4_macro_api_field(span_view, 1)
+}
+
+task v4_macro_span_view_span(span_view: word) -> word {
+    if not v4_macro_span_view_valid(span_view) { give back V4_NO_SPAN }
+    give back v4_macro_api_field(span_view, 2)
+}
+
+task v4_macro_node_view_new(ast_view: word, node_handle: word, node_kind: word, span_view: word, provenance: word) -> word {
+    if not v4_macro_ast_view_valid(ast_view) or node_handle == "" or node_kind == "" or not v4_macro_span_view_valid(span_view) {
+        give back ""
+    }
+    if v4_macro_ast_view_source(ast_view) != v4_macro_span_view_source(span_view) {
+        give back ""
+    }
+    if provenance != "" and not v4_generated_node_provenance_valid(provenance) {
+        give back ""
+    }
+    pilot out = v4_macro_api_pack_field(v4_macro_tag_node_view)
+    out = out + v4_macro_api_pack_field(ast_view)
+    out = out + v4_macro_api_pack_field(node_handle)
+    out = out + v4_macro_api_pack_field(node_kind)
+    out = out + v4_macro_api_pack_field(span_view)
+    give back out + v4_macro_api_pack_field(provenance)
+}
+
+task v4_macro_node_view_valid(node_view: word) -> bool {
+    if not v4_macro_api_record_valid(node_view, v4_macro_tag_node_view, 6) {
+        give back false
+    }
+    pilot ast_view = v4_macro_api_field(node_view, 1)
+    pilot span_view = v4_macro_api_field(node_view, 4)
+    pilot provenance = v4_macro_api_field(node_view, 5)
+    pilot same_source_view: bool = v4_macro_ast_view_source(ast_view) == v4_macro_span_view_source(span_view)
+    give back v4_macro_ast_view_valid(ast_view) and v4_macro_api_field(node_view, 2) != "" and v4_macro_api_field(node_view, 3) != "" and v4_macro_span_view_valid(span_view) and same_source_view and (provenance == "" or v4_generated_node_provenance_valid(provenance))
+}
+
+task v4_macro_node_view_handle(node_view: word) -> word {
+    if not v4_macro_node_view_valid(node_view) { give back "" }
+    give back v4_macro_api_field(node_view, 2)
+}
+
+task v4_macro_node_view_kind(node_view: word) -> word {
+    if not v4_macro_node_view_valid(node_view) { give back "" }
+    give back v4_macro_api_field(node_view, 3)
+}
+
+task v4_macro_node_view_span(node_view: word) -> word {
+    if not v4_macro_node_view_valid(node_view) { give back "" }
+    give back v4_macro_api_field(node_view, 4)
+}
+
+task v4_macro_node_view_provenance(node_view: word) -> word {
+    if not v4_macro_node_view_valid(node_view) { give back "" }
+    give back v4_macro_api_field(node_view, 5)
+}
+
+task v4_macro_diagnostic_new(expansion_id: word, severity: int, span_view: word, code: word, message: word, help: word) -> word {
+    if not v4_expansion_id_valid(expansion_id) or severity < v4_diag_note or severity > v4_diag_fatal or not v4_macro_span_view_valid(span_view) or code == "" or message == "" {
+        give back ""
+    }
+    if v4_macro_source_view_id(v4_macro_span_view_source(span_view)) != v4_expansion_id_source(expansion_id) {
+        give back ""
+    }
+    pilot out = v4_macro_api_pack_field(v4_macro_tag_diagnostic)
+    out = out + v4_macro_api_pack_field(expansion_id)
+    out = out + v4_macro_api_pack_field(word_from_int(severity))
+    out = out + v4_macro_api_pack_field(span_view)
+    out = out + v4_macro_api_pack_field(code)
+    out = out + v4_macro_api_pack_field(message)
+    give back out + v4_macro_api_pack_field(help)
+}
+
+task v4_macro_diagnostic_valid(diagnostic: word) -> bool {
+    if not v4_macro_api_record_valid(diagnostic, v4_macro_tag_diagnostic, 7) {
+        give back false
+    }
+    pilot expansion_id = v4_macro_api_field(diagnostic, 1)
+    pilot severity = v4_macro_api_int_field(diagnostic, 2)
+    pilot span_view = v4_macro_api_field(diagnostic, 3)
+    if not v4_expansion_id_valid(expansion_id) or severity < v4_diag_note or severity > v4_diag_fatal or not v4_macro_span_view_valid(span_view) or v4_macro_api_field(diagnostic, 4) == "" or v4_macro_api_field(diagnostic, 5) == "" {
+        give back false
+    }
+    give back v4_macro_source_view_id(v4_macro_span_view_source(span_view)) == v4_expansion_id_source(expansion_id)
+}
+
+task v4_macro_diagnostic_expansion(diagnostic: word) -> word {
+    if not v4_macro_diagnostic_valid(diagnostic) { give back "" }
+    give back v4_macro_api_field(diagnostic, 1)
+}
+
+task v4_macro_diagnostic_severity(diagnostic: word) -> int {
+    if not v4_macro_diagnostic_valid(diagnostic) { give back 0 - 1 }
+    give back v4_macro_api_int_field(diagnostic, 2)
+}
+
+task v4_macro_diagnostic_span(diagnostic: word) -> word {
+    if not v4_macro_diagnostic_valid(diagnostic) { give back "" }
+    give back v4_macro_api_field(diagnostic, 3)
+}
+
+task v4_macro_diagnostic_code(diagnostic: word) -> word {
+    if not v4_macro_diagnostic_valid(diagnostic) { give back "" }
+    give back v4_macro_api_field(diagnostic, 4)
+}
+
+task v4_macro_diagnostic_message(diagnostic: word) -> word {
+    if not v4_macro_diagnostic_valid(diagnostic) { give back "" }
+    give back v4_macro_api_field(diagnostic, 5)
+}
+
+task v4_macro_diagnostic_help(diagnostic: word) -> word {
+    if not v4_macro_diagnostic_valid(diagnostic) { give back "" }
+    give back v4_macro_api_field(diagnostic, 6)
+}
+
+-- freak_diag currently uses an unescaped pipe-delimited carrier. Preserve the
+-- richer structured value, but fail closed rather than corrupting its adapter.
+task v4_macro_diagnostic_compiler_representable(diagnostic: word) -> bool {
+    if not v4_macro_diagnostic_valid(diagnostic) { give back false }
+    pilot span = v4_macro_span_view_span(v4_macro_diagnostic_span(diagnostic))
+    give back v4_index_of_from(span, "|", 0) < 0 and v4_index_of_from(v4_macro_diagnostic_message(diagnostic), "|", 0) < 0 and v4_index_of_from(v4_macro_diagnostic_help(diagnostic), "|", 0) < 0
+}
+
+task v4_macro_diagnostic_to_compiler_diag(diagnostic: word) -> word {
+    if not v4_macro_diagnostic_compiler_representable(diagnostic) { give back "" }
+    give back v4_diag_new(v4_macro_diagnostic_severity(diagnostic), v4_macro_span_view_span(v4_macro_diagnostic_span(diagnostic)), v4_macro_diagnostic_message(diagnostic), v4_macro_diagnostic_help(diagnostic))
+}
+
+task v4_macro_api_result_new(status: word, operation: word, detail: word) -> word {
+    pilot out = v4_macro_api_pack_field(v4_macro_tag_result)
+    out = out + v4_macro_api_pack_field(status)
+    out = out + v4_macro_api_pack_field(operation)
+    give back out + v4_macro_api_pack_field(detail)
+}
+
+task v4_macro_api_result_valid(api_result: word) -> bool {
+    if not v4_macro_api_record_valid(api_result, v4_macro_tag_result, 4) {
+        give back false
+    }
+    pilot status = v4_macro_api_field(api_result, 1)
+    give back (status == v4_macro_result_ok or status == v4_macro_result_unsupported or status == v4_macro_result_invalid) and v4_macro_api_field(api_result, 2) != ""
+}
+
+task v4_macro_api_result_status(api_result: word) -> word {
+    if not v4_macro_api_result_valid(api_result) { give back v4_macro_result_invalid }
+    give back v4_macro_api_field(api_result, 1)
+}
+
+task v4_macro_api_result_operation(api_result: word) -> word {
+    if not v4_macro_api_result_valid(api_result) { give back "" }
+    give back v4_macro_api_field(api_result, 2)
+}
+
+task v4_macro_api_result_detail(api_result: word) -> word {
+    if not v4_macro_api_result_valid(api_result) { give back "" }
+    give back v4_macro_api_field(api_result, 3)
+}
+
+task v4_macro_context_submit_diagnostic(context: word, diagnostic: word) -> word {
+    if not v4_macro_context_valid(context) or not v4_macro_diagnostic_valid(diagnostic) or v4_macro_context_expansion(context) != v4_macro_diagnostic_expansion(diagnostic) {
+        give back v4_macro_api_result_new(v4_macro_result_invalid, "submit-diagnostic", "context and diagnostic must share a valid ExpansionId")
+    }
+    if not v4_macro_context_has_capability(context, v4_macro_cap_emit_diagnostic) {
+        give back v4_macro_api_result_new(v4_macro_result_unsupported, "submit-diagnostic", "diagnostic capability denied")
+    }
+    give back v4_macro_api_result_new(v4_macro_result_unsupported, "submit-diagnostic", "sandbox macro host is not implemented")
+}
+
+-- Builders are contract-only handles. Every operation is a pure,
+-- deterministic failure until a sandbox host implements the capability.
+task v4_macro_builder_open(context: word, provenance: word) -> word {
+    if not v4_macro_context_valid(context) or not v4_macro_context_has_capability(context, v4_macro_cap_build_syntax) or not v4_generated_node_provenance_valid(provenance) or v4_macro_context_expansion(context) != v4_generated_node_provenance_expansion(provenance) {
+        give back ""
+    }
+    pilot out = v4_macro_api_pack_field(v4_macro_tag_builder)
+    out = out + v4_macro_api_pack_field(context)
+    give back out + v4_macro_api_pack_field(provenance)
+}
+
+task v4_macro_builder_valid(builder: word) -> bool {
+    if not v4_macro_api_record_valid(builder, v4_macro_tag_builder, 3) {
+        give back false
+    }
+    pilot context = v4_macro_api_field(builder, 1)
+    pilot provenance = v4_macro_api_field(builder, 2)
+    give back v4_macro_context_valid(context) and v4_macro_context_has_capability(context, v4_macro_cap_build_syntax) and v4_generated_node_provenance_valid(provenance) and v4_macro_context_expansion(context) == v4_generated_node_provenance_expansion(provenance)
+}
+
+task v4_macro_builder_can_execute(builder: word) -> bool {
+    give back false
+}
+
+task v4_macro_builder_add_node(builder: word, node_kind: word, span_view: word) -> word {
+    if not v4_macro_builder_valid(builder) or node_kind == "" or not v4_macro_span_view_valid(span_view) {
+        give back v4_macro_api_result_new(v4_macro_result_invalid, "builder-add-node", "invalid builder contract")
+    }
+    give back v4_macro_api_result_new(v4_macro_result_unsupported, "builder-add-node", "syntax builder execution is not implemented")
+}
+
+task v4_macro_builder_finish(builder: word) -> word {
+    if not v4_macro_builder_valid(builder) {
+        give back v4_macro_api_result_new(v4_macro_result_invalid, "builder-finish", "invalid builder contract")
+    }
+    give back v4_macro_api_result_new(v4_macro_result_unsupported, "builder-finish", "syntax builder execution is not implemented")
+}

@@ -17,7 +17,7 @@ pilot v4_hir_import = "Import"
 pilot v4_hir_extern = "Extern"
 pilot v4_hir_attribute = "Attribute"
 pilot v4_hir_error = "Error"
-pilot v4_hir_snapshot_format = "freak-hir-snapshot-v2"
+pilot v4_hir_snapshot_format = "freak-hir-snapshot-v3"
 
 pilot v4_hir_files = 0
 pilot v4_hir_expansions = 0
@@ -26,6 +26,9 @@ pilot v4_hir_item_names = 0
 pilot v4_hir_item_defs = 0
 pilot v4_hir_item_spans = 0
 pilot v4_hir_item_parse_nodes = 0
+-- The first No Syntax Past HIR family: normalized alias target type facts.
+pilot v4_hir_alias_target_types = 0
+pilot v4_hir_alias_target_spans = 0
 pilot v4_hir_diags = 0
 pilot v4_hir_ready = 0
 
@@ -38,6 +41,8 @@ task v4_hir_init() -> void {
         v4_hir_item_defs = array_new()
         v4_hir_item_spans = array_new()
         v4_hir_item_parse_nodes = array_new()
+        v4_hir_alias_target_types = array_new()
+        v4_hir_alias_target_spans = array_new()
         v4_hir_diags = array_new()
         v4_hir_ready = 1
     }
@@ -53,6 +58,8 @@ task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
     array_push(v4_hir_item_defs, word_from_int(array_new()))
     array_push(v4_hir_item_spans, word_from_int(array_new()))
     array_push(v4_hir_item_parse_nodes, word_from_int(array_new()))
+    array_push(v4_hir_alias_target_types, word_from_int(array_new()))
+    array_push(v4_hir_alias_target_spans, word_from_int(array_new()))
     array_push(v4_hir_diags, word_from_int(array_new()))
     give back hir_id
 }
@@ -75,6 +82,14 @@ task v4_hir_spans_handle(hir_id: int) -> int {
 
 task v4_hir_parse_nodes_handle(hir_id: int) -> int {
     give back word_to_int(array_get(v4_hir_item_parse_nodes, hir_id))
+}
+
+task v4_hir_alias_target_types_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_alias_target_types, hir_id))
+}
+
+task v4_hir_alias_target_spans_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_alias_target_spans, hir_id))
 }
 
 task v4_hir_diags_handle(hir_id: int) -> int {
@@ -128,6 +143,8 @@ task v4_hir_add_item(hir_id: int, item_kind: word, item_name: word, span: word, 
     array_push(v4_hir_defs_handle(hir_id), def_id)
     array_push(v4_hir_spans_handle(hir_id), span)
     array_push(v4_hir_parse_nodes_handle(hir_id), word_from_int(parse_node))
+    array_push(v4_hir_alias_target_types_handle(hir_id), "")
+    array_push(v4_hir_alias_target_spans_handle(hir_id), V4_NO_SPAN)
     give back item_index
 }
 
@@ -365,11 +382,22 @@ task v4_hir_alias_target(hir_id: int, item_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_alias {
         give back ""
     }
-    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
-    if v4_expand_tree_exists(expansion_id) == false {
-        give back ""
+    give back array_get(v4_hir_alias_target_types_handle(hir_id), item_id)
+}
+
+task v4_hir_alias_target_span(hir_id: int, item_id: int) -> word {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_alias {
+        give back V4_NO_SPAN
     }
-    give back v4_expand_alias_target(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back array_get(v4_hir_alias_target_spans_handle(hir_id), item_id)
+}
+
+task v4_hir_lower_alias_target_type(hir_id: int, item_id: int, expansion_id: int, expanded_node: int) -> void {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_alias {
+        give back
+    }
+    array_set(v4_hir_alias_target_types_handle(hir_id), item_id, v4_expand_alias_target(expansion_id, expanded_node))
+    array_set(v4_hir_alias_target_spans_handle(hir_id), item_id, v4_expand_alias_target_span(expansion_id, expanded_node))
 }
 
 task v4_hir_const_type(hir_id: int, item_id: int) -> word {
@@ -582,7 +610,8 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
             pilot hir_kind = v4_hir_kind_from_parse(parse_kind)
             pilot item_name = v4_expand_node_value(expansion_id, node_idx)
             pilot item_span = v4_expand_node_span(expansion_id, node_idx)
-            v4_hir_add_item(hir_id, hir_kind, item_name, item_span, node_idx)
+            pilot item_id = v4_hir_add_item(hir_id, hir_kind, item_name, item_span, node_idx)
+            v4_hir_lower_alias_target_type(hir_id, item_id, expansion_id, node_idx)
         }
         node_idx += 1
     }
@@ -648,6 +677,24 @@ task v4_hir_snapshot_item_total() -> int {
     give back total
 }
 
+task v4_hir_snapshot_alias_target_total() -> int {
+    v4_hir_init()
+    pilot total = 0
+    pilot hir_id = 0
+    repeat until hir_id >= v4_hir_file_count() {
+        pilot item_id = 0
+        pilot item_count = v4_hir_item_count(hir_id)
+        repeat until item_id >= item_count {
+            if v4_hir_alias_target(hir_id, item_id) != "" {
+                total += 1
+            }
+            item_id += 1
+        }
+        hir_id += 1
+    }
+    give back total
+}
+
 task v4_hir_snapshot_diag_total() -> int {
     v4_hir_init()
     pilot total = 0
@@ -664,6 +711,7 @@ task v4_hir_snapshot_summary() -> word {
     summary = summary + " format=" + v4_hir_snapshot_format
     summary = summary + " files=" + word_from_int(v4_hir_file_count())
     summary = summary + " items=" + word_from_int(v4_hir_snapshot_item_total())
+    summary = summary + " alias-targets=" + word_from_int(v4_hir_snapshot_alias_target_total())
     summary = summary + " diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
     give back summary
 }
@@ -673,6 +721,7 @@ task v4_hir_snapshot_header() -> word {
     out = out + "|format=" + v4_hir_snapshot_format
     out = out + "|files=" + word_from_int(v4_hir_file_count())
     out = out + "|items=" + word_from_int(v4_hir_snapshot_item_total())
+    out = out + "|alias-targets=" + word_from_int(v4_hir_snapshot_alias_target_total())
     out = out + "|diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
     give back out
 }
@@ -696,6 +745,8 @@ task v4_hir_snapshot_item_line(hir_id: int, item_id: int) -> word {
     out = out + "|" + v4_hir_snapshot_escape(v4_hir_item_def(hir_id, item_id))
     out = out + "|" + v4_hir_snapshot_escape(v4_hir_item_span(hir_id, item_id))
     out = out + "|" + word_from_int(v4_hir_item_parse_node(hir_id, item_id))
+    out = out + "|" + v4_hir_snapshot_escape(v4_hir_alias_target(hir_id, item_id))
+    out = out + "|" + v4_hir_snapshot_escape(v4_hir_alias_target_span(hir_id, item_id))
     give back out
 }
 
@@ -740,13 +791,13 @@ task v4_hir_snapshot() -> word {
 
 task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "hir-snapshot" {
-        give back 5
+        give back 6
     }
     if kind == "hir" {
         give back 6
     }
     if kind == "hir-item" {
-        give back 8
+        give back 10
     }
     if kind == "hir-diag" {
         give back 4
@@ -755,6 +806,29 @@ task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
         give back 2
     }
     give back 0
+}
+
+task v4_hir_snapshot_alias_target_is_valid(line: word) -> bool {
+    pilot alias_target = v4_hir_snapshot_field(line, 8)
+    pilot alias_target_span = v4_hir_snapshot_field(line, 9)
+    pilot no_span = V4_NO_SPAN
+    pilot no_file = V4_NO_FILE
+    if alias_target == "" {
+        give back alias_target_span == no_span
+    }
+    if v4_hir_snapshot_field(line, 3) != v4_hir_alias {
+        give back false
+    }
+    if alias_target_span == no_span {
+        give back false
+    }
+    pilot span_file = v4_span_file(alias_target_span)
+    pilot span_start = v4_span_start(alias_target_span)
+    pilot span_end = v4_span_end(alias_target_span)
+    if span_file == no_file or span_end < span_start {
+        give back false
+    }
+    give back v4_span_new(span_file, span_start, span_end) == alias_target_span
 }
 
 task v4_hir_snapshot_record_is_valid(line: word) -> bool {
@@ -766,6 +840,9 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
     if v4_hir_snapshot_field_count(line) < expected {
         give back false
     }
+    if kind == "hir-item" and v4_hir_snapshot_alias_target_is_valid(line) == false {
+        give back false
+    }
     give back true
 }
 
@@ -773,11 +850,13 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     pilot lines = v4_hir_snapshot_line_count(payload)
     pilot files = 0
     pilot items = 0
+    pilot alias_targets = 0
     pilot diagnostics = 0
     pilot malformed = 0
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_alias_targets = ""
 
     pilot line_id = 0
     repeat until line_id >= lines {
@@ -789,6 +868,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
             } else if kind == "hir-snapshot" {
                 saw_header += 1
                 format = v4_hir_snapshot_key_value(line, "format")
+                declared_alias_targets = v4_hir_snapshot_key_value(line, "alias-targets")
                 if format != v4_hir_snapshot_format {
                     malformed += 1
                 }
@@ -796,6 +876,9 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 files += 1
             } else if kind == "hir-item" {
                 items += 1
+                if v4_hir_snapshot_field(line, 8) != "" {
+                    alias_targets += 1
+                }
             } else if kind == "hir-diag" {
                 diagnostics += 1
             } else if kind == "end" {
@@ -818,6 +901,9 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     if malformed > 0 {
         import_ok = 0
     }
+    if declared_alias_targets != word_from_int(alias_targets) {
+        import_ok = 0
+    }
 
     pilot out = "hir-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
@@ -825,6 +911,8 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     out = out + " lines=" + word_from_int(lines)
     out = out + " files=" + word_from_int(files)
     out = out + " items=" + word_from_int(items)
+    out = out + " alias-targets=" + word_from_int(alias_targets)
+    out = out + " declared-alias-targets=" + declared_alias_targets
     out = out + " diagnostics=" + word_from_int(diagnostics)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " headers=" + word_from_int(saw_header)
@@ -842,6 +930,8 @@ task v4_hir_restore_file_slot(hir_id: int, file_id: int, expansion_id: int) -> i
         array_push(v4_hir_item_defs, word_from_int(array_new()))
         array_push(v4_hir_item_spans, word_from_int(array_new()))
         array_push(v4_hir_item_parse_nodes, word_from_int(array_new()))
+        array_push(v4_hir_alias_target_types, word_from_int(array_new()))
+        array_push(v4_hir_alias_target_spans, word_from_int(array_new()))
         array_push(v4_hir_diags, word_from_int(array_new()))
     }
 
@@ -852,11 +942,13 @@ task v4_hir_restore_file_slot(hir_id: int, file_id: int, expansion_id: int) -> i
     array_set(v4_hir_item_defs, hir_id, word_from_int(array_new()))
     array_set(v4_hir_item_spans, hir_id, word_from_int(array_new()))
     array_set(v4_hir_item_parse_nodes, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_alias_target_types, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_alias_target_spans, hir_id, word_from_int(array_new()))
     array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
     give back hir_id
 }
 
-task v4_hir_restore_item_slot(hir_id: int, item_id: int, item_kind: word, item_name: word, def_id: word, span: word, parse_node: int) -> int {
+task v4_hir_restore_item_slot(hir_id: int, item_id: int, item_kind: word, item_name: word, def_id: word, span: word, parse_node: int, alias_target: word, alias_target_span: word) -> int {
     if v4_hir_file_exists(hir_id) == false {
         give back 0
     }
@@ -866,12 +958,16 @@ task v4_hir_restore_item_slot(hir_id: int, item_id: int, item_kind: word, item_n
         array_push(v4_hir_defs_handle(hir_id), "")
         array_push(v4_hir_spans_handle(hir_id), V4_NO_SPAN)
         array_push(v4_hir_parse_nodes_handle(hir_id), word_from_int(0 - 1))
+        array_push(v4_hir_alias_target_types_handle(hir_id), "")
+        array_push(v4_hir_alias_target_spans_handle(hir_id), V4_NO_SPAN)
     }
     array_set(v4_hir_kinds_handle(hir_id), item_id, item_kind)
     array_set(v4_hir_names_handle(hir_id), item_id, item_name)
     array_set(v4_hir_defs_handle(hir_id), item_id, def_id)
     array_set(v4_hir_spans_handle(hir_id), item_id, span)
     array_set(v4_hir_parse_nodes_handle(hir_id), item_id, word_from_int(parse_node))
+    array_set(v4_hir_alias_target_types_handle(hir_id), item_id, alias_target)
+    array_set(v4_hir_alias_target_spans_handle(hir_id), item_id, alias_target_span)
     give back 1
 }
 
@@ -914,7 +1010,9 @@ task v4_hir_snapshot_restore_item_line(line: word) -> int {
     pilot def_id = v4_hir_snapshot_field(line, 5)
     pilot span = v4_hir_snapshot_field(line, 6)
     pilot parse_node = word_to_int(v4_hir_snapshot_field_raw(line, 7))
-    give back v4_hir_restore_item_slot(hir_id, item_id, item_kind, item_name, def_id, span, parse_node)
+    pilot alias_target = v4_hir_snapshot_field(line, 8)
+    pilot alias_target_span = v4_hir_snapshot_field(line, 9)
+    give back v4_hir_restore_item_slot(hir_id, item_id, item_kind, item_name, def_id, span, parse_node, alias_target, alias_target_span)
 }
 
 task v4_hir_snapshot_restore_diag_line(line: word) -> int {

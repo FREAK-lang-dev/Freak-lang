@@ -62,6 +62,14 @@ MIR parameter/return typing and editor hover, definition, and completion facts.
 Doctrine substitution runs before alias canonicalization, body generics outrank
 same-named global aliases, and overlapping bound methods diagnose ambiguity
 instead of selecting whichever doctrine Yuuko happened to inspect first.
+The first **No Syntax Past HIR** boundary is intentionally narrower than those
+semantic slices: alias target type text and its exact source span are normalized
+once at the expanded-AST-to-HIR boundary, stored and snapshotted by `freak_hir`,
+and consumed by `freak_ty` without reconstructing the declaration from token
+ranges. A harness guard rejects any return of alias-target token scraping in TY.
+Task parameter and return types, shape/route fields, const annotations,
+doctrine/extern types, MIR body syntax, and all other type families remain
+explicit follow-up slices; this boundary changes ownership, not alias semantics.
 Closures now form a complete first-pass frontend/query slice. The resilient
 parser records arrow and block forms as `ClosureExpr` trees and leaves
 `IncompleteNode` recovery facts for missing pipes, body markers, expressions,
@@ -357,13 +365,14 @@ The first landing is intentionally small and isolated from the V3 compiler:
 crates/
   freak_span/      source ids, spans, line/column helpers
   freak_diag/      diagnostic encoding and severity helpers
+  freak_macro_api/ versioned, capability-limited read views, diagnostics, and non-executing builders
   freak_arena/     append-only word arenas for early compiler storage
   freak_intern/    string interning table
   freak_session/   source database and revision tracking
   freak_lex/       lossless token streams with trivia and diagnostics
   freak_parse/     resilient top-level syntax tree and recovery nodes
   freak_expand/    identity ExpandedFile/provenance forwarding into HIR
-  freak_hir/       top-level item lowering and stable def ids
+  freak_hir/       top-level item lowering, normalized alias-target type facts, and stable def ids
   freak_resolve/   file-local semantic index and duplicate diagnostics
   freak_ty/        item-level signatures and primitive type helpers
   freak_mir/       typed task MIR bodies, CFG blocks, locals, places, rvalues, diagnostics
@@ -379,17 +388,21 @@ crates/
 Current FREAK compilation still works best with concatenated source files, so these crates use globally unique `v4_` names and a dependency order that can be flattened by a later bootstrap script:
 
 ```text
-freak_span -> freak_diag -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
+freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
 ```
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
 
 `freak_expand` is currently an identity-only architecture stage. Its internal
-ExpandedFile arena records an expansion id, source file, forwarded parse tree,
-and deterministic `identity:fileN:treeN` provenance. HIR always lowers that
-carrier, including through its compatibility tree entrypoint. This bootstrap
-does not define user macros, attribute rewriting, hygiene, gensyms, execution
-hooks, or a public macro API; it preserves all existing frontend semantics.
+ExpandedFile arena records an internal arena id, source file, forwarded parse
+tree, and deterministic `identity:fileN:treeN` provenance. HIR always lowers
+that carrier, including through its compatibility tree entrypoint. The public
+`ExpansionId` and generated-node provenance value contracts live only in
+`freak_macro_api`; expansion exposes narrow delegating bridges instead of
+defining competing types. This bootstrap does not define user macros, attribute
+rewriting, hygiene, gensyms, or execution hooks, and preserves all existing
+frontend semantics.
+
 ### Keyword Casing Contract
 
 `freak_lex` owns keyword classification for the currently implemented V4
@@ -459,7 +472,7 @@ unit-section|<section-name>|<escaped-checkpoint-identity>|<escaped-section-paylo
 end|freak-00-unit-snapshot-v3
 ```
 
-The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
+The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion-component restore dirties cached expansion queries and their transitive dependents before reuse, while HIR v3 validation requires canonical alias target spans and an exact declared alias-target count. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
 
 ### `workspace/unitSnapshotManifest`
 
@@ -562,6 +575,30 @@ workspace/querySnapshotConfirm
 ```
 
 ## Crate Boundary Rules
+
+`freak_macro_api` is the single public ownership boundary for future macro
+contracts. It owns `ExpansionId`, generated-node provenance, `MacroContext`,
+immutable source/AST/node/span view handles, and structured macro diagnostics.
+Its v1 capability set is closed to read-only views, diagnostic submission, and
+syntax builders; unknown capabilities fail closed. Filesystem, network,
+environment, clock, randomness, and process access are not capabilities.
+Span views are canonical and bounded by their source metadata. Structured
+diagnostics preserve their own length-prefixed fields; conversion to the
+bootstrap pipe-delimited compiler diagnostic fails closed when a field cannot
+be represented without corruption. A diagnostic span must name the same source
+as its expansion identity in both construction and validation.
+Node views require their AST and span handles to name the exact same immutable
+source view, including revision. Expansion identities use canonical numeric
+fields and carry the owning ExpandedFile slot's semantic restore generation so
+restored or reused arena slots cannot impersonate stale macro contexts.
+
+The bootstrap exposes no macro host and executes no built-in or third-party
+macro. Diagnostic submission and builder operations return deterministic
+`unsupported` results without mutating compiler state. The major API version is
+an exact compatibility boundary; hosts may accept only supported minor versions
+within that major. Future expansion code consumes these public identities, while
+dependency guards reject parser/query/TY/MIR/backend internals in the API crate
+and reserved macro implementation internals in later compiler crates.
 
 Future V4 work must preserve the split that 00-Unit exists to prove:
 
