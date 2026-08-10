@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import functools
+import hashlib
+import http.server
 import json
 import os
 import shutil
@@ -12,6 +15,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import zipfile
 from pathlib import Path
@@ -103,6 +107,8 @@ def check_static_contracts(repo: Path) -> None:
         "reconcile_orphaned_transaction",
         "packaging/distribution-files.manifest",
         "restore_previous_payload",
+        "verify_downloaded_archive",
+        "SHA256SUMS",
     ):
         assert needle in shell_text, f"install.sh missing {needle}"
     for needle in (
@@ -121,6 +127,8 @@ def check_static_contracts(repo: Path) -> None:
         ".freak-backup-",
         "FREAK_INSTALL_TEST_FAIL_APPLY",
         "distribution-files.manifest",
+        "Assert-DownloadedArchiveChecksum",
+        "SHA256SUMS",
     ):
         assert needle in ps_text, f"install.ps1 missing {needle}"
     assert "choco.exe install llvm" not in ps_text
@@ -226,6 +234,93 @@ def create_distribution(
         with tarfile.open(archive, "w:gz") as tarred:
             tarred.add(dist, arcname="freak")
     return archive
+
+
+class QuietHttpHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> None:
+    target = "freak-windows-x64.zip" if sys.platform == "win32" else "freak-linux-x64.tar.gz"
+    release_root = root / "release-server"
+    release = release_root / "vchecksum"
+    release.mkdir(parents=True)
+    served_archive = release / target
+    shutil.copy2(archive, served_archive)
+    expected = hashlib.sha256(served_archive.read_bytes()).hexdigest()
+    (release / "SHA256SUMS").write_text(
+        f"{expected}  ./{target}\n", encoding="utf-8"
+    )
+
+    handler = functools.partial(QuietHttpHandler, directory=str(release_root))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_env = os.environ.copy()
+        base_env.update(
+            {
+                "FREAK_RELEASE_BASE": f"http://127.0.0.1:{server.server_port}",
+                "FREAK_RELEASE_TAG": "vchecksum",
+                "FREAK_INSTALL_DEPS": "0",
+                "FREAK_SKIP_PATH_UPDATE": "1",
+            }
+        )
+        command = (
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(repo / "install.ps1"),
+                "-SkipDeps",
+            ]
+            if sys.platform == "win32"
+            else ["bash", str(repo / "install.sh"), "--skip-deps"]
+        )
+
+        valid_env = base_env.copy()
+        valid_root = root / "checksum-valid"
+        valid_env["FREAK_HOME"] = str(valid_root)
+        verified = subprocess.run(
+            command,
+            cwd=repo,
+            env=valid_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=120,
+        )
+        assert verified.returncode == 0, verified.stdout + verified.stderr
+        assert "Verified SHA-256" in verified.stdout
+
+        # Keep SHA256SUMS fixed while replacing the served archive. Integrity
+        # failure must happen before extraction or any live-tree mutation.
+        served_archive.write_bytes(served_archive.read_bytes() + b"tampered\n")
+        rejected_root = root / "checksum-rejected"
+        sentinel = rejected_root / "std" / "preserve.fk"
+        sentinel.parent.mkdir(parents=True)
+        sentinel.write_bytes(b"old payload\n")
+        rejected_env = base_env.copy()
+        rejected_env["FREAK_HOME"] = str(rejected_root)
+        rejected = subprocess.run(
+            command,
+            cwd=repo,
+            env=rejected_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=120,
+        )
+        assert rejected.returncode != 0, rejected.stdout + rejected.stderr
+        assert "sha256 mismatch" in (rejected.stdout + rejected.stderr).lower()
+        assert sentinel.read_bytes() == b"old payload\n"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def check_offline_installer(
@@ -792,6 +887,7 @@ def main() -> int:
             repo, root, entries, windows=sys.platform == "win32"
         )
         check_offline_installer(repo, root, archive, entries)
+        check_downloaded_archive_checksum(repo, root, archive)
         check_doctor(repo, root, compiler, entries)
         check_upgrade(root, compiler)
     print("V3 install, doctor, and upgrade: OK")

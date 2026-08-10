@@ -232,6 +232,37 @@ fetch_file() {
     fi
 }
 
+sha256_file() {
+    local path="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$path" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$path" | awk '{print $1}'
+    else
+        err "SHA-256 verification requires sha256sum or shasum"
+    fi
+}
+
+verify_downloaded_archive() {
+    local archive="$1"
+    local asset="$2"
+    local checksums="$TMPDIR_INSTALL/SHA256SUMS"
+    fetch_file "$RELEASE_BASE/$LATEST/SHA256SUMS" "$checksums" || err "Could not download SHA256SUMS for $LATEST"
+    local expected
+    expected=$(awk -v asset="$asset" '$2 == asset || $2 == "./" asset || $2 == "*" asset || $2 == "*./" asset { print $1; exit }' "$checksums")
+    [ -n "$expected" ] || err "SHA256SUMS has no exact entry for $asset"
+    [ "${#expected}" -eq 64 ] || err "SHA256SUMS has an invalid hash for $asset"
+    case "$expected" in
+        *[!0-9a-fA-F]*) err "SHA256SUMS has an invalid hash for $asset" ;;
+    esac
+    local actual
+    actual=$(sha256_file "$archive")
+    expected=$(printf '%s' "$expected" | tr 'A-F' 'a-f')
+    actual=$(printf '%s' "$actual" | tr 'A-F' 'a-f')
+    [ "$actual" = "$expected" ] || err "SHA256 mismatch for $asset"
+    ok "Verified SHA-256 for $asset"
+}
+
 validate_manifest_entry() {
     local source="$1"
     local destination="$2"
@@ -283,13 +314,18 @@ stage_fallback_payload() {
 }
 
 ARCHIVE_PATH="$TMPDIR_INSTALL/freak.tar.gz"
+ARCHIVE_NAME="${TARGET}.tar.gz"
 ARCHIVE_OK=false
 if [ -n "$LOCAL_ARCHIVE" ]; then
     cp "$LOCAL_ARCHIVE" "$ARCHIVE_PATH"
     ARCHIVE_OK=true
 elif command -v tar >/dev/null 2>&1; then
-    info "Downloading ${TARGET}.tar.gz..."
+    info "Downloading $ARCHIVE_NAME..."
     if fetch_file "$TARBALL_URL" "$ARCHIVE_PATH" 2>/dev/null; then ARCHIVE_OK=true; fi
+fi
+
+if [ "$ARCHIVE_OK" = true ] && [ -z "$LOCAL_ARCHIVE" ]; then
+    verify_downloaded_archive "$ARCHIVE_PATH" "$ARCHIVE_NAME"
 fi
 
 if [ "$ARCHIVE_OK" = true ]; then

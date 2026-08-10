@@ -190,6 +190,32 @@ function Assert-StagedPayload {
     }
 }
 
+function Assert-DownloadedArchiveChecksum($ArchivePath, $AssetName) {
+    $checksumsPath = Join-Path $TmpDir "SHA256SUMS"
+    try {
+        Invoke-WebRequest -Uri "$ReleaseBase/$Latest/SHA256SUMS" -OutFile $checksumsPath -UseBasicParsing
+    } catch {
+        Err "Could not download SHA256SUMS for $Latest"
+    }
+    $expected = $null
+    foreach ($rawLine in Get-Content -LiteralPath $checksumsPath) {
+        $parts = $rawLine.Trim() -split '\s+', 2
+        if ($parts.Count -ne 2) { continue }
+        $listedName = $parts[1].TrimStart('*').Replace('\', '/')
+        if ($listedName.StartsWith('./')) { $listedName = $listedName.Substring(2) }
+        if ($listedName -ceq $AssetName) {
+            if ($expected) { Err "SHA256SUMS has duplicate entries for $AssetName" }
+            $expected = $parts[0]
+        }
+    }
+    if (-not $expected -or $expected -notmatch '^[0-9a-fA-F]{64}$') {
+        Err "SHA256SUMS has no valid exact entry for $AssetName"
+    }
+    $actual = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash
+    if ($actual -ine $expected) { Err "SHA256 mismatch for $AssetName" }
+    Ok "Verified SHA-256 for $AssetName"
+}
+
 function Stage-FallbackPayload {
     Info "Distribution archive unavailable; staging standalone compatibility assets..."
     Invoke-WebRequest -Uri "$ReleaseBase/$Latest/$Target.exe" -OutFile "$StageBin\freak.exe" -UseBasicParsing
@@ -390,6 +416,7 @@ try {
         } catch {
             $ZipOk = $false
         }
+        if ($ZipOk) { Assert-DownloadedArchiveChecksum $ZipPath "$Target.zip" }
     }
 
     if ($ZipOk) {

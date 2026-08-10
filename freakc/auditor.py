@@ -1863,6 +1863,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 "FREAK_INSTALL_TEST_FAIL_RESTORE",
                 "reconcile_orphaned_transaction",
                 "distribution-files.manifest",
+                "verify_downloaded_archive",
+                "SHA256SUMS",
             ),
         ),
         "Windows dependency installer": (
@@ -1873,6 +1875,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 "Start-DeferredBinaryReplacement",
                 ".freak-upgrade-pending",
                 "Get-Process -Id",
+                "Assert-DownloadedArchiveChecksum",
+                "SHA256SUMS",
             ),
         ),
         "doctor": (
