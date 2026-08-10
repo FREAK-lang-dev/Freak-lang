@@ -39,6 +39,8 @@ task cli_run_fingerprint(src_file: word, target: word, opt: word, cross: word) -
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_llvm_runtime.o")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.obj")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_llvm_runtime.obj")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_ui_win32.obj")
+        material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_ui_win32.o")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/ui/win32_backend.c")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/ui/freak_ui_platform.h")
     }

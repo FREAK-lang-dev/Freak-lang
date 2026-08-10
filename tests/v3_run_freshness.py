@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -42,6 +43,24 @@ def assert_run(code: int, output: str, marker: str, *, cache_hit: bool) -> None:
     assert ("run cache hit" in output) is cache_hit, output
 
 
+def selected_clang(freak: Path, cwd: Path, env: dict[str, str]) -> str:
+    report = subprocess.run(
+        [str(freak), "doctor", "--json"], cwd=cwd, env=env,
+        capture_output=True, text=True, errors="replace", timeout=120,
+        check=False,
+    )
+    document = json.loads(report.stdout)
+    assert document["checks"]["clang"]["ok"] is True, report.stdout + report.stderr
+    command = document["checks"]["clang"]["command"]
+    if len(command) >= 2 and command.startswith('"') and command.endswith('"'):
+        command = command[1:-1]
+    resolved = shutil.which(command)
+    if resolved:
+        return resolved
+    assert Path(command).is_file(), command
+    return command
+
+
 def check_installer_contracts(repo: Path) -> None:
     shell_text = (repo / "install.sh").read_text(encoding="utf-8")
     ps_text = (repo / "install.ps1").read_text(encoding="utf-8")
@@ -71,6 +90,11 @@ def check_installer_contracts(repo: Path) -> None:
     for needle in (
         "packaging/distribution-files.manifest",
         "dist/freak/distribution-files.manifest",
+        "Pre-compile Windows runtime objects",
+        "freak_runtime.obj dist/freak/runtime/",
+        "freak_llvm_runtime.obj dist/freak/runtime/",
+        "freak_ui_win32.obj dist/freak/runtime/",
+        "LLVM_MINGW_SHA256",
     ):
         assert needle in release_text, f"release.yml missing {needle}"
     for needle in (
@@ -112,6 +136,11 @@ def main() -> int:
         std.mkdir(parents=True)
         for name in ("freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c"):
             shutil.copy2(repo / "freakc" / "runtime" / name, runtime / name)
+        if sys.platform == "win32":
+            runtime_ui = runtime / "ui"
+            runtime_ui.mkdir()
+            for name in ("win32_backend.c", "freak_ui_platform.h"):
+                shutil.copy2(repo / "freakc" / "runtime" / "ui" / name, runtime_ui / name)
         if sys.platform != "win32":
             # Old archives may contain runtime objects. They must not select
             # the raw ld.lld bundle path on POSIX; Clang must link sources.
@@ -174,6 +203,89 @@ def main() -> int:
         assert_run(code, output, "CACHE_B", cache_hit=False)
         code, output = invoke(freak, source_dir, source_arg, "--llvm", env)
         assert_run(code, output, "CACHE_B", cache_hit=True)
+
+        if sys.platform == "win32":
+            # Windows release archives ship one coherent COFF runtime bundle.
+            # Break the source fallbacks after producing those objects and
+            # prove both backends still link and run through the Clang driver.
+            clang = selected_clang(freak, root, env)
+            runtime_sources = {
+                runtime / "freak_runtime.c": (runtime / "freak_runtime.c").read_bytes(),
+                runtime / "freak_llvm_runtime.c": (
+                    runtime / "freak_llvm_runtime.c"
+                ).read_bytes(),
+            }
+            runtime_objects = (
+                runtime / "freak_runtime.obj",
+                runtime / "freak_llvm_runtime.obj",
+                runtime / "freak_ui_win32.obj",
+            )
+            legacy_runtime_objects = (
+                runtime / "freak_runtime.o",
+                runtime / "freak_llvm_runtime.o",
+                runtime / "freak_ui_win32.o",
+            )
+            object_commands = (
+                [clang, "-c", str(runtime / "freak_runtime.c"), "-I", str(runtime),
+                 "-O2", "-w", "-D_CRT_SECURE_NO_WARNINGS", "-o", str(runtime_objects[0])],
+                [clang, "-c", str(runtime / "freak_llvm_runtime.c"), "-I", str(runtime),
+                 "-O2", "-w", "-D_CRT_SECURE_NO_WARNINGS", "-DFREAK_HAS_UI",
+                 "-o", str(runtime_objects[1])],
+                [clang, "-c", str(runtime / "ui" / "win32_backend.c"),
+                 "-I", str(runtime / "ui"), "-O2", "-w",
+                 "-D_CRT_SECURE_NO_WARNINGS", "-o", str(runtime_objects[2])],
+            )
+            for command in object_commands:
+                compiled_object = subprocess.run(
+                    command, cwd=root, env=env, capture_output=True, text=True,
+                    errors="replace", timeout=120, check=False,
+                )
+                assert compiled_object.returncode == 0, (
+                    compiled_object.stdout + compiled_object.stderr
+                )
+
+            object_doctor = subprocess.run(
+                [str(freak), "doctor", "--json"], cwd=root, env=env,
+                capture_output=True, text=True, errors="replace", timeout=120,
+                check=False,
+            )
+            object_report = json.loads(object_doctor.stdout)
+            assert object_report["checks"]["runtime"]["precompiled_objects"] is True
+
+            object_env = env.copy()
+            object_env["FREAK_CLANG"] = clang
+            try:
+                for runtime_source in runtime_sources:
+                    runtime_source.write_text(
+                        "#error source fallback must not be compiled in object mode\n",
+                        encoding="utf-8",
+                    )
+                code, output = invoke(
+                    freak, source_dir, source_arg, "--c", object_env
+                )
+                assert_run(code, output, "CACHE_B", cache_hit=False)
+                assert "Linking packaged Windows runtime objects" in output, output
+                code, output = invoke(
+                    freak, source_dir, source_arg, "--llvm", object_env
+                )
+                assert_run(code, output, "CACHE_B", cache_hit=False)
+                assert "Linking packaged Windows runtime objects" in output, output
+                for current_object, legacy_object in zip(
+                    runtime_objects, legacy_runtime_objects
+                ):
+                    current_object.replace(legacy_object)
+                code, output = invoke(
+                    freak, source_dir, source_arg, "--llvm", object_env
+                )
+                assert_run(code, output, "CACHE_B", cache_hit=False)
+                assert "Linking packaged Windows runtime objects" in output, output
+            finally:
+                for runtime_source, contents in runtime_sources.items():
+                    runtime_source.write_bytes(contents)
+                for runtime_object in runtime_objects:
+                    runtime_object.unlink(missing_ok=True)
+                for runtime_object in legacy_runtime_objects:
+                    runtime_object.unlink(missing_ok=True)
 
         (std / "math.fk").write_text("-- freshness std v2\n", encoding="utf-8")
         code, output = invoke(freak, source_dir, source_arg, "--llvm", env)

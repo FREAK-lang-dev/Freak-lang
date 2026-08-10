@@ -84,6 +84,14 @@ jobs:
           # Create hangar binary (BusyBox pattern)
           cp build/freak$EXT build/hangar$EXT
 
+      - name: Pre-compile Windows runtime objects
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          clang -c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS -o freakc/runtime/freak_runtime.obj
+          clang -c freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS -DFREAK_HAS_UI -o freakc/runtime/freak_llvm_runtime.obj
+          clang -c freakc/runtime/ui/win32_backend.c -Ifreakc/runtime/ui $CLANG_FLAGS -o freakc/runtime/freak_ui_win32.obj
+
       - name: Self-hosting test (V3 compiles itself)
         shell: bash
         run: |

@@ -511,20 +511,20 @@ task cli_clang_command_works(clang_cmd: word) -> bool {
     give back false
 }
 
+task cli_precompiled_runtime_extension(runtime_dir: word) -> word {
+    -- Current Windows archives use .obj. Accept the older COFF .o spelling so
+    -- v0.14 installations can take the same driver-linked fast path.
+    if fs::exists(runtime_dir + "/freak_runtime.obj") and fs::exists(runtime_dir + "/freak_llvm_runtime.obj") {
+        give back ".obj"
+    }
+    if fs::exists(runtime_dir + "/freak_runtime.o") and fs::exists(runtime_dir + "/freak_llvm_runtime.o") {
+        give back ".o"
+    }
+    give back ""
+}
+
 task cli_has_precompiled_runtime(runtime_dir: word) -> bool {
-    -- Check if pre-compiled .obj/.o runtime files exist (bundle mode)
-    pilot rt_obj = runtime_dir + "/freak_runtime.obj"
-    pilot llvm_obj = runtime_dir + "/freak_llvm_runtime.obj"
-    if fs::exists(rt_obj) {
-        if fs::exists(llvm_obj) { give back true }
-    }
-    -- Also check .o extension (Linux/macOS)
-    pilot rt_o = runtime_dir + "/freak_runtime.o"
-    pilot llvm_o = runtime_dir + "/freak_llvm_runtime.o"
-    if fs::exists(rt_o) {
-        if fs::exists(llvm_o) { give back true }
-    }
-    give back false
+    give back cli_precompiled_runtime_extension(runtime_dir) != ""
 }
 
 task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: word, cross: word) -> word {
@@ -551,10 +551,12 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     pilot out_bin = cli_binary_path(src_file)
 
     pilot is_win = cli_is_windows()
-    -- Raw ld.lld bundle linking bypasses the platform driver's startup and
-    -- SDK logic (and is the wrong linker on macOS). Always use Clang as the
-    -- portable link driver; stale precompiled runtime objects are ignored.
-    pilot use_bundle = false
+    pilot runtime_obj_ext = cli_precompiled_runtime_extension(runtime_dir)
+    -- Packaged COFF objects are native to the Windows distribution. Use them
+    -- only for a native Windows build and keep final CRT/SDK selection under
+    -- the same Clang driver that links source fallback builds. POSIX and cross
+    -- builds continue through sources; raw ld.lld linking stays disabled.
+    pilot use_bundle = is_win and cross == "" and runtime_obj_ext != ""
 
     if not cli_cross_target_is_safe(cross) {
         say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- invalid target triple" + C_RESET
@@ -562,62 +564,39 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     }
 
     if use_bundle {
-        -- BUNDLE MODE: .ll -> .obj (clang -c), then lld-link with pre-compiled runtime
-        pilot obj_ext = ".obj"
-        if not is_win { obj_ext = ".o" }
-
-        -- Step 1: Compile LLVM IR to object file
-        pilot user_obj = cli_strip_fk(src_file) + obj_ext
+        -- Step 1: compile the generated C/LLVM module to one user object.
+        pilot user_obj = cli_strip_fk(src_file) + ".obj"
         pilot clang_cmd = cli_find_clang_command()
         if clang_cmd == "" { clang_cmd = "clang" }
         pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
-        pilot cc_cmd = clang_prefix + " -c -g -o " + cli_quote_cmd_path(user_obj) + " " + cli_quote_cmd_path(transpiled_file) + " -O" + opt + " -w"
+        pilot cc_cmd = clang_prefix + " -c -g -o " + cli_quote_cmd_path(user_obj) + " " + cli_quote_cmd_path(transpiled_file) + " -I" + cli_quote_cmd_path(runtime_dir) + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
         if cross != "" { cc_cmd = cc_cmd + " --target=" + cli_quote_cmd_path(cross) }
 
-        say "  " + C_DIM + SYM_GEAR + "  Compiling IR..." + C_RESET
+        say "  " + C_DIM + SYM_GEAR + "  Compiling program object..." + C_RESET
         pilot cc_exit = process::exec(cc_cmd)
         if cc_exit != 0 {
-            say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- IR compilation error" + C_RESET
+            say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- object compilation error" + C_RESET
             give back ""
         }
 
-        -- Step 2: Link with lld-link (Windows) or ld.lld (Linux/macOS)
-        pilot rt_obj = runtime_dir + "/freak_runtime" + obj_ext
-        pilot llvm_rt_obj = runtime_dir + "/freak_llvm_runtime" + obj_ext
-        pilot ui_obj = runtime_dir + "/freak_ui_win32" + obj_ext
-
-        if is_win {
-            -- user_obj first (FREAK impls), then llvm_rt_obj (libc wrappers), then rt_obj (word/array fns)
-            -- /FORCE:MULTIPLE resolves duplicates by using first definition seen
-            pilot link_cmd = "lld-link /FORCE:MULTIPLE " + cli_quote_cmd_path(user_obj) + " " + cli_quote_cmd_path(llvm_rt_obj) + " " + cli_quote_cmd_path(rt_obj)
-            -- Add UI runtime if it exists
-            if fs::exists(ui_obj) {
-                link_cmd = link_cmd + " " + cli_quote_cmd_path(ui_obj)
-            }
-            link_cmd = link_cmd + " /out:" + cli_quote_cmd_path(out_bin) + " /subsystem:console"
-            pilot pdb_out = cli_strip_fk(src_file) + ".pdb"
-            link_cmd = link_cmd + " /debug /pdb:" + cli_quote_cmd_path(pdb_out)
-            link_cmd = link_cmd + " libcmt.lib user32.lib gdi32.lib msimg32.lib ws2_32.lib"
-            say "  " + C_DIM + SYM_GEAR + "  Linking..." + C_RESET
-            pilot link_exit = process::exec(link_cmd)
-            if link_exit != 0 {
-                say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- link error" + C_RESET
-                give back ""
-            }
+        -- Step 2: link through Clang, not raw lld-link. This preserves the
+        -- selected Windows CRT, SDK, startup objects, and MinGW/MSVC policy.
+        pilot rt_obj = runtime_dir + "/freak_runtime" + runtime_obj_ext
+        pilot llvm_rt_obj = runtime_dir + "/freak_llvm_runtime" + runtime_obj_ext
+        pilot ui_obj = runtime_dir + "/freak_ui_win32" + runtime_obj_ext
+        pilot link_cmd = clang_prefix + " -g -o " + cli_quote_cmd_path(out_bin) + " " + cli_quote_cmd_path(user_obj)
+        if target == "llvm" {
+            link_cmd = link_cmd + " " + cli_quote_cmd_path(llvm_rt_obj)
         }
-        if not is_win {
-            -- user_obj first (FREAK), then llvm_rt_obj (libc wrappers), then rt_obj (word/array fns)
-            pilot link_cmd = "ld.lld --allow-multiple-definition -o " + cli_quote_cmd_path(out_bin) + " " + cli_quote_cmd_path(user_obj) + " " + cli_quote_cmd_path(llvm_rt_obj) + " " + cli_quote_cmd_path(rt_obj)
-            if fs::exists(ui_obj) {
-                link_cmd = link_cmd + " " + cli_quote_cmd_path(ui_obj)
-            }
-            link_cmd = link_cmd + " -lc -lm"
-            say "  " + C_DIM + SYM_GEAR + "  Linking..." + C_RESET
-            pilot link_exit = process::exec(link_cmd)
-            if link_exit != 0 {
-                say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- link error" + C_RESET
-                give back ""
-            }
+        link_cmd = link_cmd + " " + cli_quote_cmd_path(rt_obj) + " -lws2_32"
+        if fs::exists(ui_obj) {
+            link_cmd = link_cmd + " " + cli_quote_cmd_path(ui_obj) + " -luser32 -lgdi32 -lmsimg32"
+        }
+        say "  " + C_DIM + SYM_GEAR + "  Linking packaged Windows runtime objects..." + C_RESET
+        pilot link_exit = process::exec(link_cmd)
+        if link_exit != 0 {
+            say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- packaged runtime link error" + C_RESET
+            give back ""
         }
 
         give back out_bin

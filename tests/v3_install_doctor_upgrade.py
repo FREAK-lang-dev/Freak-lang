@@ -110,6 +110,7 @@ def check_static_contracts(repo: Path) -> None:
         "MartinStorsjo.LLVM-MinGW.UCRT",
         "scoop.cmd install llvm-mingw",
         "Test-ClangToolchain",
+        "& $binary",
         "FREAK_INSTALL_ARCHIVE",
         "Start-DeferredBinaryReplacement",
         ".freak-upgrade-pending",
@@ -129,6 +130,11 @@ def check_static_contracts(repo: Path) -> None:
         "dist/freak/distribution-files.manifest",
         "dist/freak-${{ matrix.target }}${{ matrix.ext }}",
         "dist/hangar-${{ matrix.target }}${{ matrix.ext }}",
+        "Pre-compile Windows runtime objects",
+        "freak_runtime.obj dist/freak/runtime/",
+        "freak_llvm_runtime.obj dist/freak/runtime/",
+        "freak_ui_win32.obj dist/freak/runtime/",
+        "LLVM_MINGW_SHA256",
     ):
         assert needle in release_text, f"release workflow missing {needle}"
     assert "destination=${destination%$'\\r'}" in release_text
@@ -139,7 +145,6 @@ def check_static_contracts(repo: Path) -> None:
     assert 'cp "$WINGET_DIR"/*.yaml artifacts/package-manager/winget/' in release_text
     assert "required WinGet manifest missing" in release_text
     assert "unresolved WinGet placeholder" in release_text
-    assert "Pre-compile runtime to .o" not in release_text
     assert "dist/freak/runtime/freak_runtime.o" not in release_text
     assert "packaging/distribution-files.manifest text eol=lf" in attributes_text
     assert 'doc["checks"]["stdlib"]["modules_expected"] == 11' in ci_text
@@ -157,6 +162,8 @@ def check_static_contracts(repo: Path) -> None:
         "FREAK_DOCTOR_INSTALL_COMMAND",
         'process::env("TMPDIR")',
         "cli_quote_cmd_path(probe_source)",
+        "probe_run_exit == 0",
+        "clang toolchain ",
         "compile, link, and execution work",
         "task cli_doctor(fix_mode: bool) -> int",
     ):
@@ -569,17 +576,25 @@ def check_doctor(
     shutil.copy2(repo / "freakc" / "runtime" / "freak_runtime.c", runtime_source)
     caller_cache.unlink()
 
-    # A version-only clang is the Windows failure mode that motivated the
-    # usable-toolchain probe: it must be diagnosed before the FREAK pipeline,
-    # and --fix must attempt dependency repair rather than accepting --version.
+    # A version/output-only fake models the Windows failure mode that motivated
+    # the usable-toolchain probe. Creating a file is insufficient: doctor must
+    # execute the linked probe before accepting Clang, and --fix must repair it.
     broken_clang = root / (
         "version-only-clang.cmd" if sys.platform == "win32" else "version-only-clang.sh"
     )
     repair_sentinel = root / "doctor-install-attempted.txt"
     if sys.platform == "win32":
         broken_clang.write_text(
-            '@echo off\nif "%1"=="--version" (echo clang version-only fixture& exit /b 0)\n'
-            "exit /b 1\n",
+            '@echo off\nif "%1"=="--version" (echo clang output-only fixture& exit /b 0)\n'
+            ":scan\n"
+            'if "%1"=="" exit /b 1\n'
+            'if "%1"=="-o" goto emit\n'
+            "shift\n"
+            "goto scan\n"
+            ":emit\n"
+            "shift\n"
+            '> "%~1" echo this is not an executable\n'
+            "exit /b 0\n",
             encoding="utf-8",
         )
         install_fixture = root / "doctor-install-fixture.cmd"
@@ -591,7 +606,11 @@ def check_doctor(
     else:
         broken_clang.write_text(
             "#!/usr/bin/env bash\n"
-            'if [ "${1:-}" = "--version" ]; then echo clang version-only fixture; exit 0; fi\n'
+            'if [ "${1:-}" = "--version" ]; then echo clang output-only fixture; exit 0; fi\n'
+            "while [ \"$#\" -gt 0 ]; do\n"
+            '  if [ "$1" = "-o" ]; then shift; printf not-executable > "$1"; exit 0; fi\n'
+            "  shift\n"
+            "done\n"
             "exit 1\n",
             encoding="utf-8",
         )

@@ -1685,7 +1685,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 "fs::delete(run_cache_file)",
                 "task cli_cross_target_is_safe",
                 "invalid target triple",
-                "pilot use_bundle = false",
+                'pilot use_bundle = is_win and cross == "" and runtime_obj_ext != ""',
+                "Linking packaged Windows runtime objects",
                 "POSIX double quotes still expand",
             ),
         ),
@@ -1702,6 +1703,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 'for backend in ("--c", "--llvm")',
                 "FREAK_PATH_INJECTED",
                 "stale object",
+                "runtime_objects",
+                "Linking packaged Windows runtime objects",
                 "failed rebuild left stale freshness proof",
             ),
         ),
@@ -1862,6 +1865,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "modules_expected\\\": 11",
                 "ui/window.fk",
                 'process::env("TMPDIR")',
+                "probe_run_exit == 0",
                 "compile, link, and execution work",
                 "-> int",
             ),
@@ -1888,7 +1892,17 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "CI": (
             repo / ".github" / "workflows" / "ci.yml",
-            ("tests/v3_install_doctor_upgrade.py",),
+            ("tests/v3_install_doctor_upgrade.py", "Pre-compile Windows runtime objects"),
+        ),
+        "release": (
+            repo / ".github" / "workflows" / "release.yml",
+            (
+                "LLVM_MINGW_SHA256",
+                "Pre-compile Windows runtime objects",
+                "freak_runtime.obj dist/freak/runtime/",
+                "freak_llvm_runtime.obj dist/freak/runtime/",
+                "freak_ui_win32.obj dist/freak/runtime/",
+            ),
         ),
     }
     for label, (source_path, needles) in distribution_sources.items():
@@ -1902,7 +1916,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V3 distribution/doctor/upgrade",
         not distribution_missing,
-        "complete manifest + dependency bootstrap + staged upgrade boundary"
+        "complete manifest + usable toolchain + Windows object bundle + staged upgrade boundary"
         if not distribution_missing
         else f"{len(distribution_missing)} gap(s)",
     )

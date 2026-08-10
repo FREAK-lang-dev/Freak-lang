@@ -80,7 +80,16 @@ task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     } else {
         probe_exit = process::exec(clang_prefix + " -x c " + cli_quote_cmd_path(probe_source) + " -o " + cli_quote_cmd_path(probe_binary) + " >/dev/null 2>/dev/null")
     }
-    pilot probe_ok = probe_exit == 0 and fs::exists(probe_binary)
+    pilot probe_run_exit = 1
+    if probe_exit == 0 and fs::exists(probe_binary) {
+        pilot probe_command = cli_shell_command_prefix(cli_quote_cmd_path(probe_binary))
+        if windir != "" {
+            probe_run_exit = process::exec(probe_command + " >nul 2>nul")
+        } else {
+            probe_run_exit = process::exec(probe_command + " >/dev/null 2>/dev/null")
+        }
+    }
+    pilot probe_ok = probe_exit == 0 and probe_run_exit == 0
     if fs::exists(probe_source) { fs::delete(probe_source) }
     if fs::exists(probe_binary) { fs::delete(probe_binary) }
     if fs::exists(probe_stem + ".obj") { fs::delete(probe_stem + ".obj") }
@@ -208,9 +217,7 @@ task cli_doctor_json() -> int {
     pilot llvm_runtime = false
     if rt_dir != "" {
         if is_win {
-            runtime_obj = fs::exists(rt_dir + "/freak_runtime.obj")
-        } else {
-            runtime_obj = fs::exists(rt_dir + "/freak_runtime.o")
+            runtime_obj = cli_has_precompiled_runtime(rt_dir)
         }
         llvm_runtime = fs::exists(rt_dir + "/freak_llvm_runtime.c")
     }
@@ -377,7 +384,8 @@ task cli_doctor(fix_mode: bool) -> int {
         }
         checks_passed += 1
     } else {
-        say "        " + C_BRED + SYM_CROSS + C_RESET + " clang " + C_RED + "not found" + C_RESET
+        say "        " + C_BRED + SYM_CROSS + C_RESET + " clang toolchain " + C_RED + "unusable" + C_RESET
+        say "        " + C_DIM + "The C headers, linker, or generated executable probe failed." + C_RESET
         all_ok = false
         if fix_mode {
             say "        " + C_DIM + "Attempting auto-install..." + C_RESET
@@ -458,7 +466,11 @@ task cli_doctor(fix_mode: bool) -> int {
     say "  " + C_BWHITE + "[3/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " runtime"
     if runtime_missing == "" {
         say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + rt_dir + C_RESET
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " source runtime available" + C_RESET
+        if is_win and cli_has_precompiled_runtime(rt_dir) {
+            say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " packaged Windows runtime objects available" + C_RESET
+        } else {
+            say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " source runtime fallback available" + C_RESET
+        }
         if fs::exists(rt_dir + "/freak_llvm_runtime.c") {
             say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " LLVM runtime available" + C_RESET
         }

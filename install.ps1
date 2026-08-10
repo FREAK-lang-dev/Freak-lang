@@ -42,7 +42,9 @@ function Test-ClangToolchain($candidate) {
         $binary = Join-Path $probeDir "probe.exe"
         [System.IO.File]::WriteAllText($source, "#include <stdio.h>`nint main(void) { return 0; }`n")
         & $candidate -x c $source -o $binary 2>$null
-        return $LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $binary -PathType Leaf)
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $binary -PathType Leaf)) { return $false }
+        & $binary *> $null
+        return $LASTEXITCODE -eq 0
     } catch {
         return $false
     } finally {
