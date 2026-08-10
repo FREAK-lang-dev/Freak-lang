@@ -551,6 +551,23 @@ def check_doctor(
     assert not list(cwd.glob("_freak_doctor_probe_*")), "doctor left probe artifacts"
     assert not list(cwd.glob("freak-doctor-clang-probe-*"))
     assert not list(probe_temp.glob("freak-doctor-clang-probe-*"))
+    assert not list(probe_temp.glob("freak-doctor-pipeline-probe-*"))
+
+    # A backend failure after the Clang probe must clean only temp-backed
+    # pipeline artifacts. In particular, an empty build result must never be
+    # turned into the caller-relative path `.freak-run-cache` and deleted.
+    caller_cache = cwd / ".freak-run-cache"
+    caller_cache.write_bytes(b"unrelated caller cache\n")
+    runtime_source = payload / "runtime" / "freak_runtime.c"
+    runtime_source.write_text("#error intentional doctor pipeline failure\n", encoding="utf-8")
+    failed_pipeline = run_cli(compiler, cwd, env, "doctor")
+    assert failed_pipeline.returncode != 0, (
+        failed_pipeline.stdout + failed_pipeline.stderr
+    )
+    assert caller_cache.read_bytes() == b"unrelated caller cache\n"
+    assert not list(probe_temp.glob("freak-doctor-pipeline-probe-*"))
+    shutil.copy2(repo / "freakc" / "runtime" / "freak_runtime.c", runtime_source)
+    caller_cache.unlink()
 
     # A version-only clang is the Windows failure mode that motivated the
     # usable-toolchain probe: it must be diagnosed before the FREAK pipeline,

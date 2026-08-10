@@ -223,7 +223,7 @@ def main() -> int:
             code, output = invoke(
                 freak,
                 root,
-                Path("%FREAK_PATH_EXPANSION%") / percent_source.name,
+                percent_source,
                 "--c",
                 percent_env,
             )

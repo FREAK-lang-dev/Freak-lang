@@ -367,8 +367,38 @@ task cli_quote_cmd_path(path: word) -> word {
         -- cmd.exe expands %NAME% even inside double quotes. Close the quoted
         -- segment around each percent and emit that percent escaped outside
         -- quotes so valid literal-percent paths cannot rewrite the command.
-        pilot windows_escaped = path.replace("%", "\"^%\"")
-        give back "\"" + windows_escaped + "\""
+        -- Windows argv parsing treats backslashes immediately before a quote
+        -- specially, so double each such run before closing a segment.
+        pilot windows_quoted = "\""
+        pilot pending_slashes = 0
+        pilot i = 0
+        repeat until i >= path.length() {
+            pilot ch: word = path.char_at(i)
+            if ch == "\\" {
+                pending_slashes += 1
+            } else {
+                pilot slash_total = pending_slashes
+                if ch == "%" { slash_total = pending_slashes * 2 }
+                pilot slash_i = 0
+                repeat until slash_i >= slash_total {
+                    windows_quoted = windows_quoted + "\\"
+                    slash_i += 1
+                }
+                pending_slashes = 0
+                if ch == "%" {
+                    windows_quoted = windows_quoted + "\"^%\""
+                } else {
+                    windows_quoted = windows_quoted + ch
+                }
+            }
+            i += 1
+        }
+        pilot trailing_i = 0
+        repeat until trailing_i >= pending_slashes * 2 {
+            windows_quoted = windows_quoted + "\\"
+            trailing_i += 1
+        }
+        give back windows_quoted + "\""
     }
     -- POSIX double quotes still expand $, backticks, and command
     -- substitutions. Single-quote the value and reopen around literal '.

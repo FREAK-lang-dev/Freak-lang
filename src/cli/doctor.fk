@@ -513,8 +513,10 @@ task cli_doctor(fix_mode: bool) -> int {
         if fs::exists(test_path) { fs::delete(test_path) }
         if fs::exists(test_path + ".ll") { fs::delete(test_path + ".ll") }
         if fs::exists(test_path + ".c") { fs::delete(test_path + ".c") }
-        if fs::exists(bin) { fs::delete(bin) }
-        if fs::exists(bin + ".freak-run-cache") { fs::delete(bin + ".freak-run-cache") }
+        if bin != "" {
+            if fs::exists(bin) { fs::delete(bin) }
+            if fs::exists(bin + ".freak-run-cache") { fs::delete(bin + ".freak-run-cache") }
+        }
         if fs::exists(test_stem + ".o") { fs::delete(test_stem + ".o") }
         if fs::exists(test_stem + ".obj") { fs::delete(test_stem + ".obj") }
         if fs::exists(test_stem + ".pdb") { fs::delete(test_stem + ".pdb") }
