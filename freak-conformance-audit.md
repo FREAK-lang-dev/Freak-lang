@@ -657,7 +657,7 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | `freak check file.fk` | ✅ | ✅ | |
 | `freak transpile file.fk` | ✅ | ✅ | |
 | `freak doctor [--fix|--json]` | ✅ | ✅ | Complete runtime/UI and 11-module stdlib inventory, usable-Clang discovery, optional dependency bootstrap, compile-link-execute probe, exact passive JSON missing-file report, and nonzero required-failure status. |
-| `freak upgrade` | ✅ | ✅ | Tagged staged installer preserves the public command, rolls back apply failures, and defers Windows replacement until process exit. Immutable v0.14.0 POSIX clients need a binary hop plus a second upgrade; immutable Windows clients bootstrap through `install.ps1`. |
+| `freak upgrade` | ✅ | ✅ | Tagged staged installer preserves the public command; POSIX tracks/reconciles recoverable rollback state, while Windows retains durable pending state and hash-verifies the deferred two-binary transaction after the invoking installer exits. Immutable v0.14.0 POSIX clients need a binary hop plus a second upgrade; immutable Windows clients bootstrap through `install.ps1`. |
 | `freak test` | ✅ | ✅ shim wraps `python tests/suite/run_tests.py` |
 | `freak vibe file.fk` | ❌ | 📖 V4 (or remove) |
 | `freak audit-science` | ⚠️ | 🛠 wire native CLI | Python-only; native dispatch missing |

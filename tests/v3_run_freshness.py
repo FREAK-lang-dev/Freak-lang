@@ -112,6 +112,11 @@ def main() -> int:
         std.mkdir(parents=True)
         for name in ("freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c"):
             shutil.copy2(repo / "freakc" / "runtime" / name, runtime / name)
+        if sys.platform != "win32":
+            # Old archives may contain runtime objects. They must not select
+            # the raw ld.lld bundle path on POSIX; Clang must link sources.
+            (runtime / "freak_runtime.o").write_bytes(b"stale object\n")
+            (runtime / "freak_llvm_runtime.o").write_bytes(b"stale object\n")
         (std / "math.fk").write_text("-- freshness std v1\n", encoding="utf-8")
 
         isolated_home = root / "home"
@@ -126,21 +131,24 @@ def main() -> int:
         source_dir = root / "source with spaces"
         source_dir.mkdir()
         source = source_dir / "freshness.fk"
+        source_arg = Path(source.name)
         source.write_text('say "CACHE_A"\n', encoding="utf-8")
         binary = source.with_suffix(".exe" if sys.platform == "win32" else "")
         sidecar = Path(str(binary) + ".freak-run-cache")
 
-        code, output = invoke(freak, root, source, "--c", env)
+        # The common `freak run hello.fk` shape yields a slashless POSIX
+        # output name, which must be launched explicitly from the cwd.
+        code, output = invoke(freak, source_dir, source_arg, "--c", env)
         assert_run(code, output, "CACHE_A", cache_hit=False)
         assert binary.is_file() and sidecar.is_file()
         first_mtime = binary.stat().st_mtime_ns
 
-        code, output = invoke(freak, root, source, "--c", env)
+        code, output = invoke(freak, source_dir, source_arg, "--c", env)
         assert_run(code, output, "CACHE_A", cache_hit=True)
         assert binary.stat().st_mtime_ns == first_mtime
 
         binary.write_bytes(b"externally replaced artifact\n")
-        code, output = invoke(freak, root, source, "--c", env)
+        code, output = invoke(freak, source_dir, source_arg, "--c", env)
         assert_run(code, output, "CACHE_A", cache_hit=False)
 
         explicit_build = subprocess.run(
@@ -155,20 +163,20 @@ def main() -> int:
         )
         assert explicit_build.returncode == 0, explicit_build.stdout + explicit_build.stderr
         assert not sidecar.exists(), "explicit build preserved stale run proof"
-        code, output = invoke(freak, root, source, "--c", env)
+        code, output = invoke(freak, source_dir, source_arg, "--c", env)
         assert_run(code, output, "CACHE_A", cache_hit=False)
 
         source.write_text('say "CACHE_B"\n', encoding="utf-8")
-        code, output = invoke(freak, root, source, "--c", env)
+        code, output = invoke(freak, source_dir, source_arg, "--c", env)
         assert_run(code, output, "CACHE_B", cache_hit=False)
 
-        code, output = invoke(freak, root, source, "--llvm", env)
+        code, output = invoke(freak, source_dir, source_arg, "--llvm", env)
         assert_run(code, output, "CACHE_B", cache_hit=False)
-        code, output = invoke(freak, root, source, "--llvm", env)
+        code, output = invoke(freak, source_dir, source_arg, "--llvm", env)
         assert_run(code, output, "CACHE_B", cache_hit=True)
 
         (std / "math.fk").write_text("-- freshness std v2\n", encoding="utf-8")
-        code, output = invoke(freak, root, source, "--llvm", env)
+        code, output = invoke(freak, source_dir, source_arg, "--llvm", env)
         assert_run(code, output, "CACHE_B", cache_hit=False)
 
         failing_source = source_dir / "child failure.fk"
@@ -178,16 +186,49 @@ def main() -> int:
             "process::exit(child_status)\n",
             encoding="utf-8",
         )
-        code, output = invoke(freak, root, failing_source, "--c", env)
-        assert code == 7, output
-        assert "EXIT" in output and "code 7" in output, output
+        for backend in ("--c", "--llvm"):
+            code, output = invoke(freak, root, failing_source, backend, env)
+            assert code == 7, output
+            assert "EXIT" in output and "code 7" in output, output
+
+        if sys.platform != "win32":
+            path_sentinel = source_dir / "FREAK_PATH_INJECTED"
+            quoted_source = source_dir / "$(touch${IFS}FREAK_PATH_INJECTED).fk"
+            quoted_source.write_text('say "SAFE_PATH"\n', encoding="utf-8")
+            code, output = invoke(
+                freak, source_dir, Path(quoted_source.name), "--c", env
+            )
+            assert_run(code, output, "SAFE_PATH", cache_hit=False)
+            assert not path_sentinel.exists(), "source path executed shell substitution"
+
+            target_sentinel = source_dir / "FREAK_TARGET_INJECTED"
+            malicious_target = (
+                "x86_64-unknown-linux-gnu;touch${IFS}FREAK_TARGET_INJECTED"
+            )
+            rejected_target = subprocess.run(
+                [
+                    str(freak), "build", str(source_arg), "--c",
+                    f"--target={malicious_target}",
+                ],
+                cwd=source_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=120,
+                check=False,
+            )
+            target_output = ANSI.sub("", rejected_target.stdout + rejected_target.stderr)
+            assert rejected_target.returncode != 0, target_output
+            assert "invalid target triple" in target_output, target_output
+            assert not target_sentinel.exists(), "target triple executed shell syntax"
 
         # A failed rebuild must invalidate proof before touching the old
         # executable. Remove the staged runtime, change source, and verify the
         # prior CACHE_B binary is not run even though it remains on disk.
         (runtime / "freak_runtime.c").unlink()
         source.write_text('say "CACHE_C"\n', encoding="utf-8")
-        code, output = invoke(freak, root, source, "--llvm", env)
+        code, output = invoke(freak, source_dir, source_arg, "--llvm", env)
         assert code != 0, output
         assert "CACHE_B" not in output, output
         assert binary.is_file(), "the stale artifact should be ignored, not required to vanish"

@@ -45,8 +45,23 @@ task cli_doctor_find_clang_command() -> word {
 task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     if clang_cmd == "" { give back false }
     pilot windir: word = process::env("WINDIR")
-    pilot probe_id = word_from_int(time::now_ms())
-    pilot probe_stem = "_freak_doctor_clang_probe_" + probe_id
+    pilot temp_dir: word = process::env("TMPDIR")
+    pilot probe_nonce: word = process::exec_capture("echo $$ 2>/dev/null").trim()
+    if windir != "" {
+        temp_dir = process::env("TEMP")
+        if temp_dir == "" { temp_dir = process::env("TMP") }
+        probe_nonce = process::exec_capture("echo %RANDOM% 2>nul").trim()
+    } else if temp_dir == "" {
+        temp_dir = "/tmp"
+    }
+    if temp_dir == "" { temp_dir = "." }
+    if probe_nonce == "" { probe_nonce = "0" }
+    pilot probe_id = word_from_int(time::now_ms()) + "_" + probe_nonce
+    pilot probe_stem = temp_dir
+    if not probe_stem.ends_with("/") and not probe_stem.ends_with("\\") {
+        probe_stem = probe_stem + "/"
+    }
+    probe_stem = probe_stem + "freak-doctor-clang-probe-" + probe_id
     pilot probe_source = probe_stem + ".c"
     pilot probe_binary = probe_stem
     if windir != "" { probe_binary = probe_binary + ".exe" }
@@ -55,9 +70,9 @@ task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     pilot probe_exit = 1
     pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
     if windir != "" {
-        probe_exit = process::exec(clang_prefix + " -x c \"" + probe_source + "\" -o \"" + probe_binary + "\" >nul 2>nul")
+        probe_exit = process::exec(clang_prefix + " -x c " + cli_quote_cmd_path(probe_source) + " -o " + cli_quote_cmd_path(probe_binary) + " >nul 2>nul")
     } else {
-        probe_exit = process::exec(clang_prefix + " -x c \"" + probe_source + "\" -o \"" + probe_binary + "\" >/dev/null 2>/dev/null")
+        probe_exit = process::exec(clang_prefix + " -x c " + cli_quote_cmd_path(probe_source) + " -o " + cli_quote_cmd_path(probe_binary) + " >/dev/null 2>/dev/null")
     }
     pilot probe_ok = probe_exit == 0 and fs::exists(probe_binary)
     if fs::exists(probe_source) { fs::delete(probe_source) }

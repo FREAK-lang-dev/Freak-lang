@@ -93,22 +93,14 @@ jobs:
         run: |
           ./build/freak${{ matrix.ext }} version
 
-      - name: Pre-compile runtime to .o
-        shell: bash
-        run: |
-          clang -c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS -o freakc/runtime/freak_runtime.o
-          clang -c freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS -o freakc/runtime/freak_llvm_runtime.o
-
       - name: Package release artifact
         shell: bash
         run: |
           mkdir -p dist/freak/bin dist/freak/runtime
           cp build/freak${{ matrix.ext }} dist/freak/bin/freak${{ matrix.ext }}
           cp build/hangar${{ matrix.ext }} dist/freak/bin/hangar${{ matrix.ext }}
-          # Ship pre-compiled objects when available. Source fallbacks and the
-          # complete recursive stdlib come from the canonical manifest below.
-          cp freakc/runtime/freak_runtime.o dist/freak/runtime/
-          cp freakc/runtime/freak_llvm_runtime.o dist/freak/runtime/
+          # Runtime sources keep final linking under the platform Clang
+          # driver's CRT/SDK policy on every released target.
           while IFS='|' read -r source destination; do
             source=${source%$'\r'}
             destination=${destination%$'\r'}
@@ -194,19 +186,31 @@ jobs:
           # Manifests live under packaging/winget/manifests/F/FREAK/freak/<VERSION>/
           # and must exist before release; commit a new dir per bumped version.
           WINGET_DIR="repo/packaging/winget/manifests/F/FREAK/freak/$VERSION"
-          if [ -f "$WINGET_DIR/FREAK.freak.installer.yaml" ]; then
-            sed -i "s/WINGET_HASH_PLACEHOLDER/$HASH_WIN/g" "$WINGET_DIR/FREAK.freak.installer.yaml"
-          else
-            echo "::warning::winget manifest for $VERSION missing at $WINGET_DIR — skipping checksum patch"
+          for manifest in FREAK.freak.yaml FREAK.freak.installer.yaml FREAK.freak.locale.en-US.yaml; do
+            if [ ! -f "$WINGET_DIR/$manifest" ]; then
+              echo "::error::required WinGet manifest missing: $WINGET_DIR/$manifest"
+              exit 1
+            fi
+            tr -d '\r' < "$WINGET_DIR/$manifest" | grep -q "^PackageVersion: $VERSION$" || {
+              echo "::error::WinGet manifest version mismatch: $manifest"
+              exit 1
+            }
+          done
+          sed -i "s/WINGET_HASH_PLACEHOLDER/$HASH_WIN/g" "$WINGET_DIR/FREAK.freak.installer.yaml"
+          tr -d '\r' < "$WINGET_DIR/FREAK.freak.installer.yaml" | grep -q "^    InstallerSha256: $HASH_WIN$" || {
+            echo "::error::WinGet installer checksum was not patched"
+            exit 1
+          }
+          if grep -R -q 'PLACEHOLDER' "$WINGET_DIR"; then
+            echo "::error::unresolved WinGet placeholder"
+            exit 1
           fi
           mkdir -p artifacts/package-manager/winget
           cp repo/packaging/homebrew/freak.rb artifacts/package-manager/freak.rb
           cp repo/packaging/scoop/freak.json artifacts/package-manager/freak.json
-          if [ -f "$WINGET_DIR/FREAK.freak.installer.yaml" ]; then
-            # A WinGet submission is a version, installer, and locale manifest
-            # set. Publish the complete set with the patched installer hash.
-            cp "$WINGET_DIR"/*.yaml artifacts/package-manager/winget/
-          fi
+          # A WinGet submission is a version, installer, and locale manifest
+          # set. Publish the complete validated set with the patched hash.
+          cp "$WINGET_DIR"/*.yaml artifacts/package-manager/winget/
           echo "Checksums injected for $VERSION"
           cat repo/packaging/scoop/freak.json
 

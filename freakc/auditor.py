@@ -1674,12 +1674,20 @@ def audit_conformance(paths: List[Path]) -> int:
                 "fs::delete(cache_file)",
                 "confirmed != fingerprint",
                 "launch_fingerprint != fingerprint",
+                'run_path = "./" + run_path',
                 "run cache hit",
             ),
         ),
         "build invalidation": (
             repo / "src" / "cli" / "build.fk",
-            ('pilot run_cache_file = cli_binary_path(src_file) + ".freak-run-cache"', "fs::delete(run_cache_file)"),
+            (
+                'pilot run_cache_file = cli_binary_path(src_file) + ".freak-run-cache"',
+                "fs::delete(run_cache_file)",
+                "task cli_cross_target_is_safe",
+                "invalid target triple",
+                "pilot use_bundle = false",
+                "POSIX double quotes still expand",
+            ),
         ),
         "main dispatch": (
             cli_main,
@@ -1687,7 +1695,15 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "regression": (
             repo / "tests" / "v3_run_freshness.py",
-            ("CACHE_A", "CACHE_B", "externally replaced artifact", "code == 7", "failed rebuild left stale freshness proof"),
+            (
+                "CACHE_A",
+                "CACHE_B",
+                "externally replaced artifact",
+                'for backend in ("--c", "--llvm")',
+                "FREAK_PATH_INJECTED",
+                "stale object",
+                "failed rebuild left stale freshness proof",
+            ),
         ),
         "process runtime": (
             repo / "freakc" / "runtime" / "freak_runtime.c",
@@ -1699,15 +1715,35 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "POSIX installer": (
             repo / "install.sh",
-            ('STAGE_DIR="$TMPDIR_INSTALL/stage"', "restore_previous_payload", ".freak-backup-", "distribution-files.manifest"),
+            (
+                'STAGE_DIR="$TMPDIR_INSTALL/stage"',
+                "restore_previous_payload",
+                "TRANSACTION_ACTIVE",
+                "reconcile_orphaned_transaction",
+                "FREAK_INSTALL_TEST_FAIL_RESTORE",
+                ".freak-backup-",
+                "distribution-files.manifest",
+            ),
         ),
         "Windows installer": (
             repo / "install.ps1",
-            ('$StageDir = Join-Path $TmpDir "stage"', ".freak-backup-", "previous payload was restored", "distribution-files.manifest"),
+            (
+                '$StageDir = Join-Path $TmpDir "stage"',
+                ".freak-backup-",
+                ".freak-upgrade-pending",
+                ".freak-binary-backup",
+                "Get-FileHash",
+                "previous payload was restored",
+                "distribution-files.manifest",
+            ),
         ),
         "release payload": (
             repo / ".github" / "workflows" / "release.yml",
-            ("packaging/distribution-files.manifest", "dist/freak/distribution-files.manifest"),
+            (
+                "packaging/distribution-files.manifest",
+                "dist/freak/distribution-files.manifest",
+                "required WinGet manifest missing",
+            ),
         ),
     }
     for label, (source_path, needles) in freshness_sources.items():
@@ -1718,6 +1754,13 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in needles:
             if needle not in source_text:
                 run_freshness_missing.append(f"{label}: {needle}")
+        if label == "release payload" and (
+            "Pre-compile runtime to .o" in source_text
+            or "dist/freak/runtime/freak_runtime.o" in source_text
+        ):
+            run_freshness_missing.append(
+                "release payload: unsafe precompiled POSIX runtime objects"
+            )
     bible_text = bible.read_text(encoding="utf-8") if bible.exists() else ""
     audit_text = audit_doc.read_text(encoding="utf-8") if audit_doc.exists() else ""
     for label, text in (("bible", bible_text), ("audit", audit_text)):
@@ -1795,15 +1838,33 @@ def audit_conformance(paths: List[Path]) -> int:
     distribution_sources = {
         "POSIX dependency installer": (
             repo / "install.sh",
-            ("--with-deps", "FREAK_INSTALL_ARCHIVE", "distribution-files.manifest"),
+            (
+                "--with-deps",
+                "FREAK_INSTALL_ARCHIVE",
+                "FREAK_INSTALL_TEST_FAIL_RESTORE",
+                "reconcile_orphaned_transaction",
+                "distribution-files.manifest",
+            ),
         ),
         "Windows dependency installer": (
             repo / "install.ps1",
-            ("Test-ClangToolchain", "MartinStorsjo.LLVM-MinGW.UCRT", "Start-DeferredBinaryReplacement"),
+            (
+                "Test-ClangToolchain",
+                "MartinStorsjo.LLVM-MinGW.UCRT",
+                "Start-DeferredBinaryReplacement",
+                ".freak-upgrade-pending",
+                "Get-Process -Id",
+            ),
         ),
         "doctor": (
             repo / "src" / "cli" / "doctor.fk",
-            ("modules_expected\\\": 11", "ui/window.fk", "compile, link, and execution work", "-> int"),
+            (
+                "modules_expected\\\": 11",
+                "ui/window.fk",
+                'process::env("TMPDIR")',
+                "compile, link, and execution work",
+                "-> int",
+            ),
         ),
         "upgrade": (
             repo / "src" / "cli" / "hangar.fk",
@@ -1815,7 +1876,15 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "regression": (
             repo / "tests" / "v3_install_doctor_upgrade.py",
-            ("check_offline_installer", "FREAK_INSTALL_TEST_FAIL_APPLY", "check_doctor", "FREAK_DOCTOR_INSTALL_COMMAND", "check_upgrade"),
+            (
+                "check_offline_installer",
+                "FREAK_INSTALL_TEST_FAIL_APPLY",
+                "FREAK_INSTALL_TEST_FAIL_RESTORE",
+                ".freak-upgrade-pending",
+                "check_doctor",
+                "FREAK_DOCTOR_INSTALL_COMMAND",
+                "check_upgrade",
+            ),
         ),
         "CI": (
             repo / ".github" / "workflows" / "ci.yml",

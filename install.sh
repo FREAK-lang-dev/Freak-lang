@@ -189,12 +189,30 @@ TARBALL_URL="$RELEASE_BASE/$LATEST/${TARGET}.tar.gz"
 TMPDIR_INSTALL=$(mktemp -d)
 APPLY_ROOT=""
 BACKUP_ROOT=""
+TRANSACTION_ACTIVE=0
 cleanup_install() {
+    local status=$?
+    trap - EXIT INT TERM HUP
+    if [ "$TRANSACTION_ACTIVE" -eq 1 ]; then
+        if restore_previous_payload; then
+            TRANSACTION_ACTIVE=0
+            warn "Interrupted payload transaction was rolled back"
+        else
+            local recovery_backup="$BACKUP_ROOT"
+            BACKUP_ROOT=""
+            TRANSACTION_ACTIVE=0
+            warn "Rollback was incomplete; the previous payload backup is preserved at $recovery_backup"
+        fi
+    fi
     rm -rf -- "$TMPDIR_INSTALL"
     if [ -n "$APPLY_ROOT" ]; then rm -rf -- "$APPLY_ROOT"; fi
     if [ -n "$BACKUP_ROOT" ]; then rm -rf -- "$BACKUP_ROOT"; fi
+    exit "$status"
 }
 trap cleanup_install EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 STAGE_DIR="$TMPDIR_INSTALL/stage"
 STAGE_BIN="$STAGE_DIR/bin"
 STAGE_RUNTIME="$STAGE_DIR/runtime"
@@ -298,6 +316,71 @@ fi
 
 validate_stage
 
+restore_previous_payload() {
+    local live backup
+    local restore_failed=0
+    if truthy "${FREAK_INSTALL_TEST_FAIL_RESTORE:-0}"; then
+        return 1
+    fi
+    for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/distribution-files.manifest"; do
+        backup="$BACKUP_ROOT/${live#"$INSTALL_DIR/"}"
+        if [ -e "$backup" ]; then
+            if ! rm -rf -- "$live"; then restore_failed=1; continue; fi
+            if ! mkdir -p "$(dirname "$live")"; then restore_failed=1; continue; fi
+            if ! mv -- "$backup" "$live"; then restore_failed=1; fi
+        elif [ -e "$backup.missing" ]; then
+            if ! rm -rf -- "$live"; then restore_failed=1; fi
+        fi
+    done
+    if [ -n "$APPLY_ROOT" ]; then rm -rf -- "$APPLY_ROOT" || true; fi
+    if [ "$restore_failed" -ne 0 ]; then return 1; fi
+    rm -rf -- "$BACKUP_ROOT"
+}
+
+backup_live_path() {
+    local live="$1"
+    local backup="$BACKUP_ROOT/${live#"$INSTALL_DIR/"}"
+    mkdir -p "$(dirname "$backup")"
+    if [ -e "$live" ]; then
+        mv -- "$live" "$backup"
+    else
+        : > "$backup.missing"
+    fi
+}
+
+reconcile_orphaned_transaction() {
+    local candidate orphan_backup="" orphan_count=0
+    for candidate in "$INSTALL_DIR"/.freak-backup-*; do
+        [ -d "$candidate" ] || continue
+        orphan_backup="$candidate"
+        orphan_count=$((orphan_count + 1))
+    done
+    if [ "$orphan_count" -gt 1 ]; then
+        err "Multiple interrupted installer backups require manual recovery under $INSTALL_DIR"
+    fi
+    if [ "$orphan_count" -eq 1 ]; then
+        BACKUP_ROOT="$orphan_backup"
+        APPLY_ROOT=""
+        TRANSACTION_ACTIVE=1
+        if restore_previous_payload; then
+            TRANSACTION_ACTIVE=0
+            BACKUP_ROOT=""
+            info "Recovered the previous payload from an interrupted installer transaction"
+        else
+            local recovery_backup="$BACKUP_ROOT"
+            BACKUP_ROOT=""
+            TRANSACTION_ACTIVE=0
+            err "Could not recover the interrupted payload; backup preserved at $recovery_backup"
+        fi
+    fi
+    for candidate in "$INSTALL_DIR"/.freak-apply-*; do
+        [ -d "$candidate" ] || continue
+        rm -rf -- "$candidate"
+    done
+}
+
+reconcile_orphaned_transaction
+
 # Prepare replacements on the destination filesystem so every final move is
 # an atomic rename. If any apply step fails, restore the exact previous set.
 APPLY_ROOT=$(mktemp -d "$INSTALL_DIR/.freak-apply-XXXXXX") || err "Could not create the destination apply directory"
@@ -313,36 +396,17 @@ cp -R "$STAGE_STD/." "$APPLY_ROOT/std/"
 cp "$STAGE_MANIFEST" "$APPLY_ROOT/distribution-files.manifest"
 mkdir -p "$BIN_DIR"
 
-restore_previous_payload() {
-    local live backup
-    for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/distribution-files.manifest"; do
-        backup="$BACKUP_ROOT/${live#"$INSTALL_DIR/"}"
-        if [ -e "$backup" ]; then
-            rm -rf -- "$live"
-            mkdir -p "$(dirname "$live")"
-            mv -- "$backup" "$live" || true
-        elif [ -e "$backup.missing" ]; then
-            rm -rf -- "$live"
-        fi
-    done
-    rm -rf -- "$APPLY_ROOT" "$BACKUP_ROOT"
-}
-
-backup_live_path() {
-    local live="$1"
-    local backup="$BACKUP_ROOT/${live#"$INSTALL_DIR/"}"
-    mkdir -p "$(dirname "$backup")"
-    if [ -e "$live" ]; then
-        mv -- "$live" "$backup"
-    else
-        : > "$backup.missing"
-    fi
-}
-
 apply_failed=0
+TRANSACTION_ACTIVE=1
 for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/distribution-files.manifest"; do
     if ! backup_live_path "$live"; then apply_failed=1; break; fi
 done
+if [ "$apply_failed" -eq 0 ] && truthy "${FREAK_INSTALL_TEST_PAUSE_AFTER_BACKUP:-0}"; then
+    if [ -n "${FREAK_INSTALL_TEST_TRANSACTION_READY:-}" ]; then
+        printf 'ready\n' > "$FREAK_INSTALL_TEST_TRANSACTION_READY"
+    fi
+    sleep 30
+fi
 if [ "$apply_failed" -eq 0 ]; then
     mv -- "$APPLY_ROOT/runtime" "$INSTALL_DIR/runtime" || apply_failed=1
 fi
@@ -354,10 +418,20 @@ if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/distribution-files.manifes
 if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/bin/freak" "$BIN_DIR/freak" || apply_failed=1; fi
 if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/bin/hangar" "$BIN_DIR/hangar" || apply_failed=1; fi
 if [ "$apply_failed" -ne 0 ]; then
-    restore_previous_payload
-    err "Could not apply the staged distribution; the previous payload was restored"
+    if restore_previous_payload; then
+        TRANSACTION_ACTIVE=0
+        BACKUP_ROOT=""
+        err "Could not apply the staged distribution; the previous payload was restored"
+    fi
+    recovery_backup="$BACKUP_ROOT"
+    BACKUP_ROOT=""
+    TRANSACTION_ACTIVE=0
+    err "Could not restore the previous payload; recovery backup preserved at $recovery_backup"
 fi
+TRANSACTION_ACTIVE=0
 rm -rf -- "$APPLY_ROOT" "$BACKUP_ROOT"
+APPLY_ROOT=""
+BACKUP_ROOT=""
 
 add_to_path() {
     local rc_file="$1"

@@ -206,19 +206,91 @@ function Stage-FallbackPayload {
 
 function Start-DeferredBinaryReplacement {
     $quotedBin = $BinDir.Replace("'", "''")
+    $replacementWaitPid = $PID
+    $pendingPath = Join-Path $BinDir ".freak-upgrade-pending"
+    $failedPath = Join-Path $BinDir ".freak-upgrade-failed"
+    Set-Content -LiteralPath $pendingPath -Value "$Latest|wait-pid=$replacementWaitPid" -Encoding UTF8
+    Remove-Item -LiteralPath $failedPath -Force -ErrorAction SilentlyContinue
     $apply = @"
 `$ErrorActionPreference = 'Stop'
-Start-Sleep -Milliseconds 750
-for (`$attempt = 0; `$attempt -lt 120; `$attempt++) {
+`$bin = '$quotedBin'
+`$pending = Join-Path `$bin '.freak-upgrade-pending'
+`$failed = Join-Path `$bin '.freak-upgrade-failed'
+`$backupRoot = Join-Path `$bin '.freak-binary-backup'
+`$retiredRoot = Join-Path `$bin '.freak-binary-retired'
+`$names = @('freak.exe', 'hangar.exe')
+
+function Restore-BinaryBackup {
+    if (-not (Test-Path -LiteralPath `$backupRoot -PathType Container)) { return `$true }
+    `$restoreFailed = `$false
+    foreach (`$name in `$names) {
+        `$live = Join-Path `$bin `$name
+        `$backup = Join-Path `$backupRoot `$name
+        `$missing = Join-Path `$backupRoot (`$name + '.missing')
+        try {
+            if (Test-Path -LiteralPath `$backup) {
+                Remove-Item -LiteralPath `$live -Force -ErrorAction SilentlyContinue
+                Move-Item -LiteralPath `$backup -Destination `$live
+            } elseif (Test-Path -LiteralPath `$missing) {
+                Remove-Item -LiteralPath `$live -Force -ErrorAction SilentlyContinue
+            }
+        } catch {
+            `$restoreFailed = `$true
+        }
+    }
+    if (-not `$restoreFailed) {
+        try { Remove-Item -LiteralPath `$backupRoot -Recurse -Force } catch { `$restoreFailed = `$true }
+    }
+    return -not `$restoreFailed
+}
+
+# The installer cannot replace the executable that launched it. Wait for that
+# exact process, then retain durable .next/pending state until both binaries
+# have been swapped and hash-verified as one recoverable transaction.
+while (Get-Process -Id $replacementWaitPid -ErrorAction SilentlyContinue) {
+    Start-Sleep -Milliseconds 250
+}
+`$deadline = [DateTime]::UtcNow.AddHours(24)
+while ([DateTime]::UtcNow -lt `$deadline) {
     try {
-        foreach (`$name in @('freak.exe', 'hangar.exe')) {
+        if (-not (Restore-BinaryBackup)) { throw 'could not restore an interrupted binary transaction' }
+        Remove-Item -LiteralPath `$retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Path `$backupRoot -Force | Out-Null
+        foreach (`$name in `$names) {
             `$next = Join-Path '$quotedBin' (`$name + '.next')
             `$target = Join-Path '$quotedBin' `$name
-            if (Test-Path -LiteralPath `$next) { Move-Item -LiteralPath `$next -Destination `$target -Force }
+            if (-not (Test-Path -LiteralPath `$next -PathType Leaf)) { throw "missing staged binary: `$next" }
+            `$backup = Join-Path `$backupRoot `$name
+            if (Test-Path -LiteralPath `$target -PathType Leaf) {
+                Move-Item -LiteralPath `$target -Destination `$backup
+            } else {
+                New-Item -ItemType File -Path (Join-Path `$backupRoot (`$name + '.missing')) -Force | Out-Null
+            }
         }
+        foreach (`$name in `$names) {
+            `$next = Join-Path `$bin (`$name + '.next')
+            `$target = Join-Path `$bin `$name
+            Copy-Item -LiteralPath `$next -Destination `$target -Force
+            if ((Get-FileHash -LiteralPath `$next -Algorithm SHA256).Hash -ne
+                (Get-FileHash -LiteralPath `$target -Algorithm SHA256).Hash) {
+                throw "binary verification failed: `$name"
+            }
+        }
+        # Renaming the complete old-binary directory is the commit point.
+        # Cleanup after it is best-effort because both live binaries already
+        # match their staged hashes and no rollback is required anymore.
+        Move-Item -LiteralPath `$backupRoot -Destination `$retiredRoot
+        foreach (`$name in `$names) {
+            Remove-Item -LiteralPath (Join-Path `$bin (`$name + '.next')) -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Item -LiteralPath `$pending, `$failed -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath `$retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
         exit 0
     } catch {
-        Start-Sleep -Milliseconds 250
+        `$detail = `$_.Exception.Message
+        Restore-BinaryBackup | Out-Null
+        Set-Content -LiteralPath `$failed -Value `$detail -Encoding UTF8
+        Start-Sleep -Seconds 1
     }
 }
 exit 1
@@ -344,12 +416,19 @@ if (-not $SkipPathUpdate) {
 if ($env:PATH -notlike "*$BinDir*") { $env:PATH = "$BinDir;$env:PATH" }
 
 Ok ""
-Ok "FREAK $Latest installed successfully!"
+if ($UpgradeMode) {
+    Ok "FREAK $Latest payload staged successfully!"
+} else {
+    Ok "FREAK $Latest installed successfully!"
+}
 Ok "  Compiler: $BinDir\freak.exe"
 Ok "  Hangar:   $BinDir\hangar.exe"
 Ok "  Runtime:  $InstallDir\runtime\"
 Ok "  Std lib:  $InstallDir\std\"
-if ($UpgradeMode) { Ok "  Binary replacement is scheduled for this process exit." }
+if ($UpgradeMode) {
+    Ok "  Binary replacement will complete after the invoking process exits."
+    Ok "  Durable state: $BinDir\.freak-upgrade-pending"
+}
 if (-not (Find-Clang)) { Warn "Clang is still missing. Install LLVM before building FREAK programs." }
 Ok "Open a new terminal and verify the complete toolchain with: freak doctor"
 Ok '"It was always going to end this way."'

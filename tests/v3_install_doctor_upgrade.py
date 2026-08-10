@@ -7,10 +7,12 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -95,8 +97,11 @@ def check_static_contracts(repo: Path) -> None:
         "--with-deps",
         "FREAK_INSTALL_ARCHIVE",
         "FREAK_INSTALL_DEP_COMMAND",
+        "FREAK_INSTALL_TEST_FAIL_RESTORE",
         "freak-clang-probe",
         ".freak-backup-",
+        "TRANSACTION_ACTIVE",
+        "reconcile_orphaned_transaction",
         "packaging/distribution-files.manifest",
         "restore_previous_payload",
     ):
@@ -107,6 +112,10 @@ def check_static_contracts(repo: Path) -> None:
         "Test-ClangToolchain",
         "FREAK_INSTALL_ARCHIVE",
         "Start-DeferredBinaryReplacement",
+        ".freak-upgrade-pending",
+        ".freak-binary-backup",
+        "Get-Process -Id",
+        "Get-FileHash",
         ".freak-backup-",
         "FREAK_INSTALL_TEST_FAIL_APPLY",
         "distribution-files.manifest",
@@ -126,6 +135,10 @@ def check_static_contracts(repo: Path) -> None:
     )
     assert "artifacts/package-manager/freak.rb" in release_text
     assert 'cp "$WINGET_DIR"/*.yaml artifacts/package-manager/winget/' in release_text
+    assert "required WinGet manifest missing" in release_text
+    assert "unresolved WinGet placeholder" in release_text
+    assert "Pre-compile runtime to .o" not in release_text
+    assert "dist/freak/runtime/freak_runtime.o" not in release_text
     assert "packaging/distribution-files.manifest text eol=lf" in attributes_text
     assert 'doc["checks"]["stdlib"]["modules_expected"] == 11' in ci_text
     for needle in (
@@ -140,7 +153,8 @@ def check_static_contracts(repo: Path) -> None:
         "ui/window.fk",
         "scoop install llvm-mingw",
         "FREAK_DOCTOR_INSTALL_COMMAND",
-        ' -x c \\"',
+        'process::env("TMPDIR")',
+        "cli_quote_cmd_path(probe_source)",
         "compile, link, and execution work",
         "task cli_doctor(fix_mode: bool) -> int",
     ):
@@ -251,6 +265,64 @@ def check_offline_installer(
     assert (install_root / "bin" / f"freak{extension}").is_file()
     assert (install_root / "bin" / f"hangar{extension}").is_file()
 
+    if sys.platform == "win32":
+        # Hold the old compiler without delete sharing. The installer must
+        # return a staged status, retain durable pending state, then replace
+        # both binaries transactionally after the lock is released.
+        import ctypes
+        from ctypes import wintypes
+
+        deferred_root = root / "deferred-upgrade"
+        deferred_bin = deferred_root / "bin"
+        deferred_bin.mkdir(parents=True)
+        old_freak = deferred_bin / "freak.exe"
+        old_hangar = deferred_bin / "hangar.exe"
+        old_freak.write_bytes(b"old locked freak\n")
+        old_hangar.write_bytes(b"old hangar\n")
+
+        create_file = ctypes.windll.kernel32.CreateFileW
+        create_file.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+        ]
+        create_file.restype = wintypes.HANDLE
+        close_handle = ctypes.windll.kernel32.CloseHandle
+        close_handle.argtypes = [wintypes.HANDLE]
+        close_handle.restype = wintypes.BOOL
+        lock_handle = create_file(
+            str(old_freak), 0x80000000, 0x00000001, None, 3, 0x00000080, None
+        )
+        assert lock_handle != wintypes.HANDLE(-1).value
+        deferred_env = env.copy()
+        deferred_env["FREAK_HOME"] = str(deferred_root)
+        try:
+            staged = subprocess.run(
+                [*command, "-Upgrade"], cwd=repo, env=deferred_env,
+                capture_output=True, text=True, errors="replace", timeout=120,
+            )
+            assert staged.returncode == 0, staged.stdout + staged.stderr
+            assert "payload staged successfully" in staged.stdout
+            time.sleep(1.5)
+            assert (deferred_bin / ".freak-upgrade-pending").is_file()
+            assert (deferred_bin / "freak.exe.next").is_file()
+            assert old_freak.read_bytes() == b"old locked freak\n"
+        finally:
+            assert close_handle(lock_handle)
+
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if not (deferred_bin / ".freak-upgrade-pending").exists():
+                break
+            time.sleep(0.25)
+        assert not (deferred_bin / ".freak-upgrade-pending").exists()
+        assert not (deferred_bin / ".freak-upgrade-failed").exists()
+        assert not (deferred_bin / ".freak-binary-backup").exists()
+        assert not (deferred_bin / ".freak-binary-retired").exists()
+        assert not (deferred_bin / "freak.exe.next").exists()
+        assert not (deferred_bin / "hangar.exe.next").exists()
+        assert old_freak.read_bytes() == b"mock-freak\n"
+        assert old_hangar.read_bytes() == b"mock-hangar\n"
+
     # Invalid downloads and failures after the first live-tree swap must both
     # leave the exact previous installation recoverable.
     preserved_root = root / "preserved-install"
@@ -292,6 +364,49 @@ def check_offline_installer(
     assert not list(preserved_root.glob(".freak-backup-*"))
 
     if sys.platform != "win32":
+        transaction_ready = root / "installer-transaction-ready.txt"
+        signal_env = env.copy()
+        signal_env["FREAK_HOME"] = str(preserved_root)
+        signal_env["FREAK_INSTALL_ARCHIVE"] = str(archive)
+        signal_env["FREAK_INSTALL_TEST_PAUSE_AFTER_BACKUP"] = "1"
+        signal_env["FREAK_INSTALL_TEST_TRANSACTION_READY"] = str(transaction_ready)
+        interrupted = subprocess.Popen(
+            command, cwd=repo, env=signal_env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, errors="replace",
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not transaction_ready.exists():
+            if interrupted.poll() is not None:
+                break
+            time.sleep(0.1)
+        assert transaction_ready.is_file(), interrupted.communicate(timeout=5)
+        os.killpg(interrupted.pid, signal.SIGTERM)
+        interrupted_stdout, interrupted_stderr = interrupted.communicate(timeout=30)
+        assert interrupted.returncode != 0, interrupted_stdout + interrupted_stderr
+        for relative, contents in preserved_files.items():
+            assert (preserved_root / relative).read_bytes() == contents
+        assert not list(preserved_root.glob(".freak-apply-*"))
+        assert not list(preserved_root.glob(".freak-backup-*"))
+
+        # If restoration itself fails, never delete the only recoverable old
+        # payload. Leave one explicit backup and remove only apply scratch.
+        recovery_env = failure_env.copy()
+        recovery_env["FREAK_INSTALL_TEST_FAIL_RESTORE"] = "1"
+        recovery_failed = subprocess.run(
+            command, cwd=repo, env=recovery_env, capture_output=True, text=True,
+            errors="replace", timeout=120,
+        )
+        assert recovery_failed.returncode != 0, (
+            recovery_failed.stdout + recovery_failed.stderr
+        )
+        recovery_backups = list(preserved_root.glob(".freak-backup-*"))
+        assert len(recovery_backups) == 1, recovery_backups
+        recovery_backup = recovery_backups[0]
+        for relative, contents in preserved_files.items():
+            assert (recovery_backup / relative).read_bytes() == contents
+        assert not list(preserved_root.glob(".freak-apply-*"))
+
         broken_clang = root / "installer-version-only-clang.sh"
         broken_clang.write_text(
             "#!/usr/bin/env bash\n"
@@ -350,8 +465,13 @@ def check_doctor(
     populate_payload(repo, payload, entries)
     cwd = root / "doctor-cwd"
     cwd.mkdir()
+    probe_temp = root / "doctor-probes"
+    probe_temp.mkdir()
     env = os.environ.copy()
     env["FREAK_HOME"] = str(payload)
+    env["TEMP"] = str(probe_temp)
+    env["TMP"] = str(probe_temp)
+    env["TMPDIR"] = str(probe_temp)
 
     healthy = run_cli(compiler, cwd, env, "doctor", "--json")
     assert healthy.returncode == 0, healthy.stdout + healthy.stderr
@@ -360,6 +480,17 @@ def check_doctor(
     assert report["checks"]["runtime"]["files_expected"] == 5
     assert report["checks"]["stdlib"]["modules_found"] == 11
     assert report["checks"]["stdlib"]["modules_expected"] == 11
+
+    if sys.platform != "win32":
+        read_only_cwd = root / "doctor-read-only-cwd"
+        read_only_cwd.mkdir()
+        read_only_cwd.chmod(0o555)
+        try:
+            read_only = run_cli(compiler, read_only_cwd, env, "doctor", "--json")
+        finally:
+            read_only_cwd.chmod(0o755)
+        assert read_only.returncode == 0, read_only.stdout + read_only.stderr
+        assert json.loads(read_only.stdout)["status"] == "ok"
 
     ui_module = payload / "std" / "ui" / "window.fk"
     ui_module.unlink()
@@ -374,6 +505,8 @@ def check_doctor(
     assert full.returncode == 0, full.stdout + full.stderr
     assert "compile, link, and execution work" in full.stdout
     assert not list(cwd.glob("_freak_doctor_probe_*")), "doctor left probe artifacts"
+    assert not list(cwd.glob("freak-doctor-clang-probe-*"))
+    assert not list(probe_temp.glob("freak-doctor-clang-probe-*"))
 
     # A version-only clang is the Windows failure mode that motivated the
     # usable-toolchain probe: it must be diagnosed before the FREAK pipeline,
@@ -417,13 +550,15 @@ def check_doctor(
     assert broken.returncode != 0, broken.stdout + broken.stderr
     broken_report = json.loads(broken.stdout)
     assert broken_report["checks"]["clang"]["ok"] is False
-    assert not list(cwd.glob("_freak_doctor_clang_probe_*"))
+    assert not list(cwd.glob("freak-doctor-clang-probe-*"))
+    assert not list(probe_temp.glob("freak-doctor-clang-probe-*"))
 
     broken_env["FREAK_DOCTOR_INSTALL_COMMAND"] = install_command
     fix_attempt = run_cli(compiler, cwd, broken_env, "doctor", "--fix")
     assert fix_attempt.returncode != 0, fix_attempt.stdout + fix_attempt.stderr
     assert repair_sentinel.is_file(), fix_attempt.stdout + fix_attempt.stderr
-    assert not list(cwd.glob("_freak_doctor_clang_probe_*"))
+    assert not list(cwd.glob("freak-doctor-clang-probe-*"))
+    assert not list(probe_temp.glob("freak-doctor-clang-probe-*"))
 
 
 def check_upgrade(root: Path, compiler: Path) -> None:

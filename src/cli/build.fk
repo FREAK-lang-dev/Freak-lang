@@ -147,8 +147,8 @@ task cli_executable_path() -> word {
     pilot argv0: word = process::arg(0)
     if argv0 == "" { give back "" }
     if fs::exists(argv0) { give back argv0 }
-    pilot lookup_cmd = "command -v \"" + argv0 + "\" 2>/dev/null"
-    if cli_is_windows() { lookup_cmd = "where \"" + argv0 + "\" 2>nul" }
+    pilot lookup_cmd = "command -v " + cli_quote_cmd_path(argv0) + " 2>/dev/null"
+    if cli_is_windows() { lookup_cmd = "where " + cli_quote_cmd_path(argv0) + " 2>nul" }
     pilot resolved: word = cli_first_line(process::exec_capture(lookup_cmd)).trim()
     if resolved != "" and fs::exists(resolved) { give back resolved }
     give back argv0
@@ -363,7 +363,22 @@ task cli_first_line(text: word) -> word {
 }
 
 task cli_quote_cmd_path(path: word) -> word {
-    give back "\"" + path + "\""
+    if cli_is_windows() { give back "\"" + path + "\"" }
+    -- POSIX double quotes still expand $, backticks, and command
+    -- substitutions. Single-quote the value and reopen around literal '.
+    pilot escaped = path.replace("'", "'\"'\"'")
+    give back "'" + escaped + "'"
+}
+
+task cli_cross_target_is_safe(target: word) -> bool {
+    if target == "" { give back true }
+    pilot allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
+    pilot i = 0
+    repeat until i >= target.length() {
+        if not allowed.contains(target.char_at(i)) { give back false }
+        i += 1
+    }
+    give back true
 }
 
 task cli_shell_command_prefix(command: word) -> word {
@@ -500,13 +515,14 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     pilot out_bin = cli_binary_path(src_file)
 
     pilot is_win = cli_is_windows()
+    -- Raw ld.lld bundle linking bypasses the platform driver's startup and
+    -- SDK logic (and is the wrong linker on macOS). Always use Clang as the
+    -- portable link driver; stale precompiled runtime objects are ignored.
     pilot use_bundle = false
 
-    -- Bundle mode: pre-compiled .obj + lld-link (LLVM backend only, no clang needed for link)
-    if target == "llvm" {
-        if cli_has_precompiled_runtime(runtime_dir) and not is_win {
-            use_bundle = true
-        }
+    if not cli_cross_target_is_safe(cross) {
+        say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- invalid target triple" + C_RESET
+        give back ""
     }
 
     if use_bundle {
@@ -520,7 +536,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         if clang_cmd == "" { clang_cmd = "clang" }
         pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
         pilot cc_cmd = clang_prefix + " -c -g -o " + cli_quote_cmd_path(user_obj) + " " + cli_quote_cmd_path(transpiled_file) + " -O" + opt + " -w"
-        if cross != "" { cc_cmd = cc_cmd + " --target=" + cross }
+        if cross != "" { cc_cmd = cc_cmd + " --target=" + cli_quote_cmd_path(cross) }
 
         say "  " + C_DIM + SYM_GEAR + "  Compiling IR..." + C_RESET
         pilot cc_exit = process::exec(cc_cmd)
@@ -609,7 +625,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     }
 
     if cross != "" {
-        cmd = cmd + " --target=" + cross
+        cmd = cmd + " --target=" + cli_quote_cmd_path(cross)
     }
 
     say "  " + C_DIM + SYM_GEAR + "  Compiling native binary..." + C_RESET
