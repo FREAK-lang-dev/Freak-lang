@@ -57,6 +57,9 @@ freak_word freak_word_clone(freak_word source);
    Pointer equality keeps direct self-assignment safe. */
 void freak_word_replace_owned(freak_word* slot, freak_word replacement);
 
+/* Release a word binding at a task boundary and clear its slot. */
+void freak_word_release_owned(freak_word* slot);
+
 /* Equality test (byte-wise). */
 bool freak_word_eq(freak_word a, freak_word b);
 

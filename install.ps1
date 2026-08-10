@@ -323,8 +323,11 @@ while ([DateTime]::UtcNow -lt `$deadline) {
         foreach (`$name in `$names) {
             Remove-Item -LiteralPath (Join-Path `$bin (`$name + '.next')) -Force -ErrorAction SilentlyContinue
         }
-        Remove-Item -LiteralPath `$pending, `$failed -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath `$retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
+        # Pending is the externally visible completion signal. Remove it only
+        # after all transaction state and retired binaries are gone.
+        Remove-Item -LiteralPath `$failed -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath `$pending -Force -ErrorAction SilentlyContinue
         exit 0
     } catch {
         `$detail = `$_.Exception.Message

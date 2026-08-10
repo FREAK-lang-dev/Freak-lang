@@ -555,7 +555,7 @@ task llvm_is_void_call(val: word) -> bool {
 
 -- ===================== ARGS ==========================================
 
-task llvm_emit_args(args: word, clone_word_idents: bool) -> word {
+task llvm_emit_args(args: word) -> word {
     pilot res = ""
     pilot i = 0
     pilot slen = args.length()
@@ -565,14 +565,6 @@ task llvm_emit_args(args: word, clone_word_idents: bool) -> word {
         pilot c = args.char_at(i)
         if c == "," {
             pilot reg: word = llvm_emit_expr(cur_id)
-            pilot arg_idx = word_to_int(cur_id)
-            pilot arg_kind: word = array_get(ast_expr_kinds, arg_idx)
-            pilot arg_name: word = array_get(ast_expr_vals, arg_idx)
-            if clone_word_idents and arg_kind == EXPR_IDENT and llvm_get_var_type(arg_name).starts_with("w") {
-                pilot clone_reg = next_reg()
-                llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
-                reg = clone_reg
-            }
             if not first { res = res + ", " }
             res = res + "i64 " + reg
             cur_id = ""
@@ -584,14 +576,6 @@ task llvm_emit_args(args: word, clone_word_idents: bool) -> word {
     }
     if cur_id.length() > 0 {
         pilot reg: word = llvm_emit_expr(cur_id)
-        pilot arg_idx = word_to_int(cur_id)
-        pilot arg_kind: word = array_get(ast_expr_kinds, arg_idx)
-        pilot arg_name: word = array_get(ast_expr_vals, arg_idx)
-        if clone_word_idents and arg_kind == EXPR_IDENT and llvm_get_var_type(arg_name).starts_with("w") {
-            pilot clone_reg = next_reg()
-            llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
-            reg = clone_reg
-        }
         if not first { res = res + ", " }
         res = res + "i64 " + reg
     }
@@ -691,8 +675,7 @@ task llvm_emit_expr(id: word) -> word {
 task llvm_emit_call(val: word, left: word) -> word {
     pilot arg_str = ""
     pilot mapped_name = llvm_map_call_name(val)
-    pilot clone_word_idents = mapped_name == "" and not emt_is_extern(val) and not val.starts_with("shape::ctor::")
-    if left.length() > 0 { arg_str = llvm_emit_args(left, clone_word_idents) }
+    if left.length() > 0 { arg_str = llvm_emit_args(left) }
 
     -- Shape constructor
     if val.starts_with("shape::ctor::") {
@@ -915,7 +898,7 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
     if val == "snapshot_field_count" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_snapshot_field_count(i64 " + obj_reg + ")") give back res_reg }
     if val == "snapshot_field_raw" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_snapshot_field_raw(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
     if val == "char_at" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_char_at(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
-    if val == "substring" { pilot args = llvm_emit_args(right, false) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_substring(i64 " + obj_reg + ", " + args + ")") give back res_reg }
+    if val == "substring" { pilot args = llvm_emit_args(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_substring(i64 " + obj_reg + ", " + args + ")") give back res_reg }
     if val == "contains" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_contains(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
     if val == "starts_with" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_starts_with(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
     if val == "ends_with" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_ends_with(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
@@ -963,7 +946,7 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
     -- after `self`, not just `self` alone.
     pilot extra_args = ""
     if right.length() > 0 {
-        extra_args = ", " + llvm_emit_args(right, false)
+        extra_args = ", " + llvm_emit_args(right)
     }
     -- Pick the LAST shape that has a matching method, not the first.
     -- Without proper receiver-type inference we can't know which shape
@@ -1035,6 +1018,30 @@ task llvm_emit_block(block: word) -> void {
 
 -- ===================== STATEMENT EMIT ================================
 
+task llvm_is_current_word_param(name: word) -> bool {
+    give back llvm_current_word_params.contains("|" + name + "|")
+}
+
+task llvm_emit_current_word_param_cleanup(skip_name: word) -> void {
+    pilot i = 0
+    pilot current = ""
+    repeat until i >= llvm_current_word_params.length() {
+        pilot ch: word = llvm_current_word_params.char_at(i)
+        if ch == "|" {
+            if current != "" and current != skip_name {
+                pilot pointer = llvm_var_ptr(current)
+                pilot previous = next_reg()
+                llvm_emit_line("    " + previous + " = load i64, i64* " + pointer)
+                llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous + ", i64 0)")
+            }
+            current = ""
+        } else {
+            current = current + ch
+        }
+        i += 1
+    }
+}
+
 task llvm_emit_stmt(eid: word) -> void {
     if eid.length() == 0 { give back }
     pilot i = word_to_int(eid)
@@ -1058,11 +1065,24 @@ task llvm_emit_stmt(eid: word) -> void {
     if kind == STMT_EXPR { llvm_emit_expr(expr_id_w) give back }
     if kind == STMT_GIVE_BACK {
         if llvm_cur_func_is_void {
+            llvm_emit_current_word_param_cleanup("")
             llvm_emit_line("    ret void")
         } else if expr_id_w.length() > 0 and not expr_id_w.starts_with("-") {
             pilot reg = llvm_emit_expr(expr_id_w)
+            pilot return_idx = word_to_int(expr_id_w)
+            pilot return_kind: word = array_get(ast_expr_kinds, return_idx)
+            pilot return_name: word = array_get(ast_expr_vals, return_idx)
+            if llvm_cur_func_returns_word and (return_kind == EXPR_FIELD or (return_kind == EXPR_IDENT and llvm_is_global(return_name))) {
+                pilot clone_reg = next_reg()
+                llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
+                reg = clone_reg
+            }
+            pilot skip_name = ""
+            if llvm_cur_func_returns_word and return_kind == EXPR_IDENT and llvm_is_current_word_param(return_name) { skip_name = return_name }
+            llvm_emit_current_word_param_cleanup(skip_name)
             llvm_emit_line("    ret i64 " + reg)
         } else {
+            llvm_emit_current_word_param_cleanup("")
             llvm_emit_line("    ret i64 0")
         }
         give back
@@ -1115,7 +1135,7 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
     pilot stored_reg = reg
     pilot expr_idx = word_to_int(expr_id_w)
     pilot expr_kind: word = array_get(ast_expr_kinds, expr_idx)
-    if vtype.starts_with("w") and expr_kind == EXPR_IDENT {
+    if vtype.starts_with("w") and (expr_kind == EXPR_IDENT or expr_kind == EXPR_FIELD) {
         pilot clone_reg = next_reg()
         llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
         stored_reg = clone_reg
@@ -1335,7 +1355,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         if llvm_get_var_type(var_name_expr).starts_with("w") {
             pilot rhs_idx = word_to_int(rhs_w)
             pilot rhs_kind: word = array_get(ast_expr_kinds, rhs_idx)
-            if rhs_kind == EXPR_IDENT {
+            if rhs_kind == EXPR_IDENT or rhs_kind == EXPR_FIELD {
                 pilot clone_reg = next_reg()
                 llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
                 stored_reg = clone_reg
@@ -1525,9 +1545,16 @@ task llvm_allocate_params(p: word) -> void {
         if c == ":" { in_type = true }
         else if c == "," {
             llvm_emit_line("    %" + cur_name + " = alloca i64")
-            llvm_emit_line("    store i64 %arg_" + cur_name + ", i64* %" + cur_name)
+            pilot stored_param = "%arg_" + cur_name
             pilot pt = "i"
-            if cur_type == "word" { pt = "w" }
+            if cur_type == "word" {
+                pt = "w"
+                llvm_current_word_params = llvm_current_word_params + "|" + cur_name + "|"
+                pilot clone_param = next_reg()
+                llvm_emit_line("    " + clone_param + " = call i64 @freak_llvm_word_clone(i64 %arg_" + cur_name + ")")
+                stored_param = clone_param
+            }
+            llvm_emit_line("    store i64 " + stored_param + ", i64* %" + cur_name)
             if cur_type == "num" { pt = "n" }
             if cur_type == "bool" { pt = "b" }
             llvm_set_var_type(cur_name, pt)
@@ -1546,9 +1573,16 @@ task llvm_allocate_params(p: word) -> void {
     }
     if cur_name.length() > 0 {
         llvm_emit_line("    %" + cur_name + " = alloca i64")
-        llvm_emit_line("    store i64 %arg_" + cur_name + ", i64* %" + cur_name)
+        pilot stored_param = "%arg_" + cur_name
         pilot pt = "i"
-        if cur_type == "word" { pt = "w" }
+        if cur_type == "word" {
+            pt = "w"
+            llvm_current_word_params = llvm_current_word_params + "|" + cur_name + "|"
+            pilot clone_param = next_reg()
+            llvm_emit_line("    " + clone_param + " = call i64 @freak_llvm_word_clone(i64 %arg_" + cur_name + ")")
+            stored_param = clone_param
+        }
+        llvm_emit_line("    store i64 " + stored_param + ", i64* %" + cur_name)
         if cur_type == "num" { pt = "n" }
         if cur_type == "bool" { pt = "b" }
         llvm_set_var_type(cur_name, pt)
@@ -1565,12 +1599,14 @@ task llvm_emit_task(eid: word) -> void {
     pilot body_id_w: word = array_get(ast_stmt_bodies, i)
     pilot params_w: word = array_get(ast_task_params, i)
     pilot returns_w: word = array_get(ast_task_returns, i)
+    llvm_current_word_params = ""
     pilot line_no = word_to_int(array_get(ast_stmt_lines, i))
 
     pilot ret_type = "i64"
     pilot is_void = false
     if returns_w == "void" or returns_w == "" { ret_type = "void" is_void = true }
     llvm_cur_func_is_void = is_void
+    llvm_cur_func_returns_word = returns_w == "word"
 
     pilot p_str = ""
     if params_w.length() > 0 { p_str = llvm_translate_params(params_w) }
@@ -1579,6 +1615,7 @@ task llvm_emit_task(eid: word) -> void {
     llvm_emit_line("entry:")
     if params_w.length() > 0 { llvm_allocate_params(params_w) }
     llvm_emit_block(body_id_w)
+    llvm_emit_current_word_param_cleanup("")
     if is_void { llvm_emit_line("    ret void") }
     else { llvm_emit_line("    ret i64 0") }
     llvm_emit_line("}")

@@ -105,6 +105,12 @@ void freak_word_replace_owned(freak_word* slot, freak_word replacement) {
     *slot = replacement;
 }
 
+void freak_word_release_owned(freak_word* slot) {
+    if (!slot) return;
+    if (slot->heap && slot->data) free((void*)slot->data);
+    *slot = (freak_word)FREAK_WORD_EMPTY;
+}
+
 bool freak_word_eq(freak_word a, freak_word b) {
     if (a.length != b.length) return false;
     return memcmp(a.data, b.data, a.length) == 0;

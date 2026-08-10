@@ -136,6 +136,8 @@ pilot emt_word_task_count = 0
 pilot emt_extern_names = 0
 pilot emt_extern_rets = 0
 pilot emt_extern_count = 0
+pilot emt_current_word_params = ""
+pilot emt_current_return_type = ""
 
 -- LLVM emitter state
 pilot llvm_line_count = 0
@@ -148,6 +150,8 @@ pilot llvm_task_reg_names = ""
 pilot llvm_task_reg_types = ""
 pilot llvm_task_reg_count = 0
 pilot llvm_cur_func_is_void = false
+pilot llvm_cur_func_returns_word = false
+pilot llvm_current_word_params = ""
 pilot llvm_declared_funcs = ""
 pilot llvm_loop_end_label = ""
 pilot llvm_loop_cond_label = ""
