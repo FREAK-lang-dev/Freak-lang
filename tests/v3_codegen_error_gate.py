@@ -113,6 +113,8 @@ def main() -> int:
             nominal_output = nominal_result.stdout + nominal_result.stderr
             assert "has no field 'not_a_field'" in nominal_output
             assert "has no method 'not_a_method'" in nominal_output
+            assert "nominal_bad.fk:6:1" in nominal_output
+            assert "nominal_bad.fk:7:1" in nominal_output
             assert nominal_artifact.read_text(encoding="utf-8") == SENTINEL
 
             nominal_artifact.unlink()
@@ -121,6 +123,64 @@ def main() -> int:
             assert not nominal_artifact.exists()
             assert not nominal_bad.with_suffix("").exists()
             assert not nominal_bad.with_suffix(".exe").exists()
+
+        nested_nominal_bad = tmp_path / "nested_nominal_bad.fk"
+        nested_nominal_bad.write_text(
+            "shape Known { value: int }\n"
+            "impl Known { task again(self) -> Known { give back self } }\n"
+            "pilot known = Known { value: 7 }\n"
+            "extern task imported() -> Known\n"
+            "task Known_spoof() { say \"not an impl\" }\n"
+            "pilot shadowed = Known { value: 8 }\n"
+            "task shadow_param(shadowed: int) { say shadowed.value }\n"
+            "task main() {\n"
+            "    when known.missing_when_target {\n"
+            "        known.missing_when_case -> say known.missing_when_body\n"
+            "        _ -> say \"fallback\"\n"
+            "    }\n"
+            "    training arc until false max known.missing_max sessions { break }\n"
+            "    say known.again().missing_chain\n"
+            "    say imported().missing_extern\n"
+            "    known.spoof()\n"
+            "    shadow_param(7)\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        for backend, flag, suffix in (("LLVM", "--llvm", ".ll"), ("C", "--c", ".c")):
+            artifact = Path(str(nested_nominal_bad) + suffix)
+            artifact.write_text(SENTINEL, encoding="utf-8")
+            result = run(freak, repo, nested_nominal_bad, "transpile", flag)
+            assert_rejected(result, f"{backend} nested nominal traversal gate")
+            output = result.stdout + result.stderr
+            for member in (
+                "missing_when_target",
+                "missing_when_case",
+                "missing_when_body",
+                "missing_max",
+                "missing_chain",
+                "missing_extern",
+            ):
+                assert member in output, f"{backend}: did not validate {member}\n{output}"
+            assert "has no method 'spoof'" in output
+            assert "non-shape value has no fields" in output
+            assert artifact.read_text(encoding="utf-8") == SENTINEL
+
+        nominal_shadow_ok = tmp_path / "nominal_shadow_ok.fk"
+        nominal_shadow_ok.write_text(
+            "shape Known { value: int }\n"
+            "pilot shadowed: int = 7\n"
+            "task previous(shadowed: Known) { say shadowed.value }\n"
+            "say shadowed.to_word()\n"
+            "task by_param(shadowed: int) { say shadowed.to_word() }\n"
+            "task main() {\n"
+            "    pilot shadowed: int = 9\n"
+            "    say shadowed.to_word()\n"
+            "    by_param(shadowed)\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        shadow_check = run(freak, repo, nominal_shadow_ok, "check")
+        assert shadow_check.returncode == 0, shadow_check.stdout + shadow_check.stderr
 
         check_result = run(freak, repo, parse_bad, "check")
         check_output = check_result.stdout + check_result.stderr

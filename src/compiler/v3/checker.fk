@@ -461,7 +461,7 @@ task tc_reset_locals() -> void {
     tc_local_count = 0
 }
 
-task tc_lookup_shape(name: word) -> word {
+task tc_lookup_type(name: word) -> word {
     pilot i = tc_local_count - 1
     repeat until i < 0 {
         if array_get(tc_local_names, i) == name { give back array_get(tc_local_types, i) }
@@ -475,17 +475,42 @@ task tc_lookup_shape(name: word) -> word {
     give back ""
 }
 
-task tc_task_return_shape(task_name: word) -> word {
+task tc_has_binding(name: word) -> bool {
+    pilot i = tc_local_count - 1
+    repeat until i < 0 {
+        if array_get(tc_local_names, i) == name { give back true }
+        i -= 1
+    }
+    i = tc_global_count - 1
+    repeat until i < 0 {
+        if array_get(tc_global_names, i) == name { give back true }
+        i -= 1
+    }
+    give back false
+}
+
+task tc_lookup_shape(name: word) -> word {
+    pilot binding_type = tc_lookup_type(name)
+    if is_shape_name(binding_type) { give back binding_type }
+    give back ""
+}
+
+task tc_task_return_type(task_name: word) -> word {
     pilot i = 0
     repeat array_len(ast_top_stmts) times {
         pilot sid = word_to_int(array_get(ast_top_stmts, i))
-        if array_get(ast_stmt_kinds, sid) == STMT_TASK and array_get(ast_stmt_names, sid) == task_name {
-            pilot ret: word = array_get(ast_task_returns, sid)
-            if is_shape_name(ret) { give back ret }
-            give back ""
+        pilot kind: word = array_get(ast_stmt_kinds, sid)
+        if (kind == STMT_TASK or kind == STMT_EXTERN) and array_get(ast_stmt_names, sid) == task_name {
+            give back array_get(ast_task_returns, sid)
         }
         i += 1
     }
+    give back ""
+}
+
+task tc_task_return_shape(task_name: word) -> word {
+    pilot ret = tc_task_return_type(task_name)
+    if is_shape_name(ret) { give back ret }
     give back ""
 }
 
@@ -506,14 +531,50 @@ task tc_expr_shape(expr_id: int) -> word {
             if is_shape_name(field_type) { give back field_type }
         }
     }
+    if kind == EXPR_METHOD {
+        pilot base = word_to_int(array_get(ast_expr_lefts, expr_id))
+        pilot base_shape = tc_expr_shape(base)
+        if base_shape != "" { give back tc_task_return_shape(base_shape + "_" + val) }
+    }
     give back ""
 }
 
-task tc_has_task(task_name: word) -> bool {
+task tc_expr_is_known_non_shape(expr_id: int) -> bool {
+    if expr_id < 0 { give back false }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    pilot val: word = array_get(ast_expr_vals, expr_id)
+    if kind == EXPR_IDENT {
+        if tc_has_binding(val) and tc_lookup_shape(val) == "" { give back true }
+        give back false
+    }
+    if kind == EXPR_INT or kind == EXPR_FLOAT or kind == EXPR_BOOL or kind == EXPR_STR { give back true }
+    if kind == EXPR_FIELD {
+        pilot base_shape = tc_expr_shape(word_to_int(array_get(ast_expr_lefts, expr_id)))
+        if base_shape != "" {
+            pilot field_type = get_shape_field_type(base_shape, val)
+            if field_type != "" and not is_shape_name(field_type) { give back true }
+        }
+    }
+    if kind == EXPR_CALL {
+        pilot ret = tc_task_return_type(val)
+        if ret != "" and not is_shape_name(ret) { give back true }
+    }
+    if kind == EXPR_METHOD {
+        pilot base_shape = tc_expr_shape(word_to_int(array_get(ast_expr_lefts, expr_id)))
+        if base_shape != "" {
+            pilot ret = tc_task_return_type(base_shape + "_" + val)
+            if ret != "" and not is_shape_name(ret) { give back true }
+        }
+    }
+    give back false
+}
+
+task tc_has_impl_method(shape_name: word, method_name: word) -> bool {
+    pilot task_name = shape_name + "_" + method_name
     pilot i = 0
     repeat array_len(ast_top_stmts) times {
         pilot sid = word_to_int(array_get(ast_top_stmts, i))
-        if array_get(ast_stmt_kinds, sid) == STMT_TASK and array_get(ast_stmt_names, sid) == task_name {
+        if array_get(ast_stmt_kinds, sid) == STMT_TASK and array_get(ast_stmt_names, sid) == task_name and array_get(ast_stmt_extras, sid) == "impl:" + shape_name {
             give back true
         }
         i += 1
@@ -524,6 +585,17 @@ task tc_has_task(task_name: word) -> bool {
 task tc_diag_member(shape_name: word, member_kind: word, member_name: word, line: int) -> void {
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: shape '" + shape_name + "' has no " + member_kind + " '" + member_name + "' (line " + word_from_int(line) + ")"
+    say " --> " + input_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_source_line(line)
+    say "  | ^"
+}
+
+task tc_diag_non_shape_field(line: int) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: non-shape value has no fields (line " + word_from_int(line) + ")"
+    say " --> " + input_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_source_line(line)
+    say "  | ^"
 }
 
 task tc_validate_args(args: word, line: int) -> void {
@@ -551,6 +623,8 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         pilot receiver_shape = tc_expr_shape(word_to_int(left))
         if receiver_shape != "" and get_shape_field_index(receiver_shape, val) < 0 {
             tc_diag_member(receiver_shape, "field", val, line)
+        } else if receiver_shape == "" and tc_expr_is_known_non_shape(word_to_int(left)) {
+            tc_diag_non_shape_field(line)
         }
         give back
     }
@@ -558,7 +632,7 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         tc_validate_expr(word_to_int(left), line)
         tc_validate_args(right, line)
         pilot receiver_shape = tc_expr_shape(word_to_int(left))
-        if receiver_shape != "" and not tc_has_task(receiver_shape + "_" + val) {
+        if receiver_shape != "" and not tc_has_impl_method(receiver_shape, val) {
             tc_diag_member(receiver_shape, "method", val, line)
         }
         give back
@@ -584,7 +658,7 @@ task tc_register_params(params: word) -> void {
     repeat params.length() times {
         pilot c = params.char_at(i)
         if c == "," {
-            if name != "" and is_shape_name(type_name) { tc_set_local(name, type_name) }
+            if name != "" { tc_set_local(name, type_name) }
             name = ""
             type_name = ""
             in_type = false
@@ -593,7 +667,37 @@ task tc_register_params(params: word) -> void {
         else { name = name + c }
         i += 1
     }
-    if name != "" and is_shape_name(type_name) { tc_set_local(name, type_name) }
+    if name != "" { tc_set_local(name, type_name) }
+}
+
+task tc_validate_when_cases(cases: word, line: int) -> void {
+    pilot case_expr = ""
+    pilot current = ""
+    pilot in_stmt = false
+    pilot i = 0
+    repeat cases.length() times {
+        pilot c = cases.char_at(i)
+        if c == ":" {
+            case_expr = current
+            current = ""
+            in_stmt = true
+        } else if c == "," {
+            if case_expr != "" and case_expr != "-1" { tc_validate_expr(word_to_int(case_expr), line) }
+            pilot saved_local_count = tc_local_count
+            if current != "" { tc_validate_stmt(word_to_int(current)) }
+            tc_local_count = saved_local_count
+            case_expr = ""
+            current = ""
+            in_stmt = false
+        } else { current = current + c }
+        i += 1
+    }
+    if in_stmt {
+        if case_expr != "" and case_expr != "-1" { tc_validate_expr(word_to_int(case_expr), line) }
+        pilot saved_local_count = tc_local_count
+        if current != "" { tc_validate_stmt(word_to_int(current)) }
+        tc_local_count = saved_local_count
+    }
 }
 
 task tc_validate_block(block: word) -> void {
@@ -620,10 +724,9 @@ task tc_validate_stmt(stmt_id: int) -> void {
     if kind == STMT_PILOT {
         tc_validate_expr(word_to_int(expr), line)
         pilot type_ann: word = array_get(ast_stmt_extras, stmt_id)
-        pilot shape_name = ""
-        if is_shape_name(type_ann) { shape_name = type_ann }
-        else { shape_name = tc_expr_shape(word_to_int(expr)) }
-        if shape_name != "" { tc_set_local(array_get(ast_stmt_names, stmt_id), shape_name) }
+        pilot binding_type = type_ann
+        if binding_type == "" { binding_type = tc_expr_shape(word_to_int(expr)) }
+        tc_set_local(array_get(ast_stmt_names, stmt_id), binding_type)
         give back
     }
     if kind == STMT_ASSIGN {
@@ -641,9 +744,20 @@ task tc_validate_stmt(stmt_id: int) -> void {
         tc_validate_block(array_get(ast_stmt_else_bodies, stmt_id))
         give back
     }
-    if kind == STMT_REPEAT or kind == STMT_TRAINING_ARC {
+    if kind == STMT_REPEAT {
         tc_validate_expr(word_to_int(expr), line)
         tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
+        give back
+    }
+    if kind == STMT_TRAINING_ARC {
+        tc_validate_expr(word_to_int(expr), line)
+        tc_validate_expr(word_to_int(array_get(ast_stmt_extras, stmt_id)), line)
+        tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
+        give back
+    }
+    if kind == STMT_WHEN {
+        tc_validate_expr(word_to_int(expr), line)
+        tc_validate_when_cases(array_get(ast_stmt_bodies, stmt_id), line)
         give back
     }
     if kind == STMT_BLOCK or kind == STMT_EVENTUALLY {
@@ -660,10 +774,9 @@ task tc_run_program() -> void {
         if array_get(ast_stmt_kinds, sid) == STMT_PILOT {
             pilot expr = word_to_int(array_get(ast_stmt_exprs, sid))
             pilot type_ann: word = array_get(ast_stmt_extras, sid)
-            pilot shape_name = ""
-            if is_shape_name(type_ann) { shape_name = type_ann }
-            else { shape_name = tc_expr_shape(expr) }
-            if shape_name != "" { tc_set_global(array_get(ast_stmt_names, sid), shape_name) }
+            pilot binding_type = type_ann
+            if binding_type == "" { binding_type = tc_expr_shape(expr) }
+            tc_set_global(array_get(ast_stmt_names, sid), binding_type)
         }
         i += 1
     }
@@ -675,9 +788,12 @@ task tc_run_program() -> void {
             tc_reset_locals()
             tc_register_params(array_get(ast_task_params, sid))
             tc_validate_block(array_get(ast_stmt_bodies, sid))
+            tc_reset_locals()
         } else if kind == STMT_PILOT {
+            tc_reset_locals()
             tc_validate_expr(word_to_int(array_get(ast_stmt_exprs, sid)), word_to_int(array_get(ast_stmt_lines, sid)))
         } else {
+            tc_reset_locals()
             tc_validate_stmt(sid)
         }
         i += 1

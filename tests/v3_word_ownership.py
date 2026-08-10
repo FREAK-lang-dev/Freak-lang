@@ -157,6 +157,35 @@ task main() {
 }
 """
 
+RETURN_SHADOW_PROGRAM = """pilot mut returned_word: word = "g" + "lobal"
+
+task return_local_shadow() -> word {
+    pilot returned_word: word = "l" + "ocal"
+    give back returned_word
+}
+
+task return_param_shadow(returned_word: word) -> word {
+    if true {
+        pilot returned_word: word = "i" + "nner"
+        give back returned_word
+    }
+    give back "fallback"
+}
+
+task main() {
+    pilot mut local_result: word = return_local_shadow()
+    say local_result
+    local_result = "released"
+    pilot mut argument: word = "a" + "rg"
+    pilot mut inner_result: word = return_param_shadow(argument)
+    argument = "released"
+    say inner_result
+    inner_result = "released"
+    say returned_word
+    returned_word = "released"
+}
+"""
+
 METHOD_SHAPE_PROGRAM = """shape Counter {
     value: int
 }
@@ -250,6 +279,7 @@ def main() -> int:
             ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "arg", "shadow", "global", "inner", "outer", "outer!"], ("c", "llvm")),
             ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"], ("c", "llvm")),
             ("global_call", GLOBAL_CALL_PROGRAM, [], ["local", "global"], ("c", "llvm")),
+            ("return_shadow", RETURN_SHADOW_PROGRAM, [], ["local", "inner", "global"], ("c", "llvm")),
             ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join", "literal"], ("c", "llvm")),
             ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field", "self", "self"], ("llvm",)),
         )
@@ -273,7 +303,7 @@ def main() -> int:
                         assert "freak_observe(freak_word_concat(" in generated_text
                         assert "freak_observe_shadow(freak_word_clone(shadow_arg))" in generated_text
                         assert "global_alias = freak_word_clone(global_owner)" in generated_text
-                        assert "freak_word_release_owned(&value)" in generated_text
+                        assert "freak_word_release_owned(&__freak_param_value)" in generated_text
                     elif case_name == "aggregate":
                         assert "freak_array_push_owned(items, freak_word_clone(item))" in generated_text
                         assert "freak_array_set_owned(items, 0, freak_word_concat(" in generated_text
@@ -284,8 +314,11 @@ def main() -> int:
                         assert "freak_array_get" in generated_text
                     elif case_name == "global_call":
                         assert "freak_observe(freak_word_clone(global_owner))" in generated_text
-                    else:
+                    elif case_name == "global_return":
                         assert "__freak_return_value = freak_word_clone(global_owner)" in generated_text
+                    elif case_name == "return_shadow":
+                        assert "freak_return_local_shadow" in generated_text
+                        assert "freak_return_param_shadow" in generated_text
                 else:
                     assert "@freak_llvm_word_release_replaced" in generated_text
                     assert "@freak_llvm_word_clone" in generated_text

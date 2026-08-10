@@ -1103,6 +1103,15 @@ task llvm_is_current_word_param(name: word) -> bool {
     give back llvm_current_word_params.contains("|" + name + "|")
 }
 
+task llvm_active_binding_is_word_param(name: word) -> bool {
+    if not llvm_is_current_word_param(name) { give back false }
+    give back llvm_get_llvm_name(name) == name
+}
+
+task llvm_active_binding_is_global(name: word) -> bool {
+    give back llvm_get_llvm_name(name) == "" and llvm_is_global(name)
+}
+
 task llvm_emit_current_word_param_cleanup(skip_name: word) -> void {
     pilot i = 0
     pilot current = ""
@@ -1153,13 +1162,13 @@ task llvm_emit_stmt(eid: word) -> void {
             pilot return_idx = word_to_int(expr_id_w)
             pilot return_kind: word = array_get(ast_expr_kinds, return_idx)
             pilot return_name: word = array_get(ast_expr_vals, return_idx)
-            if llvm_cur_func_returns_word and (return_kind == EXPR_FIELD or (return_kind == EXPR_CALL and return_name == "array_get") or (return_kind == EXPR_IDENT and not llvm_is_current_word_param(return_name) and llvm_is_global(return_name))) {
+            if llvm_cur_func_returns_word and (return_kind == EXPR_FIELD or (return_kind == EXPR_CALL and return_name == "array_get") or (return_kind == EXPR_IDENT and llvm_active_binding_is_global(return_name))) {
                 pilot clone_reg = next_reg()
                 llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
                 reg = clone_reg
             }
             pilot skip_name = ""
-            if llvm_cur_func_returns_word and return_kind == EXPR_IDENT and llvm_is_current_word_param(return_name) { skip_name = return_name }
+            if llvm_cur_func_returns_word and return_kind == EXPR_IDENT and llvm_active_binding_is_word_param(return_name) { skip_name = return_name }
             llvm_emit_current_word_param_cleanup(skip_name)
             llvm_emit_line("    ret i64 " + reg)
         } else {

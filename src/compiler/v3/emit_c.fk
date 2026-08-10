@@ -146,7 +146,11 @@ task emit_expr(id: word) -> void {
         else { emit("false") }
         give back
     }
-    if kind == EXPR_IDENT { emit(val) give back }
+    if kind == EXPR_IDENT {
+        if emt_active_binding_is_word_param(val) { emit("__freak_param_" + val) }
+        else { emit(val) }
+        give back
+    }
 
     if kind == EXPR_STR {
         emit_c_string(val)
@@ -458,6 +462,26 @@ task emt_is_current_word_param(name: word) -> bool {
     give back emt_current_word_params.contains("|" + name + "|")
 }
 
+task emt_active_binding_is_word_param(name: word) -> bool {
+    if not emt_is_current_word_param(name) { give back false }
+    pilot matches = 0
+    pilot i = 0
+    repeat emt_var_count times {
+        if array_get(emt_var_names, i) == name { matches += 1 }
+        i += 1
+    }
+    give back matches == 1
+}
+
+task emt_active_binding_is_global(name: word) -> bool {
+    pilot i = 0
+    repeat emt_var_count times {
+        if array_get(emt_var_names, i) == name { give back false }
+        i += 1
+    }
+    give back emt_is_global_binding(name)
+}
+
 task emit_current_word_param_cleanup(skip_name: word) -> void {
     pilot i = 0
     pilot current = ""
@@ -465,7 +489,7 @@ task emit_current_word_param_cleanup(skip_name: word) -> void {
         pilot ch: word = emt_current_word_params.char_at(i)
         if ch == "|" {
             if current != "" and current != skip_name {
-                emit_line("freak_word_release_owned(&" + current + ");")
+                emit_line("freak_word_release_owned(&__freak_param_" + current + ");")
             }
             current = ""
         } else {
@@ -501,7 +525,7 @@ task emit_stmt(eid: word) -> void {
             pilot return_kind: word = array_get(ast_expr_kinds, return_idx)
             pilot return_name: word = array_get(ast_expr_vals, return_idx)
             pilot clone_return = return_kind == EXPR_FIELD
-            if return_kind == EXPR_IDENT and not emt_is_current_word_param(return_name) and emt_is_global_binding(return_name) { clone_return = true }
+            if return_kind == EXPR_IDENT and emt_active_binding_is_global(return_name) { clone_return = true }
             if return_kind == EXPR_CALL and return_name == "array_get" { clone_return = true }
             emit("{ freak_word __freak_return_value = ")
             if clone_return { emit("freak_word_clone(") }
@@ -509,7 +533,7 @@ task emit_stmt(eid: word) -> void {
             if clone_return { emit(")") }
             emit_line(";")
             pilot skip_name = ""
-            if return_kind == EXPR_IDENT and emt_is_current_word_param(return_name) { skip_name = return_name }
+            if return_kind == EXPR_IDENT and emt_active_binding_is_word_param(return_name) { skip_name = return_name }
             emit_current_word_param_cleanup(skip_name)
             emit_line("return __freak_return_value; }")
         } else if expr_id_w.length() > 0 and not expr_id_w.starts_with("-") {
@@ -775,7 +799,8 @@ task translate_params(p: word) -> word {
             if cur_type == "bool" { ctype = "bool" }
             if cur_type == "num" { ctype = "double" }
             if res != "" { res = res + ", " }
-            res = res + ctype + " " + cur_name
+            if cur_type == "word" { res = res + ctype + " __freak_param_" + cur_name }
+            else { res = res + ctype + " " + cur_name }
             cur_name = ""
             cur_type = ""
             in_type = false
@@ -791,7 +816,8 @@ task translate_params(p: word) -> word {
         if cur_type == "bool" { ctype = "bool" }
         if cur_type == "num" { ctype = "double" }
         if res != "" { res = res + ", " }
-        res = res + ctype + " " + cur_name
+        if cur_type == "word" { res = res + ctype + " __freak_param_" + cur_name }
+        else { res = res + ctype + " " + cur_name }
     }
     give back res
 }

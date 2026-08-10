@@ -664,7 +664,10 @@ task parse_impl() -> int {
             }
             pilot body_id = parse_block()
             pilot full_name = impl_name + "_" + mname
-            pilot sid = alloc_stmt(STMT_TASK, full_name, "", body_id, "", "", params, ret_type, stmt_line)
+            -- Preserve impl provenance separately from the mangled task name.
+            -- The always-on nominal checker must not accept a free task named
+            -- `Shape_method` as proof that `Shape.method` exists.
+            pilot sid = alloc_stmt(STMT_TASK, full_name, "", body_id, "", "impl:" + impl_name, params, ret_type, stmt_line)
             array_push(ast_top_stmts, word_from_int(sid))
         } else {
             advance_tok()
