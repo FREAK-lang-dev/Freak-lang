@@ -33,6 +33,8 @@ task init_arrays() -> void {
     shape_registry_fields = array_new()
     emt_var_names = array_new()
     emt_var_types = array_new()
+    emt_global_var_names = array_new()
+    emt_global_var_types = array_new()
     emt_word_tasks = array_new()
     emt_extern_names = array_new()
     emt_extern_rets = array_new()
@@ -135,6 +137,32 @@ task get_shape_field_index(shape_name: word, field_name: word) -> int {
     give back 0 - 1
 }
 
+task get_shape_field_type(shape_name: word, field_name: word) -> word {
+    pilot fields = get_shape_fields(shape_name)
+    pilot cur_name = ""
+    pilot cur_type = ""
+    pilot in_type = false
+    pilot i = 0
+    repeat fields.length() times {
+        pilot c = fields.char_at(i)
+        if c == "," {
+            if cur_name == field_name { give back cur_type }
+            cur_name = ""
+            cur_type = ""
+            in_type = false
+        } else if c == ":" {
+            in_type = true
+        } else if in_type {
+            cur_type = cur_type + c
+        } else {
+            cur_name = cur_name + c
+        }
+        i += 1
+    }
+    if cur_name == field_name { give back cur_type }
+    give back ""
+}
+
 -- ===================== STREAMING EMIT ==============================
 -- v3 KEY CHANGE: emit writes directly to file. No buffer.
 
@@ -176,11 +204,38 @@ task emt_set_var_type(name: word, vtype: word) -> void {
     emt_var_count += 1
 }
 
+task emt_reset_local_types() -> void {
+    emt_var_names = array_new()
+    emt_var_types = array_new()
+    emt_var_count = 0
+}
+
+task emt_set_global_var_type(name: word, vtype: word) -> void {
+    pilot i = 0
+    repeat emt_global_var_count times {
+        if array_get(emt_global_var_names, i) == name {
+            array_set(emt_global_var_types, i, vtype)
+            give back
+        }
+        i += 1
+    }
+    array_push(emt_global_var_names, name)
+    array_push(emt_global_var_types, vtype)
+    emt_global_var_count += 1
+}
+
 task emt_get_var_type(name: word) -> word {
     pilot i = 0
     repeat emt_var_count times {
         if array_get(emt_var_names, i) == name {
             give back array_get(emt_var_types, i)
+        }
+        i += 1
+    }
+    i = 0
+    repeat emt_global_var_count times {
+        if array_get(emt_global_var_names, i) == name {
+            give back array_get(emt_global_var_types, i)
         }
         i += 1
     }

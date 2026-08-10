@@ -186,12 +186,12 @@ task emit_expr(id: word) -> void {
 
     if kind == EXPR_ARRAY_LIT {
         -- `[a, b, c]` lowers to a clang/gcc statement-expression:
-        --   ({ int64_t arr = freak_llvm_array_new();
-        --      freak_llvm_array_push(arr, a);
-        --      freak_llvm_array_push(arr, b);
+        --   ({ int64_t arr = freak_array_new();
+        --      freak_array_push_owned(arr, a);
+        --      freak_array_push_owned(arr, b);
         --      arr; })
         -- Element ids live in `left`, comma-separated.
-        emit("({ int64_t __arr = freak_llvm_array_new(); ")
+        emit("({ int64_t __arr = freak_array_new(); ")
         pilot ali = 0
         pilot alen2 = left.length()
         pilot cur_eid_c = ""
@@ -199,7 +199,7 @@ task emit_expr(id: word) -> void {
             pilot acc = left.char_at(ali)
             if acc == "," {
                 if cur_eid_c.length() > 0 {
-                    emit("freak_llvm_array_push(__arr, ")
+                    emit("freak_array_push_owned(__arr, ")
                     pilot clone_element = emt_word_expr_needs_clone(cur_eid_c)
                     if clone_element { emit("freak_word_clone(") }
                     emit_expr(cur_eid_c)
@@ -213,7 +213,7 @@ task emit_expr(id: word) -> void {
             ali += 1
         }
         if cur_eid_c.length() > 0 {
-            emit("freak_llvm_array_push(__arr, ")
+            emit("freak_array_push_owned(__arr, ")
             pilot clone_element = emt_word_expr_needs_clone(cur_eid_c)
             if clone_element { emit("freak_word_clone(") }
             emit_expr(cur_eid_c)
@@ -799,6 +799,7 @@ task c_ret_type(returns_w: word) -> word {
 }
 
 task emit_task(eid: word) -> void {
+    emt_reset_local_types()
     pilot i = word_to_int(eid)
     pilot name_w: word = array_get(ast_stmt_names, i)
     pilot body_id_w: word = array_get(ast_stmt_bodies, i)
@@ -876,7 +877,7 @@ task emit_global_decl(eid: word) -> void {
         if e_kind == EXPR_BOOL { ctype = "bool " defval = " = false" vtype = "b" }
         if e_kind == EXPR_FLOAT { ctype = "double " defval = " = 0.0" vtype = "d" }
     }
-    emt_set_var_type(name_w, vtype)
+    emt_set_global_var_type(name_w, vtype)
     emit(ctype + name_w + defval)
     emit_line(";")
 }
@@ -977,6 +978,7 @@ task emit_c_program() -> void {
     if not has_user_main {
         emit_line("void freak_main(void) {")
     }
+    emt_reset_local_types()
 
     -- Initialize globals
     i = 0

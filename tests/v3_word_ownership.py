@@ -30,6 +30,7 @@ pilot mut shadow_owner: word = "s" + "hadow"
 
 task observe_shadow(shadow_owner: word) {
     pilot length = shadow_owner.length()
+    say shadow_owner
 }
 
 task main() {
@@ -104,6 +105,9 @@ task main() {
     pilot mut joined: word = word_join(joined_items)
     say joined
     joined = "released"
+    pilot literal_items = ["array", "lit" + "eral"]
+    say array_get(literal_items, 1)
+    array_release(literal_items)
 }
 """
 
@@ -121,12 +125,36 @@ task main() {
 }
 """
 
+GLOBAL_CALL_PROGRAM = """pilot mut global_owner: word = "g" + "lobal"
+
+task shadow_global_type(global_owner: int) {
+    pilot copy = global_owner
+}
+
+task observe(value: word) {
+    pilot length = value.length()
+}
+
+task main() {
+    observe(global_owner)
+    say global_owner
+    global_owner = "released"
+}
+"""
+
 METHOD_SHAPE_PROGRAM = """shape Counter {
     value: int
 }
 
 shape Message {
+    code: int
     value: word
+}
+
+shape Trailer {
+    first: int
+    second: int
+    value: int
 }
 
 impl Message {
@@ -135,19 +163,26 @@ impl Message {
     }
 }
 
-pilot message = Message { value: "initial" }
+pilot message = Message { code: 7, value: "initial" }
 
 task main() {
     pilot mut replacement: word = "x" + "y"
     message.value = replacement
     replacement = "released"
     say message.value
-    message.value = "released"
+    pilot mut extracted: word = message.value
+    message.value = "replaced"
+    say extracted
+    extracted = "released"
     pilot mut method_value: word = "m" + "ethod"
     message.observe(method_value)
     method_value = "new"
     say method_value
     message.observe("r" + "value")
+    message.value = "f" + "ield"
+    message.observe(message.value)
+    say message.value
+    message.value = "released"
 }
 """
 
@@ -177,10 +212,11 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="freak-v3-word-ownership-") as tmp:
         root = Path(tmp)
         cases = (
-            ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "shadow", "global"], ("c", "llvm")),
+            ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "arg", "shadow", "global"], ("c", "llvm")),
             ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"], ("c", "llvm")),
-            ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join"], ("c", "llvm")),
-            ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "new"], ("llvm",)),
+            ("global_call", GLOBAL_CALL_PROGRAM, [], ["global"], ("c", "llvm")),
+            ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join", "literal"], ("c", "llvm")),
+            ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field"], ("llvm",)),
         )
         for case_name, program, extra_flags, expected_output, backends in cases:
             source = root / f"replace_owned_{case_name}.fk"
@@ -208,7 +244,11 @@ def main() -> int:
                         assert "freak_array_set_owned(items, 0, freak_word_concat(" in generated_text
                         assert "freak_array_release_owned(items)" in generated_text
                         assert "freak_word_join_owned(joined_items)" in generated_text
+                        assert "({ int64_t __arr = freak_array_new();" in generated_text
+                        assert "freak_array_push_owned(__arr, freak_word_concat(" in generated_text
                         assert "freak_array_get" in generated_text
+                    elif case_name == "global_call":
+                        assert "freak_observe(freak_word_clone(global_owner))" in generated_text
                     else:
                         assert "__freak_return_value = freak_word_clone(global_owner)" in generated_text
                 else:
@@ -258,6 +298,46 @@ def main() -> int:
                 assert executed.stdout.strip().splitlines() == expected_output, executed.stdout
                 assert "LeakSanitizer" not in executed.stderr
                 assert "ownership audit found" not in executed.stderr
+
+        if sys.platform != "win32":
+            # Negative control: LLVM allocations are globally reachable, so
+            # LSan alone cannot prove tracker cleanup. The test-only audit must
+            # independently reject one deliberately retained tracker entry.
+            clang = os.environ.get("FREAK_CLANG") or shutil.which("clang")
+            assert clang, "clang is required for the ownership audit control"
+            audit_source = root / "ownership_audit_control.c"
+            audit_source.write_text(
+                "#include <stdint.h>\n"
+                "#include <stdlib.h>\n"
+                "extern int64_t freak_llvm_word_adopt(int64_t);\n"
+                "int main(void) {\n"
+                "    char *owned = (char *)malloc(2);\n"
+                "    if (!owned) return 2;\n"
+                "    owned[0] = 'x'; owned[1] = '\\0';\n"
+                "    freak_llvm_word_adopt((int64_t)owned);\n"
+                "    return 0;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            audit_binary = root / "ownership_audit_control"
+            audit_compiled = run(
+                [
+                    clang,
+                    "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1",
+                    "-o",
+                    str(audit_binary),
+                    str(audit_source),
+                    str(repo / "freakc" / "runtime" / "freak_runtime.c"),
+                    "-I",
+                    str(repo / "freakc" / "runtime"),
+                    "-lm",
+                ],
+                repo,
+            )
+            assert audit_compiled.returncode == 0, audit_compiled.stdout + audit_compiled.stderr
+            audit_executed = run([str(audit_binary)], root)
+            assert audit_executed.returncode == 86, audit_executed.stdout + audit_executed.stderr
+            assert "ownership audit found 1 unreleased word allocation" in audit_executed.stderr
 
     print("V3 word replacement ownership: PASS")
     return 0

@@ -648,6 +648,15 @@ task parse_impl() -> int {
             advance_tok()
             expect_tok(TOK_PUNCT, "(")
             pilot params = parse_params()
+            -- `self` is parsed generically, then specialized here once the
+            -- owning impl shape is known. Emitters can now resolve duplicate
+            -- field and method names through the receiver's actual shape.
+            if params == "self:word" { params = "self:" + impl_name }
+            else if params.starts_with("self:word,") {
+                params = "self:" + impl_name + params.substring(9, params.length() - 9)
+            } else {
+                params = params.replace(",self:word", ",self:" + impl_name)
+            }
             pilot ret_type = "void"
             if match_tok(TOK_PUNCT, "->") {
                 ret_type = cur_tok_val()

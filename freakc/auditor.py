@@ -1722,6 +1722,10 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freak_word_replace_owned",
                 "freak_llvm_word_release_replaced",
                 "freak_llvm_word_adopt",
+                "FREAK_RUNTIME_OWNERSHIP_AUDIT",
+                "freak_array_set_owned",
+                "freak_array_release_owned",
+                "freak_word_join_owned",
             ),
         ),
         "word ownership regression": (
@@ -1731,6 +1735,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 "-fsanitize=address",
                 "LeakSanitizer",
                 "text = text",
+                "ownership audit found 1 unreleased word allocation",
+                "literal_items",
+                "message.observe(message.value)",
             ),
         ),
         "POSIX installer": (
