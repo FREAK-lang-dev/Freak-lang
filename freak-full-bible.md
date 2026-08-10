@@ -2494,10 +2494,10 @@ alternative     -- special mode. enables ALL anime features. full causality.
 
 | Subcommand / flag | v0.14.0 status |
 |---|---|
-| `freak run`, `freak build`, `freak check`, `freak transpile` | ✅ Implemented — `run` caches only with a content fingerprint over source, loaded stdlib, compiler/toolchain identity, backend flags, and runtime inputs. Failed or racing rebuilds invalidate proof and never execute an older artifact. |
+| `freak run`, `freak build`, `freak check`, `freak transpile` | ✅ Implemented — `run` caches only with fingerprints over source, loaded stdlib, resolved compiler/toolchain identity, backend flags, runtime inputs, and the output artifact, then revalidates immediately before launch. Concurrent writers to the same output are not serialized. |
 | `freak version`, `freak help`, `freak init`, `freak flex` | ✅ Implemented |
 | `freak doctor`, `freak doctor --fix`, `freak doctor --json` | ✅ Implemented — validates a usable Clang toolchain, optional LLD, the complete runtime/UI + 11-module stdlib payload, and a compile-link-execute probe; required failures return nonzero. `--fix` repairs the distribution as one staged unit. |
-| `freak upgrade` | ✅ Implemented — remains compatible with the standalone release assets used by v0.14.0 clients; current clients delegate to the tagged staged installer, with deferred Windows self-replacement. |
+| `freak upgrade` | ✅ Implemented — current clients delegate to the tagged staged installer, with rollback and deferred Windows self-replacement. Immutable v0.14.0 POSIX clients require a standalone-binary hop followed by a second upgrade; immutable Windows clients must bootstrap once through `install.ps1`. |
 | `freak hangar <cmd>` and standalone `hangar` binary | ✅ Implemented |
 | `freak audit-science`, `freak audit-trust`, `freak audit-miracles`, `freak foreshadow-audit` | ✅ Implemented (native CLI shells out to Python; native FREAK port is V4) |
 | `freak audit-conformance` | ✅ Implemented (verifies §0.2 status table against the code) |

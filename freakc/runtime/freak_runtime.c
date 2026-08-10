@@ -23,10 +23,22 @@
 #include <direct.h>
 #else
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <dirent.h>
 #define _strdup strdup
 #endif
+
+static int64_t freak_normalize_process_status(int status) {
+#ifdef _WIN32
+    return (int64_t)status;
+#else
+    if (status == -1) return -1;
+    if (WIFEXITED(status)) return (int64_t)WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return (int64_t)(128 + WTERMSIG(status));
+    return (int64_t)status;
+#endif
+}
 
 /* runtime bootstrap globals (set by generated main) */
 int freak_argc = 0;
@@ -822,15 +834,15 @@ freak_process_output freak_process_run(freak_word cmd, void* args) {
 
     out.out = freak_word_own(buf, len);
     out.err = freak_word_lit("");
-    out.exit_code = (int64_t)status;
-    out.success = (status == 0);
+    out.exit_code = freak_normalize_process_status(status);
+    out.success = (out.exit_code == 0);
     return out;
 }
 
 /* Simple exec: run command, return exit code */
 int64_t freak_process_exec(freak_word cmd) {
     const char* cmd_str = freak_word_to_cstr(cmd);
-    return (int64_t)system(cmd_str);
+    return freak_normalize_process_status(system(cmd_str));
 }
 
 /* Exec and capture stdout */

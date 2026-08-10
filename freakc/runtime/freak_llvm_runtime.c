@@ -9,7 +9,19 @@ __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 #else
 #include <unistd.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #endif
+
+static int64_t freak_llvm_normalize_process_status(int status) {
+#ifdef _WIN32
+    return (int64_t)status;
+#else
+    if (status == -1) return -1;
+    if (WIFEXITED(status)) return (int64_t)WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return (int64_t)(128 + WTERMSIG(status));
+    return (int64_t)status;
+#endif
+}
 
 /* ── Global args — no longer needed, moved to LLVM IR globals ── */
 
@@ -555,7 +567,7 @@ int64_t freak_llvm_process_exec(int64_t cmd_p) {
     if (!cmd) {
         return -1;
     }
-    return (int64_t)system(cmd);
+    return freak_llvm_normalize_process_status(system(cmd));
 }
 
 /* ── Entry point setup ──────────────────────────────── */

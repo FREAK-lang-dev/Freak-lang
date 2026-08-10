@@ -45,12 +45,27 @@ task cli_doctor_find_clang_command() -> word {
 task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     if clang_cmd == "" { give back false }
     pilot windir: word = process::env("WINDIR")
+    pilot probe_id = word_from_int(time::now_ms())
+    pilot probe_stem = "_freak_doctor_clang_probe_" + probe_id
+    pilot probe_source = probe_stem + ".c"
+    pilot probe_binary = probe_stem
+    if windir != "" { probe_binary = probe_binary + ".exe" }
+    pilot probe_text = "#include <stdio.h>\nint main(void) { return 0; }\n"
+    fs::write(probe_source, probe_text)
+    pilot probe_exit = 1
+    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
     if windir != "" {
-        if process::exec(clang_cmd + " --version >nul 2>nul") == 0 { give back true }
+        probe_exit = process::exec(clang_prefix + " -x c \"" + probe_source + "\" -o \"" + probe_binary + "\" >nul 2>nul")
     } else {
-        if process::exec(clang_cmd + " --version >/dev/null 2>/dev/null") == 0 { give back true }
+        probe_exit = process::exec(clang_prefix + " -x c \"" + probe_source + "\" -o \"" + probe_binary + "\" >/dev/null 2>/dev/null")
     }
-    give back false
+    pilot probe_ok = probe_exit == 0 and fs::exists(probe_binary)
+    if fs::exists(probe_source) { fs::delete(probe_source) }
+    if fs::exists(probe_binary) { fs::delete(probe_binary) }
+    if fs::exists(probe_stem + ".obj") { fs::delete(probe_stem + ".obj") }
+    if fs::exists(probe_stem + ".o") { fs::delete(probe_stem + ".o") }
+    if fs::exists(probe_stem + ".pdb") { fs::delete(probe_stem + ".pdb") }
+    give back probe_ok
 }
 
 task cli_doctor_clang_version_line(clang_cmd: word) -> word {
@@ -238,6 +253,10 @@ task cli_doctor_json() -> int {
 -- Returns 0 if installation succeeded (or already installed).
 task cli_install_clang(os_tag: word) -> int {
     say "  " + C_DIM + "Attempting to install clang..." + C_RESET
+    pilot install_override: word = process::env("FREAK_DOCTOR_INSTALL_COMMAND")
+    if install_override != "" {
+        give back process::exec(install_override)
+    }
     if os_tag == "windows" {
         if process::exec("where winget >nul 2>nul") == 0 {
             pilot wg_res = process::exec("winget install --id MartinStorsjo.LLVM-MinGW.UCRT -e --silent --accept-package-agreements --accept-source-agreements")
@@ -328,7 +347,7 @@ task cli_doctor(fix_mode: bool) -> int {
     say "  " + C_BWHITE + "[1/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " clang"
     pilot clang_cmd = cli_find_clang_command()
     pilot clang_ok = false
-    if cli_clang_command_works(clang_cmd) {
+    if cli_doctor_clang_command_works(clang_cmd) {
         clang_ok = true
         pilot cv_line: word = cli_clang_version_line(clang_cmd)
         say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + cv_line + C_RESET
@@ -344,7 +363,7 @@ task cli_doctor(fix_mode: bool) -> int {
             pilot clang_fix = cli_install_clang(os_tag)
             if clang_fix == 0 {
                 clang_cmd = cli_find_clang_command()
-                if cli_clang_command_works(clang_cmd) {
+                if cli_doctor_clang_command_works(clang_cmd) {
                     clang_ok = true
                     pilot cv_line2: word = cli_clang_version_line(clang_cmd)
                     say "        " + C_BGREEN + SYM_CHECK + C_RESET + " clang installed: " + C_DIM + cv_line2 + C_RESET

@@ -4,7 +4,7 @@
 -- Handles: freshness check, build when needed, then execute the binary.
 -- ===================================================================
 
-pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v1"
+pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v2"
 
 task cli_run_file_fingerprint(path: word) -> word {
     if path == "" { give back "<empty-path>:missing" }
@@ -24,7 +24,7 @@ task cli_run_fingerprint(src_file: word, target: word, opt: word, cross: word) -
 
     pilot material = CLI_RUN_CACHE_SCHEMA
     material = material + "|cli=" + CLI_VERSION + "|compiler=" + FREAKC_VERSION
-    material = material + "|self=" + cli_run_file_fingerprint(process::arg(0))
+    material = material + "|self=" + cli_run_file_fingerprint(cli_executable_path())
     material = material + "|source-path=" + src_file
     material = material + "|source=" + word_from_int(source.length()) + ":" + word_from_int(source.checksum())
     material = material + "|std=" + word_from_int(std_source.length()) + ":" + word_from_int(std_source.checksum())
@@ -46,6 +46,10 @@ task cli_run_fingerprint(src_file: word, target: word, opt: word, cross: word) -
     give back word_from_int(material.checksum())
 }
 
+task cli_run_cache_record(fingerprint: word, binary: word) -> word {
+    give back fingerprint + "|artifact=" + cli_run_file_fingerprint(binary)
+}
+
 task cli_run(src_file: word, target: word, opt: word, cross: word) -> int {
     pilot binary: word = cli_binary_path(src_file)
     pilot cache_file = binary + ".freak-run-cache"
@@ -53,7 +57,8 @@ task cli_run(src_file: word, target: word, opt: word, cross: word) -> int {
     pilot cache_hit = false
 
     if fingerprint != "" and fs::exists(binary) and fs::exists(cache_file) {
-        if fs::read(cache_file) == fingerprint { cache_hit = true }
+        pilot expected_record = cli_run_cache_record(fingerprint, binary)
+        if fs::read(cache_file) == expected_record { cache_hit = true }
     }
 
     if cache_hit {
@@ -73,15 +78,29 @@ task cli_run(src_file: word, target: word, opt: word, cross: word) -> int {
             say "  " + C_DIM + "Run the command again after the files stop changing." + C_RESET
             give back 1
         }
-        fs::write(cache_file, confirmed)
+        fs::write(cache_file, cli_run_cache_record(confirmed, binary))
+    }
+
+    -- Revalidate both inputs and the output artifact immediately before
+    -- launch. This rejects edits, failed/racing rebuilds, and externally
+    -- replaced binaries that appear after the initial cache decision.
+    pilot launch_fingerprint = cli_run_fingerprint(src_file, target, opt, cross)
+    pilot launch_record = cli_run_cache_record(launch_fingerprint, binary)
+    if launch_fingerprint == "" or launch_fingerprint != fingerprint or not fs::exists(cache_file) or fs::read(cache_file) != launch_record {
+        if fs::exists(cache_file) { fs::delete(cache_file) }
+        say ""
+        say "  " + C_BRED + SYM_CROSS + " RUN ABORTED" + C_RESET + " Build inputs or output changed before launch."
+        say "  " + C_DIM + "Run the command again after competing writers stop." + C_RESET
+        give back 1
     }
 
     say cli_box_top(45)
     say cli_box_mid(" " + C_G5 + SYM_ARROW + " RUNNING" + C_RESET + "  " + C_BWHITE + binary + C_RESET, 45)
     say cli_box_bot(45)
     say ""
-    -- Convert forward slashes to backslashes for Windows compatibility
-    pilot run_cmd: word = binary.replace("/", "\\")
+    pilot run_path = binary
+    if cli_is_windows() { run_path = run_path.replace("/", "\\") }
+    pilot run_cmd: word = cli_quote_cmd_path(run_path)
     pilot run_start = time::now_ms()
     pilot run_code = process::exec(run_cmd)
     pilot run_elapsed = time::now_ms() - run_start

@@ -230,29 +230,64 @@ exit 1
 function Install-StagedPayload {
     Assert-StagedPayload
     New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
-    if ($UpgradeMode) {
-        Copy-Item -LiteralPath "$StageBin\freak.exe" -Destination "$BinDir\freak.exe.next" -Force
-        Copy-Item -LiteralPath "$StageBin\hangar.exe" -Destination "$BinDir\hangar.exe.next" -Force
-    } else {
-        Copy-Item -LiteralPath "$StageBin\freak.exe" -Destination "$BinDir\freak.exe" -Force
-        Copy-Item -LiteralPath "$StageBin\hangar.exe" -Destination "$BinDir\hangar.exe" -Force
-    }
+    $applyId = Get-Random
+    $applyRoot = Join-Path $InstallDir ".freak-apply-$applyId"
+    $backupRoot = Join-Path $InstallDir ".freak-backup-$applyId"
+    $items = @()
+    try {
+        New-Item -ItemType Directory -Path "$applyRoot\bin", "$applyRoot\runtime", "$applyRoot\std", "$backupRoot\bin" -Force | Out-Null
+        Copy-Item -LiteralPath "$StageBin\freak.exe" -Destination "$applyRoot\bin\freak.exe" -Force
+        Copy-Item -LiteralPath "$StageBin\hangar.exe" -Destination "$applyRoot\bin\hangar.exe" -Force
+        Copy-Item -Path "$StageRuntime\*" -Destination "$applyRoot\runtime" -Recurse -Force
+        Copy-Item -Path "$StageStd\*" -Destination "$applyRoot\std" -Recurse -Force
+        Copy-Item -LiteralPath $StageManifest -Destination "$applyRoot\distribution-files.manifest" -Force
 
-    # runtime and std are installer-managed trees. Replace only those exact
-    # direct children so files retired by a newer release cannot linger.
-    foreach ($managed in @("runtime", "std")) {
-        $target = [System.IO.Path]::GetFullPath((Join-Path $InstallDir $managed))
-        if ([System.IO.Directory]::GetParent($target).FullName -ne $InstallDir) {
-            Err "Refusing unsafe managed payload path: $target"
+        $items = @(
+            [pscustomobject]@{ Live = "$InstallDir\runtime"; Pending = "$applyRoot\runtime"; Backup = "$backupRoot\runtime"; Prepared = $false; HadOriginal = $false },
+            [pscustomobject]@{ Live = "$InstallDir\std"; Pending = "$applyRoot\std"; Backup = "$backupRoot\std"; Prepared = $false; HadOriginal = $false },
+            [pscustomobject]@{ Live = "$InstallDir\distribution-files.manifest"; Pending = "$applyRoot\distribution-files.manifest"; Backup = "$backupRoot\distribution-files.manifest"; Prepared = $false; HadOriginal = $false }
+        )
+        if (-not $UpgradeMode) {
+            $items += [pscustomobject]@{ Live = "$BinDir\freak.exe"; Pending = "$applyRoot\bin\freak.exe"; Backup = "$backupRoot\bin\freak.exe"; Prepared = $false; HadOriginal = $false }
+            $items += [pscustomobject]@{ Live = "$BinDir\hangar.exe"; Pending = "$applyRoot\bin\hangar.exe"; Backup = "$backupRoot\bin\hangar.exe"; Prepared = $false; HadOriginal = $false }
         }
-        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
-        New-Item -ItemType Directory -Path $target -Force | Out-Null
-    }
-    Copy-Item -Path "$StageRuntime\*" -Destination "$InstallDir\runtime" -Recurse -Force
-    Copy-Item -Path "$StageStd\*" -Destination "$InstallDir\std" -Recurse -Force
-    Copy-Item -LiteralPath $StageManifest -Destination "$InstallDir\distribution-files.manifest" -Force
 
-    if ($UpgradeMode) { Start-DeferredBinaryReplacement }
+        foreach ($item in $items) {
+            $item.HadOriginal = Test-Path -LiteralPath $item.Live
+            if ($item.HadOriginal) {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $item.Backup) -Force | Out-Null
+                Move-Item -LiteralPath $item.Live -Destination $item.Backup
+            }
+            $item.Prepared = $true
+        }
+        for ($index = 0; $index -lt $items.Count; $index++) {
+            $item = $items[$index]
+            Move-Item -LiteralPath $item.Pending -Destination $item.Live
+            if ($index -eq 0 -and (Test-Truthy $env:FREAK_INSTALL_TEST_FAIL_APPLY)) {
+                throw "injected apply failure"
+            }
+        }
+        if ($UpgradeMode) {
+            Remove-Item -LiteralPath "$BinDir\freak.exe.next", "$BinDir\hangar.exe.next" -Force -ErrorAction SilentlyContinue
+            Copy-Item -LiteralPath "$applyRoot\bin\freak.exe" -Destination "$BinDir\freak.exe.next" -Force
+            Copy-Item -LiteralPath "$applyRoot\bin\hangar.exe" -Destination "$BinDir\hangar.exe.next" -Force
+            Start-DeferredBinaryReplacement
+        }
+    } catch {
+        $applyError = $_.Exception.Message
+        Remove-Item -LiteralPath "$BinDir\freak.exe.next", "$BinDir\hangar.exe.next" -Force -ErrorAction SilentlyContinue
+        for ($index = $items.Count - 1; $index -ge 0; $index--) {
+            $item = $items[$index]
+            if (-not $item.Prepared) { continue }
+            if (Test-Path -LiteralPath $item.Live) { Remove-Item -LiteralPath $item.Live -Recurse -Force }
+            if ($item.HadOriginal -and (Test-Path -LiteralPath $item.Backup)) {
+                Move-Item -LiteralPath $item.Backup -Destination $item.Live
+            }
+        }
+        Remove-Item -LiteralPath $applyRoot, $backupRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Err "Could not apply the staged distribution; the previous payload was restored ($applyError)"
+    }
+    Remove-Item -LiteralPath $applyRoot, $backupRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 try {

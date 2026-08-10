@@ -1668,10 +1668,12 @@ def audit_conformance(paths: List[Path]) -> int:
         "run pipeline": (
             repo / "src" / "cli" / "run.fk",
             (
-                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v1"',
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v2"',
                 "task cli_run_fingerprint",
+                "task cli_run_cache_record",
                 "fs::delete(cache_file)",
                 "confirmed != fingerprint",
+                "launch_fingerprint != fingerprint",
                 "run cache hit",
             ),
         ),
@@ -1685,15 +1687,23 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "regression": (
             repo / "tests" / "v3_run_freshness.py",
-            ("CACHE_A", "CACHE_B", "failed rebuild left stale freshness proof"),
+            ("CACHE_A", "CACHE_B", "externally replaced artifact", "code == 7", "failed rebuild left stale freshness proof"),
+        ),
+        "process runtime": (
+            repo / "freakc" / "runtime" / "freak_runtime.c",
+            ("freak_normalize_process_status", "WIFEXITED"),
+        ),
+        "LLVM process runtime": (
+            repo / "freakc" / "runtime" / "freak_llvm_runtime.c",
+            ("freak_llvm_normalize_process_status", "WIFEXITED"),
         ),
         "POSIX installer": (
             repo / "install.sh",
-            ('STAGE_DIR="$TMPDIR_INSTALL/stage"', 'rm -rf -- "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"', "distribution-files.manifest"),
+            ('STAGE_DIR="$TMPDIR_INSTALL/stage"', "restore_previous_payload", ".freak-backup-", "distribution-files.manifest"),
         ),
         "Windows installer": (
             repo / "install.ps1",
-            ('$StageDir = Join-Path $TmpDir "stage"', "Remove-Item -LiteralPath $target -Recurse -Force", "distribution-files.manifest"),
+            ('$StageDir = Join-Path $TmpDir "stage"', ".freak-backup-", "previous payload was restored", "distribution-files.manifest"),
         ),
         "release payload": (
             repo / ".github" / "workflows" / "release.yml",
@@ -1711,8 +1721,8 @@ def audit_conformance(paths: List[Path]) -> int:
     bible_text = bible.read_text(encoding="utf-8") if bible.exists() else ""
     audit_text = audit_doc.read_text(encoding="utf-8") if audit_doc.exists() else ""
     for label, text in (("bible", bible_text), ("audit", audit_text)):
-        if "Failed or racing rebuilds invalidate" not in text:
-            run_freshness_missing.append(f"{label}: freshness boundary")
+        if "output artifact" not in text or "not serialized" not in text:
+            run_freshness_missing.append(f"{label}: honest freshness boundary")
     add(
         "V3 run freshness",
         not run_freshness_missing,
@@ -1727,7 +1737,8 @@ def audit_conformance(paths: List[Path]) -> int:
         )
 
     # Check 6c: one complete distribution manifest drives release/install,
-    # doctor proves the usable toolchain, and legacy `freak upgrade` stays live.
+    # doctor proves the usable toolchain, and `freak upgrade` stays live with
+    # the immutable v0.14.0 migration boundary documented honestly.
     distribution_missing: List[str] = []
     dist_manifest = repo / "packaging" / "distribution-files.manifest"
     manifest_sources: set[str] = set()
@@ -1796,7 +1807,7 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "upgrade": (
             repo / "src" / "cli" / "hangar.fk",
-            ("FREAK_UPGRADE_SCRIPT", "tagged installer", "hangar_install_freak_v014_legacy_protocol"),
+            ("FREAK_UPGRADE_SCRIPT", "tagged installer", "migration limitations"),
         ),
         "CLI exit propagation": (
             cli_main,
@@ -1804,7 +1815,7 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "regression": (
             repo / "tests" / "v3_install_doctor_upgrade.py",
-            ("check_offline_installer", "check_doctor", "check_upgrade"),
+            ("check_offline_installer", "FREAK_INSTALL_TEST_FAIL_APPLY", "check_doctor", "FREAK_DOCTOR_INSTALL_COMMAND", "check_upgrade"),
         ),
         "CI": (
             repo / ".github" / "workflows" / "ci.yml",
@@ -1822,7 +1833,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V3 distribution/doctor/upgrade",
         not distribution_missing,
-        "complete manifest + dependency bootstrap + legacy upgrade bridge"
+        "complete manifest + dependency bootstrap + staged upgrade boundary"
         if not distribution_missing
         else f"{len(distribution_missing)} gap(s)",
     )

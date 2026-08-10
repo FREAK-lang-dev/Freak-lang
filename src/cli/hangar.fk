@@ -927,10 +927,10 @@ task hangar_powershell_quote(value: word) -> word {
 }
 
 task hangar_install_freak() -> int {
-    -- Keep `freak upgrade` as the public compatibility entry point, but let
-    -- the tagged installer own payload manifests, staging, dependency policy,
-    -- and Windows deferred binary replacement. v0.14.0 clients still use the
-    -- standalone assets kept by release.yml; upgraded clients use this path.
+    -- Keep `freak upgrade` as the public entry point, but let the tagged
+    -- installer own manifests, staging, rollback, dependency policy, and
+    -- Windows deferred replacement. Immutable v0.14.0 clients predate this
+    -- path; their migration limitations are documented below and in README.
     pilot is_win = process::env("WINDIR") != ""
     pilot freak_home: word = process::env("FREAK_HOME")
     if freak_home == "" {
@@ -1018,9 +1018,9 @@ task hangar_install_freak() -> int {
     give back 0
 }
 
--- Retained only as the documented v0.14.0 direct-download protocol. New
--- clients do not call it; release.yml keeps its standalone asset names alive
--- so already-shipped v0.14.0 binaries can complete their last legacy upgrade.
+-- Retained only to document the immutable v0.14.0 protocol limitations. New
+-- clients never call it. It cannot fetch recursive UI payloads, honor custom
+-- FREAK_HOME, or safely self-replace a running Windows executable.
 task hangar_install_freak_v014_legacy_protocol() -> int {
     say "  Detecting platform..."
 

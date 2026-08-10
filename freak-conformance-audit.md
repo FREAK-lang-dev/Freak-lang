@@ -646,12 +646,12 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 | Subcommand | Status | Verdict | Notes |
 |---|---|---|---|
-| `freak run file.fk` | ✅ | ✅ | Content-fingerprinted sidecar covers source, loaded stdlib, compiler/toolchain identity, backend flags, and runtime inputs. Failed or racing rebuilds invalidate the sidecar before an older binary can run. |
+| `freak run file.fk` | ✅ | ✅ | Sidecar covers source, loaded stdlib, resolved compiler/toolchain identity, backend flags, runtime inputs, and output artifact; proof is revalidated immediately before launch. Same-output concurrent writers are not serialized. |
 | `freak build file.fk` | ✅ | ✅ | |
 | `freak check file.fk` | ✅ | ✅ | |
 | `freak transpile file.fk` | ✅ | ✅ | |
 | `freak doctor [--fix|--json]` | ✅ | ✅ | Complete runtime/UI and 11-module stdlib inventory, usable-Clang discovery, optional dependency bootstrap, compile-link-execute probe, exact passive JSON missing-file report, and nonzero required-failure status. |
-| `freak upgrade` | ✅ | ✅ | Tagged staged installer path preserves the public command and standalone asset compatibility for already-shipped v0.14.0 clients; Windows replacement is deferred until process exit. |
+| `freak upgrade` | ✅ | ✅ | Tagged staged installer preserves the public command, rolls back apply failures, and defers Windows replacement until process exit. Immutable v0.14.0 POSIX clients need a binary hop plus a second upgrade; immutable Windows clients bootstrap through `install.ps1`. |
 | `freak test` | ✅ | ✅ shim wraps `python tests/suite/run_tests.py` |
 | `freak vibe file.fk` | ❌ | 📖 V4 (or remove) |
 | `freak audit-science` | ⚠️ | 🛠 wire native CLI | Python-only; native dispatch missing |

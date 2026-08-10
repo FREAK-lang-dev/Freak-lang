@@ -24,7 +24,7 @@
     "url": "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v$version/freak-windows-x64.zip",
     "hash": {
       "url": "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v$version/SHA256SUMS",
-      "regex": "([a-fA-F0-9]{64})\\s+\\.?/?freak-windows-x64/freak-windows-x64\\.zip"
+      "regex": "([a-fA-F0-9]{64})\\s+\\.?/?freak-windows-x64\\.zip"
     }
   }
 }

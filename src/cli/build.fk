@@ -143,9 +143,20 @@ task cli_path_parent(path: word) -> word {
     give back path.substring(0, last_sep)
 }
 
-task cli_executable_home() -> word {
+task cli_executable_path() -> word {
     pilot argv0: word = process::arg(0)
-    pilot bin_dir = cli_path_parent(argv0)
+    if argv0 == "" { give back "" }
+    if fs::exists(argv0) { give back argv0 }
+    pilot lookup_cmd = "command -v \"" + argv0 + "\" 2>/dev/null"
+    if cli_is_windows() { lookup_cmd = "where \"" + argv0 + "\" 2>nul" }
+    pilot resolved: word = cli_first_line(process::exec_capture(lookup_cmd)).trim()
+    if resolved != "" and fs::exists(resolved) { give back resolved }
+    give back argv0
+}
+
+task cli_executable_home() -> word {
+    pilot executable: word = cli_executable_path()
+    pilot bin_dir = cli_path_parent(executable)
     if bin_dir == "" { give back "" }
     pilot install_dir = cli_path_parent(bin_dir)
     if install_dir == "" { give back "" }
@@ -355,6 +366,16 @@ task cli_quote_cmd_path(path: word) -> word {
     give back "\"" + path + "\""
 }
 
+task cli_shell_command_prefix(command: word) -> word {
+    -- cmd.exe treats a leading quoted executable plus additional quoted
+    -- arguments as one quoted command string. `call` preserves the intended
+    -- executable/argument boundaries for paths containing spaces.
+    if cli_is_windows() and command != "" and command.char_at(0) == "\"" {
+        give back "call " + command
+    }
+    give back command
+}
+
 task cli_normalize_cmd_override(cmd: word) -> word {
     if cmd == "" { give back "" }
     if cmd.char_at(0) == "\"" { give back cmd }
@@ -497,7 +518,8 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         pilot user_obj = cli_strip_fk(src_file) + obj_ext
         pilot clang_cmd = cli_find_clang_command()
         if clang_cmd == "" { clang_cmd = "clang" }
-        pilot cc_cmd = clang_cmd + " -c -g -o " + user_obj + " " + transpiled_file + " -O" + opt + " -w"
+        pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
+        pilot cc_cmd = clang_prefix + " -c -g -o " + cli_quote_cmd_path(user_obj) + " " + cli_quote_cmd_path(transpiled_file) + " -O" + opt + " -w"
         if cross != "" { cc_cmd = cc_cmd + " --target=" + cross }
 
         say "  " + C_DIM + SYM_GEAR + "  Compiling IR..." + C_RESET
@@ -515,14 +537,14 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         if is_win {
             -- user_obj first (FREAK impls), then llvm_rt_obj (libc wrappers), then rt_obj (word/array fns)
             -- /FORCE:MULTIPLE resolves duplicates by using first definition seen
-            pilot link_cmd = "lld-link /FORCE:MULTIPLE " + user_obj + " " + llvm_rt_obj + " " + rt_obj
+            pilot link_cmd = "lld-link /FORCE:MULTIPLE " + cli_quote_cmd_path(user_obj) + " " + cli_quote_cmd_path(llvm_rt_obj) + " " + cli_quote_cmd_path(rt_obj)
             -- Add UI runtime if it exists
             if fs::exists(ui_obj) {
-                link_cmd = link_cmd + " " + ui_obj
+                link_cmd = link_cmd + " " + cli_quote_cmd_path(ui_obj)
             }
-            link_cmd = link_cmd + " /out:" + out_bin + " /subsystem:console"
+            link_cmd = link_cmd + " /out:" + cli_quote_cmd_path(out_bin) + " /subsystem:console"
             pilot pdb_out = cli_strip_fk(src_file) + ".pdb"
-            link_cmd = link_cmd + " /debug /pdb:" + pdb_out
+            link_cmd = link_cmd + " /debug /pdb:" + cli_quote_cmd_path(pdb_out)
             link_cmd = link_cmd + " libcmt.lib user32.lib gdi32.lib msimg32.lib ws2_32.lib"
             say "  " + C_DIM + SYM_GEAR + "  Linking..." + C_RESET
             pilot link_exit = process::exec(link_cmd)
@@ -533,9 +555,9 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         }
         if not is_win {
             -- user_obj first (FREAK), then llvm_rt_obj (libc wrappers), then rt_obj (word/array fns)
-            pilot link_cmd = "ld.lld --allow-multiple-definition -o " + out_bin + " " + user_obj + " " + llvm_rt_obj + " " + rt_obj
+            pilot link_cmd = "ld.lld --allow-multiple-definition -o " + cli_quote_cmd_path(out_bin) + " " + cli_quote_cmd_path(user_obj) + " " + cli_quote_cmd_path(llvm_rt_obj) + " " + cli_quote_cmd_path(rt_obj)
             if fs::exists(ui_obj) {
-                link_cmd = link_cmd + " " + ui_obj
+                link_cmd = link_cmd + " " + cli_quote_cmd_path(ui_obj)
             }
             link_cmd = link_cmd + " -lc -lm"
             say "  " + C_DIM + SYM_GEAR + "  Linking..." + C_RESET
@@ -558,15 +580,16 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         -- -z muldefs on Linux allows duplicate symbols (freak_word_length, freak_llvm_fs_*)
         pilot llvm_rt_c = runtime_dir + "/freak_llvm_runtime.c"
         pilot rt_c = runtime_dir + "/freak_runtime.c"
-        runtime_file = llvm_rt_c + " " + rt_c
+        runtime_file = cli_quote_cmd_path(llvm_rt_c) + " " + cli_quote_cmd_path(rt_c)
     } else {
-        runtime_file = runtime_dir + "/freak_runtime.c"
+        runtime_file = cli_quote_cmd_path(runtime_dir + "/freak_runtime.c")
     }
 
     pilot clang_cmd = cli_find_clang_command()
     if clang_cmd == "" { clang_cmd = "clang" }
-    pilot cmd = clang_cmd + " -g -o " + out_bin + " " + transpiled_file + " " + runtime_file
-    cmd = cmd + " -I" + runtime_dir + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
+    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
+    pilot cmd = clang_prefix + " -g -o " + cli_quote_cmd_path(out_bin) + " " + cli_quote_cmd_path(transpiled_file) + " " + runtime_file
+    cmd = cmd + " -I" + cli_quote_cmd_path(runtime_dir) + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
 
     if not is_win {
         cmd = cmd + " -lm"
@@ -581,7 +604,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     pilot ui_c = runtime_dir + "/ui/win32_backend.c"
     if is_win {
         if fs::exists(ui_c) {
-            cmd = cmd + " " + ui_c + " -DFREAK_HAS_UI -luser32 -lgdi32 -lmsimg32"
+            cmd = cmd + " " + cli_quote_cmd_path(ui_c) + " -DFREAK_HAS_UI -luser32 -lgdi32 -lmsimg32"
         }
     }
 

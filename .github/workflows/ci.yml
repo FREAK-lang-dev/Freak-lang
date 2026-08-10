@@ -104,7 +104,7 @@ jobs:
           with open("doctor.json", "r", encoding="utf-8") as handle:
               doc = json.load(handle)
           assert doc["schema"] == "freak.doctor.v1"
-          assert doc["checks"]["stdlib"]["modules_expected"] == 10
+          assert doc["checks"]["stdlib"]["modules_expected"] == 11
           assert "clang" in doc["checks"]
           PY
 

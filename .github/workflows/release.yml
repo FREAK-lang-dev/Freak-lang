@@ -110,6 +110,8 @@ jobs:
           cp freakc/runtime/freak_runtime.o dist/freak/runtime/
           cp freakc/runtime/freak_llvm_runtime.o dist/freak/runtime/
           while IFS='|' read -r source destination; do
+            source=${source%$'\r'}
+            destination=${destination%$'\r'}
             if [[ -z "$source" || "$source" == \#* ]]; then
               continue
             fi
@@ -138,12 +140,6 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Generate checksums
-        run: |
-          cd artifacts
-          find . -type f \( -name "freak-*" -o -name "hangar-*" \) -exec sha256sum {} \; | sort > SHA256SUMS
-          cat SHA256SUMS
-
       - name: Package distributions as tarballs/zips
         run: |
           for dir in artifacts/freak-*/; do
@@ -160,6 +156,12 @@ jobs:
           done
           ls -la artifacts/*.tar.gz artifacts/*.zip 2>/dev/null || true
 
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -type f \( -name "freak-*" -o -name "hangar-*" \) -exec sha256sum {} \; | sort > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Checkout for packaging update
         uses: actions/checkout@v4
         with:
@@ -173,12 +175,21 @@ jobs:
           HASH_LINUX_X64=$(grep 'freak-linux-x64.tar.gz' SHA256SUMS | awk '{print $1}' || echo "")
           HASH_LINUX_ARM64=$(grep 'freak-linux-arm64.tar.gz' SHA256SUMS | awk '{print $1}' || echo "")
           HASH_WIN=$(grep 'freak-windows-x64.zip' SHA256SUMS | awk '{print $1}' || echo "")
+          for hash in "$HASH_MACOS" "$HASH_LINUX_X64" "$HASH_LINUX_ARM64" "$HASH_WIN"; do
+            if [ -z "$hash" ]; then
+              echo "::error::missing distribution checksum"
+              exit 1
+            fi
+          done
           cd ..
           VERSION="${GITHUB_REF_NAME#v}"
           sed -i "s/HOMEBREW_SHA256_MACOS_ARM64_PLACEHOLDER/$HASH_MACOS/g" repo/packaging/homebrew/freak.rb
           sed -i "s/HOMEBREW_SHA256_LINUX_X64_PLACEHOLDER/$HASH_LINUX_X64/g" repo/packaging/homebrew/freak.rb
           sed -i "s/HOMEBREW_SHA256_LINUX_ARM64_PLACEHOLDER/$HASH_LINUX_ARM64/g" repo/packaging/homebrew/freak.rb
           sed -i "s/SCOOP_HASH_PLACEHOLDER/$HASH_WIN/g" repo/packaging/scoop/freak.json
+          sed -E -i "s/version \"[0-9]+\.[0-9]+\.[0-9]+\"/version \"$VERSION\"/" repo/packaging/homebrew/freak.rb
+          sed -E -i "s/\"version\": \"[0-9]+\.[0-9]+\.[0-9]+\"/\"version\": \"$VERSION\"/" repo/packaging/scoop/freak.json
+          sed -E -i "s#/download/v[0-9]+\.[0-9]+\.[0-9]+/#/download/v$VERSION/#" repo/packaging/scoop/freak.json
           # Patch the winget manifest for the version we're releasing.
           # Manifests live under packaging/winget/manifests/F/FREAK/freak/<VERSION>/
           # and must exist before release; commit a new dir per bumped version.
@@ -188,7 +199,14 @@ jobs:
           else
             echo "::warning::winget manifest for $VERSION missing at $WINGET_DIR — skipping checksum patch"
           fi
-          sed -i "s/0\.13\.1/$VERSION/g" repo/packaging/scoop/freak.json
+          mkdir -p artifacts/package-manager/winget
+          cp repo/packaging/homebrew/freak.rb artifacts/package-manager/freak.rb
+          cp repo/packaging/scoop/freak.json artifacts/package-manager/freak.json
+          if [ -f "$WINGET_DIR/FREAK.freak.installer.yaml" ]; then
+            # A WinGet submission is a version, installer, and locale manifest
+            # set. Publish the complete set with the patched installer hash.
+            cp "$WINGET_DIR"/*.yaml artifacts/package-manager/winget/
+          fi
           echo "Checksums injected for $VERSION"
           cat repo/packaging/scoop/freak.json
 
@@ -210,3 +228,6 @@ jobs:
             artifacts/freak-macos-arm64.tar.gz
             artifacts/freak-windows-x64.zip
             artifacts/SHA256SUMS
+            artifacts/package-manager/freak.rb
+            artifacts/package-manager/freak.json
+            artifacts/package-manager/winget/*

@@ -54,14 +54,16 @@ def check_installer_contracts(repo: Path) -> None:
 
     for needle in (
         'STAGE_DIR="$TMPDIR_INSTALL/stage"',
-        'rm -rf -- "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"',
+        "restore_previous_payload",
+        ".freak-backup-",
         "distribution-files.manifest",
         "validate_manifest_entry",
     ):
         assert needle in shell_text, f"install.sh missing {needle}"
     for needle in (
         '$StageDir = Join-Path $TmpDir "stage"',
-        "Remove-Item -LiteralPath $target -Recurse -Force",
+        ".freak-backup-",
+        "previous payload was restored",
         "distribution-files.manifest",
         "Get-ManifestEntries",
     ):
@@ -103,7 +105,7 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-run-freshness-") as tmp:
         root = Path(tmp)
-        install = root / "install"
+        install = root / "install with spaces"
         runtime = install / "runtime"
         std = install / "std"
         runtime.mkdir(parents=True)
@@ -121,7 +123,9 @@ def main() -> int:
         env["HOME"] = str(isolated_home)
         env["APPDATA"] = str(isolated_appdata)
 
-        source = root / "freshness.fk"
+        source_dir = root / "source with spaces"
+        source_dir.mkdir()
+        source = source_dir / "freshness.fk"
         source.write_text('say "CACHE_A"\n', encoding="utf-8")
         binary = source.with_suffix(".exe" if sys.platform == "win32" else "")
         sidecar = Path(str(binary) + ".freak-run-cache")
@@ -134,6 +138,10 @@ def main() -> int:
         code, output = invoke(freak, root, source, "--c", env)
         assert_run(code, output, "CACHE_A", cache_hit=True)
         assert binary.stat().st_mtime_ns == first_mtime
+
+        binary.write_bytes(b"externally replaced artifact\n")
+        code, output = invoke(freak, root, source, "--c", env)
+        assert_run(code, output, "CACHE_A", cache_hit=False)
 
         explicit_build = subprocess.run(
             [str(freak), "build", str(source), "--c"],
@@ -162,6 +170,17 @@ def main() -> int:
         (std / "math.fk").write_text("-- freshness std v2\n", encoding="utf-8")
         code, output = invoke(freak, root, source, "--llvm", env)
         assert_run(code, output, "CACHE_B", cache_hit=False)
+
+        failing_source = source_dir / "child failure.fk"
+        child_command = "cmd /c exit 7" if sys.platform == "win32" else "sh -c 'exit 7'"
+        failing_source.write_text(
+            f'pilot child_status = process::exec("{child_command}")\n'
+            "process::exit(child_status)\n",
+            encoding="utf-8",
+        )
+        code, output = invoke(freak, root, failing_source, "--c", env)
+        assert code == 7, output
+        assert "EXIT" in output and "code 7" in output, output
 
         # A failed rebuild must invalidate proof before touching the old
         # executable. Remove the staged runtime, change source, and verify the

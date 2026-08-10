@@ -58,6 +58,22 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
     for source, _ in entries:
         assert (repo / source).is_file(), source
 
+    doctor_text = (repo / "src" / "cli" / "doctor.fk").read_text(encoding="utf-8")
+    runtime_destinations = []
+    std_destinations = []
+    for _, destination in entries:
+        if destination.startswith("runtime/"):
+            relative = destination.removeprefix("runtime/")
+            runtime_destinations.append(relative)
+        else:
+            relative = destination.removeprefix("std/")
+            std_destinations.append(relative)
+        assert f'"{relative}"' in doctor_text, (
+            f"doctor inventory does not cover manifest destination {destination}"
+        )
+    assert f'"files_expected\\\": {len(runtime_destinations)}' in doctor_text
+    assert f'"modules_expected\\\": {len(std_destinations)}' in doctor_text
+
 
 def check_static_contracts(repo: Path) -> None:
     shell_text = (repo / "install.sh").read_text(encoding="utf-8")
@@ -65,6 +81,8 @@ def check_static_contracts(repo: Path) -> None:
     release_text = (repo / ".github" / "workflows" / "release.yml").read_text(
         encoding="utf-8"
     )
+    ci_text = (repo / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    attributes_text = (repo / ".gitattributes").read_text(encoding="utf-8")
     hangar_text = (repo / "src" / "cli" / "hangar.fk").read_text(
         encoding="utf-8"
     )
@@ -76,8 +94,11 @@ def check_static_contracts(repo: Path) -> None:
     for needle in (
         "--with-deps",
         "FREAK_INSTALL_ARCHIVE",
+        "FREAK_INSTALL_DEP_COMMAND",
+        "freak-clang-probe",
+        ".freak-backup-",
         "packaging/distribution-files.manifest",
-        'rm -rf -- "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"',
+        "restore_previous_payload",
     ):
         assert needle in shell_text, f"install.sh missing {needle}"
     for needle in (
@@ -86,6 +107,8 @@ def check_static_contracts(repo: Path) -> None:
         "Test-ClangToolchain",
         "FREAK_INSTALL_ARCHIVE",
         "Start-DeferredBinaryReplacement",
+        ".freak-backup-",
+        "FREAK_INSTALL_TEST_FAIL_APPLY",
         "distribution-files.manifest",
     ):
         assert needle in ps_text, f"install.ps1 missing {needle}"
@@ -97,10 +120,18 @@ def check_static_contracts(repo: Path) -> None:
         "dist/hangar-${{ matrix.target }}${{ matrix.ext }}",
     ):
         assert needle in release_text, f"release workflow missing {needle}"
+    assert "destination=${destination%$'\\r'}" in release_text
+    assert release_text.index("Package distributions as tarballs/zips") < release_text.index(
+        "Generate checksums"
+    )
+    assert "artifacts/package-manager/freak.rb" in release_text
+    assert 'cp "$WINGET_DIR"/*.yaml artifacts/package-manager/winget/' in release_text
+    assert "packaging/distribution-files.manifest text eol=lf" in attributes_text
+    assert 'doc["checks"]["stdlib"]["modules_expected"] == 11' in ci_text
     for needle in (
         "task hangar_install_freak() -> int",
         "FREAK_UPGRADE_SCRIPT",
-        "hangar_install_freak_v014_legacy_protocol",
+        "migration limitations",
         "tagged installer",
     ):
         assert needle in hangar_text, f"upgrade path missing {needle}"
@@ -108,6 +139,8 @@ def check_static_contracts(repo: Path) -> None:
         "modules_expected\\\": 11",
         "ui/window.fk",
         "scoop install llvm-mingw",
+        "FREAK_DOCTOR_INSTALL_COMMAND",
+        ' -x c \\"',
         "compile, link, and execution work",
         "task cli_doctor(fix_mode: bool) -> int",
     ):
@@ -152,9 +185,11 @@ def create_distribution(
         target = dist / destination
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(repo / source, target)
-    shutil.copy2(
-        repo / "packaging" / "distribution-files.manifest",
-        dist / "distribution-files.manifest",
+    manifest_text = (repo / "packaging" / "distribution-files.manifest").read_text(
+        encoding="utf-8"
+    )
+    (dist / "distribution-files.manifest").write_bytes(
+        manifest_text.replace("\n", "\r\n").encode("utf-8")
     )
 
     if windows:
@@ -216,6 +251,73 @@ def check_offline_installer(
     assert (install_root / "bin" / f"freak{extension}").is_file()
     assert (install_root / "bin" / f"hangar{extension}").is_file()
 
+    # Invalid downloads and failures after the first live-tree swap must both
+    # leave the exact previous installation recoverable.
+    preserved_root = root / "preserved-install"
+    preserved_files = {
+        Path("bin") / f"freak{extension}": b"old-freak\n",
+        Path("bin") / f"hangar{extension}": b"old-hangar\n",
+        Path("runtime") / "freak_runtime.c": b"old-runtime\n",
+        Path("std") / "math.fk": b"old-stdlib\n",
+        Path("distribution-files.manifest"): b"old-manifest\n",
+    }
+    for relative, contents in preserved_files.items():
+        target = preserved_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(contents)
+
+    invalid_archive = root / ("invalid.zip" if sys.platform == "win32" else "invalid.tar.gz")
+    invalid_archive.write_bytes(b"not a distribution archive")
+    failure_env = env.copy()
+    failure_env["FREAK_HOME"] = str(preserved_root)
+    failure_env["FREAK_INSTALL_ARCHIVE"] = str(invalid_archive)
+    rejected = subprocess.run(
+        command, cwd=repo, env=failure_env, capture_output=True, text=True,
+        errors="replace", timeout=120,
+    )
+    assert rejected.returncode != 0, rejected.stdout + rejected.stderr
+    for relative, contents in preserved_files.items():
+        assert (preserved_root / relative).read_bytes() == contents
+
+    failure_env["FREAK_INSTALL_ARCHIVE"] = str(archive)
+    failure_env["FREAK_INSTALL_TEST_FAIL_APPLY"] = "1"
+    rolled_back = subprocess.run(
+        command, cwd=repo, env=failure_env, capture_output=True, text=True,
+        errors="replace", timeout=120,
+    )
+    assert rolled_back.returncode != 0, rolled_back.stdout + rolled_back.stderr
+    for relative, contents in preserved_files.items():
+        assert (preserved_root / relative).read_bytes() == contents
+    assert not list(preserved_root.glob(".freak-apply-*"))
+    assert not list(preserved_root.glob(".freak-backup-*"))
+
+    if sys.platform != "win32":
+        broken_clang = root / "installer-version-only-clang.sh"
+        broken_clang.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "${1:-}" = "--version" ]; then exit 0; fi\n'
+            "exit 1\n",
+            encoding="utf-8",
+        )
+        broken_clang.chmod(0o755)
+        dependency_sentinel = root / "installer-dependency-attempted.txt"
+        dependency_env = env.copy()
+        dependency_env["FREAK_HOME"] = str(root / "dependency-install")
+        dependency_env["FREAK_CLANG"] = str(broken_clang)
+        dependency_env["FREAK_INSTALL_DEPS"] = "1"
+        dependency_env["FREAK_INSTALL_DEP_COMMAND"] = (
+            f'printf attempted > "{dependency_sentinel}"'
+        )
+        dependency_command = ["bash", str(repo / "install.sh"), "--with-deps"]
+        dependency_attempt = subprocess.run(
+            dependency_command, cwd=repo, env=dependency_env, capture_output=True,
+            text=True, errors="replace", timeout=120,
+        )
+        assert dependency_attempt.returncode != 0, (
+            dependency_attempt.stdout + dependency_attempt.stderr
+        )
+        assert dependency_sentinel.is_file()
+
 
 def run_cli(
     compiler: Path, cwd: Path, env: dict[str, str], *args: str
@@ -273,6 +375,56 @@ def check_doctor(
     assert "compile, link, and execution work" in full.stdout
     assert not list(cwd.glob("_freak_doctor_probe_*")), "doctor left probe artifacts"
 
+    # A version-only clang is the Windows failure mode that motivated the
+    # usable-toolchain probe: it must be diagnosed before the FREAK pipeline,
+    # and --fix must attempt dependency repair rather than accepting --version.
+    broken_clang = root / (
+        "version-only-clang.cmd" if sys.platform == "win32" else "version-only-clang.sh"
+    )
+    repair_sentinel = root / "doctor-install-attempted.txt"
+    if sys.platform == "win32":
+        broken_clang.write_text(
+            '@echo off\nif "%1"=="--version" (echo clang version-only fixture& exit /b 0)\n'
+            "exit /b 1\n",
+            encoding="utf-8",
+        )
+        install_fixture = root / "doctor-install-fixture.cmd"
+        install_fixture.write_text(
+            f'@echo off\n> "{repair_sentinel}" echo attempted\nexit /b 0\n',
+            encoding="utf-8",
+        )
+        install_command = f'"{install_fixture}"'
+    else:
+        broken_clang.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "${1:-}" = "--version" ]; then echo clang version-only fixture; exit 0; fi\n'
+            "exit 1\n",
+            encoding="utf-8",
+        )
+        broken_clang.chmod(0o755)
+        install_fixture = root / "doctor-install-fixture.sh"
+        install_fixture.write_text(
+            "#!/usr/bin/env bash\n"
+            f'printf attempted > "{repair_sentinel}"\n',
+            encoding="utf-8",
+        )
+        install_fixture.chmod(0o755)
+        install_command = f'bash "{install_fixture}"'
+
+    broken_env = env.copy()
+    broken_env["FREAK_CLANG"] = str(broken_clang)
+    broken = run_cli(compiler, cwd, broken_env, "doctor", "--json")
+    assert broken.returncode != 0, broken.stdout + broken.stderr
+    broken_report = json.loads(broken.stdout)
+    assert broken_report["checks"]["clang"]["ok"] is False
+    assert not list(cwd.glob("_freak_doctor_clang_probe_*"))
+
+    broken_env["FREAK_DOCTOR_INSTALL_COMMAND"] = install_command
+    fix_attempt = run_cli(compiler, cwd, broken_env, "doctor", "--fix")
+    assert fix_attempt.returncode != 0, fix_attempt.stdout + fix_attempt.stderr
+    assert repair_sentinel.is_file(), fix_attempt.stdout + fix_attempt.stderr
+    assert not list(cwd.glob("_freak_doctor_clang_probe_*"))
+
 
 def check_upgrade(root: Path, compiler: Path) -> None:
     env = os.environ.copy()
@@ -308,10 +460,20 @@ def check_upgrade(root: Path, compiler: Path) -> None:
     assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
     assert sentinel.is_file(), upgraded.stdout
     assert "Upgrade payload staged successfully" in upgraded.stdout
+    sentinel_text = sentinel.read_text(encoding="utf-8")
+    if sys.platform == "win32":
+        assert sentinel_text == "True|True|local|1", sentinel_text
+    else:
+        assert sentinel_text == f"local|{upgrade_root}|--upgrade --without-deps", sentinel_text
 
     env["FREAK_UPGRADE_SCRIPT"] = str(failing)
     failed = run_cli(compiler, root, env, "upgrade")
-    assert failed.returncode != 0, failed.stdout + failed.stderr
+    expected_failure = 1 if sys.platform == "win32" else 7
+    assert failed.returncode == expected_failure, (
+        f"upgrade failure returned {failed.returncode}, expected {expected_failure}\n"
+        + failed.stdout
+        + failed.stderr
+    )
     assert "Upgrade failed" in failed.stdout
 
 

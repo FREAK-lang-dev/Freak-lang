@@ -59,15 +59,31 @@ case "$ARCH" in
     aarch64|arm64) ARCH_TAG="arm64" ;;
     *)             err "Unsupported architecture: $ARCH" ;;
 esac
+if [ "$PLATFORM" = "macos" ] && [ "$ARCH_TAG" = "x64" ]; then
+    err "Intel macOS is not available in the current release matrix (macOS arm64 only)"
+fi
 TARGET="freak-${PLATFORM}-${ARCH_TAG}"
 info "Detected platform: ${PLATFORM}-${ARCH_TAG}"
 
 have_clang() {
+    local candidate=""
     if [ -n "${FREAK_CLANG:-}" ]; then
-        "$FREAK_CLANG" --version >/dev/null 2>&1
-    else
-        command -v clang >/dev/null 2>&1
+        candidate="$FREAK_CLANG"
+    elif command -v clang >/dev/null 2>&1; then
+        candidate=$(command -v clang)
     fi
+    [ -n "$candidate" ] || return 1
+
+    local probe_dir probe_source probe_binary probe_status
+    probe_dir=$(mktemp -d "${TMPDIR:-/tmp}/freak-clang-probe.XXXXXX") || return 1
+    probe_source="$probe_dir/probe.c"
+    probe_binary="$probe_dir/probe"
+    printf '#include <stdio.h>\nint main(void) { return 0; }\n' > "$probe_source"
+    probe_status=0
+    "$candidate" -x c "$probe_source" -o "$probe_binary" >/dev/null 2>&1 || probe_status=$?
+    if [ "$probe_status" -eq 0 ] && [ ! -s "$probe_binary" ]; then probe_status=1; fi
+    rm -rf -- "$probe_dir"
+    return "$probe_status"
 }
 
 run_privileged() {
@@ -109,7 +125,11 @@ install_compiler_dependencies() {
     fi
 
     info "Installing Clang, LLD, and native build prerequisites..."
-    if [ "$PLATFORM" = "macos" ]; then
+    if [ -n "${FREAK_INSTALL_DEP_COMMAND:-}" ]; then
+        if ! bash -c "$FREAK_INSTALL_DEP_COMMAND"; then
+            err "The custom dependency installation command failed"
+        fi
+    elif [ "$PLATFORM" = "macos" ]; then
         if command -v brew >/dev/null 2>&1; then
             brew install llvm
             EXTRA_PATH_DIR="$(brew --prefix llvm)/bin"
@@ -167,7 +187,14 @@ info "Release: $LATEST"
 RAW_BASE="${RAW_BASE_OVERRIDE:-https://raw.githubusercontent.com/$REPO/$LATEST}"
 TARBALL_URL="$RELEASE_BASE/$LATEST/${TARGET}.tar.gz"
 TMPDIR_INSTALL=$(mktemp -d)
-trap 'rm -rf -- "$TMPDIR_INSTALL"' EXIT
+APPLY_ROOT=""
+BACKUP_ROOT=""
+cleanup_install() {
+    rm -rf -- "$TMPDIR_INSTALL"
+    if [ -n "$APPLY_ROOT" ]; then rm -rf -- "$APPLY_ROOT"; fi
+    if [ -n "$BACKUP_ROOT" ]; then rm -rf -- "$BACKUP_ROOT"; fi
+}
+trap cleanup_install EXIT
 STAGE_DIR="$TMPDIR_INSTALL/stage"
 STAGE_BIN="$STAGE_DIR/bin"
 STAGE_RUNTIME="$STAGE_DIR/runtime"
@@ -209,6 +236,8 @@ validate_stage() {
     [ -s "$STAGE_MANIFEST" ] || err "Staged distribution manifest is missing"
     local source destination
     while IFS='|' read -r source destination; do
+        source=${source%$'\r'}
+        destination=${destination%$'\r'}
         if [ -z "$source" ] || [[ "$source" == \#* ]]; then continue; fi
         [ -n "$destination" ] || err "Malformed distribution manifest entry: $source"
         validate_manifest_entry "$source" "$destination"
@@ -225,6 +254,8 @@ stage_fallback_payload() {
     fetch_file "$RAW_BASE/packaging/distribution-files.manifest" "$STAGE_MANIFEST"
     local source destination
     while IFS='|' read -r source destination; do
+        source=${source%$'\r'}
+        destination=${destination%$'\r'}
         if [ -z "$source" ] || [[ "$source" == \#* ]]; then continue; fi
         [ -n "$destination" ] || err "Malformed distribution manifest entry: $source"
         validate_manifest_entry "$source" "$destination"
@@ -266,17 +297,67 @@ else
 fi
 
 validate_stage
-mkdir -p "$BIN_DIR"
-install -m 755 "$STAGE_BIN/freak" "$BIN_DIR/freak"
-install -m 755 "$STAGE_BIN/hangar" "$BIN_DIR/hangar"
 
-# runtime/ and std/ are installer-managed trees. Replacing those exact
-# directories removes files retired by a newer distribution.
-rm -rf -- "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"
-mkdir -p "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"
-cp -R "$STAGE_RUNTIME/." "$INSTALL_DIR/runtime/"
-cp -R "$STAGE_STD/." "$INSTALL_DIR/std/"
-cp "$STAGE_MANIFEST" "$INSTALL_DIR/distribution-files.manifest"
+# Prepare replacements on the destination filesystem so every final move is
+# an atomic rename. If any apply step fails, restore the exact previous set.
+APPLY_ROOT=$(mktemp -d "$INSTALL_DIR/.freak-apply-XXXXXX") || err "Could not create the destination apply directory"
+if ! BACKUP_ROOT=$(mktemp -d "$INSTALL_DIR/.freak-backup-XXXXXX"); then
+    rm -rf -- "$APPLY_ROOT"
+    err "Could not create the destination rollback directory"
+fi
+mkdir -p "$APPLY_ROOT/bin" "$APPLY_ROOT/runtime" "$APPLY_ROOT/std" "$BACKUP_ROOT/bin"
+install -m 755 "$STAGE_BIN/freak" "$APPLY_ROOT/bin/freak"
+install -m 755 "$STAGE_BIN/hangar" "$APPLY_ROOT/bin/hangar"
+cp -R "$STAGE_RUNTIME/." "$APPLY_ROOT/runtime/"
+cp -R "$STAGE_STD/." "$APPLY_ROOT/std/"
+cp "$STAGE_MANIFEST" "$APPLY_ROOT/distribution-files.manifest"
+mkdir -p "$BIN_DIR"
+
+restore_previous_payload() {
+    local live backup
+    for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/distribution-files.manifest"; do
+        backup="$BACKUP_ROOT/${live#"$INSTALL_DIR/"}"
+        if [ -e "$backup" ]; then
+            rm -rf -- "$live"
+            mkdir -p "$(dirname "$live")"
+            mv -- "$backup" "$live" || true
+        elif [ -e "$backup.missing" ]; then
+            rm -rf -- "$live"
+        fi
+    done
+    rm -rf -- "$APPLY_ROOT" "$BACKUP_ROOT"
+}
+
+backup_live_path() {
+    local live="$1"
+    local backup="$BACKUP_ROOT/${live#"$INSTALL_DIR/"}"
+    mkdir -p "$(dirname "$backup")"
+    if [ -e "$live" ]; then
+        mv -- "$live" "$backup"
+    else
+        : > "$backup.missing"
+    fi
+}
+
+apply_failed=0
+for live in "$BIN_DIR/freak" "$BIN_DIR/hangar" "$INSTALL_DIR/runtime" "$INSTALL_DIR/std" "$INSTALL_DIR/distribution-files.manifest"; do
+    if ! backup_live_path "$live"; then apply_failed=1; break; fi
+done
+if [ "$apply_failed" -eq 0 ]; then
+    mv -- "$APPLY_ROOT/runtime" "$INSTALL_DIR/runtime" || apply_failed=1
+fi
+if [ "$apply_failed" -eq 0 ] && truthy "${FREAK_INSTALL_TEST_FAIL_APPLY:-0}"; then
+    apply_failed=1
+fi
+if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/std" "$INSTALL_DIR/std" || apply_failed=1; fi
+if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/distribution-files.manifest" "$INSTALL_DIR/distribution-files.manifest" || apply_failed=1; fi
+if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/bin/freak" "$BIN_DIR/freak" || apply_failed=1; fi
+if [ "$apply_failed" -eq 0 ]; then mv -- "$APPLY_ROOT/bin/hangar" "$BIN_DIR/hangar" || apply_failed=1; fi
+if [ "$apply_failed" -ne 0 ]; then
+    restore_previous_payload
+    err "Could not apply the staged distribution; the previous payload was restored"
+fi
+rm -rf -- "$APPLY_ROOT" "$BACKUP_ROOT"
 
 add_to_path() {
     local rc_file="$1"
