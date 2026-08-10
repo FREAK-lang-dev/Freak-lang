@@ -598,6 +598,26 @@ task tc_diag_non_shape_field(line: int) -> void {
     say "  | ^"
 }
 
+task tc_is_builtin_method(name: word) -> bool {
+    if name == "length" or name == "checksum" or name == "trim" { give back true }
+    if name == "to_upper" or name == "to_lower" or name == "replace" { give back true }
+    if name == "char_at" or name == "substring" or name == "contains" { give back true }
+    if name == "starts_with" or name == "ends_with" { give back true }
+    if name == "to_int" or name == "to_num" or name == "to_word" { give back true }
+    if name == "snapshot_escape" or name == "snapshot_unescape" { give back true }
+    if name == "snapshot_line_count" or name == "snapshot_line" { give back true }
+    if name == "snapshot_field_count" or name == "snapshot_field_raw" { give back true }
+    give back false
+}
+
+task tc_diag_non_shape_method(method_name: word, line: int) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: non-shape value has no method '" + method_name + "' (line " + word_from_int(line) + ")"
+    say " --> " + input_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_source_line(line)
+    say "  | ^"
+}
+
 task tc_validate_args(args: word, line: int) -> void {
     pilot current = ""
     pilot i = 0
@@ -634,6 +654,8 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         pilot receiver_shape = tc_expr_shape(word_to_int(left))
         if receiver_shape != "" and not tc_has_impl_method(receiver_shape, val) {
             tc_diag_member(receiver_shape, "method", val, line)
+        } else if receiver_shape == "" and tc_expr_is_known_non_shape(word_to_int(left)) and not tc_is_builtin_method(val) {
+            tc_diag_non_shape_method(val, line)
         }
         give back
     }

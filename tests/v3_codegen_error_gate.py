@@ -134,7 +134,7 @@ def main() -> int:
             "extern task imported() -> Known\n"
             "task Known_spoof() { say \"not an impl\" }\n"
             "pilot shadowed = Known { value: 8 }\n"
-            "task shadow_param(shadowed: int) { say shadowed.value }\n"
+            "task shadow_param(shadowed: int) { say shadowed.value shadowed.not_primitive() }\n"
             "task main() {\n"
             "    when known.missing_when_target {\n"
             "        known.missing_when_case -> say known.missing_when_body\n"
@@ -165,6 +165,7 @@ def main() -> int:
                 assert member in output, f"{backend}: did not validate {member}\n{output}"
             assert "has no method 'spoof'" in output
             assert "non-shape value has no fields" in output
+            assert "non-shape value has no method 'not_primitive'" in output
             assert "nested_nominal_bad.fk:9:1" in output
             assert "nested_nominal_bad.fk:10:1" in output
             assert "10 |         known.missing_when_case -> say known.missing_when_body" in output
