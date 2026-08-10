@@ -773,9 +773,10 @@ task parse_program() -> void {
 }
 
 task check_program() -> void {
+    tc_run_program()
     -- v3 has no full type checker yet. The borrow checker (Bible §4.1)
-    -- runs only when --strict-borrow is on the CLI; otherwise this is
-    -- a no-op so existing code keeps building.
+    -- Nominal member validation always runs; broader borrow checking
+    -- remains behind --strict-borrow.
     if strict_borrow {
         bc_run_program()
     }

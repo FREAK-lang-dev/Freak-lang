@@ -99,6 +99,14 @@ pilot bc_sym_lines  = 0
 pilot bc_sym_count  = 0
 pilot bc_scope_depth = 0
 
+-- Minimal always-on nominal member checking (shape fields/impl methods).
+pilot tc_global_names = 0
+pilot tc_global_types = 0
+pilot tc_global_count = 0
+pilot tc_local_names = 0
+pilot tc_local_types = 0
+pilot tc_local_count = 0
+
 -- ===================== SHAPE REGISTRY ==============================
 pilot shape_registry_names = 0
 pilot shape_registry_fields = 0
@@ -161,6 +169,7 @@ pilot llvm_loop_cond_label = ""
 pilot llvm_global_names = ""
 pilot llvm_global_type_names = ""
 pilot llvm_global_types = ""
+pilot llvm_emitting_global_init = false
 pilot llvm_var_reg_map = ""   -- "freak_name:llvm_name|..." latest binding wins
 pilot llvm_dbg_md = ""
 pilot llvm_dbg_next_id = 0

@@ -29,6 +29,10 @@ task init_arrays() -> void {
     bc_sym_state  = array_new()
     bc_sym_scopes = array_new()
     bc_sym_lines  = array_new()
+    tc_global_names = array_new()
+    tc_global_types = array_new()
+    tc_local_names = array_new()
+    tc_local_types = array_new()
     shape_registry_names = array_new()
     shape_registry_fields = array_new()
     emt_var_names = array_new()
@@ -191,20 +195,19 @@ task adjust_token_lines(offset: int) -> void {
 -- ===================== EMITTER VARIABLE TRACKING ===================
 
 task emt_set_var_type(name: word, vtype: word) -> void {
-    pilot i = 0
-    repeat emt_var_count times {
-        if array_get(emt_var_names, i) == name {
-            array_set(emt_var_types, i, vtype)
-            give back
-        }
-        i += 1
+    if emt_var_count < array_len(emt_var_names) {
+        array_set(emt_var_names, emt_var_count, name)
+        array_set(emt_var_types, emt_var_count, vtype)
+    } else {
+        array_push(emt_var_names, name)
+        array_push(emt_var_types, vtype)
     }
-    array_push(emt_var_names, name)
-    array_push(emt_var_types, vtype)
     emt_var_count += 1
 }
 
 task emt_reset_local_types() -> void {
+    array_release(emt_var_names)
+    array_release(emt_var_types)
     emt_var_names = array_new()
     emt_var_types = array_new()
     emt_var_count = 0
@@ -225,12 +228,12 @@ task emt_set_global_var_type(name: word, vtype: word) -> void {
 }
 
 task emt_get_var_type(name: word) -> word {
-    pilot i = 0
-    repeat emt_var_count times {
+    pilot i = emt_var_count - 1
+    repeat until i < 0 {
         if array_get(emt_var_names, i) == name {
             give back array_get(emt_var_types, i)
         }
-        i += 1
+        i -= 1
     }
     i = 0
     repeat emt_global_var_count times {

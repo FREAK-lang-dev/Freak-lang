@@ -93,6 +93,35 @@ def main() -> int:
             assert not borrow_bad.with_suffix("").exists()
             assert not borrow_bad.with_suffix(".exe").exists()
 
+        nominal_bad = tmp_path / "nominal_bad.fk"
+        nominal_bad.write_text(
+            "shape Known { value: int }\n"
+            "shape Other { value: int }\n"
+            "impl Other { task not_a_method(self) { say \"wrong impl\" } }\n"
+            "pilot known = Known { value: 7 }\n"
+            "task main() {\n"
+            "    pilot missing = known.not_a_field\n"
+            "    known.not_a_method()\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        for backend, flag, suffix in (("LLVM", "--llvm", ".ll"), ("C", "--c", ".c")):
+            nominal_artifact = Path(str(nominal_bad) + suffix)
+            nominal_artifact.write_text(SENTINEL, encoding="utf-8")
+            nominal_result = run(freak, repo, nominal_bad, "transpile", flag)
+            assert_rejected(nominal_result, f"{backend} nominal member gate")
+            nominal_output = nominal_result.stdout + nominal_result.stderr
+            assert "has no field 'not_a_field'" in nominal_output
+            assert "has no method 'not_a_method'" in nominal_output
+            assert nominal_artifact.read_text(encoding="utf-8") == SENTINEL
+
+            nominal_artifact.unlink()
+            nominal_build = run(freak, repo, nominal_bad, "build", flag)
+            assert_rejected(nominal_build, f"{backend} nominal member build gate")
+            assert not nominal_artifact.exists()
+            assert not nominal_bad.with_suffix("").exists()
+            assert not nominal_bad.with_suffix(".exe").exists()
+
         check_result = run(freak, repo, parse_bad, "check")
         check_output = check_result.stdout + check_result.stderr
         assert check_result.returncode != 0, f"check accepted invalid syntax\n{check_output}"

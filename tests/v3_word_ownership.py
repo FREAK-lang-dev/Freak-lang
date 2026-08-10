@@ -71,6 +71,15 @@ task main() {
     global_owner = "reinitialized"
     say global_alias
     global_alias = "released"
+    pilot mut scoped: word = "o" + "uter"
+    if true {
+        pilot scoped: int = 7
+        if scoped == 7 { say "inner" }
+    }
+    say scoped
+    scoped = scoped + "!"
+    say scoped
+    scoped = "released"
 }
 """
 
@@ -131,11 +140,17 @@ task shadow_global_type(global_owner: int) {
     pilot copy = global_owner
 }
 
+task shadow_global_local() {
+    pilot global_owner: int = 7
+    if global_owner == 7 { say "local" }
+}
+
 task observe(value: word) {
     pilot length = value.length()
 }
 
 task main() {
+    shadow_global_local()
     observe(global_owner)
     say global_owner
     global_owner = "released"
@@ -161,9 +176,21 @@ impl Message {
     task observe(self, value: word) {
         pilot length = value.length()
     }
+
+    task store_value(self, value: word) {
+        self.value = value
+    }
 }
 
 pilot message = Message { code: 7, value: "initial" }
+
+task get_message() -> Message {
+    give back message
+}
+
+task read_message(value: Message) -> word {
+    give back value.value
+}
 
 task main() {
     pilot mut replacement: word = "x" + "y"
@@ -182,6 +209,14 @@ task main() {
     message.value = "f" + "ield"
     message.observe(message.value)
     say message.value
+    pilot mut self_value: word = "s" + "elf"
+    message.store_value(self_value)
+    self_value = "released"
+    say message.value
+    pilot returned_message: Message = get_message()
+    pilot mut read_value: word = read_message(returned_message)
+    say read_value
+    read_value = "released"
     message.value = "released"
 }
 """
@@ -212,11 +247,11 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="freak-v3-word-ownership-") as tmp:
         root = Path(tmp)
         cases = (
-            ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "arg", "shadow", "global"], ("c", "llvm")),
+            ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "arg", "shadow", "global", "inner", "outer", "outer!"], ("c", "llvm")),
             ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"], ("c", "llvm")),
-            ("global_call", GLOBAL_CALL_PROGRAM, [], ["global"], ("c", "llvm")),
+            ("global_call", GLOBAL_CALL_PROGRAM, [], ["local", "global"], ("c", "llvm")),
             ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join", "literal"], ("c", "llvm")),
-            ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field"], ("llvm",)),
+            ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field", "self", "self"], ("llvm",)),
         )
         for case_name, program, extra_flags, expected_output, backends in cases:
             source = root / f"replace_owned_{case_name}.fk"

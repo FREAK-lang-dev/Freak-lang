@@ -420,6 +420,7 @@ task emit_c_unaryop(val: word, left: word) -> void {
 -- ===================== BLOCK EMIT ====================================
 
 task emit_block(block: word) -> void {
+    pilot saved_var_count = emt_var_count
     pilot i = 0
     pilot slen = block.length()
     pilot cur_id = ""
@@ -434,6 +435,7 @@ task emit_block(block: word) -> void {
         i += 1
     }
     if cur_id != "" { emit_stmt(cur_id) }
+    emt_var_count = saved_var_count
 }
 
 -- ===================== STATEMENT EMIT ================================
@@ -728,14 +730,18 @@ task emit_stmt_when(eid: word) -> void {
                 if c_expr == "-1" {
                     if not is_first { emit("else ") }
                     emit_line("{")
+                    pilot saved_case_vars = emt_var_count
                     emit_stmt(c_stmt)
+                    emt_var_count = saved_case_vars
                     emit_line("}")
                 } else {
                     if not is_first { emit("else ") }
                     emit("if (__target == ")
                     emit_expr(c_expr)
                     emit_line(") {")
+                    pilot saved_case_vars = emt_var_count
                     emit_stmt(c_stmt)
+                    emt_var_count = saved_case_vars
                     emit_line("}")
                 }
                 is_first = false

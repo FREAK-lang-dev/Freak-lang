@@ -394,13 +394,14 @@ task llvm_infer_expr_type(expr_id: word) -> word {
         if recv_shape != "" {
             pilot exact_ret = llvm_get_task_ret_type(recv_shape + "_" + val)
             if exact_ret.length() > 0 { give back exact_ret }
-        }
-        pilot mi = 0
-        repeat shape_registry_count times {
-            pilot msname: word = "" + array_get(shape_registry_names, mi)
-            pilot impl_ret: word = llvm_get_task_ret_type(msname + "_" + val)
-            if impl_ret.length() > 0 { give back impl_ret }
-            mi += 1
+        } else {
+            pilot mi = 0
+            repeat shape_registry_count times {
+                pilot msname: word = "" + array_get(shape_registry_names, mi)
+                pilot impl_ret: word = llvm_get_task_ret_type(msname + "_" + val)
+                if impl_ret.length() > 0 { give back impl_ret }
+                mi += 1
+            }
         }
     }
 
@@ -1035,8 +1036,7 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
     pilot best_sname = llvm_shape_name_from_type(llvm_infer_expr_type(left))
     pilot best_ret = ""
     if best_sname != "" { best_ret = llvm_get_task_ret_type(best_sname + "_" + val) }
-    if best_ret == "" {
-        best_sname = ""
+    if best_sname == "" {
         pilot si = 0
         repeat shape_registry_count times {
             pilot sname: word = "" + array_get(shape_registry_names, si)
@@ -1048,7 +1048,7 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
             si += 1
         }
     }
-    if best_sname.length() > 0 {
+    if best_sname.length() > 0 and best_ret.length() > 0 {
         pilot impl_fname = "freak_" + best_sname + "_" + val
         if best_ret == "v" {
             llvm_emit_line("    call void @" + impl_fname + "(i64 " + obj_reg + extra_args + ")")
@@ -1077,6 +1077,9 @@ task llvm_emit_field(val: word, left: word) -> word {
 -- ===================== BLOCK EMIT ====================================
 
 task llvm_emit_block(block: word) -> void {
+    pilot saved_var_names = llvm_var_names
+    pilot saved_var_types = llvm_var_types
+    pilot saved_var_map = llvm_var_reg_map
     pilot i = 0
     pilot slen = block.length()
     pilot cur_id = ""
@@ -1089,6 +1092,9 @@ task llvm_emit_block(block: word) -> void {
         i += 1
     }
     if cur_id.length() > 0 { llvm_emit_stmt(cur_id) }
+    llvm_var_names = saved_var_names
+    llvm_var_types = saved_var_types
+    llvm_var_reg_map = saved_var_map
 }
 
 -- ===================== STATEMENT EMIT ================================
@@ -1212,7 +1218,7 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
         llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
         stored_reg = clone_reg
     }
-    if llvm_is_global(name_w) {
+    if llvm_emitting_global_init {
         llvm_emit_line("    store i64 " + stored_reg + ", i64* @g_" + name_w)
     } else {
         pilot uniq = name_w + "_v" + word_from_int(temp_reg_counter)
@@ -1508,7 +1514,13 @@ task llvm_emit_stmt_when(eid: word) -> void {
                     llvm_emit_line("    br i1 " + cmp_res + ", label %" + do_block + ", label %" + next_block)
                 }
                 llvm_emit_line(do_block + ":")
+                pilot saved_case_names = llvm_var_names
+                pilot saved_case_types = llvm_var_types
+                pilot saved_case_map = llvm_var_reg_map
                 llvm_emit_stmt(c_stmt)
+                llvm_var_names = saved_case_names
+                llvm_var_types = saved_case_types
+                llvm_var_reg_map = saved_case_map
                 llvm_emit_line("    br label %" + l_end)
                 current_block = next_block
             }
@@ -1936,7 +1948,11 @@ task emit_llvm_program() -> void {
         repeat top_count times {
             pilot cur_id: word = array_get(ast_top_stmts, i)
             pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
-            if kind == STMT_PILOT { llvm_emit_stmt(cur_id) }
+            if kind == STMT_PILOT {
+                llvm_emitting_global_init = true
+                llvm_emit_stmt(cur_id)
+                llvm_emitting_global_init = false
+            }
             i += 1
         }
         llvm_emit_line("    ret void")
@@ -1959,7 +1975,11 @@ task emit_llvm_program() -> void {
         repeat top_count times {
             pilot cur_id: word = array_get(ast_top_stmts, i)
             pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
-            if kind != STMT_TASK and kind != STMT_EXTERN { llvm_emit_stmt(cur_id) }
+            if kind != STMT_TASK and kind != STMT_EXTERN {
+                if kind == STMT_PILOT { llvm_emitting_global_init = true }
+                llvm_emit_stmt(cur_id)
+                llvm_emitting_global_init = false
+            }
             i += 1
         }
         llvm_emit_line("    ret void")
