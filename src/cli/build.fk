@@ -285,8 +285,9 @@ task cli_find_runtime_dir() -> word {
     -- binary happens to live beside another complete checkout payload.
     pilot freak_home: word = process::env("FREAK_HOME")
     if freak_home != "" {
-        pilot fh_rt = freak_home + "/runtime"
-        if cli_has_runtime(fh_rt) { give back fh_rt }
+        -- An explicit override is also authoritative when it is incomplete:
+        -- Doctor/build must diagnose that payload, never silently fall back.
+        give back freak_home + "/runtime"
     }
     -- 2. Installed/archive payloads beside the compiler beat the CWD. A
     -- project must never shadow the compiler runtime with freakc/runtime.
@@ -678,8 +679,7 @@ task cli_find_std_dir() -> word {
     -- An explicit FREAK_HOME is authoritative over checkout-relative payloads.
     pilot freak_home: word = process::env("FREAK_HOME")
     if freak_home != "" {
-        pilot fh_std = freak_home + "/std"
-        if fs::exists(fh_std + "/math.fk") { give back fh_std }
+        give back freak_home + "/std"
     }
     pilot executable_home = cli_executable_home()
     if executable_home != "" and fs::exists(executable_home + "/std/math.fk") {
@@ -701,6 +701,62 @@ task cli_find_std_dir() -> word {
         give back winget_home + "/std"
     }
     give back ""
+}
+
+task cli_payload_abi_value(directory: word) -> word {
+    if directory == "" { give back "missing" }
+    pilot marker = directory + "/freak_abi"
+    if not fs::exists(marker) { give back "missing" }
+    give back fs::read(marker).trim()
+}
+
+task cli_payload_abi_ok(runtime_dir: word, std_dir: word) -> bool {
+    pilot runtime_abi = cli_payload_abi_value(runtime_dir)
+    pilot std_abi = cli_payload_abi_value(std_dir)
+    give back runtime_abi == FREAK_V3_ABI and std_abi == FREAK_V3_ABI
+}
+
+task cli_pending_upgrade_marker() -> word {
+    if not cli_is_windows() { give back "" }
+    pilot freak_home: word = process::env("FREAK_HOME")
+    if freak_home != "" {
+        pilot home_pending = freak_home + "/bin/.freak-upgrade-pending"
+        if fs::exists(home_pending) { give back home_pending }
+    }
+    pilot executable = cli_executable_path()
+    pilot bin_dir = cli_path_parent(executable)
+    if bin_dir != "" {
+        pilot adjacent_pending = bin_dir + "/.freak-upgrade-pending"
+        if fs::exists(adjacent_pending) { give back adjacent_pending }
+    }
+    give back ""
+}
+
+task cli_build_environment_ready() -> bool {
+    pilot pending = cli_pending_upgrade_marker()
+    if pending != "" {
+        say ""
+        say C_BRED + "  UPGRADE PENDING" + C_RESET
+        say C_DIM + "  FREAK cannot build while Windows is still replacing the compiler binaries." + C_RESET
+        say C_DIM + "  Pending marker: " + pending + C_RESET
+        say C_DIM + "  Close FREAK processes, wait for the updater, then run 'freak doctor'." + C_RESET
+        say ""
+        give back false
+    }
+
+    pilot runtime_dir = cli_find_runtime_dir()
+    pilot std_dir = cli_find_std_dir()
+    if not cli_payload_abi_ok(runtime_dir, std_dir) {
+        say ""
+        say C_BRED + "  ABI MISMATCH" + C_RESET
+        say C_DIM + "  Compiler expects: " + FREAK_V3_ABI + C_RESET
+        say C_DIM + "  Runtime reports: " + cli_payload_abi_value(runtime_dir) + C_RESET
+        say C_DIM + "  Standard library reports: " + cli_payload_abi_value(std_dir) + C_RESET
+        say C_DIM + "  Reinstall or run 'freak upgrade' so compiler, runtime, and stdlib agree." + C_RESET
+        say ""
+        give back false
+    }
+    give back true
 }
 
 task cli_load_std(source: word, target: word) -> word {
@@ -815,6 +871,8 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     -- Full build pipeline: read source, transpile, compile.
     -- Returns the output binary path, or "" on error.
     cli_build_start_ms = time::now_ms()
+
+    if not cli_build_environment_ready() { give back "" }
 
     -- Any explicit build may replace the adjacent executable. Invalidate run
     -- proof before doing work so failed builds and non-run builds cannot leave

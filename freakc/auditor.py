@@ -1824,11 +1824,10 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freakc/runtime/freak_llvm_runtime.c",
                 "freakc/runtime/ui/win32_backend.c",
                 "freakc/runtime/ui/freak_ui_platform.h",
+                "freakc/runtime/freak_abi",
+                "std/freak_abi",
             }
         )
-        for optional_marker in ("freakc/runtime/freak_abi", "std/freak_abi"):
-            if (repo / optional_marker).is_file():
-                expected_sources.add(optional_marker)
         for missing_source in sorted(expected_sources - manifest_sources):
             distribution_missing.append(
                 f"required file absent from manifest: {missing_source}"
@@ -1863,6 +1862,10 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "src" / "cli" / "doctor.fk",
             (
                 "modules_expected\\\": 11",
+                "files_expected\\\": 6",
+                "FREAK_V3_ABI",
+                "ABI mismatch",
+                "upgrade_pending",
                 "ui/window.fk",
                 'process::env("TMPDIR")',
                 "probe_run_exit == 0",

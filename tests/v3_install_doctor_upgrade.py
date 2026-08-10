@@ -48,11 +48,10 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             "freakc/runtime/freak_llvm_runtime.c",
             "freakc/runtime/ui/win32_backend.c",
             "freakc/runtime/ui/freak_ui_platform.h",
+            "freakc/runtime/freak_abi",
+            "std/freak_abi",
         }
     )
-    for optional in ("freakc/runtime/freak_abi", "std/freak_abi"):
-        if (repo / optional).is_file():
-            expected_sources.add(optional)
     assert actual_sources == expected_sources, (
         f"manifest missing={sorted(expected_sources - actual_sources)} "
         f"extra={sorted(actual_sources - expected_sources)}"
@@ -67,7 +66,7 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
         if destination.startswith("runtime/"):
             relative = destination.removeprefix("runtime/")
             runtime_destinations.append(relative)
-        else:
+        elif destination != "std/freak_abi":
             relative = destination.removeprefix("std/")
             std_destinations.append(relative)
         assert f'"{relative}"' in doctor_text, (
@@ -541,9 +540,57 @@ def check_doctor(
     assert Path(report["checks"]["stdlib"]["path"]).resolve() == (
         payload / "std"
     ).resolve()
-    assert report["checks"]["runtime"]["files_expected"] == 5
+    assert report["checks"]["runtime"]["files_expected"] == 6
     assert report["checks"]["stdlib"]["modules_found"] == 11
     assert report["checks"]["stdlib"]["modules_expected"] == 11
+    assert report["checks"]["abi"] == {
+        "ok": True,
+        "expected": "freak-v3-abi-1",
+        "runtime": "freak-v3-abi-1",
+        "stdlib": "freak-v3-abi-1",
+    }
+    assert report["checks"]["upgrade"]["pending"] is False
+
+    # A complete-looking but mixed payload must fail before either backend
+    # emits or links anything.
+    abi_source = cwd / "abi_probe.fk"
+    abi_source.write_text('say "abi"\n', encoding="utf-8")
+    runtime_abi = payload / "runtime" / "freak_abi"
+    runtime_abi.write_text("freak-v3-abi-999\n", encoding="utf-8")
+    mismatched = run_cli(compiler, cwd, env, "doctor", "--json")
+    assert mismatched.returncode != 0, mismatched.stdout + mismatched.stderr
+    mismatch_report = json.loads(mismatched.stdout)
+    assert mismatch_report["checks"]["abi"]["ok"] is False
+    rejected_build = run_cli(compiler, cwd, env, "build", str(abi_source), "--c")
+    assert rejected_build.returncode != 0, rejected_build.stdout + rejected_build.stderr
+    assert "abi mismatch" in rejected_build.stdout.lower()
+    assert not Path(str(abi_source) + ".c").exists()
+    assert not abi_source.with_suffix(".exe").exists()
+    assert not abi_source.with_suffix("").exists()
+    shutil.copy2(repo / "freakc" / "runtime" / "freak_abi", runtime_abi)
+
+    std_abi = payload / "std" / "freak_abi"
+    std_abi.unlink()
+    missing_abi = run_cli(compiler, cwd, env, "doctor", "--json")
+    assert missing_abi.returncode != 0, missing_abi.stdout + missing_abi.stderr
+    missing_report = json.loads(missing_abi.stdout)
+    assert missing_report["checks"]["abi"]["stdlib"] == "missing"
+    assert "freak_abi" in missing_report["checks"]["stdlib"]["missing"]
+    shutil.copy2(repo / "std" / "freak_abi", std_abi)
+
+    if sys.platform == "win32":
+        pending = payload / "bin" / ".freak-upgrade-pending"
+        pending.parent.mkdir(parents=True, exist_ok=True)
+        pending.write_text("v0.14.1|wait-pid=fixture\n", encoding="utf-8")
+        pending_doctor = run_cli(compiler, cwd, env, "doctor", "--json")
+        assert pending_doctor.returncode != 0
+        pending_report = json.loads(pending_doctor.stdout)
+        assert pending_report["checks"]["upgrade"]["pending"] is True
+        pending_build = run_cli(compiler, cwd, env, "build", str(abi_source), "--c")
+        assert pending_build.returncode != 0
+        assert "upgrade pending" in pending_build.stdout.lower()
+        assert not Path(str(abi_source) + ".c").exists()
+        pending.unlink()
 
     # Without FREAK_HOME, an installed/executable-relative payload must beat a
     # hostile project CWD that tries to shadow runtime or stdlib inputs.

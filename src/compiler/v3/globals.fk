@@ -6,6 +6,7 @@
 -- ===================== VERSION =====================================
 pilot FREAKC_VERSION = "0.14.0"
 pilot FREAKC_CODENAME = "Maverick"
+pilot FREAK_V3_ABI = "freak-v3-abi-1"
 
 -- ===================== TOKENS ======================================
 pilot TOK_EOF = "0"

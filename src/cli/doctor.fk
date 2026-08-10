@@ -165,6 +165,9 @@ task cli_doctor_runtime_missing(runtime_dir: word) -> word {
     if not fs::exists(runtime_dir + "/ui/freak_ui_platform.h") {
         missing = cli_doctor_append_missing(missing, "ui/freak_ui_platform.h")
     }
+    if not fs::exists(runtime_dir + "/freak_abi") {
+        missing = cli_doctor_append_missing(missing, "freak_abi")
+    }
     give back missing
 }
 
@@ -182,6 +185,7 @@ task cli_doctor_std_missing(std_dir: word) -> word {
     if not fs::exists(std_dir + "/version.fk") { missing = cli_doctor_append_missing(missing, "version.fk") }
     if not fs::exists(std_dir + "/runtime.fk") { missing = cli_doctor_append_missing(missing, "runtime.fk") }
     if not fs::exists(std_dir + "/ui/window.fk") { missing = cli_doctor_append_missing(missing, "ui/window.fk") }
+    if not fs::exists(std_dir + "/freak_abi") { missing = cli_doctor_append_missing(missing, "freak_abi") }
     give back missing
 }
 
@@ -227,8 +231,13 @@ task cli_doctor_json() -> int {
     pilot std_modules = cli_doctor_std_module_count(std_dir)
     pilot std_missing = cli_doctor_std_missing(std_dir)
     pilot std_ok = std_missing == ""
+    pilot runtime_abi = cli_payload_abi_value(rt_dir)
+    pilot std_abi = cli_payload_abi_value(std_dir)
+    pilot abi_ok = runtime_abi == FREAK_V3_ABI and std_abi == FREAK_V3_ABI
+    pilot pending_marker = cli_pending_upgrade_marker()
+    pilot upgrade_pending = pending_marker != ""
 
-    pilot all_ok = clang_ok and runtime_ok and std_ok
+    pilot all_ok = clang_ok and runtime_ok and std_ok and abi_ok and not upgrade_pending
     pilot status = "issues"
     if all_ok { status = "ok" }
 
@@ -255,7 +264,7 @@ task cli_doctor_json() -> int {
     say "    \"runtime\": {"
     say "      \"ok\": " + cli_doctor_json_bool(runtime_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(rt_dir) + "\","
-    say "      \"files_expected\": 5,"
+    say "      \"files_expected\": 6,"
     say "      \"missing\": \"" + cli_doctor_json_escape(runtime_missing) + "\","
     say "      \"precompiled_objects\": " + cli_doctor_json_bool(runtime_obj) + ","
     say "      \"llvm_runtime\": " + cli_doctor_json_bool(llvm_runtime)
@@ -266,6 +275,16 @@ task cli_doctor_json() -> int {
     say "      \"modules_found\": " + word_from_int(std_modules) + ","
     say "      \"modules_expected\": 11,"
     say "      \"missing\": \"" + cli_doctor_json_escape(std_missing) + "\""
+    say "    },"
+    say "    \"abi\": {"
+    say "      \"ok\": " + cli_doctor_json_bool(abi_ok) + ","
+    say "      \"expected\": \"" + cli_doctor_json_escape(FREAK_V3_ABI) + "\","
+    say "      \"runtime\": \"" + cli_doctor_json_escape(runtime_abi) + "\","
+    say "      \"stdlib\": \"" + cli_doctor_json_escape(std_abi) + "\""
+    say "    },"
+    say "    \"upgrade\": {"
+    say "      \"pending\": " + cli_doctor_json_bool(upgrade_pending) + ","
+    say "      \"marker\": \"" + cli_doctor_json_escape(pending_marker) + "\""
     say "    },"
     say "    \"compile_pipeline\": {"
     say "      \"ok\": null,"
@@ -371,6 +390,14 @@ task cli_doctor(fix_mode: bool) -> int {
 
     pilot all_ok = true
     pilot checks_passed = 0
+    pilot pending_marker = cli_pending_upgrade_marker()
+    if pending_marker != "" {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " Windows upgrade replacement is still pending."
+        say "        " + C_DIM + pending_marker + C_RESET
+        say "        " + C_DIM + "Builds are disabled until freak.exe and hangar.exe finish replacing." + C_RESET
+        say ""
+        all_ok = false
+    }
 
     -- ── 1. clang ──────────────────────────────────────────
     say "  " + C_BWHITE + "[1/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " clang"
@@ -449,7 +476,8 @@ task cli_doctor(fix_mode: bool) -> int {
     pilot std_dir: word = cli_find_std_dir()
     pilot runtime_missing = cli_doctor_runtime_missing(rt_dir)
     pilot std_missing = cli_doctor_std_missing(std_dir)
-    if fix_mode and (runtime_missing != "" or std_missing != "") {
+    pilot abi_ok = cli_payload_abi_ok(rt_dir, std_dir)
+    if fix_mode and (runtime_missing != "" or std_missing != "" or not abi_ok) {
         say "  " + C_DIM + "Repairing the compiler/runtime/stdlib payload as one unit..." + C_RESET
         pilot repair_res = hangar_install_freak()
         if repair_res == 0 {
@@ -457,10 +485,21 @@ task cli_doctor(fix_mode: bool) -> int {
             std_dir = cli_find_std_dir()
             runtime_missing = cli_doctor_runtime_missing(rt_dir)
             std_missing = cli_doctor_std_missing(std_dir)
+            abi_ok = cli_payload_abi_ok(rt_dir, std_dir)
         } else {
             say "  " + C_BRED + SYM_CROSS + C_RESET + " Distribution repair failed."
         }
         say ""
+    }
+
+    if not abi_ok {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " ABI mismatch"
+        say "        " + C_DIM + "compiler=" + FREAK_V3_ABI + C_RESET
+        say "        " + C_DIM + "runtime=" + cli_payload_abi_value(rt_dir) + C_RESET
+        say "        " + C_DIM + "stdlib=" + cli_payload_abi_value(std_dir) + C_RESET
+        say "        " + C_DIM + "Reinstall or run freak upgrade as one distribution unit." + C_RESET
+        say ""
+        all_ok = false
     }
 
     -- ── 3. Runtime ────────────────────────────────────────
@@ -504,7 +543,7 @@ task cli_doctor(fix_mode: bool) -> int {
 
     -- ── 5. Compile pipeline test ──────────────────────────
     say "  " + C_BWHITE + "[5/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " compile pipeline"
-    if clang_ok and runtime_missing == "" and std_missing == "" {
+    if clang_ok and runtime_missing == "" and std_missing == "" and abi_ok and pending_marker == "" {
         pilot test_src = "say \"FREAK doctor test\""
         pilot test_path = cli_doctor_temp_stem("freak-doctor-pipeline-probe-") + ".fk"
         fs::write(test_path, test_src)
@@ -534,9 +573,13 @@ task cli_doctor(fix_mode: bool) -> int {
         if fs::exists(test_stem + ".obj") { fs::delete(test_stem + ".obj") }
         if fs::exists(test_stem + ".pdb") { fs::delete(test_stem + ".pdb") }
     } else {
-        say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " skipped (fix missing clang/runtime first)" + C_RESET
+        say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " skipped (fix clang/payload/ABI/pending upgrade first)" + C_RESET
     }
     say ""
+
+    -- A successful repair of clang must not mask these independent states.
+    if pending_marker != "" { all_ok = false }
+    if not abi_ok { all_ok = false }
 
     -- ── Summary ───────────────────────────────────────────
     say cli_box_top(50)

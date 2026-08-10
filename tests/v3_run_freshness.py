@@ -146,6 +146,7 @@ def main() -> int:
         std.mkdir(parents=True)
         for name in ("freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c"):
             shutil.copy2(repo / "freakc" / "runtime" / name, runtime / name)
+        shutil.copy2(repo / "freakc" / "runtime" / "freak_abi", runtime / "freak_abi")
         if sys.platform == "win32":
             runtime_ui = runtime / "ui"
             runtime_ui.mkdir()
@@ -157,6 +158,7 @@ def main() -> int:
             (runtime / "freak_runtime.o").write_bytes(b"stale object\n")
             (runtime / "freak_llvm_runtime.o").write_bytes(b"stale object\n")
         (std / "math.fk").write_text("-- freshness std v1\n", encoding="utf-8")
+        shutil.copy2(repo / "std" / "freak_abi", std / "freak_abi")
 
         isolated_home = root / "home"
         isolated_appdata = root / "appdata"
