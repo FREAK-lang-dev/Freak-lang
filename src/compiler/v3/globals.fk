@@ -24,6 +24,8 @@ pilot tok_types = 0
 pilot tok_vals  = 0
 pilot tok_lines = 0
 pilot tok_cols  = 0
+pilot tok_origin_files = 0
+pilot tok_origin_lines = 0
 pilot tokens_count = 0
 
 -- ===================== AST EXPRESSION KINDS ========================
@@ -46,6 +48,8 @@ pilot ast_expr_kinds = 0
 pilot ast_expr_vals = 0
 pilot ast_expr_lefts = 0
 pilot ast_expr_rights = 0
+pilot ast_expr_files = 0
+pilot ast_expr_lines = 0
 
 -- ===================== AST STATEMENT KINDS =========================
 pilot STMT_PILOT = "1"
@@ -74,6 +78,9 @@ pilot ast_stmt_extras = 0
 pilot ast_task_params = 0
 pilot ast_task_returns = 0
 pilot ast_stmt_lines = 0
+pilot ast_stmt_files = 0
+pilot source_location_lines = 0
+pilot source_location_files = 0
 
 pilot ast_top_stmts = 0
 
@@ -189,6 +196,12 @@ pilot input_file = ""
 -- prepended standard library payload and therefore is not source-coordinate
 -- compatible after token line adjustment.
 pilot diagnostic_source = ""
+pilot source_map_paths = 0
+pilot source_map_starts = 0
+pilot source_map_ends = 0
+pilot source_map_count = 0
+pilot source_map_next_line = 1
+pilot source_map_initialized = false
 pilot opt_level = "2"
 pilot cross_target = ""
 pilot source_line_offset = 0

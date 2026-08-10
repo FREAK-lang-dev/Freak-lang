@@ -1694,6 +1694,32 @@ def audit_conformance(paths: List[Path]) -> int:
             cli_main,
             ("pilot run_exit = cli_run", "process::exit(run_exit)"),
         ),
+        "diagnostic origins": (
+            repo / "src" / "compiler" / "v3" / "helpers.fk",
+            (
+                "tok_origin_files",
+                "source_map_register",
+                "source_location_files",
+                "get_file_source_line",
+            ),
+        ),
+        "nominal hard gate": (
+            repo / "src" / "compiler" / "v3" / "checker.fk",
+            (
+                "tc_builtin_method_allowed",
+                "tc_builtin_method_arity",
+                "tc_expr_type",
+                "ast_expr_files",
+            ),
+        ),
+        "codegen gate regression": (
+            repo / "tests" / "v3_codegen_error_gate.py",
+            (
+                "malformed-stdlib-home/std/math.fk:2:",
+                "primitive_methods_ok.fk",
+                "missing_multiline",
+            ),
+        ),
         "regression": (
             repo / "tests" / "v3_run_freshness.py",
             (

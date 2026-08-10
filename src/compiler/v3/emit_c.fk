@@ -304,7 +304,42 @@ task emit_c_call(val: word, left: word) -> void {
     emit(")")
 }
 
+task emt_expr_type_code(id: word) -> word {
+    pilot i = word_to_int(id)
+    pilot kind: word = array_get(ast_expr_kinds, i)
+    pilot val: word = array_get(ast_expr_vals, i)
+    if kind == EXPR_STR { give back "w" }
+    if kind == EXPR_INT { give back "i" }
+    if kind == EXPR_FLOAT { give back "d" }
+    if kind == EXPR_BOOL { give back "b" }
+    if kind == EXPR_IDENT { give back emt_get_var_type(val) }
+    if kind == EXPR_CALL {
+        if is_ast_word(id) { give back "w" }
+        if val == "parse_num" { give back "d" }
+        give back "i"
+    }
+    if kind == EXPR_METHOD {
+        if val == "to_num" { give back "d" }
+        if val == "to_int" or val == "length" or val == "checksum" or val == "contains" or val == "starts_with" or val == "ends_with" { give back "i" }
+        give back "w"
+    }
+    if kind == EXPR_BINOP {
+        if is_ast_word(id) { give back "w" }
+        pilot left_type = emt_expr_type_code(array_get(ast_expr_lefts, i))
+        pilot right_type = emt_expr_type_code(array_get(ast_expr_rights, i))
+        if left_type == "d" or right_type == "d" { give back "d" }
+        give back "i"
+    }
+    if kind == EXPR_UNARYOP { give back emt_expr_type_code(array_get(ast_expr_lefts, i)) }
+    if kind == EXPR_FIELD {
+        if is_ast_word(id) { give back "w" }
+        give back "i"
+    }
+    give back "i"
+}
+
 task emit_c_method(val: word, left: word, right: word) -> void {
+    pilot receiver_type = emt_expr_type_code(left)
     if val == "length" {
         emit("freak_word_length(")
         emit_expr(left)
@@ -312,7 +347,29 @@ task emit_c_method(val: word, left: word, right: word) -> void {
         give back
     }
     if val == "to_int" {
-        emit("freak_word_to_int(")
+        if receiver_type == "d" {
+            emit("((int64_t)(")
+            emit_expr(left)
+            emit("))")
+        } else {
+            emit("freak_word_to_int(")
+            emit_expr(left)
+            emit(")")
+        }
+        give back
+    }
+    if val == "to_num" {
+        if receiver_type == "w" { emit("freak_word_to_num(") }
+        else { emit("((double)(") }
+        emit_expr(left)
+        if receiver_type == "w" { emit(")") }
+        else { emit("))") }
+        give back
+    }
+    if val == "to_word" {
+        if receiver_type == "d" { emit("freak_format_num(") }
+        else if receiver_type == "b" { emit("freak_word_from_bool(") }
+        else { emit("freak_word_from_int(") }
         emit_expr(left)
         emit(")")
         give back
@@ -458,12 +515,32 @@ task emt_is_global_binding(name: word) -> bool {
 }
 
 task emt_is_current_word_param(name: word) -> bool {
-    give back emt_current_word_params.contains("|" + name + "|")
+    give back emt_current_word_params.contains("|" + name + "=")
+}
+
+task emt_word_param_c_name(name: word) -> word {
+    pilot current_name = ""
+    pilot current_c_name = ""
+    pilot in_c_name = false
+    pilot i = 0
+    repeat until i >= emt_current_word_params.length() {
+        pilot ch = emt_current_word_params.char_at(i)
+        if ch == "|" {
+            if current_name == name { give back current_c_name }
+            current_name = ""
+            current_c_name = ""
+            in_c_name = false
+        } else if ch == "=" { in_c_name = true }
+        else if in_c_name { current_c_name = current_c_name + ch }
+        else { current_name = current_name + ch }
+        i += 1
+    }
+    give back ""
 }
 
 task emt_active_binding_is_word_param(name: word) -> bool {
     if not emt_is_current_word_param(name) { give back false }
-    give back emt_get_var_c_name(name) == "__freak_param_" + name
+    give back emt_get_var_c_name(name) == emt_word_param_c_name(name)
 }
 
 task emt_active_binding_is_global(name: word) -> bool {
@@ -473,17 +550,21 @@ task emt_active_binding_is_global(name: word) -> bool {
 
 task emit_current_word_param_cleanup(skip_name: word) -> void {
     pilot i = 0
-    pilot current = ""
+    pilot current_name = ""
+    pilot current_c_name = ""
+    pilot in_c_name = false
     repeat until i >= emt_current_word_params.length() {
         pilot ch: word = emt_current_word_params.char_at(i)
         if ch == "|" {
-            if current != "" and current != skip_name {
-                emit_line("freak_word_release_owned(&__freak_param_" + current + ");")
+            if current_name != "" and current_name != skip_name {
+                emit_line("freak_word_release_owned(&" + current_c_name + ");")
             }
-            current = ""
-        } else {
-            current = current + ch
-        }
+            current_name = ""
+            current_c_name = ""
+            in_c_name = false
+        } else if ch == "=" { in_c_name = true }
+        else if in_c_name { current_c_name = current_c_name + ch }
+        else { current_name = current_name + ch }
         i += 1
     }
 }
@@ -698,10 +779,7 @@ task emit_stmt_pilot(eid: word) -> void {
         if e_kind == EXPR_BOOL { ctype = "bool " vtype = "b" }
         if e_kind == EXPR_FLOAT { ctype = "double " vtype = "d" }
     }
-    pilot c_name = name_w
-    if emt_has_local_var(name_w) or emt_is_global_binding(name_w) {
-        c_name = "__freak_local_" + name_w + "_" + eid
-    }
+    pilot c_name = "__freak_local_" + eid
     emit(ctype + c_name + " = ")
     pilot clone_initial = vtype == "w" and emt_word_expr_needs_clone(expr_id_w)
     if clone_initial { emit("freak_word_clone(") }
@@ -784,6 +862,7 @@ task translate_params(p: word) -> word {
     pilot cur_type = ""
     pilot in_type = false
     pilot i = 0
+    pilot param_index = 0
     pilot slen = p.length()
     repeat slen times {
         pilot c = p.char_at(i)
@@ -795,8 +874,8 @@ task translate_params(p: word) -> word {
             if cur_type == "bool" { ctype = "bool" }
             if cur_type == "num" { ctype = "double" }
             if res != "" { res = res + ", " }
-            if cur_type == "word" { res = res + ctype + " __freak_param_" + cur_name }
-            else { res = res + ctype + " " + cur_name }
+            res = res + ctype + " __freak_param_" + word_from_int(param_index)
+            param_index += 1
             cur_name = ""
             cur_type = ""
             in_type = false
@@ -812,8 +891,7 @@ task translate_params(p: word) -> word {
         if cur_type == "bool" { ctype = "bool" }
         if cur_type == "num" { ctype = "double" }
         if res != "" { res = res + ", " }
-        if cur_type == "word" { res = res + ctype + " __freak_param_" + cur_name }
-        else { res = res + ctype + " " + cur_name }
+        res = res + ctype + " __freak_param_" + word_from_int(param_index)
     }
     give back res
 }
@@ -856,17 +934,20 @@ task register_param_types(params_w: word) -> void {
     pilot pname = ""
     pilot ptype = ""
     pilot in_ptype = false
+    pilot param_index = 0
     repeat pslen times {
         pilot pc = params_w.char_at(pi)
         if pc == ":" { in_ptype = true }
         else if pc == "," {
             if ptype == "word" {
-                emt_set_var_type_named(pname, "w", "__freak_param_" + pname)
-                emt_current_word_params = emt_current_word_params + "|" + pname + "|"
+                pilot c_name = "__freak_param_" + word_from_int(param_index)
+                emt_set_var_type_named(pname, "w", c_name)
+                emt_current_word_params = emt_current_word_params + "|" + pname + "=" + c_name + "|"
             }
-            else if ptype == "bool" { emt_set_var_type(pname, "b") }
-            else if ptype == "num" { emt_set_var_type(pname, "d") }
-            else { emt_set_var_type(pname, "i") }
+            else if ptype == "bool" { emt_set_var_type_named(pname, "b", "__freak_param_" + word_from_int(param_index)) }
+            else if ptype == "num" { emt_set_var_type_named(pname, "d", "__freak_param_" + word_from_int(param_index)) }
+            else { emt_set_var_type_named(pname, "i", "__freak_param_" + word_from_int(param_index)) }
+            param_index += 1
             pname = ""
             ptype = ""
             in_ptype = false
@@ -878,12 +959,13 @@ task register_param_types(params_w: word) -> void {
     }
     if pname != "" {
         if ptype == "word" {
-            emt_set_var_type_named(pname, "w", "__freak_param_" + pname)
-            emt_current_word_params = emt_current_word_params + "|" + pname + "|"
+            pilot c_name = "__freak_param_" + word_from_int(param_index)
+            emt_set_var_type_named(pname, "w", c_name)
+            emt_current_word_params = emt_current_word_params + "|" + pname + "=" + c_name + "|"
         }
-        else if ptype == "bool" { emt_set_var_type(pname, "b") }
-        else if ptype == "num" { emt_set_var_type(pname, "d") }
-        else { emt_set_var_type(pname, "i") }
+        else if ptype == "bool" { emt_set_var_type_named(pname, "b", "__freak_param_" + word_from_int(param_index)) }
+        else if ptype == "num" { emt_set_var_type_named(pname, "d", "__freak_param_" + word_from_int(param_index)) }
+        else { emt_set_var_type_named(pname, "i", "__freak_param_" + word_from_int(param_index)) }
     }
 }
 

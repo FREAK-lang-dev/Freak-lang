@@ -239,6 +239,8 @@ task freakc_cli_main() -> void {
             say ""
             input_file = src_file
             diagnostic_source = source
+            source_map_reset()
+            source_map_register(src_file, source)
             error_count = 0
             parse_error_count = 0
             init_arrays()

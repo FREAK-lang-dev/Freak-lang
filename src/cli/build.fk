@@ -80,6 +80,10 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
     input_file = src_file
     if source_line_offset <= 0 { diagnostic_source = source }
+    if source_map_count == 0 {
+        source_map_reset()
+        source_map_register(src_file, diagnostic_source)
+    }
     -- Compiler state is process-global because the CLI can perform more than
     -- one compilation in a process. Never inherit a prior diagnostic into a
     -- new build, and never let a new diagnostic reach either emitter.
@@ -783,28 +787,31 @@ task cli_build_environment_ready() -> bool {
     give back true
 }
 
+task cli_append_mapped_source(current: word, path: word) -> word {
+    if not fs::exists(path) { give back current }
+    pilot contents = fs::read(path)
+    source_map_register(path, contents)
+    give back current + contents + "\n"
+}
+
 task cli_load_std(source: word, target: word) -> word {
     -- Load the standard library source files.
     -- Returns concatenated source, or "" if std not found.
     pilot std_dir: word = cli_find_std_dir()
     if std_dir == "" { give back "" }
     pilot std_src = ""
+    if target == "llvm" {
+        pilot rt_path = std_dir + "/runtime.fk"
+        std_src = cli_append_mapped_source(std_src, rt_path)
+    }
     pilot math_path = std_dir + "/math.fk"
-    if fs::exists(math_path) {
-        std_src = std_src + fs::read(math_path) + "\n"
-    }
+    std_src = cli_append_mapped_source(std_src, math_path)
     pilot string_path = std_dir + "/string.fk"
-    if fs::exists(string_path) {
-        std_src = std_src + fs::read(string_path) + "\n"
-    }
+    std_src = cli_append_mapped_source(std_src, string_path)
     pilot convert_path = std_dir + "/convert.fk"
-    if fs::exists(convert_path) {
-        std_src = std_src + fs::read(convert_path) + "\n"
-    }
+    std_src = cli_append_mapped_source(std_src, convert_path)
     pilot algo_path = std_dir + "/algorithm.fk"
-    if fs::exists(algo_path) {
-        std_src = std_src + fs::read(algo_path) + "\n"
-    }
+    std_src = cli_append_mapped_source(std_src, algo_path)
     pilot need_math3d = false
     if source.contains("use std::math3d") {
         need_math3d = true
@@ -814,7 +821,7 @@ task cli_load_std(source: word, target: word) -> word {
     }
     pilot math3d_path = std_dir + "/math3d.fk"
     if need_math3d and fs::exists(math3d_path) {
-        std_src = std_src + fs::read(math3d_path) + "\n"
+        std_src = cli_append_mapped_source(std_src, math3d_path)
     }
     pilot need_zip = false
     if source.contains("use std::zip") {
@@ -825,16 +832,12 @@ task cli_load_std(source: word, target: word) -> word {
     }
     pilot zip_path = std_dir + "/zip.fk"
     if need_zip and fs::exists(zip_path) {
-        std_src = std_src + fs::read(zip_path) + "\n"
+        std_src = cli_append_mapped_source(std_src, zip_path)
     }
     pilot json_path = std_dir + "/json.fk"
-    if fs::exists(json_path) {
-        std_src = std_src + fs::read(json_path) + "\n"
-    }
+    std_src = cli_append_mapped_source(std_src, json_path)
     pilot version_path = std_dir + "/version.fk"
-    if fs::exists(version_path) {
-        std_src = std_src + fs::read(version_path) + "\n"
-    }
+    std_src = cli_append_mapped_source(std_src, version_path)
     -- std::ui — window and canvas types. Loaded conditionally because most
     -- programs don't need it, and pulling its shape definitions into every
     -- compile would slow plain CLI builds. Without it, programs that
@@ -847,7 +850,7 @@ task cli_load_std(source: word, target: word) -> word {
     }
     pilot ui_path = std_dir + "/ui/window.fk"
     if need_ui and fs::exists(ui_path) {
-        std_src = std_src + fs::read(ui_path) + "\n"
+        std_src = cli_append_mapped_source(std_src, ui_path)
     }
     -- cockpit — UI framework Hangar package. Mirrors the std::ui pattern:
     -- if the source mentions `use cockpit`, append the cockpit src files
@@ -861,11 +864,11 @@ task cli_load_std(source: word, target: word) -> word {
     if need_cockpit {
         pilot cockpit_root = "packages/cockpit/src"
         if fs::exists(cockpit_root + "/containers.fk") {
-            std_src = std_src + fs::read(cockpit_root + "/containers.fk") + "\n"
-            std_src = std_src + fs::read(cockpit_root + "/theme.fk") + "\n"
-            std_src = std_src + fs::read(cockpit_root + "/layout.fk") + "\n"
-            std_src = std_src + fs::read(cockpit_root + "/widgets.fk") + "\n"
-            std_src = std_src + fs::read(cockpit_root + "/ui.fk") + "\n"
+            std_src = cli_append_mapped_source(std_src, cockpit_root + "/containers.fk")
+            std_src = cli_append_mapped_source(std_src, cockpit_root + "/theme.fk")
+            std_src = cli_append_mapped_source(std_src, cockpit_root + "/layout.fk")
+            std_src = cli_append_mapped_source(std_src, cockpit_root + "/widgets.fk")
+            std_src = cli_append_mapped_source(std_src, cockpit_root + "/ui.fk")
         }
     }
     -- http.fk uses TCP socket functions (tcp_recv_all returns freak_word)
@@ -874,18 +877,7 @@ task cli_load_std(source: word, target: word) -> word {
     if target == "llvm" {
         pilot http_path = std_dir + "/http.fk"
         if fs::exists(http_path) {
-            std_src = std_src + fs::read(http_path) + "\n"
-        }
-    }
-    -- Runtime must be loaded FIRST so its extern declarations and task
-    -- definitions are available before user code that calls fs::read, etc.
-    -- NOTE: runtime.fk contains i64-based extern declarations designed for
-    -- the LLVM backend. The C backend gets these from freak_runtime.h via
-    -- #include, so loading runtime.fk with --c causes type conflicts.
-    if target == "llvm" {
-        pilot rt_path = std_dir + "/runtime.fk"
-        if fs::exists(rt_path) {
-            std_src = fs::read(rt_path) + "\n" + std_src
+            std_src = cli_append_mapped_source(std_src, http_path)
         }
     }
     give back std_src
@@ -922,6 +914,7 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     say ""
 
     -- Auto-include standard library if available
+    source_map_reset()
     pilot std_source: word = cli_load_std(source, target)
     diagnostic_source = source
     source_line_offset = 0
@@ -930,7 +923,10 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
         source_line_offset = cli_count_lines(std_source)
         source = cli_strip_resolved_use_lines(source)
         diagnostic_source = source
+        source_map_register(src_file, source)
         source = std_source + source
+    } else {
+        source_map_register(src_file, source)
     }
 
     pilot transpiled: word = cli_transpile(src_file, source, target)

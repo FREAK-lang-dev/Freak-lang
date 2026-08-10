@@ -45,14 +45,23 @@ task current_source_line() -> word {
     if parse_idx < 0 or parse_idx >= tokens_count {
         give back "1"
     }
-    -- tok_lines is already in user-file coordinates: adjust_token_lines()
-    -- subtracts source_line_offset right after tokenize when the CLI has
-    -- prepended std. Standalone freakc_v3 leaves source_line_offset at 0
-    -- so adjust is a no-op. Don't subtract again here — that doubles the
-    -- offset and clamps every stmt to line 1.
-    pilot line_no = word_to_int(array_get(tok_lines, parse_idx))
+    -- Origin lines are captured before legacy combined-source adjustment, so
+    -- prepended std modules and the user file keep independent line spaces.
+    pilot line_no = word_to_int(array_get(tok_origin_lines, parse_idx))
     if line_no <= 0 { line_no = 1 }
     give back word_from_int(line_no)
+}
+
+task current_source_file() -> word {
+    if parse_idx < 0 or parse_idx >= tokens_count { give back input_file }
+    give back array_get(tok_origin_files, parse_idx)
+}
+
+task current_source_location() -> word {
+    pilot location_id = array_len(source_location_lines)
+    array_push(source_location_lines, current_source_line())
+    array_push(source_location_files, current_source_file())
+    give back "@" + word_from_int(location_id)
 }
 
 -- ===================== EXPRESSION PARSING ============================
@@ -191,6 +200,8 @@ task parse_postfix() -> int {
     pilot fin = false
     repeat until fin {
         if match_tok(TOK_PUNCT, ".") {
+            pilot member_line = current_source_line()
+            pilot member_file = current_source_file()
             pilot mname = cur_tok_val()
             expect_tok(TOK_IDENT, "")
             if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "(" {
@@ -214,10 +225,16 @@ task parse_postfix() -> int {
                         else { expect_tok(TOK_PUNCT, ",") }
                     }
                 }
-                left = alloc_expr(EXPR_METHOD, mname, word_from_int(left), args)
+                pilot member_id = alloc_expr(EXPR_METHOD, mname, word_from_int(left), args)
+                array_set(ast_expr_lines, member_id, member_line)
+                array_set(ast_expr_files, member_id, member_file)
+                left = member_id
             } else {
                 -- Field access: .name
-                left = alloc_expr(EXPR_FIELD, mname, word_from_int(left), "")
+                pilot field_id = alloc_expr(EXPR_FIELD, mname, word_from_int(left), "")
+                array_set(ast_expr_lines, field_id, member_line)
+                array_set(ast_expr_files, field_id, member_file)
+                left = field_id
             }
         } else if match_tok(TOK_PUNCT, "[") {
             pilot idx_expr = parse_expr()
@@ -392,7 +409,7 @@ task parse_stmt() -> int {
         tval = cur_tok_val()
     }
 
-    pilot stmt_line = current_source_line()
+    pilot stmt_line = current_source_location()
 
     -- say expr
     if match_tok(TOK_KW, "say") {
@@ -609,6 +626,7 @@ task parse_params() -> word {
 }
 
 task parse_shape() -> int {
+    pilot stmt_line = current_source_location()
     pilot shape_name = cur_tok_val()
     advance_tok()
     expect_tok(TOK_PUNCT, "{")
@@ -633,12 +651,12 @@ task parse_shape() -> int {
         }
     }
     register_shape(shape_name, fields)
-    give back alloc_stmt(STMT_SHAPE, shape_name, "", "", "", fields, "", "", "1")
+    give back alloc_stmt(STMT_SHAPE, shape_name, "", "", "", fields, "", "", stmt_line)
 }
 
 task parse_impl() -> int {
     pilot impl_name = cur_tok_val()
-    pilot stmt_line = current_source_line()
+    pilot stmt_line = current_source_location()
     advance_tok()
     expect_tok(TOK_PUNCT, "{")
 
@@ -678,7 +696,7 @@ task parse_impl() -> int {
 }
 
 task parse_when() -> int {
-    pilot stmt_line = current_source_line()
+    pilot stmt_line = current_source_location()
     pilot target_id = parse_expr()
     expect_tok(TOK_PUNCT, "{")
     pilot cases_str = ""
@@ -709,7 +727,7 @@ task parse_when() -> int {
 }
 
 task parse_extern() -> int {
-    pilot stmt_line = current_source_line()
+    pilot stmt_line = current_source_location()
     expect_tok(TOK_KW, "task")
     pilot ename = cur_tok_val()
     advance_tok()
@@ -741,7 +759,7 @@ task parse_extern() -> int {
 }
 
 task parse_task_def() -> int {
-    pilot stmt_line = current_source_line()
+    pilot stmt_line = current_source_location()
     pilot name = cur_tok_val()
     advance_tok()
     expect_tok(TOK_PUNCT, "(")

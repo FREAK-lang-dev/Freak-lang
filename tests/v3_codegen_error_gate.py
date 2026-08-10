@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -13,7 +16,11 @@ SENTINEL = "old artifact must survive a rejected transpile\n"
 
 
 def run(
-    freak: Path, repo: Path, source: Path, *args: str
+    freak: Path,
+    repo: Path,
+    source: Path,
+    *args: str,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command, *flags = args
     return subprocess.run(
@@ -25,6 +32,7 @@ def run(
         errors="replace",
         timeout=60,
         check=False,
+        env=env,
     )
 
 
@@ -145,6 +153,17 @@ def main() -> int:
             "    say imported().missing_extern\n"
             "    known.spoof()\n"
             "    shadow_param(7)\n"
+            "    pilot primitive: int = 7\n"
+            "    say primitive.trim()\n"
+            "    say \"x\".trim(1)\n"
+            "    say word_from_int(1).not_call_method()\n"
+            "    say (1 + 2).missing_expr_field\n"
+            "    say (\"a\" + \"b\").not_expr_method()\n"
+            "    when known.value {\n"
+            "        known.missing_multiline\n"
+            "        ->\n"
+            "        say \"case\"\n"
+            "    }\n"
             "}\n",
             encoding="utf-8",
         )
@@ -166,11 +185,35 @@ def main() -> int:
             assert "has no method 'spoof'" in output
             assert "non-shape value has no fields" in output
             assert "non-shape value has no method 'not_primitive'" in output
+            assert "non-shape value has no method 'trim'" in output
+            assert "method 'trim' expects 0 argument(s), got 1" in output
+            assert "non-shape value has no method 'not_call_method'" in output
+            assert "non-shape value has no method 'not_expr_method'" in output
+            assert "missing_expr_field" in output
             assert "nested_nominal_bad.fk:9:1" in output
             assert "nested_nominal_bad.fk:10:1" in output
             assert "10 |         known.missing_when_case -> say known.missing_when_body" in output
             assert "nested_nominal_bad.fk:13:1" in output
+            assert "nested_nominal_bad.fk:25:1" in output
+            assert "25 |         known.missing_multiline" in output
             assert artifact.read_text(encoding="utf-8") == SENTINEL
+
+        install_home = tmp_path / "malformed-stdlib-home"
+        shutil.copytree(repo / "freakc" / "runtime", install_home / "runtime")
+        shutil.copytree(repo / "std", install_home / "std")
+        broken_math = install_home / "std" / "math.fk"
+        broken_math.write_text(
+            "task broken_std() {\n    say )\n}\n", encoding="utf-8"
+        )
+        std_user = tmp_path / "malformed_std_user.fk"
+        std_user.write_text('task main() {\n    say "user"\n}\n', encoding="utf-8")
+        std_env = os.environ.copy()
+        std_env["FREAK_HOME"] = str(install_home)
+        std_result = run(freak, repo, std_user, "build", "--c", env=std_env)
+        assert_rejected(std_result, "malformed installed std source origin")
+        std_output = (std_result.stdout + std_result.stderr).replace("\\", "/")
+        assert "malformed-stdlib-home/std/math.fk:2:" in std_output, std_output
+        assert "2 |     say )" in std_output, std_output
 
         nominal_shadow_ok = tmp_path / "nominal_shadow_ok.fk"
         nominal_shadow_ok.write_text(
@@ -188,6 +231,39 @@ def main() -> int:
         )
         shadow_check = run(freak, repo, nominal_shadow_ok, "check")
         assert shadow_check.returncode == 0, shadow_check.stdout + shadow_check.stderr
+
+        primitive_ok = tmp_path / "primitive_methods_ok.fk"
+        primitive_ok.write_text(
+            "task main() {\n"
+            "    pilot integer: int = 7\n"
+            "    say integer.to_word()\n"
+            "    pilot decimal: num = 8.0\n"
+            "    pilot decimal_int: int = decimal.to_int()\n"
+            "    say decimal_int.to_word()\n"
+            "    pilot truth: bool = true\n"
+            "    say truth.to_word()\n"
+            "    pilot text: word = \"9\"\n"
+            "    pilot text_int: int = text.to_int()\n"
+            "    say text_int.to_word()\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+            built = run(freak, repo, primitive_ok, "build", flag)
+            assert built.returncode == 0, f"{backend} primitive build failed\n{built.stdout}{built.stderr}"
+            binary = primitive_ok.with_suffix(".exe" if sys.platform == "win32" else "")
+            executed = subprocess.run(
+                [str(binary)],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=60,
+                check=False,
+            )
+            assert executed.returncode == 0, executed.stdout + executed.stderr
+            assert executed.stdout.strip().splitlines() == ["7", "8", "true", "9"]
 
         check_result = run(freak, repo, parse_bad, "check")
         check_output = check_result.stdout + check_result.stderr

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -193,7 +194,7 @@ task copy_global_shadow() -> word {
     give back copied
 }
 
-task copy_param_shadow(copied: word) -> word {
+task copy_param_shadow(copied: word, __freak_param_0: int) -> word {
     pilot copied: word = copied
     give back copied
 }
@@ -204,7 +205,7 @@ task main() {
     say global_copy
     global_copy = "released"
     pilot mut argument: word = "p" + "aram"
-    pilot mut param_copy: word = copy_param_shadow(argument)
+    pilot mut param_copy: word = copy_param_shadow(argument, 7)
     argument = "released"
     say param_copy
     param_copy = "released"
@@ -323,18 +324,18 @@ def main() -> int:
                 if backend == "c":
                     assert "freak_word_replace_owned" in generated_text
                     if case_name == "strict":
-                        assert "freak_word_clone(moved)" in generated_text
-                        assert "freak_identity(freak_word_clone(called))" in generated_text
-                        assert "freak_observe(freak_word_clone(observed))" in generated_text
+                        assert re.search(r"freak_word_clone\(__freak_local_\d+\)", generated_text)
+                        assert re.search(r"freak_identity\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
+                        assert re.search(r"freak_observe\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
                         assert "freak_observe(freak_word_concat(" in generated_text
-                        assert "freak_observe_shadow(freak_word_clone(shadow_arg))" in generated_text
+                        assert re.search(r"freak_observe_shadow\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
                         assert "global_alias = freak_word_clone(global_owner)" in generated_text
-                        assert "freak_word_release_owned(&__freak_param_value)" in generated_text
+                        assert "freak_word_release_owned(&__freak_param_0)" in generated_text
                     elif case_name == "aggregate":
-                        assert "freak_array_push_owned(items, freak_word_clone(item))" in generated_text
-                        assert "freak_array_set_owned(items, 0, freak_word_concat(" in generated_text
-                        assert "freak_array_release_owned(items)" in generated_text
-                        assert "freak_word_join_owned(joined_items)" in generated_text
+                        assert re.search(r"freak_array_push_owned\(__freak_local_\d+, freak_word_clone\(__freak_local_\d+\)\)", generated_text)
+                        assert re.search(r"freak_array_set_owned\(__freak_local_\d+, 0, freak_word_concat\(", generated_text)
+                        assert re.search(r"freak_array_release_owned\(__freak_local_\d+\)", generated_text)
+                        assert re.search(r"freak_word_join_owned\(__freak_local_\d+\)", generated_text)
                         assert "({ int64_t __arr = freak_array_new();" in generated_text
                         assert "freak_array_push_owned(__arr, freak_word_concat(" in generated_text
                         assert "freak_array_get" in generated_text
