@@ -276,9 +276,14 @@ byte ranges for signature-storage and unsupported-forwarding failures.
 Method, dynamic, callback, extern, and FFI returned-loan forwarding calls are
 explicitly rejected rather than silently accepted. Closure expressions now
 carry capture ownership, but their types cannot yet express borrowed-return
-contracts, so closure returned-loan forwarding remains unsupported. Source sets come from signature
-contracts; body-derived source discovery and general lexical lifetime inference
-remain open. Fixed-layout editor facts, MIR/borrowck snapshots, restore, and
+contracts, so closure returned-loan forwarding remains unsupported. Lifetime
+eligibility remains signature-derived from declared ordinary-task contracts.
+Body-derived provenance/source discovery through reaching definitions is
+implemented for local aliases, aggregate builds and moves, stored and
+constructor-direct statically resolved call results, projection rebinding,
+acyclic joins, and bounded loop fixed points. Signature-derived lifetime solving
+beyond declared relations and general lexical region inference remain open.
+Fixed-layout editor facts, MIR/borrowck snapshots, restore, and
 source-change invalidation use the existing query families and 00-Unit
 protocols; no aggregate-specific LSP endpoint or snapshot section is added.
 Declaration-order aggregate children require `freak-mir-snapshot-v5`; v4 is

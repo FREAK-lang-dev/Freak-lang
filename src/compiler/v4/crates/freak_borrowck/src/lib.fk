@@ -2222,12 +2222,23 @@ task v4_borrowck_fill_holder_lend_provenance(mir_id: int, body_id: int, use_stmt
     pilot holder_ty = v4_mir_local_ty_for_name(mir_id, body_id, holder_canon)
     pilot aggregate_holder = not v4_ty_is_lend_type(holder_ty) and v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), holder_ty)
     pilot queried_holder = holder_canon + suffix
-    pilot seeded_param = v4_borrowck_fill_param_lend_provenance(mir_id, body_id, holder_canon, suffix, provenance_id)
-
     pilot use_block = v4_mir_stmt_block(mir_id, body_id, use_stmt)
     if holder_canon == "" {
         v4_borrowck_provenance_mark_opaque(provenance_id)
         give back
+    }
+
+    -- A parameter is an implicit entry definition. Seed it only when at least
+    -- one CFG path reaches this use without a definite rebind of the queried
+    -- holder projection; otherwise an aggregate field assignment would retain
+    -- the stale incoming leaf alongside its replacement.
+    pilot param_reaches_use = use_stmt < 0
+    if not param_reaches_use and v4_mir_body_block_count(mir_id, body_id) > 0 {
+        param_reaches_use = v4_borrowck_holder_reaches_stmt_without_rebind(mir_id, body_id, queried_holder, 0 - 1, 0 - 1, 0, use_stmt, use_block)
+    }
+    pilot seeded_param = false
+    if param_reaches_use {
+        seeded_param = v4_borrowck_fill_param_lend_provenance(mir_id, body_id, holder_canon, suffix, provenance_id)
     }
 
     pilot found_reaching_binding = false

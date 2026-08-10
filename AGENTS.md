@@ -32,9 +32,11 @@ Current facts:
   C backend remains a portability target.
 - V4 implementation: `src/compiler/v4/`.
 - V4 00-Unit bootstrap is complete, but V4 is not a full V3 replacement.
-- Current primary V4 gate: **Meiya borrow/lifetime analysis**. Named
-  unique-source returned loans have landed; general outlives relations,
-  multi-source regions, loop fixed points, and stored lifetime-bearing values
+- Current primary V4 gate: **Meiya borrow/lifetime analysis**. Named/elided
+  multi-source returned loans, body-derived source discovery through locals,
+  aggregate moves, statically resolved call results, acyclic joins, and loop
+  fixed points have landed; general lexical region inference, general
+  outlives relations, `'static`, and non-ordinary aggregate task boundaries
   remain constrained.
 - Compiler display versions must agree in `src/cli/version.fk` and
   `src/compiler/v3/globals.fk`; release workflows and packaging manifests are
