@@ -146,6 +146,33 @@ freak_word freak_word_from_bool(bool b) {
     return freak_word_lit(b ? "true" : "false");
 }
 
+freak_word freak_char_to_word(int64_t code) {
+    char* buf = (char*)malloc(5);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    size_t len = 0;
+    uint32_t c = (uint32_t)code;
+    if (c <= 0x7F) {
+        buf[0] = (char)c; len = 1;
+    } else if (c <= 0x7FF) {
+        buf[0] = (char)(0xC0 | (c >> 6));
+        buf[1] = (char)(0x80 | (c & 0x3F));
+        len = 2;
+    } else if (c <= 0xFFFF) {
+        buf[0] = (char)(0xE0 | (c >> 12));
+        buf[1] = (char)(0x80 | ((c >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (c & 0x3F));
+        len = 3;
+    } else {
+        buf[0] = (char)(0xF0 | (c >> 18));
+        buf[1] = (char)(0x80 | ((c >> 12) & 0x3F));
+        buf[2] = (char)(0x80 | ((c >> 6) & 0x3F));
+        buf[3] = (char)(0x80 | (c & 0x3F));
+        len = 4;
+    }
+    buf[len] = '\0';
+    return freak_word_own(buf, len);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Interpolation                                                     */
 /* ------------------------------------------------------------------ */

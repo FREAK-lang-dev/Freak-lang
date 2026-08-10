@@ -40,40 +40,13 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     )
     missing = sorted(mapped - classified)
     assert not missing, f"builtin return-type inventory missing: {missing}"
-    # Backends may use a direct ABI spelling for classified calls which do not
-    # need a special mapping. The fallback must remain builtin-only so an
-    # ordinary source task can never drift back into the runtime namespace.
-    c_call_body = task_body(c_source, "emit_c_call")
-    llvm_call_body = task_body(llvm_source, "llvm_emit_call")
-    assert 'tc_builtin_call_type(val) != ""' in c_call_body
-    assert 'mapped = "freak_" + c_safe_ident(val)' in c_call_body
-    assert 'tc_builtin_call_type(val) != ""' in llvm_call_body
-    assert 'mapped_name = "@freak_" + llvm_c_safe_ident(val)' in llvm_call_body
-    allowed_c_fallbacks = {
-        "char_to_word",
-        "panic",
+    unsupported_c_intrinsics = {
         "shape::alloc",
         "shape::get",
         "shape::set",
-        "tcp_close",
-        "tcp_connect",
-        "tcp_recv",
-        "tcp_recv_all",
-        "tcp_send",
-        "time::now_ms",
-        "ui::event_gained",
-        "ui::event_height",
-        "ui::event_repeat",
-        "ui::event_scroll_dy",
-        "ui::event_width",
-        "ui::get_height",
-        "ui::get_width",
     }
-    allowed_llvm_fallbacks = {"fs::list_dir", "process::args", "process::env"}
-    unexpected_c = sorted((classified - c_mapped) - allowed_c_fallbacks)
-    unexpected_llvm = sorted((classified - llvm_mapped) - allowed_llvm_fallbacks)
-    assert not unexpected_c, f"unexpected C builtin fallback: {unexpected_c}"
-    assert not unexpected_llvm, f"unexpected LLVM builtin fallback: {unexpected_llvm}"
+    assert classified - c_mapped == unsupported_c_intrinsics
+    assert classified - llvm_mapped == set()
 
 
 def run(
@@ -360,9 +333,39 @@ def main() -> int:
         for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
             collision_result = run(freak, repo, impl_collision, "transpile", flag)
             assert_rejected(collision_result, f"{backend} impl task lowering collision")
-            assert "conflicts with another task after V3 impl lowering" in (
+            assert "conflicts with another task or extern declaration" in (
                 collision_result.stdout + collision_result.stderr
             )
+
+        callable_collisions = (
+            "extern task helper(value: int) -> int\n"
+            "task helper(value: int) -> int { give back value }\n"
+            "task main() { say helper(7).to_word() }\n",
+            "extern task helper(value: int) -> int\n"
+            "extern task helper(value: int) -> int\n"
+            "task main() { say helper(7).to_word() }\n",
+        )
+        for collision_index, collision_source in enumerate(callable_collisions):
+            collision_file = tmp_path / f"callable_collision_{collision_index}.fk"
+            collision_file.write_text(collision_source, encoding="utf-8")
+            for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+                callable_result = run(
+                    freak, repo, collision_file, "transpile", flag
+                )
+                assert_rejected(
+                    callable_result, f"{backend} task/extern collision"
+                )
+                assert "conflicts with another task or extern declaration" in (
+                    callable_result.stdout + callable_result.stderr
+                )
+
+        c_intrinsic = tmp_path / "c_shape_intrinsic_bad.fk"
+        c_intrinsic.write_text(
+            "task main() { pilot raw = shape::alloc(1) say raw.to_word() }\n",
+            encoding="utf-8",
+        )
+        c_intrinsic_result = run(freak, repo, c_intrinsic, "transpile", "--c")
+        assert_rejected(c_intrinsic_result, "C unsupported shape intrinsic")
 
         primitive_ok = tmp_path / "primitive_methods_ok.fk"
         primitive_ok.write_text(
@@ -457,6 +460,50 @@ def main() -> int:
                 assert "freak_panic(" in generated_c
                 assert "__freak_user_time_now_ms" not in generated_c
                 assert "__freak_user_panic" not in generated_c
+
+        builtin_marker = tmp_path / "builtin-wrapper-marker.txt"
+        builtin_marker.write_text("marker", encoding="utf-8")
+        builtin_wrappers = tmp_path / "builtin_wrappers.fk"
+        builtin_wrappers.write_text(
+            "task main() {\n"
+            "    pilot mut env_value: word = process::env(\"FREAK_BUILTIN_PROBE\")\n"
+            "    say env_value\n"
+            "    env_value = \"released\"\n"
+            f"    pilot mut listing: word = fs::list_dir(\"{tmp_path.as_posix()}\")\n"
+            "    say listing.contains(\"builtin-wrapper-marker.txt\").to_word()\n"
+            "    listing = \"released\"\n"
+            "    say (process::args() != 0).to_word()\n"
+            "    pilot mut letter: word = char_to_word(65)\n"
+            "    say letter\n"
+            "    letter = \"released\"\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        wrapper_env = os.environ.copy()
+        wrapper_env["FREAK_BUILTIN_PROBE"] = "ok"
+        for backend, flag in (("C", "--c"), ("LLVM", "--llvm")):
+            wrapper_build = run(
+                freak, repo, builtin_wrappers, "build", flag, env=wrapper_env
+            )
+            assert wrapper_build.returncode == 0, (
+                wrapper_build.stdout + wrapper_build.stderr
+            )
+            wrapper_binary = builtin_wrappers.with_suffix(
+                ".exe" if sys.platform == "win32" else ""
+            )
+            wrapper_run = subprocess.run(
+                [str(wrapper_binary)],
+                cwd=tmp_path,
+                env=wrapper_env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=60,
+                check=False,
+            )
+            assert wrapper_run.returncode == 0, wrapper_run.stdout + wrapper_run.stderr
+            assert wrapper_run.stdout.strip().splitlines() == ["ok", "true", "true", "A"]
 
         nominal_methods = tmp_path / "nominal_primitive_names.fk"
         nominal_methods.write_text(

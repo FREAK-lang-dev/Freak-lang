@@ -720,19 +720,20 @@ task tc_diag_builtin_task(name: word, line: int, source_file: word) -> void {
     say "  | ^"
 }
 
-task tc_diag_duplicate_task(name: word, line: int, source_file: word) -> void {
+task tc_diag_duplicate_callable(name: word, line: int, source_file: word) -> void {
     error_count += 1
-    say "\x1b[1;31mtype error\x1b[0m: task '" + name + "' conflicts with another task after V3 impl lowering"
+    say "\x1b[1;31mtype error\x1b[0m: callable '" + name + "' conflicts with another task or extern declaration"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
     say word_from_int(line) + " | " + get_file_source_line(source_file, line)
     say "  | ^"
 }
 
-task tc_has_prior_task_name(name: word, top_index: int) -> bool {
+task tc_has_prior_callable_name(name: word, top_index: int) -> bool {
     pilot i = 0
     repeat until i >= top_index {
         pilot prior_id = word_to_int(array_get(ast_top_stmts, i))
-        if array_get(ast_stmt_kinds, prior_id) == STMT_TASK and array_get(ast_stmt_names, prior_id) == name {
+        pilot prior_kind: word = array_get(ast_stmt_kinds, prior_id)
+        if (prior_kind == STMT_TASK or prior_kind == STMT_EXTERN) and array_get(ast_stmt_names, prior_id) == name {
             give back true
         }
         i += 1
@@ -795,7 +796,11 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         }
         give back
     }
-    if kind == EXPR_CALL or kind == EXPR_ARRAY_LIT { tc_validate_args(left, line) give back }
+    if kind == EXPR_CALL {
+        tc_validate_args(left, line)
+        give back
+    }
+    if kind == EXPR_ARRAY_LIT { tc_validate_args(left, line) give back }
     if kind == EXPR_BINOP {
         tc_validate_expr(word_to_int(left), line)
         tc_validate_expr(word_to_int(right), line)
@@ -943,8 +948,8 @@ task tc_run_program() -> void {
         if top_kind == STMT_TASK and tc_internal_runtime_task_name(array_get(ast_stmt_names, sid)) and not tc_internal_runtime_source(array_get(ast_stmt_files, sid)) {
             tc_diag_builtin_task(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
         }
-        if top_kind == STMT_TASK and tc_has_prior_task_name(array_get(ast_stmt_names, sid), i) {
-            tc_diag_duplicate_task(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+        if (top_kind == STMT_TASK or top_kind == STMT_EXTERN) and tc_has_prior_callable_name(array_get(ast_stmt_names, sid), i) {
+            tc_diag_duplicate_callable(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
         }
         if top_kind == STMT_PILOT {
             pilot expr = word_to_int(array_get(ast_stmt_exprs, sid))

@@ -531,6 +531,9 @@ task llvm_map_call_name(val: word) -> word {
     if val == "fs::append" { give back "@freak_llvm_fs_append" }
     if val == "fs::exists" { give back "@freak_llvm_fs_exists" }
     if val == "fs::delete" { give back "@freak_llvm_fs_delete" }
+    if val == "fs::list_dir" { give back "@freak_llvm_fs_list_dir" }
+    if val == "process::args" { give back "@freak_llvm_process_args" }
+    if val == "process::env" { give back "@freak_llvm_process_env" }
     if val == "process::args_count" { give back "@freak_llvm_process_args_count" }
     if val == "process::arg" { give back "@freak_llvm_process_arg" }
     if val == "process::exit" { give back "@freak_llvm_process_exit" }
@@ -764,12 +767,6 @@ task llvm_emit_call(val: word, left: word) -> word {
 
     pilot arg_str = ""
     pilot mapped_name = llvm_map_call_name(val)
-    -- Some packaged runtime entry points use the direct `freak_*` spelling.
-    -- Only classified builtins may take this fallback; ordinary tasks remain
-    -- isolated in the generated user-task namespace.
-    if mapped_name == "" and tc_builtin_call_type(val) != "" {
-        mapped_name = "@freak_" + llvm_c_safe_ident(val)
-    }
     pilot aggregate_call = val == "array_push" or val == "array_set"
     pilot user_call = mapped_name == "" and not emt_is_extern(val)
     if left.length() > 0 { arg_str = llvm_emit_args(left, aggregate_call or user_call) }
@@ -1781,6 +1778,9 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_llvm_print_int(i64)")
     llvm_emit_line("declare void @freak_llvm_print_newline()")
     llvm_emit_line("declare i64 @freak_llvm_ask(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_list_dir(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_process_args()")
+    llvm_emit_line("declare i64 @freak_llvm_process_env(i64)")
     -- fs functions are defined as FREAK tasks in std/runtime.fk — no declare needed
     llvm_emit_line("declare i64 @freak_llvm_process_args_count()")
     llvm_emit_line("declare i64 @freak_llvm_process_arg(i64)")
@@ -1851,7 +1851,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_llvm_tcp_close(i64)")
 
     llvm_declared_funcs = "|puts|printf|strlen|freak_llvm_word_from_int|freak_llvm_word_from_bool|freak_llvm_word_concat|freak_llvm_word_eq|freak_llvm_word_neq|freak_llvm_word_length|freak_llvm_word_checksum|freak_llvm_word_snapshot_escape|freak_llvm_word_snapshot_unescape|freak_llvm_word_snapshot_line_count|freak_llvm_word_snapshot_line|freak_llvm_word_snapshot_field_count|freak_llvm_word_snapshot_field_raw|freak_llvm_word_char_at|freak_llvm_word_substring|freak_llvm_word_contains|freak_llvm_word_starts_with|freak_llvm_word_ends_with|freak_llvm_word_to_upper|freak_llvm_word_to_lower|freak_llvm_word_trim|freak_llvm_word_replace|freak_llvm_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_window|freak_llvm_ui_destroy_window|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_event_kind|freak_llvm_ui_event_key|freak_llvm_ui_event_pressed|freak_llvm_ui_event_character|freak_llvm_ui_event_mouse_x|freak_llvm_ui_event_mouse_y|freak_llvm_ui_event_button|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_llvm_ui_stroke_rect|freak_llvm_ui_fill_circle|freak_llvm_ui_draw_line|freak_llvm_ui_draw_text|freak_llvm_ui_measure_text|freak_llvm_math_sqrt|freak_llvm_math_pow|freak_llvm_math_sin|freak_llvm_math_cos|freak_llvm_math_tan|freak_llvm_math_floor|freak_llvm_math_ceil|freak_llvm_parse_num|freak_llvm_format_num|freak_llvm_array_new|freak_llvm_array_push|freak_llvm_array_get|freak_llvm_array_len|freak_llvm_array_set|freak_llvm_array_release|freak_word_compare|freak_llvm_tcp_connect|freak_llvm_tcp_send|freak_llvm_tcp_recv_all|freak_llvm_tcp_recv|freak_llvm_tcp_close|freak_llvm_time_now_ms|"
-    llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_word_join|freak_llvm_word_join_owned|freak_llvm_array_push_owned|freak_llvm_array_set_owned|freak_llvm_array_release_owned|"
+    llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_word_join|freak_llvm_word_join_owned|freak_llvm_array_push_owned|freak_llvm_array_set_owned|freak_llvm_array_release_owned|freak_llvm_fs_list_dir|freak_llvm_process_args|freak_llvm_process_env|"
 }
 
 -- ===================== PROGRAM ASSEMBLY ==============================

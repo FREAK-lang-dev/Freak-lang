@@ -75,6 +75,7 @@ task c_map_call(val: word) -> word {
     if val == "word_from_bool" { give back "freak_word_from_bool" }
     if val == "word_to_int" { give back "freak_word_to_int" }
     if val == "word_concat" { give back "freak_word_concat" }
+    if val == "char_to_word" { give back "freak_char_to_word" }
     if val == "array_new" { give back "freak_array_new" }
     if val == "array_push" { give back "freak_array_push_owned" }
     if val == "array_get" { give back "freak_array_get" }
@@ -89,6 +90,8 @@ task c_map_call(val: word) -> word {
     if val == "process::env" { give back "freak_process_env" }
     if val == "process::arg" { give back "freak_process_arg" }
     if val == "process::args_count" { give back "freak_process_args_count" }
+    if val == "time::now_ms" { give back "freak_time_now_ms" }
+    if val == "panic" { give back "freak_panic" }
     if val == "fs::read" { give back "freak_fs_read" }
     if val == "fs::write" { give back "freak_fs_write" }
     if val == "fs::append" { give back "freak_fs_append" }
@@ -117,6 +120,13 @@ task c_map_call(val: word) -> word {
     if val == "ui::event_mouse_x" { give back "freak_ui_event_mouse_x" }
     if val == "ui::event_mouse_y" { give back "freak_ui_event_mouse_y" }
     if val == "ui::event_button" { give back "freak_ui_event_button" }
+    if val == "ui::event_repeat" { give back "freak_ui_event_repeat" }
+    if val == "ui::event_scroll_dy" { give back "freak_ui_event_scroll_dy" }
+    if val == "ui::event_width" { give back "freak_ui_event_width" }
+    if val == "ui::event_height" { give back "freak_ui_event_height" }
+    if val == "ui::event_gained" { give back "freak_ui_event_gained" }
+    if val == "ui::get_width" { give back "freak_ui_get_width" }
+    if val == "ui::get_height" { give back "freak_ui_get_height" }
     if val == "ui::fill_rect" { give back "freak_ui_fill_rect" }
     if val == "ui::stroke_rect" { give back "freak_ui_stroke_rect" }
     if val == "ui::fill_circle" { give back "freak_ui_fill_circle" }
@@ -128,6 +138,11 @@ task c_map_call(val: word) -> word {
     if val == "tcp::recv" { give back "freak_tcp_recv" }
     if val == "tcp::recv_all" { give back "freak_tcp_recv_all" }
     if val == "tcp::close" { give back "freak_tcp_close" }
+    if val == "tcp_connect" { give back "freak_tcp_connect" }
+    if val == "tcp_send" { give back "freak_tcp_send" }
+    if val == "tcp_recv" { give back "freak_tcp_recv" }
+    if val == "tcp_recv_all" { give back "freak_tcp_recv_all" }
+    if val == "tcp_close" { give back "freak_tcp_close" }
     give back ""
 }
 
@@ -284,12 +299,6 @@ task emit_c_call(val: word, left: word) -> void {
 
     -- Known builtin mapping
     pilot mapped = c_map_call(val)
-    -- Classified builtins historically use the packaged `freak_*` ABI even
-    -- when their spelling does not need a special mapping. Keep that boundary
-    -- separate from the generated namespace used by ordinary source tasks.
-    if mapped == "" and tc_builtin_call_type(val) != "" {
-        mapped = "freak_" + c_safe_ident(val)
-    }
     if mapped != "" {
         emit(mapped + "(")
         pilot aggregate_call = val == "array_push" or val == "array_set"

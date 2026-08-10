@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include "freak_runtime.h"
 extern int64_t freak_llvm_word_adopt(int64_t pointer);
 extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
@@ -45,6 +46,40 @@ static int64_t freak_llvm_normalize_process_status(int status) {
    tasks in std/runtime.fk. They call the libc wrappers below. */
 
 /* libc wrappers — take/return i64 (FREAK's universal ABI) */
+static int64_t freak_llvm_copy_word_result(freak_word value) {
+    if (value.length == SIZE_MAX) {
+        freak_word_release_owned(&value);
+        fprintf(stderr, "FREAK: word bridge size overflow\n");
+        exit(1);
+    }
+    char* copy = (char*)malloc(value.length + 1);
+    if (!copy) {
+        freak_word_release_owned(&value);
+        fprintf(stderr, "FREAK: out of memory\n");
+        exit(1);
+    }
+    if (value.length > 0) memcpy(copy, value.data, value.length);
+    copy[value.length] = '\0';
+    freak_word_release_owned(&value);
+    return freak_llvm_word_adopt((int64_t)copy);
+}
+
+int64_t freak_llvm_fs_list_dir(int64_t path) {
+    return freak_llvm_copy_word_result(
+        freak_fs_list_dir(freak_word_lit((const char*)path))
+    );
+}
+
+int64_t freak_llvm_process_env(int64_t name) {
+    return freak_llvm_copy_word_result(
+        freak_process_env(freak_word_lit((const char*)name))
+    );
+}
+
+int64_t freak_llvm_process_args(void) {
+    return (int64_t)freak_process_args();
+}
+
 int64_t freak_fopen(int64_t path, int64_t mode) {
     return (int64_t)fopen((const char*)path, (const char*)mode);
 }

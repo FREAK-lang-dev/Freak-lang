@@ -71,6 +71,7 @@ const char* freak_word_to_cstr(freak_word w);
 freak_word freak_word_from_int(int64_t n);
 freak_word freak_word_from_double(double n);
 freak_word freak_word_from_bool(bool b);
+freak_word freak_char_to_word(int64_t code);
 
 /* printf-style interpolation — returns a heap-allocated word. */
 freak_word freak_interpolate(const char* fmt, ...);
