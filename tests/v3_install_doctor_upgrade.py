@@ -161,6 +161,7 @@ def check_static_contracts(repo: Path) -> None:
         "scoop install llvm-mingw",
         "FREAK_DOCTOR_INSTALL_COMMAND",
         'process::env("TMPDIR")',
+        'pilot probe_nonce: word = ""',
         "cli_quote_cmd_path(probe_source)",
         "probe_run_exit == 0",
         "clang toolchain ",
@@ -520,6 +521,7 @@ def check_doctor(
 
     healthy = run_cli(compiler, cwd, env, "doctor", "--json")
     assert healthy.returncode == 0, healthy.stdout + healthy.stderr
+    assert healthy.stderr == "", healthy.stderr
     report = json.loads(healthy.stdout)
     assert report["status"] == "ok"
     assert report["checks"]["runtime"]["files_expected"] == 5

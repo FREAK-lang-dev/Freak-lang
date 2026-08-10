@@ -45,13 +45,14 @@ task cli_doctor_find_clang_command() -> word {
 task cli_doctor_temp_stem(prefix: word) -> word {
     pilot windir: word = process::env("WINDIR")
     pilot temp_dir: word = process::env("TMPDIR")
-    pilot probe_nonce: word = process::exec_capture("echo $$ 2>/dev/null").trim()
+    pilot probe_nonce: word = ""
     if windir != "" {
         temp_dir = process::env("TEMP")
         if temp_dir == "" { temp_dir = process::env("TMP") }
         probe_nonce = process::exec_capture("echo %RANDOM% 2>nul").trim()
-    } else if temp_dir == "" {
-        temp_dir = "/tmp"
+    } else {
+        probe_nonce = process::exec_capture("echo $$ 2>/dev/null").trim()
+        if temp_dir == "" { temp_dir = "/tmp" }
     }
     if temp_dir == "" { temp_dir = "." }
     if probe_nonce == "" { probe_nonce = "0" }
