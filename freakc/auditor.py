@@ -2428,8 +2428,20 @@ def audit_conformance(paths: List[Path]) -> int:
         (
             bible,
             (
-                "Body-derived provenance/source discovery is implemented in this slice",
-                "Lifetime eligibility remains signature-derived from declared ordinary-task contracts",
+                (
+                    "Borrowed return types now flow through TY/MIR.",
+                    "\n### 4.1 Ownership Rules",
+                    (
+                        "Body-derived provenance/source discovery is implemented in this slice",
+                    ),
+                ),
+                (
+                    "the current 00-Unit slice supports",
+                    "\n> Scalar holders",
+                    (
+                        "Lifetime eligibility remains signature-derived from declared ordinary-task contracts",
+                    ),
+                ),
             ),
             (
                 "body-derived/general lexical inference",
@@ -2439,8 +2451,18 @@ def audit_conformance(paths: List[Path]) -> int:
         (
             audit_doc,
             (
-                "Body-derived provenance/source discovery through reaching definitions is\nimplemented",
-                "Lifetime eligibility remains signature-derived",
+                (
+                    "| Borrowed returns `-> lend T` / `-> lend mut T` |",
+                    "\nContract-region checkpoint (",
+                    ("Lifetime eligibility remains signature-derived",),
+                ),
+                (
+                    "Contract-region checkpoint (",
+                    "\nClosure-capture checkpoint (",
+                    (
+                        "Body-derived provenance/source discovery through reaching definitions is\nimplemented",
+                    ),
+                ),
             ),
             (
                 "Body-derived/general lexical inference",
@@ -2453,26 +2475,43 @@ def audit_conformance(paths: List[Path]) -> int:
         (
             repo / "src" / "compiler" / "v4" / "README.md",
             (
-                "Body-derived provenance/source discovery through reaching definitions is\nimplemented",
-                "Lifetime\neligibility remains signature-derived from declared ordinary-task contracts",
+                (
+                    "Borrowed return types now carry through TY/MIR.",
+                    "\nThe first `Shared<T>` / `Weak<T>` ownership surface",
+                    (
+                        "Body-derived provenance/source discovery through reaching definitions is\nimplemented",
+                        "Lifetime\neligibility remains signature-derived from declared ordinary-task contracts",
+                    ),
+                ),
             ),
             (
                 "body-derived source discovery and general lexical lifetime inference\nremain open",
             ),
         ),
     )
-    for doc_path, required_statuses, stale_statuses in contract_region_status_docs:
+    for (
+        doc_path,
+        status_sections,
+        stale_statuses,
+    ) in contract_region_status_docs:
         if not doc_path.exists():
             contract_region_missing.append(
                 f"contract-region status documentation missing: {doc_path.name}"
             )
             continue
         doc_source = doc_path.read_text(encoding="utf-8")
-        for required_status in required_statuses:
-            if required_status not in doc_source:
+        for start_marker, end_marker, required_statuses in status_sections:
+            checkpoint = _bounded_text_section(doc_source, start_marker, end_marker)
+            if checkpoint is None:
                 contract_region_missing.append(
-                    f"{doc_path.name}: contract-region status missing {required_status!r}"
+                    f"{doc_path.name}: contract-region status boundaries missing"
                 )
+                continue
+            for required_status in required_statuses:
+                if required_status not in checkpoint:
+                    contract_region_missing.append(
+                        f"{doc_path.name}: contract-region checkpoint status missing {required_status!r}"
+                    )
         for stale_status in stale_statuses:
             if stale_status in doc_source:
                 contract_region_missing.append(

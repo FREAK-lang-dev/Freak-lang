@@ -429,9 +429,9 @@ snapshot-diff health, recomputation, editor coherence, and 00-Unit restore
 without changing the task signature.
 Signature-derived lifetime solving beyond declared ordinary-task relations,
 general lexical region inference, `'static` classification, dynamic and wrapper
-container storage, aliases/doctrines/callbacks, non-ordinary aggregate task
-boundaries, a runtime aggregate-loan ABI, and production backend completion
-remain open.
+container storage, lend-bearing aliases/doctrines/callbacks, non-ordinary
+aggregate task boundaries, a runtime aggregate-loan ABI, and production backend
+completion remain open.
 
 ---
 
