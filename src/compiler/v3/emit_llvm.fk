@@ -555,7 +555,17 @@ task llvm_is_void_call(val: word) -> bool {
 
 -- ===================== ARGS ==========================================
 
-task llvm_emit_args(args: word) -> word {
+task llvm_word_expr_needs_clone(expr_id: word) -> bool {
+    pilot idx = word_to_int(expr_id)
+    pilot kind: word = array_get(ast_expr_kinds, idx)
+    if kind == EXPR_IDENT or kind == EXPR_FIELD {
+        give back llvm_infer_expr_type(expr_id).starts_with("w")
+    }
+    if kind == EXPR_CALL and array_get(ast_expr_vals, idx) == "array_get" { give back true }
+    give back false
+}
+
+task llvm_emit_args(args: word, clone_borrowed_words: bool) -> word {
     pilot res = ""
     pilot i = 0
     pilot slen = args.length()
@@ -565,6 +575,11 @@ task llvm_emit_args(args: word) -> word {
         pilot c = args.char_at(i)
         if c == "," {
             pilot reg: word = llvm_emit_expr(cur_id)
+            if clone_borrowed_words and llvm_word_expr_needs_clone(cur_id) {
+                pilot clone_reg = next_reg()
+                llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
+                reg = clone_reg
+            }
             if not first { res = res + ", " }
             res = res + "i64 " + reg
             cur_id = ""
@@ -576,6 +591,11 @@ task llvm_emit_args(args: word) -> word {
     }
     if cur_id.length() > 0 {
         pilot reg: word = llvm_emit_expr(cur_id)
+        if clone_borrowed_words and llvm_word_expr_needs_clone(cur_id) {
+            pilot clone_reg = next_reg()
+            llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
+            reg = clone_reg
+        }
         if not first { res = res + ", " }
         res = res + "i64 " + reg
     }
@@ -653,6 +673,11 @@ task llvm_emit_expr(id: word) -> word {
             if ac == "," {
                 if cur_eid.length() > 0 {
                     pilot er = llvm_emit_expr(cur_eid)
+                    if llvm_word_expr_needs_clone(cur_eid) {
+                        pilot cloned_element = next_reg()
+                        llvm_emit_line("    " + cloned_element + " = call i64 @freak_llvm_word_clone(i64 " + er + ")")
+                        er = cloned_element
+                    }
                     llvm_emit_line("    call void @freak_llvm_array_push(i64 " + arr_reg + ", i64 " + er + ")")
                     cur_eid = ""
                 }
@@ -663,6 +688,11 @@ task llvm_emit_expr(id: word) -> word {
         }
         if cur_eid.length() > 0 {
             pilot er2 = llvm_emit_expr(cur_eid)
+            if llvm_word_expr_needs_clone(cur_eid) {
+                pilot cloned_element = next_reg()
+                llvm_emit_line("    " + cloned_element + " = call i64 @freak_llvm_word_clone(i64 " + er2 + ")")
+                er2 = cloned_element
+            }
             llvm_emit_line("    call void @freak_llvm_array_push(i64 " + arr_reg + ", i64 " + er2 + ")")
         }
         give back arr_reg
@@ -673,14 +703,14 @@ task llvm_emit_expr(id: word) -> word {
 -- ===================== CALL EMIT =====================================
 
 task llvm_emit_call(val: word, left: word) -> word {
+    -- Shape constructors have their own ownership-aware argument lowering.
+    if val.starts_with("shape::ctor::") { give back llvm_emit_shape_ctor(val, left) }
+
     pilot arg_str = ""
     pilot mapped_name = llvm_map_call_name(val)
-    if left.length() > 0 { arg_str = llvm_emit_args(left) }
-
-    -- Shape constructor
-    if val.starts_with("shape::ctor::") {
-        give back llvm_emit_shape_ctor(val, left)
-    }
+    pilot aggregate_call = val == "array_push" or val == "array_set"
+    pilot user_call = mapped_name == "" and not emt_is_extern(val)
+    if left.length() > 0 { arg_str = llvm_emit_args(left, aggregate_call or user_call) }
 
     -- Map to LLVM function name
     pilot func_name = mapped_name
@@ -729,6 +759,11 @@ task llvm_emit_shape_ctor(val: word, left: word) -> word {
             if cc == "," {
                 if cur.length() > 0 {
                     pilot fval_reg = llvm_emit_expr(cur)
+                    if llvm_word_expr_needs_clone(cur) {
+                        pilot cloned_field = next_reg()
+                        llvm_emit_line("    " + cloned_field + " = call i64 @freak_llvm_word_clone(i64 " + fval_reg + ")")
+                        fval_reg = cloned_field
+                    }
                     llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + alloc_reg + ", i64 " + word_from_int(fi) + ", i64 " + fval_reg + ")")
                     fi += 1
                 }
@@ -738,6 +773,11 @@ task llvm_emit_shape_ctor(val: word, left: word) -> word {
         }
         if cur.length() > 0 {
             pilot fval_reg = llvm_emit_expr(cur)
+            if llvm_word_expr_needs_clone(cur) {
+                pilot cloned_field = next_reg()
+                llvm_emit_line("    " + cloned_field + " = call i64 @freak_llvm_word_clone(i64 " + fval_reg + ")")
+                fval_reg = cloned_field
+            }
             llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + alloc_reg + ", i64 " + word_from_int(fi) + ", i64 " + fval_reg + ")")
         }
     }
@@ -898,7 +938,7 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
     if val == "snapshot_field_count" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_snapshot_field_count(i64 " + obj_reg + ")") give back res_reg }
     if val == "snapshot_field_raw" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_snapshot_field_raw(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
     if val == "char_at" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_char_at(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
-    if val == "substring" { pilot args = llvm_emit_args(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_substring(i64 " + obj_reg + ", " + args + ")") give back res_reg }
+    if val == "substring" { pilot args = llvm_emit_args(right, false) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_substring(i64 " + obj_reg + ", " + args + ")") give back res_reg }
     if val == "contains" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_contains(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
     if val == "starts_with" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_starts_with(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
     if val == "ends_with" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_ends_with(i64 " + obj_reg + ", i64 " + a + ")") give back res_reg }
@@ -946,7 +986,7 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
     -- after `self`, not just `self` alone.
     pilot extra_args = ""
     if right.length() > 0 {
-        extra_args = ", " + llvm_emit_args(right)
+        extra_args = ", " + llvm_emit_args(right, false)
     }
     -- Pick the LAST shape that has a matching method, not the first.
     -- Without proper receiver-type inference we can't know which shape
@@ -1029,7 +1069,7 @@ task llvm_emit_current_word_param_cleanup(skip_name: word) -> void {
         pilot ch: word = llvm_current_word_params.char_at(i)
         if ch == "|" {
             if current != "" and current != skip_name {
-                pilot pointer = llvm_var_ptr(current)
+                pilot pointer = "%" + current
                 pilot previous = next_reg()
                 llvm_emit_line("    " + previous + " = load i64, i64* " + pointer)
                 llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous + ", i64 0)")
@@ -1072,7 +1112,7 @@ task llvm_emit_stmt(eid: word) -> void {
             pilot return_idx = word_to_int(expr_id_w)
             pilot return_kind: word = array_get(ast_expr_kinds, return_idx)
             pilot return_name: word = array_get(ast_expr_vals, return_idx)
-            if llvm_cur_func_returns_word and (return_kind == EXPR_FIELD or (return_kind == EXPR_IDENT and llvm_is_global(return_name))) {
+            if llvm_cur_func_returns_word and (return_kind == EXPR_FIELD or (return_kind == EXPR_CALL and return_name == "array_get") or (return_kind == EXPR_IDENT and not llvm_is_current_word_param(return_name) and llvm_is_global(return_name))) {
                 pilot clone_reg = next_reg()
                 llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
                 reg = clone_reg
@@ -1135,7 +1175,7 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
     pilot stored_reg = reg
     pilot expr_idx = word_to_int(expr_id_w)
     pilot expr_kind: word = array_get(ast_expr_kinds, expr_idx)
-    if vtype.starts_with("w") and (expr_kind == EXPR_IDENT or expr_kind == EXPR_FIELD) {
+    if vtype.starts_with("w") and llvm_word_expr_needs_clone(expr_id_w) {
         pilot clone_reg = next_reg()
         llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
         stored_reg = clone_reg
@@ -1329,7 +1369,18 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         pilot fidx_w = word_from_int(fidx)
 
         if name_w == "=" {
-            llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + rhs_reg + ")")
+            pilot stored_field = rhs_reg
+            if llvm_infer_field_type(field_name).starts_with("w") {
+                if llvm_word_expr_needs_clone(rhs_w) {
+                    pilot cloned_field = next_reg()
+                    llvm_emit_line("    " + cloned_field + " = call i64 @freak_llvm_word_clone(i64 " + rhs_reg + ")")
+                    stored_field = cloned_field
+                }
+                pilot previous_field = next_reg()
+                llvm_emit_line("    " + previous_field + " = call i64 @freak_llvm_shape_get(i64 " + recv_reg + ", i64 " + fidx_w + ")")
+                llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous_field + ", i64 " + stored_field + ")")
+            }
+            llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + stored_field + ")")
             give back
         }
 
@@ -1355,7 +1406,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         if llvm_get_var_type(var_name_expr).starts_with("w") {
             pilot rhs_idx = word_to_int(rhs_w)
             pilot rhs_kind: word = array_get(ast_expr_kinds, rhs_idx)
-            if rhs_kind == EXPR_IDENT or rhs_kind == EXPR_FIELD {
+            if llvm_word_expr_needs_clone(rhs_w) {
                 pilot clone_reg = next_reg()
                 llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
                 stored_reg = clone_reg
@@ -1545,16 +1596,12 @@ task llvm_allocate_params(p: word) -> void {
         if c == ":" { in_type = true }
         else if c == "," {
             llvm_emit_line("    %" + cur_name + " = alloca i64")
-            pilot stored_param = "%arg_" + cur_name
             pilot pt = "i"
             if cur_type == "word" {
                 pt = "w"
                 llvm_current_word_params = llvm_current_word_params + "|" + cur_name + "|"
-                pilot clone_param = next_reg()
-                llvm_emit_line("    " + clone_param + " = call i64 @freak_llvm_word_clone(i64 %arg_" + cur_name + ")")
-                stored_param = clone_param
             }
-            llvm_emit_line("    store i64 " + stored_param + ", i64* %" + cur_name)
+            llvm_emit_line("    store i64 %arg_" + cur_name + ", i64* %" + cur_name)
             if cur_type == "num" { pt = "n" }
             if cur_type == "bool" { pt = "b" }
             llvm_set_var_type(cur_name, pt)
@@ -1573,16 +1620,12 @@ task llvm_allocate_params(p: word) -> void {
     }
     if cur_name.length() > 0 {
         llvm_emit_line("    %" + cur_name + " = alloca i64")
-        pilot stored_param = "%arg_" + cur_name
         pilot pt = "i"
         if cur_type == "word" {
             pt = "w"
             llvm_current_word_params = llvm_current_word_params + "|" + cur_name + "|"
-            pilot clone_param = next_reg()
-            llvm_emit_line("    " + clone_param + " = call i64 @freak_llvm_word_clone(i64 %arg_" + cur_name + ")")
-            stored_param = clone_param
         }
-        llvm_emit_line("    store i64 " + stored_param + ", i64* %" + cur_name)
+        llvm_emit_line("    store i64 %arg_" + cur_name + ", i64* %" + cur_name)
         if cur_type == "num" { pt = "n" }
         if cur_type == "bool" { pt = "b" }
         llvm_set_var_type(cur_name, pt)

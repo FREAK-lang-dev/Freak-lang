@@ -134,6 +134,18 @@ def check_static_contracts(repo: Path) -> None:
     ):
         assert needle in ps_text, f"install.ps1 missing {needle}"
     assert "choco.exe install llvm" not in ps_text
+    retired_cleanup = ps_text.index(
+        "Remove-Item -LiteralPath `$retiredRoot -Recurse -Force"
+    )
+    failed_cleanup = ps_text.index(
+        "Remove-Item -LiteralPath `$failed -Force", retired_cleanup
+    )
+    pending_cleanup = ps_text.index(
+        "Remove-Item -LiteralPath `$pending -Force", failed_cleanup
+    )
+    assert retired_cleanup < failed_cleanup < pending_cleanup, (
+        "deferred Windows upgrade must remove pending only after transaction cleanup"
+    )
     for needle in (
         "packaging/distribution-files.manifest",
         "dist/freak/distribution-files.manifest",

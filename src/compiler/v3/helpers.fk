@@ -229,6 +229,17 @@ task emt_get_extern_ret(name: word) -> word {
 
 -- ===================== WORD TYPE DETECTION =========================
 
+task is_shape_word_field(field_name: word) -> bool {
+    pilot i = 0
+    repeat shape_registry_count times {
+        pilot fields: word = array_get(shape_registry_fields, i)
+        pilot framed = "," + fields + ","
+        if framed.contains("," + field_name + ":word,") { give back true }
+        i += 1
+    }
+    give back false
+}
+
 task is_ast_word(id: word) -> bool {
     pilot i = word_to_int(id)
     pilot kind: word = array_get(ast_expr_kinds, i)
@@ -251,6 +262,7 @@ task is_ast_word(id: word) -> bool {
         if cname == "process::arg" { give back true }
         if cname == "process::exec_capture" { give back true }
         if cname == "format_num" { give back true }
+        if cname == "array_get" { give back true }
         if emt_is_word_task(cname) { give back true }
         pilot eret: word = emt_get_extern_ret(cname)
         if eret == "word" { give back true }
@@ -270,7 +282,10 @@ task is_ast_word(id: word) -> bool {
         }
         give back false
     }
-    if kind == EXPR_FIELD { give back false }
+    if kind == EXPR_FIELD {
+        pilot field_name: word = array_get(ast_expr_vals, i)
+        give back is_shape_word_field(field_name)
+    }
     give back false
 }
 

@@ -26,6 +26,11 @@ task measure(value: word) -> int {
 
 pilot mut global_owner: word = "g" + "lobal"
 pilot mut global_alias: word = global_owner
+pilot mut shadow_owner: word = "s" + "hadow"
+
+task observe_shadow(shadow_owner: word) {
+    pilot length = shadow_owner.length()
+}
 
 task main() {
     pilot mut text: word = "a"
@@ -54,9 +59,38 @@ task main() {
         observe(observed)
     }
     observed = "released"
+    repeat 128 times {
+        observe("r" + "value")
+    }
+    pilot mut shadow_arg: word = "a" + "rg"
+    observe_shadow(shadow_arg)
+    shadow_arg = "released"
+    say shadow_owner
     global_owner = "reinitialized"
     say global_alias
     global_alias = "released"
+}
+"""
+
+AGGREGATE_PROGRAM = """task store(items: int, value: word) {
+    array_push(items, value)
+}
+
+task main() {
+    pilot items = array_new()
+    pilot mut item: word = "h" + "i"
+    array_push(items, item)
+    item = "new"
+    say array_get(items, 0)
+    pilot mut extracted: word = array_get(items, 0)
+    say extracted
+    extracted = "released"
+    say array_get(items, 0)
+    pilot stored_items = array_new()
+    pilot mut stored_value: word = "s" + "tored"
+    store(stored_items, stored_value)
+    stored_value = "new"
+    say array_get(stored_items, 0)
 }
 """
 
@@ -100,8 +134,9 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="freak-v3-word-ownership-") as tmp:
         root = Path(tmp)
         cases = (
-            ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "global"]),
+            ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "shadow", "global"]),
             ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"]),
+            ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "stored"]),
         )
         for case_name, program, extra_flags, expected_output in cases:
             source = root / f"replace_owned_{case_name}.fk"
@@ -116,9 +151,15 @@ def main() -> int:
                     assert "freak_word_replace_owned" in generated_text
                     if case_name == "strict":
                         assert "freak_word_clone(moved)" in generated_text
-                        assert "value = freak_word_clone(value)" in generated_text
+                        assert "freak_identity(freak_word_clone(called))" in generated_text
+                        assert "freak_observe(freak_word_clone(observed))" in generated_text
+                        assert "freak_observe(freak_word_concat(" in generated_text
+                        assert "freak_observe_shadow(freak_word_clone(shadow_arg))" in generated_text
                         assert "global_alias = freak_word_clone(global_owner)" in generated_text
                         assert "freak_word_release_owned(&value)" in generated_text
+                    elif case_name == "aggregate":
+                        assert "freak_array_push(items, freak_word_clone(item))" in generated_text
+                        assert "freak_array_get" in generated_text
                     else:
                         assert "__freak_return_value = freak_word_clone(global_owner)" in generated_text
                 else:

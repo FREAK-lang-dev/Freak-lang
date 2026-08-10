@@ -28,7 +28,15 @@ task c_safe_ident(s: word) -> word {
     give back res
 }
 
-task emit_args(args: word) -> void {
+task emt_word_expr_needs_clone(expr_id: word) -> bool {
+    pilot idx = word_to_int(expr_id)
+    pilot kind: word = array_get(ast_expr_kinds, idx)
+    if kind == EXPR_IDENT or kind == EXPR_FIELD { give back is_ast_word(expr_id) }
+    if kind == EXPR_CALL and array_get(ast_expr_vals, idx) == "array_get" { give back true }
+    give back false
+}
+
+task emit_args(args: word, clone_borrowed_words: bool) -> void {
     pilot i = 0
     pilot slen = args.length()
     pilot cur_id = ""
@@ -37,7 +45,10 @@ task emit_args(args: word) -> void {
         pilot c = args.char_at(i)
         if c == "," {
             if not first { emit(", ") }
+            pilot clone_arg = clone_borrowed_words and emt_word_expr_needs_clone(cur_id)
+            if clone_arg { emit("freak_word_clone(") }
             emit_expr(cur_id)
+            if clone_arg { emit(")") }
             cur_id = ""
             first = false
         } else {
@@ -47,7 +58,10 @@ task emit_args(args: word) -> void {
     }
     if cur_id != "" {
         if not first { emit(", ") }
+        pilot clone_arg = clone_borrowed_words and emt_word_expr_needs_clone(cur_id)
+        if clone_arg { emit("freak_word_clone(") }
         emit_expr(cur_id)
+        if clone_arg { emit(")") }
     }
 }
 
@@ -184,7 +198,10 @@ task emit_expr(id: word) -> void {
             if acc == "," {
                 if cur_eid_c.length() > 0 {
                     emit("freak_llvm_array_push(__arr, ")
+                    pilot clone_element = emt_word_expr_needs_clone(cur_eid_c)
+                    if clone_element { emit("freak_word_clone(") }
                     emit_expr(cur_eid_c)
+                    if clone_element { emit(")") }
                     emit("); ")
                     cur_eid_c = ""
                 }
@@ -195,7 +212,10 @@ task emit_expr(id: word) -> void {
         }
         if cur_eid_c.length() > 0 {
             emit("freak_llvm_array_push(__arr, ")
+            pilot clone_element = emt_word_expr_needs_clone(cur_eid_c)
+            if clone_element { emit("freak_word_clone(") }
             emit_expr(cur_eid_c)
+            if clone_element { emit(")") }
             emit("); ")
         }
         emit("__arr; })")
@@ -250,7 +270,7 @@ task emit_c_call(val: word, left: word) -> void {
         pilot sname = val.replace("shape::ctor::", "")
         pilot field_count = get_shape_field_count(sname)
         emit("freak_shape_alloc(" + word_from_int(field_count) + ", ")
-        if left != "" { emit_args(left) }
+        if left != "" { emit_args(left, true) }
         emit(")")
         give back
     }
@@ -259,7 +279,8 @@ task emit_c_call(val: word, left: word) -> void {
     pilot mapped = c_map_call(val)
     if mapped != "" {
         emit(mapped + "(")
-        if left != "" { emit_args(left) }
+        pilot aggregate_call = val == "array_push" or val == "array_set"
+        if left != "" { emit_args(left, aggregate_call) }
         emit(")")
         give back
     }
@@ -267,14 +288,14 @@ task emit_c_call(val: word, left: word) -> void {
     -- Extern function (no freak_ prefix)
     if emt_is_extern(val) {
         emit(c_safe_ident(val) + "(")
-        if left != "" { emit_args(left) }
+        if left != "" { emit_args(left, false) }
         emit(")")
         give back
     }
 
     -- User-defined function
     emit("freak_" + c_safe_ident(val) + "(")
-    if left != "" { emit_args(left) }
+    if left != "" { emit_args(left, true) }
     emit(")")
 }
 
@@ -296,7 +317,7 @@ task emit_c_method(val: word, left: word, right: word) -> void {
     emit_expr(left)
     if right != "" {
         emit(", ")
-        emit_args(right)
+        emit_args(right, false)
     }
     emit(")")
 }
@@ -433,23 +454,6 @@ task emt_is_current_word_param(name: word) -> bool {
     give back emt_current_word_params.contains("|" + name + "|")
 }
 
-task emit_current_word_param_clones() -> void {
-    pilot i = 0
-    pilot current = ""
-    repeat until i >= emt_current_word_params.length() {
-        pilot ch: word = emt_current_word_params.char_at(i)
-        if ch == "|" {
-            if current != "" {
-                emit_line(current + " = freak_word_clone(" + current + ");")
-            }
-            current = ""
-        } else {
-            current = current + ch
-        }
-        i += 1
-    }
-}
-
 task emit_current_word_param_cleanup(skip_name: word) -> void {
     pilot i = 0
     pilot current = ""
@@ -493,7 +497,8 @@ task emit_stmt(eid: word) -> void {
             pilot return_kind: word = array_get(ast_expr_kinds, return_idx)
             pilot return_name: word = array_get(ast_expr_vals, return_idx)
             pilot clone_return = return_kind == EXPR_FIELD
-            if return_kind == EXPR_IDENT and emt_is_global_binding(return_name) { clone_return = true }
+            if return_kind == EXPR_IDENT and not emt_is_current_word_param(return_name) and emt_is_global_binding(return_name) { clone_return = true }
+            if return_kind == EXPR_CALL and return_name == "array_get" { clone_return = true }
             emit("{ freak_word __freak_return_value = ")
             if clone_return { emit("freak_word_clone(") }
             emit_expr(expr_id_w)
@@ -627,9 +632,10 @@ task emit_stmt(eid: word) -> void {
                 emit("{ freak_word __freak_word_replacement = ")
                 pilot rhs_idx = word_to_int(rhs_w)
                 pilot rhs_kind: word = array_get(ast_expr_kinds, rhs_idx)
-                if rhs_kind == EXPR_IDENT or rhs_kind == EXPR_FIELD { emit("freak_word_clone(") }
+                pilot clone_rhs = emt_word_expr_needs_clone(rhs_w)
+                if clone_rhs { emit("freak_word_clone(") }
                 emit_expr(rhs_w)
-                if rhs_kind == EXPR_IDENT or rhs_kind == EXPR_FIELD { emit(")") }
+                if clone_rhs { emit(")") }
                 emit("; freak_word_replace_owned(&")
                 emit_expr(expr_id_w)
                 emit_line(", __freak_word_replacement); }")
@@ -677,9 +683,10 @@ task emit_stmt_pilot(eid: word) -> void {
     }
     emt_set_var_type(name_w, vtype)
     emit(ctype + name_w + " = ")
-    if vtype == "w" and (e_kind == EXPR_IDENT or e_kind == EXPR_FIELD) { emit("freak_word_clone(") }
+    pilot clone_initial = vtype == "w" and emt_word_expr_needs_clone(expr_id_w)
+    if clone_initial { emit("freak_word_clone(") }
     emit_expr(expr_id_w)
-    if vtype == "w" and (e_kind == EXPR_IDENT or e_kind == EXPR_FIELD) { emit(")") }
+    if clone_initial { emit(")") }
     emit_line(";")
 }
 
@@ -807,7 +814,6 @@ task emit_task(eid: word) -> void {
 
     emit(c_ret + " freak_" + name_w + "(" + c_params)
     emit_line(") {")
-    emit_current_word_param_clones()
     emit_block(body_id_w)
     emit_current_word_param_cleanup("")
     emit_line("}")
@@ -880,9 +886,10 @@ task emit_global_init(eid: word) -> void {
     pilot expr_idx = word_to_int(expr_id_w)
     pilot expr_kind: word = array_get(ast_expr_kinds, expr_idx)
     emit(name_w + " = ")
-    if emt_get_var_type(name_w) == "w" and (expr_kind == EXPR_IDENT or expr_kind == EXPR_FIELD) { emit("freak_word_clone(") }
+    pilot clone_initial = emt_get_var_type(name_w) == "w" and emt_word_expr_needs_clone(expr_id_w)
+    if clone_initial { emit("freak_word_clone(") }
     emit_expr(expr_id_w)
-    if emt_get_var_type(name_w) == "w" and (expr_kind == EXPR_IDENT or expr_kind == EXPR_FIELD) { emit(")") }
+    if clone_initial { emit(")") }
     emit_line(";")
 }
 
