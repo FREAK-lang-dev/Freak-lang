@@ -106,7 +106,7 @@ task cli_run(src_file: word, target: word, opt: word, cross: word) -> int {
         -- as `hello.fk` produces `hello`, which must be launched as `./hello`.
         run_path = "./" + run_path
     }
-    pilot run_cmd: word = cli_quote_cmd_path(run_path)
+    pilot run_cmd: word = cli_shell_command_prefix(cli_quote_cmd_path(run_path))
     pilot run_start = time::now_ms()
     pilot run_code = process::exec(run_cmd)
     pilot run_elapsed = time::now_ms() - run_start

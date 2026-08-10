@@ -209,7 +209,9 @@ function Start-DeferredBinaryReplacement {
     $replacementWaitPid = $PID
     $pendingPath = Join-Path $BinDir ".freak-upgrade-pending"
     $failedPath = Join-Path $BinDir ".freak-upgrade-failed"
-    Set-Content -LiteralPath $pendingPath -Value "$Latest|wait-pid=$replacementWaitPid" -Encoding UTF8
+    $expectedFreakHash = (Get-FileHash -LiteralPath (Join-Path $BinDir "freak.exe.next") -Algorithm SHA256).Hash
+    $expectedHangarHash = (Get-FileHash -LiteralPath (Join-Path $BinDir "hangar.exe.next") -Algorithm SHA256).Hash
+    Set-Content -LiteralPath $pendingPath -Value "$Latest|wait-pid=$replacementWaitPid|freak-sha256=$expectedFreakHash|hangar-sha256=$expectedHangarHash" -Encoding UTF8
     Remove-Item -LiteralPath $failedPath -Force -ErrorAction SilentlyContinue
     $apply = @"
 `$ErrorActionPreference = 'Stop'
@@ -219,6 +221,10 @@ function Start-DeferredBinaryReplacement {
 `$backupRoot = Join-Path `$bin '.freak-binary-backup'
 `$retiredRoot = Join-Path `$bin '.freak-binary-retired'
 `$names = @('freak.exe', 'hangar.exe')
+`$expectedHashes = @{
+    'freak.exe' = '$expectedFreakHash'
+    'hangar.exe' = '$expectedHangarHash'
+}
 
 function Restore-BinaryBackup {
     if (-not (Test-Path -LiteralPath `$backupRoot -PathType Container)) { return `$true }
@@ -255,11 +261,18 @@ while ([DateTime]::UtcNow -lt `$deadline) {
     try {
         if (-not (Restore-BinaryBackup)) { throw 'could not restore an interrupted binary transaction' }
         Remove-Item -LiteralPath `$retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
+        # Validate both durable staged files against the installer-recorded
+        # hashes before moving either live binary out of the way.
+        foreach (`$name in `$names) {
+            `$next = Join-Path `$bin (`$name + '.next')
+            if (-not (Test-Path -LiteralPath `$next -PathType Leaf)) { throw "missing staged binary: `$next" }
+            if ((Get-FileHash -LiteralPath `$next -Algorithm SHA256).Hash -ne `$expectedHashes[`$name]) {
+                throw "staged binary hash mismatch: `$name"
+            }
+        }
         New-Item -ItemType Directory -Path `$backupRoot -Force | Out-Null
         foreach (`$name in `$names) {
-            `$next = Join-Path '$quotedBin' (`$name + '.next')
-            `$target = Join-Path '$quotedBin' `$name
-            if (-not (Test-Path -LiteralPath `$next -PathType Leaf)) { throw "missing staged binary: `$next" }
+            `$target = Join-Path `$bin `$name
             `$backup = Join-Path `$backupRoot `$name
             if (Test-Path -LiteralPath `$target -PathType Leaf) {
                 Move-Item -LiteralPath `$target -Destination `$backup
@@ -271,8 +284,7 @@ while ([DateTime]::UtcNow -lt `$deadline) {
             `$next = Join-Path `$bin (`$name + '.next')
             `$target = Join-Path `$bin `$name
             Copy-Item -LiteralPath `$next -Destination `$target -Force
-            if ((Get-FileHash -LiteralPath `$next -Algorithm SHA256).Hash -ne
-                (Get-FileHash -LiteralPath `$target -Algorithm SHA256).Hash) {
+            if ((Get-FileHash -LiteralPath `$target -Algorithm SHA256).Hash -ne `$expectedHashes[`$name]) {
                 throw "binary verification failed: `$name"
             }
         }

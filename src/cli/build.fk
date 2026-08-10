@@ -363,11 +363,17 @@ task cli_first_line(text: word) -> word {
 }
 
 task cli_quote_cmd_path(path: word) -> word {
-    if cli_is_windows() { give back "\"" + path + "\"" }
+    if cli_is_windows() {
+        -- cmd.exe expands %NAME% even inside double quotes. Close the quoted
+        -- segment around each percent and emit that percent escaped outside
+        -- quotes so valid literal-percent paths cannot rewrite the command.
+        pilot windows_escaped = path.replace("%", "\"^%\"")
+        give back "\"" + windows_escaped + "\""
+    }
     -- POSIX double quotes still expand $, backticks, and command
     -- substitutions. Single-quote the value and reopen around literal '.
-    pilot escaped = path.replace("'", "'\"'\"'")
-    give back "'" + escaped + "'"
+    pilot posix_escaped = path.replace("'", "'\"'\"'")
+    give back "'" + posix_escaped + "'"
 }
 
 task cli_cross_target_is_safe(target: word) -> bool {
@@ -382,11 +388,11 @@ task cli_cross_target_is_safe(target: word) -> bool {
 }
 
 task cli_shell_command_prefix(command: word) -> word {
-    -- cmd.exe treats a leading quoted executable plus additional quoted
-    -- arguments as one quoted command string. `call` preserves the intended
-    -- executable/argument boundaries for paths containing spaces.
+    -- Keep cmd.exe to one expansion pass. A leading @ prevents its special
+    -- leading-quote stripping without reparsing the command like `call`, which
+    -- would expand literal %NAME% path segments on the second pass.
     if cli_is_windows() and command != "" and command.char_at(0) == "\"" {
-        give back "call " + command
+        give back "@ " + command
     }
     give back command
 }

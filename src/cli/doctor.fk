@@ -42,8 +42,7 @@ task cli_doctor_find_clang_command() -> word {
     give back cli_find_clang_command()
 }
 
-task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
-    if clang_cmd == "" { give back false }
+task cli_doctor_temp_stem(prefix: word) -> word {
     pilot windir: word = process::env("WINDIR")
     pilot temp_dir: word = process::env("TMPDIR")
     pilot probe_nonce: word = process::exec_capture("echo $$ 2>/dev/null").trim()
@@ -61,7 +60,14 @@ task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     if not probe_stem.ends_with("/") and not probe_stem.ends_with("\\") {
         probe_stem = probe_stem + "/"
     }
-    probe_stem = probe_stem + "freak-doctor-clang-probe-" + probe_id
+    probe_stem = probe_stem + prefix + probe_id
+    give back probe_stem
+}
+
+task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
+    if clang_cmd == "" { give back false }
+    pilot windir: word = process::env("WINDIR")
+    pilot probe_stem = cli_doctor_temp_stem("freak-doctor-clang-probe-")
     pilot probe_source = probe_stem + ".c"
     pilot probe_binary = probe_stem
     if windir != "" { probe_binary = probe_binary + ".exe" }
@@ -420,7 +426,7 @@ task cli_doctor(fix_mode: bool) -> int {
         if lld_exit == 0 { lld_found = true }
     }
     if lld_found {
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " lld found " + C_DIM + "(bundle mode available)" + C_RESET
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " lld found " + C_DIM + "(optional linker utility)" + C_RESET
         checks_passed += 1
     } else {
         say "        " + C_BYELLOW + SYM_RING + C_RESET + " lld not found " + C_DIM + "(optional — clang can link too)" + C_RESET
@@ -452,17 +458,7 @@ task cli_doctor(fix_mode: bool) -> int {
     say "  " + C_BWHITE + "[3/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " runtime"
     if runtime_missing == "" {
         say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + rt_dir + C_RESET
-        pilot has_obj = false
-        if is_win {
-            has_obj = fs::exists(rt_dir + "/freak_runtime.obj")
-        } else {
-            has_obj = fs::exists(rt_dir + "/freak_runtime.o")
-        }
-        if has_obj {
-            say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " pre-compiled objects (fast bundle mode)" + C_RESET
-        } else {
-            say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " no pre-compiled objects (source fallback active)" + C_RESET
-        }
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " source runtime available" + C_RESET
         if fs::exists(rt_dir + "/freak_llvm_runtime.c") {
             say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " LLVM runtime available" + C_RESET
         }
@@ -497,12 +493,11 @@ task cli_doctor(fix_mode: bool) -> int {
     say "  " + C_BWHITE + "[5/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " compile pipeline"
     if clang_ok and runtime_missing == "" and std_missing == "" {
         pilot test_src = "say \"FREAK doctor test\""
-        pilot probe_id = word_from_int(time::now_ms())
-        pilot test_path = "_freak_doctor_probe_" + probe_id + ".fk"
+        pilot test_path = cli_doctor_temp_stem("freak-doctor-pipeline-probe-") + ".fk"
         fs::write(test_path, test_src)
         pilot bin: word = cli_build(test_path, "llvm", "0", "")
         if bin != "" {
-            pilot probe_exit = process::exec("\"" + bin + "\"")
+            pilot probe_exit = process::exec(cli_shell_command_prefix(cli_quote_cmd_path(bin)))
             if probe_exit == 0 {
                 say "        " + C_BGREEN + SYM_CHECK + C_RESET + " compile, link, and execution work"
                 checks_passed += 1

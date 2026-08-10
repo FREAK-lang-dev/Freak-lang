@@ -114,6 +114,8 @@ def check_static_contracts(repo: Path) -> None:
         "Start-DeferredBinaryReplacement",
         ".freak-upgrade-pending",
         ".freak-binary-backup",
+        "freak-sha256=",
+        "expectedHashes",
         "Get-Process -Id",
         "Get-FileHash",
         ".freak-backup-",
@@ -306,8 +308,28 @@ def check_offline_installer(
             assert (deferred_bin / ".freak-upgrade-pending").is_file()
             assert (deferred_bin / "freak.exe.next").is_file()
             assert old_freak.read_bytes() == b"old locked freak\n"
+            # Expected hashes are captured before the helper starts. Corrupt a
+            # staged binary while the live compiler is locked and prove the
+            # helper rejects it without moving either old binary.
+            (deferred_bin / "hangar.exe.next").write_bytes(b"tampered\n")
         finally:
             assert close_handle(lock_handle)
+
+        failure_deadline = time.monotonic() + 30
+        failure_detail = ""
+        while time.monotonic() < failure_deadline:
+            if (deferred_bin / ".freak-upgrade-failed").is_file():
+                failure_detail = (deferred_bin / ".freak-upgrade-failed").read_text(
+                    encoding="utf-8-sig"
+                )
+                if "staged binary hash mismatch" in failure_detail:
+                    break
+            time.sleep(0.25)
+        assert "staged binary hash mismatch" in failure_detail, failure_detail
+        assert old_freak.read_bytes() == b"old locked freak\n"
+        assert old_hangar.read_bytes() == b"old hangar\n"
+        assert not (deferred_bin / ".freak-binary-backup").exists()
+        (deferred_bin / "hangar.exe.next").write_bytes(b"mock-hangar\n")
 
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
@@ -407,6 +429,22 @@ def check_offline_installer(
             assert (recovery_backup / relative).read_bytes() == contents
         assert not list(preserved_root.glob(".freak-apply-*"))
 
+        # The next invocation must reconcile the orphan before attempting a
+        # new transaction. Keep apply failure enabled so the exact old payload
+        # remains observable after both recovery and the new rollback.
+        reconcile_env = recovery_env.copy()
+        reconcile_env.pop("FREAK_INSTALL_TEST_FAIL_RESTORE")
+        reconciled = subprocess.run(
+            command, cwd=repo, env=reconcile_env, capture_output=True, text=True,
+            errors="replace", timeout=120,
+        )
+        assert reconciled.returncode != 0, reconciled.stdout + reconciled.stderr
+        assert "Recovered the previous payload" in reconciled.stdout
+        for relative, contents in preserved_files.items():
+            assert (preserved_root / relative).read_bytes() == contents
+        assert not list(preserved_root.glob(".freak-apply-*"))
+        assert not list(preserved_root.glob(".freak-backup-*"))
+
         broken_clang = root / "installer-version-only-clang.sh"
         broken_clang.write_text(
             "#!/usr/bin/env bash\n"
@@ -487,10 +525,16 @@ def check_doctor(
         read_only_cwd.chmod(0o555)
         try:
             read_only = run_cli(compiler, read_only_cwd, env, "doctor", "--json")
+            read_only_full = run_cli(compiler, read_only_cwd, env, "doctor")
         finally:
             read_only_cwd.chmod(0o755)
         assert read_only.returncode == 0, read_only.stdout + read_only.stderr
         assert json.loads(read_only.stdout)["status"] == "ok"
+        assert read_only_full.returncode == 0, (
+            read_only_full.stdout + read_only_full.stderr
+        )
+        assert "compile, link, and execution work" in read_only_full.stdout
+        assert not list(read_only_cwd.iterdir()), "doctor wrote into read-only cwd"
 
     ui_module = payload / "std" / "ui" / "window.fk"
     ui_module.unlink()

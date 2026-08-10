@@ -191,7 +191,47 @@ def main() -> int:
             assert code == 7, output
             assert "EXIT" in output and "code 7" in output, output
 
-        if sys.platform != "win32":
+        if sys.platform == "win32":
+            # cmd.exe expands %NAME% even inside quotes. A literal-percent
+            # project path must remain literal, and a quote-bearing expansion
+            # value must never escape into shell syntax.
+            windows_path_sentinel = root / "FREAK_WINDOWS_PATH_INJECTED"
+            percent_source_dir = root / "%FREAK_PATH_EXPANSION%"
+            percent_source_dir.mkdir()
+            percent_source = percent_source_dir / "literal percent.fk"
+            percent_source.write_text('say "SAFE_WINDOWS_PATH"\n', encoding="utf-8")
+            mock_clang = root / "mock-clang.cmd"
+            mock_clang.write_text(
+                "@echo off\n"
+                "setlocal DisableDelayedExpansion\n"
+                ":scan\n"
+                'if "%~1"=="" exit /b 2\n'
+                'if "%~1"=="-o" goto output\n'
+                "shift\n"
+                "goto scan\n"
+                ":output\n"
+                "shift\n"
+                f'copy /y "{freak}" "%~1" >nul\n'
+                "exit /b %ERRORLEVEL%\n",
+                encoding="utf-8",
+            )
+            percent_env = env.copy()
+            percent_env["FREAK_CLANG"] = str(mock_clang)
+            percent_env["FREAK_PATH_EXPANSION"] = (
+                f'missing" & (echo injected>"{windows_path_sentinel}") & rem "'
+            )
+            code, output = invoke(
+                freak,
+                root,
+                Path("%FREAK_PATH_EXPANSION%") / percent_source.name,
+                "--c",
+                percent_env,
+            )
+            assert_run(code, output, "COMMANDS", cache_hit=False)
+            assert not windows_path_sentinel.exists(), (
+                "source path expanded an environment variable into shell syntax"
+            )
+        else:
             path_sentinel = source_dir / "FREAK_PATH_INJECTED"
             quoted_source = source_dir / "$(touch${IFS}FREAK_PATH_INJECTED).fk"
             quoted_source.write_text('say "SAFE_PATH"\n', encoding="utf-8")
